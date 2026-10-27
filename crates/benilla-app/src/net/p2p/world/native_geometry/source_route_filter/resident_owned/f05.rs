@@ -18,6 +18,8 @@ use super::*;
 pub(in super::super::super::super) struct DriverCustody {
     identity: Rc<()>,
     cancel_after_staging: bool,
+    poststage_hook_reached: std::cell::Cell<bool>,
+    inner_before_f59: std::cell::Cell<Option<&'static str>>,
 }
 
 // Fields and constructors are private to this actual owning driver. Neither
@@ -311,6 +313,7 @@ impl ParkedF05 {
                         cancelled,
                     )?;
                     if custody.cancel_after_staging {
+                        custody.poststage_hook_reached.set(true);
                         self.guard.cancel();
                     }
                     // Original F58 uses the original outer installed operand.
@@ -324,6 +327,19 @@ impl ParkedF05 {
                 },
             )
         })();
+        custody.inner_before_f59.set(Some(match &inner {
+            Ok(_) => "Ok",
+            Err(ResidentFilterError::Source(CompositionError::Cancelled)) => "Source(Cancelled)",
+            Err(ResidentFilterError::Source(CompositionError::TerrainSource)) => {
+                "Source(TerrainSource)"
+            }
+            Err(ResidentFilterError::Source(_)) => "Source(other)",
+            Err(ResidentFilterError::Context(_)) => "Context",
+            Err(ResidentFilterError::Query(_)) => "Query",
+            Err(ResidentFilterError::Terminal(_)) => "Terminal",
+            Err(ResidentFilterError::StraightTerminal(_)) => "StraightTerminal",
+            Err(ResidentFilterError::StraightDetail(_)) => "StraightDetail",
+        }));
         drop(self.anchor);
         drop(self.inventory);
         let calculated = self.height.finish(inner).and_then(|facts| {
@@ -366,6 +382,8 @@ impl ResidentF05Driver {
             custody: DriverCustody {
                 identity: Rc::new(()),
                 cancel_after_staging: false,
+                poststage_hook_reached: std::cell::Cell::new(false),
+                inner_before_f59: std::cell::Cell::new(None),
             },
         })
     }
@@ -520,6 +538,8 @@ impl ResidentF05Driver {
                 custody: DriverCustody {
                     identity: Rc::new(()),
                     cancel_after_staging: false,
+                    poststage_hook_reached: std::cell::Cell::new(false),
+                    inner_before_f59: std::cell::Cell::new(None),
                 },
             },
             entered,
@@ -579,5 +599,16 @@ impl ResidentF05Driver {
 impl ResidentF05Driver {
     pub(in super::super::super::super) fn f05_reentry_jobs(&self) -> usize {
         self.selection.f05_reentry_jobs()
+    }
+}
+
+impl ResidentF05Driver {
+    pub(in super::super::super::super) fn f05_stage_diagnostic(
+        &self,
+    ) -> (bool, Option<&'static str>) {
+        (
+            self.custody.poststage_hook_reached.get(),
+            self.custody.inner_before_f59.get(),
+        )
     }
 }

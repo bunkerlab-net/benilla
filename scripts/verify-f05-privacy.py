@@ -68,7 +68,7 @@ fn probe(h: &F05HeightFrame, i: &F05InventoryFrame,
     constructors = (
         ("construct_resume_permit", "F05ResumePermit", "products, custody, invocation, guard"),
         ("construct_inactive_proof", "InactiveF05Proof", "products, custody, invocation, guard"),
-        ("construct_driver_custody", "DriverCustody", "identity: custody, cancel_after_staging: false"),
+        ("construct_driver_custody", "DriverCustody", "identity: custody, cancel_after_staging: false, poststage_hook_reached: std::cell::Cell::new(false), inner_before_f59: std::cell::Cell::new(None)"),
         ("construct_height_frame", "F05HeightFrame", "products, custody, invocation, guard"),
         ("construct_inventory_frame", "F05InventoryFrame", "inventory, products, custody, invocation"),
     )

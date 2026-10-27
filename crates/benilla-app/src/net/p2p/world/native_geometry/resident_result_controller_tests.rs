@@ -1749,6 +1749,10 @@ fn run_f05_controller(fault: F05Fault) -> freshness_timings::SourceTrace {
                     driver.as_ref().and_then(|driver| driver.f05_trace()),
                     driver.as_ref().map(|driver| driver.f05_outcome()),
                 );
+                eprintln!(
+                    "F05 poststage witness: fault={fault:?} hook_reached_and_inner_before_f59={:?}",
+                    driver.as_ref().map(|driver| driver.f05_stage_diagnostic()),
+                );
                 let outcome = worker.join().unwrap();
                 if fault != F05Fault::Clear {
                     assert!(
@@ -1899,6 +1903,7 @@ fn resident_f05_default_budget_actual_controller_comparison() {
 #[test]
 #[ignore = "mandatory release F05 fault gate; preserves the original500ms Route deadline"]
 fn resident_f05_held_source_control_cancel_and_quit_never_ack() {
+    let mut failures = Vec::new();
     for fault in [
         F05Fault::CancelHeld,
         F05Fault::ExpireHeld,
@@ -1906,21 +1911,38 @@ fn resident_f05_held_source_control_cancel_and_quit_never_ack() {
         F05Fault::SourceErrorThenCancelReady,
         F05Fault::QuitHeld,
     ] {
-        run_f05_controller(fault);
+        let result = std::panic::catch_unwind(|| run_f05_controller(fault));
+        eprintln!(
+            "F05 independent fault case: fault={fault:?} success={}",
+            result.is_ok()
+        );
+        if result.is_err() {
+            failures.push(fault);
+        }
     }
+    assert!(failures.is_empty(), "F05 fault cases failed: {failures:?}");
 }
 
 #[test]
 #[ignore = "mandatory release F05 fault gate; preserves the original500ms Route deadline"]
 fn resident_f05_current_scene_and_source_changes_refuse_before_save() {
+    let mut failures = Vec::new();
     for fault in [
         F05Fault::CancelAfterStaging,
         F05Fault::ColliderBirth,
         F05Fault::ForeignIndex,
         F05Fault::SourceChange,
     ] {
-        run_f05_controller(fault);
+        let result = std::panic::catch_unwind(|| run_f05_controller(fault));
+        eprintln!(
+            "F05 independent fault case: fault={fault:?} success={}",
+            result.is_ok()
+        );
+        if result.is_err() {
+            failures.push(fault);
+        }
     }
+    assert!(failures.is_empty(), "F05 fault cases failed: {failures:?}");
 }
 
 fn assert_f05_logical_trace(
