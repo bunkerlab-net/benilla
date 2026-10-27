@@ -22,6 +22,8 @@ fn frame<'a, A: Authority>(world: &'a mut NativeWorld, authority: &'a mut A) -> 
         movement_origin,
         movement_path: vec![],
         player_auras_updated: false,
+        player_melee_unit_updated: false,
+        pending_player_melee_death: None,
     }
 }
 

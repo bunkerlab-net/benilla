@@ -22,6 +22,7 @@ impl<A: Authority> Frame<'_, A> {
         caster: NpcId,
         spell_id: u32,
     ) -> Result<(), NativeError> {
+        player_melee::refuse_spell_concurrency(self.profile, self.state)?;
         let npc = self
             .state
             .npcs

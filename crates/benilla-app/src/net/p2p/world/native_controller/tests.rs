@@ -296,13 +296,13 @@ fn previous_native_checkpoints_inside_fresh_store_checksum_cannot_reopen_or_repl
             hasher.finalize().into()
         };
         checkpoint["digest"] =
-            serde_json::to_value(hash(b"benilla-native-state-v51\0", state.as_bytes())).unwrap();
+            serde_json::to_value(hash(b"benilla-native-state-v52\0", state.as_bytes())).unwrap();
         let body = format!(
             "[{state},{},{}]",
             checkpoint["digest"], checkpoint["history_tip"]
         );
         checkpoint["checksum"] =
-            serde_json::to_value(hash(b"benilla-native-checkpoint-v51\0", body.as_bytes()))
+            serde_json::to_value(hash(b"benilla-native-checkpoint-v52\0", body.as_bytes()))
                 .unwrap();
         let typed: n::Checkpoint = serde_json::from_value(checkpoint).unwrap();
         let snapshot = typed.encode().unwrap();
@@ -781,6 +781,10 @@ fn native_input_capacity_unsupported_forms_and_exact_owner_are_bounded() {
         c.receive(ClientCommand::AttackSwing {
             guid: c.player_guid()
         }),
+        Err(Error::UnsupportedCommand)
+    ));
+    assert!(matches!(
+        c.receive(ClientCommand::AttackStop),
         Err(Error::UnsupportedCommand)
     ));
     let out = c.pump(c.tick_duration());

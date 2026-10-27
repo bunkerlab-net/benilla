@@ -46,6 +46,49 @@ fn root_order(guid: u64, next: &mut Option<u32>) -> Result<SessionEvent, Error> 
         apply: true,
     })
 }
+// Project in the original record order: AttackState precedes damage/death callbacks.
+fn player_melee_event(
+    event: &n::Event,
+    player: u64,
+    target_guid: impl Fn(&NpcId) -> Result<u64, Error>,
+) -> Result<SessionEvent, Error> {
+    Ok(match event {
+        n::Event::PlayerAttackStart { target } => SessionEvent::AttackStart {
+            attacker: player,
+            victim: target_guid(target)?,
+        },
+        n::Event::PlayerAttackStop { target } => SessionEvent::AttackStop {
+            attacker: player,
+            victim: target_guid(target)?,
+        },
+        n::Event::PlayerAttackCancel => SessionEvent::CancelCombat,
+        n::Event::PlayerMeleeCriticalWound { target } => SessionEvent::Emote {
+            guid: target_guid(target)?,
+            emote_id: 34,
+        },
+        n::Event::PlayerMelee { target, outcome, .. } => {
+            SessionEvent::AttackerState(p::AttackerState {
+                attacker: player,
+                victim: target_guid(target)?,
+                hit_info: outcome.hit_info,
+                damage: outcome.damage,
+                victim_state: outcome.victim_state,
+                absorb: outcome.absorb,
+                resist: outcome.resist,
+                blocked: outcome.blocked,
+                melee_spell_id: 0,
+                school: outcome.school,
+            })
+        }
+        n::Event::PlayerSwingError { code } => SessionEvent::AttackSwingError(match code {
+            0 => p::AttackSwingError::NotInRange,
+            1 | 3 => p::AttackSwingError::DeadOrUnattackable,
+            2 => p::AttackSwingError::BadFacing,
+            _ => return Err(Error::Unrepresentable),
+        }),
+        _ => return Err(Error::Unrepresentable),
+    })
+}
 fn prepare_range_failure(events: &[n::Event], input: &n::Input) -> Option<(u64, u8)> {
     let n::Command::Cast { ability, target } = &input.command else {
         return None;
@@ -256,6 +299,32 @@ impl NativeProjection {
             _ => return Err(Error::UnsupportedCommand),
         };
         Ok(self.input(w, command))
+    }
+    /// Captures an existing generation; eligibility and damage remain runtime decisions.
+    pub fn prepare_attack_start(
+        &self,
+        w: &n::NativeWorld,
+        target: NpcHandle,
+    ) -> Result<n::OwnedInput, Error> {
+        self.check(w)?;
+        if w.profile().player_melee.is_none() {
+            return Err(Error::UnsupportedCommand);
+        }
+        if !self.npcs.contains_key(&target.id)
+            || !w.state().npcs.get(&target.id.spawn).is_some_and(|npc| {
+                npc.id == target.id && npc.ai.phase() != ai::Phase::Despawned
+            })
+        {
+            return Err(Error::UnknownTarget);
+        }
+        Ok(self.input(w, n::Command::AttackStart { target: target.id }))
+    }
+    pub fn prepare_attack_stop(&self, w: &n::NativeWorld) -> Result<n::OwnedInput, Error> {
+        self.check(w)?;
+        if w.profile().player_melee.is_none() {
+            return Err(Error::UnsupportedCommand);
+        }
+        Ok(self.input(w, n::Command::AttackStop))
     }
     /// Body release is visible but explicitly unavailable until ghost/corpse/graveyard support.
     pub fn release_spirit(&self, w: &n::NativeWorld) -> Result<n::OwnedInput, Error> {
@@ -936,6 +1005,8 @@ impl NativeProjection {
                     })
                 }
                 n::Event::Rejected(n::Rejection::Loot { corpse, reason }) => events.push(SessionEvent::LootError { guid: npc_guid(w, *corpse)?, error: *reason }),
+                // HandleAttackSwingOpcode already emitted the source attack-stop edge.
+                n::Event::Rejected(n::Rejection::AttackDenied) => {},
                 // The movement receipt carries the callback-time item identities and error.
                 n::Event::Rejected(n::Rejection::Inventory { .. }) => {},
                 // RewardRefused already carries the source error and callback-time offer.
@@ -1092,6 +1163,14 @@ impl NativeProjection {
                         _ => {}
                     }
                 }
+                n::Event::PlayerAttackStart { .. }
+                | n::Event::PlayerAttackStop { .. }
+                | n::Event::PlayerAttackCancel
+                | n::Event::PlayerMeleeCriticalWound { .. }
+                | n::Event::PlayerMelee { .. }
+                | n::Event::PlayerSwingError { .. } => {
+                    events.push(player_melee_event(event, self.player_guid, target_guid)?);
+                }
                 n::Event::NpcMotion { id, event } => {
                     let frame = source_frame.as_ref().ok_or(Error::StaleProjection)?;
                     events.extend(motion::project(*id, event, self.player_guid, frame.represented())?);
@@ -1202,6 +1281,128 @@ mod tests {
             None
         }
     }
+    #[test]
+    fn unselected_player_melee_commands_refuse_without_mutation() {
+        let w = world();
+        let projection = NativeProjection::new(&w, w.state().player, &Catalog).unwrap();
+        let target = projection
+            .capture_npc(projection.npc_guid(w.state().npcs[&2].id).unwrap())
+            .unwrap();
+        let before = w.state_digest();
+        assert!(matches!(
+            projection.prepare_attack_start(&w, target),
+            Err(Error::UnsupportedCommand)
+        ));
+        assert!(matches!(
+            projection.prepare_attack_stop(&w),
+            Err(Error::UnsupportedCommand)
+        ));
+        assert!(matches!(
+            projection.capture_npc(projection.player_guid()),
+            Err(Error::UnknownTarget)
+        ));
+        assert_eq!(w.state_digest(), before);
+    }
+
+    #[test]
+    fn player_melee_wire_adapter_preserves_roles_fields_and_supplied_order() {
+        // Adapter-only events: this does not fabricate an accepted runtime record.
+        let w = world();
+        let target = w.state().npcs[&2].id;
+        let lookup = |id: &NpcId| {
+            if *id == target {
+                Ok(42)
+            } else {
+                Err(Error::UnknownTarget)
+            }
+        };
+        let outcome = n::MeleeOutcome {
+            damage: 17,
+            hit_info: 0x82,
+            victim_state: 1,
+            blocked: 3,
+            absorb: 4,
+            resist: 5,
+            school: 0,
+            pushback: false,
+        };
+        let source = [
+            n::Event::PlayerAttackStart { target },
+            n::Event::PlayerMelee {
+                target,
+                action: 9,
+                outcome: outcome.clone(),
+                effective: 7,
+            },
+            n::Event::PlayerMeleeCriticalWound { target },
+            n::Event::PlayerAttackCancel,
+            n::Event::PlayerAttackStop { target },
+        ];
+        let events = source
+            .iter()
+            .map(|event| player_melee_event(event, 7, lookup).unwrap())
+            .collect::<Vec<_>>();
+        assert!(matches!(
+            events[0],
+            SessionEvent::AttackStart { attacker: 7, victim: 42 }
+        ));
+        let SessionEvent::AttackerState(actual) = &events[1] else {
+            panic!("expected player swing")
+        };
+        assert_eq!(
+            *actual,
+            p::AttackerState {
+                attacker: 7,
+                victim: 42,
+                hit_info: outcome.hit_info,
+                damage: outcome.damage,
+                victim_state: outcome.victim_state,
+                absorb: outcome.absorb,
+                resist: outcome.resist,
+                blocked: outcome.blocked,
+                melee_spell_id: 0,
+                school: outcome.school,
+            }
+        );
+        assert!(matches!(events[2], SessionEvent::Emote { guid: 42, emote_id: 34 }));
+        assert!(matches!(events[3], SessionEvent::CancelCombat));
+        assert!(matches!(
+            events[4],
+            SessionEvent::AttackStop { attacker: 7, victim: 42 }
+        ));
+        assert!(matches!(
+            player_melee_event(&source[0], 7, |_| Err(Error::UnknownTarget)),
+            Err(Error::UnknownTarget)
+        ));
+        // Forced cancel needs no victim; client stop is not itself forced cancel.
+        assert!(matches!(
+            player_melee_event(&n::Event::PlayerAttackCancel, 7, |_| Err(Error::UnknownTarget)),
+            Ok(SessionEvent::CancelCombat)
+        ));
+    }
+
+    #[test]
+    fn player_swing_error_adapter_preserves_source_zero_code() {
+        for (code, expected) in [
+            (2, p::AttackSwingError::BadFacing),
+            (0, p::AttackSwingError::NotInRange),
+            (1, p::AttackSwingError::DeadOrUnattackable),
+            (3, p::AttackSwingError::DeadOrUnattackable),
+        ] {
+            // A later zero must not be filtered as success by the adapter.
+            assert!(matches!(
+                player_melee_event(&n::Event::PlayerSwingError { code }, 7, |_| {
+                    panic!("swing error has no target lookup")
+                }),
+                Ok(SessionEvent::AttackSwingError(actual)) if actual == expected
+            ));
+        }
+        assert!(matches!(
+            player_melee_event(&n::Event::PlayerSwingError { code: 4 }, 7, |_| Ok(42)),
+            Err(Error::Unrepresentable)
+        ));
+    }
+
     #[test]
     fn native_projection_reaches_stock_cast_projectile_damage_auras_and_moving_objects() {
         let mut w = world();

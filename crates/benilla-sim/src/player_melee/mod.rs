@@ -13,7 +13,13 @@
 //! can follow a lethal hit. A missing callback must refuse before committing.
 //! The planned native consumer derives these operands from current retained
 //! weapon/skill/derived-stat state and raw creature initialization, not clients.
+mod geometry;
 mod numeric;
+mod skill;
+pub use geometry::{
+    mainhand_parry_haste, npc_shield_block, player_in_melee_range, PlayerMeleeGeometry,
+};
+pub use skill::{resolve_weapon_gain, weapon_gain_chance, WeaponSkill, WeaponSkillResolution};
 use crate::classic::software_armor_reduced_damage;
 use crate::classic_spell::SpellFloat;
 

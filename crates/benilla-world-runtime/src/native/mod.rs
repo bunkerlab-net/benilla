@@ -16,6 +16,8 @@ mod creature_generation_binding;
 mod creature_generation_tests;
 pub use creature_generation::*;
 mod melee_reset;
+mod player_melee;
+pub use player_melee::PlayerMeleePolicy;
 mod owner_ignore_pathfinding;
 pub use owner_ignore_pathfinding::*;
 #[cfg(test)]
@@ -131,8 +133,8 @@ pub use persistence::{PendingWanderAndChaseReopen, PendingWanderReopen};
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 51;
-pub const NATIVE_POLICY: &str = "benilla-native-home-wander-v51";
+pub const NATIVE_FORMAT_VERSION: u32 = 52;
+pub const NATIVE_POLICY: &str = "benilla-native-player-mainhand-v52";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -193,6 +195,7 @@ pub enum NativeError {
     Equipment(equipment::EquipmentError),
     Initialization(benilla_sim::starter_init::InitError),
     Melee(benilla_sim::npc_melee::MeleeError),
+    PlayerMelee(benilla_sim::player_melee::MeleeError),
     Death(benilla_sim::player_death::DeathError),
 }
 impl std::fmt::Display for NativeError {
@@ -336,6 +339,7 @@ impl NativeWorld {
             npcs.insert(
                 p.ai.creature_id,
                 Npc {
+                    defense_reactive: None,
                     source_generation: source_generation.clone(),
                     events: NpcEvents::new(
                         world,
@@ -419,7 +423,8 @@ impl NativeWorld {
         if profile.source_motion.is_some() {
             player_events.schedule_notify(0, false)?;
         }
-        let state = State {
+        let mut state = State {
+            player_melee: None,
             rng_counter,
             initial_cast_genesis,
             source_location: None,
@@ -460,6 +465,9 @@ impl NativeWorld {
                 .map(|g| PlayerCombatState::new(g, profile.clock_origin_ms))
                 .transpose()?,
         };
+        if profile.player_melee.is_some() {
+            state.player_melee = Some(player_melee::PlayerMeleeState::new(&profile, &state));
+        }
         let result = Self {
             profile_digest: profile.digest(),
             profile,
@@ -478,7 +486,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v51\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v52\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest
@@ -664,3 +672,7 @@ mod distinct_quest_tests;
 
 #[cfg(test)]
 mod quest_seven_tests;
+
+impl From<benilla_sim::player_melee::MeleeError> for NativeError {
+    fn from(error: benilla_sim::player_melee::MeleeError) -> Self { Self::PlayerMelee(error) }
+}

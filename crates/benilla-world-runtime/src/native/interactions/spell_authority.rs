@@ -1106,11 +1106,14 @@ impl<'a> CurrentSpell<'a> {
             .as_ref()
             .ok_or(NativeError::InvalidState)?;
         source.validate_neutral_domain(profile)?;
-        state
-            .combat
-            .as_ref()
-            .ok_or(NativeError::InvalidState)?
-            .validate_melee_timers(profile.combat.as_ref().ok_or(NativeError::InvalidState)?)?;
+        let combat = state.combat.as_ref().ok_or(NativeError::InvalidState)?;
+        let genesis = profile.combat.as_ref().ok_or(NativeError::InvalidState)?;
+        if profile.player_melee.is_some() {
+            player_melee::refuse_spell_concurrency(profile, state)?;
+            combat.validate_melee_timer_fields(genesis)?;
+        } else {
+            combat.validate_melee_timers(genesis)?;
+        }
         if state.npcs.len() != profile.npcs.len() {
             return Err(NativeError::AuthorityBinding);
         }
@@ -1274,7 +1277,6 @@ pub(in crate::native) fn validate_historical_binding(
 }
 /// The release owns the target life at the captured callback time. An old
 /// generation remains available after respawn, but cannot borrow another life's level.
-#[cfg(any(test, feature = "synthetic-native-tests"))]
 pub(in crate::native) fn historical_target_profile(
     profile: &Profile,
     owner: &Npc,

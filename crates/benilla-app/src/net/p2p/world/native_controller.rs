@@ -979,6 +979,21 @@ impl Driven for NativeController {
                     })?;
                 }
             }
+            ClientCommand::AttackSwing { guid } => {
+                if self.world.profile().player_melee.is_none() {
+                    return Err(Error::UnsupportedCommand);
+                }
+                let target = self.projection.capture_npc(guid)?;
+                let input = self.projection.prepare_attack_start(&self.world, target)?;
+                self.queue(input.input.command)?;
+            }
+            ClientCommand::AttackStop => {
+                if self.world.profile().player_melee.is_none() {
+                    return Err(Error::UnsupportedCommand);
+                }
+                let input = self.projection.prepare_attack_stop(&self.world)?;
+                self.queue(input.input.command)?;
+            }
             ClientCommand::CastSpell {
                 spell_id,
                 target: Some(guid),

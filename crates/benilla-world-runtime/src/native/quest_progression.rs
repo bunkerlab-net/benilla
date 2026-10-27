@@ -18,6 +18,7 @@ mod derived;
 mod kills;
 mod reputation;
 pub use bindings::ExecutionBinding;
+pub(in crate::native) use bindings::{MeleeExecutionBinding, ValidatedMeleeOperands};
 pub use derived::DerivedCall;
 pub use kills::{creature_guid, KillCreatureRow, KillDependencyAudit, NativeKillPolicy};
 pub use reputation::NativeReputationState;

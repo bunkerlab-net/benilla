@@ -6,7 +6,11 @@ The separate source-bound native reconstruction is documented in
 [LOOT-INVENTORY.md](LOOT-INVENTORY.md). Selected combat-entry Unit events are
 documented in [COMBAT-ASSISTANCE.md](COMBAT-ASSISTANCE.md). Selected default random
 movement is documented in [WANDER.md](WANDER.md). Its capability remains closed;
-the original fixture described below is a different runtime.
+the original fixture described below is a different runtime. The separately
+selected [player mainhand path](PLAYER-MELEE.md) retains that closed admission.
+Current native root envelopes are format52; older linked format51 descriptions
+are historical schema, not accepted save versions. Existing callback subdomain
+hash versions are not implicitly changed by the root format.
 
 A pure-Rust, GPL-3.0-or-later, solo-first runtime for the original world-data
 fixture. One selected owner/character starts and ticks immediately, without peer
@@ -203,7 +207,7 @@ source gate or change the integer armor policy.
 
 See [SPELL-AUTHORITY.md](SPELL-AUTHORITY.md) for the bounded ID133 source spell
 host, complete raw input dependencies, phase/scheduler ownership, numeric oracle
-and native simulation checkpoint/record format 51. This is not production content
+and native simulation checkpoint/record format 52. This is not production content
 admission or stock Fireball certification.
 
 See [FACING-AUTHORITY.md](FACING-AUTHORITY.md) for explicit current-request

@@ -1,7 +1,7 @@
 # Native component integration boundary
 
 This is a distinct component-test domain inside the existing world runtime.
-`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v51 cannot
+`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v52 cannot
 admit production content: `NativeCapability` is uninhabited until the raw compiler
 validates the source closure and every critical semantic dependency. That is an
 implementation condition, not a requirement that developers possess game assets.
@@ -11,16 +11,16 @@ The opt-in `synthetic-native-tests` feature exposes only synthetic construction 
 restoration. Feature unification, preparation JSON, hashes, and source initializer
 outputs cannot produce `NativeCapability`. Fabricated test rows are not native data.
 
-Native format 51, `benilla-native-home-wander-v51`, binds source-owned player
-melee timers, retained reset witnesses, initial-cast plans, ordinary creature addon
-source rows, explicit capability/Home/visitor addon closures, source-owned dry
-habitat-3 initialization and the selected full-raw spell domain in every profile,
-state, record, checkpoint, melee and
-callback hash domain. Native50 and earlier checkpoints and
-journals reject without migration, including rehashed outer envelopes and stale
-profile context. This format boundary does not open production admission or
-loaded-native cache restore;
-the existing explicitly reviewed cold `+0.0` distance exception is unchanged.
+Native format 52, `benilla-native-player-mainhand-v52`, adds the selected
+[player mainhand policy](../../PLAYER-MELEE.md), required optional player proof
+and NPC defense reactive state. Profile/state/record/checkpoint root hash domains
+are v52; established melee, visitor and event-AI callback subdomains remain v51.
+Native51 and earlier checkpoints/journals reject without migration, including
+rehashed outer envelopes and stale profile context. Linked format51 schema
+paragraphs describe the prior envelope, not an accepted decoder version; their
+source dependency requirements remain in force. This boundary does not open
+production admission or loaded-native cache restore. The reviewed cold `+0.0`
+distance exception is unchanged.
 
 Optional [creature generation ownership](../../CREATURE-GENERATION.md) retains
 complete initialization inputs, selected per-life stats, virtual mainhand metadata,
@@ -201,7 +201,7 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
   binary64; source comparison is strict promoted-float chance > double roll
 - Draw records bind semantic purpose/action/NPC generation. Action chains bind full
   current defense/cast/resource snapshots, so same-HP misses cannot be reused
-- Checkpoints bind native format 51, policy, RNG mapping, domain, content, authority, geometry,
+- Checkpoints bind native format 52, policy, RNG mapping, domain, content, authority, geometry,
   history-chain tip, cooldown maps, recomputable casts/auras, AI lifecycle/motion,
   exact mana timers, skills/reactive/combat clocks, checked equipment recipes and
   [per-NPC event ownership](../../NPC-EVENTS.md) with DEAD/respawn clock continuity
@@ -352,8 +352,8 @@ selected authored lane does not supply a loaded visitor/visibility producer.
 Motion arithmetic, production admission/startup and loaded-native cache reopening
 remain unchanged.
 
-Native50 and older checkpoints/journals reject without migration. Profile, state,
-record, checkpoint and melee digest domains are v51; original World v2, character
+Native51 and older checkpoints/journals reject without migration. Profile, state,
+record and checkpoint digest domains are v52; established melee domains remain v51; original World v2, character
 profiles and the store envelope are unchanged. Fixtures are authored component
 evidence, not captured client/DB data.
 

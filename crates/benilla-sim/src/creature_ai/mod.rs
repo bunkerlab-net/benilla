@@ -463,6 +463,23 @@ impl SoloCreatureAi {
     pub fn mainhand_timer_ms(&self) -> u32 {
         self.mainhand_ms
     }
+    /// Apply DealMeleeDamage's BASE_ATTACK parry-haste branch to this owned
+    /// single-mainhand creature. The native caller must have a verified Parry
+    /// outcome and checked CREATURE_EXTRA_FLAG_NO_PARRY_HASTEN; this method is
+    /// not an attack authorization and accepts no caller-authored timer value.
+    pub fn apply_player_mainhand_parry_haste(&mut self) -> Result<(), AiError> {
+        self.require_finished_generation()?;
+        if self.pending_receipts.is_some() || matches!(self.phase, Phase::Corpse | Phase::Despawned) {
+            return Err(AiError::Invalid("player parry outside live finished AI state"));
+        }
+        let next = crate::player_melee::mainhand_parry_haste(
+            self.mainhand_ms,
+            self.profile.mainhand_interval_ms,
+        )
+        .map_err(|_| AiError::Invalid("player parry mainhand timer"))?;
+        self.mainhand_ms = next;
+        Ok(())
+    }
     pub fn pursuit_timer_ms(&self) -> u32 {
         self.pursuit_ms
     }
@@ -1370,3 +1387,6 @@ mod checkpoint;
 mod loot_timer;
 pub use checkpoint::*;
 pub use loot_timer::{loot_interaction_distance, CorpseTimerCall};
+
+#[cfg(test)]
+mod player_parry_tests;

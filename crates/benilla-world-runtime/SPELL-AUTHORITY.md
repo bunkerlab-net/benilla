@@ -46,8 +46,13 @@ then decrements both counters by the update diff. Rejection, movement cancellati
 and interruption before release do not reset them. The admitted domain is
 mainhand-only, idle (no melee-attacking state or victim), form-zero, no disarm,
 and attack-speed factor one. General melee attacks, offhand/ranged equipment,
-haste and attack-speed modifiers remain excluded. Combat membership alone is
-not a player melee-attacking state.
+haste and attack-speed modifiers remain excluded by this spell-only domain.
+Combat membership alone is not a player melee-attacking state. The separately
+selected [player mainhand policy](PLAYER-MELEE.md) supports active melee only
+without concurrent spells/projectiles/auras. A spell after an explicit Stop
+resets BASE while preserving the source OFF retry residue. Its shared latest-writer
+proof replaces the spell-only idle countdown check; the source reset still has
+no active melee observer and does not gain a commuting proof for concurrent combat.
 
 Initialization derives the attack-time float fields from source base values and
 retained equipped weapon Delay, with source uint32/binary32 conversion. Equipment

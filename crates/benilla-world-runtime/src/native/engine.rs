@@ -18,6 +18,7 @@ mod spell_range;
 use spell_authority::SpellHistory;
 mod inventory;
 mod loot;
+mod mainhand;
 mod motion;
 mod quests;
 #[cfg(test)]
@@ -47,6 +48,7 @@ impl NativeWorld {
         authority: &mut impl Authority,
     ) -> Result<&TickRecord, NativeError> {
         initial_cast_genesis::validate_state(&self.profile, &self.state)?;
+        player_melee::validate_weapon_history(&self.profile, &self.state)?;
         if tick != self.state.tick.checked_add(1).ok_or(NativeError::Limit)?
             || tick > crate::MAX_TICK
         {
@@ -133,6 +135,8 @@ impl NativeWorld {
             movement_origin: self.state.position,
             movement_path: Vec::new(),
             player_auras_updated: false,
+            player_melee_unit_updated: false,
+            pending_player_melee_death: None,
         };
         frame.source_location(frame.state.position, frame.state.orientation)?;
         for i in &inputs {
@@ -174,15 +178,20 @@ impl NativeWorld {
             }
             frame.auras()?;
         }
+        frame.finish_player_melee_death()?;
         if let Some(combat) = &mut frame.state.combat {
             combat.advance_melee_timers(frame.profile.tick_ms);
         }
+        frame.player_melee_unit_updated = true;
         frame.player_reactives();
         frame.player_environment_update()?;
         frame.player_death_update()?;
+        frame.finish_player_melee_death()?;
+        frame.player_mainhand_update()?;
         #[cfg(any(test, feature = "synthetic-native-tests"))]
         frame.synthetic_npc_spell_starts(false)?;
         frame.npcs()?;
+        frame.finish_player_melee_death()?;
         #[cfg(any(test, feature = "synthetic-native-tests"))]
         frame.synthetic_npc_spell_starts(true)?;
         frame.player_combat_update();
@@ -203,11 +212,12 @@ impl NativeWorld {
         {
             return Err(NativeError::Limit);
         }
+        if frame.pending_player_melee_death.is_some() { return Err(NativeError::InvalidState); }
         melee_reset::validate_current(frame.profile, frame.state)?;
         let replies = frame.replies;
         let events = frame.events;
         let draws = frame.draws;
-        let after = crate::digest(b"benilla-native-state-v51\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v52\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -266,6 +276,8 @@ struct Frame<'a, A> {
     movement_origin: ai::Point,
     movement_path: Vec<ai::Point>,
     player_auras_updated: bool,
+    player_melee_unit_updated: bool,
+    pending_player_melee_death: Option<player_melee::PendingPlayerMeleeDeath>,
 }
 impl<A: Authority> Frame<'_, A> {
     fn interaction_moment(&self) -> InteractionMoment {
@@ -536,8 +548,84 @@ impl<A: Authority> Frame<'_, A> {
         pending.push(ai::Receipt { id, event });
         Ok(())
     }
+
+    fn player_hit_durability(
+        &mut self,
+        chance_purpose: DrawPurpose,
+        slot_purpose: DrawPurpose,
+    ) -> Result<(), NativeError> {
+        use benilla_sim::npc_melee as m;
+        // Source rand_chance runs even when configured chance is exactly zero.
+        let fraction = self.state.draw_range(
+            0,
+            chance_purpose,
+            0,
+            (1i64 << 53) - 1,
+            &mut self.draws,
+        )? as u64;
+        if m::PercentRoll::from_fraction53(fraction)?
+            .succeeds(self.profile.combat.as_ref().unwrap().durability_hit_chance)?
+        {
+            let slot = self.state.draw(
+                0,
+                slot_purpose,
+                0,
+                18,
+                &mut self.draws,
+            )? as u8;
+            let mut c = self.state.combat.take().unwrap();
+            let mut equipment = c.equipment.clone();
+            let changes =
+                equipment.apply_hit_loss::<NativeError, _>(slot, |_, _, changes| {
+                    for transition in &changes.stat_transitions {
+                        let equipment::EquipmentStatTransition::Broken { slot, .. } =
+                            *transition;
+                        let live = init::Resources {
+                            health: self.state.health,
+                            max_health: c.stats.max_health,
+                            mana: self.state.resources.caster.mana,
+                            max_mana: c.stats.max_mana,
+                        };
+                        let result = self.progression_item_break(&mut c, slot, live)?;
+                        self.state.health = result.resources.health;
+                        self.state.resources.caster.mana = result.resources.mana;
+                        self.state.resources = mana::MageManaState::from_state(
+                            self.state.resources.caster.clone(),
+                            result.resources.max_mana,
+                            result.mana_regeneration,
+                            self.state.resources.regen_elapsed_ms(),
+                            self.state.resources.last_mana_use_timer_ms(),
+                        )?;
+                        self.events.push(Event::Combat(CombatEvent::ItemStats {
+                            slot,
+                            stats: c.stats.clone(),
+                            resources: result
+                                .modifier_steps
+                                .iter()
+                                .map(|r| (r.health, r.max_health, r.mana, r.max_mana))
+                                .collect(),
+                        }));
+                    }
+                    Ok(())
+                })?;
+            c.equipment = equipment;
+            self.state.combat = Some(c);
+            self.events
+                .push(Event::Combat(CombatEvent::Durability(changes)));
+        }
+        Ok(())
+    }
     fn command(&mut self, command: &Command) -> Result<(), NativeError> {
         let rejection = match command {
+            Command::AttackStart { target } => {
+                let (events, rejection) = player_melee::start(self.profile, self.state, *target)?;
+                self.events.extend(events);
+                rejection
+            }
+            Command::AttackStop => {
+                self.events.extend(player_melee::stop(self.profile, self.state)?);
+                None
+            }
             Command::InventoryMove(request) => self.inventory_move(request)?,
             Command::Admin(request) => self.admin_command(request)?,
             Command::AcknowledgeInitialReputations => {
@@ -575,6 +663,7 @@ impl<A: Authority> Frame<'_, A> {
                     .map(|d| d.phase()),
             }),
             Command::Cast { ability, target } => {
+                player_melee::refuse_spell_concurrency(self.profile, self.state)?;
                 let Some(a) = self.state.ability(self.profile, *ability) else {
                     self.events.push(Event::Rejected(Rejection::UnknownAbility));
                     return Ok(());
@@ -931,12 +1020,10 @@ impl<A: Authority> Frame<'_, A> {
                     .combat
                     .as_ref()
                     .ok_or(NativeError::InvalidState)?;
-                let intervals = self
-                    .state
-                    .combat
-                    .as_mut()
-                    .ok_or(NativeError::InvalidState)?
-                    .reset_melee_timers(genesis)?;
+                let combat = self.state.combat.as_mut().ok_or(NativeError::InvalidState)?;
+                let intervals = if self.profile.player_melee.is_some() {
+                    combat.reset_selected_melee_timer(genesis)?
+                } else { combat.reset_melee_timers(genesis)? };
                 let witness = melee_reset::MeleeResetWitness::capture(
                     self.profile,
                     self.state,
@@ -950,6 +1037,7 @@ impl<A: Authority> Frame<'_, A> {
                     .as_mut()
                     .ok_or(NativeError::InvalidState)?
                     .melee_reset = Some(witness);
+                player_melee::record_spell_reset(self.profile, self.state)?;
             }
         }
         self.spell_events(id, c.ability, c.target, events)?;
@@ -1772,64 +1860,10 @@ impl<A: Authority> Frame<'_, A> {
             }
         }
         if callbacks.durability_hit_attempt {
-            // Source rand_chance runs even when configured chance is exactly zero.
-            let fraction = self.state.draw_range(
-                0,
+            self.player_hit_durability(
                 DrawPurpose::DurabilityChance { action, npc: id },
-                0,
-                (1i64 << 53) - 1,
-                &mut self.draws,
-            )? as u64;
-            if m::PercentRoll::from_fraction53(fraction)?
-                .succeeds(self.profile.combat.as_ref().unwrap().durability_hit_chance)?
-            {
-                let slot = self.state.draw(
-                    0,
-                    DrawPurpose::DurabilitySlot { action, npc: id },
-                    0,
-                    18,
-                    &mut self.draws,
-                )? as u8;
-                let mut c = self.state.combat.take().unwrap();
-                let mut equipment = c.equipment.clone();
-                let changes =
-                    equipment.apply_hit_loss::<NativeError, _>(slot, |_, _, changes| {
-                        for transition in &changes.stat_transitions {
-                            let equipment::EquipmentStatTransition::Broken { slot, .. } =
-                                *transition;
-                            let live = init::Resources {
-                                health: self.state.health,
-                                max_health: c.stats.max_health,
-                                mana: self.state.resources.caster.mana,
-                                max_mana: c.stats.max_mana,
-                            };
-                            let result = self.progression_item_break(&mut c, slot, live)?;
-                            self.state.health = result.resources.health;
-                            self.state.resources.caster.mana = result.resources.mana;
-                            self.state.resources = mana::MageManaState::from_state(
-                                self.state.resources.caster.clone(),
-                                result.resources.max_mana,
-                                result.mana_regeneration,
-                                self.state.resources.regen_elapsed_ms(),
-                                self.state.resources.last_mana_use_timer_ms(),
-                            )?;
-                            self.events.push(Event::Combat(CombatEvent::ItemStats {
-                                slot,
-                                stats: c.stats.clone(),
-                                resources: result
-                                    .modifier_steps
-                                    .iter()
-                                    .map(|r| (r.health, r.max_health, r.mana, r.max_mana))
-                                    .collect(),
-                            }));
-                        }
-                        Ok(())
-                    })?;
-                c.equipment = equipment;
-                self.state.combat = Some(c);
-                self.events
-                    .push(Event::Combat(CombatEvent::Durability(changes)));
-            }
+                DrawPurpose::DurabilitySlot { action, npc: id },
+            )?;
         }
         if callbacks.interrupt_or_delay_spell {
             self.native_spell_damage()?;

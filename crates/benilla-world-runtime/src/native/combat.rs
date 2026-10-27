@@ -528,6 +528,35 @@ impl PlayerCombatState {
         origin: u64,
         diff: u32,
     ) -> Result<Self, NativeError> {
+        Self::restore_inner(g, s, health, mana, now, tick, origin, diff, false)
+    }
+    /// Provisional component reconstruction for an explicitly selected profile.
+    /// The containing checkpoint must validate the complete player melee proof.
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    pub(super) fn restore_selected_fields(
+        g: &CombatGenesis,
+        s: CombatSnapshot,
+        health: u32,
+        mana: u32,
+        now: u64,
+        tick: u64,
+        origin: u64,
+        diff: u32,
+    ) -> Result<Self, NativeError> {
+        Self::restore_inner(g, s, health, mana, now, tick, origin, diff, true)
+    }
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    fn restore_inner(
+        g: &CombatGenesis,
+        s: CombatSnapshot,
+        health: u32,
+        mana: u32,
+        now: u64,
+        tick: u64,
+        origin: u64,
+        diff: u32,
+        selected_melee: bool,
+    ) -> Result<Self, NativeError> {
         let death = match (&g.death, s.death) {
             (Some(p), Some(d)) => Some(
                 benilla_sim::player_death::PlayerDeathState::restore_native_fixed_step(
@@ -632,9 +661,12 @@ impl PlayerCombatState {
             death,
             death_killer: s.death_killer,
         };
-        restored
-            .validate_melee_timers(g)
-            .map_err(|_| NativeError::InvalidCheckpoint)?;
+        if selected_melee {
+            restored.validate_melee_timer_fields(g)
+        } else {
+            restored.validate_melee_timers(g)
+        }
+        .map_err(|_| NativeError::InvalidCheckpoint)?;
         Ok(restored)
     }
     pub(super) fn apply_item_break(

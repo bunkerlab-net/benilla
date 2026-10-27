@@ -41,7 +41,7 @@ pub struct TickRecord {
 }
 impl TickRecord {
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-record-v51\0", self)
+        crate::digest(b"benilla-native-record-v52\0", self)
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,6 +58,8 @@ struct CastState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NpcState {
+    #[serde(deserialize_with = "creature_collision_width::required_option")]
+    defense_reactive: Option<player_melee::NpcDefenseReactive>,
     #[serde(deserialize_with = "creature_collision_width::required_option")]
     source_generation: Option<creature_generation::CreatureGenerationCheckpoint>,
     events: npc_events::NpcEventsSnapshot,
@@ -79,6 +81,8 @@ struct NpcState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct StateCheckpoint {
+    #[serde(deserialize_with = "creature_collision_width::required_option")]
+    player_melee: Option<player_melee::PlayerMeleeState>,
     initial_cast_genesis: InitialCastGenesis,
     #[serde(deserialize_with = "creature_collision_width::required_option")]
     source_location: Option<SourceLocationFacts>,
@@ -206,12 +210,38 @@ impl StateCheckpoint {
                     .map_or(Ok(0), EventAiState::replay_work)?,
             )
             .ok_or(NativeError::TooLarge)?;
+        let current_derived_calls = self
+            .quest_progression
+            .as_ref()
+            .map_or(0, |q| q.derived_calls.len() as u64);
+        if let Some(owner) = &self.player_melee {
+            // Conservative current-policy scans in the bounded four-cause proof,
+            // in addition to the prefix replays charged by each source binding.
+            total = total
+                .checked_add(owner.replay_work())
+                .and_then(|n| {
+                    current_derived_calls
+                        .checked_mul(64)
+                        .and_then(|work| n.checked_add(work))
+                })
+                .ok_or(NativeError::TooLarge)?;
+        }
         if let Some(witness) = self.combat.as_ref().and_then(|c| c.melee_reset.as_ref()) {
             total = total
                 .checked_add(witness.replay_work())
                 .ok_or(NativeError::TooLarge)?;
         }
         for npc in self.npcs.values() {
+            if let Some(reactive) = &npc.defense_reactive {
+                total = total
+                    .checked_add(reactive.replay_work())
+                    .and_then(|n| {
+                        current_derived_calls
+                            .checked_mul(8)
+                            .and_then(|work| n.checked_add(work))
+                    })
+                    .ok_or(NativeError::TooLarge)?;
+            }
             if let Some(assistance) = &npc.events.assistance {
                 total = total
                     .checked_add(assistance.replay_work()?)
@@ -293,10 +323,10 @@ impl Checkpoint {
             || s.state.version != NATIVE_FORMAT_VERSION
             || s.state.policy != NATIVE_POLICY
             || s.state.rng_policy != RNG_POLICY
-            || s.digest != crate::digest(b"benilla-native-state-v51\0", &s.state)
+            || s.digest != crate::digest(b"benilla-native-state-v52\0", &s.state)
             || s.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v51\0",
+                    b"benilla-native-checkpoint-v52\0",
                     &(&s.state, s.digest, s.history_tip),
                 )
             || s.encode()? != bytes
@@ -308,6 +338,7 @@ impl Checkpoint {
 }
 pub(super) fn snapshot_state(profile_digest: crate::Digest, state: &State) -> StateCheckpoint {
     StateCheckpoint {
+        player_melee: state.player_melee.clone(),
         initial_cast_genesis: state.initial_cast_genesis.clone(),
         source_location: state.source_location.clone(),
         event_ai: state.event_ai.clone(),
@@ -351,6 +382,7 @@ pub(super) fn snapshot_state(profile_digest: crate::Digest, state: &State) -> St
                 (
                     id,
                     NpcState {
+                        defense_reactive: n.defense_reactive.clone(),
                         source_generation: n
                             .source_generation
                             .as_ref()
@@ -440,6 +472,10 @@ impl NativeWorld {
     ) -> Result<Checkpoint, NativeError> {
         let snapshot = self.snapshot_of(state);
         snapshot.validate_source_history_budget(&self.profile)?;
+        if self.profile.player_melee.is_some() {
+            player_melee::validate_current(&self.profile, state)?;
+        }
+        Npc::validate_defense_reactives(&self.profile, state)?;
         initial_cast_genesis::validate_state(&self.profile, state)?;
         source_location::validate_current(&self.profile, state)?;
         PlayerCollisionHeightState::validate_optional(
@@ -456,7 +492,7 @@ impl NativeWorld {
         EventAiState::validate_optional(&self.profile, state)?;
         combat_assistance::validate_current(&self.profile, state)?;
         let state = snapshot;
-        let digest = crate::digest(b"benilla-native-state-v51\0", &state);
+        let digest = crate::digest(b"benilla-native-state-v52\0", &state);
         let s = Checkpoint {
             version: NATIVE_FORMAT_VERSION,
             state,
@@ -466,7 +502,7 @@ impl NativeWorld {
         };
         let mut s = s;
         s.checksum = crate::digest(
-            b"benilla-native-checkpoint-v51\0",
+            b"benilla-native-checkpoint-v52\0",
             &(&s.state, s.digest, s.history_tip),
         );
         s.encode()?;
@@ -504,10 +540,10 @@ impl NativeWorld {
         checkpoint.validate_encoded_budget()?;
         let profile_digest = profile.digest();
         if checkpoint.version != NATIVE_FORMAT_VERSION
-            || checkpoint.digest != crate::digest(b"benilla-native-state-v51\0", &checkpoint.state)
+            || checkpoint.digest != crate::digest(b"benilla-native-state-v52\0", &checkpoint.state)
             || checkpoint.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v51\0",
+                    b"benilla-native-checkpoint-v52\0",
                     &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
                 )
         {
@@ -569,8 +605,13 @@ impl NativeWorld {
             })
             .collect::<Vec<_>>();
         let caster = spell::CasterResources::restore(s.resources, s.now_ms, &specs)?;
+        let restore_combat = if profile.player_melee.is_some() {
+            PlayerCombatState::restore_selected_fields
+        } else {
+            PlayerCombatState::restore
+        };
         let combat = match (&combat_genesis, s.combat) {
-            (Some(g), Some(c)) => Some(PlayerCombatState::restore(
+            (Some(g), Some(c)) => Some(restore_combat(
                 g,
                 c,
                 s.health,
@@ -775,6 +816,7 @@ impl NativeWorld {
             npcs.insert(
                 id,
                 Npc {
+                    defense_reactive: n.defense_reactive,
                     source_generation: source_generation.clone(),
                     events: NpcEvents::restore(
                         n.events, s.world, n.id, s.player, &profile, &ai, s.tick,
@@ -993,6 +1035,7 @@ impl NativeWorld {
         };
         let state = State {
             initial_cast_genesis: s.initial_cast_genesis,
+            player_melee: s.player_melee,
             source_location: s.source_location,
             event_ai: s.event_ai,
             source_player_environment: PlayerEnvironmentState::restore(
@@ -1027,6 +1070,7 @@ impl NativeWorld {
             rng_counter: s.rng_counter,
             combat,
         };
+        Npc::validate_defense_reactives(&profile, &state)?;
         initial_cast_genesis::validate_state(&profile, &state)?;
         PlayerEnvironmentState::validate_optional(
             state.source_player_environment.as_ref(),
@@ -1036,6 +1080,7 @@ impl NativeWorld {
         .map_err(|_| NativeError::InvalidCheckpoint)?;
         source_location::validate_current(&profile, &state)
             .map_err(|_| NativeError::InvalidCheckpoint)?;
+        player_melee::validate_weapon_history(&profile, &state)?;
         melee_reset::validate_restored(&profile, &state)?;
         EventAiState::validate_optional(&profile, &state)?;
         combat_assistance::validate_current(&profile, &state)?;
@@ -1159,9 +1204,9 @@ mod history_budget_tests {
         }
         let cast: CastState = serde_json::from_value(cast).unwrap();
         cp.state.casts = (1..=9).map(|id| (id, cast.clone())).collect();
-        cp.digest = crate::digest(b"benilla-native-state-v51\0", &cp.state);
+        cp.digest = crate::digest(b"benilla-native-state-v52\0", &cp.state);
         cp.checksum = crate::digest(
-            b"benilla-native-checkpoint-v51\0",
+            b"benilla-native-checkpoint-v52\0",
             &(&cp.state, cp.digest, cp.history_tip),
         );
         assert_eq!(cp.encode().unwrap_err(), NativeError::TooLarge);

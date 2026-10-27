@@ -68,18 +68,33 @@ pub fn defense_gain_chance(
     level: u8,
     skill: DefenseSkill,
 ) -> Result<Option<SpellFloat>, MeleeError> {
+    let Some(base) = combat_skill_base_chance(level, skill.value, skill.maximum)? else {
+        return Ok(None);
+    };
+    let final_chance = checked(base.mul_r(Double::from_bits(0x4059000000000000), R))?;
+    let narrowed: Single = checked(final_chance.convert_r(R, &mut false))?;
+    Ok(Some(output(narrowed)?))
+}
+/// Shared binary64 prefix of Player::UpdateCombatSkills, before its optional
+/// weapon-intellect bonus and final percent conversion. Crate-private so the
+/// canonical defense log table has one implementation and one version.
+pub(crate) fn combat_skill_base_chance(
+    level: u8,
+    value: u16,
+    maximum_value: u16,
+) -> Result<Option<Double>, MeleeError> {
     if !(1..=60).contains(&level) {
         return Err(MeleeError::Domain("defense gain level"));
     }
-    if skill.maximum == 0 || skill.value >= skill.maximum {
+    if maximum_value == 0 || value >= maximum_value {
         return Ok(None);
     }
-    let room = u32::from(skill.maximum - skill.value);
-    let maximum = checked(Double::from_u128_r(u128::from(skill.maximum), R))?;
+    let room = u32::from(maximum_value - value);
+    let maximum = checked(Double::from_u128_r(u128::from(maximum_value), R))?;
     let one = Double::from_bits(0x3ff0000000000000);
     let seven = Double::from_bits(0x401c000000000000);
     let base = if room >= 7 {
-        if skill.maximum > 300 {
+        if maximum_value > 300 {
             return Err(MeleeError::Unsupported(
                 "defense skill catch-up maximum above Classic 300",
             ));
@@ -99,9 +114,7 @@ pub fn defense_gain_chance(
     }
     .max(Double::ZERO)
     .min(one);
-    let final_chance = checked(base.mul_r(Double::from_bits(0x4059000000000000), R))?;
-    let narrowed: Single = checked(final_chance.convert_r(R, &mut false))?;
-    Ok(Some(output(narrowed)?))
+    Ok(Some(base))
 }
 /// Health-independent skill projection. Call only after the source proc gate
 /// (surviving mage/non-critter attacker), and after durability/pushback callbacks.

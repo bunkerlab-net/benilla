@@ -15,6 +15,7 @@ pub use numeric::{
     CreatureStatClass, DamageRange,
 };
 pub use skill::{defense_gain_chance, resolve_defense_gain, DefenseSkill, PercentRoll};
+pub(crate) use skill::combat_skill_base_chance;
 
 pub const NPC_MELEE_POLICY_ID: &str = "cmangos-8ec338a1-npc-mage-melee-softfloat-v2";
 /// Unit.h REACTIVE_TIMER_START, used by the mage dodge callback.

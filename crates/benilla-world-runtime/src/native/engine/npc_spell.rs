@@ -145,6 +145,7 @@ impl<A: Authority> Frame<'_, A> {
         Ok(())
     }
     fn npc_spell_start(&mut self, trigger: &npc_spell::FixtureTrigger) -> Result<(), NativeError> {
+        player_melee::refuse_spell_concurrency(self.profile, self.state)?;
         let caster = trigger.caster;
         let npc = self
             .state

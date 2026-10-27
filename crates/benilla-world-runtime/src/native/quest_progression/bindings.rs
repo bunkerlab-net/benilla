@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Source-derived phase contexts for preparation, release and applied auras.
 use super::*;
+#[path = "melee_binding.rs"]
+mod melee_binding;
+pub(in crate::native) use melee_binding::{MeleeExecutionBinding, ValidatedMeleeOperands};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -121,6 +124,99 @@ impl HistoryPrefix {
             || (self.count == previous.count && self.digest == previous.digest)
     }
 }
+impl ProgressionBinding {
+    fn capture(
+        profile: &Profile,
+        state: &State,
+        g: &QuestProgressionGenesis,
+        q: &QuestProgressionState,
+        c: &PlayerCombatState,
+    ) -> Result<Self, NativeError> {
+        let owner = HistoryOwner {
+            profile: profile.digest(),
+            genesis: g.identity,
+            domain: state.domain,
+            world: state.world,
+            player: state.player,
+        };
+        Ok(Self {
+            player: q.player.view().clone(),
+            owner,
+            training: TrainingBinding {
+                version: q.training.version,
+                identity: q.training.identity,
+                abilities: q.training.abilities.clone(),
+            },
+            training_prefix: HistoryPrefix::capture(owner, "training", &q.training.calls)?,
+            recipe: c.recipe.snapshot(),
+            derived: q.derived.clone(),
+            derived_prefix: HistoryPrefix::capture(owner, "derived", &q.derived_calls)?,
+        })
+    }
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    fn validate(
+        &self,
+        g: &QuestProgressionGenesis,
+        current: &QuestProgressionState,
+        level: u8,
+        identity: (crate::Digest, Domain, crate::WorldId, crate::PlayerId),
+    ) -> Result<(pg::State, init::LiveTraining), NativeError> {
+        let owner = HistoryOwner {
+            profile: identity.0,
+            genesis: g.identity,
+            domain: identity.1,
+            world: identity.2,
+            player: identity.3,
+        };
+        if self.owner != owner {
+            return Err(NativeError::InvalidCheckpoint);
+        }
+        let training_calls = self
+            .training_prefix
+            .resolve(owner, "training", &current.training.calls)?;
+        let derived_calls = self
+            .derived_prefix
+            .resolve(owner, "derived", &current.derived_calls)?;
+        let prior = pg::State::restore(&g.levels, self.player.clone())?;
+        let p = prior.view();
+        g.validate_live_skills(p)?;
+        let c = current.player.view();
+        if p.level != u32::from(level)
+            || p.level > c.level
+            || p.skills.len() != c.skills.len()
+            || p.skills.iter().zip(&c.skills).any(|(a, b)| {
+                a.id != b.id
+                    || a.position != b.position
+                    || a.value > b.value
+                    || a.maximum > b.maximum
+                    || a.step != b.step
+                    || a.permanent_bonus != b.permanent_bonus
+                    || a.temporary_bonus != b.temporary_bonus
+            })
+        {
+            return Err(NativeError::InvalidCheckpoint);
+        }
+        let fresh = g.initial_combat.recipe.rebase(
+            p.level,
+            p.modifiers.create,
+            p.modifiers.create_health,
+            p.modifiers.create_mana,
+        )?;
+        let recipe = init::StatRecipe::restore(&fresh, &self.recipe)?;
+        if recipe.snapshot().modifiers != p.modifiers {
+            return Err(NativeError::InvalidCheckpoint);
+        }
+        let (_, training) = derived::validate_history(
+            g,
+            p,
+            self.training.view(training_calls),
+            &self.derived,
+            derived_calls,
+            &recipe,
+        )?;
+        Ok((prior, training))
+    }
+}
 impl ExecutionBinding {
     #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub(in crate::native) fn historical_melee_attack_times(
@@ -165,26 +261,7 @@ impl ExecutionBinding {
                     .quest_progression
                     .as_ref()
                     .ok_or(NativeError::InvalidState)?;
-                let owner = HistoryOwner {
-                    profile: profile.digest(),
-                    genesis: g.identity,
-                    domain: state.domain,
-                    world: state.world,
-                    player: state.player,
-                };
-                Some(ProgressionBinding {
-                    player: q.player.view().clone(),
-                    owner,
-                    training: TrainingBinding {
-                        version: q.training.version,
-                        identity: q.training.identity,
-                        abilities: q.training.abilities.clone(),
-                    },
-                    training_prefix: HistoryPrefix::capture(owner, "training", &q.training.calls)?,
-                    recipe: c.recipe.snapshot(),
-                    derived: q.derived.clone(),
-                    derived_prefix: HistoryPrefix::capture(owner, "derived", &q.derived_calls)?,
-                })
+                Some(ProgressionBinding::capture(profile, state, g, q, c)?)
             }
             (None, _) if profile.quest_progression.is_none() => None,
             _ => return Err(NativeError::InvalidState),
@@ -330,61 +407,9 @@ impl ExecutionBinding {
                 if profile.ability(self.ability.id) == Some(&self.ability)
                     && self.level == profile.player.level => {}
             (Some(g), Some(current), Some(binding)) => {
-                let owner = HistoryOwner {
-                    profile: identity.0,
-                    genesis: g.identity,
-                    domain: identity.1,
-                    world: identity.2,
-                    player: identity.3,
-                };
-                if binding.owner != owner {
-                    return Err(NativeError::InvalidCheckpoint);
-                }
-                let training_calls =
-                    binding
-                        .training_prefix
-                        .resolve(owner, "training", &current.training.calls)?;
-                let derived_calls =
-                    binding
-                        .derived_prefix
-                        .resolve(owner, "derived", &current.derived_calls)?;
-                let prior = pg::State::restore(&g.levels, binding.player.clone())?;
+                current.validate_weapon_policy(profile.player_melee.as_ref().map(PlayerMeleePolicy::weapon_skill_gain))?;
+                let (prior, training) = binding.validate(g, current, self.level, identity)?;
                 let p = prior.view();
-                g.validate_live_skills(p)?;
-                let c = current.player.view();
-                if p.level != u32::from(self.level)
-                    || p.level > c.level
-                    || p.skills.len() != c.skills.len()
-                    || p.skills.iter().zip(&c.skills).any(|(a, b)| {
-                        a.id != b.id
-                            || a.position != b.position
-                            || a.value > b.value
-                            || a.maximum > b.maximum
-                            || a.step != b.step
-                            || a.permanent_bonus != b.permanent_bonus
-                            || a.temporary_bonus != b.temporary_bonus
-                    })
-                {
-                    return Err(NativeError::InvalidCheckpoint);
-                }
-                let fresh = g.initial_combat.recipe.rebase(
-                    p.level,
-                    p.modifiers.create,
-                    p.modifiers.create_health,
-                    p.modifiers.create_mana,
-                )?;
-                let recipe = init::StatRecipe::restore(&fresh, &binding.recipe)?;
-                if recipe.snapshot().modifiers != p.modifiers {
-                    return Err(NativeError::InvalidCheckpoint);
-                }
-                let (_, training) = derived::validate_history(
-                    g,
-                    p,
-                    binding.training.view(training_calls),
-                    &binding.derived,
-                    derived_calls,
-                    &recipe,
-                )?;
                 if g.resolve_execution_ability(&training, p, self.ability.id)? != self.ability {
                     return Err(NativeError::InvalidCheckpoint);
                 }

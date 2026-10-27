@@ -136,6 +136,20 @@ impl<A: Authority> Frame<'_, A> {
                     c.defense_reactive_ms = 0;
                 }
                 d::DeathAction::CombatStop => {
+                    if let Some(pending) = &self.pending_player_melee_death {
+                        self.events.extend(pending.repeated_stop(
+                            self.state,
+                            self.player_melee_unit_updated,
+                        )?);
+                    } else {
+                        let (pending, events) = player_melee::death::begin(
+                            self.profile,
+                            self.state,
+                            self.player_melee_unit_updated,
+                        )?;
+                        self.pending_player_melee_death = pending;
+                        self.events.extend(events);
+                    }
                     let c = self.state.combat.as_mut().unwrap();
                     if c.in_combat {
                         self.events.push(Event::Combat(CombatEvent::LeftCombat));
@@ -202,6 +216,13 @@ impl<A: Authority> Frame<'_, A> {
         }
         Ok(())
     }
+    pub(super) fn finish_player_melee_death(&mut self) -> Result<(), NativeError> {
+        if let Some(pending) = self.pending_player_melee_death.take() {
+            pending.finish(self.profile, self.state, self.player_melee_unit_updated)?;
+        }
+        Ok(())
+    }
+
     fn death_equipment_loss(&mut self) -> Result<(), NativeError> {
         let mut c = self.state.combat.take().unwrap();
         let mut equipment = c.equipment.clone();

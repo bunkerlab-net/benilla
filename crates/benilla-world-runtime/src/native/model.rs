@@ -81,6 +81,7 @@ pub struct NpcProfile {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Profile {
+    pub player_melee: Option<PlayerMeleePolicy>,
     pub creature_generations: Option<CreatureGenerationCatalog>,
     pub admin: Option<AdminPolicy>,
     pub player_slow: Option<PlayerSlowGenesis>,
@@ -108,7 +109,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v51\0",
+            b"benilla-native-profile-v52\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -158,6 +159,9 @@ impl Profile {
             .collect()
     }
     pub fn validate(&self) -> Result<(), NativeError> {
+        if let Some(policy) = &self.player_melee {
+            policy.validate(self)?;
+        }
         if let Some(catalog) = &self.creature_generations {
             if self.player_slow.is_some() {
                 return Err(NativeError::UnsupportedMechanic(
@@ -329,6 +333,7 @@ pub struct Cast {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Npc {
+    pub(in crate::native) defense_reactive: Option<player_melee::NpcDefenseReactive>,
     pub(super) source_generation: Option<CreatureGenerationOwner>,
     pub events: NpcEvents,
     pub source_motion: Option<NpcMotion>,
@@ -345,6 +350,31 @@ pub struct Npc {
     pub auras: BTreeMap<u32, spell::DamageTarget>,
 }
 impl Npc {
+    /// Completed-frame NPC defense state, after this owner's Unit update.
+    /// This is not a pre-update countdown or a source eligibility capability.
+    pub fn defense_reactive_active(&self, now_ms: u64, tick_ms: u32) -> Result<bool, NativeError> {
+        match &self.defense_reactive {
+            Some(reactive) if self.health != 0 => Ok(reactive.remaining(now_ms, tick_ms)? > 0),
+            Some(_) => Err(NativeError::InvalidState),
+            None => Ok(false),
+        }
+    }
+    pub(in crate::native) fn validate_defense_reactives(
+        profile: &Profile,
+        state: &State,
+    ) -> Result<(), NativeError> {
+        for npc in state.npcs.values() {
+            if let Some(reactive) = &npc.defense_reactive {
+                if profile.player_melee.is_none()
+                    || reactive.remaining(state.now_ms, profile.tick_ms)? == 0
+                {
+                    return Err(NativeError::InvalidCheckpoint);
+                }
+                reactive.validate(profile, state, npc.id)?;
+            }
+        }
+        Ok(())
+    }
     /// A retained cast or event uses the source life that actually produced it.
     pub fn historical_profile(
         &self,
@@ -397,6 +427,7 @@ impl Npc {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct State {
+    pub(super) player_melee: Option<player_melee::PlayerMeleeState>,
     pub initial_cast_genesis: InitialCastGenesis,
     pub(super) source_location: Option<SourceLocationFacts>,
     pub(super) event_ai: Option<EventAiState>,
@@ -427,6 +458,8 @@ pub struct State {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Command {
+    AttackStart { target: NpcId },
+    AttackStop,
     InventoryMove(InventoryMoveRequest),
     Admin(AdminRequest),
     MovementPose {
@@ -514,6 +547,7 @@ pub struct OwnedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Rejection {
+    AttackDenied,
     Inventory {
         reason: u8,
         source: u8,
@@ -544,6 +578,12 @@ pub enum Rejection {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Event {
+    PlayerAttackStart { target: NpcId },
+    PlayerAttackStop { target: NpcId },
+    PlayerAttackCancel,
+    PlayerMeleeCriticalWound { target: NpcId },
+    PlayerMelee { target: NpcId, action: u64, outcome: MeleeOutcome, effective: u32 },
+    PlayerSwingError { code: u8 },
     EventAiEvaluation(Box<EventAiEvaluation>),
     EventAiSpeech(Box<EventAiSpeech>),
     PlayerEnvironment(PlayerEnvironmentReceipt),

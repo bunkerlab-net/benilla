@@ -52,6 +52,7 @@ pub fn profile() -> Profile {
         damage_pushback: true,
     };
     Profile {
+        player_melee: None,
         creature_generations: None,
         admin: None,
         player_slow: None,

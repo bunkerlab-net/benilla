@@ -363,6 +363,40 @@ impl<A: Authority> Frame<'_, A> {
         }
         Ok(result)
     }
+    pub(super) fn progression_weapon_skill_change(
+        &mut self,
+        skill: u16,
+        gain: u16,
+    ) -> Result<(), NativeError> {
+        let policy = self
+            .profile
+            .player_melee
+            .as_ref()
+            .ok_or(NativeError::UnsupportedMechanic("player weapon skill policy"))?;
+        if gain != policy.weapon_skill_gain() {
+            return Err(NativeError::InvalidState);
+        }
+        let g = self
+            .profile
+            .quest_progression
+            .as_ref()
+            .ok_or(NativeError::InvalidState)?;
+        let state = self
+            .state
+            .quest_progression
+            .as_mut()
+            .ok_or(NativeError::InvalidState)?;
+        let combat = self.state.combat.as_ref().ok_or(NativeError::InvalidState)?;
+        state.validate_weapon_policy(Some(gain))?;
+        state.weapon_skill_change(
+            g,
+            combat,
+            skill,
+            gain,
+            self.state.health,
+            self.state.resources.caster.mana,
+        )
+    }
     pub(super) fn progression_defense_change(&mut self) -> Result<(), NativeError> {
         if let (Some(g), Some(s), Some(c)) = (
             &self.profile.quest_progression,
@@ -403,6 +437,8 @@ impl NativeWorld {
             movement_origin: self.state.position,
             movement_path: vec![],
             player_auras_updated: false,
+            player_melee_unit_updated: false,
+            pending_player_melee_death: None,
         };
         frame.quest_interaction_gate(quest, giver, reward)
     }

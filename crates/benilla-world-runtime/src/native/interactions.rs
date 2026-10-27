@@ -9,6 +9,7 @@ pub(in crate::native) use assistance::source_assistance_traversal;
 mod combat_authority;
 mod facing;
 mod peer_sight;
+pub(in crate::native) mod player_melee;
 pub use facing::FacingNumericPolicy;
 pub(in crate::native) use peer_sight::{
     source_peer_sight_after_help, source_peer_sight_prepare, PeerSightPreparation,

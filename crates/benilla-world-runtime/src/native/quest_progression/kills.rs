@@ -195,6 +195,142 @@ impl kill::KillHost for KillHost {
         Ok(())
     }
 }
+fn award_progression(
+    g: &QuestProgressionGenesis,
+    player: &pg::State,
+    xp_enabled: bool,
+    host: KillHost,
+) -> Result<kill::Transaction<KillHost>, NativeError> {
+    let (victim, rules, context) = host.expected;
+    let rest = host.rest;
+    let tx = if xp_enabled {
+        kill::award(&g.levels, player, rest, &host, rules, victim, context)?
+    } else {
+        // Same XP-lock branch as the live owner: validate kill/tap, but do not
+        // consume rest or emit XP. Ordered quest aliases remain in killed().
+        victim.validate()?;
+        rules.validate()?;
+        context.validate(victim, rest)?;
+        kill::Transaction {
+            state: player.clone(),
+            rest,
+            host,
+            events: vec![],
+        }
+    };
+    Ok(tx)
+}
+
+/// Compact owner-captured inputs to the existing source kill award. These are
+/// reachable historical context, not proof of an authenticated past trajectory.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct MeleeKillContext {
+    xp_enabled: bool,
+    rest: kill::RestState,
+    next_death_event: u64,
+}
+impl MeleeKillContext {
+    pub(super) fn capture(state: &QuestProgressionState) -> Self {
+        Self {
+            xp_enabled: state.xp_enabled,
+            rest: state.rest,
+            next_death_event: state.next_death_event,
+        }
+    }
+
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    pub(super) fn validate_prior(&self, current: &QuestProgressionState) -> Result<(), NativeError> {
+        if self.rest != kill::RestState::fresh_player()
+            || self.next_death_event == 0
+            || self.next_death_event > current.next_death_event
+        {
+            return Err(NativeError::InvalidCheckpoint);
+        }
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    pub(super) fn validate_transition(
+        &self,
+        after: &Self,
+        current: &QuestProgressionState,
+        target: crate::NpcId,
+    ) -> Result<(), NativeError> {
+        if self.rest != kill::RestState::fresh_player()
+            || after.rest != kill::RestState::fresh_player()
+            || self.xp_enabled != after.xp_enabled
+            || self.next_death_event == 0
+            || self.next_death_event.checked_add(1) != Some(after.next_death_event)
+            || after.next_death_event > current.next_death_event
+            || current.credited_generations.get(&target.spawn).is_none_or(|generation| {
+                *generation < target.generation
+            })
+        {
+            return Err(NativeError::InvalidCheckpoint);
+        }
+        Ok(())
+    }
+}
+
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub(super) struct MeleeAwardSeed {
+    pub player: pg::State,
+    pub training: init::LiveTraining,
+    pub derived: DerivedStats,
+    pub inputs: DerivedInputs,
+}
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub(super) struct MeleeAward {
+    pub player: pg::State,
+    pub training: init::LiveTraining,
+    pub derived: DerivedStats,
+    pub calls: Vec<DerivedCall>,
+    pub rest: kill::RestState,
+}
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub(super) fn replay_melee_award(
+    g: &QuestProgressionGenesis,
+    seed: MeleeAwardSeed,
+    context: &MeleeKillContext,
+    world: crate::WorldId,
+    profile: &NpcProfile,
+    id: crate::NpcId,
+) -> Result<MeleeAward, NativeError> {
+    let row = g.kill.row(profile.entry)?;
+    let victim = row.victim(creature_guid(world, id, profile.entry), profile);
+    let source_context = kill::KillContext {
+        death_event: context.next_death_event,
+        player_guid: SOLO_UNIT,
+        responsible_player_guid: Some(SOLO_UNIT),
+        original_loot_recipient_guid: Some(SOLO_UNIT),
+        group_loot_recipient: pg::Evidence::Absent,
+        civilian_for_target: row.civilian_for_target,
+        racial_leader: row.racial_leader,
+        reputation: row.reputation,
+        clock: g.kill.clock,
+    };
+    let host = KillHost {
+        progression: ProgressionHost {
+            training: seed.training,
+            derived: seed.derived,
+            derived_calls: vec![],
+            inputs: seed.inputs,
+            audit: g.initial.view().audit,
+        },
+        expected: (victim, g.kill.rules, source_context),
+        rest: context.rest,
+    };
+    let tx = award_progression(g, &seed.player, context.xp_enabled, host)?;
+    Ok(MeleeAward {
+        player: tx.state,
+        training: tx.host.progression.training,
+        derived: tx.host.progression.derived,
+        calls: tx.host.progression.derived_calls,
+        rest: tx.rest,
+    })
+}
+
 impl QuestProgressionState {
     pub(in crate::native) fn killed(
         &self,
@@ -241,29 +377,7 @@ impl QuestProgressionState {
             expected: (victim, g.kill.rules, context),
             rest: self.rest,
         };
-        let tx = if self.xp_enabled {
-            kill::award(
-                &g.levels,
-                &self.player,
-                self.rest,
-                &host,
-                g.kill.rules,
-                victim,
-                context,
-            )?
-        } else {
-            // Fork XP lock suppresses the entire XP transaction, including rest consumption
-            // and XP logs. Kill/tap validation and source quest credit still execute.
-            victim.validate()?;
-            g.kill.rules.validate()?;
-            context.validate(victim, self.rest)?;
-            kill::Transaction {
-                state: self.player.clone(),
-                rest: self.rest,
-                host,
-                events: vec![],
-            }
-        };
+        let tx = award_progression(g, &self.player, self.xp_enabled, host)?;
         let abilities = g.resolve_abilities(&tx.host.progression.training, tx.state.view())?;
         let mut next = Self {
             xp_enabled: self.xp_enabled,

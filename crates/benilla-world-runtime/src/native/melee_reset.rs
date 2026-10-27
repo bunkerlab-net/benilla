@@ -67,6 +67,10 @@ impl MeleeResetWitness {
         })
     }
 
+    pub(in crate::native) fn source_origin(&self) -> (u64, [u32; 2]) {
+        (self.released.captured_ms, self.intervals_ms)
+    }
+
     pub(in crate::native) fn replay_work(&self) -> u64 {
         let Ok(context) = self.release_context() else {
             return u64::MAX;
@@ -93,7 +97,7 @@ impl MeleeResetWitness {
     }
 
     #[cfg(any(test, feature = "synthetic-native-tests"))]
-    fn validate(&self, profile: &Profile, state: &State) -> Result<(), NativeError> {
+    pub(in crate::native) fn validate(&self, profile: &Profile, state: &State) -> Result<(), NativeError> {
         let identity = (profile.digest(), state.domain, state.world, state.player);
         if self.policy != POLICY
             || self.release_receipt_digest
@@ -349,7 +353,13 @@ pub(in crate::native) fn validate_current(
         return Ok(());
     };
     let genesis = profile.combat.as_ref().ok_or(NativeError::InvalidState)?;
-    combat.validate_melee_timers(genesis)?;
+    if profile.player_melee.is_some() {
+        player_melee::validate_current(profile, state)?;
+        combat.validate_melee_timer_fields(genesis)?;
+    } else {
+        if state.player_melee.is_some() { return Err(NativeError::InvalidState); }
+        combat.validate_melee_timers(genesis)?;
+    }
     if interactions::spell_authority::resets_melee_timers(profile, 133)? {
         // The selected single active spell has positive effective source mana cost.
         // TakePower's retained latest-use timestamp anchors the latest release,
@@ -378,6 +388,7 @@ pub(in crate::native) fn validate_current(
     } else if combat.melee_reset.is_some() {
         return Err(NativeError::InvalidState);
     }
+    if profile.player_melee.is_some() { return Ok(()); }
     let expected = match &combat.melee_reset {
         None => [0, 0],
         Some(witness) => witness.remaining_ms(state.now_ms, profile.tick_ms)?,

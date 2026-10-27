@@ -218,6 +218,8 @@ mod tests {
                     movement_origin: world.state.position,
                     movement_path: vec![],
                     player_auras_updated: false,
+                    player_melee_unit_updated: false,
+                    pending_player_melee_death: None,
                 };
                 frame.command(&Command::MovementPose {
                     destination: toward,

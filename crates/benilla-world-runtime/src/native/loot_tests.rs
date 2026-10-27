@@ -468,9 +468,9 @@ fn current_item_receipts_reject_resigned_same_id_count_entry_and_slot_mutations(
             }
         }
         let mut forged: Checkpoint = serde_json::from_value(forged).unwrap();
-        forged.digest = crate::digest(b"benilla-native-state-v51\0", &forged.state);
+        forged.digest = crate::digest(b"benilla-native-state-v52\0", &forged.state);
         forged.checksum = crate::digest(
-            b"benilla-native-checkpoint-v51\0",
+            b"benilla-native-checkpoint-v52\0",
             &(&forged.state, forged.digest, forged.history_tip),
         );
         assert!(

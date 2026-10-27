@@ -116,6 +116,8 @@ mod tests {
                 movement_origin: world.state.position,
                 movement_path: vec![],
                 player_auras_updated: false,
+                player_melee_unit_updated: false,
+                pending_player_melee_death: None,
             };
             let expected = if case == 3 {
                 NativeError::UnsupportedMechanic("spell range flags")

@@ -26,6 +26,12 @@ pub enum DerivedCall {
         view: Box<pg::Snapshot>,
         inputs: DerivedInputs,
     },
+    Weapon {
+        view: Box<pg::Snapshot>,
+        inputs: DerivedInputs,
+        skill: u16,
+        gain: u16,
+    },
     ItemBreak {
         before: Box<pg::Snapshot>,
         before_recipe: Box<init::StatRecipeSnapshot>,
@@ -214,6 +220,72 @@ fn authoritative_recipe(
     Ok(())
 }
 
+/// Numeric history replay is not configuration authority. Every containing
+/// current/restored state and historical binding must check this against the
+/// actual immutable Profile.player_melee policy before trusting its history.
+pub(in crate::native) fn validate_weapon_policy(
+    calls: &[DerivedCall],
+    expected_gain: Option<u16>,
+) -> Result<(), NativeError> {
+    if calls.iter().any(|call| {
+        matches!(call, DerivedCall::Weapon { gain, .. } if Some(*gain) != expected_gain)
+    }) {
+        return Err(NativeError::InvalidCheckpoint);
+    }
+    Ok(())
+}
+
+pub(super) fn weapon_skills(
+    g: &QuestProgressionGenesis,
+    before: &pg::Snapshot,
+    inputs: &DerivedInputs,
+    skill_id: u16,
+    gain: u16,
+) -> Result<Vec<pg::SkillState>, NativeError> {
+    inputs.validate(before)?;
+    let weapon = inputs.weapons.iter().find(|w| w.slot == 15 && !w.broken);
+    let actual_skill = weapon.map_or(162, |w| w.skill);
+    if actual_skill != skill_id
+        || weapon.is_some_and(|w| {
+            !g.initial_combat.equipment_weapons.iter().any(|raw| {
+                raw.slot == w.slot && raw.skill == w.skill && raw.class == 2 && raw.subclass != 20
+            })
+        })
+    {
+        return Err(NativeError::InvalidState);
+    }
+    let mut skills = before.skills.clone();
+    let skill = skills
+        .iter_mut()
+        .find(|s| s.id == skill_id)
+        .ok_or(NativeError::InvalidState)?;
+    if skill.status == pg::SkillStatus::Deleted {
+        return Err(NativeError::InvalidState);
+    }
+    let chance = benilla_sim::player_melee::weapon_gain_chance(
+        u8::try_from(before.level).map_err(|_| NativeError::InvalidState)?,
+        u32::try_from(before.numeric.attributes.0[3]).map_err(|_| NativeError::InvalidState)?,
+        benilla_sim::player_melee::WeaponSkill {
+            value: skill.value,
+            maximum: skill.maximum,
+            gain,
+        },
+    )?;
+    if chance.is_none() {
+        return Err(NativeError::InvalidState);
+    }
+    // This callback runs only after a successful actual roll. Source UpdateSkill
+    // leaves zero value/gain unchanged but UpdateAllCritPercentages still runs.
+    if skill.value != 0 && gain != 0 {
+        skill.value =
+            (u32::from(skill.value) + u32::from(gain)).min(u32::from(skill.maximum)) as u16;
+        if skill.status != pg::SkillStatus::New {
+            skill.status = pg::SkillStatus::Changed;
+        }
+    }
+    Ok(skills)
+}
+
 fn defense_skills(
     g: &QuestProgressionGenesis,
     level: u32,
@@ -288,6 +360,57 @@ impl QuestProgressionState {
             after_inputs,
             slot,
             recompute: Box::new(actual),
+        });
+        *self = next;
+        Ok(())
+    }
+
+    pub(in crate::native) fn validate_weapon_policy(
+        &self,
+        expected_gain: Option<u16>,
+    ) -> Result<(), NativeError> {
+        validate_weapon_policy(&self.derived_calls, expected_gain)
+    }
+
+    pub(in crate::native) fn weapon_skill_change(
+        &mut self,
+        g: &QuestProgressionGenesis,
+        combat: &PlayerCombatState,
+        skill: u16,
+        gain: u16,
+        health: u32,
+        mana: u32,
+    ) -> Result<(), NativeError> {
+        reserve_call(&self.derived_calls)?;
+        let inputs = g.derived_inputs(combat);
+        let expected_skills = weapon_skills(g, self.player.view(), &inputs, skill, gain)?;
+        let mut next = self.clone();
+        next.synchronize(g, combat, health, mana)?;
+        let mut view = next.player.snapshot();
+        // synchronize's generic changed-value projection uses Changed. The
+        // source weapon callback retains SKILL_NEW for an already-new skill.
+        if let Some(expected) = expected_skills.iter().find(|s| s.id == skill) {
+            if expected.status == pg::SkillStatus::New {
+                let current = view
+                    .skills
+                    .iter_mut()
+                    .find(|s| s.id == skill)
+                    .ok_or(NativeError::InvalidState)?;
+                current.status = pg::SkillStatus::New;
+            }
+        }
+        if view.skills != expected_skills {
+            return Err(NativeError::InvalidState);
+        }
+        authoritative_recipe(g, &view, &combat.recipe)?;
+        next.derived
+            .apply_hook(pg::StatHook::AllCritPercentages, &view, &inputs)?;
+        next.player = pg::State::restore(&g.levels, view.clone())?;
+        next.derived_calls.push(DerivedCall::Weapon {
+            view: Box::new(view),
+            inputs,
+            skill,
+            gain,
         });
         *self = next;
         Ok(())
@@ -424,6 +547,21 @@ pub(super) fn validate_history(
                     return Err(NativeError::InvalidCheckpoint);
                 }
                 derived.apply_hook(pg::StatHook::DefenseBonuses, view, inputs)?;
+                index += 1;
+            }
+            DerivedCall::Weapon {
+                view,
+                inputs,
+                skill,
+                gain,
+            } => {
+                if *inputs != g.inputs_for_recipe(&recipe.snapshot()) {
+                    return Err(NativeError::InvalidCheckpoint);
+                }
+                let mut expected = source.snapshot();
+                expected.skills = weapon_skills(g, &expected, inputs, *skill, *gain)?;
+                source = boundary(g, view, &expected, &recipe)?;
+                derived.apply_hook(pg::StatHook::AllCritPercentages, view, inputs)?;
                 index += 1;
             }
             DerivedCall::ItemBreak {
@@ -797,6 +935,67 @@ mod tests {
         combat.skills.get_mut(&combat::DEFENSE_SKILL).unwrap().value += 1;
         assert!(state
             .defense_change(&g, &combat, live.health, live.mana)
+            .is_err());
+        assert_eq!(state, original);
+    }
+
+    #[test]
+    fn weapon_skill_callback_replays_crit_refresh_even_when_gain_is_zero() {
+        for gain in [0, 1, u16::MAX] {
+            let (g, mut state, mut combat) = mainhand_fixture(1700);
+            let before = state.derived.clone();
+            let live = resources(state.player.view());
+            let current = combat.skills.get_mut(&136).unwrap();
+            current.value = (u32::from(current.value) + u32::from(gain))
+                .min(u32::from(current.maximum)) as u16;
+            state
+                .weapon_skill_change(&g, &combat, 136, gain, live.health, live.mana)
+                .unwrap();
+            let mut expected = before;
+            expected
+                .apply_hook(
+                    pg::StatHook::AllCritPercentages,
+                    state.player.view(),
+                    &g.derived_inputs(&combat),
+                )
+                .unwrap();
+            assert_eq!(state.derived, expected);
+            assert_eq!(state.derived_calls.len(), 1);
+            state.validate_derived(&g, &combat).unwrap();
+            state.validate_weapon_policy(Some(gain)).unwrap();
+            assert!(state.validate_weapon_policy(None).is_err());
+            assert!(state.validate_weapon_policy(Some(gain.wrapping_add(1))).is_err());
+            let mut forged = state.clone();
+            let DerivedCall::Weapon { skill, .. } = forged.derived_calls.last_mut().unwrap() else {
+                unreachable!()
+            };
+            *skill = combat::DEFENSE_SKILL;
+            assert!(forged.validate_derived(&g, &combat).is_err());
+            let mut forged = state.clone();
+            let DerivedCall::Weapon { view, .. } = forged.derived_calls.last_mut().unwrap() else {
+                unreachable!()
+            };
+            view.skills.iter_mut().find(|s| s.id == 136).unwrap().value += 1;
+            assert!(forged.validate_derived(&g, &combat).is_err());
+        }
+    }
+
+    #[test]
+    fn weapon_skill_callback_refuses_foreign_skill_and_full_journal_atomically() {
+        let (g, mut state, combat) = mainhand_fixture(1700);
+        let live = resources(state.player.view());
+        let original = state.clone();
+        assert!(state
+            .weapon_skill_change(&g, &combat, combat::DEFENSE_SKILL, 0, live.health, live.mana)
+            .is_err());
+        assert_eq!(state, original);
+        state
+            .weapon_skill_change(&g, &combat, 136, 0, live.health, live.mana)
+            .unwrap();
+        state.derived_calls = vec![state.derived_calls[0].clone(); MAX_DERIVED_CALLS];
+        let original = state.clone();
+        assert!(state
+            .weapon_skill_change(&g, &combat, 136, 0, live.health, live.mana)
             .is_err());
         assert_eq!(state, original);
     }

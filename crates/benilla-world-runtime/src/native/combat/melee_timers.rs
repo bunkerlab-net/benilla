@@ -171,6 +171,42 @@ impl PlayerMeleeTimers {
         self.remaining_ms
     }
 
+    fn validate_shape(&self) -> Result<(), NativeError> {
+        if self.shapeshift_form != 0
+            || self.disarmed
+            || self.attack_speed_factors != [SPEED_ONE; 2]
+            || self.melee_attacking != self.victim.is_some()
+            || self.remaining_ms[1] > 100
+        {
+            return Err(NativeError::InvalidState);
+        }
+        Ok(())
+    }
+
+    pub(in crate::native) fn victim(&self) -> Option<crate::NpcId> {
+        self.victim
+    }
+
+    pub(in crate::native) fn melee_attacking(&self) -> bool {
+        self.melee_attacking
+    }
+
+    /// Only the private source reducer writes these fields. Whole-owner
+    /// validation independently derives every field from its joint proof.
+    pub(in crate::native) fn write_source_fields(
+        &mut self,
+        victim: Option<crate::NpcId>,
+        remaining_ms: [u32; 2],
+    ) -> Result<(), NativeError> {
+        let mut next = self.clone();
+        next.victim = victim;
+        next.melee_attacking = victim.is_some();
+        next.remaining_ms = remaining_ms;
+        next.validate_shape()?;
+        *self = next;
+        Ok(())
+    }
+
     fn validate_idle(&self) -> Result<(), NativeError> {
         if self.melee_attacking
             || self.victim.is_some()
@@ -191,7 +227,7 @@ impl PlayerMeleeTimers {
         slot: u8,
         recipe: &init::StatRecipeSnapshot,
     ) -> Result<(), NativeError> {
-        self.validate_idle()?;
+        self.validate_shape()?;
         let item = recipe
             .items
             .iter()
@@ -254,6 +290,16 @@ impl PlayerCombatState {
         genesis: &CombatGenesis,
     ) -> Result<(), NativeError> {
         self.melee_timers.validate_idle()?;
+        self.validate_melee_timer_fields(genesis)
+    }
+
+    /// Structural component check. Active lifecycle/countdown authority is
+    /// checked only by the selected whole-owner player-melee proof.
+    pub(in crate::native) fn validate_melee_timer_fields(
+        &self,
+        genesis: &CombatGenesis,
+    ) -> Result<(), NativeError> {
+        self.melee_timers.validate_shape()?;
         let times = genesis.source_attack_times_for_recipe(&self.recipe.snapshot())?;
         let current = self.equipment.snapshot();
         equipment::EquipmentState::restore(
@@ -293,6 +339,19 @@ impl PlayerCombatState {
         genesis: &CombatGenesis,
     ) -> Result<[u32; 2], NativeError> {
         let times = self.source_attack_times(genesis)?;
+        self.melee_timers.remaining_ms[0] = times[0];
+        Ok(times)
+    }
+
+    pub(in crate::native) fn reset_selected_melee_timer(
+        &mut self,
+        genesis: &CombatGenesis,
+    ) -> Result<[u32; 2], NativeError> {
+        self.validate_melee_timer_fields(genesis)?;
+        if self.melee_timers.melee_attacking {
+            return Err(NativeError::UnsupportedMechanic("cast during player melee"));
+        }
+        let times = genesis.source_attack_times_for_recipe(&self.recipe.snapshot())?;
         self.melee_timers.remaining_ms[0] = times[0];
         Ok(times)
     }

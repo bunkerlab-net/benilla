@@ -684,6 +684,8 @@ impl<A: Authority> Frame<'_, A> {
                     .assistance_combat_stop(self.state.tick, AssistanceStopReason::Evade)?;
             }
             ai::Effect::Died => {
+                // Unit::SetDeathState(JUST_DIED) clears all reactive states.
+                npc.defense_reactive = None;
                 // Unit::SetDeathState(JUST_DIED) calls CombatStop, Unit.cpp:8562.
                 npc.events
                     .assistance_combat_stop(self.state.tick, AssistanceStopReason::Death)?;
@@ -713,6 +715,7 @@ impl<A: Authority> Frame<'_, A> {
                     .schedule_notify(shared.relocation_aggro_delay_ms, false)?;
             }
             ai::Effect::Respawned { .. } => {
+                npc.defense_reactive = None;
                 let source = npc.source_motion.as_mut().unwrap();
                 source.active = g.npc_initial_active;
                 source.combat_start = None;
@@ -895,6 +898,14 @@ impl<A: Authority> Frame<'_, A> {
             .npcs
             .remove(&id.spawn)
             .ok_or(NativeError::InvalidState)?;
+        // Source UpdateReactives precedes movement. The AI's independent attack
+        // timer subtraction is deferred inside its receipt application; this
+        // admitted slice has no intervening reactive-state reader.
+        if let Some(reactive) = &npc.defense_reactive {
+            if reactive.remaining(self.state.now_ms, self.profile.tick_ms)? == 0 {
+                npc.defense_reactive = None;
+            }
+        }
         let prior = npc.ai.motion().cloned();
         let facts = self.source_facts(&npc, CombatPhase::UnitPrelude)?;
         let observation = self.source_observation(&npc, facts, None, Vec::new())?;
