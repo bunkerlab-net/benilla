@@ -3,7 +3,7 @@
 //! No stored permission bit replaces retained source relationship predicates.
 use super::state::{Lifecycle, MeleeFields};
 use crate::native::interactions::player_melee::{defense_controls, MeleeRelationContext};
-use crate::native::quest_progression::{MeleeExecutionBinding, ValidatedMeleeOperands};
+use crate::native::quest_progression::MeleeExecutionBinding;
 use crate::native::{ai, equipment, NativeError, Npc, Orientation, Profile, State};
 use crate::NpcId;
 use benilla_sim::creature_motion::GroundMovementFlags;
@@ -33,7 +33,6 @@ pub(super) struct SourceContext {
 }
 
 pub(super) struct ReplayedContext {
-    pub operands: ValidatedMeleeOperands,
     pub predecessor: MeleeFields,
     pub input: melee::MeleeInput,
     pub player_health: u32,
@@ -289,7 +288,6 @@ impl SourceContext {
             target_walking: self.target_moving && !self.target_running,
         })?;
         Ok(ReplayedContext {
-            operands,
             predecessor: MeleeFields {
                 lifecycle: Lifecycle {
                     melee_attacking: self.predecessor_victim.is_some(),

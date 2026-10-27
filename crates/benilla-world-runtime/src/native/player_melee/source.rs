@@ -379,16 +379,16 @@ impl SwingWitness {
                         0,
                         18,
                     )? as u8;
-                    equipment.apply_hit_loss::<NativeError, _>(slot, |_, _, changes| {
-                        for transition in &changes.stat_transitions {
-                            let equipment::EquipmentStatTransition::Broken { slot, .. } =
-                                *transition;
-                            if broken_slot.replace(slot).is_some() {
-                                return Err(NativeError::InvalidCheckpoint);
-                            }
+                    // Replay only: validate the resulting equipment snapshot and
+                    // every derived item-break callback below, without live effects.
+                    let changes =
+                        equipment.apply_hit_loss::<NativeError, _>(slot, |_, _, _| Ok(()))?;
+                    for transition in &changes.stat_transitions {
+                        let equipment::EquipmentStatTransition::Broken { slot, .. } = *transition;
+                        if broken_slot.replace(slot).is_some() {
+                            return Err(NativeError::InvalidCheckpoint);
                         }
-                        Ok(())
-                    })?;
+                    }
                 }
             }
         }
