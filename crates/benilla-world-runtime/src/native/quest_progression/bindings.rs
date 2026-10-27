@@ -3,7 +3,7 @@
 use super::*;
 #[path = "melee_binding.rs"]
 mod melee_binding;
-pub(in crate::native) use melee_binding::{MeleeExecutionBinding, ValidatedMeleeOperands};
+pub(in crate::native) use melee_binding::MeleeExecutionBinding;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
