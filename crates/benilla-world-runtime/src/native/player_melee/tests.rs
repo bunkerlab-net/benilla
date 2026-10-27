@@ -1004,6 +1004,32 @@ fn actual_returning_home_preserves_active_range_and_facing_precedence() {
                     .any(|event| matches!(event, Event::PlayerMelee { .. })));
             }
             assert_eq!(world.state.npcs[&2].ai.phase(), ai::Phase::ReturningHome);
+            if expected_error == 2 {
+                // The stationary player has no moving-both leeway. Approach
+                // only after genuine Home entry, avoiding rear NPC combat.
+                for position in [0.5, 1.0, 1.5, 2.0] {
+                    let input = synthetic_quest_fixture::command(
+                        &world,
+                        Command::MovementPose {
+                            destination: fixture::point(position),
+                            orientation: Orientation::new(std::f32::consts::PI).unwrap(),
+                            movement_flags:
+                                benilla_sim::creature_motion::GroundMovementFlags::STOPPED,
+                        },
+                    );
+                    world
+                        .step(world.state.tick + 1, Some(input), &mut authority)
+                        .unwrap();
+                    assert_eq!(world.state.position, fixture::point(position));
+                    assert_eq!(world.state.npcs[&2].ai.phase(), ai::Phase::ReturningHome);
+                    assert!(!world
+                        .last_tick()
+                        .unwrap()
+                        .events
+                        .iter()
+                        .any(|event| matches!(event, Event::PlayerMelee { .. })));
+                }
+            }
             let before = current_fields(&world.state).unwrap();
             let context = context::SourceContext::capture(
                 &world.profile,
