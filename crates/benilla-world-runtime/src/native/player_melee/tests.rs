@@ -64,9 +64,7 @@ fn profile_with_options(
         school: 0,
     };
     weapon.delay_ms = 2500;
-    if fragile_weapon {
-        weapon.max_durability = 1;
-    }
+    weapon.max_durability = if fragile_weapon { 1 } else { 1000 };
     input.items.push(weapon);
     let init::Rows::Complete(grants) = &mut input.item_grants else {
         unreachable!()
@@ -153,9 +151,25 @@ fn profile_with_options(
         target.ai.reaction = ai::Reaction::Aggressive;
         target.ai.spawn = fixture::point(spawn);
         target.ai.hard_leash_radius = Some(fixture::real(0.1));
+        profile.npcs[1].faction_template = 3;
         profile.player.orientation = Orientation::new(std::f32::consts::PI).unwrap();
     }
     let mut relations = synthetic_combat_fixture::source_rows(&profile);
+    if home_spawn.is_some() {
+        // The Home test observes player pursuit, not the unsupported peer attack
+        // branch. Its separate quest giver has genuinely neutral source masks.
+        relations.factions.push(InteractionFactionSource {
+            template_id: 3,
+            faction: 0,
+            template_flags: 0,
+            group_mask: 0,
+            friend_group_mask: 0,
+            enemy_group_mask: 0,
+            enemies: [0; 4],
+            friends: [0; 4],
+            reputation_list_id: None,
+        });
+    }
     for npc in &mut relations.npcs {
         npc.npc_flags = u32::from(npc.entry == 60003) * 2;
     }
@@ -568,7 +582,9 @@ fn repeated_start_then_client_stop_preserves_exact_edges_without_a_swing() {
 
 #[test]
 fn genuine_npc_defense_reactive_refresh_expiry_death_and_restore_are_bound() {
-    let profile = profile_with_health(60);
+    // The authored eight-HP target is tested for death within twelve ordinary
+    // staff intervals; actual survival and the complete seeded path are asserted.
+    let profile = profile_with_health(8);
     let mut first = None;
     let mut refreshed = None;
     let mut active_cases = 0;
@@ -639,6 +655,7 @@ fn genuine_npc_defense_reactive_refresh_expiry_death_and_restore_are_bound() {
         "enumeration must exercise an actual defense callback"
     );
     let mut world = first.expect("actual source reactive required");
+    assert!(world.state.npcs[&2].health > 0);
     let original = world.checkpoint().unwrap();
     for pointer in [
         "/state/npcs/2/defense_reactive/key/action",
@@ -677,12 +694,25 @@ fn genuine_npc_defense_reactive_refresh_expiry_death_and_restore_are_bound() {
         world.state.npcs[&2].defense_reactive.is_none(),
         "exact expiry clears retained cause"
     );
+    assert!(world.state.npcs[&2].health > 0);
     assert_eq!(restore(&world).state_digest(), world.state_digest());
 
     let mut world = refreshed.expect("enumeration must exercise an actual refresh");
     let mut authority = CompleteAuthority::default();
+    assert!(world.state.npcs[&2].health > 0);
+    let weapon = world
+        .state
+        .combat
+        .as_ref()
+        .unwrap()
+        .equipment
+        .item(15)
+        .unwrap();
+    assert_eq!(weapon.max_durability, 1000);
+    assert!(!weapon.is_broken());
     assert_eq!(restore(&world).state_digest(), world.state_digest());
     let target = world.state.npcs[&2].id;
+    let mut swings = Vec::new();
     for _ in 0..300 {
         if world.state.npcs[&2].health == 0 {
             break;
@@ -690,8 +720,30 @@ fn genuine_npc_defense_reactive_refresh_expiry_death_and_restore_are_bound() {
         world
             .step(world.state.tick + 1, None, &mut authority)
             .unwrap();
+        for event in &world.last_tick().unwrap().events {
+            if let Event::PlayerMelee {
+                outcome, effective, ..
+            } = event
+            {
+                swings.push((world.state.tick, outcome.damage, *effective));
+            }
+        }
     }
-    assert_eq!(world.state.npcs[&2].health, 0);
+    let weapon = world
+        .state
+        .combat
+        .as_ref()
+        .unwrap()
+        .equipment
+        .item(15)
+        .unwrap();
+    assert!(!weapon.is_broken());
+    assert_eq!(
+        world.state.npcs[&2].health,
+        0,
+        "bounded death path: player health={}, weapon={weapon:?}, swings={swings:?}",
+        world.state.health
+    );
     assert!(world.state.npcs[&2].defense_reactive.is_none());
     assert_eq!(restore(&world).state_digest(), world.state_digest());
     for _ in 0..100 {
