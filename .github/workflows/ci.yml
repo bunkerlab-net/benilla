@@ -381,6 +381,8 @@ jobs:
             source_route_filter::resident::owned::tests::owned_retained_prefix_literal_oracle_preserves_two_source_effects \
             source_route_filter::resident::owned::tests::owned_retained_observation_literal_oracle_preserves_final_source_effect \
             source_route_filter::resident::owned::tests::owned_los_literal_oracle_preserves_source_and_invocation_operands
+      - name: Build release F05 navigation helper
+        run: mbx build --locked --release -p benilla-native-nav-generator --bin benilla-native-navigation
       - name: Verify release F05 controls and current scene refusals
         shell: bash
         run: |

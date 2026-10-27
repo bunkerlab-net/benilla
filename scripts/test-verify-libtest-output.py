@@ -1328,6 +1328,21 @@ class ExactProofTests(unittest.TestCase):
         self.assertIn('"build benilla-native-nav-generator before scoped tests"', fixture_source)
         self.assertIn('"benilla-native-navigation{}"', fixture_source)
 
+    def test_f05_release_gate_builds_matching_profile_navigation_helper(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        normal = workflow.split("  workspace-gates:\n", 1)[1].split("\n  f05-private-diagnostic:", 1)[0]
+        build = "      - name: Build release F05 navigation helper\n        run: mbx build --locked --release -p benilla-native-nav-generator --bin benilla-native-navigation\n"
+        gate = "      - name: Verify release F05 controls and current scene refusals\n"
+        self.assertEqual(workflow.count(build), 1)
+        self.assertIn(build + gate, normal)
+        self.assertLess(normal.index(gate), normal.index("      - name: Verify F05 private capability compiler boundaries"))
+        shell = workflow_gate("Verify release F05 controls and current scene refusals")
+        self.assertIn('mbx test --locked --release -p benilla-app --lib "$name"', shell)
+        comparison = (ROOT / ".github/workflows/resident-controller-profile-comparison.yml").read_text()
+        self.assertIn("for profile in test release; do", comparison)
+        self.assertIn('args+=(--release)', comparison)
+        self.assertIn('mbx test --locked "${args[@]}" -p benilla-native-nav-generator --test process', comparison)
+
     def test_f05_short_diagnostic_preserves_both_exit_statuses_and_exact_manifest(self):
         shell = workflow_gate("Diagnose exact F05 private source frames")
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
