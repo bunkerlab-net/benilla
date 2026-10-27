@@ -1771,7 +1771,10 @@ fn run_f05_controller(fault: F05Fault) -> freshness_timings::SourceTrace {
                             Some((false, Some("Source(Cancelled)")))
                         }
                         F05Fault::CancelAfterStaging => Some((true, Some("Source(Cancelled)"))),
-                        F05Fault::ColliderBirth => Some((true, Some("Context(Obstacle)"))),
+                        // Uncatalogued membership refuses before source-bound obstacle casts.
+                        F05Fault::ColliderBirth => {
+                            Some((true, Some("Context(UnsupportedNavigation)")))
+                        }
                         F05Fault::ForeignIndex => Some((true, Some("Context(Binding)"))),
                         F05Fault::SourceChange => Some((false, Some("Source(TerrainSource)"))),
                         F05Fault::QuitHeld => None,
