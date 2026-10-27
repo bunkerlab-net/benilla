@@ -739,8 +739,7 @@ fn genuine_npc_defense_reactive_refresh_expiry_death_and_restore_are_bound() {
         .unwrap();
     assert!(!weapon.is_broken());
     assert_eq!(
-        world.state.npcs[&2].health,
-        0,
+        world.state.npcs[&2].health, 0,
         "bounded death path: player health={}, weapon={weapon:?}, swings={swings:?}",
         world.state.health
     );
