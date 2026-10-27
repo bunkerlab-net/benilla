@@ -994,7 +994,16 @@ fn actual_returning_home_preserves_active_range_and_facing_precedence() {
 fn actual_hit_done_weapon_break_precedes_unarmed_timer_reset_and_restore() {
     let profile = profile_with_options(60, false, None, true);
     let genesis = profile.combat.as_ref().unwrap();
-    assert_eq!(genesis.equipment.item(15).unwrap().current_durability, 1);
+    assert_eq!(
+        genesis
+            .equipment
+            .items
+            .iter()
+            .find(|item| item.slot == 15)
+            .unwrap()
+            .current_durability,
+        1
+    );
     assert_eq!(
         genesis
             .source_attack_times_for_recipe(&genesis.recipe.snapshot())
