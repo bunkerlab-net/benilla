@@ -408,9 +408,9 @@ fn genuine_npc_defense_reactive_refresh_expiry_death_and_restore_are_bound() {
             .expect("exact serialized proof field");
         *field = serde_json::json!(field.as_u64().unwrap() + 1);
         let mut changed: Checkpoint = serde_json::from_value(value).unwrap();
-        changed.digest = crate::digest(b"benilla-native-state-v58\0", &changed.state);
+        changed.digest = crate::digest(b"benilla-native-state-v59\0", &changed.state);
         changed.checksum = crate::digest(
-            b"benilla-native-checkpoint-v58\0",
+            b"benilla-native-checkpoint-v59\0",
             &(&changed.state, changed.digest, changed.history_tip),
         );
         assert!(

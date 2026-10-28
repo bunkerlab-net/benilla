@@ -368,9 +368,9 @@ fn controls_checkpoint_flags_and_call_history_cannot_be_reblessed() {
             _ => unreachable!(),
         }
         forged.state = serde_json::from_value(encoded).unwrap();
-        forged.digest = crate::digest(b"benilla-native-state-v58\0", &forged.state);
+        forged.digest = crate::digest(b"benilla-native-state-v59\0", &forged.state);
         forged.checksum = crate::digest(
-            b"benilla-native-checkpoint-v58\0",
+            b"benilla-native-checkpoint-v59\0",
             &(&forged.state, forged.digest, forged.history_tip),
         );
         assert!(
@@ -497,6 +497,14 @@ fn active_cast_at_war_control_reopens_without_reinterpreting_cast_origin() {
         w.state.combat.as_ref().unwrap().in_combat,
         "real projectile impact must enter combat"
     );
+    let toggle =
+        synthetic_quest_fixture::command(&w, Command::SetActionBarToggles { toggles: 0xf5 });
+    let alive_before = w.state.player_alive();
+    w.step(w.state.tick + 1, Some(toggle), &mut authority)
+        .unwrap();
+    assert_eq!(w.state.action_bar_toggles(), 0xf5);
+    assert_eq!(w.state.player_alive(), alive_before);
+    reopen(&w);
     let watch_start = w.checkpoint().unwrap();
     let record_offset = w.records().len();
     let watch =
@@ -597,6 +605,10 @@ fn reputation_controls_remain_available_after_real_lethal_damage() {
     assert!(!w.state.player_alive());
     step(&mut w, Command::SetWatchedFaction { list_id: i32::MAX });
     assert_eq!(w.state.watched_faction(), i32::MAX);
+    assert!(!w.state.player_alive());
+    step(&mut w, Command::SetActionBarToggles { toggles: 0xff });
+    assert_eq!(w.state.action_bar_toggles(), 0xff);
+    assert_eq!(w.state.health, 0);
     assert!(!w.state.player_alive());
     reopen(&w);
     replay(&w, initial);

@@ -97,6 +97,7 @@ fn main() {
         "SplitItem",
         "DestroyItem",
         "QuestlogRemove",
+        "SetActionBarToggles",
         "SetWatchedFaction",
         "SetFactionAtWar",
         "SetFactionInactive",

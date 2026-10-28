@@ -109,7 +109,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v58\0",
+            b"benilla-native-profile-v59\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -427,6 +427,7 @@ impl Npc {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct State {
+    pub(super) action_bar_toggles: action_bar_toggles::ActionBarTogglesState,
     pub(super) watched_faction: watched_faction::WatchedFactionState,
     pub(super) player_melee: Option<player_melee::PlayerMeleeState>,
     pub initial_cast_genesis: InitialCastGenesis,
@@ -500,6 +501,9 @@ pub enum Command {
     },
     /// Internal controller lifecycle acknowledgement; no network/UI request maps here.
     AcknowledgeInitialReputations,
+    SetActionBarToggles {
+        toggles: u8,
+    },
     SetWatchedFaction {
         list_id: i32,
     },
@@ -889,6 +893,10 @@ pub struct QuestInteractionFacts {
     pub npc_reaction: u8,
 }
 impl State {
+    /// Raw source action-bar display byte, not the contents of action slots.
+    pub fn action_bar_toggles(&self) -> u8 {
+        self.action_bar_toggles.value()
+    }
     /// Raw source signed descriptor; unknown and negative values are not normalized.
     pub fn watched_faction(&self) -> i32 {
         self.watched_faction.value()

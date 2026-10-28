@@ -219,7 +219,7 @@ impl NativeWorld {
         let replies = frame.replies;
         let events = frame.events;
         let draws = frame.draws;
-        let after = crate::digest(b"benilla-native-state-v58\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v59\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -642,6 +642,13 @@ impl<A: Authority> Frame<'_, A> {
                     .as_mut()
                     .ok_or(NativeError::InvalidState)?
                     .acknowledge_initial_reputations(g)?;
+                None
+            }
+            Command::SetActionBarToggles { toggles } => {
+                action_bar_toggles::validate_profile(self.profile)?;
+                self.state
+                    .action_bar_toggles
+                    .write(*toggles, self.state.next_sequence)?;
                 None
             }
             Command::SetWatchedFaction { list_id } => {

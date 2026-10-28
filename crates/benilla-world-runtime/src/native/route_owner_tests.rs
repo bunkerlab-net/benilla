@@ -367,6 +367,6 @@ fn pre_wrapper_native_format21_checkpoint_record_and_replay_are_refused() {
             .unwrap();
     assert!(replay.replay(&records).is_err());
     assert_eq!(replay.checkpoint().unwrap(), initial);
-    assert_eq!(NATIVE_FORMAT_VERSION, 58);
+    assert_eq!(NATIVE_FORMAT_VERSION, 59);
     assert_eq!(crate::FORMAT_VERSION, 2);
 }

@@ -629,3 +629,76 @@ fn actual_lua_watched_faction_waits_for_descriptor_commit_and_retains_raw_signed
         assert_eq!(field(&c.initial_events().unwrap()), Some(raw));
     }
 }
+
+#[test]
+fn actual_lua_action_bar_toggles_wait_for_saved_descriptor_and_reopen_raw_byte() {
+    use benilla_ui::script::UiScript;
+    let h = Harness::new();
+    let mut c = enter(&h, false, false, false);
+    assert!(c.world.profile().supports_action_bar_toggles());
+    let field = |events: &[SessionEvent]| {
+        events.iter().find_map(|event| match event {
+            SessionEvent::ObjectValues { fields, .. } => fields.player_action_bar_toggles(),
+            _ => None,
+        })
+    };
+    let initial = c.initial_events().unwrap();
+    assert_eq!(field(&initial), Some(0));
+    let mut ui = UiScript::new().unwrap();
+    ui.set_action_bar_toggles(field(&initial).unwrap());
+    ui.run("SetActionBarToggles(1, nil, 1, nil)").unwrap();
+    assert_eq!(ui.take_action_bar_toggle_sends(), vec![5]);
+    assert_eq!(
+        ui.action_bar_toggles(),
+        Some(0),
+        "Lua setter does not invent a local descriptor echo"
+    );
+    c.receive(ClientCommand::SetActionBarToggles { toggles: 5 })
+        .unwrap();
+    fs::write(
+        h.path().join(".world-checkpoint.pending"),
+        b"authored save failure",
+    )
+    .unwrap();
+    let failed = c.pump(c.tick_duration());
+    assert!(matches!(
+        failed.pause.unwrap().kind,
+        PauseKind::Checkpoint {
+            requires_reopen: false
+        }
+    ));
+    assert!(failed.events.is_empty());
+    assert_eq!(c.world.state().action_bar_toggles(), 5);
+    let sequence = c.world.state().next_sequence;
+    fs::remove_file(h.path().join(".world-checkpoint.pending")).unwrap();
+    c.retry_checkpoint().unwrap();
+    let out = c.pump(Duration::ZERO);
+    assert!(out.pause.is_none());
+    assert_eq!(field(&out.events), Some(5));
+    ui.set_action_bar_toggles(field(&out.events).unwrap());
+    assert!(ui
+        .eval::<bool>(
+            "local a,b,c,d=GetActionBarToggles(); return a==1 and b==nil and c==1 and d==nil"
+        )
+        .unwrap());
+    assert!(c.pump(Duration::ZERO).events.is_empty());
+    assert_eq!(c.world.state().next_sequence, sequence);
+    let digest = c.world.state_digest();
+    drop(c);
+    let mut c = enter(&h, true, false, false);
+    assert_eq!(c.world.state_digest(), digest);
+    assert_eq!(field(&c.initial_events().unwrap()), Some(5));
+    for raw in [0xff, 0xf5, 0x80, 0] {
+        c.receive(ClientCommand::SetActionBarToggles { toggles: raw })
+            .unwrap();
+        let out = c.pump(c.tick_duration());
+        assert!(out.pause.is_none());
+        assert_eq!(field(&out.events), Some(raw));
+        assert_eq!(c.world.state().action_bar_toggles(), raw);
+        let digest = c.world.state_digest();
+        drop(c);
+        c = enter(&h, true, false, false);
+        assert_eq!(c.world.state_digest(), digest);
+        assert_eq!(field(&c.initial_events().unwrap()), Some(raw));
+    }
+}

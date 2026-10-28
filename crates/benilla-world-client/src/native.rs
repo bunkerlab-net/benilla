@@ -416,6 +416,10 @@ impl NativeProjection {
         }
     }
     fn player_values(&self, w: &n::NativeWorld) -> SessionEvent {
+        let mut player_field_bytes = w
+            .profile()
+            .supports_action_bar_toggles()
+            .then(|| u32::from(w.state().action_bar_toggles()) << 16);
         let mut pairs = vec![
             (22, w.state().health),
             (28, w.player_limits().0),
@@ -480,11 +484,17 @@ impl NativeProjection {
         if let Some(d) = w.state().combat.as_ref().and_then(|c| c.death.as_ref()) {
             let state = d.snapshot();
             if state.phase == benilla_sim::player_death::DeathPhase::Corpse {
-                pairs.extend([
-                    (143, 0),
-                    (1222, if state.config.map_instanceable { 0 } else { 8 }),
-                ]);
+                pairs.push((143, 0));
+                // Preserve the existing exact KillPlayer/Corpse release flag.
+                // SetActionBarToggles owns byte2, not these low-byte bits.
+                player_field_bytes = Some(
+                    player_field_bytes.unwrap_or(0)
+                        | if state.config.map_instanceable { 0 } else { 8 },
+                );
             }
+        }
+        if let Some(value) = player_field_bytes {
+            pairs.push((1222, value));
         }
         pairs.extend(quests::player_pairs(w, &self.quest_metadata));
         pairs.extend(loot::player_pairs(w));
@@ -2109,3 +2119,7 @@ mod creature_equipment_tests;
 #[cfg(test)]
 #[path = "native_watched_faction_tests.rs"]
 mod watched_faction_tests;
+
+#[cfg(test)]
+#[path = "native_action_bar_toggles_tests.rs"]
+mod action_bar_toggles_tests;
