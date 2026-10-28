@@ -207,7 +207,7 @@ source gate or change the integer armor policy.
 
 See [SPELL-AUTHORITY.md](SPELL-AUTHORITY.md) for the bounded ID133 source spell
 host, complete raw input dependencies, phase/scheduler ownership, numeric oracle
-and native simulation checkpoint/record format 66. This is not production content
+and native simulation checkpoint/record format 67. This is not production content
 admission or stock Fireball certification.
 
 See [FACING-AUTHORITY.md](FACING-AUTHORITY.md) for explicit current-request
@@ -223,3 +223,9 @@ See [owner pathfinding bit receipts](src/native/README.md#owner-pathfinding-bit-
 for bounded runtime issuance from source/control audits and live executable abilities,
 required-option v33 Route evidence, replay guarantees and the pinned source guard.
 This supplies only IGNORE_PATHFINDING, not config, calculate completion or native admission.
+
+Native format 67 retains exact selected ordinary-instance destruction even when
+a registered original with the same entry remains carried. The selected receipt
+must preserve every registered instance; unselected quest consumption and
+registered-item destruction remain unsupported. No old-save migration or native
+admission is provided.

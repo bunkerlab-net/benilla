@@ -63,3 +63,26 @@ excess counts, protected and bound items, pre-removal quest transitions, allocat
 preservation, malformed receipts/callbacks, rollback, checkpoint retry/reopen and
 real simulated player death. These do not establish graphical user verification,
 production native entry, or a complete populated Classic world.
+
+
+## Selected ordinary duplicate beside an original armor object
+
+The native quest host's selected receipt is validated against the exact complete
+pre-inventory, selected entry/count and source reducer before consumption. It can
+remove an ordinary nonregistered duplicate even when a source-origin armor object
+of the same template is carried elsewhere. A two-sided registered slot/full-item
+map, equipped aggregate and allocation frontier must be unchanged. The source
+ItemRemovedQuestCheck still observes the aggregate before removal and its events
+precede the selected physical mutation. The receipt is consumed exactly once.
+
+The selected original remains unsupported; unselected entry-based quest removal
+retains its conservative same-entry hold. No tombstone, missing-object allowance,
+generic registry consumer or stat/recipe change is introduced. Native67 and quest
+reconstruction v11 identify the refined host contract; the generic carried-items
+v12 reducer is unchanged. Tests use authored duplicate starter grants sealed before source initialization,
+actual Lua/controller commands,
+checkpoint withholding/retry/reopen, and retained refusal/rollback checks. The
+existing genesis prohibition on quests requiring equipped starter entries remains
+closed; duplicate-armor tests preserve an unrelated quest, while existing ordinary
+deliver-item tests separately cover callback ordering. They
+do not establish native content admission or rendered-player behavior.

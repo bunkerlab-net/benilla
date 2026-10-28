@@ -216,7 +216,7 @@ fn old_external_range_format_nineteen_is_incompatible_without_migration() {
         NativeWorld::restore_synthetic_component_test(w.profile.clone(), initial.clone()).unwrap();
     assert!(replay.replay(&records).is_err());
     assert_eq!(replay.checkpoint().unwrap(), initial);
-    assert_eq!(NATIVE_FORMAT_VERSION, 66);
+    assert_eq!(NATIVE_FORMAT_VERSION, 67);
     assert_eq!(crate::FORMAT_VERSION, 2);
 }
 

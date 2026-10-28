@@ -55,7 +55,7 @@ only by the source class/outcome/alive conditions and expire in NPC Unit update.
 
 ## Persistence contract
 
-Native format 66 rejects older envelopes; no migration is provided. Existing
+Native format 67 rejects older envelopes; no migration is provided. Existing
 unrelated callback hash domains retain their prior versions.
 
 The bounded player proof retains the latest writers of lifecycle, BASE, OFF and
@@ -89,3 +89,9 @@ Bounded proof storage does not make all progression history unbounded. Existing
 derived callback journal and aggregate replay-work/byte limits remain fail-closed
 and transactional. Unsupported operations or exhausted limits are errors, never
 successful no-op swings or fabricated defaults.
+
+Native format 67 retains exact selected ordinary-instance destruction even when
+a registered original with the same entry remains carried. The selected receipt
+must preserve every registered instance; unselected quest consumption and
+registered-item destruction remain unsupported. No old-save migration or native
+admission is provided.

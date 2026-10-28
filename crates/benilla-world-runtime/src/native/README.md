@@ -11,13 +11,13 @@ The opt-in `synthetic-native-tests` feature exposes only synthetic construction 
 restoration. Feature unification, preparation JSON, hashes, and source initializer
 outputs cannot produce `NativeCapability`. Fabricated test rows are not native data.
 
-Native format 66, `benilla-native-armor-auto-store-v66`, retains the selected
+Native format 67, `benilla-native-selected-duplicate-destroy-v67`, retains the selected
 [player mainhand policy](../../PLAYER-MELEE.md), required optional player proof
 and NPC defense reactive state, retained generic-cast slot context and
 spell target-death lifecycle causes in the bounded melee proof. Backpack stack-split
 commands and receipts retain consumed clone identities on legitimate storage
 refusal. Selected backpack destruction retains quest-removal callbacks before
-exact selected-slot mutation; the carried-items policy is v9. Bounded quest
+exact selected-slot mutation; the carried-items policy is v12. Bounded quest
 abandonment retains NONE-status history for reacceptance under quest-lifecycle-v4.
 Format57 added source reputation-panel controls with replayed native reputation-v3
 call history; no immediate acknowledgement packet is invented. Format58 added the
@@ -26,7 +26,7 @@ changing reputation flags or admitting new gameplay. Format59 retained the raw
 action-bar toggle byte and changed-write history; its player-field projection
 composes the existing death release-timer flag without overwriting that byte.
 Format60 added bounded backpack autostore with ordered detach/store receipts,
-unchanged allocation and no quest-count callbacks; carried-items policy is v9.
+unchanged allocation and no quest-count callbacks; carried-items policy is v12.
 Format61 retained immutable genesis-origin equipment identity under equipment-v2,
 with the exact existing projected GUIDs and strict unchanged-loadout validation.
 Format62 registers pre-existing equipped origins with reserved local handles after
@@ -233,7 +233,7 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
   binary64; source comparison is strict promoted-float chance > double roll
 - Draw records bind semantic purpose/action/NPC generation. Action chains bind full
   current defense/cast/resource snapshots, so same-HP misses cannot be reused
-- Checkpoints bind native format 66, policy, RNG mapping, domain, content, authority, geometry,
+- Checkpoints bind native format 67, policy, RNG mapping, domain, content, authority, geometry,
   history-chain tip, cooldown maps, recomputable casts/auras, AI lifecycle/motion,
   exact mana timers, skills/reactive/combat clocks, checked equipment recipes and
   [per-NPC event ownership](../../NPC-EVENTS.md) with DEAD/respawn clock continuity
@@ -469,3 +469,9 @@ Original pristine armor can be relocated only by the separately source-owned
 [armor membership integration](../../ARMOR-MEMBERSHIP.md), with required quest
 history v7 and recipe v3. Ordinary inventory reducers cannot consume registered
 armor; the native capability remains closed.
+
+Native format 67 retains exact selected ordinary-instance destruction even when
+a registered original with the same entry remains carried. The selected receipt
+must preserve every registered instance; unselected quest consumption and
+registered-item destruction remain unsupported. No old-save migration or native
+admission is provided.

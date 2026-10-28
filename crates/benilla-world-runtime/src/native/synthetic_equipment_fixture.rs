@@ -7,16 +7,31 @@ pub fn profile() -> Profile {
     profile_with_lethal(false)
 }
 pub fn profile_with_lethal(lethal: bool) -> Profile {
-    build(lethal, false, None)
+    build(lethal, false, None, false)
 }
 pub fn mainhand_profile() -> Profile {
-    build(false, true, None)
+    build(false, true, None, false)
 }
 pub fn profile_with_armor_type(inventory_type: u32) -> Profile {
-    build(false, false, Some(inventory_type))
+    build(false, false, Some(inventory_type), false)
 }
-fn build(lethal: bool, mainhand: bool, armor_type: Option<u32>) -> Profile {
+pub fn profile_with_duplicate_armor() -> Profile {
+    build(false, false, None, true)
+}
+fn build(lethal: bool, mainhand: bool, armor_type: Option<u32>, duplicate_armor: bool) -> Profile {
     let (mut p, mut input, mut rows) = synthetic_loot_fixture::setup();
+    if duplicate_armor {
+        use benilla_sim::starter_init as init;
+        let entry = input.items.iter().find(|i| i.class == 4).unwrap().id;
+        let init::Rows::Complete(grants) = &mut input.item_grants else {
+            unreachable!()
+        };
+        grants
+            .iter_mut()
+            .find(|grant| grant.item == entry)
+            .unwrap()
+            .count = 2;
+    }
     if let Some(kind) = armor_type {
         let original = input.items.iter_mut().find(|i| i.class == 4).unwrap();
         original.inventory_type = kind;

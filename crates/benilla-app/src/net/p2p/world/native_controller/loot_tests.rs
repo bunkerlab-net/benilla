@@ -1270,3 +1270,6 @@ mod armor_autoequip_tests;
 
 #[path = "armor_autostore_tests.rs"]
 mod armor_autostore_tests;
+
+#[path = "armor_duplicate_destroy_tests.rs"]
+mod armor_duplicate_destroy_tests;

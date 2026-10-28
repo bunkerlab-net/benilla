@@ -51,15 +51,16 @@ previous world state. Item receipt hashes are checksums, not creation authority.
 Live execution reads actual lifecycle/combat/cast owners. Aggregate history work,
 call counts and checkpoint byte limits still apply.
 
-Generic split, autostore and destroy routes explicitly do not own
-registered armor. The separate custody-only relocation route described below is
-the only supported carried swap exception. They reject those consumers rather than silently losing or
-relocating a registered object. Indirect quest consumption is likewise closed. The removal host is deliberately
-conservative by entry: while an original registered armor object is carried, it
-rejects consumption of that entry even if a selected ordinary duplicate could
-otherwise be removed safely. This is an unsupported bounded-host case with atomic
-rollback, not a CMaNGOS rule or protected-item error. Narrowing it requires a
-separately validated selected-receipt path.
+Generic split and destruction do not own registered armor. Carried swap and
+AutoStore can move it only through their separate custody journals below. They
+never silently lose a registered object. Indirect, unselected quest consumption
+retains the conservative entry-wide hold when an original of that entry is
+carried. A selected ordinary duplicate may be destroyed only after the exact
+selected receipt proves the selected ID is not registered and every registered
+carried slot/full instance, equipped aggregate and allocator is unchanged.
+This is not permission to destroy the original or substitute a different stack.
+The remaining hold is an unsupported host subset, not an upstream protected-item
+rule or invented inventory error.
 
 ## Presentation and limitations
 
@@ -68,7 +69,7 @@ player slot references. A removed item is not destroyed and recreated. Visible
 entry words remain owned by the existing complete query-metadata gate; this is
 semantic session projection, not a claim of byte-identical upstream packet order.
 Headless parser/controller tests do not establish rendered appearance or user
-verification. The required native 66 identity, quest reconstruction v10 and carried-items v12
+verification. The required native 67 identity, quest reconstruction v11 and carried-items v12
 host composition have no old-save migration. Carried-items v12 does not add a
 generic equip reducer or relax ordinary carried-instance validation.
 
@@ -128,7 +129,7 @@ real wire mapping and extracted actual non-ammo sender with the actual controlle
 checkpoint withholding/retry/reopen and same-object no-refill result. They do not
 execute the complete Bevy Items/template/ammo dispatch branch or prove rendered
 appearance. The tiny sender extraction leaves that existing dispatch unchanged.
-Native 66, quest reconstruction v10 and carried-items v12 have no old-save migration
+Native 67, quest reconstruction v11 and carried-items v12 have no old-save migration
 and grant no native admission.
 
 
@@ -157,5 +158,5 @@ represents its detach/reattach, and introduces no new-item push, item creation o
 visible-equipped-slot update. Tests cover actual casting/combat/death transactions,
 replay, real Lua intent into the actual controller, checkpoint withholding/retry
 and reopen. These are headless checks, not rendered-player or production-entry
-verification. Native66/quest-v10/carried-items-v12 reject older saves without
+verification. Native67/quest-v11/carried-items-v12 reject older saves without
 migration.

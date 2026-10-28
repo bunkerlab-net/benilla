@@ -149,11 +149,11 @@ fn ordinary_enabled_reputation_abandon_reaccept_reward_and_reopen_replay() {
 fn resign_abandon_checkpoint(value: &mut serde_json::Value) {
     let state: super::super::persistence::StateCheckpoint =
         serde_json::from_value(value["state"].clone()).unwrap();
-    let digest = crate::digest(b"benilla-native-state-v66\0", &state);
+    let digest = crate::digest(b"benilla-native-state-v67\0", &state);
     let tip: crate::Digest = serde_json::from_value(value["history_tip"].clone()).unwrap();
     value["digest"] = serde_json::to_value(digest).unwrap();
     value["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v66\0",
+        b"benilla-native-checkpoint-v67\0",
         &(&state, digest, tip),
     ))
     .unwrap();

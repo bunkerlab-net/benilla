@@ -29,7 +29,7 @@ pub use kills::{creature_guid, KillCreatureRow, KillDependencyAudit, NativeKillP
 pub use reputation::NativeReputationState;
 
 pub const QUEST_PROGRESSION_POLICY: &str =
-    "benilla-native-ordinary-quest-reputation-reconstruction-v10";
+    "benilla-native-ordinary-quest-reputation-reconstruction-v11";
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct QuestNpcRow {
@@ -977,13 +977,6 @@ impl q::Host for QuestHost<'_> {
                 vec![]
             }
             q::HostEffect::DestroyCarriedStack { item, count } => {
-                if let (Some(l), Some(inventory)) = (&self.genesis.loot, &self.inventory) {
-                    if inventory.slots.values().any(|instance| {
-                        instance.item == *item && l.equipment_origin(instance.id).is_some()
-                    }) {
-                        return Err(q::Error::Unsupported("registered armor consumption"));
-                    }
-                }
                 let catalog = &self
                     .genesis
                     .loot
@@ -1002,10 +995,47 @@ impl q::Host for QuestHost<'_> {
                     {
                         return Err(q::Error::Host("selected inventory removal callback"));
                     }
+                    let l = self
+                        .genesis
+                        .loot
+                        .as_ref()
+                        .ok_or(q::Error::Unsupported("native inventory host"))?;
+                    let selected = receipt
+                        .before
+                        .slots
+                        .get(&receipt.slot)
+                        .ok_or(q::Error::Host("selected inventory removal identity"))?;
+                    if l.equipment_origin(selected.id).is_some() {
+                        return Err(q::Error::Unsupported("registered armor consumption"));
+                    }
+                    // Sharing a template does not make an ordinary object the
+                    // registered original. Only this exact selected reducer may
+                    // bypass the conservative entry-wide removal hold.
+                    let registered = |inventory: &inv::State| {
+                        inventory
+                            .slots
+                            .iter()
+                            .filter(|(_, instance)| l.equipment_origin(instance.id).is_some())
+                            .map(|(&slot, instance)| (slot, instance.clone()))
+                            .collect::<BTreeMap<_, _>>()
+                    };
+                    if registered(&receipt.before) != registered(&receipt.after)
+                        || receipt.before.equipped != receipt.after.equipped
+                        || receipt.before.next_item != receipt.after.next_item
+                    {
+                        return Err(q::Error::Host("selected inventory registered custody"));
+                    }
                     let receipt = self.selected_destroy.take().unwrap();
                     self.inventory = Some(receipt.after.clone());
                     vec![QuestProgressionEvent::InventoryDestroyed(Box::new(receipt))]
                 } else {
+                    if let (Some(l), Some(inventory)) = (&self.genesis.loot, &self.inventory) {
+                        if inventory.slots.values().any(|instance| {
+                            instance.item == *item && l.equipment_origin(instance.id).is_some()
+                        }) {
+                            return Err(q::Error::Unsupported("registered armor consumption"));
+                        }
+                    }
                     self.inventory
                         .as_mut()
                         .ok_or(q::Error::Unsupported("native inventory host"))?
