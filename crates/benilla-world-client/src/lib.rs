@@ -2,6 +2,7 @@
 //! Pure, tested integration seam. No networking, Bevy, asset aliases, world admission,
 //! GUI enabling or save-file writes. The original headless fixture lacks client bindings.
 #![forbid(unsafe_code)]
+pub mod corpse_appearance;
 mod interactions;
 mod metadata;
 pub use metadata::QuestMetadata;

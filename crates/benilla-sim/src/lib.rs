@@ -42,6 +42,9 @@ pub mod player_death;
 /// Source reclaim guards and unexecuted recovery callbacks; no native admission.
 pub mod corpse_reclaim;
 
+/// Source appearance words only; no corpse lifecycle or admission.
+pub mod corpse_appearance;
+
 /// Bounded source-derived initial player model scale and collision height.
 pub mod player_model;
 

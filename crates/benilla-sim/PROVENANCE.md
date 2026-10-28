@@ -859,3 +859,19 @@ must stage the reducer, RNG and outputs in one transaction and discard a partial
 callback on failure. There is no generic EventAI interpreter, timer execution,
 combat detection, target resolution, broadcast lookup, audience discovery, packet
 projection, real-world admission or seed/stream equivalence in this component.
+
+## Ordinary corpse appearance assignments
+
+`src/corpse_appearance.rs` derives from CMaNGOS Classic
+`8ec338a1704e7dcb1c0213eb7ed58f9231ade40f` `src/game/Entities/Player.cpp`,
+`Player::CreateCorpse` appearance assignment block. GPL-3.0-or-later; original
+CMaNGOS Project contributors. Cached exact Player.cpp SHA-256:
+`d02d693f2575b0f47be405fe6e81e2a4e833fca8d149354d9cb8d3b458527c7e`.
+See `CORPSE-APPEARANCE.md` for packing, explicit ordinary non-BG scope and missing
+lifecycle. Its world-client adapter tests use authored values only, through the
+existing packet decoder. No game/database content or native admission is added.
+Descriptor layout additionally checked against the same pinned
+`src/game/Entities/UpdateFields.h` (Git blob
+`073511bd0ac71a28d817e735b58212f893169c48`, SHA-256
+`b1c6f19ea63d7bb27a8da0da4834fbc36244e1df5cc6888cac761484645ad2a8`);
+equipment bounds against `Player.h` and flag values against `Corpse.h`.
