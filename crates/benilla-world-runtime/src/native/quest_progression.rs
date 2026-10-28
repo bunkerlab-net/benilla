@@ -748,6 +748,7 @@ impl QuestProgressionGenesis {
 pub enum QuestProgressionEvent {
     Reputation(Box<benilla_sim::reputation::Event>),
     RewardItem(Box<inv::Stored>),
+    InventoryDestroyed(Box<inv::DestroyReceipt>),
     RewardRefused {
         quest: u32,
         giver: crate::NpcId,
@@ -842,6 +843,7 @@ impl pg::Host for ProgressionHost {
 }
 #[derive(Clone)]
 struct QuestHost<'a> {
+    selected_destroy: Option<inv::DestroyReceipt>,
     xp_enabled: bool,
     reputation: Option<NativeReputationState>,
     reputation_calls: VecDeque<(reputation::Marker, Vec<QuestProgressionEvent>)>,
@@ -897,6 +899,17 @@ impl q::Host for QuestHost<'_> {
             .map_err(|_| q::Error::Host("inventory count"))
     }
     fn removal_steps(&self, item: u32, count: u32) -> Result<Vec<u32>, q::Error> {
+        if let Some(receipt) = &self.selected_destroy {
+            if receipt.item() != Some(item)
+                || receipt.removed != count
+                || self.inventory.as_ref() != Some(&receipt.before)
+                || receipt.result != inv::InventoryResult::Ok
+                || count == 0
+            {
+                return Err(q::Error::Host("selected inventory removal identity"));
+            }
+            return Ok(vec![count]);
+        }
         let catalog = &self
             .genesis
             .loot
@@ -954,12 +967,29 @@ impl q::Host for QuestHost<'_> {
                     .as_ref()
                     .ok_or(q::Error::Unsupported("native inventory host"))?
                     .inventory;
-                self.inventory
-                    .as_mut()
-                    .ok_or(q::Error::Unsupported("native inventory host"))?
-                    .remove_first_stack(catalog, *item, *count)
-                    .map_err(|_| q::Error::Host("inventory removal"))?;
-                vec![]
+                if let Some(receipt) = &self.selected_destroy {
+                    receipt
+                        .validate(catalog)
+                        .map_err(|_| q::Error::Host("selected inventory removal proof"))?;
+                    if receipt.item() != Some(*item)
+                        || receipt.removed != *count
+                        || receipt.result != inv::InventoryResult::Ok
+                        || *count == 0
+                        || self.inventory.as_ref() != Some(&receipt.before)
+                    {
+                        return Err(q::Error::Host("selected inventory removal callback"));
+                    }
+                    let receipt = self.selected_destroy.take().unwrap();
+                    self.inventory = Some(receipt.after.clone());
+                    vec![QuestProgressionEvent::InventoryDestroyed(Box::new(receipt))]
+                } else {
+                    self.inventory
+                        .as_mut()
+                        .ok_or(q::Error::Unsupported("native inventory host"))?
+                        .remove_first_stack(catalog, *item, *count)
+                        .map_err(|_| q::Error::Host("inventory removal"))?;
+                    vec![]
+                }
             }
             q::HostEffect::StoreRewardItem { item, count } => {
                 let catalog = &self
@@ -1208,12 +1238,47 @@ impl QuestProgressionState {
         combat: &PlayerCombatState,
         command: q::Command,
     ) -> Result<(Self, Vec<QuestProgressionEvent>), NativeError> {
+        self.reduce_inner(g, combat, command, None)
+    }
+    pub(in crate::native) fn destroy_selected(
+        &self,
+        g: &QuestProgressionGenesis,
+        combat: &PlayerCombatState,
+        receipt: inv::DestroyReceipt,
+    ) -> Result<(Self, Vec<QuestProgressionEvent>), NativeError> {
+        let item = receipt.item().ok_or(NativeError::InvalidState)?;
+        let count = receipt.removed;
+        self.reduce_inner(
+            g,
+            combat,
+            q::Command::RemoveItems { item, count },
+            Some(receipt),
+        )
+    }
+    fn reduce_inner(
+        &self,
+        g: &QuestProgressionGenesis,
+        combat: &PlayerCombatState,
+        command: q::Command,
+        selected_destroy: Option<inv::DestroyReceipt>,
+    ) -> Result<(Self, Vec<QuestProgressionEvent>), NativeError> {
+        if let Some(receipt) = &selected_destroy {
+            receipt.validate(&g.loot.as_ref().ok_or(NativeError::InvalidState)?.inventory)?;
+            if receipt.result != inv::InventoryResult::Ok
+                || receipt.removed == 0
+                || self.inventory.as_ref() != Some(&receipt.before)
+                || !matches!(&command, q::Command::RemoveItems { item, count } if receipt.item() == Some(*item) && receipt.removed == *count)
+            {
+                return Err(NativeError::InvalidState);
+            }
+        }
         let training = init::LiveTraining::restore_authoritative(
             &g.training,
             &self.training,
             self.player.view(),
         )?;
         let host = QuestHost {
+            selected_destroy,
             xp_enabled: self.xp_enabled,
             reputation: self.reputation.clone(),
             reputation_calls: VecDeque::new(),
@@ -1266,7 +1331,10 @@ impl QuestProgressionState {
                 money,
             });
         }
-        if !tx.host.calls.is_empty() || !tx.host.reputation_calls.is_empty() {
+        if !tx.host.calls.is_empty()
+            || !tx.host.reputation_calls.is_empty()
+            || tx.host.selected_destroy.is_some()
+        {
             return Err(NativeError::InvalidState);
         }
         let mut next = self.clone();

@@ -237,12 +237,14 @@ pub(super) struct Frame {
     next_item: Option<u64>,
     slots: BTreeMap<u8, inv::Instance>,
     pending_push: Option<p::ItemPushResult>,
+    pending_destroy: Option<inv::DestroyReceipt>,
 }
 impl Frame {
     pub(super) fn new(state: &n::State) -> Self {
         Self {
             next_item: inventory(state).map(|i| i.next_item),
             slots: inventory(state).map_or_else(BTreeMap::new, |i| i.slots.clone()),
+            pending_destroy: None,
             pending_push: None,
         }
     }
@@ -323,6 +325,17 @@ impl Frame {
         item: u32,
         count: u32,
     ) -> Result<Vec<SessionEvent>, Error> {
+        if let Some(receipt) = &self.pending_destroy {
+            if receipt.item() != Some(item)
+                || receipt.removed != count
+                || self.slots != receipt.before.slots
+                || self.next_item != Some(receipt.before.next_item)
+            {
+                return Err(Error::StaleProjection);
+            }
+            let receipt = self.pending_destroy.take().ok_or(Error::StaleProjection)?;
+            return Ok(self.project(projection, w, &receipt.after.slots));
+        }
         let mut next = self.slots.clone();
         let (&slot, instance) = next
             .iter_mut()
@@ -371,8 +384,20 @@ impl Frame {
         }));
         Ok(events)
     }
+    pub(super) fn validate_next_event(&self, event: &n::Event) -> Result<(), Error> {
+        if let Some(receipt) = &self.pending_destroy {
+            use benilla_sim::quest_lifecycle as q;
+            if !matches!(event, n::Event::QuestProgression(n::QuestProgressionEvent::Quest {
+                event: q::Event::Host(q::HostEffect::DestroyCarriedStack { item, count }), ..
+            }) if Some(*item) == receipt.item() && *count == receipt.removed)
+            {
+                return Err(Error::StaleProjection);
+            }
+        }
+        Ok(())
+    }
     pub(super) fn validate_complete(&self) -> Result<(), Error> {
-        if self.pending_push.is_some() {
+        if self.pending_push.is_some() || self.pending_destroy.is_some() {
             Err(Error::StaleProjection)
         } else {
             Ok(())
@@ -443,7 +468,7 @@ impl NativeProjection {
         )
     }
     pub(super) fn initial_inventory(&self, w: &n::NativeWorld) -> Vec<SessionEvent> {
-        Frame { next_item: inventory(w.state()).map(|i| i.next_item), slots: BTreeMap::new(), pending_push: None }.finish(self, w)
+        Frame { next_item: inventory(w.state()).map(|i| i.next_item), slots: BTreeMap::new(), pending_destroy: None, pending_push: None }.finish(self, w)
         .into_iter()
         // initial_player_fields selects the full initial player descriptor; its bag pointers
         // are already emitted by player_values after all item creates.
@@ -455,6 +480,40 @@ impl NativeProjection {
         self.loot_metadata
             .item(entry)
             .map(|i| crate::plain_ui_text(&i.name))
+    }
+    pub(super) fn inventory_destroy(
+        &self,
+        w: &n::NativeWorld,
+        receipt: &inv::DestroyReceipt,
+        frame: &mut Frame,
+    ) -> Result<Vec<SessionEvent>, Error> {
+        frame.validate_complete()?;
+        if frame.slots != receipt.before.slots || frame.next_item != Some(receipt.before.next_item)
+        {
+            return Err(Error::StaleProjection);
+        }
+        let catalog = &w
+            .profile()
+            .quest_progression
+            .as_ref()
+            .and_then(|g| g.loot.as_ref())
+            .ok_or(Error::StaleProjection)?
+            .inventory;
+        receipt
+            .validate(catalog)
+            .map_err(|_| Error::StaleProjection)?;
+        if receipt.result != inv::InventoryResult::Ok {
+            return Ok(vec![SessionEvent::InventoryFailure {
+                reason: receipt.result.protocol(),
+                required_level: None,
+                item_guid: 0,
+                item2_guid: 0,
+                bag_slot: 0,
+            }]);
+        }
+        // The following source HostEffect owns physical removal after quest callbacks.
+        frame.pending_destroy = Some(receipt.clone());
+        Ok(vec![])
     }
     pub(super) fn inventory_split(
         &self,

@@ -888,3 +888,17 @@ Exact cached source SHA-256:
 - Player.cpp `d02d693f2575b0f47be405fe6e81e2a4e833fca8d149354d9cb8d3b458527c7e`
 `INVENTORY-SPLIT.md` specifies the bounded topology, temporary allocation,
 callback views, projection convention and authored tests. No database rows added.
+
+## Selected backpack destruction (carried-items-v7)
+
+Pinned CMaNGOS Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`:
+HandleDestroyItemOpcode, selected-item DestroyItemCount, DestroyItem and
+ItemRemovedQuestCheck. Public source bytes independently verified:
+
+- ItemHandler.cpp `833cd58e5cba491d72f11b12d5a48f7c0fa36b0310adbccc04442101b3b6edd7`
+- Player.cpp `d02d693f2575b0f47be405fe6e81e2a4e833fca8d149354d9cb8d3b458527c7e`
+
+[INVENTORY-DESTROY.md](INVENTORY-DESTROY.md) specifies the exact selected stack,
+pre-removal quest callback, protected prototype flag, no-allocation transaction,
+projection ordering and unsupported topology/dependencies. Original authored
+fixtures test these boundaries; no game item rows or private SQL are imported.

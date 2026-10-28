@@ -936,6 +936,7 @@ impl NativeProjection {
         let mut range_refusal_presented_at = None;
         let mut speech_deliveries = BTreeSet::new();
         for (event_index, event) in record.events.iter().enumerate() {
+            loot_frame.validate_next_event(event)?;
             // HandleQuestgiverAcceptQuest closes gossip after AddQuest and
             // CompleteQuest callbacks, before the next input or world update.
             if accepted_quest_pending_close && !matches!(event, n::Event::QuestProgression(_)) {

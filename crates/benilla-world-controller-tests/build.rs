@@ -95,6 +95,7 @@ fn main() {
         "LootRelease",
         "SwapInvItem",
         "SplitItem",
+        "DestroyItem",
         "ItemQuery",
         "QuestQuery",
         "NpcTextQuery",

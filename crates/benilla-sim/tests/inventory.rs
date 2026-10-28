@@ -598,3 +598,6 @@ mod corpse;
 
 #[path = "inventory/split.rs"]
 mod split;
+
+#[path = "inventory/destroy.rs"]
+mod destroy;

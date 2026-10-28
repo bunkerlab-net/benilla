@@ -272,6 +272,7 @@ fn previous_native_checkpoints_inside_fresh_store_checksum_cannot_reopen_or_repl
         (48, "benilla-native-wander-leg-v48"),
         (52, "benilla-native-player-mainhand-v52"),
         (53, "benilla-native-player-mainhand-v53"),
+        (54, "benilla-native-backpack-split-v54"),
     ] {
         use sha2::{Digest as _, Sha256};
         let h = Harness::new();
@@ -298,13 +299,13 @@ fn previous_native_checkpoints_inside_fresh_store_checksum_cannot_reopen_or_repl
             hasher.finalize().into()
         };
         checkpoint["digest"] =
-            serde_json::to_value(hash(b"benilla-native-state-v54\0", state.as_bytes())).unwrap();
+            serde_json::to_value(hash(b"benilla-native-state-v55\0", state.as_bytes())).unwrap();
         let body = format!(
             "[{state},{},{}]",
             checkpoint["digest"], checkpoint["history_tip"]
         );
         checkpoint["checksum"] =
-            serde_json::to_value(hash(b"benilla-native-checkpoint-v54\0", body.as_bytes()))
+            serde_json::to_value(hash(b"benilla-native-checkpoint-v55\0", body.as_bytes()))
                 .unwrap();
         let typed: n::Checkpoint = serde_json::from_value(checkpoint).unwrap();
         let snapshot = typed.encode().unwrap();

@@ -109,7 +109,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v54\0",
+            b"benilla-native-profile-v55\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -464,6 +464,7 @@ pub enum Command {
     AttackStop,
     InventoryMove(InventoryMoveRequest),
     InventorySplit(InventorySplitRequest),
+    InventoryDestroy(InventoryDestroyRequest),
     Admin(AdminRequest),
     MovementPose {
         destination: ai::Point,
@@ -530,6 +531,13 @@ pub struct InventoryMoveRequest {
 pub struct InventorySplitRequest {
     pub source: u8,
     pub destination: u8,
+    pub count: u8,
+}
+/// Source selected backpack slot; count zero requests the complete selected stack.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InventoryDestroyRequest {
+    pub slot: u8,
     pub count: u8,
 }
 /// An exact preparing instance, or the cast created by an earlier input in this frame.

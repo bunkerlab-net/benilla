@@ -5,7 +5,7 @@
 `SwapItem` from CMaNGOS Classic
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. The upstream grant is
 GPL-2.0-or-later; see [PROVENANCE.md](PROVENANCE.md). Its policy is
-`cmangos-8ec338a1-carried-items-v6`.
+`cmangos-8ec338a1-carried-items-v7`.
 The separately named positive admin policy is `CmangosAddItemV1`.
 
 ## Exact source behavior
@@ -251,3 +251,8 @@ probes must abort, rather than return an invented successful result.
 Focused Rust tests also cover all sixteen-by-sixteen position
 pairs, immutable equipment, allocation exhaustion without allocation, filled
 backpacks, metadata/receipt tampering, excluded topology and strict audit failure.
+
+Selected ordinary-backpack destruction is specified in
+[INVENTORY-DESTROY.md](INVENTORY-DESTROY.md): the exact selected instance is removed
+only after source quest callbacks, with typed no-user-destroy protection and
+strict checkpoint/projection ownership. Other item topologies remain excluded.

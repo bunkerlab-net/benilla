@@ -1157,6 +1157,7 @@ fn movement_receipt_rejects_stale_before_and_tampered_after_without_changing_fra
     let mut frame = Frame {
         next_item: Some(before.next_item),
         slots: before.slots.clone(),
+        pending_destroy: None,
         pending_push: None,
     };
     let mut tampered = moved.clone();
@@ -1230,6 +1231,7 @@ fn pickup_and_quest_bonding_move_project_same_instance_flags_without_item_push()
         let mut frame = Frame {
             next_item: Some(state.next_item),
             slots: state.slots.clone(),
+            pending_destroy: None,
             pending_push: None,
         };
         let receipt = state.swap_backpack(catalog, 23, 38, true).unwrap();
@@ -1270,6 +1272,7 @@ fn split_projection_rejects_locally_valid_wrong_allocator_and_tampered_views_ato
     let mut frame = Frame {
         next_item: Some(before.next_item),
         slots: before.slots.clone(),
+        pending_destroy: None,
         pending_push: None,
     };
     let mut other = before.clone();
@@ -1298,4 +1301,67 @@ fn split_projection_rejects_locally_valid_wrong_allocator_and_tampered_views_ato
     assert!(!events
         .iter()
         .any(|event| matches!(event, SessionEvent::ItemPushResult(_))));
+}
+
+#[test]
+fn selected_destroy_projection_requires_exact_immediate_host_callback() {
+    let w = build(&[2], 0);
+    let projection = NativeProjection::new(&w, w.state().player, &Catalog::new(&w)).unwrap();
+    let catalog = &w
+        .profile()
+        .quest_progression
+        .as_ref()
+        .unwrap()
+        .loot
+        .as_ref()
+        .unwrap()
+        .inventory;
+    let mut before = inventory(w.state()).unwrap().clone();
+    before
+        .store_new(catalog, 70001, 4, |_, _, _| Ok(()))
+        .unwrap();
+    let receipt = before.plan_destroy_backpack(catalog, 23, 1).unwrap();
+    let mut frame = Frame {
+        next_item: Some(before.next_item),
+        slots: before.slots.clone(),
+        pending_destroy: None,
+        pending_push: None,
+    };
+    let mut other = receipt.clone();
+    other.before.next_item += 10;
+    other.after.next_item += 10;
+    other.validate(catalog).unwrap();
+    assert!(projection
+        .inventory_destroy(&w, &other, &mut frame)
+        .is_err());
+    assert_eq!(frame.slots, before.slots);
+    assert!(frame.pending_destroy.is_none());
+    assert!(projection
+        .inventory_destroy(&w, &receipt, &mut frame)
+        .unwrap()
+        .is_empty());
+    assert!(frame.validate_complete().is_err());
+    assert!(frame
+        .validate_next_event(&n::Event::InventorySplit(Box::new({
+            let mut s = before.clone();
+            s.split_backpack(catalog, 23, 38, 1).unwrap()
+        })))
+        .is_err());
+    assert!(frame
+        .remove_carried_stack(&projection, &w, 70002, 1)
+        .is_err());
+    assert!(frame
+        .remove_carried_stack(&projection, &w, 70001, 2)
+        .is_err());
+    assert_eq!(frame.slots, before.slots);
+    assert!(frame.pending_destroy.is_some());
+    let events = frame
+        .remove_carried_stack(&projection, &w, 70001, 1)
+        .unwrap();
+    assert_eq!(frame.slots, receipt.after.slots);
+    assert_eq!(frame.next_item, Some(before.next_item));
+    frame.validate_complete().unwrap();
+    assert!(!events
+        .iter()
+        .any(|e| matches!(e, SessionEvent::ItemPushResult(_))));
 }

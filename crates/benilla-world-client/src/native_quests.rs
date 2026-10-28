@@ -937,6 +937,9 @@ impl NativeProjection {
     ) -> Result<Vec<SessionEvent>, Error> {
         let mut events = vec![];
         match event {
+            n::QuestProgressionEvent::InventoryDestroyed(receipt) => {
+                events.extend(self.inventory_destroy(w, receipt, inventory_frame)?);
+            }
             n::QuestProgressionEvent::Reputation(event) => {
                 events.extend(reputation_event(event)?);
             }

@@ -1063,6 +1063,29 @@ impl Driven for NativeController {
                     .local(&self.world, UiRequest::OpenLoot(corpse))?;
                 self.queue(input.input.command)?;
             }
+            ClientCommand::DestroyItem {
+                bag_index,
+                slot,
+                count,
+            } => {
+                use benilla_sim::inventory as inv;
+                if bag_index != 255
+                    || !(inv::FIRST_SLOT..inv::END_SLOT).contains(&slot)
+                    || self
+                        .world
+                        .state()
+                        .quest_progression
+                        .as_ref()
+                        .and_then(|s| s.inventory.as_ref())
+                        .is_none()
+                {
+                    return Err(Error::UnsupportedCommand);
+                }
+                self.queue(n::Command::InventoryDestroy(n::InventoryDestroyRequest {
+                    slot,
+                    count,
+                }))?;
+            }
             ClientCommand::SplitItem {
                 src_bag,
                 src_slot,

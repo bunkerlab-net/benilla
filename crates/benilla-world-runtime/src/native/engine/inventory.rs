@@ -4,6 +4,54 @@ use super::*;
 use benilla_sim::inventory as inv;
 
 impl<A: Authority> Frame<'_, A> {
+    pub(super) fn inventory_destroy(
+        &mut self,
+        request: &InventoryDestroyRequest,
+    ) -> Result<Option<Rejection>, NativeError> {
+        let genesis = self
+            .profile
+            .quest_progression
+            .as_ref()
+            .ok_or(NativeError::UnsupportedMechanic("native inventory host"))?;
+        let catalog = &genesis
+            .loot
+            .as_ref()
+            .ok_or(NativeError::UnsupportedMechanic("native inventory catalog"))?
+            .inventory;
+        let current = self
+            .state
+            .quest_progression
+            .as_ref()
+            .ok_or(NativeError::InvalidState)?;
+        let receipt = current
+            .inventory
+            .as_ref()
+            .ok_or(NativeError::InvalidState)?
+            .plan_destroy_backpack(catalog, request.slot, request.count)?;
+        if receipt.result != inv::InventoryResult::Ok {
+            let reason = receipt.result.protocol();
+            self.events.push(Event::QuestProgression(
+                QuestProgressionEvent::InventoryDestroyed(Box::new(receipt)),
+            ));
+            return Ok(Some(Rejection::Inventory {
+                reason,
+                source: request.slot,
+                destination: request.slot,
+            }));
+        }
+        // Source quest counters observe pre-removal aggregate counts. The host then
+        // consumes this exact selected instance once, never first-stack-by-entry.
+        let combat = self
+            .state
+            .combat
+            .as_ref()
+            .ok_or(NativeError::InvalidState)?;
+        let (next, events) = current.destroy_selected(genesis, combat, receipt)?;
+        self.commit_quest_progression(next)?;
+        self.events
+            .extend(events.into_iter().map(Event::QuestProgression));
+        Ok(None)
+    }
     pub(super) fn inventory_split(
         &mut self,
         request: &InventorySplitRequest,

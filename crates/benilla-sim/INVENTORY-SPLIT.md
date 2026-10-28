@@ -3,7 +3,7 @@
 Source: CMaNGOS Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`,
 `ItemHandler.cpp::HandleSplitItemOpcode`, `Player.cpp::SplitItem` (10592),
 `_CanStoreItem`, `_CanStoreItem_InSpecificSlot`, `_StoreItem`, and
-`Item.cpp::CloneItem`. `inventory::split_backpack` is part of carried-items-v6,
+`Item.cpp::CloneItem`. `inventory::split_backpack` is part of carried-items-v7,
 not an expansion of private content admission.
 
 ## Supported semantics
@@ -61,5 +61,5 @@ spill into source/earlier stacks, unique limits, binding/template metadata,
 allocator exhaustion, distinct count errors, post-clone refusal, receipt tampering,
 actual Lua cursor request, actual command path, dead-player split, checkpoint
 failure/retry/reopen and runtime rollback/replay. They are not real game-content,
-graphical player verification or production native admission. Native54 rejects
+graphical player verification or production native admission. Native55 rejects
 older outer formats rather than migrating or reinterpreting their policy.

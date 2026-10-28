@@ -230,3 +230,6 @@ fn maximum_move_batch_stays_bounded_and_failed_later_input_rolls_back_prior_move
 
 #[path = "inventory_split_tests.rs"]
 mod inventory_split_tests;
+
+#[path = "inventory_destroy_tests.rs"]
+mod inventory_destroy_tests;

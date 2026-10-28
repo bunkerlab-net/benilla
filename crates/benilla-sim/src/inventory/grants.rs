@@ -92,7 +92,7 @@ impl Catalog {
         if item.bag_family == 9 {
             return Err(Error::Unsupported("keyring_storage"));
         }
-        if item.extra_flags != 0 || item.flags & !0x0000_0800 != 0 {
+        if item.extra_flags != 0 || item.flags & !(0x0000_0800 | NO_USER_DESTROY) != 0 {
             return Err(Error::Unsupported("item_flags_dependency"));
         }
         if item.inventory_type == 18 && item.container_slots > 36 {

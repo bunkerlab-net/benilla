@@ -8,11 +8,13 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const UPSTREAM_COMMIT: &str = "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f";
-pub const POLICY_ID: &str = "cmangos-8ec338a1-carried-items-v6";
+pub const POLICY_ID: &str = "cmangos-8ec338a1-carried-items-v7";
 mod corpse;
 pub use corpse::CORPSE_POLICY_ID;
 mod grants;
 pub use grants::*;
+mod destroy;
+pub use destroy::*;
 mod split;
 pub use split::*;
 mod movement;
@@ -52,7 +54,7 @@ pub struct Audit {
     pub bank_and_keyring_items: Evidence,
     pub trade_or_temporary_item_loot: Evidence,
     /// Mutations beyond this policy's named storage, grant, requirement-removal
-    /// backpack SwapItem and explicit backpack SplitItem paths. Equip, use and bag contents stay absent.
+    /// backpack SwapItem, explicit SplitItem and selected DestroyItem paths. Equip, use and bag contents stay absent.
     pub additional_item_mutations: Evidence,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -233,6 +235,7 @@ pub enum InventoryResult {
     CantCarryMoreOfThis = 17,
     ItemCantStack = 19,
     ItemNotFound = 23,
+    CantDropSoulbound = 24,
     TriedToSplitMoreThanCount = 26,
     CouldntSplitItems = 27,
     YouAreDead = 38,

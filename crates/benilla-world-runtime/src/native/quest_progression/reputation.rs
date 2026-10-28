@@ -589,6 +589,17 @@ pub(super) fn record_objective_mutations(
             );
         }
     }
+    // Owner-directed destruction can remove non-quest loot too. Keep every required
+    // item entry above, and additionally track admitted inventory entries without
+    // silently dropping a required-item proof when metadata is missing.
+    if let Some(loot) = &g.loot {
+        let inventory = before.inventory.as_ref().ok_or(NativeError::InvalidState)?;
+        for item in loot.inventory.items() {
+            counts
+                .entry(item.entry)
+                .or_insert(inventory.item_count(item.entry)?);
+        }
+    }
     for event in events {
         let QuestProgressionEvent::Quest { event, .. } = event else {
             continue;

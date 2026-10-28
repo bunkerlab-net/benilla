@@ -344,3 +344,6 @@ fn moving_admin_unbound_empty_bag_rebinds_same_guid_without_another_acquisition(
 
 #[path = "inventory_split_tests.rs"]
 mod inventory_split_tests;
+
+#[path = "inventory_destroy_tests.rs"]
+mod inventory_destroy_tests;
