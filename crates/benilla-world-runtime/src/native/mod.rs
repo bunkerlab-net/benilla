@@ -678,3 +678,8 @@ impl From<benilla_sim::player_melee::MeleeError> for NativeError {
         Self::PlayerMelee(error)
     }
 }
+
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+mod synthetic_creature_generation_fixture;
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub mod synthetic_player_melee_fixture;

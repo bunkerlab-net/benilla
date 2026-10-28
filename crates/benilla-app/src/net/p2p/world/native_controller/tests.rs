@@ -1148,3 +1148,6 @@ mod event_ai_tests;
 #[cfg(not(benilla_headless_geometry))]
 #[path = "resident_fixture.rs"]
 pub(crate) mod resident_fixture;
+
+#[path = "player_melee_tests.rs"]
+mod player_melee_tests;

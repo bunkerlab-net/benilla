@@ -32,7 +32,7 @@ impl Authority for CastAuthority {
 }
 fn world(health: u32) -> NativeWorld {
     NativeWorld::synthetic_component_test(
-        super::tests::source_fireball_profile(health),
+        crate::native::synthetic_player_melee_fixture::source_fireball_profile(health),
         [1; 16],
         synthetic_fixture::player(),
         42,

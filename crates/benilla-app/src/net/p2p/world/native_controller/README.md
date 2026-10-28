@@ -470,3 +470,20 @@ and direct/post-journal native-cache reopening refusal. Cell membership,
 directional visibility, spell visibility/LOS and player pose acceptance remain
 authored. This is not a loaded visitor producer, supported native-cache reopening,
 production entry or an installed-content playability claim.
+
+### Selected mainhand and generic-cast controller seam
+
+`player_melee_tests` uses the exact app controller and stock `AttackSwing`,
+`CastSpell`, quest acceptance and `AttackStop` commands against explicitly
+authored source-shaped player/creature profiles. The selected mainhand policy is
+not added to normal entry. Shared fixture builders are compiled only for tests
+or the existing `synthetic-native-tests` feature; they do not create a production
+`NativeCapability` or consume private inputs.
+
+The integration exercises checkpoint-write failure after command execution,
+withheld publication, retry without reexecution, and reopened selected-policy
+state. It observes projected player attacker-state events while the authored
+Fireball holder is active, exactly-once kill XP and quest credit, and stock quest
+reward/level progression that survives reopen. This is headless controller
+integration evidence, not stock world rows, rendered gameplay, private spatial
+admission, or a playable populated native world.
