@@ -3,7 +3,7 @@
 `benilla_sim::quest_lifecycle` translates ordinary, solo quest acceptance,
 kill/talk/collection credit, completion and reward orchestration from CMaNGOS
 Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. The policy identity is
-`cmangos-8ec338a1-ordinary-quest-lifecycle-v3`. This is an independent simulation
+`cmangos-8ec338a1-ordinary-quest-lifecycle-v4`. This is an independent simulation
 reducer, not a native content compiler, complete inventory/level-up implementation,
 world-runtime integration, durable store, or claim that a real starter quest works.
 The authored world-runtime fixture is unrelated and is not evidence of Classic
@@ -122,7 +122,7 @@ out-of-range creature credit, and incomplete objectives marked complete. Rewarde
 history must retain completed creature credit; item credit may decrease during
 reward. Present item counters retain the full source uint32 domain, including
 source-reachable values above the requirement. This is a typed boundary, not a
-save-file format or authenticity check. There is no abandon/failure/repeatable
+save-file format or authenticity check. There is no failure/repeatable
 reset path.
 
 ## Source ordering
@@ -312,3 +312,15 @@ python3 crates/benilla-sim/tools/generate_quest_reputation_fixture.py \
 cargo test -p benilla-sim --test quest_lifecycle
 cargo test -p benilla-sim --release --test quest_lifecycle
 ```
+
+## Abandonment and reacceptance
+
+The source QuestlogRemove handler preserves a status-NONE record and its objective
+history. Its world-object callback runs while the slot is still occupied, before
+slot clearing; durable snapshots forbid that transient logged-NONE state. Invalid
+slots are silent and empty valid slots still clear. Reacceptance resets objectives
+and recounts retained deliver items without erasing reward history. Source-item,
+timer and script dependencies stay excluded; no ordinary deliver items are deleted.
+
+The composed native route and its reputation-objective proof limitation are
+specified in [QUEST-ABANDON](../benilla-world-runtime/src/native/QUEST-ABANDON.md).

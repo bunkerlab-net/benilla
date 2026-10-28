@@ -96,6 +96,7 @@ fn main() {
         "SwapInvItem",
         "SplitItem",
         "DestroyItem",
+        "QuestlogRemove",
         "ItemQuery",
         "QuestQuery",
         "NpcTextQuery",

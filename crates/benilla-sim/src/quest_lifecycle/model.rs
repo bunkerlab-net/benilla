@@ -305,6 +305,8 @@ impl Catalog {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Status {
+    /// Retained nonrepeatable quest history after source abandonment.
+    None,
     Incomplete,
     Complete,
 }
@@ -374,13 +376,19 @@ impl State {
             if !logged.insert(id) {
                 return Err(Error::Invalid("duplicate_log_slot"));
             }
-            if snapshot.records.get(&id).is_none_or(|p| p.rewarded) {
+            if snapshot
+                .records
+                .get(&id)
+                .is_none_or(|p| p.rewarded || p.status == Status::None)
+            {
                 return Err(Error::Invalid("log_record"));
             }
         }
         for (&id, p) in &snapshot.records {
             let q = catalog.row(id)?;
-            if p.rewarded != !logged.contains(&id) || (p.rewarded && p.status != Status::Complete) {
+            if (p.rewarded && (logged.contains(&id) || p.status != Status::Complete))
+                || (!p.rewarded && (logged.contains(&id) != (p.status != Status::None)))
+            {
                 return Err(Error::Invalid("rewarded_history"));
             }
             for i in 0..OBJECTIVES {

@@ -197,9 +197,14 @@ fn menu_icon(
     if !g.quest(quest).map_err(|_| Error::UnavailableQuest)?.active {
         return Ok(p::dialog_status::NONE);
     }
-    if let Some(progress) = view.records.get(&quest) {
+    if let Some(progress) = view
+        .records
+        .get(&quest)
+        .filter(|p| p.status != q::Status::None)
+    {
         if relation(w, entry, quest, true)? && !progress.rewarded {
             return Ok(match progress.status {
+                q::Status::None => return Err(Error::StaleProjection),
                 q::Status::Incomplete => p::dialog_status::INCOMPLETE,
                 q::Status::Complete => p::dialog_status::REWARD_REP,
             });
@@ -235,7 +240,11 @@ fn marker_icon(
     if !row.active {
         return Ok(p::dialog_status::NONE);
     }
-    if let Some(progress) = view.records.get(&quest) {
+    if let Some(progress) = view
+        .records
+        .get(&quest)
+        .filter(|p| p.status != q::Status::None)
+    {
         if relation(w, entry, quest, true)? && !progress.rewarded {
             return Ok(if progress.status == q::Status::Complete {
                 p::dialog_status::REWARD2
@@ -358,7 +367,12 @@ impl NativeProjection {
         // during the finisher pass merely because it also has that relation.
         for (finishes, rows) in [(true, &relations.finishers), (false, &relations.starters)] {
             for r in rows.iter().filter(|r| r.creature == entry) {
-                if finishes != view.records.contains_key(&r.quest) {
+                if finishes
+                    != view
+                        .records
+                        .get(&r.quest)
+                        .is_some_and(|p| p.status != q::Status::None)
+                {
                     continue;
                 }
                 let icon = menu_icon(w, &view, w.player_level(), entry, r.quest)?;
@@ -500,7 +514,7 @@ impl NativeProjection {
         let progress = state(w)?
             .quests
             .progress(quest)
-            .filter(|p| !p.rewarded)
+            .filter(|p| !p.rewarded && p.status != q::Status::None)
             .ok_or(Error::UnavailableQuest)?;
         let quote = quote(w, quest, u32::from(w.player_level()))?;
         Ok(progress.status == q::Status::Complete

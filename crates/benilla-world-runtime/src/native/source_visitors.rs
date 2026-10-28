@@ -773,8 +773,8 @@ mod tests {
                 .unwrap();
         assert!(restored.replay(&records).is_err());
         assert_eq!(restored.checkpoint().unwrap(), initial);
-        assert_eq!(NATIVE_FORMAT_VERSION, 55);
-        assert_eq!(NATIVE_POLICY, "benilla-native-backpack-destroy-v55");
+        assert_eq!(NATIVE_FORMAT_VERSION, 56);
+        assert_eq!(NATIVE_POLICY, "benilla-native-quest-abandon-v56");
         assert_eq!(crate::FORMAT_VERSION, 2);
     }
     #[test]

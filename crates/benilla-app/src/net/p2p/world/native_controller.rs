@@ -1032,6 +1032,16 @@ impl Driven for NativeController {
                     self.queue_cancel(spell_id, target)?;
                 }
             }
+            ClientCommand::QuestlogRemove { slot } => {
+                // Source silently ignores out-of-range slots before touching quest state.
+                if usize::from(slot) >= benilla_sim::quest_lifecycle::LOG_SIZE {
+                    return Ok(commands::Received {
+                        events: vec![],
+                        logout: false,
+                    });
+                }
+                self.queue(n::Command::AbandonQuest { slot })?;
+            }
             ClientCommand::QuestgiverAccept { npc, quest } => {
                 let giver = self.projection.capture_npc(npc)?;
                 let input = self

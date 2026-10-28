@@ -219,7 +219,7 @@ impl NativeWorld {
         let replies = frame.replies;
         let events = frame.events;
         let draws = frame.draws;
-        let after = crate::digest(b"benilla-native-state-v55\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v56\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -657,6 +657,7 @@ impl<A: Authority> Frame<'_, A> {
                 self.quest_command(*quest, *giver, false, 0)?
             }
             Command::TurnInQuest { quest, giver } => self.quest_command(*quest, *giver, true, 0)?,
+            Command::AbandonQuest { slot } => self.abandon_quest(*slot)?,
             Command::ReleaseSpirit => Some(Rejection::SpiritReleaseUnavailable {
                 phase: self
                     .state

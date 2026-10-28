@@ -4,6 +4,45 @@ use super::*;
 use benilla_sim::{player_progression as pg, quest_lifecycle as q, starter_init as init};
 
 impl<A: Authority> Frame<'_, A> {
+    pub(super) fn abandon_quest(&mut self, slot: u8) -> Result<Option<Rejection>, NativeError> {
+        let g = self
+            .profile
+            .quest_progression
+            .as_ref()
+            .ok_or(NativeError::UnsupportedMechanic("native quests"))?;
+        let current = self
+            .state
+            .quest_progression
+            .as_ref()
+            .ok_or(NativeError::InvalidState)?;
+        if let Some(id) = current
+            .quests
+            .view()
+            .log
+            .get(usize::from(slot))
+            .copied()
+            .flatten()
+        {
+            // Native visibility receipts currently own one acceptance per reputation
+            // objective. Do not weaken that proof to admit repeated Visible calls.
+            if g.quest(id)?.excluded.rep_objective_faction != 0 {
+                return Err(NativeError::UnsupportedMechanic(
+                    "reputation-objective quest abandonment",
+                ));
+            }
+        }
+        let combat = self
+            .state
+            .combat
+            .as_ref()
+            .ok_or(NativeError::InvalidState)?;
+        let (next, events) = current.reduce(g, combat, q::Command::Abandon { slot })?;
+        self.commit_quest_progression(next)?;
+        self.events
+            .extend(events.into_iter().map(Event::QuestProgression));
+        Ok(None)
+    }
+
     fn quest_interaction_gate(
         &mut self,
         quest: u32,

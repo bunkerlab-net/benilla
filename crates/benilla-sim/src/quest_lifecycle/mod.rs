@@ -9,7 +9,7 @@ mod model;
 use crate::quest::{self, QuestPlayerIdentity, RewardContext};
 pub use model::*;
 
-pub const POLICY_ID: &str = "cmangos-8ec338a1-ordinary-quest-lifecycle-v3";
+pub const POLICY_ID: &str = "cmangos-8ec338a1-ordinary-quest-lifecycle-v4";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
     Unsupported(&'static str),
@@ -171,6 +171,10 @@ pub enum Event {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
+    /// QuestHandler removes the named log slot, retaining status-NONE history.
+    Abandon {
+        slot: u8,
+    },
     /// Handler-level acceptance: AddQuest followed by CanCompleteQuest/CompleteQuest.
     Accept {
         quest: u32,
@@ -223,7 +227,9 @@ fn check_catalog(catalog: &Catalog, state: &State) -> Result<(), Error> {
     Ok(())
 }
 fn current(state: &State, id: u32) -> bool {
-    state.progress(id).is_some_and(|p| !p.rewarded)
+    state
+        .progress(id)
+        .is_some_and(|p| !p.rewarded && p.status != Status::None)
 }
 fn logged(state: &State, id: u32) -> Option<usize> {
     state.snapshot.log.iter().position(|q| *q == Some(id))
@@ -324,7 +330,7 @@ fn can_take_identity(
 ) -> Result<(), Error> {
     let q = catalog.row(id)?;
     // The omitted gates are proven inert at Catalog admission, not assumed true.
-    if status_gate && state.progress(id).is_some() {
+    if status_gate && state.progress(id).is_some_and(|p| p.status != Status::None) {
         return Err(Error::Rejected(Gate::AlreadyTaken));
     }
     let gates = quest::eligibility_gates(q.eligibility, identity)?;
@@ -360,7 +366,11 @@ fn can_take_identity(
             return Err(Error::Rejected(Gate::Previous));
         }
     }
-    if q.next_in_chain != 0 && state.progress(q.next_in_chain).is_some() {
+    if q.next_in_chain != 0
+        && state
+            .progress(q.next_in_chain)
+            .is_some_and(|p| p.status != Status::None)
+    {
         return Err(Error::Rejected(Gate::NextChain));
     }
     if catalog
@@ -588,6 +598,7 @@ pub fn reputation_changed(
             continue;
         }
         match state.progress(id).expect("log").status {
+            Status::None => return Err(Error::Invalid("abandoned_logged_quest")),
             Status::Incomplete => {
                 if host.reputation(faction)? >= q.excluded.rep_objective_value {
                     maybe_complete(catalog, state, host, id, events)?;
@@ -707,6 +718,29 @@ pub fn reduce<H: Host>(
     let mut host = host.clone();
     let mut events = Vec::new();
     match command {
+        Command::Abandon { slot } => {
+            let slot = usize::from(slot);
+            if slot < LOG_SIZE {
+                if let Some(id) = state.snapshot.log[slot] {
+                    // Source item/timer/script dependencies remain excluded by Catalog.
+                    catalog.row(id)?;
+                    let progress = state
+                        .snapshot
+                        .records
+                        .get_mut(&id)
+                        .ok_or(Error::Invalid("log_record"))?;
+                    if progress.rewarded || progress.status == Status::None {
+                        return Err(Error::Invalid("log_record"));
+                    }
+                    // SetQuestStatus calls world-object refresh BEFORE SetQuestSlot(0).
+                    // Unlike completion, abandonment does not send LogComplete.
+                    progress.status = Status::None;
+                    events.push(Event::WorldObjects { view: state.view() });
+                }
+                state.snapshot.log[slot] = None;
+                events.push(Event::LogSet { slot, quest: None });
+            }
+        }
         Command::Accept { quest: id, giver } => {
             if !catalog.relations.starters.contains(&CreatureQuestRelation {
                 creature: giver,
@@ -723,11 +757,12 @@ pub fn reduce<H: Host>(
                 .iter()
                 .position(Option::is_none)
                 .expect("CanAddQuest");
+            let rewarded = state.progress(id).is_some_and(|p| p.rewarded);
             state.snapshot.records.insert(
                 id,
                 Progress {
                     status: Status::Incomplete,
-                    rewarded: false,
+                    rewarded,
                     items: [0; OBJECTIVES],
                     creatures: [0; OBJECTIVES],
                 },

@@ -348,11 +348,11 @@ fn applied_aura_keeps_source_rank_and_level_through_xp_rebase_and_restore() {
     let state: super::persistence::StateCheckpoint =
         serde_json::from_value(forged["state"].clone()).unwrap();
     forged["digest"] =
-        serde_json::to_value(crate::digest(b"benilla-native-state-v55\0", &state)).unwrap();
+        serde_json::to_value(crate::digest(b"benilla-native-state-v56\0", &state)).unwrap();
     let tip: crate::Digest = serde_json::from_value(forged["history_tip"].clone()).unwrap();
     let digest: crate::Digest = serde_json::from_value(forged["digest"].clone()).unwrap();
     forged["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v55\0",
+        b"benilla-native-checkpoint-v56\0",
         &(&state, digest, tip),
     ))
     .unwrap();
@@ -876,3 +876,6 @@ fn older_projectile_kill_levels_while_new_cast_still_prepares() {
     replay.replay(w.records()).unwrap();
     assert_eq!(replay.state_digest(), w.state_digest());
 }
+
+#[path = "quest_abandon_tests.rs"]
+mod quest_abandon_tests;

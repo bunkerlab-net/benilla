@@ -109,7 +109,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v55\0",
+            b"benilla-native-profile-v56\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -500,6 +500,9 @@ pub enum Command {
     /// Internal controller lifecycle acknowledgement; no network/UI request maps here.
     AcknowledgeInitialReputations,
     ReleaseSpirit,
+    AbandonQuest {
+        slot: u8,
+    },
     Cast {
         ability: u32,
         target: NpcId,

@@ -902,3 +902,15 @@ ItemRemovedQuestCheck. Public source bytes independently verified:
 pre-removal quest callback, protected prototype flag, no-allocation transaction,
 projection ordering and unsupported topology/dependencies. Original authored
 fixtures test these boundaries; no game item rows or private SQL are imported.
+
+## Ordinary quest abandonment (quest-lifecycle-v4)
+
+Pinned CMaNGOS Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`:
+QuestHandler::HandleQuestLogRemoveQuest, Player::SetQuestStatus/AddQuest/
+TakeQuestSourceItem. QuestHandler.cpp SHA256
+`00844a75c11d7532475eb8ae2ed9118a249bf51aa07b06ce4ad3979e80c1b768`;
+Player.cpp SHA256
+`d02d693f2575b0f47be405fe6e81e2a4e833fca8d149354d9cb8d3b458527c7e`.
+Pinned QuestDef.h verifies log capacity20 and TIMED0x040. Original authored tests
+cover retainedNONE, source callback order and reacceptance; existing source-item,
+timer and private-content exclusions remain in force.

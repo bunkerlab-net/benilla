@@ -904,3 +904,6 @@ fn source_visible_start_omits_take_status_and_level_gates() {
 
 #[path = "quest_lifecycle/reputation.rs"]
 mod reputation;
+
+#[path = "quest_lifecycle/abandon.rs"]
+mod abandon;

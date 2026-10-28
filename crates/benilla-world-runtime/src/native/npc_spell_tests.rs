@@ -300,9 +300,9 @@ fn checkpoint_rejects_forged_spell_owner_source_time_and_event_order() {
             continue;
         };
         checkpoint.state = state;
-        checkpoint.digest = crate::digest(b"benilla-native-state-v55\0", &checkpoint.state);
+        checkpoint.digest = crate::digest(b"benilla-native-state-v56\0", &checkpoint.state);
         checkpoint.checksum = crate::digest(
-            b"benilla-native-checkpoint-v55\0",
+            b"benilla-native-checkpoint-v56\0",
             &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
         );
         assert!(
@@ -374,9 +374,9 @@ fn cleaned_spell_still_advances_the_unit_event_allocator_on_restore() {
     events["queue"]["next_event_id"] = 2.into();
     events["queue"]["next_insertion_id"] = 2.into();
     checkpoint.state = serde_json::from_value(state).unwrap();
-    checkpoint.digest = crate::digest(b"benilla-native-state-v55\0", &checkpoint.state);
+    checkpoint.digest = crate::digest(b"benilla-native-state-v56\0", &checkpoint.state);
     checkpoint.checksum = crate::digest(
-        b"benilla-native-checkpoint-v55\0",
+        b"benilla-native-checkpoint-v56\0",
         &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
     );
     assert!(
@@ -393,9 +393,9 @@ fn finished_terminal_and_same_tick_holder_cannot_contradict_each_other_on_restor
     state["npcs"]["2"]["events"]["spells"]["1"]["terminal"] = serde_json::json!("BadTargets");
     state["npcs"]["2"]["events"]["spells"]["1"]["applied_holder"] = serde_json::Value::Null;
     checkpoint.state = serde_json::from_value(state).unwrap();
-    checkpoint.digest = crate::digest(b"benilla-native-state-v55\0", &checkpoint.state);
+    checkpoint.digest = crate::digest(b"benilla-native-state-v56\0", &checkpoint.state);
     checkpoint.checksum = crate::digest(
-        b"benilla-native-checkpoint-v55\0",
+        b"benilla-native-checkpoint-v56\0",
         &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
     );
     assert!(
@@ -478,9 +478,9 @@ fn replaced_retained_holder_cannot_claim_an_id_before_the_source_allocator_start
         life["applied_holder"] = (life["applied_holder"].as_u64().unwrap() - 1).into();
     }
     checkpoint.state = serde_json::from_value(state).unwrap();
-    checkpoint.digest = crate::digest(b"benilla-native-state-v55\0", &checkpoint.state);
+    checkpoint.digest = crate::digest(b"benilla-native-state-v56\0", &checkpoint.state);
     checkpoint.checksum = crate::digest(
-        b"benilla-native-checkpoint-v55\0",
+        b"benilla-native-checkpoint-v56\0",
         &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
     );
     assert!(

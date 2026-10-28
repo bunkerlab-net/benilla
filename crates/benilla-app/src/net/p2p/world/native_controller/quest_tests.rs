@@ -766,3 +766,6 @@ fn reward_during_prepare_waits_for_save_then_reopens_prepare_and_release() {
     assert!(!c.world.state().casts.contains_key(&id));
     assert_eq!(c.world.player_level(), 3);
 }
+
+#[path = "quest_abandon_tests.rs"]
+mod quest_abandon_tests;
