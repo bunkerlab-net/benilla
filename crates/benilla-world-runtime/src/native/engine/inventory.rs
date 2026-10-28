@@ -220,6 +220,55 @@ impl<A: Authority> Frame<'_, A> {
             .quest_progression
             .clone()
             .ok_or(NativeError::InvalidState)?;
+        let registered = next
+            .inventory
+            .as_ref()
+            .and_then(|inventory| inventory.slots.get(&request.source))
+            .and_then(|item| genesis.loot.as_ref()?.equipment_origin(item.id))
+            .is_some();
+        if registered {
+            self.profile
+                .interactions
+                .as_ref()
+                .ok_or(NativeError::UnsupportedMechanic(
+                    "armor source interaction owner",
+                ))?
+                .require_armor_movement(self.profile)?;
+            let receipt = next
+                .inventory
+                .clone()
+                .ok_or(NativeError::InvalidState)?
+                .autostore_backpack(catalog, request.source)?;
+            if receipt.before != receipt.after {
+                let custody = quest_progression::equipment_movement::placements(
+                    genesis,
+                    &next.derived_calls,
+                )?;
+                let movement =
+                    quest_progression::equipment_movement::EquipmentAutoStoreReceipt::build(
+                        genesis,
+                        receipt.clone(),
+                        next.inventory_receipts.clone(),
+                        self.state,
+                        self.profile,
+                        &custody,
+                    )?;
+                next = next.armor_autostore(
+                    genesis,
+                    self.state
+                        .combat
+                        .as_ref()
+                        .ok_or(NativeError::InvalidState)?,
+                    movement,
+                    self.state.health,
+                    self.state.resources.caster.mana,
+                )?;
+                self.commit_quest_progression(next)?;
+            }
+            self.events
+                .push(Event::InventoryAutoStored(Box::new(receipt)));
+            return Ok(None);
+        }
         quest_progression::equipment_movement::reject_registered_slots(
             genesis,
             next.inventory.as_ref().ok_or(NativeError::InvalidState)?,

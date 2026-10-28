@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const UPSTREAM_COMMIT: &str = "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f";
-pub const POLICY_ID: &str = "cmangos-8ec338a1-carried-items-v11";
+pub const POLICY_ID: &str = "cmangos-8ec338a1-carried-items-v12";
 mod corpse;
 pub use corpse::CORPSE_POLICY_ID;
 mod grants;
@@ -63,7 +63,9 @@ pub struct Audit {
     /// receipts, or relocate that carried original to an empty backpack slot with
     /// a custody-only journal. Original singleton armor AutoEquip uses its own
     /// source guard/selection operation and absent-offhand proof; this catalog
-    /// alone never authorizes these host exceptions.
+    /// alone never authorizes these host exceptions. A separate source-owned
+    /// AutoStore custody journal also handles carried originals without an alive
+    /// guard; other registered-item consumers remain unsupported.
     pub additional_item_mutations: Evidence,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

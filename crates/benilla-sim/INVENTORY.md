@@ -5,7 +5,7 @@
 `SwapItem` from CMaNGOS Classic
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. The upstream grant is
 GPL-2.0-or-later; see [PROVENANCE.md](PROVENANCE.md). Its policy is
-`cmangos-8ec338a1-carried-items-v11`.
+`cmangos-8ec338a1-carried-items-v12`.
 The separately named positive admin policy is `CmangosAddItemV1`.
 
 ## Exact source behavior
@@ -283,3 +283,10 @@ The v11 host exception additionally composes the source AutoEquipItem handler fo
 original singleton body armor, with distinct guard ordering/selection and an
 explicit source-owned absent-offhand proof. Its accepted modifier operation is
 shared, not its command semantics; generic inventory Equip stays unsupported.
+
+
+The v12 host exception additionally binds the existing AutoStore reducer to an
+original carried armor object's registry custody. A distinct source journal,
+without SwapItem's alive guard, owns the first-empty placement and exact same
+instance. The generic reducer and ordinary validation are unchanged; no other
+registered consumer is enabled.

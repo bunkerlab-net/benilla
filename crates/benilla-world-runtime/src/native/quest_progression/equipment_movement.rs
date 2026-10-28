@@ -419,6 +419,7 @@ pub(in crate::native) fn placements(
         match call {
             DerivedCall::ItemMembership { movement, .. } => movement.replay(g, &mut result)?,
             DerivedCall::ItemRelocation { movement, .. } => movement.replay(g, &mut result)?,
+            DerivedCall::ItemAutoStore { movement, .. } => movement.replay(g, &mut result)?,
             _ => {}
         }
     }
@@ -438,7 +439,9 @@ pub(in crate::native) fn validate_state(
         .filter(|call| {
             matches!(
                 call,
-                DerivedCall::ItemMembership { .. } | DerivedCall::ItemRelocation { .. }
+                DerivedCall::ItemMembership { .. }
+                    | DerivedCall::ItemRelocation { .. }
+                    | DerivedCall::ItemAutoStore { .. }
             )
         })
         .collect();
@@ -486,6 +489,13 @@ pub(in crate::native) fn validate_state(
                 )
             }
             DerivedCall::ItemRelocation { movement, .. } => (
+                movement.world,
+                movement.player,
+                movement.profile,
+                movement.sequence,
+                movement.captured_ms,
+            ),
+            DerivedCall::ItemAutoStore { movement, .. } => (
                 movement.world,
                 movement.player,
                 movement.profile,
@@ -662,6 +672,124 @@ impl EquipmentRelocationReceipt {
         validate_receipts(&m.after, &self.after_receipts)?;
         let mut next = placements.clone();
         next.insert(self.instance, m.destination);
+        validate_inventory(g, &m.after, &next)?;
+        *placements = next;
+        Ok(())
+    }
+}
+
+/// Source AutoStore changes carried custody without an alive guard or stat callback.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EquipmentAutoStoreReceipt {
+    pub movement: inv::AutoStoreReceipt,
+    pub instance: u64,
+    pub origin: EquipmentOrigin,
+    pub before_receipts: BTreeMap<u64, ItemReceipt>,
+    pub after_receipts: BTreeMap<u64, ItemReceipt>,
+    pub(in crate::native) world: crate::WorldId,
+    pub(in crate::native) player: crate::PlayerId,
+    pub(in crate::native) profile: crate::Digest,
+    pub(in crate::native) sequence: u64,
+    pub(in crate::native) captured_ms: u64,
+}
+
+impl EquipmentAutoStoreReceipt {
+    pub(in crate::native) fn build(
+        g: &QuestProgressionGenesis,
+        movement: inv::AutoStoreReceipt,
+        before_receipts: BTreeMap<u64, ItemReceipt>,
+        state: &State,
+        profile: &Profile,
+        placements: &Placements,
+    ) -> Result<Self, NativeError> {
+        let instance = movement
+            .before
+            .slots
+            .get(&movement.source)
+            .ok_or(NativeError::InvalidState)?
+            .id;
+        let origin = loot(g)?
+            .equipment_origin(instance)
+            .ok_or(NativeError::InvalidState)?;
+        let mut result = Self {
+            movement,
+            instance,
+            origin,
+            before_receipts,
+            after_receipts: BTreeMap::new(),
+            world: state.world,
+            player: state.player,
+            profile: profile.digest(),
+            sequence: state.next_sequence,
+            captured_ms: state.now_ms,
+        };
+        result.after_receipts = result.expected_receipts();
+        result.replay(g, &mut placements.clone())?;
+        Ok(result)
+    }
+
+    fn expected_receipts(&self) -> BTreeMap<u64, ItemReceipt> {
+        let reason = crate::digest(
+            b"benilla-native-armor-autostore-v1\0",
+            &(
+                &self.movement,
+                self.instance,
+                self.origin,
+                &self.before_receipts,
+                self.world,
+                self.player,
+                self.profile,
+                self.sequence,
+                self.captured_ms,
+            ),
+        );
+        self.movement
+            .after
+            .slots
+            .iter()
+            .map(|(&slot, item)| {
+                (
+                    item.id,
+                    ItemReceipt::new(
+                        self.before_receipts.get(&item.id).map(|r| r.digest),
+                        reason,
+                        slot,
+                        item,
+                    ),
+                )
+            })
+            .collect()
+    }
+
+    pub(in crate::native) fn replay(
+        &self,
+        g: &QuestProgressionGenesis,
+        placements: &mut Placements,
+    ) -> Result<(), NativeError> {
+        let m = &self.movement;
+        if loot(g)?.equipment_origin(self.instance) != Some(self.origin)
+            || placements.get(&self.instance) != Some(&m.source)
+            || m.outcome != inv::AutoStoreOutcome::Stored
+            || m.destinations.len() != 1
+            || m.destinations[0].count != 1
+            || m.source == m.destinations[0].slot
+            || m.before.slots.contains_key(&m.destinations[0].slot)
+            || m.before.slots.get(&m.source) != Some(&carried(g, self.instance, self.origin)?)
+            || m.before.equipped != m.after.equipped
+            || m.before.next_item != m.after.next_item
+        {
+            return Err(NativeError::InvalidCheckpoint);
+        }
+        m.validate(&loot(g)?.inventory)?;
+        validate_inventory(g, &m.before, placements)?;
+        validate_receipts(&m.before, &self.before_receipts)?;
+        if self.after_receipts != self.expected_receipts() {
+            return Err(NativeError::InvalidCheckpoint);
+        }
+        validate_receipts(&m.after, &self.after_receipts)?;
+        let mut next = placements.clone();
+        next.insert(self.instance, m.destinations[0].slot);
         validate_inventory(g, &m.after, &next)?;
         *placements = next;
         Ok(())

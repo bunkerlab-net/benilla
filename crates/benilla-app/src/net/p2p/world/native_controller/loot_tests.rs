@@ -1267,3 +1267,6 @@ mod armor_relocation_tests;
 
 #[path = "armor_autoequip_tests.rs"]
 mod armor_autoequip_tests;
+
+#[path = "armor_autostore_tests.rs"]
+mod armor_autostore_tests;

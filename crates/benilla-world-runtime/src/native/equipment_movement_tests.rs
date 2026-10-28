@@ -165,9 +165,9 @@ fn rehashed_custody_and_membership_snapshot_forgery_is_rejected() {
             }
         }
         cp.state = serde_json::from_value(json).unwrap();
-        cp.digest = crate::digest(b"benilla-native-state-v65\0", &cp.state);
+        cp.digest = crate::digest(b"benilla-native-state-v66\0", &cp.state);
         cp.checksum = crate::digest(
-            b"benilla-native-checkpoint-v65\0",
+            b"benilla-native-checkpoint-v66\0",
             &(&cp.state, cp.digest, cp.history_tip),
         );
         assert!(NativeWorld::restore_synthetic_component_test(w.profile.clone(), cp).is_err());
@@ -205,8 +205,39 @@ fn same_tick_roundtrip_empty_source_and_cross_consumer_holds() {
         .iter()
         .any(|e| matches!(e, Event::EquipmentMoved(_))));
     step(&mut w, movement(4, 23));
-    for c in [
+    // AutoStore now has its own bounded custody owner; same-position is a
+    // source no-op, while unrelated registered-item consumers stay closed.
+    let prior_inventory = w
+        .state
+        .quest_progression
+        .as_ref()
+        .unwrap()
+        .inventory
+        .clone();
+    let prior_calls = w
+        .state
+        .quest_progression
+        .as_ref()
+        .unwrap()
+        .derived_calls
+        .clone();
+    step(
+        &mut w,
         Command::InventoryAutoStore(InventoryAutoStoreRequest { source: 23 }),
+    );
+    assert_eq!(
+        w.state.quest_progression.as_ref().unwrap().inventory,
+        prior_inventory
+    );
+    assert_eq!(
+        w.state.quest_progression.as_ref().unwrap().derived_calls,
+        prior_calls
+    );
+    assert!(w.last_tick().unwrap().events.iter().any(|e| matches!(e,
+        Event::InventoryAutoStored(r) if r.outcome == benilla_sim::inventory::AutoStoreOutcome::Unchanged && r.views.is_empty()
+    )));
+    reopen(&w);
+    for c in [
         Command::InventorySplit(InventorySplitRequest {
             source: 23,
             destination: 24,
@@ -367,9 +398,9 @@ fn oversized_aggregate_membership_history_fails_before_semantic_replay() {
     assert!(aggregate > MAX_BYTES / 2);
     assert!(serde_json::to_vec(&encoded).unwrap().len() < MAX_BYTES);
     checkpoint.state = serde_json::from_value(encoded).unwrap();
-    checkpoint.digest = crate::digest(b"benilla-native-state-v65\0", &checkpoint.state);
+    checkpoint.digest = crate::digest(b"benilla-native-state-v66\0", &checkpoint.state);
     checkpoint.checksum = crate::digest(
-        b"benilla-native-checkpoint-v65\0",
+        b"benilla-native-checkpoint-v66\0",
         &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
     );
     assert!(matches!(

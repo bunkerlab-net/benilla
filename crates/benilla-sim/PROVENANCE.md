@@ -959,3 +959,14 @@ separate handler order and slot choice. Only original singleton armor into its
 empty original slot with source-owned absent offhand is composed. A required
 operation discriminator distinguishes this handler from SwapItem. No general
 Equip reducer, occupied-slot handling or new absence token is introduced.
+
+
+## Original carried armor AutoStore host (carried-items-v12)
+
+Pinned CMaNGOS Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`
+ItemHandler.cpp HandleAutoStoreBagItemOpcode (809ff), Player.cpp CanStoreItem,
+RemoveItem and StoreItem supply the exact first-empty, same-position and
+no-alive-guard semantics for an ordinary backpack source. The existing bounded
+AutoStore reducer is unchanged; native quest progression separately proves
+original registry custody and retains its ordered observations without a stat or
+quest acquisition callback. No new item identifier or source absence is invented.

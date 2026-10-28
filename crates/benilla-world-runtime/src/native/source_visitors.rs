@@ -773,8 +773,8 @@ mod tests {
                 .unwrap();
         assert!(restored.replay(&records).is_err());
         assert_eq!(restored.checkpoint().unwrap(), initial);
-        assert_eq!(NATIVE_FORMAT_VERSION, 65);
-        assert_eq!(NATIVE_POLICY, "benilla-native-armor-auto-equip-v65");
+        assert_eq!(NATIVE_FORMAT_VERSION, 66);
+        assert_eq!(NATIVE_POLICY, "benilla-native-armor-auto-store-v66");
         assert_eq!(crate::FORMAT_VERSION, 2);
     }
     #[test]

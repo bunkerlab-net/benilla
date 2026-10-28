@@ -17,7 +17,8 @@ mod capacity;
 mod derived;
 pub(in crate::native) mod equipment_movement;
 pub use equipment_movement::{
-    EquipmentMoveReceipt, EquipmentMoveRequest, EquipmentRelocationReceipt,
+    EquipmentAutoStoreReceipt, EquipmentMoveReceipt, EquipmentMoveRequest,
+    EquipmentRelocationReceipt,
 };
 mod kills;
 mod reputation;
@@ -28,7 +29,7 @@ pub use kills::{creature_guid, KillCreatureRow, KillDependencyAudit, NativeKillP
 pub use reputation::NativeReputationState;
 
 pub const QUEST_PROGRESSION_POLICY: &str =
-    "benilla-native-ordinary-quest-reputation-reconstruction-v9";
+    "benilla-native-ordinary-quest-reputation-reconstruction-v10";
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct QuestNpcRow {

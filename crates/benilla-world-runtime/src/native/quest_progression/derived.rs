@@ -36,6 +36,10 @@ pub enum DerivedCall {
         before: Box<pg::Snapshot>,
         movement: Box<EquipmentRelocationReceipt>,
     },
+    ItemAutoStore {
+        before: Box<pg::Snapshot>,
+        movement: Box<EquipmentAutoStoreReceipt>,
+    },
     ItemMembership {
         before: Box<pg::Snapshot>,
         before_recipe: Box<init::StatRecipeSnapshot>,
@@ -363,6 +367,34 @@ impl QuestProgressionState {
         next.inventory = Some(movement.movement.after.clone());
         next.inventory_receipts = movement.after_receipts.clone();
         next.derived_calls.push(DerivedCall::ItemRelocation {
+            before: Box::new(before),
+            movement: Box::new(movement),
+        });
+        Ok(next)
+    }
+    pub(in crate::native) fn armor_autostore(
+        &self,
+        g: &QuestProgressionGenesis,
+        combat: &PlayerCombatState,
+        movement: EquipmentAutoStoreReceipt,
+        health: u32,
+        mana: u32,
+    ) -> Result<Self, NativeError> {
+        reserve_call(&self.derived_calls)?;
+        authoritative_recipe(g, self.player.view(), &combat.recipe, self)?;
+        if self.inventory.as_ref() != Some(&movement.movement.before)
+            || self.inventory_receipts != movement.before_receipts
+        {
+            return Err(NativeError::InvalidState);
+        }
+        let mut custody = equipment_movement::placements(g, &self.derived_calls)?;
+        movement.replay(g, &mut custody)?;
+        let mut next = self.clone();
+        next.synchronize(g, combat, health, mana)?;
+        let before = next.player.snapshot();
+        next.inventory = Some(movement.movement.after.clone());
+        next.inventory_receipts = movement.after_receipts.clone();
+        next.derived_calls.push(DerivedCall::ItemAutoStore {
             before: Box::new(before),
             movement: Box::new(movement),
         });
@@ -725,6 +757,11 @@ pub(super) fn reconstruct_history(
                 if !before.alive || before.numeric.health == 0 {
                     return Err(NativeError::InvalidCheckpoint);
                 }
+                movement.replay(g, &mut placements)?;
+                index += 1;
+            }
+            DerivedCall::ItemAutoStore { before, movement } => {
+                source = boundary(g, before, source.view(), &recipe)?;
                 movement.replay(g, &mut placements)?;
                 index += 1;
             }

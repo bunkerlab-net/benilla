@@ -68,8 +68,8 @@ player slot references. A removed item is not destroyed and recreated. Visible
 entry words remain owned by the existing complete query-metadata gate; this is
 semantic session projection, not a claim of byte-identical upstream packet order.
 Headless parser/controller tests do not establish rendered appearance or user
-verification. The required native 65 identity, quest reconstruction v9 and carried-items v11
-host composition have no old-save migration. Carried-items v11 does not add a
+verification. The required native 66 identity, quest reconstruction v10 and carried-items v12
+host composition have no old-save migration. Carried-items v12 does not add a
 generic equip reducer or relax ordinary carried-instance validation.
 
 ## Carried original relocation
@@ -128,5 +128,34 @@ real wire mapping and extracted actual non-ammo sender with the actual controlle
 checkpoint withholding/retry/reopen and same-object no-refill result. They do not
 execute the complete Bevy Items/template/ammo dispatch branch or prove rendered
 appearance. The tiny sender extraction leaves that existing dispatch unchanged.
-Native 65, quest reconstruction v9 and carried-items v11 have no old-save migration
+Native 66, quest reconstruction v10 and carried-items v12 have no old-save migration
 and grant no native admission.
+
+
+## Carried original AutoStore
+
+The distinct `ItemAutoStore` custody journal composes the existing real
+`AutoStoreReceipt` for a registered original already in the ordinary backpack.
+Pinned ItemHandler.cpp `HandleAutoStoreBagItemOpcode` has no alive/combat/casting
+check for this source position. It is not replayed as SwapItem's alive-bound
+relocation. Occupied positions are skipped; the first source-compatible empty
+position includes the vacated source. The original's source-owned stack limit of
+one excludes merges and allocation. Same-position results retain the existing
+reason-zero, zero-GUID inventory response and do not append a custody operation.
+
+A successful journal replays exact source slot, original instance and metadata,
+ordered detach/store views, receipt ancestry, unchanged allocator and equipped
+aggregate, and exact resulting placement. The existing owner-bound resource
+boundary is retained without an alive requirement; recipe, stat caches and quest
+objectives are untouched. Mixed membership/relocation/AutoStore histories retain
+strict command sequencing, bounded replay work and aggregate byte limits. Other
+registered-object consumers remain held. This changes no generic item validator,
+source death semantics, ghost state or native admission.
+
+The existing `InventoryAutoStored` semantic projection retains the same item GUID,
+represents its detach/reattach, and introduces no new-item push, item creation or
+visible-equipped-slot update. Tests cover actual casting/combat/death transactions,
+replay, real Lua intent into the actual controller, checkpoint withholding/retry
+and reopen. These are headless checks, not rendered-player or production-entry
+verification. Native66/quest-v10/carried-items-v12 reject older saves without
+migration.
