@@ -499,3 +499,133 @@ fn actual_lua_reputation_controls_wait_for_save_then_reopen_without_invented_ack
     let c = enter(&h, true, false, false);
     assert_eq!(c.world.state_digest(), digest);
 }
+
+#[test]
+fn actual_lua_watched_faction_waits_for_descriptor_commit_and_retains_raw_signed_values() {
+    use benilla_ui::script::{FactionEntry, ReputationSend, ReputationState, UiScript};
+    let h = Harness::new();
+    let mut c = enter(&h, false, false, false);
+    let initial = c.initial_events().unwrap();
+    let field = |events: &[SessionEvent]| {
+        events.iter().find_map(|event| match event {
+            SessionEvent::ObjectValues { fields, .. } => fields.player_watched_faction(),
+            _ => None,
+        })
+    };
+    assert_eq!(field(&initial), Some(-1));
+    accept(&mut c, rep::OBJECTIVE);
+    assert!(c.pump(c.tick_duration()).pause.is_none());
+    let entry = FactionEntry {
+        faction_id: rep::SPILLOVER,
+        rep_list_id: 7,
+        parent_id: 0,
+        name: "Authored watched faction".into(),
+        description: String::new(),
+        standing: 0,
+        standing_id: 4,
+        bar_min: 0,
+        bar_max: 3000,
+        visible: true,
+        is_header: false,
+        at_war: false,
+        can_toggle_at_war: true,
+        inactive: false,
+    };
+    let mut ui = UiScript::new().unwrap();
+    ui.set_reputation(ReputationState {
+        entries: vec![entry.clone()],
+        watched: None,
+    });
+    ui.run("for i=1,GetNumFactions() do local name=GetFactionInfo(i); if name=='Authored watched faction' then SetWatchedFactionIndex(i); break end end").unwrap();
+    assert!(
+        ui.eval::<bool>("return GetWatchedFactionInfo()==nil")
+            .unwrap(),
+        "stock UI waits for server descriptor, no local watch mirror"
+    );
+    assert_eq!(
+        ui.take_reputation_sends(),
+        vec![ReputationSend::Watch(Some(7))]
+    );
+    c.receive(ClientCommand::SetWatchedFaction { rep_list_id: 7 })
+        .unwrap();
+    let reputation_before = c
+        .world
+        .state()
+        .quest_progression
+        .as_ref()
+        .unwrap()
+        .reputation
+        .as_ref()
+        .unwrap()
+        .clone();
+    fs::write(
+        h.path().join(".world-checkpoint.pending"),
+        b"authored save failure",
+    )
+    .unwrap();
+    let failed = c.pump(c.tick_duration());
+    assert!(matches!(
+        failed.pause.unwrap().kind,
+        PauseKind::Checkpoint {
+            requires_reopen: false
+        }
+    ));
+    assert!(failed.events.is_empty());
+    assert_eq!(c.world.state().watched_faction(), 7);
+    assert_eq!(
+        c.world
+            .state()
+            .quest_progression
+            .as_ref()
+            .unwrap()
+            .reputation
+            .as_ref()
+            .unwrap(),
+        &reputation_before
+    );
+    let sequence = c.world.state().next_sequence;
+    fs::remove_file(h.path().join(".world-checkpoint.pending")).unwrap();
+    c.retry_checkpoint().unwrap();
+    let out = c.pump(Duration::ZERO);
+    assert!(out.pause.is_none());
+    let watched = field(&out.events).unwrap();
+    assert_eq!(watched, 7);
+    ui.set_reputation(ReputationState {
+        entries: vec![entry.clone()],
+        watched: u32::try_from(watched).ok(),
+    });
+    assert_eq!(
+        ui.eval::<String>("return GetWatchedFactionInfo()").unwrap(),
+        entry.name
+    );
+    assert!(c.pump(Duration::ZERO).events.is_empty());
+    assert_eq!(c.world.state().next_sequence, sequence);
+    let digest = c.world.state_digest();
+    drop(c);
+    let mut c = enter(&h, true, false, false);
+    assert_eq!(c.world.state_digest(), digest);
+    assert_eq!(field(&c.initial_events().unwrap()), Some(7));
+    ui.run("SetWatchedFactionIndex(0)").unwrap();
+    assert_eq!(
+        ui.take_reputation_sends(),
+        vec![ReputationSend::Watch(None)]
+    );
+    c.receive(ClientCommand::SetWatchedFaction { rep_list_id: -1 })
+        .unwrap();
+    let out = c.pump(c.tick_duration());
+    assert!(out.pause.is_none());
+    assert_eq!(field(&out.events), Some(-1));
+    for raw in [0, -2, i32::MIN, i32::MAX, 64, 123456] {
+        c.receive(ClientCommand::SetWatchedFaction { rep_list_id: raw })
+            .unwrap();
+        let out = c.pump(c.tick_duration());
+        assert!(out.pause.is_none());
+        assert_eq!(field(&out.events), Some(raw));
+        assert_eq!(c.world.state().watched_faction(), raw);
+        let digest = c.world.state_digest();
+        drop(c);
+        c = enter(&h, true, false, false);
+        assert_eq!(c.world.state_digest(), digest);
+        assert_eq!(field(&c.initial_events().unwrap()), Some(raw));
+    }
+}

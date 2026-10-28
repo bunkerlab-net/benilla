@@ -422,6 +422,7 @@ impl NativeProjection {
             (23, w.state().resources.caster.mana),
             (29, w.player_limits().1),
             (34, u32::from(w.player_level())),
+            (1261, w.state().watched_faction() as u32),
         ];
         if let Some(c) = &w.state().combat {
             // Loot::SetPlayerIsLooting/NotLooting maintains UNIT_FLAG_LOOTING.
@@ -2104,3 +2105,7 @@ mod creature_generation_tests;
 #[cfg(test)]
 #[path = "native_creature_equipment_tests.rs"]
 mod creature_equipment_tests;
+
+#[cfg(test)]
+#[path = "native_watched_faction_tests.rs"]
+mod watched_faction_tests;

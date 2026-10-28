@@ -109,7 +109,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v57\0",
+            b"benilla-native-profile-v58\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -427,6 +427,7 @@ impl Npc {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct State {
+    pub(super) watched_faction: watched_faction::WatchedFactionState,
     pub(super) player_melee: Option<player_melee::PlayerMeleeState>,
     pub initial_cast_genesis: InitialCastGenesis,
     pub(super) source_location: Option<SourceLocationFacts>,
@@ -499,6 +500,9 @@ pub enum Command {
     },
     /// Internal controller lifecycle acknowledgement; no network/UI request maps here.
     AcknowledgeInitialReputations,
+    SetWatchedFaction {
+        list_id: i32,
+    },
     SetFactionAtWar {
         list_id: u32,
         at_war: bool,
@@ -885,6 +889,10 @@ pub struct QuestInteractionFacts {
     pub npc_reaction: u8,
 }
 impl State {
+    /// Raw source signed descriptor; unknown and negative values are not normalized.
+    pub fn watched_faction(&self) -> i32 {
+        self.watched_faction.value()
+    }
     /// Conservative liveness for the supported native player domain.
     ///
     /// A retained death lifecycle must be Alive, and health must still be positive.

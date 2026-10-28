@@ -1032,6 +1032,11 @@ impl Driven for NativeController {
                     self.queue_cancel(spell_id, target)?;
                 }
             }
+            ClientCommand::SetWatchedFaction { rep_list_id } => {
+                self.queue(n::Command::SetWatchedFaction {
+                    list_id: rep_list_id,
+                })?;
+            }
             ClientCommand::SetFactionAtWar {
                 rep_list_id,
                 at_war,

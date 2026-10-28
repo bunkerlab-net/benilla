@@ -368,9 +368,9 @@ fn controls_checkpoint_flags_and_call_history_cannot_be_reblessed() {
             _ => unreachable!(),
         }
         forged.state = serde_json::from_value(encoded).unwrap();
-        forged.digest = crate::digest(b"benilla-native-state-v57\0", &forged.state);
+        forged.digest = crate::digest(b"benilla-native-state-v58\0", &forged.state);
         forged.checksum = crate::digest(
-            b"benilla-native-checkpoint-v57\0",
+            b"benilla-native-checkpoint-v58\0",
             &(&forged.state, forged.digest, forged.history_tip),
         );
         assert!(
@@ -497,6 +497,18 @@ fn active_cast_at_war_control_reopens_without_reinterpreting_cast_origin() {
         w.state.combat.as_ref().unwrap().in_combat,
         "real projectile impact must enter combat"
     );
+    let watch_start = w.checkpoint().unwrap();
+    let record_offset = w.records().len();
+    let watch =
+        synthetic_quest_fixture::command(&w, Command::SetWatchedFaction { list_id: i32::MIN });
+    w.step(w.state.tick + 1, Some(watch), &mut authority)
+        .unwrap();
+    assert_eq!(w.state.watched_faction(), i32::MIN);
+    reopen(&w);
+    let mut watch_replay =
+        NativeWorld::restore_synthetic_component_test(w.profile.clone(), watch_start).unwrap();
+    watch_replay.replay(&w.records()[record_offset..]).unwrap();
+    assert_eq!(watch_replay.state_digest(), w.state_digest());
     let off = synthetic_quest_fixture::command(
         &w,
         Command::SetFactionAtWar {
@@ -582,6 +594,9 @@ fn reputation_controls_remain_available_after_real_lethal_damage() {
     );
     assert_ne!(view(&w).factions()[&7].flags & rep::INACTIVE, 0);
     assert_eq!(w.state.health, 0);
+    assert!(!w.state.player_alive());
+    step(&mut w, Command::SetWatchedFaction { list_id: i32::MAX });
+    assert_eq!(w.state.watched_faction(), i32::MAX);
     assert!(!w.state.player_alive());
     reopen(&w);
     replay(&w, initial);

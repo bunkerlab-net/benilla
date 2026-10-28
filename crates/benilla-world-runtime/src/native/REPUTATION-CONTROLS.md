@@ -44,9 +44,10 @@ source reputation operation retains its existing send behavior.
 Current source relation queries consume the retained reputation state, so at-war
 changes player-to-NPC relation/eligibility. Inactive only changes presentation
 flags, not hostility. Existing historical mainhand proof still excludes tracked
-factions; this change does not enable those attacks or weaken that proof. No
-watched-faction field, faction cheats, PvP control, or new source content is added.
-Native format **57**, native reputation policy **v3**, rejects earlier snapshots;
+factions; this change does not enable those attacks or weaken that proof. Faction cheats, PvP control, and new source content are not added. The separate
+player watched-faction descriptor is described in [WATCHED-FACTION.md](WATCHED-FACTION.md).
+This integration introduced native format **57** and native reputation policy **v3**;
+current native format **58** also owns the separate watched field and rejects earlier snapshots;
 there is no migration and the production capability remains uninhabited.
 
 ## Adjacent work not claimed

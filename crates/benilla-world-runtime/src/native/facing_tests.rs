@@ -378,7 +378,7 @@ fn published_native_format11_checkpoint_record_and_replay_are_refused() {
         NativeWorld::restore_synthetic_component_test(w.profile.clone(), initial.clone()).unwrap();
     assert!(replay.replay(&records).is_err());
     assert_eq!(replay.checkpoint().unwrap(), initial);
-    assert_eq!(NATIVE_FORMAT_VERSION, 57);
+    assert_eq!(NATIVE_FORMAT_VERSION, 58);
     assert_eq!(crate::FORMAT_VERSION, 2);
 }
 

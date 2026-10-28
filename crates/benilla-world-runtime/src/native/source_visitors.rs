@@ -773,8 +773,8 @@ mod tests {
                 .unwrap();
         assert!(restored.replay(&records).is_err());
         assert_eq!(restored.checkpoint().unwrap(), initial);
-        assert_eq!(NATIVE_FORMAT_VERSION, 57);
-        assert_eq!(NATIVE_POLICY, "benilla-native-reputation-controls-v57");
+        assert_eq!(NATIVE_FORMAT_VERSION, 58);
+        assert_eq!(NATIVE_POLICY, "benilla-native-watched-faction-v58");
         assert_eq!(crate::FORMAT_VERSION, 2);
     }
     #[test]

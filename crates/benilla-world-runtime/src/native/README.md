@@ -1,7 +1,7 @@
 # Native component integration boundary
 
 This is a distinct component-test domain inside the existing world runtime.
-`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v57 cannot
+`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v58 cannot
 admit production content: `NativeCapability` is uninhabited until the raw compiler
 validates the source closure and every critical semantic dependency. That is an
 implementation condition, not a requirement that developers possess game assets.
@@ -11,7 +11,7 @@ The opt-in `synthetic-native-tests` feature exposes only synthetic construction 
 restoration. Feature unification, preparation JSON, hashes, and source initializer
 outputs cannot produce `NativeCapability`. Fabricated test rows are not native data.
 
-Native format 57, `benilla-native-reputation-controls-v57`, retains the selected
+Native format 58, `benilla-native-watched-faction-v58`, retains the selected
 [player mainhand policy](../../PLAYER-MELEE.md), required optional player proof
 and NPC defense reactive state, retained generic-cast slot context and
 spell target-death lifecycle causes in the bounded melee proof. Backpack stack-split
@@ -19,12 +19,14 @@ commands and receipts retain consumed clone identities on legitimate storage
 refusal. Selected backpack destruction retains quest-removal callbacks before
 exact selected-slot mutation; the carried-items policy is v7. Bounded quest
 abandonment retains NONE-status history for reacceptance under quest-lifecycle-v4.
-Format57 adds source reputation-panel controls with replayed native reputation-v3
-call history; no immediate acknowledgement packet is invented. Native reputation-objective abandonment remains
+Format57 added source reputation-panel controls with replayed native reputation-v3
+call history; no immediate acknowledgement packet is invented. Format58 adds the
+raw signed watched-faction descriptor and retained changed-write history, without
+changing reputation flags or admitting new gameplay. Native reputation-objective abandonment remains
 unsupported until repeated acceptance visibility history is owned. The player-melee
 profile and last-cause policies are v2. Profile/state/record/checkpoint root hash
-domains are v57; established melee, visitor and event-AI callback subdomains
-remain v51. Native56 and earlier checkpoints/journals reject without migration,
+domains are v58; established melee, visitor and event-AI callback subdomains
+remain v51. Native57 and earlier checkpoints/journals reject without migration,
 including rehashed outer envelopes and stale profile context. Linked older
 format descriptions are historical schemas, not accepted decoder versions;
 their source dependency requirements remain in force. This boundary does not
@@ -210,7 +212,7 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
   binary64; source comparison is strict promoted-float chance > double roll
 - Draw records bind semantic purpose/action/NPC generation. Action chains bind full
   current defense/cast/resource snapshots, so same-HP misses cannot be reused
-- Checkpoints bind native format 57, policy, RNG mapping, domain, content, authority, geometry,
+- Checkpoints bind native format 58, policy, RNG mapping, domain, content, authority, geometry,
   history-chain tip, cooldown maps, recomputable casts/auras, AI lifecycle/motion,
   exact mana timers, skills/reactive/combat clocks, checked equipment recipes and
   [per-NPC event ownership](../../NPC-EVENTS.md) with DEAD/respawn clock continuity
@@ -362,7 +364,7 @@ Motion arithmetic, production admission/startup and loaded-native cache reopenin
 remain unchanged.
 
 Native56 and older checkpoints/journals reject without migration. Profile, state,
-record and checkpoint digest domains are v57; established melee domains remain v51; original World v2, character
+record and checkpoint digest domains are v58; established melee domains remain v51; original World v2, character
 profiles and the store envelope are unchanged. Fixtures are authored component
 evidence, not captured client/DB data.
 

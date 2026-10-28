@@ -56,7 +56,7 @@ the source reputation query, never the client `FactionInfo` race-slot helper.
 ## Persistence and session delivery
 
 Native reputation policy v3 (the existing primitive policy remains v2), initializer
-policy v4 and quest genesis v6 are bound through the native57 profile/genesis hashes. The required initial-cast receipt remains
+policy v4 and quest genesis v6 are bound through the native58 profile/genesis hashes. The required initial-cast receipt remains
 separate from reputation packet fields; earlier-context saves reject even for
 no-aura inputs. A recomputed outer checksum cannot repair stale nested catalog,
 training or quest-policy identities. The separate character/profile format is
