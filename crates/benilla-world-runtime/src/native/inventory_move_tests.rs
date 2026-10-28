@@ -233,3 +233,6 @@ mod inventory_split_tests;
 
 #[path = "inventory_destroy_tests.rs"]
 mod inventory_destroy_tests;
+
+#[path = "inventory_autostore_tests.rs"]
+mod inventory_autostore_tests;

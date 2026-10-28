@@ -773,8 +773,8 @@ mod tests {
                 .unwrap();
         assert!(restored.replay(&records).is_err());
         assert_eq!(restored.checkpoint().unwrap(), initial);
-        assert_eq!(NATIVE_FORMAT_VERSION, 59);
-        assert_eq!(NATIVE_POLICY, "benilla-native-action-bar-toggles-v59");
+        assert_eq!(NATIVE_FORMAT_VERSION, 60);
+        assert_eq!(NATIVE_POLICY, "benilla-native-backpack-autostore-v60");
         assert_eq!(crate::FORMAT_VERSION, 2);
     }
     #[test]

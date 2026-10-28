@@ -515,6 +515,103 @@ impl NativeProjection {
         frame.pending_destroy = Some(receipt.clone());
         Ok(vec![])
     }
+    pub(super) fn inventory_autostored(
+        &self,
+        w: &n::NativeWorld,
+        receipt: &inv::AutoStoreReceipt,
+        frame: &mut Frame,
+    ) -> Result<Vec<SessionEvent>, Error> {
+        frame.validate_complete()?;
+        if frame.slots != receipt.before.slots || frame.next_item != Some(receipt.before.next_item)
+        {
+            return Err(Error::StaleProjection);
+        }
+        let catalog = &w
+            .profile()
+            .quest_progression
+            .as_ref()
+            .and_then(|g| g.loot.as_ref())
+            .ok_or(Error::StaleProjection)?
+            .inventory;
+        receipt
+            .validate(catalog)
+            .map_err(|_| Error::StaleProjection)?;
+        let mut events = vec![];
+        if receipt.outcome == inv::AutoStoreOutcome::IgnoredEmptySource {
+            return Ok(events);
+        }
+        let source = receipt
+            .before
+            .slots
+            .get(&receipt.source)
+            .ok_or(Error::StaleProjection)?;
+        let source_guid = guid(w, source.id);
+        if receipt.outcome == inv::AutoStoreOutcome::Unchanged {
+            return Ok(vec![SessionEvent::InventoryFailure {
+                reason: 0,
+                required_level: None,
+                item_guid: 0,
+                item2_guid: 0,
+                bag_slot: 0,
+            }]);
+        }
+        // RemoveItem detaches, but does not destroy the original item object. Its
+        // owner remains the player; the contained GUID and inventory slot clear.
+        events.push(SessionEvent::ObjectValues {
+            guid: self.player_guid,
+            fields: ObjectFields::from_pairs(&[
+                (486 + 2 * u16::from(receipt.source), 0),
+                (487 + 2 * u16::from(receipt.source), 0),
+            ]),
+        });
+        events.push(SessionEvent::ObjectValues {
+            guid: source_guid,
+            fields: ObjectFields::from_pairs(&[(8, 0), (9, 0)]),
+        });
+        for (index, destination) in receipt.destinations.iter().enumerate() {
+            let previous = &receipt.views[index];
+            let view = &receipt.views[index + 1];
+            let item = view
+                .slots
+                .get(&destination.slot)
+                .ok_or(Error::StaleProjection)?;
+            let item_guid = guid(w, item.id);
+            let mut item_fields = fields(item);
+            if !previous.slots.contains_key(&destination.slot) {
+                item_fields.merge(ObjectFields::from_pairs(&[
+                    (6, self.player_guid as u32),
+                    (7, (self.player_guid >> 32) as u32),
+                    (8, self.player_guid as u32),
+                    (9, (self.player_guid >> 32) as u32),
+                ]));
+                events.push(SessionEvent::ObjectValues {
+                    guid: self.player_guid,
+                    fields: ObjectFields::from_pairs(&[
+                        (486 + 2 * u16::from(destination.slot), item_guid as u32),
+                        (
+                            487 + 2 * u16::from(destination.slot),
+                            (item_guid >> 32) as u32,
+                        ),
+                    ]),
+                });
+            }
+            events.push(SessionEvent::ObjectValues {
+                guid: item_guid,
+                fields: item_fields,
+            });
+        }
+        if !receipt
+            .after
+            .slots
+            .values()
+            .any(|item| item.id == source.id)
+        {
+            events.push(SessionEvent::ObjectDestroyed(source_guid));
+        }
+        frame.slots = receipt.after.slots.clone();
+        frame.next_item = Some(receipt.after.next_item);
+        Ok(events)
+    }
     pub(super) fn inventory_split(
         &self,
         w: &n::NativeWorld,

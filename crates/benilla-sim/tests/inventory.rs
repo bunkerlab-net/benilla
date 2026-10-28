@@ -601,3 +601,6 @@ mod split;
 
 #[path = "inventory/destroy.rs"]
 mod destroy;
+
+#[path = "inventory/autostore.rs"]
+mod autostore;

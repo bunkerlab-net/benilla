@@ -109,7 +109,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v59\0",
+            b"benilla-native-profile-v60\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -466,6 +466,7 @@ pub enum Command {
     AttackStop,
     InventoryMove(InventoryMoveRequest),
     InventorySplit(InventorySplitRequest),
+    InventoryAutoStore(InventoryAutoStoreRequest),
     InventoryDestroy(InventoryDestroyRequest),
     Admin(AdminRequest),
     MovementPose {
@@ -545,6 +546,11 @@ pub struct InventoryMoveRequest {
     pub destination: u8,
 }
 /// Explicit ordinary-backpack split; amount retains the source packet uint8 domain.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InventoryAutoStoreRequest {
+    pub source: u8,
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InventorySplitRequest {
@@ -656,6 +662,7 @@ pub enum Event {
     InventoryStored(Box<benilla_sim::inventory::Stored>),
     InventoryMoved(Box<benilla_sim::inventory::MovementReceipt>),
     InventorySplit(Box<benilla_sim::inventory::SplitReceipt>),
+    InventoryAutoStored(Box<benilla_sim::inventory::AutoStoreReceipt>),
     ItemAcquired(ItemAcquisition),
     QuestProgression(QuestProgressionEvent),
     InputResult {

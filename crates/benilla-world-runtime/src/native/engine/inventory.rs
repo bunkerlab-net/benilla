@@ -4,6 +4,51 @@ use super::*;
 use benilla_sim::inventory as inv;
 
 impl<A: Authority> Frame<'_, A> {
+    pub(super) fn inventory_autostore(
+        &mut self,
+        request: &InventoryAutoStoreRequest,
+    ) -> Result<Option<Rejection>, NativeError> {
+        let genesis = self
+            .profile
+            .quest_progression
+            .as_ref()
+            .ok_or(NativeError::UnsupportedMechanic("native inventory host"))?;
+        let catalog = &genesis
+            .loot
+            .as_ref()
+            .ok_or(NativeError::UnsupportedMechanic("native inventory catalog"))?
+            .inventory;
+        let mut next = self
+            .state
+            .quest_progression
+            .clone()
+            .ok_or(NativeError::InvalidState)?;
+        let receipt = next
+            .inventory
+            .as_mut()
+            .ok_or(NativeError::InvalidState)?
+            .autostore_backpack(catalog, request.source)?;
+        if receipt.before != receipt.after {
+            super::super::loot::update_inventory_receipts(
+                &mut next,
+                crate::digest(
+                    b"benilla-native-backpack-autostore-v1\0",
+                    &(
+                        self.state.world,
+                        self.state.player,
+                        self.state.tick,
+                        self.state.next_sequence,
+                        request,
+                        &receipt,
+                    ),
+                ),
+            )?;
+            self.state.quest_progression = Some(next);
+        }
+        self.events
+            .push(Event::InventoryAutoStored(Box::new(receipt)));
+        Ok(None)
+    }
     pub(super) fn inventory_destroy(
         &mut self,
         request: &InventoryDestroyRequest,

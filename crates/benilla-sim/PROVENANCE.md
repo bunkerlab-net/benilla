@@ -914,3 +914,19 @@ Player.cpp SHA256
 Pinned QuestDef.h verifies log capacity20 and TIMED0x040. Original authored tests
 cover retainedNONE, source callback order and reacceptance; existing source-item,
 timer and private-content exclusions remain in force.
+
+## Backpack auto-store (carried-items-v8)
+
+Pinned CMaNGOS Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`:
+`src/game/Handlers/ItemHandler.cpp` HandleAutoStoreBagItemOpcode809–858,
+`src/game/Entities/Player.cpp` _CanStoreItem_InInventorySlots8775,
+StoreItem9929, _StoreItem9956, RemoveItem10229, SendEquipError11094.
+ItemHandler SHA256 `833cd58e5cba491d72f11b12d5a48f7c0fa36b0310adbccc04442101b3b6edd7`;
+Player SHA256 `d02d693f2575b0f47be405fe6e81e2a4e833fca8d149354d9cb8d3b458527c7e`.
+The actual existing inventory/catalog supplies source rows and dependency
+exclusions. Only ordinary backpack positions are supported; source item-count
+bounds prove no CloneItem allocation. Receipts retain detach and store order,
+original identity, unchanged aggregate counts/allocator, and exact same-slot
+reason0 semantics. Tests are authored semantic probes, not upstream execution or
+installed private content. See runtime INVENTORY-AUTOSTORE.md for the composed
+controller/projection and unsupported-domain limits.

@@ -8,13 +8,15 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const UPSTREAM_COMMIT: &str = "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f";
-pub const POLICY_ID: &str = "cmangos-8ec338a1-carried-items-v7";
+pub const POLICY_ID: &str = "cmangos-8ec338a1-carried-items-v8";
 mod corpse;
 pub use corpse::CORPSE_POLICY_ID;
 mod grants;
 pub use grants::*;
 mod destroy;
 pub use destroy::*;
+mod autostore;
+pub use autostore::*;
 mod split;
 pub use split::*;
 mod movement;
@@ -54,7 +56,8 @@ pub struct Audit {
     pub bank_and_keyring_items: Evidence,
     pub trade_or_temporary_item_loot: Evidence,
     /// Mutations beyond this policy's named storage, grant, requirement-removal
-    /// backpack SwapItem, explicit SplitItem and selected DestroyItem paths. Equip, use and bag contents stay absent.
+    /// backpack SwapItem, explicit SplitItem, selected DestroyItem and backpack AutoStoreBagItem paths.
+    /// Equip, use and bag contents stay absent.
     pub additional_item_mutations: Evidence,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -1365,3 +1365,66 @@ fn selected_destroy_projection_requires_exact_immediate_host_callback() {
         .iter()
         .any(|e| matches!(e, SessionEvent::ItemPushResult(_))));
 }
+
+#[test]
+fn autostore_projection_rejects_wrong_ancestry_and_forged_detach_views_before_mutation() {
+    let w = build(&[2], 0);
+    let projection = NativeProjection::new(&w, w.state().player, &Catalog::new(&w)).unwrap();
+    let catalog = &w
+        .profile()
+        .quest_progression
+        .as_ref()
+        .unwrap()
+        .loot
+        .as_ref()
+        .unwrap()
+        .inventory;
+    let mut before = inventory(w.state()).unwrap().clone();
+    before
+        .store_new(catalog, 70001, 4, |_, _, _| Ok(()))
+        .unwrap();
+    before.swap_backpack(catalog, 23, 38, true).unwrap();
+    let mut after = before.clone();
+    let receipt = after.autostore_backpack(catalog, 38).unwrap();
+    assert_eq!(receipt.outcome, inv::AutoStoreOutcome::Stored);
+    let mut frame = Frame {
+        next_item: Some(before.next_item),
+        slots: before.slots.clone(),
+        pending_destroy: None,
+        pending_push: None,
+    };
+    let mut other = before.clone();
+    other.next_item += 10;
+    let other = other.autostore_backpack(catalog, 38).unwrap();
+    other.validate(catalog).unwrap();
+    let mut bad_view = receipt.clone();
+    bad_view.views[0]
+        .slots
+        .insert(38, before.slots[&38].clone());
+    let mut bad_dest = receipt.clone();
+    bad_dest.destinations[0].count += 1;
+    let mut other_state = before.clone();
+    other_state.slots.get_mut(&38).unwrap().count -= 1;
+    let other_state = other_state.autostore_backpack(catalog, 38).unwrap();
+    other_state.validate(catalog).unwrap();
+    for bad in [other, bad_view, bad_dest, other_state] {
+        assert!(matches!(
+            projection.inventory_autostored(&w, &bad, &mut frame),
+            Err(Error::StaleProjection)
+        ));
+        assert_eq!(frame.slots, before.slots);
+        assert_eq!(frame.next_item, Some(before.next_item));
+        frame.validate_complete().unwrap();
+    }
+    let events = projection
+        .inventory_autostored(&w, &receipt, &mut frame)
+        .unwrap();
+    assert_eq!(frame.slots, receipt.after.slots);
+    assert_eq!(frame.next_item, Some(receipt.after.next_item));
+    assert!(!events.iter().any(|e| matches!(
+        e,
+        SessionEvent::ItemCreate { .. }
+            | SessionEvent::ObjectDestroyed(_)
+            | SessionEvent::ItemPushResult(_)
+    )));
+}

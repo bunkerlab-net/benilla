@@ -5,7 +5,7 @@
 `SwapItem` from CMaNGOS Classic
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. The upstream grant is
 GPL-2.0-or-later; see [PROVENANCE.md](PROVENANCE.md). Its policy is
-`cmangos-8ec338a1-carried-items-v7`.
+`cmangos-8ec338a1-carried-items-v8`.
 The separately named positive admin policy is `CmangosAddItemV1`.
 
 ## Exact source behavior
@@ -256,3 +256,7 @@ Selected ordinary-backpack destruction is specified in
 [INVENTORY-DESTROY.md](INVENTORY-DESTROY.md): the exact selected instance is removed
 only after source quest callbacks, with typed no-user-destroy protection and
 strict checkpoint/projection ownership. Other item topologies remain excluded.
+
+The v8 bounded `autostore_backpack` handler retains the source instance, searches
+other backpack stacks then empty positions, and emits no acquisition/removal
+quest hook. See `../benilla-world-runtime/src/native/INVENTORY-AUTOSTORE.md`.
