@@ -5,7 +5,7 @@
 `SwapItem` from CMaNGOS Classic
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. The upstream grant is
 GPL-2.0-or-later; see [PROVENANCE.md](PROVENANCE.md). Its policy is
-`cmangos-8ec338a1-carried-items-v5`.
+`cmangos-8ec338a1-carried-items-v6`.
 The separately named positive admin policy is `CmangosAddItemV1`.
 
 ## Exact source behavior
@@ -62,7 +62,7 @@ readiness remain explicit failures; they are not inferred from grant success.
 Storage requires evidence that creation/loot scripts, equipped bags, bank/keyring
 items, trade/temporary loot and additional mutations are absent. The last audit
 means mutations beyond the policy's explicitly named storage, positive grant,
-requirement-removal and backpack-swap paths; it does not admit split, equip, use,
+requirement-removal, backpack-swap and explicit backpack-split paths; it does not admit equip, use,
 equipped containers or arbitrary item editing. Unknown or present
 evidence blocks the operation without hiding the catalog row. Nonzero ScriptId,
 random properties, duration, area/map lifecycle restrictions and unreviewed flags
@@ -211,7 +211,8 @@ for an empty inventory or a request that would otherwise be ignored.
   does not bind in backpack slots. All other per-instance metadata is preserved.
 - Real empty carried Bag objects participate in moves and swaps, never merges.
   Their contents remain empty and they provide no usable slots. Equipped bags,
-  storing bag contents, equipment, bank, keyring, split and use remain unsupported.
+  storing bag contents, equipment, bank, keyring and use remain unsupported.
+  Explicit ordinary backpack splits are separately covered in `INVENTORY-SPLIT.md`.
 
 The source real-swap branch ends in `AutoUnequipOffhandIfNeed`. Its active branch
 requires both a mainhand InventoryType 17 item and a nonempty offhand. The

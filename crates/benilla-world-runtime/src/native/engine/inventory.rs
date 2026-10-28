@@ -4,6 +4,60 @@ use super::*;
 use benilla_sim::inventory as inv;
 
 impl<A: Authority> Frame<'_, A> {
+    pub(super) fn inventory_split(
+        &mut self,
+        request: &InventorySplitRequest,
+    ) -> Result<Option<Rejection>, NativeError> {
+        let genesis = self
+            .profile
+            .quest_progression
+            .as_ref()
+            .ok_or(NativeError::UnsupportedMechanic("native inventory host"))?;
+        let catalog = &genesis
+            .loot
+            .as_ref()
+            .ok_or(NativeError::UnsupportedMechanic("native inventory catalog"))?
+            .inventory;
+        let mut next = self
+            .state
+            .quest_progression
+            .clone()
+            .ok_or(NativeError::InvalidState)?;
+        let inventory = next.inventory.as_mut().ok_or(NativeError::InvalidState)?;
+        // SplitItem has no ordinary-backpack alive guard, unlike SwapItem.
+        let receipt = inventory.split_backpack(
+            catalog,
+            request.source,
+            request.destination,
+            request.count,
+        )?;
+        let rejection =
+            (receipt.result != inv::InventoryResult::Ok).then_some(Rejection::Inventory {
+                reason: receipt.result.protocol(),
+                source: request.source,
+                destination: request.destination,
+            });
+        if receipt.before != receipt.after {
+            // Includes allocated-and-retired clones on refused destination storage.
+            super::super::loot::update_inventory_receipts(
+                &mut next,
+                crate::digest(
+                    b"benilla-native-backpack-split-v1\0",
+                    &(
+                        self.state.world,
+                        self.state.player,
+                        self.state.tick,
+                        self.state.next_sequence,
+                        request,
+                        &receipt,
+                    ),
+                ),
+            )?;
+            self.state.quest_progression = Some(next);
+        }
+        self.events.push(Event::InventorySplit(Box::new(receipt)));
+        Ok(rejection)
+    }
     pub(super) fn inventory_move(
         &mut self,
         request: &InventoryMoveRequest,

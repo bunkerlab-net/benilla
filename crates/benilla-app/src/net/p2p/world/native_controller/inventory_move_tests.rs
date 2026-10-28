@@ -341,3 +341,6 @@ fn moving_admin_unbound_empty_bag_rebinds_same_guid_without_another_acquisition(
         SessionEvent::ItemCreate { guid: restored, fields, .. }
         if *restored == guid && fields.item_flags() == Some(1))));
 }
+
+#[path = "inventory_split_tests.rs"]
+mod inventory_split_tests;

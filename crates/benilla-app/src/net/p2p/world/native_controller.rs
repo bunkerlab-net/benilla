@@ -1063,6 +1063,41 @@ impl Driven for NativeController {
                     .local(&self.world, UiRequest::OpenLoot(corpse))?;
                 self.queue(input.input.command)?;
             }
+            ClientCommand::SplitItem {
+                src_bag,
+                src_slot,
+                dst_bag,
+                dst_slot,
+                count,
+            } => {
+                // Source packet guards precede position lookup, including unsupported positions.
+                if (src_bag, src_slot) == (dst_bag, dst_slot) || count == 0 {
+                    return Ok(commands::Received {
+                        events: vec![],
+                        logout: false,
+                    });
+                }
+                use benilla_sim::inventory as inv;
+                if src_bag != 255
+                    || dst_bag != 255
+                    || !(inv::FIRST_SLOT..inv::END_SLOT).contains(&src_slot)
+                    || !(inv::FIRST_SLOT..inv::END_SLOT).contains(&dst_slot)
+                    || self
+                        .world
+                        .state()
+                        .quest_progression
+                        .as_ref()
+                        .and_then(|state| state.inventory.as_ref())
+                        .is_none()
+                {
+                    return Err(Error::UnsupportedCommand);
+                }
+                self.queue(n::Command::InventorySplit(n::InventorySplitRequest {
+                    source: src_slot,
+                    destination: dst_slot,
+                    count,
+                }))?;
+            }
             ClientCommand::SwapInvItem { src_slot, dst_slot } => {
                 use benilla_sim::inventory as inv;
                 if !(inv::FIRST_SLOT..inv::END_SLOT).contains(&src_slot)

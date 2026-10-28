@@ -595,3 +595,6 @@ mod movement;
 
 #[path = "inventory/corpse.rs"]
 mod corpse;
+
+#[path = "inventory/split.rs"]
+mod split;

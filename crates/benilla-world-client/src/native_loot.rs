@@ -234,12 +234,14 @@ fn fields(item: &inv::Instance) -> ObjectFields {
     fields
 }
 pub(super) struct Frame {
+    next_item: Option<u64>,
     slots: BTreeMap<u8, inv::Instance>,
     pending_push: Option<p::ItemPushResult>,
 }
 impl Frame {
     pub(super) fn new(state: &n::State) -> Self {
         Self {
+            next_item: inventory(state).map(|i| i.next_item),
             slots: inventory(state).map_or_else(BTreeMap::new, |i| i.slots.clone()),
             pending_push: None,
         }
@@ -346,9 +348,10 @@ impl Frame {
         stored: &inv::Stored,
     ) -> Result<Vec<SessionEvent>, Error> {
         self.validate_complete()?;
-        if self.slots != stored.before_slots {
+        if self.slots != stored.before_slots || self.next_item != Some(stored.before_next_item) {
             return Err(Error::StaleProjection);
         }
+        self.next_item = Some(stored.after_next_item);
         let mut events = self.project(projection, w, &stored.after_slots);
         events.push(SessionEvent::ItemPushResult(p::ItemPushResult {
             player_guid: projection.player_guid,
@@ -377,7 +380,9 @@ impl Frame {
     }
     pub(super) fn validate_final(&self, w: &n::NativeWorld) -> Result<(), Error> {
         self.validate_complete()?;
-        if inventory(w.state()).is_some_and(|state| self.slots != state.slots) {
+        if inventory(w.state()).is_some_and(|state| {
+            self.slots != state.slots || self.next_item != Some(state.next_item)
+        }) {
             return Err(Error::StaleProjection);
         }
         Ok(())
@@ -438,7 +443,7 @@ impl NativeProjection {
         )
     }
     pub(super) fn initial_inventory(&self, w: &n::NativeWorld) -> Vec<SessionEvent> {
-        Frame { slots: BTreeMap::new(), pending_push: None }.finish(self, w)
+        Frame { next_item: inventory(w.state()).map(|i| i.next_item), slots: BTreeMap::new(), pending_push: None }.finish(self, w)
         .into_iter()
         // initial_player_fields selects the full initial player descriptor; its bag pointers
         // are already emitted by player_values after all item creates.
@@ -451,6 +456,59 @@ impl NativeProjection {
             .item(entry)
             .map(|i| crate::plain_ui_text(&i.name))
     }
+    pub(super) fn inventory_split(
+        &self,
+        w: &n::NativeWorld,
+        split: &inv::SplitReceipt,
+        frame: &mut Frame,
+    ) -> Result<Vec<SessionEvent>, Error> {
+        frame.validate_complete()?;
+        if frame.slots != split.before.slots || frame.next_item != Some(split.before.next_item) {
+            return Err(Error::StaleProjection);
+        }
+        let catalog = &w
+            .profile()
+            .quest_progression
+            .as_ref()
+            .and_then(|state| state.loot.as_ref())
+            .ok_or(Error::StaleProjection)?
+            .inventory;
+        split
+            .validate(catalog)
+            .map_err(|_| Error::StaleProjection)?;
+        let mut events = Vec::new();
+        for view in &split.views {
+            events.extend(frame.project(self, w, &view.slots));
+        }
+        if frame.slots != split.after.slots {
+            return Err(Error::StaleProjection);
+        }
+        frame.next_item = Some(split.after.next_item);
+        if split.outcome == inv::SplitOutcome::Stored {
+            if let Some(id) = split
+                .clone_id
+                .filter(|id| !split.after.slots.values().any(|item| item.id == *id))
+            {
+                // Final _StoreItem merge retires the temporary clone even though no backpack
+                // slot ever exposed it. No new-item push or quest acquisition is emitted.
+                events.push(SessionEvent::ObjectDestroyed(guid(w, id)));
+            }
+        }
+        if split.result != inv::InventoryResult::Ok {
+            events.push(SessionEvent::InventoryFailure {
+                reason: split.result.protocol(),
+                required_level: None,
+                item_guid: split
+                    .before
+                    .slots
+                    .get(&split.source)
+                    .map_or(0, |i| guid(w, i.id)),
+                item2_guid: 0,
+                bag_slot: 0,
+            });
+        }
+        Ok(events)
+    }
     pub(super) fn inventory_moved(
         &self,
         w: &n::NativeWorld,
@@ -458,7 +516,7 @@ impl NativeProjection {
         frame: &mut Frame,
     ) -> Result<Vec<SessionEvent>, Error> {
         frame.validate_complete()?;
-        if frame.slots != moved.before.slots {
+        if frame.slots != moved.before.slots || frame.next_item != Some(moved.before.next_item) {
             return Err(Error::StaleProjection);
         }
         let catalog = &w
@@ -472,6 +530,7 @@ impl NativeProjection {
             .validate(catalog)
             .map_err(|_| Error::StaleProjection)?;
         // Player::SwapItem moves existing instances without SendNewItem or quest credit.
+        frame.next_item = Some(moved.after.next_item);
         let mut events = frame.project(self, w, &moved.after.slots);
         if moved.result != inv::InventoryResult::Ok {
             events.push(SessionEvent::InventoryFailure {
@@ -498,9 +557,13 @@ impl NativeProjection {
         stored: &inv::Stored,
         frame: &mut Frame,
     ) -> Result<Vec<SessionEvent>, Error> {
-        if frame.slots != stored.before_slots || frame.pending_push.is_some() {
+        if frame.slots != stored.before_slots
+            || frame.pending_push.is_some()
+            || frame.next_item != Some(stored.before_next_item)
+        {
             return Err(Error::StaleProjection);
         }
+        frame.next_item = Some(stored.after_next_item);
         let out = frame.project(self, w, &stored.after_slots);
         frame.pending_push = Some(p::ItemPushResult {
             player_guid: self.player_guid,

@@ -875,3 +875,16 @@ Descriptor layout additionally checked against the same pinned
 `073511bd0ac71a28d817e735b58212f893169c48`, SHA-256
 `b1c6f19ea63d7bb27a8da0da4834fbc36244e1df5cc6888cac761484645ad2a8`);
 equipment bounds against `Player.h` and flag values against `Corpse.h`.
+
+## Explicit backpack SplitItem
+
+`src/inventory/split.rs` derives from pinned CMaNGOS Classic
+`8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`: Player.cpp SplitItem/CanStoreItem/
+StoreItem, ItemHandler.cpp HandleSplitItemOpcode and Item.cpp CloneItem.
+Upstream GPL-2.0-or-later, translation GPL-3.0-or-later; CMaNGOS contributors.
+Exact cached source SHA-256:
+- ItemHandler.cpp `833cd58e5cba491d72f11b12d5a48f7c0fa36b0310adbccc04442101b3b6edd7`
+- Item.cpp `5e401746527531beb521d3eeaa6bc0b55fceaa0d4aef1e780d4f429a545f72e4`
+- Player.cpp `d02d693f2575b0f47be405fe6e81e2a4e833fca8d149354d9cb8d3b458527c7e`
+`INVENTORY-SPLIT.md` specifies the bounded topology, temporary allocation,
+callback views, projection convention and authored tests. No database rows added.

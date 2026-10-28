@@ -37,3 +37,12 @@ native entry remains closed. Bag equipping or contents, equipment, splitting,
 item use, banking, trade and other item operations remain separate work.
 Authored component and protocol tests do not establish asset-backed rendering
 or a populated playable Classic world.
+
+## Explicit backpack splits
+
+Native54 adds separately sequenced `InventorySplit`, carrying the actual packet's
+uint8 count. See `benilla-sim/INVENTORY-SPLIT.md` for source guards, clone allocation,
+ordered intermediate views and refusal behavior. This is not SwapItem with a count:
+no alive guard is added, and a refused destination can still consume an item ID.
+Runtime inventory anchors commit such allocator-only changes, with no acquisition
+or quest progression; normal checkpoint/outbox ownership remains mandatory.

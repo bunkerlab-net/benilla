@@ -1155,6 +1155,7 @@ fn movement_receipt_rejects_stale_before_and_tampered_after_without_changing_fra
     let mut after = before.clone();
     let moved = after.swap_backpack(catalog, 23, 38, true).unwrap();
     let mut frame = Frame {
+        next_item: Some(before.next_item),
         slots: before.slots.clone(),
         pending_push: None,
     };
@@ -1227,6 +1228,7 @@ fn pickup_and_quest_bonding_move_project_same_instance_flags_without_item_push()
         let id = state.slots[&23].id;
         assert!(!state.slots[&23].bound);
         let mut frame = Frame {
+            next_item: Some(state.next_item),
             slots: state.slots.clone(),
             pending_push: None,
         };
@@ -1244,4 +1246,56 @@ fn pickup_and_quest_bonding_move_project_same_instance_flags_without_item_push()
                 | SessionEvent::QuestObjectiveItem { .. }
         )));
     }
+}
+
+#[test]
+fn split_projection_rejects_locally_valid_wrong_allocator_and_tampered_views_atomically() {
+    let w = build(&[2], 0);
+    let projection = NativeProjection::new(&w, w.state().player, &Catalog::new(&w)).unwrap();
+    let catalog = &w
+        .profile()
+        .quest_progression
+        .as_ref()
+        .unwrap()
+        .loot
+        .as_ref()
+        .unwrap()
+        .inventory;
+    let mut before = inventory(w.state()).unwrap().clone();
+    before
+        .store_new(catalog, 70001, 4, |_, _, _| Ok(()))
+        .unwrap();
+    let mut after = before.clone();
+    let receipt = after.split_backpack(catalog, 23, 38, 1).unwrap();
+    let mut frame = Frame {
+        next_item: Some(before.next_item),
+        slots: before.slots.clone(),
+        pending_push: None,
+    };
+    let mut other = before.clone();
+    other.next_item += 10;
+    let other = other.split_backpack(catalog, 23, 38, 1).unwrap();
+    other.validate(catalog).unwrap();
+    assert!(matches!(
+        projection.inventory_split(&w, &other, &mut frame),
+        Err(Error::StaleProjection)
+    ));
+    assert_eq!(frame.next_item, Some(before.next_item));
+    assert_eq!(frame.slots, before.slots);
+    let mut bad = receipt.clone();
+    bad.views[0].slots.get_mut(&23).unwrap().count += 1;
+    assert!(matches!(
+        projection.inventory_split(&w, &bad, &mut frame),
+        Err(Error::StaleProjection)
+    ));
+    assert_eq!(frame.next_item, Some(before.next_item));
+    assert_eq!(frame.slots, before.slots);
+    let events = projection
+        .inventory_split(&w, &receipt, &mut frame)
+        .unwrap();
+    assert_eq!(frame.next_item, Some(receipt.after.next_item));
+    assert_eq!(frame.slots, receipt.after.slots);
+    assert!(!events
+        .iter()
+        .any(|event| matches!(event, SessionEvent::ItemPushResult(_))));
 }

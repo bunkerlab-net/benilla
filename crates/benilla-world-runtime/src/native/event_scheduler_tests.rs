@@ -24,11 +24,11 @@ fn tamper(
     change(&mut cp["state"]);
     let state: super::persistence::StateCheckpoint =
         serde_json::from_value(cp["state"].clone()).unwrap();
-    let digest = crate::digest(b"benilla-native-state-v53\0", &state);
+    let digest = crate::digest(b"benilla-native-state-v54\0", &state);
     let tip: crate::Digest = serde_json::from_value(cp["history_tip"].clone()).unwrap();
     cp["digest"] = serde_json::to_value(digest).unwrap();
     cp["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v53\0",
+        b"benilla-native-checkpoint-v54\0",
         &(&state, digest, tip),
     ))
     .unwrap();

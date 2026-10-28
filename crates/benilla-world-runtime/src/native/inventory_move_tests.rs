@@ -227,3 +227,6 @@ fn maximum_move_batch_stays_bounded_and_failed_later_input_rolls_back_prior_move
         .is_err());
     assert_eq!(w.checkpoint().unwrap(), snapshot);
 }
+
+#[path = "inventory_split_tests.rs"]
+mod inventory_split_tests;

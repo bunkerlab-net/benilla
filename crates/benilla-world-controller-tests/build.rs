@@ -94,6 +94,7 @@ fn main() {
         "LootMoney",
         "LootRelease",
         "SwapInvItem",
+        "SplitItem",
         "ItemQuery",
         "QuestQuery",
         "NpcTextQuery",

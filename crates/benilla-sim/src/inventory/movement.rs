@@ -154,7 +154,7 @@ impl State {
     }
 }
 
-fn bind_on_store(instance: &mut Instance, item: &Item) {
+pub(super) fn bind_on_store(instance: &mut Instance, item: &Item) {
     // _StoreItem never unbinds; BIND_WHEN_EQUIPPED does not apply in backpack slots.
     if matches!(item.bonding, 1 | 4) {
         instance.bound = true;

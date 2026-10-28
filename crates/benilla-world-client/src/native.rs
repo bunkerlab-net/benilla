@@ -994,6 +994,7 @@ impl NativeProjection {
                 n::Event::Loot(event) => events.extend(self.loot_event(w, event, &mut loot_frame)?),
                 n::Event::InventoryStored(stored) => events.extend(self.inventory_stored(w, stored, &mut loot_frame)?),
                 n::Event::InventoryMoved(moved) => events.extend(self.inventory_moved(w, moved, &mut loot_frame)?),
+                n::Event::InventorySplit(split) => events.extend(self.inventory_split(w, split, &mut loot_frame)?),
                 n::Event::ItemAcquired(source) => events.push(self.item_acquired(*source, &mut loot_frame)?),
                 n::Event::NpcSpell(_) => {}, // Internal Unit lifetime, not a client cast bar.
                 n::Event::PlayerSlow(event) => events.extend(slow_frame.project(event, self.player_guid, orders)?),
