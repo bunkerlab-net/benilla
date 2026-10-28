@@ -31,6 +31,8 @@ pub struct StatRecipeSnapshot {
     pub modifiers: ModifierSnapshot,
     pub items: Vec<EquipmentItemModifiers>,
     pub broken_slots: Vec<u8>,
+    /// Original objects currently absent from their original equipment slots.
+    pub inactive_slots: Vec<u8>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StatRecipe {
@@ -100,11 +102,12 @@ impl StatRecipe {
         }
         Ok(Self {
             snapshot: StatRecipeSnapshot {
-                version: 2,
+                version: 3,
                 level: 1,
                 modifiers: stats.snapshot(),
                 items: modifiers,
                 broken_slots: vec![],
+                inactive_slots: vec![],
             },
         })
     }
@@ -138,9 +141,11 @@ impl StatRecipe {
     /// supplied broken flags against this profile's authoritative fresh recipe.
     /// This never supplies authority for new content, item types or modifiers.
     pub fn restore(fresh: &Self, snapshot: &StatRecipeSnapshot) -> Result<Self> {
-        if !fresh.snapshot.broken_slots.is_empty()
-            || snapshot.version != 2
-            || fresh.snapshot.version != 2
+        if !fresh.snapshot.inactive_slots.is_empty()
+            || !snapshot.inactive_slots.is_empty()
+            || !fresh.snapshot.broken_slots.is_empty()
+            || snapshot.version != 3
+            || fresh.snapshot.version != 3
             || snapshot.level != fresh.snapshot.level
             || !(1..=crate::player_progression::MAX_SUPPORTED_LEVEL).contains(&snapshot.level)
             || snapshot.items != fresh.snapshot.items
@@ -226,10 +231,74 @@ impl StatRecipe {
         if was_broken == broken {
             return self.current(live);
         }
+        if self.snapshot.inactive_slots.contains(&slot) {
+            return Err(InitError::Unsupported {
+                domain: "inactive equipment durability mutation",
+                id: item.item_id,
+                detail: u32::from(slot),
+            });
+        }
+        let mut next = self.clone();
+        if broken {
+            next.snapshot.broken_slots.push(slot);
+            next.snapshot.broken_slots.sort_unstable();
+        } else {
+            next.snapshot.broken_slots.retain(|v| *v != slot);
+        }
+        let result = next.apply_item_modifiers(&item, if broken { -1 } else { 1 }, live)?;
+        *self = next;
+        Ok(result)
+    }
+    /// Change original armor membership, independently of durability. The host
+    /// must authorize and atomically commit placement and replay history. This
+    /// operation does not authorize restoring caller-supplied membership flags.
+    pub fn set_item_active(
+        &mut self,
+        slot: u8,
+        active: bool,
+        live: Resources,
+    ) -> Result<EquipmentRecompute> {
+        let item = self
+            .snapshot
+            .items
+            .iter()
+            .find(|item| item.slot == slot)
+            .cloned()
+            .ok_or(InitError::Invalid("equipment membership slot"))?;
+        if item.weapon || slot >= 15 {
+            return Err(InitError::Invalid(
+                "equipment membership requires original body armor",
+            ));
+        }
+        let was_active = !self.snapshot.inactive_slots.contains(&slot);
+        if was_active == active {
+            return self.current(live);
+        }
+        let mut next = self.clone();
+        if active {
+            next.snapshot.inactive_slots.retain(|v| *v != slot);
+        } else {
+            next.snapshot.inactive_slots.push(slot);
+            next.snapshot.inactive_slots.sort_unstable();
+        }
+        // Player::_ApplyItemMods returns before bonuses for broken items.
+        let result = if next.snapshot.broken_slots.contains(&slot) {
+            next.current(live)?
+        } else {
+            next.apply_item_modifiers(&item, if active { 1 } else { -1 }, live)?
+        };
+        *self = next;
+        Ok(result)
+    }
+    fn apply_item_modifiers(
+        &mut self,
+        item: &EquipmentItemModifiers,
+        sign: i32,
+        live: Resources,
+    ) -> Result<EquipmentRecompute> {
         let mut stats = Stats::restore(&self.snapshot.modifiers)?;
         self.validate_resources(&stats, live)?;
         stats.resources = live;
-        let sign = if broken { -1 } else { 1 };
         let mut steps = vec![];
         let mut attribute_steps = vec![];
         for stat in item.stats {
@@ -278,12 +347,6 @@ impl StatRecipe {
         }
         let mut next = self.clone();
         next.snapshot.modifiers = stats.snapshot();
-        if broken {
-            next.snapshot.broken_slots.push(slot);
-            next.snapshot.broken_slots.sort_unstable();
-        } else {
-            next.snapshot.broken_slots.retain(|v| *v != slot);
-        }
         let result = next.result(stats, steps, attribute_steps)?;
         *self = next;
         Ok(result)

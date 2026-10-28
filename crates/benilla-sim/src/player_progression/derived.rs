@@ -299,6 +299,68 @@ impl DerivedStats {
             return Err(Error::Invalid("ancillary item-break equipment identity"));
         }
         let mut next = self.clone();
+        let attributes =
+            next.apply_item_attribute_callbacks(before_view, before_inputs, recompute)?;
+        if attributes != recompute.effective_attributes {
+            return Err(Error::Invalid("ancillary item-break final attributes"));
+        }
+        if update_damage {
+            next.update_damage(false, after_inputs)?;
+        }
+        *self = next;
+        Ok(())
+    }
+    /// Replay the ancillary callbacks for genuine original body-armor membership.
+    /// The enclosing runtime must authorize original object custody, invoke the
+    /// authoritative `StatRecipe::set_item_active(slot, active, live)`, and replay
+    /// that operation and compare the entire witness on restore BEFORE trusting
+    /// `recompute`. Shape checks here do not authenticate supplied stat changes.
+    /// Commit recipe, placement, resources, and this host atomically. Broken armor
+    /// produces no attribute callbacks; this is not a durability-break operation.
+    /// Weapons, replacements, and unsupported item effects remain excluded.
+    pub fn apply_armor_membership(
+        &mut self,
+        before_view: &Snapshot,
+        before_inputs: &DerivedInputs,
+        after_inputs: &DerivedInputs,
+        slot: u8,
+        recompute: &crate::starter_init::EquipmentRecompute,
+    ) -> Result<()> {
+        before_inputs.validate(before_view)?;
+        after_inputs.validate(before_view)?;
+        if slot >= 15 || recompute.attribute_steps.len() > 10 {
+            return Err(Error::Invalid("ancillary armor-membership witness shape"));
+        }
+        let disabled_weapons: std::collections::BTreeSet<_> = before_inputs
+            .weapons
+            .iter()
+            .filter(|weapon| weapon.broken)
+            .map(|weapon| weapon.slot)
+            .collect();
+        if before_inputs != after_inputs || recompute.disabled_weapon_slots != disabled_weapons {
+            return Err(Error::Invalid(
+                "ancillary armor-membership equipment identity",
+            ));
+        }
+        let mut next = self.clone();
+        let attributes =
+            next.apply_item_attribute_callbacks(before_view, before_inputs, recompute)?;
+        if attributes != recompute.effective_attributes {
+            return Err(Error::Invalid(
+                "ancillary armor-membership final attributes",
+            ));
+        }
+        *self = next;
+        Ok(())
+    }
+    // Player::_ApplyItemBonuses calls HandleStatModifier in ItemStat order;
+    // StatSystem.cpp::UpdateStats runs these hooks for EACH attribute callback.
+    fn apply_item_attribute_callbacks(
+        &mut self,
+        before_view: &Snapshot,
+        before_inputs: &DerivedInputs,
+        recompute: &crate::starter_init::EquipmentRecompute,
+    ) -> Result<crate::starter_init::Attributes> {
         let mut view = before_view.clone();
         for &(index, attributes) in &recompute.attribute_steps {
             if index >= 5
@@ -312,10 +374,10 @@ impl DerivedStats {
             view.numeric.attributes = attributes;
             match index {
                 1 => {
-                    next.apply_inner(StatHook::AllCritPercentages, &view, before_inputs)?;
-                    next.update_dodge(&view)?;
+                    self.apply_inner(StatHook::AllCritPercentages, &view, before_inputs)?;
+                    self.update_dodge(&view)?;
                 }
-                3 => next.apply_inner(StatHook::AllSpellCritChances, &view, before_inputs)?,
+                3 => self.apply_inner(StatHook::AllSpellCritChances, &view, before_inputs)?,
                 _ => {}
             }
             for hook in [
@@ -324,17 +386,10 @@ impl DerivedStats {
                 StatHook::SpellDamageBonus,
                 StatHook::ManaRegen,
             ] {
-                next.apply_inner(hook, &view, before_inputs)?;
+                self.apply_inner(hook, &view, before_inputs)?;
             }
         }
-        if view.numeric.attributes != recompute.effective_attributes {
-            return Err(Error::Invalid("ancillary item-break final attributes"));
-        }
-        if update_damage {
-            next.update_damage(false, after_inputs)?;
-        }
-        *self = next;
-        Ok(())
+        Ok(view.numeric.attributes)
     }
     fn update_damage(&mut self, ranged: bool, inputs: &DerivedInputs) -> Result<()> {
         let ap = raw(self.attack_power[usize::from(ranged)].total.bits())?;

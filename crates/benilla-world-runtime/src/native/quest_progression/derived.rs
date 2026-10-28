@@ -32,6 +32,15 @@ pub enum DerivedCall {
         skill: u16,
         gain: u16,
     },
+    ItemMembership {
+        before: Box<pg::Snapshot>,
+        before_recipe: Box<init::StatRecipeSnapshot>,
+        after_recipe: Box<init::StatRecipeSnapshot>,
+        before_inputs: DerivedInputs,
+        after_inputs: DerivedInputs,
+        movement: Box<EquipmentMoveReceipt>,
+        recompute: Box<init::EquipmentRecompute>,
+    },
     ItemBreak {
         before: Box<pg::Snapshot>,
         before_recipe: Box<init::StatRecipeSnapshot>,
@@ -181,7 +190,6 @@ fn resources(view: &pg::Snapshot) -> init::Resources {
 }
 
 /// Full validation is appropriate only at a completed-operation boundary.
-#[cfg(any(test, feature = "synthetic-native-tests"))]
 fn boundary(
     g: &QuestProgressionGenesis,
     view: &pg::Snapshot,
@@ -205,15 +213,22 @@ fn authoritative_recipe(
     g: &QuestProgressionGenesis,
     view: &pg::Snapshot,
     recipe: &init::StatRecipe,
+    owner: &QuestProgressionState,
 ) -> Result<(), NativeError> {
     pg::State::restore(&g.levels, view.clone())?;
-    let fresh = g.initial_combat.recipe.rebase(
-        view.level,
-        view.modifiers.create,
-        view.modifiers.create_health,
-        view.modifiers.create_mana,
+    if owner.genesis != g.identity {
+        return Err(NativeError::InvalidState);
+    }
+    let (_, _, expected) = reconstruct_history(
+        g,
+        owner.player.view(),
+        owner.training.as_view(),
+        &owner.derived,
+        &owner.derived_calls,
     )?;
-    init::StatRecipe::restore(&fresh, &recipe.snapshot())?;
+    if expected != *recipe {
+        return Err(NativeError::InvalidState);
+    }
     if recipe.snapshot().modifiers != view.modifiers {
         return Err(NativeError::InvalidState);
     }
@@ -318,6 +333,94 @@ fn defense_skills(
 }
 
 impl QuestProgressionState {
+    pub(in crate::native) fn armor_membership(
+        &self,
+        g: &QuestProgressionGenesis,
+        combat: &PlayerCombatState,
+        movement: EquipmentMoveReceipt,
+        health: u32,
+        mana: u32,
+    ) -> Result<(Self, PlayerCombatState), NativeError> {
+        reserve_call(&self.derived_calls)?;
+        authoritative_recipe(g, self.player.view(), &combat.recipe, self)?;
+        if self.inventory.as_ref() != Some(&movement.before)
+            || self.inventory_receipts != movement.before_receipts
+        {
+            return Err(NativeError::InvalidState);
+        }
+        let mut custody = equipment_movement::placements(g, &self.derived_calls)?;
+        movement.replay(g, &mut custody)?;
+        let slot = movement.origin.genesis_slot;
+        let mut next = self.clone();
+        next.synchronize(g, combat, health, mana)?;
+        let before = next.player.snapshot();
+        if !before.alive || health == 0 || combat.in_combat {
+            return Err(NativeError::InvalidState);
+        }
+        if !movement.equips() {
+            let worn = combat
+                .equipment
+                .items()
+                .find(|i| i.origin == movement.origin)
+                .ok_or(NativeError::InvalidState)?;
+            if worn.current_durability != worn.max_durability {
+                return Err(NativeError::UnsupportedMechanic("damaged armor movement"));
+            }
+        }
+        let mut after = combat.clone();
+        let before_recipe = combat.recipe.snapshot();
+        let before_inputs = g.derived_inputs(combat);
+        let recompute =
+            after
+                .recipe
+                .set_item_active(slot, movement.equips(), resources(&before))?;
+        after.stats = combat::CharacterStats::from_result(&recompute);
+        let mut physical = combat.equipment.snapshot();
+        if movement.equips() {
+            let original = *g
+                .initial_combat
+                .equipment
+                .items
+                .iter()
+                .find(|i| i.origin == movement.origin)
+                .ok_or(NativeError::InvalidState)?;
+            if physical.items.iter().any(|i| i.slot == slot) {
+                return Err(NativeError::InvalidState);
+            }
+            physical.items.push(original);
+            physical.items.sort_by_key(|i| i.slot);
+        } else {
+            physical.items.retain(|i| i.slot != slot);
+        }
+        after.equipment =
+            equipment_movement::restore_equipment(&g.initial_combat, physical, &after.recipe)?;
+        let after_inputs = g.derived_inputs(&after);
+        next.derived.apply_armor_membership(
+            &before,
+            &before_inputs,
+            &after_inputs,
+            slot,
+            &recompute,
+        )?;
+        next.synchronize(
+            g,
+            &after,
+            recompute.resources.health,
+            recompute.resources.mana,
+        )?;
+        next.inventory = Some(movement.after.clone());
+        next.inventory_receipts = movement.after_receipts.clone();
+        next.derived_calls.push(DerivedCall::ItemMembership {
+            before: Box::new(before),
+            before_recipe: Box::new(before_recipe),
+            after_recipe: Box::new(after.recipe.snapshot()),
+            before_inputs,
+            after_inputs,
+            movement: Box::new(movement),
+            recompute: Box::new(recompute),
+        });
+        Ok((next, after))
+    }
     pub(in crate::native) fn item_break(
         &mut self,
         g: &QuestProgressionGenesis,
@@ -332,7 +435,7 @@ impl QuestProgressionState {
         let mut next = self.clone();
         next.synchronize(g, before_combat, health, mana)?;
         let before = next.player.snapshot();
-        authoritative_recipe(g, &before, &before_combat.recipe)?;
+        authoritative_recipe(g, &before, &before_combat.recipe, self)?;
         let before_recipe = before_combat.recipe.snapshot();
         if before_recipe.broken_slots.contains(&slot) {
             return Err(NativeError::InvalidState);
@@ -402,7 +505,7 @@ impl QuestProgressionState {
         if view.skills != expected_skills {
             return Err(NativeError::InvalidState);
         }
-        authoritative_recipe(g, &view, &combat.recipe)?;
+        authoritative_recipe(g, &view, &combat.recipe, self)?;
         next.derived
             .apply_hook(pg::StatHook::AllCritPercentages, &view, &inputs)?;
         next.player = pg::State::restore(&g.levels, view.clone())?;
@@ -432,7 +535,7 @@ impl QuestProgressionState {
         if view.skills != expected_skills {
             return Err(NativeError::InvalidState);
         }
-        authoritative_recipe(g, view, &combat.recipe)?;
+        authoritative_recipe(g, view, &combat.recipe, self)?;
         let inputs = g.derived_inputs(combat);
         next.derived
             .apply_hook(pg::StatHook::DefenseBonuses, view, &inputs)?;
@@ -487,6 +590,23 @@ pub(super) fn validate_history(
     calls: &[DerivedCall],
     expected_recipe: &init::StatRecipe,
 ) -> Result<(BTreeMap<usize, u32>, init::LiveTraining), NativeError> {
+    let (boundaries, training, recipe) =
+        reconstruct_history(g, player, expected_training, expected_derived, calls)?;
+    if recipe != *expected_recipe {
+        return Err(NativeError::InvalidCheckpoint);
+    }
+    Ok((boundaries, training))
+}
+
+/// Rebuild the recipe from the owner-bound validated source-call prefix, never
+/// from persisted active/broken membership flags.
+pub(super) fn reconstruct_history(
+    g: &QuestProgressionGenesis,
+    player: &pg::Snapshot,
+    expected_training: init::TrainingView<'_>,
+    expected_derived: &DerivedStats,
+    calls: &[DerivedCall],
+) -> Result<(BTreeMap<usize, u32>, init::LiveTraining, init::StatRecipe), NativeError> {
     if calls.len() > MAX_DERIVED_CALLS {
         return Err(NativeError::InvalidCheckpoint);
     }
@@ -496,6 +616,7 @@ pub(super) fn validate_history(
     let mut derived = DerivedStats::from_snapshot(source.view(), &g.initial_derived_inputs)?;
     let mut index = 0;
     let mut boundaries = BTreeMap::from([(0, source.view().level)]);
+    let mut placements = equipment_movement::initial_placements(g);
     while let Some(call) = calls.get(index) {
         match call {
             DerivedCall::Level {
@@ -564,6 +685,57 @@ pub(super) fn validate_history(
                 derived.apply_hook(pg::StatHook::AllCritPercentages, view, inputs)?;
                 index += 1;
             }
+            DerivedCall::ItemMembership {
+                before,
+                before_recipe,
+                after_recipe,
+                before_inputs,
+                after_inputs,
+                movement,
+                recompute,
+            } => {
+                source = boundary(g, before, source.view(), &recipe)?;
+                let slot = movement.origin.genesis_slot;
+                if !before.alive
+                    || before.numeric.health == 0
+                    || movement.context.in_combat
+                    || **before_recipe != recipe.snapshot()
+                    || before_recipe.broken_slots.contains(&slot)
+                    || before_recipe.inactive_slots.contains(&slot) != movement.equips()
+                    || *before_inputs != g.inputs_for_recipe(before_recipe)
+                    || (!movement.equips() && movement.context.generic_slot.is_some())
+                {
+                    return Err(NativeError::InvalidCheckpoint);
+                }
+                movement.replay(g, &mut placements)?;
+                let actual = recipe.set_item_active(slot, movement.equips(), resources(before))?;
+                if actual != **recompute
+                    || **after_recipe != recipe.snapshot()
+                    || *after_inputs != g.inputs_for_recipe(after_recipe)
+                {
+                    return Err(NativeError::InvalidCheckpoint);
+                }
+                derived.apply_armor_membership(
+                    before,
+                    before_inputs,
+                    after_inputs,
+                    slot,
+                    &actual,
+                )?;
+                let mut view = source.snapshot();
+                view.modifiers = recipe.snapshot().modifiers;
+                let mut powers = view.numeric.powers;
+                powers[0] = actual.resources.mana;
+                view.numeric = pg::NumericState::from_modifiers(
+                    view.level,
+                    &view.modifiers,
+                    actual.resources.health,
+                    powers,
+                )?;
+                view.alive = actual.resources.health != 0;
+                source = pg::State::restore(&g.levels, view)?;
+                index += 1;
+            }
             DerivedCall::ItemBreak {
                 before,
                 before_recipe,
@@ -611,13 +783,10 @@ pub(super) fn validate_history(
         boundaries.insert(index, source.view().level);
     }
     boundary(g, player, source.view(), &recipe)?;
-    if *expected_derived != derived
-        || *expected_recipe != recipe
-        || !training.matches_snapshot(expected_training)
-    {
+    if *expected_derived != derived || !training.matches_snapshot(expected_training) {
         return Err(NativeError::InvalidCheckpoint);
     }
-    Ok((boundaries, training))
+    Ok((boundaries, training, recipe))
 }
 
 #[cfg(test)]
@@ -634,6 +803,45 @@ mod tests {
         let state = QuestProgressionState::new(&g, 0).unwrap();
         let combat = PlayerCombatState::new(&g.initial_combat, 0).unwrap();
         (g, state, combat)
+    }
+
+    #[test]
+    fn reconstructed_recipe_is_source_journal_output_not_claimed_membership() {
+        let (g, state, combat) = fixture();
+        let (boundaries, training, recipe) = reconstruct_history(
+            &g,
+            state.player.view(),
+            state.training.as_view(),
+            &state.derived,
+            &state.derived_calls,
+        )
+        .unwrap();
+        assert_eq!(recipe, combat.recipe);
+        assert_eq!(boundaries, BTreeMap::from([(0, 1)]));
+        assert_eq!(training.snapshot(), state.training);
+        let mut inactive = recipe.clone();
+        let slot = inactive.snapshot().items[0].slot;
+        inactive
+            .set_item_active(slot, false, resources(state.player.view()))
+            .unwrap();
+        assert!(validate_history(
+            &g,
+            state.player.view(),
+            state.training.as_view(),
+            &state.derived,
+            &state.derived_calls,
+            &inactive
+        )
+        .is_err());
+        let (_, _, unchanged) = reconstruct_history(
+            &g,
+            state.player.view(),
+            state.training.as_view(),
+            &state.derived,
+            &state.derived_calls,
+        )
+        .unwrap();
+        assert_eq!(unchanged, recipe);
     }
 
     fn mainhand_fixture(

@@ -176,6 +176,26 @@ impl SourceContext {
             ));
         }
         let combat_genesis = profile.combat.as_ref().ok_or(NativeError::InvalidProfile)?;
+        #[cfg(any(test, feature = "synthetic-native-tests"))]
+        let equipment = {
+            let genesis = profile
+                .quest_progression
+                .as_ref()
+                .ok_or(NativeError::InvalidCheckpoint)?;
+            let current = state
+                .quest_progression
+                .as_ref()
+                .ok_or(NativeError::InvalidCheckpoint)?;
+            // validate above authenticates this owner-bound prefix. The current
+            // combat recipe may reflect later armor removal or re-equipping.
+            let recipe = self.binding.recipe_state(genesis, current)?;
+            crate::native::quest_progression::equipment_movement::restore_equipment(
+                combat_genesis,
+                self.equipment.clone(),
+                &recipe,
+            )?
+        };
+        #[cfg(not(any(test, feature = "synthetic-native-tests")))]
         let equipment = equipment::EquipmentState::restore(
             self.equipment.clone(),
             &equipment::EquipmentState::from_snapshot(combat_genesis.equipment.clone())?,

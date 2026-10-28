@@ -65,8 +65,8 @@ impl MeleeExecutionBinding {
     }
 
     pub(in crate::native) fn replay_work(&self) -> u64 {
-        64 + u64::from(self.progression.training_prefix.count)
-            + u64::from(self.progression.derived_prefix.count)
+        64 + 2 * u64::from(self.progression.training_prefix.count)
+            + 2 * u64::from(self.progression.derived_prefix.count)
     }
 
     /// Only the immediate owner-capture path may use this without validate.
@@ -225,15 +225,14 @@ impl MeleeExecutionBinding {
         })
     }
 
-    fn recipe_state(&self, g: &QuestProgressionGenesis) -> Result<init::StatRecipe, NativeError> {
-        let p = &self.progression.player;
-        let fresh = g.initial_combat.recipe.rebase(
-            p.level,
-            p.modifiers.create,
-            p.modifiers.create_health,
-            p.modifiers.create_mana,
-        )?;
-        Ok(init::StatRecipe::restore(&fresh, self.recipe())?)
+    /// Reconstruct this binding's exact source prefix, not the final loadout.
+    /// Callers must first validate the binding against the containing owner.
+    pub(in crate::native) fn recipe_state(
+        &self,
+        g: &QuestProgressionGenesis,
+        current: &QuestProgressionState,
+    ) -> Result<init::StatRecipe, NativeError> {
+        self.progression.reconstruct_recipe(g, current)
     }
 
     fn append_exact_callbacks(
@@ -321,7 +320,7 @@ impl MeleeExecutionBinding {
             expected.progression.training_prefix =
                 HistoryPrefix::capture(self.progression.owner, "training", &training.calls)?;
             let p = tx.player.view();
-            let recipe = self.recipe_state(g)?.rebase(
+            let recipe = self.recipe_state(g, current)?.rebase(
                 p.level,
                 p.modifiers.create,
                 p.modifiers.create_health,
@@ -337,7 +336,7 @@ impl MeleeExecutionBinding {
             expected.kill = after.kill.clone(); // exact increment/unchanged inputs checked above
         } else if let Some(slot) = broken_slot {
             let before = prior.snapshot();
-            let mut recipe = self.recipe_state(g)?;
+            let mut recipe = self.recipe_state(g, current)?;
             let before_recipe = recipe.snapshot();
             if before_recipe.broken_slots.contains(&slot) {
                 return Err(NativeError::InvalidCheckpoint);

@@ -532,7 +532,7 @@ impl PlayerCombatState {
         origin: u64,
         diff: u32,
     ) -> Result<Self, NativeError> {
-        Self::restore_inner(g, s, health, mana, now, tick, origin, diff, false)
+        Self::restore_inner(g, s, health, mana, now, tick, origin, diff, false, None)
     }
     /// Provisional component reconstruction for an explicitly selected profile.
     /// The containing checkpoint must validate the complete player melee proof.
@@ -547,7 +547,35 @@ impl PlayerCombatState {
         origin: u64,
         diff: u32,
     ) -> Result<Self, NativeError> {
-        Self::restore_inner(g, s, health, mana, now, tick, origin, diff, true)
+        Self::restore_inner(g, s, health, mana, now, tick, origin, diff, true, None)
+    }
+    /// The containing quest owner independently replays the complete source
+    /// journal before calling this entry. Persisted membership is not authority.
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    pub(super) fn restore_replayed_fields(
+        g: &CombatGenesis,
+        s: CombatSnapshot,
+        recipe: init::StatRecipe,
+        health: u32,
+        mana: u32,
+        now: u64,
+        tick: u64,
+        origin: u64,
+        diff: u32,
+        selected_melee: bool,
+    ) -> Result<Self, NativeError> {
+        Self::restore_inner(
+            g,
+            s,
+            health,
+            mana,
+            now,
+            tick,
+            origin,
+            diff,
+            selected_melee,
+            Some(recipe),
+        )
     }
     #[cfg(any(test, feature = "synthetic-native-tests"))]
     fn restore_inner(
@@ -560,6 +588,7 @@ impl PlayerCombatState {
         origin: u64,
         diff: u32,
         selected_melee: bool,
+        replayed_recipe: Option<init::StatRecipe>,
     ) -> Result<Self, NativeError> {
         let death = match (&g.death, s.death) {
             (Some(p), Some(d)) => Some(
@@ -587,11 +616,26 @@ impl PlayerCombatState {
         } else if health == 0 || s.death_killer.is_some() {
             return Err(NativeError::InvalidCheckpoint);
         }
-        let recipe = init::StatRecipe::restore(&g.recipe, &s.recipe)?;
-        let equipment = equipment::EquipmentState::restore(
-            s.equipment.clone(),
-            &equipment::EquipmentState::from_snapshot(g.equipment.clone())?,
-        )?;
+        let (recipe, equipment) = match replayed_recipe {
+            Some(recipe) => {
+                if recipe.snapshot() != s.recipe {
+                    return Err(NativeError::InvalidCheckpoint);
+                }
+                let equipment = quest_progression::equipment_movement::restore_equipment(
+                    g,
+                    s.equipment.clone(),
+                    &recipe,
+                )?;
+                (recipe, equipment)
+            }
+            None => (
+                init::StatRecipe::restore(&g.recipe, &s.recipe)?,
+                equipment::EquipmentState::restore(
+                    s.equipment.clone(),
+                    &equipment::EquipmentState::from_snapshot(g.equipment.clone())?,
+                )?,
+            ),
+        };
         let live = init::Resources {
             health,
             max_health: s.stats.max_health,
@@ -608,6 +652,10 @@ impl PlayerCombatState {
             .collect::<Vec<_>>();
         if expected != s.stats
             || broken != s.recipe.broken_slots
+            || s.recipe
+                .inactive_slots
+                .iter()
+                .any(|slot| s.recipe.broken_slots.contains(slot))
             || s.skills.len() != g.skills.len()
             || s.next_action == 0
             || s.next_action > tick.saturating_mul(4096).saturating_add(1)

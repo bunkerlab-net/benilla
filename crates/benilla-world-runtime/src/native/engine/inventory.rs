@@ -4,6 +4,121 @@ use super::*;
 use benilla_sim::inventory as inv;
 
 impl<A: Authority> Frame<'_, A> {
+    pub(super) fn equipment_move(
+        &mut self,
+        request: &EquipmentMoveRequest,
+    ) -> Result<Option<Rejection>, NativeError> {
+        use quest_progression::equipment_movement as movement;
+        self.profile
+            .interactions
+            .as_ref()
+            .ok_or(NativeError::UnsupportedMechanic(
+                "armor source interaction owner",
+            ))?
+            .require_armor_movement(self.profile)?;
+        let g = self
+            .profile
+            .quest_progression
+            .as_ref()
+            .ok_or(NativeError::InvalidState)?;
+        let q = self
+            .state
+            .quest_progression
+            .as_ref()
+            .ok_or(NativeError::InvalidState)?;
+        let inventory = q.inventory.as_ref().ok_or(NativeError::InvalidState)?;
+        let custody = movement::placements(g, &q.derived_calls)?;
+        let Some((&instance, _)) = custody.iter().find(|(_, slot)| **slot == request.source) else {
+            let occupied = inventory.slots.contains_key(&request.source)
+                || self
+                    .state
+                    .combat
+                    .as_ref()
+                    .is_some_and(|c| c.equipment.items().any(|i| i.slot == request.source));
+            return if occupied {
+                Err(NativeError::UnsupportedMechanic(
+                    "nonregistry equipment movement",
+                ))
+            } else {
+                Ok(None)
+            };
+        };
+        if request.source == request.destination {
+            return Ok(None);
+        }
+        let combat = self
+            .state
+            .combat
+            .as_ref()
+            .ok_or(NativeError::InvalidState)?;
+        let origin = g
+            .loot
+            .as_ref()
+            .ok_or(NativeError::InvalidState)?
+            .equipment_origin(instance)
+            .ok_or(NativeError::InvalidState)?;
+        let equips = request.destination == origin.genesis_slot;
+        let generic_slot = if equips && self.state.player_alive() && !combat.in_combat {
+            player_melee::casting::GenericSlot::capture(self.state)?
+        } else {
+            None
+        };
+        let reason = if !self.state.player_alive() {
+            Some(38)
+        } else if combat.in_combat {
+            Some(60)
+        } else if equips
+            && generic_slot
+                .as_ref()
+                .map(|s| s.blocks_pre_unit(self.profile, self.state, self.state.now_ms))
+                .transpose()?
+                .unwrap_or(false)
+        {
+            Some(39)
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            self.events.push(Event::EquipmentMoveRefused {
+                request: *request,
+                instance,
+                reason,
+            });
+            return Ok(Some(Rejection::Inventory {
+                reason,
+                source: request.source,
+                destination: request.destination,
+            }));
+        }
+        let receipt = EquipmentMoveReceipt::build(
+            g,
+            *request,
+            instance,
+            inventory.clone(),
+            q.inventory_receipts.clone(),
+            movement::MoveContext {
+                world: self.state.world,
+                player: self.state.player,
+                profile: self.profile.digest(),
+                sequence: self.state.next_sequence,
+                captured_ms: self.state.now_ms,
+                in_combat: combat.in_combat,
+                generic_slot,
+            },
+            &custody,
+        )?;
+        let (next, after) = q.armor_membership(
+            g,
+            combat,
+            receipt.clone(),
+            self.state.health,
+            self.state.resources.caster.mana,
+        )?;
+        self.state.combat = Some(after);
+        self.commit_quest_progression(next)?;
+        self.events.push(Event::EquipmentMoved(Box::new(receipt)));
+        Ok(None)
+    }
     pub(super) fn inventory_autostore(
         &mut self,
         request: &InventoryAutoStoreRequest,
@@ -23,6 +138,11 @@ impl<A: Authority> Frame<'_, A> {
             .quest_progression
             .clone()
             .ok_or(NativeError::InvalidState)?;
+        quest_progression::equipment_movement::reject_registered_slots(
+            genesis,
+            next.inventory.as_ref().ok_or(NativeError::InvalidState)?,
+            &[request.source],
+        )?;
         let receipt = next
             .inventory
             .as_mut()
@@ -68,6 +188,14 @@ impl<A: Authority> Frame<'_, A> {
             .quest_progression
             .as_ref()
             .ok_or(NativeError::InvalidState)?;
+        quest_progression::equipment_movement::reject_registered_slots(
+            genesis,
+            current
+                .inventory
+                .as_ref()
+                .ok_or(NativeError::InvalidState)?,
+            &[request.slot],
+        )?;
         let receipt = current
             .inventory
             .as_ref()
@@ -117,6 +245,11 @@ impl<A: Authority> Frame<'_, A> {
             .clone()
             .ok_or(NativeError::InvalidState)?;
         let inventory = next.inventory.as_mut().ok_or(NativeError::InvalidState)?;
+        quest_progression::equipment_movement::reject_registered_slots(
+            genesis,
+            inventory,
+            &[request.source, request.destination],
+        )?;
         // SplitItem has no ordinary-backpack alive guard, unlike SwapItem.
         let receipt = inventory.split_backpack(
             catalog,
@@ -171,6 +304,11 @@ impl<A: Authority> Frame<'_, A> {
             .clone()
             .ok_or(NativeError::InvalidState)?;
         let inventory = next.inventory.as_mut().ok_or(NativeError::InvalidState)?;
+        quest_progression::equipment_movement::reject_registered_slots(
+            genesis,
+            inventory,
+            &[request.source, request.destination],
+        )?;
         let receipt = inventory.swap_backpack(
             catalog,
             request.source,

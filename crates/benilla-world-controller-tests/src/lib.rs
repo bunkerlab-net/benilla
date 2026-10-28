@@ -41,3 +41,9 @@ use whisper_support::{character_guid, character_name, chat, emit, MAX_CHAT};
 
 #[path = "../../benilla-app/src/net/p2p/speech.rs"]
 mod speech;
+
+mod ui_items {
+    use benilla_protocol::messages::{BAG_PLAYER_INVENTORY, SLOT_BAG_FIRST, SLOT_PACK_FIRST};
+    use benilla_ui::script::EQUIPMENT_BAG;
+    include!(concat!(env!("OUT_DIR"), "/item_positions.rs"));
+}

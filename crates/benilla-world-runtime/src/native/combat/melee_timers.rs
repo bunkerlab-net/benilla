@@ -302,9 +302,12 @@ impl PlayerCombatState {
         self.melee_timers.validate_shape()?;
         let times = genesis.source_attack_times_for_recipe(&self.recipe.snapshot())?;
         let current = self.equipment.snapshot();
-        equipment::EquipmentState::restore(
+        // This private recipe is produced by live source operations or the
+        // containing owner's independent history replay, never inactive flags.
+        quest_progression::equipment_movement::restore_equipment(
+            genesis,
             current.clone(),
-            &equipment::EquipmentState::from_snapshot(genesis.equipment.clone())?,
+            &self.recipe,
         )?;
         let broken = current
             .items

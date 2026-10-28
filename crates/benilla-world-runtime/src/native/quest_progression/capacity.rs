@@ -9,7 +9,7 @@ const MAX_CALLS: usize = 4096;
 const MAX_PROGRESSION_HISTORY_BYTES: usize = MAX_BYTES / 2;
 
 /// Same object/array/string shape, with every integer charged its widest JSON
-/// signed-32 representation (all serialized history scalars are at most 32 bits).
+/// signed-32 representation (the source progression probe scalars are at most 32 bits).
 /// This is only a byte-size proof, never generated game state.
 fn wide_size(value: &impl Serialize) -> Result<usize, NativeError> {
     fn size(v: &serde_json::Value) -> usize {

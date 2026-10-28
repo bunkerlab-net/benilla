@@ -266,6 +266,22 @@ impl InteractionCatalog {
             row.control.unit_state & UNIT_STAT_IGNORE_PATHFINDING,
         ))
     }
+    /// Budget selection only; not an authority grant or validation shortcut.
+    pub(in crate::native) fn has_raw_spell_history_replay(&self) -> bool {
+        self.spell_authority.is_some()
+    }
+
+    pub(in crate::native) fn require_armor_movement(
+        &self,
+        profile: &Profile,
+    ) -> Result<(), NativeError> {
+        self.spell_authority
+            .as_ref()
+            .ok_or(NativeError::UnsupportedMechanic(
+                "armor movement requires full raw spell authority",
+            ))?;
+        self.validate(profile)
+    }
     pub(super) fn validate(&self, profile: &Profile) -> Result<(), NativeError> {
         self.audit.validate()?;
         if let Some(facing) = &self.facing_authority {

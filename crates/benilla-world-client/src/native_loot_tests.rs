@@ -8,6 +8,7 @@ struct Catalog {
     items: BTreeMap<u32, p::ItemInfo>,
     display: bool,
     spell_queries: BTreeMap<u32, crate::NativeItemSpellQuery>,
+    source_spells: BTreeSet<u32>,
 }
 fn metadata(item: &inv::Item) -> p::ItemInfo {
     p::ItemInfo {
@@ -144,6 +145,12 @@ impl Catalog {
             quest: quests::tests::Catalog::new(w),
             items,
             display: true,
+            source_spells: w
+                .profile()
+                .abilities
+                .iter()
+                .map(|ability| ability.id)
+                .collect(),
             spell_queries: genesis
                 .inventory
                 .items()
@@ -180,7 +187,7 @@ impl ClientCatalog for Catalog {
         self.display && self.items.values().any(|i| i.display_info_id == id)
     }
     fn contains_spell(&self, id: u32) -> bool {
-        self.quest.contains_spell(id)
+        self.quest.contains_spell(id) || self.source_spells.contains(&id)
     }
     fn player_power_type(&self, id: PlayerId) -> Option<u8> {
         self.quest.player_power_type(id)
@@ -1157,6 +1164,7 @@ fn movement_receipt_rejects_stale_before_and_tampered_after_without_changing_fra
     let mut frame = Frame {
         next_item: Some(before.next_item),
         slots: before.slots.clone(),
+        equipped: before.equipped.clone(),
         pending_destroy: None,
         pending_push: None,
     };
@@ -1231,6 +1239,7 @@ fn pickup_and_quest_bonding_move_project_same_instance_flags_without_item_push()
         let mut frame = Frame {
             next_item: Some(state.next_item),
             slots: state.slots.clone(),
+            equipped: state.equipped.clone(),
             pending_destroy: None,
             pending_push: None,
         };
@@ -1272,6 +1281,7 @@ fn split_projection_rejects_locally_valid_wrong_allocator_and_tampered_views_ato
     let mut frame = Frame {
         next_item: Some(before.next_item),
         slots: before.slots.clone(),
+        equipped: before.equipped.clone(),
         pending_destroy: None,
         pending_push: None,
     };
@@ -1324,6 +1334,7 @@ fn selected_destroy_projection_requires_exact_immediate_host_callback() {
     let mut frame = Frame {
         next_item: Some(before.next_item),
         slots: before.slots.clone(),
+        equipped: before.equipped.clone(),
         pending_destroy: None,
         pending_push: None,
     };
@@ -1390,6 +1401,7 @@ fn autostore_projection_rejects_wrong_ancestry_and_forged_detach_views_before_mu
     let mut frame = Frame {
         next_item: Some(before.next_item),
         slots: before.slots.clone(),
+        equipped: before.equipped.clone(),
         pending_destroy: None,
         pending_push: None,
     };
@@ -1431,3 +1443,221 @@ fn autostore_projection_rejects_wrong_ancestry_and_forged_detach_views_before_mu
 
 #[path = "native_visible_equipment_tests.rs"]
 mod visible_equipment_tests;
+
+fn armor_move(
+    world: &mut n::NativeWorld,
+    authority: &mut n::synthetic_equipment_fixture::EquipmentAuthority,
+    source: u8,
+    destination: u8,
+) -> n::EquipmentMoveReceipt {
+    let input = n::synthetic_quest_fixture::command(
+        world,
+        n::Command::EquipmentMove(n::EquipmentMoveRequest {
+            source,
+            destination,
+        }),
+    );
+    world
+        .step(world.state().tick + 1, Some(input), authority)
+        .unwrap();
+    world
+        .last_tick()
+        .unwrap()
+        .events
+        .iter()
+        .find_map(|event| {
+            if let n::Event::EquipmentMoved(receipt) = event {
+                Some((**receipt).clone())
+            } else {
+                None
+            }
+        })
+        .expect("accepted source armor move")
+}
+fn value_pairs(event: &SessionEvent, expected_guid: u64) -> BTreeMap<u16, u32> {
+    let SessionEvent::ObjectValues { guid, fields } = event else {
+        panic!("object values")
+    };
+    assert_eq!(*guid, expected_guid);
+    fields.raw_fields().collect()
+}
+
+#[test]
+fn original_armor_projection_preserves_object_and_source_field_order_on_move_and_reopen() {
+    let mut world = n::synthetic_equipment_fixture::world();
+    let mut authority = n::synthetic_equipment_fixture::EquipmentAuthority::default();
+    let mut projection =
+        NativeProjection::new(&world, world.state().player, &Catalog::new(&world)).unwrap();
+    let slot = world
+        .state()
+        .combat
+        .as_ref()
+        .unwrap()
+        .equipment
+        .items()
+        .find(|item| item.slot < 15)
+        .unwrap()
+        .slot;
+    let mut orders = NativeMovementOrders::from_session_next_counter(17);
+    for (source, destination) in [(slot, 23), (23, slot), (slot, 23), (23, slot)] {
+        let mut frame = Frame::new(world.state());
+        let receipt = armor_move(&mut world, &mut authority, source, destination);
+        let item_guid = guid(&world, receipt.instance);
+        let events = projection
+            .equipment_moved(&world, &receipt, &mut frame)
+            .unwrap();
+        assert_eq!(events.len(), if receipt.equips() { 5 } else { 4 });
+        let cleared = value_pairs(&events[0], projection.player_guid);
+        assert_eq!(cleared[&(486 + 2 * u16::from(source))], 0);
+        assert_eq!(cleared[&(487 + 2 * u16::from(source))], 0);
+        if !receipt.equips() {
+            assert_eq!(cleared[&(260 + 12 * u16::from(source))], 0);
+            assert_eq!(cleared.len(), 3);
+        }
+        assert_eq!(
+            value_pairs(&events[1], item_guid),
+            BTreeMap::from([(8, 0), (9, 0)])
+        );
+        assert_eq!(
+            value_pairs(&events[2], projection.player_guid),
+            BTreeMap::from([
+                (486 + 2 * u16::from(destination), item_guid as u32),
+                (487 + 2 * u16::from(destination), (item_guid >> 32) as u32),
+            ])
+        );
+        assert_eq!(
+            value_pairs(&events[3], item_guid),
+            BTreeMap::from([
+                (8, projection.player_guid as u32),
+                (9, (projection.player_guid >> 32) as u32),
+            ])
+        );
+        if receipt.equips() {
+            let visible = value_pairs(&events[4], projection.player_guid);
+            assert_eq!(
+                visible[&(260 + 12 * u16::from(destination))],
+                receipt.origin.item_id
+            );
+            assert_eq!(visible.len(), 1);
+        }
+        frame.validate_final(&world).unwrap();
+        let packets = projection
+            .advance_with_movement_orders(&world, &mut orders)
+            .unwrap();
+        assert!(!packets.iter().any(|event| matches!(
+            event,
+            SessionEvent::ItemCreate { .. } | SessionEvent::ItemPushResult(_)
+        ) || matches!(event, SessionEvent::ObjectDestroyed(id) if *id == item_guid)));
+        let reopened = n::NativeWorld::restore_synthetic_component_test(
+            world.profile().clone(),
+            world.checkpoint().unwrap(),
+        )
+        .unwrap();
+        let reopened_projection =
+            NativeProjection::new(&reopened, reopened.state().player, &Catalog::new(&reopened))
+                .unwrap();
+        let initial = reopened_projection
+            .initial_events_with_movement_orders(&reopened, &mut orders)
+            .unwrap();
+        assert_eq!(initial.iter().filter(|event| matches!(event, SessionEvent::ItemCreate { guid, .. } if *guid == item_guid)).count(), 1);
+        assert_eq!(frame.equipped, receipt.after.equipped);
+        world = reopened;
+        projection = reopened_projection;
+    }
+}
+
+#[test]
+fn armor_projection_rejects_forged_and_stale_receipts_without_frame_mutation() {
+    let mut world = n::synthetic_equipment_fixture::world();
+    let mut authority = n::synthetic_equipment_fixture::EquipmentAuthority::default();
+    let projection =
+        NativeProjection::new(&world, world.state().player, &Catalog::new(&world)).unwrap();
+    let slot = world
+        .state()
+        .combat
+        .as_ref()
+        .unwrap()
+        .equipment
+        .items()
+        .find(|item| item.slot < 15)
+        .unwrap()
+        .slot;
+    let mut frame = Frame::new(world.state());
+    let receipt = armor_move(&mut world, &mut authority, slot, 23);
+    for mutate in [
+        |r: &mut n::EquipmentMoveReceipt| r.instance += 1,
+        |r: &mut n::EquipmentMoveReceipt| r.request.destination = 24,
+        |r: &mut n::EquipmentMoveReceipt| r.after.next_item += 1,
+        |r: &mut n::EquipmentMoveReceipt| r.before.equipped.clear(),
+        |r: &mut n::EquipmentMoveReceipt| {
+            r.after.equipped.insert(123, 1);
+        },
+        |r: &mut n::EquipmentMoveReceipt| r.after_receipts.clear(),
+    ] {
+        let mut forged = receipt.clone();
+        mutate(&mut forged);
+        assert!(projection
+            .equipment_moved(&world, &forged, &mut frame)
+            .is_err());
+        assert_eq!(frame.slots, receipt.before.slots);
+        assert_eq!(frame.equipped, receipt.before.equipped);
+        assert_eq!(frame.next_item, Some(receipt.before.next_item));
+    }
+    projection
+        .equipment_moved(&world, &receipt, &mut frame)
+        .unwrap();
+    assert!(projection
+        .equipment_moved(&world, &receipt, &mut frame)
+        .is_err());
+    assert_eq!(frame.slots, receipt.after.slots);
+}
+
+#[test]
+fn armor_refusal_uses_registered_source_guid_without_mutating_inventory() {
+    let world = n::synthetic_equipment_fixture::world();
+    let projection =
+        NativeProjection::new(&world, world.state().player, &Catalog::new(&world)).unwrap();
+    let frame = Frame::new(world.state());
+    let (instance, origin) = world
+        .profile()
+        .quest_progression
+        .as_ref()
+        .unwrap()
+        .loot
+        .as_ref()
+        .unwrap()
+        .equipment_instances()
+        .find(|(_, origin)| origin.genesis_slot < 15)
+        .unwrap();
+    let request = n::EquipmentMoveRequest {
+        source: origin.genesis_slot,
+        destination: 23,
+    };
+    for reason in [38, 39, 60] {
+        let event = projection
+            .equipment_move_refused(&world, request, instance, reason, &frame)
+            .unwrap();
+        assert!(
+            matches!(event, SessionEvent::InventoryFailure { reason: actual, item_guid, item2_guid: 0, bag_slot: 0, .. } if actual == reason && item_guid == guid(&world, instance))
+        );
+    }
+    assert!(projection
+        .equipment_move_refused(
+            &world,
+            n::EquipmentMoveRequest {
+                source: 23,
+                destination: origin.genesis_slot
+            },
+            instance,
+            60,
+            &frame
+        )
+        .is_err());
+    assert!(projection
+        .equipment_move_refused(&world, request, u64::MAX, 60, &frame)
+        .is_err());
+    assert!(projection
+        .equipment_move_refused(&world, request, instance, 0, &frame)
+        .is_err());
+    frame.validate_final(&world).unwrap();
+}

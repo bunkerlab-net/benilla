@@ -5,12 +5,12 @@
 `SwapItem` from CMaNGOS Classic
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. The upstream grant is
 GPL-2.0-or-later; see [PROVENANCE.md](PROVENANCE.md). Its policy is
-`cmangos-8ec338a1-carried-items-v8`.
+`cmangos-8ec338a1-carried-items-v9`.
 The separately named positive admin policy is `CmangosAddItemV1`.
 
 ## Exact source behavior
 
-- Unique `MaxCount` includes immutable equipped starter counts and current
+- Unique `MaxCount` includes source-owned equipped counts and current
   backpack stacks. Slots 23–38 are searched in source order: compatible partial
   stacks first, then empty slots. Capacity and unique errors retain the exact
   partial destinations and remaining count. If both apply, the source returns
@@ -202,7 +202,7 @@ for an empty inventory or a request that would otherwise be ignored.
   preflights a complete placement. The original source slot supplies enough
   capacity because planning ignores the moving source object.
 - `MaxCount` checks ignore the moving source while including the remaining
-  backpack and immutable equipped counts. No acquisition or removal quest callback
+  backpack and unchanged source-owned equipped counts. No acquisition or removal quest callback
   runs: total item counts are unchanged. Movement never advances the allocator,
   so even the maximum continuation identity can still move existing items.
 - `_StoreItem` binds bonding 1/4 on empty-slot moves, both halves of real swaps,
@@ -260,3 +260,16 @@ strict checkpoint/projection ownership. Other item topologies remain excluded.
 The v8 bounded `autostore_backpack` handler retains the source instance, searches
 other backpack stacks then empty positions, and emits no acquisition/removal
 quest hook. See `../benilla-world-runtime/src/native/INVENTORY-AUTOSTORE.md`.
+
+## Separately owned original armor membership (v9)
+
+The ordinary inventory reducers still do not implement equip. Native quest
+progression may compose one separately validated operation: an original pristine
+nonweapon armor instance moves between its genesis slot and an empty backpack
+slot. That owner requires the immutable registry, full raw source authority,
+exactly-one custody, unchanged allocator, real modifier replay and checksum
+receipts. Without that owner, equipped counts remain the immutable initial counts.
+Generic equip/use/bag contents and damaged/BoE carried objects remain unsupported;
+ordinary instance validators are unchanged. This is a versioned host-composition
+exception, not a claim that `additional_item_mutations: Absent` grants equipment
+permission. See `benilla-world-runtime/ARMOR-MEMBERSHIP.md` for the narrower scope.

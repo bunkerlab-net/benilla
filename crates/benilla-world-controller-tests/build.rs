@@ -62,6 +62,33 @@ fn main() {
         format!("pub(crate) {}", function(&source, "race_pvp_team")),
     )
     .unwrap();
+    let items_path = root.join("crates/benilla-app/src/ui_items/mod.rs");
+    println!("cargo:rerun-if-changed={}", items_path.display());
+    let items = fs::read_to_string(items_path).unwrap();
+    let mut item_positions = String::new();
+    for name in [
+        "PACK_SLOTS",
+        "BANK_SLOTS",
+        "BANK_SLOT_FIRST",
+        "BANK_BAG_SLOT_FIRST",
+        "BANK_CONTAINER",
+        "BANK_BAG_ID_FIRST",
+        "KEYRING_CONTAINER",
+        "KEYRING_SLOT_FIRST",
+        "KEYRING_SLOTS",
+    ] {
+        let needle = format!(" const {name}:");
+        item_positions.push_str(
+            items
+                .lines()
+                .find(|line| line.contains(&needle))
+                .expect("actual item position constant"),
+        );
+        item_positions.push('\n');
+    }
+    item_positions.push_str("pub(crate) ");
+    item_positions.push_str(&function(&items, "wire_pos"));
+    fs::write(out.join("item_positions.rs"), item_positions).unwrap();
     let flags = root.join("crates/benilla-app/src/creature_anim/select.rs");
     println!("cargo:rerun-if-changed={}", flags.display());
     let flags = fs::read_to_string(flags).unwrap();

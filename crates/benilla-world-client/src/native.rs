@@ -583,7 +583,7 @@ impl NativeProjection {
                     .combat
                     .as_ref()
                     .and_then(|c| c.equipment.item(item.slot))
-                    != Some(item)
+                    .is_some_and(|previous| previous != item)
                 {
                     events.push(SessionEvent::ObjectValues {
                         guid,
@@ -1041,6 +1041,8 @@ impl NativeProjection {
                 n::Event::Loot(event) => events.extend(self.loot_event(w, event, &mut loot_frame)?),
                 n::Event::InventoryStored(stored) => events.extend(self.inventory_stored(w, stored, &mut loot_frame)?),
                 n::Event::InventoryMoved(moved) => events.extend(self.inventory_moved(w, moved, &mut loot_frame)?),
+                n::Event::EquipmentMoved(moved) => events.extend(self.equipment_moved(w, moved, &mut loot_frame)?),
+                n::Event::EquipmentMoveRefused { request, instance, reason } => events.push(self.equipment_move_refused(w, *request, *instance, *reason, &loot_frame)?),
                 n::Event::InventorySplit(split) => events.extend(self.inventory_split(w, split, &mut loot_frame)?),
                 n::Event::InventoryAutoStored(receipt) => events.extend(self.inventory_autostored(w, receipt, &mut loot_frame)?),
                 n::Event::ItemAcquired(source) => events.push(self.item_acquired(*source, &mut loot_frame)?),

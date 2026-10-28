@@ -1302,6 +1302,7 @@ pub(in crate::native) fn historical_target_profile(
 #[cfg(any(test, feature = "synthetic-native-tests"))]
 pub(in crate::native) fn validate_historical_launch(
     profile: &Profile,
+    progression: Option<&QuestProgressionState>,
     target_owner: &Npc,
     binding: &ExecutionBinding,
     target: NpcId,
@@ -1324,7 +1325,7 @@ pub(in crate::native) fn validate_historical_launch(
         raw,
         binding.level,
         level,
-        binding.historical_spell_crit(profile)?,
+        binding.historical_spell_crit(profile, progression)?,
     )?;
     if chances != (launch.resist_chance, launch.critical_chance) {
         return Err(NativeError::InvalidCheckpoint);

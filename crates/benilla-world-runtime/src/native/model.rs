@@ -109,7 +109,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v62\0",
+            b"benilla-native-profile-v63\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -465,6 +465,7 @@ pub enum Command {
     },
     AttackStop,
     InventoryMove(InventoryMoveRequest),
+    EquipmentMove(EquipmentMoveRequest),
     InventorySplit(InventorySplitRequest),
     InventoryAutoStore(InventoryAutoStoreRequest),
     InventoryDestroy(InventoryDestroyRequest),
@@ -661,6 +662,12 @@ pub enum Event {
     Loot(LootEvent),
     InventoryStored(Box<benilla_sim::inventory::Stored>),
     InventoryMoved(Box<benilla_sim::inventory::MovementReceipt>),
+    EquipmentMoved(Box<EquipmentMoveReceipt>),
+    EquipmentMoveRefused {
+        request: EquipmentMoveRequest,
+        instance: u64,
+        reason: u8,
+    },
     InventorySplit(Box<benilla_sim::inventory::SplitReceipt>),
     InventoryAutoStored(Box<benilla_sim::inventory::AutoStoreReceipt>),
     ItemAcquired(ItemAcquisition),

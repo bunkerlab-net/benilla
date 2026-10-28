@@ -245,6 +245,7 @@ fn fields(item: &inv::Instance) -> ObjectFields {
 pub(super) struct Frame {
     next_item: Option<u64>,
     slots: BTreeMap<u8, inv::Instance>,
+    equipped: BTreeMap<u32, u32>,
     pending_push: Option<p::ItemPushResult>,
     pending_destroy: Option<inv::DestroyReceipt>,
 }
@@ -253,6 +254,7 @@ impl Frame {
         Self {
             next_item: inventory(state).map(|i| i.next_item),
             slots: inventory(state).map_or_else(BTreeMap::new, |i| i.slots.clone()),
+            equipped: inventory(state).map_or_else(BTreeMap::new, |i| i.equipped.clone()),
             pending_destroy: None,
             pending_push: None,
         }
@@ -415,7 +417,9 @@ impl Frame {
     pub(super) fn validate_final(&self, w: &n::NativeWorld) -> Result<(), Error> {
         self.validate_complete()?;
         if inventory(w.state()).is_some_and(|state| {
-            self.slots != state.slots || self.next_item != Some(state.next_item)
+            self.slots != state.slots
+                || self.equipped != state.equipped
+                || self.next_item != Some(state.next_item)
         }) {
             return Err(Error::StaleProjection);
         }
@@ -477,7 +481,7 @@ impl NativeProjection {
         )
     }
     pub(super) fn initial_inventory(&self, w: &n::NativeWorld) -> Vec<SessionEvent> {
-        Frame { next_item: inventory(w.state()).map(|i| i.next_item), slots: BTreeMap::new(), pending_destroy: None, pending_push: None }.finish(self, w)
+        Frame { next_item: inventory(w.state()).map(|i| i.next_item), slots: BTreeMap::new(), equipped: inventory(w.state()).map_or_else(BTreeMap::new, |i| i.equipped.clone()), pending_destroy: None, pending_push: None }.finish(self, w)
         .into_iter()
         // initial_player_fields selects the full initial player descriptor; its bag pointers
         // are already emitted by player_values after all item creates.
@@ -497,7 +501,9 @@ impl NativeProjection {
         frame: &mut Frame,
     ) -> Result<Vec<SessionEvent>, Error> {
         frame.validate_complete()?;
-        if frame.slots != receipt.before.slots || frame.next_item != Some(receipt.before.next_item)
+        if frame.equipped != receipt.before.equipped
+            || frame.slots != receipt.before.slots
+            || frame.next_item != Some(receipt.before.next_item)
         {
             return Err(Error::StaleProjection);
         }
@@ -531,7 +537,9 @@ impl NativeProjection {
         frame: &mut Frame,
     ) -> Result<Vec<SessionEvent>, Error> {
         frame.validate_complete()?;
-        if frame.slots != receipt.before.slots || frame.next_item != Some(receipt.before.next_item)
+        if frame.equipped != receipt.before.equipped
+            || frame.slots != receipt.before.slots
+            || frame.next_item != Some(receipt.before.next_item)
         {
             return Err(Error::StaleProjection);
         }
@@ -628,7 +636,10 @@ impl NativeProjection {
         frame: &mut Frame,
     ) -> Result<Vec<SessionEvent>, Error> {
         frame.validate_complete()?;
-        if frame.slots != split.before.slots || frame.next_item != Some(split.before.next_item) {
+        if frame.equipped != split.before.equipped
+            || frame.slots != split.before.slots
+            || frame.next_item != Some(split.before.next_item)
+        {
             return Err(Error::StaleProjection);
         }
         let catalog = &w
@@ -674,6 +685,116 @@ impl NativeProjection {
         }
         Ok(events)
     }
+    pub(super) fn equipment_move_refused(
+        &self,
+        w: &n::NativeWorld,
+        request: n::EquipmentMoveRequest,
+        instance: u64,
+        reason: u8,
+        frame: &Frame,
+    ) -> Result<SessionEvent, Error> {
+        frame.validate_complete()?;
+        let registry = w
+            .profile()
+            .quest_progression
+            .as_ref()
+            .and_then(|q| q.loot.as_ref())
+            .ok_or(Error::StaleProjection)?;
+        let origin = registry
+            .equipment_origin(instance)
+            .ok_or(Error::StaleProjection)?;
+        let source = frame
+            .slots
+            .iter()
+            .find(|(_, item)| item.id == instance)
+            .map_or(origin.genesis_slot, |(&slot, _)| slot);
+        if request.source != source
+            || !matches!(reason, 38 | 39 | 60)
+            || (source == origin.genesis_slot
+                && frame.equipped.get(&origin.item_id).copied().unwrap_or(0) == 0)
+        {
+            return Err(Error::StaleProjection);
+        }
+        Ok(SessionEvent::InventoryFailure {
+            reason,
+            required_level: None,
+            item_guid: guid(w, instance),
+            item2_guid: 0,
+            bag_slot: 0,
+        })
+    }
+    pub(super) fn equipment_moved(
+        &self,
+        w: &n::NativeWorld,
+        moved: &n::EquipmentMoveReceipt,
+        frame: &mut Frame,
+    ) -> Result<Vec<SessionEvent>, Error> {
+        frame.validate_complete()?;
+        if frame.slots != moved.before.slots
+            || frame.equipped != moved.before.equipped
+            || frame.next_item != Some(moved.before.next_item)
+        {
+            return Err(Error::StaleProjection);
+        }
+        let genesis = w
+            .profile()
+            .quest_progression
+            .as_ref()
+            .ok_or(Error::StaleProjection)?;
+        moved
+            .validate(genesis)
+            .map_err(|_| Error::StaleProjection)?;
+        let item_guid = guid(w, moved.instance);
+        if item_guid != super::equipment_guid(w, moved.origin) {
+            return Err(Error::StaleProjection);
+        }
+        let slot_pointer = |slot: u8, value: u64| {
+            vec![
+                (486 + 2 * u16::from(slot), value as u32),
+                (487 + 2 * u16::from(slot), (value >> 32) as u32),
+            ]
+        };
+        // Match the existing entry-only visible-equipment owner boundary;
+        // creator, enchantment and property words are not owned by this adapter.
+        let visible = |slot: u8, entry: u32| vec![(260 + 12 * u16::from(slot), entry)];
+        let player_values = |pairs: &[(u16, u32)]| SessionEvent::ObjectValues {
+            guid: self.player_guid,
+            fields: ObjectFields::from_pairs(pairs),
+        };
+        // Player::RemoveItem clears the old slot and represented visible entry, then
+        // CONTAINED, preserving OWNER and the existing object identity.
+        let mut clear = slot_pointer(moved.request.source, 0);
+        if !moved.equips() {
+            clear.extend(visible(moved.request.source, 0));
+        }
+        let mut events = vec![
+            player_values(&clear),
+            SessionEvent::ObjectValues {
+                guid: item_guid,
+                fields: ObjectFields::from_pairs(&[(8, 0), (9, 0)]),
+            },
+            // VisualizeItem/_StoreItem writes the destination pointer before
+            // restoring CONTAINED; VisualizeItem then sets the visible slot.
+            player_values(&slot_pointer(moved.request.destination, item_guid)),
+            SessionEvent::ObjectValues {
+                guid: item_guid,
+                fields: ObjectFields::from_pairs(&[
+                    (8, self.player_guid as u32),
+                    (9, (self.player_guid >> 32) as u32),
+                ]),
+            },
+        ];
+        if moved.equips() {
+            events.push(player_values(&visible(
+                moved.request.destination,
+                moved.origin.item_id,
+            )));
+        }
+        frame.slots = moved.after.slots.clone();
+        frame.equipped = moved.after.equipped.clone();
+        frame.next_item = Some(moved.after.next_item);
+        Ok(events)
+    }
     pub(super) fn inventory_moved(
         &self,
         w: &n::NativeWorld,
@@ -681,7 +802,10 @@ impl NativeProjection {
         frame: &mut Frame,
     ) -> Result<Vec<SessionEvent>, Error> {
         frame.validate_complete()?;
-        if frame.slots != moved.before.slots || frame.next_item != Some(moved.before.next_item) {
+        if frame.equipped != moved.before.equipped
+            || frame.slots != moved.before.slots
+            || frame.next_item != Some(moved.before.next_item)
+        {
             return Err(Error::StaleProjection);
         }
         let catalog = &w

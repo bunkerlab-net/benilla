@@ -41,7 +41,7 @@ pub struct TickRecord {
 }
 impl TickRecord {
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-record-v62\0", self)
+        crate::digest(b"benilla-native-record-v63\0", self)
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -175,6 +175,20 @@ impl StateCheckpoint {
     }
     fn validate_source_history_budget(&self, profile: &Profile) -> Result<(), NativeError> {
         let mut total = self.history_replay_work()?;
+        // Raw launch validation additionally reconstructs historical spell crit.
+        // Without that owner the callback returns before touching its prefix.
+        // Charge a conservative second complete base pass only for this domain;
+        // melee bindings separately include their unconditional physical replay.
+        if profile
+            .interactions
+            .as_ref()
+            .is_some_and(InteractionCatalog::has_raw_spell_history_replay)
+        {
+            total = total.checked_mul(2).ok_or(NativeError::TooLarge)?;
+            if total > MAX_HISTORY_REPLAY_CALLS {
+                return Err(NativeError::TooLarge);
+            }
+        }
         for npc in self.npcs.values() {
             match (&profile.creature_generations, &npc.source_generation) {
                 (Some(catalog), Some(owner)) => {
@@ -194,6 +208,18 @@ impl StateCheckpoint {
         Ok(())
     }
     fn history_replay_work(&self) -> Result<u64, NativeError> {
+        if let Some(q) = &self.quest_progression {
+            if q.derived_calls
+                .iter()
+                .any(|call| matches!(call, DerivedCall::ItemMembership { .. }))
+                && serde_json::to_vec(&(&q.training.calls, &q.derived_calls))
+                    .map_err(|_| NativeError::TooLarge)?
+                    .len()
+                    > MAX_BYTES / 2
+            {
+                return Err(NativeError::TooLarge);
+            }
+        }
         // Owner loading replays training in restore_inputs, state restore,
         // derived replay, and the final synchronize consistency check.
         let mut total = self
@@ -201,10 +227,20 @@ impl StateCheckpoint {
             .as_ref()
             .map_or(Some(0), |q| {
                 (q.training.calls.len() as u64)
-                    .checked_mul(4)
-                    .and_then(|n| n.checked_add(q.derived_calls.len() as u64))
+                    .checked_mul(5)
+                    .and_then(|n| n.checked_add(2 * q.derived_calls.len() as u64))
             })
             .ok_or(NativeError::TooLarge)?;
+        if let Some(q) = &self.quest_progression {
+            for call in &q.derived_calls {
+                if let DerivedCall::ItemMembership { movement, .. } = call {
+                    total = total
+                        .checked_add(movement.replay_work())
+                        .and_then(|n| n.checked_add(2))
+                        .ok_or(NativeError::TooLarge)?;
+                }
+            }
+        }
         total = total
             .checked_add(
                 self.event_ai
@@ -325,10 +361,10 @@ impl Checkpoint {
             || s.state.version != NATIVE_FORMAT_VERSION
             || s.state.policy != NATIVE_POLICY
             || s.state.rng_policy != RNG_POLICY
-            || s.digest != crate::digest(b"benilla-native-state-v62\0", &s.state)
+            || s.digest != crate::digest(b"benilla-native-state-v63\0", &s.state)
             || s.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v62\0",
+                    b"benilla-native-checkpoint-v63\0",
                     &(&s.state, s.digest, s.history_tip),
                 )
             || s.encode()? != bytes
@@ -476,6 +512,7 @@ impl NativeWorld {
     ) -> Result<Checkpoint, NativeError> {
         let snapshot = self.snapshot_of(state);
         snapshot.validate_source_history_budget(&self.profile)?;
+        quest_progression::equipment_movement::validate_state(&self.profile, state)?;
         if self.profile.player_melee.is_some() {
             player_melee::validate_current(&self.profile, state)?;
         }
@@ -496,7 +533,7 @@ impl NativeWorld {
         EventAiState::validate_optional(&self.profile, state)?;
         combat_assistance::validate_current(&self.profile, state)?;
         let state = snapshot;
-        let digest = crate::digest(b"benilla-native-state-v62\0", &state);
+        let digest = crate::digest(b"benilla-native-state-v63\0", &state);
         let s = Checkpoint {
             version: NATIVE_FORMAT_VERSION,
             state,
@@ -506,7 +543,7 @@ impl NativeWorld {
         };
         let mut s = s;
         s.checksum = crate::digest(
-            b"benilla-native-checkpoint-v62\0",
+            b"benilla-native-checkpoint-v63\0",
             &(&s.state, s.digest, s.history_tip),
         );
         s.encode()?;
@@ -544,10 +581,10 @@ impl NativeWorld {
         checkpoint.validate_encoded_budget()?;
         let profile_digest = profile.digest();
         if checkpoint.version != NATIVE_FORMAT_VERSION
-            || checkpoint.digest != crate::digest(b"benilla-native-state-v62\0", &checkpoint.state)
+            || checkpoint.digest != crate::digest(b"benilla-native-state-v63\0", &checkpoint.state)
             || checkpoint.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v62\0",
+                    b"benilla-native-checkpoint-v63\0",
                     &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
                 )
         {
@@ -589,16 +626,16 @@ impl NativeWorld {
             return Err(NativeError::InvalidCheckpoint);
         }
         s.position.distance_squared(s.position)?;
-        let (abilities, combat_genesis) = match (
+        let (abilities, combat_genesis, replayed_recipe) = match (
             &profile.quest_progression,
             &s.quest_progression,
             &profile.combat,
         ) {
             (Some(g), Some(q), Some(c)) => {
-                let (a, c) = g.restore_inputs(q, c)?;
-                (a, Some(c))
+                let (a, c, recipe) = g.restore_inputs(q, c)?;
+                (a, Some(c), Some(recipe))
             }
-            (None, None, c) => (profile.abilities.clone(), c.clone()),
+            (None, None, c) => (profile.abilities.clone(), c.clone(), None),
             _ => return Err(NativeError::InvalidCheckpoint),
         };
         let specs = abilities
@@ -615,16 +652,30 @@ impl NativeWorld {
             PlayerCombatState::restore
         };
         let combat = match (&combat_genesis, s.combat) {
-            (Some(g), Some(c)) => Some(restore_combat(
-                g,
-                c,
-                s.health,
-                caster.mana,
-                s.now_ms,
-                s.tick,
-                profile.clock_origin_ms,
-                profile.tick_ms,
-            )?),
+            (Some(g), Some(c)) => Some(match replayed_recipe {
+                Some(recipe) => PlayerCombatState::restore_replayed_fields(
+                    g,
+                    c,
+                    recipe,
+                    s.health,
+                    caster.mana,
+                    s.now_ms,
+                    s.tick,
+                    profile.clock_origin_ms,
+                    profile.tick_ms,
+                    profile.player_melee.is_some(),
+                )?,
+                None => restore_combat(
+                    g,
+                    c,
+                    s.health,
+                    caster.mana,
+                    s.now_ms,
+                    s.tick,
+                    profile.clock_origin_ms,
+                    profile.tick_ms,
+                )?,
+            }),
             (None, None) => None,
             _ => return Err(NativeError::InvalidCheckpoint),
         };
@@ -952,6 +1003,7 @@ impl NativeWorld {
                         .ok_or(NativeError::InvalidCheckpoint)?;
                     interactions::spell_authority::validate_historical_launch(
                         &profile,
+                        quest_progression.as_ref(),
                         npcs.get(&c.target.spawn)
                             .ok_or(NativeError::InvalidCheckpoint)?,
                         released,
@@ -1078,6 +1130,7 @@ impl NativeWorld {
             rng_counter: s.rng_counter,
             combat,
         };
+        quest_progression::equipment_movement::validate_state(&profile, &state)?;
         Npc::validate_defense_reactives(&profile, &state)?;
         initial_cast_genesis::validate_state(&profile, &state)?;
         PlayerEnvironmentState::validate_optional(
@@ -1212,9 +1265,9 @@ mod history_budget_tests {
         }
         let cast: CastState = serde_json::from_value(cast).unwrap();
         cp.state.casts = (1..=9).map(|id| (id, cast.clone())).collect();
-        cp.digest = crate::digest(b"benilla-native-state-v62\0", &cp.state);
+        cp.digest = crate::digest(b"benilla-native-state-v63\0", &cp.state);
         cp.checksum = crate::digest(
-            b"benilla-native-checkpoint-v62\0",
+            b"benilla-native-checkpoint-v63\0",
             &(&cp.state, cp.digest, cp.history_tip),
         );
         assert_eq!(cp.encode().unwrap_err(), NativeError::TooLarge);

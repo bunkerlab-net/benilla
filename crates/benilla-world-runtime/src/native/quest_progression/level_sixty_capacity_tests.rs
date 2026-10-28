@@ -331,8 +331,8 @@ fn loaded_sixty_checkpoint_has_bounded_histories_auras_and_traveling_casts() {
     }
 
     let progression = world.state.quest_progression.as_ref().unwrap();
-    let work = 4 * progression.training.calls.len() as u64
-        + progression.derived_calls.len() as u64
+    let work = 5 * progression.training.calls.len() as u64
+        + 2 * progression.derived_calls.len() as u64
         + world
             .state
             .casts

@@ -196,25 +196,46 @@ impl ProgressionBinding {
         {
             return Err(NativeError::InvalidCheckpoint);
         }
-        let fresh = g.initial_combat.recipe.rebase(
-            p.level,
-            p.modifiers.create,
-            p.modifiers.create_health,
-            p.modifiers.create_mana,
-        )?;
-        let recipe = init::StatRecipe::restore(&fresh, &self.recipe)?;
-        if recipe.snapshot().modifiers != p.modifiers {
-            return Err(NativeError::InvalidCheckpoint);
-        }
-        let (_, training) = derived::validate_history(
+        let (_, training, recipe) = derived::reconstruct_history(
             g,
             p,
             self.training.view(training_calls),
             &self.derived,
             derived_calls,
-            &recipe,
         )?;
+        if recipe.snapshot() != self.recipe || recipe.snapshot().modifiers != p.modifiers {
+            return Err(NativeError::InvalidCheckpoint);
+        }
         Ok((prior, training))
+    }
+}
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+impl ProgressionBinding {
+    fn reconstruct_recipe(
+        &self,
+        g: &QuestProgressionGenesis,
+        current: &QuestProgressionState,
+    ) -> Result<init::StatRecipe, NativeError> {
+        if self.owner.genesis != g.identity || current.genesis != g.identity {
+            return Err(NativeError::InvalidCheckpoint);
+        }
+        let training_calls =
+            self.training_prefix
+                .resolve(self.owner, "training", &current.training.calls)?;
+        let derived_calls =
+            self.derived_prefix
+                .resolve(self.owner, "derived", &current.derived_calls)?;
+        let (_, _, recipe) = derived::reconstruct_history(
+            g,
+            &self.player,
+            self.training.view(training_calls),
+            &self.derived,
+            derived_calls,
+        )?;
+        if recipe.snapshot() != self.recipe {
+            return Err(NativeError::InvalidCheckpoint);
+        }
+        Ok(recipe)
     }
 }
 impl ExecutionBinding {
@@ -352,17 +373,16 @@ impl ExecutionBinding {
     pub(in crate::native) fn historical_spell_crit(
         &self,
         profile: &Profile,
+        current: Option<&QuestProgressionState>,
     ) -> Result<spell::SpellFloat, NativeError> {
         match (&profile.quest_progression, &self.progression) {
             (Some(g), Some(h)) => {
+                if h.owner.profile != profile.digest() {
+                    return Err(NativeError::InvalidCheckpoint);
+                }
                 let p = &h.player;
-                let fresh = g.initial_combat.recipe.rebase(
-                    p.level,
-                    p.modifiers.create,
-                    p.modifiers.create_health,
-                    p.modifiers.create_mana,
-                )?;
-                let recipe = init::StatRecipe::restore(&fresh, &h.recipe)?;
+                let current = current.ok_or(NativeError::InvalidCheckpoint)?;
+                let recipe = h.reconstruct_recipe(g, current)?;
                 Ok(recipe
                     .current(init::Resources {
                         health: p.numeric.health,

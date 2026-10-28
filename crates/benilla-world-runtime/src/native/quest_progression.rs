@@ -15,6 +15,8 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 mod bindings;
 mod capacity;
 mod derived;
+pub(in crate::native) mod equipment_movement;
+pub use equipment_movement::{EquipmentMoveReceipt, EquipmentMoveRequest};
 mod kills;
 mod reputation;
 pub use bindings::ExecutionBinding;
@@ -24,7 +26,7 @@ pub use kills::{creature_guid, KillCreatureRow, KillDependencyAudit, NativeKillP
 pub use reputation::NativeReputationState;
 
 pub const QUEST_PROGRESSION_POLICY: &str =
-    "benilla-native-ordinary-quest-reputation-reconstruction-v6";
+    "benilla-native-ordinary-quest-reputation-reconstruction-v7";
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct QuestNpcRow {
@@ -396,7 +398,7 @@ impl QuestProgressionGenesis {
         &self,
         s: &QuestProgressionSnapshot,
         combat: &CombatGenesis,
-    ) -> Result<(Vec<Ability>, CombatGenesis), NativeError> {
+    ) -> Result<(Vec<Ability>, CombatGenesis, init::StatRecipe), NativeError> {
         if s.policy != QUEST_PROGRESSION_POLICY || s.genesis != self.identity {
             return Err(NativeError::InvalidCheckpoint);
         }
@@ -404,6 +406,16 @@ impl QuestProgressionGenesis {
         self.validate_live_skills(p.view())?;
         let training =
             init::LiveTraining::restore_authoritative(&self.training, &s.training, p.view())?;
+        let (_, replayed_training, recipe) = derived::reconstruct_history(
+            self,
+            p.view(),
+            s.training.as_view(),
+            &s.derived,
+            &s.derived_calls,
+        )?;
+        if replayed_training.snapshot() != training.snapshot() {
+            return Err(NativeError::InvalidCheckpoint);
+        }
         let abilities = self.resolve_abilities(&training, p.view())?;
         if abilities != s.abilities {
             return Err(NativeError::InvalidCheckpoint);
@@ -433,7 +445,7 @@ impl QuestProgressionGenesis {
                 )
             })
             .collect();
-        Ok((abilities, combat))
+        Ok((abilities, combat, recipe))
     }
     pub(in crate::native) fn retained_starter_items(&self) -> &[init::ItemRow] {
         &self.training.input().items
@@ -962,6 +974,13 @@ impl q::Host for QuestHost<'_> {
                 vec![]
             }
             q::HostEffect::DestroyCarriedStack { item, count } => {
+                if let (Some(l), Some(inventory)) = (&self.genesis.loot, &self.inventory) {
+                    if inventory.slots.values().any(|instance| {
+                        instance.item == *item && l.equipment_origin(instance.id).is_some()
+                    }) {
+                        return Err(q::Error::Unsupported("registered armor consumption"));
+                    }
+                }
                 let catalog = &self
                     .genesis
                     .loot
@@ -1117,14 +1136,10 @@ impl QuestProgressionState {
         };
         match (&g.loot, &out.inventory) {
             (Some(l), Some(i)) => {
-                // Immutable equipment binding precedes every item count calculation.
-                if i.equipped != l.initial_inventory.equipped
-                    || i.next_item < l.initial_inventory.next_item
+                let custody = equipment_movement::placements(g, &out.derived_calls)?;
+                equipment_movement::validate_inventory(g, i, &custody)?;
+                if i.next_item < l.initial_inventory.next_item
                     || out.inventory_receipts.len() != i.slots.len()
-                    // Fixed equipment membership remains authoritative. A local
-                    // creation handle is not permission to duplicate a worn item.
-                    || i.slots.values().any(|item| l.equipment_origin(item.id).is_some())
-                    || out.inventory_receipts.keys().any(|&id| l.equipment_origin(id).is_some())
                     || i.slots.iter().any(|(&slot, item)| {
                         out.inventory_receipts
                             .get(&item.id)

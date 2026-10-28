@@ -426,7 +426,7 @@ pub struct ItemReceipt {
     pub digest: crate::Digest,
 }
 impl ItemReceipt {
-    fn new(
+    pub(in crate::native) fn new(
         previous: Option<crate::Digest>,
         reason: crate::Digest,
         slot: u8,
@@ -442,8 +442,7 @@ impl ItemReceipt {
             digest,
         }
     }
-    #[cfg(any(test, feature = "synthetic-native-tests"))]
-    pub(super) fn validates(&self, slot: u8, item: &inv::Instance) -> bool {
+    pub(in crate::native) fn validates(&self, slot: u8, item: &inv::Instance) -> bool {
         !self.previous.is_some_and(|v| v == [0; 32])
             && self.digest == Self::new(self.previous, self.reason, slot, item).digest
     }

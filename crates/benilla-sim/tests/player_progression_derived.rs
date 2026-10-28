@@ -349,7 +349,7 @@ fn recipe_case(
         max_durability: 12,
     };
     let kind = match mode {
-        1 | 3 | 8 => 3,
+        1 | 3 | 8 | 9 => 3,
         2 => 5,
         4 => 4,
         5 => 6,
@@ -358,14 +358,14 @@ fn recipe_case(
     };
     weapon.stats[0] = i::ItemStat {
         kind,
-        value: if matches!(mode, 0 | 7) { 0 } else { 5 },
+        value: if matches!(mode, 0 | 7 | 10) { 0 } else { 5 },
     };
-    if mode == 8 {
+    if matches!(mode, 8 | 9) {
         weapon.stats[1] = i::ItemStat { kind: 5, value: 7 };
         weapon.stats[2] = i::ItemStat { kind: 3, value: 3 };
     }
     let mut items = vec![weapon.clone()];
-    if mode == 3 {
+    if matches!(mode, 3 | 9 | 10) {
         items[0].stats.fill(i::ItemStat { kind: 0, value: 0 });
         weapon.id += 1;
         weapon.class = 4;
@@ -427,7 +427,12 @@ fn recipe_case(
     state.modifiers = recipe.snapshot().modifiers;
     state.numeric =
         NumericState::from_modifiers(level, &state.modifiers, 1, [1, 0, 0, 0, 0]).unwrap();
-    (state, inputs, recipe, if mode == 3 { 4 } else { 15 })
+    (
+        state,
+        inputs,
+        recipe,
+        if matches!(mode, 3 | 9 | 10) { 4 } else { 15 },
+    )
 }
 fn fixture_cells(s: &DerivedStats) -> Vec<u32> {
     let mut out = vec![
@@ -568,4 +573,203 @@ fn break_witness_must_be_replayed_and_does_not_silently_refresh_caches() {
             recompute
         );
     }
+}
+
+#[test]
+fn original_armor_membership_replays_attribute_hooks_in_both_directions() {
+    use benilla_sim::starter_init::Resources;
+    for level in 1..=MAX_SUPPORTED_LEVEL {
+        for mode in [3, 9, 10] {
+            let (mut state, inputs, mut recipe, slot) = recipe_case(level, mode);
+            let original_recipe = recipe.snapshot();
+            let initial = DerivedStats::from_snapshot(&state, &inputs).unwrap();
+            let mut actual = initial.clone();
+            for active in [false, true] {
+                let recompute = recipe
+                    .set_item_active(
+                        slot,
+                        active,
+                        Resources {
+                            health: state.numeric.health,
+                            max_health: state.numeric.max_health,
+                            mana: state.numeric.powers[0],
+                            max_mana: state.numeric.max_powers[0],
+                        },
+                    )
+                    .unwrap();
+                assert_eq!(
+                    recompute
+                        .attribute_steps
+                        .iter()
+                        .map(|step| step.0)
+                        .collect::<Vec<_>>(),
+                    match mode {
+                        3 => vec![1],
+                        9 => vec![1, 3, 1],
+                        _ => vec![],
+                    }
+                );
+                actual
+                    .apply_armor_membership(&state, &inputs, &inputs, slot, &recompute)
+                    .unwrap();
+                state.modifiers = recipe.snapshot().modifiers;
+                state.numeric = NumericState::from_modifiers(
+                    level,
+                    &state.modifiers,
+                    recompute.resources.health,
+                    [recompute.resources.mana, 0, 0, 0, 0],
+                )
+                .unwrap();
+                assert_eq!(
+                    actual,
+                    DerivedStats::from_snapshot(&state, &inputs).unwrap()
+                );
+                assert_eq!(recipe.snapshot().broken_slots, original_recipe.broken_slots);
+            }
+            assert_eq!(actual, initial);
+            assert_eq!(recipe.snapshot(), original_recipe);
+        }
+    }
+}
+
+#[test]
+fn broken_armor_membership_has_no_callbacks_or_weapon_cache_refresh() {
+    use benilla_sim::starter_init::Resources;
+    let (mut state, inputs, mut recipe, slot) = recipe_case(4, 9);
+    let live = Resources {
+        health: 1,
+        max_health: state.numeric.max_health,
+        mana: 1,
+        max_mana: state.numeric.max_powers[0],
+    };
+    let broken = recipe.set_item_broken(slot, true, live).unwrap();
+    state.modifiers = recipe.snapshot().modifiers;
+    state.numeric = NumericState::from_modifiers(4, &state.modifiers, 1, [1, 0, 0, 0, 0]).unwrap();
+    let mut actual = DerivedStats::from_snapshot(&state, &inputs).unwrap();
+    // Unrelated cached fields must not be replaced by an UpdateAllStats result.
+    actual.weapon_hit_chance[0] = 17;
+    actual.crit_display_percent[0] = SpellFloat::ZERO;
+    let initial = actual.clone();
+    for active in [false, true] {
+        let recompute = recipe
+            .set_item_active(slot, active, broken.resources)
+            .unwrap();
+        assert!(recompute.attribute_steps.is_empty());
+        actual
+            .apply_armor_membership(&state, &inputs, &inputs, slot, &recompute)
+            .unwrap();
+        assert_eq!(actual, initial);
+        assert_eq!(recipe.snapshot().broken_slots, [slot]);
+    }
+}
+
+#[test]
+fn armor_membership_rejects_context_and_malformed_witnesses_atomically() {
+    use benilla_sim::starter_init::Resources;
+    let (state, inputs, mut recipe, slot) = recipe_case(4, 9);
+    let initial = DerivedStats::from_snapshot(&state, &inputs).unwrap();
+    let recompute = recipe
+        .set_item_active(
+            slot,
+            false,
+            Resources {
+                health: 1,
+                max_health: state.numeric.max_health,
+                mana: 1,
+                max_mana: state.numeric.max_powers[0],
+            },
+        )
+        .unwrap();
+    for invalid_slot in [15, 16, 17, 18, 19, 255] {
+        let mut actual = initial.clone();
+        assert!(actual
+            .apply_armor_membership(&state, &inputs, &inputs, invalid_slot, &recompute)
+            .is_err());
+        assert_eq!(actual, initial);
+    }
+    for mutate in [
+        |i: &mut DerivedInputs| i.weapons.clear(),
+        |i: &mut DerivedInputs| i.weapons[0].broken = true,
+        |i: &mut DerivedInputs| i.weapons[0].delay_ms += 1,
+        |i: &mut DerivedInputs| i.audit.ammo = DerivedEvidence::Unknown,
+    ] {
+        let mut after = inputs.clone();
+        mutate(&mut after);
+        let mut actual = initial.clone();
+        assert!(actual
+            .apply_armor_membership(&state, &inputs, &after, slot, &recompute)
+            .is_err());
+        assert_eq!(actual, initial);
+    }
+    for mutate in [
+        |r: &mut benilla_sim::starter_init::EquipmentRecompute| {
+            r.disabled_weapon_slots.insert(17);
+        },
+        |r: &mut benilla_sim::starter_init::EquipmentRecompute| {
+            r.disabled_weapon_slots.insert(15);
+        },
+        |r: &mut benilla_sim::starter_init::EquipmentRecompute| {
+            r.attribute_steps[0].0 = 5;
+        },
+        |r: &mut benilla_sim::starter_init::EquipmentRecompute| {
+            r.attribute_steps[0].1 .0[0] += 1;
+        },
+        |r: &mut benilla_sim::starter_init::EquipmentRecompute| {
+            r.attribute_steps[0].1 .0[1] = -1;
+        },
+        |r: &mut benilla_sim::starter_init::EquipmentRecompute| {
+            r.attribute_steps.resize(11, r.attribute_steps[0]);
+        },
+        |r: &mut benilla_sim::starter_init::EquipmentRecompute| {
+            r.effective_attributes.0[0] += 1;
+        },
+    ] {
+        let mut forged = recompute.clone();
+        mutate(&mut forged);
+        let mut actual = initial.clone();
+        assert!(actual
+            .apply_armor_membership(&state, &inputs, &inputs, slot, &forged)
+            .is_err());
+        assert_eq!(actual, initial);
+    }
+}
+
+#[test]
+fn armor_membership_removal_matches_extracted_source_bonus_callbacks() {
+    use benilla_sim::starter_init::Resources;
+    let mut count = 0;
+    // The pinned oracle's armor-break stage executes _ApplyItemBonuses(false),
+    // exactly the same ancillary callbacks as removing intact original armor.
+    // Exercise membership through its own source recipe, never the break API.
+    for line in include_str!("fixtures/player_derived_cmangos.tsv")
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+    {
+        let cells: Vec<_> = line.split('\t').collect();
+        if cells[1] != "3" || cells[2] != "1" {
+            continue;
+        }
+        let level = cells[0].parse().unwrap();
+        let expected: Vec<u32> = cells[3].split(',').map(|v| v.parse().unwrap()).collect();
+        let (state, inputs, mut recipe, slot) = recipe_case(level, 3);
+        let recompute = recipe
+            .set_item_active(
+                slot,
+                false,
+                Resources {
+                    health: state.numeric.health,
+                    max_health: state.numeric.max_health,
+                    mana: state.numeric.powers[0],
+                    max_mana: state.numeric.max_powers[0],
+                },
+            )
+            .unwrap();
+        let mut actual = DerivedStats::from_snapshot(&state, &inputs).unwrap();
+        actual
+            .apply_armor_membership(&state, &inputs, &inputs, slot, &recompute)
+            .unwrap();
+        assert_eq!(fixture_cells(&actual), expected, "{line}");
+        count += 1;
+    }
+    assert_eq!(count, 60);
 }

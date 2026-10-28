@@ -930,3 +930,13 @@ original identity, unchanged aggregate counts/allocator, and exact same-slot
 reason0 semantics. Tests are authored semantic probes, not upstream execution or
 installed private content. See runtime INVENTORY-AUTOSTORE.md for the composed
 controller/projection and unsupported-domain limits.
+
+## Original armor host composition (carried-items-v9)
+
+The v9 audit exception is owned by native quest progression, not a generic
+inventory equip reducer. Pinned CMaNGOS Player.cpp `SwapItem`, `CanUnequipItem`,
+`CanEquipItem`, `RemoveItem`, `EquipItem` and `_ApplyItemMods` establish the
+source guards, same-object custody and ordered modifier callbacks. The registry
+and source-context journal are explicit local proof policy; they are not claimed
+upstream packet or global allocation chronology. Ordinary inventory validation
+and all unsupported consumers remain closed. See runtime ARMOR-MEMBERSHIP.md.

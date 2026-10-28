@@ -1491,7 +1491,7 @@ fn level_rebased_recipe_break_restore_uses_current_create_rows_and_crit() {
     let initial = initialize_mage(&input).unwrap();
     let create = Attributes([24, 31, 37, 49, 51]);
     let fresh = initial.stat_recipe.rebase(7, create, 89, 123).unwrap();
-    assert_eq!(fresh.snapshot().version, 2);
+    assert_eq!(fresh.snapshot().version, 3);
     assert_eq!(fresh.snapshot().level, 7);
     let m = fresh.snapshot().modifiers;
     let numeric =
@@ -1670,4 +1670,94 @@ fn initial_spell_source_identity_binds_all_words_and_resolved_relationships() {
         }
         assert_ne!(original, changed.source_hash(), "{field}");
     }
+}
+
+#[test]
+fn armor_membership_is_independent_and_preserves_source_clamp_order() {
+    let mut i = input();
+    i.create_attributes.0[2] = 30;
+    let mut armor = item(900_000_190);
+    armor.max_durability = 7;
+    armor.stats[0] = ItemStat { kind: 7, value: 10 };
+    armor.stats[1] = ItemStat {
+        kind: 1,
+        value: -50,
+    };
+    armor.stats[2] = ItemStat { kind: 5, value: 10 };
+    armor.armor = 21;
+    armor.resistances[2] = 4;
+    i.items = vec![armor];
+    i.item_grants = Rows::Complete(vec![ItemGrant {
+        source: GrantSource::Outfit,
+        source_order: 0,
+        item: 900_000_190,
+        count: 1,
+    }]);
+    let out = initialize_mage(&i).unwrap();
+    let mut recipe = out.stat_recipe.clone();
+    let mut live = out.resources;
+    live.health = live.max_health;
+    live.mana = live.max_mana;
+    let removed = recipe.set_item_active(4, false, live).unwrap();
+    assert_eq!(recipe.snapshot().inactive_slots, vec![4]);
+    assert!(recipe.snapshot().broken_slots.is_empty());
+    assert_eq!(removed.modifier_steps.len(), 5);
+    assert_eq!(removed.modifier_steps[0].max_health, 111);
+    assert_eq!(removed.modifier_steps[1].max_health, 161);
+    assert_eq!(removed.resources.health, 111);
+    assert!(removed.resources.mana < live.mana);
+    assert_eq!(
+        removed
+            .attribute_steps
+            .iter()
+            .map(|s| s.0)
+            .collect::<Vec<_>>(),
+        vec![2, 3]
+    );
+    assert!(StatRecipe::restore(&out.stat_recipe, &recipe.snapshot()).is_err());
+    let noop = recipe.set_item_active(4, false, removed.resources).unwrap();
+    assert!(noop.modifier_steps.is_empty());
+    let active = recipe.set_item_active(4, true, removed.resources).unwrap();
+    assert_eq!(active.resources.max_health, live.max_health);
+    assert_eq!(active.resources.max_mana, live.max_mana);
+    assert_eq!(active.resources.health, removed.resources.health);
+    assert_eq!(active.resources.mana, removed.resources.mana);
+    assert_eq!(recipe.snapshot(), out.stat_recipe.snapshot());
+
+    let broken = recipe.set_item_broken(4, true, active.resources).unwrap();
+    let broken_recipe = recipe.snapshot();
+    let removed = recipe.set_item_active(4, false, broken.resources).unwrap();
+    assert!(removed.modifier_steps.is_empty());
+    assert_eq!(removed.resources, broken.resources);
+    assert_eq!(recipe.snapshot().broken_slots, vec![4]);
+    let before = recipe.clone();
+    assert!(matches!(
+        recipe.set_item_broken(4, false, removed.resources),
+        Err(InitError::Unsupported { .. })
+    ));
+    assert_eq!(recipe, before);
+    let active = recipe.set_item_active(4, true, removed.resources).unwrap();
+    assert!(active.modifier_steps.is_empty());
+    assert_eq!(active.resources, broken.resources);
+    assert_eq!(recipe.snapshot(), broken_recipe);
+}
+
+#[test]
+fn armor_membership_cannot_be_restored_as_unproven_flags() {
+    let out = initialize_mage(&input()).unwrap();
+    let fresh = out.stat_recipe;
+    for slots in [vec![4], vec![4, 4], vec![5, 4], vec![255]] {
+        let mut forged = fresh.snapshot();
+        forged.inactive_slots = slots;
+        assert!(StatRecipe::restore(&fresh, &forged).is_err());
+    }
+    let mut old = fresh.snapshot();
+    old.version = 2;
+    assert!(StatRecipe::restore(&fresh, &old).is_err());
+    let mut json = serde_json::to_value(fresh.snapshot()).unwrap();
+    json.as_object_mut().unwrap().remove("inactive_slots");
+    assert!(serde_json::from_value::<StatRecipeSnapshot>(json).is_err());
+    let mut recipe = fresh.clone();
+    assert!(recipe.set_item_active(255, false, out.resources).is_err());
+    assert_eq!(recipe, fresh);
 }

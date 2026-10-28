@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const UPSTREAM_COMMIT: &str = "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f";
-pub const POLICY_ID: &str = "cmangos-8ec338a1-carried-items-v8";
+pub const POLICY_ID: &str = "cmangos-8ec338a1-carried-items-v9";
 mod corpse;
 pub use corpse::CORPSE_POLICY_ID;
 mod grants;
@@ -57,7 +57,10 @@ pub struct Audit {
     pub trade_or_temporary_item_loot: Evidence,
     /// Mutations beyond this policy's named storage, grant, requirement-removal
     /// backpack SwapItem, explicit SplitItem, selected DestroyItem and backpack AutoStoreBagItem paths.
-    /// Equip, use and bag contents stay absent.
+    /// Generic equip, use and bag contents stay absent. A separate source-owned
+    /// quest-progression host may relocate original pristine nonweapon armor only
+    /// with exact genesis registry custody, full raw authority and derived-history
+    /// receipts; this catalog alone never authorizes that exception.
     pub additional_item_mutations: Evidence,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

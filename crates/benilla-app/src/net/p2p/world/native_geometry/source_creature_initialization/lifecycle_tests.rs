@@ -394,7 +394,7 @@ pub(super) fn rehash(mut value: serde_json::Value) -> Checkpoint {
     let typed: Checkpoint = serde_json::from_value(value.clone()).unwrap();
     let state = canonical_state_bytes(&typed);
     let mut hash = Sha256::new();
-    hash.update(b"benilla-native-state-v62\0");
+    hash.update(b"benilla-native-state-v63\0");
     hash.update(&state);
     let digest: [u8; 32] = hash.finalize().into();
     value["digest"] = serde_json::json!(digest);
@@ -406,7 +406,7 @@ pub(super) fn rehash(mut value: serde_json::Value) -> Checkpoint {
     tuple.extend(serde_json::to_vec(&value["history_tip"]).unwrap());
     tuple.push(b']');
     let mut hash = Sha256::new();
-    hash.update(b"benilla-native-checkpoint-v62\0");
+    hash.update(b"benilla-native-checkpoint-v63\0");
     hash.update(tuple);
     let checksum: [u8; 32] = hash.finalize().into();
     value["checksum"] = serde_json::json!(checksum);

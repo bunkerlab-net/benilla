@@ -1,7 +1,7 @@
 # Native component integration boundary
 
 This is a distinct component-test domain inside the existing world runtime.
-`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v62 cannot
+`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v63 cannot
 admit production content: `NativeCapability` is uninhabited until the raw compiler
 validates the source closure and every critical semantic dependency. That is an
 implementation condition, not a requirement that developers possess game assets.
@@ -11,13 +11,13 @@ The opt-in `synthetic-native-tests` feature exposes only synthetic construction 
 restoration. Feature unification, preparation JSON, hashes, and source initializer
 outputs cannot produce `NativeCapability`. Fabricated test rows are not native data.
 
-Native format 62, `benilla-native-equipment-handle-registry-v62`, retains the selected
+Native format 63, `benilla-native-armor-membership-v63`, retains the selected
 [player mainhand policy](../../PLAYER-MELEE.md), required optional player proof
 and NPC defense reactive state, retained generic-cast slot context and
 spell target-death lifecycle causes in the bounded melee proof. Backpack stack-split
 commands and receipts retain consumed clone identities on legitimate storage
 refusal. Selected backpack destruction retains quest-removal callbacks before
-exact selected-slot mutation; the carried-items policy is v8. Bounded quest
+exact selected-slot mutation; the carried-items policy is v9. Bounded quest
 abandonment retains NONE-status history for reacceptance under quest-lifecycle-v4.
 Format57 added source reputation-panel controls with replayed native reputation-v3
 call history; no immediate acknowledgement packet is invented. Format58 added the
@@ -26,18 +26,21 @@ changing reputation flags or admitting new gameplay. Format59 retained the raw
 action-bar toggle byte and changed-write history; its player-field projection
 composes the existing death release-timer flag without overwriting that byte.
 Format60 added bounded backpack autostore with ordered detach/store receipts,
-unchanged allocation and no quest-count callbacks; carried-items policy is v8.
+unchanged allocation and no quest-count callbacks; carried-items policy is v9.
 Format61 retained immutable genesis-origin equipment identity under equipment-v2,
 with the exact existing projected GUIDs and strict unchanged-loadout validation.
 Format62 registers pre-existing equipped origins with reserved local handles after
 initial carried allocations; future allocations begin beyond those reservations.
 Existing initial carried and equipped GUIDs remain unchanged. Reserved handles
 cannot appear in carried state while loadout membership remains fixed. This does
-not implement equip/unequip or claim CMaNGOS global item-allocation order. Native reputation-objective abandonment remains
+not by itself implement equip/unequip or claim CMaNGOS global item-allocation order.
+Format63 requires recipe-v3 membership state; source-derived membership replay
+must validate any placement changes. The version bump alone provides no new
+capability or migration. Native reputation-objective abandonment remains
 unsupported until repeated acceptance visibility history is owned. The player-melee
 profile and last-cause policies are v2. Profile/state/record/checkpoint root hash
-domains are v62; established melee, visitor and event-AI callback subdomains
-remain v51. Native61 and earlier checkpoints/journals reject without migration,
+domains are v63; established melee, visitor and event-AI callback subdomains
+remain v51. Native62 and earlier checkpoints/journals reject without migration,
 including rehashed outer envelopes and stale profile context. Linked older
 format descriptions are historical schemas, not accepted decoder versions;
 their source dependency requirements remain in force. This boundary does not
@@ -223,7 +226,7 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
   binary64; source comparison is strict promoted-float chance > double roll
 - Draw records bind semantic purpose/action/NPC generation. Action chains bind full
   current defense/cast/resource snapshots, so same-HP misses cannot be reused
-- Checkpoints bind native format 62, policy, RNG mapping, domain, content, authority, geometry,
+- Checkpoints bind native format 63, policy, RNG mapping, domain, content, authority, geometry,
   history-chain tip, cooldown maps, recomputable casts/auras, AI lifecycle/motion,
   exact mana timers, skills/reactive/combat clocks, checked equipment recipes and
   [per-NPC event ownership](../../NPC-EVENTS.md) with DEAD/respawn clock continuity
@@ -375,7 +378,7 @@ Motion arithmetic, production admission/startup and loaded-native cache reopenin
 remain unchanged.
 
 Native56 and older checkpoints/journals reject without migration. Profile, state,
-record and checkpoint digest domains are v62; established melee domains remain v51; original World v2, character
+record and checkpoint digest domains are v63; established melee domains remain v51; original World v2, character
 profiles and the store envelope are unchanged. Fixtures are authored component
 evidence, not captured client/DB data.
 
@@ -454,3 +457,8 @@ and checkpoint publication are specified in
 [INVENTORY-DESTROY](../../../benilla-sim/INVENTORY-DESTROY.md). This does not expose
 production native entry or admit private content; the connected controller tests
 use authored fixtures.
+
+Original pristine armor can be relocated only by the separately source-owned
+[armor membership integration](../../ARMOR-MEMBERSHIP.md), with required quest
+history v7 and recipe v3. Ordinary inventory reducers cannot consume registered
+armor; the native capability remains closed.

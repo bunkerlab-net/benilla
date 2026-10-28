@@ -5,7 +5,7 @@ use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct GenericSlot {
+pub(in crate::native) struct GenericSlot {
     id: u64,
     target: NpcId,
     prepared: ExecutionBinding,
@@ -15,7 +15,7 @@ pub(super) struct GenericSlot {
     callback_ms: Option<u64>,
 }
 
-pub(super) fn blocks(current: &State) -> Result<bool, NativeError> {
+pub(in crate::native) fn blocks(current: &State) -> Result<bool, NativeError> {
     let Some(id) = current.player_events.current_spell() else {
         return Ok(false);
     };
@@ -36,7 +36,16 @@ pub(super) fn blocks(current: &State) -> Result<bool, NativeError> {
 }
 
 impl GenericSlot {
-    pub(super) fn capture(current: &State) -> Result<Option<Self>, NativeError> {
+    pub(in crate::native) fn blocks_pre_unit(
+        &self,
+        profile: &Profile,
+        current: &State,
+        captured_ms: u64,
+    ) -> Result<bool, NativeError> {
+        self.blocks(profile, current, captured_ms, state::Phase::PreUnit)
+    }
+
+    pub(in crate::native) fn capture(current: &State) -> Result<Option<Self>, NativeError> {
         let Some(id) = current.player_events.current_spell() else {
             return Ok(None);
         };
@@ -59,7 +68,7 @@ impl GenericSlot {
         }))
     }
 
-    pub(super) fn replay_work(&self) -> u64 {
+    pub(in crate::native) fn replay_work(&self) -> u64 {
         self.prepared.replay_work().saturating_add(
             self.released
                 .as_ref()
@@ -162,6 +171,7 @@ impl GenericSlot {
                 #[cfg(any(test, feature = "synthetic-native-tests"))]
                 interactions::spell_authority::validate_historical_launch(
                     profile,
+                    current.quest_progression.as_ref(),
                     owner,
                     released,
                     self.target,

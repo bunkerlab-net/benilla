@@ -175,6 +175,7 @@ impl MeleeResetWitness {
         }
         interactions::spell_authority::validate_historical_launch(
             profile,
+            state.quest_progression.as_ref(),
             state
                 .npcs
                 .get(&self.target.spawn)

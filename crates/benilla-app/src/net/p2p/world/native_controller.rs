@@ -1182,23 +1182,33 @@ impl Driven for NativeController {
             }
             ClientCommand::SwapInvItem { src_slot, dst_slot } => {
                 use benilla_sim::inventory as inv;
-                if !(inv::FIRST_SLOT..inv::END_SLOT).contains(&src_slot)
-                    || !(inv::FIRST_SLOT..inv::END_SLOT).contains(&dst_slot)
-                    || self
-                        .world
-                        .state()
-                        .quest_progression
-                        .as_ref()
-                        .and_then(|state| state.inventory.as_ref())
-                        .is_none()
+                let backpack = |slot| (inv::FIRST_SLOT..inv::END_SLOT).contains(&slot);
+                if self
+                    .world
+                    .state()
+                    .quest_progression
+                    .as_ref()
+                    .and_then(|s| s.inventory.as_ref())
+                    .is_none()
                 {
                     return Err(Error::UnsupportedCommand);
                 }
-                // CMSG_SWAP_INV_ITEM names positions; earlier inputs resolve first.
-                self.queue(n::Command::InventoryMove(n::InventoryMoveRequest {
-                    source: src_slot,
-                    destination: dst_slot,
-                }))?;
+                // Resolve source custody at command execution, after preceding inputs.
+                if backpack(src_slot) && backpack(dst_slot) {
+                    self.queue(n::Command::InventoryMove(n::InventoryMoveRequest {
+                        source: src_slot,
+                        destination: dst_slot,
+                    }))?;
+                } else if (src_slot < 15 && backpack(dst_slot))
+                    || (backpack(src_slot) && dst_slot < 15)
+                {
+                    self.queue(n::Command::EquipmentMove(n::EquipmentMoveRequest {
+                        source: src_slot,
+                        destination: dst_slot,
+                    }))?;
+                } else {
+                    return Err(Error::UnsupportedCommand);
+                }
             }
             ClientCommand::AutostoreLootItem { slot } => {
                 let target = self.capture_loot_window()?.corpse;
