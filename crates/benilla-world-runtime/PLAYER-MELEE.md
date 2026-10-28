@@ -25,11 +25,19 @@ pole; its source refresh-only skill callback is not modeled here.
 Actual evade damage is refused before its RNG; earlier range/facing ready-check
 failures retain their original precedence, including while the target returns home.
 
-Casting, projectiles and active spell/aura execution cannot overlap selected
-player melee. Both directions refuse before the new operation's mutation or RNG;
-the frame remains transactional. Stopping melee does not silently cancel spells,
-and casting does not silently stop melee. This is a temporary explicit subset,
-not ordinary Classic autoattack/casting parity.
+Ordinary source-owned generic player casts may coexist with selected player
+melee. The active generic slot in Casting state suppresses swing attempts, not
+attack countdown, victim ownership or the retained swing error. Traveling and
+finished slots do not suppress attempts. Successful source-selected releases
+reset BASE before the same Unit update decrements its timer; cancellation does
+not invent a release reset. Stopping melee does not silently cancel a cast, and
+casting does not silently stop melee.
+
+Fireball periodic damage holders share the target's owned health with mainhand
+damage. Spell target death stops the attacker lifecycle without a melee timer
+reset or interruption of another active cast. NPC casts, channels/autorepeat and
+player slow/control effects remain excluded from this selected overlap domain.
+These component transitions do not open full playable native admission.
 
 Queued start/stop commands use current target generations. Swings run in the
 player update phase, not on a controller clock. Source 3D range and 120-degree
@@ -47,7 +55,7 @@ only by the source class/outcome/alive conditions and expire in NPC Unit update.
 
 ## Persistence contract
 
-Native format 52 rejects older envelopes; no migration is provided. Existing
+Native format 53 rejects older envelopes; no migration is provided. Existing
 unrelated callback hash domains retain their prior versions.
 
 The bounded player proof retains the latest writers of lifecycle, BASE, OFF and
@@ -55,6 +63,8 @@ last swing error, with a shared action frontier and exact surviving paired
 writes. Captured source contexts are revalidated against retained historical
 progression/generation prefixes. The proof validates reachable contexts, not the
 authenticity of discarded action history or historical movement trajectories.
+Retained generic-slot witnesses likewise prove a source-reachable cast context,
+not an authenticated historical slot-selection trajectory.
 Actual RNG purposes, ranges, contiguous counters and source callback transitions
 are checked. Initial state, command sequencing, source spell resets, lethal stop
 and reset order remain distinct causes.

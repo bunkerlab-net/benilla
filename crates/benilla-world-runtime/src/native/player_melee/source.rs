@@ -29,6 +29,10 @@ pub(super) enum SourceCause {
         previous: NpcId,
         died_at_tick: u64,
     },
+    TargetDeath {
+        key: CauseKey,
+        context: Box<super::target_death::TargetDeathContext>,
+    },
     Ready {
         key: CauseKey,
         context: Box<SourceContext>,
@@ -65,6 +69,7 @@ impl SourceCause {
             | Self::Stop { key, .. }
             | Self::SpellReset { key, .. }
             | Self::PlayerDeath { key, .. }
+            | Self::TargetDeath { key, .. }
             | Self::Ready { key, .. } => (*key, None),
         }
     }
@@ -89,6 +94,7 @@ impl SourceCause {
                         .saturating_add(s.draws.len() as u64)
                 })),
             Self::Stop { .. } | Self::PlayerDeath { .. } => 1,
+            Self::TargetDeath { .. } => 1,
             Self::SpellReset { witness, .. } => witness.replay_work(),
         }
     }
@@ -98,6 +104,9 @@ impl SourceCause {
         current: &State,
     ) -> Result<ReplayedCause, NativeError> {
         match self {
+            Self::TargetDeath { key, context } => {
+                super::target_death::replay_stop(profile, current, *key, context)
+            }
             Self::PlayerDeath {
                 key,
                 previous,
@@ -112,7 +121,8 @@ impl SourceCause {
                     return Err(NativeError::InvalidCheckpoint);
                 }
                 let source = context.replay(profile, current)?;
-                if !source.can_attack_now
+                if context.phase() != key.phase
+                    || !source.can_attack_now
                     || source.target_evading
                     || context.captured_ms()
                         != profile
@@ -187,6 +197,8 @@ impl SourceCause {
             } => {
                 let source = context.replay(profile, current)?;
                 if key.phase != Phase::PostUnit
+                    || context.phase() != key.phase
+                    || source.player_casting
                     || source.predecessor.lifecycle.victim != Some(context.target())
                     || !source.predecessor.lifecycle.melee_attacking
                     || source.predecessor.remaining_ms[0] != 0
@@ -554,6 +566,9 @@ pub(super) fn replay_numeric(
         return Err(NativeError::InvalidCheckpoint);
     }
     let source = context.replay(profile, current)?;
+    if key.phase != Phase::PostUnit || context.phase() != key.phase || source.player_casting {
+        return Err(NativeError::InvalidCheckpoint);
+    }
     let mut cursor = DrawCursor::new(current, draws);
     let result = numeric_from_cursor(key, context.target(), &source, &mut cursor)?;
     if cursor.index != draws.len() {

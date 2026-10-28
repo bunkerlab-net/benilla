@@ -129,6 +129,9 @@ impl<A: Authority> Frame<'_, A> {
                 .health
                 .checked_sub(effective)
                 .ok_or(NativeError::InvalidState)?;
+            for holder in npc.auras.values_mut() {
+                holder.health = npc.health;
+            }
             if killed {
                 self.native_kill_rewards(target)?;
                 self.prepare_body_loot(target)?;

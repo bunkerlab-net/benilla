@@ -35,8 +35,35 @@ fn profile_with_options(
     home_spawn: Option<f32>,
     fragile_weapon: bool,
 ) -> Profile {
+    profile_with_options_and_spell(health, fragile_player, home_spawn, fragile_weapon, false)
+}
+
+pub(in crate::native) fn source_fireball_profile(health: u32) -> Profile {
+    profile_with_options_and_spell(health, false, None, false, true)
+}
+
+fn profile_with_options_and_spell(
+    health: u32,
+    fragile_player: bool,
+    home_spawn: Option<f32>,
+    fragile_weapon: bool,
+    source_fireball: bool,
+) -> Profile {
     let (mut profile, mut input, mut rows) =
         synthetic_quest_fixture::setup_with_levels(3, 60, false, 0x3f800000);
+    if source_fireball {
+        crate::native::synthetic_spell_fixture::rekey(&mut profile, &mut input);
+        rows.abilities[0].ability = profile.abilities[0].clone();
+        rows.abilities[0].cast_time.as_mut().unwrap().id = 901;
+        let mut source = crate::native::synthetic_spell_fixture::source(&profile);
+        source.spells[0].words[21] |= 8; // source SPELL_INTERRUPT_FLAG_COMBAT
+        input
+            .spells
+            .iter_mut()
+            .find(|row| row.id == 133)
+            .unwrap()
+            .words = source.spells[0].words.clone().try_into().unwrap();
+    }
     if fragile_player {
         input.create_health = 1;
         input.create_attributes.0[2] = 1;
@@ -136,7 +163,13 @@ fn profile_with_options(
     // Preserve distinct owners; this fixture deliberately has no passive script writer.
     for npc in &mut profile.npcs {
         npc.ai.reaction = ai::Reaction::Defensive;
-        npc.faction_template = if npc.ai.creature_id == 2 { 2 } else { 1 };
+        npc.faction_template = if npc.ai.creature_id == 2 {
+            2
+        } else if source_fireball {
+            3
+        } else {
+            1
+        };
         npc.ai.neutral_to_all = npc.ai.creature_id == 3;
         npc.ai.spawn = fixture::point(if npc.ai.creature_id == 2 { 2.0 } else { 4.0 });
     }
@@ -155,7 +188,10 @@ fn profile_with_options(
         profile.player.orientation = Orientation::new(std::f32::consts::PI).unwrap();
     }
     let mut relations = synthetic_combat_fixture::source_rows(&profile);
-    if home_spawn.is_some() {
+    if home_spawn.is_some() || source_fireball {
+        // A neutral second target is attackable by the player but is not a
+        // friendly assistance peer of the hostile victim. This is raw relation
+        // input, not suppression of an actual assistance callback.
         // The Home test observes player pursuit, not the unsupported peer attack
         // branch. Its separate quest giver has genuinely neutral source masks.
         relations.factions.push(InteractionFactionSource {
@@ -235,6 +271,9 @@ fn profile_with_options(
             unreachable!()
         };
         spawns[0].entry = source.spawn_entry;
+        if source_fireball && source.spawn_id == 3 {
+            spawns[0].current_health = 1;
+        }
     }
     let target = sources
         .iter_mut()
@@ -262,6 +301,12 @@ fn profile_with_options(
                 .unwrap(),
             )
             .unwrap();
+    }
+    if source_fireball {
+        let mut source = crate::native::synthetic_spell_fixture::source(&profile);
+        source.spells[0].words[21] |= 8;
+        profile.initialize_spell_authority(&input, source).unwrap();
+        crate::native::synthetic_spell_fixture::initialize_authored_location(&mut profile);
     }
     profile.initialize_player_melee(1).unwrap();
     profile
@@ -668,9 +713,9 @@ fn genuine_npc_defense_reactive_refresh_expiry_death_and_restore_are_bound() {
             .expect("exact serialized proof field");
         *field = serde_json::json!(field.as_u64().unwrap() + 1);
         let mut changed: Checkpoint = serde_json::from_value(value).unwrap();
-        changed.digest = crate::digest(b"benilla-native-state-v52\0", &changed.state);
+        changed.digest = crate::digest(b"benilla-native-state-v53\0", &changed.state);
         changed.checksum = crate::digest(
-            b"benilla-native-checkpoint-v52\0",
+            b"benilla-native-checkpoint-v53\0",
             &(&changed.state, changed.digest, changed.history_tip),
         );
         assert!(
@@ -762,7 +807,7 @@ fn genuine_npc_defense_reactive_refresh_expiry_death_and_restore_are_bound() {
 fn previous_native_schema_is_not_accepted_as_player_melee_state() {
     let world = world();
     let mut value = serde_json::to_value(world.checkpoint().unwrap()).unwrap();
-    value["version"] = serde_json::json!(51);
+    value["version"] = serde_json::json!(52);
     assert!(Checkpoint::decode(&serde_json::to_vec(&value).unwrap()).is_err());
 }
 
@@ -851,10 +896,9 @@ fn actual_npc_lethal_callback_closes_player_attack_before_checkpoint() {
 }
 
 #[test]
-fn both_cast_and_mainhand_overlap_orders_refuse_the_whole_transaction() {
+fn attack_and_generic_cast_start_in_either_order_without_swinging() {
     for cast_first in [false, true] {
         let mut world = world();
-        let before = world.state_digest();
         let target = world.state.npcs[&2].id;
         let mut commands = vec![
             Command::AttackStart { target },
@@ -875,18 +919,25 @@ fn both_cast_and_mainhand_overlap_orders_refuse_the_whole_transaction() {
                 input
             })
             .collect();
-        assert!(
-            matches!(
-                world.step_batch(1, inputs, &mut CompleteAuthority::default()),
-                Err(NativeError::UnsupportedMechanic(
-                    "player melee concurrent spell/projectile/aura"
-                ))
-            ),
-            "cast_first={cast_first}"
+        world
+            .step_batch(1, inputs, &mut CompleteAuthority::default())
+            .unwrap();
+        assert_eq!(world.state.next_sequence, 2);
+        assert_eq!(
+            world.state.combat.as_ref().unwrap().melee_timers.victim(),
+            Some(target)
         );
-        assert_eq!(world.state_digest(), before);
-        assert_eq!(world.state.next_sequence, 0);
-        assert!(world.records().is_empty());
+        assert!(super::casting::blocks(&world.state).unwrap());
+        assert!(!world
+            .last_tick()
+            .unwrap()
+            .events
+            .iter()
+            .any(|event| matches!(
+                event,
+                Event::PlayerMelee { .. } | Event::PlayerSwingError { .. }
+            )));
+        assert_eq!(restore(&world).state_digest(), world.state_digest());
     }
 }
 
@@ -1036,6 +1087,7 @@ fn actual_returning_home_preserves_active_range_and_facing_precedence() {
                 &world.state,
                 &world.state.npcs[&2],
                 before,
+                state::Phase::PostUnit,
             )
             .unwrap()
             .replay(&world.profile, &world.state)
@@ -1178,4 +1230,109 @@ fn actual_hit_done_weapon_break_precedes_unarmed_timer_reset_and_restore() {
         assert_eq!(restore(&world).state_digest(), world.state_digest());
     }
     assert!(reached > 0, "no actual HIT_DONE weapon break observed");
+}
+
+#[test]
+fn cancel_generic_cast_resumes_ready_swing_without_launch_reset() {
+    let mut world = world();
+    let target = world.state.npcs[&2].id;
+    let inputs = [
+        Command::AttackStart { target },
+        Command::Cast {
+            ability: 60001,
+            target,
+        },
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(sequence, command)| {
+        let mut input = synthetic_quest_fixture::command(&world, command);
+        input.input.sequence = sequence as u64;
+        input
+    })
+    .collect();
+    let mut authority = CompleteAuthority::default();
+    world.step_batch(1, inputs, &mut authority).unwrap();
+    let id = world.state.player_events.current_spell().unwrap();
+    assert_eq!(
+        world
+            .state
+            .combat
+            .as_ref()
+            .unwrap()
+            .melee_timers
+            .remaining_ms()[0],
+        0
+    );
+    let input = synthetic_quest_fixture::command(
+        &world,
+        Command::CancelCast {
+            spell_id: 60001,
+            target: CancelCastTarget::Instance(id),
+        },
+    );
+    world.step(2, Some(input), &mut authority).unwrap();
+    assert!(!super::casting::blocks(&world.state).unwrap());
+    assert!(world.state.combat.as_ref().unwrap().melee_reset.is_none());
+    assert!(world
+        .last_tick()
+        .unwrap()
+        .events
+        .iter()
+        .any(|event| matches!(event, Event::PlayerMelee { .. })));
+    assert_eq!(restore(&world).state_digest(), world.state_digest());
+}
+
+#[test]
+fn attack_stop_does_not_interrupt_generic_cast() {
+    let mut world = world();
+    let target = world.state.npcs[&2].id;
+    let inputs = [
+        Command::AttackStart { target },
+        Command::Cast {
+            ability: 60001,
+            target,
+        },
+        Command::AttackStop,
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(sequence, command)| {
+        let mut input = synthetic_quest_fixture::command(&world, command);
+        input.input.sequence = sequence as u64;
+        input
+    })
+    .collect();
+    world
+        .step_batch(1, inputs, &mut CompleteAuthority::default())
+        .unwrap();
+    assert!(super::casting::blocks(&world.state).unwrap());
+    assert_eq!(world.state.casts.len(), 1);
+    assert_eq!(
+        world.state.combat.as_ref().unwrap().melee_timers.victim(),
+        None
+    );
+    assert_eq!(restore(&world).state_digest(), world.state_digest());
+}
+
+#[test]
+fn attack_start_observes_previous_tick_cast_before_owner_events() {
+    let mut world = world();
+    let target = world.state.npcs[&2].id;
+    let mut authority = CompleteAuthority::default();
+    let cast = synthetic_quest_fixture::command(
+        &world,
+        Command::Cast {
+            ability: 60001,
+            target,
+        },
+    );
+    world.step(1, Some(cast), &mut authority).unwrap();
+    let start = synthetic_quest_fixture::command(&world, Command::AttackStart { target });
+    world.step(2, Some(start), &mut authority).unwrap();
+    assert_eq!(
+        world.state.combat.as_ref().unwrap().melee_timers.victim(),
+        Some(target)
+    );
+    assert_eq!(restore(&world).state_digest(), world.state_digest());
 }

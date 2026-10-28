@@ -348,9 +348,6 @@ impl PlayerCombatState {
         genesis: &CombatGenesis,
     ) -> Result<[u32; 2], NativeError> {
         self.validate_melee_timer_fields(genesis)?;
-        if self.melee_timers.melee_attacking {
-            return Err(NativeError::UnsupportedMechanic("cast during player melee"));
-        }
         let times = genesis.source_attack_times_for_recipe(&self.recipe.snapshot())?;
         self.melee_timers.remaining_ms[0] = times[0];
         Ok(times)

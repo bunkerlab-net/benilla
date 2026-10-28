@@ -8,7 +8,7 @@ use crate::native::{Domain, Draw, NativeError, Profile, State};
 use crate::{Digest, NpcId, PlayerId, WorldId};
 use serde::{Deserialize, Serialize};
 
-const POLICY: &str = "cmangos-8ec338a1-player-mainhand-last-causes-v1";
+const POLICY: &str = "cmangos-8ec338a1-player-mainhand-last-causes-v2";
 const SLOTS: usize = 4;
 const MAX_TIMER_MS: u32 = 1_000_000;
 

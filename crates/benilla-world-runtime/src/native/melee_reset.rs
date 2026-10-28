@@ -85,6 +85,29 @@ impl MeleeResetWitness {
             .saturating_add(scheduler.queue.detached.len() as u64)
     }
 
+    /// Private in-flight validation view while Unit's event transaction owns
+    /// the queue outside State. Completed-frame restore must use the real queue.
+    pub(in crate::native) fn release_queue(
+        &self,
+        now_ms: u64,
+        actual: &benilla_sim::event_processor::EventCallbackSnapshot,
+    ) -> Result<benilla_sim::event_processor::EventProcessor, NativeError> {
+        if self.released.captured_ms != now_ms {
+            return Err(NativeError::InvalidState);
+        }
+        let scheduler = self
+            .release_context()?
+            .scheduler
+            .as_ref()
+            .ok_or(NativeError::InvalidState)?;
+        if scheduler != actual {
+            return Err(NativeError::InvalidState);
+        }
+        Ok(benilla_sim::event_processor::EventProcessor::restore(
+            actual.queue.clone(),
+        )?)
+    }
+
     fn release_context(&self) -> Result<&SourceSpellRequest, NativeError> {
         match &self.release_receipt.request.query {
             Query::SourceSpell(SourceSpellQuery::Semantics(context))

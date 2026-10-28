@@ -219,7 +219,7 @@ impl NativeWorld {
         let replies = frame.replies;
         let events = frame.events;
         let draws = frame.draws;
-        let after = crate::digest(b"benilla-native-state-v52\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v53\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -398,6 +398,7 @@ impl<A: Authority> Frame<'_, A> {
         ability: u32,
         target: NpcId,
         events: Vec<spell::SpellEvent>,
+        scheduler: Option<&benilla_sim::event_processor::EventCallbackSnapshot>,
     ) -> Result<(), NativeError> {
         for event in events {
             if matches!(&event,spell::SpellEvent::DirectDamage{effective,..}|spell::SpellEvent::PeriodicDamage{effective,..} if *effective>0)
@@ -485,6 +486,14 @@ impl<A: Authority> Frame<'_, A> {
                     self.native_kill_rewards(target)?;
                     self.prepare_body_loot(target)?;
                 }
+                self.events
+                    .extend(player_melee::target_death::after_spell_kill(
+                        self.profile,
+                        self.state,
+                        target,
+                        self.player_melee_unit_updated,
+                        scheduler,
+                    )?);
             }
         }
         Ok(())
@@ -655,7 +664,7 @@ impl<A: Authority> Frame<'_, A> {
                     .map(|d| d.phase()),
             }),
             Command::Cast { ability, target } => {
-                player_melee::refuse_spell_concurrency(self.profile, self.state)?;
+                player_melee::validate_generic_concurrency(self.profile, self.state)?;
                 let Some(a) = self.state.ability(self.profile, *ability) else {
                     self.events.push(Event::Rejected(Rejection::UnknownAbility));
                     return Ok(());
@@ -723,7 +732,7 @@ impl<A: Authority> Frame<'_, A> {
                         spell::CastState::Failed(f) => Some(f),
                         _ => None,
                     };
-                    self.spell_events(id, *ability, *target, events)?;
+                    self.spell_events(id, *ability, *target, events, None)?;
                     if failed.is_none() {
                         self.state.player_events.current_spell = Some(id);
                         self.state.player_events.last_current_spell = Some(id);
@@ -1035,10 +1044,10 @@ impl<A: Authority> Frame<'_, A> {
                     .as_mut()
                     .ok_or(NativeError::InvalidState)?
                     .melee_reset = Some(witness);
-                player_melee::record_spell_reset(self.profile, self.state)?;
+                player_melee::record_spell_reset(self.profile, self.state, scheduler)?;
             }
         }
-        self.spell_events(id, c.ability, c.target, events)?;
+        self.spell_events(id, c.ability, c.target, events, Some(scheduler))?;
         let after_update = c.execution.state();
         let handled_delayed = allow_delayed
             && matches!(c.execution.state(),spell::CastState::Traveling{impact_at_ms} if impact_at_ms<=self.state.now_ms);
@@ -1115,7 +1124,7 @@ impl<A: Authority> Frame<'_, A> {
             } else {
                 npc.aura_bindings.remove(&c.ability);
             }
-            self.spell_events(id, c.ability, c.target, events)?;
+            self.spell_events(id, c.ability, c.target, events, Some(scheduler))?;
         }
         if matches!(
             c.execution.state(),
@@ -1172,7 +1181,7 @@ impl<A: Authority> Frame<'_, A> {
             } else {
                 npc.aura_bindings.remove(&ability);
             }
-            self.spell_events(0, ability, id, events)?;
+            self.spell_events(0, ability, id, events, None)?;
         }
         Ok(())
     }
@@ -1977,7 +1986,7 @@ impl<A: Authority> Frame<'_, A> {
                     .draw(id, DrawPurpose::Pushback, 0, 99, &mut self.draws)?
                     as u8;
                 let events = c.execution.damage_pushback(die)?;
-                self.spell_events(id, c.ability, c.target, events)?;
+                self.spell_events(id, c.ability, c.target, events, None)?;
             }
             self.state.casts.insert(id, c);
         }

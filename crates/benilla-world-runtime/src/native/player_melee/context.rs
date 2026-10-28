@@ -14,6 +14,9 @@ use serde::{Deserialize, Serialize};
 #[serde(deny_unknown_fields)]
 pub(super) struct SourceContext {
     binding: MeleeExecutionBinding,
+    phase: super::state::Phase,
+    #[serde(deserialize_with = "crate::native::creature_collision_width::required_option")]
+    generic_slot: Option<super::casting::GenericSlot>,
     relation: MeleeRelationContext,
     equipment: equipment::EquipmentSnapshot,
     #[serde(deserialize_with = "crate::native::creature_collision_width::required_option")]
@@ -34,6 +37,7 @@ pub(super) struct SourceContext {
 
 pub(super) struct ReplayedContext {
     pub predecessor: MeleeFields,
+    pub player_casting: bool,
     pub input: melee::MeleeInput,
     pub player_health: u32,
     pub target_health: u32,
@@ -51,8 +55,9 @@ impl SourceContext {
         state: &State,
         target: &Npc,
         predecessor: MeleeFields,
+        phase: super::state::Phase,
     ) -> Result<Self, NativeError> {
-        super::validate_no_concurrency(profile, state)?;
+        super::validate_supported_concurrency(profile, state)?;
         let combat = state.combat.as_ref().ok_or(NativeError::InvalidState)?;
         let current = MeleeFields {
             lifecycle: Lifecycle {
@@ -79,7 +84,9 @@ impl SourceContext {
             return Err(NativeError::InvalidState);
         }
         let context = Self {
+            phase,
             binding: MeleeExecutionBinding::capture(profile, state)?,
+            generic_slot: super::casting::GenericSlot::capture(state)?,
             relation: MeleeRelationContext::capture(profile, state, target)?,
             equipment: combat.equipment.snapshot(),
             credited_generation: state
@@ -119,6 +126,10 @@ impl SourceContext {
         &self.binding
     }
 
+    pub(super) fn phase(&self) -> super::state::Phase {
+        self.phase
+    }
+
     pub(super) fn captured_ms(&self) -> u64 {
         self.binding.captured_ms()
     }
@@ -128,7 +139,14 @@ impl SourceContext {
     }
 
     pub(super) fn replay_work(&self) -> u64 {
-        self.binding.replay_work().saturating_add(64)
+        self.binding
+            .replay_work()
+            .saturating_add(64)
+            .saturating_add(
+                self.generic_slot
+                    .as_ref()
+                    .map_or(0, super::casting::GenericSlot::replay_work),
+            )
     }
 
     pub(super) fn replay(
@@ -265,9 +283,9 @@ impl SourceContext {
                 level: initialized.level,
                 armor: initialized.stats.armor,
                 can_react,
-                // Capture rejects the actual live cast/aura overlap. The
-                // selected historical domain retains that absence, not a
-                // caller-provided permission or current-state shortcut.
+                // Capture excludes NPC casts/control auras. Player casting is
+                // a separate swing gate; ordinary damage auras do not turn
+                // the defender into a casting non-melee unit.
                 casting_non_melee: false,
                 can_dodge: true, // Unit ctor; selected policy excludes mutations.
                 can_parry: raw.extra_flags & 4 == 0 && !disarmed,
@@ -297,6 +315,12 @@ impl SourceContext {
                 last_error: self.predecessor_error,
             },
             input,
+            player_casting: self
+                .generic_slot
+                .as_ref()
+                .map(|slot| slot.blocks(profile, state, self.captured_ms(), self.phase))
+                .transpose()?
+                .unwrap_or(false),
             player_health: self.relation.player_health(),
             target_health: self.relation.target_health(),
             target_evading: self.target_phase == ai::Phase::ReturningHome,

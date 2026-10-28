@@ -295,6 +295,24 @@ impl MageProjectileCast {
     pub fn release_context(&self) -> Option<MageProjectileReleaseContext> {
         self.release
     }
+    /// Command-phase capture after prepare, before the first owning SpellEvent.
+    /// This does not satisfy the stronger completed-frame validation below.
+    pub fn validate_prepared_fixed_step(
+        &self,
+        origin: u64,
+        tick_ms: u32,
+    ) -> Result<(), SpellError> {
+        if tick_ms == 0
+            || self.created_ms < origin
+            || !(self.created_ms - origin).is_multiple_of(u64::from(tick_ms))
+            || !self.first_update
+            || self.last_update_ms != self.created_ms
+            || !matches!(self.state, CastState::Casting { .. })
+        {
+            return Err(SpellError::State("fixed-step prepared cast origin"));
+        }
+        Ok(())
+    }
     /// Stronger end-of-frame checks for continuously updated fixed-step worlds.
     pub fn validate_fixed_step(&self, origin: u64, tick_ms: u32) -> Result<(), SpellError> {
         if tick_ms == 0

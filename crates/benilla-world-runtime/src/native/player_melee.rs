@@ -4,15 +4,17 @@
 use super::*;
 use crate::NpcId;
 use serde::{Deserialize, Serialize};
+mod casting;
 mod context;
 pub(in crate::native) mod death;
 mod reactive;
 mod source;
 mod state;
+pub(in crate::native) mod target_death;
 pub(in crate::native) use death::PendingPlayerMeleeDeath;
 pub(in crate::native) use reactive::NpcDefenseReactive;
 
-pub const PLAYER_MELEE_POLICY: &str = "cmangos-8ec338a1-native-mage-mainhand-v1";
+pub const PLAYER_MELEE_POLICY: &str = "cmangos-8ec338a1-native-mage-mainhand-v2";
 
 /// Explicit source configuration plus existing retained dependency closures.
 /// No deserializer or constructor accepts resolved damage or target eligibility.
@@ -181,6 +183,8 @@ fn current_fields(current: &State) -> Result<state::MeleeFields, NativeError> {
         last_error: selected.last_error,
     })
 }
+// NPC spells and player control effects remain outside the selected closure.
+#[cfg(any(test, feature = "synthetic-native-tests"))]
 pub(in crate::native) fn refuse_spell_concurrency(
     profile: &Profile,
     current: &State,
@@ -197,15 +201,24 @@ pub(in crate::native) fn refuse_spell_concurrency(
     }
     Ok(())
 }
-fn validate_no_concurrency(_profile: &Profile, current: &State) -> Result<(), NativeError> {
+
+pub(in crate::native) fn validate_generic_concurrency(
+    profile: &Profile,
+    current: &State,
+) -> Result<(), NativeError> {
+    if profile.player_melee.is_some() {
+        validate_supported_concurrency(profile, current)?;
+    }
+    Ok(())
+}
+fn validate_supported_concurrency(_profile: &Profile, current: &State) -> Result<(), NativeError> {
     let combat = current.combat.as_ref().ok_or(NativeError::InvalidState)?;
-    if !current.casts.is_empty()
-        || combat.has_channeled_spell
+    if combat.has_channeled_spell
         || combat.has_auto_repeat_spell
         || current
             .npcs
             .values()
-            .any(|npc| !npc.auras.is_empty() || npc.events.spells().next().is_some())
+            .any(|npc| npc.events.spells().next().is_some())
         || current
             .player_slow
             .as_ref()
@@ -267,7 +280,7 @@ pub(in crate::native) fn start(
             "player melee policy not selected",
         ))?
         .validate(profile)?;
-    validate_no_concurrency(profile, current)?;
+    validate_supported_concurrency(profile, current)?;
     validate_fields(profile, current, state::Phase::PreUnit)?;
     let before = current_fields(current)?;
     let npc = current
@@ -275,7 +288,8 @@ pub(in crate::native) fn start(
         .get(&target.spawn)
         .filter(|npc| npc.id == target)
         .ok_or(NativeError::UnknownTarget)?;
-    let context = context::SourceContext::capture(profile, current, npc, before)?;
+    let context =
+        context::SourceContext::capture(profile, current, npc, before, state::Phase::PreUnit)?;
     let resolved = context.replay(profile, current)?;
     if !resolved.can_attack_now {
         return Ok((
@@ -383,7 +397,7 @@ pub(in crate::native) fn validate_current(
                 .as_ref()
                 .is_some_and(|combat| combat.melee_timers.melee_attacking())
             {
-                validate_no_concurrency(profile, current)?;
+                validate_supported_concurrency(profile, current)?;
             }
             Ok(())
         }
@@ -394,6 +408,7 @@ pub(in crate::native) fn validate_current(
 pub(in crate::native) fn record_spell_reset(
     profile: &Profile,
     current: &mut State,
+    scheduler: &benilla_sim::event_processor::EventCallbackSnapshot,
 ) -> Result<(), NativeError> {
     if profile.player_melee.is_none() {
         return Ok(());
@@ -404,11 +419,27 @@ pub(in crate::native) fn record_spell_reset(
         .and_then(|combat| combat.melee_reset.as_ref())
         .ok_or(NativeError::InvalidState)?
         .clone();
+    // player_event_update temporarily owns the real queue. Replay the new
+    // writer against its source-owned callback snapshot, never an empty queue.
+    // Only melee fields return to the live owner; final validation uses the
+    // actual committed scheduler, not this transient view.
+    let mut validation_view = current.clone();
+    validation_view.player_events.queue = witness.release_queue(current.now_ms, scheduler)?;
     let cause = source::SourceCause::SpellReset {
         key: key(current, state::Phase::PreUnit)?,
         witness: Box::new(witness),
     };
-    commit_cause(profile, current, state::Phase::PreUnit, cause)
+    commit_cause(profile, &mut validation_view, state::Phase::PreUnit, cause)?;
+    current.player_melee = validation_view.player_melee;
+    current
+        .combat
+        .as_mut()
+        .ok_or(NativeError::InvalidState)?
+        .melee_timers = validation_view
+        .combat
+        .ok_or(NativeError::InvalidState)?
+        .melee_timers;
+    Ok(())
 }
 
 pub(in crate::native) struct PendingSwing {
@@ -445,11 +476,13 @@ pub(in crate::native) fn prepare_tick(
     let Some(target) = before.lifecycle.victim else {
         return Ok((None, vec![]));
     };
-    validate_no_concurrency(profile, current)?;
+    validate_supported_concurrency(profile, current)?;
     if current.health == 0 {
         return Err(NativeError::InvalidState);
     }
-    if before.remaining_ms[0] != 0 {
+    // Unit spell events and finished-slot cleanup precede this check. Casting
+    // pauses execution only: countdown, victim and last error are retained.
+    if casting::blocks(current)? || before.remaining_ms[0] != 0 {
         return Ok((None, vec![]));
     }
     let npc = current
@@ -457,7 +490,8 @@ pub(in crate::native) fn prepare_tick(
         .get(&target.spawn)
         .filter(|npc| npc.id == target)
         .ok_or(NativeError::InvalidState)?;
-    let context = context::SourceContext::capture(profile, current, npc, before)?;
+    let context =
+        context::SourceContext::capture(profile, current, npc, before, state::Phase::PostUnit)?;
     let resolved = context.replay(profile, current)?;
     let key = key(current, state::Phase::PostUnit)?;
     let (error, executes) = source::ready_decision(&resolved);
@@ -561,3 +595,6 @@ pub(in crate::native) fn finish_swing(
 
 #[cfg(test)]
 pub(in crate::native) mod tests;
+
+#[cfg(test)]
+mod cast_source_tests;

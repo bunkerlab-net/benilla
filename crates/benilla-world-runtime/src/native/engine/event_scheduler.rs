@@ -22,7 +22,7 @@ impl<A: Authority> Frame<'_, A> {
         let events = cast
             .execution
             .cancel(&mut self.state.resources.caster, failure);
-        self.spell_events(id, cast.ability, cast.target, events)?;
+        self.spell_events(id, cast.ability, cast.target, events, None)?;
         self.state
             .player_events
             .finish(id, self.state.now_ms, FinishedSpellReason::Interrupted)?;
