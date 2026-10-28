@@ -181,3 +181,11 @@ to include exact selected `spell_area` and `spell_proc_event` rows. Missing lega
 coverage remains unknown. This captures all raw matching rows and does not
 execute conditions or resolve inherited proc semantics. See the
 [bounded initial hook capture contract](INITIAL-HOOKS.md).
+
+### Optional quest relationship diagnostics
+
+The Python API has an opt-in, exclusion-only raw inbound quest relationship
+capture; see [the contract](QUEST-RELATIONSHIP-CONTRACT.md). It preserves signed
+incoming NextQuestId, incoming chain and breadcrumb edges without importing
+external quests as playable content. Legacy missing evidence remains unknown.
+This diagnostic is not connected to a compiler/consumer or native admission.

@@ -19,7 +19,7 @@ from classic_export.capture import Query, capture, validate_bundle
 from classic_export.columns import (COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA, SPAWN_SCHEMA,
                                     REGISTRY_SCHEMA, EVENT_TEXT_SCHEMA, EVENT_TEXT_PRIMARY_KEYS,
                                     LOOT_SCHEMA, LOOT_PRIMARY_KEYS)
-from classic_export import starter
+from classic_export import starter, quest_relationships
 from classic_export.core import (ExportError, MAX_ROWS, Selection, TEXT_COLUMNS,
                                  canonical, decode_json, digest, normalize_cell,
                                  normalize_rows, schema_profile)
@@ -127,6 +127,8 @@ class FakeSource:
                           and ("level" not in r or 1 <= r["level"] <= s.level_cap)]
         elif query.mode == "learning_presence":
             return copy.deepcopy(values[:1])
+        elif query.mode == quest_relationships.MODE:
+            values = [r for r in values if quest_relationships.matches(r, list(query.ids))]
         elif query.mode == "quest_ids":
             values = [r for r in values if r["quest"] in query.ids]
         elif query.mode == "event_ai_selectors":
@@ -2329,6 +2331,146 @@ class BodyLootCaptureTests(unittest.TestCase):
         instance._select = select; inspected = instance.inspect()
         self.assertEqual({t:m["primary_key"] for t,m in inspected["tables"].items()},LOOT_PRIMARY_KEYS)
         self.assertTrue(all(sql.startswith("SELECT ") and ";" not in sql for sql,_,_ in calls))
+
+
+class QuestRelationshipTests(unittest.TestCase):
+    def capture(self, source=None):
+        return capture(source or FakeSource(), selection(), capture_quest_relationships=True)
+
+    def test_complete_empty_and_legacy_unknown_are_distinct(self):
+        old = capture(FakeSource(), selection())
+        self.assertNotIn("quest_relationship_capture", old)
+        validate_bundle(old)
+        new = self.capture()
+        self.assertEqual(new["quest_relationship_capture"]["inbound"], [])
+        self.assertEqual(new["quest_relationship_capture"]["status"], "complete")
+        self.assertFalse(new["report"]["runnable"])
+        self.assertFalse(new["report"]["capture_complete"])
+
+    def test_each_external_inbound_edge_is_preserved_without_dependency_import(self):
+        for field, value in [("NextQuestId", 910001), ("NextQuestId", -910001),
+                             ("NextQuestInChain", 910001), ("BreadcrumbForQuestId", 910001)]:
+            with self.subTest(field=field, value=value):
+                source = FakeSource()
+                source.rows["quest_template"].append(row("quest_template", entry=910099,
+                                                        ReqItemId1=999999, **{field: value}))
+                bundle = self.capture(source)
+                self.assertEqual([r["entry"] for r in bundle["tables"]["quest_template"]], [910001])
+                self.assertEqual(bundle["quest_relationship_capture"]["inbound"][0][field], value)
+                self.assertIn("quest.inbound_relationship", [r["reason"] for r in bundle["report"]["unsupported"]])
+                validate_bundle(bundle)
+
+    def test_multiple_edges_preserved_once_and_diagnosed_separately(self):
+        source = FakeSource()
+        source.rows["quest_template"].append(row("quest_template", entry=910099,
+            NextQuestId=-910001, NextQuestInChain=910001, BreadcrumbForQuestId=910001))
+        bundle = self.capture(source)
+        self.assertEqual(len(bundle["quest_relationship_capture"]["inbound"]), 1)
+        self.assertEqual(len(quest_relationships.blockers(bundle)), 3)
+
+    def test_raw_own_relationships_not_normalized_or_admitted(self):
+        for field, value in [("PrevQuestId", -999999), ("NextQuestId", 999999),
+                             ("NextQuestInChain", 999999), ("BreadcrumbForQuestId", 999999),
+                             ("ExclusiveGroup", 5), ("ExclusiveGroup", -5)]:
+            with self.subTest(field=field, value=value):
+                source = FakeSource(); source.rows["quest_template"][0][field] = value
+                bundle = self.capture(source)
+                self.assertEqual(bundle["quest_relationship_capture"]["own"][0][field], value)
+                self.assertIn("quest.chain", [r["reason"] for r in bundle["report"]["unsupported"]])
+
+    def test_self_link_cannot_be_omitted_from_inbound_evidence(self):
+        source = FakeSource(); source.rows["quest_template"][0]["NextQuestId"] = -910001
+        bundle = self.capture(source)
+        bundle["quest_relationship_capture"]["inbound"] = []
+        with self.assertRaisesRegex(ExportError, "missing_root_edge"):
+            validate_bundle(bundle)
+
+    def test_breadcrumb_cycle_is_raw_blocked_not_traversed(self):
+        source = FakeSource(); source.rows["quest_template"][0]["BreadcrumbForQuestId"] = 910099
+        source.rows["quest_template"].extend([
+            row("quest_template", entry=910099, BreadcrumbForQuestId=910001),
+            row("quest_template", entry=910098, BreadcrumbForQuestId=910099)])
+        bundle = self.capture(source)
+        self.assertEqual([r["entry"] for r in bundle["quest_relationship_capture"]["inbound"]], [910099])
+        self.assertTrue(quest_relationships.blockers(bundle))
+
+    def test_fixed_sql_is_signed_bounded_and_allowlisted(self):
+        sql, args = Query("quest_template", quest_relationships.MODE, (4, 7)).sql()
+        self.assertIn("`NextQuestId` IN (%s,%s,%s,%s)", sql)
+        self.assertEqual(args, (-7, -4, 4, 7, 4, 7, 4, 7, MAX_ROWS+1))
+        self.assertNotIn("ABS", sql.upper())
+        for table, ids in [("creature", (1,)), ("quest_template", (True,)),
+                           ("quest_template", (0x80000000,)), ("quest_template", (2, 1)),
+                           ("quest_template", (1, 1))]:
+            with self.subTest(table=table, ids=ids), self.assertRaises(ExportError):
+                Query(table, quest_relationships.MODE, ids).sql()
+
+    def test_numeric_domains_fail_closed(self):
+        for field, value in [("PrevQuestId", -0x80000000), ("NextQuestId", True),
+                             ("NextQuestInChain", -1), ("BreadcrumbForQuestId", 0x80000000)]:
+            source = FakeSource(); source.rows["quest_template"][0][field] = value
+            with self.subTest(field=field), self.assertRaises(ExportError):
+                self.capture(source)
+
+    def test_request_is_boolean(self):
+        with self.assertRaisesRegex(ExportError, "request_boolean"):
+            capture(FakeSource(), selection(), capture_quest_relationships=1)
+
+    def test_tampered_bindings_or_rows_fail(self):
+        original = self.capture()
+        for field, value in [("roots", []), ("status", "partial"), ("row_limit", 1),
+                             ("selectors", {}), ("own_sha256", "bad"), ("snapshot", {})]:
+            bundle = copy.deepcopy(original); bundle["quest_relationship_capture"][field] = value
+            with self.subTest(field=field), self.assertRaises(ExportError):
+                validate_bundle(bundle)
+        bundle = copy.deepcopy(original)
+        bundle["quest_relationship_capture"]["inbound"] = [
+            {field: (910099 if field == "entry" else 0) for field in quest_relationships.FIELDS}]
+        with self.assertRaisesRegex(ExportError, "unselected_row"):
+            validate_bundle(bundle)
+
+    def test_duplicate_and_overflow_returned_rows_fail(self):
+        class InvalidSource(FakeSource):
+            def fetch(self, query):
+                if query.mode == quest_relationships.MODE:
+                    return [row("quest_template", entry=910099, NextQuestId=910001)] * self.count
+                return super().fetch(query)
+        for count, error in [(2, "duplicate_key"), (MAX_ROWS+1, "rows.limit")]:
+            source = InvalidSource(); source.count = count
+            with self.subTest(count=count), self.assertRaisesRegex(ExportError, error):
+                self.capture(source)
+
+    def test_missing_schema_and_failed_scan_are_not_complete_empty(self):
+        source = FakeSource()
+        source.inventory["tables"].pop("quest_template")
+        with self.assertRaises(ExportError):
+            self.capture(source)
+        class FailedSource(FakeSource):
+            def fetch(self, query):
+                if query.mode == quest_relationships.MODE:
+                    raise RuntimeError("interrupted raw scan")
+                return super().fetch(query)
+        with self.assertRaisesRegex(RuntimeError, "interrupted raw scan"):
+            self.capture(FailedSource())
+
+    def test_nullable_decimal_or_unsigned_signed_field_is_unknown(self):
+        for field, changes in [("NextQuestId", {"type": "bigint unsigned"}),
+                               ("NextQuestInChain", {"nullable": True}),
+                               ("BreadcrumbForQuestId", {"type": "decimal(20,0)"})]:
+            source = FakeSource()
+            columns = source.inventory["tables"]["quest_template"]["columns"]
+            next(c for c in columns if c["name"] == field).update(changes)
+            with self.subTest(field=field), self.assertRaisesRegex(ExportError, "schema_domain"):
+                self.capture(source)
+
+    def test_required_inbound_blocker_cannot_be_removed(self):
+        source = FakeSource()
+        source.rows["quest_template"].append(row("quest_template", entry=910099, NextQuestId=910001))
+        bundle = self.capture(source)
+        bundle["report"]["unsupported"] = [r for r in bundle["report"]["unsupported"]
+                                            if r["reason"] != "quest.inbound_relationship"]
+        with self.assertRaisesRegex(ExportError, "missing_or_inconsistent_blocker"):
+            validate_bundle(bundle)
 
 
 if __name__ == "__main__":
