@@ -13,7 +13,7 @@ capture fits the supported domain.
 `Profile::initialize_quest_progression` takes the actual starter initializer and
 `QuestProgressionInput`. It stages and validates the entire optional genesis;
 merely loading a quest catalog does not bypass validation. Native format/policy
-is native63 (`benilla-native-armor-membership-v63`), quest genesis policy v7,
+is native64 (`benilla-native-armor-relocation-v64`), quest genesis policy v8,
 and live training policy v3 with its unchanged journal layout v2. Quest genesis
 also binds the immutable prepared first-entry identity, when selected.
 Older policies are rejected rather than silently migrated.
@@ -300,5 +300,5 @@ content. This test does not certify actual Northshire scene closure or admission
 The separate [armor membership owner](ARMOR-MEMBERSHIP.md) reconstructs custody
 and real modifier callbacks before combat restore. Required recipe-v3 inactive
 membership is not accepted from snapshot flags alone. This bounded host exception
-uses carried-items-v9; it does not add generic equip, native admission or save
+uses carried-items-v10; it does not add generic equip, native admission or save
 migration. Historical contexts bind their own validated journal prefix.

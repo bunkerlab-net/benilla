@@ -1661,3 +1661,6 @@ fn armor_refusal_uses_registered_source_guid_without_mutating_inventory() {
         .is_err());
     frame.validate_final(&world).unwrap();
 }
+
+#[path = "native_armor_relocation_tests.rs"]
+mod armor_relocation_tests;

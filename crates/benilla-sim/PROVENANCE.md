@@ -940,3 +940,13 @@ source guards, same-object custody and ordered modifier callbacks. The registry
 and source-context journal are explicit local proof policy; they are not claimed
 upstream packet or global allocation chronology. Ordinary inventory validation
 and all unsupported consumers remain closed. See runtime ARMOR-MEMBERSHIP.md.
+
+## Carried original custody (carried-items-v10)
+
+Pinned Player.cpp SwapItem's empty inventory destination executes CanStoreItem,
+RemoveItem and StoreItem on the same object. Backpack source/destination do not
+run equipment guards or modifier callbacks; the alive guard remains. The native
+owner binds this reducer to the original registry through a custody-only journal.
+This host policy adds no generic equipment acceptance and changes no item facts,
+allocation, source reducer or ordinary validation. Projection remains semantic
+final state, not byte-identical upstream callback/packet ordering.

@@ -51,8 +51,9 @@ previous world state. Item receipt hashes are checksums, not creation authority.
 Live execution reads actual lifecycle/combat/cast owners. Aggregate history work,
 call counts and checkpoint byte limits still apply.
 
-Generic carried swap, split, autostore and destroy routes explicitly do not own
-registered armor. They reject those consumers rather than silently losing or
+Generic split, autostore and destroy routes explicitly do not own
+registered armor. The separate custody-only relocation route described below is
+the only supported carried swap exception. They reject those consumers rather than silently losing or
 relocating a registered object. Indirect quest consumption is likewise closed. The removal host is deliberately
 conservative by entry: while an original registered armor object is carried, it
 rejects consumption of that entry even if a selected ordinary duplicate could
@@ -67,6 +68,31 @@ player slot references. A removed item is not destroyed and recreated. Visible
 entry words remain owned by the existing complete query-metadata gate; this is
 semantic session projection, not a claim of byte-identical upstream packet order.
 Headless parser/controller tests do not establish rendered appearance or user
-verification. The required native 63 identity, quest reconstruction v7 and carried-items v9
-host composition have no old-save migration. Carried-items v9 does not add a
+verification. The required native 64 identity, quest reconstruction v8 and carried-items v10
+host composition have no old-save migration. Carried-items v10 does not add a
 generic equip reducer or relax ordinary carried-instance validation.
+
+## Carried original relocation
+
+After detachment, that same original may move to a different empty ordinary
+backpack slot through the actual SwapInvItem/InventoryMove route. Pinned
+Player::SwapItem applies its alive guard here, but does not call CanUnequipItem or
+CanEquipItem: combat and generic casting do not prevent a backpack relocation.
+Same-slot input is ignored and a dead player receives the existing source error.
+Occupied destinations, swaps with another object and every other registered-item
+consumer remain unsupported host subsets; these are not invented CMaNGOS errors.
+
+The actual bounded inventory reducer supplies the receipt. A separate
+ItemRelocation journal binds the original handle, complete before/after custody,
+checksum receipts and reachable owner context while leaving the stat recipe,
+physical equipment, derived caches, equipped counts and allocator unchanged.
+There is no fabricated equip/unequip, quest acquisition/removal, cooldown or
+modifier callback. Its journal prefix participates in historical reconstruction,
+monotonic command/time checks and the existing aggregate byte/work budgets.
+
+Projection reuses InventoryMoved's existing final-state semantic updates: old
+backpack pointer clears, the destination points to the same object, and final
+containment remains the same player. It does not model transient detach/re-attach
+packet ordering. No visible equipment entry, item creation/destruction or item
+push is synthesized. Headless Lua/controller checkpoint retry and replay tests
+are not rendered gameplay or native admission evidence.

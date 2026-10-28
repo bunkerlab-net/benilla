@@ -303,6 +303,69 @@ impl<A: Authority> Frame<'_, A> {
             .quest_progression
             .clone()
             .ok_or(NativeError::InvalidState)?;
+        let registered = next
+            .inventory
+            .as_ref()
+            .and_then(|i| i.slots.get(&request.source))
+            .and_then(|item| genesis.loot.as_ref()?.equipment_origin(item.id));
+        if registered.is_some() {
+            self.profile
+                .interactions
+                .as_ref()
+                .ok_or(NativeError::UnsupportedMechanic(
+                    "armor source interaction owner",
+                ))?
+                .require_armor_movement(self.profile)?;
+            let before = next.inventory.as_ref().ok_or(NativeError::InvalidState)?;
+            if request.source != request.destination
+                && before.slots.contains_key(&request.destination)
+            {
+                return Err(NativeError::UnsupportedMechanic(
+                    "registered armor occupied destination",
+                ));
+            }
+            let mut staged = before.clone();
+            let receipt = staged.swap_backpack(
+                catalog,
+                request.source,
+                request.destination,
+                self.state.player_alive(),
+            )?;
+            let rejection =
+                (receipt.result != inv::InventoryResult::Ok).then_some(Rejection::Inventory {
+                    reason: receipt.result.protocol(),
+                    source: request.source,
+                    destination: request.destination,
+                });
+            if receipt.before != receipt.after {
+                let custody = quest_progression::equipment_movement::placements(
+                    genesis,
+                    &next.derived_calls,
+                )?;
+                let movement =
+                    quest_progression::equipment_movement::EquipmentRelocationReceipt::build(
+                        genesis,
+                        receipt.clone(),
+                        next.inventory_receipts.clone(),
+                        self.state,
+                        self.profile,
+                        &custody,
+                    )?;
+                next = next.armor_relocation(
+                    genesis,
+                    self.state
+                        .combat
+                        .as_ref()
+                        .ok_or(NativeError::InvalidState)?,
+                    movement,
+                    self.state.health,
+                    self.state.resources.caster.mana,
+                )?;
+                self.commit_quest_progression(next)?;
+            }
+            self.events.push(Event::InventoryMoved(Box::new(receipt)));
+            return Ok(rejection);
+        }
         let inventory = next.inventory.as_mut().ok_or(NativeError::InvalidState)?;
         quest_progression::equipment_movement::reject_registered_slots(
             genesis,

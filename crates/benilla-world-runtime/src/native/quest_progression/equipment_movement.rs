@@ -363,8 +363,10 @@ pub(in crate::native) fn placements(
 ) -> Result<Placements, NativeError> {
     let mut result = initial_placements(g);
     for call in calls {
-        if let DerivedCall::ItemMembership { movement, .. } = call {
-            movement.replay(g, &mut result)?;
+        match call {
+            DerivedCall::ItemMembership { movement, .. } => movement.replay(g, &mut result)?,
+            DerivedCall::ItemRelocation { movement, .. } => movement.replay(g, &mut result)?,
+            _ => {}
         }
     }
     Ok(result)
@@ -380,12 +382,11 @@ pub(in crate::native) fn validate_state(
     let movements: Vec<_> = q
         .derived_calls
         .iter()
-        .filter_map(|call| {
-            if let DerivedCall::ItemMembership { movement, .. } = call {
-                Some(movement.as_ref())
-            } else {
-                None
-            }
+        .filter(|call| {
+            matches!(
+                call,
+                DerivedCall::ItemMembership { .. } | DerivedCall::ItemRelocation { .. }
+            )
         })
         .collect();
     if movements.is_empty() {
@@ -403,35 +404,55 @@ pub(in crate::native) fn validate_state(
         .as_ref()
         .ok_or(NativeError::InvalidState)?;
     let mut previous = None;
-    for movement in movements {
-        let context = &movement.context;
-        if context.profile != profile.digest()
-            || context.world != state.world
-            || context.player != state.player
-            || context.sequence >= state.next_sequence
-            || context.captured_ms < profile.clock_origin_ms
-            || context.captured_ms > state.now_ms
-            || !(context.captured_ms - profile.clock_origin_ms)
-                .is_multiple_of(u64::from(profile.tick_ms))
-            || previous.is_some_and(|(seq, at)| seq >= context.sequence || at > context.captured_ms)
-            || context.in_combat
+    for call in movements {
+        let (world, player, digest, sequence, captured_ms) = match call {
+            DerivedCall::ItemMembership { movement, .. } => {
+                let context = &movement.context;
+                if context.in_combat {
+                    return Err(NativeError::InvalidCheckpoint);
+                }
+                if movement.equips() {
+                    if context
+                        .generic_slot
+                        .as_ref()
+                        .map(|slot| slot.blocks_pre_unit(profile, state, context.captured_ms))
+                        .transpose()?
+                        .unwrap_or(false)
+                    {
+                        return Err(NativeError::InvalidCheckpoint);
+                    }
+                } else if context.generic_slot.is_some() {
+                    return Err(NativeError::InvalidCheckpoint);
+                }
+                (
+                    context.world,
+                    context.player,
+                    context.profile,
+                    context.sequence,
+                    context.captured_ms,
+                )
+            }
+            DerivedCall::ItemRelocation { movement, .. } => (
+                movement.world,
+                movement.player,
+                movement.profile,
+                movement.sequence,
+                movement.captured_ms,
+            ),
+            _ => unreachable!(),
+        };
+        if digest != profile.digest()
+            || world != state.world
+            || player != state.player
+            || sequence >= state.next_sequence
+            || captured_ms < profile.clock_origin_ms
+            || captured_ms > state.now_ms
+            || !(captured_ms - profile.clock_origin_ms).is_multiple_of(u64::from(profile.tick_ms))
+            || previous.is_some_and(|(seq, at)| seq >= sequence || at > captured_ms)
         {
             return Err(NativeError::InvalidCheckpoint);
         }
-        if movement.equips() {
-            if context
-                .generic_slot
-                .as_ref()
-                .map(|slot| slot.blocks_pre_unit(profile, state, context.captured_ms))
-                .transpose()?
-                .unwrap_or(false)
-            {
-                return Err(NativeError::InvalidCheckpoint);
-            }
-        } else if context.generic_slot.is_some() {
-            return Err(NativeError::InvalidCheckpoint);
-        }
-        previous = Some((context.sequence, context.captured_ms));
+        previous = Some((sequence, captured_ms));
     }
     let custody = placements(g, &q.derived_calls)?;
     validate_inventory(
@@ -457,7 +478,7 @@ pub(in crate::native) fn validate_state(
     Ok(())
 }
 
-/// Other carried reducers do not yet own registry relocation/destruction history.
+/// Carried reducers outside the dedicated route do not own registry relocation/destruction history.
 pub(in crate::native) fn reject_registered_slots(
     g: &QuestProgressionGenesis,
     inventory: &inv::State,
@@ -475,4 +496,121 @@ pub(in crate::native) fn reject_registered_slots(
         }
     }
     Ok(())
+}
+
+/// A carried original changes custody only: no equipment modifier callback.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EquipmentRelocationReceipt {
+    pub movement: inv::MovementReceipt,
+    pub instance: u64,
+    pub origin: EquipmentOrigin,
+    pub before_receipts: BTreeMap<u64, ItemReceipt>,
+    pub after_receipts: BTreeMap<u64, ItemReceipt>,
+    pub(in crate::native) world: crate::WorldId,
+    pub(in crate::native) player: crate::PlayerId,
+    pub(in crate::native) profile: crate::Digest,
+    pub(in crate::native) sequence: u64,
+    pub(in crate::native) captured_ms: u64,
+}
+
+impl EquipmentRelocationReceipt {
+    pub(in crate::native) fn build(
+        g: &QuestProgressionGenesis,
+        movement: inv::MovementReceipt,
+        before_receipts: BTreeMap<u64, ItemReceipt>,
+        state: &State,
+        profile: &Profile,
+        placements: &Placements,
+    ) -> Result<Self, NativeError> {
+        let instance = movement
+            .before
+            .slots
+            .get(&movement.source)
+            .ok_or(NativeError::InvalidState)?
+            .id;
+        let origin = loot(g)?
+            .equipment_origin(instance)
+            .ok_or(NativeError::InvalidState)?;
+        let mut result = Self {
+            movement,
+            instance,
+            origin,
+            before_receipts,
+            after_receipts: BTreeMap::new(),
+            world: state.world,
+            player: state.player,
+            profile: profile.digest(),
+            sequence: state.next_sequence,
+            captured_ms: state.now_ms,
+        };
+        result.after_receipts = result.expected_receipts();
+        result.replay(g, &mut placements.clone())?;
+        Ok(result)
+    }
+
+    fn expected_receipts(&self) -> BTreeMap<u64, ItemReceipt> {
+        let reason = crate::digest(
+            b"benilla-native-armor-relocation-v1\0",
+            &(
+                &self.movement,
+                self.instance,
+                self.origin,
+                &self.before_receipts,
+                self.world,
+                self.player,
+                self.profile,
+                self.sequence,
+                self.captured_ms,
+            ),
+        );
+        self.movement
+            .after
+            .slots
+            .iter()
+            .map(|(&slot, item)| {
+                (
+                    item.id,
+                    ItemReceipt::new(
+                        self.before_receipts.get(&item.id).map(|r| r.digest),
+                        reason,
+                        slot,
+                        item,
+                    ),
+                )
+            })
+            .collect()
+    }
+
+    pub(in crate::native) fn replay(
+        &self,
+        g: &QuestProgressionGenesis,
+        placements: &mut Placements,
+    ) -> Result<(), NativeError> {
+        let m = &self.movement;
+        if loot(g)?.equipment_origin(self.instance) != Some(self.origin)
+            || placements.get(&self.instance) != Some(&m.source)
+            || m.outcome != inv::MovementOutcome::Moved
+            || !m.alive
+            || m.source == m.destination
+            || m.before.slots.contains_key(&m.destination)
+            || m.before.slots.get(&m.source) != Some(&carried(g, self.instance, self.origin)?)
+            || m.before.equipped != m.after.equipped
+            || m.before.next_item != m.after.next_item
+        {
+            return Err(NativeError::InvalidCheckpoint);
+        }
+        m.validate(&loot(g)?.inventory)?;
+        validate_inventory(g, &m.before, placements)?;
+        validate_receipts(&m.before, &self.before_receipts)?;
+        if self.after_receipts != self.expected_receipts() {
+            return Err(NativeError::InvalidCheckpoint);
+        }
+        validate_receipts(&m.after, &self.after_receipts)?;
+        let mut next = placements.clone();
+        next.insert(self.instance, m.destination);
+        validate_inventory(g, &m.after, &next)?;
+        *placements = next;
+        Ok(())
+    }
 }

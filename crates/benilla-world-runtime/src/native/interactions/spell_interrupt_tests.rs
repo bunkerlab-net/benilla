@@ -193,11 +193,11 @@ fn selected_npc_damage_pushback_depends_on_bit_two_not_movement() {
 fn rehash(mut value: serde_json::Value) -> Checkpoint {
     let state: crate::native::persistence::StateCheckpoint =
         serde_json::from_value(value["state"].clone()).unwrap();
-    let digest = crate::digest(b"benilla-native-state-v63\0", &state);
+    let digest = crate::digest(b"benilla-native-state-v64\0", &state);
     value["digest"] = serde_json::to_value(digest).unwrap();
     let tip: crate::Digest = serde_json::from_value(value["history_tip"].clone()).unwrap();
     value["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v63\0",
+        b"benilla-native-checkpoint-v64\0",
         &(&state, digest, tip),
     ))
     .unwrap();
@@ -269,5 +269,5 @@ fn old_policy_only_and_old_bit_eight_contexts_refuse_restore_and_replay_after_ou
             assert_eq!(replay.checkpoint().unwrap(), initial);
         }
     }
-    assert_eq!(NATIVE_FORMAT_VERSION, 63);
+    assert_eq!(NATIVE_FORMAT_VERSION, 64);
 }

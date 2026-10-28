@@ -224,7 +224,7 @@ fn newly_looted_stack_can_move_later_in_same_batch_without_repeating_acquisition
 fn unsupported_topology_never_queues_and_empty_or_same_slot_inputs_are_silent() {
     let h = Harness::new();
     let (mut c, _) = start(&h, 7);
-    for (source, destination) in [(0, 23), (19, 23), (22, 23), (23, 39), (255, 23)] {
+    for (source, destination) in [(19, 23), (22, 23), (23, 39), (255, 23)] {
         assert!(matches!(
             c.receive(command(source, destination)),
             Err(Error::UnsupportedCommand)
@@ -243,6 +243,37 @@ fn unsupported_topology_never_queues_and_empty_or_same_slot_inputs_are_silent() 
             | SessionEvent::Notification { .. }
             | SessionEvent::ObjectDestroyed(_)
     )));
+}
+
+#[test]
+fn equipment_topology_queues_but_missing_source_authority_rejects_atomically() {
+    let h = Harness::new();
+    let (mut c, _) = start(&h, 7);
+    let before = inventory(&c).clone();
+    let digest = c.world.state_digest();
+    let checkpoint = c.world.checkpoint().unwrap();
+    c.receive(command(0, 23)).unwrap();
+    assert_eq!(c.actions.len(), 1);
+    let mut out = Pump::default();
+    let result = c.advance_one(&mut out);
+    assert!(
+        matches!(
+            result,
+            Err(Error::NativeRuntime(n::NativeError::UnsupportedMechanic(
+                "armor source interaction owner"
+            )))
+        ),
+        "{result:?}"
+    );
+    assert_eq!(inventory(&c), &before);
+    assert_eq!(c.world.state_digest(), digest);
+    assert!(out.events.is_empty());
+    assert_eq!(c.world.checkpoint().unwrap(), checkpoint);
+    drop(c);
+    let reopened = enter(&h, profile(7), true);
+    assert_eq!(reopened.world.state_digest(), digest);
+    assert_eq!(reopened.world.checkpoint().unwrap(), checkpoint);
+    assert_eq!(inventory(&reopened), &before);
 }
 
 #[test]

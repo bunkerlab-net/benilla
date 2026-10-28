@@ -5,7 +5,7 @@
 `SwapItem` from CMaNGOS Classic
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. The upstream grant is
 GPL-2.0-or-later; see [PROVENANCE.md](PROVENANCE.md). Its policy is
-`cmangos-8ec338a1-carried-items-v9`.
+`cmangos-8ec338a1-carried-items-v10`.
 The separately named positive admin policy is `CmangosAddItemV1`.
 
 ## Exact source behavior
@@ -273,3 +273,8 @@ Generic equip/use/bag contents and damaged/BoE carried objects remain unsupporte
 ordinary instance validators are unchanged. This is a versioned host-composition
 exception, not a claim that `additional_item_mutations: Absent` grants equipment
 permission. See `benilla-world-runtime/ARMOR-MEMBERSHIP.md` for the narrower scope.
+
+The v10 host composition also permits a separate custody-only journal for moving
+that carried original into an empty backpack slot. The ordinary SwapItem reducer
+and instance validators are unchanged; no equipment/stat callback is substituted
+for relocation. Other registered-item consumers remain unsupported.

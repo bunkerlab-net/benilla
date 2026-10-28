@@ -32,6 +32,10 @@ pub enum DerivedCall {
         skill: u16,
         gain: u16,
     },
+    ItemRelocation {
+        before: Box<pg::Snapshot>,
+        movement: Box<EquipmentRelocationReceipt>,
+    },
     ItemMembership {
         before: Box<pg::Snapshot>,
         before_recipe: Box<init::StatRecipeSnapshot>,
@@ -333,6 +337,37 @@ fn defense_skills(
 }
 
 impl QuestProgressionState {
+    pub(in crate::native) fn armor_relocation(
+        &self,
+        g: &QuestProgressionGenesis,
+        combat: &PlayerCombatState,
+        movement: EquipmentRelocationReceipt,
+        health: u32,
+        mana: u32,
+    ) -> Result<Self, NativeError> {
+        reserve_call(&self.derived_calls)?;
+        authoritative_recipe(g, self.player.view(), &combat.recipe, self)?;
+        if self.inventory.as_ref() != Some(&movement.movement.before)
+            || self.inventory_receipts != movement.before_receipts
+        {
+            return Err(NativeError::InvalidState);
+        }
+        let mut custody = equipment_movement::placements(g, &self.derived_calls)?;
+        movement.replay(g, &mut custody)?;
+        let mut next = self.clone();
+        next.synchronize(g, combat, health, mana)?;
+        let before = next.player.snapshot();
+        if !before.alive || before.numeric.health == 0 {
+            return Err(NativeError::InvalidState);
+        }
+        next.inventory = Some(movement.movement.after.clone());
+        next.inventory_receipts = movement.after_receipts.clone();
+        next.derived_calls.push(DerivedCall::ItemRelocation {
+            before: Box::new(before),
+            movement: Box::new(movement),
+        });
+        Ok(next)
+    }
     pub(in crate::native) fn armor_membership(
         &self,
         g: &QuestProgressionGenesis,
@@ -683,6 +718,14 @@ pub(super) fn reconstruct_history(
                 expected.skills = weapon_skills(g, &expected, inputs, *skill, *gain)?;
                 source = boundary(g, view, &expected, &recipe)?;
                 derived.apply_hook(pg::StatHook::AllCritPercentages, view, inputs)?;
+                index += 1;
+            }
+            DerivedCall::ItemRelocation { before, movement } => {
+                source = boundary(g, before, source.view(), &recipe)?;
+                if !before.alive || before.numeric.health == 0 {
+                    return Err(NativeError::InvalidCheckpoint);
+                }
+                movement.replay(g, &mut placements)?;
                 index += 1;
             }
             DerivedCall::ItemMembership {

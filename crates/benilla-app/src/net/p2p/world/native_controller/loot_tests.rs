@@ -1261,3 +1261,6 @@ mod visible_equipment_tests;
 
 #[path = "armor_membership_tests.rs"]
 mod armor_membership_tests;
+
+#[path = "armor_relocation_tests.rs"]
+mod armor_relocation_tests;
