@@ -451,13 +451,14 @@ impl QuestProgressionGenesis {
         if self.loot.as_ref().map(NativeLootGenesis::identity) != self.loot_identity {
             return Err(NativeError::InvalidProfile);
         }
+        let initialized = combat.initialized_projection(self.training.input())?;
         if let Some(l) = &self.loot {
-            l.validate_immutable(self.training.input())?;
+            l.validate_immutable(self.training.input(), &initialized)?;
         }
         reputation::validate_binding(
             self.reputation.as_ref(),
             self.training.input(),
-            &combat.initialized_projection(self.training.input())?,
+            &initialized,
             &combat,
         )?;
         if let Some(catalog) = &profile.creature_generations {
@@ -1120,6 +1121,10 @@ impl QuestProgressionState {
                 if i.equipped != l.initial_inventory.equipped
                     || i.next_item < l.initial_inventory.next_item
                     || out.inventory_receipts.len() != i.slots.len()
+                    // Fixed equipment membership remains authoritative. A local
+                    // creation handle is not permission to duplicate a worn item.
+                    || i.slots.values().any(|item| l.equipment_origin(item.id).is_some())
+                    || out.inventory_receipts.keys().any(|&id| l.equipment_origin(id).is_some())
                     || i.slots.iter().any(|(&slot, item)| {
                         out.inventory_receipts
                             .get(&item.id)

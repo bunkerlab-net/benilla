@@ -1125,6 +1125,21 @@ fn admin_item_ui_backend_preserves_search_visibility_and_saves_before_bag_public
     use benilla_ui::script::admin::{self as ui, AdminBackend};
     let h = Harness::new();
     let mut c = enter_grants(&h, false);
+    let reserved: Vec<_> = c
+        .world
+        .profile()
+        .quest_progression
+        .as_ref()
+        .unwrap()
+        .loot
+        .as_ref()
+        .unwrap()
+        .equipment_instances()
+        .collect();
+    assert!(!reserved.is_empty());
+    let initial_handles: std::collections::BTreeSet<_> =
+        inventory(&c).slots.values().map(|item| item.id).collect();
+    let allocation_frontier = inventory(&c).next_item;
     c.initial_events().unwrap();
     let b = c.admin_backend();
     let s = b.snapshot();
@@ -1147,6 +1162,12 @@ fn admin_item_ui_backend_preserves_search_visibility_and_saves_before_bag_public
     paused(&out);
     assert!(b.poll(&r.id).is_none());
     assert_eq!(inventory(&c).slots.len(), 16);
+    for item in inventory(&c).slots.values() {
+        assert!(!reserved.iter().any(|(handle, _)| *handle == item.id));
+        if !initial_handles.contains(&item.id) {
+            assert!(item.id >= allocation_frontier);
+        }
+    }
     let count = inventory(&c).next_item;
     let digest = c.world.state_digest();
     repair(&h);

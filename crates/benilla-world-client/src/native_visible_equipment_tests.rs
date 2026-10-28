@@ -175,3 +175,47 @@ fn genuine_lethal_damage_and_broken_equipment_keep_visible_entry_after_reopen() 
     assert_entries(&fields, &restored);
     assert_eq!(fields.player_visible_item_entry(4), Some(900001));
 }
+
+#[test]
+fn registered_equipment_handles_resolve_to_legacy_objects_without_backpack_creation() {
+    let world = build(&[2], 0);
+    let genesis = world
+        .profile()
+        .quest_progression
+        .as_ref()
+        .unwrap()
+        .loot
+        .as_ref()
+        .unwrap();
+    let inventory = world
+        .state()
+        .quest_progression
+        .as_ref()
+        .unwrap()
+        .inventory
+        .as_ref()
+        .unwrap();
+    let projection =
+        NativeProjection::new(&world, world.state().player, &Catalog::new(&world)).unwrap();
+    let events = projection.initial_events(&world).unwrap();
+    assert!(genesis.equipment_instances().count() > 0);
+    for (handle, origin) in genesis.equipment_instances() {
+        let guid = equipment_guid(&world, origin);
+        assert_eq!(loot::guid(&world, handle), guid);
+        assert_eq!(genesis.equipment_instance(origin), Some(handle));
+        assert!(!inventory.slots.values().any(|item| item.id == handle));
+        assert_eq!(events.iter().filter(|event| matches!(event, SessionEvent::ItemCreate {guid: actual, ..} if *actual == guid)).count(), 1);
+    }
+    for item in inventory.slots.values() {
+        let digest = crate::hash(
+            b"benilla-native-inventory-guid-v1\0",
+            &(world.state().world, world.state().player, item.id),
+        );
+        let mut bytes = [0; 8];
+        bytes[..6].copy_from_slice(&digest[..6]);
+        assert_eq!(
+            loot::guid(&world, item.id),
+            0x4000_0000_0000_0000 | u64::from_le_bytes(bytes).max(1)
+        );
+    }
+}

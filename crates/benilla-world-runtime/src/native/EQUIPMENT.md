@@ -138,3 +138,28 @@ and stat/resource transition proofs, stable carried/equipped identity, item-use
 requirements and complete callback ownership. Damaged carried items, bind-on-equip
 transitions, weapons/bags, loadout substitutions and native admission remain outside
 this phase. Native61 rejects native60 and earlier; no save migration is claimed.
+
+## Shared local equipment handles
+
+Native62 additionally registers each source-initialized worn object in the existing
+local item-handle space. Initial backpack creation keeps its existing order and
+IDs; then ascending genesis equipment slots receive one checked, contiguous handle
+each. The resulting frontier is the next ordinary creation handle. This names
+objects already created by the source initializer: it does **not** execute
+`CreateItem`/`CloneItem`, claim the upstream global low-GUID allocation order, or
+place an item in the backpack. Future grants/loot therefore receive shifted local
+IDs deliberately; existing initial carried IDs and current worn GUIDs are unchanged.
+
+The private registry and frontier enter loot-genesis reconstruction v4. Validation
+rebuilds both the initial inventory and exact registry from the authoritative
+starter input, rather than trusting a self-rehashed map. A registered handle resolves
+to the same legacy equipment-origin GUID. No equipment object is published twice.
+While membership remains fixed, checkpoint restore rejects any reserved handle in
+a carried slot or item receipt, including an otherwise locally valid self-rehashed
+receipt. The ordinary pristine/binding/allocator inventory checks are unchanged.
+
+This supplies shared identity, not armor movement. No live command, loadout/stat
+recipe relaxation, damaged carried support, ghost state or native admission is
+added. Controller save-failure/retry/reopen and headless parser tests validate this
+boundary; they do not establish a rendered or user-tested equip/unequip feature.
+Native62 has no migration from native61 or earlier.

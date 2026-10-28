@@ -53,6 +53,8 @@ pub struct NativeLootGenesis {
     inventory_identity: crate::Digest,
     starter_source_identity: crate::Digest,
     pub starter_items: BTreeMap<u32, init::ItemRow>,
+    /// Local handles for already-created source equipment, not upstream global GUIDs.
+    equipment_instances: BTreeMap<u64, equipment::EquipmentOrigin>,
     pub(super) initial_inventory: inv::State,
     pub(super) catalog: l::Catalog,
     pub(super) rules: l::Rules,
@@ -65,6 +67,61 @@ impl PartialEq for NativeLootGenesis {
     }
 }
 impl Eq for NativeLootGenesis {}
+#[cfg(test)]
+mod registry_integrity_tests {
+    use super::*;
+    #[test]
+    fn rehashed_registry_substitution_cannot_replace_source_genesis_objects() {
+        let (mut profile, input, rows) = synthetic_loot_fixture::setup();
+        profile.initialize_quest_progression(&input, rows).unwrap();
+        let original = profile
+            .quest_progression
+            .as_ref()
+            .unwrap()
+            .loot
+            .as_ref()
+            .unwrap();
+        let mage = profile
+            .combat
+            .as_ref()
+            .unwrap()
+            .initialized_projection(&input)
+            .unwrap();
+        original.validate_immutable(&input, &mage).unwrap();
+        for fault in 0..5 {
+            let mut forged = original.clone();
+            let (&id, &origin) = forged.equipment_instances.iter().next().unwrap();
+            match fault {
+                0 => {
+                    forged
+                        .equipment_instances
+                        .get_mut(&id)
+                        .unwrap()
+                        .genesis_slot ^= 1;
+                }
+                1 => {
+                    forged.equipment_instances.get_mut(&id).unwrap().item_id += 1;
+                }
+                2 => {
+                    forged.equipment_instances.remove(&id);
+                    forged.equipment_instances.insert(id + 1, origin);
+                    forged.initial_inventory.next_item += 1;
+                }
+                3 => {
+                    forged.equipment_instances.clear();
+                }
+                _ => {
+                    forged.initial_inventory.next_item += 1;
+                }
+            }
+            forged.identity = forged.reconstructed_identity();
+            assert!(
+                forged.validate_immutable(&input, &mage).is_err(),
+                "fault {fault}"
+            );
+        }
+    }
+}
 impl Serialize for NativeLootGenesis {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         self.identity.serialize(s)
@@ -155,11 +212,6 @@ impl NativeLootGenesis {
                 }
             }
         }
-        let mut equipped = BTreeMap::<u32, u32>::new();
-        for item in mage.equipped.values() {
-            *equipped.entry(item.item).or_default() += 1;
-        }
-        let mut initial_inventory = inv::State::new(equipped, 1)?;
         let mut starter_items = BTreeMap::new();
         for row in &input.items {
             let item = rows.inventory.item(row.id)?;
@@ -185,19 +237,15 @@ impl NativeLootGenesis {
             }
             starter_items.insert(row.id, row.clone());
         }
-        // The source initializer already resolved its placement order; replay its backpack
-        // stacks through StoreNewItem, retaining the original per-creation identity convention.
-        for stack in &mage.inventory {
-            initial_inventory
-                .store_new(&rows.inventory, stack.item, stack.count, |_, _, _| Ok(()))?;
-        }
-        initial_inventory.validate(&rows.inventory)?;
+        let (initial_inventory, equipment_instances) =
+            Self::initial_objects(mage, &rows.inventory)?;
         let mut genesis = Self {
             identity: [0; 32],
             inventory_identity: rows.inventory.hash(),
             starter_source_identity: input.source_identity(),
             inventory: rows.inventory,
             starter_items,
+            equipment_instances,
             initial_inventory,
             catalog,
             rules: rows.rules,
@@ -210,9 +258,56 @@ impl NativeLootGenesis {
     pub fn identity(&self) -> crate::Digest {
         self.identity
     }
+    /// A registered handle names the same immutable equipment origin even when
+    /// that object is broken. This does not authorize changing its placement.
+    pub fn equipment_origin(&self, instance: u64) -> Option<equipment::EquipmentOrigin> {
+        self.equipment_instances.get(&instance).copied()
+    }
+    pub fn equipment_instance(&self, origin: equipment::EquipmentOrigin) -> Option<u64> {
+        self.equipment_instances
+            .iter()
+            .find_map(|(&id, &registered)| (registered == origin).then_some(id))
+    }
+    pub fn equipment_instances(
+        &self,
+    ) -> impl Iterator<Item = (u64, equipment::EquipmentOrigin)> + '_ {
+        self.equipment_instances
+            .iter()
+            .map(|(&id, &origin)| (id, origin))
+    }
+    fn initial_objects(
+        mage: &init::InitializedMage,
+        catalog: &inv::Catalog,
+    ) -> Result<(inv::State, BTreeMap<u64, equipment::EquipmentOrigin>), NativeError> {
+        let mut equipped = BTreeMap::<u32, u32>::new();
+        for item in mage.equipped.values() {
+            *equipped.entry(item.item).or_default() += 1;
+        }
+        let mut inventory = inv::State::new(equipped, 1)?;
+        // Keep the existing local backpack creation order and handles. Register
+        // the already-created worn objects afterward; this is not CloneItem or
+        // a claim about the source server's global low-GUID allocation order.
+        for stack in &mage.inventory {
+            inventory.store_new(catalog, stack.item, stack.count, |_, _, _| Ok(()))?;
+        }
+        let mut registered = BTreeMap::new();
+        for (&slot, item) in &mage.equipped {
+            let id = inventory.next_item;
+            inventory.next_item = id.checked_add(1).ok_or(NativeError::InvalidProfile)?;
+            registered.insert(
+                id,
+                equipment::EquipmentOrigin {
+                    genesis_slot: slot,
+                    item_id: item.item,
+                },
+            );
+        }
+        inventory.validate(catalog)?;
+        Ok((inventory, registered))
+    }
     fn reconstructed_identity(&self) -> crate::Digest {
         crate::digest(
-            b"benilla-native-loot-genesis-reconstruction-v3\0",
+            b"benilla-native-loot-genesis-reconstruction-v4\0",
             &(
                 inv::CORPSE_POLICY_ID,
                 self.inventory.hash(),
@@ -221,11 +316,16 @@ impl NativeLootGenesis {
                 &self.creatures,
                 &self.audit,
                 &self.initial_inventory,
+                &self.equipment_instances,
                 self.starter_source_identity,
             ),
         )
     }
-    pub(super) fn validate_immutable(&self, input: &init::StarterInput) -> Result<(), NativeError> {
+    pub(super) fn validate_immutable(
+        &self,
+        input: &init::StarterInput,
+        mage: &init::InitializedMage,
+    ) -> Result<(), NativeError> {
         if self.identity != self.reconstructed_identity()
             || self.inventory.hash() != self.inventory_identity
             || self.starter_source_identity != input.source_identity()
@@ -236,6 +336,10 @@ impl NativeLootGenesis {
         self.inventory.validate()?;
         self.rules.validate()?;
         self.initial_inventory.validate(&self.inventory)?;
+        let (inventory, registered) = Self::initial_objects(mage, &self.inventory)?;
+        if inventory != self.initial_inventory || registered != self.equipment_instances {
+            return Err(NativeError::InvalidProfile);
+        }
         Ok(())
     }
 }

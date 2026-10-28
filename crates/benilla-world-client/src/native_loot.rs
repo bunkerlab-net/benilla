@@ -181,6 +181,15 @@ fn inventory(state: &n::State) -> Option<&inv::State> {
         .and_then(|s| s.inventory.as_ref())
 }
 pub(super) fn guid(w: &n::NativeWorld, instance: u64) -> u64 {
+    if let Some(origin) = w
+        .profile()
+        .quest_progression
+        .as_ref()
+        .and_then(|q| q.loot.as_ref())
+        .and_then(|l| l.equipment_origin(instance))
+    {
+        return super::equipment_guid(w, origin);
+    }
     let hash = crate::hash(
         b"benilla-native-inventory-guid-v1\0",
         &(w.state().world, w.state().player, instance),

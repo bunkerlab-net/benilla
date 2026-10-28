@@ -30,9 +30,9 @@ fn rehashed(w: &NativeWorld, edit: impl FnOnce(&mut serde_json::Value)) -> Check
     let mut state = serde_json::to_value(&c.state).unwrap();
     edit(&mut state);
     c.state = serde_json::from_value(state).unwrap();
-    c.digest = crate::digest(b"benilla-native-state-v61\0", &c.state);
+    c.digest = crate::digest(b"benilla-native-state-v62\0", &c.state);
     c.checksum = crate::digest(
-        b"benilla-native-checkpoint-v61\0",
+        b"benilla-native-checkpoint-v62\0",
         &(&c.state, c.digest, c.history_tip),
     );
     c
@@ -420,6 +420,6 @@ fn native23_checkpoint_records_and_replay_are_refused_without_migration_defaults
             .unwrap();
     assert!(replay.replay(&records).is_err());
     assert_eq!(replay.checkpoint().unwrap(), initial);
-    assert_eq!(NATIVE_FORMAT_VERSION, 61);
+    assert_eq!(NATIVE_FORMAT_VERSION, 62);
     assert_eq!(crate::FORMAT_VERSION, 2);
 }
