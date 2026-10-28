@@ -1180,6 +1180,22 @@ impl Driven for NativeController {
                     n::InventoryAutoStoreRequest { source: src_slot },
                 ))?;
             }
+            ClientCommand::AutoEquipItem { bag_index, slot } => {
+                use benilla_sim::inventory as inv;
+                if bag_index != 255
+                    || !(inv::FIRST_SLOT..inv::END_SLOT).contains(&slot)
+                    || self
+                        .world
+                        .state()
+                        .quest_progression
+                        .as_ref()
+                        .and_then(|q| q.inventory.as_ref())
+                        .is_none()
+                {
+                    return Err(Error::UnsupportedCommand);
+                }
+                self.queue(n::Command::EquipmentAutoEquip { source: slot })?;
+            }
             ClientCommand::SwapInvItem { src_slot, dst_slot } => {
                 use benilla_sim::inventory as inv;
                 let backpack = |slot| (inv::FIRST_SLOT..inv::END_SLOT).contains(&slot);

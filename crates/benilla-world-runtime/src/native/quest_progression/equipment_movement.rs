@@ -11,11 +11,20 @@ pub struct EquipmentMoveRequest {
     pub destination: u8,
 }
 
+/// The source handlers have different guard order and destination selection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub enum EquipmentMoveOperation {
+    Swap,
+    AutoEquip,
+}
+
 /// Owner-captured source operands establish a reachable context, not an
 /// authenticated chronology. Whole TickRecord replay supplies the latter.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(in crate::native) struct MoveContext {
+    pub operation: EquipmentMoveOperation,
     pub world: crate::WorldId,
     pub player: crate::PlayerId,
     pub profile: crate::Digest,
@@ -107,6 +116,45 @@ fn source_item(
         return Err(NativeError::InvalidState);
     }
     Ok(item)
+}
+
+/// FindEquipSlot(NULL_SLOT) is unambiguous only for these source singleton slots.
+/// AutoUnequipOffhandIfNeed returns immediately for the source-owned absent offhand.
+pub(in crate::native) fn auto_equip_slot(
+    g: &QuestProgressionGenesis,
+    origin: EquipmentOrigin,
+) -> Result<u8, NativeError> {
+    let item = source_item(g, origin)?;
+    let slot = match item.inventory_type {
+        1 => 0,
+        2 => 1,
+        3 => 2,
+        4 => 3,
+        5 | 20 => 4,
+        6 => 5,
+        7 => 6,
+        8 => 7,
+        9 => 8,
+        10 => 9,
+        16 => 14,
+        _ => {
+            return Err(NativeError::UnsupportedMechanic(
+                "auto-equip singleton armor slot",
+            ))
+        }
+    };
+    if slot != origin.genesis_slot
+        || g.initial_combat
+            .equipment
+            .items
+            .iter()
+            .any(|i| i.slot == 16)
+    {
+        return Err(NativeError::UnsupportedMechanic(
+            "auto-equip original slot or offhand dependency",
+        ));
+    }
+    Ok(slot)
 }
 
 fn carried(
@@ -214,6 +262,11 @@ impl EquipmentMoveReceipt {
             return Err(NativeError::InvalidCheckpoint);
         }
         source_item(g, self.origin)?;
+        if self.context.operation == EquipmentMoveOperation::AutoEquip
+            && (!self.equips() || auto_equip_slot(g, self.origin)? != self.request.destination)
+        {
+            return Err(NativeError::InvalidCheckpoint);
+        }
         validate_inventory(g, &self.before, placements)?;
         validate_receipts(&self.before, &self.before_receipts)?;
         let after = self.expected_after(g)?;
@@ -612,5 +665,49 @@ impl EquipmentRelocationReceipt {
         validate_inventory(g, &m.after, &next)?;
         *placements = next;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod operation_tests {
+    use super::*;
+    #[test]
+    fn auto_equip_cannot_relabel_unequip_even_with_refreshed_item_checksums() {
+        let mut world = crate::native::synthetic_equipment_fixture::world();
+        let input = crate::native::synthetic_quest_fixture::command(
+            &world,
+            Command::EquipmentMove(EquipmentMoveRequest {
+                source: 4,
+                destination: 23,
+            }),
+        );
+        world
+            .step(
+                1,
+                Some(input),
+                &mut crate::native::synthetic_equipment_fixture::EquipmentAuthority::default(),
+            )
+            .unwrap();
+        let mut receipt = world
+            .last_tick()
+            .unwrap()
+            .events
+            .iter()
+            .find_map(|e| {
+                if let Event::EquipmentMoved(r) = e {
+                    Some((**r).clone())
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        receipt.context.operation = EquipmentMoveOperation::AutoEquip;
+        receipt.after_receipts = receipt.expected_receipts();
+        let g = world.profile().quest_progression.as_ref().unwrap();
+        let mut custody = initial_placements(g);
+        let before = custody.clone();
+        assert!(!receipt.equips());
+        assert!(receipt.replay(g, &mut custody).is_err());
+        assert_eq!(custody, before);
     }
 }

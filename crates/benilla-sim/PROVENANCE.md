@@ -950,3 +950,12 @@ owner binds this reducer to the original registry through a custody-only journal
 This host policy adds no generic equipment acceptance and changes no item facts,
 allocation, source reducer or ordinary validation. Projection remains semantic
 final state, not byte-identical upstream callback/packet ordering.
+
+## Original singleton AutoEquip host (carried-items-v11)
+
+Pinned ItemHandler.cpp HandleAutoEquipItemOpcode and Player.cpp CanEquipItem,
+FindEquipSlot, ViableEquipSlots, CanUseItem and AutoUnequipOffhandIfNeed supply the
+separate handler order and slot choice. Only original singleton armor into its
+empty original slot with source-owned absent offhand is composed. A required
+operation discriminator distinguishes this handler from SwapItem. No general
+Equip reducer, occupied-slot handling or new absence token is introduced.

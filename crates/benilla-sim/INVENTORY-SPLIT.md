@@ -3,7 +3,7 @@
 Source: CMaNGOS Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`,
 `ItemHandler.cpp::HandleSplitItemOpcode`, `Player.cpp::SplitItem` (10592),
 `_CanStoreItem`, `_CanStoreItem_InSpecificSlot`, `_StoreItem`, and
-`Item.cpp::CloneItem`. `inventory::split_backpack` is part of carried-items-v10,
+`Item.cpp::CloneItem`. `inventory::split_backpack` is part of carried-items-v11,
 not an expansion of private content admission.
 
 ## Supported semantics

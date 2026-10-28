@@ -39,10 +39,17 @@ pub(crate) fn send_auto_equip(
         }
     } else {
         debug!("ui_items: autoequip wire {bag_index}/{slot}");
-        let _ = commands
-            .0
-            .send(ClientCommand::AutoEquipItem { bag_index, slot });
+        send_equipment_command(&commands.0, bag_index, slot);
     }
+}
+
+/// Send the non-projectile auto-equip branch after the existing template dispatch.
+pub(crate) fn send_equipment_command(
+    commands: &crossbeam_channel::Sender<ClientCommand>,
+    bag_index: u8,
+    slot: u8,
+) {
+    let _ = commands.send(ClientCommand::AutoEquipItem { bag_index, slot });
 }
 
 /// Sends the auto-equips `AutoEquipCursorItem` queued through [`send_auto_equip`], and files the

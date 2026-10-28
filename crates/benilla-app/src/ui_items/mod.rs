@@ -24,6 +24,8 @@ pub(crate) mod feed;
 pub(crate) mod locks;
 mod net;
 
+#[cfg(test)]
+pub(crate) use drain::send_equipment_command;
 pub(crate) use drain::{dispatch_fork, send_auto_equip};
 use drain::{
     drain_bag_autostores, drain_container_autoequips, drain_container_destroys,

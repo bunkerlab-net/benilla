@@ -2,11 +2,92 @@
 // CMaNGOS Classic 8ec338a1 Player::SwapItem, Project contributors; upstream GPL-2.0-or-later.
 use super::*;
 use benilla_sim::inventory as inv;
+use quest_progression::equipment_movement::EquipmentMoveOperation;
+
+// SwapItem checks death first; AutoEquip calls CanEquipItem before CanUseItem.
+fn equipment_guard_error(
+    operation: EquipmentMoveOperation,
+    alive: bool,
+    combat: bool,
+    casting: bool,
+) -> Option<u8> {
+    if operation == EquipmentMoveOperation::Swap && !alive {
+        Some(38)
+    } else if combat {
+        Some(60)
+    } else if casting {
+        Some(39)
+    } else if !alive {
+        Some(38)
+    } else {
+        None
+    }
+}
 
 impl<A: Authority> Frame<'_, A> {
     pub(super) fn equipment_move(
         &mut self,
         request: &EquipmentMoveRequest,
+    ) -> Result<Option<Rejection>, NativeError> {
+        self.equipment_move_inner(request, EquipmentMoveOperation::Swap)
+    }
+
+    pub(super) fn equipment_auto_equip(
+        &mut self,
+        source: u8,
+    ) -> Result<Option<Rejection>, NativeError> {
+        use quest_progression::equipment_movement as movement;
+        if !(inv::BACKPACK_START..inv::BACKPACK_END).contains(&source) {
+            return Err(NativeError::UnsupportedMechanic(
+                "auto-equip carried armor source",
+            ));
+        }
+        let g = self
+            .profile
+            .quest_progression
+            .as_ref()
+            .ok_or(NativeError::UnsupportedMechanic("native inventory host"))?;
+        let inventory = self
+            .state
+            .quest_progression
+            .as_ref()
+            .and_then(|q| q.inventory.as_ref())
+            .ok_or(NativeError::InvalidState)?;
+        // HandleAutoEquipItemOpcode ignores an empty source before CanEquipItem.
+        let Some(item) = inventory.slots.get(&source) else {
+            return Ok(None);
+        };
+        let origin = g
+            .loot
+            .as_ref()
+            .and_then(|l| l.equipment_origin(item.id))
+            .ok_or(NativeError::UnsupportedMechanic(
+                "auto-equip original armor only",
+            ))?;
+        let destination = movement::auto_equip_slot(g, origin)?;
+        let combat = self
+            .state
+            .combat
+            .as_ref()
+            .ok_or(NativeError::InvalidState)?;
+        if combat.equipment.item(destination).is_some() || combat.equipment.item(16).is_some() {
+            return Err(NativeError::UnsupportedMechanic(
+                "auto-equip occupied slot or offhand dependency",
+            ));
+        }
+        self.equipment_move_inner(
+            &EquipmentMoveRequest {
+                source,
+                destination,
+            },
+            EquipmentMoveOperation::AutoEquip,
+        )
+    }
+
+    fn equipment_move_inner(
+        &mut self,
+        request: &EquipmentMoveRequest,
+        operation: EquipmentMoveOperation,
     ) -> Result<Option<Rejection>, NativeError> {
         use quest_progression::equipment_movement as movement;
         self.profile
@@ -58,26 +139,26 @@ impl<A: Authority> Frame<'_, A> {
             .equipment_origin(instance)
             .ok_or(NativeError::InvalidState)?;
         let equips = request.destination == origin.genesis_slot;
-        let generic_slot = if equips && self.state.player_alive() && !combat.in_combat {
+        let generic_slot = if equips
+            && !combat.in_combat
+            && (self.state.player_alive() || operation == EquipmentMoveOperation::AutoEquip)
+        {
             player_melee::casting::GenericSlot::capture(self.state)?
         } else {
             None
         };
-        let reason = if !self.state.player_alive() {
-            Some(38)
-        } else if combat.in_combat {
-            Some(60)
-        } else if equips
+        let casting = equips
             && generic_slot
                 .as_ref()
                 .map(|s| s.blocks_pre_unit(self.profile, self.state, self.state.now_ms))
                 .transpose()?
-                .unwrap_or(false)
-        {
-            Some(39)
-        } else {
-            None
-        };
+                .unwrap_or(false);
+        let reason = equipment_guard_error(
+            operation,
+            self.state.player_alive(),
+            combat.in_combat,
+            casting,
+        );
         if let Some(reason) = reason {
             self.events.push(Event::EquipmentMoveRefused {
                 request: *request,
@@ -97,6 +178,7 @@ impl<A: Authority> Frame<'_, A> {
             inventory.clone(),
             q.inventory_receipts.clone(),
             movement::MoveContext {
+                operation,
                 world: self.state.world,
                 player: self.state.player,
                 profile: self.profile.digest(),
@@ -404,5 +486,50 @@ impl<A: Authority> Frame<'_, A> {
         }
         self.events.push(Event::InventoryMoved(Box::new(receipt)));
         Ok(rejection)
+    }
+}
+
+#[cfg(test)]
+mod guard_tests {
+    use super::*;
+    #[test]
+    fn auto_equip_retains_can_equip_before_can_use_order() {
+        for alive in [false, true] {
+            for combat in [false, true] {
+                for casting in [false, true] {
+                    let expected_auto = if combat {
+                        Some(60)
+                    } else if casting {
+                        Some(39)
+                    } else if !alive {
+                        Some(38)
+                    } else {
+                        None
+                    };
+                    let expected_swap = if !alive {
+                        Some(38)
+                    } else if combat {
+                        Some(60)
+                    } else if casting {
+                        Some(39)
+                    } else {
+                        None
+                    };
+                    assert_eq!(
+                        equipment_guard_error(
+                            EquipmentMoveOperation::AutoEquip,
+                            alive,
+                            combat,
+                            casting
+                        ),
+                        expected_auto
+                    );
+                    assert_eq!(
+                        equipment_guard_error(EquipmentMoveOperation::Swap, alive, combat, casting),
+                        expected_swap
+                    );
+                }
+            }
+        }
     }
 }

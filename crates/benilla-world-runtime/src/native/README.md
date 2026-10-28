@@ -1,7 +1,7 @@
 # Native component integration boundary
 
 This is a distinct component-test domain inside the existing world runtime.
-`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v64 cannot
+`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v65 cannot
 admit production content: `NativeCapability` is uninhabited until the raw compiler
 validates the source closure and every critical semantic dependency. That is an
 implementation condition, not a requirement that developers possess game assets.
@@ -11,7 +11,7 @@ The opt-in `synthetic-native-tests` feature exposes only synthetic construction 
 restoration. Feature unification, preparation JSON, hashes, and source initializer
 outputs cannot produce `NativeCapability`. Fabricated test rows are not native data.
 
-Native format 64, `benilla-native-armor-relocation-v64`, retains the selected
+Native format 65, `benilla-native-armor-auto-equip-v65`, retains the selected
 [player mainhand policy](../../PLAYER-MELEE.md), required optional player proof
 and NPC defense reactive state, retained generic-cast slot context and
 spell target-death lifecycle causes in the bounded melee proof. Backpack stack-split
@@ -38,11 +38,14 @@ Format63 requires recipe-v3 membership state; source-derived membership replay
 must validate any placement changes. The version bump alone provides no new
 capability or migration. Format64 identifies the required custody-only original
 armor relocation journal; it does not relax native admission or provide save
-migration. Native reputation-objective abandonment remains
+migration. Format65 requires the armor movement operation discriminator so
+source AutoEquip selection and guard ordering are not conflated with SwapItem.
+The schema does not authorize arbitrary equipment or native admission.
+Native reputation-objective abandonment remains
 unsupported until repeated acceptance visibility history is owned. The player-melee
 profile and last-cause policies are v2. Profile/state/record/checkpoint root hash
-domains are v64; established melee, visitor and event-AI callback subdomains
-remain v51. Native63 and earlier checkpoints/journals reject without migration,
+domains are v65; established melee, visitor and event-AI callback subdomains
+remain v51. Native64 and earlier checkpoints/journals reject without migration,
 including rehashed outer envelopes and stale profile context. Linked older
 format descriptions are historical schemas, not accepted decoder versions;
 their source dependency requirements remain in force. This boundary does not
@@ -228,7 +231,7 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
   binary64; source comparison is strict promoted-float chance > double roll
 - Draw records bind semantic purpose/action/NPC generation. Action chains bind full
   current defense/cast/resource snapshots, so same-HP misses cannot be reused
-- Checkpoints bind native format 64, policy, RNG mapping, domain, content, authority, geometry,
+- Checkpoints bind native format 65, policy, RNG mapping, domain, content, authority, geometry,
   history-chain tip, cooldown maps, recomputable casts/auras, AI lifecycle/motion,
   exact mana timers, skills/reactive/combat clocks, checked equipment recipes and
   [per-NPC event ownership](../../NPC-EVENTS.md) with DEAD/respawn clock continuity
@@ -380,7 +383,7 @@ Motion arithmetic, production admission/startup and loaded-native cache reopenin
 remain unchanged.
 
 Native56 and older checkpoints/journals reject without migration. Profile, state,
-record and checkpoint digest domains are v64; established melee domains remain v51; original World v2, character
+record and checkpoint digest domains are v65; established melee domains remain v51; original World v2, character
 profiles and the store envelope are unchanged. Fixtures are authored component
 evidence, not captured client/DB data.
 

@@ -55,7 +55,7 @@ only by the source class/outcome/alive conditions and expire in NPC Unit update.
 
 ## Persistence contract
 
-Native format 64 rejects older envelopes; no migration is provided. Existing
+Native format 65 rejects older envelopes; no migration is provided. Existing
 unrelated callback hash domains retain their prior versions.
 
 The bounded player proof retains the latest writers of lifecycle, BASE, OFF and

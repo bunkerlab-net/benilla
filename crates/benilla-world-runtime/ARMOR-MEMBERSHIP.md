@@ -68,8 +68,8 @@ player slot references. A removed item is not destroyed and recreated. Visible
 entry words remain owned by the existing complete query-metadata gate; this is
 semantic session projection, not a claim of byte-identical upstream packet order.
 Headless parser/controller tests do not establish rendered appearance or user
-verification. The required native 64 identity, quest reconstruction v8 and carried-items v10
-host composition have no old-save migration. Carried-items v10 does not add a
+verification. The required native 65 identity, quest reconstruction v9 and carried-items v11
+host composition have no old-save migration. Carried-items v11 does not add a
 generic equip reducer or relax ordinary carried-instance validation.
 
 ## Carried original relocation
@@ -96,3 +96,37 @@ containment remains the same player. It does not model transient detach/re-attac
 packet ordering. No visible equipment entry, item creation/destruction or item
 push is synthesized. Headless Lua/controller checkpoint retry and replay tests
 are not rendered gameplay or native admission evidence.
+
+## Source AutoEquipItem handler
+
+`EquipmentAutoEquip` is a distinct command, not an alias for SwapItem. Only a
+registered original carried in the ordinary backpack, with a singleton source
+inventory-type slot equal to its original empty slot, is supported. Finger and
+trinket alternatives, occupied-slot swaps, arbitrary carried objects, bags and
+already-equipped source positions are unsupported host subsets. Missing carried
+sources are silent, before equipment guards.
+
+Pinned ItemHandler.cpp `HandleAutoEquipItemOpcode` calls CanEquipItem(NULL_SLOT)
+before CanUseItem's alive test. Inside the existing sealed unsupported-state
+closure, the live priority is combat, then generic casting, then alive; SwapItem
+keeps its original dead-first priority. Traveling spells do not block. The pure
+guard-matrix test covers decision order, not claims that every authored boolean
+combination is a reachable world state. The source initializer established
+prototype eligibility and proficiency; the existing live skill owner preserves
+those source-established skills and bounds, with no deletion or lower values.
+
+The initial and current physical offhand must be absent. This proves the actual
+AutoUnequipOffhandIfNeed immediate return; moving body armor alone would not
+prove that callback inert. Successful moves use the existing exact custody and
+ordered modifier operation, with a required Swap/AutoEquip discriminator in the
+retained context. Auto replay validates singleton selection and the absent-offhand
+source dependency. It does not invent an equip callback or relax recipe restore.
+
+The controller accepts the existing stock AutoEquipItem wire command only for
+ordinary backpack positions. Headless tests compose the real Lua cursor queue,
+real wire mapping and extracted actual non-ammo sender with the actual controller,
+checkpoint withholding/retry/reopen and same-object no-refill result. They do not
+execute the complete Bevy Items/template/ammo dispatch branch or prove rendered
+appearance. The tiny sender extraction leaves that existing dispatch unchanged.
+Native 65, quest reconstruction v9 and carried-items v11 have no old-save migration
+and grant no native admission.

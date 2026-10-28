@@ -89,6 +89,14 @@ fn main() {
     item_positions.push_str("pub(crate) ");
     item_positions.push_str(&function(&items, "wire_pos"));
     fs::write(out.join("item_positions.rs"), item_positions).unwrap();
+    let sender_path = root.join("crates/benilla-app/src/ui_items/drain.rs");
+    println!("cargo:rerun-if-changed={}", sender_path.display());
+    let sender = fs::read_to_string(sender_path).unwrap();
+    fs::write(
+        out.join("equipment_sender.rs"),
+        format!("pub(crate) {}", function(&sender, "send_equipment_command")),
+    )
+    .unwrap();
     let flags = root.join("crates/benilla-app/src/creature_anim/select.rs");
     println!("cargo:rerun-if-changed={}", flags.display());
     let flags = fs::read_to_string(flags).unwrap();
@@ -123,6 +131,7 @@ fn main() {
         "SwapInvItem",
         "SplitItem",
         "AutoStoreBagItem",
+        "AutoEquipItem",
         "DestroyItem",
         "QuestlogRemove",
         "SetActionBarToggles",

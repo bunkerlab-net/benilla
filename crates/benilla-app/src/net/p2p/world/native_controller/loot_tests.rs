@@ -1264,3 +1264,6 @@ mod armor_membership_tests;
 
 #[path = "armor_relocation_tests.rs"]
 mod armor_relocation_tests;
+
+#[path = "armor_autoequip_tests.rs"]
+mod armor_autoequip_tests;

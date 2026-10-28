@@ -219,7 +219,7 @@ impl NativeWorld {
         let replies = frame.replies;
         let events = frame.events;
         let draws = frame.draws;
-        let after = crate::digest(b"benilla-native-state-v64\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v65\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -629,6 +629,7 @@ impl<A: Authority> Frame<'_, A> {
             }
             Command::InventoryMove(request) => self.inventory_move(request)?,
             Command::EquipmentMove(request) => self.equipment_move(request)?,
+            Command::EquipmentAutoEquip { source } => self.equipment_auto_equip(*source)?,
             Command::InventorySplit(request) => self.inventory_split(request)?,
             Command::InventoryAutoStore(request) => self.inventory_autostore(request)?,
             Command::InventoryDestroy(request) => self.inventory_destroy(request)?,

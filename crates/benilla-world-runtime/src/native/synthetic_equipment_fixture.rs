@@ -7,13 +7,30 @@ pub fn profile() -> Profile {
     profile_with_lethal(false)
 }
 pub fn profile_with_lethal(lethal: bool) -> Profile {
-    build(lethal, false)
+    build(lethal, false, None)
 }
 pub fn mainhand_profile() -> Profile {
-    build(false, true)
+    build(false, true, None)
 }
-fn build(lethal: bool, mainhand: bool) -> Profile {
+pub fn profile_with_armor_type(inventory_type: u32) -> Profile {
+    build(false, false, Some(inventory_type))
+}
+fn build(lethal: bool, mainhand: bool, armor_type: Option<u32>) -> Profile {
     let (mut p, mut input, mut rows) = synthetic_loot_fixture::setup();
+    if let Some(kind) = armor_type {
+        let original = input.items.iter_mut().find(|i| i.class == 4).unwrap();
+        original.inventory_type = kind;
+        let entry = original.id;
+        let loot = rows.loot.as_mut().unwrap();
+        let mut items: Vec<_> = loot.inventory.items().cloned().collect();
+        items
+            .iter_mut()
+            .find(|i| i.entry == entry)
+            .unwrap()
+            .inventory_type = kind;
+        loot.inventory = synthetic_loot_fixture::inventory_catalog(items);
+    }
+
     if mainhand {
         use benilla_sim::{player_progression as pg, starter_init as init};
         let init::Rows::Complete(skills) = &mut input.default_skills else {
