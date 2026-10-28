@@ -1428,3 +1428,6 @@ fn autostore_projection_rejects_wrong_ancestry_and_forged_detach_views_before_mu
             | SessionEvent::ItemPushResult(_)
     )));
 }
+
+#[path = "native_visible_equipment_tests.rs"]
+mod visible_equipment_tests;

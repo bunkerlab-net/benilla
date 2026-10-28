@@ -204,6 +204,23 @@ impl NativeProjection {
                 }
             }
         }
+        let quest_metadata = quests::Metadata::load(w, catalog)?;
+        let loot_metadata = loot::Metadata::load(w, catalog)?;
+        if w.profile()
+            .quest_progression
+            .as_ref()
+            .and_then(|g| g.loot.as_ref())
+            .is_some()
+        {
+            // Entry-only visible equipment is renderer-resolvable only through the
+            // existing authenticated ItemQuery catalog. Never invent a display fallback.
+            let combat = w.state().combat.as_ref().ok_or(Error::Incompatible)?;
+            for item in combat.equipment.items() {
+                if loot_metadata.item(item.item_id).is_none() {
+                    return Err(Error::MissingItemMetadata(item.item_id));
+                }
+            }
+        }
         let mut out = Self {
             player: selected,
             player_guid: crate::player_guid(selected),
@@ -212,8 +229,8 @@ impl NativeProjection {
             previous: w.state().clone(),
             previous_digest: w.state_digest(),
             npcs: BTreeMap::new(),
-            quest_metadata: quests::Metadata::load(w, catalog)?,
-            loot_metadata: loot::Metadata::load(w, catalog)?,
+            quest_metadata,
+            loot_metadata,
         };
         out.npcs = out.guids(w)?;
         Ok(out)
@@ -484,6 +501,19 @@ impl NativeProjection {
                     (486 + 2 * u16::from(slot), guid as u32),
                     (487 + 2 * u16::from(slot), (guid >> 32) as u32),
                 ]);
+                if w.profile()
+                    .quest_progression
+                    .as_ref()
+                    .and_then(|g| g.loot.as_ref())
+                    .is_some()
+                {
+                    // Player::SetVisibleItemSlot: entry is independent of durability.
+                    // Other creator/enchantment/property words remain unspecified here.
+                    pairs.push((
+                        260 + 12 * u16::from(slot),
+                        c.equipment.item(slot).map_or(0, |item| item.item_id),
+                    ));
+                }
             }
         }
         if let Some(d) = w.state().combat.as_ref().and_then(|c| c.death.as_ref()) {

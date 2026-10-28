@@ -1234,3 +1234,6 @@ mod inventory_move_tests;
 
 #[path = "loot_tests/reference_loot.rs"]
 mod reference_loot;
+
+#[path = "visible_equipment_tests.rs"]
+mod visible_equipment_tests;
