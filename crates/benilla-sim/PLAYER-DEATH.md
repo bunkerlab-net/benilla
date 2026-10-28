@@ -237,3 +237,7 @@ own host integration tests. The additional Rust tests cover strict evidence,
 invalid metadata/identity/lifecycles, deferred corpse creation, timer expiry
 without world freeze, passive preservation, launched-flight survival, and
 preparing-cast cancellation.
+
+A separate [corpse-reclaim call-plan component](CORPSE-RECLAIM.md) now models
+source request guards and delegated callback order. It does not change this
+body-only lifecycle, create a ghost/corpse, or enable native recovery.

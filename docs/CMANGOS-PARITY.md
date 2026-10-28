@@ -42,6 +42,7 @@ exclusions are documented in:
 - [Creature initialization](../crates/benilla-sim/CREATURE-INIT.md)
 - [Bounded Chase straight-selection gate](../crates/benilla-sim/CHASE-GATE.md)
 - [Player death/corpse lifecycle reducer](../crates/benilla-sim/PLAYER-DEATH.md)
+- [Unconnected ordinary corpse-reclaim call plan](../crates/benilla-sim/CORPSE-RECLAIM.md)
 - [Integrated bounded native death](../crates/benilla-world-runtime/src/native/DEATH.md)
 - [Bounded mage XP/level transitions](../crates/benilla-sim/PLAYER-PROGRESSION.md)
 - [Ordinary quest lifecycle and host requirements](../crates/benilla-sim/QUEST-LIFECYCLE.md)
@@ -243,6 +244,8 @@ is meaningful without a bounded content/mechanics inventory.
   lethal melee, ordered death/durability/stat effects, cast interruption and corpse
   timers with replay/restore. Root movement orders still require the actual controller
   counter and acknowledgements; ghost/graveyard release and resurrection are absent.
+  A separate pure corpse-reclaim component evaluates source guards and returns
+  unexecuted resurrection/bones callbacks; it does not connect those missing paths.
   Creature initialization translates explicit raw classlevel/model/spawn inputs,
   with source loader preprocessing and no fabricated missing stats.
   Optional [per-life creature ownership](../crates/benilla-world-runtime/CREATURE-GENERATION.md)

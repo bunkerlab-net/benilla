@@ -406,6 +406,20 @@ same pinned revision. [PLAYER-DEATH.md](PLAYER-DEATH.md) records provenance,
 source-derived callbacks, fixed-step restore constraints and excluded graveyard
 and ghost behavior. It does not independently execute runtime callbacks.
 
+## Ordinary corpse-reclaim call plan
+
+`src/corpse_reclaim.rs` is a GPL-3.0-or-later translation of the same pinned
+CMaNGOS Classic revision under its GPL-2.0-or-later grant; existing upstream
+notices in `licenses/` apply. Rust adapters and authored oracle vectors are by
+2026 Benilla fork contributors. No client assets or world database rows are
+included. [CORPSE-RECLAIM.md](CORPSE-RECLAIM.md) specifies the bounded domain,
+source guards, software-binary32 geometry and unexecuted callback contract.
+`tools/generate_corpse_reclaim_fixture.py` records and checks SHA256 for
+Entities/MiscHandler.cpp, Entities/Player.cpp/.h, Entities/Object.cpp/.h and
+Entities/Corpse.h before extracting unchanged handler, delay and distance bodies.
+The generated 355 synthetic rows establish component behavior only: no native
+release, corpse creation, resurrection execution or admission is supplied.
+
 ## Ordinary quest lifecycle
 
 `src/quest_lifecycle/` is a GPL-3.0-or-later Rust translation from the same pinned
