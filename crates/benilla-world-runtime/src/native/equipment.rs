@@ -10,19 +10,30 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub const EQUIPMENT_FORMAT_VERSION: u32 = 1;
-pub const EQUIPMENT_POLICY: &str = "cmangos-8ec338a1-equipped-durability-soft-binary64-v1";
+pub const EQUIPMENT_FORMAT_VERSION: u32 = 2;
+pub const EQUIPMENT_POLICY: &str = "cmangos-8ec338a1-equipped-origin-durability-soft-binary64-v2";
 /// Player.h's [EQUIPMENT_SLOT_START, EQUIPMENT_SLOT_END), excluding inventory bags.
 pub const EQUIPMENT_SLOT_END: u8 = 19;
 /// The source point-loss callback converts both durability fields to signed int32.
 pub const MAX_DURABILITY: u32 = i32::MAX as u32;
 
+/// Immutable local identity anchored to the source initializer's occupied slot.
+/// This is not CMaNGOS's numeric GUID allocator. Relocation is still unsupported;
+/// retaining origin explicitly prevents future projection from using current position.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EquipmentOrigin {
+    pub genesis_slot: u8,
+    pub item_id: u32,
+}
+
 /// Inert worn-item data. The item template and maximum must come from the admitted
 /// source loadout; missing durability fields must never be synthesized as zero.
-/// Slot plus template ID identifies an item in this no-equip/no-inventory domain.
+/// Required genesis origin identifies an item in this no-equipment-movement domain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EquippedItem {
+    pub origin: EquipmentOrigin,
     pub slot: u8,
     pub item_id: u32,
     pub max_durability: u32,
@@ -36,6 +47,9 @@ impl EquippedItem {
     fn validate(&self) -> Result<(), EquipmentError> {
         if self.slot >= EQUIPMENT_SLOT_END {
             return Err(EquipmentError::InvalidSlot(self.slot));
+        }
+        if self.origin.genesis_slot != self.slot || self.origin.item_id != self.item_id {
+            return Err(EquipmentError::OriginMismatch);
         }
         if self.item_id == 0 {
             return Err(EquipmentError::InvalidItem(self.slot));
@@ -99,6 +113,7 @@ pub enum EquipmentError {
     UnsupportedMaximum(u32),
     NonCanonicalSlots,
     LoadoutMismatch,
+    OriginMismatch,
 }
 impl std::fmt::Display for EquipmentError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -182,7 +197,8 @@ impl EquipmentState {
                     .items
                     .get(slot)
                     .is_none_or(|expected| {
-                        item.item_id != expected.item_id
+                        item.origin != expected.origin
+                            || item.item_id != expected.item_id
                             || item.max_durability != expected.max_durability
                     })
             })
@@ -315,6 +331,10 @@ mod tests {
 
     fn item(slot: u8, max: u32, current: u32) -> EquippedItem {
         EquippedItem {
+            origin: EquipmentOrigin {
+                genesis_slot: slot,
+                item_id: 100 + u32::from(slot),
+            },
             slot,
             item_id: 100 + u32::from(slot),
             max_durability: max,
@@ -468,6 +488,10 @@ mod tests {
         let equipment = state(
             (0..19)
                 .map(|slot| EquippedItem {
+                    origin: EquipmentOrigin {
+                        genesis_slot: slot,
+                        item_id: 123,
+                    },
                     item_id: 123,
                     ..item(slot, 10, 10)
                 })
@@ -494,8 +518,14 @@ mod tests {
         for field in 0..4 {
             let mut tampered = damaged.snapshot();
             match field {
-                0 => tampered.items[0].slot = 1,
-                1 => tampered.items[0].item_id += 1,
+                0 => {
+                    tampered.items[0].slot = 1;
+                    tampered.items[0].origin.genesis_slot = 1;
+                }
+                1 => {
+                    tampered.items[0].item_id += 1;
+                    tampered.items[0].origin.item_id += 1;
+                }
                 2 => tampered.items[0].max_durability += 1,
                 _ => {
                     tampered.items.pop();

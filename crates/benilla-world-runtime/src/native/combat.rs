@@ -316,6 +316,10 @@ impl Profile {
                 .equipped
                 .values()
                 .map(|i| equipment::EquippedItem {
+                    origin: equipment::EquipmentOrigin {
+                        genesis_slot: i.slot,
+                        item_id: i.item,
+                    },
                     slot: i.slot,
                     item_id: i.item,
                     max_durability: i.max_durability,

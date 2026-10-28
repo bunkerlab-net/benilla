@@ -122,9 +122,9 @@ fn toggles_value_and_malformed_write_witnesses_reject_rechecksummed_checkpoints(
             _ => unreachable!(),
         }
         forged.state = serde_json::from_value(encoded).unwrap();
-        forged.digest = crate::digest(b"benilla-native-state-v60\0", &forged.state);
+        forged.digest = crate::digest(b"benilla-native-state-v61\0", &forged.state);
         forged.checksum = crate::digest(
-            b"benilla-native-checkpoint-v60\0",
+            b"benilla-native-checkpoint-v61\0",
             &(&forged.state, forged.digest, forged.history_tip),
         );
         assert!(
@@ -186,9 +186,9 @@ fn missing_packed_field_owners_reject_command_and_transplanted_write_ledger() {
     let mut encoded = serde_json::to_value(&forged.state).unwrap();
     encoded["action_bar_toggles"] = ledger;
     forged.state = serde_json::from_value(encoded).unwrap();
-    forged.digest = crate::digest(b"benilla-native-state-v60\0", &forged.state);
+    forged.digest = crate::digest(b"benilla-native-state-v61\0", &forged.state);
     forged.checksum = crate::digest(
-        b"benilla-native-checkpoint-v60\0",
+        b"benilla-native-checkpoint-v61\0",
         &(&forged.state, forged.digest, forged.history_tip),
     );
     assert!(NativeWorld::restore_synthetic_component_test(bare.profile.clone(), forged).is_err());

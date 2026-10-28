@@ -121,9 +121,9 @@ fn assert_selection(w: &NativeWorld, spawn: u64) {
 }
 fn resign(value: serde_json::Value) -> Checkpoint {
     let mut cp: Checkpoint = serde_json::from_value(value).unwrap();
-    cp.digest = crate::digest(b"benilla-native-state-v60\0", &cp.state);
+    cp.digest = crate::digest(b"benilla-native-state-v61\0", &cp.state);
     cp.checksum = crate::digest(
-        b"benilla-native-checkpoint-v60\0",
+        b"benilla-native-checkpoint-v61\0",
         &(&cp.state, cp.digest, cp.history_tip),
     );
     cp

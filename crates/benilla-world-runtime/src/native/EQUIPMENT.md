@@ -18,8 +18,8 @@ IDs, duplicate or noncanonical slots, more than 19 items and current values abov
 their maximum fail. A maximum of zero is explicitly non-durable equipment, never
 an inferred missing-field fallback. Source int32 conversion limits maxima to
 `i32::MAX`; wider source uint32 values are unavailable instead of wrapping.
-Identical item templates in two slots are legal. Slot plus item ID identifies an
-item in this bounded domain; moving, replacing, stacking and inventory are absent.
+Identical item templates in two slots are legal. Required genesis slot plus item ID identifies an
+item in this bounded domain; equipment moving, replacing and stacking are absent.
 
 The runtime owns chance and slot RNG consumption and records those draws even if
 the selected slot is empty. Once selected, a hit subtracts one point with a zero
@@ -105,3 +105,36 @@ does not prove effective-stat consistency.
 
 Focused helper tests establish these callbacks only. They do not establish complete
 native combat, multiplayer, inventory/equipment management, or real-client parity.
+
+## Immutable equipped origin (equipment format2, native61)
+
+Source `Item.cpp::CreateItem` creates an item object once; `CloneItem` creates a
+new object. `Player.cpp::RemoveItem`, `StoreItem` and `EquipItem` move the existing
+object rather than deriving identity from its new position. This phase records
+that distinction in the **existing equipped owner and actual projection**, without
+admitting any movement yet.
+
+Every equipped snapshot now requires `EquipmentOrigin { genesis_slot, item_id }`,
+anchored to the existing validated fresh source initializer's equipment placement.
+This is an explicit local origin token, **not** an invented CMaNGOS global low-GUID
+allocation or a new item-creation callback. There is no serde default/migration.
+Structural validation still requires origin slot/template equal current slot and
+item; authoritative restore additionally compares the exact origin, while keeping
+all original slot/template/maximum-durability and loadout-membership restrictions.
+Duplicate/swapped/forged origins, even with repeated template IDs, cannot authorize
+movement. Durability callbacks preserve origin without allocating another item.
+
+Projection now reads the retained origin and uses the **identical** legacy
+`benilla-native-equipment-guid-v2` tuple `(world, player, slot, item)` serialization,
+first six hash bytes and high-item GUID tag. No existing admitted GUID changes.
+Independent legacy-recipe tests cover all19 slot positions and boundary entries;
+actual lethal NPC damage/durability loss and checkpoint reopen retain the same
+origin and projected item GUID. Rechecksummed malformed and omitted origins reject.
+
+This is a persistence/projection prerequisite, not usable equip/unequip gameplay.
+No new command is accepted; current and historical melee/spell/progression recipe
+membership checks remain strict. Future movement needs source-ordered membership
+and stat/resource transition proofs, stable carried/equipped identity, item-use
+requirements and complete callback ownership. Damaged carried items, bind-on-equip
+transitions, weapons/bags, loadout substitutions and native admission remain outside
+this phase. Native61 rejects native60 and earlier; no save migration is claimed.

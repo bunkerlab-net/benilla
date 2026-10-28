@@ -127,10 +127,15 @@ pub struct NativeProjection {
 fn point(p: ai::Point) -> [f32; 3] {
     [p.x.as_f32(), p.y.as_f32(), p.z.as_f32()]
 }
-fn equipment_guid(w: &n::NativeWorld, slot: u8, item: u32) -> u64 {
+fn equipment_guid(w: &n::NativeWorld, origin: n::equipment::EquipmentOrigin) -> u64 {
     let hash = crate::hash(
         b"benilla-native-equipment-guid-v2\0",
-        &(w.state().world, w.state().player, slot, item),
+        &(
+            w.state().world,
+            w.state().player,
+            origin.genesis_slot,
+            origin.item_id,
+        ),
     );
     let mut bytes = [0; 8];
     bytes[..6].copy_from_slice(&hash[..6]);
@@ -230,7 +235,7 @@ impl NativeProjection {
                 .combat
                 .iter()
                 .flat_map(|c| c.equipment.items())
-                .map(|i| equipment_guid(w, i.slot, i.item_id)),
+                .map(|i| equipment_guid(w, i.origin)),
         ) {
             if !seen.insert(guid) {
                 return Err(Error::GuidCollision);
@@ -473,7 +478,7 @@ impl NativeProjection {
                 let guid = c
                     .equipment
                     .item(slot)
-                    .map(|i| equipment_guid(w, slot, i.item_id))
+                    .map(|i| equipment_guid(w, i.origin))
                     .unwrap_or(0);
                 pairs.extend([
                     (486 + 2 * u16::from(slot), guid as u32),
@@ -513,7 +518,7 @@ impl NativeProjection {
         let mut seen = BTreeSet::new();
         if let Some(c) = &w.state().combat {
             for item in c.equipment.items() {
-                let guid = equipment_guid(w, item.slot, item.item_id);
+                let guid = equipment_guid(w, item.origin);
                 if !seen.insert(guid) {
                     return Err(Error::GuidCollision);
                 }
@@ -2124,3 +2129,7 @@ mod watched_faction_tests;
 #[cfg(test)]
 #[path = "native_action_bar_toggles_tests.rs"]
 mod action_bar_toggles_tests;
+
+#[cfg(test)]
+#[path = "native_equipment_origin_tests.rs"]
+mod equipment_origin_tests;
