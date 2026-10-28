@@ -477,7 +477,7 @@ pub(in crate::native) fn prepare_tick(
         return Ok((None, vec![]));
     };
     validate_supported_concurrency(profile, current)?;
-    if current.health == 0 {
+    if !current.player_alive() {
         return Err(NativeError::InvalidState);
     }
     // Unit spell events and finished-slot cleanup precede this check. Casting

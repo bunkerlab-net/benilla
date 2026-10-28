@@ -1151,3 +1151,59 @@ pub(crate) mod resident_fixture;
 
 #[path = "player_melee_tests.rs"]
 mod player_melee_tests;
+
+#[test]
+fn dead_body_liveness_blocks_stock_cast_and_move_and_release_stays_unavailable_after_reopen() {
+    let h = Harness::new();
+    let data = death_profile();
+    let mut c = h.start(data.clone());
+    c.receive(cast(&c)).unwrap();
+    for _ in 0..200 {
+        let out = c.pump(c.tick_duration());
+        assert!(out.pause.is_none(), "{:?}", out.pause);
+        if !c.world.state().player_alive() {
+            break;
+        }
+    }
+    assert!(!c.world.state().player_alive());
+    assert_eq!(c.world.state().health, 0);
+    // Acknowledge only the genuine pending root order; rejection must not consume it.
+    if let Some(order) = c.orders.pending {
+        c.receive(root_ack(&c, order.counter, move_flags::ROOT))
+            .unwrap();
+    }
+    let position = c.world.state().position;
+    let tick = c.tick();
+    c.receive(ClientCommand::RepopRequest).unwrap();
+    c.receive(cast(&c)).unwrap();
+    c.receive(move_to([0.1, 0.0, 0.0])).unwrap();
+    let out = c.pump(c.tick_duration());
+    assert!(out.pause.is_none(), "{:?}", out.pause);
+    assert_eq!(c.tick(), tick + 1);
+    assert!(out.events.iter().any(
+        |event| matches!(event, SessionEvent::Notification { text } if text.contains("SpiritReleaseUnavailable"))
+    ));
+    assert!(c.world.last_tick().unwrap().events.iter().any(|event| {
+        matches!(
+            event,
+            n::Event::Rejected(n::Rejection::SpiritReleaseUnavailable { .. })
+        )
+    }));
+    assert!(!out
+        .events
+        .iter()
+        .any(|event| matches!(event, SessionEvent::SpellStart { .. })));
+    assert!(!c.world.state().player_alive());
+    assert_eq!(c.world.state().health, 0);
+    assert_eq!(c.world.state().position, position);
+    let digest = c.world.state_digest();
+    c.shutdown().unwrap();
+    drop(c);
+    let mut c = h.reopen(data);
+    assert_eq!(c.world.state_digest(), digest);
+    assert!(!c.world.state().player_alive());
+    let out = c.pump(c.tick_duration());
+    assert!(out.pause.is_none(), "{:?}", out.pause);
+    assert_eq!(c.world.state().health, 0);
+    assert!(!c.world.state().player_alive());
+}

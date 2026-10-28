@@ -15,7 +15,7 @@ impl<A: Authority> Frame<'_, A> {
                 "native quest/progression catalog",
             ));
         };
-        if self.state.health == 0 {
+        if !self.state.player_alive() {
             return Ok(Some(Rejection::Dead));
         }
         let Some(npc) = self.state.npcs.get(&giver.spawn).filter(|n| {

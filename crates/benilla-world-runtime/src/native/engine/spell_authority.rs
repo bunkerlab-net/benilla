@@ -176,7 +176,7 @@ impl<A: Authority> Frame<'_, A> {
                 // pure component check against a resource clone; no timer/RNG or
                 // GCD on the real transaction is changed here. Power is checked later.
                 let checks = spell::CastChecks {
-                    caster_alive: self.state.health > 0,
+                    caster_alive: self.state.player_alive(),
                     target_exists: true,
                     target_alive: true,
                     position_changed: false,

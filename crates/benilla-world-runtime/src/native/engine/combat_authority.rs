@@ -80,7 +80,7 @@ impl<A: Authority> Frame<'_, A> {
             && policy.ai.reaction == ai::Reaction::Aggressive
             && !policy.ai.neutral_to_all
             && npc.ai.phase() == ai::Phase::Idle
-            && self.state.health > 0
+            && self.state.player_alive()
             && npc.health > 0
             && facts.can_initiate_attack
             && facts.can_attack_on_sight
@@ -180,7 +180,7 @@ impl<A: Authority> Frame<'_, A> {
         npc: &WorkingNpc<'_>,
         action: u64,
     ) -> Result<MeleeCombatFacts, NativeError> {
-        if self.state.health == 0 {
+        if !self.state.player_alive() {
             return Err(NativeError::InvalidState);
         }
         let request = self.combat_request(npc, CombatPhase::SurvivingMeleeDamage, Some(action))?;

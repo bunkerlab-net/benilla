@@ -103,7 +103,7 @@ impl<A: Authority> Frame<'_, A> {
                 position: scene.position,
                 orientation: ai::Real::from_bits(scene.orientation.bits())?,
             },
-            player_alive: scene.health > 0,
+            player_alive: scene.player_alive(),
             creatures: scene
                 .npcs
                 .values()
@@ -407,7 +407,7 @@ impl<A: Authority> Frame<'_, A> {
         callback: &EventCallbackSnapshot,
     ) -> Result<(), NativeError> {
         let (grid, _world) = self.selected_membership(None, callback)?;
-        if self.state.health == 0 {
+        if !self.state.player_alive() {
             return Ok(());
         }
         let owner = VisitorParticipant::Player(self.state.player);
@@ -477,7 +477,7 @@ impl<A: Authority> Frame<'_, A> {
             )?;
         }
         for (index, player) in world.into_iter().enumerate() {
-            if self.state.health == 0 {
+            if !self.state.player_alive() {
                 continue;
             }
             let callback = transaction.callback_snapshot()?;

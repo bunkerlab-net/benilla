@@ -321,7 +321,7 @@ impl<A: Authority> Frame<'_, A> {
                     combat_reach: self.profile.player.combat_reach,
                     bounding_radius: self.profile.player.bounding_radius,
                     moving_and_running: self.moved,
-                    alive: self.state.health > 0,
+                    alive: self.state.player_alive(),
                     online: true,
                     can_attack_in_combat: f.can_attack_in_combat,
                     can_attack_on_sight: f.can_attack_on_sight,

@@ -316,7 +316,7 @@ impl NativeProjection {
         let profile = npc
             .effective_profile(w.profile())
             .map_err(|_| Error::Unrepresentable)?;
-        if w.state().health == 0
+        if !w.state().player_alive()
             || genesis(w)?
                 .npc_flags(profile.entry)
                 .is_none_or(|f| f & 2 == 0)

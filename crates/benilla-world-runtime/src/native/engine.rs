@@ -415,7 +415,7 @@ impl<A: Authority> Frame<'_, A> {
             }
             // ThreatManager::addThreat (pinned 8ec338a1, lines 446-463) rejects
             // a dead threat owner or dead hated caster; DOT damage itself persists.
-            let can_add_threat = self.state.health > 0
+            let can_add_threat = self.state.player_alive()
                 && self
                     .state
                     .npcs
@@ -680,7 +680,7 @@ impl<A: Authority> Frame<'_, A> {
                     }
                     AbilityAdmission::Available(s) => s.clone(),
                 };
-                if self.state.health == 0 {
+                if !self.state.player_alive() {
                     Some(Rejection::Dead)
                 } else if self
                     .state
@@ -822,7 +822,7 @@ impl<A: Authority> Frame<'_, A> {
         movement_flags: Option<benilla_sim::creature_motion::GroundMovementFlags>,
     ) -> Result<Option<Rejection>, NativeError> {
         destination.distance_squared(destination)?;
-        if self.state.health == 0 {
+        if !self.state.player_alive() {
             return Ok(Some(Rejection::Dead));
         }
         if destination != self.state.position {
@@ -938,7 +938,7 @@ impl<A: Authority> Frame<'_, A> {
         let moved = c.origin != self.state.position;
         let spec = c.binding.spec()?.clone();
         let mut checks = spell::CastChecks {
-            caster_alive: self.state.health > 0,
+            caster_alive: self.state.player_alive(),
             target_exists: exists,
             target_alive: alive,
             position_changed: moved,
@@ -1378,7 +1378,7 @@ impl<A: Authority> Frame<'_, A> {
                     combat_reach: self.profile.player.combat_reach,
                     bounding_radius: self.profile.player.bounding_radius,
                     moving_and_running: self.moved,
-                    alive: self.state.health > 0,
+                    alive: self.state.player_alive(),
                     online: true,
                     can_attack_in_combat: facts.can_attack_in_combat,
                     can_attack_on_sight: facts.can_attack_on_sight,
@@ -1417,7 +1417,7 @@ impl<A: Authority> Frame<'_, A> {
                         self.enter_player_combat();
                     }
                     match self.native_melee(npc_id, position, health, &p, None, None) {
-                        Ok(()) => Ok(if self.state.health == 0 {
+                        Ok(()) => Ok(if !self.state.player_alive() {
                             ai::MainhandResult::TargetDied
                         } else {
                             ai::MainhandResult::Unchanged
@@ -1655,7 +1655,7 @@ impl<A: Authority> Frame<'_, A> {
     }
     fn enter_player_combat(&mut self) {
         // Unit::SetInCombatState explicitly rejects dead units even though CanEnterCombat does not.
-        if self.state.health == 0 {
+        if !self.state.player_alive() {
             return;
         }
         if let Some(c) = self.state.combat.as_mut() {
@@ -2005,7 +2005,7 @@ impl<A: Authority> Frame<'_, A> {
             mana::ManaFrame {
                 diff_ms: self.profile.tick_ms,
                 in_world: true,
-                alive_after_events: self.state.health > 0,
+                alive_after_events: self.state.player_alive(),
                 world_mana_rate: self.profile.player.world_mana_rate,
                 exclusions: self.profile.player.mana_exclusions.into(),
             },

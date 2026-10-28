@@ -92,7 +92,7 @@ impl<A: Authority> Frame<'_, A> {
         {
             return Err(NativeError::UnsupportedMechanic("native loot host"));
         }
-        if self.state.health == 0 {
+        if !self.state.player_alive() {
             return Ok(Some(Rejection::Dead));
         }
         let Some(npc) = self

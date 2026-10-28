@@ -28,7 +28,7 @@ impl<A: Authority> Frame<'_, A> {
             catalog,
             request.source,
             request.destination,
-            self.state.health != 0,
+            self.state.player_alive(),
         )?;
         let rejection =
             (receipt.result != inv::InventoryResult::Ok).then_some(Rejection::Inventory {

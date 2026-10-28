@@ -402,7 +402,7 @@ impl<A: Authority> Frame<'_, A> {
                 combat_reach: self.profile.player.combat_reach,
                 bounding_radius: self.profile.player.bounding_radius,
                 moving_and_running: flags.moving_and_running(),
-                alive: self.state.health > 0,
+                alive: self.state.player_alive(),
                 // Once linked, only the owned HostileReference callback changes online state.
                 // Before acquisition, the selected source catalogs independently resolve it.
                 online: match npc.ai.hostile_reference() {
@@ -459,7 +459,7 @@ impl<A: Authority> Frame<'_, A> {
                     .aggro_rate,
             )?,
             player_pose: self.source_target()?.pose,
-            player_alive: self.state.health > 0,
+            player_alive: self.state.player_alive(),
             creature: npc.id,
             creature_pose: source.motion.pose(),
             creature_phase: npc.ai.phase(),
@@ -1056,7 +1056,7 @@ impl<A: Authority> Frame<'_, A> {
                                     }),
                                 )?;
                             }
-                            Ok(if self.state.health == 0 {
+                            Ok(if !self.state.player_alive() {
                                 ai::MainhandResult::TargetDied
                             } else {
                                 ai::MainhandResult::Unchanged

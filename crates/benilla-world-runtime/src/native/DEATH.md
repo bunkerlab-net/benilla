@@ -69,3 +69,7 @@ Pinned source: CMaNGOS Classic 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f,
 Unit.cpp Kill/SetDeathState, AttackStop/CombatStop/RemoveAllAttackers/DeleteThreatList,
 SetInCombatState (alive guard), and Player.cpp Update/KillPlayer. See the component
 PLAYER-DEATH.md for extracted-source oracle provenance and dependency exclusions.
+
+Live player consumers use the [conservative supported-player liveness predicate](PLAYER-LIVENESS.md)
+where audited. It preserves first-life and lethal-staging behavior and does not
+relax the HP/phase restore relation or enable ghost/release states.

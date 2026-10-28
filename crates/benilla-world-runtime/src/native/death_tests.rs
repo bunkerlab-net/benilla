@@ -456,3 +456,51 @@ fn rehashed_owned_hostile_reference_forgery_is_rejected() {
         );
     }
 }
+
+#[test]
+fn supported_player_liveness_preserves_first_life_and_rejects_inconsistent_operands() {
+    let mut w = new(profile_with_death(), 7);
+    assert!(w.state.player_alive());
+    // This is an isolated inconsistent observation, not an admitted zero-HP life.
+    let mut transient = w.state.clone();
+    transient.health = 0;
+    assert!(transient
+        .combat
+        .as_ref()
+        .unwrap()
+        .death
+        .as_ref()
+        .unwrap()
+        .is_alive());
+    assert!(!transient.player_alive());
+    let mut a = KernelAuthority::default();
+    let i = command(&w, 2);
+    w.step(1, Some(i), &mut a).unwrap();
+    for _ in 0..200 {
+        if !w.state.player_alive() {
+            break;
+        }
+        w.step(w.state.tick + 1, None, &mut a).unwrap();
+    }
+    assert!(!w.state.player_alive());
+    assert_eq!(w.state.health, 0);
+    assert!(!reload(&w).state.player_alive());
+    let mut malformed = w.state.clone();
+    malformed.health = 1;
+    assert!(!malformed.player_alive());
+    // Positive health is not a source-owned ghost, and the old strict restore
+    // still rejects it even with newly computed envelope hashes.
+    let mut value = serde_json::to_value(w.checkpoint().unwrap()).unwrap();
+    value["state"]["health"] = 1.into();
+    let mut checkpoint: Checkpoint = serde_json::from_value(value).unwrap();
+    checkpoint.digest = crate::digest(b"benilla-native-state-v53\0", &checkpoint.state);
+    checkpoint.checksum = crate::digest(
+        b"benilla-native-checkpoint-v53\0",
+        &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
+    );
+    assert!(NativeWorld::restore_synthetic_component_test(w.profile.clone(), checkpoint).is_err());
+    let mut legacy = new(profile(), 7).state.clone();
+    assert!(legacy.player_alive());
+    legacy.health = 0;
+    assert!(!legacy.player_alive());
+}

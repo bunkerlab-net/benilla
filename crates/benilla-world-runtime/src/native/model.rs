@@ -856,6 +856,21 @@ pub struct QuestInteractionFacts {
     pub npc_reaction: u8,
 }
 impl State {
+    /// Conservative liveness for the supported native player domain.
+    ///
+    /// A retained death lifecycle must be Alive, and health must still be positive.
+    /// The health guard deliberately preserves the existing lethal callback window:
+    /// HP reaches zero before the enclosing death plan installs its next phase.
+    /// This is not a general replacement for upstream Unit::IsAlive/IsDead, and
+    /// does not admit a positive-health ghost or relax any checkpoint invariant.
+    pub fn player_alive(&self) -> bool {
+        self.health != 0
+            && self
+                .combat
+                .as_ref()
+                .and_then(|combat| combat.death.as_ref())
+                .is_none_or(benilla_sim::player_death::PlayerDeathState::is_alive)
+    }
     pub(in crate::native) fn level(&self, profile: &Profile) -> u8 {
         self.quest_progression
             .as_ref()

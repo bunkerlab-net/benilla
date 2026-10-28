@@ -610,7 +610,7 @@ impl CurrentView<'_> {
                 npc_faction: npc.reference(&npc_template),
                 player: relations::UnitTargetState {
                     unit_flags: self.player_unit_flags(),
-                    alive: self.state.health != 0,
+                    alive: self.state.player_alive(),
                     mounted: self.catalog.player.control.mount_display_id != 0,
                 },
                 npc: relations::UnitTargetState {
