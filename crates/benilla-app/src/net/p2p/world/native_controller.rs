@@ -1032,6 +1032,24 @@ impl Driven for NativeController {
                     self.queue_cancel(spell_id, target)?;
                 }
             }
+            ClientCommand::SetFactionAtWar {
+                rep_list_id,
+                at_war,
+            } => {
+                self.queue(n::Command::SetFactionAtWar {
+                    list_id: rep_list_id,
+                    at_war,
+                })?;
+            }
+            ClientCommand::SetFactionInactive {
+                rep_list_id,
+                inactive,
+            } => {
+                self.queue(n::Command::SetFactionInactive {
+                    list_id: rep_list_id,
+                    inactive,
+                })?;
+            }
             ClientCommand::QuestlogRemove { slot } => {
                 // Source silently ignores out-of-range slots before touching quest state.
                 if usize::from(slot) >= benilla_sim::quest_lifecycle::LOG_SIZE {

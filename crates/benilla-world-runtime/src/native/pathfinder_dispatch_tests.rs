@@ -289,8 +289,8 @@ fn old_native29_through_native31_are_not_migrated() {
         assert!(decode_records(&encode_records(&records).unwrap()).is_err());
         assert!(world(w.profile().clone()).replay(&records).is_err());
     }
-    assert_eq!(NATIVE_FORMAT_VERSION, 56);
-    assert_eq!(NATIVE_POLICY, "benilla-native-quest-abandon-v56");
+    assert_eq!(NATIVE_FORMAT_VERSION, 57);
+    assert_eq!(NATIVE_POLICY, "benilla-native-reputation-controls-v57");
     assert_eq!(crate::FORMAT_VERSION, 2);
 }
 

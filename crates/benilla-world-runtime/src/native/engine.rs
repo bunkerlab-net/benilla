@@ -219,7 +219,7 @@ impl NativeWorld {
         let replies = frame.replies;
         let events = frame.events;
         let draws = frame.draws;
-        let after = crate::digest(b"benilla-native-state-v56\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v57\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -642,6 +642,44 @@ impl<A: Authority> Frame<'_, A> {
                     .as_mut()
                     .ok_or(NativeError::InvalidState)?
                     .acknowledge_initial_reputations(g)?;
+                None
+            }
+            Command::SetFactionAtWar { list_id, at_war } => {
+                let g = self
+                    .profile
+                    .quest_progression
+                    .as_ref()
+                    .ok_or(NativeError::InvalidState)?;
+                self.state
+                    .quest_progression
+                    .as_mut()
+                    .ok_or(NativeError::InvalidState)?
+                    .reputation_control(
+                        g,
+                        benilla_sim::reputation::Command::AtWar {
+                            list_id: *list_id,
+                            on: *at_war,
+                        },
+                    )?;
+                None
+            }
+            Command::SetFactionInactive { list_id, inactive } => {
+                let g = self
+                    .profile
+                    .quest_progression
+                    .as_ref()
+                    .ok_or(NativeError::InvalidState)?;
+                self.state
+                    .quest_progression
+                    .as_mut()
+                    .ok_or(NativeError::InvalidState)?
+                    .reputation_control(
+                        g,
+                        benilla_sim::reputation::Command::Inactive {
+                            list_id: *list_id,
+                            on: *inactive,
+                        },
+                    )?;
                 None
             }
             Command::ChooseQuestReward {

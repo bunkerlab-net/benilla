@@ -55,8 +55,8 @@ the source reputation query, never the client `FactionInfo` race-slot helper.
 
 ## Persistence and session delivery
 
-Reputation policy v2, initializer policy v4 and quest genesis v6 are bound through
-the native51 profile/genesis hashes. The required initial-cast receipt remains
+Native reputation policy v3 (the existing primitive policy remains v2), initializer
+policy v4 and quest genesis v6 are bound through the native57 profile/genesis hashes. The required initial-cast receipt remains
 separate from reputation packet fields; earlier-context saves reject even for
 no-aura inputs. A recomputed outer checksum cannot repair stale nested catalog,
 training or quest-policy identities. The separate character/profile format is
@@ -64,15 +64,16 @@ unchanged and no migration is provided.
 
 The persisted primitive state is reconstructed from the immutable catalog and a
 bounded source-operation history. It is not trusted merely because checkpoint
-hashes match. Each objective visibility operation and non-repeatable quest reward
-is replayed. Rewards retain pre-XP level, its source-derived progression-history prefix,
+hashes match. Each objective visibility operation, non-repeatable quest reward, and explicit
+at-war/inactive control is replayed. See [REPUTATION-CONTROLS.md](REPUTATION-CONTROLS.md). Rewards retain pre-XP level, its source-derived progression-history prefix,
 money and compact before/after logged quest witnesses; replay executes the same
 hosted callbacks and checks their exact result. The prefix must reconstruct the
 recorded pre-XP level at a completed source-operation boundary and cannot move
 backwards. A prefix ending inside the mandatory GiveLevel hooks is invalid. The
 final accepted/rewarded quest history must match visibility/reward operations, and all standings, flags and send/save bits must match reconstruction.
 The witness carries at most the 20 logged quests, not the growing completed quest
-map. There are at most 2,048 operations, bounded by the 1,024-quest ordinary catalog.
+map. There are at most 2,048 operations in this ledger, including control no-ops; the
+ordinary quest catalog separately remains bounded to 1,024 quests.
 Missing entries, duplicate rewards, invalid prefixes, out-of-order calls and
 mismatched replay results fail closed. Logged incomplete reputation objectives
 whose requirements are all met need a compact `ItemRemovedQuestCheck` witness:

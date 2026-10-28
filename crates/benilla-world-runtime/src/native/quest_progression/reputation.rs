@@ -4,12 +4,20 @@
 use super::*;
 use benilla_sim::reputation as rep;
 
-pub const POLICY_ID: &str = "benilla-native-quest-reputation-v2";
+pub const POLICY_ID: &str = "benilla-native-quest-reputation-v3";
 const MAX_CALLS: usize = 2048;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 enum Call {
+    AtWar {
+        list_id: u32,
+        on: bool,
+    },
+    Inactive {
+        list_id: u32,
+        on: bool,
+    },
     Visible {
         faction: u32,
     },
@@ -826,6 +834,28 @@ pub(super) fn validate_saved(
     let final_quests = saved.quests.snapshot();
     for receipt in &saved_rep.history {
         state = match &receipt.call {
+            Call::AtWar { list_id, on } => {
+                state
+                    .reduce(
+                        catalog,
+                        rep::Command::AtWar {
+                            list_id: *list_id,
+                            on: *on,
+                        },
+                    )?
+                    .state
+            }
+            Call::Inactive { list_id, on } => {
+                state
+                    .reduce(
+                        catalog,
+                        rep::Command::Inactive {
+                            list_id: *list_id,
+                            on: *on,
+                        },
+                    )?
+                    .state
+            }
             Call::Visible { faction } => {
                 *visible.entry(*faction).or_default() += 1;
                 state
@@ -916,6 +946,33 @@ pub(super) fn validate_saved(
 }
 
 impl QuestProgressionState {
+    /// Source CharacterHandler calls by reputation-list slot, without a living/combat guard.
+    /// The source emits no immediate packet. Dirty send/save flags remain reducer-owned.
+    pub(in crate::native) fn reputation_control(
+        &mut self,
+        g: &QuestProgressionGenesis,
+        command: rep::Command,
+    ) -> Result<(), NativeError> {
+        let call = match command {
+            rep::Command::AtWar { list_id, on } => Call::AtWar { list_id, on },
+            rep::Command::Inactive { list_id, on } => Call::Inactive { list_id, on },
+            _ => return Err(NativeError::InvalidState),
+        };
+        let catalog = g
+            .reputation
+            .as_ref()
+            .ok_or(NativeError::UnsupportedMechanic("reputation unavailable"))?;
+        let reputation = self.reputation.as_ref().ok_or(NativeError::InvalidState)?;
+        let tx = reputation.state.reduce(catalog, command)?;
+        if !tx.events.is_empty() {
+            return Err(NativeError::InvalidState);
+        }
+        let mut staged = reputation.clone();
+        staged.record(call)?;
+        staged.state = tx.state;
+        self.reputation = Some(staged);
+        Ok(())
+    }
     pub(in crate::native) fn acknowledge_initial_reputations(
         &mut self,
         g: &QuestProgressionGenesis,

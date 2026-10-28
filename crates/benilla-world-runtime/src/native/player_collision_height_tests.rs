@@ -29,9 +29,9 @@ fn rehashed(w: &NativeWorld, edit: impl FnOnce(&mut serde_json::Value)) -> Check
     let mut value = serde_json::to_value(&c.state).unwrap();
     edit(&mut value);
     c.state = serde_json::from_value(value).unwrap();
-    c.digest = crate::digest(b"benilla-native-state-v56\0", &c.state);
+    c.digest = crate::digest(b"benilla-native-state-v57\0", &c.state);
     c.checksum = crate::digest(
-        b"benilla-native-checkpoint-v56\0",
+        b"benilla-native-checkpoint-v57\0",
         &(&c.state, c.digest, c.history_tip),
     );
     c

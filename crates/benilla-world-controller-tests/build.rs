@@ -97,6 +97,8 @@ fn main() {
         "SplitItem",
         "DestroyItem",
         "QuestlogRemove",
+        "SetFactionAtWar",
+        "SetFactionInactive",
         "ItemQuery",
         "QuestQuery",
         "NpcTextQuery",

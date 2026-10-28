@@ -336,3 +336,166 @@ fn check_failed_reputation_reopen(modifier: bool) {
     );
     assert_eq!(reputation(&c), gained);
 }
+
+#[test]
+fn actual_lua_reputation_controls_wait_for_save_then_reopen_without_invented_ack() {
+    use benilla_sim::reputation as r;
+    use benilla_ui::script::{FactionEntry, ReputationSend, ReputationState, UiScript};
+    let h = Harness::new();
+    let mut c = enter(&h, false, false, false);
+    c.initial_events().unwrap();
+    accept(&mut c, rep::OBJECTIVE);
+    let out = c.pump(c.tick_duration());
+    assert!(out.pause.is_none());
+    let flags = c
+        .world
+        .state()
+        .quest_progression
+        .as_ref()
+        .unwrap()
+        .reputation
+        .as_ref()
+        .unwrap()
+        .view()
+        .factions()[&7]
+        .flags;
+    assert_ne!(flags & r::VISIBLE, 0);
+    assert_eq!(flags & (r::AT_WAR | r::INACTIVE), 0);
+    let mut ui = UiScript::new().unwrap();
+    ui.set_reputation(ReputationState {
+        entries: vec![FactionEntry {
+            faction_id: rep::SPILLOVER,
+            rep_list_id: 7,
+            parent_id: 0,
+            name: "Authored visible faction".into(),
+            description: String::new(),
+            standing: 0,
+            standing_id: 4,
+            bar_min: 0,
+            bar_max: 3000,
+            visible: flags & r::VISIBLE != 0,
+            is_header: false,
+            at_war: flags & r::AT_WAR != 0,
+            can_toggle_at_war: true,
+            inactive: flags & r::INACTIVE != 0,
+        }],
+        watched: None,
+    });
+    ui.run("for i=1,GetNumFactions() do local name=GetFactionInfo(i); if name=='Authored visible faction' then FactionToggleAtWar(i); SetFactionInactive(i); break end end").unwrap();
+    let sends = ui.take_reputation_sends();
+    assert_eq!(
+        sends,
+        vec![
+            ReputationSend::AtWar {
+                rep_list_id: 7,
+                at_war: true
+            },
+            ReputationSend::Inactive {
+                rep_list_id: 7,
+                inactive: true
+            }
+        ]
+    );
+    for send in sends {
+        c.receive(match send {
+            ReputationSend::AtWar {
+                rep_list_id,
+                at_war,
+            } => ClientCommand::SetFactionAtWar {
+                rep_list_id,
+                at_war,
+            },
+            ReputationSend::Inactive {
+                rep_list_id,
+                inactive,
+            } => ClientCommand::SetFactionInactive {
+                rep_list_id,
+                inactive,
+            },
+            ReputationSend::Watch(_) => unreachable!(),
+        })
+        .unwrap();
+    }
+    let sequence = c.world.state().next_sequence;
+    fs::write(
+        h.path().join(".world-checkpoint.pending"),
+        b"authored save failure",
+    )
+    .unwrap();
+    let failed = c.pump(c.tick_duration());
+    assert!(matches!(
+        failed.pause.unwrap().kind,
+        PauseKind::Checkpoint {
+            requires_reopen: false
+        }
+    ));
+    assert!(failed.events.is_empty());
+    let state = c
+        .world
+        .state()
+        .quest_progression
+        .as_ref()
+        .unwrap()
+        .reputation
+        .as_ref()
+        .unwrap()
+        .view();
+    assert_eq!(state.factions()[&7].flags, flags | r::AT_WAR | r::INACTIVE);
+    assert!(state.factions()[&7].need_send && state.factions()[&7].need_save);
+    assert_eq!(c.world.state().next_sequence, sequence + 2);
+    let digest = c.world.state_digest();
+    fs::remove_file(h.path().join(".world-checkpoint.pending")).unwrap();
+    c.retry_checkpoint().unwrap();
+    let flushed = c.pump(Duration::ZERO);
+    assert!(flushed.pause.is_none());
+    assert!(!flushed.events.iter().any(|e| matches!(
+        e,
+        SessionEvent::Reputations { .. } | SessionEvent::ReputationDelta { .. }
+    )));
+    assert!(c.pump(Duration::ZERO).events.is_empty());
+    assert_eq!(c.world.state_digest(), digest);
+    assert!(
+        !c.initial_reputation_ack,
+        "no synthetic bootstrap ack after toggle"
+    );
+    drop(c);
+    let mut c = enter(&h, true, false, false);
+    assert_eq!(c.world.state_digest(), digest);
+    let events = c.initial_events().unwrap();
+    assert!(events.iter().any(|e| matches!(e, SessionEvent::Reputations { standings } if standings[7].0 as u32 == (flags | r::AT_WAR | r::INACTIVE))));
+    assert!(c.initial_reputation_ack);
+    c.receive(ClientCommand::SetFactionAtWar {
+        rep_list_id: 7,
+        at_war: false,
+    })
+    .unwrap();
+    c.receive(ClientCommand::SetFactionInactive {
+        rep_list_id: 7,
+        inactive: false,
+    })
+    .unwrap();
+    let out = c.pump(c.tick_duration());
+    assert!(out.pause.is_none());
+    assert!(!out.events.iter().any(|e| matches!(
+        e,
+        SessionEvent::Reputations { .. } | SessionEvent::ReputationDelta { .. }
+    )));
+    assert_eq!(
+        c.world
+            .state()
+            .quest_progression
+            .as_ref()
+            .unwrap()
+            .reputation
+            .as_ref()
+            .unwrap()
+            .view()
+            .factions()[&7]
+            .flags,
+        flags
+    );
+    let digest = c.world.state_digest();
+    drop(c);
+    let c = enter(&h, true, false, false);
+    assert_eq!(c.world.state_digest(), digest);
+}

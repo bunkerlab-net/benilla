@@ -109,7 +109,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v56\0",
+            b"benilla-native-profile-v57\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -499,6 +499,14 @@ pub enum Command {
     },
     /// Internal controller lifecycle acknowledgement; no network/UI request maps here.
     AcknowledgeInitialReputations,
+    SetFactionAtWar {
+        list_id: u32,
+        at_war: bool,
+    },
+    SetFactionInactive {
+        list_id: u32,
+        inactive: bool,
+    },
     ReleaseSpirit,
     AbandonQuest {
         slot: u8,

@@ -155,11 +155,11 @@ fn old_catalog_policy_rejects_even_with_rehashed_matching_checkpoint_context() {
     cp["state"]["profile"] = serde_json::to_value(old.digest()).unwrap();
     let state: crate::native::persistence::StateCheckpoint =
         serde_json::from_value(cp["state"].clone()).unwrap();
-    let digest = crate::digest(b"benilla-native-state-v56\0", &state);
+    let digest = crate::digest(b"benilla-native-state-v57\0", &state);
     let tip: crate::Digest = serde_json::from_value(cp["history_tip"].clone()).unwrap();
     cp["digest"] = serde_json::to_value(digest).unwrap();
     cp["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v56\0",
+        b"benilla-native-checkpoint-v57\0",
         &(&state, digest, tip),
     ))
     .unwrap();
