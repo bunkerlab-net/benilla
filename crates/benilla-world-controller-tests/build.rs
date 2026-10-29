@@ -117,6 +117,7 @@ fn main() {
     let wanted: BTreeSet<_> = [
         "Move",
         "MoveModeAck",
+        "MoveSplineDone",
         "ForceSpeedAck",
         "CancelCast",
         "CastSpell",

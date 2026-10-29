@@ -287,6 +287,7 @@ impl Run {
                     Event::NpcMotion {
                         id,
                         event: motion::Event::SplineLaunched { spline_id, .. },
+                        ..
                     } if id.spawn == owner => Some(*spline_id),
                     _ => None,
                 })

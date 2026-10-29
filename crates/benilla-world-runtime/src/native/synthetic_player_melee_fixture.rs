@@ -291,6 +291,13 @@ pub(in crate::native) fn profile_with_options_and_spell(
     profile = synthetic_creature_generation_fixture::install(profile, sources, vec![2, 3]);
     profile.initialize_quest_progression(&input, rows).unwrap();
     profile.initialize_facing_authority().unwrap();
+    if source_fireball {
+        let mut source = crate::native::synthetic_spell_fixture::source(&profile);
+        source.spells[0].words[21] |= 8;
+        profile.initialize_spell_authority(&input, source).unwrap();
+        crate::native::synthetic_spell_fixture::initialize_authored_location(&mut profile);
+    }
+    // Seal raw initialization before adding the independently owned death policy.
     if fragile_player {
         use benilla_sim::player_death as death;
         profile
@@ -305,12 +312,6 @@ pub(in crate::native) fn profile_with_options_and_spell(
                 .unwrap(),
             )
             .unwrap();
-    }
-    if source_fireball {
-        let mut source = crate::native::synthetic_spell_fixture::source(&profile);
-        source.spells[0].words[21] |= 8;
-        profile.initialize_spell_authority(&input, source).unwrap();
-        crate::native::synthetic_spell_fixture::initialize_authored_location(&mut profile);
     }
     profile.initialize_player_melee(1).unwrap();
     profile

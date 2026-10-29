@@ -551,16 +551,34 @@ impl<A: Authority> Frame<'_, A> {
         self.state.npcs.insert(id, npc);
         Ok(())
     }
+    fn emit_source_motion(&mut self, id: NpcId, event: m::Event) -> Result<(), NativeError> {
+        let ordinal = match &event {
+            m::Event::SplineLaunched { spline_id, .. }
+            | m::Event::SplineInterrupted { spline_id, .. } => Some(*spline_id),
+            _ => None,
+        };
+        let allocation = match (&mut self.state.source_splines, ordinal) {
+            (Some(ids), Some(ordinal)) => Some(ids.allocate(id.spawn, ordinal)?),
+            _ => None,
+        };
+        self.events.push(Event::NpcMotion {
+            id,
+            event,
+            allocation,
+        });
+        Ok(())
+    }
     fn source_motion_events(
         &mut self,
         npc: &mut Npc,
         events: Vec<m::Event>,
     ) -> Result<(), NativeError> {
-        let g = self
+        let relocation_delay = self
             .profile
             .source_motion
             .as_ref()
-            .ok_or(NativeError::InvalidState)?;
+            .ok_or(NativeError::InvalidState)?
+            .relocation_aggro_delay_ms;
         let source = npc
             .source_motion
             .as_mut()
@@ -569,9 +587,7 @@ impl<A: Authority> Frame<'_, A> {
             match event {
                 m::Event::Relocated {
                     notify_map: true, ..
-                } => npc
-                    .events
-                    .schedule_notify(g.relocation_aggro_delay_ms, false)?,
+                } => npc.events.schedule_notify(relocation_delay, false)?,
                 m::Event::HomeStarted { .. } => source.active = true,
                 m::Event::HomeReached { restore_inactive } => {
                     if restore_inactive {
@@ -581,7 +597,7 @@ impl<A: Authority> Frame<'_, A> {
                 }
                 _ => {}
             }
-            self.events.push(Event::NpcMotion { id: npc.id, event });
+            self.emit_source_motion(npc.id, event)?;
         }
         Ok(())
     }
@@ -702,7 +718,7 @@ impl<A: Authority> Frame<'_, A> {
                 let source = npc.source_motion.as_mut().unwrap();
                 source.motion.begin_map_frame(self.state.now_ms)?;
                 let event = source.motion.stop_for_death()?;
-                self.events.push(Event::NpcMotion { id: npc.id, event });
+                self.emit_source_motion(npc.id, event)?;
             }
             ai::Effect::CorpseRemoved => {
                 let source = npc.source_motion.as_mut().unwrap();
@@ -1023,7 +1039,7 @@ impl<A: Authority> Frame<'_, A> {
                                 npc.source_collision_height.as_ref(),
                                 |a| source.motion.face_target(player_position, a),
                             )?;
-                            self.events.push(Event::NpcMotion { id: npc.id, event });
+                            self.emit_source_motion(npc.id, event)?;
                             Ok(ai::MainhandResult::Unchanged)
                         }
                         ai::OrderedHook::Mainhand {

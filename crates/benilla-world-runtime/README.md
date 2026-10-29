@@ -207,7 +207,7 @@ source gate or change the integer armor policy.
 
 See [SPELL-AUTHORITY.md](SPELL-AUTHORITY.md) for the bounded ID133 source spell
 host, complete raw input dependencies, phase/scheduler ownership, numeric oracle
-and native simulation checkpoint/record format 67. This is not production content
+and native simulation checkpoint/record format 68. This is not production content
 admission or stock Fireball certification.
 
 See [FACING-AUTHORITY.md](FACING-AUTHORITY.md) for explicit current-request
@@ -229,3 +229,10 @@ a registered original with the same entry remains carried. The selected receipt
 must preserve every registered instance; unselected quest consumption and
 registered-item destruction remain unsupported. No old-save migration or native
 admission is provided.
+
+Native format 68 (`benilla-native-source-thread-spline-ids-v68`) requires the optional shared
+spline-ID owner. Its bounded source-thread domain includes actual NPC allocation
+callbacks and the first-life player forced stop; profiles outside that domain
+retain the older partial motion lane. Compact endpoints prove reachable
+interleaving, while TickRecord replay establishes callback order. No old-save
+migration, ghost/recovery capability, or native admission is provided.

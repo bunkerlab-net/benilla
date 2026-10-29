@@ -128,6 +128,11 @@ impl<A: Authority> Frame<'_, A> {
         for action in actions {
             self.events.push(Event::Death(action.clone()));
             match action {
+                d::DeathAction::StopMoving => {
+                    if let Some(stop) = SourceSplineIds::stop_player(self.state)? {
+                        self.events.push(Event::PlayerSplineStopped(stop));
+                    }
+                }
                 d::DeathAction::SetHealthZero => self.state.health = 0,
                 d::DeathAction::NpcDeathDurabilityLoss => self.death_equipment_loss()?,
                 d::DeathAction::ClearAllReactives => {

@@ -309,7 +309,7 @@ fn creation_uses_source_orientation_and_rejoins_validated_active_spline_clock() 
     movement
         .advance(10_000, None, source_input(), &mut OriginalRoute)
         .unwrap();
-    assert!(create_spline(&npc).unwrap().is_none());
+    assert!(create_spline(&npc, None).unwrap().is_none());
 }
 
 #[derive(Default)]
@@ -368,7 +368,7 @@ fn committed_runtime_trace_projects_only_real_multi_point_launches_and_stops() {
             .events
             .iter()
             .filter_map(|event| match event {
-                n::Event::NpcMotion { id, event } => Some((*id, event)),
+                n::Event::NpcMotion { id, event, .. } => Some((*id, event)),
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -675,9 +675,17 @@ fn recorded_launch_then_death_stop_keeps_order_for_a_represented_zero_health_npc
     assert!(movement.snapshot().spline.is_none());
     let mut recorded = launches
         .into_iter()
-        .map(|event| n::Event::NpcMotion { id, event })
+        .map(|event| n::Event::NpcMotion {
+            id,
+            event,
+            allocation: None,
+        })
         .collect::<Vec<_>>();
-    recorded.push(n::Event::NpcMotion { id, event: stop });
+    recorded.push(n::Event::NpcMotion {
+        id,
+        event: stop,
+        allocation: None,
+    });
     let represented = BTreeMap::from([(id, guid)]);
     for disappears in [false, true] {
         let mut frame = Frame::new(&represented, world.state(), &world).unwrap();
@@ -689,7 +697,7 @@ fn recorded_launch_then_death_stop_keeps_order_for_a_represented_zero_health_npc
         }
         let offset = projected.len();
         for event in &recorded {
-            let n::Event::NpcMotion { id, event } = event else {
+            let n::Event::NpcMotion { id, event, .. } = event else {
                 unreachable!()
             };
             projected.extend(
@@ -716,7 +724,7 @@ fn recorded_launch_then_death_stop_keeps_order_for_a_represented_zero_health_npc
             projected.push(frame.remove(id).unwrap());
             assert!(matches!(projected[offset + 2], SessionEvent::ObjectDestroyed(g) if g == guid));
             frame.finish(&BTreeMap::new()).unwrap();
-            let n::Event::NpcMotion { id, event } = &recorded[0] else {
+            let n::Event::NpcMotion { id, event, .. } = &recorded[0] else {
                 unreachable!()
             };
             assert!(matches!(
@@ -847,4 +855,379 @@ fn lethal_first_hit_projects_launch_damage_stop_before_zero_corpse_destruction_a
             assert!(respawned);
         }
     }
+}
+
+struct SharedSplineCatalog(super::super::quests::tests::Catalog);
+impl SharedSplineCatalog {
+    fn new(world: &n::NativeWorld) -> Self {
+        Self(super::super::quests::tests::Catalog::new(world))
+    }
+}
+impl ClientCatalog for SharedSplineCatalog {
+    fn build(&self) -> u32 {
+        self.0.build()
+    }
+    fn manifest_digest(&self) -> Digest {
+        self.0.manifest_digest()
+    }
+    fn contains_map(&self, id: u32) -> bool {
+        self.0.contains_map(id)
+    }
+    fn contains_creature_display(&self, id: u32) -> bool {
+        matches!(id, 31 | 34 | 131 | 134)
+    }
+    fn contains_item_display(&self, id: u32) -> bool {
+        id == 900002
+    }
+    fn contains_spell(&self, id: u32) -> bool {
+        matches!(id, 81 | 133 | 3050) || self.0.contains_spell(id)
+    }
+    fn player_power_type(&self, id: PlayerId) -> Option<u8> {
+        self.0.player_power_type(id)
+    }
+    fn player_bytes_2(&self, id: PlayerId) -> Option<u32> {
+        self.0.player_bytes_2(id)
+    }
+    fn item_metadata(&self, id: u32) -> Option<p::ItemInfo> {
+        self.0.item_metadata(id)
+    }
+    fn quest_metadata(&self, id: u32) -> Option<crate::QuestMetadata> {
+        self.0.quest_metadata(id)
+    }
+    fn quest_greeting(&self, id: u32) -> Option<String> {
+        self.0.quest_greeting(id)
+    }
+    fn native_quest_greeting(&self, id: u32) -> Option<crate::NativeQuestGreeting> {
+        self.0.native_quest_greeting(id)
+    }
+    fn native_quest_presentation(&self, id: u32) -> Option<crate::NativeQuestPresentation> {
+        self.0.native_quest_presentation(id)
+    }
+}
+
+#[test]
+fn shared_source_ids_reject_bad_event_receipts_without_advancing_private_frame() {
+    let world = n::synthetic_source_spline_fixture::world();
+    let id = world.state().npcs[&2].id;
+    let represented = BTreeMap::from([(id, 77)]);
+    let mut frame = Frame::new(&represented, world.state(), &world).unwrap();
+    let before = frame.ids.clone();
+    let good = n::SplineAllocation {
+        owner: id.spawn,
+        ordinal: 1,
+        wire_id: 1,
+    };
+    for bad in [
+        n::SplineAllocation { wire_id: 2, ..good },
+        n::SplineAllocation { ordinal: 2, ..good },
+        n::SplineAllocation { owner: 3, ..good },
+    ] {
+        assert!(frame
+            .project_motion(
+                id,
+                &launch(1, source::Facing::Tangent, false),
+                Some(bad),
+                55
+            )
+            .is_err());
+        assert_eq!(frame.ids, before);
+    }
+    assert!(frame
+        .project_motion(
+            npc(id.spawn, id.generation + 1),
+            &launch(1, source::Facing::Tangent, false),
+            Some(good),
+            55
+        )
+        .is_err());
+    assert_eq!(frame.ids, before);
+    assert!(frame
+        .project_motion(
+            id,
+            &source::Event::FacingChanged {
+                orientation: real(0.5)
+            },
+            Some(good),
+            55
+        )
+        .is_err());
+    assert_eq!(frame.ids, before);
+    assert!(frame
+        .project_motion(
+            id,
+            &launch(1, source::Facing::Target(99), false),
+            Some(good),
+            55
+        )
+        .is_err());
+    assert_eq!(
+        frame.ids, before,
+        "packet validation failure must not consume an allocation"
+    );
+    assert!(frame
+        .project_motion(id, &launch(1, source::Facing::Tangent, false), None, 55)
+        .is_err());
+    assert_eq!(frame.ids, before);
+    assert!(matches!(
+        frame
+            .project_motion(
+                id,
+                &launch(1, source::Facing::Tangent, false),
+                Some(good),
+                55
+            )
+            .unwrap(),
+        Some(SessionEvent::MonsterMove { spline_id: 1, .. })
+    ));
+    assert_eq!(frame.ids.as_ref().unwrap().next_wire_id(), 2);
+}
+
+#[test]
+fn shared_source_ids_project_detached_component_launch_and_stop_in_callback_order() {
+    // A focused real component callback batch, not an admitted replacement NPC.
+    let world = n::synthetic_source_spline_fixture::world();
+    let id = world.state().npcs[&2].id;
+    let mut motion = world.state().npcs[&2]
+        .source_motion
+        .as_ref()
+        .unwrap()
+        .motion
+        .clone();
+    let mut events = motion
+        .start_chase(
+            source::Target {
+                movement_flags: source::GroundMovementFlags::STOPPED,
+                id: n::SOLO_UNIT,
+                pose: source::Pose {
+                    position: at(16.0),
+                    orientation: ai::Real::ZERO,
+                },
+                combat_reach: world.profile().player.combat_reach,
+                bounding_radius: world.profile().player.bounding_radius,
+                collision_height: real(2.0),
+            },
+            false,
+            source_input(),
+            &mut OriginalRoute,
+        )
+        .unwrap();
+    events.push(motion.stop_for_death().unwrap());
+    assert_eq!(
+        motion.snapshot().spline_id,
+        2,
+        "component already owns final ordinal before callbacks are projected"
+    );
+    let represented = BTreeMap::from([(id, 77)]);
+    let mut frame = Frame::new(&represented, world.state(), &world).unwrap();
+    let mut packets = vec![];
+    for event in &events {
+        let ordinal = match event {
+            source::Event::SplineLaunched { spline_id, .. }
+            | source::Event::SplineInterrupted { spline_id, .. } => Some(*spline_id),
+            _ => None,
+        };
+        let receipt = ordinal.map(|ordinal| n::SplineAllocation {
+            owner: id.spawn,
+            ordinal,
+            wire_id: ordinal as u32,
+        });
+        packets.extend(frame.project_motion(id, event, receipt, 55).unwrap());
+    }
+    assert!(matches!(
+        packets.as_slice(),
+        [
+            SessionEvent::MonsterMove {
+                spline_id: 1,
+                stop: false,
+                ..
+            },
+            SessionEvent::MonsterMove {
+                spline_id: 2,
+                stop: true,
+                ..
+            }
+        ]
+    ));
+    assert_eq!(frame.ids.as_ref().unwrap().next_wire_id(), 3);
+}
+
+#[test]
+fn shared_source_active_rejoin_retains_wire_id_without_allocating() {
+    let mut world = n::synthetic_source_spline_fixture::surviving_world();
+    let mut authority = n::synthetic_source_spline_fixture::CompleteAuthority::default();
+    let mut projection = NativeProjection::new(
+        &world,
+        world.state().player,
+        &SharedSplineCatalog::new(&world),
+    )
+    .unwrap();
+    // Force a different owner to allocate first, so a local ordinal cannot
+    // accidentally pass as the shared wire ID during CreateSpline rejoin.
+    let victim = world.state().npcs[&3].id;
+    let cast = n::synthetic_quest_fixture::command(
+        &world,
+        n::Command::Cast {
+            ability: 133,
+            target: victim,
+        },
+    );
+    world.step(1, Some(cast), &mut authority).unwrap();
+    for _ in 0..100 {
+        projection.advance(&world).unwrap();
+        if world.state().npcs[&3].health == 0 {
+            break;
+        }
+        world
+            .step(world.state().tick + 1, None, &mut authority)
+            .unwrap();
+    }
+    assert_eq!(
+        world.state().npcs[&3].health,
+        0,
+        "real Fireball must allocate the other owner's death stop"
+    );
+    assert!(world
+        .records()
+        .iter()
+        .flat_map(|r| &r.events)
+        .any(|event| matches!(event,
+            n::Event::NpcMotion { id, allocation: Some(_), .. } if id.spawn == 3
+        )));
+    let target = world.state().npcs[&2].id;
+    let movement = n::synthetic_quest_fixture::command(
+        &world,
+        n::Command::MovementPose {
+            destination: at(12.0),
+            orientation: benilla_world_runtime::native::Orientation::new(std::f32::consts::PI)
+                .unwrap(),
+            movement_flags: source::GroundMovementFlags::STOPPED,
+        },
+    );
+    world
+        .step(world.state().tick + 1, Some(movement), &mut authority)
+        .unwrap();
+    projection.advance(&world).unwrap();
+    // A defensive creature does not chase an out-of-range player attack toggle.
+    // A genuine spell hit establishes the NPC's source combat/threat owner.
+    let hit = n::synthetic_quest_fixture::command(
+        &world,
+        n::Command::Cast {
+            ability: 133,
+            target,
+        },
+    );
+    world
+        .step(world.state().tick + 1, Some(hit), &mut authority)
+        .unwrap();
+    let mut seen = false;
+    for _ in 0..100 {
+        let events = projection.advance(&world).unwrap();
+        for event in &world.last_tick().unwrap().events {
+            if let n::Event::NpcMotion {
+                id,
+                allocation: Some(receipt),
+                ..
+            } = event
+            {
+                let guid = projection.npc_guid(*id).unwrap();
+                assert!(events.iter().any(|e| matches!(e, SessionEvent::MonsterMove { guid: g, spline_id, .. } if *g == guid && *spline_id == receipt.wire_id)));
+            }
+        }
+        let state_before = world.checkpoint().unwrap();
+        let ids = world.state().source_splines.as_ref().unwrap();
+        if let Some(active) = create_spline(&world.state().npcs[&2], Some(ids)).unwrap() {
+            let local = world.state().npcs[&2]
+                .source_motion
+                .as_ref()
+                .unwrap()
+                .motion
+                .snapshot()
+                .spline
+                .unwrap()
+                .spline_id;
+            assert_ne!(
+                u64::from(active.id),
+                local,
+                "rejoin must exercise a genuinely shared, not owner-local ID"
+            );
+            assert_eq!(active.id, ids.wire_id(target.spawn, local).unwrap());
+            let restored = n::NativeWorld::restore_synthetic_component_test(
+                world.profile().clone(),
+                state_before.clone(),
+            )
+            .unwrap();
+            let fresh = NativeProjection::new(
+                &restored,
+                restored.state().player,
+                &SharedSplineCatalog::new(&restored),
+            )
+            .unwrap();
+            let guid = fresh.npc_guid(target).unwrap();
+            let initial = fresh.initial_events(&restored).unwrap();
+            assert!(initial.iter().any(|e| matches!(e, SessionEvent::ObjectCreate { guid: g, spline: Some(spline), .. } if *g == guid && spline.id == active.id && spline.time_passed_ms == active.time_passed_ms)));
+            assert_eq!(restored.checkpoint().unwrap(), state_before);
+            assert_eq!(
+                restored.state().source_splines,
+                world.state().source_splines
+            );
+            seen = true;
+            break;
+        }
+        world
+            .step(world.state().tick + 1, None, &mut authority)
+            .unwrap();
+    }
+    assert!(seen, "real chase must expose an active source spline for rejoin: position={:?} npc_health={} phase={:?} ordinal={} casts={} mana={} events={:?}", world.state().position, world.state().npcs[&2].health, world.state().npcs[&2].ai.phase(), world.state().npcs[&2].source_motion.as_ref().unwrap().motion.snapshot().spline_id, world.state().casts.len(), world.state().resources.caster.mana, world.records().iter().flat_map(|r| &r.events).filter(|e| matches!(e, n::Event::Rejected(_) | n::Event::Spell { .. })).collect::<Vec<_>>());
+}
+
+#[test]
+fn shared_source_actual_player_death_projects_one_stop_at_retained_pose() {
+    let mut world = n::synthetic_source_spline_fixture::world();
+    let mut authority = n::synthetic_source_spline_fixture::CompleteAuthority::default();
+    let mut projection = NativeProjection::new(
+        &world,
+        world.state().player,
+        &SharedSplineCatalog::new(&world),
+    )
+    .unwrap();
+    let target = world.state().npcs[&2].id;
+    let input = n::synthetic_quest_fixture::command(&world, n::Command::AttackStart { target });
+    world.step(1, Some(input), &mut authority).unwrap();
+    let mut seen = 0;
+    for _ in 0..100 {
+        let packets = projection.advance(&world).unwrap();
+        for event in &world.last_tick().unwrap().events {
+            if let n::Event::PlayerSplineStopped(stop) = event {
+                seen += 1;
+                assert!(packets.iter().any(|e| matches!(e, SessionEvent::MonsterMove { guid, spline_id, start, stop: true, path, .. } if *guid == projection.player_guid() && *spline_id == stop.allocation.wire_id && *start == point(stop.position) && path.is_empty())));
+                assert_eq!(stop.position, world.state().position);
+                assert_eq!(world.state().health, 0);
+            }
+        }
+        if world.state().health == 0 {
+            break;
+        }
+        world
+            .step(world.state().tick + 1, None, &mut authority)
+            .unwrap();
+    }
+    assert_eq!(seen, 1);
+    let saved = world.checkpoint().unwrap();
+    let restored =
+        n::NativeWorld::restore_synthetic_component_test(world.profile().clone(), saved.clone())
+            .unwrap();
+    let fresh = NativeProjection::new(
+        &restored,
+        restored.state().player,
+        &SharedSplineCatalog::new(&restored),
+    )
+    .unwrap();
+    let initial = fresh.initial_events(&restored).unwrap();
+    assert!(
+        !initial.iter().any(
+            |e| matches!(e, SessionEvent::MonsterMove { guid, .. } if *guid == fresh.player_guid())
+        ),
+        "rejoining does not allocate or resend a historical forced stop"
+    );
+    assert_eq!(restored.checkpoint().unwrap(), saved);
 }

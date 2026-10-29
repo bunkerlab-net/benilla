@@ -55,7 +55,7 @@ only by the source class/outcome/alive conditions and expire in NPC Unit update.
 
 ## Persistence contract
 
-Native format 67 rejects older envelopes; no migration is provided. Existing
+Native format 68 rejects older envelopes; no migration is provided. Existing
 unrelated callback hash domains retain their prior versions.
 
 The bounded player proof retains the latest writers of lifecycle, BASE, OFF and
@@ -95,3 +95,10 @@ a registered original with the same entry remains carried. The selected receipt
 must preserve every registered instance; unselected quest consumption and
 registered-item destruction remain unsupported. No old-save migration or native
 admission is provided.
+
+Native format 68 (`benilla-native-source-thread-spline-ids-v68`) requires the optional shared
+spline-ID owner. Its bounded source-thread domain includes actual NPC allocation
+callbacks and the first-life player forced stop; profiles outside that domain
+retain the older partial motion lane. Compact endpoints prove reachable
+interleaving, while TickRecord replay establishes callback order. No old-save
+migration, ghost/recovery capability, or native admission is provided.

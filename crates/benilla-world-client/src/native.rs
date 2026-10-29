@@ -781,7 +781,7 @@ impl NativeProjection {
                 mover: None,
                 transport_progress: None,
                 transport: None,
-                spline: motion::create_spline(npc)?,
+                spline: motion::create_spline(npc, w.state().source_splines.as_ref())?,
                 fields: fields.into_created(p::ObjectType::Unit),
             },
         ])
@@ -1224,9 +1224,12 @@ impl NativeProjection {
                 | n::Event::PlayerSwingError { .. } => {
                     events.push(player_melee_event(event, self.player_guid, target_guid)?);
                 }
-                n::Event::NpcMotion { id, event } => {
-                    let frame = source_frame.as_ref().ok_or(Error::StaleProjection)?;
-                    events.extend(motion::project(*id, event, self.player_guid, frame.represented())?);
+                n::Event::PlayerSplineStopped(stop) => {
+                    events.push(source_frame.as_mut().ok_or(Error::StaleProjection)?.player_stop(stop, self.player_guid)?);
+                }
+                n::Event::NpcMotion { id, event, allocation } => {
+                    let frame = source_frame.as_mut().ok_or(Error::StaleProjection)?;
+                    events.extend(frame.project_motion(*id, event, *allocation, self.player_guid)?);
                 }
                 n::Event::Npc { id, effect } => match effect {
                     ai::Effect::CorpseRemoved if source_frame.is_some() => {
@@ -1283,6 +1286,7 @@ impl NativeProjection {
         }
         if let Some(frame) = &source_frame {
             frame.finish(&next)?;
+            frame.finish_ids(w.state())?;
         }
         quest_frame.finish(w)?;
         loot_frame.validate_final(w)?;

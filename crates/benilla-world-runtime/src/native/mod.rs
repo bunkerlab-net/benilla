@@ -59,6 +59,10 @@ mod loot;
 pub use loot::*;
 mod event_ai;
 pub use event_ai::*;
+mod source_splines;
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub mod synthetic_source_spline_fixture;
+pub use source_splines::{PlayerSplineStop, SourceSplineIds, SplineAllocation};
 mod engine;
 pub mod environment;
 mod npc_events;
@@ -133,8 +137,8 @@ pub use persistence::{PendingWanderAndChaseReopen, PendingWanderReopen};
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 67;
-pub const NATIVE_POLICY: &str = "benilla-native-selected-duplicate-destroy-v67";
+pub const NATIVE_FORMAT_VERSION: u32 = 68;
+pub const NATIVE_POLICY: &str = "benilla-native-source-thread-spline-ids-v68";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -424,6 +428,7 @@ impl NativeWorld {
             player_events.schedule_notify(0, false)?;
         }
         let mut state = State {
+            source_splines: SourceSplineIds::new(&profile),
             watched_faction: watched_faction::WatchedFactionState::default(),
             action_bar_toggles: action_bar_toggles::ActionBarTogglesState::default(),
             player_melee: None,
@@ -488,7 +493,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v67\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v68\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest

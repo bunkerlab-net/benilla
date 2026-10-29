@@ -1293,6 +1293,9 @@ impl Driven for NativeController {
                 self.preview_quest(giver, quest, true)?;
                 events.push(self.projection.quest_offer(&self.world, quest, giver)?);
             }
+            // Pinned TaxiHandler parses this acknowledgement but performs no state update.
+            ClientCommand::MoveSplineDone { .. } if self.world.state().source_splines.is_some() => {
+            }
             ClientCommand::RepopRequest => self.queue(n::Command::ReleaseSpirit)?,
             ClientCommand::SetActiveMover { guid } if guid == self.player_guid() => {}
             ClientCommand::WorldportAck | ClientCommand::SetSelection { .. } => {}

@@ -958,7 +958,7 @@ fn loaded_random_death_interrupts_and_respawn_constructs_a_fresh_owner() {
         "actual lethal source spell"
     );
     assert!(world.records().iter().flat_map(|record| &record.events).any(|event|
-        matches!(event, Event::NpcMotion { id, event: motion::Event::SplineInterrupted { .. } } if *id == old_id)),
+        matches!(event, Event::NpcMotion { id, event: motion::Event::SplineInterrupted { .. }, .. } if *id == old_id)),
         "death interrupts the real default spline");
     assert!(snapshot(&world).spline.is_none());
     assert_dry_owner(&world);

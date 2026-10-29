@@ -80,9 +80,9 @@ fn changed(w: &NativeWorld, mutate: impl FnOnce(&mut serde_json::Value)) -> Chec
         "mutation must change the checkpoint"
     );
     cp.state = serde_json::from_value(state).unwrap();
-    cp.digest = crate::digest(b"benilla-native-state-v67\0", &cp.state);
+    cp.digest = crate::digest(b"benilla-native-state-v68\0", &cp.state);
     cp.checksum = crate::digest(
-        b"benilla-native-checkpoint-v67\0",
+        b"benilla-native-checkpoint-v68\0",
         &(&cp.state, cp.digest, cp.history_tip),
     );
     cp

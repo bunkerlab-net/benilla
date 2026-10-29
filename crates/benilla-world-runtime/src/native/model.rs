@@ -109,7 +109,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v67\0",
+            b"benilla-native-profile-v68\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -427,6 +427,7 @@ impl Npc {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct State {
+    pub source_splines: Option<SourceSplineIds>,
     pub(super) action_bar_toggles: action_bar_toggles::ActionBarTogglesState,
     pub(super) watched_faction: watched_faction::WatchedFactionState,
     pub(super) player_melee: Option<player_melee::PlayerMeleeState>,
@@ -655,7 +656,10 @@ pub enum Event {
         reason: AdminRejection,
     },
     PlayerSlow(PlayerSlowEvent),
+    PlayerSplineStopped(PlayerSplineStop),
     NpcMotion {
+        #[serde(deserialize_with = "creature_collision_width::required_option")]
+        allocation: Option<SplineAllocation>,
         id: NpcId,
         event: benilla_sim::creature_motion::Event,
     },

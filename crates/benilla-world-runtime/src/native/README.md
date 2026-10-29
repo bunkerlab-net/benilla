@@ -11,7 +11,7 @@ The opt-in `synthetic-native-tests` feature exposes only synthetic construction 
 restoration. Feature unification, preparation JSON, hashes, and source initializer
 outputs cannot produce `NativeCapability`. Fabricated test rows are not native data.
 
-Native format 67, `benilla-native-selected-duplicate-destroy-v67`, retains the selected
+Native format 68, `benilla-native-source-thread-spline-ids-v68`, retains the selected
 [player mainhand policy](../../PLAYER-MELEE.md), required optional player proof
 and NPC defense reactive state, retained generic-cast slot context and
 spell target-death lifecycle causes in the bounded melee proof. Backpack stack-split
@@ -233,7 +233,7 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
   binary64; source comparison is strict promoted-float chance > double roll
 - Draw records bind semantic purpose/action/NPC generation. Action chains bind full
   current defense/cast/resource snapshots, so same-HP misses cannot be reused
-- Checkpoints bind native format 67, policy, RNG mapping, domain, content, authority, geometry,
+- Checkpoints bind native format 68, policy, RNG mapping, domain, content, authority, geometry,
   history-chain tip, cooldown maps, recomputable casts/auras, AI lifecycle/motion,
   exact mana timers, skills/reactive/combat clocks, checked equipment recipes and
   [per-NPC event ownership](../../NPC-EVENTS.md) with DEAD/respawn clock continuity
@@ -475,3 +475,10 @@ a registered original with the same entry remains carried. The selected receipt
 must preserve every registered instance; unselected quest consumption and
 registered-item destruction remain unsupported. No old-save migration or native
 admission is provided.
+
+Native format 68 (`benilla-native-source-thread-spline-ids-v68`) requires the optional shared
+spline-ID owner. Its bounded source-thread domain includes actual NPC allocation
+callbacks and the first-life player forced stop; profiles outside that domain
+retain the older partial motion lane. Compact endpoints prove reachable
+interleaving, while TickRecord replay establishes callback order. No old-save
+migration, ghost/recovery capability, or native admission is provided.

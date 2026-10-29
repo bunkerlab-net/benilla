@@ -497,7 +497,7 @@ fn two_owner_retaliation_and_two_real_auras_advance_once_with_independent_motion
     assert_eq!(w.state.npcs[&3].ai.phase(), ai::Phase::Combat);
     assert_eq!(w.profile.npcs[1].ai.reaction, ai::Reaction::Aggressive);
     assert!(w.profile.npcs[1].ai.neutral_to_all);
-    assert!(w.records().iter().flat_map(|record| &record.events).any(|event| matches!(event,Event::NpcMotion{id,event:benilla_sim::creature_motion::Event::SplineLaunched{..}} if id.spawn==3)));
+    assert!(w.records().iter().flat_map(|record| &record.events).any(|event| matches!(event,Event::NpcMotion{id,event:benilla_sim::creature_motion::Event::SplineLaunched{..}, .. } if id.spawn==3)));
     let first_splines = [2, 3].map(|owner| {
         w.records()
             .iter()
@@ -506,6 +506,7 @@ fn two_owner_retaliation_and_two_real_auras_advance_once_with_independent_motion
                 Event::NpcMotion {
                     id,
                     event: benilla_sim::creature_motion::Event::SplineLaunched { spline_id, .. },
+                    ..
                 } if id.spawn == owner => Some(*spline_id),
                 _ => None,
             })
@@ -648,9 +649,9 @@ fn two_owner_reached_peer_attack_never_installs_peer_targets_or_commits() {
 
 fn rehash_checkpoint(value: serde_json::Value) -> Checkpoint {
     let mut checkpoint: Checkpoint = serde_json::from_value(value).unwrap();
-    checkpoint.digest = crate::digest(b"benilla-native-state-v67\0", &checkpoint.state);
+    checkpoint.digest = crate::digest(b"benilla-native-state-v68\0", &checkpoint.state);
     checkpoint.checksum = crate::digest(
-        b"benilla-native-checkpoint-v67\0",
+        b"benilla-native-checkpoint-v68\0",
         &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
     );
     checkpoint

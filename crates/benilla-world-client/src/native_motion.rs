@@ -10,7 +10,10 @@ mod path;
 /// restarting at the saved map pose or waiting for a future replan.
 /// The existing presentation type carries total duration, not source per-segment
 /// timestamps or final facing. Its interpolation never supplies authority facts.
-pub(super) fn create_spline(npc: &n::Npc) -> Result<Option<p::CreateSpline>, Error> {
+pub(super) fn create_spline(
+    npc: &n::Npc,
+    ids: Option<&n::SourceSplineIds>,
+) -> Result<Option<p::CreateSpline>, Error> {
     let Some(source) = &npc.source_motion else {
         return Ok(None);
     };
@@ -27,7 +30,12 @@ pub(super) fn create_spline(npc: &n::Npc) -> Result<Option<p::CreateSpline>, Err
         .ok_or(Error::Unrepresentable)?;
     Ok(Some(p::CreateSpline {
         path: active.spline.points.into_iter().map(point).collect(),
-        id: u32::try_from(active.spline_id).map_err(|_| Error::Unrepresentable)?,
+        id: match ids {
+            Some(ids) => ids
+                .wire_id(npc.id.spawn, active.spline_id)
+                .map_err(|_| Error::StaleProjection)?,
+            None => u32::try_from(active.spline_id).map_err(|_| Error::Unrepresentable)?,
+        },
         time_passed_ms: active.spline.elapsed_ms,
         duration_ms,
         flying: false,
@@ -39,6 +47,7 @@ pub(super) fn create_spline(npc: &n::Npc) -> Result<Option<p::CreateSpline>, Err
 /// Source lifecycle packets follow the journal, preserving motion emitted before
 /// same-tick death/removal rather than consulting only final alive/visible state.
 pub(super) struct Frame {
+    ids: Option<n::SourceSplineIds>,
     represented: BTreeMap<NpcId, u64>,
     previous_guids: BTreeMap<u64, NpcId>,
 }
@@ -58,10 +67,69 @@ impl Frame {
             }
         }
         Ok(Self {
+            ids: previous.source_splines.clone(),
             represented: represented.clone(),
             previous_guids,
         })
     }
+    pub(super) fn project_motion(
+        &mut self,
+        id: NpcId,
+        event: &source::Event,
+        allocation: Option<n::SplineAllocation>,
+        player_guid: u64,
+    ) -> Result<Option<SessionEvent>, Error> {
+        self.guid(&id)?;
+        let mut result = project(id, event, player_guid, &self.represented)?;
+        let ordinal = match event {
+            source::Event::SplineLaunched { spline_id, .. }
+            | source::Event::SplineInterrupted { spline_id, .. } => Some(*spline_id),
+            _ => None,
+        };
+        let wire = match (&mut self.ids, ordinal, allocation) {
+            (Some(ids), Some(ordinal), Some(a)) if a.owner == id.spawn && a.ordinal == ordinal => {
+                ids.observe(a).map_err(|_| Error::StaleProjection)?;
+                Some(a.wire_id)
+            }
+            (Some(_), None, None) | (None, _, None) => None,
+            _ => return Err(Error::StaleProjection),
+        };
+        if let (Some(wire), Some(SessionEvent::MonsterMove { spline_id, .. })) = (wire, &mut result)
+        {
+            *spline_id = wire;
+        }
+        Ok(result)
+    }
+    pub(super) fn player_stop(
+        &mut self,
+        stop: &n::PlayerSplineStop,
+        player_guid: u64,
+    ) -> Result<SessionEvent, Error> {
+        self.ids
+            .as_mut()
+            .ok_or(Error::StaleProjection)?
+            .observe_player_stop(stop)
+            .map_err(|_| Error::StaleProjection)?;
+        Ok(SessionEvent::MonsterMove {
+            guid: player_guid,
+            transport: None,
+            start: point(stop.position),
+            spline_id: stop.allocation.wire_id,
+            path: vec![],
+            facing: p::MonsterMoveFacing::None,
+            stop: true,
+            duration_ms: 0,
+            flying: false,
+            run_mode: true,
+        })
+    }
+    pub(super) fn finish_ids(&self, state: &n::State) -> Result<(), Error> {
+        if self.ids != state.source_splines {
+            return Err(Error::StaleProjection);
+        }
+        Ok(())
+    }
+    #[cfg(test)]
     pub(super) fn represented(&self) -> &BTreeMap<NpcId, u64> {
         &self.represented
     }

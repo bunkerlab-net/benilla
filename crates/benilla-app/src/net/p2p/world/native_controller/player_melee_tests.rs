@@ -266,3 +266,6 @@ fn selected_mainhand_and_cast_stock_commands_survive_checkpoint_retry_reopen_and
         .iter()
         .any(|e| matches!(e, SessionEvent::XpGain(x) if x.kill)));
 }
+
+#[path = "source_spline_controller_tests.rs"]
+mod source_spline_controller_tests;

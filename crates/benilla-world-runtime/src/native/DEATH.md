@@ -74,21 +74,13 @@ Live player consumers use the [conservative supported-player liveness predicate]
 where audited. It preserves first-life and lethal-staging behavior and does not
 relax the HP/phase restore relation or enable ghost/release states.
 
-### Known unconnected death movement-stop callback
+### Bounded forced-stop composition and remaining gaps
 
-The retained `DeathAction::StopMoving` currently records the pinned source call
-but has no native player spline-stop owner/projection. It must **not** be counted
-as executed or as covered by the subsequent corpse-frame root order.
-`Unit::StopMoving(true)` calls `MoveSplineInit::Stop(true)` even for a finalized
-spline: it allocates from the source thread-shared spline counter, clears FORWARD
-and SPLINE_ENABLED (not all ground flags), initializes Done, and sends
-MonsterMoveStop at current pose (or computed active-spline pose, transport-local
-when applicable). A root counter or world tick is not that spline namespace.
-
-Current NPC motion persists per-owner spline IDs and uses them in active-spline
-proofs and initial/continued protocol projection. A genuine shared allocator needs
-all launch/stop producers and restored/retired-owner accounting composed; assigning
-player id1 would fabricate parity. Native player active splines/transport remain
-unsupported. The death executor's catch-all must not be re-described as fully
-implemented source callbacks: StopMoving and source observer visibility recomputation
-remain integration gaps. This note changes no behavior, admission or restore rule.
+Native format 68 composes the actual forced player stop in the narrowly selected
+source-motion + first-life death + raw spell/control owner domain, without player
+slow. See [source-thread spline IDs](SOURCE-SPLINE-IDS.md) for exact closure,
+shared NPC/player allocation, callback pose and checkpoint proof. Outside that
+intersection the retained `DeathAction::StopMoving` still records an uncomposed
+source call; a root order is not its substitute. Active player splines, transport,
+ghost/release and source observer visibility recomputation remain unsupported.
+The death executor's catch-all is not complete callback parity.
