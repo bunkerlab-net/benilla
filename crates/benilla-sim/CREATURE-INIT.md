@@ -8,7 +8,7 @@ caller captured every relevant dependency. No positions, factions' hostility,
 classlevel values, models, rates, damage constants, AI decisions or game rows
 are invented. The committed fixtures contain synthetic arithmetic cases only.
 
-Policy: `cmangos-8ec338a1-ordinary-creature-init-softfloat-v3`.
+Policy: `cmangos-8ec338a1-ordinary-creature-init-softfloat-v4`.
 The API is `creature_init::prepare(Input)` followed by `Plan::resolve` with
 explicit semantic draws. `SpawnTimingInputs` separately resolves the later
 respawn draw/corpse cap. `regenerate_out_of_combat` is a narrowly named live-state
@@ -39,7 +39,8 @@ is still a caller-mutable arithmetic result, not an immutable admission receipt.
 rows and nested aura IDs across classlevel, model, display, resolved-spawn,
 equipment-template, item-metadata, spawn-addon, template-addon and external-feature
 collections. It also bounds retained storage to 262,144 bytes (`size_of::<Input>()`
-plus row count times row size for each collection, plus four bytes per aura ID).
+plus row count times row size for each collection, plus four bytes per aura ID
+and UTF-8 name bytes in the required complete `string_id` catalog).
 Outer row counts are checked first; only then are the bounded number of nested
 vector lengths read. Aura values are never scanned by the budget check. This
 local storage bound does not claim serialized wire size, source completeness or
@@ -428,3 +429,30 @@ FLT_EVAL_METHOD=0, FTZ/DAZ disabled with gradual-underflow controls. FTZ, DAZ an
 non-nearest negative controls must refuse before invoking the source method.
 Each run reports the full compiler command, version/target and generated-harness
 and output hashes; this is narrower than cross-platform floating-point parity.
+
+## Required template string identity
+
+Raw `Template.string_id1` and `string_id2` and the complete cold
+`Input.string_ids` query are retained before loader normalization. Missing is
+not empty, including when both operands are zero. `ScriptMgr::LoadStringIds`
+uses first-key insertion into its signed ID map; names and raw row order remain
+source identity even though `ExistsStringId` only tests membership. Duplicate
+names do not merge distinct IDs, and empty/Unicode names are retained. The
+bounded port accepts positive `i32` catalog IDs and raw operands `0..=i32::MAX`;
+negative/zero catalog IDs and high-bit raw operands are explicitly unsupported.
+This is a host domain, not a claim that the source database forbids those rows.
+
+`ObjectMgr.cpp:563–573` changes each unknown nonzero template string ID to zero.
+The initializer emits the loaded pair as `effective_string_ids`, **not** a live
+object string set. `Creature::UpdateEntry` applies each known nonzero value to
+the existing object set without clearing it. Only the genuine generation-zero
+constructor adapter starts with an empty set and deduplicates that pair. This
+does not implement later entry changes, respawn string accumulation/removal,
+event notification, map string indexes or world admission.
+
+Pinned source additions: `ScriptMgr.cpp:1162–1200,3485–3487`
+([source](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/DBScripts/ScriptMgr.cpp)),
+SHA256 `6880432f6e48590d7da5e6d3745f581df001a73ffee6329f565a3874e6460f88`;
+`ObjectMgr.cpp` SHA256
+`dd27915ca363f81885d20783fc4f6c0392df20c4e3dfa031faa1a30df7a4b78b`.
+The same upstream GPL attribution applies. Authored tests are not imported DB rows.

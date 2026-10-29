@@ -1134,3 +1134,5 @@ map edges/outside, signed zero, subnormal, infinities and NaN. Fixture
 `tests/fixtures/resident_map_cmangos.tsv` SHA256:
 `1243f6dbe5e608bdb2b2dd85ed20b3d6e722a404d447886a22d989fcd133d280`.
 This is a numeric source oracle, not installed-map or resident-loader testing.
+
+Creature template string identity additionally ports pinned `ObjectMgr::LoadCreatureTemplates` string-ID normalization and `ScriptMgr::LoadStringIds`/`ExistsStringId` membership. See [CREATURE-INIT.md](CREATURE-INIT.md) for source hashes, bounded signed domain and retention rules. This does not implement map string registration.

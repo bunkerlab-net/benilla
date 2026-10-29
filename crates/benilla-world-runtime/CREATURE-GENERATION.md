@@ -144,3 +144,22 @@ A self-contained rehashed history is deterministic consistency evidence, not a
 signature or independent proof that historical callbacks happened. Exact journal
 replay supplies the recorded transition comparison; imported capture authenticity,
 actual map scheduling and complete real-world content admission remain separate.
+
+## Cold template string identity
+
+The source generation policy v5 and initializer policy v4 retain required raw
+`StringID1/2` and the complete ordered `string_id` catalog. The host requires one
+identical retained cold catalog across its spawn sources; contradictory catalogs
+fail before sealing. This coherence restriction does not claim independently
+captured SQL row orders are interchangeable. Raw names, duplicates and row order
+remain source identity even if loaded template IDs are equal. Aggregate source
+row/byte limits apply before retained-source clones.
+
+The initialized result exposes only the effective template pair. The genuine
+fresh generation-zero constructor object begins with an empty set and applies
+nonzero IDs, preserving deduplication and ascending iteration. The same object
+remains in its constructor cell/GUID/DBGUID stores. This does not rebuild later
+live sets, implement string-map registration, or bypass event/inWorld ownership.
+Missing catalogs do not default to empty; authored fixture zeros are explicit
+synthetic inputs. Old initializer/generation policies and native80 checkpoints
+are rejected rather than migrated.

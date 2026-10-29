@@ -9,7 +9,7 @@ use benilla_sim::{creature_init as init, creature_regeneration as regeneration};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const CREATURE_GENERATION_POLICY: &str = "cmangos-8ec338a1-native-creature-generation-v4";
+pub const CREATURE_GENERATION_POLICY: &str = "cmangos-8ec338a1-native-creature-generation-v5";
 pub const MAX_CREATURE_GENERATIONS: usize = 256;
 const MAX_CORPSE_TIMER_CALLS: usize = 256;
 const MAX_SOURCES: usize = 4096;
@@ -32,7 +32,7 @@ pub struct CreatureGenerationSource {
 impl CreatureGenerationSource {
     pub fn identity(&self) -> crate::Digest {
         crate::digest(
-            b"benilla-native-creature-generation-source-v4\0",
+            b"benilla-native-creature-generation-source-v5\0",
             &(
                 CREATURE_GENERATION_POLICY,
                 init::CREATURE_INIT_POLICY_ID,
@@ -145,6 +145,7 @@ impl CreatureGenerationCatalog {
         for source in sources {
             source.input.validate_retention_bounds()?;
             for count in [
+                rows(&source.input.string_ids)?.len(),
                 rows(&source.input.class_levels)?.len(),
                 rows(&source.input.models)?.len(),
                 rows(&source.input.displays)?.len(),
@@ -172,10 +173,12 @@ impl CreatureGenerationCatalog {
         let mut item_templates = BTreeMap::new();
         let mut template_addons = BTreeMap::new();
         let expected_rates = sources.first().map(|source| source.input.rates);
+        let expected_strings = sources.first().map(|source| &source.input.string_ids);
         for source in sources {
             source.validate()?;
             let input = &source.input;
-            if Some(input.rates) != expected_rates {
+            // This host binds one coherent cold catalog, not independently reloaded SQL orders.
+            if Some(input.rates) != expected_rates || Some(&input.string_ids) != expected_strings {
                 return Err(NativeError::InvalidProfile);
             }
             consistent(&mut templates, input.template.entry, &input.template)?;
@@ -1492,3 +1495,6 @@ fn validate_projection(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod string_tests;

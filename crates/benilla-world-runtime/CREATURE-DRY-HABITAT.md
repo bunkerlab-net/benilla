@@ -71,9 +71,9 @@ wet state. This domain can preserve zero only because every admitted historical
 life is positively dry. Death, corpse removal, Home and respawn cannot introduce
 an unowned clearing operation. Wet lifecycle continuity needs a separate owner.
 
-The selected policies are creature capability v3, creature generation v4 and
+The selected policies are creature capability v3, creature generation v5 and
 `cmangos-8ec338a1-native-dry-initialization-v1`. The ordinary scalar initializer
-remains `cmangos-8ec338a1-ordinary-creature-init-softfloat-v3`; model staging does
+remains `cmangos-8ec338a1-ordinary-creature-init-softfloat-v4`; model staging does
 not change its arithmetic or draw semantics. Ordinary addon, Home and visitor
 closures retain their exact generation-source composition.
 

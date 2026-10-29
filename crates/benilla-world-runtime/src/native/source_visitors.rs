@@ -773,8 +773,11 @@ mod tests {
                 .unwrap();
         assert!(restored.replay(&records).is_err());
         assert_eq!(restored.checkpoint().unwrap(), initial);
-        assert_eq!(NATIVE_FORMAT_VERSION, 80);
-        assert_eq!(NATIVE_POLICY, "benilla-native-creature-pose-cell-index-v80");
+        assert_eq!(NATIVE_FORMAT_VERSION, 81);
+        assert_eq!(
+            NATIVE_POLICY,
+            "benilla-native-creature-string-identities-v81"
+        );
         assert_eq!(crate::FORMAT_VERSION, 2);
     }
     #[test]

@@ -207,7 +207,7 @@ source gate or change the integer armor policy.
 
 See [SPELL-AUTHORITY.md](SPELL-AUTHORITY.md) for the bounded ID133 source spell
 host, complete raw input dependencies, phase/scheduler ownership, numeric oracle
-and native simulation checkpoint/record format 80. This is not production content
+and native simulation checkpoint/record format 81. This is not production content
 admission or stock Fireball certification.
 
 See [FACING-AUTHORITY.md](FACING-AUTHORITY.md) for explicit current-request
@@ -299,7 +299,7 @@ to exact both-endpoint original custody and existing source swap receipts.
 No equipment replacement or generic consumption admission is added.
 No old-save migration or native admission is added.
 
-Native format 80 (`benilla-native-creature-pose-cell-index-v80`) binds optional source-qualified
+Native format 81 (`benilla-native-creature-string-identities-v81`) binds optional source-qualified
 static creature identity and committed-pose cell observations. These are not source
 CurrentCell, loaded-grid, registration, lookup or selection authority.
 No old-save migration or native admission is added.

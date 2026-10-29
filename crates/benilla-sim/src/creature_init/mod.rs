@@ -10,6 +10,7 @@ mod model_receipt;
 mod numeric;
 #[cfg(test)]
 mod source_retention_tests;
+mod strings;
 use crate::classic_spell::SpellFloat;
 use crate::npc_melee::{CreatureStatClass, DamageRange};
 pub use addon::{Addon, SpawnAddonRow, TemplateAddonRow};
@@ -22,7 +23,8 @@ pub use model_receipt::{
     CREATURE_COLLISION_WIDTH_POLICY_ID, CREATURE_MODEL_SELECTION_POLICY_ID,
 };
 use std::collections::{BTreeMap, BTreeSet};
-pub const CREATURE_INIT_POLICY_ID: &str = "cmangos-8ec338a1-ordinary-creature-init-softfloat-v3";
+pub use strings::StringIdRow;
+pub const CREATURE_INIT_POLICY_ID: &str = "cmangos-8ec338a1-ordinary-creature-init-softfloat-v4";
 pub const REGEN_INTERVAL_MS: u32 = 5_000;
 /// Local limit for retained source rows and aura IDs, not a game-data rule.
 pub const MAX_CREATURE_INIT_SOURCE_ROWS: usize = 4_096;
@@ -88,6 +90,9 @@ pub struct Template {
     pub static_flags: [u32; 4],
     /// Raw ExtraFlags, independent of StaticFlags1..4.
     pub extra_flags: u32,
+    /// Raw template StringID1/2 before ObjectMgr validates the string_id catalog.
+    pub string_id1: u32,
+    pub string_id2: u32,
     pub regenerate_stats: u32,
     pub health_multiplier: SpellFloat,
     pub power_multiplier: SpellFloat,
@@ -213,6 +218,8 @@ pub struct Input {
     /// Exact nonzero creature database GUID whose addon query was captured.
     pub spawn_id: u64,
     pub template: Template,
+    /// Complete cold string_id catalog in captured row order; no implied empty catalog.
+    pub string_ids: Rows<StringIdRow>,
     pub class_levels: Rows<ClassLevelRow>,
     pub models: Rows<ModelRow>,
     pub displays: Rows<DisplayRow>,
@@ -236,6 +243,7 @@ impl Input {
     /// aura values are never traversed here.
     pub fn validate_retention_bounds(&self) -> Result<()> {
         let counts = [
+            self.string_ids.retained_len(),
             self.class_levels.retained_len(),
             self.models.retained_len(),
             self.displays.retained_len(),
@@ -261,6 +269,7 @@ impl Input {
             return Err(InitError::Invalid("source retention row bound"));
         }
         let sizes = [
+            std::mem::size_of::<StringIdRow>(),
             std::mem::size_of::<ClassLevelRow>(),
             std::mem::size_of::<ModelRow>(),
             std::mem::size_of::<DisplayRow>(),
@@ -278,6 +287,9 @@ impl Input {
                 total.checked_add(count.checked_mul(size)?)
             })
             .and_then(|bytes| bytes.checked_add(aura_ids.checked_mul(std::mem::size_of::<u32>())?))
+            .ok_or(InitError::Invalid("source retention byte bound"))?;
+        let bytes = strings::retained_name_bytes(self)?
+            .checked_add(bytes)
             .ok_or(InitError::Invalid("source retention byte bound"))?;
         if bytes > MAX_CREATURE_INIT_SOURCE_BYTES {
             return Err(InitError::Invalid("source retention byte bound"));
@@ -340,6 +352,8 @@ pub struct Model {
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct InitializedCreature {
     pub entry: u32,
+    /// Loaded template pair, not the current live object string set.
+    pub effective_string_ids: [u32; 2],
     pub level: u8,
     pub power_type: PowerType,
     pub stats: Stats,
@@ -377,6 +391,7 @@ pub struct Plan<'a> {
     spawn: SpawnTemplate,
     equipment: InitialEquipment,
     addon_sheath: Option<u8>,
+    effective_string_ids: [u32; 2],
     levels: BTreeMap<u8, Stats>,
     models: BTreeMap<u32, Model>,
     other_gender: BTreeMap<u32, u32>,
@@ -471,6 +486,7 @@ impl<'a> Plan<'a> {
         model.scale = self.scale;
         let result = InitializedCreature {
             entry: t.entry,
+            effective_string_ids: self.effective_string_ids,
             level,
             power_type,
             stats,
@@ -588,6 +604,7 @@ fn stat_class(class: u32) -> Result<CreatureStatClass> {
 pub fn prepare(input: &Input) -> Result<Plan<'_>> {
     input.validate_retention_bounds()?;
     let t = &input.template;
+    let effective_string_ids = strings::prepare(input)?;
     if t.entry == 0
         || !(1..=20).contains(&t.minimum_level)
         || t.maximum_level < t.minimum_level
@@ -762,6 +779,7 @@ pub fn prepare(input: &Input) -> Result<Plan<'_>> {
         spawn,
         equipment,
         addon_sheath,
+        effective_string_ids,
         levels,
         models,
         other_gender,

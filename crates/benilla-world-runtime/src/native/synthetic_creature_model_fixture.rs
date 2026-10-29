@@ -44,6 +44,8 @@ pub fn input() -> benilla_sim::creature_init::Input {
             type_flags: 0,
             static_flags: [0; 4],
             extra_flags: 0,
+            string_id1: 0,
+            string_id2: 0,
             regenerate_stats: 10,
             health_multiplier: f(1.),
             power_multiplier: f(1.),
@@ -72,6 +74,7 @@ pub fn input() -> benilla_sim::creature_init::Input {
             unit_flags: 0,
             npc_flags: 0,
         },
+        string_ids: Rows::Complete(vec![]),
         class_levels: Rows::Complete(
             (1..=1)
                 .map(|level| ClassLevelRow {
@@ -357,6 +360,21 @@ pub fn archive(entries: &[(&str, Vec<u8>)]) -> Vec<u8> {
 /// preserving its authored spawn coordinates. Not an imported world database.
 pub fn with_complete_scene_generations(profile: Profile) -> Profile {
     let sources = super::synthetic_creature_generation_fixture::complete_scene_sources(&profile);
+    let order = profile.npcs.iter().map(|npc| npc.ai.creature_id).collect();
+    super::synthetic_creature_generation_fixture::install(profile, sources, order)
+}
+
+/// Author extra source fields before sealing the complete synthetic scene.
+/// This does not load private source content or change production admission.
+pub fn with_complete_scene_generations_and_source_edit(
+    profile: Profile,
+    mut edit: impl FnMut(&mut CreatureGenerationSource),
+) -> Profile {
+    let mut sources =
+        super::synthetic_creature_generation_fixture::complete_scene_sources(&profile);
+    for source in &mut sources {
+        edit(source);
+    }
     let order = profile.npcs.iter().map(|npc| npc.ai.creature_id).collect();
     super::synthetic_creature_generation_fixture::install(profile, sources, order)
 }

@@ -6,6 +6,7 @@ use super::*;
 #[cfg(any(test, feature = "synthetic-native-tests"))]
 use benilla_sim::resident_map::compute_cell_pair;
 use benilla_sim::resident_map::CellPair;
+use std::collections::BTreeSet;
 
 #[derive(Debug)]
 struct FreshViewPoint {
@@ -24,6 +25,7 @@ pub struct FreshCreatureCellObject {
     initial_position_bits: [u32; 2],
     cell: CellPair,
     active: bool,
+    string_ids: BTreeSet<u32>,
     viewpoint: FreshViewPoint,
 }
 impl FreshCreatureCellObject {
@@ -67,6 +69,14 @@ impl FreshCreatureCellObject {
             initial_position_bits,
             cell,
             active: false,
+            // Fresh WorldObject set is empty; UpdateEntry applies the loaded pair.
+            // Later entry changes/removal/respawn sets are not modeled here.
+            string_ids: generation
+                .result()
+                .effective_string_ids
+                .into_iter()
+                .filter(|id| *id != 0)
+                .collect(),
             viewpoint: FreshViewPoint {
                 cameras: Vec::new(),
                 grid: None,
@@ -102,6 +112,9 @@ impl FreshCreatureCellObject {
     }
     pub fn cell(&self) -> CellPair {
         self.cell
+    }
+    pub fn initial_string_ids(&self) -> &BTreeSet<u32> {
+        &self.string_ids
     }
     pub fn is_active(&self) -> bool {
         self.active || !self.viewpoint.cameras.is_empty()
@@ -196,6 +209,8 @@ mod tests {
             assert!(!object.is_active());
             assert_eq!(object.viewer_count(), 0);
             assert_eq!(object.viewpoint_grid(), None);
+            assert!(object.initial_string_ids().is_empty());
+            assert_eq!(object.generation().result().effective_string_ids, [0, 0]);
             let cell = object.cell();
             attached.push(object.attach_initial_cell(p.map_id, 0, cell)?);
             Ok(())

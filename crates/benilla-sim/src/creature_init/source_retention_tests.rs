@@ -45,6 +45,8 @@ fn input() -> Input {
             type_flags: 0,
             static_flags: [0; 4],
             extra_flags: 0,
+            string_id1: 0,
+            string_id2: 0,
             regenerate_stats: 10,
             health_multiplier: SpellFloat::ONE,
             power_multiplier: SpellFloat::ONE,
@@ -73,6 +75,7 @@ fn input() -> Input {
             unit_flags: 0,
             npc_flags: 0,
         },
+        string_ids: Rows::Complete(vec![]),
         class_levels: Rows::Complete(
             (1..=2)
                 .map(|level| ClassLevelRow {
@@ -198,6 +201,8 @@ fn serialization_retains_every_raw_field_and_original_rows() {
             "type_flags": 0,
             "static_flags": [0, 0, 0, 0],
             "extra_flags": 0,
+            "string_id1": 0,
+            "string_id2": 0,
             "regenerate_stats": 10,
             "health_multiplier": one,
             "power_multiplier": one,
@@ -226,6 +231,7 @@ fn serialization_retains_every_raw_field_and_original_rows() {
             "unit_flags": 0,
             "npc_flags": 0,
         },
+        "string_ids": {"Complete": []},
         "class_levels": {"Complete": classes},
         "models": {"Complete": models},
         "displays": {"Complete": [{"id": 11, "scale": one}, {"id": 12, "scale": one}]},
@@ -350,6 +356,7 @@ fn missing_and_captured_empty_are_distinct_for_every_source_collection() {
             assert!(matches!(prepare(&missing), Err(InitError::Missing { .. })));
         }};
     }
+    check!(string_ids);
     check!(class_levels);
     check!(models);
     check!(displays);
@@ -450,6 +457,7 @@ fn initialized_serialization_covers_all_output_fields_and_nested_values() {
     let m = resolved.model;
     let expected = json!({
         "entry": resolved.entry,
+        "effective_string_ids": resolved.effective_string_ids,
         "level": resolved.level,
         "power_type": "Rage",
         "stats": {
@@ -770,4 +778,64 @@ fn model_stage_precedes_level_and_preserves_the_complete_receipt() {
         .unwrap()
         .resolve_with_model_receipt(Some(99))
         .is_err());
+}
+
+#[test]
+fn string_rows_raw_pair_and_names_remain_retained_when_effective_pair_is_zero() {
+    assert_same_resolution_different_source(|i| i.template.string_id1 = 17);
+    assert_same_resolution_different_source(|i| i.template.string_id2 = 23);
+    assert_same_resolution_different_source(|i| {
+        i.string_ids = Rows::Complete(vec![StringIdRow {
+            id: 5,
+            name: "retained unused".into(),
+        }]);
+    });
+    let mut i = input();
+    i.string_ids = Rows::Complete(vec![
+        StringIdRow {
+            id: 5,
+            name: "first".into(),
+        },
+        StringIdRow {
+            id: 5,
+            name: "second".into(),
+        },
+    ]);
+    let original = content(&i);
+    rows_mut(&mut i.string_ids).reverse();
+    assert_ne!(original, content(&i));
+    assert_eq!(
+        prepare(&i)
+            .unwrap()
+            .resolve(rolls())
+            .unwrap()
+            .effective_string_ids,
+        [0, 0]
+    );
+    let bytes = content(&i);
+    rows_mut(&mut i.string_ids)[0].name = "different".into();
+    assert_ne!(bytes, content(&i));
+}
+
+#[test]
+fn exact_string_name_budget_is_aggregate_and_counts_utf8_bytes() {
+    let mut i = input();
+    i.string_ids = Rows::Complete(vec![StringIdRow {
+        id: 1,
+        name: String::new(),
+    }]);
+    let overhead = std::mem::size_of::<Input>()
+        + 2 * std::mem::size_of::<ClassLevelRow>()
+        + 2 * std::mem::size_of::<ModelRow>()
+        + 2 * std::mem::size_of::<DisplayRow>()
+        + std::mem::size_of::<SpawnTemplate>()
+        + std::mem::size_of::<StringIdRow>();
+    let remaining = MAX_CREATURE_INIT_SOURCE_BYTES - overhead;
+    rows_mut(&mut i.string_ids)[0].name = "x".repeat(remaining);
+    assert_eq!(i.validate_retention_bounds(), Ok(()));
+    rows_mut(&mut i.string_ids)[0].name.push('é');
+    assert_eq!(
+        i.validate_retention_bounds(),
+        Err(InitError::Invalid("source retention byte bound"))
+    );
 }

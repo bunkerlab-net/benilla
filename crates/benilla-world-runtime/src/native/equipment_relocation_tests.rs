@@ -193,9 +193,9 @@ fn relocation_noop_and_rehashed_custody_forgery() {
             }
         }
         cp.state = serde_json::from_value(state).unwrap();
-        cp.digest = crate::digest(b"benilla-native-state-v80\0", &cp.state);
+        cp.digest = crate::digest(b"benilla-native-state-v81\0", &cp.state);
         cp.checksum = crate::digest(
-            b"benilla-native-checkpoint-v80\0",
+            b"benilla-native-checkpoint-v81\0",
             &(&cp.state, cp.digest, cp.history_tip),
         );
         assert!(NativeWorld::restore_synthetic_component_test(w.profile.clone(), cp).is_err());

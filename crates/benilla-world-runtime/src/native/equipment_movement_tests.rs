@@ -165,9 +165,9 @@ fn rehashed_custody_and_membership_snapshot_forgery_is_rejected() {
             }
         }
         cp.state = serde_json::from_value(json).unwrap();
-        cp.digest = crate::digest(b"benilla-native-state-v80\0", &cp.state);
+        cp.digest = crate::digest(b"benilla-native-state-v81\0", &cp.state);
         cp.checksum = crate::digest(
-            b"benilla-native-checkpoint-v80\0",
+            b"benilla-native-checkpoint-v81\0",
             &(&cp.state, cp.digest, cp.history_tip),
         );
         assert!(NativeWorld::restore_synthetic_component_test(w.profile.clone(), cp).is_err());
@@ -469,9 +469,9 @@ fn oversized_aggregate_membership_history_fails_before_semantic_replay() {
     assert!(aggregate > MAX_BYTES / 2);
     assert!(serde_json::to_vec(&encoded).unwrap().len() < MAX_BYTES);
     checkpoint.state = serde_json::from_value(encoded).unwrap();
-    checkpoint.digest = crate::digest(b"benilla-native-state-v80\0", &checkpoint.state);
+    checkpoint.digest = crate::digest(b"benilla-native-state-v81\0", &checkpoint.state);
     checkpoint.checksum = crate::digest(
-        b"benilla-native-checkpoint-v80\0",
+        b"benilla-native-checkpoint-v81\0",
         &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
     );
     assert!(matches!(

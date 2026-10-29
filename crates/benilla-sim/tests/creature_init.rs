@@ -41,6 +41,8 @@ fn input() -> Input {
             type_flags: 0,
             static_flags: [0; 4],
             extra_flags: 0,
+            string_id1: 0,
+            string_id2: 0,
             regenerate_stats: 10,
             health_multiplier: f(1.),
             power_multiplier: f(1.),
@@ -69,6 +71,7 @@ fn input() -> Input {
             unit_flags: 0,
             npc_flags: 0,
         },
+        string_ids: Rows::Complete(vec![]),
         class_levels: Rows::Complete(
             (1..=20)
                 .map(|level| ClassLevelRow {
@@ -1291,3 +1294,112 @@ mod equipment;
 
 #[path = "creature_init/addon.rs"]
 mod addon;
+
+#[test]
+fn required_string_catalog_normalizes_loaded_pair_without_losing_raw_identity() {
+    let mut i = input();
+    i.template.string_id1 = 9;
+    i.template.string_id2 = 7;
+    i.string_ids = Rows::Missing;
+    assert!(matches!(
+        prepare(&i),
+        Err(InitError::Missing {
+            table: "string_id complete cold catalog",
+            ..
+        })
+    ));
+    i.template.string_id1 = 0;
+    i.template.string_id2 = 0;
+    assert!(matches!(prepare(&i), Err(InitError::Missing { .. })));
+    i.template.string_id1 = 9;
+    i.template.string_id2 = 7;
+    i.string_ids = Rows::Complete(vec![]);
+    let resolve = |i: &Input| {
+        prepare(i)
+            .unwrap()
+            .resolve(SelectionRolls {
+                model: Some(0),
+                gender: Some(1),
+                level: Some(1),
+            })
+            .unwrap()
+    };
+    assert_eq!(resolve(&i).effective_string_ids, [0, 0]);
+    i.string_ids = Rows::Complete(vec![
+        StringIdRow {
+            id: 9,
+            name: "".into(),
+        },
+        StringIdRow {
+            id: 9,
+            name: "later duplicate key".into(),
+        },
+        StringIdRow {
+            id: 5,
+            name: "same name".into(),
+        },
+        StringIdRow {
+            id: 7,
+            name: "same name".into(),
+        },
+    ]);
+    assert_eq!(resolve(&i).effective_string_ids, [9, 7]);
+    let raw = serde_json::to_vec(&i).unwrap();
+    let Rows::Complete(rows) = &mut i.string_ids else {
+        unreachable!()
+    };
+    rows.reverse();
+    rows[0].name = "任意名".into();
+    assert_ne!(serde_json::to_vec(&i).unwrap(), raw);
+    assert_eq!(resolve(&i).effective_string_ids, [9, 7]);
+    i.template.string_id2 = 9;
+    assert_eq!(resolve(&i).effective_string_ids, [9, 9]);
+    i.template.string_id2 = 1234;
+    assert_eq!(resolve(&i).effective_string_ids, [9, 0]);
+}
+
+#[test]
+fn string_catalog_domain_and_retention_bounds_precede_preparation() {
+    let mut i = input();
+    i.template.string_id1 = i32::MAX as u32;
+    i.string_ids = Rows::Complete(vec![StringIdRow {
+        id: i32::MAX,
+        name: String::new(),
+    }]);
+    assert!(prepare(&i).is_ok());
+    i.template.string_id1 = 0x8000_0000;
+    assert!(matches!(
+        prepare(&i),
+        Err(InitError::Unsupported("positive signed string ID domain"))
+    ));
+    i.template.string_id1 = 0;
+    for id in [0, -1, i32::MIN] {
+        i.string_ids = Rows::Complete(vec![StringIdRow {
+            id,
+            name: "retained".into(),
+        }]);
+        assert!(matches!(
+            prepare(&i),
+            Err(InitError::Unsupported("positive signed string ID domain"))
+        ));
+    }
+    i.string_ids = Rows::Complete(vec![StringIdRow {
+        id: 1,
+        name: "x".repeat(MAX_CREATURE_INIT_SOURCE_BYTES),
+    }]);
+    assert_eq!(
+        i.validate_retention_bounds(),
+        Err(InitError::Invalid("source retention byte bound"))
+    );
+    i.string_ids = Rows::Complete(vec![
+        StringIdRow {
+            id: 1,
+            name: String::new()
+        };
+        MAX_CREATURE_INIT_SOURCE_ROWS + 1
+    ]);
+    assert_eq!(
+        i.validate_retention_bounds(),
+        Err(InitError::Invalid("source retention row bound"))
+    );
+}

@@ -70,7 +70,33 @@ fn creature_profile(start: [f32; 3], second: [f32; 3]) -> Profile {
             .collect(),
     )
     .unwrap();
-    p = models::with_complete_scene_generations(p);
+    // Authored StringID rows enter the same generation mechanism before any
+    // source catalog is sealed. No object set is supplied by the caller.
+    p = models::with_complete_scene_generations_and_source_edit(p, |source| {
+        use benilla_sim::creature_init::{Rows, StringIdRow};
+        source.input.string_ids = Rows::Complete(vec![
+            StringIdRow {
+                id: 31,
+                name: "same name".into(),
+            },
+            StringIdRow {
+                id: 7,
+                name: "same name".into(),
+            },
+            StringIdRow {
+                id: 31,
+                name: "ignored later key".into(),
+            },
+        ]);
+        (
+            source.input.template.string_id1,
+            source.input.template.string_id2,
+        ) = if source.spawn_id == 2 {
+            (31, 7)
+        } else {
+            (31, 31)
+        };
+    });
     let catalog = maps::catalog(p.map_id, 0);
     p.initialize_pathfinder_configuration(
         SelectedMMapConfiguration {
@@ -187,6 +213,27 @@ fn fresh_creature_cells_retain_actual_constructor_objects_and_rollback() {
                     );
                     assert_eq!(object.npc().generation, 0);
                     assert_eq!(object.generation().history().len(), 1);
+                    let expected_strings = if object.npc().spawn == 2 {
+                        vec![7, 31]
+                    } else {
+                        vec![31]
+                    };
+                    assert_eq!(
+                        object
+                            .initial_string_ids()
+                            .iter()
+                            .copied()
+                            .collect::<Vec<_>>(),
+                        expected_strings
+                    );
+                    assert_eq!(
+                        object.generation().result().effective_string_ids,
+                        if object.npc().spawn == 2 {
+                            [31, 7]
+                        } else {
+                            [31, 31]
+                        }
+                    );
                     assert_eq!(object.cell(), cell);
                     assert_eq!(attached.current_cell(), cell);
                     assert_eq!(grid.initial_cell_for(object.npc()), Some(cell));
@@ -201,11 +248,19 @@ fn fresh_creature_cells_retain_actual_constructor_objects_and_rollback() {
                     let identity = object.identity();
                     let typed = grid.initial_guid_candidate(identity.guid()).unwrap();
                     assert!(std::ptr::eq(typed, attached));
+                    assert!(std::ptr::eq(
+                        typed.object().initial_string_ids(),
+                        object.initial_string_ids()
+                    ));
                     let database: Vec<_> = grid
                         .initial_database_candidates(0xf130, identity.database_guid())
                         .collect();
                     assert_eq!(database.len(), 1);
                     assert!(std::ptr::eq(database[0], attached));
+                    assert!(std::ptr::eq(
+                        database[0].object().initial_string_ids(),
+                        object.initial_string_ids()
+                    ));
                     // Same low database GUID with a different type is not a hit.
                     assert!(grid
                         .initial_database_candidates(0, identity.database_guid())
