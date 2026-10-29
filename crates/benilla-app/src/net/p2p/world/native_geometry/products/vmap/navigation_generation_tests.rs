@@ -5,6 +5,8 @@ use super::super::super::nav_generation::{
 };
 use super::*;
 use std::time::{Duration, Instant};
+#[path = "fresh_creature_cell_tests.rs"]
+mod fresh_creature_cell_tests;
 #[path = "fresh_single_grid_tests.rs"]
 mod fresh_single_grid_tests;
 #[path = "positive_tile_load_tests.rs"]

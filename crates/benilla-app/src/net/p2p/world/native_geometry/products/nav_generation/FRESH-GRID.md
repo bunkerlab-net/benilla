@@ -24,10 +24,10 @@ CMaNGOS Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`:
 
 The Rust owner has an actual owned grid node, grid-keyed slot collection and
 insertion-ordered linkage resolving to that node. Its separate typed containers
-represent only the initially empty construction stage. Their uninhabited private
-element types prevent manufacturing object IDs or insertion authority. They are
-not implemented registration stores, and their emptiness is never evidence that
-the source world roster is empty. Registration needs real qualified references.
+start empty. Uninhabited categories prevent manufacturing unsupported object IDs.
+The [ordinary creature constructor bridge](fresh_grid/INITIAL-CREATURES.md) can
+attach privately minted initial creature objects; it is not a live registration
+store. Container emptiness is never evidence that the source world roster is empty.
 
 Expiry and unload configuration are explicit local effective choices, not
 inferred server defaults. The bounded `u32` expiry is a direct constructor
@@ -61,6 +61,6 @@ This is fresh positive single-grid host composition. Failed or cancelled stages
 are dropped transactionally, unlike source retained partial failure state. No
 source tick, grid expiry transition, unload, shared-manager, preloaded/mixed tile,
 object-load recursion, active-object, ViewPoint, visibility or registration API
-is implemented. `object_data_loaded` remains false. Full `Map::Initialize` also
+is implemented. The separate initial-creature bridge stops before AddToWorld. `object_data_loaded` remains false. Full `Map::Initialize` also
 requires persistent-state/pool/spawn/transport and other owners not supplied by
 this stage. No held compiler/consumer, native format or selection path changes.

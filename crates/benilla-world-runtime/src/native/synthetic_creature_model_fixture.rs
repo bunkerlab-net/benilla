@@ -352,3 +352,11 @@ pub fn archive(entries: &[(&str, Vec<u8>)]) -> Vec<u8> {
     }
     bytes
 }
+
+/// Install invented complete generation rows onto a component profile while
+/// preserving its authored spawn coordinates. Not an imported world database.
+pub fn with_complete_scene_generations(profile: Profile) -> Profile {
+    let sources = super::synthetic_creature_generation_fixture::complete_scene_sources(&profile);
+    let order = profile.npcs.iter().map(|npc| npc.ai.creature_id).collect();
+    super::synthetic_creature_generation_fixture::install(profile, sources, order)
+}

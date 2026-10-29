@@ -34,7 +34,7 @@ pub struct CreaturePoseCellSource {
     sources: BTreeMap<u64, (crate::Digest, SourceStaticCreatureIdentity)>,
 }
 impl CreaturePoseCellSource {
-    fn build(p: &Profile) -> Result<Self, NativeError> {
+    pub(super) fn build(p: &Profile) -> Result<Self, NativeError> {
         let map = p
             .map_classification
             .as_ref()
@@ -111,6 +111,13 @@ impl CreaturePoseCellSource {
             map: map.binding(),
             sources,
         })
+    }
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    pub(super) fn source_identity(
+        &self,
+        spawn: u64,
+    ) -> Option<(crate::Digest, SourceStaticCreatureIdentity)> {
+        self.sources.get(&spawn).copied()
     }
     pub(super) fn validate(&self, p: &Profile) -> Result<(), NativeError> {
         if self != &Self::build(p)? {

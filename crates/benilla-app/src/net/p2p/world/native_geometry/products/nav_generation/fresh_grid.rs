@@ -7,7 +7,9 @@ use super::{
 };
 use benilla_native_nav::{RetainedSourceQuery, SourceMapQuerySlot};
 use benilla_sim::resident_map::{compute_cell_pair, CellPair};
-use benilla_world_runtime::native::Profile;
+use benilla_world_runtime::native::{
+    AttachedInitialCreatureCell, FreshCreatureCellObject, Profile,
+};
 use std::collections::BTreeMap;
 
 /// Explicit effective host inputs; no server configuration or default is inferred.
@@ -31,16 +33,23 @@ pub(crate) enum GridState {
     Idle,
 }
 type GridKey = (u16, u16);
+#[cfg(test)]
+mod initial_creatures;
 
-// These uninhabited types describe only fresh empty containers. No object identity
-// or insertion operation exists in this creation stage. Real registration must
-// replace these with source-owned object references, never populate guessed IDs.
+// Uninhabited categories still represent only fresh empty containers. Ordinary
+// creatures additionally support the isolated constructor-stage attachment below;
+// neither representation grants live registration or roster-absence evidence.
 enum WorldPlayer {}
 enum WorldPet {}
 enum WorldCorpse {}
 enum WorldCamera {}
 enum GridGameObject {}
-enum GridCreature {}
+// Membership is installed before CurrentCell assignment. No pending entry can
+// escape a failed consumed-grid construction transaction.
+struct GridCreature {
+    fresh: Option<FreshCreatureCellObject>,
+    attached: Option<AttachedInitialCreatureCell>,
+}
 enum GridDynamicObject {}
 enum GridBones {}
 enum ActiveGridObject {}
@@ -51,7 +60,11 @@ struct CellStores {
     corpses: Vec<WorldCorpse>,
     cameras: Vec<WorldCamera>,
     game_objects: Vec<GridGameObject>,
-    creatures: Vec<GridCreature>,
+    #[allow(
+        clippy::vec_box,
+        reason = "cell entries retain stable owned nodes across insertion"
+    )]
+    creatures: Vec<Box<GridCreature>>,
     dynamic_objects: Vec<GridDynamicObject>,
     bones: Vec<GridBones>,
     active: Vec<ActiveGridObject>,
@@ -89,11 +102,12 @@ struct LoadedTerrain<'terrain, 'bundle, 'source> {
     tile: TileId,
     configuration: VmapLoadConfiguration,
 }
-/// Actual owned slot and insertion-ordered map-link collection. Fresh typed cells
-/// are construction state, not evidence that the source world roster is empty.
+/// Actual owned slot and insertion-ordered map-link collection. Typed cells
+/// retain only construction-stage state, never source-world absence evidence.
 /// This map-grid substate does not impersonate the full source Map lifecycle.
 pub(crate) struct FreshSingleGrid<'terrain, 'bundle, 'source> {
     slot: SourceMapQuerySlot,
+    profile_identity: benilla_world_runtime::Digest,
     configuration: GridConfiguration,
     nodes: BTreeMap<GridKey, Box<GridNode<'terrain, 'bundle, 'source>>>,
     linked: Vec<GridKey>,
@@ -167,6 +181,7 @@ impl<'terrain, 'bundle, 'source> FreshSingleGrid<'terrain, 'bundle, 'source> {
         poll(deadline, &cancelled)?;
         let mut owner = Self {
             slot,
+            profile_identity: profile.digest(),
             configuration,
             nodes: BTreeMap::new(),
             linked: Vec::new(),

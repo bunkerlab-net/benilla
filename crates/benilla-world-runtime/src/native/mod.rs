@@ -2,9 +2,11 @@
 //! Versioned integration of native-mechanic components. Production admission is closed.
 //! OriginalFixture `World` v2 remains distinct. This module is not a full Classic server.
 mod creature_pose_cells;
+mod fresh_creature_cell;
 pub use creature_pose_cells::{
     CreaturePoseCell, CreaturePoseCellIndex, CreaturePoseCellSource, SourceStaticCreatureIdentity,
 };
+pub use fresh_creature_cell::{AttachedInitialCreatureCell, FreshCreatureCellObject};
 mod admin;
 pub use admin::*;
 mod combat;
@@ -303,8 +305,55 @@ impl NativeWorld {
         entry_location: Option<InitialCastEntryLocationFacts>,
         authority: &mut dyn Authority,
     ) -> Result<Self, NativeError> {
+        Self::synthetic_component_test_initialization_inner(
+            profile,
+            world,
+            player,
+            seed,
+            entry_location,
+            authority,
+            None,
+        )
+    }
+    /// Component-only cold-construction hook, before each creature's event queue.
+    /// The callback must retain or drop the object; on any failure the caller must
+    /// discard its whole construction transaction. Not invoked on restore/respawn.
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    pub fn synthetic_component_test_with_initialization_and_fresh_creatures(
+        profile: Profile,
+        world: crate::WorldId,
+        player: crate::PlayerId,
+        seed: u64,
+        entry_location: Option<InitialCastEntryLocationFacts>,
+        authority: &mut dyn Authority,
+        on_fresh: &mut dyn FnMut(FreshCreatureCellObject) -> Result<(), NativeError>,
+    ) -> Result<Self, NativeError> {
+        Self::synthetic_component_test_initialization_inner(
+            profile,
+            world,
+            player,
+            seed,
+            entry_location,
+            authority,
+            Some(on_fresh),
+        )
+    }
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    fn synthetic_component_test_initialization_inner(
+        profile: Profile,
+        world: crate::WorldId,
+        player: crate::PlayerId,
+        seed: u64,
+        entry_location: Option<InitialCastEntryLocationFacts>,
+        authority: &mut dyn Authority,
+        mut on_fresh: Option<&mut dyn FnMut(FreshCreatureCellObject) -> Result<(), NativeError>>,
+    ) -> Result<Self, NativeError> {
         profile.validate()?;
         profile.require_realizable_initial_casts()?;
+        let fresh_source = on_fresh
+            .as_ref()
+            .map(|_| CreaturePoseCellSource::build(&profile))
+            .transpose()?;
         if profile.admin.as_ref().is_some_and(|p| p.world != world) {
             return Err(NativeError::InvalidProfile);
         }
@@ -358,6 +407,17 @@ impl NativeWorld {
                 None => base.clone(),
             };
             let p = &projected;
+            if let (Some(source), Some(callback)) = (&fresh_source, on_fresh.as_mut()) {
+                callback(FreshCreatureCellObject::new(
+                    &profile,
+                    world,
+                    source,
+                    source_generation
+                        .as_ref()
+                        .ok_or(NativeError::InvalidProfile)?,
+                    p,
+                )?)?;
+            }
             npcs.insert(
                 p.ai.creature_id,
                 Npc {
