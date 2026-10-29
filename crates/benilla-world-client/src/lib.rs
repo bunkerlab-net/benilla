@@ -23,6 +23,7 @@ const MAX_ENVELOPE_BYTES: usize = 4096;
 pub enum Error {
     UnboundMap(u32),
     UnboundCreatureDisplay(u32),
+    UnboundPlayerDisplay(u32),
     UnboundItemDisplay(u32),
     UnboundSpell(u32),
     InvalidClientManifest,

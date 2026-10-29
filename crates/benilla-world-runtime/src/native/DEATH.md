@@ -54,8 +54,8 @@ The client projection emits durability notification, attack stops, zero HP,
 body release-timer/dynamic fields and a root order. Root uses an explicitly supplied
 local session order counter, never a world tick or fabricated source counter.
 `NativeMovementOrders` must be owned with the controller's other forced movement
-orders; failed projection does not consume it. The app/controller must still wire
-that shared counter and its acknowledgement handling. Death-body reload projects
+orders; failed projection does not consume it. The app/controller owns that shared root/speed counter and its acknowledgement
+handling. Death-body reload projects
 root again in the new session's counter domain.
 
 The six-minute boundary commits an explicit release-unavailable event and latches

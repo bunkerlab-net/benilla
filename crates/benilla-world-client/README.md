@@ -82,6 +82,26 @@ in this initial projection slice, each objective count at most 63, 16 backpack
 slots, 16-bit initial spell IDs and u32 displayed XP/money. The larger headless
 runtime limits do not imply the stock UI can represent the same domain.
 
+## Source-owned initial player model projection
+
+When the native world retains its validated `PlayerCollisionHeightWitness`, the
+player descriptor publishes `OBJECT_FIELD_SCALE_X` (4), current display (131),
+and native display (132) from that owner. The source is pinned CMaNGOS
+`Player::InitDisplayIds`; the existing owner binds the actual initialized
+race/class/gender and loaded ChrRaces/CreatureDisplayInfo/CreatureModelData rows.
+Its exhaustive no-transform/no-scale-mutation domain permits current display to
+equal native display. The constructor also requires the selected display to be
+resolvable in the client catalog. Missing metadata is an error, not a fallback.
+
+Field 4 contains the **stored** scale, including source fresh +0 for a zero
+product; the collision getter's effective fallback of 1 is not serialized in its
+place. Initial, update and reopened session descriptors use the same retained
+owner. Profiles without this owner omit all three words rather than inventing a
+model or zero-valued evidence. These are semantic field updates, not an exact
+source dirty-mask or rendered-pixel claim. Character customization, guild/hide
+flags, ghost transforms, corpse creation and release remain separate unsupported
+owners. No native admission or persistence schema changes are implied.
+
 ## Explicit enabling gates and remaining app work
 
 The untouched original fixture is refused because its creature/item display IDs

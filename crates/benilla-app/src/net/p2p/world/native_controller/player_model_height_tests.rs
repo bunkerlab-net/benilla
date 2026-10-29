@@ -43,7 +43,7 @@ impl ClientCatalog for ModelCatalog {
         Catalog.contains_map(id)
     }
     fn contains_creature_display(&self, id: u32) -> bool {
-        id == 34
+        matches!(id, 31 | 34)
     }
     fn contains_item_display(&self, id: u32) -> bool {
         Catalog.contains_item_display(id)
@@ -935,4 +935,90 @@ fn rehashed_retained_spline_target_forgery_is_refused_without_rejecting_historic
     drop(c);
     let reopened = enter(&h, Entry::Open { world: [8; 16] }, data, Default::default());
     assert_eq!(reopened.world.state_digest(), digest);
+}
+
+// Semantic descriptors use the same retained field parser as the real client;
+// this does not claim a rendered model or authorize a native world.
+fn player_model_descriptor(events: &[SessionEvent], player: u64) -> benilla_protocol::ObjectFields {
+    let mut descriptor = benilla_protocol::ObjectFields::default();
+    for event in events {
+        if let SessionEvent::ObjectValues { guid, fields } = event {
+            if *guid == player {
+                descriptor.merge(fields.clone());
+            }
+        }
+    }
+    descriptor
+}
+fn assert_player_model_descriptor(events: &[SessionEvent], player: u64, stored_bits: u32) {
+    let descriptor = player_model_descriptor(events, player);
+    let selected: Vec<_> = descriptor
+        .raw_fields()
+        .filter(|(field, _)| matches!(field, 4 | 131 | 132))
+        .collect();
+    assert_eq!(selected, vec![(4, stored_bits), (131, 31), (132, 31)]);
+    assert_eq!(descriptor.object_scale_x().unwrap().to_bits(), stored_bits);
+    assert_eq!(descriptor.unit_displayid(), Some(31));
+    assert_eq!(descriptor.unit_native_displayid(), Some(31));
+}
+#[test]
+fn source_player_display_and_stored_scale_publish_only_after_save_and_reopen() {
+    for (display_scale, stored_scale) in [(1.75, 4.375_f32), (0.0, 0.0_f32)] {
+        let h = Harness::new();
+        let data = profile_with_fields(display_scale, 2.5, 2.875);
+        let mut c = create(&h, data.clone(), Default::default());
+        let witness = c
+            .world
+            .state()
+            .player_collision_height()
+            .unwrap()
+            .witness()
+            .clone();
+        assert_eq!(witness.native_display_id(), 31);
+        assert_eq!(witness.stored_object_scale().bits(), stored_scale.to_bits());
+        if stored_scale == 0.0 {
+            assert_eq!(witness.effective_object_scale().bits(), 1.0_f32.to_bits());
+        }
+        let initial = c.initial_events().unwrap();
+        assert_player_model_descriptor(&initial, c.player_guid(), stored_scale.to_bits());
+        c.receive(movement(1, -0.25)).unwrap();
+        fs::write(
+            h.path().join(".world-checkpoint.pending"),
+            b"authored recoverable fault",
+        )
+        .unwrap();
+        let withheld = c.pump(c.tick_duration());
+        assert_eq!(withheld.ticks, 1);
+        assert!(withheld.events.is_empty());
+        assert!(matches!(
+            withheld.pause.unwrap().kind,
+            PauseKind::Checkpoint {
+                requires_reopen: false
+            }
+        ));
+        let checkpoint = c.world.checkpoint().unwrap();
+        let sequence = c.world.state().next_sequence;
+        fs::remove_file(h.path().join(".world-checkpoint.pending")).unwrap();
+        c.retry_checkpoint().unwrap();
+        let published = c.pump(Duration::ZERO);
+        assert!(published.pause.is_none());
+        assert_player_model_descriptor(&published.events, c.player_guid(), stored_scale.to_bits());
+        assert_eq!(c.world.state().next_sequence, sequence);
+        assert!(c.pump(Duration::ZERO).events.is_empty());
+        assert_eq!(c.world.checkpoint().unwrap(), checkpoint);
+        drop(c);
+        let mut reopened = enter(&h, Entry::Open { world: [8; 16] }, data, Default::default());
+        assert_eq!(reopened.world.checkpoint().unwrap(), checkpoint);
+        assert_eq!(
+            reopened
+                .world
+                .state()
+                .player_collision_height()
+                .unwrap()
+                .witness(),
+            &witness
+        );
+        let events = reopened.initial_events().unwrap();
+        assert_player_model_descriptor(&events, reopened.player_guid(), stored_scale.to_bits());
+    }
 }

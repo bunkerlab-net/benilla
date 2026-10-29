@@ -165,6 +165,15 @@ impl NativeProjection {
         if !catalog.contains_map(w.profile().map_id) {
             return Err(Error::UnboundMap(w.profile().map_id));
         }
+        if let Some(model) = w.state().player_collision_height() {
+            let witness = model.witness();
+            witness
+                .validate_for(w.profile(), w.state().world, selected)
+                .map_err(|_| Error::Incompatible)?;
+            if !catalog.contains_creature_display(witness.native_display_id()) {
+                return Err(Error::UnboundPlayerDisplay(witness.native_display_id()));
+            }
+        }
         for npc in w.state().npcs.values() {
             let projected = npc
                 .effective_profile(w.profile())
@@ -450,6 +459,16 @@ impl NativeProjection {
             (34, u32::from(w.player_level())),
             (1261, w.state().watched_faction() as u32),
         ];
+        // InitDisplayIds writes the stored scale and both display fields. The retained
+        // model owner excludes transforms; absent ownership means unknown, not zero.
+        if let Some(model) = w.state().player_collision_height() {
+            let witness = model.witness();
+            pairs.extend([
+                (4, witness.stored_object_scale().bits()),
+                (131, witness.native_display_id()),
+                (132, witness.native_display_id()),
+            ]);
+        }
         if let Some(c) = &w.state().combat {
             // Loot::SetPlayerIsLooting/NotLooting maintains UNIT_FLAG_LOOTING.
             let looting = w
@@ -2169,3 +2188,7 @@ mod action_bar_toggles_tests;
 #[cfg(test)]
 #[path = "native_equipment_origin_tests.rs"]
 mod equipment_origin_tests;
+
+#[cfg(test)]
+#[path = "native_player_display_tests.rs"]
+mod player_display_tests;
