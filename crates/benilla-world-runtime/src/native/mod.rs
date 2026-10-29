@@ -28,6 +28,10 @@ mod pathfinder_configuration;
 pub use pathfinder_configuration::*;
 mod map_classification;
 pub use map_classification::*;
+mod corpse_appearance_preview;
+pub use corpse_appearance_preview::*;
+#[cfg(test)]
+mod corpse_appearance_preview_tests;
 #[cfg(test)]
 mod map_classification_tests;
 mod player_appearance;
