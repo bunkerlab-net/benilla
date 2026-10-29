@@ -26,7 +26,8 @@ impl ClientCatalog for Catalog {
         id == 7
     }
     fn contains_creature_display(&self, id: u32) -> bool {
-        id == 60001
+        // Environment fixtures load authored male player display 31 alongside NPC 60001.
+        matches!(id, 31 | 60001)
     }
     fn contains_item_display(&self, _: u32) -> bool {
         false

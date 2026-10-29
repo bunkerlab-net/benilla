@@ -165,7 +165,8 @@ impl ClientCatalog for WidthCatalog {
         GroundCatalog.contains_map(id)
     }
     fn contains_creature_display(&self, id: u32) -> bool {
-        id == 34
+        // Loaded chase-gate fixtures select player 31 and NPC 34 from the authored rows.
+        matches!(id, 31 | 34)
     }
     fn contains_item_display(&self, id: u32) -> bool {
         GroundCatalog.contains_item_display(id)
