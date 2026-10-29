@@ -57,6 +57,13 @@ fn empty_setup(z: f32, wall: bool) -> (n::Profile, EmptyProduct) {
 }
 
 fn empty_mailbox(product: EmptyProduct) -> MailboxAuthority {
+    empty_mailbox_with_expired_first_slice(product, false)
+}
+
+fn empty_mailbox_with_expired_first_slice(
+    product: EmptyProduct,
+    mut expire_first_slice: bool,
+) -> MailboxAuthority {
     let EmptyProduct {
         provider,
         session,
@@ -85,7 +92,12 @@ fn empty_mailbox(product: EmptyProduct) -> MailboxAuthority {
                 if mode == 5 {
                     std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
                 }
-                let result = if mode == 1 {
+                let result = if expire_first_slice {
+                    // Exercise a real slice expiry without renewing the job deadline.
+                    expire_first_slice = false;
+                    std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+                    Err(Failure::Deadline)
+                } else if mode == 1 {
                     Err(Failure::MissingGeometry)
                 } else {
                     // No renewed, extended or replacement provider deadline.
@@ -482,7 +494,10 @@ fn empty_selector_binding_and_malformed_replies_never_commit_or_publish() {
         let fault = Arc::clone(&product.fault);
         let observed = Arc::clone(&product.observed);
         let failures = Arc::clone(&product.failures);
-        let mut c = create(&h, data, empty_mailbox(product));
+        let service_step = Arc::clone(&product.service_step);
+        let authority = empty_mailbox_with_expired_first_slice(product, true);
+        let submissions = Arc::clone(&authority.submissions);
+        let mut c = create(&h, data, authority);
         c.initial_events().unwrap();
         pump_to(&mut c, 1);
         let before = c.world.checkpoint().unwrap();
@@ -499,17 +514,42 @@ fn empty_selector_binding_and_malformed_replies_never_commit_or_publish() {
         assert_eq!(c.store.generation(), generation);
         assert_eq!(durable_files(&h), persisted);
         assert_eq!(c.position_xyz(), [MID - 50., MID - 1., 11.]);
-        assert_eq!(observed.lock().unwrap().len(), 1);
+        // The same bounded job may retry expired service slices, but reaches
+        // exactly one terminal binding/malformed reply and cannot be resubmitted.
+        let step = service_step.lock().unwrap();
+        let attempts = observed.lock().unwrap().clone();
+        let failed_attempts = failures.lock().unwrap().clone();
+        assert_eq!(submissions.load(Ordering::SeqCst), 1);
+        assert_eq!(failed_attempts.first(), Some(&Failure::Deadline));
+        assert!(attempts.iter().all(|attempt| attempt == &attempts[0]));
         if mode == 2 {
-            assert_eq!(*failures.lock().unwrap(), vec![Failure::Binding]);
+            assert_eq!(failed_attempts.last(), Some(&Failure::Binding));
+            assert!(failed_attempts[..failed_attempts.len() - 1]
+                .iter()
+                .all(|failure| *failure == Failure::Deadline));
+            assert_eq!(attempts.len(), failed_attempts.len());
+        } else {
+            // Malformed facts are rejected by the mailbox after the provider
+            // succeeds; only earlier provider Deadline failures are recorded.
+            assert!(failed_attempts
+                .iter()
+                .all(|failure| *failure == Failure::Deadline));
+            assert_eq!(attempts.len(), failed_attempts.len() + 1);
         }
+        drop(step);
         assert!(c.retry_tick().is_err());
         let waiting = c.pump(Duration::from_secs(60));
         assert_eq!(waiting.ticks, 0);
         assert!(waiting.events.is_empty());
+        assert!(matches!(waiting.pause.unwrap().kind, PauseKind::Simulation));
         assert_eq!(c.pending.as_ref().unwrap().inputs, pending);
         assert_eq!(c.world.checkpoint().unwrap(), before);
         assert_eq!(durable_files(&h), persisted);
-        assert_eq!(observed.lock().unwrap().len(), 1);
+        let _step = service_step.lock().unwrap();
+        assert_eq!(*observed.lock().unwrap(), attempts);
+        assert_eq!(*failures.lock().unwrap(), failed_attempts);
+        assert_eq!(submissions.load(Ordering::SeqCst), 1);
+        assert_eq!(c.store.generation(), generation);
+        assert_eq!(c.position_xyz(), [MID - 50., MID - 1., 11.]);
     }
 }
