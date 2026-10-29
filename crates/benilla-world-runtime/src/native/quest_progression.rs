@@ -17,7 +17,7 @@ mod capacity;
 mod derived;
 pub(in crate::native) mod equipment_movement;
 pub use equipment_movement::{
-    EquipmentAutoStoreReceipt, EquipmentMoveReceipt, EquipmentMoveRequest,
+    EquipmentAutoStoreReceipt, EquipmentDestroyReceipt, EquipmentMoveReceipt, EquipmentMoveRequest,
     EquipmentRelocationReceipt,
 };
 mod kills;
@@ -29,7 +29,7 @@ pub use kills::{creature_guid, KillCreatureRow, KillDependencyAudit, NativeKillP
 pub use reputation::NativeReputationState;
 
 pub const QUEST_PROGRESSION_POLICY: &str =
-    "benilla-native-ordinary-quest-reputation-reconstruction-v11";
+    "benilla-native-ordinary-quest-reputation-reconstruction-v12";
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct QuestNpcRow {
@@ -860,6 +860,7 @@ impl pg::Host for ProgressionHost {
 #[derive(Clone)]
 struct QuestHost<'a> {
     selected_destroy: Option<inv::DestroyReceipt>,
+    selected_original_destroy: Option<EquipmentDestroyReceipt>,
     xp_enabled: bool,
     reputation: Option<NativeReputationState>,
     reputation_calls: VecDeque<(reputation::Marker, Vec<QuestProgressionEvent>)>,
@@ -1005,8 +1006,17 @@ impl q::Host for QuestHost<'_> {
                         .slots
                         .get(&receipt.slot)
                         .ok_or(q::Error::Host("selected inventory removal identity"))?;
-                    if l.equipment_origin(selected.id).is_some() {
-                        return Err(q::Error::Unsupported("registered armor consumption"));
+                    let original = l.equipment_origin(selected.id).is_some();
+                    if original {
+                        let permit = self
+                            .selected_original_destroy
+                            .as_ref()
+                            .ok_or(q::Error::Unsupported("registered armor consumption"))?;
+                        if permit.instance != selected.id || permit.destruction != *receipt {
+                            return Err(q::Error::Host("selected original destruction proof"));
+                        }
+                    } else if self.selected_original_destroy.is_some() {
+                        return Err(q::Error::Host("unexpected original destruction proof"));
                     }
                     // Sharing a template does not make an ordinary object the
                     // registered original. Only this exact selected reducer may
@@ -1019,13 +1029,22 @@ impl q::Host for QuestHost<'_> {
                             .map(|(&slot, instance)| (slot, instance.clone()))
                             .collect::<BTreeMap<_, _>>()
                     };
-                    if registered(&receipt.before) != registered(&receipt.after)
+                    let mut expected_registered = registered(&receipt.before);
+                    if original {
+                        expected_registered.remove(&receipt.slot);
+                    }
+                    if expected_registered != registered(&receipt.after)
                         || receipt.before.equipped != receipt.after.equipped
                         || receipt.before.next_item != receipt.after.next_item
                     {
                         return Err(q::Error::Host("selected inventory registered custody"));
                     }
                     let receipt = self.selected_destroy.take().unwrap();
+                    if original {
+                        self.selected_original_destroy
+                            .take()
+                            .ok_or(q::Error::Host("original destruction permit consumed twice"))?;
+                    }
                     self.inventory = Some(receipt.after.clone());
                     vec![QuestProgressionEvent::InventoryDestroyed(Box::new(receipt))]
                 } else {
@@ -1291,7 +1310,7 @@ impl QuestProgressionState {
         combat: &PlayerCombatState,
         command: q::Command,
     ) -> Result<(Self, Vec<QuestProgressionEvent>), NativeError> {
-        self.reduce_inner(g, combat, command, None)
+        self.reduce_inner(g, combat, command, None, None)
     }
     pub(in crate::native) fn destroy_selected(
         &self,
@@ -1306,6 +1325,7 @@ impl QuestProgressionState {
             combat,
             q::Command::RemoveItems { item, count },
             Some(receipt),
+            None,
         )
     }
     fn reduce_inner(
@@ -1314,6 +1334,7 @@ impl QuestProgressionState {
         combat: &PlayerCombatState,
         command: q::Command,
         selected_destroy: Option<inv::DestroyReceipt>,
+        selected_original_destroy: Option<EquipmentDestroyReceipt>,
     ) -> Result<(Self, Vec<QuestProgressionEvent>), NativeError> {
         if let Some(receipt) = &selected_destroy {
             receipt.validate(&g.loot.as_ref().ok_or(NativeError::InvalidState)?.inventory)?;
@@ -1325,6 +1346,15 @@ impl QuestProgressionState {
                 return Err(NativeError::InvalidState);
             }
         }
+        if let Some(permit) = &selected_original_destroy {
+            if selected_destroy.as_ref() != Some(&permit.destruction)
+                || self.inventory_receipts != permit.before_receipts
+            {
+                return Err(NativeError::InvalidState);
+            }
+            let mut custody = equipment_movement::placements(g, &self.derived_calls)?;
+            permit.replay(g, &mut custody)?;
+        }
         let training = init::LiveTraining::restore_authoritative(
             &g.training,
             &self.training,
@@ -1332,6 +1362,7 @@ impl QuestProgressionState {
         )?;
         let host = QuestHost {
             selected_destroy,
+            selected_original_destroy,
             xp_enabled: self.xp_enabled,
             reputation: self.reputation.clone(),
             reputation_calls: VecDeque::new(),
@@ -1387,6 +1418,7 @@ impl QuestProgressionState {
         if !tx.host.calls.is_empty()
             || !tx.host.reputation_calls.is_empty()
             || tx.host.selected_destroy.is_some()
+            || tx.host.selected_original_destroy.is_some()
         {
             return Err(NativeError::InvalidState);
         }

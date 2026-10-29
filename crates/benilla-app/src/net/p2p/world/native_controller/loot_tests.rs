@@ -1273,3 +1273,6 @@ mod armor_autostore_tests;
 
 #[path = "armor_duplicate_destroy_tests.rs"]
 mod armor_duplicate_destroy_tests;
+
+#[path = "armor_registered_destroy_tests.rs"]
+mod armor_registered_destroy_tests;

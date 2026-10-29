@@ -1006,3 +1006,13 @@ rechecks retained policy, row width, selected ID and type; it does not recreate
 whole-table uniqueness from a selected row. Private raw-row tests cover those
 pure selection rules, not archive loading or native admission. No geometry,
 corpse, resurrection, or production capability is supplied by classification.
+
+## Original carried armor selected-destroy host (carried-items-v13)
+
+The existing GPL runtime composes the selected `HandleDestroyItemOpcode` /
+`Player::DestroyItem` reducer with permanent original-equipment custody retirement.
+Source remains CMaNGOS Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`,
+upstream GPL-2.0-or-later; this host composition is GPL-3.0-or-later. The generic
+inventory reducer is unchanged. A separate validated selected receipt and quest
+callback permission authorize only the already-detached original, with no ID
+reuse, arbitrary item consumer, native entry or imported data allowance.

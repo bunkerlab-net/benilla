@@ -7,19 +7,61 @@ pub fn profile() -> Profile {
     profile_with_lethal(false)
 }
 pub fn profile_with_lethal(lethal: bool) -> Profile {
-    build(lethal, false, None, false)
+    build(lethal, false, None, false, false)
 }
 pub fn mainhand_profile() -> Profile {
-    build(false, true, None, false)
+    build(false, true, None, false, false)
 }
 pub fn profile_with_armor_type(inventory_type: u32) -> Profile {
-    build(false, false, Some(inventory_type), false)
+    build(false, false, Some(inventory_type), false, false)
 }
 pub fn profile_with_duplicate_armor() -> Profile {
-    build(false, false, None, true)
+    build(false, false, None, true, false)
 }
-fn build(lethal: bool, mainhand: bool, armor_type: Option<u32>, duplicate_armor: bool) -> Profile {
+/// Two different source-authored original armor slots, sealed by the ordinary initializer.
+pub fn profile_with_two_originals() -> Profile {
+    build(false, false, None, false, true)
+}
+fn build(
+    lethal: bool,
+    mainhand: bool,
+    armor_type: Option<u32>,
+    duplicate_armor: bool,
+    second_original: bool,
+) -> Profile {
     let (mut p, mut input, mut rows) = synthetic_loot_fixture::setup();
+    if second_original {
+        use benilla_sim::starter_init as init;
+        let mut second = input
+            .items
+            .iter()
+            .find(|item| item.id == 900001)
+            .unwrap()
+            .clone();
+        second.id = 900003;
+        second.inventory_type = 6; // Source singleton waist slot 5; chest stays slot 4.
+        input.items.push(second);
+        let init::Rows::Complete(grants) = &mut input.item_grants else {
+            unreachable!()
+        };
+        grants.push(init::ItemGrant {
+            source: init::GrantSource::Custom,
+            source_order: 1,
+            item: 900003,
+            count: 1,
+        });
+        let loot = rows.loot.as_mut().unwrap();
+        let mut items: Vec<_> = loot.inventory.items().cloned().collect();
+        let mut prototype = items
+            .iter()
+            .find(|item| item.entry == 900001)
+            .unwrap()
+            .clone();
+        prototype.entry = 900003;
+        prototype.inventory_type = 6;
+        items.push(prototype);
+        loot.inventory = synthetic_loot_fixture::inventory_catalog(items);
+    }
     if duplicate_armor {
         use benilla_sim::starter_init as init;
         let entry = input.items.iter().find(|i| i.class == 4).unwrap().id;

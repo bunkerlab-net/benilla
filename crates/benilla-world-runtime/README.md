@@ -207,7 +207,7 @@ source gate or change the integer armor policy.
 
 See [SPELL-AUTHORITY.md](SPELL-AUTHORITY.md) for the bounded ID133 source spell
 host, complete raw input dependencies, phase/scheduler ownership, numeric oracle
-and native simulation checkpoint/record format 71. This is not production content
+and native simulation checkpoint/record format 72. This is not production content
 admission or stock Fireball certification.
 
 See [FACING-AUTHORITY.md](FACING-AUTHORITY.md) for explicit current-request
@@ -252,3 +252,8 @@ Native format 71 (`benilla-native-map-classification-v71`) binds optional exact 
 to the native profile map identity. Classification is not geometry, admission,
 or evidence that a corpse was created. No old-save migration or ghost release
 is added.
+
+Native format 72 (`benilla-native-armor-destroy-v72`) adds selected detached-original armor destruction
+with retained tombstone custody; registered identities remain reserved. Generic
+and indirect consumption remain unsupported. No old-save migration, native
+admission, or ghost release is added.

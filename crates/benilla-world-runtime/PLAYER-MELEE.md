@@ -55,7 +55,7 @@ only by the source class/outcome/alive conditions and expire in NPC Unit update.
 
 ## Persistence contract
 
-Native format 71 rejects older envelopes; no migration is provided. Existing
+Native format 72 rejects older envelopes; no migration is provided. Existing
 unrelated callback hash domains retain their prior versions.
 
 The bounded player proof retains the latest writers of lifecycle, BASE, OFF and
@@ -118,3 +118,8 @@ Native format 71 (`benilla-native-map-classification-v71`) binds optional exact 
 to the native profile map identity. Classification is not geometry, admission,
 or evidence that a corpse was created. No old-save migration or ghost release
 is added.
+
+Native format 72 (`benilla-native-armor-destroy-v72`) adds selected detached-original armor destruction
+with retained tombstone custody; registered identities remain reserved. Generic
+and indirect consumption remain unsupported. No old-save migration, native
+admission, or ghost release is added.

@@ -36,6 +36,10 @@ pub enum DerivedCall {
         before: Box<pg::Snapshot>,
         movement: Box<EquipmentRelocationReceipt>,
     },
+    ItemDestruction {
+        before: Box<pg::Snapshot>,
+        movement: Box<EquipmentDestroyReceipt>,
+    },
     ItemAutoStore {
         before: Box<pg::Snapshot>,
         movement: Box<EquipmentAutoStoreReceipt>,
@@ -371,6 +375,51 @@ impl QuestProgressionState {
             movement: Box::new(movement),
         });
         Ok(next)
+    }
+    pub(in crate::native) fn armor_destroy(
+        &self,
+        g: &QuestProgressionGenesis,
+        combat: &PlayerCombatState,
+        movement: EquipmentDestroyReceipt,
+        health: u32,
+        mana: u32,
+    ) -> Result<(Self, Vec<QuestProgressionEvent>), NativeError> {
+        reserve_call(&self.derived_calls)?;
+        authoritative_recipe(g, self.player.view(), &combat.recipe, self)?;
+        if self.inventory.as_ref() != Some(&movement.destruction.before)
+            || self.inventory_receipts != movement.before_receipts
+        {
+            return Err(NativeError::InvalidState);
+        }
+        let mut custody = equipment_movement::placements(g, &self.derived_calls)?;
+        movement.replay(g, &mut custody)?;
+        let mut synchronized = self.clone();
+        synchronized.synchronize(g, combat, health, mana)?;
+        let before = synchronized.player.snapshot();
+        let item = movement
+            .destruction
+            .item()
+            .ok_or(NativeError::InvalidState)?;
+        let count = movement.destruction.removed;
+        let (mut next, events) = synchronized.reduce_inner(
+            g,
+            combat,
+            q::Command::RemoveItems { item, count },
+            Some(movement.destruction.clone()),
+            Some(movement.clone()),
+        )?;
+        if next.inventory.as_ref() != Some(&movement.destruction.after)
+            || next.player.snapshot() != before
+            || next.derived_calls != synchronized.derived_calls
+        {
+            return Err(NativeError::InvalidState);
+        }
+        next.inventory_receipts = movement.after_receipts.clone();
+        next.derived_calls.push(DerivedCall::ItemDestruction {
+            before: Box::new(before),
+            movement: Box::new(movement),
+        });
+        Ok((next, events))
     }
     pub(in crate::native) fn armor_autostore(
         &self,
@@ -757,6 +806,11 @@ pub(super) fn reconstruct_history(
                 if !before.alive || before.numeric.health == 0 {
                     return Err(NativeError::InvalidCheckpoint);
                 }
+                movement.replay(g, &mut placements)?;
+                index += 1;
+            }
+            DerivedCall::ItemDestruction { before, movement } => {
+                source = boundary(g, before, source.view(), &recipe)?;
                 movement.replay(g, &mut placements)?;
                 index += 1;
             }

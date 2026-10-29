@@ -47,9 +47,17 @@ pub struct EquipmentMoveReceipt {
     pub before_receipts: BTreeMap<u64, ItemReceipt>,
     pub after_receipts: BTreeMap<u64, ItemReceipt>,
     pub(in crate::native) context: MoveContext,
+    pub(in crate::native) before_placements: Placements,
 }
 
-pub(in crate::native) type Placements = BTreeMap<u64, u8>;
+/// Permanent original-handle custody. Retired handles cannot be reused or revived.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub enum EquipmentPlacement {
+    Slot(u8),
+    Retired,
+}
+pub(in crate::native) type Placements = BTreeMap<u64, EquipmentPlacement>;
 
 fn loot(g: &QuestProgressionGenesis) -> Result<&NativeLootGenesis, NativeError> {
     g.loot
@@ -62,7 +70,7 @@ pub(in crate::native) fn initial_placements(g: &QuestProgressionGenesis) -> Plac
         .as_ref()
         .into_iter()
         .flat_map(|l| l.equipment_instances())
-        .map(|(id, origin)| (id, origin.genesis_slot))
+        .map(|(id, origin)| (id, EquipmentPlacement::Slot(origin.genesis_slot)))
         .collect()
 }
 
@@ -193,7 +201,13 @@ pub(in crate::native) fn validate_inventory(
     let mut equipped = BTreeMap::<u32, u32>::new();
     let mut positions = BTreeSet::new();
     for (id, origin) in l.equipment_instances() {
-        let slot = *placements.get(&id).ok_or(NativeError::InvalidCheckpoint)?;
+        let placement = *placements.get(&id).ok_or(NativeError::InvalidCheckpoint)?;
+        let EquipmentPlacement::Slot(slot) = placement else {
+            if inventory.slots.values().any(|item| item.id == id) {
+                return Err(NativeError::InvalidCheckpoint);
+            }
+            continue;
+        };
         if !positions.insert(slot) {
             return Err(NativeError::InvalidCheckpoint);
         }
@@ -236,13 +250,9 @@ impl EquipmentMoveReceipt {
     /// Recompute the source structural operation. This does not authenticate
     /// custody history; runtime journal validation and projection ancestry do so.
     pub fn validate(&self, g: &QuestProgressionGenesis) -> Result<(), NativeError> {
-        let mut custody = initial_placements(g);
-        for (&slot, item) in &self.before.slots {
-            if loot(g)?.equipment_origin(item.id).is_some() {
-                custody.insert(item.id, slot);
-            }
-        }
-        self.replay(g, &mut custody)
+        // Other originals may already be retired. Infer neither resurrection nor
+        // their chronology from absence in the carried inventory.
+        self.replay(g, &mut self.before_placements.clone())
     }
 
     pub fn equips(&self) -> bool {
@@ -255,8 +265,10 @@ impl EquipmentMoveReceipt {
         placements: &mut Placements,
     ) -> Result<(), NativeError> {
         let l = loot(g)?;
-        if l.equipment_origin(self.instance) != Some(self.origin)
-            || placements.get(&self.instance) != Some(&self.request.source)
+        if *placements != self.before_placements
+            || l.equipment_origin(self.instance) != Some(self.origin)
+            || placements.get(&self.instance)
+                != Some(&EquipmentPlacement::Slot(self.request.source))
             || self.request.source == self.request.destination
         {
             return Err(NativeError::InvalidCheckpoint);
@@ -275,7 +287,10 @@ impl EquipmentMoveReceipt {
         }
         validate_receipts(&after, &self.after_receipts)?;
         let mut next = placements.clone();
-        next.insert(self.instance, self.request.destination);
+        next.insert(
+            self.instance,
+            EquipmentPlacement::Slot(self.request.destination),
+        );
         validate_inventory(g, &after, &next)?;
         *placements = next;
         Ok(())
@@ -302,6 +317,7 @@ impl EquipmentMoveReceipt {
             before_receipts,
             after_receipts: BTreeMap::new(),
             context,
+            before_placements: placements.clone(),
         };
         receipt.after = receipt.expected_after(g)?;
         receipt.after_receipts = receipt.expected_receipts();
@@ -341,7 +357,7 @@ impl EquipmentMoveReceipt {
 
     fn reason(&self) -> crate::Digest {
         crate::digest(
-            b"benilla-native-armor-move-v1\0",
+            b"benilla-native-armor-move-v2\0",
             &(
                 self.request,
                 self.instance,
@@ -350,6 +366,7 @@ impl EquipmentMoveReceipt {
                 &self.after,
                 &self.before_receipts,
                 &self.context,
+                &self.before_placements,
             ),
         )
     }
@@ -420,6 +437,7 @@ pub(in crate::native) fn placements(
             DerivedCall::ItemMembership { movement, .. } => movement.replay(g, &mut result)?,
             DerivedCall::ItemRelocation { movement, .. } => movement.replay(g, &mut result)?,
             DerivedCall::ItemAutoStore { movement, .. } => movement.replay(g, &mut result)?,
+            DerivedCall::ItemDestruction { movement, .. } => movement.replay(g, &mut result)?,
             _ => {}
         }
     }
@@ -442,6 +460,7 @@ pub(in crate::native) fn validate_state(
                 DerivedCall::ItemMembership { .. }
                     | DerivedCall::ItemRelocation { .. }
                     | DerivedCall::ItemAutoStore { .. }
+                    | DerivedCall::ItemDestruction { .. }
             )
         })
         .collect();
@@ -502,6 +521,13 @@ pub(in crate::native) fn validate_state(
                 movement.sequence,
                 movement.captured_ms,
             ),
+            DerivedCall::ItemDestruction { movement, .. } => (
+                movement.world,
+                movement.player,
+                movement.profile,
+                movement.sequence,
+                movement.captured_ms,
+            ),
             _ => unreachable!(),
         };
         if digest != profile.digest()
@@ -527,7 +553,8 @@ pub(in crate::native) fn validate_state(
     let expected_inactive: Vec<_> = loot(g)?
         .equipment_instances()
         .filter_map(|(id, origin)| {
-            (custody.get(&id) != Some(&origin.genesis_slot)).then_some(origin.genesis_slot)
+            (custody.get(&id) != Some(&EquipmentPlacement::Slot(origin.genesis_slot)))
+                .then_some(origin.genesis_slot)
         })
         .collect();
     if expected_inactive != combat.recipe.snapshot().inactive_slots {
@@ -652,7 +679,7 @@ impl EquipmentRelocationReceipt {
     ) -> Result<(), NativeError> {
         let m = &self.movement;
         if loot(g)?.equipment_origin(self.instance) != Some(self.origin)
-            || placements.get(&self.instance) != Some(&m.source)
+            || placements.get(&self.instance) != Some(&EquipmentPlacement::Slot(m.source))
             || m.outcome != inv::MovementOutcome::Moved
             || !m.alive
             || m.source == m.destination
@@ -671,7 +698,7 @@ impl EquipmentRelocationReceipt {
         }
         validate_receipts(&m.after, &self.after_receipts)?;
         let mut next = placements.clone();
-        next.insert(self.instance, m.destination);
+        next.insert(self.instance, EquipmentPlacement::Slot(m.destination));
         validate_inventory(g, &m.after, &next)?;
         *placements = next;
         Ok(())
@@ -769,7 +796,7 @@ impl EquipmentAutoStoreReceipt {
     ) -> Result<(), NativeError> {
         let m = &self.movement;
         if loot(g)?.equipment_origin(self.instance) != Some(self.origin)
-            || placements.get(&self.instance) != Some(&m.source)
+            || placements.get(&self.instance) != Some(&EquipmentPlacement::Slot(m.source))
             || m.outcome != inv::AutoStoreOutcome::Stored
             || m.destinations.len() != 1
             || m.destinations[0].count != 1
@@ -789,7 +816,138 @@ impl EquipmentAutoStoreReceipt {
         }
         validate_receipts(&m.after, &self.after_receipts)?;
         let mut next = placements.clone();
-        next.insert(self.instance, m.destinations[0].slot);
+        next.insert(
+            self.instance,
+            EquipmentPlacement::Slot(m.destinations[0].slot),
+        );
+        validate_inventory(g, &m.after, &next)?;
+        *placements = next;
+        Ok(())
+    }
+}
+
+/// Source-selected destruction of one already-carried original. Retirement is
+/// permanent custody, not removal of its source registry or a reusable ID.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EquipmentDestroyReceipt {
+    pub destruction: inv::DestroyReceipt,
+    pub instance: u64,
+    pub origin: EquipmentOrigin,
+    pub before_receipts: BTreeMap<u64, ItemReceipt>,
+    pub after_receipts: BTreeMap<u64, ItemReceipt>,
+    pub(in crate::native) before_placements: Placements,
+    pub(in crate::native) world: crate::WorldId,
+    pub(in crate::native) player: crate::PlayerId,
+    pub(in crate::native) profile: crate::Digest,
+    pub(in crate::native) sequence: u64,
+    pub(in crate::native) captured_ms: u64,
+}
+impl EquipmentDestroyReceipt {
+    pub(in crate::native) fn build(
+        g: &QuestProgressionGenesis,
+        destruction: inv::DestroyReceipt,
+        before_receipts: BTreeMap<u64, ItemReceipt>,
+        state: &State,
+        profile: &Profile,
+        placements: &Placements,
+    ) -> Result<Self, NativeError> {
+        let instance = destruction
+            .before
+            .slots
+            .get(&destruction.slot)
+            .ok_or(NativeError::InvalidState)?
+            .id;
+        let origin = loot(g)?
+            .equipment_origin(instance)
+            .ok_or(NativeError::InvalidState)?;
+        let mut result = Self {
+            destruction,
+            instance,
+            origin,
+            before_receipts,
+            after_receipts: BTreeMap::new(),
+            before_placements: placements.clone(),
+            world: state.world,
+            player: state.player,
+            profile: profile.digest(),
+            sequence: state.next_sequence,
+            captured_ms: state.now_ms,
+        };
+        result.after_receipts = result.expected_receipts();
+        result.replay(g, &mut placements.clone())?;
+        Ok(result)
+    }
+    /// Structural reachable receipt validation, not proof of command chronology.
+    pub fn validate(&self, g: &QuestProgressionGenesis) -> Result<(), NativeError> {
+        self.replay(g, &mut self.before_placements.clone())
+    }
+    fn expected_receipts(&self) -> BTreeMap<u64, ItemReceipt> {
+        let reason = crate::digest(
+            b"benilla-native-armor-destruction-v1\0",
+            &(
+                &self.destruction,
+                self.instance,
+                self.origin,
+                &self.before_receipts,
+                &self.before_placements,
+                self.world,
+                self.player,
+                self.profile,
+                self.sequence,
+                self.captured_ms,
+            ),
+        );
+        self.destruction
+            .after
+            .slots
+            .iter()
+            .map(|(&slot, item)| {
+                (
+                    item.id,
+                    ItemReceipt::new(
+                        self.before_receipts.get(&item.id).map(|r| r.digest),
+                        reason,
+                        slot,
+                        item,
+                    ),
+                )
+            })
+            .collect()
+    }
+    pub(in crate::native) fn replay(
+        &self,
+        g: &QuestProgressionGenesis,
+        placements: &mut Placements,
+    ) -> Result<(), NativeError> {
+        let m = &self.destruction;
+        let l = loot(g)?;
+        if *placements != self.before_placements
+            || l.equipment_origin(self.instance) != Some(self.origin)
+            || placements.get(&self.instance) != Some(&EquipmentPlacement::Slot(m.slot))
+            || !(inv::BACKPACK_START..inv::BACKPACK_END).contains(&m.slot)
+            || m.outcome != inv::DestroyOutcome::Whole
+            || m.result != inv::InventoryResult::Ok
+            || m.removed != 1
+            || m.before.slots.get(&m.slot) != Some(&carried(g, self.instance, self.origin)?)
+            || m.before.equipped != m.after.equipped
+            || m.before.next_item != m.after.next_item
+        {
+            return Err(NativeError::InvalidCheckpoint);
+        }
+        // The actual source reducer checks NO_USER_DESTROY and count semantics;
+        // there is deliberately no alive/combat/casting predicate here.
+        m.validate(&l.inventory)?;
+        validate_inventory(g, &m.before, placements)?;
+        validate_receipts(&m.before, &self.before_receipts)?;
+        let mut expected = m.before.clone();
+        expected.slots.remove(&m.slot);
+        if expected != m.after || self.after_receipts != self.expected_receipts() {
+            return Err(NativeError::InvalidCheckpoint);
+        }
+        validate_receipts(&m.after, &self.after_receipts)?;
+        let mut next = placements.clone();
+        next.insert(self.instance, EquipmentPlacement::Retired);
         validate_inventory(g, &m.after, &next)?;
         *placements = next;
         Ok(())
@@ -799,6 +957,106 @@ impl EquipmentAutoStoreReceipt {
 #[cfg(test)]
 mod operation_tests {
     use super::*;
+    fn detached_world() -> NativeWorld {
+        let mut world = crate::native::synthetic_equipment_fixture::world();
+        let input = crate::native::synthetic_quest_fixture::command(
+            &world,
+            Command::EquipmentMove(EquipmentMoveRequest {
+                source: 4,
+                destination: 23,
+            }),
+        );
+        world
+            .step(
+                1,
+                Some(input),
+                &mut crate::native::synthetic_equipment_fixture::EquipmentAuthority::default(),
+            )
+            .unwrap();
+        world
+    }
+    #[test]
+    fn selected_original_destroy_retires_handle_for_all_source_count_forms() {
+        let world = detached_world();
+        let g = world.profile.quest_progression.as_ref().unwrap();
+        let q = world.state.quest_progression.as_ref().unwrap();
+        let before = q.inventory.as_ref().unwrap();
+        let custody = placements(g, &q.derived_calls).unwrap();
+        let original = before.slots[&23].id;
+        for count in [0, 1, u8::MAX] {
+            let destruction = before
+                .plan_destroy_backpack(&loot(g).unwrap().inventory, 23, count)
+                .unwrap();
+            let receipt = EquipmentDestroyReceipt::build(
+                g,
+                destruction,
+                q.inventory_receipts.clone(),
+                &world.state,
+                &world.profile,
+                &custody,
+            )
+            .unwrap();
+            receipt.validate(g).unwrap();
+            let mut retired = custody.clone();
+            receipt.replay(g, &mut retired).unwrap();
+            assert_eq!(retired[&original], EquipmentPlacement::Retired);
+            assert_eq!(receipt.destruction.after.next_item, before.next_item);
+            assert_eq!(receipt.destruction.after.equipped, before.equipped);
+            assert!(!receipt.after_receipts.contains_key(&original));
+            assert!(loot(g).unwrap().equipment_origin(original).is_some());
+            // A retired original cannot be replay-destroyed or brought back merely
+            // by inserting an otherwise-valid pristine instance into its old slot.
+            let stable = retired.clone();
+            assert!(receipt.replay(g, &mut retired).is_err());
+            assert_eq!(retired, stable);
+            assert!(validate_inventory(g, before, &retired).is_err());
+            assert!(validate_inventory(g, &receipt.destruction.after, &retired).is_ok());
+        }
+    }
+    #[test]
+    fn forged_selected_retirement_refuses_without_mutating_custody() {
+        let world = detached_world();
+        let g = world.profile.quest_progression.as_ref().unwrap();
+        let q = world.state.quest_progression.as_ref().unwrap();
+        let before = q.inventory.as_ref().unwrap();
+        let custody = placements(g, &q.derived_calls).unwrap();
+        let destruction = before
+            .plan_destroy_backpack(&loot(g).unwrap().inventory, 23, 0)
+            .unwrap();
+        let valid = EquipmentDestroyReceipt::build(
+            g,
+            destruction,
+            q.inventory_receipts.clone(),
+            &world.state,
+            &world.profile,
+            &custody,
+        )
+        .unwrap();
+        for field in 0..6 {
+            let mut forged = valid.clone();
+            match field {
+                0 => forged.instance += 1,
+                1 => forged.destruction.slot = 24,
+                2 => forged.destruction.after.next_item += 1,
+                3 => {
+                    forged.destruction.after.slots = before.slots.clone();
+                }
+                4 => {
+                    forged
+                        .before_placements
+                        .insert(forged.instance, EquipmentPlacement::Retired);
+                }
+                5 => {
+                    forged.before_receipts.clear();
+                }
+                _ => unreachable!(),
+            }
+            forged.after_receipts = forged.expected_receipts();
+            let mut unchanged = custody.clone();
+            assert!(forged.replay(g, &mut unchanged).is_err());
+            assert_eq!(unchanged, custody);
+        }
+    }
     #[test]
     fn auto_equip_cannot_relabel_unequip_even_with_refreshed_item_checksums() {
         let mut world = crate::native::synthetic_equipment_fixture::world();

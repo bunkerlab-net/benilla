@@ -5,7 +5,7 @@
 `SwapItem` from CMaNGOS Classic
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. The upstream grant is
 GPL-2.0-or-later; see [PROVENANCE.md](PROVENANCE.md). Its policy is
-`cmangos-8ec338a1-carried-items-v12`.
+`cmangos-8ec338a1-carried-items-v13`.
 The separately named positive admin policy is `CmangosAddItemV1`.
 
 ## Exact source behavior
@@ -290,3 +290,10 @@ original carried armor object's registry custody. A distinct source journal,
 without SwapItem's alive guard, owns the first-empty placement and exact same
 instance. The generic reducer and ordinary validation are unchanged; no other
 registered consumer is enabled.
+
+The v13 host exception adds only selected destruction of an already-detached
+original pristine armor instance. A typed source receipt is consumed by the real
+quest-removal callback, and a separate history retires that exact registry handle
+permanently without freeing or reusing its ID. Other original objects, equipped
+counts, allocator and stat recipe are unchanged. Generic and unselected consumers
+remain held. See the runtime's [armor destruction contract](../benilla-world-runtime/src/native/ARMOR-DESTRUCTION.md).

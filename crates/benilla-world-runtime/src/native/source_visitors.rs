@@ -773,8 +773,8 @@ mod tests {
                 .unwrap();
         assert!(restored.replay(&records).is_err());
         assert_eq!(restored.checkpoint().unwrap(), initial);
-        assert_eq!(NATIVE_FORMAT_VERSION, 71);
-        assert_eq!(NATIVE_POLICY, "benilla-native-map-classification-v71");
+        assert_eq!(NATIVE_FORMAT_VERSION, 72);
+        assert_eq!(NATIVE_POLICY, "benilla-native-armor-destroy-v72");
         assert_eq!(crate::FORMAT_VERSION, 2);
     }
     #[test]

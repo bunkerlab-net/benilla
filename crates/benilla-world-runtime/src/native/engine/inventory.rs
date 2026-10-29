@@ -109,7 +109,10 @@ impl<A: Authority> Frame<'_, A> {
             .ok_or(NativeError::InvalidState)?;
         let inventory = q.inventory.as_ref().ok_or(NativeError::InvalidState)?;
         let custody = movement::placements(g, &q.derived_calls)?;
-        let Some((&instance, _)) = custody.iter().find(|(_, slot)| **slot == request.source) else {
+        let Some((&instance, _)) = custody
+            .iter()
+            .find(|(_, slot)| **slot == movement::EquipmentPlacement::Slot(request.source))
+        else {
             let occupied = inventory.slots.contains_key(&request.source)
                 || self
                     .state
@@ -319,14 +322,12 @@ impl<A: Authority> Frame<'_, A> {
             .quest_progression
             .as_ref()
             .ok_or(NativeError::InvalidState)?;
-        quest_progression::equipment_movement::reject_registered_slots(
-            genesis,
-            current
-                .inventory
-                .as_ref()
-                .ok_or(NativeError::InvalidState)?,
-            &[request.slot],
-        )?;
+        let registered = current
+            .inventory
+            .as_ref()
+            .and_then(|inventory| inventory.slots.get(&request.slot))
+            .and_then(|item| genesis.loot.as_ref()?.equipment_origin(item.id))
+            .is_some();
         let receipt = current
             .inventory
             .as_ref()
@@ -350,7 +351,35 @@ impl<A: Authority> Frame<'_, A> {
             .combat
             .as_ref()
             .ok_or(NativeError::InvalidState)?;
-        let (next, events) = current.destroy_selected(genesis, combat, receipt)?;
+        let (next, events) = if registered {
+            self.profile
+                .interactions
+                .as_ref()
+                .ok_or(NativeError::UnsupportedMechanic(
+                    "armor source interaction owner",
+                ))?
+                .require_armor_movement(self.profile)?;
+            let custody =
+                quest_progression::equipment_movement::placements(genesis, &current.derived_calls)?;
+            let destruction =
+                quest_progression::equipment_movement::EquipmentDestroyReceipt::build(
+                    genesis,
+                    receipt,
+                    current.inventory_receipts.clone(),
+                    self.state,
+                    self.profile,
+                    &custody,
+                )?;
+            current.armor_destroy(
+                genesis,
+                combat,
+                destruction,
+                self.state.health,
+                self.state.resources.caster.mana,
+            )?
+        } else {
+            current.destroy_selected(genesis, combat, receipt)?
+        };
         self.commit_quest_progression(next)?;
         self.events
             .extend(events.into_iter().map(Event::QuestProgression));

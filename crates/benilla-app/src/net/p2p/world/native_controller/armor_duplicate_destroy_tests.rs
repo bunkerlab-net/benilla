@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Actual selected deletion of an ordinary duplicate; no registered-object deletion.
+//! Exact selected deletion distinguishes ordinary duplicates from original registry custody.
 use super::*;
 use benilla_sim::quest_lifecycle as q;
 use benilla_world_runtime::native::synthetic_equipment_fixture as armor;
@@ -177,31 +177,57 @@ fn lua_selected_ordinary_duplicate_preserves_original_and_unrelated_quest_on_ret
     assert_eq!(progress(&reopened).quests.view(), quests);
 }
 #[test]
-fn selecting_registered_original_still_refuses_with_exact_memory_and_durable_rollback() {
+fn selecting_registered_original_retires_only_it_and_preserves_ordinary_duplicate() {
     let h = Harness::new();
     let mut c = enter_duplicate(&h, false);
-    prepare(&mut c);
-    let before = inventory(&c).clone();
-    let checkpoint = c.world.checkpoint().unwrap();
-    let digest = c.world.state_digest();
+    let (original_guid, ordinary_guid) = prepare(&mut c);
+    let original = inventory(&c).slots[&23].clone();
+    let ordinary = inventory(&c).slots[&24].clone();
+    let frontier = inventory(&c).next_item;
+    let quests = progress(&c).quests.view();
     c.receive(destroy(23)).unwrap();
-    let mut out = Pump::default();
-    let result = c.advance_one(&mut out);
-    assert!(
-        matches!(
-            result,
-            Err(Error::NativeRuntime(n::NativeError::UnsupportedMechanic(
-                "registered armor consumer"
-            )))
-        ),
-        "{result:?}"
+    let out = step(&mut c);
+    assert!(!inventory(&c).slots.contains_key(&23));
+    assert_eq!(inventory(&c).slots[&24], ordinary);
+    assert_eq!(inventory(&c).next_item, frontier);
+    assert_eq!(progress(&c).quests.view(), quests);
+    assert_eq!(
+        out.events
+            .iter()
+            .filter(|e| matches!(e, SessionEvent::ObjectDestroyed(g) if *g == original_guid))
+            .count(),
+        1
     );
-    assert_eq!(inventory(&c), &before);
-    assert_eq!(c.world.checkpoint().unwrap(), checkpoint);
-    assert!(out.events.is_empty());
+    assert!(!out
+        .events
+        .iter()
+        .any(|e| matches!(e, SessionEvent::ObjectDestroyed(g) if *g == ordinary_guid)));
+    assert!(c
+        .world
+        .profile()
+        .quest_progression
+        .as_ref()
+        .unwrap()
+        .loot
+        .as_ref()
+        .unwrap()
+        .equipment_origin(original.id)
+        .is_some());
+    assert!(!progress(&c).inventory_receipts.contains_key(&original.id));
+    let checkpoint = c.world.checkpoint().unwrap();
     drop(c);
-    let reopened = enter_duplicate(&h, true);
-    assert_eq!(reopened.world.state_digest(), digest);
+    let mut reopened = enter_duplicate(&h, true);
     assert_eq!(reopened.world.checkpoint().unwrap(), checkpoint);
-    assert_eq!(inventory(&reopened), &before);
+    assert!(!inventory(&reopened).slots.contains_key(&23));
+    assert_eq!(inventory(&reopened).slots[&24], ordinary);
+    assert_eq!(inventory(&reopened).next_item, frontier);
+    assert_eq!(progress(&reopened).quests.view(), quests);
+    let initial = reopened.initial_events().unwrap();
+    assert_eq!(
+        values(&initial, reopened.player_guid()).player_pack_slot(1),
+        Some(ordinary_guid)
+    );
+    assert!(!initial
+        .iter()
+        .any(|e| matches!(e, SessionEvent::ItemCreate {guid, ..} if *guid == original_guid)));
 }

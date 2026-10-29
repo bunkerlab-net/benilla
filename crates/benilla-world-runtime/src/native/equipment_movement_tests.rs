@@ -165,9 +165,9 @@ fn rehashed_custody_and_membership_snapshot_forgery_is_rejected() {
             }
         }
         cp.state = serde_json::from_value(json).unwrap();
-        cp.digest = crate::digest(b"benilla-native-state-v71\0", &cp.state);
+        cp.digest = crate::digest(b"benilla-native-state-v72\0", &cp.state);
         cp.checksum = crate::digest(
-            b"benilla-native-checkpoint-v71\0",
+            b"benilla-native-checkpoint-v72\0",
             &(&cp.state, cp.digest, cp.history_tip),
         );
         assert!(NativeWorld::restore_synthetic_component_test(w.profile.clone(), cp).is_err());
@@ -237,14 +237,12 @@ fn same_tick_roundtrip_empty_source_and_cross_consumer_holds() {
         Event::InventoryAutoStored(r) if r.outcome == benilla_sim::inventory::AutoStoreOutcome::Unchanged && r.views.is_empty()
     )));
     reopen(&w);
-    for c in [
-        Command::InventorySplit(InventorySplitRequest {
+    {
+        let c = Command::InventorySplit(InventorySplitRequest {
             source: 23,
             destination: 24,
             count: 1,
-        }),
-        Command::InventoryDestroy(InventoryDestroyRequest { slot: 23, count: 0 }),
-    ] {
+        });
         let before = w.checkpoint().unwrap();
         let c = synthetic_quest_fixture::command(&w, c);
         assert!(w
@@ -256,6 +254,79 @@ fn same_tick_roundtrip_empty_source_and_cross_consumer_holds() {
             .is_err());
         assert_eq!(w.checkpoint().unwrap(), before);
     }
+    // Exact selected destruction now owns its separate permanent retirement;
+    // this does not admit the rejected split or unsupported profile below.
+    let destruction_count = w
+        .state
+        .quest_progression
+        .as_ref()
+        .unwrap()
+        .derived_calls
+        .iter()
+        .filter(|call| matches!(call, DerivedCall::ItemDestruction { .. }))
+        .count();
+    let before_inventory = w
+        .state
+        .quest_progression
+        .as_ref()
+        .unwrap()
+        .inventory
+        .clone()
+        .unwrap();
+    step(
+        &mut w,
+        Command::InventoryDestroy(InventoryDestroyRequest { slot: 23, count: 0 }),
+    );
+    let q = w.state.quest_progression.as_ref().unwrap();
+    assert!(!q.inventory.as_ref().unwrap().slots.contains_key(&23));
+    assert_eq!(
+        q.inventory.as_ref().unwrap().next_item,
+        before_inventory.next_item
+    );
+    assert!(matches!(
+        q.derived_calls.last(),
+        Some(DerivedCall::ItemDestruction { .. })
+    ));
+    assert_eq!(
+        q.derived_calls
+            .iter()
+            .filter(|call| matches!(call, DerivedCall::ItemDestruction { .. }))
+            .count(),
+        destruction_count + 1
+    );
+    let original = before_inventory.slots[&23].id;
+    assert!(!q
+        .inventory
+        .as_ref()
+        .unwrap()
+        .slots
+        .values()
+        .any(|item| item.id == original));
+    assert!(w
+        .profile
+        .quest_progression
+        .as_ref()
+        .unwrap()
+        .loot
+        .as_ref()
+        .unwrap()
+        .equipment_origin(original)
+        .is_some());
+    assert!(w.last_tick().unwrap().events.iter().any(|event| matches!(event,
+        Event::QuestProgression(QuestProgressionEvent::InventoryDestroyed(receipt))
+            if receipt.outcome == benilla_sim::inventory::DestroyOutcome::Whole && receipt.removed == 1
+    )));
+    assert!(w.state.combat.as_ref().unwrap().equipment.item(4).is_none());
+    assert!(w
+        .state
+        .combat
+        .as_ref()
+        .unwrap()
+        .recipe
+        .snapshot()
+        .inactive_slots
+        .contains(&4));
+    reopen(&w);
     let mut unsupported = synthetic_loot_fixture::world();
     let before = unsupported.checkpoint().unwrap();
     let c = synthetic_quest_fixture::command(&unsupported, movement(4, 23));
@@ -398,9 +469,9 @@ fn oversized_aggregate_membership_history_fails_before_semantic_replay() {
     assert!(aggregate > MAX_BYTES / 2);
     assert!(serde_json::to_vec(&encoded).unwrap().len() < MAX_BYTES);
     checkpoint.state = serde_json::from_value(encoded).unwrap();
-    checkpoint.digest = crate::digest(b"benilla-native-state-v71\0", &checkpoint.state);
+    checkpoint.digest = crate::digest(b"benilla-native-state-v72\0", &checkpoint.state);
     checkpoint.checksum = crate::digest(
-        b"benilla-native-checkpoint-v71\0",
+        b"benilla-native-checkpoint-v72\0",
         &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
     );
     assert!(matches!(

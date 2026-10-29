@@ -106,7 +106,7 @@ fn selected_ordinary_duplicate_destroy_preserves_registered_original_and_unrelat
         .unwrap();
 }
 #[test]
-fn selected_duplicate_refinement_keeps_registered_and_unselected_consumers_closed() {
+fn selected_duplicate_refinement_keeps_unpermitted_and_unselected_consumers_closed() {
     let mut w = prepared();
     let before = w.checkpoint().unwrap();
     let g = w.profile.quest_progression.as_ref().unwrap();
@@ -127,14 +127,25 @@ fn selected_duplicate_refinement_keeps_registered_and_unselected_consumers_close
     assert!(q.destroy_selected(g, combat, forged).is_err());
     assert_eq!(w.checkpoint().unwrap(), before);
     let input = synthetic_quest_fixture::command(&w, destroy(23));
-    assert!(w
-        .step(
-            w.state.tick + 1,
-            Some(input),
-            &mut EquipmentAuthority::default()
-        )
-        .is_err());
-    assert_eq!(w.checkpoint().unwrap(), before);
+    w.step(
+        w.state.tick + 1,
+        Some(input),
+        &mut EquipmentAuthority::default(),
+    )
+    .unwrap();
+    assert!(!inventory(&w).slots.contains_key(&23));
+    assert!(inventory(&w).slots.contains_key(&24));
+    assert!(matches!(
+        w.state
+            .quest_progression
+            .as_ref()
+            .unwrap()
+            .derived_calls
+            .last(),
+        Some(DerivedCall::ItemDestruction { .. })
+    ));
+    NativeWorld::restore_synthetic_component_test(w.profile.clone(), w.checkpoint().unwrap())
+        .unwrap();
 }
 #[test]
 fn selected_duplicate_destroy_record_tampering_rolls_back() {
