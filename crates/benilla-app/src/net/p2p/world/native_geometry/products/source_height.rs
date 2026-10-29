@@ -171,6 +171,12 @@ impl<'terrain, 'bundle, 'source> PreparedSourceHeight<'terrain, 'bundle, 'source
     pub(crate) fn binding(&self) -> Binding {
         self.binding
     }
+    /// Exact decoded terrain and collision selection, not map-grid residency.
+    pub(super) fn single_resident_tile(&self) -> Option<TileId> {
+        let mut tiles = self.tiles.keys();
+        let tile = *tiles.next()?;
+        (tiles.next().is_none() && self.collision.resident_tiles() == [tile]).then_some(tile)
+    }
     #[cfg_attr(test, track_caller)]
     pub(crate) fn verify_unchanged(
         &self,

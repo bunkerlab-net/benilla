@@ -5,6 +5,8 @@ use super::super::super::nav_generation::{
 };
 use super::*;
 use std::time::{Duration, Instant};
+#[path = "positive_tile_load_tests.rs"]
+mod positive_tile_load_tests;
 fn oracle(name: &str) -> Vec<u8> {
     fs::read(
         Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -435,6 +437,15 @@ fn one_cardinal_neighbor_changes_generation_without_changing_map_origin() {
         benilla_native_nav_generator::GenerationStatus::Exact625
     );
     let p = crossing_profile();
+    positive_tile_load_tests::assert_inventory_refusals(
+        &selected_input,
+        &historical,
+        &input,
+        &output,
+        &neighbor_input,
+        &skipped,
+        &p,
+    );
     let omitted = SourceMapQuerySnapshot::from_generated(
         &[(&input, &output)],
         &p,
@@ -883,9 +894,7 @@ fn genuine_generated_resident_cold_same_polygon_is_private_fresh_and_retryable()
     use super::super::super::super::source_pathfinder_query::{
         resident_cold_tests as resident, tests as provider,
     };
-    use super::super::super::{
-        source_height::PreparedSourceHeight, source_query::SourceMapQuerySnapshot,
-    };
+    use super::super::super::nav_generation::positive_load::PositiveTileLoad;
     let entries = ridge_entries();
     let install = Install::new(&entries);
     let before = install.bytes();
@@ -944,18 +953,25 @@ fn genuine_generated_resident_cold_same_polygon_is_private_fresh_and_retryable()
     assert_eq!(scalar.polygons, [source["start_ref"].as_u64().unwrap()]);
     assert_eq!(scalar.start.polygon, scalar.end.polygon);
     let p = provider::generated_profile(start, end);
-    let snapshot = || {
-        SourceMapQuerySnapshot::from_generated(
-            &[(&input, &output)],
+    // Each fresh owner executes and retains its own positive source-load stage.
+    // The exact owned products then enter the existing real runtime consumer.
+    let load = || {
+        PositiveTileLoad::from_generated(
+            &input,
+            &output,
             &p,
+            Some(positive_tile_load_tests::ENABLED),
             Instant::now() + Duration::from_secs(10),
             || false,
         )
         .unwrap()
     };
-    let query = snapshot();
-    let replacement = snapshot();
-    let height = PreparedSourceHeight::from_source(&terrain, &bundle, || false).unwrap();
+    let owner = load();
+    let retained = owner.query().query().retain_default();
+    let (height, query) = owner.into_parts();
+    retained.check_query(query.query()).unwrap();
+    let (_replacement_height, replacement) = load().into_parts();
+    assert!(retained.check_query(replacement.query()).is_err());
     let mut changed = ridge_entries();
     changed.iter_mut().find(|e| e.name == ADT).unwrap().bytes[0] ^= 1;
     resident::assert_resident_cold_terminal(p, query, replacement, &height, |mutated| {

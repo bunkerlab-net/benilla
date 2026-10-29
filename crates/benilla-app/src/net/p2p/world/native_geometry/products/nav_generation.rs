@@ -5,6 +5,7 @@
 mod byte_assert;
 #[cfg(test)]
 pub(crate) use byte_assert::assert_navigation_bytes;
+pub(crate) mod positive_load;
 mod process;
 mod query_provider;
 #[cfg(test)]
