@@ -5,7 +5,7 @@
 `SwapItem` from CMaNGOS Classic
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. The upstream grant is
 GPL-2.0-or-later; see [PROVENANCE.md](PROVENANCE.md). Its policy is
-`cmangos-8ec338a1-carried-items-v13`.
+`cmangos-8ec338a1-carried-items-v14`.
 The separately named positive admin policy is `CmangosAddItemV1`.
 
 ## Exact source behavior

@@ -76,7 +76,7 @@ pub(in crate::native) fn initial_placements(g: &QuestProgressionGenesis) -> Plac
 
 /// The full spell-authority owner separately closes equip spells, enchantments,
 /// item-dependent casts and control hooks. These checks bound the moved object.
-fn source_item(
+fn source_original(
     g: &QuestProgressionGenesis,
     origin: EquipmentOrigin,
 ) -> Result<&inv::Item, NativeError> {
@@ -86,9 +86,13 @@ fn source_item(
         .get(&origin.item_id)
         .ok_or(NativeError::InvalidState)?;
     let item = l.inventory.grant_ready(origin.item_id)?;
-    if origin.genesis_slot >= 15
-        || row.class != 4
-        || item.class != 4
+    let armor = origin.genesis_slot < 15 && row.class == 4 && item.class == 4;
+    let mainhand = origin.genesis_slot == 15
+        && row.class == 2
+        && item.class == 2
+        && matches!(row.inventory_type, 13 | 17 | 21)
+        && row.delay_ms > 0;
+    if (!armor && !mainhand)
         || row.required_skill != 0
         || row.required_spell != 0
         || row.required_honor_rank != 0
@@ -110,6 +114,32 @@ fn source_item(
             "original pristine armor movement subset",
         ));
     }
+    if mainhand {
+        let weapon = g
+            .initial_derived_inputs
+            .weapons
+            .iter()
+            .find(|weapon| weapon.slot == 15)
+            .ok_or(NativeError::UnsupportedMechanic(
+                "source mainhand damage and skill owner",
+            ))?;
+        g.initial_derived_inputs.validate(g.initial.view())?;
+        if weapon.delay_ms == 0
+            || weapon.broken
+            || weapon.inactive
+            || [162, weapon.skill].into_iter().any(|id| {
+                !g.initial
+                    .view()
+                    .skills
+                    .iter()
+                    .any(|skill| skill.id == id && skill.status != pg::SkillStatus::Deleted)
+            })
+        {
+            return Err(NativeError::UnsupportedMechanic(
+                "source mainhand and unarmed skills",
+            ));
+        }
+    }
     let original = g
         .initial_combat
         .equipment
@@ -124,6 +154,20 @@ fn source_item(
         return Err(NativeError::InvalidState);
     }
     Ok(item)
+}
+
+// Other registered consumers remain armor-only; admitting custody does not
+// silently authorize weapon AutoEquip, relocation, AutoStore or destruction.
+fn source_item(
+    g: &QuestProgressionGenesis,
+    origin: EquipmentOrigin,
+) -> Result<&inv::Item, NativeError> {
+    if origin.genesis_slot >= 15 {
+        return Err(NativeError::UnsupportedMechanic(
+            "original armor-only consumer",
+        ));
+    }
+    source_original(g, origin)
 }
 
 /// FindEquipSlot(NULL_SLOT) is unambiguous only for these source singleton slots.
@@ -170,7 +214,7 @@ fn carried(
     id: u64,
     origin: EquipmentOrigin,
 ) -> Result<inv::Instance, NativeError> {
-    let item = source_item(g, origin)?;
+    let item = source_original(g, origin)?;
     Ok(inv::Instance {
         id,
         item: item.entry,
@@ -273,7 +317,7 @@ impl EquipmentMoveReceipt {
         {
             return Err(NativeError::InvalidCheckpoint);
         }
-        source_item(g, self.origin)?;
+        source_original(g, self.origin)?;
         if self.context.operation == EquipmentMoveOperation::AutoEquip
             && (!self.equips() || auto_equip_slot(g, self.origin)? != self.request.destination)
         {
@@ -409,10 +453,9 @@ pub(in crate::native) fn restore_equipment(
     if view.items != genesis.recipe.snapshot().items
         || view.inactive_slots.windows(2).any(|s| s[0] >= s[1])
         || view.inactive_slots.iter().any(|slot| {
-            !view
-                .items
-                .iter()
-                .any(|item| item.slot == *slot && !item.weapon && *slot < 15)
+            !view.items.iter().any(|item| {
+                item.slot == *slot && ((!item.weapon && *slot < 15) || (item.weapon && *slot == 15))
+            })
         })
     {
         return Err(NativeError::InvalidCheckpoint);
@@ -677,6 +720,7 @@ impl EquipmentRelocationReceipt {
         g: &QuestProgressionGenesis,
         placements: &mut Placements,
     ) -> Result<(), NativeError> {
+        source_item(g, self.origin)?;
         let m = &self.movement;
         if loot(g)?.equipment_origin(self.instance) != Some(self.origin)
             || placements.get(&self.instance) != Some(&EquipmentPlacement::Slot(m.source))
@@ -794,6 +838,7 @@ impl EquipmentAutoStoreReceipt {
         g: &QuestProgressionGenesis,
         placements: &mut Placements,
     ) -> Result<(), NativeError> {
+        source_item(g, self.origin)?;
         let m = &self.movement;
         if loot(g)?.equipment_origin(self.instance) != Some(self.origin)
             || placements.get(&self.instance) != Some(&EquipmentPlacement::Slot(m.source))
@@ -920,6 +965,7 @@ impl EquipmentDestroyReceipt {
         g: &QuestProgressionGenesis,
         placements: &mut Placements,
     ) -> Result<(), NativeError> {
+        source_item(g, self.origin)?;
         let m = &self.destruction;
         let l = loot(g)?;
         if *placements != self.before_placements

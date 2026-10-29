@@ -33,6 +33,7 @@ fn input() -> DerivedInputs {
                 (0, 0, 0),
             ],
             broken: false,
+            inactive: false,
         }],
         audit: DerivedAudit {
             attack_power_or_damage_modifiers: DerivedEvidence::Absent,
@@ -772,4 +773,166 @@ fn armor_membership_removal_matches_extracted_source_bonus_callbacks() {
         count += 1;
     }
     assert_eq!(count, 60);
+}
+
+#[test]
+fn original_mainhand_membership_matches_extracted_source_final_fields_and_callback_phases() {
+    use benilla_sim::starter_init::Resources;
+    let mut rows = 0;
+    for line in include_str!("fixtures/mainhand_membership_cmangos.tsv")
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+    {
+        let columns: Vec<_> = line.split('\t').collect();
+        assert_eq!(columns.len(), 5);
+        let level: u32 = columns[0].parse().unwrap();
+        let mode: u32 = columns[1].parse().unwrap();
+        let stage: u32 = columns[2].parse().unwrap();
+        let expected: Vec<u32> = columns[3]
+            .split(',')
+            .map(|value| value.parse().unwrap())
+            .collect();
+        let expected_trace: Vec<Vec<u32>> = columns[4]
+            .split(';')
+            .filter(|row| !row.is_empty())
+            .map(|row| row.split(',').map(|value| value.parse().unwrap()).collect())
+            .collect();
+        let (mut view, mut inputs, mut recipe, slot) = recipe_case(level, mode);
+        assert_eq!(slot, 15);
+        let mut actual = DerivedStats::from_snapshot(&view, &inputs).unwrap();
+        let mut trace = vec![];
+        for current in 1..=stage {
+            trace.clear();
+            let active = current == 2;
+            let before_inputs = inputs.clone();
+            inputs.weapons[0].inactive = !active;
+            let recompute = recipe
+                .set_mainhand_active(
+                    15,
+                    active,
+                    Resources {
+                        health: view.numeric.health,
+                        max_health: view.numeric.max_health,
+                        mana: view.numeric.powers[0],
+                        max_mana: view.numeric.max_powers[0],
+                    },
+                )
+                .unwrap();
+            // Independently exercise public source hooks at each retained attribute
+            // observation. The oracle records actual extracted UpdateStats returns;
+            // no production callback trace or new gameplay event is fabricated.
+            let equipment_view = if active { &inputs } else { &before_inputs };
+            let mut phase_view = view.clone();
+            let mut phase = actual.clone();
+            for &(index, attributes) in &recompute.attribute_steps {
+                phase_view.numeric.attributes = attributes;
+                if index == 1 {
+                    phase
+                        .apply_hook(StatHook::AllCritPercentages, &phase_view, equipment_view)
+                        .unwrap();
+                }
+                phase
+                    .apply_hook(
+                        StatHook::AttackPowerAndDamage { ranged: false },
+                        &phase_view,
+                        &before_inputs,
+                    )
+                    .unwrap();
+                let cached = &before_inputs.weapons[0];
+                let cleared = cached.inactive;
+                trace.push(vec![
+                    u32::from(index),
+                    1,
+                    4,
+                    if cleared { 0 } else { cached.damage[0].0 },
+                    if cleared { 0 } else { cached.damage[0].1 },
+                    if cleared { 2000 } else { cached.delay_ms },
+                    phase.damage[0].minimum.bits(),
+                    phase.damage[0].maximum.bits(),
+                    phase.crit_display_percent[0].bits(),
+                ]);
+            }
+            actual
+                .apply_mainhand_membership(&view, &before_inputs, &inputs, &recompute)
+                .unwrap();
+            view.modifiers = recipe.snapshot().modifiers;
+            view.numeric = NumericState::from_modifiers(
+                level,
+                &view.modifiers,
+                recompute.resources.health,
+                [recompute.resources.mana, 0, 0, 0, 0],
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            fixture_cells(&actual),
+            expected,
+            "level={level} mode={mode} stage={stage}"
+        );
+        assert_eq!(
+            trace, expected_trace,
+            "callback level={level} mode={mode} stage={stage}"
+        );
+        if stage == 1 {
+            assert!(recipe.snapshot().broken_slots.is_empty());
+            assert_eq!(recipe.snapshot().inactive_slots, vec![15]);
+            let mut never_equipped = inputs.clone();
+            never_equipped.weapons.clear();
+            let unarmed = DerivedStats::from_snapshot(&view, &never_equipped).unwrap();
+            assert_ne!(
+                actual.damage[0], unarmed.damage[0],
+                "removed cache0 is not initial1..2"
+            );
+            assert_eq!(actual.damage[0].minimum, actual.damage[0].maximum);
+        }
+        rows += 1;
+    }
+    assert_eq!(rows, 36);
+}
+
+#[test]
+fn mainhand_membership_is_not_armor_or_broken_relabel_and_rejects_bad_context_atomically() {
+    use benilla_sim::starter_init::Resources;
+    let (view, before, mut recipe, slot) = recipe_case(10, 1);
+    let live = Resources {
+        health: view.numeric.health,
+        max_health: view.numeric.max_health,
+        mana: view.numeric.powers[0],
+        max_mana: view.numeric.max_powers[0],
+    };
+    let fresh = recipe.clone();
+    assert!(recipe.set_item_active(slot, false, live).is_err());
+    assert_eq!(recipe, fresh);
+    let recompute = recipe.set_mainhand_active(slot, false, live).unwrap();
+    assert!(benilla_sim::starter_init::StatRecipe::restore(&fresh, &recipe.snapshot()).is_err());
+    assert!(recipe
+        .set_item_broken(slot, true, recompute.resources)
+        .is_err());
+    let mut after = before.clone();
+    after.weapons[0].inactive = true;
+    let original = DerivedStats::from_snapshot(&view, &before).unwrap();
+    for fault in 0..5 {
+        let mut b = before.clone();
+        let mut a = after.clone();
+        let mut r = recompute.clone();
+        match fault {
+            0 => a.weapons[0].inactive = false,
+            1 => {
+                a.weapons[0].delay_ms = 0;
+                b.weapons[0].delay_ms = 0;
+            }
+            2 => a.weapons[0].broken = true,
+            3 => a.weapons[0].damage[0].0 = 1.0_f32.to_bits(),
+            4 => r.effective_attributes.0[0] += 1,
+            _ => unreachable!(),
+        }
+        let mut actual = original.clone();
+        assert!(actual.apply_mainhand_membership(&view, &b, &a, &r).is_err());
+        assert_eq!(actual, original);
+    }
+    let mut broken = fresh.clone();
+    broken.set_item_broken(slot, true, live).unwrap();
+    let snapshot = broken.snapshot();
+    assert!(broken.set_mainhand_active(slot, false, live).is_err());
+    assert_eq!(broken.snapshot(), snapshot);
 }

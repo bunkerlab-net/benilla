@@ -104,6 +104,10 @@ fn retained_fields(
         || weapons.windows(2).any(|w| w[0].slot >= w[1].slot)
         || recipe.items.windows(2).any(|w| w[0].slot >= w[1].slot)
         || recipe.broken_slots.windows(2).any(|w| w[0] >= w[1])
+        || recipe.inactive_slots.windows(2).any(|w| w[0] >= w[1])
+        || recipe.inactive_slots.iter().any(|slot| {
+            recipe.items.iter().all(|item| item.slot != *slot) || recipe.broken_slots.contains(slot)
+        })
         || recipe.broken_slots.iter().any(|slot| {
             recipe
                 .items
@@ -131,7 +135,10 @@ fn retained_fields(
         }
         // _ApplyItemBonuses uses IsWeapon and Delay, not damage. Broken-state
         // callbacks are represented by the recipe before durability is set to0.
-        if weapon.class == 2 && weapon.delay_ms != 0 && !recipe.broken_slots.contains(&weapon.slot)
+        if weapon.class == 2
+            && weapon.delay_ms != 0
+            && !recipe.broken_slots.contains(&weapon.slot)
+            && !recipe.inactive_slots.contains(&weapon.slot)
         {
             fields[0] = attack_field(weapon.delay_ms);
             source_attack_time(fields[0])?;
@@ -219,6 +226,19 @@ impl PlayerMeleeTimers {
                 "player melee timers require idle form-zero no-disarm speed-one state",
             ));
         }
+        Ok(())
+    }
+
+    /// Out-of-combat _ApplyItemBonuses changes the attack-time field only.
+    /// Neither the current BASE countdown nor OFF/victim ownership is reset.
+    pub(in crate::native) fn apply_mainhand_membership(
+        &mut self,
+        genesis: &CombatGenesis,
+        recipe: &init::StatRecipeSnapshot,
+    ) -> Result<(), NativeError> {
+        self.validate_shape()?;
+        let times = genesis.source_attack_times_for_recipe(recipe)?;
+        self.attack_time_fields = times.map(attack_field);
         Ok(())
     }
 

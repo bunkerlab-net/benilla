@@ -141,6 +141,13 @@ impl<A: Authority> Frame<'_, A> {
             .ok_or(NativeError::InvalidState)?
             .equipment_origin(instance)
             .ok_or(NativeError::InvalidState)?;
+        // Source weapons can change in combat. This first owner deliberately
+        // excludes the reset/GCD callback rather than inventing armor error60.
+        if origin.genesis_slot == 15 && combat.in_combat && self.state.player_alive() {
+            return Err(NativeError::UnsupportedMechanic(
+                "mainhand movement combat cooldown",
+            ));
+        }
         let equips = request.destination == origin.genesis_slot;
         let generic_slot = if equips
             && !combat.in_combat

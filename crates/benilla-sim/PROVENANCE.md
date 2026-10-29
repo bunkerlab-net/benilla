@@ -1016,3 +1016,54 @@ upstream GPL-2.0-or-later; this host composition is GPL-3.0-or-later. The generi
 inventory reducer is unchanged. A separate validated selected receipt and quest
 callback permission authorize only the already-detached original, with no ID
 reuse, arbitrary item consumer, native entry or imported data allowance.
+
+## Original mainhand membership
+
+The separate native host composes `starter_init::StatRecipe` membership and
+`player_progression::DerivedStats` callbacks for a pristine original mainhand,
+using pinned Player.cpp `_ApplyItemBonuses`, `RemoveItem`/`EquipItem` and
+StatSystem.cpp cached damage/skill observations. This remains GPL-3.0-or-later
+under the upstream GPL-2.0-or-later grant, with no raw compiler or native
+admission change. Carried-item host policy v14 names this narrow exception;
+generic weapon consumers remain excluded.
+
+## Original pristine mainhand membership callbacks
+
+`starter_init/equipment.rs::set_mainhand_active` and
+`player_progression/derived.rs::apply_mainhand_membership` compose original-slot
+membership separately from broken durability. Sources at CMaNGOS Classic
+`8ec338a1704e7dcb1c0213eb7ed58f9231ade40f` are Player.cpp `RemoveItem`,
+`EquipItem`, `_ApplyItemMods`, `_ApplyItemBonuses`, and StatSystem.cpp
+`UpdateStats`, `CalculateMinMaxDamage`, `UpdateWeaponDependantStats`. Upstream
+Project contributors, GPL-2.0-or-later; this Rust translation GPL-3.0-or-later.
+Only a pristine original mainhand with one physical damage line and positive
+Delay is covered; runtime must separately prove custody, source metadata and
+excluded hooks. Generic equipment movement, combat GCD, offhand/ranged/ammo,
+equip spells/enchantments and replacements are not authorized by these helpers.
+
+Required `DerivedWeapon.inactive` retains original metadata without claiming the
+item is currently equipped. Empty original weapons means initialized unarmed
+base damage 1..2; an inactive original retains the source-cleared 0..0 cache and
+2000ms delay. During removal's attribute callbacks the old weapon remains in
+`m_items`; during equipping it is already inserted. Both retain the pre-operation
+damage cache until the weapon tail. The tail refreshes damage for positive Delay;
+weapon-dependent stats update hit, not crit. Existing break and armor paths keep
+their prior callback inputs, and disabled-weapon slots still mean broken only.
+
+`tools/generate_mainhand_membership_fixture.py` verifies the same six pinned file
+hashes as the existing derived oracle, extracts complete source methods unchanged
+into `tools/mainhand_membership_oracle.cpp`, and asserts removal/equip source
+order. The authored adapter supplies empty audited hooks and records equipment,
+weapon skill, cached damage/delay and output damage/crit after each actual
+`UpdateStats` call. It uses g++ with warnings denied, binary32 rounding controls,
+no fast math/FMA and undefined/float-cast-overflow sanitizers. The 36 data rows in
+`tests/fixtures/mainhand_membership_cmangos.tsv` cover levels 1/10/60 and no-stat,
+agility, strength and repeated agility/intellect modifiers, before removal,
+after removal and after re-equipping. SHA-256:
+`b09c6d9431f0c3f8642416c1b9a236eef3f53900f42b674027ca1fc34887b8f3`.
+Regenerate with `python3 tools/generate_mainhand_membership_fixture.py SOURCE_DIR`
+from this crate, or append `--check` for byte comparison. The Rust regression
+compares all 43 final ancillary cells and independently exercises the public
+source hooks at retained attribute observations to compare those recorded phases;
+it does not invent a production callback event stream. Existing zero-Delay break
+oracle coverage remains unchanged; zero-Delay membership is explicitly refused.

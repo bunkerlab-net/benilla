@@ -1276,3 +1276,6 @@ mod armor_duplicate_destroy_tests;
 
 #[path = "armor_registered_destroy_tests.rs"]
 mod armor_registered_destroy_tests;
+
+#[path = "mainhand_membership_tests.rs"]
+mod mainhand_membership_tests;

@@ -55,7 +55,7 @@ only by the source class/outcome/alive conditions and expire in NPC Unit update.
 
 ## Persistence contract
 
-Native format 72 rejects older envelopes; no migration is provided. Existing
+Native format 73 rejects older envelopes; no migration is provided. Existing
 unrelated callback hash domains retain their prior versions.
 
 The bounded player proof retains the latest writers of lifecycle, BASE, OFF and
@@ -123,3 +123,8 @@ Native format 72 (`benilla-native-armor-destroy-v72`) adds selected detached-ori
 with retained tombstone custody; registered identities remain reserved. Generic
 and indirect consumption remain unsupported. No old-save migration, native
 admission, or ghost release is added.
+
+Native format 73 (`benilla-native-mainhand-membership-v73`) binds bounded original mainhand membership
+to source-ordered equipment observations and retained weapon fields. This does
+not admit generic weapons, in-combat switching, or held private consumers.
+No old-save migration or native admission is added.

@@ -11,7 +11,7 @@ use crate::{
 use rustc_apfloat::{ieee::Single, Float, Round, Status, StatusAnd};
 use serde::{Deserialize, Serialize};
 
-pub const POLICY_ID: &str = "cmangos-8ec338a1-static-mage-ancillary-softfloat-v1";
+pub const POLICY_ID: &str = "cmangos-8ec338a1-static-mage-ancillary-softfloat-v2";
 
 /// Absence requires a complete caller-side dependency scan, never a default.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,7 +67,7 @@ impl DerivedAudit {
         Ok(())
     }
 }
-/// Actual item_template weapon fields, with the caller's current broken state.
+/// Original item_template weapon fields, with current broken and membership state.
 /// All five native damage rows must be present, including trailing zero rows.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -78,12 +78,16 @@ pub struct DerivedWeapon {
     /// Native DamageMin bits, DamageMax bits, DamageType.
     pub damage: Vec<(u32, u32, u32)>,
     pub broken: bool,
+    /// Original currently absent from equipment; cached weapon damage was cleared.
+    /// This is not the never-equipped unarmed initialization (base damage 1..2).
+    pub inactive: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DerivedInputs {
-    /// Complete equipped weapon list. Armor must not be represented as a weapon.
-    /// Only a mainhand is supported; offhand/ranged/ammo require a wider audit.
+    /// Complete original mainhand metadata, retained even when inactive. Empty means
+    /// no original weapon/never-equipped unarmed cache. Armor is not a weapon;
+    /// offhand/ranged/ammo and replacement weapons require a wider audit.
     pub weapons: Vec<DerivedWeapon>,
     pub audit: DerivedAudit,
 }
@@ -110,7 +114,7 @@ impl DerivedInputs {
             return Err(Error::Unsupported("ancillary mainhand-only equipment"));
         }
         for w in &self.weapons {
-            if w.slot != 15 || w.skill == 0 || w.delay_ms > 1_000_000 {
+            if w.slot != 15 || w.skill == 0 || w.delay_ms > 1_000_000 || (w.inactive && w.broken) {
                 return Err(Error::Unsupported("ancillary weapon slot/skill/delay"));
             }
             if w.damage.len() != 5 {
@@ -280,8 +284,8 @@ impl DerivedStats {
         let mut expected_inputs = before_inputs.clone();
         let weapon = expected_inputs.weapons.iter_mut().find(|w| w.slot == slot);
         let update_damage = if let Some(weapon) = weapon {
-            if weapon.broken {
-                return Err(Error::Invalid("ancillary weapon already broken"));
+            if weapon.broken || weapon.inactive {
+                return Err(Error::Invalid("ancillary weapon already broken or absent"));
             }
             weapon.broken = true;
             // Source clears damage rows regardless, but only calls physical
@@ -353,12 +357,83 @@ impl DerivedStats {
         *self = next;
         Ok(())
     }
+    /// Ordered original pristine mainhand callbacks. The runtime must first invoke
+    /// and replay source-owned StatRecipe::set_mainhand_active, retaining exact
+    /// equipment custody and the returned per-attribute/resource observations.
+    /// RemoveItem keeps the old item visible during attributes; EquipItem inserts
+    /// it before attributes. BOTH use the previous damage cache until the weapon
+    /// tail. Positive Delay is required; no combat GCD/equip spells are modeled here.
+    pub fn apply_mainhand_membership(
+        &mut self,
+        before_view: &Snapshot,
+        before_inputs: &DerivedInputs,
+        after_inputs: &DerivedInputs,
+        recompute: &crate::starter_init::EquipmentRecompute,
+    ) -> Result<()> {
+        before_inputs.validate(before_view)?;
+        after_inputs.validate(before_view)?;
+        if before_inputs.weapons.len() != 1 || recompute.attribute_steps.len() > 10 {
+            return Err(Error::Invalid("ancillary mainhand membership shape"));
+        }
+        let mut expected = before_inputs.clone();
+        let weapon = &mut expected.weapons[0];
+        if weapon.broken || weapon.delay_ms == 0 || !recompute.disabled_weapon_slots.is_empty() {
+            return Err(Error::Unsupported(
+                "ancillary pristine positive-delay mainhand membership",
+            ));
+        }
+        weapon.inactive = !weapon.inactive;
+        if expected != *after_inputs {
+            return Err(Error::Invalid("ancillary mainhand membership identity"));
+        }
+        let equipment_view = if after_inputs.weapons[0].inactive {
+            before_inputs
+        } else {
+            after_inputs
+        };
+        let mut next = self.clone();
+        let attributes = next.apply_item_attribute_callbacks_with_cache(
+            before_view,
+            equipment_view,
+            before_inputs,
+            recompute,
+        )?;
+        if attributes != recompute.effective_attributes {
+            return Err(Error::Invalid(
+                "ancillary mainhand membership final attributes",
+            ));
+        }
+        // _ApplyItemBonuses weapon tail clears/restores damage and positive Delay,
+        // then UpdateWeaponDependantStats refreshes hit only, never all crit.
+        next.update_damage(false, after_inputs)?;
+        next.apply_inner(
+            StatHook::WeaponHitChance { attack: 0 },
+            before_view,
+            equipment_view,
+        )?;
+        *self = next;
+        Ok(())
+    }
     // Player::_ApplyItemBonuses calls HandleStatModifier in ItemStat order;
     // StatSystem.cpp::UpdateStats runs these hooks for EACH attribute callback.
     fn apply_item_attribute_callbacks(
         &mut self,
         before_view: &Snapshot,
         before_inputs: &DerivedInputs,
+        recompute: &crate::starter_init::EquipmentRecompute,
+    ) -> Result<crate::starter_init::Attributes> {
+        self.apply_item_attribute_callbacks_with_cache(
+            before_view,
+            before_inputs,
+            before_inputs,
+            recompute,
+        )
+    }
+    fn apply_item_attribute_callbacks_with_cache(
+        &mut self,
+        before_view: &Snapshot,
+        equipment_view: &DerivedInputs,
+        damage_cache: &DerivedInputs,
         recompute: &crate::starter_init::EquipmentRecompute,
     ) -> Result<crate::starter_init::Attributes> {
         let mut view = before_view.clone();
@@ -374,10 +449,10 @@ impl DerivedStats {
             view.numeric.attributes = attributes;
             match index {
                 1 => {
-                    self.apply_inner(StatHook::AllCritPercentages, &view, before_inputs)?;
+                    self.apply_inner(StatHook::AllCritPercentages, &view, equipment_view)?;
                     self.update_dodge(&view)?;
                 }
-                3 => self.apply_inner(StatHook::AllSpellCritChances, &view, before_inputs)?,
+                3 => self.apply_inner(StatHook::AllSpellCritChances, &view, equipment_view)?,
                 _ => {}
             }
             for hook in [
@@ -386,7 +461,7 @@ impl DerivedStats {
                 StatHook::SpellDamageBonus,
                 StatHook::ManaRegen,
             ] {
-                self.apply_inner(hook, &view, before_inputs)?;
+                self.apply_inner(hook, &view, damage_cache)?;
             }
         }
         Ok(view.numeric.attributes)
@@ -397,7 +472,7 @@ impl DerivedStats {
             // Proven no ranged item/ammo: Unit::WeaponDamageInfo defaults.
             (integer(1)?, integer(2)?, 2000)
         } else if let Some(w) = inputs.weapons.first() {
-            if w.broken {
+            if w.broken || w.inactive {
                 // _ApplyItemBonuses(false) clears weapon rows and delay
                 // before committing durability zero. It is NOT disarm.
                 (Single::ZERO, Single::ZERO, 2000)
@@ -461,7 +536,7 @@ impl DerivedStats {
                 let skill = inputs
                     .weapons
                     .first()
-                    .filter(|w| !w.broken)
+                    .filter(|w| !w.broken && !w.inactive)
                     .map_or(162, |w| w.skill);
                 self.crit_display_percent[0] = display(base, skill_value(view, skill), view.level)?;
                 self.crit_display_percent[1] = display(base, 0, view.level)?;

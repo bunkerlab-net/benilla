@@ -11,7 +11,7 @@ The opt-in `synthetic-native-tests` feature exposes only synthetic construction 
 restoration. Feature unification, preparation JSON, hashes, and source initializer
 outputs cannot produce `NativeCapability`. Fabricated test rows are not native data.
 
-Native format 72, `benilla-native-armor-destroy-v72`, retains the selected
+Native format 73, `benilla-native-mainhand-membership-v73`, retains the selected
 [player mainhand policy](../../PLAYER-MELEE.md), required optional player proof
 and NPC defense reactive state, retained generic-cast slot context and
 spell target-death lifecycle causes in the bounded melee proof. Backpack stack-split
@@ -233,7 +233,7 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
   binary64; source comparison is strict promoted-float chance > double roll
 - Draw records bind semantic purpose/action/NPC generation. Action chains bind full
   current defense/cast/resource snapshots, so same-HP misses cannot be reused
-- Checkpoints bind native format 72, policy, RNG mapping, domain, content, authority, geometry,
+- Checkpoints bind native format 73, policy, RNG mapping, domain, content, authority, geometry,
   history-chain tip, cooldown maps, recomputable casts/auras, AI lifecycle/motion,
   exact mana timers, skills/reactive/combat clocks, checked equipment recipes and
   [per-NPC event ownership](../../NPC-EVENTS.md) with DEAD/respawn clock continuity
@@ -503,3 +503,8 @@ Native format 72 (`benilla-native-armor-destroy-v72`) adds selected detached-ori
 with retained tombstone custody; registered identities remain reserved. Generic
 and indirect consumption remain unsupported. No old-save migration, native
 admission, or ghost release is added.
+
+Native format 73 (`benilla-native-mainhand-membership-v73`) binds bounded original mainhand membership
+to source-ordered equipment observations and retained weapon fields. This does
+not admit generic weapons, in-combat switching, or held private consumers.
+No old-save migration or native admission is added.

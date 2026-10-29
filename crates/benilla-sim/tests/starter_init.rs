@@ -1491,7 +1491,7 @@ fn level_rebased_recipe_break_restore_uses_current_create_rows_and_crit() {
     let initial = initialize_mage(&input).unwrap();
     let create = Attributes([24, 31, 37, 49, 51]);
     let fresh = initial.stat_recipe.rebase(7, create, 89, 123).unwrap();
-    assert_eq!(fresh.snapshot().version, 3);
+    assert_eq!(fresh.snapshot().version, 4);
     assert_eq!(fresh.snapshot().level, 7);
     let m = fresh.snapshot().modifiers;
     let numeric =

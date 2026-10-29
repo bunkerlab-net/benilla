@@ -2,7 +2,7 @@
 
 GPL-3.0-or-later source translation from CMaNGOS Classic revision
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. Policy identity:
-`cmangos-8ec338a1-static-mage-ancillary-softfloat-v1`.
+`cmangos-8ec338a1-static-mage-ancillary-softfloat-v2`.
 
 `player_progression::derived` implements the mandatory ancillary stat hooks. It
 is not a substitute for the progression host's learning, catalog, and live-state
@@ -22,8 +22,10 @@ Such learning and its replay fail atomically until those effects are supported.
 Only static, solo, unshapeshifted mages at levels 1–60 are admitted. The caller
 supplies callback-time effective attributes, level, and complete skill fields
 (including status and permanent/temporary bonuses) through `Snapshot`. It also
-supplies the actual equipped weapon rows through `DerivedInputs`. The weapon
-list is complete, excludes armor, and contains at most one mainhand. All five
+supplies source-owned original weapon rows through `DerivedInputs`. Its required
+`inactive` field distinguishes current equipment membership from retained cached
+weapon damage; it is not a broken flag or a default for missing source data.
+The original weapon list is complete, excludes armor, and contains at most one mainhand. All five
 native damage rows must be present. Exactly one nonzero physical damage line is
 supported; missing rows, additional lines, elemental damage, offhand/ranged
 weapons, nonfinite/subnormal values, and unproven audits fail closed.
@@ -81,7 +83,7 @@ actual item row's Delay is zero, native `_ApplyItemBonuses` skips that final
 physical-damage refresh, so the cached range remains unchanged until another
 appropriate hook. Durability is committed by the caller after these callbacks.
 
-The adapter is deliberately break-only. Repair commits positive durability
+The `apply_item_break` adapter is deliberately break-only. Repair commits positive durability
 before reapplying modifiers and has a different intermediate weapon state.
 Equip, unequip, repair, disarm, external item effects, and a general native login
 of an already-broken item are not supplied by this API. Broken damage state here
@@ -127,3 +129,17 @@ The output compares 43 actual field cells bit-for-bit, including cached display
 percentages. Compilation disables contraction/fast-math and enables undefined
 behavior and float-cast-overflow sanitizers. `--check` regenerates without changing
 the checked-in synthetic fixture.
+
+## Separate original mainhand membership
+
+Ancillary policy v2 and recipe v4 additionally expose the separately named
+`apply_mainhand_membership` and `set_mainhand_active` operations for an authorized
+pristine original mainhand with positive Delay. They do not relabel movement as
+breakage. Removal observes the old equipped item during attribute callbacks;
+insertion observes the new equipped item but preceding cached damage until the
+weapon-tail callback. Removed weapon damage remains cleared0, not the initial
+never-equipped1..2. Actual skill observation uses unarmed162 while inactive.
+The containing native owner must replay custody, recipe prefixes and source
+callbacks; see [the bounded host contract](../benilla-world-runtime/src/native/MAINHAND-MEMBERSHIP.md).
+The extracted source oracle is `tools/mainhand_membership_oracle.cpp`, with
+reproducible authored inputs and method hashes in its generator and PROVENANCE.

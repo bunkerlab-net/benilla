@@ -7,20 +7,27 @@ pub fn profile() -> Profile {
     profile_with_lethal(false)
 }
 pub fn profile_with_lethal(lethal: bool) -> Profile {
-    build(lethal, false, None, false, false)
+    build(lethal, false, None, false, false, false)
 }
 pub fn mainhand_profile() -> Profile {
-    build(false, true, None, false, false)
+    build(false, true, None, false, false, false)
 }
 pub fn profile_with_armor_type(inventory_type: u32) -> Profile {
-    build(false, false, Some(inventory_type), false, false)
+    build(false, false, Some(inventory_type), false, false, false)
 }
 pub fn profile_with_duplicate_armor() -> Profile {
-    build(false, false, None, true, false)
+    build(false, false, None, true, false, false)
 }
 /// Two different source-authored original armor slots, sealed by the ordinary initializer.
 pub fn profile_with_two_originals() -> Profile {
-    build(false, false, None, false, true)
+    build(false, false, None, false, true, false)
+}
+/// Source-authored original staff, raw spell/loot owners and actual unarmed/staff skills.
+pub fn weapon_profile() -> Profile {
+    build(false, true, None, false, false, true)
+}
+pub fn lethal_weapon_profile() -> Profile {
+    build(true, true, None, false, false, true)
 }
 fn build(
     lethal: bool,
@@ -28,8 +35,55 @@ fn build(
     armor_type: Option<u32>,
     duplicate_armor: bool,
     second_original: bool,
+    original_weapon: bool,
 ) -> Profile {
     let (mut p, mut input, mut rows) = synthetic_loot_fixture::setup();
+    if original_weapon {
+        use benilla_sim::starter_init as init;
+        let mut weapon = input.items[0].clone();
+        weapon.id = 900002;
+        weapon.class = 2;
+        weapon.subclass = 10;
+        weapon.inventory_type = 17;
+        weapon.armor = 0;
+        weapon.stats = [init::ItemStat { kind: 0, value: 0 }; 10];
+        weapon.stats[0] = init::ItemStat { kind: 3, value: 3 };
+        weapon.damage[0] = init::ItemDamage {
+            min_bits: 2.0f32.to_bits(),
+            max_bits: 4.0f32.to_bits(),
+            school: 0,
+        };
+        weapon.delay_ms = 2500;
+        weapon.max_durability = 1000;
+        input.items.push(weapon);
+        let init::Rows::Complete(grants) = &mut input.item_grants else {
+            unreachable!()
+        };
+        grants.push(init::ItemGrant {
+            source: init::GrantSource::Custom,
+            source_order: 1,
+            item: 900002,
+            count: 1,
+        });
+        let init::Rows::Complete(skills) = &mut input.default_skills else {
+            unreachable!()
+        };
+        skills.push(init::DefaultSkill { id: 136, step: 0 });
+        input.skill_lines.push(init::SkillLineRow {
+            id: 136,
+            category: 6,
+        });
+        let loot = rows.loot.as_mut().unwrap();
+        let mut items: Vec<_> = loot.inventory.items().cloned().collect();
+        let mut prototype = synthetic_loot_fixture::item(900002);
+        prototype.class = 2;
+        prototype.inventory_type = 17;
+        prototype.display_id = 900003;
+        prototype.stackable = 1;
+        prototype.maximum_durability = 1000;
+        items.push(prototype);
+        loot.inventory = synthetic_loot_fixture::inventory_catalog(items);
+    }
     if second_original {
         use benilla_sim::starter_init as init;
         let mut second = input
@@ -156,6 +210,10 @@ fn build(
     rows.abilities[0].cast_time.as_mut().unwrap().base_ms = 2000;
     let mut source = synthetic_spell_fixture::source(&p);
     source.spells[0].words[59] = u32::MAX;
+    if original_weapon {
+        // Authored source SPELL_INTERRUPT_FLAG_COMBAT: successful release resets BASE/OFF.
+        source.spells[0].words[21] |= 8;
+    }
     input.spells[0].words = source.spells[0].words.clone().try_into().unwrap();
     p.initialize_player(&input, f::float(100.0), 1).unwrap();
     if mainhand {
@@ -164,6 +222,20 @@ fn build(
             .push(benilla_sim::player_progression::SkillState {
                 id: 162,
                 position: 2,
+                value: skill.value,
+                maximum: skill.maximum,
+                step: skill.step,
+                permanent_bonus: skill.permanent_bonus,
+                temporary_bonus: skill.temporary_bonus,
+                status: benilla_sim::player_progression::SkillStatus::Unchanged,
+            });
+    }
+    if original_weapon {
+        let skill = &p.combat.as_ref().unwrap().skills[&136];
+        rows.skills
+            .push(benilla_sim::player_progression::SkillState {
+                id: 136,
+                position: 3,
                 value: skill.value,
                 maximum: skill.maximum,
                 step: skill.step,
@@ -249,8 +321,30 @@ fn build(
                 unreachable!()
             };
             spawns[0].entry = source.spawn_entry;
+            if original_weapon {
+                // Both creature projections name the same global class/level row.
+                // Retain one coherent authored table, with per-spawn current health.
+                assert_eq!(source.input.template.health_multiplier, f::float(1.0));
+                if source.spawn_id == 2 {
+                    spawns[0].current_health = 1000;
+                }
+                let benilla_sim::creature_init::Rows::Complete(levels) =
+                    &mut source.input.class_levels
+                else {
+                    unreachable!()
+                };
+                for level in levels {
+                    level.base_health = 1000;
+                    if lethal {
+                        level.base_damage = f::float(10000.0);
+                    }
+                }
+            }
         }
         p = synthetic_creature_generation_fixture::install(p, sources, vec![2, 3]);
+        if original_weapon {
+            assert_eq!(p.npcs[0].max_health, 1000);
+        }
     }
     p.initialize_quest_progression(&input, rows).unwrap();
     if mainhand {

@@ -13,7 +13,7 @@ capture fits the supported domain.
 `Profile::initialize_quest_progression` takes the actual starter initializer and
 `QuestProgressionInput`. It stages and validates the entire optional genesis;
 merely loading a quest catalog does not bypass validation. Native format/policy
-is native72 (`benilla-native-armor-destroy-v72`), quest genesis policy v11,
+is native73 (`benilla-native-mainhand-membership-v73`), quest genesis policy v11,
 and live training policy v3 with its unchanged journal layout v2. Quest genesis
 also binds the immutable prepared first-entry identity, when selected.
 Older policies are rejected rather than silently migrated.

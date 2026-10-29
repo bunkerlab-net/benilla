@@ -1238,8 +1238,8 @@ impl Driven for NativeController {
                         source: src_slot,
                         destination: dst_slot,
                     }))?;
-                } else if (src_slot < 15 && backpack(dst_slot))
-                    || (backpack(src_slot) && dst_slot < 15)
+                } else if (src_slot <= 15 && backpack(dst_slot))
+                    || (backpack(src_slot) && dst_slot <= 15)
                 {
                     self.queue(n::Command::EquipmentMove(n::EquipmentMoveRequest {
                         source: src_slot,

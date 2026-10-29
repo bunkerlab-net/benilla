@@ -102,7 +102,7 @@ impl StatRecipe {
         }
         Ok(Self {
             snapshot: StatRecipeSnapshot {
-                version: 3,
+                version: 4,
                 level: 1,
                 modifiers: stats.snapshot(),
                 items: modifiers,
@@ -144,8 +144,8 @@ impl StatRecipe {
         if !fresh.snapshot.inactive_slots.is_empty()
             || !snapshot.inactive_slots.is_empty()
             || !fresh.snapshot.broken_slots.is_empty()
-            || snapshot.version != 3
-            || fresh.snapshot.version != 3
+            || snapshot.version != 4
+            || fresh.snapshot.version != 4
             || snapshot.level != fresh.snapshot.level
             || !(1..=crate::player_progression::MAX_SUPPORTED_LEVEL).contains(&snapshot.level)
             || snapshot.items != fresh.snapshot.items
@@ -287,6 +287,42 @@ impl StatRecipe {
         } else {
             next.apply_item_modifiers(&item, if active { 1 } else { -1 }, live)?
         };
+        *self = next;
+        Ok(result)
+    }
+    /// Original pristine mainhand membership, distinct from armor and durability.
+    /// The host owns exact custody, positive source Delay and weapon callbacks;
+    /// this method applies only the ordered item modifier cells/resources.
+    pub fn set_mainhand_active(
+        &mut self,
+        slot: u8,
+        active: bool,
+        live: Resources,
+    ) -> Result<EquipmentRecompute> {
+        let item = self
+            .snapshot
+            .items
+            .iter()
+            .find(|item| item.slot == slot)
+            .cloned()
+            .ok_or(InitError::Invalid("mainhand membership slot"))?;
+        if slot != 15 || !item.weapon || self.snapshot.broken_slots.contains(&slot) {
+            return Err(InitError::Invalid(
+                "mainhand membership requires original unbroken weapon",
+            ));
+        }
+        let was_active = !self.snapshot.inactive_slots.contains(&slot);
+        if was_active == active {
+            return self.current(live);
+        }
+        let mut next = self.clone();
+        if active {
+            next.snapshot.inactive_slots.retain(|value| *value != slot);
+        } else {
+            next.snapshot.inactive_slots.push(slot);
+            next.snapshot.inactive_slots.sort_unstable();
+        }
+        let result = next.apply_item_modifiers(&item, if active { 1 } else { -1 }, live)?;
         *self = next;
         Ok(result)
     }

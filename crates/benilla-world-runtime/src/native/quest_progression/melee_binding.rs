@@ -92,7 +92,10 @@ impl MeleeExecutionBinding {
         g.validate_live_skills(p)?;
         let inputs = g.inputs_for_recipe(self.recipe());
         inputs.validate(p)?;
-        let active_weapon = inputs.weapons.first().filter(|weapon| !weapon.broken);
+        let active_weapon = inputs
+            .weapons
+            .first()
+            .filter(|weapon| !weapon.broken && !weapon.inactive);
         let metadata = match active_weapon {
             Some(weapon) => Some(
                 combat

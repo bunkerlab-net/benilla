@@ -122,6 +122,7 @@ fn recipe_inputs(
                 // DurabilityPointsLoss calls _ApplyItemBonuses(false) BEFORE
                 // writing zero durability. The recipe tracks that transition.
                 broken: recipe.broken_slots.contains(&w.slot),
+                inactive: recipe.inactive_slots.contains(&w.slot),
             })
             .collect(),
         audit,
@@ -270,7 +271,10 @@ pub(super) fn weapon_skills(
     gain: u16,
 ) -> Result<Vec<pg::SkillState>, NativeError> {
     inputs.validate(before)?;
-    let weapon = inputs.weapons.iter().find(|w| w.slot == 15 && !w.broken);
+    let weapon = inputs
+        .weapons
+        .iter()
+        .find(|w| w.slot == 15 && !w.broken && !w.inactive);
     let actual_skill = weapon.map_or(162, |w| w.skill);
     if actual_skill != skill_id
         || weapon.is_some_and(|w| {
@@ -486,10 +490,15 @@ impl QuestProgressionState {
         let mut after = combat.clone();
         let before_recipe = combat.recipe.snapshot();
         let before_inputs = g.derived_inputs(combat);
-        let recompute =
+        let recompute = if slot == 15 {
             after
                 .recipe
-                .set_item_active(slot, movement.equips(), resources(&before))?;
+                .set_mainhand_active(slot, movement.equips(), resources(&before))?
+        } else {
+            after
+                .recipe
+                .set_item_active(slot, movement.equips(), resources(&before))?
+        };
         after.stats = combat::CharacterStats::from_result(&recompute);
         let mut physical = combat.equipment.snapshot();
         if movement.equips() {
@@ -511,13 +520,25 @@ impl QuestProgressionState {
         after.equipment =
             equipment_movement::restore_equipment(&g.initial_combat, physical, &after.recipe)?;
         let after_inputs = g.derived_inputs(&after);
-        next.derived.apply_armor_membership(
-            &before,
-            &before_inputs,
-            &after_inputs,
-            slot,
-            &recompute,
-        )?;
+        if slot == 15 {
+            after
+                .melee_timers
+                .apply_mainhand_membership(&g.initial_combat, &after.recipe.snapshot())?;
+            next.derived.apply_mainhand_membership(
+                &before,
+                &before_inputs,
+                &after_inputs,
+                &recompute,
+            )?;
+        } else {
+            next.derived.apply_armor_membership(
+                &before,
+                &before_inputs,
+                &after_inputs,
+                slot,
+                &recompute,
+            )?;
+        }
         next.synchronize(
             g,
             &after,
@@ -842,20 +863,33 @@ pub(super) fn reconstruct_history(
                     return Err(NativeError::InvalidCheckpoint);
                 }
                 movement.replay(g, &mut placements)?;
-                let actual = recipe.set_item_active(slot, movement.equips(), resources(before))?;
+                let actual = if slot == 15 {
+                    recipe.set_mainhand_active(slot, movement.equips(), resources(before))?
+                } else {
+                    recipe.set_item_active(slot, movement.equips(), resources(before))?
+                };
                 if actual != **recompute
                     || **after_recipe != recipe.snapshot()
                     || *after_inputs != g.inputs_for_recipe(after_recipe)
                 {
                     return Err(NativeError::InvalidCheckpoint);
                 }
-                derived.apply_armor_membership(
-                    before,
-                    before_inputs,
-                    after_inputs,
-                    slot,
-                    &actual,
-                )?;
+                if slot == 15 {
+                    derived.apply_mainhand_membership(
+                        before,
+                        before_inputs,
+                        after_inputs,
+                        &actual,
+                    )?;
+                } else {
+                    derived.apply_armor_membership(
+                        before,
+                        before_inputs,
+                        after_inputs,
+                        slot,
+                        &actual,
+                    )?;
+                }
                 let mut view = source.snapshot();
                 view.modifiers = recipe.snapshot().modifiers;
                 let mut powers = view.numeric.powers;
