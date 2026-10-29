@@ -24,8 +24,10 @@ DEFAULT_BUDGET_PROBE = "resident_default_budget_controller_saves_cold_and_first_
 F05_CONTROLLER_TESTS = ('resident_f05_default_budget_actual_controller_comparison', 'resident_f05_held_source_control_cancel_and_quit_never_ack', 'resident_f05_current_scene_and_source_changes_refuse_before_save')
 COMPARISON_PATHS = (
     '.github/workflows/resident-controller-profile-comparison.yml',
+    'scripts/test-verify-libtest-output.py',
     'crates/benilla-app/src/net/p2p/world/native_geometry/mod.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/core.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/route_latency.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/resident_dispatch.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/resident_dispatch/tests.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height.rs',
@@ -1285,7 +1287,7 @@ class ExactProofTests(unittest.TestCase):
 
     def test_f05_paired_release_gate_preserves_exact_attempt_and_full_trace(self):
         path = ".github/workflows/resident-controller-profile-comparison.yml"
-        title = "Compare one parked F05 against cold and retained split"
+        title = "Compare parked F05 observer off and on against cold and retained split"
         shell = workflow_gate(title, path)
         self.assertIn("set -euo pipefail", shell)
         self.assertIn("status=0", shell)

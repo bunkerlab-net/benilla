@@ -6,6 +6,7 @@ on:
     branches: [feat/psk-p2p-foundation]
     paths:
       - .github/workflows/resident-controller-profile-comparison.yml
+      - scripts/test-verify-libtest-output.py
       - crates/benilla-app/src/net/p2p/world/native_geometry/mod.rs
       - crates/benilla-app/src/net/p2p/world/native_geometry/core.rs
       - crates/benilla-app/src/net/p2p/world/native_geometry/route_latency.rs
