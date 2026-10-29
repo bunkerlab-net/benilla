@@ -110,7 +110,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v69\0",
+            b"benilla-native-profile-v70\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -433,6 +433,7 @@ impl Npc {
 pub struct State {
     pub source_splines: Option<SourceSplineIds>,
     pub(super) action_bar_toggles: action_bar_toggles::ActionBarTogglesState,
+    pub(super) player_hide_flags: player_hide_flags::PlayerHideFlags,
     pub(super) watched_faction: watched_faction::WatchedFactionState,
     pub(super) player_melee: Option<player_melee::PlayerMeleeState>,
     pub initial_cast_genesis: InitialCastGenesis,
@@ -512,6 +513,8 @@ pub enum Command {
     },
     /// Internal controller lifecycle acknowledgement; no network/UI request maps here.
     AcknowledgeInitialReputations,
+    ToggleHelm,
+    ToggleCloak,
     SetActionBarToggles {
         toggles: u8,
     },
@@ -919,6 +922,10 @@ pub struct QuestInteractionFacts {
     pub npc_reaction: u8,
 }
 impl State {
+    /// Retained hide bits; projection requires the profile's complete flags-owner gate.
+    pub fn player_hide_flags(&self) -> u32 {
+        self.player_hide_flags.value()
+    }
     /// Raw source action-bar display byte, not the contents of action slots.
     pub fn action_bar_toggles(&self) -> u8 {
         self.action_bar_toggles.value()

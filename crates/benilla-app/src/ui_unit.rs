@@ -10,7 +10,6 @@ use benilla_formats::ChrClasses;
 use benilla_protocol::messages::ObjectType;
 use benilla_ui::script::{
     parse_unit_token, power_token, ScriptValue, UiScript, UnitBase, UnitState, UnitTokenParse,
-    WornDisplay,
 };
 
 use crate::creature_type::CreatureTypeSources;
@@ -1013,11 +1012,19 @@ fn drain_worn_display_toggles(script: Option<NonSendMut<UiScript>>, commands: Re
         return;
     };
     for which in script.take_worn_display_toggles() {
-        let _ = commands.0.send(match which {
-            WornDisplay::Helm => crate::net::ClientCommand::ToggleHelm,
-            WornDisplay::Cloak => crate::net::ClientCommand::ToggleCloak,
-        });
+        send_worn_display_toggle(which, &commands.0);
     }
+}
+
+/// Send the already-decided Lua worn-display flip without coalescing it.
+pub(crate) fn send_worn_display_toggle(
+    which: benilla_ui::script::WornDisplay,
+    commands: &crossbeam_channel::Sender<crate::net::ClientCommand>,
+) {
+    let _ = commands.send(match which {
+        benilla_ui::script::WornDisplay::Helm => crate::net::ClientCommand::ToggleHelm,
+        benilla_ui::script::WornDisplay::Cloak => crate::net::ClientCommand::ToggleCloak,
+    });
 }
 
 /// Drain `SetActionBarToggles` into `CMSG_SET_ACTIONBAR_TOGGLES` (sent at `0x4e771d`), one packet

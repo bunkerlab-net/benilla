@@ -45,8 +45,8 @@ Pinned `Player::Create` writes skin, face, hair style and hair colour into the f
 bytes of `PLAYER_BYTES` (field 193). The adapter publishes that complete word from
 the owner on initial/update/reopen semantic descriptors. Facial hair remains
 retained but is not independently written to `PLAYER_BYTES_2` (194): that packed
-word also contains bank/rest state not owned here. Guild and hide flags likewise
-remain unknown. No ghost aura, transformed display, corpse identity/registry,
+word also contains bank/rest state not owned here. Guild remains unknown; hide flags have a separate
+[bounded source owner](PLAYER-HIDE-FLAGS.md), not this cosmetic owner. No ghost aura, transformed display, corpse identity/registry,
 placement, graveyard, resurrection or rendered-pixel behavior is implied.
 
 Native format 69 requires this versioned optional snapshot field and rejects

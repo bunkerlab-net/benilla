@@ -131,3 +131,5 @@ ported workflow shape, exact APIs and retained original policies.
 
 Run `cargo test -p benilla-world-client` and
 `cargo clippy -p benilla-world-client --all-targets -- -D warnings`.
+
+The native [helm/cloak hide owner](../benilla-world-runtime/src/native/PLAYER-HIDE-FLAGS.md) projects complete field 190 only within its existing fresh/no-rest-entry source contract. Actual Lua/controller retry and parser tests do not establish rendered gameplay or native admission.

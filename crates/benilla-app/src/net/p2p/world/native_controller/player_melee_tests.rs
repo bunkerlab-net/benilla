@@ -269,3 +269,6 @@ fn selected_mainhand_and_cast_stock_commands_survive_checkpoint_retry_reopen_and
 
 #[path = "source_spline_controller_tests.rs"]
 mod source_spline_controller_tests;
+
+#[path = "player_hide_flags_tests.rs"]
+mod player_hide_flags_tests;

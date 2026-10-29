@@ -55,7 +55,7 @@ only by the source class/outcome/alive conditions and expire in NPC Unit update.
 
 ## Persistence contract
 
-Native format 69 rejects older envelopes; no migration is provided. Existing
+Native format 70 rejects older envelopes; no migration is provided. Existing
 unrelated callback hash domains retain their prior versions.
 
 The bounded player proof retains the latest writers of lifecycle, BASE, OFF and
@@ -108,3 +108,8 @@ selected-character appearance owner from exact loaded source-row choices.
 `PLAYER_BYTES` projects only its four owned cosmetic bytes; facial hair remains
 retained without inventing the bank/rest siblings of `PLAYER_BYTES_2`. No old-save
 migration, native admission, corpse creation, or ghost release is provided.
+
+Native format 70 (`benilla-native-player-hide-flags-v70`) retains source hide-helm/hide-cloak
+XOR commands under the combined initial-control, spell and fresh-rest owner
+contract. The full player-flags descriptor is not inferred for other profiles.
+No old-save migration, native admission, guild state, or ghost release is added.

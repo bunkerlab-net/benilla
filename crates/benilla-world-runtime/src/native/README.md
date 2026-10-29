@@ -11,7 +11,7 @@ The opt-in `synthetic-native-tests` feature exposes only synthetic construction 
 restoration. Feature unification, preparation JSON, hashes, and source initializer
 outputs cannot produce `NativeCapability`. Fabricated test rows are not native data.
 
-Native format 69, `benilla-native-player-appearance-v69`, retains the selected
+Native format 70, `benilla-native-player-hide-flags-v70`, retains the selected
 [player mainhand policy](../../PLAYER-MELEE.md), required optional player proof
 and NPC defense reactive state, retained generic-cast slot context and
 spell target-death lifecycle causes in the bounded melee proof. Backpack stack-split
@@ -233,7 +233,7 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
   binary64; source comparison is strict promoted-float chance > double roll
 - Draw records bind semantic purpose/action/NPC generation. Action chains bind full
   current defense/cast/resource snapshots, so same-HP misses cannot be reused
-- Checkpoints bind native format 69, policy, RNG mapping, domain, content, authority, geometry,
+- Checkpoints bind native format 70, policy, RNG mapping, domain, content, authority, geometry,
   history-chain tip, cooldown maps, recomputable casts/auras, AI lifecycle/motion,
   exact mana timers, skills/reactive/combat clocks, checked equipment recipes and
   [per-NPC event ownership](../../NPC-EVENTS.md) with DEAD/respawn clock continuity
@@ -488,3 +488,8 @@ selected-character appearance owner from exact loaded source-row choices.
 `PLAYER_BYTES` projects only its four owned cosmetic bytes; facial hair remains
 retained without inventing the bank/rest siblings of `PLAYER_BYTES_2`. No old-save
 migration, native admission, corpse creation, or ghost release is provided.
+
+Native format 70 (`benilla-native-player-hide-flags-v70`) retains source hide-helm/hide-cloak
+XOR commands under the combined initial-control, spell and fresh-rest owner
+contract. The full player-flags descriptor is not inferred for other profiles.
+No old-save migration, native admission, guild state, or ghost release is added.

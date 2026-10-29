@@ -1049,6 +1049,12 @@ impl Driven for NativeController {
                     self.queue_cancel(spell_id, target)?;
                 }
             }
+            ClientCommand::ToggleHelm => {
+                self.queue(n::Command::ToggleHelm)?;
+            }
+            ClientCommand::ToggleCloak => {
+                self.queue(n::Command::ToggleCloak)?;
+            }
             ClientCommand::SetActionBarToggles { toggles } => {
                 self.queue(n::Command::SetActionBarToggles { toggles })?;
             }

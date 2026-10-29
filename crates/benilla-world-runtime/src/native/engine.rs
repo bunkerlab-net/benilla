@@ -220,7 +220,7 @@ impl NativeWorld {
         let events = frame.events;
         let draws = frame.draws;
         SourceSplineIds::validate_events(&self.state, &next, &events)?;
-        let after = crate::digest(b"benilla-native-state-v69\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v70\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -646,6 +646,14 @@ impl<A: Authority> Frame<'_, A> {
                     .as_mut()
                     .ok_or(NativeError::InvalidState)?
                     .acknowledge_initial_reputations(g)?;
+                None
+            }
+            Command::ToggleHelm | Command::ToggleCloak => {
+                player_hide_flags::validate_profile(self.profile)?;
+                self.state.player_hide_flags.toggle(
+                    matches!(command, Command::ToggleHelm),
+                    self.state.next_sequence,
+                )?;
                 None
             }
             Command::SetActionBarToggles { toggles } => {

@@ -475,9 +475,9 @@ fn reference_generation_and_draw_witness_tampering_reject_after_outer_rehash() {
             _ => corpse["first_counter"] = 0.into(),
         }
         let mut forged: Checkpoint = serde_json::from_value(value).unwrap();
-        forged.digest = crate::digest(b"benilla-native-state-v69\0", &forged.state);
+        forged.digest = crate::digest(b"benilla-native-state-v70\0", &forged.state);
         forged.checksum = crate::digest(
-            b"benilla-native-checkpoint-v69\0",
+            b"benilla-native-checkpoint-v70\0",
             &(&forged.state, forged.digest, forged.history_tip),
         );
         assert!(

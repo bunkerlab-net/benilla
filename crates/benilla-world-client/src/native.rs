@@ -459,6 +459,9 @@ impl NativeProjection {
             (34, u32::from(w.player_level())),
             (1261, w.state().watched_faction() as u32),
         ];
+        if w.profile().supports_player_hide_flags() {
+            pairs.push((190, w.state().player_hide_flags()));
+        }
         if let Some(appearance) = w.state().player_appearance() {
             pairs.push((193, appearance.player_bytes()));
         }
@@ -2199,3 +2202,7 @@ mod player_display_tests;
 #[cfg(test)]
 #[path = "native_player_appearance_tests.rs"]
 mod player_appearance_tests;
+
+#[cfg(test)]
+#[path = "native_player_hide_flags_tests.rs"]
+mod player_hide_flags_tests;

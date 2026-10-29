@@ -62,6 +62,14 @@ fn main() {
         format!("pub(crate) {}", function(&source, "race_pvp_team")),
     )
     .unwrap();
+    fs::write(
+        out.join("worn_display_sender.rs"),
+        format!(
+            "pub(crate) {}",
+            function(&source, "send_worn_display_toggle")
+        ),
+    )
+    .unwrap();
     let items_path = root.join("crates/benilla-app/src/ui_items/mod.rs");
     println!("cargo:rerun-if-changed={}", items_path.display());
     let items = fs::read_to_string(items_path).unwrap();
@@ -137,6 +145,8 @@ fn main() {
         "QuestlogRemove",
         "SetActionBarToggles",
         "SetWatchedFaction",
+        "ToggleHelm",
+        "ToggleCloak",
         "SetFactionAtWar",
         "SetFactionInactive",
         "ItemQuery",
