@@ -47,6 +47,7 @@ impl NativeWorld {
         inputs: Vec<OwnedInput>,
         authority: &mut impl Authority,
     ) -> Result<&TickRecord, NativeError> {
+        CreaturePoseCellIndex::validate(&self.profile, &self.state)?;
         initial_cast_genesis::validate_state(&self.profile, &self.state)?;
         player_melee::validate_weapon_history(&self.profile, &self.state)?;
         if tick != self.state.tick.checked_add(1).ok_or(NativeError::Limit)?
@@ -216,11 +217,15 @@ impl NativeWorld {
             return Err(NativeError::InvalidState);
         }
         melee_reset::validate_current(frame.profile, frame.state)?;
+        // Committed-frame pose observations only. This does not perform source
+        // CurrentCell relocation, grid creation, or object registration.
+        frame.state.creature_pose_cells =
+            CreaturePoseCellIndex::capture(frame.profile, frame.state)?;
         let replies = frame.replies;
         let events = frame.events;
         let draws = frame.draws;
         SourceSplineIds::validate_events(&self.state, &next, &events)?;
-        let after = crate::digest(b"benilla-native-state-v79\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v80\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,

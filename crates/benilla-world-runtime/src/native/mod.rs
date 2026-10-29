@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Versioned integration of native-mechanic components. Production admission is closed.
 //! OriginalFixture `World` v2 remains distinct. This module is not a full Classic server.
+mod creature_pose_cells;
+pub use creature_pose_cells::{
+    CreaturePoseCell, CreaturePoseCellIndex, CreaturePoseCellSource, SourceStaticCreatureIdentity,
+};
 mod admin;
 pub use admin::*;
 mod combat;
@@ -151,8 +155,8 @@ pub use persistence::{PendingWanderAndChaseReopen, PendingWanderReopen};
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 79;
-pub const NATIVE_POLICY: &str = "benilla-native-backpack-exchange-v79";
+pub const NATIVE_FORMAT_VERSION: u32 = 80;
+pub const NATIVE_POLICY: &str = "benilla-native-creature-pose-cell-index-v80";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -442,6 +446,7 @@ impl NativeWorld {
             player_events.schedule_notify(0, false)?;
         }
         let mut state = State {
+            creature_pose_cells: None,
             source_splines: SourceSplineIds::new(&profile),
             watched_faction: watched_faction::WatchedFactionState::default(),
             action_bar_toggles: action_bar_toggles::ActionBarTogglesState::default(),
@@ -489,6 +494,7 @@ impl NativeWorld {
                 .map(|g| PlayerCombatState::new(g, profile.clock_origin_ms))
                 .transpose()?,
         };
+        state.creature_pose_cells = CreaturePoseCellIndex::capture(&profile, &state)?;
         if profile.player_melee.is_some() {
             state.player_melee = Some(player_melee::PlayerMeleeState::new(&profile, &state));
         }
@@ -510,7 +516,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v79\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v80\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest
@@ -771,3 +777,6 @@ mod player_sheath_tests;
 
 #[cfg(test)]
 mod equipment_exchange_tests;
+
+#[cfg(test)]
+mod creature_pose_cell_tests;

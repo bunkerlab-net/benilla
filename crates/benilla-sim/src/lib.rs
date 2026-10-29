@@ -103,3 +103,6 @@ pub mod map_classification;
 
 /// Stateless source standing-mage health regeneration; cadence and rate ownership stay external.
 pub mod player_health_regeneration;
+
+/// Source cell arithmetic only, not loaded terrain or resident registration.
+pub mod resident_map;

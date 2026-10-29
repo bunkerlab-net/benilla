@@ -1109,3 +1109,28 @@ capped gains, without claiming scheduling/death coverage.
 Regenerate from this crate with
 `python3 tools/generate_player_health_regeneration_fixture.py SOURCE_DIR`;
 append `--check` for exact byte comparison.
+
+## Resident cell arithmetic (not registration or terrain)
+
+`resident_map` ports CMaNGOS Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`
+`src/game/Maps/GridDefines.h` `Compute`/`ComputeCellPair`, followed by the
+`Map.cpp` unsigned cell bounds used by `Map::Add`. Upstream contributors,
+GPL-2.0-or-later; Rust/harness GPL-3.0-or-later. The binary32 grid-size literal,
+size/offset macro divisions precede binary64 coordinate subtraction/division
+and sequential additions; signed integer truncation precedes unsigned bounds.
+NaN, infinity and undefined signed conversion domains are refused explicitly.
+No `IsValidMapCoord`, normalization, terrain loading, visibility or world-object
+registration is inferred: even a valid cell is only arithmetic evidence.
+
+`tools/generate_resident_map_fixture.py` checks entire pinned GridDefines.h
+SHA256 `5f5413657f84c5f5964f2a69d342874d8d1f7f5ed2bab969e1d78b0650141d82`
+and Map.cpp SHA256 `b9ada3277b8f60dd93f6ceba7e85c1dffa129385fbb4d9043fd93771a9704d12`.
+It extracts the original coordinate pair and function bodies/constants, validates
+the source map bounds, and compiles `resident_map_oracle.cpp` with warnings denied,
+no fast math/contraction, UBSan and float-cast-overflow checks. Numeric conversion
+preflight avoids invoking source undefined behavior; no invalid result is guessed.
+The 6,200 authored coordinate pairs cover every cell boundary and adjacent float,
+map edges/outside, signed zero, subnormal, infinities and NaN. Fixture
+`tests/fixtures/resident_map_cmangos.tsv` SHA256:
+`1243f6dbe5e608bdb2b2dd85ed20b3d6e722a404d447886a22d989fcd133d280`.
+This is a numeric source oracle, not installed-map or resident-loader testing.

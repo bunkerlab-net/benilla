@@ -92,6 +92,7 @@ pub struct Profile {
     pub creature_collision_heights: Option<CreatureCollisionHeightCatalog>,
     pub player_appearance: Option<PlayerAppearanceSource>,
     pub map_classification: Option<NativeMapClassificationSource>,
+    pub creature_pose_cells: Option<CreaturePoseCellSource>,
     pub player_health_regeneration: Option<PlayerHealthRegenerationSource>,
     pub player_collision_height: Option<PlayerCollisionHeightSource>,
     pub player_environment: Option<PlayerEnvironmentSource>,
@@ -112,7 +113,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v79\0",
+            b"benilla-native-profile-v80\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -207,6 +208,9 @@ impl Profile {
             catalog.validate(self)?;
         }
         if let Some(source) = &self.player_health_regeneration {
+            source.validate(self)?;
+        }
+        if let Some(source) = &self.creature_pose_cells {
             source.validate(self)?;
         }
         if let Some(source) = &self.map_classification {
@@ -439,6 +443,7 @@ impl Npc {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct State {
+    pub(super) creature_pose_cells: Option<CreaturePoseCellIndex>,
     pub source_splines: Option<SourceSplineIds>,
     pub(super) action_bar_toggles: action_bar_toggles::ActionBarTogglesState,
     pub(super) player_sheath: player_sheath::PlayerSheathState,

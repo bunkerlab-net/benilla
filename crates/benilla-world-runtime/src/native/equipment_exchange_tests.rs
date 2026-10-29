@@ -261,9 +261,9 @@ fn rehashed_checkpoint_cannot_omit_registered_counterpart_or_keep_its_old_placem
             }
         }
         cp.state = serde_json::from_value(json).unwrap();
-        cp.digest = crate::digest(b"benilla-native-state-v79\0", &cp.state);
+        cp.digest = crate::digest(b"benilla-native-state-v80\0", &cp.state);
         cp.checksum = crate::digest(
-            b"benilla-native-checkpoint-v79\0",
+            b"benilla-native-checkpoint-v80\0",
             &(&cp.state, cp.digest, cp.history_tip),
         );
         assert!(

@@ -101,9 +101,9 @@ fn timers(w: &NativeWorld) -> [u32; 2] {
 }
 fn rehash(value: serde_json::Value) -> Checkpoint {
     let mut checkpoint: Checkpoint = serde_json::from_value(value).unwrap();
-    checkpoint.digest = crate::digest(b"benilla-native-state-v79\0", &checkpoint.state);
+    checkpoint.digest = crate::digest(b"benilla-native-state-v80\0", &checkpoint.state);
     checkpoint.checksum = crate::digest(
-        b"benilla-native-checkpoint-v79\0",
+        b"benilla-native-checkpoint-v80\0",
         &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
     );
     Checkpoint::decode(&checkpoint.encode().unwrap()).unwrap()

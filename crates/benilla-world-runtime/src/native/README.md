@@ -11,7 +11,7 @@ The opt-in `synthetic-native-tests` feature exposes only synthetic construction 
 restoration. Feature unification, preparation JSON, hashes, and source initializer
 outputs cannot produce `NativeCapability`. Fabricated test rows are not native data.
 
-Native format 79, `benilla-native-backpack-exchange-v79`, retains the selected
+Native format 80, `benilla-native-creature-pose-cell-index-v80`, retains the selected
 [player mainhand policy](../../PLAYER-MELEE.md), required optional player proof
 and NPC defense reactive state, retained generic-cast slot context and
 spell target-death lifecycle causes in the bounded melee proof. Backpack stack-split
@@ -235,7 +235,7 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
   binary64; source comparison is strict promoted-float chance > double roll
 - Draw records bind semantic purpose/action/NPC generation. Action chains bind full
   current defense/cast/resource snapshots, so same-HP misses cannot be reused
-- Checkpoints bind native format 79, policy, RNG mapping, domain, content, authority, geometry,
+- Checkpoints bind native format 80, policy, RNG mapping, domain, content, authority, geometry,
   history-chain tip, cooldown maps, recomputable casts/auras, AI lifecycle/motion,
   exact mana timers, skills/reactive/combat clocks, checked equipment recipes and
   [per-NPC event ownership](../../NPC-EVENTS.md) with DEAD/respawn clock continuity
@@ -540,3 +540,11 @@ Native format 79 (`benilla-native-backpack-exchange-v79`) binds bounded occupied
 to exact both-endpoint original custody and existing source swap receipts.
 No equipment replacement or generic consumption admission is added.
 No old-save migration or native admission is added.
+
+Native format 80 (`benilla-native-creature-pose-cell-index-v80`) binds optional source-qualified
+static creature identity and committed-pose cell observations. These are not source
+CurrentCell, loaded-grid, registration, lookup or selection authority.
+No old-save migration or native admission is added.
+
+Source-qualified committed-frame creature pose-cell observations and their explicit
+non-registration boundary are documented in [CREATURE-POSE-CELLS.md](CREATURE-POSE-CELLS.md).
