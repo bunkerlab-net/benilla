@@ -773,8 +773,8 @@ mod tests {
                 .unwrap();
         assert!(restored.replay(&records).is_err());
         assert_eq!(restored.checkpoint().unwrap(), initial);
-        assert_eq!(NATIVE_FORMAT_VERSION, 68);
-        assert_eq!(NATIVE_POLICY, "benilla-native-source-thread-spline-ids-v68");
+        assert_eq!(NATIVE_FORMAT_VERSION, 69);
+        assert_eq!(NATIVE_POLICY, "benilla-native-player-appearance-v69");
         assert_eq!(crate::FORMAT_VERSION, 2);
     }
     #[test]

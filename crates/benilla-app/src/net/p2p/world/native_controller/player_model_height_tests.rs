@@ -848,7 +848,7 @@ fn rehashed_checkpoint(
     let start = canonical.find("\"state\":").unwrap() + "\"state\":".len();
     let end = canonical.rfind(",\"digest\":").unwrap();
     let state = &canonical[start..end];
-    let digest = hash(b"benilla-native-state-v68\0", state.as_bytes());
+    let digest = hash(b"benilla-native-state-v69\0", state.as_bytes());
     let tuple = format!(
         "[{state},{},{}]",
         serde_json::to_string(&digest).unwrap(),
@@ -856,7 +856,7 @@ fn rehashed_checkpoint(
     );
     value["digest"] = serde_json::to_value(digest).unwrap();
     value["checksum"] =
-        serde_json::to_value(hash(b"benilla-native-checkpoint-v68\0", tuple.as_bytes())).unwrap();
+        serde_json::to_value(hash(b"benilla-native-checkpoint-v69\0", tuple.as_bytes())).unwrap();
     let typed: n::Checkpoint = serde_json::from_value(value).unwrap();
     // Decode passes integrity checks, so restore must reject the semantic forgery.
     n::Checkpoint::decode(&serde_json::to_vec(&typed).unwrap()).unwrap()

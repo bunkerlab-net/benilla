@@ -130,9 +130,9 @@ fn watched_value_and_malformed_write_witnesses_reject_rechecksummed_checkpoints(
             _ => unreachable!(),
         }
         forged.state = serde_json::from_value(encoded).unwrap();
-        forged.digest = crate::digest(b"benilla-native-state-v68\0", &forged.state);
+        forged.digest = crate::digest(b"benilla-native-state-v69\0", &forged.state);
         forged.checksum = crate::digest(
-            b"benilla-native-checkpoint-v68\0",
+            b"benilla-native-checkpoint-v69\0",
             &(&forged.state, forged.digest, forged.history_tip),
         );
         assert!(

@@ -207,7 +207,7 @@ source gate or change the integer armor policy.
 
 See [SPELL-AUTHORITY.md](SPELL-AUTHORITY.md) for the bounded ID133 source spell
 host, complete raw input dependencies, phase/scheduler ownership, numeric oracle
-and native simulation checkpoint/record format 68. This is not production content
+and native simulation checkpoint/record format 69. This is not production content
 admission or stock Fireball certification.
 
 See [FACING-AUTHORITY.md](FACING-AUTHORITY.md) for explicit current-request
@@ -236,3 +236,9 @@ callbacks and the first-life player forced stop; profiles outside that domain
 retain the older partial motion lane. Compact endpoints prove reachable
 interleaving, while TickRecord replay establishes callback order. No old-save
 migration, ghost/recovery capability, or native admission is provided.
+
+Native format 69 (`benilla-native-player-appearance-v69`) retains an optional immutable
+selected-character appearance owner from exact loaded source-row choices.
+`PLAYER_BYTES` projects only its four owned cosmetic bytes; facial hair remains
+retained without inventing the bank/rest siblings of `PLAYER_BYTES_2`. No old-save
+migration, native admission, corpse creation, or ghost release is provided.

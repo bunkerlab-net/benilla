@@ -13,7 +13,8 @@ mod geosets;
 mod sections;
 
 pub use customization::{
-    CharCreateCatalog, ChrRaceRow, DialRanges, NameGenRow, NativePlayerDisplayRow, StartOutfitItem,
+    CharCreateCatalog, ChrRaceRow, DialRanges, NameGenRow, NativeAppearanceRows,
+    NativePlayerDisplayRow, StartOutfitItem,
 };
 pub use geosets::{CharacterGeosets, EquipGeosets, VisibleGeosets};
 pub use sections::{

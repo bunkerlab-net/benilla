@@ -252,6 +252,23 @@ impl NativeController {
         authority: impl n::Authority + Send + 'static,
     ) -> Result<Self, Error> {
         let selected = Selection::from_profile(profile, character)?;
+        if let Some(source) = &data.player_appearance {
+            source
+                .validate_request(n::PlayerAppearanceRequest {
+                    player: selected.player,
+                    race: character.race,
+                    class: character.class,
+                    gender: character.gender,
+                    choices: n::NativePlayerAppearanceChoices {
+                        skin: character.appearance.skin,
+                        face: character.appearance.face,
+                        hair_style: character.appearance.hair_style,
+                        hair_color: character.appearance.hair_color,
+                        facial_hair: character.appearance.facial_hair,
+                    },
+                })
+                .map_err(Error::NativeRuntime)?;
+        }
         let path = world_path(root, entry.id())?;
         let (store, world, projection) = match entry {
             Entry::Create { world, seed } => {

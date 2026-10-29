@@ -287,6 +287,7 @@ fn previous_native_checkpoints_inside_fresh_store_checksum_cannot_reopen_or_repl
         (65, "benilla-native-armor-auto-equip-v65"),
         (66, "benilla-native-armor-auto-store-v66"),
         (67, "benilla-native-selected-duplicate-destroy-v67"),
+        (68, "benilla-native-source-thread-spline-ids-v68"),
     ] {
         use sha2::{Digest as _, Sha256};
         let h = Harness::new();
@@ -313,13 +314,13 @@ fn previous_native_checkpoints_inside_fresh_store_checksum_cannot_reopen_or_repl
             hasher.finalize().into()
         };
         checkpoint["digest"] =
-            serde_json::to_value(hash(b"benilla-native-state-v68\0", state.as_bytes())).unwrap();
+            serde_json::to_value(hash(b"benilla-native-state-v69\0", state.as_bytes())).unwrap();
         let body = format!(
             "[{state},{},{}]",
             checkpoint["digest"], checkpoint["history_tip"]
         );
         checkpoint["checksum"] =
-            serde_json::to_value(hash(b"benilla-native-checkpoint-v68\0", body.as_bytes()))
+            serde_json::to_value(hash(b"benilla-native-checkpoint-v69\0", body.as_bytes()))
                 .unwrap();
         let typed: n::Checkpoint = serde_json::from_value(checkpoint).unwrap();
         let snapshot = typed.encode().unwrap();
@@ -1114,6 +1115,8 @@ mod creature_model_width_tests;
 #[path = "creature_model_height_tests.rs"]
 mod creature_model_height_tests;
 
+#[path = "player_appearance_tests.rs"]
+mod player_appearance_tests;
 #[path = "player_model_height_tests.rs"]
 mod player_model_height_tests;
 

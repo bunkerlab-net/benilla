@@ -49,9 +49,9 @@ fn reopen(w: &NativeWorld) {
     assert_eq!(restored.checkpoint().unwrap(), w.checkpoint().unwrap());
 }
 fn rehash(c: &mut Checkpoint) {
-    c.digest = crate::digest(b"benilla-native-state-v68\0", &c.state);
+    c.digest = crate::digest(b"benilla-native-state-v69\0", &c.state);
     c.checksum = crate::digest(
-        b"benilla-native-checkpoint-v68\0",
+        b"benilla-native-checkpoint-v69\0",
         &(&c.state, c.digest, c.history_tip),
     );
 }

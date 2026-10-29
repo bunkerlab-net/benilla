@@ -95,3 +95,5 @@ pub mod route_filter;
 
 /// Exact numeric Chase straight-attempt predicates; real ordered geometry is separate.
 pub mod chase_gate;
+
+pub mod player_appearance;

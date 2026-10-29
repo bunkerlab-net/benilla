@@ -26,6 +26,8 @@ mod pathfinder_dispatch;
 pub use pathfinder_dispatch::*;
 mod pathfinder_configuration;
 pub use pathfinder_configuration::*;
+mod player_appearance;
+pub use player_appearance::*;
 mod player_collision_height;
 mod player_environment;
 mod source_location;
@@ -137,8 +139,8 @@ pub use persistence::{PendingWanderAndChaseReopen, PendingWanderReopen};
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 68;
-pub const NATIVE_POLICY: &str = "benilla-native-source-thread-spline-ids-v68";
+pub const NATIVE_FORMAT_VERSION: u32 = 69;
+pub const NATIVE_POLICY: &str = "benilla-native-player-appearance-v69";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -437,6 +439,7 @@ impl NativeWorld {
             source_location: None,
             event_ai: EventAiState::new(&profile)?,
             source_player_environment: PlayerEnvironmentState::new(&profile, world, player)?,
+            source_player_appearance: PlayerAppearanceState::new(&profile, world, player)?,
             source_player_collision_height: PlayerCollisionHeightState::new(
                 &profile, world, player,
             )?,
@@ -493,7 +496,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v68\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v69\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest
@@ -720,3 +723,9 @@ mod equipment_relocation_tests;
 mod selected_duplicate_destroy_tests;
 #[cfg(any(test, feature = "synthetic-native-tests"))]
 pub mod synthetic_equipment_fixture;
+
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub mod synthetic_player_appearance_fixture;
+
+#[cfg(test)]
+mod player_appearance_tests;

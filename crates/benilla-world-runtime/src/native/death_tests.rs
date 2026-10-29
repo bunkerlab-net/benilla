@@ -319,9 +319,9 @@ fn resigned_death_clock_killer_and_detached_state_tamper_is_rejected() {
             _ => unreachable!(),
         }
         let mut checkpoint: Checkpoint = serde_json::from_value(v).unwrap();
-        checkpoint.digest = crate::digest(b"benilla-native-state-v68\0", &checkpoint.state);
+        checkpoint.digest = crate::digest(b"benilla-native-state-v69\0", &checkpoint.state);
         checkpoint.checksum = crate::digest(
-            b"benilla-native-checkpoint-v68\0",
+            b"benilla-native-checkpoint-v69\0",
             &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
         );
         assert!(
@@ -445,9 +445,9 @@ fn rehashed_owned_hostile_reference_forgery_is_rejected() {
             _ => unreachable!(),
         }
         let mut checkpoint: Checkpoint = serde_json::from_value(v).unwrap();
-        checkpoint.digest = crate::digest(b"benilla-native-state-v68\0", &checkpoint.state);
+        checkpoint.digest = crate::digest(b"benilla-native-state-v69\0", &checkpoint.state);
         checkpoint.checksum = crate::digest(
-            b"benilla-native-checkpoint-v68\0",
+            b"benilla-native-checkpoint-v69\0",
             &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
         );
         assert!(
@@ -493,9 +493,9 @@ fn supported_player_liveness_preserves_first_life_and_rejects_inconsistent_opera
     let mut value = serde_json::to_value(w.checkpoint().unwrap()).unwrap();
     value["state"]["health"] = 1.into();
     let mut checkpoint: Checkpoint = serde_json::from_value(value).unwrap();
-    checkpoint.digest = crate::digest(b"benilla-native-state-v68\0", &checkpoint.state);
+    checkpoint.digest = crate::digest(b"benilla-native-state-v69\0", &checkpoint.state);
     checkpoint.checksum = crate::digest(
-        b"benilla-native-checkpoint-v68\0",
+        b"benilla-native-checkpoint-v69\0",
         &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
     );
     assert!(NativeWorld::restore_synthetic_component_test(w.profile.clone(), checkpoint).is_err());

@@ -214,9 +214,9 @@ fn original_armor_autostore_rehashed_custody_forgery_is_rejected() {
             _ => m["movement"]["destinations"][0]["slot"] = serde_json::json!(24),
         }
         cp.state = serde_json::from_value(state).unwrap();
-        cp.digest = crate::digest(b"benilla-native-state-v68\0", &cp.state);
+        cp.digest = crate::digest(b"benilla-native-state-v69\0", &cp.state);
         cp.checksum = crate::digest(
-            b"benilla-native-checkpoint-v68\0",
+            b"benilla-native-checkpoint-v69\0",
             &(&cp.state, cp.digest, cp.history_tip),
         );
         assert!(NativeWorld::restore_synthetic_component_test(w.profile.clone(), cp).is_err());

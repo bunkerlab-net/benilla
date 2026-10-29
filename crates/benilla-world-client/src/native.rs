@@ -459,6 +459,9 @@ impl NativeProjection {
             (34, u32::from(w.player_level())),
             (1261, w.state().watched_faction() as u32),
         ];
+        if let Some(appearance) = w.state().player_appearance() {
+            pairs.push((193, appearance.player_bytes()));
+        }
         // InitDisplayIds writes the stored scale and both display fields. The retained
         // model owner excludes transforms; absent ownership means unknown, not zero.
         if let Some(model) = w.state().player_collision_height() {
@@ -2192,3 +2195,7 @@ mod equipment_origin_tests;
 #[cfg(test)]
 #[path = "native_player_display_tests.rs"]
 mod player_display_tests;
+
+#[cfg(test)]
+#[path = "native_player_appearance_tests.rs"]
+mod player_appearance_tests;

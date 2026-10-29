@@ -649,9 +649,9 @@ fn two_owner_reached_peer_attack_never_installs_peer_targets_or_commits() {
 
 fn rehash_checkpoint(value: serde_json::Value) -> Checkpoint {
     let mut checkpoint: Checkpoint = serde_json::from_value(value).unwrap();
-    checkpoint.digest = crate::digest(b"benilla-native-state-v68\0", &checkpoint.state);
+    checkpoint.digest = crate::digest(b"benilla-native-state-v69\0", &checkpoint.state);
     checkpoint.checksum = crate::digest(
-        b"benilla-native-checkpoint-v68\0",
+        b"benilla-native-checkpoint-v69\0",
         &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
     );
     checkpoint

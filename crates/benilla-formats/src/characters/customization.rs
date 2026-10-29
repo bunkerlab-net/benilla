@@ -156,6 +156,7 @@ pub struct DialRanges {
 
 /// Character-creation source data, loaded once from the DBCs ([`Self::load`]).
 pub struct CharCreateCatalog {
+    native_appearance: Option<native_appearance::NativeAppearanceRows>,
     /// Every ChrRaces row in file order.
     race_rows: Vec<ChrRaceRow>,
     /// CharBaseInfo's `(race, class)` rows in file order, the class-list builder's walk
@@ -354,6 +355,7 @@ impl CharCreateCatalog {
             Ok(rows) => (rows, None),
             Err(e) => (Vec::new(), Some(format!("{e:#}"))),
         };
+        let native_appearance = native_appearance::NativeAppearanceRows::load(chain);
         let start_outfits = load_start_outfits(chain)?;
         let avail = load_available_sections(chain)?;
         let facial = load_facial_hair_styles(chain)?;
@@ -368,6 +370,7 @@ impl CharCreateCatalog {
         }
 
         let mut catalog = Self {
+            native_appearance,
             race_rows,
             base_info,
             name_gen,
@@ -1019,3 +1022,7 @@ mod tests {
 #[cfg(test)]
 #[path = "native_player_display_tests.rs"]
 mod native_player_display_tests;
+
+#[path = "native_appearance.rs"]
+mod native_appearance;
+pub use native_appearance::NativeAppearanceRows;

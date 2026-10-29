@@ -102,6 +102,10 @@ source dirty-mask or rendered-pixel claim. Character customization, guild/hide
 flags, ghost transforms, corpse creation and release remain separate unsupported
 owners. No native admission or persistence schema changes are implied.
 
+An optional [fresh selected-character appearance owner](../benilla-world-runtime/src/native/PLAYER-APPEARANCE.md)
+separately supplies complete `PLAYER_BYTES` (193). Facial hair is retained but
+field 194 is not fabricated from it; bank/rest siblings remain outside this owner.
+
 ## Explicit enabling gates and remaining app work
 
 The untouched original fixture is refused because its creature/item display IDs

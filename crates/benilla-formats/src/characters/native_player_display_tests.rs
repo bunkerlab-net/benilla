@@ -449,3 +449,6 @@ fn native_player_display_uses_winning_patch_race_table() {
     assert_eq!(catalog.body_display(1, 0), Some(6001));
     assert_eq!(catalog.native_player_display(1, 8, 0), None);
 }
+
+#[path = "native_player_appearance_tests.rs"]
+mod appearance;

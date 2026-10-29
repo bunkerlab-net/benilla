@@ -970,3 +970,17 @@ no-alive-guard semantics for an ordinary backpack source. The existing bounded
 AutoStore reducer is unchanged; native quest progression separately proves
 original registry custody and retains its ordered observations without a stat or
 quest acquisition callback. No new item identifier or source absence is invented.
+
+## Fresh player appearance selection
+
+`src/player_appearance.rs` translates `Player::ValidateAppearance` and the
+CharSections/CharacterFacialHairStyles lookups in CMaNGOS Classic commit
+`8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`, `src/game/Entities/Player.cpp`
+and `src/game/Server/DBCStores.cpp` (Project contributors). Upstream grant is
+GPL-2.0-or-later; this Rust translation is GPL-3.0-or-later. Exact tuple coupling,
+facial-section exceptions and mandatory style lookup live in this GPL crate,
+not the permissively licensed formats crate. The latter only transports complete
+full-width DBC rows. Conservative byte-domain, duplicate and ambiguity refusals
+are explicit supported-subset limits, not upstream error responses. Opaque proof
+construction uses actual loaded rows; private raw-row tests establish the bounded
+selection rules, not native admission or authenticated character requests.
