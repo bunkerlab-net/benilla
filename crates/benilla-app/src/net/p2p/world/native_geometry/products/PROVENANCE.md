@@ -4,6 +4,10 @@ The [positive single-tile load owner](nav_generation/POSITIVE-LOAD.md) composes
 actual terrain, VMap and native navigation allocations in the bounded successful
 source load order. It does not establish NGrid or object registration.
 
+The [fresh single-grid creation stage](nav_generation/FRESH-GRID.md) owns actual
+empty cell containers, map-grid linkage and these loaded resources throughout a
+bounded consumer callback. It does not load objects or establish registration.
+
 This is a source-bound prerequisite, not native geometry admission. `InventoriedProducts`
 owns a bounded exact declared file set, validates hashes and serialization framing, and
 contains decoded terrain. It cannot construct `Session`, `NonRenderParticipants`, a

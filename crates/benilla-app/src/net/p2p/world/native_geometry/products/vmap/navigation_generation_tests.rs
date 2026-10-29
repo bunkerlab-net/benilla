@@ -5,6 +5,8 @@ use super::super::super::nav_generation::{
 };
 use super::*;
 use std::time::{Duration, Instant};
+#[path = "fresh_single_grid_tests.rs"]
+mod fresh_single_grid_tests;
 #[path = "positive_tile_load_tests.rs"]
 mod positive_tile_load_tests;
 fn oracle(name: &str) -> Vec<u8> {
@@ -894,7 +896,7 @@ fn genuine_generated_resident_cold_same_polygon_is_private_fresh_and_retryable()
     use super::super::super::super::source_pathfinder_query::{
         resident_cold_tests as resident, tests as provider,
     };
-    use super::super::super::nav_generation::positive_load::PositiveTileLoad;
+    use super::super::super::nav_generation::fresh_grid::{FreshSingleGrid, GridConfiguration};
     let entries = ridge_entries();
     let install = Install::new(&entries);
     let before = install.bytes();
@@ -953,30 +955,61 @@ fn genuine_generated_resident_cold_same_polygon_is_private_fresh_and_retryable()
     assert_eq!(scalar.polygons, [source["start_ref"].as_u64().unwrap()]);
     assert_eq!(scalar.start.polygon, scalar.end.polygon);
     let p = provider::generated_profile(start, end);
-    // Each fresh owner executes and retains its own positive source-load stage.
-    // The exact owned products then enter the existing real runtime consumer.
+    // Source grid creation is requested by actual source positions. The grid,
+    // actual height and exact query lease remain alive throughout runtime use.
+    let position = [start[0].to_bits(), start[1].to_bits()];
     let load = || {
-        PositiveTileLoad::from_generated(
+        FreshSingleGrid::from_generated(
             &input,
             &output,
             &p,
-            Some(positive_tile_load_tests::ENABLED),
+            position,
+            Some(GridConfiguration {
+                expiry_ms: 300_000,
+                unload_enabled: true,
+                vmap: positive_tile_load_tests::ENABLED,
+            }),
             Instant::now() + Duration::from_secs(10),
             || false,
         )
         .unwrap()
     };
     let owner = load();
-    let retained = owner.query().query().retain_default();
-    let (height, query) = owner.into_parts();
-    retained.check_query(query.query()).unwrap();
-    let (_replacement_height, replacement) = load().into_parts();
-    assert!(retained.check_query(replacement.query()).is_err());
+    let replacement = load();
+    owner
+        .ensure(
+            [end[0].to_bits(), end[1].to_bits()],
+            Instant::now() + Duration::from_secs(10),
+            || false,
+        )
+        .unwrap();
+    assert_eq!(owner.references(), 1);
     let mut changed = ridge_entries();
     changed.iter_mut().find(|e| e.name == ADT).unwrap().bytes[0] ^= 1;
-    resident::assert_resident_cold_terminal(p, query, replacement, &height, |mutated| {
-        install.write(if mutated { &changed } else { &entries });
-    });
+    owner
+        .with_query(|grid, query| {
+            assert_eq!(grid.linked_count(), 1);
+            grid.check_query(&query).unwrap();
+            replacement
+                .with_query(|other, replacement_query| {
+                    assert!(grid.check_query(&replacement_query).is_err());
+                    other.check_query(&replacement_query).unwrap();
+                    resident::assert_resident_cold_terminal(
+                        p,
+                        query,
+                        replacement_query,
+                        grid.height(),
+                        |mutated| {
+                            install.write(if mutated { &changed } else { &entries });
+                        },
+                    );
+                    assert_eq!(grid.linked_count(), 1);
+                    assert_eq!(other.linked_count(), 1);
+                    assert!(!grid.object_data_loaded());
+                })
+                .unwrap();
+        })
+        .unwrap();
     input.verify_unchanged(|| false).unwrap();
     assert_eq!(install.bytes(), before);
 }
