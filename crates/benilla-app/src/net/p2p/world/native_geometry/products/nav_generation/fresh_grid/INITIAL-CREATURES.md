@@ -1,8 +1,8 @@
 # Constructor-stage ordinary creature cells
 
 The synthetic-component constructor adapter connects actual source generation to
-an initial `Map::AddToGrid(Creature*)`/`SetCurrentCell` operation inside the retained
-single-grid owner. This is **not completed Map::Add, AddToWorld, live membership,
+an initial `Map::AddToGrid(Creature*)`/`SetCurrentCell` operation and the ordinary
+`Creature::AddToWorld` dual-index prefix inside the retained single-grid owner. This is **not completed Map::Add, AddToWorld, live membership,
 GetUnit lookup, selection, production native admission or persistence**.
 
 The connected tests use invented complete creature rows and authored client-shaped
@@ -34,18 +34,22 @@ Its empty ViewPoint and inactive state are newly owned constructor facts, not
 assertions about a previously registered creature. Later respawns do not mint new
 cold-constructor tokens.
 
-## Real cell transaction
+## Real cell and dual-index transaction
 
 `with_initial_creatures` consumes the grid, invokes the exact runtime adapter and
 binds every token to the original grid profile, world, source map/instance and
 position-derived cell. The host checks source freshness/cancellation/deadline and
-rejects duplicate NpcId/full source GUID. It inserts a stable boxed entry into the
+rejects duplicate NpcId/full source GUID. It inserts a stable shared entry into the
 actual cell's ordinary-creature container **before** assigning CurrentCell to the
-one-shot object. Its ViewPoint stays null and the grid's object-data-loaded flag
+one-shot object. It then inserts that exact same Rc allocation into the typed
+full-GUID store and appends it under `(HIGHGUID_UNIT, database_guid)`. The attached
+object is assigned only once; indexes do not clone generation receipts into
+substitute objects. Cell insertion is at the front, while the DBGUID vector
+preserves append order. Its ViewPoint stays null and the grid's object-data-loaded flag
 stays false.
 
 Any constructor error, callback refusal or unwind drops the entire consumed host
-grid transaction, including prior entries and geometry. No partially populated
+grid transaction, including prior cell/index entries and geometry. No partially populated
 grid is returned. This rollback is host behavior, not source removal/unload/GC.
 Only after successful construction can the consumer callback borrow the grid,
 initial entries and exact query allocation. The query/height/grid lifetime remains
@@ -55,6 +59,29 @@ The low-level runtime hook alone cannot roll back arbitrary caller storage; the
 app transaction supplies that ownership. The token's consuming cell-assignment
 primitive checks arithmetic and identity only: without insertion by this grid
 bridge it proves neither storage nor registration.
+
+## Source index semantics and limits
+
+`Creature.cpp::AddToWorld` inserts into the typed GUID store when the ordinary
+object is not yet in world, then adds its nonzero database GUID. This domain is
+only privately minted fresh ordinary static objects; it supplies no general
+re-entry or subtype operation. `TypeContainer.h` inserts an absent GUID, treats
+the same key/same object as a no-op and asserts on a different object at that key.
+The host primitive preserves the no-op and rejects replacement. The constructor
+bridge rejects duplicate NpcId/full GUID before mutating any cell.
+
+`Map.cpp::AddDbGuidObject` appends the exact object under the parent HighGuid and
+database GUID. The vector is not deduplicated or converted to a single overwrite.
+Pure container tests cover repeat-pointer and collision behavior separately from
+the real authored creature constructor composition. The latter confirms borrowed
+object addresses are identical through cell, GUID and DBGUID candidates.
+
+The accessors intentionally return **constructor-prefix candidates**, not
+`Map::GetUnit`, a live `GetCreature`, selection authority or an in-world guarantee.
+In particular, source `GetCreature(dbGuid)` prefers an alive candidate before the
+first stored entry. No alive-first lookup is implemented without its genuine
+lifecycle owner. This index prefix does not set inWorld, clear update masks,
+create script references, register string/event IDs or finish AddToWorld.
 
 ## Limits after construction
 

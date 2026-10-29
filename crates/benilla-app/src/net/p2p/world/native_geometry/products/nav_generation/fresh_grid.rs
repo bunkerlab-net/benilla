@@ -10,7 +10,11 @@ use benilla_sim::resident_map::{compute_cell_pair, CellPair};
 use benilla_world_runtime::native::{
     AttachedInitialCreatureCell, FreshCreatureCellObject, Profile,
 };
-use std::collections::BTreeMap;
+use std::{
+    cell::{OnceCell, RefCell},
+    collections::BTreeMap,
+    rc::Rc,
+};
 
 /// Explicit effective host inputs; no server configuration or default is inferred.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,8 +51,8 @@ enum GridGameObject {}
 // Membership is installed before CurrentCell assignment. No pending entry can
 // escape a failed consumed-grid construction transaction.
 struct GridCreature {
-    fresh: Option<FreshCreatureCellObject>,
-    attached: Option<AttachedInitialCreatureCell>,
+    fresh: RefCell<Option<FreshCreatureCellObject>>,
+    attached: OnceCell<AttachedInitialCreatureCell>,
 }
 enum GridDynamicObject {}
 enum GridBones {}
@@ -60,11 +64,7 @@ struct CellStores {
     corpses: Vec<WorldCorpse>,
     cameras: Vec<WorldCamera>,
     game_objects: Vec<GridGameObject>,
-    #[allow(
-        clippy::vec_box,
-        reason = "cell entries retain stable owned nodes across insertion"
-    )]
-    creatures: Vec<Box<GridCreature>>,
+    creatures: Vec<Rc<GridCreature>>,
     dynamic_objects: Vec<GridDynamicObject>,
     bones: Vec<GridBones>,
     active: Vec<ActiveGridObject>,
@@ -111,6 +111,8 @@ pub(crate) struct FreshSingleGrid<'terrain, 'bundle, 'source> {
     configuration: GridConfiguration,
     nodes: BTreeMap<GridKey, Box<GridNode<'terrain, 'bundle, 'source>>>,
     linked: Vec<GridKey>,
+    initial_guids: BTreeMap<u64, Rc<GridCreature>>,
+    initial_dbguids: BTreeMap<(u16, u32), Vec<Rc<GridCreature>>>,
 }
 impl<'terrain, 'bundle, 'source> FreshSingleGrid<'terrain, 'bundle, 'source> {
     pub(crate) fn from_generated(
@@ -185,6 +187,8 @@ impl<'terrain, 'bundle, 'source> FreshSingleGrid<'terrain, 'bundle, 'source> {
             configuration,
             nodes: BTreeMap::new(),
             linked: Vec::new(),
+            initial_guids: BTreeMap::new(),
+            initial_dbguids: BTreeMap::new(),
         };
         owner.nodes.insert(key, node);
         observed(GridStage::Stored);

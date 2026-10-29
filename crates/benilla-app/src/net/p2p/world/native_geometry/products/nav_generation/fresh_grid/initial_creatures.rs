@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Source constructor-stage cell membership only; no live registration/lookup.
+//! Source constructor cell + dual-index prefix; no completed/live registration.
 use super::*;
 use benilla_world_runtime::{
     native::{Authority, NativeError, NativeWorld},
@@ -71,6 +71,9 @@ impl<'terrain, 'bundle, 'source> FreshSingleGrid<'terrain, 'bundle, 'source> {
         {
             return Err(NativeError::AuthorityBinding);
         }
+        if object.identity().guid() >> 48 != 0xf130 || object.identity().database_guid() == 0 {
+            return Err(NativeError::AuthorityBinding);
+        }
         let cell = object.cell();
         let key = (cell.grid_x(), cell.grid_y());
         if self.linked.as_slice() != [key] || self.nodes.len() != 1 {
@@ -91,19 +94,38 @@ impl<'terrain, 'bundle, 'source> FreshSingleGrid<'terrain, 'bundle, 'source> {
         }
         let store =
             &mut node.cells[usize::from(cell.x() % 16)][usize::from(cell.y() % 16)].creatures;
-        // Source Map::AddToGrid ordinary Creature: insert reference, THEN assign
-        // CurrentCell. Stable boxed entry retains the exact one-shot object.
-        store.insert(
-            0,
-            Box::new(GridCreature {
-                fresh: Some(object),
-                attached: None,
-            }),
+        // Source Map::AddToGrid inserts first, then sets CurrentCell. All
+        // subsequent map indexes share this same stable allocation, not copies.
+        let entry = Rc::new(GridCreature {
+            fresh: RefCell::new(Some(object)),
+            attached: OnceCell::new(),
+        });
+        store.insert(0, Rc::clone(&entry));
+        let fresh = entry
+            .fresh
+            .borrow_mut()
+            .take()
+            .ok_or(NativeError::AuthorityBinding)?;
+        entry
+            .attached
+            .set(fresh.attach_initial_cell(self.slot.map_id, self.slot.instance_id, cell)?)
+            .map_err(|_| NativeError::AuthorityBinding)?;
+        let identity = entry
+            .attached
+            .get()
+            .ok_or(NativeError::AuthorityBinding)?
+            .object()
+            .identity();
+        // Creature::AddToWorld's fresh ordinary prefix: GUID store, then DBGUID
+        // append. This does not set inWorld or implement the rest of AddToWorld.
+        insert_guid(&mut self.initial_guids, identity.guid(), Rc::clone(&entry))?;
+        append_database_guid(
+            &mut self.initial_dbguids,
+            0xf130,
+            identity.database_guid(),
+            entry,
         );
-        let entry = store.first_mut().ok_or(NativeError::AuthorityBinding)?;
-        let fresh = entry.fresh.take().ok_or(NativeError::AuthorityBinding)?;
-        entry.attached =
-            Some(fresh.attach_initial_cell(self.slot.map_id, self.slot.instance_id, cell)?);
+
         Ok(())
     }
     pub(crate) fn initial_creatures(&self) -> impl Iterator<Item = &AttachedInitialCreatureCell> {
@@ -111,7 +133,26 @@ impl<'terrain, 'bundle, 'source> FreshSingleGrid<'terrain, 'bundle, 'source> {
             .values()
             .flat_map(|node| node.cells.iter().flatten())
             .flat_map(|cell| &cell.creatures)
-            .filter_map(|entry| entry.attached.as_ref())
+            .filter_map(|entry| entry.attached.get())
+    }
+    /// Borrowed constructor-prefix candidate only, not Map::GetUnit or live lookup.
+    pub(crate) fn initial_guid_candidate(&self, guid: u64) -> Option<&AttachedInitialCreatureCell> {
+        self.initial_guids
+            .get(&guid)
+            .and_then(|entry| entry.attached.get())
+    }
+    /// Source DBGUID storage is an append-ordered vector. This is not the alive-
+    /// first GetCreature(dbGuid) operation, whose lifecycle state is unowned here.
+    pub(crate) fn initial_database_candidates(
+        &self,
+        parent_high: u16,
+        dbguid: u32,
+    ) -> impl Iterator<Item = &AttachedInitialCreatureCell> {
+        self.initial_dbguids
+            .get(&(parent_high, dbguid))
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| entry.attached.get())
     }
     pub(crate) fn initial_creature_count(&self) -> usize {
         self.initial_creatures().count()
@@ -120,5 +161,66 @@ impl<'terrain, 'bundle, 'source> FreshSingleGrid<'terrain, 'bundle, 'source> {
         self.initial_creatures()
             .find(|entry| entry.object().npc() == npc)
             .map(|entry| entry.current_cell())
+    }
+}
+
+// TypeContainer.h: a repeat key may identify the same object, never replace it.
+fn insert_guid<T>(
+    store: &mut BTreeMap<u64, Rc<T>>,
+    guid: u64,
+    entry: Rc<T>,
+) -> Result<bool, NativeError> {
+    use std::collections::btree_map::Entry;
+    match store.entry(guid) {
+        Entry::Vacant(slot) => {
+            slot.insert(entry);
+            Ok(true)
+        }
+        Entry::Occupied(slot) if Rc::ptr_eq(slot.get(), &entry) => Ok(false),
+        Entry::Occupied(_) => Err(NativeError::AuthorityBinding),
+    }
+}
+fn append_database_guid<T>(
+    store: &mut BTreeMap<(u16, u32), Vec<Rc<T>>>,
+    parent_high: u16,
+    dbguid: u32,
+    entry: Rc<T>,
+) {
+    store.entry((parent_high, dbguid)).or_default().push(entry);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    /// Pure container semantics only: these unit allocations are NOT creatures.
+    /// Genuine token/cell/index composition is covered by the app constructor test.
+    #[test]
+    fn source_guid_container_preserves_same_allocation_and_rejects_replacement() {
+        let first = Rc::new(());
+        let other = Rc::new(());
+        let mut store = BTreeMap::new();
+        assert_eq!(insert_guid(&mut store, 7, Rc::clone(&first)), Ok(true));
+        assert_eq!(insert_guid(&mut store, 7, Rc::clone(&first)), Ok(false));
+        assert_eq!(
+            insert_guid(&mut store, 7, other),
+            Err(NativeError::AuthorityBinding)
+        );
+        assert_eq!(store.len(), 1);
+        assert!(Rc::ptr_eq(&store[&7], &first));
+    }
+    #[test]
+    fn source_database_container_appends_references_in_order_without_deduplication() {
+        let first = Rc::new(());
+        let other = Rc::new(());
+        let mut store = BTreeMap::new();
+        append_database_guid(&mut store, 0xf130, 7, Rc::clone(&first));
+        append_database_guid(&mut store, 0xf130, 7, Rc::clone(&other));
+        append_database_guid(&mut store, 0xf130, 7, Rc::clone(&first));
+        let entries = &store[&(0xf130, 7)];
+        assert_eq!(entries.len(), 3);
+        assert!(Rc::ptr_eq(&entries[0], &first));
+        assert!(Rc::ptr_eq(&entries[1], &other));
+        assert!(Rc::ptr_eq(&entries[2], &first));
+        assert!(!store.contains_key(&(0xf140, 7)));
     }
 }

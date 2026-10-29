@@ -196,7 +196,27 @@ fn fresh_creature_cells_retain_actual_constructor_objects_and_rollback() {
                     assert_eq!(object.viewer_count(), 0);
                     assert_eq!(object.viewpoint_grid(), None);
                     assert_eq!(native.state().npcs[&object.npc().spawn].id, object.npc());
+                    // Source AddToWorld registration-prefix candidates retain
+                    // this exact allocation, not copies or live GetUnit results.
+                    let identity = object.identity();
+                    let typed = grid.initial_guid_candidate(identity.guid()).unwrap();
+                    assert!(std::ptr::eq(typed, attached));
+                    let database: Vec<_> = grid
+                        .initial_database_candidates(0xf130, identity.database_guid())
+                        .collect();
+                    assert_eq!(database.len(), 1);
+                    assert!(std::ptr::eq(database[0], attached));
+                    // Same low database GUID with a different type is not a hit.
+                    assert!(grid
+                        .initial_database_candidates(0, identity.database_guid())
+                        .next()
+                        .is_none());
+                    assert!(grid
+                        .initial_guid_candidate(identity.guid() ^ (1_u64 << 48))
+                        .is_none());
                 }
+                assert!(grid.initial_guid_candidate(0).is_none());
+                assert!(grid.initial_database_candidates(0xf130, 0).next().is_none());
                 // Return only ordinary runtime data; no grid or CurrentCell certificate.
                 native.checkpoint().unwrap()
             },
