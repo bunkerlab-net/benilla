@@ -1253,3 +1253,94 @@ fn check_native_reputation_packets(modifier: bool) {
             | SessionEvent::ReputationVisible { .. }
     )));
 }
+
+#[test]
+fn fresh_appearance_supplies_bytes_two_without_legacy_catalog_word() {
+    let legacy = fixture::world();
+    let mut legacy_catalog = Catalog::new(&legacy);
+    legacy_catalog.bytes = None;
+    assert!(matches!(
+        NativeProjection::new(&legacy, legacy.state().player, &legacy_catalog),
+        Err(Error::InvalidClientManifest)
+    ));
+    let mut profile = legacy.profile().clone();
+    profile
+        .initialize_player_appearance(
+            n::synthetic_player_appearance_fixture::request(legacy.state().player),
+            &n::synthetic_player_appearance_fixture::catalog(),
+        )
+        .unwrap();
+    let world = n::NativeWorld::synthetic_component_test(
+        profile,
+        legacy.state().world,
+        legacy.state().player,
+        42,
+    )
+    .unwrap();
+    let mut catalog = Catalog::new(&world);
+    catalog.bytes = None;
+    let mut projection = NativeProjection::new(&world, world.state().player, &catalog).unwrap();
+    let initial = player_fields(
+        &projection.initial_events(&world).unwrap(),
+        projection.player_guid(),
+    );
+    assert_eq!(initial.player_bytes_2(), Some(0x0200_0001));
+    assert_eq!(initial.player_facial_hair(), Some(1));
+    let mut world = world;
+    world
+        .step(1, None, &mut fixture::QuestAuthority::default())
+        .unwrap();
+    let update = player_fields(
+        &projection.advance(&world).unwrap(),
+        projection.player_guid(),
+    );
+    assert_eq!(update.player_bytes_2(), Some(0x0200_0001));
+}
+
+#[test]
+fn ordered_rest_callback_composes_source_facial_byte_without_mutating_world() {
+    let base = fixture::world();
+    let mut profile = base.profile().clone();
+    profile
+        .initialize_player_appearance(
+            n::synthetic_player_appearance_fixture::request(base.state().player),
+            &n::synthetic_player_appearance_fixture::catalog(),
+        )
+        .unwrap();
+    let world = n::NativeWorld::synthetic_component_test(
+        profile,
+        base.state().world,
+        base.state().player,
+        42,
+    )
+    .unwrap();
+    let projection =
+        NativeProjection::new(&world, world.state().player, &Catalog::new(&world)).unwrap();
+    let before = world.checkpoint().unwrap();
+    let mut frame = Frame::new(world.state());
+    let mut inventory = loot::Frame::new(world.state());
+    // Projection-boundary test: feed ordered source callback observations, not
+    // a claim that this unchanged world's rest owner executed these transitions.
+    for rest in [1, 2, 1] {
+        let observation = pg::kill_xp::Observation {
+            event: pg::kill_xp::Event::RestStateByte(rest),
+            view: state(&world).unwrap().player.snapshot(),
+            rest: state(&world).unwrap().rest,
+        };
+        let events = projection
+            .quest_progression_event(
+                &world,
+                &n::QuestProgressionEvent::KillExperience(Box::new(observation)),
+                &mut frame,
+                &mut inventory,
+            )
+            .unwrap();
+        assert_eq!(events.len(), 1);
+        let fields = player_fields(&events, projection.player_guid());
+        assert_eq!(fields.player_bytes_2(), Some((u32::from(rest) << 24) | 1));
+        assert_eq!(fields.player_facial_hair(), Some(1));
+        let raw: BTreeMap<_, _> = fields.raw_fields().collect();
+        assert_eq!(raw, BTreeMap::from([(194, (u32::from(rest) << 24) | 1)]));
+    }
+    assert_eq!(world.checkpoint().unwrap(), before);
+}

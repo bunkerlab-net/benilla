@@ -98,13 +98,14 @@ product; the collision getter's effective fallback of 1 is not serialized in its
 place. Initial, update and reopened session descriptors use the same retained
 owner. Profiles without this owner omit all three words rather than inventing a
 model or zero-valued evidence. These are semantic field updates, not an exact
-source dirty-mask or rendered-pixel claim. Character customization, guild/hide
-flags, ghost transforms, corpse creation and release remain separate unsupported
-owners. No native admission or persistence schema changes are implied.
+source dirty-mask or rendered-pixel claim. Character customization and hide flags have separate bounded owners; guild,
+ghost transforms, corpse creation and release remain unsupported. No native admission or persistence schema changes are implied.
 
 An optional [fresh selected-character appearance owner](../benilla-world-runtime/src/native/PLAYER-APPEARANCE.md)
 separately supplies complete `PLAYER_BYTES` (193). Facial hair is retained but
-field 194 is not fabricated from it; bank/rest siblings remain outside this owner.
+appearance alone does not supply field 194. With the validated quest/rest owner,
+the adapter composes its source-owned fresh facial/bank prefix with actual rest;
+without that owner, field 194 remains omitted.
 
 ## Explicit enabling gates and remaining app work
 
@@ -133,3 +134,5 @@ Run `cargo test -p benilla-world-client` and
 `cargo clippy -p benilla-world-client --all-targets -- -D warnings`.
 
 The native [helm/cloak hide owner](../benilla-world-runtime/src/native/PLAYER-HIDE-FLAGS.md) projects complete field 190 only within its existing fresh/no-rest-entry source contract. Actual Lua/controller retry and parser tests do not establish rendered gameplay or native admission.
+
+For source-owned fresh appearance plus quest progression, field 194 now composes facial hair, explicitly fresh zero reserved/bank bytes, and the actual quest rest byte. The same lower prefix is used for ordered rest observations; legacy missing-appearance metadata and missing-rest omission remain unchanged. This supplies the existing character-skin parser/renderer input, not a rendered-pixel or ghost claim.

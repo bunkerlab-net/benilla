@@ -149,7 +149,7 @@ fn absent_appearance_owner_does_not_fabricate_default_cosmetic_bytes() {
     }
 }
 #[test]
-fn appearance_word_preserves_existing_quest_owned_bytes_two_exactly() {
+fn appearance_and_quest_owners_compose_facial_hair_zero_bank_and_actual_rest() {
     let baseline = n::synthetic_quest_fixture::world();
     let baseline_projection = NativeProjection::new(
         &baseline,
@@ -161,7 +161,7 @@ fn appearance_word_preserves_existing_quest_owned_bytes_two_exactly() {
     let baseline_fields = fields(&baseline_events, baseline_projection.player_guid());
     assert_eq!(baseline_fields.player_bytes(), None);
     let prior_bytes_two = baseline_fields.player_bytes_2().unwrap();
-    assert_eq!(prior_bytes_two & 0x00ff_ffff, 0x00ab_cdef);
+    assert_eq!(prior_bytes_two, 0x02ab_cdef);
 
     let request = appearance::request(baseline.state().player);
     assert_eq!(request.choices.facial_hair, 1);
@@ -186,15 +186,33 @@ fn appearance_word_preserves_existing_quest_owned_bytes_two_exactly() {
     let actual = fields(&events, projection.player_guid());
     let raw: BTreeMap<_, _> = actual.raw_fields().collect();
     assert_eq!(raw.get(&193), Some(&u32::from_le_bytes([1, 0, 1, 0])));
-    assert_eq!(raw.get(&194), Some(&prior_bytes_two));
-    assert_eq!(actual.player_bytes_2(), Some(prior_bytes_two));
+    let composed = (prior_bytes_two & 0xff00_0000) | u32::from(request.choices.facial_hair);
+    assert_eq!(raw.get(&194), Some(&composed));
+    assert_eq!(actual.player_bytes_2(), Some(composed));
     assert_eq!(
         actual.player_facial_hair(),
-        baseline_fields.player_facial_hair()
-    );
-    assert_ne!(
-        actual.player_facial_hair(),
         Some(request.choices.facial_hair)
+    );
+    assert_eq!(
+        composed & 0x00ff_ff00,
+        0,
+        "fresh reserved/bank bytes remain zero"
+    );
+    let restored = n::NativeWorld::restore_synthetic_component_test(
+        world.profile().clone(),
+        world.checkpoint().unwrap(),
+    )
+    .unwrap();
+    let fresh = NativeProjection::new(
+        &restored,
+        restored.state().player,
+        &super::quests::tests::Catalog::new(&restored),
+    )
+    .unwrap();
+    let fresh_events = fresh.initial_events(&restored).unwrap();
+    assert_eq!(
+        fields(&fresh_events, fresh.player_guid()).player_bytes_2(),
+        Some(composed)
     );
     assert_eq!(
         world.state().player_appearance().unwrap().choices(),

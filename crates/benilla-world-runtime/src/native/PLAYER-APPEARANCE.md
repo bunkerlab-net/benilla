@@ -43,9 +43,21 @@ held private compiler path.
 
 Pinned `Player::Create` writes skin, face, hair style and hair colour into the four
 bytes of `PLAYER_BYTES` (field 193). The adapter publishes that complete word from
-the owner on initial/update/reopen semantic descriptors. Facial hair remains
-retained but is not independently written to `PLAYER_BYTES_2` (194): that packed
-word also contains bank/rest state not owned here. Guild remains unknown; hide flags have a separate
+the owner on initial/update/reopen semantic descriptors. Facial hair is retained, but appearance alone still cannot publish
+`PLAYER_BYTES_2` (194). Where the validated quest progression owner is also
+present, its projection now composes the complete word: facial hair in byte 0,
+source fresh reserved byte 1 and bank-slot byte 2 both zero, and the actual quest
+rest state in byte 3. `Object::_InitValues` zeroes the fresh descriptor before
+`Player::Create` writes facial hair/rest; `Player.h::SetBankBagSlotCount` and
+`ItemHandler.cpp::HandleBuyBankSlotOpcode` are the bank-byte producer, and native
+bank purchase/import transitions remain unsupported. No raw imported character
+word is treated as fresh. This is a closed native-source subset, not general bank
+support. The same owned lower prefix is reused for initial/update/reopen fields
+and ordered `RestStateByte` callbacks; rest is never hardcoded. Source-owned
+composition does not depend on client metadata for those lower bytes. Without
+appearance, the existing required client lower 24-bit metadata contract remains;
+without the quest/rest owner, field 194 remains omitted. No new mutable state,
+format bump or migration is required for this derived projection. Guild remains unknown; hide flags have a separate
 [bounded source owner](PLAYER-HIDE-FLAGS.md), not this cosmetic owner. No ghost aura, transformed display, corpse identity/registry,
 placement, graveyard, resurrection or rendered-pixel behavior is implied.
 

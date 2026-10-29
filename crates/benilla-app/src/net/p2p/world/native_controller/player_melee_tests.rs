@@ -272,3 +272,6 @@ mod source_spline_controller_tests;
 
 #[path = "player_hide_flags_tests.rs"]
 mod player_hide_flags_tests;
+
+#[path = "player_facial_hair_tests.rs"]
+mod player_facial_hair_tests;

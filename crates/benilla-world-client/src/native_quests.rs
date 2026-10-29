@@ -29,12 +29,21 @@ impl Metadata {
         let Some(g) = &w.profile().quest_progression else {
             return Ok(out);
         };
-        out.player_bytes_2 = Some(
+        out.player_bytes_2 = Some(if let Some(appearance) = w.state().player_appearance() {
+            // Player::Create writes facial hair to byte0. Object::_InitValues
+            // owns fresh byte1=0 and bank-slot byte2=0; no bank purchase/import
+            // transition is admitted by this native host. The validated quest
+            // owner supplies byte3 separately below and in RestStateByte events.
+            // Do not overwrite that owner with client metadata or hardcode rest.
+            u32::from(appearance.choices().facial_hair)
+        } else {
+            // Legacy profiles without an appearance owner retain their existing
+            // required client lower-word contract; absence is not inferred zero.
             catalog
                 .player_bytes_2(w.state().player)
                 .ok_or(Error::InvalidClientManifest)?
-                & 0x00ff_ffff,
-        );
+                & 0x00ff_ffff
+        });
         for id in g.spell_ids() {
             if id > u32::from(u16::MAX) {
                 return Err(Error::Unrepresentable);
