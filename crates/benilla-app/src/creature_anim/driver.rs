@@ -13,8 +13,7 @@ use bevy::prelude::*;
 
 use crate::names::type_flags::DO_NOT_PLAY_WOUND_ANIM;
 use crate::net::{
-    ClientCommand, FacingStep, NetCommands, ObjectStore, RemoteMotion, SelfPlayer, Spline,
-    UnitSpeeds,
+    FacingStep, NetCommands, ObjectStore, RemoteMotion, SelfPlayer, Spline, UnitSpeeds,
 };
 use crate::sound::EmoteSounds;
 
@@ -693,9 +692,7 @@ pub(super) fn drive_animations(
                 );
                 drv.sheath_cur = Some(req.state);
                 if is_self {
-                    let _ = net.0.send(ClientCommand::SetSheathed {
-                        state: u32::from(req.state),
-                    });
+                    super::send_sheath_state(&net.0, req.state);
                 }
                 if req.ceremony {
                     start_sheath_ceremony(
@@ -1284,9 +1281,7 @@ pub(super) fn drive_animations(
                     );
                     drv.sheath_cur = Some(forced);
                     if is_self {
-                        let _ = net.0.send(ClientCommand::SetSheathed {
-                            state: u32::from(forced),
-                        });
+                        super::send_sheath_state(&net.0, forced);
                     }
                 }
             }

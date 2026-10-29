@@ -462,6 +462,10 @@ impl NativeProjection {
         if w.profile().supports_player_hide_flags() {
             pairs.push((190, w.state().player_hide_flags()));
         }
+        if w.profile().supports_player_sheath() {
+            // Player::Create misc byte1 is 0x28; only byte0 is changed by SetSheath.
+            pairs.push((164, 0x2800 | u32::from(w.state().sheath_state())));
+        }
         if let Some(appearance) = w.state().player_appearance() {
             pairs.push((193, appearance.player_bytes()));
         }

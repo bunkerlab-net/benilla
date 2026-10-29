@@ -247,3 +247,6 @@ mod mainhand_destroy_tests;
 
 #[path = "health_regeneration_tests.rs"]
 mod health_regeneration_tests;
+
+#[path = "player_sheath_tests.rs"]
+mod player_sheath_tests;

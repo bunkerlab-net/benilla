@@ -29,9 +29,9 @@ fn reopen(w: &NativeWorld) {
 }
 fn resign(cp: &mut Checkpoint, value: serde_json::Value) {
     cp.state = serde_json::from_value(value).unwrap();
-    cp.digest = crate::digest(b"benilla-native-state-v77\0", &cp.state);
+    cp.digest = crate::digest(b"benilla-native-state-v78\0", &cp.state);
     cp.checksum = crate::digest(
-        b"benilla-native-checkpoint-v77\0",
+        b"benilla-native-checkpoint-v78\0",
         &(&cp.state, cp.digest, cp.history_tip),
     );
 }

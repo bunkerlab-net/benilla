@@ -16,6 +16,7 @@ mod net {
 mod world;
 
 mod creature_anim {
+    include!(concat!(env!("OUT_DIR"), "/sheath_sender.rs"));
     #[allow(dead_code)]
     pub(crate) mod move_flags {
         include!(concat!(env!("OUT_DIR"), "/move_flags.rs"));

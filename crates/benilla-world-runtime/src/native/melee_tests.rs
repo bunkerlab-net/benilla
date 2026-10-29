@@ -170,9 +170,9 @@ fn resigned_combat_stat_recipe_skill_reactive_and_old_schema_edits_rejected() {
             _ => unreachable!(),
         }
         let mut forged: Checkpoint = serde_json::from_value(v).unwrap();
-        forged.digest = crate::digest(b"benilla-native-state-v77\0", &forged.state);
+        forged.digest = crate::digest(b"benilla-native-state-v78\0", &forged.state);
         forged.checksum = crate::digest(
-            b"benilla-native-checkpoint-v77\0",
+            b"benilla-native-checkpoint-v78\0",
             &(&forged.state, forged.digest, forged.history_tip),
         );
         assert!(

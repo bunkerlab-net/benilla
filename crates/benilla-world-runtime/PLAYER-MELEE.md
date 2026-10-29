@@ -55,7 +55,7 @@ only by the source class/outcome/alive conditions and expire in NPC Unit update.
 
 ## Persistence contract
 
-Native format 77 rejects older envelopes; no migration is provided. Existing
+Native format 78 rejects older envelopes; no migration is provided. Existing
 unrelated callback hash domains retain their prior versions.
 
 The bounded player proof retains the latest writers of lifecycle, BASE, OFF and
@@ -147,4 +147,9 @@ No old-save migration or native admission is added.
 Native format 77 (`benilla-native-player-health-regeneration-v77`) binds optional explicit host-selected health regeneration
 to validated standing-mage owners and the shared source regeneration cadence.
 No rate is inferred when unset; no external server configuration is claimed.
+No old-save migration or native admission is added.
+
+Native format 78 (`benilla-native-player-sheath-v78`) binds bounded player sheath controls
+to qualified fresh-player and no-enchantment owners, with field 164 composition.
+Unsupported profiles do not gain source-backed sheath state.
 No old-save migration or native admission is added.

@@ -105,6 +105,14 @@ fn main() {
         format!("pub(crate) {}", function(&sender, "send_equipment_command")),
     )
     .unwrap();
+    let sheath_path = root.join("crates/benilla-app/src/creature_anim.rs");
+    println!("cargo:rerun-if-changed={}", sheath_path.display());
+    let sheath = fs::read_to_string(sheath_path).unwrap();
+    fs::write(
+        out.join("sheath_sender.rs"),
+        format!("pub(crate) {}", function(&sheath, "send_sheath_state")),
+    )
+    .unwrap();
     let flags = root.join("crates/benilla-app/src/creature_anim/select.rs");
     println!("cargo:rerun-if-changed={}", flags.display());
     let flags = fs::read_to_string(flags).unwrap();
@@ -143,6 +151,7 @@ fn main() {
         "AutoEquipItem",
         "DestroyItem",
         "QuestlogRemove",
+        "SetSheathed",
         "SetActionBarToggles",
         "SetWatchedFaction",
         "ToggleHelm",

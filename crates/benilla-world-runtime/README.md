@@ -207,7 +207,7 @@ source gate or change the integer armor policy.
 
 See [SPELL-AUTHORITY.md](SPELL-AUTHORITY.md) for the bounded ID133 source spell
 host, complete raw input dependencies, phase/scheduler ownership, numeric oracle
-and native simulation checkpoint/record format 77. This is not production content
+and native simulation checkpoint/record format 78. This is not production content
 admission or stock Fireball certification.
 
 See [FACING-AUTHORITY.md](FACING-AUTHORITY.md) for explicit current-request
@@ -285,3 +285,11 @@ No old-save migration or native admission is added.
 See [PLAYER-HEALTH-REGENERATION.md](PLAYER-HEALTH-REGENERATION.md) for the
 explicit configuration boundary, modifier closure, numeric oracle and conditional
 component-entry limitation.
+
+Native format 78 (`benilla-native-player-sheath-v78`) binds bounded player sheath controls
+to qualified fresh-player and no-enchantment owners, with field 164 composition.
+Unsupported profiles do not gain source-backed sheath state.
+No old-save migration or native admission is added.
+
+See [PLAYER-SHEATH.md](PLAYER-SHEATH.md) for exact player field164 composition,
+current source owner closure and conditional UI/controller evidence boundaries.

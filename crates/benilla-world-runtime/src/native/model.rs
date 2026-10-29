@@ -112,7 +112,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v77\0",
+            b"benilla-native-profile-v78\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -441,6 +441,7 @@ impl Npc {
 pub struct State {
     pub source_splines: Option<SourceSplineIds>,
     pub(super) action_bar_toggles: action_bar_toggles::ActionBarTogglesState,
+    pub(super) player_sheath: player_sheath::PlayerSheathState,
     pub(super) player_hide_flags: player_hide_flags::PlayerHideFlags,
     pub(super) watched_faction: watched_faction::WatchedFactionState,
     pub(super) player_melee: Option<player_melee::PlayerMeleeState>,
@@ -523,6 +524,9 @@ pub enum Command {
     AcknowledgeInitialReputations,
     ToggleHelm,
     ToggleCloak,
+    SetSheathed {
+        state: u32,
+    },
     SetActionBarToggles {
         toggles: u8,
     },
@@ -940,6 +944,9 @@ impl State {
         self.player_hide_flags.value()
     }
     /// Raw source action-bar display byte, not the contents of action slots.
+    pub fn sheath_state(&self) -> u8 {
+        self.player_sheath.value()
+    }
     pub fn action_bar_toggles(&self) -> u8 {
         self.action_bar_toggles.value()
     }

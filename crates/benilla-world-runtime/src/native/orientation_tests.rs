@@ -80,9 +80,9 @@ fn orientation_is_profile_bound_and_restore_never_uses_a_session_pose() {
     let mut state = serde_json::to_value(&forged.state).unwrap();
     state["orientation"] = serde_json::json!(Orientation::new(2.0).unwrap());
     forged.state = serde_json::from_value(state).unwrap();
-    forged.digest = crate::digest(b"benilla-native-state-v77\0", &forged.state);
+    forged.digest = crate::digest(b"benilla-native-state-v78\0", &forged.state);
     forged.checksum = crate::digest(
-        b"benilla-native-checkpoint-v77\0",
+        b"benilla-native-checkpoint-v78\0",
         &(&forged.state, forged.digest, forged.history_tip),
     );
     assert!(matches!(

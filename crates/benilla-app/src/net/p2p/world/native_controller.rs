@@ -1055,6 +1055,9 @@ impl Driven for NativeController {
             ClientCommand::ToggleCloak => {
                 self.queue(n::Command::ToggleCloak)?;
             }
+            ClientCommand::SetSheathed { state } => {
+                self.queue(n::Command::SetSheathed { state })?;
+            }
             ClientCommand::SetActionBarToggles { toggles } => {
                 self.queue(n::Command::SetActionBarToggles { toggles })?;
             }

@@ -14,6 +14,17 @@ use bevy::prelude::*;
 use benilla_assets::AssetSet;
 use benilla_world::schedule::WorldStage;
 
+/// Shared wire intent for local sheath requests and animation-forced changes.
+/// Callers retain their own state/ownership guards; this helper does not animate.
+pub(crate) fn send_sheath_state(
+    tx: &crossbeam_channel::Sender<crate::net::ClientCommand>,
+    state: u8,
+) {
+    let _ = tx.send(crate::net::ClientCommand::SetSheathed {
+        state: u32::from(state),
+    });
+}
+
 /// The pure selection logic: the `0x5fd100` tables, the gait, swing and ready picks, the rate math.
 pub(crate) mod select;
 pub(crate) use select::{

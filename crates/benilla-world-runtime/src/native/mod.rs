@@ -151,8 +151,8 @@ pub use persistence::{PendingWanderAndChaseReopen, PendingWanderReopen};
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 77;
-pub const NATIVE_POLICY: &str = "benilla-native-player-health-regeneration-v77";
+pub const NATIVE_FORMAT_VERSION: u32 = 78;
+pub const NATIVE_POLICY: &str = "benilla-native-player-sheath-v78";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -445,6 +445,7 @@ impl NativeWorld {
             source_splines: SourceSplineIds::new(&profile),
             watched_faction: watched_faction::WatchedFactionState::default(),
             action_bar_toggles: action_bar_toggles::ActionBarTogglesState::default(),
+            player_sheath: player_sheath::PlayerSheathState::default(),
             player_hide_flags: player_hide_flags::PlayerHideFlags::default(),
             player_melee: None,
             rng_counter,
@@ -509,7 +510,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v77\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v78\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest
@@ -720,6 +721,7 @@ mod action_bar_toggles_tests;
 mod player_hide_flags;
 #[cfg(test)]
 mod player_hide_flags_tests;
+mod player_sheath;
 
 #[cfg(test)]
 mod equipment_origin_tests;
@@ -763,3 +765,6 @@ mod mainhand_destroy_tests;
 
 #[cfg(test)]
 mod player_health_regeneration_tests;
+
+#[cfg(test)]
+mod player_sheath_tests;

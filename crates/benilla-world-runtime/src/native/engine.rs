@@ -220,7 +220,7 @@ impl NativeWorld {
         let events = frame.events;
         let draws = frame.draws;
         SourceSplineIds::validate_events(&self.state, &next, &events)?;
-        let after = crate::digest(b"benilla-native-state-v77\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v78\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -654,6 +654,16 @@ impl<A: Authority> Frame<'_, A> {
                     matches!(command, Command::ToggleHelm),
                     self.state.next_sequence,
                 )?;
+                None
+            }
+            Command::SetSheathed { state } => {
+                // The source rejects the raw uint32 before narrowing or callbacks.
+                if *state < 3 {
+                    player_sheath::validate_profile(self.profile)?;
+                    self.state
+                        .player_sheath
+                        .write(*state as u8, self.state.next_sequence)?;
+                }
                 None
             }
             Command::SetActionBarToggles { toggles } => {

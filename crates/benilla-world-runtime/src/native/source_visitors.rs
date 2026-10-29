@@ -773,11 +773,8 @@ mod tests {
                 .unwrap();
         assert!(restored.replay(&records).is_err());
         assert_eq!(restored.checkpoint().unwrap(), initial);
-        assert_eq!(NATIVE_FORMAT_VERSION, 77);
-        assert_eq!(
-            NATIVE_POLICY,
-            "benilla-native-player-health-regeneration-v77"
-        );
+        assert_eq!(NATIVE_FORMAT_VERSION, 78);
+        assert_eq!(NATIVE_POLICY, "benilla-native-player-sheath-v78");
         assert_eq!(crate::FORMAT_VERSION, 2);
     }
     #[test]

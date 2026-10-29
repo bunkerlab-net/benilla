@@ -1664,3 +1664,6 @@ fn armor_refusal_uses_registered_source_guid_without_mutating_inventory() {
 
 #[path = "native_armor_relocation_tests.rs"]
 mod armor_relocation_tests;
+
+#[path = "native_player_sheath_tests.rs"]
+mod player_sheath_tests;
