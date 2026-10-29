@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Bounded test-only source observation. No native query or certification crosses threads.
+#[cfg(all(test, not(benilla_headless_geometry)))]
+use super::super::super::super::core::route_latency::Event;
 use super::super::super::super::core::JobLease;
 use super::super::{preparation_counts, CompositionError};
 use super::OwnedSourceProducts;
@@ -525,8 +527,15 @@ impl CaptureFreshnessWorker {
             cancelled: Arc::clone(&guard.observation.cancelled),
             callback_deadline: guard.callback_deadline,
         };
+        let latency = task.lease.latency().cloned();
+        if let Some(latency) = &latency {
+            latency.mark(Event::F05EnqueueBefore);
+        }
         match self.requests.try_send(WorkerTask::ContinueF05(task)) {
             Ok(()) => {
+                if let Some(latency) = &latency {
+                    latency.mark(Event::F05EnqueueAfter);
+                }
                 guard.submitted.set(true);
                 self.f05 = Some(Arc::clone(&identity));
                 self.occupied = true;
@@ -552,6 +561,9 @@ impl CaptureFreshnessWorker {
         }
         match self.completed.try_recv() {
             Ok(WorkerResult::F05(result)) => {
+                if let Some(latency) = result.completion.identity.lease.latency() {
+                    latency.mark(Event::CompletionReceivedUnvalidated);
+                }
                 if !Arc::ptr_eq(&result.identity, &slot.identity) {
                     // Internal protocol violation: abandon, do not reinterpret
                     // this result or release the occupied original tombstone.
@@ -664,6 +676,10 @@ fn run_f05(
     hooks: &WorkerHooks,
     wake: &Sender<()>,
 ) -> bool {
+    let latency = job.lease.latency().cloned();
+    if let Some(latency) = &latency {
+        latency.mark(Event::WorkerEntered);
+    }
     if !hooks.f05_before_verify.as_ref().is_none_or(F05Gate::wait) {
         return false;
     }
@@ -683,14 +699,23 @@ fn run_f05(
         }
         result
     };
+    if let Some(latency) = &latency {
+        latency.mark(Event::VerifyBefore);
+    }
     let ((result, counts), trace) = super::super::freshness_timings::trace_sources(|| {
         super::super::freshness_timings::measure_mode(
             super::super::freshness_timings::Mode::CountOnly,
             || job.products.verify_sources(cancelled),
         )
     });
+    if let Some(latency) = &latency {
+        latency.mark(Event::VerifyAfter);
+    }
     if result.is_ok() && !hooks.after_success.as_ref().is_none_or(Gate::wait) {
         return false;
+    }
+    if let Some(latency) = &latency {
+        latency.mark(Event::PublishBefore);
     }
     if completed
         .try_send(WorkerResult::F05(F05Result {
@@ -716,6 +741,9 @@ fn run_f05(
         .is_err()
     {
         return false;
+    }
+    if let Some(latency) = &latency {
+        latency.mark(Event::PublishAfter);
     }
     // Publication happens-before this wake; a full wake channel already holds
     // a notification. No result or currentness authority is carried by the wake.

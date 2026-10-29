@@ -25,6 +25,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(all(test, not(benilla_headless_geometry)))]
+#[path = "route_latency.rs"]
+pub(super) mod route_latency;
+
 pub(super) const QUEUE_CAPACITY: usize = 16;
 pub(super) const PER_FRAME: usize = 8;
 const ROUTE_COMMIT_CAPACITY: usize = 1;
@@ -981,6 +985,8 @@ struct JobIdentity {
     deadline: Instant,
     attachment: Arc<AtomicBool>,
     owner_alive: AtomicBool,
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    latency: OnceLock<Arc<route_latency::RouteLatency>>,
 }
 struct JobOwner(Arc<JobIdentity>);
 impl Drop for JobOwner {
@@ -991,6 +997,10 @@ impl Drop for JobOwner {
 #[derive(Clone)]
 pub(super) struct JobLease(Arc<JobIdentity>);
 impl JobLease {
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(super) fn latency(&self) -> Option<&Arc<route_latency::RouteLatency>> {
+        self.0.latency.get()
+    }
     pub(super) fn same_job(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
@@ -1391,6 +1401,8 @@ impl Work {
                 deadline,
                 attachment,
                 owner_alive: AtomicBool::new(true),
+                #[cfg(all(test, not(benilla_headless_geometry)))]
+                latency: OnceLock::new(),
             })),
             route_body: None,
             route_validation: None,
@@ -1800,19 +1812,64 @@ fn receive_reply_until<T>(
     cancelled: &Receiver<()>,
     deadline: Instant,
 ) -> Result<T, NativeError> {
+    receive_reply_until_observed(
+        rx,
+        cancelled,
+        deadline,
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        None,
+    )
+}
+fn receive_reply_until_observed<T>(
+    rx: &Receiver<T>,
+    cancelled: &Receiver<()>,
+    deadline: Instant,
+    #[cfg(all(test, not(benilla_headless_geometry)))] latency: Option<&route_latency::RouteLatency>,
+) -> Result<T, NativeError> {
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    let outcome = |label| {
+        if let Some(latency) = latency {
+            let _ = latency.receive_outcome.set(label);
+        }
+    };
     let unavailable = || NativeError::AuthorityUnavailable("local geometry reply unavailable");
     let expired = || NativeError::AuthorityUnavailable("local geometry request deadline exceeded");
     let timeout = crossbeam_channel::at(deadline);
     let reply = crossbeam_channel::select_biased! {
-        recv(cancelled) -> _ => return Err(unavailable()),
-        recv(rx) -> result => result.map_err(|_| unavailable())?,
-        recv(timeout) -> _ => return Err(expired()),
+        recv(cancelled) -> _ => {
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            outcome("cancelled");
+            return Err(unavailable());
+        },
+        recv(rx) -> result => {
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            if let Some(latency) = latency { latency.mark(route_latency::Event::ReceiveSelected); }
+            result.map_err(|_| {
+                #[cfg(all(test, not(benilla_headless_geometry)))]
+                outcome("disconnected");
+                unavailable()
+            })?
+        },
+        recv(timeout) -> _ => {
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            outcome("timeout branch");
+            return Err(expired());
+        },
     };
     // Channel receives may return an already-buffered reply after their deadline. A driver
     // descheduled after enqueue must not renew the request's authority window when it resumes.
-    if Instant::now() >= deadline {
+    let received = Instant::now();
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    if let Some(latency) = latency {
+        latency.at(route_latency::Event::ReceiveGuard, received);
+    }
+    if received >= deadline {
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        outcome("buffered reply expired");
         return Err(expired());
     }
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    outcome("reply within deadline");
     Ok(reply)
 }
 
@@ -2068,6 +2125,10 @@ impl Mailbox {
                 break;
             };
             count += 1;
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            if let Some(latency) = work.latency.get() {
+                latency.mark(route_latency::Event::FirstDequeue);
+            }
             if !work.active_for(&self.active) {
                 #[cfg(test)]
                 {
@@ -2121,14 +2182,36 @@ impl Mailbox {
                         let original_lease = work.lease();
                         let result: Arc<CertifiedResidentResult> = Arc::from(result);
                         let facts = selected.map(|()| result.facts().clone());
+                        let latency = original_lease.latency().cloned();
+                        let mut publication = QueryFinishTiming::default();
                         let disposition = self.finish_query_result_traced_selected(
                             work,
                             facts,
                             deadline,
                             true,
-                            None,
+                            latency.as_ref().map(|_| &mut publication),
                             Some(Arc::clone(&result)),
                         );
+                        if let Some(latency) = latency {
+                            use route_latency::Event;
+                            for (event, stamp) in [
+                                (Event::SliceGuard, publication.slice_guard),
+                                (Event::ActiveGuardBefore, publication.active_guard_before),
+                                (Event::ActiveGuardAfter, publication.active_guard_after),
+                                (Event::SendBefore, publication.send_before),
+                                (Event::SendAfter, publication.send_after),
+                            ] {
+                                if let Some(stamp) = stamp {
+                                    latency.at(event, stamp);
+                                }
+                            }
+                            let _ = latency.send_outcome.set(match disposition {
+                                QueryDisposition::Delivered => "delivered",
+                                QueryDisposition::Failed => "failed reply",
+                                QueryDisposition::Deferred => "deferred",
+                                QueryDisposition::Retired => "retired",
+                            });
+                        }
                         if selected_valid
                             && matches!(
                                 disposition,

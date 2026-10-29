@@ -8,6 +8,7 @@ on:
       - .github/workflows/resident-controller-profile-comparison.yml
       - crates/benilla-app/src/net/p2p/world/native_geometry/mod.rs
       - crates/benilla-app/src/net/p2p/world/native_geometry/core.rs
+      - crates/benilla-app/src/net/p2p/world/native_geometry/route_latency.rs
       - crates/benilla-app/src/net/p2p/world/native_geometry/resident_dispatch.rs
       - crates/benilla-app/src/net/p2p/world/native_geometry/resident_dispatch/tests.rs
       - crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height.rs
@@ -209,12 +210,12 @@ jobs:
           log="$RUNNER_TEMP/frame_cadenced_mailbox_missed_frames_refuse_without_publication.log"
           mbx test --locked --release -p benilla-app --lib "$name" -- --exact --ignored --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" "$name"
-      - name: Compare one parked F05 against cold and retained split
+      - name: Compare parked F05 observer off and on against cold and retained split
         if: ${{ !cancelled() && steps.serial_comparison.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
-          echo 'One NON-frame actual FIFO pair, original500ms; retain both failures, no retries or overhead subtraction.'
+          echo 'One NON-frame actual FIFO baseline and F05 observer-off/on attempt each, original500ms; retain every failure, no retries or overhead subtraction.'
           echo 'Actual F05 worker uses test-only CountOnly diagnostics and bounded cancel counters; no timing equivalence claim.'
           name=net::p2p::native_geometry::resident_result_controller_tests::resident_f05_default_budget_actual_controller_comparison
           log="$RUNNER_TEMP/resident-f05-paired.log"

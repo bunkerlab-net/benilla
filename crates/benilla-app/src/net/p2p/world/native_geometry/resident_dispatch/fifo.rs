@@ -703,13 +703,23 @@ impl ResidentFifoSelection {
                     *reentry_jobs += 1;
                     validation.job(work, mailbox, owner, deadline)
                 };
+                let latency = work.latency.get();
+                if let Some(latency) = latency {
+                    latency.mark(route_latency::Event::FinalizeBefore);
+                }
                 let (result, reached_scene) =
                     frame.complete_active(owner, completion, custody, make_job, geometry);
+                if let Some(latency) = latency {
+                    latency.mark(route_latency::Event::FinalizeAfter);
+                }
                 self.f05_reached_scene = reached_scene;
                 self.f05_error = result.as_ref().err().map(|error| format!("{error:?}"));
                 self.selected = None;
                 let result = result.map_err(|_| Failure::Binding)?;
                 result.validate_staged_result(owner, &work.lease())?;
+                if let Some(latency) = latency {
+                    latency.mark(route_latency::Event::StagedValidated);
+                }
                 return Ok(ResidentStep::Complete(Box::new(result)));
             }
             if selected

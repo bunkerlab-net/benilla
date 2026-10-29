@@ -1280,6 +1280,12 @@ enum F05Fault {
 }
 
 fn run_f05_controller(fault: F05Fault) -> freshness_timings::SourceTrace {
+    run_f05_controller_observed(fault, false)
+}
+fn run_f05_controller_observed(
+    fault: F05Fault,
+    capture_latency: bool,
+) -> freshness_timings::SourceTrace {
     use super::source_route_filter::resident::owned::f05::ResidentF05Driver;
 
     let mut final_trace = Vec::new();
@@ -1366,6 +1372,8 @@ fn run_f05_controller(fault: F05Fault) -> freshness_timings::SourceTrace {
             .unwrap();
             // Pair against the genuine owner before transferring exclusive custody.
             let (mut authority, mailbox) = paired_test_mailbox(&owner).unwrap();
+            let latency = capture_latency.then(|| authority.capture_route_latency());
+            let _latency_report = latency.as_ref().map(|capture| capture.report_on_drop());
             let sink = authority.take_route_commit_sink().unwrap();
             let authority = ControllerAuthority {
                 retained_deadline_refusals: Arc::new(AtomicUsize::new(0)),
@@ -1720,7 +1728,7 @@ fn run_f05_controller(fault: F05Fault) -> freshness_timings::SourceTrace {
                     acks.load(Ordering::SeqCst),
                 );
                 eprintln!(
-                    "F05 contiguous owner slices: begin_us={} resume_final_island_us={} publication_to_drain_latency=unmeasured",
+                    "F05 contiguous owner slices: begin_us={} resume_final_island_us={}; publication_to_drain bounds in bounded latency snapshot",
                     begin_owner_wall.as_micros(),
                     resume_owner_wall.as_micros(),
                 );
@@ -1884,23 +1892,31 @@ fn run_f05_controller(fault: F05Fault) -> freshness_timings::SourceTrace {
 #[test]
 #[ignore = "runner-sensitive original500ms paired F05 prototype; explicit release diagnostic"]
 fn resident_f05_default_budget_actual_controller_comparison() {
-    // One declared pair. Report both outcomes even if the first arm fails; no retry.
-    // Additional trace storage is enabled only for this declared paired diagnostic.
+    // One declared baseline and one F05 attempt per observer mode; no retries.
+    // Report every outcome before assertions, with no overhead subtraction.
     let baseline = std::panic::catch_unwind(|| {
         run_inner(Mode::ColdPhasedDefaultBudget, None, &mut Vec::new(), true)
     });
     let parked = std::panic::catch_unwind(|| run_f05_controller(F05Fault::Clear));
+    let observed = std::panic::catch_unwind(|| run_f05_controller_observed(F05Fault::Clear, true));
     eprintln!(
-        "F05 original500ms paired outcome: baseline_cold_retained_split={} one_f05_slot={}",
+        "F05 original500ms outcomes: baseline_cold_retained_split={} one_f05_slot_observer_off={} one_f05_slot_observer_on={}; one attempt each, no retries or overhead subtraction",
         baseline.is_ok(),
         parked.is_ok(),
+        observed.is_ok(),
     );
     assert!(baseline.is_ok(), "baseline failed at the unchanged budget");
     assert!(
         parked.is_ok(),
         "F05 prototype failed at the unchanged budget"
     );
-    assert_f05_logical_trace(&baseline.unwrap().retained_final_trace, parked.unwrap());
+    assert!(
+        observed.is_ok(),
+        "instrumented F05 prototype failed at the unchanged budget"
+    );
+    let baseline = baseline.unwrap();
+    assert_f05_logical_trace(&baseline.retained_final_trace, parked.unwrap());
+    assert_f05_logical_trace(&baseline.retained_final_trace, observed.unwrap());
 }
 
 #[test]

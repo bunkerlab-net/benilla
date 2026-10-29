@@ -6,6 +6,8 @@ pub(crate) struct ResidentTestAuthority {
     ordinary: LocalAuthority,
     selection: Arc<ResidentTransportSelection>,
     route_budget: RouteBudget,
+    latency: Option<Arc<route_latency::Capture>>,
+    latency_index: usize,
 }
 // Correctness fixtures opt in explicitly; this is not a production latency budget.
 #[derive(Clone, Copy)]
@@ -46,11 +48,18 @@ fn paired_mailbox(
             ordinary,
             selection,
             route_budget,
+            latency: None,
+            latency_index: 0,
         },
         mailbox,
     ))
 }
 impl ResidentTestAuthority {
+    pub(crate) fn capture_route_latency(&mut self) -> Arc<route_latency::Capture> {
+        let capture = Arc::new(route_latency::Capture::default());
+        self.latency = Some(Arc::clone(&capture));
+        capture
+    }
     pub(crate) fn take_route_commit_sink(&mut self) -> Option<MailboxRouteCommitSink> {
         self.ordinary.take_route_commit_sink()
     }
@@ -119,6 +128,25 @@ impl Authority for ResidentTestAuthority {
             self.ordinary.active.clone(),
         );
         let lease = work.lease();
+        let latency = self
+            .latency
+            .as_ref()
+            .filter(|_| self.latency_index < 2)
+            .map(|capture| {
+                let record = Arc::new(route_latency::RouteLatency::new(
+                    started,
+                    deadline,
+                    request.binding.tick,
+                    lease.ticket(),
+                ));
+                capture.insert(self.latency_index, Arc::clone(&record));
+                self.latency_index += 1;
+                let _ = work.latency.set(Arc::clone(&record));
+                record
+            });
+        if let Some(latency) = &latency {
+            latency.mark(route_latency::Event::EnqueueBefore);
+        }
         self.ordinary
             .tx
             .try_send(work)
@@ -130,7 +158,18 @@ impl Authority for ResidentTestAuthority {
                     NativeError::AuthorityUnavailable("local geometry service closed")
                 }
             })?;
-        let reply = receive_reply_until(&receive, &self.ordinary.cancelled, deadline);
+        if let Some(latency) = &latency {
+            latency.mark(route_latency::Event::EnqueueAfter);
+        }
+        let reply = receive_reply_until_observed(
+            &receive,
+            &self.ordinary.cancelled,
+            deadline,
+            latency.as_deref(),
+        );
+        if let Some(latency) = &latency {
+            latency.mark(route_latency::Event::ReceiveReturned);
+        }
         eprintln!(
             "resident Route receiver: tick={} ticket={} elapsed_ms={} budget_ms={} received={}",
             request.binding.tick,
