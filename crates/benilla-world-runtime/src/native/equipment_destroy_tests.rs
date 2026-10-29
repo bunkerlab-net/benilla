@@ -183,9 +183,9 @@ fn retired_custody_cannot_be_removed_or_relabelled_in_rehashed_checkpoint() {
             }
         }
         cp.state = serde_json::from_value(value).unwrap();
-        cp.digest = crate::digest(b"benilla-native-state-v76\0", &cp.state);
+        cp.digest = crate::digest(b"benilla-native-state-v77\0", &cp.state);
         cp.checksum = crate::digest(
-            b"benilla-native-checkpoint-v76\0",
+            b"benilla-native-checkpoint-v77\0",
             &(&cp.state, cp.digest, cp.history_tip),
         );
         assert!(NativeWorld::restore_synthetic_component_test(w.profile.clone(), cp).is_err());

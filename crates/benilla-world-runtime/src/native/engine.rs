@@ -220,7 +220,7 @@ impl NativeWorld {
         let events = frame.events;
         let draws = frame.draws;
         SourceSplineIds::validate_events(&self.state, &next, &events)?;
-        let after = crate::digest(b"benilla-native-state-v76\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v77\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -2067,7 +2067,10 @@ impl<A: Authority> Frame<'_, A> {
                 _ => None,
             })
             .collect();
-        let result = self.state.resources.after_spell_and_aura_events(
+        // Compute the shared cadence exactly once on a private staged owner.
+        // In this closed domain health has no mana dependency or observer hook.
+        let mut next_resources = self.state.resources.clone();
+        let result = next_resources.after_spell_and_aura_events(
             mana::ManaFrame {
                 diff_ms: self.profile.tick_ms,
                 in_world: true,
@@ -2077,6 +2080,43 @@ impl<A: Authority> Frame<'_, A> {
             },
             events,
         )?;
+        if let (Some(source), Some(diff_ms)) = (
+            &self.profile.player_health_regeneration,
+            result.regenerated_diff_ms,
+        ) {
+            let combat = self
+                .state
+                .combat
+                .as_ref()
+                .ok_or(NativeError::InvalidState)?;
+            if !combat.standing || !self.state.player_alive() {
+                return Err(NativeError::InvalidState);
+            }
+            let spirit =
+                u32::try_from(combat.stats.attributes[4]).map_err(|_| NativeError::InvalidState)?;
+            let health = benilla_sim::player_health_regeneration::regenerate(
+                benilla_sim::player_health_regeneration::Input {
+                    health: self.state.health,
+                    max_health: combat.stats.max_health,
+                    spirit,
+                    diff_ms,
+                    health_rate: source.health_rate(),
+                    in_combat: combat.in_combat,
+                },
+            )
+            .map_err(|_| NativeError::UnsupportedMechanic("health regeneration numeric domain"))?;
+            self.state.health = health.after;
+            if health.after != health.before {
+                self.events.push(Event::PlayerHealthRegenerated {
+                    before: health.before,
+                    after: health.after,
+                    diff_ms,
+                });
+            }
+        }
+        // RegenerateAll observes health before mana; neither callback owns an
+        // additional timer. Dead frames retain the prior shared remainder.
+        self.state.resources = next_resources;
         if result.mana_before_regeneration != result.mana_after_regeneration {
             self.events.push(Event::Mana {
                 before: result.mana_before_regeneration,

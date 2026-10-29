@@ -26,6 +26,8 @@ mod pathfinder_dispatch;
 pub use pathfinder_dispatch::*;
 mod pathfinder_configuration;
 pub use pathfinder_configuration::*;
+mod player_health_regeneration;
+pub use player_health_regeneration::*;
 mod map_classification;
 pub use map_classification::*;
 mod corpse_appearance_preview;
@@ -149,8 +151,8 @@ pub use persistence::{PendingWanderAndChaseReopen, PendingWanderReopen};
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 76;
-pub const NATIVE_POLICY: &str = "benilla-native-mainhand-destroy-v76";
+pub const NATIVE_FORMAT_VERSION: u32 = 77;
+pub const NATIVE_POLICY: &str = "benilla-native-player-health-regeneration-v77";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -507,7 +509,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v76\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v77\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest
@@ -758,3 +760,6 @@ mod mainhand_custody_tests;
 
 #[cfg(test)]
 mod mainhand_destroy_tests;
+
+#[cfg(test)]
+mod player_health_regeneration_tests;

@@ -55,7 +55,7 @@ only by the source class/outcome/alive conditions and expire in NPC Unit update.
 
 ## Persistence contract
 
-Native format 76 rejects older envelopes; no migration is provided. Existing
+Native format 77 rejects older envelopes; no migration is provided. Existing
 unrelated callback hash domains retain their prior versions.
 
 The bounded player proof retains the latest writers of lifecycle, BASE, OFF and
@@ -142,4 +142,9 @@ No old-save migration or native admission is added.
 Native format 76 (`benilla-native-mainhand-destroy-v76`) binds selected destruction of detached pristine original mainhand
 to exact quest callbacks and permanent identity tombstones without stat callbacks.
 This does not admit generic consumption or held private consumers.
+No old-save migration or native admission is added.
+
+Native format 77 (`benilla-native-player-health-regeneration-v77`) binds optional explicit host-selected health regeneration
+to validated standing-mage owners and the shared source regeneration cadence.
+No rate is inferred when unset; no external server configuration is claimed.
 No old-save migration or native admission is added.

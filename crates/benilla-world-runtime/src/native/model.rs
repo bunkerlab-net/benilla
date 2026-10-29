@@ -92,6 +92,7 @@ pub struct Profile {
     pub creature_collision_heights: Option<CreatureCollisionHeightCatalog>,
     pub player_appearance: Option<PlayerAppearanceSource>,
     pub map_classification: Option<NativeMapClassificationSource>,
+    pub player_health_regeneration: Option<PlayerHealthRegenerationSource>,
     pub player_collision_height: Option<PlayerCollisionHeightSource>,
     pub player_environment: Option<PlayerEnvironmentSource>,
     pub pathfinder_configuration: Option<PathfinderConfigurationSource>,
@@ -111,7 +112,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v76\0",
+            b"benilla-native-profile-v77\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -204,6 +205,9 @@ impl Profile {
         }
         if let Some(catalog) = &self.creature_collision_heights {
             catalog.validate(self)?;
+        }
+        if let Some(source) = &self.player_health_regeneration {
+            source.validate(self)?;
         }
         if let Some(source) = &self.map_classification {
             source.validate(self)?;
@@ -717,6 +721,11 @@ pub enum Event {
         id: NpcId,
         before: u32,
         after: u32,
+    },
+    PlayerHealthRegenerated {
+        before: u32,
+        after: u32,
+        diff_ms: u32,
     },
     Mana {
         before: u32,

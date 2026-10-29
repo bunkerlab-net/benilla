@@ -31,6 +31,44 @@ pub struct AppConfig {
     pub p2p: Option<P2pConfig>,
     pub wow: WowConfig,
     pub ruleset: Ruleset,
+    /// Explicit local host selection; absent is not an inferred regeneration rate.
+    pub native_regeneration: Option<NativeRegenerationConfig>,
+}
+
+/// Explicit bounded binary32 host configuration, separate from peer ruleset rates.
+/// This type supplies numeric representation only, not simulation eligibility or
+/// server-source observations. There is intentionally no default selected rate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NativeRegenerationConfig {
+    health_rate_bits: u32,
+}
+impl NativeRegenerationConfig {
+    pub fn health_rate_bits(self) -> u32 {
+        self.health_rate_bits
+    }
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawNativeRegeneration {
+    health_rate: f64,
+}
+fn native_regeneration(
+    raw: RawNativeRegeneration,
+) -> Result<NativeRegenerationConfig, ConfigError> {
+    let value = raw.health_rate;
+    // Generic bounded host representation, not a translated simulation formula.
+    if !value.is_finite() || !(0.0..=1_000_000.0).contains(&value) {
+        return Err(invalid(
+            "native_regeneration.health_rate must be finite and between 0 and 1000000",
+        ));
+    }
+    let selected = value as f32;
+    if value != 0.0 && !selected.is_normal() {
+        return Err(invalid("native_regeneration.health_rate must convert to a normal binary32 value or explicit zero"));
+    }
+    Ok(NativeRegenerationConfig {
+        health_rate_bits: selected.to_bits(),
+    })
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -224,6 +262,7 @@ impl Ruleset {
 #[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 struct RawConfig {
+    native_regeneration: Option<RawNativeRegeneration>,
     p2p: Option<RawP2p>,
     #[serde(default)]
     wow: WowConfig,
@@ -387,7 +426,16 @@ impl AppConfig {
                 *path = directory.join(&*path);
             }
         }
-        Ok(Self { p2p, wow, ruleset })
+        let native_regeneration = raw
+            .native_regeneration
+            .map(native_regeneration)
+            .transpose()?;
+        Ok(Self {
+            p2p,
+            wow,
+            ruleset,
+            native_regeneration,
+        })
     }
 }
 
@@ -524,3 +572,6 @@ mod tests;
 
 #[cfg(test)]
 mod encounter_tests;
+
+#[cfg(test)]
+mod native_regeneration_tests;

@@ -207,7 +207,7 @@ source gate or change the integer armor policy.
 
 See [SPELL-AUTHORITY.md](SPELL-AUTHORITY.md) for the bounded ID133 source spell
 host, complete raw input dependencies, phase/scheduler ownership, numeric oracle
-and native simulation checkpoint/record format 76. This is not production content
+and native simulation checkpoint/record format 77. This is not production content
 admission or stock Fireball certification.
 
 See [FACING-AUTHORITY.md](FACING-AUTHORITY.md) for explicit current-request
@@ -277,3 +277,11 @@ Native format 76 (`benilla-native-mainhand-destroy-v76`) binds selected destruct
 to exact quest callbacks and permanent identity tombstones without stat callbacks.
 This does not admit generic consumption or held private consumers.
 No old-save migration or native admission is added.
+
+Native format 77 (`benilla-native-player-health-regeneration-v77`) binds optional explicit host-selected health regeneration
+to validated standing-mage owners and the shared source regeneration cadence.
+No rate is inferred when unset; no external server configuration is claimed.
+No old-save migration or native admission is added.
+See [PLAYER-HEALTH-REGENERATION.md](PLAYER-HEALTH-REGENERATION.md) for the
+explicit configuration boundary, modifier closure, numeric oracle and conditional
+component-entry limitation.

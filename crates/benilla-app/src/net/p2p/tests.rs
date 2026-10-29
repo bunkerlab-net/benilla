@@ -407,6 +407,7 @@ fn unchanged_settings_cannot_hide_a_checkpoint_failure() {
         p2p: Some(settings.0.clone()),
         wow: Default::default(),
         ruleset: settings.1,
+        native_regeneration: None,
     };
     let (_, start) = prepare(settings.clone(), P2pEndpointTicket::default());
     *start.failure.lock().unwrap() = Some("unverified final checkpoint".into());

@@ -11,7 +11,7 @@ The opt-in `synthetic-native-tests` feature exposes only synthetic construction 
 restoration. Feature unification, preparation JSON, hashes, and source initializer
 outputs cannot produce `NativeCapability`. Fabricated test rows are not native data.
 
-Native format 76, `benilla-native-mainhand-destroy-v76`, retains the selected
+Native format 77, `benilla-native-player-health-regeneration-v77`, retains the selected
 [player mainhand policy](../../PLAYER-MELEE.md), required optional player proof
 and NPC defense reactive state, retained generic-cast slot context and
 spell target-death lifecycle causes in the bounded melee proof. Backpack stack-split
@@ -233,7 +233,7 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
   binary64; source comparison is strict promoted-float chance > double roll
 - Draw records bind semantic purpose/action/NPC generation. Action chains bind full
   current defense/cast/resource snapshots, so same-HP misses cannot be reused
-- Checkpoints bind native format 76, policy, RNG mapping, domain, content, authority, geometry,
+- Checkpoints bind native format 77, policy, RNG mapping, domain, content, authority, geometry,
   history-chain tip, cooldown maps, recomputable casts/auras, AI lifecycle/motion,
   exact mana timers, skills/reactive/combat clocks, checked equipment recipes and
   [per-NPC event ownership](../../NPC-EVENTS.md) with DEAD/respawn clock continuity
@@ -522,4 +522,9 @@ No old-save migration or native admission is added.
 Native format 76 (`benilla-native-mainhand-destroy-v76`) binds selected destruction of detached pristine original mainhand
 to exact quest callbacks and permanent identity tombstones without stat callbacks.
 This does not admit generic consumption or held private consumers.
+No old-save migration or native admission is added.
+
+Native format 77 (`benilla-native-player-health-regeneration-v77`) binds optional explicit host-selected health regeneration
+to validated standing-mage owners and the shared source regeneration cadence.
+No rate is inferred when unset; no external server configuration is claimed.
 No old-save migration or native admission is added.

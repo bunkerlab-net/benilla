@@ -52,11 +52,11 @@ there is no migration and the production capability remains uninhabited.
 
 ## Adjacent work not claimed
 
-Player health regeneration remains unimplemented: the authoritative player profile
-currently retains `world_mana_rate` but no health-rate source owner. The default
-health rate must not be assumed or copied from mana. Future integration needs an
-explicit authenticated rate capture and closure over every mutable health-regen
-modifier producer, without crossing the held private compiler/consumer path.
+This reputation integration did not supply health regeneration or infer a rate
+from `world_mana_rate`. The later optional host-selected standing-mage component
+is described in [PLAYER-HEALTH-REGENERATION.md](../PLAYER-HEALTH-REGENERATION.md).
+It is not an authenticated external server configuration capture and does not
+cross the held private compiler/consumer or production native-entry boundary.
 Stand/sit remains separate: spell session evidence and historical restore currently
 assume standing, and source animation/aura interruption plus automatic stand-up
 must be composed before accepting those commands.

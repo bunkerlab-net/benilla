@@ -100,3 +100,6 @@ pub mod player_appearance;
 
 /// Exact loaded Map.dbc classification; no geometry or native admission.
 pub mod map_classification;
+
+/// Stateless source standing-mage health regeneration; cadence and rate ownership stay external.
+pub mod player_health_regeneration;

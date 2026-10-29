@@ -1067,3 +1067,45 @@ compares all 43 final ancillary cells and independently exercises the public
 source hooks at retained attribute observations to compare those recorded phases;
 it does not invent a production callback event stream. Existing zero-Delay break
 oracle coverage remains unchanged; zero-Delay membership is explicitly refused.
+
+## Stateless standing-mage health regeneration
+
+`src/player_health_regeneration.rs` translates Player.cpp `RegenerateHealth`,
+Unit.cpp `OCTRegenHPPerSpirit` (mage branch) and `ModifyHealth` at CMaNGOS Classic
+`8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. Project contributors;
+upstream GPL-2.0-or-later, Rust translation GPL-3.0-or-later. This component does
+not own a clock, alive decision, shared regeneration accumulator, standing state,
+configuration or aura closure. Its caller must establish those dependencies;
+in particular aura types 88/116/161 are absent and sitting regeneration is excluded.
+No default rate or native admission is supplied.
+
+The numeric path first rounds uint32 Spirit to binary32, promotes to binary64
+for the unsuffixed `0.11` multiply and `+1`, then narrows to binary32 before rate
+multiplication. The unconditional zero aura addition and binary32 elapsed-time
+multiply/divide precede truncation to signed int32. `ModifyHealth(0)` returns
+before signed health conversions; otherwise signed addition overflow is refused
+before a maximum-health cap. Positive deltas on unsigned health/max values beyond
+INT32_MAX are an unsupported conversion domain, not a source gameplay rejection.
+The supported rate domain is finite nonnegative normal binary32 or either signed
+zero within SpellFloat's existing magnitude bound. Negative nonzero rates are
+explicitly unsupported when evaluated, not upstream denial behavior. Full-health
+and closed-no-aura combat guards skip unused numeric operands. Floating exceptions
+other than ordinary rounding inexactness are refused rather than using hostfloat,
+undefined casts or saturation.
+
+`tools/generate_player_health_regeneration_fixture.py` verifies pinned Player.cpp,
+Unit.cpp and Unit.h SHA-256 values against the existing derived-source manifest,
+asserts the actual GetStat float conversion, and inserts the three complete source
+methods unchanged into `tools/player_health_regeneration_oracle.cpp`. The minimal
+authored adapter fixes mage/standing, empty health aura lists and a caller-selected
+rate, recording the actual ModifyHealth argument and result. The g++ run denies
+warnings, disables fast math/FMA and enables undefined/float-cast-overflow
+sanitizers. Undefined source numeric cases are not executed as oracle evidence;
+Rust separately tests explicit failure for them. The 3,062 data rows cover spirit
+and diff rounding neighbors, rate neighbors, zero rates, full/combat no-ops and
+capped gains, without claiming scheduling/death coverage.
+`tests/fixtures/player_health_regeneration_cmangos.tsv` SHA-256:
+`521cca575c99c528b0dbb1d8e46ed319702d859e920fbfda356f03e81f7e2b24`.
+Regenerate from this crate with
+`python3 tools/generate_player_health_regeneration_fixture.py SOURCE_DIR`;
+append `--check` for exact byte comparison.
