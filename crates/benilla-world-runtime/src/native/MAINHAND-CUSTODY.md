@@ -48,3 +48,7 @@ and reopening reconstructs custody and the inactive weapon recipe.
 Production native capability and held raw compiler/consumer paths remain closed.
 This is a conditional native gameplay route, not proof of rendered gameplay or a
 complete populated world. No old-snapshot migration is provided.
+
+The later [selected mainhand destruction](MAINHAND-DESTROY.md) contract is a
+separate typed retirement operation. Custody movement itself does not authorize
+consumption; generic indirect requirement removal remains held.

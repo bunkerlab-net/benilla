@@ -156,20 +156,6 @@ fn source_original(
     Ok(item)
 }
 
-// Registered destruction remains armor-only; custody movement does not
-// silently authorize consuming or retiring an original weapon.
-fn source_item(
-    g: &QuestProgressionGenesis,
-    origin: EquipmentOrigin,
-) -> Result<&inv::Item, NativeError> {
-    if origin.genesis_slot >= 15 {
-        return Err(NativeError::UnsupportedMechanic(
-            "original armor-only consumer",
-        ));
-    }
-    source_original(g, origin)
-}
-
 /// FindEquipSlot(NULL_SLOT) is unambiguous only for these source singleton slots.
 /// AutoUnequipOffhandIfNeed returns immediately for the source-owned absent offhand.
 pub(in crate::native) fn auto_equip_slot(
@@ -971,7 +957,7 @@ impl EquipmentDestroyReceipt {
         g: &QuestProgressionGenesis,
         placements: &mut Placements,
     ) -> Result<(), NativeError> {
-        source_item(g, self.origin)?;
+        source_original(g, self.origin)?;
         let m = &self.destruction;
         let l = loot(g)?;
         if *placements != self.before_placements

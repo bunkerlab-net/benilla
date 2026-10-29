@@ -5,7 +5,7 @@
 `SwapItem` from CMaNGOS Classic
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. The upstream grant is
 GPL-2.0-or-later; see [PROVENANCE.md](PROVENANCE.md). Its policy is
-`cmangos-8ec338a1-carried-items-v16`.
+`cmangos-8ec338a1-carried-items-v17`.
 The separately named positive admin policy is `CmangosAddItemV1`.
 
 ## Exact source behavior
@@ -313,3 +313,10 @@ Backpack SwapItem retains its alive guard; AutoStore retains no alive guard.
 Only empty destination movement (or source no-op) is admitted. Registered weapon
 destruction and indirect requirement consumption remain unsupported. See runtime
 MAINHAND-CUSTODY.md for exact conditional owner boundaries.
+
+The v17 host composition adds only exact selected destruction of the detached
+pristine original mainhand, using the existing source-owned quest callback and
+permanent tombstone. It retains inactive weapon metadata/caches and never frees
+the original registry ID. Indirect consumption of registered originals remains unsupported; this grants
+no broader weapon-destruction permission. Existing ordinary-item routes remain
+separate. See runtime MAINHAND-DESTROY.md.

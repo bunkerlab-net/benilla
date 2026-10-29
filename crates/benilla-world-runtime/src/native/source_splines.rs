@@ -411,9 +411,9 @@ mod tests {
     fn reject_forged(world: &NativeWorld, value: serde_json::Value) {
         let mut checkpoint = world.checkpoint().unwrap();
         checkpoint.state = serde_json::from_value(value).unwrap();
-        checkpoint.digest = crate::digest(b"benilla-native-state-v75\0", &checkpoint.state);
+        checkpoint.digest = crate::digest(b"benilla-native-state-v76\0", &checkpoint.state);
         checkpoint.checksum = crate::digest(
-            b"benilla-native-checkpoint-v75\0",
+            b"benilla-native-checkpoint-v76\0",
             &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
         );
         assert!(

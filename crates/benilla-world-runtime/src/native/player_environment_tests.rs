@@ -464,9 +464,9 @@ fn native_roundtrip_replay_and_rehashed_cache_forgeries_fail_closed() {
             _ => unreachable!(),
         }
         c.state = serde_json::from_value(json).unwrap();
-        c.digest = crate::digest(b"benilla-native-state-v75\0", &c.state);
+        c.digest = crate::digest(b"benilla-native-state-v76\0", &c.state);
         c.checksum = crate::digest(
-            b"benilla-native-checkpoint-v75\0",
+            b"benilla-native-checkpoint-v76\0",
             &(&c.state, c.digest, c.history_tip),
         );
         assert!(

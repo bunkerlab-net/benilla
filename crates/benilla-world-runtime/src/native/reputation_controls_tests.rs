@@ -368,9 +368,9 @@ fn controls_checkpoint_flags_and_call_history_cannot_be_reblessed() {
             _ => unreachable!(),
         }
         forged.state = serde_json::from_value(encoded).unwrap();
-        forged.digest = crate::digest(b"benilla-native-state-v75\0", &forged.state);
+        forged.digest = crate::digest(b"benilla-native-state-v76\0", &forged.state);
         forged.checksum = crate::digest(
-            b"benilla-native-checkpoint-v75\0",
+            b"benilla-native-checkpoint-v76\0",
             &(&forged.state, forged.digest, forged.history_tip),
         );
         assert!(

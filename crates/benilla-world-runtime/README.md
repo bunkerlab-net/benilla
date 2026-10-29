@@ -207,7 +207,7 @@ source gate or change the integer armor policy.
 
 See [SPELL-AUTHORITY.md](SPELL-AUTHORITY.md) for the bounded ID133 source spell
 host, complete raw input dependencies, phase/scheduler ownership, numeric oracle
-and native simulation checkpoint/record format 75. This is not production content
+and native simulation checkpoint/record format 76. This is not production content
 admission or stock Fireball certification.
 
 See [FACING-AUTHORITY.md](FACING-AUTHORITY.md) for explicit current-request
@@ -271,4 +271,9 @@ No old-save migration or native admission is added.
 Native format 75 (`benilla-native-mainhand-custody-v75`) binds bounded carried-original-mainhand relocation and AutoStore
 to existing exact custody receipts without equipment or stat callbacks. This does
 not admit generic consumers, mainhand destruction, or held private consumers.
+No old-save migration or native admission is added.
+
+Native format 76 (`benilla-native-mainhand-destroy-v76`) binds selected destruction of detached pristine original mainhand
+to exact quest callbacks and permanent identity tombstones without stat callbacks.
+This does not admit generic consumption or held private consumers.
 No old-save migration or native admission is added.

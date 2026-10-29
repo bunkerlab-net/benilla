@@ -241,3 +241,6 @@ mod mainhand_auto_equip_tests;
 
 #[path = "mainhand_custody_tests.rs"]
 mod mainhand_custody_tests;
+
+#[path = "mainhand_destroy_tests.rs"]
+mod mainhand_destroy_tests;

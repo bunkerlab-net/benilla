@@ -11,7 +11,7 @@ The opt-in `synthetic-native-tests` feature exposes only synthetic construction 
 restoration. Feature unification, preparation JSON, hashes, and source initializer
 outputs cannot produce `NativeCapability`. Fabricated test rows are not native data.
 
-Native format 75, `benilla-native-mainhand-custody-v75`, retains the selected
+Native format 76, `benilla-native-mainhand-destroy-v76`, retains the selected
 [player mainhand policy](../../PLAYER-MELEE.md), required optional player proof
 and NPC defense reactive state, retained generic-cast slot context and
 spell target-death lifecycle causes in the bounded melee proof. Backpack stack-split
@@ -233,7 +233,7 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
   binary64; source comparison is strict promoted-float chance > double roll
 - Draw records bind semantic purpose/action/NPC generation. Action chains bind full
   current defense/cast/resource snapshots, so same-HP misses cannot be reused
-- Checkpoints bind native format 75, policy, RNG mapping, domain, content, authority, geometry,
+- Checkpoints bind native format 76, policy, RNG mapping, domain, content, authority, geometry,
   history-chain tip, cooldown maps, recomputable casts/auras, AI lifecycle/motion,
   exact mana timers, skills/reactive/combat clocks, checked equipment recipes and
   [per-NPC event ownership](../../NPC-EVENTS.md) with DEAD/respawn clock continuity
@@ -517,4 +517,9 @@ No old-save migration or native admission is added.
 Native format 75 (`benilla-native-mainhand-custody-v75`) binds bounded carried-original-mainhand relocation and AutoStore
 to existing exact custody receipts without equipment or stat callbacks. This does
 not admit generic consumers, mainhand destruction, or held private consumers.
+No old-save migration or native admission is added.
+
+Native format 76 (`benilla-native-mainhand-destroy-v76`) binds selected destruction of detached pristine original mainhand
+to exact quest callbacks and permanent identity tombstones without stat callbacks.
+This does not admit generic consumption or held private consumers.
 No old-save migration or native admission is added.

@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const UPSTREAM_COMMIT: &str = "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f";
-pub const POLICY_ID: &str = "cmangos-8ec338a1-carried-items-v16";
+pub const POLICY_ID: &str = "cmangos-8ec338a1-carried-items-v17";
 mod corpse;
 pub use corpse::CORPSE_POLICY_ID;
 mod grants;
@@ -73,7 +73,9 @@ pub struct Audit {
     /// guard order/selection with empty original slot and absent offhand.
     /// Separate custody-only receipts may relocate that carried mainhand to an
     /// empty backpack slot or AutoStore it with the source no-alive distinction.
-    /// Neither operation invokes equipment modifiers or permits destruction.
+    /// Neither custody operation invokes equipment modifiers. A separate exact
+    /// selected-destruction permit can retire the detached pristine mainhand via
+    /// the same quest callback/tombstone owner, never releasing its registry ID.
     /// Other registered-item consumers remain unsupported.
     pub additional_item_mutations: Evidence,
 }
