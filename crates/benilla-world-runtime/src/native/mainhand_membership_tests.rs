@@ -226,29 +226,21 @@ fn actual_combat_mainhand_switch_is_explicitly_unsupported_and_rolls_back_withou
 }
 #[test]
 fn detached_weapon_does_not_gain_other_registered_consumers() {
-    for command in [
-        Command::InventoryMove(InventoryMoveRequest {
-            source: 24,
-            destination: 25,
-        }),
-        Command::InventoryAutoStore(InventoryAutoStoreRequest { source: 24 }),
-        Command::InventoryDestroy(InventoryDestroyRequest { slot: 24, count: 0 }),
-    ] {
-        let mut w = world();
-        step(&mut w, movement(15, 24));
-        let before = w.checkpoint().unwrap();
-        let input = synthetic_quest_fixture::command(&w, command);
-        assert!(matches!(
-            w.step(
-                w.state.tick + 1,
-                Some(input),
-                &mut EquipmentAuthority::default()
-            ),
-            Err(NativeError::UnsupportedMechanic(_))
-        ));
-        assert_eq!(w.checkpoint().unwrap(), before);
-        reopen(&w);
-    }
+    let command = Command::InventoryDestroy(InventoryDestroyRequest { slot: 24, count: 0 });
+    let mut w = world();
+    step(&mut w, movement(15, 24));
+    let before = w.checkpoint().unwrap();
+    let input = synthetic_quest_fixture::command(&w, command);
+    assert!(matches!(
+        w.step(
+            w.state.tick + 1,
+            Some(input),
+            &mut EquipmentAuthority::default()
+        ),
+        Err(NativeError::UnsupportedMechanic(_))
+    ));
+    assert_eq!(w.checkpoint().unwrap(), before);
+    reopen(&w);
 }
 #[test]
 fn actual_dead_player_swap_keeps_source_error38_not_combat_host_error() {
@@ -328,9 +320,9 @@ fn rehashed_mainhand_history_cannot_substitute_equipped_or_damage_cache_observat
         }
         assert_ne!(value, serde_json::to_value(&cp.state).unwrap());
         cp.state = serde_json::from_value(value).unwrap();
-        cp.digest = crate::digest(b"benilla-native-state-v74\0", &cp.state);
+        cp.digest = crate::digest(b"benilla-native-state-v75\0", &cp.state);
         cp.checksum = crate::digest(
-            b"benilla-native-checkpoint-v74\0",
+            b"benilla-native-checkpoint-v75\0",
             &(&cp.state, cp.digest, cp.history_tip),
         );
         assert!(NativeWorld::restore_synthetic_component_test(w.profile.clone(), cp).is_err());

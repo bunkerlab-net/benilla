@@ -116,9 +116,9 @@ fn missing_forged_swapped_duplicate_origins_and_old_format_fail_closed() {
             continue;
         }
         forged.state = decoded.unwrap();
-        forged.digest = crate::digest(b"benilla-native-state-v74\0", &forged.state);
+        forged.digest = crate::digest(b"benilla-native-state-v75\0", &forged.state);
         forged.checksum = crate::digest(
-            b"benilla-native-checkpoint-v74\0",
+            b"benilla-native-checkpoint-v75\0",
             &(&forged.state, forged.digest, forged.history_tip),
         );
         assert!(

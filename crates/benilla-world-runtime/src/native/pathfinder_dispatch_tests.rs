@@ -289,8 +289,8 @@ fn old_native29_through_native31_are_not_migrated() {
         assert!(decode_records(&encode_records(&records).unwrap()).is_err());
         assert!(world(w.profile().clone()).replay(&records).is_err());
     }
-    assert_eq!(NATIVE_FORMAT_VERSION, 74);
-    assert_eq!(NATIVE_POLICY, "benilla-native-mainhand-auto-equip-v74");
+    assert_eq!(NATIVE_FORMAT_VERSION, 75);
+    assert_eq!(NATIVE_POLICY, "benilla-native-mainhand-custody-v75");
     assert_eq!(crate::FORMAT_VERSION, 2);
 }
 

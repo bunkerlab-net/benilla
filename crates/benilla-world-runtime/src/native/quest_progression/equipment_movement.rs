@@ -156,8 +156,8 @@ fn source_original(
     Ok(item)
 }
 
-// Other registered consumers remain armor-only; admitting custody does not
-// silently authorize weapon relocation, AutoStore or destruction.
+// Registered destruction remains armor-only; custody movement does not
+// silently authorize consuming or retiring an original weapon.
 fn source_item(
     g: &QuestProgressionGenesis,
     origin: EquipmentOrigin,
@@ -726,7 +726,7 @@ impl EquipmentRelocationReceipt {
         g: &QuestProgressionGenesis,
         placements: &mut Placements,
     ) -> Result<(), NativeError> {
-        source_item(g, self.origin)?;
+        source_original(g, self.origin)?;
         let m = &self.movement;
         if loot(g)?.equipment_origin(self.instance) != Some(self.origin)
             || placements.get(&self.instance) != Some(&EquipmentPlacement::Slot(m.source))
@@ -844,7 +844,7 @@ impl EquipmentAutoStoreReceipt {
         g: &QuestProgressionGenesis,
         placements: &mut Placements,
     ) -> Result<(), NativeError> {
-        source_item(g, self.origin)?;
+        source_original(g, self.origin)?;
         let m = &self.movement;
         if loot(g)?.equipment_origin(self.instance) != Some(self.origin)
             || placements.get(&self.instance) != Some(&EquipmentPlacement::Slot(m.source))

@@ -55,7 +55,7 @@ only by the source class/outcome/alive conditions and expire in NPC Unit update.
 
 ## Persistence contract
 
-Native format 74 rejects older envelopes; no migration is provided. Existing
+Native format 75 rejects older envelopes; no migration is provided. Existing
 unrelated callback hash domains retain their prior versions.
 
 The bounded player proof retains the latest writers of lifecycle, BASE, OFF and
@@ -132,4 +132,9 @@ No old-save migration or native admission is added.
 Native format 74 (`benilla-native-mainhand-auto-equip-v74`) binds bounded original mainhand AutoEquip for singleton types 17/21
 to existing source-ordered membership and retained weapon fields. This does
 not admit generic weapons, in-combat switching, or held private consumers.
+No old-save migration or native admission is added.
+
+Native format 75 (`benilla-native-mainhand-custody-v75`) binds bounded carried-original-mainhand relocation and AutoStore
+to existing exact custody receipts without equipment or stat callbacks. This does
+not admit generic consumers, mainhand destruction, or held private consumers.
 No old-save migration or native admission is added.

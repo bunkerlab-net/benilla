@@ -238,3 +238,6 @@ fn mainhand_cursor_move_withholds_same_object_until_save_then_reopens_and_reequi
 
 #[path = "mainhand_auto_equip_tests.rs"]
 mod mainhand_auto_equip_tests;
+
+#[path = "mainhand_custody_tests.rs"]
+mod mainhand_custody_tests;

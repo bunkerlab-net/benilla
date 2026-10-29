@@ -30,8 +30,9 @@ transition documented in [MAINHAND-MEMBERSHIP.md](MAINHAND-MEMBERSHIP.md): exact
 original identity, ordered item modifiers, distinct equipment versus cached weapon
 damage views, preserved out-of-combat countdowns, no resource refill. The required
 AutoEquip discriminator and source singleton selection are replayed against exact
-historical custody. No new item is allocated; no generic weapon consumption or
-relocation permission follows. Checkpoint and event publication remain atomic.
+historical custody. No new item is allocated; no generic weapon consumption permission follows.
+Separately versioned [carried custody](MAINHAND-CUSTODY.md) owns only bounded
+original-mainhand relocation/AutoStore, not another equipment transition. Checkpoint and event publication remain atomic.
 
 This is a connected conditional native command/projection path, not an assertion
 that production entry is available or that a rendered player build was verified.

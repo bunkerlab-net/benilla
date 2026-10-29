@@ -5,7 +5,7 @@
 `SwapItem` from CMaNGOS Classic
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. The upstream grant is
 GPL-2.0-or-later; see [PROVENANCE.md](PROVENANCE.md). Its policy is
-`cmangos-8ec338a1-carried-items-v15`.
+`cmangos-8ec338a1-carried-items-v16`.
 The separately named positive admin policy is `CmangosAddItemV1`.
 
 ## Exact source behavior
@@ -305,3 +305,11 @@ guards, current and initial offhand absence, and existing weapon cache/history
 replay. Combat switching remains an explicit unsupported host domain after
 source refusals, not an invented armor combat error. Generic equip and other
 registered weapon consumers remain closed. See runtime MAINHAND-AUTO-EQUIP.md.
+
+The v16 host composition admits existing custody-only relocation and AutoStore
+receipts for the detached pristine original mainhand. It preserves the same
+instance, allocator frontier, equipped aggregate and inactive weapon caches.
+Backpack SwapItem retains its alive guard; AutoStore retains no alive guard.
+Only empty destination movement (or source no-op) is admitted. Registered weapon
+destruction and indirect requirement consumption remain unsupported. See runtime
+MAINHAND-CUSTODY.md for exact conditional owner boundaries.

@@ -207,7 +207,7 @@ source gate or change the integer armor policy.
 
 See [SPELL-AUTHORITY.md](SPELL-AUTHORITY.md) for the bounded ID133 source spell
 host, complete raw input dependencies, phase/scheduler ownership, numeric oracle
-and native simulation checkpoint/record format 74. This is not production content
+and native simulation checkpoint/record format 75. This is not production content
 admission or stock Fireball certification.
 
 See [FACING-AUTHORITY.md](FACING-AUTHORITY.md) for explicit current-request
@@ -266,4 +266,9 @@ No old-save migration or native admission is added.
 Native format 74 (`benilla-native-mainhand-auto-equip-v74`) binds bounded original mainhand AutoEquip for singleton types 17/21
 to existing source-ordered membership and retained weapon fields. This does
 not admit generic weapons, in-combat switching, or held private consumers.
+No old-save migration or native admission is added.
+
+Native format 75 (`benilla-native-mainhand-custody-v75`) binds bounded carried-original-mainhand relocation and AutoStore
+to existing exact custody receipts without equipment or stat callbacks. This does
+not admit generic consumers, mainhand destruction, or held private consumers.
 No old-save migration or native admission is added.
