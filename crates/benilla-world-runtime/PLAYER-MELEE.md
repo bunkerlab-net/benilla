@@ -55,7 +55,7 @@ only by the source class/outcome/alive conditions and expire in NPC Unit update.
 
 ## Persistence contract
 
-Native format 70 rejects older envelopes; no migration is provided. Existing
+Native format 71 rejects older envelopes; no migration is provided. Existing
 unrelated callback hash domains retain their prior versions.
 
 The bounded player proof retains the latest writers of lifecycle, BASE, OFF and
@@ -113,3 +113,8 @@ Native format 70 (`benilla-native-player-hide-flags-v70`) retains source hide-he
 XOR commands under the combined initial-control, spell and fresh-rest owner
 contract. The full player-flags descriptor is not inferred for other profiles.
 No old-save migration, native admission, guild state, or ghost release is added.
+
+Native format 71 (`benilla-native-map-classification-v71`) binds optional exact loaded Map.dbc classification
+to the native profile map identity. Classification is not geometry, admission,
+or evidence that a corpse was created. No old-save migration or ghost release
+is added.

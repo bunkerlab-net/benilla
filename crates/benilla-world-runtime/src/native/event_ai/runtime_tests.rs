@@ -52,11 +52,11 @@ fn event_draws(world: &NativeWorld) -> Vec<&Draw> {
 fn rehashed(mut value: serde_json::Value) -> Checkpoint {
     let state: persistence::StateCheckpoint =
         serde_json::from_value(value["state"].clone()).unwrap();
-    let digest = crate::digest(b"benilla-native-state-v70\0", &state);
+    let digest = crate::digest(b"benilla-native-state-v71\0", &state);
     let tip: crate::Digest = serde_json::from_value(value["history_tip"].clone()).unwrap();
     value["digest"] = serde_json::to_value(digest).unwrap();
     value["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v70\0",
+        b"benilla-native-checkpoint-v71\0",
         &(&state, digest, tip),
     ))
     .unwrap();
@@ -253,7 +253,11 @@ fn recomputed_outer_hashes_do_not_admit_changed_semantics_or_dropped_holders() {
             13 => {
                 event["history"][0]["EnterCombat"]["actions"][0]["speech"]["language"] = 99.into()
             }
-            14 => event["history"][0]["EnterCombat"]["callback"]["draft"][0] = 99.into(),
+            14 => {
+                let byte = &mut event["history"][0]["EnterCombat"]["callback"]["draft"][0];
+                // A fixed replacement can equal the valid digest after a profile change.
+                *byte = serde_json::json!(byte.as_u64().unwrap() ^ 1);
+            }
             15 => {
                 event["history"] = serde_json::json!([]);
                 event["owners"]["2"]["next_occurrence"] = 0.into();
@@ -263,10 +267,15 @@ fn recomputed_outer_hashes_do_not_admit_changed_semantics_or_dropped_holders() {
                     .unwrap();
             }
         }
+        assert_ne!(
+            value, checkpoint,
+            "case {case} must actually corrupt its input"
+        );
         assert!(
             NativeWorld::restore_synthetic_component_test(world.profile.clone(), rehashed(value))
                 .is_err(),
-            "case {case}"
+            "case {case}; original draft byte {}",
+            checkpoint["state"]["event_ai"]["history"][0]["EnterCombat"]["callback"]["draft"][0]
         );
     }
 }

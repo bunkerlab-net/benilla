@@ -17,6 +17,7 @@ const LOADING_SCREEN_FIELD: usize = 38;
 
 /// `Map.dbc`'s per-map data, keyed by map id.
 pub struct MapCatalog {
+    raw_rows: Option<Vec<[u32; 42]>>,
     dirs: HashMap<u32, String>,
     /// `MapName_Lang[enUS]` (field 4, `+0x10`, read by `0x4a65a0`). The continent dropdown shows
     /// this ("Eastern Kingdoms"), not the art folder ("Azeroth") (`GetMapContinents` `0x4a7ce0`).
@@ -71,6 +72,13 @@ impl MapBattlegroundColumns {
 }
 
 impl MapCatalog {
+    /// Complete full-width records from the loaded table, without key/type policy.
+    /// None means the exact 42-word schema or entire declared byte coverage was
+    /// unavailable. Duplicate IDs and all values retain their original order.
+    pub fn raw_rows(&self) -> Option<&[[u32; 42]]> {
+        self.raw_rows.as_deref()
+    }
+
     /// The MPQ directory name (`Directory`) for `map_id`, as `MapTiles::load(chain, dir)` takes it.
     pub fn directory(&self, map_id: u32) -> Option<&str> {
         self.dirs.get(&map_id).map(String::as_str)
@@ -154,11 +162,43 @@ fn map_schema() -> Schema {
     s
 }
 
+/// Structural coverage only; do not infer row semantics from this view.
+fn complete_raw_rows(bytes: &[u8]) -> Option<Vec<[u32; 42]>> {
+    if bytes.get(..4)? != b"WDBC" {
+        return None;
+    }
+    let word = |at: usize| -> Option<u32> {
+        Some(u32::from_le_bytes(bytes.get(at..at + 4)?.try_into().ok()?))
+    };
+    let count = usize::try_from(word(4)?).ok()?;
+    if word(8)? != 42 || word(12)? != 168 {
+        return None;
+    }
+    let body = count.checked_mul(168)?;
+    if 20usize
+        .checked_add(body)?
+        .checked_add(usize::try_from(word(16)?).ok()?)?
+        != bytes.len()
+    {
+        return None;
+    }
+    let mut rows = Vec::with_capacity(count);
+    for index in 0..count {
+        let mut row = [0; 42];
+        for (column, field) in row.iter_mut().enumerate() {
+            *field = word(20 + index * 168 + column * 4)?;
+        }
+        rows.push(row);
+    }
+    Some(rows)
+}
+
 /// Read Map.dbc off the patch chain into a [`MapCatalog`].
 pub fn load_map_catalog(chain: &mut Chain) -> Result<MapCatalog> {
     let bytes = chain
         .read_file(MAP)
         .with_context(|| format!("reading {MAP}"))?;
+    let raw_rows = complete_raw_rows(&bytes);
     let rs = parse(&bytes, map_schema(), "Map")?;
     let mut dirs = HashMap::with_capacity(rs.records().len());
     let mut names = HashMap::with_capacity(rs.records().len());
@@ -200,6 +240,7 @@ pub fn load_map_catalog(chain: &mut Chain) -> Result<MapCatalog> {
         }
     }
     Ok(MapCatalog {
+        raw_rows,
         dirs,
         names,
         loading_screens,
@@ -255,3 +296,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "maps_raw_tests.rs"]
+mod raw_tests;

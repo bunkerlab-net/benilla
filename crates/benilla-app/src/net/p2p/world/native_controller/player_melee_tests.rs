@@ -275,3 +275,6 @@ mod player_hide_flags_tests;
 
 #[path = "player_facial_hair_tests.rs"]
 mod player_facial_hair_tests;
+
+#[path = "player_map_classification_tests.rs"]
+mod player_map_classification_tests;

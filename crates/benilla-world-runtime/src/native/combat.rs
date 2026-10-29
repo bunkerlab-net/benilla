@@ -803,6 +803,10 @@ impl Profile {
         config: benilla_sim::player_death::DeathConfig,
         support: benilla_sim::player_death::DeathSupport,
     ) -> Result<(), NativeError> {
+        if let Some(source) = &self.map_classification {
+            source.validate(self)?;
+            source.validate_death(config)?;
+        }
         let g = self.combat.as_mut().ok_or(NativeError::InvalidProfile)?;
         // Current source initializer admits only passive, unconditional holder modifiers.
         if g.initial_auras

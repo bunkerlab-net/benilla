@@ -26,7 +26,13 @@ mod pathfinder_dispatch;
 pub use pathfinder_dispatch::*;
 mod pathfinder_configuration;
 pub use pathfinder_configuration::*;
+mod map_classification;
+pub use map_classification::*;
+#[cfg(test)]
+mod map_classification_tests;
 mod player_appearance;
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub mod synthetic_map_classification_fixture;
 pub use player_appearance::*;
 mod player_collision_height;
 mod player_environment;
@@ -139,8 +145,8 @@ pub use persistence::{PendingWanderAndChaseReopen, PendingWanderReopen};
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 70;
-pub const NATIVE_POLICY: &str = "benilla-native-player-hide-flags-v70";
+pub const NATIVE_FORMAT_VERSION: u32 = 71;
+pub const NATIVE_POLICY: &str = "benilla-native-map-classification-v71";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -497,7 +503,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v70\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v71\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest

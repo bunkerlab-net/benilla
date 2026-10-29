@@ -207,7 +207,7 @@ source gate or change the integer armor policy.
 
 See [SPELL-AUTHORITY.md](SPELL-AUTHORITY.md) for the bounded ID133 source spell
 host, complete raw input dependencies, phase/scheduler ownership, numeric oracle
-and native simulation checkpoint/record format 70. This is not production content
+and native simulation checkpoint/record format 71. This is not production content
 admission or stock Fireball certification.
 
 See [FACING-AUTHORITY.md](FACING-AUTHORITY.md) for explicit current-request
@@ -247,3 +247,8 @@ Native format 70 (`benilla-native-player-hide-flags-v70`) retains source hide-he
 XOR commands under the combined initial-control, spell and fresh-rest owner
 contract. The full player-flags descriptor is not inferred for other profiles.
 No old-save migration, native admission, guild state, or ghost release is added.
+
+Native format 71 (`benilla-native-map-classification-v71`) binds optional exact loaded Map.dbc classification
+to the native profile map identity. Classification is not geometry, admission,
+or evidence that a corpse was created. No old-save migration or ghost release
+is added.

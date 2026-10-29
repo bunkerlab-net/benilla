@@ -984,3 +984,25 @@ full-width DBC rows. Conservative byte-domain, duplicate and ambiguity refusals
 are explicit supported-subset limits, not upstream error responses. Opaque proof
 construction uses actual loaded rows; private raw-row tests establish the bounded
 selection rules, not native admission or authenticated character requests.
+
+## Loaded map classification
+
+`src/map_classification.rs` translates the `MapEntry` predicates and map type
+values from CMaNGOS Classic commit
+`8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`,
+`src/game/Server/DBCStructure.h` and `src/game/Server/DBCfmt.h`
+(`MapEntryfmt`, 42 fields; ID column 0, type column 2). Project contributors;
+upstream GPL-2.0-or-later, this Rust translation GPL-3.0-or-later. Common=0,
+Instance=1, Raid=2, Battleground=3; instanceable includes the latter three.
+Common is not `IsContinent` and does not restrict the map ID to 0 or 1.
+
+The formats crate only transports exact complete loaded rows. This GPL owner
+selects and retains one full row in a serialize-only opaque value. Any duplicate
+ID anywhere in the loaded table is conservatively refused, including identical
+or unrelated duplicates; a missing selected row or unknown selected type is
+refused. Unknown types on unrelated unique rows do not affect selection. These
+are bounded loading rules, not claimed upstream error messages. Validation
+rechecks retained policy, row width, selected ID and type; it does not recreate
+whole-table uniqueness from a selected row. Private raw-row tests cover those
+pure selection rules, not archive loading or native admission. No geometry,
+corpse, resurrection, or production capability is supplied by classification.

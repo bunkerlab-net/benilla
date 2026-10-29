@@ -91,6 +91,7 @@ pub struct Profile {
     pub creature_collision_widths: Option<CreatureCollisionWidthCatalog>,
     pub creature_collision_heights: Option<CreatureCollisionHeightCatalog>,
     pub player_appearance: Option<PlayerAppearanceSource>,
+    pub map_classification: Option<NativeMapClassificationSource>,
     pub player_collision_height: Option<PlayerCollisionHeightSource>,
     pub player_environment: Option<PlayerEnvironmentSource>,
     pub pathfinder_configuration: Option<PathfinderConfigurationSource>,
@@ -110,7 +111,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v70\0",
+            b"benilla-native-profile-v71\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -203,6 +204,9 @@ impl Profile {
         }
         if let Some(catalog) = &self.creature_collision_heights {
             catalog.validate(self)?;
+        }
+        if let Some(source) = &self.map_classification {
+            source.validate(self)?;
         }
         if let Some(source) = &self.player_appearance {
             source.validate(self)?;

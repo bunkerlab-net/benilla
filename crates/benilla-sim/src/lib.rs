@@ -97,3 +97,6 @@ pub mod route_filter;
 pub mod chase_gate;
 
 pub mod player_appearance;
+
+/// Exact loaded Map.dbc classification; no geometry or native admission.
+pub mod map_classification;

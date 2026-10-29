@@ -289,8 +289,8 @@ fn old_native29_through_native31_are_not_migrated() {
         assert!(decode_records(&encode_records(&records).unwrap()).is_err());
         assert!(world(w.profile().clone()).replay(&records).is_err());
     }
-    assert_eq!(NATIVE_FORMAT_VERSION, 70);
-    assert_eq!(NATIVE_POLICY, "benilla-native-player-hide-flags-v70");
+    assert_eq!(NATIVE_FORMAT_VERSION, 71);
+    assert_eq!(NATIVE_POLICY, "benilla-native-map-classification-v71");
     assert_eq!(crate::FORMAT_VERSION, 2);
 }
 
