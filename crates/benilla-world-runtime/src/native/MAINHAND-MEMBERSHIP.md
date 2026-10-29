@@ -22,8 +22,10 @@ Source weapons can change while in combat. This host deliberately returns
 `UnsupportedMechanic` for that case because the weapon-switch timer reset/GCD
 callback is not composed here; it does **not** invent the armor-only source
 error60. Source death and equip-casting guards remain, while removing the
-weapon does not acquire an equip-casting guard. AutoEquip, registered backpack
-relocation, AutoStore and destruction remain armor-only. Generic requirement
+weapon does not acquire an equip-casting guard. The later separately versioned
+[mainhand AutoEquip handler](MAINHAND-AUTO-EQUIP.md) admits only original types
+17/21 into empty slot15. Registered backpack relocation, AutoStore and destruction
+remain armor-only. Generic requirement
 consumption remains blocked for registered originals.
 
 ## Separate equipment and cached weapon observations

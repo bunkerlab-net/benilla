@@ -80,9 +80,9 @@ fn required_appearance_owner_rejects_rehashed_missing_transplanted_and_edited_st
             continue;
         }
         cp.state = serde_json::from_value(encoded).unwrap();
-        cp.digest = crate::digest(b"benilla-native-state-v73\0", &cp.state);
+        cp.digest = crate::digest(b"benilla-native-state-v74\0", &cp.state);
         cp.checksum = crate::digest(
-            b"benilla-native-checkpoint-v73\0",
+            b"benilla-native-checkpoint-v74\0",
             &(&cp.state, cp.digest, cp.history_tip),
         );
         assert!(
@@ -100,9 +100,9 @@ fn optional_appearance_remains_unknown_and_cannot_be_transplanted() {
     encoded["source_player_appearance"] =
         serde_json::to_value(world().state().player_appearance()).unwrap();
     forged.state = serde_json::from_value(encoded).unwrap();
-    forged.digest = crate::digest(b"benilla-native-state-v73\0", &forged.state);
+    forged.digest = crate::digest(b"benilla-native-state-v74\0", &forged.state);
     forged.checksum = crate::digest(
-        b"benilla-native-checkpoint-v73\0",
+        b"benilla-native-checkpoint-v74\0",
         &(&forged.state, forged.digest, forged.history_tip),
     );
     assert!(NativeWorld::restore_synthetic_component_test(bare.profile().clone(), forged).is_err());

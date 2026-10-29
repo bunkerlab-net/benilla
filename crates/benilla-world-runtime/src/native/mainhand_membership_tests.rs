@@ -227,7 +227,6 @@ fn actual_combat_mainhand_switch_is_explicitly_unsupported_and_rolls_back_withou
 #[test]
 fn detached_weapon_does_not_gain_other_registered_consumers() {
     for command in [
-        Command::EquipmentAutoEquip { source: 24 },
         Command::InventoryMove(InventoryMoveRequest {
             source: 24,
             destination: 25,
@@ -329,9 +328,9 @@ fn rehashed_mainhand_history_cannot_substitute_equipped_or_damage_cache_observat
         }
         assert_ne!(value, serde_json::to_value(&cp.state).unwrap());
         cp.state = serde_json::from_value(value).unwrap();
-        cp.digest = crate::digest(b"benilla-native-state-v73\0", &cp.state);
+        cp.digest = crate::digest(b"benilla-native-state-v74\0", &cp.state);
         cp.checksum = crate::digest(
-            b"benilla-native-checkpoint-v73\0",
+            b"benilla-native-checkpoint-v74\0",
             &(&cp.state, cp.digest, cp.history_tip),
         );
         assert!(NativeWorld::restore_synthetic_component_test(w.profile.clone(), cp).is_err());

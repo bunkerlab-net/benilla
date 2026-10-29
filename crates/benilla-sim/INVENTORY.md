@@ -5,7 +5,7 @@
 `SwapItem` from CMaNGOS Classic
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. The upstream grant is
 GPL-2.0-or-later; see [PROVENANCE.md](PROVENANCE.md). Its policy is
-`cmangos-8ec338a1-carried-items-v14`.
+`cmangos-8ec338a1-carried-items-v15`.
 The separately named positive admin policy is `CmangosAddItemV1`.
 
 ## Exact source behavior
@@ -297,3 +297,11 @@ quest-removal callback, and a separate history retires that exact registry handl
 permanently without freeing or reusing its ID. Other original objects, equipped
 counts, allocator and stat recipe are unchanged. Generic and unselected consumers
 remain held. See the runtime's [armor destruction contract](../benilla-world-runtime/src/native/ARMOR-DESTRUCTION.md).
+
+The v15 host composition additionally admits source-owned AutoEquip for the same
+pristine original mainhand of inventory type 17 or 21, into its empty original
+slot 15. It retains the separate handler operation, source cast-before-dead
+guards, current and initial offhand absence, and existing weapon cache/history
+replay. Combat switching remains an explicit unsupported host domain after
+source refusals, not an invented armor combat error. Generic equip and other
+registered weapon consumers remain closed. See runtime MAINHAND-AUTO-EQUIP.md.

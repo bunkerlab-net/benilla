@@ -235,3 +235,6 @@ fn mainhand_cursor_move_withholds_same_object_until_save_then_reopens_and_reequi
     drop(c);
     assert_eq!(enter_staff(&h, true).world.state_digest(), final_digest);
 }
+
+#[path = "mainhand_auto_equip_tests.rs"]
+mod mainhand_auto_equip_tests;

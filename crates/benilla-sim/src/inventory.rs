@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const UPSTREAM_COMMIT: &str = "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f";
-pub const POLICY_ID: &str = "cmangos-8ec338a1-carried-items-v14";
+pub const POLICY_ID: &str = "cmangos-8ec338a1-carried-items-v15";
 mod corpse;
 pub use corpse::CORPSE_POLICY_ID;
 mod grants;
@@ -69,7 +69,9 @@ pub struct Audit {
     /// tombstone journal and quest callback permit; registry IDs stay reserved.
     /// A separately replayed original pristine mainhand membership operation may
     /// move the exact source object out of combat, owning weapon caches/timers.
-    /// It does not grant mainhand AutoEquip/AutoStore/relocation/destruction.
+    /// Source singleton mainhand AutoEquip additionally owns handler-specific
+    /// guard order/selection with empty original slot and absent offhand.
+    /// This does not grant mainhand AutoStore/relocation/destruction.
     /// Other registered-item consumers remain unsupported.
     pub additional_item_mutations: Evidence,
 }

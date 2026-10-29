@@ -8,12 +8,12 @@ use quest_progression::equipment_movement::EquipmentMoveOperation;
 fn equipment_guard_error(
     operation: EquipmentMoveOperation,
     alive: bool,
-    combat: bool,
+    armor_combat: bool,
     casting: bool,
 ) -> Option<u8> {
     if operation == EquipmentMoveOperation::Swap && !alive {
         Some(38)
-    } else if combat {
+    } else if armor_combat {
         Some(60)
     } else if casting {
         Some(39)
@@ -39,7 +39,7 @@ impl<A: Authority> Frame<'_, A> {
         use quest_progression::equipment_movement as movement;
         if !(inv::BACKPACK_START..inv::BACKPACK_END).contains(&source) {
             return Err(NativeError::UnsupportedMechanic(
-                "auto-equip carried armor source",
+                "auto-equip carried original source",
             ));
         }
         let g = self
@@ -62,7 +62,7 @@ impl<A: Authority> Frame<'_, A> {
             .as_ref()
             .and_then(|l| l.equipment_origin(item.id))
             .ok_or(NativeError::UnsupportedMechanic(
-                "auto-equip original armor only",
+                "auto-equip original equipment only",
             ))?;
         let destination = movement::auto_equip_slot(g, origin)?;
         let combat = self
@@ -141,16 +141,10 @@ impl<A: Authority> Frame<'_, A> {
             .ok_or(NativeError::InvalidState)?
             .equipment_origin(instance)
             .ok_or(NativeError::InvalidState)?;
-        // Source weapons can change in combat. This first owner deliberately
-        // excludes the reset/GCD callback rather than inventing armor error60.
-        if origin.genesis_slot == 15 && combat.in_combat && self.state.player_alive() {
-            return Err(NativeError::UnsupportedMechanic(
-                "mainhand movement combat cooldown",
-            ));
-        }
+        let mainhand = origin.genesis_slot == 15;
         let equips = request.destination == origin.genesis_slot;
         let generic_slot = if equips
-            && !combat.in_combat
+            && (!combat.in_combat || mainhand)
             && (self.state.player_alive() || operation == EquipmentMoveOperation::AutoEquip)
         {
             player_melee::casting::GenericSlot::capture(self.state)?
@@ -166,7 +160,7 @@ impl<A: Authority> Frame<'_, A> {
         let reason = equipment_guard_error(
             operation,
             self.state.player_alive(),
-            combat.in_combat,
+            combat.in_combat && !mainhand,
             casting,
         );
         if let Some(reason) = reason {
@@ -180,6 +174,14 @@ impl<A: Authority> Frame<'_, A> {
                 source: request.source,
                 destination: request.destination,
             }));
+        }
+        // Weapons skip the source armor combat guard. Preserve real cast/dead
+        // refusals first; only a source-eligible combat switch reaches this host
+        // limitation (the reset/GCD callback is not yet composed).
+        if mainhand && combat.in_combat {
+            return Err(NativeError::UnsupportedMechanic(
+                "mainhand movement combat cooldown",
+            ));
         }
         let receipt = EquipmentMoveReceipt::build(
             g,
@@ -577,6 +579,36 @@ impl<A: Authority> Frame<'_, A> {
 #[cfg(test)]
 mod guard_tests {
     use super::*;
+    #[test]
+    fn mainhand_auto_equip_skips_armor_combat_guard_not_cast_or_dead_guards() {
+        for alive in [false, true] {
+            for combat in [false, true] {
+                for casting in [false, true] {
+                    // The actual mainhand owner supplies armor_combat=false even
+                    // in combat. The separate host cooldown hold follows these
+                    // source refusals; it must not replace cast39 or dead38.
+                    let source = equipment_guard_error(
+                        EquipmentMoveOperation::AutoEquip,
+                        alive,
+                        false,
+                        casting,
+                    );
+                    assert_eq!(
+                        source,
+                        if casting {
+                            Some(39)
+                        } else if !alive {
+                            Some(38)
+                        } else {
+                            None
+                        }
+                    );
+                    let host_hold = source.is_none() && combat;
+                    assert_eq!(host_hold, alive && !casting && combat);
+                }
+            }
+        }
+    }
     #[test]
     fn auto_equip_retains_can_equip_before_can_use_order() {
         for alive in [false, true] {

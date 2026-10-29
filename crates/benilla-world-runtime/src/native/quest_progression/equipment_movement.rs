@@ -157,7 +157,7 @@ fn source_original(
 }
 
 // Other registered consumers remain armor-only; admitting custody does not
-// silently authorize weapon AutoEquip, relocation, AutoStore or destruction.
+// silently authorize weapon relocation, AutoStore or destruction.
 fn source_item(
     g: &QuestProgressionGenesis,
     origin: EquipmentOrigin,
@@ -176,19 +176,25 @@ pub(in crate::native) fn auto_equip_slot(
     g: &QuestProgressionGenesis,
     origin: EquipmentOrigin,
 ) -> Result<u8, NativeError> {
-    let item = source_item(g, origin)?;
-    let slot = match item.inventory_type {
-        1 => 0,
-        2 => 1,
-        3 => 2,
-        4 => 3,
-        5 | 20 => 4,
-        6 => 5,
-        7 => 6,
-        8 => 7,
-        9 => 8,
-        10 => 9,
-        16 => 14,
+    let item = source_original(g, origin)?;
+    let slot = match (origin.genesis_slot, item.inventory_type) {
+        (15, 17 | 21) => 15,
+        (15, _) => {
+            return Err(NativeError::UnsupportedMechanic(
+                "auto-equip singleton mainhand type",
+            ))
+        }
+        (_, 1) => 0,
+        (_, 2) => 1,
+        (_, 3) => 2,
+        (_, 4) => 3,
+        (_, 5 | 20) => 4,
+        (_, 6) => 5,
+        (_, 7) => 6,
+        (_, 8) => 7,
+        (_, 9) => 8,
+        (_, 10) => 9,
+        (_, 16) => 14,
         _ => {
             return Err(NativeError::UnsupportedMechanic(
                 "auto-equip singleton armor slot",

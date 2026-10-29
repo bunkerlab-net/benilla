@@ -773,8 +773,8 @@ mod tests {
                 .unwrap();
         assert!(restored.replay(&records).is_err());
         assert_eq!(restored.checkpoint().unwrap(), initial);
-        assert_eq!(NATIVE_FORMAT_VERSION, 73);
-        assert_eq!(NATIVE_POLICY, "benilla-native-mainhand-membership-v73");
+        assert_eq!(NATIVE_FORMAT_VERSION, 74);
+        assert_eq!(NATIVE_POLICY, "benilla-native-mainhand-auto-equip-v74");
         assert_eq!(crate::FORMAT_VERSION, 2);
     }
     #[test]

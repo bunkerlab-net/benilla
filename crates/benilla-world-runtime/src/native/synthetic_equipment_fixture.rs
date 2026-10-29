@@ -7,27 +7,31 @@ pub fn profile() -> Profile {
     profile_with_lethal(false)
 }
 pub fn profile_with_lethal(lethal: bool) -> Profile {
-    build(lethal, false, None, false, false, false)
+    build(lethal, false, None, false, false, None)
 }
 pub fn mainhand_profile() -> Profile {
-    build(false, true, None, false, false, false)
+    build(false, true, None, false, false, None)
 }
 pub fn profile_with_armor_type(inventory_type: u32) -> Profile {
-    build(false, false, Some(inventory_type), false, false, false)
+    build(false, false, Some(inventory_type), false, false, None)
 }
 pub fn profile_with_duplicate_armor() -> Profile {
-    build(false, false, None, true, false, false)
+    build(false, false, None, true, false, None)
 }
 /// Two different source-authored original armor slots, sealed by the ordinary initializer.
 pub fn profile_with_two_originals() -> Profile {
-    build(false, false, None, false, true, false)
+    build(false, false, None, false, true, None)
 }
 /// Source-authored original staff, raw spell/loot owners and actual unarmed/staff skills.
 pub fn weapon_profile() -> Profile {
-    build(false, true, None, false, false, true)
+    build(false, true, None, false, false, Some(17))
 }
 pub fn lethal_weapon_profile() -> Profile {
-    build(true, true, None, false, false, true)
+    build(true, true, None, false, false, Some(17))
+}
+/// Authored inventory type is bound in both initializer and loot rows before sealing.
+pub fn weapon_profile_with_type(inventory_type: u32) -> Profile {
+    build(false, true, None, false, false, Some(inventory_type))
 }
 fn build(
     lethal: bool,
@@ -35,8 +39,9 @@ fn build(
     armor_type: Option<u32>,
     duplicate_armor: bool,
     second_original: bool,
-    original_weapon: bool,
+    weapon_type: Option<u32>,
 ) -> Profile {
+    let original_weapon = weapon_type.is_some();
     let (mut p, mut input, mut rows) = synthetic_loot_fixture::setup();
     if original_weapon {
         use benilla_sim::starter_init as init;
@@ -44,7 +49,7 @@ fn build(
         weapon.id = 900002;
         weapon.class = 2;
         weapon.subclass = 10;
-        weapon.inventory_type = 17;
+        weapon.inventory_type = weapon_type.unwrap();
         weapon.armor = 0;
         weapon.stats = [init::ItemStat { kind: 0, value: 0 }; 10];
         weapon.stats[0] = init::ItemStat { kind: 3, value: 3 };
@@ -77,7 +82,7 @@ fn build(
         let mut items: Vec<_> = loot.inventory.items().cloned().collect();
         let mut prototype = synthetic_loot_fixture::item(900002);
         prototype.class = 2;
-        prototype.inventory_type = 17;
+        prototype.inventory_type = weapon_type.unwrap();
         prototype.display_id = 900003;
         prototype.stackable = 1;
         prototype.maximum_durability = 1000;
