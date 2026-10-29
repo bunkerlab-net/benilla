@@ -302,9 +302,9 @@ fn rehashed_mainhand_history_cannot_substitute_equipped_or_damage_cache_observat
         }
         assert_ne!(value, serde_json::to_value(&cp.state).unwrap());
         cp.state = serde_json::from_value(value).unwrap();
-        cp.digest = crate::digest(b"benilla-native-state-v78\0", &cp.state);
+        cp.digest = crate::digest(b"benilla-native-state-v79\0", &cp.state);
         cp.checksum = crate::digest(
-            b"benilla-native-checkpoint-v78\0",
+            b"benilla-native-checkpoint-v79\0",
             &(&cp.state, cp.digest, cp.history_tip),
         );
         assert!(NativeWorld::restore_synthetic_component_test(w.profile.clone(), cp).is_err());

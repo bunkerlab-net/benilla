@@ -5,7 +5,7 @@
 `SwapItem` from CMaNGOS Classic
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. The upstream grant is
 GPL-2.0-or-later; see [PROVENANCE.md](PROVENANCE.md). Its policy is
-`cmangos-8ec338a1-carried-items-v17`.
+`cmangos-8ec338a1-carried-items-v18`.
 The separately named positive admin policy is `CmangosAddItemV1`.
 
 ## Exact source behavior
@@ -320,3 +320,12 @@ permanent tombstone. It retains inactive weapon metadata/caches and never frees
 the original registry ID. Indirect consumption of registered originals remains unsupported; this grants
 no broader weapon-destruction permission. Existing ordinary-item routes remain
 separate. See runtime MAINHAND-DESTROY.md.
+
+
+The v18 host composition additionally admits a real occupied-backpack exchange
+involving either or both registered original instances. The generic reducer is
+unchanged: the separate quest owner replays its `Swapped` receipt, updates every
+registered endpoint, and preserves the allocator and equipped aggregate. Ordinary
+non-container counterpart binding follows the actual StoreItem rule. Containers,
+merges/destruction of originals through this route, and generic equipment remain
+unsupported. This is not a migration or a native-admission change.

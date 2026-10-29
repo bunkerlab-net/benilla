@@ -472,12 +472,16 @@ impl<A: Authority> Frame<'_, A> {
             .quest_progression
             .clone()
             .ok_or(NativeError::InvalidState)?;
-        let registered = next
-            .inventory
-            .as_ref()
-            .and_then(|i| i.slots.get(&request.source))
-            .and_then(|item| genesis.loot.as_ref()?.equipment_origin(item.id));
-        if registered.is_some() {
+        let registered = [request.source, request.destination]
+            .into_iter()
+            .any(|slot| {
+                next.inventory
+                    .as_ref()
+                    .and_then(|i| i.slots.get(&slot))
+                    .and_then(|item| genesis.loot.as_ref()?.equipment_origin(item.id))
+                    .is_some()
+            });
+        if registered {
             self.profile
                 .interactions
                 .as_ref()
@@ -486,13 +490,6 @@ impl<A: Authority> Frame<'_, A> {
                 ))?
                 .require_armor_movement(self.profile)?;
             let before = next.inventory.as_ref().ok_or(NativeError::InvalidState)?;
-            if request.source != request.destination
-                && before.slots.contains_key(&request.destination)
-            {
-                return Err(NativeError::UnsupportedMechanic(
-                    "registered armor occupied destination",
-                ));
-            }
             let mut staged = before.clone();
             let receipt = staged.swap_backpack(
                 catalog,

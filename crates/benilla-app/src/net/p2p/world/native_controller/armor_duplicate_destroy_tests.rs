@@ -231,3 +231,6 @@ fn selecting_registered_original_retires_only_it_and_preserves_ordinary_duplicat
         .iter()
         .any(|e| matches!(e, SessionEvent::ItemCreate {guid, ..} if *guid == original_guid)));
 }
+
+#[path = "registered_backpack_exchange_tests.rs"]
+mod registered_backpack_exchange_tests;

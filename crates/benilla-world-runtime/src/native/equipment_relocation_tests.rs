@@ -183,12 +183,19 @@ fn relocation_noop_and_rehashed_custody_forgery() {
                 let n = movement["movement"]["after"]["next_item"].as_u64().unwrap();
                 movement["movement"]["after"]["next_item"] = serde_json::json!(n + 1);
             }
-            _ => movement["origin"]["genesis_slot"] = serde_json::json!(5),
+            _ => {
+                movement["registered"]
+                    .as_object_mut()
+                    .unwrap()
+                    .values_mut()
+                    .next()
+                    .unwrap()["genesis_slot"] = serde_json::json!(5);
+            }
         }
         cp.state = serde_json::from_value(state).unwrap();
-        cp.digest = crate::digest(b"benilla-native-state-v78\0", &cp.state);
+        cp.digest = crate::digest(b"benilla-native-state-v79\0", &cp.state);
         cp.checksum = crate::digest(
-            b"benilla-native-checkpoint-v78\0",
+            b"benilla-native-checkpoint-v79\0",
             &(&cp.state, cp.digest, cp.history_tip),
         );
         assert!(NativeWorld::restore_synthetic_component_test(w.profile.clone(), cp).is_err());

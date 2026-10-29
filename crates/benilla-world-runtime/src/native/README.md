@@ -11,7 +11,7 @@ The opt-in `synthetic-native-tests` feature exposes only synthetic construction 
 restoration. Feature unification, preparation JSON, hashes, and source initializer
 outputs cannot produce `NativeCapability`. Fabricated test rows are not native data.
 
-Native format 78, `benilla-native-player-sheath-v78`, retains the selected
+Native format 79, `benilla-native-backpack-exchange-v79`, retains the selected
 [player mainhand policy](../../PLAYER-MELEE.md), required optional player proof
 and NPC defense reactive state, retained generic-cast slot context and
 spell target-death lifecycle causes in the bounded melee proof. Backpack stack-split
@@ -83,6 +83,8 @@ Explicit owned cached player terrain phases and their closed callback boundary a
 documented in [ENVIRONMENT.md](ENVIRONMENT.md).
 Backpack drag commands and durable item projection are documented in
 [INVENTORY-MOVEMENT.md](INVENTORY-MOVEMENT.md).
+Exact occupied-backpack exchanges of registered originals are documented in
+[BACKPACK-EXCHANGE.md](BACKPACK-EXCHANGE.md).
 Bounded source creature habitat/current-flag ownership and reachable NearPoint
 request binding, including the bounded runtime-owned IGNORE_PATHFINDING receipt,
 are documented in [CREATURE-CAPABILITIES.md](../../CREATURE-CAPABILITIES.md).
@@ -233,7 +235,7 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
   binary64; source comparison is strict promoted-float chance > double roll
 - Draw records bind semantic purpose/action/NPC generation. Action chains bind full
   current defense/cast/resource snapshots, so same-HP misses cannot be reused
-- Checkpoints bind native format 78, policy, RNG mapping, domain, content, authority, geometry,
+- Checkpoints bind native format 79, policy, RNG mapping, domain, content, authority, geometry,
   history-chain tip, cooldown maps, recomputable casts/auras, AI lifecycle/motion,
   exact mana timers, skills/reactive/combat clocks, checked equipment recipes and
   [per-NPC event ownership](../../NPC-EVENTS.md) with DEAD/respawn clock continuity
@@ -532,4 +534,9 @@ No old-save migration or native admission is added.
 Native format 78 (`benilla-native-player-sheath-v78`) binds bounded player sheath controls
 to qualified fresh-player and no-enchantment owners, with field 164 composition.
 Unsupported profiles do not gain source-backed sheath state.
+No old-save migration or native admission is added.
+
+Native format 79 (`benilla-native-backpack-exchange-v79`) binds bounded occupied-backpack exchange
+to exact both-endpoint original custody and existing source swap receipts.
+No equipment replacement or generic consumption admission is added.
 No old-save migration or native admission is added.

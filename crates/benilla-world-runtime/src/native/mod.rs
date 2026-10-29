@@ -151,8 +151,8 @@ pub use persistence::{PendingWanderAndChaseReopen, PendingWanderReopen};
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 78;
-pub const NATIVE_POLICY: &str = "benilla-native-player-sheath-v78";
+pub const NATIVE_FORMAT_VERSION: u32 = 79;
+pub const NATIVE_POLICY: &str = "benilla-native-backpack-exchange-v79";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -510,7 +510,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v78\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v79\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest
@@ -768,3 +768,6 @@ mod player_health_regeneration_tests;
 
 #[cfg(test)]
 mod player_sheath_tests;
+
+#[cfg(test)]
+mod equipment_exchange_tests;

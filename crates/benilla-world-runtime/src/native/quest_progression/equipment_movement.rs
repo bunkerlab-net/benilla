@@ -628,8 +628,8 @@ pub(in crate::native) fn reject_registered_slots(
 #[serde(deny_unknown_fields)]
 pub struct EquipmentRelocationReceipt {
     pub movement: inv::MovementReceipt,
-    pub instance: u64,
-    pub origin: EquipmentOrigin,
+    /// Exact registered originals among both occupied endpoints before the swap.
+    pub registered: BTreeMap<u64, EquipmentOrigin>,
     pub before_receipts: BTreeMap<u64, ItemReceipt>,
     pub after_receipts: BTreeMap<u64, ItemReceipt>,
     pub(in crate::native) world: crate::WorldId,
@@ -648,19 +648,10 @@ impl EquipmentRelocationReceipt {
         profile: &Profile,
         placements: &Placements,
     ) -> Result<Self, NativeError> {
-        let instance = movement
-            .before
-            .slots
-            .get(&movement.source)
-            .ok_or(NativeError::InvalidState)?
-            .id;
-        let origin = loot(g)?
-            .equipment_origin(instance)
-            .ok_or(NativeError::InvalidState)?;
+        let registered = Self::registered_endpoints(g, &movement)?;
         let mut result = Self {
             movement,
-            instance,
-            origin,
+            registered,
             before_receipts,
             after_receipts: BTreeMap::new(),
             world: state.world,
@@ -674,13 +665,24 @@ impl EquipmentRelocationReceipt {
         Ok(result)
     }
 
+    fn registered_endpoints(
+        g: &QuestProgressionGenesis,
+        movement: &inv::MovementReceipt,
+    ) -> Result<BTreeMap<u64, EquipmentOrigin>, NativeError> {
+        let l = loot(g)?;
+        Ok([movement.source, movement.destination]
+            .into_iter()
+            .filter_map(|slot| movement.before.slots.get(&slot))
+            .filter_map(|item| l.equipment_origin(item.id).map(|origin| (item.id, origin)))
+            .collect())
+    }
+
     fn expected_receipts(&self) -> BTreeMap<u64, ItemReceipt> {
         let reason = crate::digest(
-            b"benilla-native-armor-relocation-v1\0",
+            b"benilla-native-armor-relocation-v2\0",
             &(
                 &self.movement,
-                self.instance,
-                self.origin,
+                &self.registered,
                 &self.before_receipts,
                 self.world,
                 self.player,
@@ -712,19 +714,38 @@ impl EquipmentRelocationReceipt {
         g: &QuestProgressionGenesis,
         placements: &mut Placements,
     ) -> Result<(), NativeError> {
-        source_original(g, self.origin)?;
         let m = &self.movement;
-        if loot(g)?.equipment_origin(self.instance) != Some(self.origin)
-            || placements.get(&self.instance) != Some(&EquipmentPlacement::Slot(m.source))
-            || m.outcome != inv::MovementOutcome::Moved
+        if self.registered.is_empty()
+            || self.registered != Self::registered_endpoints(g, m)?
+            || !matches!(
+                m.outcome,
+                inv::MovementOutcome::Moved | inv::MovementOutcome::Swapped
+            )
             || !m.alive
             || m.source == m.destination
-            || m.before.slots.contains_key(&m.destination)
-            || m.before.slots.get(&m.source) != Some(&carried(g, self.instance, self.origin)?)
             || m.before.equipped != m.after.equipped
             || m.before.next_item != m.after.next_item
         {
             return Err(NativeError::InvalidCheckpoint);
+        }
+        // Generic empty bags remain outside this registered-object host route.
+        // Ordinary counterparts otherwise keep the reducer's real bind-on-store.
+        for slot in [m.source, m.destination] {
+            if let Some(item) = m.before.slots.get(&slot) {
+                if item.kind.is_container() {
+                    return Err(NativeError::UnsupportedMechanic(
+                        "registered backpack exchange container",
+                    ));
+                }
+                if let Some(&origin) = self.registered.get(&item.id) {
+                    source_original(g, origin)?;
+                    if placements.get(&item.id) != Some(&EquipmentPlacement::Slot(slot))
+                        || item != &carried(g, item.id, origin)?
+                    {
+                        return Err(NativeError::InvalidCheckpoint);
+                    }
+                }
+            }
         }
         m.validate(&loot(g)?.inventory)?;
         validate_inventory(g, &m.before, placements)?;
@@ -734,7 +755,18 @@ impl EquipmentRelocationReceipt {
         }
         validate_receipts(&m.after, &self.after_receipts)?;
         let mut next = placements.clone();
-        next.insert(self.instance, EquipmentPlacement::Slot(m.destination));
+        for slot in [m.source, m.destination] {
+            if let Some(item) = m.before.slots.get(&slot) {
+                if self.registered.contains_key(&item.id) {
+                    let destination = if slot == m.source {
+                        m.destination
+                    } else {
+                        m.source
+                    };
+                    next.insert(item.id, EquipmentPlacement::Slot(destination));
+                }
+            }
+        }
         validate_inventory(g, &m.after, &next)?;
         *placements = next;
         Ok(())

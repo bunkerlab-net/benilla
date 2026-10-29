@@ -55,7 +55,7 @@ only by the source class/outcome/alive conditions and expire in NPC Unit update.
 
 ## Persistence contract
 
-Native format 78 rejects older envelopes; no migration is provided. Existing
+Native format 79 rejects older envelopes; no migration is provided. Existing
 unrelated callback hash domains retain their prior versions.
 
 The bounded player proof retains the latest writers of lifecycle, BASE, OFF and
@@ -152,4 +152,9 @@ No old-save migration or native admission is added.
 Native format 78 (`benilla-native-player-sheath-v78`) binds bounded player sheath controls
 to qualified fresh-player and no-enchantment owners, with field 164 composition.
 Unsupported profiles do not gain source-backed sheath state.
+No old-save migration or native admission is added.
+
+Native format 79 (`benilla-native-backpack-exchange-v79`) binds bounded occupied-backpack exchange
+to exact both-endpoint original custody and existing source swap receipts.
+No equipment replacement or generic consumption admission is added.
 No old-save migration or native admission is added.
