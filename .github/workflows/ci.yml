@@ -265,13 +265,16 @@ jobs:
             mbx test --locked -p benilla-app --lib "$test" -- --exact --show-output --test-threads=1 --color never | tee "$log"
             python3 scripts/verify-libtest-output.py "$log" "$test"
           done
-      - name: Verify attached audio ordering and schedule ambiguity
+      - name: Verify audio ordering, intro cooldowns, and schedule ambiguity
         shell: bash
         env:
           WOW_AMBIGUITY_DUMP: '1'
         run: |
           set -euo pipefail
           tests=(
+            sound::zone::tests::intro_cooldown_treats_zero_as_never_played
+            sound::zone::tests::intro_cooldown_expires_at_the_inclusive_deadline
+            sound::zone::tests::intro_cooldown_is_independent_for_rows_sharing_a_sound
             game_plugins::schedule_tests::login_overlay_precedes_cvar_drain_and_late_loading_tip
             game_plugins::schedule_tests::attached_audio_reads_after_rig_anchor_and_camera_pose_writers
             game_plugins::schedule_tests::the_schedules_have_no_more_undeclared_orders_than_the_ceilings_say

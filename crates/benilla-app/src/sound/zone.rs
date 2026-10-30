@@ -560,6 +560,8 @@ fn begin_zone_music(
         let ok_at = zone
             .intro_last
             .get(&intro.id)
+            // `0x461440`: timestamp zero is the never-played sentinel.
+            .filter(|t| **t != 0.0)
             .map(|t| t + intro.min_delay_minutes as f64 * 60.0);
         if ok_at.is_none_or(|t| now >= t) && intro.sound_id != 0 && start(zone, intro.sound_id) {
             zone.intro_last.insert(intro.id, now);
@@ -1483,6 +1485,75 @@ mod tests {
             !zone.intro_last.contains_key(&1),
             "a failed intro is not stamped"
         );
+    }
+
+    /// `0x461440` treats a stored zero as never played, even after a start at clock zero.
+    #[test]
+    fn intro_cooldown_treats_zero_as_never_played() {
+        let intro = benilla_formats::ZoneIntroEntry {
+            id: 1,
+            sound_id: 11,
+            priority: 0,
+            min_delay_minutes: 10,
+        };
+        let mut zone = ZoneAudio::default();
+        let mut asked = vec![];
+        for now in [0.0, 1.0, 2.0] {
+            begin_zone_music(&mut zone, Some(&intro), Some(7), now, |_, kit| {
+                asked.push(kit);
+                true
+            });
+        }
+        assert_eq!(asked, [11, 11, 7]);
+        assert_eq!(zone.intro_last.get(&1), Some(&1.0));
+    }
+
+    /// The minute-based deadline in `0x461440` is inclusive, not one frame later.
+    #[test]
+    fn intro_cooldown_expires_at_the_inclusive_deadline() {
+        let intro = benilla_formats::ZoneIntroEntry {
+            id: 1,
+            sound_id: 11,
+            priority: 0,
+            min_delay_minutes: 10,
+        };
+        for (now, expected_kit) in [(601.999, 7), (602.0, 11), (602.001, 11)] {
+            let mut zone = ZoneAudio {
+                intro_last: std::collections::HashMap::from([(1, 2.0)]),
+                ..Default::default()
+            };
+            let mut asked = vec![];
+            begin_zone_music(&mut zone, Some(&intro), Some(7), now, |_, kit| {
+                asked.push(kit);
+                true
+            });
+            assert_eq!(asked, [expected_kit], "request at {now}");
+            let expected_last = if expected_kit == 11 { now } else { 2.0 };
+            assert_eq!(zone.intro_last.get(&1), Some(&expected_last));
+        }
+    }
+
+    /// `0x461440` indexes the timestamp by intro row, not by its SoundEntries kit.
+    #[test]
+    fn intro_cooldown_is_independent_for_rows_sharing_a_sound() {
+        let mut intro = benilla_formats::ZoneIntroEntry {
+            id: 1,
+            sound_id: 11,
+            priority: 0,
+            min_delay_minutes: 10,
+        };
+        let mut zone = ZoneAudio::default();
+        let mut asked = vec![];
+        for (id, now) in [(1, 1.0), (2, 2.0), (1, 3.0)] {
+            intro.id = id;
+            begin_zone_music(&mut zone, Some(&intro), Some(7), now, |_, kit| {
+                asked.push(kit);
+                true
+            });
+        }
+        assert_eq!(asked, [11, 11, 7]);
+        assert_eq!(zone.intro_last.get(&1), Some(&1.0));
+        assert_eq!(zone.intro_last.get(&2), Some(&2.0));
     }
 
     #[test]
