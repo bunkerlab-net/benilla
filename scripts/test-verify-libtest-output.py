@@ -1448,7 +1448,15 @@ class ExactProofTests(unittest.TestCase):
         command = "        run: mbx test --locked --no-fail-fast --workspace\n"
         self.assertEqual(workflow.count(command), 1)
         steps = re.split(r"(?=^      - )", job, flags=re.MULTILINE)
-        self.assertIn("      - name: test\n" + command, steps)
+        expected_step = (
+            "      - name: test\n"
+            "        env:\n"
+            "          # App lib-test rustc peaks near 12 GiB, so another heavy target "
+            "can exceed the 16 GB runner.\n"
+            "          CARGO_BUILD_JOBS: 1\n"
+            + command
+        )
+        self.assertIn(expected_step, steps)
 
     def test_aggregate_requires_every_job_and_rejects_non_success(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
