@@ -8,6 +8,20 @@ use bevy::prelude::*;
 
 use benilla_world::schedule::WorldStage;
 
+/// The zone scheduler must consume this frame's resolved WMO override, not the previous one.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) enum InteriorAudioSet {
+    Resolve,
+    Zone,
+}
+
+fn configure_order(app: &mut App) {
+    app.configure_sets(
+        Update,
+        (InteriorAudioSet::Resolve, InteriorAudioSet::Zone).chain(),
+    );
+}
+
 /// The audio FKs of the interior the listener is in; `None` is the open world.
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CurrentInterior(pub(crate) Option<InteriorAudio>);
@@ -53,16 +67,64 @@ fn leave_world(mut current: ResMut<CurrentInterior>) {
 
 /// Registration hook for [`super::SoundPlugin`].
 pub(super) fn plugin(app: &mut App) {
+    configure_order(app);
     app.init_resource::<CurrentInterior>()
         .add_systems(
             Update,
             resolve_interior
                 .run_if(super::world_audio_live)
                 .in_set(WorldStage::Present)
+                .in_set(InteriorAudioSet::Resolve)
                 .after(benilla_world::wmo_portal::WmoPvsSet),
         )
         .add_systems(
             OnExit(crate::client_state::ClientState::InWorld),
             leave_world,
         );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Resource, Default)]
+    struct NextInterior(Option<InteriorAudio>);
+
+    #[derive(Resource, Default)]
+    struct Observed(Vec<Option<InteriorAudio>>);
+
+    fn publish(next: Res<NextInterior>, mut current: ResMut<CurrentInterior>) {
+        current.0 = next.0;
+    }
+
+    fn consume(current: Res<CurrentInterior>, mut observed: ResMut<Observed>) {
+        observed.0.push(current.0);
+    }
+
+    /// Authored scheduler regression, not a WMO lookup or audible-playback test. Register the
+    /// consumer first: plugin registration order must not decide which frame's override it sees.
+    #[test]
+    fn zone_consumes_same_frame_interior_entry_change_and_exit() {
+        let mut app = App::new();
+        app.init_resource::<CurrentInterior>()
+            .init_resource::<NextInterior>()
+            .init_resource::<Observed>()
+            .add_systems(Update, consume.in_set(InteriorAudioSet::Zone))
+            .add_systems(Update, publish.in_set(InteriorAudioSet::Resolve));
+        configure_order(&mut app);
+        let room = |music, ambience| {
+            Some(InteriorAudio {
+                zone_music: music,
+                ambience,
+                ..Default::default()
+            })
+        };
+        let expected = [None, room(7, 11), room(8, 12), None];
+        for inside in expected {
+            app.world_mut().resource_mut::<NextInterior>().0 = inside;
+            app.update();
+            assert!(app.world().resource::<Observed>().0.last() == Some(&inside));
+        }
+        assert!(app.world().resource::<Observed>().0.as_slice() == expected);
+    }
 }

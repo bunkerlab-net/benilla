@@ -1080,6 +1080,40 @@ pub(crate) mod schedule_tests {
         }
     }
 
+    /// The real sound plugins must bind the same-frame interior contract, not merely declare
+    /// unused ordered sets. Inspect declared edges, independent of the executor's tie breaks.
+    #[test]
+    fn zone_audio_reads_after_the_interior_override_is_resolved() {
+        let mut app = headless_client();
+        let graph = census(&mut app, Update, SyncPoints::Declared);
+        if !type_names_available(&graph) {
+            return;
+        }
+        let key = |suffix: &str| {
+            graph
+                .systems
+                .iter()
+                .find_map(|(key, system)| system.name.ends_with(suffix).then_some(*key))
+                .unwrap_or_else(|| panic!("missing system {suffix}"))
+        };
+        let mut seen = HashSet::new();
+        let mut pending = vec![key("::sound::interior::resolve_interior")];
+        while let Some(system) = pending.pop() {
+            if seen.insert(system) {
+                pending.extend(
+                    graph
+                        .dependencies
+                        .iter()
+                        .filter_map(|(from, to)| (*from == system).then_some(*to)),
+                );
+            }
+        }
+        assert!(
+            seen.contains(&key("::sound::zone::zone_audio")),
+            "the zone scheduler must see this frame's interior override"
+        );
+    }
+
     #[test]
     fn attached_audio_reads_after_rig_anchor_and_camera_pose_writers() {
         let mut app = headless_client();

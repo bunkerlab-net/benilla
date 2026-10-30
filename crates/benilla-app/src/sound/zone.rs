@@ -1265,7 +1265,8 @@ pub(super) fn plugin(app: &mut App) {
             (server_sounds, zone_audio)
                 .chain()
                 .run_if(super::world_audio_live)
-                .in_set(WorldStage::Present),
+                .in_set(WorldStage::Present)
+                .in_set(super::interior::InteriorAudioSet::Zone),
         )
         // Before the zone scheduler, so this frame's `PlayMusic` already holds the slot, and
         // after the VM tick, whose output it drains.
