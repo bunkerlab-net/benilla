@@ -1083,6 +1083,9 @@ jobs:
           save-on-workflow-dispatch: true
       # Keep one workspace invocation: package shards change feature unification.
       - name: test
+        env:
+          # App lib-test rustc peaks near 12 GiB, so another heavy target can exceed the 16 GB runner.
+          CARGO_BUILD_JOBS: 1
         run: mbx test --locked --no-fail-fast --workspace
       - name: Report unavailable data checks
         if: always()
