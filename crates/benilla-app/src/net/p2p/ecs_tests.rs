@@ -42,9 +42,13 @@ fn realm_plugin_keeps_its_normal_login_channels_without_a_peer_gate() {
     assert!(app.world().contains_resource::<LoginSubmit>());
 }
 
+/// GamePlugins and WorldPlugins supply the real handler table; only the network drain runs.
 #[test]
 fn saved_characters_materialize_as_distinct_players_through_the_ecs_bridge() {
-    let mut app = crate::game_plugins::schedule_tests::headless_client();
+    use bevy::ecs::system::RunSystemOnce;
+
+    let mut app = crate::game_plugins::schedule_tests::headless_client_unrun();
+    benilla_world::world_point::init_world_point_resources(app.world_mut());
     let (tx, rx) = crossbeam_channel::unbounded();
     app.insert_resource(super::super::NetEvents(rx));
     let me = fixture(1, 9, "Localname");
@@ -71,19 +75,19 @@ fn saved_characters_materialize_as_distinct_players_through_the_ecs_bridge() {
         character_avatar(&other, &AvatarCatalog::fixture()).unwrap(),
     )
     .unwrap();
-    // Stock entry loading holds the burst until its UI is initialized. Exercise the same
-    // schedule rather than bypassing the load with a direct dispatcher call.
-    for _ in 0..10 {
-        app.update();
-        if app
-            .world()
+    app.world_mut()
+        .run_system_once(super::super::apply::apply_net_updates)
+        .unwrap();
+    assert!(
+        app.world()
             .resource::<super::super::GuidIndex>()
             .0
-            .contains_key(&character_guid(&other))
-        {
-            break;
-        }
-    }
+            .is_empty(),
+        "the login drain holds the avatar burst"
+    );
+    app.world_mut()
+        .run_system_once(super::super::apply::apply_net_updates)
+        .unwrap();
     let index = app.world().resource::<super::super::GuidIndex>();
     assert!(index.0.contains_key(&character_guid(&me)));
     assert!(index.0.contains_key(&character_guid(&other)));

@@ -339,6 +339,8 @@ pub(crate) fn set_in_world(
 /// `SetInWorld(0)` (`0x5aae70`) as the world load's first call (`0x401bd4`): the world handle
 /// zeroed and `LOGOUT_CANCEL` in place when a logout request was pending (`0x5aae88`-`0x5aae9c`),
 /// its byte cleared, ahead of the load's teardown. Runs only with a load posted.
+// The event-origin allow list needs this timer's own frame in optimised debug builds.
+#[inline(never)]
 pub(crate) fn leave_world(
     mut vm: crate::script_calls::VmWith<Option<ResMut<'static, LogoutState>>>,
 ) {

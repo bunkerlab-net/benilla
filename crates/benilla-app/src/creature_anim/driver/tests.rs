@@ -4634,10 +4634,7 @@ mod emote_state {
                     AnimationPlayer::default(),
                     AnimationTransitions::new(),
                     AnimDriver::default(),
-                    ObjectStore(ObjectFields::from_pairs(&[(
-                        FIELD_NPC_EMOTESTATE,
-                        STUBBORN,
-                    )])),
+                    ObjectStore(alive(&[(FIELD_NPC_EMOTESTATE, STUBBORN)])),
                     clock,
                 ))
                 .id()
@@ -4697,10 +4694,7 @@ mod emote_state {
         app.world_mut().entity_mut(a).remove::<MovementState>();
         app.world_mut()
             .entity_mut(a)
-            .insert(ObjectStore(ObjectFields::from_pairs(&[(
-                FIELD_NPC_EMOTESTATE,
-                0,
-            )])));
+            .insert(ObjectStore(alive(&[(FIELD_NPC_EMOTESTATE, 0)])));
         advance(&mut app, 5);
         assert_ne!(
             gait(&app, a),

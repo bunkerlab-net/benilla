@@ -277,6 +277,8 @@ pub(crate) fn arm_leaving_world_on_self_create(
 /// load posted ([`crate::net::PendingWorldports`]; the initial-login map posts none), inside the
 /// teardown, ahead of the objects' leg ([`crate::net::WorldportTimer`]). It precedes the new
 /// world's create, which the server sends after the teardown's acknowledgement.
+// The event-origin allow list needs this timer's own frame in optimised debug builds.
+#[inline(never)]
 pub(crate) fn sweep_on_worldport(world: &mut World) {
     if world
         .get_resource::<crate::net::PendingWorldports>()

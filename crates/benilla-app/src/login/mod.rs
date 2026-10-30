@@ -24,9 +24,9 @@ impl Plugin for LoginPlugin {
                     screen::materialize_screen,
                     // Overlay input belongs before UiDrain and world Input; loading tips
                     // run after Present and publish their CVar cursor for the next frame.
-                    login_input,
-                    settings::recover,
-                    settings::input,
+                    login_input.in_set(crate::vm_pass::VmPass::Member),
+                    settings::recover.in_set(crate::vm_pass::VmPass::Member),
+                    settings::input.in_set(crate::vm_pass::VmPass::Member),
                     settings::render.before(crate::cvars::sync_cvars),
                     screen::refresh_boxes,
                     screen::refresh_listen_addresses,

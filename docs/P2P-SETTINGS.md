@@ -53,7 +53,8 @@ first preserves the original in a private same-directory backup. Cancelling does
 not create a backup or change the file. Review every required field before saving
 and restarting; the blank draft does not retain the previous settings.
 
-Passphrases are masked by default. Reveal is deliberate. Any length, including empty, is
+Passphrases are masked by default. Reveal is deliberate. Copying a selection while masked
+copies an empty string, not the mask or the passphrase. Any length, including empty, is
 accepted up to 1024 UTF-8 bytes; short or empty values carry a non-blocking security warning. Endpoint tickets may
 contain reachable addresses and relay information; reveal or copy them only when
 sharing with intended friends. A ticket does not contain the shared passphrase.

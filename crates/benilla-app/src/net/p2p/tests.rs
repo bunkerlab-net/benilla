@@ -619,7 +619,19 @@ fn absent_and_preintro_peers_cannot_move_chat_or_overwrite_an_entity() {
         &AvatarCatalog::fixture(),
     )
     .unwrap();
-    assert_eq!(rx.try_iter().count(), 2);
+    assert!(
+        matches!(rx.try_recv().unwrap(), SessionEvent::PlayerName { guid, name, .. }
+            if guid == character_guid(&other) && name == other.name)
+    );
+    assert!(
+        matches!(rx.try_recv().unwrap(), SessionEvent::ObjectCreate { guid, kind: EntityKind::Player, .. }
+            if guid == character_guid(&other))
+    );
+    assert!(matches!(
+        rx.try_recv().unwrap(),
+        SessionEvent::ObjectUpdateEnd
+    ));
+    assert!(rx.is_empty());
     assert!(apply_peer_frame(
         &tx,
         other.owner_id,
@@ -1124,7 +1136,7 @@ fn entering_a_different_saved_character_persists_selection_without_overwriting_t
 
 #[test]
 fn full_application_queue_refuses_avatar_without_blocking() {
-    let (tx, _rx) = crossbeam_channel::bounded(1);
+    let (tx, rx) = crossbeam_channel::bounded(2);
     let catalog = AvatarCatalog::fixture();
     emit(
         &tx,
@@ -1136,6 +1148,18 @@ fn full_application_queue_refuses_avatar_without_blocking() {
         character_avatar(&fixture(2, 2, "Nextchar"), &catalog).unwrap()
     )
     .is_err());
+    assert!(
+        matches!(rx.try_recv().unwrap(), SessionEvent::ObjectCreate { guid, kind: EntityKind::Player, .. }
+            if guid == character_guid(&fixture(1, 1, "Firstchar")))
+    );
+    assert!(matches!(
+        rx.try_recv().unwrap(),
+        SessionEvent::ObjectUpdateEnd
+    ));
+    assert!(
+        rx.is_empty(),
+        "the refused avatar published no partial block"
+    );
 }
 
 #[test]

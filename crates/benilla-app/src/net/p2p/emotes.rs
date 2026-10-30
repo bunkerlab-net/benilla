@@ -249,6 +249,10 @@ mod tests {
                 assert!(
                     matches!(rx.try_recv().unwrap(), SessionEvent::ObjectValues { guid, fields } if guid == performer && fields.unit_emote_state() == 8002)
                 );
+                assert!(matches!(
+                    rx.try_recv().unwrap(),
+                    SessionEvent::ObjectUpdateEnd
+                ));
             }
             assert!(
                 matches!(rx.try_recv().unwrap(), SessionEvent::TextEmote { guid, text_emote, target_name } if guid == performer && text_emote == text_id && target_name == "Friend")
@@ -316,6 +320,10 @@ mod tests {
                 matches!(rx.try_recv().unwrap(), SessionEvent::ObjectValues { guid, fields }
                 if guid == character_guid(&other) && fields.unit_stand_state() == stand_state && fields.unit_emote_state() == 8002)
             );
+            assert!(matches!(
+                rx.try_recv().unwrap(),
+                SessionEvent::ObjectUpdateEnd
+            ));
             assert!(
                 rx.is_empty(),
                 "a pose snapshot has no text, voice or one-shot event"
@@ -331,6 +339,11 @@ mod tests {
         assert!(
             matches!(rx.try_recv().unwrap(), SessionEvent::ObjectValues { fields, .. } if fields.unit_emote_state() == 0)
         );
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            SessionEvent::ObjectUpdateEnd
+        ));
+        assert!(rx.is_empty(), "standing up restores no text or voice");
         for invalid in [2, 7, 255] {
             let payload = Frame::Presentation {
                 stand_state: invalid,
