@@ -81,8 +81,8 @@ pub(crate) struct SoundConfig {
     pub music: f32,
     pub ambience: f32,
     /// `EnableMusic`/`EnableAmbience` (default "1", `0x45739b`/`0x460a9d`); 1.12 has no SFX-only
-    /// toggle. The reference's `EnableMusic` callback stops and re-picks the stream (`0x457490` →
-    /// `0x45b050`/`0x45aeb0`); benilla keeps it alive at zero and resumes mid-track.
+    /// toggle. World music uses the pause lifecycle (`0x4574a4` → `0x4603b0`): a zone
+    /// track is destroyed, a Lua track pauses in place, and resuming schedules the zone at +3 s.
     pub music_enabled: bool,
     pub ambience_enabled: bool,
     /// `EnableErrorSpeech` (default "1", `0x457877`): gates only your own character's refusal
@@ -141,6 +141,13 @@ pub(crate) struct SoundConfig {
 }
 
 impl SoundConfig {
+    /// The world-music pause shared by EnableMusic and cinematics (`0x4603b0`).
+    /// Keep the persisted preference separate from transient cinematic suppression;
+    /// ending a cinematic must not override the player's disabled-music preference.
+    fn music_paused(&self) -> bool {
+        !self.music_enabled || self.music_suppressed
+    }
+
     /// The category slider a channel multiplies in (`0x7a5dc0`'s category pick).
     pub(crate) fn category_amp(&self, cat: kit::SoundCategory) -> f32 {
         if !self.enabled {

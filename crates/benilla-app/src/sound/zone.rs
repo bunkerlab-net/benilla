@@ -186,7 +186,7 @@ pub(super) struct ZoneAudio {
     next_track_at: Option<f64>,
     /// Music paths already warned about, so a retry every frame reports a bad file once.
     unplayable: std::collections::HashSet<String>,
-    /// Last frame's [`SoundConfig::music_suppressed`], for its edges.
+    /// Last frame's effective [`SoundConfig::music_paused`], for its edges.
     music_suppressed: bool,
     /// The looping ambience kit last asked for (0 = none): the bed playing, or the one opening.
     ambience_kit: u32,
@@ -305,10 +305,6 @@ fn zone_audio(
     let phase = phase(&clock);
     let zone = &mut *zone;
 
-    // The cinematic's music stop: a cut, then a resume at +3.000 s; ambience is untouched.
-    // Ahead of the cover's hold arm, which returns, so the edge is not deferred to the reveal.
-    apply_music_suppression(zone, config.music_suppressed, now);
-
     // The loading cover kills the world soundscape, as the reference's loading screen sits over
     // a torn-down world; resetting `area`/`interior` makes the reveal a fresh zone entry.
     if config.world_hold {
@@ -389,35 +385,38 @@ fn zone_audio(
     land_ambience(zone, &mut out, &config, now);
 
     // ---- music transport ----
-    // A server track holds the zone pump while it plays (`0x46005d`); when it ends it is
-    // destroyed and the zone track scheduled (`0x460074`-`0x460096`).
-    let server_live = zone
-        .server_music
-        .as_ref()
-        .map(|h| h.state() != kira::sound::PlaybackState::Stopped);
-    if server_live == Some(false) {
-        zone.server_music = None;
-        zone.server_music_kit = 0;
-    }
-    let server_holds = server_track_holds(zone, server_live, now);
-    // Reap a finished track and schedule the next after a silence interval (`0x4600b6`).
-    if let Some(h) = zone.music.as_ref().filter(|_| !server_holds) {
-        if h.state() == kira::sound::PlaybackState::Stopped {
-            zone.music = None;
-            zone.music_intro = false;
-            let zm = zone.zone_music;
-            zone.next_track_at =
-                next_track_time(&areas.0, zm, phase, now, config.zone_music_no_delay);
+    // The pause guard precedes every transport mutation (`0x460040`).
+    if !config.music_paused() {
+        // A server track holds the zone pump while it plays (`0x46005d`); when it ends it is
+        // destroyed and the zone track scheduled (`0x460074`-`0x460096`).
+        let server_live = zone
+            .server_music
+            .as_ref()
+            .map(|h| h.state() != kira::sound::PlaybackState::Stopped);
+        if server_live == Some(false) {
+            zone.server_music = None;
+            zone.server_music_kit = 0;
         }
-    }
-    // The deadline passed: start the next track. Under a live Lua slot the reference's pump bails
-    // before reading the deadline (`0x460057`); here the start is refused at the slot and the
-    // deadline stays armed until the verb rewrites it, the same outcome.
-    if !server_holds && zone.next_track_at.is_some_and(|t| now >= t) && zone.music.is_none() {
-        let kit = zone_music_row(&areas.0, zone.zone_music).map(|m| m.sounds[phase]);
-        pump_zone_music(zone, kit, |zone, kit| {
-            start_music_stream(zone, &mut out, &mut kits, &assets, &config, kit)
-        });
+        let server_holds = server_track_holds(zone, server_live, now);
+        // Reap a finished track and schedule the next after a silence interval (`0x4600b6`).
+        if let Some(h) = zone.music.as_ref().filter(|_| !server_holds) {
+            if h.state() == kira::sound::PlaybackState::Stopped {
+                zone.music = None;
+                zone.music_intro = false;
+                let zm = zone.zone_music;
+                zone.next_track_at =
+                    next_track_time(&areas.0, zm, phase, now, config.zone_music_no_delay);
+            }
+        }
+        // The deadline passed: start the next track. Under a live Lua slot the reference's pump bails
+        // before reading the deadline (`0x460057`); here the start is refused at the slot and the
+        // deadline stays armed until the verb rewrites it, the same outcome.
+        if !server_holds && zone.next_track_at.is_some_and(|t| now >= t) && zone.music.is_none() {
+            let kit = zone_music_row(&areas.0, zone.zone_music).map(|m| m.sounds[phase]);
+            pump_zone_music(zone, kit, |zone, kit| {
+                start_music_stream(zone, &mut out, &mut kits, &assets, &config, kit)
+            });
+        }
     }
 
     // ---- per-frame volumes (sliders are live) ----
@@ -454,7 +453,22 @@ fn zone_audio(
     }
 }
 
-/// The two edges of [`SoundConfig::music_suppressed`] on the music slot: down is a cut, since
+/// Pause ownership is independent of world residency: Lua music can play without an area.
+fn sync_music_pause(mut zone: NonSendMut<ZoneAudio>, config: Res<SoundConfig>, time: Res<Time>) {
+    apply_music_suppression(&mut zone, config.music_paused(), time.elapsed_secs_f64());
+}
+
+fn register_music_pause(app: &mut App) {
+    app.add_systems(
+        Update,
+        sync_music_pause
+            .after(lua_music)
+            .after(super::feed_music_suppression)
+            .before(server_sounds),
+    );
+}
+
+/// The two edges of [`SoundConfig::music_paused`] on the music slot: down is a cut, since
 /// `0x7a5700` stop-and-destroy takes no duration; up resumes at +3.000 s.
 fn apply_music_suppression(zone: &mut ZoneAudio, suppressed: bool, now: f64) {
     if suppressed == zone.music_suppressed {
@@ -475,7 +489,7 @@ fn apply_music_suppression(zone: &mut ZoneAudio, suppressed: bool, now: f64) {
         if let Some(h) = zone.lua_music.as_mut() {
             if suppressed {
                 h.pause(mixer::declick());
-                info!("Lua music: paused for a cinematic");
+                info!("Lua music: paused");
             } else {
                 h.resume(mixer::declick());
                 info!("Lua music: resumed");
@@ -486,8 +500,9 @@ fn apply_music_suppression(zone: &mut ZoneAudio, suppressed: bool, now: f64) {
     if suppressed {
         if let Some(mut h) = zone.music.take() {
             h.stop(mixer::fade(0));
-            info!("zone music: cut for a cinematic");
+            info!("zone music: cut while music is paused");
         }
+        zone.music_intro = false;
         // The next track starts at position 0, behind this one's baseline.
         zone.music_watch.reset();
         zone.next_track_at = None;
@@ -595,10 +610,10 @@ fn start_music_stream(
     config: &SoundConfig,
     kit_id: u32,
 ) -> bool {
-    // Nothing opens the slot during a cinematic, whoever asks: the reference's pump dies at its
+    // Nothing opens the slot while music is paused, whoever asks: the reference's pump dies at its
     // first instruction (`0x460040`, `[0xb06cc8]`). Refusing here also keeps an intro from being
     // stamped as played.
-    if config.music_suppressed {
+    if config.music_paused() {
         return false;
     }
     // Nor while a Lua track holds the override slot: the reference gates on the slot itself in
@@ -730,7 +745,7 @@ fn take_lua_music_slot(zone: &mut ZoneAudio, now: f64) {
 /// Open a Lua music stream on the override slot, by path and looping (`0x4604a7`–`0x4604bf`,
 /// through `0x7a5620`'s looping arm); [`lua_music`] reopens here at the natural end.
 ///
-/// Opened paused under a cinematic: the reference still opens the file and gates only the
+/// Opened paused under EnableMusic off or a cinematic: the reference still opens the file and gates only the
 /// deferred `_FSOUND_Stream_PlayEx` (`0x4604f2`/`0x4604f9`), starting it when music comes back.
 fn open_lua_music(
     zone: &mut ZoneAudio,
@@ -759,9 +774,9 @@ fn open_lua_music(
     match mixer_ref.play_stream(data.volume(mixer::amp_to_db(start_amp))) {
         Ok(mut h) => {
             info!("Lua music: {path}");
-            if config.music_suppressed {
+            if config.music_paused() {
                 h.pause(mixer::fade(0));
-                info!("Lua music: held — a cinematic has music disabled");
+                info!("Lua music: held — world music is paused");
             }
             // Only the loop's reopen finds a stream here; the verb already faded the old one.
             if let Some(mut outgoing) = zone.lua_music.replace(h) {
@@ -1064,7 +1079,7 @@ fn server_track_holds(zone: &mut ZoneAudio, live: Option<bool>, now: f64) -> boo
 /// (`0x460523`), a Lua track plays (`0x46052c`), or music is paused (`0x460535`), here a
 /// cinematic or `EnableMusic` off.
 fn server_push_refused(zone: &ZoneAudio, config: &SoundConfig) -> bool {
-    zone.music_intro || zone.lua_slot_live() || config.music_suppressed || !config.music_enabled
+    zone.music_intro || zone.lua_slot_live() || config.music_paused()
 }
 
 /// The open's duplicate check (`0x7a66c4`-`0x7a6706`), which `0x45ce60` asks for with the row's
@@ -1240,8 +1255,8 @@ fn stop_world_soundscape(zone: &mut ZoneAudio, reason: &str) {
     zone.area = None;
     zone.interior = None;
     zone.was_underwater = false;
-    // Else the next entry sees a falling edge left from this session's cinematic.
-    zone.music_suppressed = false;
+    // The pause edge belongs to sync_music_pause, not world residency. A loading
+    // cover keeps the Lua slot, which must still receive the matching resume edge.
     if had {
         info!("sound: world soundscape stopped ({reason})");
     }
@@ -1258,6 +1273,7 @@ fn report_stream_voices(zone: NonSend<ZoneAudio>, mut out: NonSendMut<super::Sou
 }
 
 pub(super) fn plugin(app: &mut App) {
+    register_music_pause(app);
     app.insert_non_send_resource(ZoneAudio::default())
         .add_systems(Startup, load_area_sounds.after(AssetSet::Open))
         .add_systems(
@@ -1291,10 +1307,10 @@ mod tests {
     use super::{
         apply_music_suppression, begin_bed_open, begin_zone_music, duplicate_refused,
         first_unplayable, forced_bed, music_delay_ms, next_track_time, open_bed, poll_bed_open,
-        pump_zone_music, reap_stopped_bed, record_zone_music_only, server_music_return_secs,
-        server_push_refused, server_track_holds, start_bed, stop_world_soundscape,
-        take_lua_music_slot, OpenedBed, ZoneAudio, CINEMATIC_MUSIC_RESUME_SECS,
-        LUA_MUSIC_SCHEDULE_SECS,
+        pump_zone_music, reap_stopped_bed, record_zone_music_only, register_music_pause,
+        server_music_return_secs, server_push_refused, server_track_holds, start_bed,
+        stop_world_soundscape, take_lua_music_slot, OpenedBed, ZoneAudio,
+        CINEMATIC_MUSIC_RESUME_SECS, LUA_MUSIC_SCHEDULE_SECS,
     };
     use crate::sound::kit::SoundKits;
     use crate::sound::mixer;
@@ -1477,6 +1493,143 @@ mod tests {
             .count();
         assert_eq!(hits, 1);
         assert!(first_unplayable(&mut zone, "Sound\\Music\\b.mp3"));
+    }
+
+    #[test]
+    fn registered_music_pause_runs_without_world_or_area_resources() {
+        use bevy::prelude::*;
+        let mut app = App::new();
+        app.insert_resource(Time::<()>::default())
+            .insert_resource(SoundConfig {
+                music_enabled: false,
+                ..SoundConfig::default()
+            })
+            .insert_non_send_resource(ZoneAudio {
+                lua_music_path: Some("synthetic.wav".into()),
+                next_track_at: Some(50.0),
+                ..ZoneAudio::default()
+            });
+        // The production registration is deliberately not behind world_audio_live, and
+        // requires no AreaSounds, SoundKits, WorldAssets, or player residency.
+        register_music_pause(&mut app);
+        app.update();
+        assert!(
+            app.world()
+                .non_send_resource::<ZoneAudio>()
+                .music_suppressed
+        );
+        stop_world_soundscape(
+            &mut app.world_mut().non_send_resource_mut::<ZoneAudio>(),
+            "loading cover",
+        );
+        assert!(
+            app.world()
+                .non_send_resource::<ZoneAudio>()
+                .music_suppressed
+        );
+        assert!(app.world().non_send_resource::<ZoneAudio>().lua_slot_live());
+        app.world_mut().resource_mut::<SoundConfig>().music_enabled = true;
+        app.update();
+        let zone = app.world().non_send_resource::<ZoneAudio>();
+        assert!(
+            !zone.music_suppressed,
+            "Lua pause has a matching resume outside the world"
+        );
+        assert!(zone.lua_slot_live());
+        assert_eq!(
+            zone.next_track_at, None,
+            "cover cleared only the world schedule"
+        );
+    }
+
+    #[test]
+    fn enable_music_uses_the_pause_lifecycle_and_respects_cinematic_overlap() {
+        let mut config = SoundConfig::default();
+        let mut zone = ZoneAudio {
+            zone_music: 42,
+            music_intro: true,
+            server_music_kit: 7,
+            intro_last: std::collections::HashMap::from([(1, 2.0)]),
+            next_track_at: Some(50.0),
+            ..ZoneAudio::default()
+        };
+        config.music_enabled = false;
+        apply_music_suppression(&mut zone, config.music_paused(), 10.0);
+        assert!(zone.music_suppressed);
+        assert!(
+            !zone.music_intro,
+            "destroying the shared slot releases the intro guard"
+        );
+        assert_eq!(zone.server_music_kit, 0);
+        assert_eq!(zone.next_track_at, None);
+        assert_eq!(
+            zone.intro_last.get(&1),
+            Some(&2.0),
+            "pause is not a cooldown reset"
+        );
+
+        config.music_suppressed = true;
+        config.music_enabled = true;
+        apply_music_suppression(&mut zone, config.music_paused(), 20.0);
+        assert_eq!(
+            zone.next_track_at, None,
+            "enabling during a cinematic must not resume"
+        );
+        config.music_suppressed = false;
+        apply_music_suppression(&mut zone, config.music_paused(), 30.0);
+        assert_eq!(zone.next_track_at, Some(33.0));
+        assert_eq!(zone.zone_music, 42);
+        apply_music_suppression(&mut zone, config.music_paused(), 31.0);
+        assert_eq!(zone.next_track_at, Some(33.0), "no repeated rearming");
+    }
+
+    #[test]
+    fn cinematic_end_does_not_override_disabled_music() {
+        let mut config = SoundConfig {
+            music_suppressed: true,
+            music_enabled: false,
+            ..SoundConfig::default()
+        };
+        let mut zone = ZoneAudio::default();
+        apply_music_suppression(&mut zone, config.music_paused(), 1.0);
+        config.music_suppressed = false;
+        apply_music_suppression(&mut zone, config.music_paused(), 2.0);
+        assert!(zone.music_suppressed);
+        assert!(
+            !config.music_enabled,
+            "the persisted preference is untouched"
+        );
+        assert_eq!(zone.next_track_at, None);
+    }
+
+    #[test]
+    fn enable_music_pause_preserves_lua_slot_and_zone_schedule() {
+        let mut config = SoundConfig {
+            music_enabled: false,
+            ..SoundConfig::default()
+        };
+        let mut zone = ZoneAudio {
+            lua_music_path: Some("synthetic.wav".into()),
+            next_track_at: Some(50.0),
+            music_intro: true,
+            server_music_kit: 7,
+            ..ZoneAudio::default()
+        };
+        apply_music_suppression(&mut zone, config.music_paused(), 10.0);
+        assert_eq!(
+            zone.server_music_kit, 0,
+            "server is destroyed before the Lua arm"
+        );
+        assert!(zone.lua_slot_live());
+        assert!(
+            zone.music_intro,
+            "Lua pause returns without touching the intro"
+        );
+        assert_eq!(zone.next_track_at, Some(50.0));
+        config.music_enabled = true;
+        apply_music_suppression(&mut zone, config.music_paused(), 20.0);
+        assert!(zone.lua_slot_live());
+        assert_eq!(zone.next_track_at, Some(50.0));
     }
 
     #[test]
