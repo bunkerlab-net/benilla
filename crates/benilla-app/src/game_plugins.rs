@@ -1147,6 +1147,45 @@ pub(crate) mod schedule_tests {
         );
     }
 
+    /// Native login overlays feed this frame's CVar drain; loading tips run after world
+    /// presentation. Ordering the overlays after the tip writer closes a VM-pass cycle.
+    #[test]
+    fn login_overlay_precedes_cvar_drain_and_late_loading_tip() {
+        let mut app = headless_client();
+        let graph = census(&mut app, Update, SyncPoints::Declared);
+        if !type_names_available(&graph) {
+            return;
+        }
+        let key = |suffix: &str| {
+            graph
+                .systems
+                .iter()
+                .find_map(|(key, system)| system.name.ends_with(suffix).then_some(*key))
+                .unwrap_or_else(|| panic!("missing system {suffix}"))
+        };
+        for (producer, consumer) in [
+            ("::login::login_input", "::cvars::sync_cvars"),
+            ("::cvars::sync_cvars", "::game_tip::drive_game_tip"),
+        ] {
+            let mut seen = HashSet::new();
+            let mut pending = vec![key(producer)];
+            while let Some(system) = pending.pop() {
+                if seen.insert(system) {
+                    pending.extend(
+                        graph
+                            .dependencies
+                            .iter()
+                            .filter_map(|(from, to)| (*from == system).then_some(*to)),
+                    );
+                }
+            }
+            assert!(
+                seen.contains(&key(consumer)),
+                "{producer} must precede {consumer}"
+            );
+        }
+    }
+
     #[test]
     fn attached_audio_reads_after_rig_anchor_and_camera_pose_writers() {
         let mut app = headless_client();

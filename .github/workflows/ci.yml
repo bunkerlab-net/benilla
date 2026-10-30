@@ -272,6 +272,7 @@ jobs:
         run: |
           set -euo pipefail
           tests=(
+            game_plugins::schedule_tests::login_overlay_precedes_cvar_drain_and_late_loading_tip
             game_plugins::schedule_tests::attached_audio_reads_after_rig_anchor_and_camera_pose_writers
             game_plugins::schedule_tests::the_schedules_have_no_more_undeclared_orders_than_the_ceilings_say
           )

@@ -22,7 +22,9 @@ impl Plugin for LoginPlugin {
                 Update,
                 (
                     screen::materialize_screen,
-                    login_input.after(crate::game_tip::drive_game_tip),
+                    // Overlay input belongs before UiDrain and world Input; loading tips
+                    // run after Present and publish their CVar cursor for the next frame.
+                    login_input,
                     settings::recover,
                     settings::input,
                     settings::render.before(crate::cvars::sync_cvars),
