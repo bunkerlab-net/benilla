@@ -538,6 +538,7 @@ fn reputation_height_profile(modifier: bool) -> Profile {
     // Keep the existing singleton motion domain; this case exercises height ownership.
     p.npcs.truncate(1);
     rows.quests.clear();
+    rows.quest_relationships = synthetic_quest_fixture::relationship_capture(&rows.quests);
     rows.relations.starters.clear();
     rows.relations.finishers.clear();
     rows.npc_rows = vec![QuestNpcRow {

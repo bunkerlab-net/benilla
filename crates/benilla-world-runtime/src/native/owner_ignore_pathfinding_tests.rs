@@ -469,6 +469,7 @@ fn consistent_earlier_ability_receipt_cannot_replace_current_frame_or_replay_rec
     p.npcs[0].faction_template = 2;
     p.npcs[0].ai.reaction = ai::Reaction::Aggressive;
     rows.quests.clear();
+    rows.quest_relationships = synthetic_quest_fixture::relationship_capture(&rows.quests);
     rows.relations.starters.clear();
     rows.relations.finishers.clear();
     rows.npc_rows.clear();

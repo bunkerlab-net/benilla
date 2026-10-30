@@ -19,6 +19,18 @@ resolve all creature/item IDs, apply upstream loader normalization or reject
 invalid inputs, and attest the complete relevant relation scan. This API cannot
 cryptographically prove that a caller supplied honest/complete evidence.
 
+The native progression input instead requires `RelationshipCapture` and calls
+`Catalog::from_relationship_capture`. This constructor checks exact selected
+roots, raw field agreement, and complete incoming evidence before deriving
+`complete_relation_scan`. It bounds the closure to 1,024 quests.
+`Error::Relationship` identifies the source quest, field, signed target, and
+refusal reason. Missing incoming coverage is not an empty scan. External
+incoming quests and uncaptured reachable references refuse rather than
+becoming playable quests or disappearing. The Python preparation validates
+the snapshot-bound sidecar and supplies this projection, its source digest,
+and normalised relationship lists. See the
+[capture contract](../../scripts/classic_export/QUEST-RELATIONSHIP-CONTRACT.md).
+
 `QuestRow` includes the supported fields and `ExcludedFields` retains unsupported
 behavioral columns so nonzero values cannot silently disappear. Descriptive text,
 map POI and emote/UI columns remain the presentation layer's responsibility.

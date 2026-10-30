@@ -62,6 +62,7 @@ fn append_quest(data: &mut QuestProgressionInput, row: q::QuestRow) {
     data.relations.starters.push(relation.clone());
     data.relations.finishers.push(relation);
     data.quests.push(row);
+    data.quest_relationships = synthetic_quest_fixture::relationship_capture(&data.quests);
 }
 fn fill_quest(data: &mut QuestProgressionInput, rewards: &[(u32, u32)]) {
     let mut row = data.quests[0].clone();

@@ -541,6 +541,7 @@ fn batch_accept_and_rewards_preserve_every_committed_money_callback() {
     second.id = 70002;
     second.reward.reward_or_required_money = 9;
     data.quests.push(second);
+    data.quest_relationships = fixture::relationship_capture(&data.quests);
     let relation = q::CreatureQuestRelation {
         creature: 60003,
         quest: 70002,
@@ -747,6 +748,7 @@ fn greeting_roles_captured_relation_order_and_real_emotes_are_preserved() {
     let mut second = data.quests[0].clone();
     second.id = 70002;
     data.quests.push(second);
+    data.quest_relationships = fixture::relationship_capture(&data.quests);
     data.relations.finishers = vec![q::CreatureQuestRelation {
         creature: 60003,
         quest: 70002,
@@ -902,6 +904,7 @@ fn chain_details_follow_reward_even_when_next_quest_cannot_be_taken() {
     second.eligibility.minimum_level = 60;
     data.quests[0].next_in_chain = 70002;
     data.quests.push(second);
+    data.quest_relationships = fixture::relationship_capture(&data.quests);
     data.relations.starters.push(q::CreatureQuestRelation {
         creature: 60003,
         quest: 70002,

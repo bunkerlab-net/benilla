@@ -31,7 +31,7 @@ export_tests = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(export_tests)
 
 
-def source_bundle():
+def source_input():
     source = export_tests.starter_source()
     for name in FLOAT_SPELL_FIELDS:
         col = next(c for c in source.inventory["tables"]["spell_template"]["columns"] if c["name"] == name)
@@ -41,7 +41,11 @@ def source_bundle():
     for item in source.rows["item_template"]:
         item["BuyCount"] = 1
     source.rows["creature_template"][0]["Faction"] = 970001
-    return capture(source, export_tests.starter_selection())
+    return source
+
+
+def source_bundle():
+    return capture(source_input(), export_tests.starter_selection())
 
 
 def dbc_bytes(name, rows):
@@ -1159,6 +1163,87 @@ class RegistryAndDisplayPreparationTests(unittest.TestCase):
             self.files["CreatureDisplayInfo"] = dbc_bytes("CreatureDisplayInfo", [{0: 940001, 4: binary32_bits("3")}])
             with self.assertRaisesRegex(ExportError, "dbc_manifest_mismatch"):
                 load_extraction_manifest(directory, parsed(self.files))
+
+
+class QuestRelationshipPreparationTests(unittest.TestCase):
+    def bundle(self, mutate=None, extension=True):
+        source = source_input()
+        source.rows["quest_template"] += [
+            export_tests.row("quest_template", entry=783, NextQuestInChain=7),
+            export_tests.row("quest_template", entry=7, PrevQuestId=783,
+                             NextQuestInChain=15, ReqCreatureOrGOId1=900001, ReqCreatureOrGOCount1=2),
+            export_tests.row("quest_template", entry=15, PrevQuestId=7),
+            export_tests.row("quest_template", entry=5261, PrevQuestId=783, NextQuestInChain=33),
+            export_tests.row("quest_template", entry=33, PrevQuestId=5261, ReqItemId1=920001, ReqItemCount1=2)]
+        if mutate:
+            mutate(source.rows["quest_template"])
+        value = export_tests.starter_selection().json()
+        value["quest_ids"] = [7, 15, 33, 783, 5261, 910001]
+        return capture(source, export_tests.Selection.parse(value), capture_quest_relationships=extension)
+
+    def compile(self, source):
+        return compile_starter(source, parsed(dbcs_for(source)),
+                               Request.parse({"race": 1, "class": 1, "gender": 0}))
+
+    def test_closed_graph_removes_only_relationship_obligations_and_retains_all_paths(self):
+        source = self.bundle()
+        result = self.compile(source)
+        graph = result["quest_relationships"]
+        self.assertEqual(graph["status"], "resolved")
+        self.assertEqual(graph["previous"]["7"], [783])
+        self.assertEqual(graph["previous"]["15"], [7])
+        self.assertEqual(graph["previous"]["5261"], [783])
+        self.assertEqual(graph["previous"]["33"], [5261])
+        self.assertEqual(graph["previous_chain"]["7"], [783])
+        self.assertNotIn("quest.chain", {i["reason"] for i in result["unsupported"]})
+        self.assertNotIn("quest.inbound_relationship", {i["reason"] for i in result["unsupported"]})
+        self.assertIn("quest.chain", {i["reason"] for i in source["report"]["unsupported"]})
+        disposition = next(d for d in result["source_field_dispositions"]
+                           if d["table"] == "quest_template" and d["key"] == [7])
+        self.assertIn("PrevQuestId", disposition["consumed_by_preparation"])
+        self.assertNotIn("PrevQuestId", disposition["blocked_for_gameplay"]
+                         ["quest.native_eligibility_credit_reward_required"])
+        paths = {p["quest_id"]: p for p in result["candidate_paths"]}
+        self.assertEqual(paths[783]["objectives"], [])
+        self.assertEqual(paths[33]["item_objectives"], [{"slot": 1, "item": 920001, "count": 2}])
+        self.assertEqual(paths[7]["previous_quest"], 783)
+        self.assertEqual(result["status"], "blocked")
+        self.assertIsNone(result["runtime_export"])
+        verify_preparation(result, source, parsed(dbcs_for(source)))
+
+    def test_signed_previous_and_inbound_next_preserve_signs(self):
+        from classic_export.quest_relationships import resolve
+        for sign in (-1, 1):
+            def mutate(rows):
+                next(row for row in rows if row["entry"] == 7)["PrevQuestId"] = sign * 783
+                next(row for row in rows if row["entry"] == 783)["NextQuestId"] = sign * 15
+            graph = resolve(self.bundle(mutate))
+            self.assertEqual(graph["previous"]["7"], [sign * 783])
+            self.assertEqual(graph["previous"]["15"], [7, sign * 783])
+
+    def test_unsupported_and_missing_edges_remain_exact_blockers(self):
+        from classic_export.quest_relationships import resolve
+        cases = [("NextQuestId", -7, "uncaptured_incoming_quest"),
+                 ("NextQuestInChain", 7, "uncaptured_incoming_quest"),
+                 ("BreadcrumbForQuestId", 7, "uncaptured_incoming_quest")]
+        for field, target, reason in cases:
+            source = self.bundle(lambda rows: rows.append(export_tests.row(
+                "quest_template", entry=999999, **{field: target})))
+            graph = resolve(source)
+            self.assertIn({"quest": 999999, "field": field, "target": target, "reason": reason},
+                          graph["refusals"])
+            self.assertIn("quest.chain", {i["reason"] for i in self.compile(source)["unsupported"]})
+        for field in ("PrevQuestId", "NextQuestId", "NextQuestInChain",
+                      "ExclusiveGroup", "BreadcrumbForQuestId", "StartScript",
+                      "CompleteScript", "RequiredCondition", "SrcItemId"):
+            target = 920001 if field == "SrcItemId" else 999999
+            source = self.bundle(lambda rows: next(row for row in rows if row["entry"] == 7).update({field: target}))
+            graph = resolve(source)
+            self.assertEqual(graph["status"], "blocked")
+            self.assertTrue(any(r["quest"] == 7 and r["field"] == field and r["target"] == target
+                                for r in graph["refusals"]))
+        self.assertEqual(resolve(self.bundle(extension=False))["refusals"],
+                         [{"quest": 0, "field": "inbound", "target": 0, "reason": "unknown_coverage"}])
 
 
 if __name__ == "__main__":

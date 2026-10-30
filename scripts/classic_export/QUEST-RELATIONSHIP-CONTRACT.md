@@ -1,11 +1,12 @@
-# Raw quest relationship exclusion evidence
+# Captured quest relationships and bounded ordinary closure
 
-This optional **diagnostic-only** Python API extension is requested with
-`capture(..., capture_quest_relationships=True)`. It is not wired into a private
-compiler, gameplay consumer, CLI activation path or native admission. No database
-connection or real content was used to test it. `runnable` and `capture_complete`
-remain false. Legacy captures without the extension remain unproven; absence of
-`quest_relationship_capture` must never mean an empty inbound relationship set.
+The optional Python capture extension uses
+`capture(..., capture_quest_relationships=True)` to preserve raw incoming evidence.
+The native starter preparation calls `quest_relationships.resolve` on validated
+evidence. A resolved closure supplies `quest_relationships.capture` for Rust's
+`quest_lifecycle::Catalog::from_relationship_capture`. Neither path grants native
+admission. Raw `runnable` and `capture_complete` remain false. Missing evidence
+means unknown incoming coverage, never an empty set.
 
 ## Source contract
 
@@ -16,7 +17,7 @@ The full quest map contributes incoming signed NextQuestId prerequisites,
 NextQuestInChain reverse chains, and transitive breadcrumb dependencies. Explicit
 PrevQuestId excludes breadcrumb predecessors, whereas incoming NextQuestId does
 not. Missing-reference clearing and breadcrumb-cycle mutations differ by field.
-This extension does **not** reproduce those loader transformations.
+The raw capture preserves these fields without loader transformations.
 
 For exactly the captured quest IDs, preserve each selected row's entry,
 PrevQuestId, NextQuestId, NextQuestInChain, ExclusiveGroup and
@@ -27,14 +28,40 @@ BreadcrumbForQuestId. Scan the entire quest table using precisely:
 * BreadcrumbForQuestId in selected IDs.
 
 Other rows' PrevQuestId affects those other rows, not selected reverse stores;
-it is deliberately not scanned. This is not a complete relationship graph.
-Nonzero own ExclusiveGroup is already blocked; no global group-membership claim
-is made. Nonzero own relationship fields retain `quest.chain`. Every matching
-incoming field adds `quest.inbound_relationship`, even dangling, cyclic or
-loader-ignored raw edges. There is no chain admission or recursive expansion.
-Complete-empty direct incoming breadcrumbs imply absence of any incoming
-transitive path (every path has a last direct edge). A present direct edge blocks
-immediately; it does not establish the normalized dependent-breadcrumb list.
+it is deliberately not scanned. The selected rows and their incoming scans can
+establish a bounded closed ordinary graph, not a complete global graph.
+Raw reports retain `quest.chain` and `quest.inbound_relationship` diagnostics.
+Preparation replaces these two obligations only when the entire selected closure
+resolves. It retains other eligibility, credit, reward, giver, and item obligations.
+
+## Ordinary closure consumer
+
+Every referenced quest must have its full selected row and its own incoming scan.
+Preparation never promotes an external incoming row into playable content.
+An external incoming row, dangling reference, conflict, missing scan, or closure
+above 1,024 quests refuses the closure. Refusals identify the quest, field, signed
+target, and reason. Nonzero exclusive groups, breadcrumbs, scripts, conditions,
+and source-item or source-spell paths remain unsupported.
+
+The preparation output retains the exact source digest, raw capture projection,
+normalised signed prerequisites, and separate reverse-chain lists. Rust compares
+the raw projection against every supplied gameplay row and checks selected
+incoming edges before deriving `complete_relation_scan`. The existing catalog
+constructs the authoritative prerequisite and reverse-chain stores.
+
+Positive prerequisites require a rewarded predecessor. Negative prerequisites
+require a current predecessor. These are alternatives, as in
+[`Player::SatisfyQuestPreviousQuest`, Player.cpp:12906-13004](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Player.cpp#L12906-L13004).
+`NextQuestInChain` selects a next offer at the same giver, not a prerequisite.
+[`Player::GetNextQuest`, Player.cpp:12210-12240](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Player.cpp#L12210-L12240)
+and the existing reward/dialog path retain that distinction.
+[`Player::CanTakeQuest`, Player.cpp:12265-12273](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Player.cpp#L12265-L12273)
+still gates acceptance.
+
+Unlike the upstream loader, the bounded consumer refuses missing references
+instead of clearing or ignoring them. Breadcrumbs refuse before their transitive
+normalisation or cycle repair. Complete-empty direct incoming breadcrumb coverage
+excludes any incoming transitive breadcrumb path.
 
 ## Bounded evidence and limitations
 

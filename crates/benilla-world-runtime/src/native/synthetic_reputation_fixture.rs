@@ -105,6 +105,7 @@ pub fn setup() -> (Profile, init::StarterInput, QuestProgressionInput) {
     row.excluded.reward_rep_faction = [PRIMARY, PRIMARY, PRIMARY, 0, 0];
     row.excluded.reward_rep_value = [200, -100, 100, 0, 0];
     data.quests = vec![row, objective, gated, loss, other];
+    data.quest_relationships = synthetic_quest_fixture::relationship_capture(&data.quests);
     data.relations = q::QuestRelations {
         starters: vec![],
         finishers: vec![],

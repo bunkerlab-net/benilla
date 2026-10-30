@@ -2411,6 +2411,9 @@ class QuestRelationshipTests(unittest.TestCase):
             source = FakeSource(); source.rows["quest_template"][0][field] = value
             with self.subTest(field=field), self.assertRaises(ExportError):
                 self.capture(source)
+            with self.subTest(field=field), self.assertRaisesRegex(
+                    ExportError, f"quest_relationships.numeric_domain:910001:{field}:"):
+                quest_relationships.projection(source.rows["quest_template"])
 
     def test_request_is_boolean(self):
         with self.assertRaisesRegex(ExportError, "request_boolean"):

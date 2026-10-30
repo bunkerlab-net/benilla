@@ -406,6 +406,7 @@ fn source_item_removal_overcount_keeps_incomplete_reputation_objective_reopenabl
     unrelated.excluded.reward_item = [0; 4];
     unrelated.excluded.reward_item_count = [0; 4];
     data.quests = vec![donor, objective, fill, second_donor, refill, unrelated];
+    data.quest_relationships = synthetic_quest_fixture::relationship_capture(&data.quests);
     data.relations.starters.clear();
     data.relations.finishers.clear();
     for row in &data.quests {

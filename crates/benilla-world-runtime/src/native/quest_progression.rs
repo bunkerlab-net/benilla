@@ -66,6 +66,7 @@ pub struct QuestProgressionInput {
     pub quests: Vec<q::QuestRow>,
     pub relations: q::QuestRelations,
     pub quest_audit: q::DependencyAudit,
+    pub quest_relationships: q::RelationshipCapture,
     pub levels: pg::Catalog,
     pub progression_audit: pg::Audit,
     pub derived_audit: DerivedAudit,
@@ -274,7 +275,12 @@ impl QuestProgressionGenesis {
         training.preflight(initial.view())?;
         // Source multimap preserves the captured query order among equivalent NPC keys.
         let presentation_relations = rows.relations.clone();
-        let quests = q::Catalog::new(rows.quests, rows.relations, rows.quest_audit)?;
+        let quests = q::Catalog::from_relationship_capture(
+            rows.quests,
+            rows.relations,
+            rows.quest_audit,
+            &rows.quest_relationships,
+        )?;
         let mut npc_rows = BTreeMap::new();
         for row in rows.npc_rows {
             if row.entry == 0

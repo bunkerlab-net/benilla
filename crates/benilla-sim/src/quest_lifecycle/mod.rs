@@ -6,8 +6,10 @@
 //! All inventory, XP and currency changes occur on an isolated transaction host.
 //! The caller must durably commit host and State together before publishing events.
 mod model;
+mod relationships;
 use crate::quest::{self, QuestPlayerIdentity, RewardContext};
 pub use model::*;
+pub use relationships::*;
 
 pub const POLICY_ID: &str = "cmangos-8ec338a1-ordinary-quest-lifecycle-v4";
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -15,6 +17,12 @@ pub enum Error {
     Unsupported(&'static str),
     Invalid(&'static str),
     Rejected(Gate),
+    Relationship {
+        quest: u32,
+        field: &'static str,
+        target: i64,
+        reason: &'static str,
+    },
     Host(&'static str),
     Arithmetic(quest::QuestError),
 }

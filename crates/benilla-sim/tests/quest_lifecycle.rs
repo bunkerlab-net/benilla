@@ -6,6 +6,8 @@ use benilla_sim::quest::{
 };
 use benilla_sim::quest_lifecycle::*;
 use std::collections::BTreeMap;
+#[path = "quest_lifecycle/relationships.rs"]
+mod relationships;
 
 fn excluded() -> ExcludedFields {
     ExcludedFields {
@@ -99,9 +101,31 @@ fn relations(rows: &[QuestRow]) -> QuestRelations {
         finishers: all,
     }
 }
+fn captured(rows: &[QuestRow]) -> RelationshipCapture {
+    let mut own: Vec<_> = rows.iter().map(RelationshipRow::from).collect();
+    own.sort_by_key(|row| row.entry);
+    let roots: Vec<_> = own.iter().map(|row| row.entry).collect();
+    let inbound = own
+        .iter()
+        .filter(|row| {
+            roots.contains(&row.next.unsigned_abs())
+                || roots.contains(&row.chain)
+                || roots.contains(&row.breadcrumb)
+        })
+        .cloned()
+        .collect();
+    RelationshipCapture {
+        roots,
+        own,
+        inbound: Some(inbound),
+    }
+}
 fn catalog(rows: Vec<QuestRow>) -> Catalog {
     let r = relations(&rows);
-    Catalog::new(rows, r, audit()).unwrap()
+    let capture = captured(&rows);
+    let mut evidence = audit();
+    evidence.complete_relation_scan = false;
+    Catalog::from_relationship_capture(rows, r, evidence, &capture).unwrap()
 }
 /// Synthetic callback ledger, not an inventory/GiveXP port. Test facts are explicit.
 #[derive(Clone, Debug, PartialEq, Eq)]

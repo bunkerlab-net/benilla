@@ -263,7 +263,7 @@ fn distinct_quest_missing_or_inconsistent_progression_dependencies_do_not_initia
     for case in 0..14 {
         let (mut profile, input, mut data) = fixture::setup_with_spawns(3, 2, [2, 3]);
         match case {
-            0 => data.quest_audit.complete_relation_scan = false,
+            0 => data.quest_relationships.inbound = None,
             1 => data.quest_audit.questgiver_hooks = q::Evidence::Unknown,
             2 => data.quest_audit.collection_item_effects = q::Evidence::Unknown,
             3 => data

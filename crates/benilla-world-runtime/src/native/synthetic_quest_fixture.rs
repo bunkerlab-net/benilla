@@ -193,6 +193,11 @@ pub fn setup_with_levels(
             low_level_hide_diff: 5,
             high_level_hide_diff: 7,
         },
+        quest_relationships: q::RelationshipCapture {
+            roots: vec![row.id],
+            own: vec![q::RelationshipRow::from(&row)],
+            inbound: Some(vec![]),
+        },
         quests: vec![row],
         relations: q::QuestRelations {
             starters: vec![relation.clone()],
@@ -268,6 +273,25 @@ pub fn setup_with_levels(
         },
     };
     (p, input, data)
+}
+pub fn relationship_capture(rows: &[q::QuestRow]) -> q::RelationshipCapture {
+    let mut own: Vec<_> = rows.iter().map(q::RelationshipRow::from).collect();
+    own.sort_by_key(|row| row.entry);
+    let roots: Vec<_> = own.iter().map(|row| row.entry).collect();
+    let inbound = own
+        .iter()
+        .filter(|row| {
+            roots.contains(&row.next.unsigned_abs())
+                || roots.contains(&row.chain)
+                || roots.contains(&row.breadcrumb)
+        })
+        .cloned()
+        .collect();
+    q::RelationshipCapture {
+        roots,
+        own,
+        inbound: Some(inbound),
+    }
 }
 pub fn profile() -> Profile {
     let (mut p, input, data) = setup();

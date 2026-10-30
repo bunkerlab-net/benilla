@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from classic_export.capture import validate_bundle
-from classic_export import event_ai, native_spawn, spell_registry, initial_hooks
+from classic_export import event_ai, native_spawn, spell_registry, initial_hooks, quest_relationships
 from classic_export.columns import COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA
 from classic_export.core import (CORE_REVISION, STARTER_FORMAT, KEYS, Selection,
                                  canonical, check, digest, integer)
@@ -562,8 +562,9 @@ class Compiler:
                            "count": quest[f"ReqCreatureOrGOCount{i}"],
                            "spell": quest[f"ReqSpellCast{i}"]} for i in range(1, 5)
                           if quest[f"ReqCreatureOrGOId{i}"] or quest[f"ReqCreatureOrGOCount{i}"]]
-            if not objectives or any(o["entry"] <= 0 or o["count"] <= 0 for o in objectives):
-                continue
+            item_objectives = [{"slot": i, "item": quest[f"ReqItemId{i}"],
+                                "count": quest[f"ReqItemCount{i}"]} for i in range(1, 5)
+                               if quest[f"ReqItemId{i}"] or quest[f"ReqItemCount{i}"]]
             starts = {r["id"] for r in self.tables["creature_questrelation"] if r["quest"] == quest["entry"]}
             finishes = {r["id"] for r in self.tables["creature_involvedrelation"] if r["quest"] == quest["entry"]}
             targets = {o["entry"] for o in objectives}
@@ -572,14 +573,20 @@ class Compiler:
                 "finisher_spawn_guids": [r["guid"] for r in spawns if r["id"] in finishes],
                 "target_spawn_guids": [r["guid"] for r in spawns if r["id"] in targets],
                 "objectives": objectives, "initial_direct_effect_spell_ids": spell_candidates,
+                "item_objectives": item_objectives,
+                "previous_quest": quest["PrevQuestId"],
+                "next_quest": quest["NextQuestId"],
+                "next_in_chain": quest["NextQuestInChain"],
                 "eligibility": "not_evaluated", "runtime_profile": None})
         return paths
 
-    def dispositions(self) -> list[dict[str, Any]]:
+    def dispositions(self, relationships_resolved: bool) -> list[dict[str, Any]]:
         result = []
         for table, rows in sorted(self.tables.items()):
             for row in rows:
                 consumed = CONSUMED.get(table, set())
+                if table == "quest_template" and relationships_resolved:
+                    consumed = consumed | set(quest_relationships.FIELDS)
                 comments = {"Note", "note", "comments"} & set(row)
                 blocked = set(row) - consumed - comments
                 reason = BLOCKED_TABLE_REASON.get(table, "player.native_creation_progression_rules_required")
@@ -605,6 +612,9 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
     check(set(dbcs) <= set(LAYOUTS), "compiler.unknown_dbc")
     c = Compiler(source, dbcs, request)
     c.issues.extend(dbc_errors or [])
+    relationships = quest_relationships.resolve(source)
+    for refusal in relationships["refusals"]:
+        c.issue("quest_template", [refusal["quest"]], "quest.chain", edge=refusal)
     observed_errors = {i["table"] for i in dbc_errors or []}
     for missing in sorted(set(LAYOUTS) - set(dbcs) - observed_errors):
         c.issue(missing, [], "dbc.file_missing")
@@ -617,6 +627,8 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
         "player.char_start_outfit_dbc_items_not_captured",
         "player.skill_line_race_class_tiers_ability_dbc_not_captured",
     }
+    if relationships["status"] == "resolved":
+        replaced.update({"quest.chain", "quest.inbound_relationship"})
     c.issues.extend({"table": i["table"], "key": i["key"], "reason": i["reason"],
                      "origin": "source_capture"} for i in source["report"]["unsupported"]
                     if i["reason"] not in replaced)
@@ -636,7 +648,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
         "missing_ids": [entry for entry in display_ids if entry not in display_table.by_id]
                        if display_table else None}
     c.issue("runtime", [], "native.runtime_profile_not_implemented")
-    dispositions = c.dispositions()
+    dispositions = c.dispositions(relationships["status"] == "resolved")
     dbc_bindings = []
     for key, row in sorted(c.selected_dbc.items()):
         used = c.used_dbc[key]
@@ -660,6 +672,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
         "spell_script_capture": source.get("spell_script_capture"),
         "initial_hook_capture": source.get("initial_hook_capture"),
         "creature_display_inputs": display_evidence,
+        "quest_relationships": relationships,
         "player": {"identity": identity, "level_inputs": c.progression(), "outfit": outfit,
                    "initial_sql_spells": source["tables"]["playercreateinfo_spell"],
                    "actions": source["tables"]["playercreateinfo_action"], "skills": skills},

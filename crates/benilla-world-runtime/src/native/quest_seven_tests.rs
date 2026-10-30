@@ -138,6 +138,7 @@ fn profile() -> Profile {
         .2
         .levels;
     data.quests = quest_rows(data.quests[0].clone());
+    data.quest_relationships = synthetic_quest_fixture::relationship_capture(&data.quests);
     let relation = |creature, quest| q::CreatureQuestRelation { creature, quest };
     data.relations = q::QuestRelations {
         starters: vec![
@@ -333,6 +334,33 @@ fn quest_seven_source_shaped_kills_reward_gates_and_checkpoint_replay() {
     rejected(&world, Rejection::Quest(q::Gate::Giver));
     command(&mut world, &mut authority, PREREQUISITE, MCBRIDE, true);
     assert!(quest(&world, PREREQUISITE).rewarded);
+    let events = &world.last_tick().unwrap().events;
+    let reward = events
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                Event::QuestProgression(QuestProgressionEvent::Quest {
+                    event: q::Event::RewardAnnouncement {
+                        quest: PREREQUISITE,
+                        ..
+                    },
+                    ..
+                })
+            )
+        })
+        .unwrap();
+    let offer = events
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                Event::QuestProgression(QuestProgressionEvent::ChainDetails { quest: QUEST, .. })
+            )
+        })
+        .unwrap();
+    assert!(reward < offer);
+    replay_and_reopen(&mut world, &mut initial);
     assert_eq!(standing(&world), 75);
     command(&mut world, &mut authority, QUEST, WILLEM, false);
     rejected(&world, Rejection::Quest(q::Gate::Giver));
