@@ -3,7 +3,7 @@
 The native armor owner admits destruction of an original pristine nonweapon armor
 instance **after** it was moved into a supported backpack slot. This is a separate
 source-owned selected handler, not generic inventory consumption or arbitrary
-item deletion. Native format 72, quest reconstruction 12 and carried-items host
+item deletion. Native format 81, quest reconstruction 12 and carried-items host
 policy 13 reject old identities; there is no migration or native admission change.
 
 ## Source operation

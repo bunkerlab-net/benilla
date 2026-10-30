@@ -1,6 +1,6 @@
 # Carried original mainhand custody
 
-Native format 75, quest reconstruction v15 and carried-item host v16 extend the
+Native format 81, quest reconstruction v15 and carried-item host v16 extend the
 existing separate custody-only relocation and AutoStore receipts to a detached,
 pristine, source-initialized original mainhand. This does not admit acquired or
 imported weapons, occupied-destination swaps, bag/equipment routing, destruction,

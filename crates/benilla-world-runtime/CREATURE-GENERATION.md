@@ -1,6 +1,6 @@
 # Source-owned creature generations
 
-This optional native51 component owns ordinary creature initialization per life.
+This optional native81 component owns ordinary creature initialization per life.
 It does not open production admission, import a creature database, authenticate
 captured rows, or resolve client assets. The raw arithmetic port and its
 exclusions remain in [CREATURE-INIT.md](../benilla-sim/CREATURE-INIT.md).
@@ -116,9 +116,9 @@ not evidence of universal source grid iteration or a real Human entry order.
 
 ## Persistence and transaction boundary
 
-Native format 51, policy `benilla-native-home-wander-v51`, and v51
-profile/state/record/checkpoint/melee/callback hash domains reject native48 and
-older envelopes without migration.
+Native format 81, policy `benilla-native-creature-string-identities-v81`, and v81
+profile/state/record/checkpoint hash domains reject earlier envelopes without migration.
+Melee and callback hash domains remain separate.
 Generation source policy v4 and capability source policy v3 bind the explicit
 initialization closure and required per-life receipt. Ordinary visitor source
 policy v3 and Home retain their explicit addon closures. The RNG v2

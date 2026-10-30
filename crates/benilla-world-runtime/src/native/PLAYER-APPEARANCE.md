@@ -61,7 +61,7 @@ format bump or migration is required for this derived projection. Guild remains 
 [bounded source owner](PLAYER-HIDE-FLAGS.md), not this cosmetic owner. No ghost aura, transformed display, corpse identity/registry,
 placement, graveyard, resurrection or rendered-pixel behavior is implied.
 
-Native format 69 requires this versioned optional snapshot field and rejects
-previous format 68 without migration. Source shape, opaque loaded-row tests,
+Native format 81 requires this versioned optional snapshot field and rejects
+earlier formats without migration. Source shape, opaque loaded-row tests,
 rehashed-state adversarial tests, actual field parsing and controller
 checkpoint-failure/retry/reopen are separate evidence from graphical gameplay.

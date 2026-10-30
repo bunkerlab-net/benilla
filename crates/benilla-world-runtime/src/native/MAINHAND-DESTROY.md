@@ -1,6 +1,6 @@
 # Selected detached original mainhand destruction
 
-Native format 76, quest reconstruction v16 and carried-item host v17 permit the
+Native format 81, quest reconstruction v16 and carried-item host v17 permit the
 existing selected-destruction owner to retire a pristine original mainhand that
 is already carried in an ordinary backpack slot. The source registry identity,
 full prototype and exact instance must match; worn, acquired, imported, modified

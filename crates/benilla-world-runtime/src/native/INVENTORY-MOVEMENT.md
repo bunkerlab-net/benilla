@@ -29,7 +29,7 @@ references. It emits the source error once with the source-time item GUIDs.
 There is no `ItemPushResult` for relocation. The existing controller checkpoint
 and outbox transaction withholds these packets until the save is durable.
 Checkpoint/replay recomputes movements rather than trusting supplied receipts.
-Native format 51 rejects older experimental native saves; exploration character
+Native format 81 rejects older experimental native saves; exploration character
 profiles are unchanged.
 
 This is a component integration, not live exploration inventory. Production
@@ -40,7 +40,7 @@ or a populated playable Classic world.
 
 ## Explicit backpack splits
 
-Native54 adds separately sequenced `InventorySplit`, carrying the actual packet's
+Native81 supports separately sequenced `InventorySplit`, carrying the actual packet's
 uint8 count. See `benilla-sim/INVENTORY-SPLIT.md` for source guards, clone allocation,
 ordered intermediate views and refusal behavior. This is not SwapItem with a count:
 no alive guard is added, and a refused destination can still consume an item ID.

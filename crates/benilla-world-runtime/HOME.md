@@ -62,7 +62,7 @@ Chase/Wander checkpoint reopening remains closed; the synthetic-only one-current
 Wander exception and its exact native replay proof are described in
 [WANDER.md](WANDER.md). Home and suspended Wander are outside that exception.
 Replay starts from cache-free genesis and compares the complete transcript; a
-saved historical result cannot mint a fresh query lease. Native format 51 and
+saved historical result cannot mint a fresh query lease. Native format 81 and
 motion policy `cmangos-8ec338a1-ground-linear-home-wander-v7` reject older
 snapshots rather than inventing the required evidence.
 

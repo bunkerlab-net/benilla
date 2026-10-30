@@ -61,7 +61,7 @@ alone does not clear `CanAggro` or abort the queue. A dead creature's due visito
 can set `CanAggro=false`; ordinary corpse removal preserves whichever value the
 source had until respawn resets it.
 
-Checkpoint format 51 (`benilla-native-home-wander-v51`) binds source policy,
+Checkpoint format 81 (`benilla-native-creature-string-identities-v81`) binds source policy,
 owner, queue, pending notify, aggro state and count of DEAD updates skipped by
 the processor. The exact queue clock equals `(tick - skipped_updates) * diff`;
 the AI's actual corpse-removal timestamp independently bounds the current DEAD

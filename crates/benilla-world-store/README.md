@@ -188,7 +188,7 @@ No synthetic test proves actual power-loss behavior on every filesystem/device.
 native component runtime. It uses the same bounded, exclusive-writer,
 backup-before-current filesystem protocol and the same platform durability limits.
 The original-fixture envelope and native envelope cannot be opened as each other.
-The envelope remains version1 while its opaque native payloads require format38
+The envelope remains version1 while its opaque native payloads require format81
 and a non-null initial-cast genesis receipt. Positive tick0 RNG baselines are
 valid only after runtime reconstruction. Fresh envelope checksums cannot make
 native37 payloads or missing genesis receipts compatible.

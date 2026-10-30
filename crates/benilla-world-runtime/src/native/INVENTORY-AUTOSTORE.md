@@ -65,7 +65,7 @@ failure, and genuine lethal NPC damage before dead-player auto-store. Actual Lua
 and controller tests cover save withholding/retry/reopen, descriptor parser state,
 no premature source destruction, final-merge order and zero-reason semantics.
 
-Native format60 and inventory policy v8 reject incompatible prior context; no
+Native format81 and inventory policy v8 reject incompatible prior context; no
 migration is claimed. This remains headless source/controller integration under
 the existing synthetic test entry. It does not open production native gameplay,
 claim a user-tested populated world, or widen equipment/bag/P2P support.

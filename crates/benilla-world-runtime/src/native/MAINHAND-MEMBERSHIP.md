@@ -1,6 +1,6 @@
 # Original mainhand membership
 
-Native73 (quest reconstruction v13, recipe v4, ancillary v2 and inventory host v14) adds a bounded `EquipmentMove` path for the **same source-initialized
+Native81 (quest reconstruction v13, recipe v4, ancillary v2 and inventory host v14) adds a bounded `EquipmentMove` path for the **same source-initialized
 mainhand object**, between slot15 and an empty ordinary backpack slot. It does
 not enable native admission, acquire a new weapon, replace an occupied slot,
 repair equipment or supply missing source data. The existing raw spell consumer

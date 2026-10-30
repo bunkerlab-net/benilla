@@ -1,6 +1,6 @@
 # Original mainhand AutoEquip
 
-Native format 74, quest reconstruction v14 and carried-item host v15 extend the
+Native format 81, quest reconstruction v14 and carried-item host v15 extend the
 existing separately identified AutoEquip operation to the same source-initialized
 pristine original mainhand, only inventory types 17 (two-hand) and 21 (mainhand).
 The original slot 15 must be empty. Type 13, replacement weapons, occupied

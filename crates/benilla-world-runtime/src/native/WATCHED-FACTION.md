@@ -48,7 +48,7 @@ fields each frame and can repeat an unchanged value; this is semantic descriptor
 delivery, **not byte-identical upstream dirty-mask/packet timing**. No separate
 watch acknowledgment, reputation delta, or initial-faction packet is invented.
 
-This field was introduced in native format **58**; current format **59** also owns
+This field was introduced in native format **58**; current format **81** also owns
 the separate action-bar display byte and rejects earlier context; there is no migration and no
 production native capability is added. Existing ghost, native-admission, private
 compiler/consumer, and tracked-mainhand holds remain unchanged.

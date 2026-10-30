@@ -56,5 +56,5 @@ and parser predicates—not a full Bevy run or rendered pixels.
 
 Appearance bytes, item membership, visible entry words and guild state are not
 changed. No guild-zero owner, corpse registry, ghost aura, release, migration or
-production native admission is introduced. Native 70 requires the new ledger and
-rejects previous 69 identities; `NativeCapability` remains uninhabited.
+production native admission is introduced. Native 81 requires the ledger and
+rejects earlier identities; `NativeCapability` remains uninhabited.

@@ -1,6 +1,6 @@
 # Source-owned dry execution for habitat 3
 
-Native format 51 (`benilla-native-home-wander-v51`) supports a bounded dry
+Native format 81 (`benilla-native-creature-string-identities-v81`) supports a bounded dry
 execution domain for retained `InhabitType=3` (`GROUND|WATER`). Its predicates
 remain `CanWalk=true`, `CanSwim=true`, `CanFly=false`; a dry observation never
 rewrites the habitat or selects the ground-only query branch. Wet initialization,

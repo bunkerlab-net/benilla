@@ -15,8 +15,8 @@ router mappings. The optional synthetic encounter test also requires an explicit
 Exploration provides saved characters, movement and chat. See [character profiles](P2P-CHARACTERS.md)
 for private identity storage, checkpointing and recovery limits. Optional
 [`p2p.classic_start_captures`](CLASSIC-EXPLORATION-STARTS.md) selects private source-v2
-captures for new-character racial starts. Without it, new characters retain the legacy
-Northshire meeting point and emit a warning. NPC population, combat, abilities, quests,
+captures for new-character racial starts. Without it, new characters use built-in
+racial starting positions. Existing characters keep their saved positions. NPC population, combat, abilities, quests,
 XP and loot remain unfinished. One peer can enter alone without waiting for configured
 offline peers. Shared-world simulation and offline-world merging are not implemented.
 

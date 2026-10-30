@@ -69,7 +69,7 @@ player slot references. A removed item is not destroyed and recreated. Visible
 entry words remain owned by the existing complete query-metadata gate; this is
 semantic session projection, not a claim of byte-identical upstream packet order.
 Headless parser/controller tests do not establish rendered appearance or user
-verification. The required native 67 identity, quest reconstruction v11 and carried-items v12
+verification. The required native 81 identity, quest reconstruction v11 and carried-items v12
 host composition have no old-save migration. Carried-items v12 does not add a
 generic equip reducer or relax ordinary carried-instance validation.
 
@@ -129,7 +129,7 @@ real wire mapping and extracted actual non-ammo sender with the actual controlle
 checkpoint withholding/retry/reopen and same-object no-refill result. They do not
 execute the complete Bevy Items/template/ammo dispatch branch or prove rendered
 appearance. The tiny sender extraction leaves that existing dispatch unchanged.
-Native 67, quest reconstruction v11 and carried-items v12 have no old-save migration
+Native 81, quest reconstruction v11 and carried-items v12 have no old-save migration
 and grant no native admission.
 
 
@@ -158,5 +158,5 @@ represents its detach/reattach, and introduces no new-item push, item creation o
 visible-equipped-slot update. Tests cover actual casting/combat/death transactions,
 replay, real Lua intent into the actual controller, checkpoint withholding/retry
 and reopen. These are headless checks, not rendered-player or production-entry
-verification. Native67/quest-v11/carried-items-v12 reject older saves without
+verification. Native81/quest-v11/carried-items-v12 reject older saves without
 migration.

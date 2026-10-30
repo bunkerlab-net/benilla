@@ -165,9 +165,9 @@ last countdown tick rather than moving that source callback or timer phase. Dist
 separate dependencies; this witness does not select straightPath or certify that
 the complete Chase gate ran. Home and Backpedal carry explicit absence.
 
-Native format 51 and `benilla-native-home-wander-v51` include the
+Native format 81 and `benilla-native-creature-string-identities-v81` include the
 optional owned cache, required optional latest-pose and route-witness fields,
-and v51 profile/state/record/checkpoint/melee domains. Missing fields and older
+and v81 profile/state/record/checkpoint domains with separate v51 melee domains. Missing fields and older
 native checkpoints reject rather than fabricate initial state. Independent
 component v2 encoding, exploration character data and raw native admission stay
 unchanged. Hashes establish consistency, never historical authenticity; complete
@@ -179,7 +179,7 @@ journal replay is required to verify the supplied history.
 surface executor after the cache source has been initialized. It requires the
 complete source interaction/combat catalogs and actual player-slow host/catalog,
 even when the live holder registry is empty. Source selection is part of the
-profile digest and environment source policy v2. Native format29 rejects older
+profile digest and environment source policy v2. Native format81 rejects older
 experimental saves; there is no inferred hostile-reference or aura migration.
 
 The actual frame borrows its staged NPC references, player holders and events.
