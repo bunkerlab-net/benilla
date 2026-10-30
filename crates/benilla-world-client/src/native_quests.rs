@@ -882,6 +882,7 @@ fn progression_events(
                 total: xp,
                 base: xp,
                 kill: false,
+                group: 1.0, // Non-kill XP has no group float.
             }));
             vec![]
         }
@@ -1008,12 +1009,13 @@ impl NativeProjection {
                     victim_guid,
                     total_xp,
                     base_xp,
-                    ..
+                    group_rate_bits,
                 } => events.push(SessionEvent::XpGain(p::XpGain {
                     victim: *victim_guid,
                     total: *total_xp,
                     base: *base_xp,
                     kill: true,
+                    group: f32::from_bits(*group_rate_bits),
                 })),
                 pg::kill_xp::Event::RestExperience(xp) => {
                     events.push(values(self.player_guid, &[(1175, *xp)]))

@@ -145,9 +145,7 @@ fn resident_observer_off_count_clocked_comparison() {
             );
             eprintln!(
                 "resident observer completed: mode={mode:?} cold_service={:?} cold_prepare_to_final={:?} global_service={:?}",
-                evidence.max_cold_owner_service,
-                evidence.cold_latency,
-                evidence.max_owner_service,
+                evidence.max_cold_owner_service, evidence.cold_latency, evidence.max_owner_service,
             );
         } else {
             // Scoped controller threads and their Work have already unwound.
@@ -209,11 +207,7 @@ fn resident_observer_off_count_clocked_comparison() {
         assert!(counted.outer.same_counts(&clocked.outer));
         eprintln!(
             "resident observer paired phase: cold={} final={} off_wall={:?} count_wall={:?} clocked_wall={:?}; inclusive child categories are not additive",
-            off.cold,
-            off.finishing,
-            off.service_wall,
-            counted.service_wall,
-            clocked.service_wall,
+            off.cold, off.finishing, off.service_wall, counted.service_wall, clocked.service_wall,
         );
     }
 }

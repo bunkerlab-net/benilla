@@ -50,9 +50,14 @@ fn wire_roundtrip(pairs: &[(u16, u32)]) -> ObjectFields {
     let (packet, tail) =
         protocol::parse_server_with_tail(protocol::opcode::SMSG_UPDATE_OBJECT, &body).unwrap();
     assert_eq!(tail, 0);
-    let protocol::ServerPacket::UpdateObject { mut objects } = packet else {
+    let protocol::ServerPacket::UpdateObject {
+        first_pass,
+        mut objects,
+    } = packet
+    else {
         panic!("wrong packet")
     };
+    assert!(!first_pass);
     assert_eq!(objects.len(), 1);
     let protocol::Object::Values { guid, mask } = objects.remove(0) else {
         panic!("wrong object")

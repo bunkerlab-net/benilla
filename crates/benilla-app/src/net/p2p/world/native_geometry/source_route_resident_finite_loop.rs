@@ -232,7 +232,9 @@ pub(super) fn assert_facts(request: &AuthorityRequest, facts: &Facts, expected_r
             path.points.len() > 2,
             "actual fourth terminal has native intermediate points"
         );
-        eprintln!("resident finite actual 3->4 calculation: complete genuine native multi-polygon straight facts");
+        eprintln!(
+            "resident finite actual 3->4 calculation: complete genuine native multi-polygon straight facts"
+        );
     }
 }
 
@@ -753,7 +755,9 @@ pub(super) fn after_cold_ack(
     let count = callbacks.load(Ordering::SeqCst);
     eprintln!(
         "resident finite exact stop: mode={mode:?} accepted-epochs=8 route-attempts={} tick={} now-ms={} callbacks={count} pending-input=none pause=none route-pending=false queued-actions=0",
-        routes.load(Ordering::SeqCst), driver.tick(), driver.state().now_ms
+        routes.load(Ordering::SeqCst),
+        driver.tick(),
+        driver.state().now_ms
     );
     (driver.tick(), events, count, committed)
 }

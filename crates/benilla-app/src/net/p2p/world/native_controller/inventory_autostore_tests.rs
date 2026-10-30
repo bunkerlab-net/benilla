@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Actual stock backpack auto-store, original instance identity and durable publication.
+//! Own-backpack Lua cancellation, explicit protocol auto-store and durable publication.
 use super::*;
 fn autostore(source: u8) -> ClientCommand {
     ClientCommand::AutoStoreBagItem {
@@ -9,7 +9,7 @@ fn autostore(source: u8) -> ClientCommand {
     }
 }
 #[test]
-fn stock_backpack_autostore_detaches_merges_then_reuses_original_after_saved_retry() {
+fn own_backpack_drop_cancels_and_explicit_autostore_preserves_durable_original() {
     use benilla_ui::script::{ContainerSlot, ContainerState, UiScript};
     let h = Harness::new();
     let (mut c, mut cache) = start(&h, 7);
@@ -21,6 +21,7 @@ fn stock_backpack_autostore_detaches_merges_then_reuses_original_after_saved_ret
     let allocator = inventory(&c).next_item;
     let quests = progress(&c).quests.clone();
     let mut ui = UiScript::new().unwrap();
+    ui.keep_calls();
     ui.set_container(
         0,
         Some(ContainerState {
@@ -41,19 +42,13 @@ fn stock_backpack_autostore_detaches_merges_then_reuses_original_after_saved_ret
     );
     ui.run("PickupContainerItem(0, 16); PutItemInBackpack()")
         .unwrap();
-    let requests = ui.take_bag_autostores();
-    assert_eq!(requests.len(), 1);
-    let request = &requests[0];
-    assert_eq!(
-        (
-            request.src_bag,
-            request.src_slot,
-            request.dst_bag,
-            request.count
-        ),
-        (0, 16, 0, None)
+    assert!(
+        ui.take_bag_autostores().is_empty(),
+        "own-backpack drop cancels"
     );
-    c.receive(autostore(22 + request.src_slot as u8)).unwrap();
+    assert!(ui.cursor_item().is_none());
+    // Independently exercise an explicit protocol command, not a command emitted by this Lua drop.
+    c.receive(autostore(38)).unwrap();
     inject(&h);
     let out = c.pump(c.tick_duration());
     paused(&out);

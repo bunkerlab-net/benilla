@@ -194,6 +194,28 @@ fn catalog_with_distinct_heights(
     display_scale: f32,
     short_model: bool,
 ) -> CreatureCatalog {
+    try_catalog_with_distinct_heights(
+        width,
+        height,
+        other_height,
+        model_scale,
+        display_scale,
+        short_model,
+    )
+    .unwrap()
+}
+/// Read the deliberately malformed short record through the production parser.
+pub fn short_model_catalog_is_rejected() -> bool {
+    try_catalog_with_distinct_heights(1.0, 2.875, 2.875, 2.5, 1.75, true).is_err()
+}
+fn try_catalog_with_distinct_heights(
+    width: f32,
+    height: f32,
+    other_height: f32,
+    model_scale: f32,
+    display_scale: f32,
+    short_model: bool,
+) -> std::result::Result<CreatureCatalog, String> {
     let mut model = [0_u32; 16];
     model[0] = 7;
     model[2] = 1;
@@ -228,7 +250,7 @@ fn catalog_with_distinct_heights(
     ));
     std::fs::write(&path, bytes).unwrap();
     let mut chain = Chain::open(&path).unwrap();
-    let result = load_creature_catalog(&mut chain).unwrap();
+    let result = load_creature_catalog(&mut chain).map_err(|e| format!("{e:#}"));
     drop(chain);
     std::fs::remove_file(path).unwrap();
     result

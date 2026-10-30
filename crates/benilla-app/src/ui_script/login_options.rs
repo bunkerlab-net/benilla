@@ -13,10 +13,6 @@ pub(crate) struct LoginOptions {
 struct ParkedLoginVm(UiScript);
 const SHELL: &str = include_str!("login_options.lua");
 
-pub(crate) fn active(options: Option<Res<LoginOptions>>) -> bool {
-    options.is_some_and(|o| o.active)
-}
-
 /// Exclusive lifecycle in PreUpdate, ahead of all VM consumers. Closing is observed one frame
 /// after Lua hides the panel, so that the Escape which closes it cannot also quit native login.
 pub(super) fn drive(world: &mut World) {
@@ -24,8 +20,8 @@ pub(super) fn drive(world: &mut World) {
         return;
     };
     let in_login = world
-        .get_resource::<State<crate::char_select::ClientState>>()
-        .is_some_and(|s| *s.get() == crate::char_select::ClientState::Login);
+        .get_resource::<State<crate::client_state::ClientState>>()
+        .is_some_and(|s| *s.get() == crate::client_state::ClientState::Login);
     if options.active {
         let shown = world
             .get_non_send_resource::<UiScript>()
@@ -190,7 +186,7 @@ mod tests {
     #[test]
     fn navigation_away_closes_options_and_drops_pending_reopen() {
         let mut world = World::new();
-        world.insert_resource(State::new(crate::char_select::ClientState::CharSelect));
+        world.insert_resource(State::new(crate::client_state::ClientState::CharSelect));
         let original = UiScript::new().unwrap();
         let session = original.session();
         world.insert_non_send_resource(ParkedLoginVm(original));

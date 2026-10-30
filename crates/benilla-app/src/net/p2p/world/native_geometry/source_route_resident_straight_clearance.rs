@@ -144,7 +144,9 @@ fn later_obstacle(points: &[Point], body: Body) -> (usize, Vec3, Vec3) {
             return (index, center, dimensions);
         }
     }
-    panic!("actual native polyline has no isolated later segment; do not alter poses or clearance to manufacture one")
+    panic!(
+        "actual native polyline has no isolated later segment; do not alter poses or clearance to manufacture one"
+    )
 }
 
 fn expected_prefix(segments: usize) -> Vec<(StraightSegmentPhase, usize)> {
@@ -395,5 +397,8 @@ pub(super) fn probe(
     assert_eq!(install.bytes(), original_source);
     // This fixture has no M2 placements. Successful independent rays include M2
     // by policy, but do not establish a genuine M2-hit refusal or later tile loss.
-    eprintln!("resident straight polyline refusals: points={} segments={segment_count} blocked-segment={blocked_segment} attempts=6 emitted=0 after-all-segments=3 committed-cache3=1 staged-cache4=0; missing-coverage=first-segment M2-hit=not-exercised", diagnostic.points.len());
+    eprintln!(
+        "resident straight polyline refusals: points={} segments={segment_count} blocked-segment={blocked_segment} attempts=6 emitted=0 after-all-segments=3 committed-cache3=1 staged-cache4=0; missing-coverage=first-segment M2-hit=not-exercised",
+        diagnostic.points.len()
+    );
 }

@@ -380,8 +380,14 @@ pub(super) fn certify(
     )?;
     provider.verify_installed_owner(compatibility, owner, deadline, &cancelled)?;
     if let Some(support) = &support {
-        eprintln!("resident generated-support complete observation: tick={} query={} native-segments={} H={} Q={} all-segments-and-final-source-owner-checks=passed native-points-unchanged=true uncommitted=true",
-            context.binding.tick, route.request.binding.query_id, segments.len(), support.plane_bits(), support.ceiling_bits());
+        eprintln!(
+            "resident generated-support complete observation: tick={} query={} native-segments={} H={} Q={} all-segments-and-final-source-owner-checks=passed native-points-unchanged=true uncommitted=true",
+            context.binding.tick,
+            route.request.binding.query_id,
+            segments.len(),
+            support.plane_bits(),
+            support.ceiling_bits()
+        );
     }
     let cache = provider.straight_cache_for(
         &dependency,

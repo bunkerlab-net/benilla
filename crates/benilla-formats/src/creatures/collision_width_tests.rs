@@ -68,6 +68,7 @@ fn catalog(models: &[[u32; 16]], displays: &[[u32; 12]]) -> CreatureCatalog {
         models: model_rows_from(&dbc(models, MODEL_STRINGS)).unwrap(),
         display: display_rows_from(&dbc(displays, DISPLAY_STRINGS)).unwrap(),
         extra: HashMap::new(),
+        ..Default::default()
     }
 }
 
@@ -213,20 +214,12 @@ fn malformed_dbc_bytes_keep_existing_parse_errors() {
 
 #[test]
 fn incomplete_model_record_does_not_turn_reader_zero_padding_into_a_raw_width() {
-    // The shared reader accepts shorter strides. Width lookup alone requires the full schema;
-    // existing render/height parsing is left unchanged, even with all of field 14 present.
+    // Strict upstream schema validation rejects malformed strides before native admission.
     for stride in [56, 60] {
         let mut models = dbc(&[model_row(7, 1.375, 2.0, 2.5)], MODEL_STRINGS);
         models[12..16].copy_from_slice(&(stride as u32).to_le_bytes());
         models.drain(20 + stride..20 + 64);
-        let cat = CreatureCatalog {
-            models: model_rows_from(&models).unwrap(),
-            display: display_rows_from(&dbc(&[display_row(101, 7, 3.0)], DISPLAY_STRINGS)).unwrap(),
-            extra: HashMap::new(),
-        };
-        assert_eq!(cat.collision_width_row(101), None);
-        assert_eq!(cat.model(101).unwrap().scale, 7.5);
-        assert_eq!(cat.collision_height(101), Some(0.0));
+        assert!(model_rows_from(&models).is_err());
     }
 }
 
@@ -235,12 +228,5 @@ fn incomplete_display_record_does_not_certify_a_raw_width_join() {
     let mut displays = dbc(&[display_row(101, 7, 3.0)], DISPLAY_STRINGS);
     displays[12..16].copy_from_slice(&44_u32.to_le_bytes());
     displays.drain(20 + 44..20 + 48);
-    let cat = CreatureCatalog {
-        models: model_rows_from(&dbc(&[model_row(7, 1.375, 2.0, 2.5)], MODEL_STRINGS)).unwrap(),
-        display: display_rows_from(&displays).unwrap(),
-        extra: HashMap::new(),
-    };
-    assert_eq!(cat.collision_width_row(101), None);
-    assert_eq!(cat.model(101).unwrap().scale, 7.5);
-    assert_eq!(cat.collision_height(101), Some(2.0));
+    assert!(display_rows_from(&displays).is_err());
 }

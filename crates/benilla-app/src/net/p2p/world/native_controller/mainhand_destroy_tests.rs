@@ -4,6 +4,7 @@ use super::*;
 fn lua_destroy(guid: u64) -> ClientCommand {
     use benilla_ui::script::{ContainerSlot, ContainerState, UiScript};
     let mut ui = UiScript::new().unwrap();
+    ui.keep_calls();
     ui.set_container(
         0,
         Some(ContainerState {

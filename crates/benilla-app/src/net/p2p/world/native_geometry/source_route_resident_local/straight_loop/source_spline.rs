@@ -36,7 +36,10 @@ pub(super) fn certify(
         if hit.entity != enclosure.terrain_root() {
             return Err(Failure::Obstacle);
         }
-        eprintln!("resident source-spline terrain hit adjudicated: root={:?} source-RNE-position-enclosure=passed full-square-clearance=passed normalized-solver-parity=not-claimed", hit.entity);
+        eprintln!(
+            "resident source-spline terrain hit adjudicated: root={:?} source-RNE-position-enclosure=passed full-square-clearance=passed normalized-solver-parity=not-claimed",
+            hit.entity
+        );
     }
     if let Some((direction, distance)) = plan.ray {
         if local

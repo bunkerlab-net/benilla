@@ -42,7 +42,7 @@ impl n::Authority for SmoothingAuthority {
             Err(_) => {
                 return Err(n::NativeError::AuthorityUnavailable(
                     "loaded smoothing prerequisite",
-                ))
+                ));
             }
             Ok(()) => {}
         }

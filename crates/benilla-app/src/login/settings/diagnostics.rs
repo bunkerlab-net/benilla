@@ -52,7 +52,10 @@ pub(super) fn start(settings: &mut Settings, peers: bool) {
                     TcpStream::connect_timeout(&address, Duration::from_secs(2)).is_ok()
                 })
                 .count();
-            format!("TCP: {passed}/{} configured peers accepted a connection. PSK handshake, relay and NAT reachability are NOT tested.",addresses.len())
+            format!(
+                "TCP: {passed}/{} configured peers accepted a connection. PSK handshake, relay and NAT reachability are NOT tested.",
+                addresses.len()
+            )
         } else {
             match TcpListener::bind("127.0.0.1:0").and_then(|listener| TcpStream::connect_timeout(&listener.local_addr()?,Duration::from_secs(2))) {
                 Ok(_) => "Local TCP loopback works. Configured listen port, PSK, relay and Internet reachability are NOT tested.".into(),

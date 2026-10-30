@@ -19,7 +19,6 @@ use crate::glue::widgets::{
     GlueFieldPart, GlueText,
 };
 use crate::glue_strings::GlueStrings;
-use crate::sound::GlueSound;
 
 use crate::char_select::wow_font;
 
@@ -104,7 +103,7 @@ pub(crate) struct GlueDialog {
     /// `GlueDialogEditBox`, rebuilt on every open so a cancelled edit leaves nothing behind.
     pub(crate) edit: EditBoxState,
     /// The queue's sample ring and realm, live while [`DialogKind::Queued`] is up.
-    pub(crate) queue: crate::login::queue::QueueEstimate,
+    pub(crate) queue: crate::glue_session::queue::QueueEstimate,
     pub(crate) queue_realm: Option<String>,
     spawned: Option<DialogKind>,
     /// The glue scale the spawned tree was built at; a resize rebuilds it.
@@ -131,7 +130,7 @@ impl GlueDialog {
     /// `realm` feeds the `_NAME` text variants.
     pub(crate) fn open_queued(&mut self, realm: Option<String>) {
         self.kind = Some(DialogKind::Queued);
-        self.queue = crate::login::queue::QueueEstimate::default();
+        self.queue = crate::glue_session::queue::QueueEstimate::default();
         self.queue_realm = realm;
         self.set_text("");
     }
@@ -318,7 +317,7 @@ pub(crate) fn drive_glue_dialog(
     buttons: Query<(Entity, &GlueDialogAction)>,
     clicks: Res<crate::glue::GlueClicks>,
     mut texts: Query<&mut Text, With<DialogText>>,
-    mut sounds: MessageWriter<GlueSound>,
+    glue: crate::ui_script::glue::StockGlueProbe,
     mut answers: MessageWriter<GlueDialogAnswer>,
     window: Query<&Window, With<bevy::window::PrimaryWindow>>,
 ) {
@@ -377,7 +376,8 @@ pub(crate) fn drive_glue_dialog(
     // `GlueDialog_OnClick` plays `gsTitleOptionOK` for either button on every dialog type, on
     // the press whatever its outcome.
     if button1 || button2 {
-        sounds.write(GlueSound("gsTitleOptionOK"));
+        // Use the stock VM sound queue and its existing SoundConfig/kit drain.
+        glue.vm().press("PlaySound(\"gsTitleOptionOK\")");
         answers.write(GlueDialogAnswer {
             kind,
             button1,

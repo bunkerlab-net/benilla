@@ -222,13 +222,14 @@ jobs:
           log="$RUNNER_TEMP/glue-hair-color-counts.log"
           mbx test --locked -p benilla-ui --lib script::glue_create::tests::a_hair_colour_counts_its_styles_colours -- --exact --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" script::glue_create::tests::a_hair_colour_counts_its_styles_colours
+          for test in script::glue_create::tests::cycle_wraps_a_step_and_lands_a_long_one_on_an_end script::glue_create::tests::randomize_redraws_the_five_in_place script::glue_create::tests::a_race_and_sex_with_no_model_keeps_the_character; do
+            log="$RUNNER_TEMP/${test//::/-}.log"
+            mbx test --locked -p benilla-ui --lib "$test" -- --exact --show-output --test-threads=1 --color never | tee "$log"
+            python3 scripts/verify-libtest-output.py "$log" "$test"
+          done
           tests=(
             net::p2p::profile::appearance_tests::stock_random_cycle_and_body_switches_reach_profile_for_all_classic_bodies
             net::p2p::profile::appearance_tests::zero_or_missing_catalog_choices_are_not_synthesized_as_zero
-            char_create::appearance_tests::hair_style_changes_clamp_color_and_color_cycles_use_current_style
-            char_create::appearance_tests::race_or_gender_change_clamps_style_before_color
-            char_create::appearance_tests::repeated_randomization_uses_the_new_style_color_range
-            char_create::appearance_tests::missing_catalog_has_single_zero_choice_after_all_operations
           )
           for test in "${tests[@]}"; do
             log="$RUNNER_TEMP/${test//::/-}.log"
@@ -1159,10 +1160,47 @@ jobs:
             sort "$BENILLA_SKIP_LOG" | uniq -c | sort -rn >> "$GITHUB_STEP_SUMMARY"
           fi
 
+  windows:
+    # The workspace tests on a Windows checkout, which no macOS or Linux gate runs: path separators,
+    # line endings and platform seams fail here first.
+    runs-on: windows-latest
+    timeout-minutes: 180
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+      WOW_DATA: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        run: rustup toolchain install && rustc -V
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # Every crate runs, so one binary's crash does not hide the rest of the workspace.
+      - name: test
+        run: cargo test --locked --workspace --no-fail-fast
+      # A binary that dies whole names no test; on one thread each test's name prints before it runs.
+      - name: name the test a crash took down
+        if: failure()
+        run: cargo test --locked --workspace --no-fail-fast -- --test-threads=1
+      # The player binary links with the main thread's stack its build script asks for: MSVC's own
+      # 1 MB overflows at the login screen. Read from the PE header (PE32+: optional header +72).
+      - name: player stack
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          cargo build --locked -p benilla --no-default-features
+          $b = [IO.File]::ReadAllBytes("target\debug\benilla.exe")
+          $pe = [BitConverter]::ToInt32($b, 0x3c)
+          $reserve = [BitConverter]::ToUInt64($b, $pe + 24 + 72)
+          "SizeOfStackReserve: $reserve"
+          if ($reserve -lt 8MB) { exit 1 }
+
   # Preserve the existing required check: neither feature graph may be skipped or fail.
   gates:
     if: always()
-    needs: [workspace-gates, workspace-tests, player-gates]
+    needs: [workspace-gates, workspace-tests, player-gates, windows]
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
@@ -1170,6 +1208,7 @@ jobs:
         env:
           WORKSPACE_RESULT: ${{ needs.workspace-gates.result }}
           WORKSPACE_TESTS_RESULT: ${{ needs.workspace-tests.result }}
+          WINDOWS_RESULT: ${{ needs.windows.result }}
           PLAYER_RESULT: ${{ needs.player-gates.result }}
         shell: bash
         run: |
@@ -1177,3 +1216,4 @@ jobs:
           test "$WORKSPACE_RESULT" = success
           test "$WORKSPACE_TESTS_RESULT" = success
           test "$PLAYER_RESULT" = success
+          test "$WINDOWS_RESULT" = success

@@ -4,6 +4,12 @@
 use super::*;
 use benilla_sim::player_slow::{MoveType, SpeedRates};
 
+// Aura-duration wire values are signed (negative denotes special duration semantics).
+// Native slow holders are finite unsigned milliseconds: reject, never wrap into a sentinel.
+fn duration_ms(value: u32) -> Result<i32, Error> {
+    i32::try_from(value).map_err(|_| Error::Unrepresentable)
+}
+
 fn pairs<'a>(
     holders: impl Iterator<Item = &'a n::PlayerSlowHolder>,
     slot_levels: [u8; 16],
@@ -92,11 +98,13 @@ pub(super) fn initial(
     };
     let mut events = state
         .holders()
-        .map(|holder| SessionEvent::AuraDuration {
-            slot: holder.slot,
-            remaining_ms: holder.remaining_ms,
+        .map(|holder| {
+            Ok(SessionEvent::AuraDuration {
+                slot: holder.slot,
+                remaining_ms: duration_ms(holder.remaining_ms)?,
+            })
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, Error>>()?;
     // A new session never inherits another session's ACKs, even at normal speed.
     events.extend(speed_orders(guid, state.speeds(), next)?);
     Ok(events)
@@ -135,6 +143,8 @@ impl Frame {
     ) -> Result<Vec<SessionEvent>, Error> {
         match event {
             n::PlayerSlowEvent::Applied { holder } => {
+                let remaining_ms =
+                    i32::try_from(holder.remaining_ms).map_err(|_| Error::Unrepresentable)?;
                 if !(32..48).contains(&holder.slot)
                     || holder.effect_slot > 2
                     || self.holders.insert(holder.slot, holder.clone()).is_some()
@@ -147,7 +157,7 @@ impl Frame {
                     self.fields(guid),
                     SessionEvent::AuraDuration {
                         slot: holder.slot,
-                        remaining_ms: holder.remaining_ms,
+                        remaining_ms,
                     },
                 ])
             }
@@ -182,5 +192,57 @@ impl Frame {
             return Err(Error::Unrepresentable);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod duration_tests {
+    use super::*;
+    #[test]
+    fn finite_durations_do_not_wrap_into_negative_sentinels() {
+        assert_eq!(duration_ms(0), Ok(0));
+        assert_eq!(duration_ms(i32::MAX as u32), Ok(i32::MAX));
+        assert_eq!(
+            duration_ms(i32::MAX as u32 + 1),
+            Err(Error::Unrepresentable)
+        );
+        assert_eq!(duration_ms(u32::MAX), Err(Error::Unrepresentable));
+    }
+    #[test]
+    fn unrepresentable_duration_rejects_before_frame_or_counter_mutation() {
+        let holder = n::PlayerSlowHolder {
+            id: 1,
+            spell_id: 61004,
+            caster: NpcId {
+                spawn: 2,
+                generation: 0,
+            },
+            caster_level: 1,
+            effect_slot: 0,
+            amount: -10,
+            remaining_ms: u32::MAX,
+            initial_duration_ms: u32::MAX,
+            max_duration_ms: u32::MAX,
+            slot: 32,
+            applied_at_ms: 0,
+            skip_update: false,
+            created_after_player_update: false,
+            source_binding: [0; 32],
+            attributes: 0,
+            attributes_ex3: 0,
+            caster_aura_state: 0,
+        };
+        let mut frame = Frame {
+            holders: BTreeMap::new(),
+            slot_levels: [0; 16],
+        };
+        let mut counter = Some(17);
+        assert!(matches!(
+            frame.project(&n::PlayerSlowEvent::Applied { holder }, 1, &mut counter),
+            Err(Error::Unrepresentable)
+        ));
+        assert!(frame.holders.is_empty());
+        assert_eq!(frame.slot_levels, [0; 16]);
+        assert_eq!(counter, Some(17));
     }
 }

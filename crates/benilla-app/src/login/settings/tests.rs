@@ -72,7 +72,10 @@ fn invalid_cvar_draft_never_changes_registry() {
     let before = cvars.get("MasterVolume").unwrap().to_owned();
     for value in ["NaN", "inf", "not a number"] {
         assert!(cvars
-            .apply_settings(&BTreeMap::from([("MasterVolume".into(), value.into())]))
+            .apply_finite_settings_draft_for_test(&BTreeMap::from([(
+                "MasterVolume".into(),
+                value.into()
+            )]))
             .is_err());
         assert_eq!(cvars.get("MasterVolume"), Some(before.as_str()));
     }
@@ -107,7 +110,6 @@ fn headless_panel_reopen_and_close_leave_no_duplicate_or_secret_text() {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .init_resource::<Settings>()
-        .init_resource::<super::super::LoginForm>()
         .init_resource::<crate::glue::art::GlueArt>()
         .add_message::<bevy::input::mouse::MouseWheel>()
         .add_systems(
@@ -164,7 +166,9 @@ fn game_save_writes_then_applies_and_failed_save_keeps_registry() {
     let _home = EnvGuard::set("BENILLA_HOME", temp.to_str().unwrap());
     let mut cvars = Cvars::default();
     let changes = BTreeMap::from([("MasterVolume".into(), "0.25".into())]);
-    cvars.apply_settings(&changes).unwrap();
+    cvars
+        .apply_finite_settings_draft_for_test(&changes)
+        .unwrap();
     assert_eq!(cvars.get("MasterVolume"), Some("0.25"));
     assert!(std::fs::read_to_string(temp.join("config.toml"))
         .unwrap()
@@ -173,7 +177,10 @@ fn game_save_writes_then_applies_and_failed_save_keeps_registry() {
     std::fs::write(&blocked, "not a directory").unwrap();
     let _blocked = EnvGuard::set("BENILLA_HOME", blocked.to_str().unwrap());
     assert!(cvars
-        .apply_settings(&BTreeMap::from([("MasterVolume".into(), "0.75".into())]))
+        .apply_finite_settings_draft_for_test(&BTreeMap::from([(
+            "MasterVolume".into(),
+            "0.75".into()
+        )]))
         .is_err());
     assert_eq!(cvars.get("MasterVolume"), Some("0.25"));
     let _ = std::fs::remove_dir_all(temp);

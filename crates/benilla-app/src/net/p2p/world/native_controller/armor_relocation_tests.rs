@@ -69,6 +69,7 @@ fn original_armor_lua_backpack_relocation_withholds_retry_reopens_and_reequips_s
     let equipment = c.world.state().combat.as_ref().unwrap().equipment.clone();
     let quests = progress(&c).quests.clone();
     let mut ui = UiScript::new().unwrap();
+    ui.keep_calls();
     ui.set_container(
         0,
         Some(ContainerState {

@@ -61,6 +61,8 @@ impl ClientCatalog for Catalog {
                 quest_type: 0,
                 rep_objective_faction: 0,
                 rep_objective_value: 0,
+                opposite_rep_faction: 0,
+                opposite_rep_value: 0,
                 next_quest_in_chain: 0,
                 money: 7,
                 money_max_level: 60,

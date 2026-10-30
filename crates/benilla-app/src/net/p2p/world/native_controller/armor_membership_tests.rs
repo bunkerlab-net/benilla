@@ -45,6 +45,7 @@ fn armor_cursor_move_withholds_same_object_until_save_then_reopens_and_reequips(
     let mana = c.world.state().resources.caster.mana;
     let maximum = c.world.state().combat.as_ref().unwrap().stats.max_mana;
     let mut ui = UiScript::new().unwrap();
+    ui.keep_calls();
     let mut doll: InventorySlots = Default::default();
     doll[5] = Some(InvSlotView {
         item_id: 900001,

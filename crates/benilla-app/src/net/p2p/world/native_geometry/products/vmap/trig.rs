@@ -24,7 +24,9 @@ mod tests {
 
     #[test]
     fn signed_boundaries_match_pinned_glibc_source() {
-        let cases = include_str!("../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/trig-cases.tsv");
+        let cases = include_str!(
+            "../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/trig-cases.tsv"
+        );
         let mut count = 0;
         for row in cases.lines().filter(|line| !line.starts_with('#')) {
             let values: Vec<_> = row

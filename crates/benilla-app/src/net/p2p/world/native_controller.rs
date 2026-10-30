@@ -737,7 +737,7 @@ impl NativeController {
                 saved: None,
             });
             out.saved = Some(self.checkpoint()?);
-            self.publish_pending(&mut out.events);
+            self.publish_pending(&mut out.events)?;
         } else {
             self.published(&projected);
             out.events.extend(projected);
@@ -746,42 +746,60 @@ impl NativeController {
         // cannot suppress already committed events or turn this into an input retry.
         self.drain_route_commit()
     }
-    fn resync_slow_timers(&mut self, events: &mut Vec<SessionEvent>) {
+    fn resync_slow_timers(&mut self, events: &mut Vec<SessionEvent>) -> Result<(), Error> {
         if !self.resync_slow_durations {
-            return;
+            return Ok(());
         }
-        self.resync_slow_durations = false;
-        // UI aura countdowns use wall-clock time; the authoritative simulation pauses.
-        // Refresh only durations on retry, without replaying applications or speed orders.
-        if let Some(state) = &self.world.state().player_slow {
-            for holder in state.holders() {
-                if !events.iter().any(|event| {
-                    matches!(event,
-                    SessionEvent::AuraDuration { slot, remaining_ms }
-                    if *slot == holder.slot && *remaining_ms == holder.remaining_ms)
-                }) {
-                    events.push(SessionEvent::AuraDuration {
-                        slot: holder.slot,
-                        remaining_ms: holder.remaining_ms,
-                    });
-                }
+        // Validate all signed protocol durations before changing either the outbox or retry
+        // flag. A large finite native duration must never wrap into a negative wire sentinel.
+        let timers = self
+            .world
+            .state()
+            .player_slow
+            .iter()
+            .flat_map(|state| state.holders())
+            .map(|holder| {
+                Ok((
+                    holder.slot,
+                    i32::try_from(holder.remaining_ms)
+                        .map_err(|_| benilla_world_client::Error::Unrepresentable)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, benilla_world_client::Error>>()?;
+        // UI countdowns use wall time; simulation pauses. Refresh durations, not applications.
+        for (slot, remaining_ms) in timers {
+            if !events.iter().any(|event| {
+                matches!(event,
+                SessionEvent::AuraDuration { slot: existing_slot, remaining_ms: existing_ms }
+                if *existing_slot == slot && *existing_ms == remaining_ms)
+            }) {
+                events.push(SessionEvent::AuraDuration { slot, remaining_ms });
             }
         }
+        self.resync_slow_durations = false;
+        Ok(())
     }
-    fn publish_pending(&mut self, events: &mut Vec<SessionEvent>) {
-        // This is one delivery to the local caller, not an acknowledged network outbox.
-        // A crash after persistence is recovered through initial state, not notification replay.
+    fn publish_pending(&mut self, events: &mut Vec<SessionEvent>) -> Result<(), Error> {
+        // Local delivery, not an acknowledged network outbox. Reopen recovers durable state.
         if self
             .outbox
             .as_ref()
             .is_some_and(|batch| batch.saved.is_some())
         {
             let mut batch = self.outbox.take().expect("durable pending events");
+            if let Err(error) = self.resync_slow_timers(&mut batch.events) {
+                self.outbox = Some(batch);
+                self.pause = Some(Pause {
+                    kind: PauseKind::Projection,
+                    message: error.to_string(),
+                });
+                return Err(error);
+            }
             self.publish_admin_rejections(&batch.admin_rejections);
-            self.resync_slow_timers(&mut batch.events);
             self.published(&batch.events);
             events.extend(batch.events);
         }
+        Ok(())
     }
     fn save_due(&self) -> bool {
         u128::from(self.world.state().tick - self.saved_tick)
@@ -1348,8 +1366,9 @@ impl Driven for NativeController {
             // A successful explicit retry returns only its receipt. Flush the retained batch
             // on this pump, even with zero elapsed time, before admitting another tick/input.
             if self.pause.is_none() && self.outbox.is_some() {
-                self.publish_pending(&mut out.events);
-                let _ = self.drain_route_commit();
+                if self.publish_pending(&mut out.events).is_ok() {
+                    let _ = self.drain_route_commit();
+                }
                 out.pending_ticks = self.debt.as_nanos() / self.tick_duration().as_nanos();
                 out.pause = self.pause.clone();
                 self.refresh_admin_mailbox();
@@ -1470,7 +1489,7 @@ impl Driven for NativeController {
             None => self.checkpoint()?,
         };
         let mut events = vec![];
-        self.publish_pending(&mut events);
+        self.publish_pending(&mut events)?;
         self.actions.clear();
         self.pending = None;
         // Closing a loaded owner does not rehydrate it on the next session. Saving

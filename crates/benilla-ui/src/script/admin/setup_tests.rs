@@ -317,12 +317,7 @@ fn setup_controls_fit_both_modes_at_small_screen_sizes() {
             s.run(&format!("BenillaWorldSetup_Mode('{mode}')")).unwrap();
             s.resolve();
             let model = s.model_ref();
-            let rect = |name| {
-                *model
-                    .resolved
-                    .get(&model.arena.lookup(name).unwrap())
-                    .unwrap()
-            };
+            let rect = |name| model.frame_rect(model.arena.lookup(name).unwrap()).unwrap();
             let dialog = rect("BenillaWorldSetupFrame");
             assert!(
                 dialog.left >= 0.0

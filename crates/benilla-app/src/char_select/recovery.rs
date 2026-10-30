@@ -10,8 +10,8 @@ use std::sync::{mpsc, Mutex};
 
 const PAGE: usize = 5;
 #[derive(Resource, Default)]
-pub(super) struct RecoveryPanel {
-    pub(super) open: bool,
+pub(crate) struct RecoveryPanel {
+    pub(crate) open: bool,
     rows: Vec<benilla_profile::Character>,
     selected: Option<benilla_profile::Character>,
     confirmation: Confirmation,
@@ -25,7 +25,7 @@ pub(super) struct RecoveryPanel {
     with_art: bool,
 }
 impl RecoveryPanel {
-    pub(super) fn open(&mut self, pick: &CharPick) {
+    pub(crate) fn open(&mut self, pick: &CharPick) {
         self.open = true;
         self.restoring = false;
         self.rows.clear();
@@ -71,7 +71,7 @@ impl RecoveryPanel {
         }
         self.dirty = true;
     }
-    pub(super) fn dismiss(&mut self, commands: &mut Commands) {
+    pub(crate) fn dismiss(&mut self, commands: &mut Commands) {
         if let Some(root) = self.root.take() {
             commands.entity(root).despawn();
         }
@@ -79,7 +79,7 @@ impl RecoveryPanel {
     }
 }
 #[derive(Component, Clone, Copy)]
-pub(super) enum Action {
+pub(crate) enum Action {
     Row(usize),
     Restore,
     Confirm,
@@ -89,10 +89,11 @@ pub(super) enum Action {
     Next,
 }
 
-pub(super) fn drive(
+pub(crate) fn drive(
     mut commands: Commands,
     mut panel: ResMut<RecoveryPanel>,
     pick: Res<CharPick>,
+    glue: crate::ui_script::glue::StockGlueProbe,
     art: Res<GlueArt>,
     assets: Res<AssetServer>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -118,7 +119,11 @@ pub(super) fn drive(
     if let Some(result) = received {
         match result {
             Ok(reply) => {
+                let refresh = panel.restoring && reply.is_ok();
                 panel.receive(reply);
+                if refresh {
+                    glue.vm().press("GetCharacterListUpdate()");
+                }
             }
             Err(mpsc::TryRecvError::Disconnected) => {
                 panel.pending = None;
@@ -251,6 +256,11 @@ fn spawn(
             });
         });
     }).id()
+}
+
+/// No native recovery panel survives entering the world.
+pub(crate) fn close(mut commands: Commands, mut panel: ResMut<RecoveryPanel>) {
+    panel.dismiss(&mut commands);
 }
 
 #[cfg(test)]

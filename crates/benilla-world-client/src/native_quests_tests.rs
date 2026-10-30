@@ -29,6 +29,8 @@ impl Catalog {
                             quest_type: 0,
                             rep_objective_faction: row.excluded.rep_objective_faction,
                             rep_objective_value: row.excluded.rep_objective_value as u32,
+                            opposite_rep_faction: 0,
+                            opposite_rep_value: 0,
                             next_quest_in_chain: row.next_in_chain,
                             money: row.reward.reward_or_required_money,
                             money_max_level: row.reward.xp.reward_money_max_level,
@@ -247,7 +249,7 @@ fn native_ui_accept_kill_level_complete_reward_and_resume_project_stock_state() 
     let killed = kill(&mut w, &mut p, &mut a);
     let xp = killed
         .iter()
-        .position(|e| matches!(e,SessionEvent::XpGain(x) if x.kill&&x.total==50&&x.base==50))
+        .position(|e| matches!(e,SessionEvent::XpGain(x) if x.kill&&x.total==50&&x.base==50&&x.group.to_bits()==1.0_f32.to_bits()))
         .unwrap();
     let credit = killed
         .iter()
@@ -296,7 +298,7 @@ fn native_ui_accept_kill_level_complete_reward_and_resume_project_stock_state() 
     );
     assert!(rewarded
         .iter()
-        .any(|e| matches!(e,SessionEvent::XpGain(x) if !x.kill&&x.total==100&&x.victim==0)));
+        .any(|e| matches!(e,SessionEvent::XpGain(x) if !x.kill&&x.total==100&&x.victim==0&&x.group.to_bits()==1.0_f32.to_bits())));
     assert!(rewarded
         .iter()
         .any(|e| matches!(e,SessionEvent::LevelUp(x) if x.level==3)));

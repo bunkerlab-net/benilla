@@ -30,6 +30,18 @@ pub struct WorldClockSample {
     /// Calendar days since the common era; unlike packed realm dates, continuous at month ends.
     pub day_serial: u32,
 }
+impl WorldClockSample {
+    /// Gregorian calendar components for the stock client clock; days/months are zero based.
+    pub fn calendar(self) -> Option<(i32, i32, i32, i32)> {
+        let date = chrono::NaiveDate::from_num_days_from_ce_opt(self.day_serial.try_into().ok()?)?;
+        Some((
+            date.year() - 2000,
+            date.month0() as i32,
+            date.day0() as i32,
+            date.weekday().num_days_from_sunday() as i32,
+        ))
+    }
+}
 impl WorldTimezone {
     pub fn name(self) -> &'static str {
         self.0.name()
@@ -77,6 +89,19 @@ mod tests {
                 .timestamp(),
         )
         .unwrap()
+    }
+    #[test]
+    fn stock_calendar_uses_zero_based_month_day_and_sunday_weekday() {
+        let leap = sample(zone("UTC"), "2028-02-29T23:59:00Z");
+        assert_eq!(leap.calendar(), Some((28, 1, 28, 2)));
+        let march = sample(zone("UTC"), "2028-03-01T00:00:00Z");
+        assert_eq!(march.calendar(), Some((28, 2, 0, 3)));
+        let invalid = WorldClockSample {
+            hours: 0,
+            minutes: 0,
+            day_serial: u32::MAX,
+        };
+        assert!(invalid.calendar().is_none());
     }
     #[test]
     fn utc_is_default_and_johannesburg_wraps_calendar_dates() {

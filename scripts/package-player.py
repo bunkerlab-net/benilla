@@ -58,7 +58,7 @@ DOCUMENTS = (
     "crates/benilla-world-client/INTERACTIONS.md", "crates/benilla-world-client/NATIVE-STARTER.md",
     "crates/benilla-world-data/README.md",
     "third_party/kira/LICENSE-MIT", "third_party/kira/LICENSE-APACHE",
-    "third_party/lua-src/LICENSE", "crates/benilla-sim/PROVENANCE.md",
+    "third_party/wgpu-hal/LICENSE.MIT", "third_party/wgpu-hal/LICENSE.APACHE", "crates/benilla-sim/PROVENANCE.md",
     "crates/benilla-sim/licenses/LICENSE", "crates/benilla-sim/licenses/GPL-3.0.txt",
     "crates/benilla-sim/licenses/COPYRIGHT.md", "crates/benilla-sim/licenses/AUTHORS.md",
 )

@@ -173,6 +173,9 @@ pub(super) fn roster_character(c: &Character) -> RosterCharacter {
             z: c.position.position[2],
         },
         flags: 0,
+        // Local profiles already hold their actual level/start; they never encode the
+        // realm's level-zero cinematic/intro-eye sentinel.
+        new_character: false,
         equipment: [benilla_protocol::messages::CharEnumItem::default(); 19],
         pet_display_id: 0,
         pet_level: 0,
@@ -259,7 +262,7 @@ pub(super) fn browse(
             generation,
         },
     )?;
-    roster(&store, events, RosterCause::Park, generation)?;
+    roster(&store, events, RosterCause::Unasked, generation)?;
     loop {
         if stop.load(std::sync::atomic::Ordering::SeqCst) {
             return Ok(());
@@ -325,7 +328,7 @@ pub(super) fn browse(
                         start
                             .create(&mut store, input)
                             .context("could not save character; local profile closed")?;
-                        roster(&store, events, RosterCause::Changed, generation)?;
+                        roster(&store, events, RosterCause::Unasked, generation)?;
                         benilla_protocol::messages::CHAR_CREATE_SUCCESS
                     };
                     emit(
@@ -381,18 +384,18 @@ pub(super) fn browse(
                             end: SessionEnd::LoggedOut,
                         },
                     )?;
-                    roster(&store, events, RosterCause::Park, generation)?;
+                    roster(&store, events, RosterCause::Unasked, generation)?;
                 }
                 super::super::CharRequest::Abandon => return Ok(()),
                 super::super::CharRequest::Delete(wanted) => character_actions::delete(
                     &mut store,
                     wanted,
                     |event| emit(events, event),
-                    |saved| roster(saved, events, RosterCause::Changed, generation),
+                    |saved| roster(saved, events, RosterCause::Unasked, generation),
                 )?,
                 super::super::CharRequest::Recover(request) => {
                     super::recovery_actions::recover(&mut store, request, |saved| {
-                        roster(saved, events, RosterCause::Changed, generation)
+                        roster(saved, events, RosterCause::Unasked, generation)
                     })?
                 }
                 // Rename remains unsupported; deletion never changes names or identities.

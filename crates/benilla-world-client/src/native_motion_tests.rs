@@ -268,7 +268,7 @@ fn creation_uses_source_orientation_and_rejoins_validated_active_spline_clock() 
         "walking launch still receives the source fake Runmode bit"
     );
     let active = snapshot.spline.as_ref().unwrap();
-    let events = projection.create(&world, &npc).unwrap();
+    let events = projection.create(&world, &npc, &represented).unwrap();
     let created = events
         .iter()
         .find_map(|event| match event {
@@ -296,6 +296,7 @@ fn creation_uses_source_orientation_and_rejoins_validated_active_spline_clock() 
     );
     assert_eq!(resumed.id, active.spline_id as u32);
     assert_eq!(resumed.time_passed_ms, 400);
+    assert_eq!(resumed.facing, p::MonsterMoveFacing::Angle(0.75));
     assert_eq!(
         resumed.duration_ms,
         *active.spline.timestamps_ms.last().unwrap()
@@ -309,7 +310,9 @@ fn creation_uses_source_orientation_and_rejoins_validated_active_spline_clock() 
     movement
         .advance(10_000, None, source_input(), &mut OriginalRoute)
         .unwrap();
-    assert!(create_spline(&npc, None).unwrap().is_none());
+    assert!(create_spline(&npc, None, 0, &BTreeMap::new())
+        .unwrap()
+        .is_none());
 }
 
 #[derive(Default)]
@@ -1135,7 +1138,14 @@ fn shared_source_active_rejoin_retains_wire_id_without_allocating() {
         }
         let state_before = world.checkpoint().unwrap();
         let ids = world.state().source_splines.as_ref().unwrap();
-        if let Some(active) = create_spline(&world.state().npcs[&2], Some(ids)).unwrap() {
+        if let Some(active) = create_spline(
+            &world.state().npcs[&2],
+            Some(ids),
+            projection.player_guid,
+            &projection.npcs,
+        )
+        .unwrap()
+        {
             let local = world.state().npcs[&2]
                 .source_motion
                 .as_ref()
@@ -1230,4 +1240,26 @@ fn shared_source_actual_player_death_projects_one_stop_at_retained_pose() {
         "rejoining does not allocate or resend a historical forced stop"
     );
     assert_eq!(restored.checkpoint().unwrap(), saved);
+}
+
+#[test]
+fn create_facing_resolver_uses_respawn_frames_current_generation() {
+    let world = source_world();
+    let old = world.state().npcs[&2].id;
+    let previous = BTreeMap::from([(old, 77)]);
+    let mut frame = Frame::new(&previous, world.state(), &world).unwrap();
+    frame.remove(old).unwrap();
+    assert_eq!(
+        project_facing(&source::Facing::Target(old.spawn), 55, frame.represented()),
+        Err(Error::UnknownTarget)
+    );
+    frame.spawn(npc(old.spawn, old.generation + 1), 99).unwrap();
+    assert_eq!(
+        project_facing(&source::Facing::Target(old.spawn), 55, frame.represented()),
+        Ok(p::MonsterMoveFacing::Target(99))
+    );
+    assert_eq!(
+        previous[&old], 77,
+        "previous projection intentionally remains stale until commit"
+    );
 }

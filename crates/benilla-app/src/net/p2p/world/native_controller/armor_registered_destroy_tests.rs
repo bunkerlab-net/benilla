@@ -43,6 +43,7 @@ fn lua_detach(c: &mut NativeController) -> u64 {
         .player_inv_slot(4)
         .unwrap();
     let mut ui = UiScript::new().unwrap();
+    ui.keep_calls();
     let mut doll: InventorySlots = Default::default();
     doll[5] = Some(InvSlotView {
         item_id: 900001,
@@ -82,6 +83,7 @@ fn lua_detach(c: &mut NativeController) -> u64 {
 fn lua_destroy(guid: u64) -> ClientCommand {
     use benilla_ui::script::{ContainerSlot, ContainerState, UiScript};
     let mut ui = UiScript::new().unwrap();
+    ui.keep_calls();
     ui.set_container(
         0,
         Some(ContainerState {

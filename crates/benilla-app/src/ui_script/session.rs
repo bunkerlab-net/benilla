@@ -216,6 +216,8 @@ mod tests {
         ("ui_script/extract/mod.rs", "last_seam"),
         // The plate driver's anti-overlap scratch, cleared at the top of every run.
         ("vplates.rs", "bucket"),
+        // The floating text's, likewise; its system reads the VM for the outcome words.
+        ("combat_text/mod.rs", "bucket"),
         // The window's scale factor, which gates the same re-seat as `last_seam`.
         ("ui_script/extract/mod.rs", "last_dpi"),
         // Pushed unconditionally every frame; there is nothing remembered to go stale.

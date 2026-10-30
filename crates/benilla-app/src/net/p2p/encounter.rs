@@ -20,7 +20,10 @@ pub(super) fn run(
         SessionEvent::Connected {
             self_guid: guid(id),
             name: name(id),
-            billing_time_rested: 0,
+            billing: benilla_protocol::messages::Billing {
+                plan_flags: benilla_protocol::messages::Billing::RECURRING,
+                ..Default::default()
+            },
             tutorial_flags: None,
             addon_info: Some(Vec::new()),
         },
@@ -40,10 +43,12 @@ pub(super) fn run(
     emit(
         events,
         SessionEvent::TimeSpeed {
-            hours: 12,
-            minutes: 0,
-            day_serial: 0,
-            timescale: 0.01666667,
+            time: benilla_protocol::messages::WowTime {
+                hour: 12,
+                minute: 0,
+                ..benilla_protocol::messages::WowTime::UNSET
+            },
+            speed: 0.01666667,
         },
     )?;
     for line in controller.lobby() {

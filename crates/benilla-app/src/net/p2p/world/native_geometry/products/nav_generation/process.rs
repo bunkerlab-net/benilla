@@ -664,7 +664,9 @@ mod tests {
         #[test]
         fn drains_both_outputs_before_helper_reads_large_stdin() {
             let _serial = HELPER_TEST.lock().unwrap();
-            let helper = Helper::new("directory = os.path.dirname(__file__)\ndef phase(value):\n    with open(os.path.join(directory, 'phase.pending'), 'w') as f:\n        f.write(value)\n    os.replace(os.path.join(directory, 'phase.pending'), os.path.join(directory, 'phase'))\nphase('ready')\nsys.stderr.buffer.write(bytes(65536))\nsys.stderr.buffer.flush()\nphase('stderr flushed')\nsys.stdout.buffer.write(b'BNAVOUT1' + struct.pack('<IIIIQ', 0, 28, 262144, 1, 0) + bytes(28 + 262144))\nsys.stdout.buffer.flush()\nphase('stdout flushed')\nassert sys.stdin.buffer.read() == bytes([42]) * 1048576\nphase('stdin consumed')");
+            let helper = Helper::new(
+                "directory = os.path.dirname(__file__)\ndef phase(value):\n    with open(os.path.join(directory, 'phase.pending'), 'w') as f:\n        f.write(value)\n    os.replace(os.path.join(directory, 'phase.pending'), os.path.join(directory, 'phase'))\nphase('ready')\nsys.stderr.buffer.write(bytes(65536))\nsys.stderr.buffer.flush()\nphase('stderr flushed')\nsys.stdout.buffer.write(b'BNAVOUT1' + struct.pack('<IIIIQ', 0, 28, 262144, 1, 0) + bytes(28 + 262144))\nsys.stdout.buffer.flush()\nphase('stdout flushed')\nassert sys.stdin.buffer.read() == bytes([42]) * 1048576\nphase('stdin consumed')",
+            );
             let mut command = helper.command();
             command.process_group(0);
             let running = Running {
@@ -937,7 +939,9 @@ mod tests {
             .unwrap();
             assert!(GenerationResponse::decode(&bytes).is_ok());
 
-            let inherited = Helper::new("leader = os.getpid()\npid = os.fork()\nif pid == 0:\n    while os.getppid() == leader:\n        time.sleep(0.002)\n    directory = os.path.dirname(__file__)\n    with open(os.path.join(directory, 'pid.pending'), 'w') as f:\n        f.write(str(leader))\n    os.replace(os.path.join(directory, 'pid.pending'), os.path.join(directory, 'pid'))\n    while os.path.isdir(directory) and not os.path.isfile(os.path.join(directory, 'release')):\n        time.sleep(0.002)\nelse:\n    os._exit(0)");
+            let inherited = Helper::new(
+                "leader = os.getpid()\npid = os.fork()\nif pid == 0:\n    while os.getppid() == leader:\n        time.sleep(0.002)\n    directory = os.path.dirname(__file__)\n    with open(os.path.join(directory, 'pid.pending'), 'w') as f:\n        f.write(str(leader))\n    os.replace(os.path.join(directory, 'pid.pending'), os.path.join(directory, 'pid'))\n    while os.path.isdir(directory) and not os.path.isfile(os.path.join(directory, 'release')):\n        time.sleep(0.002)\nelse:\n    os._exit(0)",
+            );
             let startup_deadline = Instant::now() + Duration::from_secs(5);
             let lease = portable::Lease::acquire(startup_deadline, &|| false).unwrap();
             let running = Running {

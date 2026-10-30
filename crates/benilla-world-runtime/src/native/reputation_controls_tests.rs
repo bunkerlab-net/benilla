@@ -150,6 +150,7 @@ fn reaction(w: &mut NativeWorld) -> u8 {
 fn attack_allowed(w: &NativeWorld) -> bool {
     let player = benilla_formats::FactionTemplate {
         faction: 0,
+        flags: 0,
         group_mask: 1,
         friend_group_mask: 1,
         enemy_group_mask: 0,

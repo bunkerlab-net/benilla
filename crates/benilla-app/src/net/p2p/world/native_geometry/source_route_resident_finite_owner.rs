@@ -94,9 +94,16 @@ impl<'a> Owner<'a> {
             epoch
         );
         let prior_cache = route.request.prior_cache.as_ref().unwrap();
-        eprintln!("resident finite actual callback: epoch={epoch} tick={} query={} now-ms={} prior-revision={} prior-storage={} origin={:?} goal={:?}",
-            request.binding.tick, route.request.binding.query_id, route.request.binding.now_ms,
-            prior_cache.revision, prior_cache.poly_refs.len(), route.request.origin, route.request.goal);
+        eprintln!(
+            "resident finite actual callback: epoch={epoch} tick={} query={} now-ms={} prior-revision={} prior-storage={} origin={:?} goal={:?}",
+            request.binding.tick,
+            route.request.binding.query_id,
+            route.request.binding.now_ms,
+            prior_cache.revision,
+            prior_cache.poly_refs.len(),
+            route.request.origin,
+            route.request.goal
+        );
         let retry = self
             .attempts
             .last()
@@ -137,7 +144,9 @@ impl<'a> Owner<'a> {
                 ));
                 assert_eq!(ledger.diagnostic(), *self.root.as_ref().unwrap());
                 self.expired += 1;
-                eprintln!("resident finite expired predecessor: next-epoch={epoch} cold-expired=true previous-expired=true renewed=false");
+                eprintln!(
+                    "resident finite expired predecessor: next-epoch={epoch} cold-expired=true previous-expired=true renewed=false"
+                );
             }
         } else {
             assert_eq!(
@@ -271,7 +280,9 @@ impl<'a> Owner<'a> {
                 )
                 .unwrap();
             assert_eq!(ledger.diagnostic(), *self.root.as_ref().unwrap());
-            eprintln!("resident generated-support source-only identity probes: decoded-context=Binding distinct-attempt-root=Binding native-terminal-mismatch=refused no-candidate=true no-scene=true");
+            eprintln!(
+                "resident generated-support source-only identity probes: decoded-context=Binding distinct-attempt-root=Binding native-terminal-mismatch=refused no-candidate=true no-scene=true"
+            );
             fixture::assert_source_order(ledger, provider, request, ticket);
             assert_eq!(ledger.diagnostic(), *self.root.as_ref().unwrap());
             super::source_route_resident_supported_clearance::probe(
@@ -305,7 +316,9 @@ impl<'a> Owner<'a> {
                 ticket,
             );
             assert_eq!(ledger.diagnostic(), *self.root.as_ref().unwrap());
-            eprintln!("resident supplemental endpoint identity probes: epoch=6 decoded-context=Binding distinct-attempt-root=Binding native-terminal-mismatch=refused no-facts=true");
+            eprintln!(
+                "resident supplemental endpoint identity probes: epoch=6 decoded-context=Binding distinct-attempt-root=Binding native-terminal-mismatch=refused no-facts=true"
+            );
         }
         if self.mode == Mode::RefusalsHistory && epoch == 4 && !retry {
             super::source_route_resident_straight_clearance::probe(
@@ -415,7 +428,14 @@ impl<'a> Owner<'a> {
         assert!(owned.staged_count <= 2 && owned.storage_bytes <= owned.upper_bound_bytes);
         self.attempts.push((request.clone(), deadline));
         assert!(self.attempts.len() <= 2);
-        eprintln!("resident finite staged: epoch={epoch} attempt={} terminals={} staged={} logical-storage-bytes={} bound-bytes={}", self.attempts.len(), owned.terminal_count, owned.staged_count, owned.storage_bytes, owned.upper_bound_bytes);
+        eprintln!(
+            "resident finite staged: epoch={epoch} attempt={} terminals={} staged={} logical-storage-bytes={} bound-bytes={}",
+            self.attempts.len(),
+            owned.terminal_count,
+            owned.staged_count,
+            owned.storage_bytes,
+            owned.upper_bound_bytes
+        );
         Ok((facts, self.mode == Mode::Recovery && epoch == 4 && !retry))
     }
 
@@ -554,7 +574,12 @@ impl<'a> Owner<'a> {
             self.accepted.push(notice.clone());
             assert!(self.accepted.len() <= 7);
         }
-        eprintln!("resident finite ACK: epoch={epoch} duplicate={duplicate} terminals=2 staged=0 old-warm-released=true proposal-wrappers-released={} logical-storage-bytes={} bound-bytes={}", self.proposals.len(), owned.storage_bytes, owned.upper_bound_bytes);
+        eprintln!(
+            "resident finite ACK: epoch={epoch} duplicate={duplicate} terminals=2 staged=0 old-warm-released=true proposal-wrappers-released={} logical-storage-bytes={} bound-bytes={}",
+            self.proposals.len(),
+            owned.storage_bytes,
+            owned.upper_bound_bytes
+        );
         let drop_epoch = if self.mode == Mode::Recovery { 6 } else { 8 };
         if epoch == drop_epoch && !self.lost {
             self.lost = true;
@@ -612,15 +637,25 @@ impl<'a> Owner<'a> {
             assert_eq!((owned.terminal_count, owned.staged_count), (2, 0));
             assert!(owned.storage_bytes <= owned.upper_bound_bytes);
             if self.mode == Mode::OldPolicyBoundary {
-                eprintln!("resident old-policy boundary: accepted=3 attempted=4 exact-terminal=NonSamePolygonUnsupported ledger-unchanged=true no-facts=true");
+                eprintln!(
+                    "resident old-policy boundary: accepted=3 attempted=4 exact-terminal=NonSamePolygonUnsupported ledger-unchanged=true no-facts=true"
+                );
             } else if self.mode == Mode::StrictStraightBoundary {
-                eprintln!("resident strict-straight boundary: accepted=4 attempted=5 raw-coverage=UnsupportedTerrain context=MissingGeometry ledger-unchanged=true no-facts=true");
+                eprintln!(
+                    "resident strict-straight boundary: accepted=4 attempted=5 raw-coverage=UnsupportedTerrain context=MissingGeometry ledger-unchanged=true no-facts=true"
+                );
             } else if self.mode == Mode::StrictSourceSplineBoundary {
-                eprintln!("resident prior-endpoint boundary: accepted=5 attempted=6 normalized-bottom-below-H=true context=UnsupportedPointRepresentation ledger-unchanged=true no-facts=true");
+                eprintln!(
+                    "resident prior-endpoint boundary: accepted=5 attempted=6 normalized-bottom-below-H=true context=UnsupportedPointRepresentation ledger-unchanged=true no-facts=true"
+                );
             } else if self.mode == Mode::StrictEndpointSupportBoundary {
-                eprintln!("resident prior-planar boundary: accepted=5 attempted=6 original-height-calls=0 context=UnsupportedNavigation ledger-unchanged=true no-facts=true");
+                eprintln!(
+                    "resident prior-planar boundary: accepted=5 attempted=6 original-height-calls=0 context=UnsupportedNavigation ledger-unchanged=true no-facts=true"
+                );
             } else {
-                eprintln!("resident strict-generated-support boundary: accepted=4 attempted=5 segment=2 context=Obstacle ledger-unchanged=true no-facts=true");
+                eprintln!(
+                    "resident strict-generated-support boundary: accepted=4 attempted=5 segment=2 context=Obstacle ledger-unchanged=true no-facts=true"
+                );
             }
             return;
         }
@@ -685,7 +720,10 @@ impl<'a> Owner<'a> {
             "exhaustion never enters a new source stage"
         );
         assert_eq!(ledger.diagnostic(), before);
-        eprintln!("resident finite loop complete: accepted=8 route-attempts={routes} warm-deliveries={} expired-predecessors={} last-revision=8 direct-ninth-refusal=true", self.deliveries, self.expired);
+        eprintln!(
+            "resident finite loop complete: accepted=8 route-attempts={routes} warm-deliveries={} expired-predecessors={} last-revision=8 direct-ninth-refusal=true",
+            self.deliveries, self.expired
+        );
     }
 }
 fn refuse(ledger: &mut ResidentLedger, notice: &RouteCommitNotice) {

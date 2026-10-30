@@ -77,7 +77,9 @@ pub(super) fn refuse_actual_sixth(
     ledger.check_committed_warm_for_test().unwrap();
     let owned = ledger.flat_ownership_for_test().unwrap();
     assert_eq!((owned.terminal_count, owned.staged_count), (2, 0));
-    eprintln!("resident prior-endpoint actual sixth refusal: tick=158 query=177 supplemental-attribution=true normalized-bottom-below-H=true context=UnsupportedPointRepresentation segments=0 no-facts=true");
+    eprintln!(
+        "resident prior-endpoint actual sixth refusal: tick=158 query=177 supplemental-attribution=true normalized-bottom-below-H=true context=UnsupportedPointRepresentation segments=0 no-facts=true"
+    );
     NativeError::AuthorityUnavailable(SOURCE_SPLINE_REFUSAL)
 }
 
@@ -166,7 +168,9 @@ impl RefusedTick {
             assert_eq!(driver.pending_inputs().unwrap(), inputs);
             self.assert_unchanged(driver);
         }
-        eprintln!("resident prior-endpoint-support rollback: tick=157 now-ms=3925 committed-epochs=5 failed-route=6 pending-input=exact journal=unchanged store-generation=unchanged blocked-callback-replay=0");
+        eprintln!(
+            "resident prior-endpoint-support rollback: tick=157 now-ms=3925 committed-epochs=5 failed-route=6 pending-input=exact journal=unchanged store-generation=unchanged blocked-callback-replay=0"
+        );
     }
 }
 

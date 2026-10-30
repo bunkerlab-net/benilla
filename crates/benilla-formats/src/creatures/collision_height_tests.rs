@@ -279,22 +279,14 @@ fn short_partial_and_padded_model_records_do_not_certify_raw_height() {
     let models = [model(7, height_bits, 2.5_f32.to_bits())];
     let displays = [display(101, 7, 3.0_f32.to_bits())];
     for stride in [12, 16, 20, 56, 60, 61, 62, 63, 65, 68] {
-        let cat = load_bytes(
-            dbc(&models, MODEL_STRINGS, stride),
-            dbc(&displays, b"\0", 48),
-        )
-        .unwrap();
-        assert_eq!(cat.collision_height_row(101), None, "stride {stride}");
-        // Keep the old client accessor's exact permissive partial-word/zero-padding behavior.
-        let expected = match stride {
-            0..=60 => 0,
-            61 => height_bits & 0xff,
-            62 => height_bits & 0xffff,
-            63 => height_bits & 0xff_ffff,
-            _ => height_bits,
-        };
-        assert_eq!(cat.collision_height(101).unwrap().to_bits(), expected);
-        assert_eq!(cat.model(101).unwrap().collision_height.to_bits(), expected);
+        assert!(
+            load_bytes(
+                dbc(&models, MODEL_STRINGS, stride),
+                dbc(&displays, b"\0", 48),
+            )
+            .is_err(),
+            "stride {stride}"
+        );
     }
 }
 
@@ -303,13 +295,14 @@ fn short_partial_and_padded_display_records_do_not_certify_raw_height_join() {
     let models = [model(7, 2.875_f32.to_bits(), 2.5_f32.to_bits())];
     let displays = [display(101, 7, 3.0_f32.to_bits())];
     for stride in [8, 16, 19, 20, 44, 45, 46, 47, 49, 52] {
-        let cat = load_bytes(
-            dbc(&models, MODEL_STRINGS, 64),
-            dbc(&displays, b"\0", stride),
-        )
-        .unwrap();
-        assert_eq!(cat.collision_height_row(101), None, "stride {stride}");
-        assert_eq!(cat.collision_height(101), Some(2.875));
+        assert!(
+            load_bytes(
+                dbc(&models, MODEL_STRINGS, 64),
+                dbc(&displays, b"\0", stride),
+            )
+            .is_err(),
+            "stride {stride}"
+        );
     }
 }
 
@@ -328,11 +321,15 @@ fn strict_height_and_width_availability_agree_for_every_retention_failure() {
     ];
     for model_stride in [12, 60, 61, 62, 63, 64, 65, 68] {
         for display_stride in [8, 44, 45, 46, 47, 48, 49, 52] {
-            let cat = load_bytes(
+            let loaded = load_bytes(
                 dbc(&models, MODEL_STRINGS, model_stride),
                 dbc(&displays, b"\0", display_stride),
-            )
-            .unwrap();
+            );
+            if model_stride != 64 || display_stride != 48 {
+                assert!(loaded.is_err());
+                continue;
+            }
+            let cat = loaded.unwrap();
             for id in [0, 7, 101, 102, 103, 104, 105, u32::MAX] {
                 let height = cat.collision_height_row(id);
                 let width = cat.collision_width_row(id);
@@ -451,7 +448,8 @@ fn winning_display_mapping_and_model_bytes_come_from_the_actual_patch_chain() {
             ),
         )],
     );
-    let cat = temp.load().unwrap();
-    assert_eq!(cat.collision_height_row(101), None);
-    assert_eq!(cat.collision_height(101), Some(0.0));
+    assert!(
+        temp.load().is_err(),
+        "short winning row cannot borrow a valid base row"
+    );
 }

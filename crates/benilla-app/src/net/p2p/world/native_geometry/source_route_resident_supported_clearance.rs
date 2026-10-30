@@ -264,7 +264,9 @@ fn obstacles(points: &[Point], body: Body, plane: f32) -> [(Vec3, Vec3); 2] {
                 && obstacle_max.z < segment_max.z
         );
     }
-    eprintln!("resident generated-support collider placement: earlier-checked-prism={earlier_min:?}..{earlier_max:?} current-checked-prism={current_min:?}..{current_max:?} low-gap={low:?} upper-body={high:?}");
+    eprintln!(
+        "resident generated-support collider placement: earlier-checked-prism={earlier_min:?}..{earlier_max:?} current-checked-prism={current_min:?}..{current_max:?} low-gap={low:?} upper-body={high:?}"
+    );
     [(low, low_size), (high, high_size)]
 }
 
@@ -312,7 +314,9 @@ fn enclosure_coexistence_obstacles(points: &[Point], body: Body, plane: f32) -> 
     assert!(low.y - low_size.y * 0.5 > plane && low.y + low_size.y * 0.5 < upper);
     assert!(high.y - high_size.y * 0.5 > upper);
     assert!(high.y + high_size.y * 0.5 < upper + body.height.as_f32());
-    eprintln!("resident planar enclosure-coexistence placement: checked-prism={min:?}..{max:?} actual-max-x={actual_max_x:?} low-gap={low:?} upper-body={high:?}");
+    eprintln!(
+        "resident planar enclosure-coexistence placement: checked-prism={min:?}..{max:?} actual-max-x={actual_max_x:?} low-gap={low:?} upper-body={high:?}"
+    );
     [(low, low_size), (high, high_size)]
 }
 
@@ -447,7 +451,9 @@ pub(super) fn probe(
     });
     assert!(phases.borrow().is_empty());
     assert_eq!(completed.get(), 0);
-    eprintln!("resident planar owner refusal: equal-bytes-replacement=Binding segment=none emitted=0 restored=true");
+    eprintln!(
+        "resident planar owner refusal: equal-bytes-replacement=Binding segment=none emitted=0 restored=true"
+    );
 
     let (asset, source_digest) = {
         let assets = geometry.app.world().resource::<Assets<AdtTile>>();
@@ -498,7 +504,9 @@ pub(super) fn probe(
     });
     assert!(phases.borrow().is_empty());
     assert_eq!(completed.get(), 0);
-    eprintln!("resident planar source refusal: raw=UnsupportedSource context=MissingGeometry segment=0 emitted=0 restored=true");
+    eprintln!(
+        "resident planar source refusal: raw=UnsupportedSource context=MissingGeometry segment=0 emitted=0 restored=true"
+    );
 
     let collider = geometry.app.world().get::<Collider>(root).unwrap().clone();
     let mesh = collider.shape_scaled().as_trimesh().unwrap();
@@ -545,7 +553,9 @@ pub(super) fn probe(
     });
     assert!(phases.borrow().is_empty());
     assert_eq!(completed.get(), 0);
-    eprintln!("resident planar collider refusal: raw=ColliderUnavailable context=MissingGeometry segment=0 emitted=0 restored=true");
+    eprintln!(
+        "resident planar collider refusal: raw=ColliderUnavailable context=MissingGeometry segment=0 emitted=0 restored=true"
+    );
 
     let transform = *geometry.app.world().get::<Transform>(root).unwrap();
     assert_eq!(transform, Transform::IDENTITY);
@@ -597,7 +607,9 @@ pub(super) fn probe(
         ),
         (root, original_hit, original_enclosure)
     );
-    eprintln!("resident planar transform refusal: raw=ColliderUnavailable context=MissingGeometry segment=0 emitted=0 restored=true");
+    eprintln!(
+        "resident planar transform refusal: raw=ColliderUnavailable context=MissingGeometry segment=0 emitted=0 restored=true"
+    );
     for kind in [Mutation::Hole, Mutation::Liquid, Mutation::Step] {
         let (id, index, original_chunk) =
             mutate_first_footprint(geometry, &diagnostic.points, kind);
@@ -642,7 +654,9 @@ pub(super) fn probe(
         for pair in diagnostic.points.windows(2) {
             raw_coverage(geometry, map, pair, diagnostic.body, plane).unwrap();
         }
-        eprintln!("resident generated-support raw refusal: kind={kind:?} raw=UnsupportedTerrain segment=0 emitted=0 restored=true");
+        eprintln!(
+            "resident generated-support raw refusal: kind={kind:?} raw=UnsupportedTerrain segment=0 emitted=0 restored=true"
+        );
     }
     for (kind, (center, size)) in ["low-gap", "upper-body"].into_iter().zip(obstacles(
         &diagnostic.points,
@@ -681,7 +695,9 @@ pub(super) fn probe(
         assert_eq!(*phases.borrow(), expected_prefix(1));
         assert_eq!(completed.get(), 0);
         phases.borrow_mut().clear();
-        eprintln!("resident generated-support collider refusal: kind={kind} segment=1 earlier-corridor-and-source-los=passed unknown-collider-membership=UnsupportedNavigation emitted=0 removed=true");
+        eprintln!(
+            "resident generated-support collider refusal: kind={kind} segment=1 earlier-corridor-and-source-los=passed unknown-collider-membership=UnsupportedNavigation emitted=0 removed=true"
+        );
     }
     for (kind, (center, size)) in
         ["low-gap", "upper-body"]
@@ -713,8 +729,11 @@ pub(super) fn probe(
             upper,
         );
         assert_eq!(checked_root, root);
-        assert_eq!(actual_hit, Some(root),
-            "fixture blocker: authentic checked-terrain-first enclosure-coexistence setup was not reached");
+        assert_eq!(
+            actual_hit,
+            Some(root),
+            "fixture blocker: authentic checked-terrain-first enclosure-coexistence setup was not reached"
+        );
         assert_eq!(
             enclosure,
             Err(Failure::UnsupportedNavigation),
@@ -753,7 +772,9 @@ pub(super) fn probe(
             ),
             (root, original_hit, original_enclosure)
         );
-        eprintln!("resident planar enclosure-coexistence refusal: kind={kind} segment=2 earlier-segments-and-source-los=2 actual-original-body-hit=checked-terrain-root independent-enclosure=UnsupportedNavigation emitted=0 removed=true");
+        eprintln!(
+            "resident planar enclosure-coexistence refusal: kind={kind} segment=2 earlier-segments-and-source-los=2 actual-original-body-hit=checked-terrain-root independent-enclosure=UnsupportedNavigation emitted=0 removed=true"
+        );
     }
     final_support_refusals(
         &mut refused,
@@ -768,7 +789,9 @@ pub(super) fn probe(
     assert_eq!((refused.attempts, refused.emitted), (14, 0));
     assert_eq!(ledger.diagnostic(), original);
     assert_eq!(install.bytes(), original_source);
-    eprintln!("resident planar-nonpenetration fifth refusals: points=4 segments=3 attempts=14 emitted=0 scene=owner,source,collider,transform raw-footprint=hole,liquid,step prism=low-gap,upper-body root-first-enclosure-coexistence=low-gap,upper-body after-all-segments=cancel,source,expiry committed-cache4=1 staged-cache5=0; genuine-source-M2-hit=not-exercised; later-real-body-hit-masking=not-proved; fresh actual certification follows");
+    eprintln!(
+        "resident planar-nonpenetration fifth refusals: points=4 segments=3 attempts=14 emitted=0 scene=owner,source,collider,transform raw-footprint=hole,liquid,step prism=low-gap,upper-body root-first-enclosure-coexistence=low-gap,upper-body after-all-segments=cancel,source,expiry committed-cache4=1 staged-cache5=0; genuine-source-M2-hit=not-exercised; later-real-body-hit-masking=not-proved; fresh actual certification follows"
+    );
 }
 
 /// Fresh endpoint arm must refuse cancellation, changed source and expiry after
@@ -846,7 +869,9 @@ pub(super) fn probe_endpoint_final(
     });
     assert_eq!((phases.get(), completed.get()), (0, 0));
     assert_eq!(ledger.diagnostic(), original);
-    eprintln!("resident source-spline sixth scene refusal: source-interpolated-body-center obstacle=unknown-nonterrain full-envelope=UnsupportedNavigation segment-callbacks=0 emitted=0 removed=true; first-terrain-hit-masking=not-claimed");
+    eprintln!(
+        "resident source-spline sixth scene refusal: source-interpolated-body-center obstacle=unknown-nonterrain full-envelope=UnsupportedNavigation segment-callbacks=0 emitted=0 removed=true; first-terrain-hit-masking=not-claimed"
+    );
     final_support_refusals(
         &mut refused,
         ledger,
@@ -860,7 +885,9 @@ pub(super) fn probe_endpoint_final(
     assert_eq!((refused.attempts, refused.emitted), (4, 0));
     assert_eq!(ledger.diagnostic(), original);
     assert_eq!(install.bytes(), source);
-    eprintln!("resident supplemental endpoint final refusals: epoch=6 segments=1 source-body-obstacle,cancel,source,expiry attempts=4 emitted=0 committed-cache5=1 staged-cache6=0; fresh actual certification follows");
+    eprintln!(
+        "resident supplemental endpoint final refusals: epoch=6 segments=1 source-body-obstacle,cancel,source,expiry attempts=4 emitted=0 committed-cache5=1 staged-cache6=0; fresh actual certification follows"
+    );
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use anyhow::{bail, Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::dbc::{name_lang_at, parse, str_at, u32_at};
+use crate::dbc::{loc_str, parse, str_at, u32_at};
 use crate::Chain;
 
 const CHR_RACES: &str = "DBFilesClient\\ChrRaces.dbc";
@@ -251,7 +251,7 @@ impl CharCreateCatalog {
         self.files.get(&race).map(String::as_str)
     }
 
-    /// The ChrRaces `Name_Lang` name for a race (`"Night Elf"`, `"Undead"`) at the enUS slot:
+    /// The ChrRaces `Name_Lang` name for a race (`"Night Elf"`, `"Undead"`) at the locale's slot:
     /// `GetCharacterInfo`'s second return (`0x47332e`).
     pub fn race_name(&self, race: u8) -> Option<&str> {
         self.names.get(&race).map(String::as_str)
@@ -479,6 +479,7 @@ fn load_races(
     }
     let rs = parse(&bytes, schema, "ChrRaces")?;
     let complete_records = bytes[12..16] == 116_u32.to_le_bytes();
+    let locale = chain.locale();
     let mut rows = Vec::new();
     let mut displays = HashMap::new();
     let mut files = HashMap::new();
@@ -506,7 +507,7 @@ fn load_races(
         if let Some(file) = str_at(&rs, r, 15) {
             files.insert(race, file);
         }
-        if let Some(name) = name_lang_at(&rs, r, 17) {
+        if let Some(name) = loc_str(&rs, r, 17, locale) {
             names.insert(race, name);
         }
         if let (Some(fm), Some(ff), Some(hair)) =

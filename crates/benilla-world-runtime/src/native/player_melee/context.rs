@@ -122,6 +122,7 @@ impl SourceContext {
         &self.equipment
     }
 
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub(super) fn binding(&self) -> &MeleeExecutionBinding {
         &self.binding
     }

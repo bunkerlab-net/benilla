@@ -224,6 +224,7 @@ impl PlayerMeleeProof {
             .fold(0_u64, |sum, cause| sum.saturating_add(cause.replay_work()))
     }
 
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub(super) fn genesis(profile: &Profile, state: &State) -> Self {
         Self {
             owner: Owner::capture(profile, state),

@@ -23,3 +23,5 @@ workspace = true
 # Compile the actual app action bridge without linking Bevy.
 anyhow.workspace = true
 benilla-protocol = { path = "../benilla-protocol" }
+
+benilla-ui = { path = "../benilla-ui" }

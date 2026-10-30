@@ -66,7 +66,10 @@ pub(super) fn helper() -> PathBuf {
         "benilla-native-navigation{}",
         std::env::consts::EXE_SUFFIX
     ));
-    assert!(executable.is_file(),"Build benilla-native-nav-generator before scoped geometry tests; workspace tests and CI build it as an integration-test binary");
+    assert!(
+        executable.is_file(),
+        "Build benilla-native-nav-generator before scoped geometry tests; workspace tests and CI build it as an integration-test binary"
+    );
     executable
 }
 fn assert_original_routes(mesh: &mut benilla_native_nav::Mesh, expected: &serde_json::Value) {

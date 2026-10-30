@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Blocking app worker; no transport configuration or peer readiness enters the solo clock.
 use super::*;
+#[path = "driver/object_packets.rs"]
+mod object_packets;
 use crate::net::ClientCommand;
 use crossbeam_channel::{Receiver, Sender};
 use std::{
@@ -34,7 +36,7 @@ fn emit(events: &Sender<SessionEvent>, event: SessionEvent) -> Result<(), Error>
         })
 }
 fn emit_all(events: &Sender<SessionEvent>, batch: Vec<SessionEvent>) -> Result<(), Error> {
-    for event in batch {
+    for event in object_packets::frame(batch) {
         emit(events, event)?;
     }
     Ok(())
@@ -105,7 +107,14 @@ fn drive(
                 match finish(controller, events) {
                     Ok(exit) => return Ok(exit),
                     Err(error) if checkpoint_paused(controller) => {
-                        emit(events, SessionEvent::Notification { text: format!("Logout remains paused; unsaved progress is still held in this session: {error}") })?;
+                        emit(
+                            events,
+                            SessionEvent::Notification {
+                                text: format!(
+                                    "Logout remains paused; unsaved progress is still held in this session: {error}"
+                                ),
+                            },
+                        )?;
                     }
                     Err(error) => return Err(error),
                 }
@@ -153,7 +162,14 @@ fn drive(
                             match finish(controller, events) {
                                 Ok(exit) => return Ok(exit),
                                 Err(error) if checkpoint_paused(controller) => {
-                                    emit(events, SessionEvent::Notification { text: format!("Logout could not save the world; unsaved progress is still held in this session. Repair storage and retry: {error}") })?;
+                                    emit(
+                                        events,
+                                        SessionEvent::Notification {
+                                            text: format!(
+                                                "Logout could not save the world; unsaved progress is still held in this session. Repair storage and retry: {error}"
+                                            ),
+                                        },
+                                    )?;
                                     break;
                                 }
                                 Err(error) => return Err(error),
@@ -186,7 +202,16 @@ fn drive(
                         allow_move: false,
                     },
                 )?;
-                emit(events, SessionEvent::Notification { text: format!("World paused at tick {}: {}. Unsaved progress remains in this session; no replacement was opened.", controller.tick(), pause.message) })?;
+                emit(
+                    events,
+                    SessionEvent::Notification {
+                        text: format!(
+                            "World paused at tick {}: {}. Unsaved progress remains in this session; no replacement was opened.",
+                            controller.tick(),
+                            pause.message
+                        ),
+                    },
+                )?;
             }
             last_pause = output.pause;
         }

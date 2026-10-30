@@ -28,6 +28,7 @@ fn stock_cursor_split_waits_for_checkpoint_then_reopens_both_exact_instances() {
     let allocator = inventory(&c).next_item;
     let quests = progress(&c).quests.clone();
     let mut ui = UiScript::new().unwrap();
+    ui.keep_calls();
     ui.set_container(
         0,
         Some(ContainerState {

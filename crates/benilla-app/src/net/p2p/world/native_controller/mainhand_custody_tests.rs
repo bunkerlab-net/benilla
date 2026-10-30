@@ -4,6 +4,7 @@ use super::*;
 fn lua(guid: u64, autostore: bool) -> ClientCommand {
     use benilla_ui::script::{ContainerSlot, ContainerState, UiScript};
     let mut ui = UiScript::new().unwrap();
+    ui.keep_calls();
     let source = if autostore { 2 } else { 1 };
     ui.set_container(
         0,
@@ -25,15 +26,15 @@ fn lua(guid: u64, autostore: bool) -> ClientCommand {
     if autostore {
         ui.run("PickupContainerItem(0, 2); PutItemInBackpack()")
             .unwrap();
-        let queued = ui.take_bag_autostores();
-        assert_eq!(queued.len(), 1);
-        let q = &queued[0];
-        assert_eq!((q.src_bag, q.src_slot, q.dst_bag, q.count), (0, 2, 0, None));
-        let (src_bag, src_slot) = crate::ui_items::wire_pos(q.src_bag, q.src_slot).unwrap();
-        assert_eq!((src_bag, src_slot), (255, 24));
+        assert!(
+            ui.take_bag_autostores().is_empty(),
+            "own-backpack drop cancels"
+        );
+        assert!(ui.cursor_item().is_none());
+        // This return is an explicit protocol test input, not output from the Lua drop.
         ClientCommand::AutoStoreBagItem {
-            src_bag,
-            src_slot,
+            src_bag: 255,
+            src_slot: 24,
             dst_bag: 255,
         }
     } else {
@@ -58,7 +59,7 @@ fn no_acquisition(events: &[SessionEvent]) {
     )));
 }
 #[test]
-fn actual_lua_staff_relocation_and_autostore_preserve_identity_across_save_retry_reopen() {
+fn lua_staff_relocation_and_explicit_autostore_preserve_identity_across_save_retry_reopen() {
     let h = Harness::new();
     let mut c = enter_staff(&h, false);
     let initial = c.initial_events().unwrap();

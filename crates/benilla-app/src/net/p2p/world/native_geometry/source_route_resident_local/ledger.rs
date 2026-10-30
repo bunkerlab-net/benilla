@@ -2407,7 +2407,7 @@ impl ResidentLedger {
                 )?;
             }
             WarmDependency::Second(_) | WarmDependency::Straight(_) => {
-                return Err(Failure::Binding.into())
+                return Err(Failure::Binding.into());
             }
         }
         Ok(())

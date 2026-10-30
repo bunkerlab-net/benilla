@@ -214,10 +214,19 @@ impl Fixture {
             let first = observed.loaded.lock().unwrap().len();
             let out = c.pump(c.tick_duration());
             if let Some(pause) = out.pause {
-                assert!(faults && !rolled_back,
-                    "unexpected loaded quest pause before intended rollback: tick={}, faults={faults}, rolled_back={rolled_back}, pause={pause:?}", c.tick());
-                assert!(pause.message.contains("authored late giver after loaded geometry"),
-                    "loaded quest paused before the injected late-giver failure: tick={}, loaded_replies={}, pause={pause:?}", c.tick(), observed.loaded.lock().unwrap().len() - first);
+                assert!(
+                    faults && !rolled_back,
+                    "unexpected loaded quest pause before intended rollback: tick={}, faults={faults}, rolled_back={rolled_back}, pause={pause:?}",
+                    c.tick()
+                );
+                assert!(
+                    pause
+                        .message
+                        .contains("authored late giver after loaded geometry"),
+                    "loaded quest paused before the injected late-giver failure: tick={}, loaded_replies={}, pause={pause:?}",
+                    c.tick(),
+                    observed.loaded.lock().unwrap().len() - first
+                );
                 assert_eq!(out.ticks, 0);
                 assert!(out.events.is_empty());
                 assert_eq!(pause.kind, PauseKind::Authority);
@@ -235,8 +244,12 @@ impl Fixture {
                     })
                     .cloned()
                     .collect();
-                assert_eq!(attempted.len(), 1,
-                    "injected late-giver rollback must follow exactly one loaded Route: tick={}, pause={pause:?}", c.tick());
+                assert_eq!(
+                    attempted.len(),
+                    1,
+                    "injected late-giver rollback must follow exactly one loaded Route: tick={}, pause={pause:?}",
+                    c.tick()
+                );
                 assert_eq!(attempted[0].request.binding.npc, Some(a));
                 let heads = inspect(&boundary(&c), &attempted, false);
                 assert!(heads.committed.is_empty());
@@ -260,9 +273,15 @@ impl Fixture {
                     })
                     .cloned()
                     .collect();
-                assert_eq!(retried, attempted,
+                assert_eq!(
+                    retried,
+                    attempted,
                     "loaded quest retry must reach the exact loaded Route before durable publication refusal: tick={}, retry_loaded_replies={}, ticks={}, pause={:?}",
-                    c.tick(), observed.loaded.lock().unwrap().len() - retry_first, out.ticks, out.pause);
+                    c.tick(),
+                    observed.loaded.lock().unwrap().len() - retry_first,
+                    out.ticks,
+                    out.pause
+                );
                 assert!(!attempted[0]
                     .request
                     .require_pathfinder_dispatch(c.world.profile())
@@ -1119,21 +1138,29 @@ fn reject_open(path: &Path, identity: Identity, profile: &n::Profile, base_must_
             result
         });
         if base_must_restore {
-            assert!(matches!(
-                &result,
-                Err(benilla_world_store::native::Error::Runtime(
-                    n::NativeError::UnsupportedMechanic(
-                        "saved native PathFinder cache rehydration"
-                    )
-                ))
-            ), "cached journal must reach the post-replay reopen guard; restored_base={restored_base}, error={:?}", result.as_ref().err());
+            assert!(
+                matches!(
+                    &result,
+                    Err(benilla_world_store::native::Error::Runtime(
+                        n::NativeError::UnsupportedMechanic(
+                            "saved native PathFinder cache rehydration"
+                        )
+                    ))
+                ),
+                "cached journal must reach the post-replay reopen guard; restored_base={restored_base}, error={:?}",
+                result.as_ref().err()
+            );
         } else {
-            assert!(matches!(
-                &result,
-                Err(benilla_world_store::native::Error::Runtime(
-                    n::NativeError::InvalidCheckpoint
-                ))
-            ), "cached base must fail runtime restoration; restored_base={restored_base}, error={:?}", result.as_ref().err());
+            assert!(
+                matches!(
+                    &result,
+                    Err(benilla_world_store::native::Error::Runtime(
+                        n::NativeError::InvalidCheckpoint
+                    ))
+                ),
+                "cached base must fail runtime restoration; restored_base={restored_base}, error={:?}",
+                result.as_ref().err()
+            );
         }
         assert_eq!(restored_base, base_must_restore);
         assert_eq!(fs::read(path.join("world.checkpoint")).unwrap(), bytes);

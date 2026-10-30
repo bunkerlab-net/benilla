@@ -16,6 +16,7 @@ fn stock_cursor_delete_selected_later_stack_is_checkpointed_once_and_reopened() 
     let selected = cache.guid(24);
     let allocator = inventory(&c).next_item;
     let mut ui = UiScript::new().unwrap();
+    ui.keep_calls();
     ui.set_container(
         0,
         Some(ContainerState {

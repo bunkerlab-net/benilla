@@ -45,6 +45,7 @@ fn no_new_object(events: &[SessionEvent]) {
 fn lua_autoequip(guid: u64) -> ClientCommand {
     use benilla_ui::script::{ContainerSlot, ContainerState, UiScript};
     let mut ui = UiScript::new().unwrap();
+    ui.keep_calls();
     ui.set_container(
         0,
         Some(ContainerState {
@@ -64,6 +65,14 @@ fn lua_autoequip(guid: u64) -> ClientCommand {
             .into(),
             ..Default::default()
         }),
+    );
+    ui.set_item_template(
+        900001,
+        benilla_ui::script::ItemTemplateView {
+            class: 4,
+            inventory_type: 5,
+            ..Default::default()
+        },
     );
     ui.run("PickupContainerItem(0, 1); AutoEquipCursorItem()")
         .unwrap();

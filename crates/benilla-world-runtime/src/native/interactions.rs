@@ -160,6 +160,7 @@ impl InteractionFactionSource {
     fn template(&self) -> FactionTemplate {
         FactionTemplate {
             faction: self.faction,
+            flags: self.template_flags,
             group_mask: self.group_mask,
             friend_group_mask: self.friend_group_mask,
             enemy_group_mask: self.enemy_group_mask,

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Actual Lua queue -> app sender -> controller, not a full Bevy/render execution.
+//! Captured Lua calls -> shared bit-gated app sender -> controller, not a full Bevy/render execution.
 use super::*;
 use benilla_ui::script::UiScript;
 use n::{
@@ -61,15 +61,22 @@ fn enter(h: &Harness, data: n::Profile, open: bool) -> NativeController {
     .unwrap()
 }
 fn lua_flips(c: &mut NativeController, ui: &mut UiScript, source: &str) -> usize {
+    ui.keep_calls();
     ui.run(source).unwrap();
-    let queued = ui.take_worn_display_toggles();
-    let count = queued.len();
+    let queued = ui.take_worn_display_sets();
+    let flags = c.world.state().player_hide_flags();
     let (tx, rx) = crossbeam_channel::unbounded();
-    for which in queued {
-        sender::send_worn_display_toggle(which, &tx);
+    for set in queued {
+        let mask = match set.piece {
+            benilla_ui::script::WornDisplay::Helm => 0x400,
+            benilla_ui::script::WornDisplay::Cloak => 0x800,
+        };
+        sender::send_worn_display_set(set, flags & mask != 0, &tx);
     }
     drop(tx);
+    let mut count = 0;
     for command in rx {
+        count += 1;
         assert!(c.receive(command).unwrap().events.is_empty());
     }
     count
@@ -95,13 +102,14 @@ fn descriptor(events: &[SessionEvent], guid: u64, hide: u32) -> benilla_protocol
     fields
 }
 #[test]
-fn lua_hide_flags_withhold_then_retry_reopen_and_preserve_two_flips() {
+fn lua_hide_flags_retry_reopen_and_gate_against_observed_descriptor() {
     let h = Harness::new();
     let data = profile(&h, false);
     let mut c = enter(&h, data.clone(), false);
     let initial = c.initial_events().unwrap();
     let initial_flags = descriptor(&initial, c.player_guid(), 0).player_flags();
     let mut ui = UiScript::new().unwrap();
+    ui.keep_calls();
     assert_eq!(lua_flips(&mut c, &mut ui, "ShowHelm(0); ShowCloak(0)"), 2);
     fs::write(
         h.path().join(".world-checkpoint.pending"),
@@ -129,18 +137,19 @@ fn lua_hide_flags_withhold_then_retry_reopen_and_preserve_two_flips() {
         .unwrap());
     assert!(c.pump(Duration::ZERO).events.is_empty());
     let before = c.world.state().next_sequence;
-    assert_eq!(lua_flips(&mut c, &mut ui, "ShowHelm(1); ShowHelm(0)"), 2);
+    // Both calls observe the same hidden bit until server updates arrive: only show sends.
+    assert_eq!(lua_flips(&mut c, &mut ui, "ShowHelm(1); ShowHelm(0)"), 1);
     let out = c.pump(c.tick_duration());
     assert!(out.pause.is_none(), "{:?}", out.pause);
-    assert_eq!(c.world.state().next_sequence, before + 2);
-    assert_eq!(c.world.state().player_hide_flags(), 0xc00);
-    descriptor(&out.events, c.player_guid(), 0xc00);
+    assert_eq!(c.world.state().next_sequence, before + 1);
+    assert_eq!(c.world.state().player_hide_flags(), 0x800);
+    descriptor(&out.events, c.player_guid(), 0x800);
     let checkpoint = c.world.checkpoint().unwrap();
     drop(c);
     let mut reopened = enter(&h, data, true);
     assert_eq!(reopened.world.checkpoint().unwrap(), checkpoint);
     let initial = reopened.initial_events().unwrap();
-    descriptor(&initial, reopened.player_guid(), 0xc00);
+    descriptor(&initial, reopened.player_guid(), 0x800);
 }
 #[test]
 fn actual_dead_player_can_toggle_both_hide_flags_without_resurrection() {
@@ -161,6 +170,7 @@ fn actual_dead_player_can_toggle_both_hide_flags_without_resurrection() {
         "actual NPC must kill source player"
     );
     let mut ui = UiScript::new().unwrap();
+    ui.keep_calls();
     assert_eq!(lua_flips(&mut c, &mut ui, "ShowHelm(0); ShowCloak(0)"), 2);
     let out = c.pump(c.tick_duration());
     assert!(out.pause.is_none(), "{:?}", out.pause);

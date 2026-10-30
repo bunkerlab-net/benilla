@@ -12,7 +12,10 @@ pub(crate) fn assert_navigation_bytes(actual: &[u8], expected: &[u8], label: &st
         .collect();
     panic!(
         "{label}: byte mismatch; actual_len={} expected_len={} actual_sha256={:x} expected_sha256={:x} first_offsets={offsets:?}",
-        actual.len(), expected.len(), Sha256::digest(actual), Sha256::digest(expected),
+        actual.len(),
+        expected.len(),
+        Sha256::digest(actual),
+        Sha256::digest(expected),
     );
 }
 

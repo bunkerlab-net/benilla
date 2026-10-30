@@ -67,12 +67,6 @@ impl Plugin for GluePlugin {
                 fit_glue_canvas.before(bevy::ui::UiSystems::Layout),
             )
             .add_systems(
-                PostUpdate,
-                hide_native_glue
-                    .before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate)
-                    .run_if(not(crate::ui_script::glue::native_glue)),
-            )
-            .add_systems(
                 Update,
                 (art_swaps, glue_button_visuals, glue_hilights, sync_outlines).in_set(GlueVisuals),
             );
@@ -204,11 +198,8 @@ pub(crate) fn fit_glue_canvas(
     }
     // Off the window, not `CreateScene`: the box is one aspect for every scene, so the canvas
     // never waits on the booth.
-    let window = window.single().ok();
-    let (left, right) = crate::portrait::glue_canvas_bars(
-        window,
-        window.and_then(|w| crate::portrait::glue_box_aspect(w.width() / w.height().max(1.0))),
-    );
+    let _ = window;
+    let (left, right) = (0.0, 0.0);
     let (left, right) = (Val::Px(left), Val::Px(right));
     for mut node in &mut canvases {
         if node.left != left || node.right != right {

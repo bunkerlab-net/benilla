@@ -236,9 +236,8 @@ pub(super) fn spawn_loaded_placements(
                             .entity(*e)
                             .insert(crate::exterior_cull::ExteriorScene);
                     }
-                    // The collision hull, welded into the owner tile's batch, which carries the
-                    // `PickOccluder` clamp. A hull-less model (a tree canopy) stays pick-through,
-                    // as the reference's world trace tests only collision-flagged doodads.
+                    // The collision hull, welded into the owner tile's batch: the body's alone, as
+                    // the mouse pick tests the drawn batches (`interact::DoodadOccluders`).
                     if let Some((verts, tris)) = (!doodad_bodies_disabled())
                         .then(|| placement_collider_data(m.collision.as_ref(), &p.transform))
                         .flatten()
@@ -252,7 +251,6 @@ pub(super) fn spawn_loaded_placements(
                                             None,
                                             !doodad_hulls_bare(),
                                         ),
-                                        PickOccluder,
                                         StaticColliderSources(vec![NativeHullId::M2(unique_id)]),
                                     ))
                                     .id(),
@@ -727,7 +725,6 @@ pub(super) fn spawn_loaded_placements(
                                     None,
                                     !doodad_hulls_bare(),
                                 ),
-                                PickOccluder,
                                 StaticColliderSources(vec![NativeHullId::WmoDoodad(
                                     unique_id,
                                     d.source_index,

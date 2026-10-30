@@ -9,35 +9,54 @@ fn abandon(c: &mut NativeController, slot: u8) -> Pump {
 }
 #[test]
 fn actual_lua_abandon_waits_for_checkpoint_then_reopens_and_reoffers_reset_quest() {
-    use benilla_ui::script::{QuestLogEntryView, QuestLogState, UiScript};
+    use benilla_ui::script::{QuestRecordView, QuestSlotView, UiScript, QUEST_LOG_SLOTS};
     let h = Harness::new();
     let mut c = ready(&h);
     let prior = progress(&c).quests.progress(70001).unwrap().clone();
     assert_eq!(prior.status, q::Status::Complete);
     let mut ui = UiScript::new().unwrap();
-    ui.set_quest_log(QuestLogState {
-        num_quests: 1,
-        entries: vec![QuestLogEntryView {
-            quest_id: 70001,
-            title: "Authored quest".into(),
-            level: 1,
-            complete: 1,
-            ..Default::default()
-        }],
-        ..Default::default()
-    });
-    ui.run("SelectQuestLogEntry(1); SetAbandonQuest(); AbandonQuest()")
-        .unwrap();
-    let ids = ui.take_quest_log_abandons();
-    assert_eq!(ids, vec![70001]);
+    ui.keep_calls();
     let slot = progress(&c)
         .quests
         .view()
         .log
         .iter()
-        .position(|id| *id == Some(ids[0]))
+        .position(|id| *id == Some(70001))
         .unwrap() as u8;
-    c.receive(ClientCommand::QuestlogRemove { slot }).unwrap();
+    let mut slots = [QuestSlotView::default(); QUEST_LOG_SLOTS];
+    slots[usize::from(slot)] = QuestSlotView {
+        quest_id: 70001,
+        state: 1,
+        ..Default::default()
+    };
+    ui.set_quest_log_player(true);
+    ui.seed_quest_record(
+        70001,
+        QuestRecordView {
+            title: "Authored quest".into(),
+            level: 1,
+            ..Default::default()
+        },
+    );
+    ui.set_quest_slots(slots);
+    ui.quest_log_changed();
+    let index = ui.quest_log_index(70001);
+    assert_ne!(
+        index, 0,
+        "actual rebuilt quest list contains the selected quest"
+    );
+    ui.run(&format!(
+        "SelectQuestLogEntry({index}); SetAbandonQuest(); AbandonQuest()"
+    ))
+    .unwrap();
+    let abandons = ui.take_quest_log_abandons();
+    assert_eq!(
+        abandons,
+        vec![slot],
+        "the real Lua call names the wire log slot, not quest id"
+    );
+    c.receive(ClientCommand::QuestlogRemove { slot: abandons[0] })
+        .unwrap();
     inject(&h);
     let out = c.pump(c.tick_duration());
     paused(&out);

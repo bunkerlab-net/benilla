@@ -143,7 +143,7 @@ impl ResidentReconstructionOwner<'_, '_, '_, '_> {
                 _ => {
                     return Err(NativeError::AuthorityUnavailable(
                         "resident restart supports only existing three epochs",
-                    ))
+                    ));
                 }
             },
             Query::SourceMotion(MotionQuery::Spatial(motion::Query::Bearing(bearing))) => {
@@ -160,7 +160,7 @@ impl ResidentReconstructionOwner<'_, '_, '_, '_> {
             Query::SourceMotion(MotionQuery::Spatial(_)) | Query::CreatureInitialization(_) => {
                 return Err(NativeError::AuthorityUnavailable(
                     "unsupported resident restart query",
-                ))
+                ));
             }
             _ => return Ok(None),
         };

@@ -559,9 +559,16 @@ fn loaded_quest_initial_hostile_chase_reaches_real_terminal_without_a_route_cert
                             1
                         );
                         match reply.try_result() {
-                            Err(crossbeam_channel::TryRecvError::Empty) => assert!(lease.is_active()),
-                            Ok(result) => { assert_eq!(result, Err(Failure::MissingGeometry)); break; },
-                            other => panic!("loaded quest body expired before the provider: {other:?}; attempts={attempts}"),
+                            Err(crossbeam_channel::TryRecvError::Empty) => {
+                                assert!(lease.is_active())
+                            }
+                            Ok(result) => {
+                                assert_eq!(result, Err(Failure::MissingGeometry));
+                                break;
+                            }
+                            other => panic!(
+                                "loaded quest body expired before the provider: {other:?}; attempts={attempts}"
+                            ),
                         }
                     }
                     assert_eq!(calls, 1);
@@ -614,16 +621,25 @@ fn loaded_quest_initial_hostile_chase_reaches_real_terminal_without_a_route_cert
                             1
                         );
                         match reply.try_result() {
-                            Err(crossbeam_channel::TryRecvError::Empty) => assert!(lease.is_active()),
-                            Ok(result) => { assert_eq!(result, Err(Failure::MissingGeometry)); break; },
-                            other => panic!("loaded quest staged provider expired: {other:?}; attempts={provider_attempts}"),
+                            Err(crossbeam_channel::TryRecvError::Empty) => {
+                                assert!(lease.is_active())
+                            }
+                            Ok(result) => {
+                                assert_eq!(result, Err(Failure::MissingGeometry));
+                                break;
+                            }
+                            other => panic!(
+                                "loaded quest staged provider expired: {other:?}; attempts={provider_attempts}"
+                            ),
                         }
                     }
                     assert_eq!(observed, capture.observations);
                     assert!(!lease.is_active());
                     capture.providers.route.reap_jobs();
                     assert_eq!(capture.providers.route.pending_job_count(), 0);
-                    eprintln!("loaded quest provider completed within original lease: attempts={provider_attempts}");
+                    eprintln!(
+                        "loaded quest provider completed within original lease: attempts={provider_attempts}"
+                    );
                     assert_eq!(proposal.context.binding.npc.unwrap().spawn, hostile);
                     assert!(proposal.dispatch.first_construction());
                     assert_eq!(
@@ -636,8 +652,16 @@ fn loaded_quest_initial_hostile_chase_reaches_real_terminal_without_a_route_cert
                     eprintln!(
                         "loaded quest terminal: hostile={hostile}, giver={giver}, order={order:?}, tick={}, endpoint={end:?}, player_distance={}, giver_distance={}",
                         world.state().tick + 1,
-                        endpoint.distance_squared(profile.player.start).unwrap().as_f32().sqrt(),
-                        endpoint.distance_squared(profile.npc(giver).unwrap().ai.spawn).unwrap().as_f32().sqrt(),
+                        endpoint
+                            .distance_squared(profile.player.start)
+                            .unwrap()
+                            .as_f32()
+                            .sqrt(),
+                        endpoint
+                            .distance_squared(profile.npc(giver).unwrap().ai.spawn)
+                            .unwrap()
+                            .as_f32()
+                            .sqrt(),
                     );
                     assert_eq!(
                         capture

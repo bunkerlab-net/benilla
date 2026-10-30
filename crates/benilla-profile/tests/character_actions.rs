@@ -6,8 +6,6 @@ pub(crate) mod recovery_model;
 // Execute the production app character actions without linking Bevy.
 #[path = "../../benilla-app/src/net/p2p/character_actions.rs"]
 mod character_actions;
-#[path = "../../benilla-app/src/char_select/delete_intent.rs"]
-mod delete_intent;
 #[path = "../../benilla-app/src/net/p2p/recovery_actions.rs"]
 mod recovery_actions;
 
@@ -57,42 +55,109 @@ fn action_code(event: SessionEvent) -> u8 {
     }
 }
 
-#[test]
-fn explicit_confirmation_consumes_exact_snapshot_and_cancel_wins() {
-    use delete_intent::{armed, decide, Decision};
-    assert!(!armed("", "DELETE"));
-    assert!(!armed("", ""));
-    assert!(!armed("DELETE ", "DELETE"));
-    assert!(!armed("DEL", "DELETE"));
-    assert!(armed("delete", "DELETE"));
-    let mut target = Some((41, "First"));
-    assert!(matches!(
-        decide(&mut target, false, true, false),
-        Decision::Pending
-    ));
-    assert_eq!(target, Some((41, "First")));
-    // A later UI selection is irrelevant to the snapshotted GUID and name.
-    let _new_selected_row = (92, "Second");
-    assert!(matches!(
-        decide(&mut target, true, true, false),
-        Decision::Confirmed((41, "First"))
-    ));
-    assert!(matches!(
-        decide(&mut target, true, true, false),
-        Decision::Pending
-    ));
-    for submit in [false, true] {
-        let mut target = Some(41);
-        assert!(matches!(
-            decide(&mut target, true, submit, true),
-            Decision::Cancelled
-        ));
-        assert!(target.is_none());
-        assert!(matches!(
-            decide(&mut target, true, true, false),
-            Decision::Pending
-        ));
+fn glue_record(guid: u64, name: &str) -> benilla_ui::script::GlueCharacter {
+    benilla_ui::script::GlueCharacter {
+        guid,
+        name: name.into(),
+        race: "Human".into(),
+        class: "Warrior".into(),
+        level: 1,
+        zone: None,
+        file_string: "Human".into(),
+        gender: 0,
+        flags: 0,
+        model: false,
     }
+}
+
+#[test]
+fn stock_lua_confirmation_preserves_snapshot_and_durable_delete() {
+    use benilla_ui::script::{GlueCall, UiScript};
+    let fixture = Fixture::new();
+    let mut store = ProfileStore::create(&fixture.0).unwrap();
+    let first = store.create_character(input("First")).unwrap();
+    let second = store.create_character(input("Second")).unwrap();
+    let guid = character_actions::character_guid(store.character(first).unwrap());
+    let other_guid = character_actions::character_guid(store.character(second).unwrap());
+    let rows = vec![
+        glue_record(guid, "First"),
+        glue_record(other_guid, "Second"),
+    ];
+    let mut missing_dialog = UiScript::new_glue().unwrap();
+    missing_dialog.load_glue_roster(rows.clone());
+    missing_dialog.take_glue_calls();
+    assert!(missing_dialog
+        .install_local_character_delete_guard()
+        .is_err());
+    missing_dialog.run("DeleteCharacter(1)").unwrap();
+    assert!(
+        missing_dialog.take_glue_calls().is_empty(),
+        "installation failure must disable raw local deletion"
+    );
+    let mut s = UiScript::new_glue().unwrap();
+    s.register_cvars([("lastCharacterIndex", "0")]);
+    s.load_glue_roster(rows.clone());
+    s.run(
+        r#"
+        typed = '' DELETE_CONFIRM_STRING = 'DELETE'
+        CharacterDeleteDialog = CreateFrame('Frame', 'CharacterDeleteDialog')
+        CharacterDeleteDialog:Hide()
+        CharacterDeleteEditBox = { GetText = function() return typed end }
+        shown = 0 hidden = 0
+        CharacterDeleteDialog:SetScript('OnShow', function() shown = shown + 1 end)
+        CharacterDeleteDialog:SetScript('OnHide', function() hidden = hidden + 1 end)
+    "#,
+    )
+    .unwrap();
+    // A saved raw binding must not bypass a later local-backend guard.
+    s.run("OldDelete = DeleteCharacter").unwrap();
+    s.install_local_character_delete_guard().unwrap();
+    s.take_glue_calls();
+    s.run("OldDelete(1) DeleteCharacter(1)").unwrap();
+    assert!(s.take_glue_calls().is_empty());
+    for typed in ["", "DEL", "DELETE "] {
+        s.run("CharacterDeleteDialog:Show()").unwrap();
+        s.lua().globals().set("typed", typed).unwrap();
+        s.run("DeleteCharacter(1)").unwrap();
+        assert!(s.take_glue_calls().is_empty());
+        s.run("CharacterDeleteDialog:Hide()").unwrap();
+    }
+    // Cancel consumes the intent even when the text is valid.
+    s.run("typed = 'DELETE' CharacterDeleteDialog:Show() CharacterDeleteDialog:Hide() DeleteCharacter(1)").unwrap();
+    assert!(s.take_glue_calls().is_empty());
+    // Selection drift cannot retarget or resurrect the original intent.
+    s.run("CharacterDeleteDialog:Show() SelectCharacter(2) SelectCharacter(1) DeleteCharacter(1)")
+        .unwrap();
+    assert!(s.take_glue_calls().is_empty());
+    s.run("CharacterDeleteDialog:Hide() CharacterDeleteDialog:Show()")
+        .unwrap();
+    // Even equal-byte roster replacement invalidates a recycled GUID's old confirmation.
+    s.load_glue_roster(rows.clone());
+    s.take_glue_calls();
+    s.run("DeleteCharacter(1)").unwrap();
+    assert!(s.take_glue_calls().is_empty());
+    s.run("CharacterDeleteDialog:Hide() CharacterDeleteDialog:Show() typed = 'delete' DeleteCharacter(1) DeleteCharacter(1)").unwrap();
+    assert!(
+        matches!(s.take_glue_calls().as_slice(), [GlueCall::DeleteCharacter(actual)] if *actual == guid)
+    );
+    assert!(s.eval::<f64>("return shown").unwrap() > 0.0);
+    assert!(s.eval::<f64>("return hidden").unwrap() > 0.0);
+    character_actions::delete(
+        &mut store,
+        guid,
+        |event| {
+            assert_eq!(action_code(event), 0x39);
+            Ok(())
+        },
+        |_| Ok(()),
+    )
+    .unwrap();
+    assert!(store.character(first).is_none());
+    assert!(store.character(second).is_some());
+    drop(store);
+    let reopened = ProfileStore::open(&fixture.0).unwrap();
+    assert!(reopened.character(first).is_none());
+    assert!(reopened.character(second).is_some());
 }
 
 #[test]

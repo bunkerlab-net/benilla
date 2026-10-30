@@ -203,9 +203,14 @@ fn resident_joined_actual_installed_owner_and_corridor() {
                         .unwrap()
                 },
             );
-            eprintln!("native114 installed joined: guards={} raw_revision={:?} points={:?} body={:?} segment_ticket={}",
-                observed.guard_count, observed.raw_revision, observed.source.terminal.points,
-                observed.source.body, observed.segment.request.ticket);
+            eprintln!(
+                "native114 installed joined: guards={} raw_revision={:?} points={:?} body={:?} segment_ticket={}",
+                observed.guard_count,
+                observed.raw_revision,
+                observed.source.terminal.points,
+                observed.source.body,
+                observed.segment.request.ticket
+            );
             assert_eq!(observed.guard_count, 9);
             assert_ne!(observed.raw_revision, height.binding().revision);
             assert_ne!(observed.raw_revision, compatibility.revision());

@@ -288,10 +288,46 @@ fn chat(sender_guid: u64, text: String) -> SessionEvent {
     })
 }
 
+/// Exploration produces one synthetic object block at a time, not wire packets. Give each
+/// block the explicit notify/end boundaries the stock object manager now requires. Native
+/// world batches use their decoded packet boundaries through world::driver instead.
 fn emit(events: &Sender<SessionEvent>, event: SessionEvent) -> Result<()> {
-    events
-        .try_send(event)
-        .map_err(|_| anyhow::anyhow!("P2P application event queue unavailable"))
+    use benilla_protocol::{guid, NotifyBlock};
+    let notify = match &event {
+        SessionEvent::ObjectCreate { guid: id, kind, .. } if guid::first_pass(*id) => {
+            Some((*id, NotifyBlock::Create(*kind)))
+        }
+        SessionEvent::ItemCreate { guid: id, .. } if guid::first_pass(*id) => {
+            Some((*id, NotifyBlock::ItemCreate))
+        }
+        SessionEvent::ObjectValues { guid: id, fields } if guid::first_pass(*id) => Some((
+            *id,
+            NotifyBlock::Values(fields.raw_fields().map(|(index, _)| index).collect()),
+        )),
+        _ => None,
+    };
+    let object = matches!(
+        &event,
+        SessionEvent::ObjectCreate { .. }
+            | SessionEvent::ItemCreate { .. }
+            | SessionEvent::ObjectValues { .. }
+            | SessionEvent::ObjectMove { .. }
+            | SessionEvent::ObjectsRemoved(_)
+            | SessionEvent::ObjectsNear(_)
+    );
+    let send = |event| {
+        events
+            .try_send(event)
+            .map_err(|_| anyhow::anyhow!("P2P application event queue unavailable"))
+    };
+    send(event)?;
+    if let Some((guid, block)) = notify {
+        send(SessionEvent::ObjectNotify { guid, block })?;
+    }
+    if object {
+        send(SessionEvent::ObjectUpdateEnd)?;
+    }
+    Ok(())
 }
 
 /// A final checkpoint failed; unlike a transport error, replacement cannot prove profile safety.
@@ -553,7 +589,6 @@ pub(super) fn prepare(
         commands,
         pick: ParkSender::park(park_tx.clone()),
         realm: ParkSender::park(park_tx),
-        screen_asks_roster: Arc::new(AtomicBool::new(false)),
         login,
         login_abandon: generation.clone(),
         ping: Arc::new(Mutex::new(io::PingClock::default())),
@@ -894,7 +929,10 @@ fn run_gameplay_character(
         SessionEvent::Connected {
             self_guid: character_guid(character),
             name: character.name.clone(),
-            billing_time_rested: 0,
+            billing: benilla_protocol::messages::Billing {
+                plan_flags: benilla_protocol::messages::Billing::RECURRING,
+                ..Default::default()
+            },
             tutorial_flags: None,
             addon_info: Some(Vec::new()),
         },
@@ -946,8 +984,13 @@ fn run_character(
                 controller.as_mut(),
                 stop,
             )?;
-            bevy::log::info!("p2p: solo world saved at tick {}, generation {} ({:?}); {} pending intentions cancelled",
-                exit.saved.tick, exit.saved.generation, exit.saved.durability, exit.cancelled_inputs);
+            bevy::log::info!(
+                "p2p: solo world saved at tick {}, generation {} ({:?}); {} pending intentions cancelled",
+                exit.saved.tick,
+                exit.saved.generation,
+                exit.saved.durability,
+                exit.cancelled_inputs
+            );
             Ok(())
         },
         |(settings, events, commands, ticket, store, character, catalog, stop, zone)| {
@@ -1026,7 +1069,10 @@ fn run_exploration_character(
         SessionEvent::Connected {
             self_guid: character_guid(character),
             name: character.name.clone(),
-            billing_time_rested: 0,
+            billing: benilla_protocol::messages::Billing {
+                plan_flags: benilla_protocol::messages::Billing::RECURRING,
+                ..Default::default()
+            },
             tutorial_flags: None,
             addon_info: Some(Vec::new()),
         },
@@ -1196,7 +1242,9 @@ fn run_exploration_character(
                     if last_rejection_warning
                         .is_none_or(|last| last.elapsed() >= Duration::from_secs(10))
                     {
-                        bevy::log::warn!("p2p: peer at {address} was rejected: {reason}; further warnings are rate-limited");
+                        bevy::log::warn!(
+                            "p2p: peer at {address} was rejected: {reason}; further warnings are rate-limited"
+                        );
                         last_rejection_warning = Some(Instant::now());
                     }
                 }
@@ -1461,13 +1509,20 @@ fn publish_exploration_clock(
     events: &Sender<SessionEvent>,
     sample: benilla_config::world_clock::WorldClockSample,
 ) -> Result<()> {
+    let (year, month, day, weekday) = sample.calendar().context("world-clock date out of range")?;
     emit(
         events,
         SessionEvent::TimeSpeed {
-            hours: sample.hours,
-            minutes: sample.minutes,
-            day_serial: sample.day_serial,
-            timescale: 1.0 / 60.0,
+            time: benilla_protocol::messages::WowTime {
+                hour: i32::from(sample.hours),
+                minute: i32::from(sample.minutes),
+                year,
+                month,
+                day,
+                weekday,
+                spare: 0,
+            },
+            speed: 1.0 / 60.0,
         },
     )
 }

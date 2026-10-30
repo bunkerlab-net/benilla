@@ -44,13 +44,16 @@ pub(crate) enum CharFilter {
     /// Everything printable (the login boxes).
     Any,
     /// ASCII letters only (the character-name box).
+    #[cfg(test)]
     Letters,
 }
 
 impl CharFilter {
+    #[cfg(test)]
     fn allows(self, c: char) -> bool {
         match self {
             CharFilter::Any => true,
+            #[cfg(test)]
             CharFilter::Letters => c.is_ascii_alphabetic(),
         }
     }
@@ -59,6 +62,7 @@ impl CharFilter {
     fn keep(self, text: &str) -> String {
         match self {
             CharFilter::Any => text.chars().filter(|c| !c.is_control()).collect(),
+            #[cfg(test)]
             CharFilter::Letters => text.chars().filter(|&c| self.allows(c)).collect(),
         }
     }
@@ -135,6 +139,7 @@ pub(crate) fn feed_key(
 }
 
 /// A fresh single-line field with `max_letters` (0 = unlimited) and optional password masking.
+#[cfg(test)]
 pub(crate) fn field(max_letters: usize, password: bool) -> EditBoxState {
     EditBoxState {
         max_letters,

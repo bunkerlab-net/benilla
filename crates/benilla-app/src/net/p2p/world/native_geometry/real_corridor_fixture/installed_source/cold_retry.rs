@@ -179,7 +179,10 @@ fn resident_cold_real_route_rolls_back_and_retries_fresh_same_allocation() {
                 .same_live_dispatch(attempts[0].context.require_pathfinder_dispatch(&p).unwrap()));
             // Both opaque objects are retained diagnostic, uncommitted candidates. This
             // successful NativeWorld tick is not a provider ledger/controller ACK.
-            eprintln!("resident real rollback/retry: tick={} attempts=2 fresh-scenes=2 constructors=1 recorded-routes=1", world.state().tick);
+            eprintln!(
+                "resident real rollback/retry: tick={} attempts=2 fresh-scenes=2 constructors=1 recorded-routes=1",
+                world.state().tick
+            );
         },
     );
 }

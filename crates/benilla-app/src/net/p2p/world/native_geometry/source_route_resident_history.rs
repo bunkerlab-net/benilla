@@ -65,7 +65,9 @@ impl<'a> SourceChange<'a> {
         context: &AuthorityRequest,
     ) {
         self.refuse_retained_point_source(ledger, provider, height, context, 1);
-        eprintln!("resident warm historical ACK: changed source refuses both fresh point predicates after actual lost-ACK retry; no third calculation");
+        eprintln!(
+            "resident warm historical ACK: changed source refuses both fresh point predicates after actual lost-ACK retry; no third calculation"
+        );
     }
 
     pub(super) fn refuse_fresh_second_retained_point_source(
@@ -76,7 +78,9 @@ impl<'a> SourceChange<'a> {
         context: &AuthorityRequest,
     ) {
         self.refuse_retained_point_source(ledger, provider, height, context, 2);
-        eprintln!("resident third historical ACK: source remains changed through old warm/proposal release and actual lost-ACK retry; both fresh point predicates refuse at actual third owner position; no fourth dispatch or certification");
+        eprintln!(
+            "resident third historical ACK: source remains changed through old warm/proposal release and actual lost-ACK retry; both fresh point predicates refuse at actual third owner position; no fourth dispatch or certification"
+        );
     }
 
     pub(super) fn refuse_fresh_finite_point_source(
@@ -87,7 +91,9 @@ impl<'a> SourceChange<'a> {
         context: &AuthorityRequest,
     ) {
         self.refuse_retained_point_source(ledger, provider, height, context, 7);
-        eprintln!("resident finite historical ACK: both fresh point predicates refuse at actual eighth owner position after lost-ACK retry and prior-head release; no ninth dispatch or certification");
+        eprintln!(
+            "resident finite historical ACK: both fresh point predicates refuse at actual eighth owner position after lost-ACK retry and prior-head release; no ninth dispatch or certification"
+        );
     }
 
     fn refuse_retained_point_source(
@@ -158,7 +164,9 @@ impl<'a> SourceChange<'a> {
         ));
         assert_eq!(provider.retained_constructor_count(), constructors);
         assert_eq!(ledger.diagnostic(), before);
-        eprintln!("resident historical ACK: changed source still refuses fresh observations after actual lost-ACK retry");
+        eprintln!(
+            "resident historical ACK: changed source still refuses fresh observations after actual lost-ACK retry"
+        );
     }
 }
 impl Drop for SourceChange<'_> {

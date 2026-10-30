@@ -33,7 +33,9 @@ pub(super) fn settings(
         .map(|p| format!("\"{p}\""))
         .collect::<Vec<_>>()
         .join(",");
-    let text = format!("[p2p]\npsk = \"public app integration test phrase only\"\nlisten = \"{listen}\"\npeers = [{peers}]\n");
+    let text = format!(
+        "[p2p]\npsk = \"public app integration test phrase only\"\nlisten = \"{listen}\"\npeers = [{peers}]\n"
+    );
     let config = benilla_config::AppConfig::parse(&text, Path::new("/tmp")).unwrap();
     P2pSettings(config.p2p.unwrap(), config.ruleset)
 }
@@ -1352,14 +1354,14 @@ fn exploration_clock_publishes_configured_wall_minute_to_stock_consumers() {
     };
     publish_exploration_clock(&send, sample).unwrap();
     match receive.try_recv().unwrap() {
-        SessionEvent::TimeSpeed {
-            hours,
-            minutes,
-            day_serial,
-            timescale,
-        } => {
-            assert_eq!((hours, minutes, day_serial), (23, 59, 739_904));
-            assert_eq!(timescale, 1.0 / 60.0);
+        SessionEvent::TimeSpeed { time, speed } => {
+            assert_eq!((time.hour, time.minute), (23, 59));
+            let (year, month, day, weekday) = sample.calendar().unwrap();
+            assert_eq!(
+                (time.year, time.month, time.day, time.weekday),
+                (year, month, day, weekday)
+            );
+            assert_eq!(speed, 1.0 / 60.0);
         }
         other => panic!("unexpected clock event: {other:?}"),
     }
@@ -1687,4 +1689,29 @@ fn human_and_forsaken_peers_refuse_whispers_both_ways_and_preserve_say_languages
         });
     }
     drop((human_start, undead_start));
+}
+
+#[test]
+fn synthetic_object_events_close_their_notify_batch() {
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let guid = 0x6000_0000_0000_0001;
+    emit(
+        &tx,
+        SessionEvent::ObjectValues {
+            guid,
+            fields: Default::default(),
+        },
+    )
+    .unwrap();
+    assert!(
+        matches!(rx.try_recv().unwrap(), SessionEvent::ObjectValues { guid: id, .. } if id == guid)
+    );
+    assert!(
+        matches!(rx.try_recv().unwrap(), SessionEvent::ObjectNotify { guid: id, block: benilla_protocol::NotifyBlock::Values(_) } if id == guid)
+    );
+    assert!(matches!(
+        rx.try_recv().unwrap(),
+        SessionEvent::ObjectUpdateEnd
+    ));
+    assert!(rx.try_recv().is_err());
 }

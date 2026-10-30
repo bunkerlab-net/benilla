@@ -73,9 +73,9 @@ pub struct ViewDistance {
     pub nearclip: f32,
 }
 
-/// The settable range of [`ViewDistance::farclip`]: the reference's `farclip` clamp,
-/// `[0x81021c]` = 177 to `[0x80fed8]` = 777 in its validate callback `0x688d40`; shared by the
-/// CVar apply, the options row and `$WOW_FARCLIP`.
+/// The settable range of [`ViewDistance::farclip`]: the range the reference's `farclip` callback
+/// `0x688d40` accepts, `[0x81021c]` = 177 to `[0x80fed8]` = 777, refusing anything else; shared by
+/// the CVar apply, the options row and `$WOW_FARCLIP`, which clamps to it.
 pub const FARCLIP_RANGE: std::ops::RangeInclusive<f32> = 177.0..=777.0;
 
 /// The settable range of [`ViewDistance::nearclip`]: the bounds in the reference's `nearclip`
@@ -371,7 +371,11 @@ pub(crate) fn plugin(app: &mut App) {
     // In `Update`, so this frame's `nearclip` write reaches this frame's projection, as `0x511bc0`
     // runs inside the world-frame driver; initialized here too for a harness with only this plugin.
     app.init_resource::<ViewDistance>()
-        .add_systems(Update, stamp_near_clip);
+        // After the frame's script calls, whose `nearclip` callback writes it.
+        .add_systems(
+            Update,
+            stamp_near_clip.after(crate::schedule::WorldStage::Present),
+        );
     app.add_systems(
         Update,
         publish_camera_pose

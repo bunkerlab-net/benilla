@@ -171,7 +171,11 @@ fn loaded_quest_profile_completes_selected_spell_loot_reward_in_both_roles_and_o
                 })
                 .count();
         }
-        eprintln!("quest hostile={hostile}, giver={giver}, order={order:?}, start={started}, end={}, health={}, pushbacks={pushbacks}", world.state().tick, world.state().npcs[&hostile].health);
+        eprintln!(
+            "quest hostile={hostile}, giver={giver}, order={order:?}, start={started}, end={}, health={}, pushbacks={pushbacks}",
+            world.state().tick,
+            world.state().npcs[&hostile].health
+        );
         assert_eq!(
             world.state().npcs[&hostile].health,
             0,
@@ -350,7 +354,18 @@ fn lifecycle_cadence_preserves_real_pushback_and_bounds_spell_death_respawn() {
         let pushbacks = events.iter().filter(|event| matches!(event,
             Event::Spell { cast_id: id, event: SpellEvent::Pushback(_), .. } if *id == cast_id
         )).count();
-        eprintln!("lifecycle repaired={repaired}, start={started}, end={}, pushbacks={pushbacks}, generation={}, health={}, phase={:?}, cast={:?}", world.state().tick, world.state().npcs[&2].id.generation, world.state().npcs[&2].health, world.state().npcs[&2].ai.phase(), world.state().casts.get(&cast_id).map(|cast| cast.execution.state()));
+        eprintln!(
+            "lifecycle repaired={repaired}, start={started}, end={}, pushbacks={pushbacks}, generation={}, health={}, phase={:?}, cast={:?}",
+            world.state().tick,
+            world.state().npcs[&2].id.generation,
+            world.state().npcs[&2].health,
+            world.state().npcs[&2].ai.phase(),
+            world
+                .state()
+                .casts
+                .get(&cast_id)
+                .map(|cast| cast.execution.state())
+        );
         if repaired {
             assert!(
                 world.state().tick <= started + 40,

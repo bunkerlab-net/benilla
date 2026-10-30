@@ -91,6 +91,9 @@ pub struct WdtFile {
     global_wmo: Option<GlobalWmo>,
     native_coverage_safe: bool,
     native_source_digest: [u8; 32],
+    /// `MPHD` dword 0 bit 0 alone: the client's map-is-one-object flag (`[0xc9e384]`, `0x694810`
+    /// to `0x694904`), set with or without a usable placement.
+    one_object: bool,
 }
 
 impl WdtFile {
@@ -103,6 +106,12 @@ impl WdtFile {
             y,
             has_adt: self.has_adt[y * MAP_SIZE + x],
         })
+    }
+
+    /// Whether `MPHD` bit 0 is set: the flag the client's area query tests (`0x6703a4`), which
+    /// makes the map's `Map.dbc` area the answer for every entity.
+    pub fn is_one_object(&self) -> bool {
+        self.one_object
     }
 
     /// The map's one building, on a WMO-only map (`MPHD` bit 0).
@@ -257,6 +266,7 @@ impl<R: Read + Seek> WdtReader<R> {
             std::io::Error::new(std::io::ErrorKind::InvalidData, "WDT missing MAIN chunk")
         })?;
         // The flag and a placement, or no global WMO: a stray header bit must not hide the grid.
+        let one_object = wmo_only;
         let global_wmo = match (wmo_only, wmo_path, modf) {
             (true, Some(model), Some(e)) => Some(GlobalWmo {
                 model,
@@ -274,6 +284,7 @@ impl<R: Read + Seek> WdtReader<R> {
             global_wmo,
             native_coverage_safe: native_coverage_safe && native_seen == 7,
             native_source_digest,
+            one_object,
         })
     }
 }
@@ -303,7 +314,7 @@ fn read_full<R: Read>(reader: &mut R, buf: &mut [u8]) -> std::io::Result<bool> {
                         std::io::ErrorKind::UnexpectedEof,
                         "truncated WDT chunk header",
                     ))
-                }
+                };
             }
             Ok(n) => filled += n,
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
@@ -402,9 +413,12 @@ mod tests {
         // Nor a file with the bit but no placement,
         let half = parse(synth_wmo_only_wdt(true, false)).expect("parses");
         assert!(half.global_wmo().is_none());
+        assert!(half.is_one_object(), "the client's flag is the bit alone");
         // nor one with the placement but no bit.
         let unflagged = parse(synth_wmo_only_wdt(false, true)).expect("parses");
         assert!(unflagged.global_wmo().is_none());
+        assert!(!unflagged.is_one_object());
+        assert!(!wdt.is_one_object());
     }
 
     #[test]

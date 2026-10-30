@@ -988,6 +988,9 @@ class OracleCheckoutTests(unittest.TestCase):
         self.original = {path: (self.repository / path).read_bytes() for path in self.pinned_paths}
         self.original[Path(".gitattributes")] = (self.repository / ".gitattributes").read_bytes()
         self.control = Path("unprotected.txt")
+        # Production now enforces LF for ordinary text. Only the negative-control fixture
+        # opts back into autocrlf, so it still proves checkout conversion really happened.
+        self.original[Path(".gitattributes")] += b"\nunprotected.txt text !eol\n"
         self.original[self.control] = b"ordinary text\nstill uses checkout line endings\n"
         for path, data in self.original.items():
             target = self.root / path

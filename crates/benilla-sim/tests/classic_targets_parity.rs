@@ -8,6 +8,7 @@ use std::collections::HashMap;
 fn template(faction: u32) -> FactionTemplate {
     FactionTemplate {
         faction,
+        flags: 0,
         group_mask: 0,
         friend_group_mask: 0,
         enemy_group_mask: 0,

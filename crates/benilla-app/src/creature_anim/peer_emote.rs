@@ -76,6 +76,7 @@ mod tests {
                     anim_id: 69,
                     seq_index: i,
                     node: AnimationNodeIndex::new(i + 1),
+                    blend_node: None,
                     looping: true,
                     duration: (i + 1) as f32,
                     move_speed: 0.0,

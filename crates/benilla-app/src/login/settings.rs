@@ -577,9 +577,6 @@ pub(super) fn close(
     }
     *settings = Settings::default();
 }
-pub(super) fn closed(settings: Res<Settings>) -> bool {
-    !settings.open
-}
 pub(super) use view::{render, Edit};
 
 pub(super) fn recover(

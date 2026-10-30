@@ -64,10 +64,7 @@ fn main() {
     .unwrap();
     fs::write(
         out.join("worn_display_sender.rs"),
-        format!(
-            "pub(crate) {}",
-            function(&source, "send_worn_display_toggle")
-        ),
+        format!("pub(crate) {}", function(&source, "send_worn_display_set")),
     )
     .unwrap();
     let items_path = root.join("crates/benilla-app/src/ui_items/mod.rs");

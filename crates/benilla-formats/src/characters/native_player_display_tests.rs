@@ -321,14 +321,11 @@ fn native_player_display_never_accepts_an_alias_as_the_only_race_identity() {
 }
 
 #[test]
-fn native_player_display_requires_exact_stride_even_when_client_loads() {
+fn native_player_display_rejects_nonexact_stride_before_admission() {
     let fixture = Fixture::new();
     for stride in [108, 112, 117, 120] {
-        let catalog = fixture.load_bytes(fixture.race_bytes(stride)).unwrap();
-        assert_eq!(catalog.body_display(1, 0), Some(1002), "stride {stride}");
-        assert_eq!(
-            catalog.native_player_display(1, 8, 0),
-            None,
+        assert!(
+            fixture.load_bytes(fixture.race_bytes(stride)).is_err(),
             "stride {stride}"
         );
     }

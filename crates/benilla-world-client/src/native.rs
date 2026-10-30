@@ -78,7 +78,7 @@ fn player_melee_event(
             resist: outcome.resist,
             blocked: outcome.blocked,
             melee_spell_id: 0,
-            school: outcome.school,
+            school: u32::from(outcome.school),
         }),
         n::Event::PlayerSwingError { code } => SessionEvent::AttackSwingError(match code {
             0 => p::AttackSwingError::NotInRange,
@@ -758,7 +758,12 @@ impl NativeProjection {
         }
         Ok(ObjectFields::from_pairs(&pairs))
     }
-    fn create(&self, w: &n::NativeWorld, npc: &n::Npc) -> Result<Vec<SessionEvent>, Error> {
+    fn create(
+        &self,
+        w: &n::NativeWorld,
+        npc: &n::Npc,
+        represented: &BTreeMap<NpcId, u64>,
+    ) -> Result<Vec<SessionEvent>, Error> {
         let profile = npc
             .effective_profile(w.profile())
             .map_err(|_| Error::Unrepresentable)?;
@@ -786,6 +791,7 @@ impl NativeProjection {
                 subname: None,
                 creature_type: selected_template.map(|template| template.creature_type),
                 pet_family: 0,
+                pet_spell_list: 0, // Native/fixture profiles do not expose tamed-pet spells.
                 rank: selected_template.map_or(0, |template| template.rank),
                 type_flags: selected_template.map_or(0, |template| template.type_flags),
                 display_id: profile.display_id,
@@ -810,7 +816,12 @@ impl NativeProjection {
                 mover: None,
                 transport_progress: None,
                 transport: None,
-                spline: motion::create_spline(npc, w.state().source_splines.as_ref())?,
+                spline: motion::create_spline(
+                    npc,
+                    w.state().source_splines.as_ref(),
+                    self.player_guid,
+                    represented,
+                )?,
                 fields: fields.into_created(p::ObjectType::Unit),
             },
         ])
@@ -844,7 +855,7 @@ impl NativeProjection {
             .values()
             .filter(|n| n.ai.phase() != ai::Phase::Despawned)
         {
-            events.extend(self.create(w, npc)?);
+            events.extend(self.create(w, npc, &self.npcs)?);
         }
         events.extend(self.equipment_events(w, true)?);
         events.extend(self.initial_inventory(w));
@@ -988,7 +999,7 @@ impl NativeProjection {
                     }
                 }
             } else if source_frame.is_none() {
-                events.extend(self.create(w, npc)?);
+                events.extend(self.create(w, npc, &next)?);
             }
         }
         events.extend(self.equipment_events(w, false)?);
@@ -1167,11 +1178,14 @@ impl NativeProjection {
                             let resisted = hit <= i64::from(chance);
                             // SharedDefines.h SPELL_MISS_RESIST=2 in the pinned 1.12 core.
                             events.push(SessionEvent::SpellGo {
+                                unit_caster: self.player_guid,
+                                target_mask: 0x0002, // TARGET_FLAG_UNIT
+                                source: None,
                                 caster: self.player_guid,
                                 spell_id: *ability,
                                 cast_flags: 0,
                                 hits: if resisted { vec![] } else { vec![guid] },
-                                misses: if resisted { vec![(guid, 2)] } else { vec![] },
+                                misses: if resisted { vec![p::SpellGoMiss { target: guid, info: 2, reflect_result: 0 }] } else { vec![] },
                                 target: Some(guid),
                                 go_target: None,
                                 dest: None,
@@ -1270,7 +1284,7 @@ impl NativeProjection {
                             .ok_or(Error::StaleProjection)?;
                         let guid = *next.get(id).ok_or(Error::StaleProjection)?;
                         source_frame.as_mut().unwrap().spawn(*id, guid)?;
-                        events.extend(self.create(w, npc)?);
+                        events.extend(self.create(w, npc, source_frame.as_ref().unwrap().represented())?);
                     }
                     ai::Effect::CombatStarted { .. } => {
                         attack_stopped.remove(id);
@@ -1304,7 +1318,7 @@ impl NativeProjection {
                         resist: outcome.resist,
                         blocked: outcome.blocked,
                         melee_spell_id: 0,
-                        school: outcome.school,
+                        school: u32::from(outcome.school),
                     }))
                 }
                 _ => {}
@@ -1450,7 +1464,7 @@ mod tests {
                 resist: outcome.resist,
                 blocked: outcome.blocked,
                 melee_spell_id: 0,
-                school: outcome.school,
+                school: u32::from(outcome.school),
             }
         );
         assert!(matches!(
@@ -1805,7 +1819,7 @@ mod resisted_launch_test {
             w.step(tick, input, &mut authority).unwrap();
             events.extend(projection.advance(&w).unwrap());
         }
-        assert!(events.iter().any(|event|matches!(event,SessionEvent::SpellGo{hits,misses,..} if hits.is_empty() && misses.len()==1 && misses[0].1==2)));
+        assert!(events.iter().any(|event|matches!(event,SessionEvent::SpellGo{hits,misses,..} if hits.is_empty() && misses.len()==1 && misses[0].info==2)));
         assert!(!events.iter().any(|event| matches!(
             event,
             SessionEvent::SpellDamageLog(_) | SessionEvent::PeriodicAuraLog(_)
@@ -2154,7 +2168,7 @@ mod source_spell_tests {
                         assert_eq!(hits.len(), usize::from(!resisted));
                         assert_eq!(misses.len(), usize::from(resisted));
                         if resisted {
-                            assert_eq!(misses[0].1, 2);
+                            assert_eq!(misses[0].info, 2);
                         }
                     }
                 }

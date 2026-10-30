@@ -433,25 +433,120 @@ fn one_budget_covers_complete_location_and_liquid_and_expiry_never_becomes_absen
 
 // Authored geometry serialized and queried by the pinned original C++ source.
 const SOURCE_MODELS: &[(&str, &[u8])] = &[
-    ("dry-occluder.wmo.vmo", include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/dry-occluder.wmo.vmo")),
-    ("dry.wmo.vmo", include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/dry.wmo.vmo")),
-    ("empty-0x0.wmo.vmo", include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/empty-0x0.wmo.vmo")),
-    ("empty-0x2.wmo.vmo", include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/empty-0x2.wmo.vmo")),
-    ("empty-2x0.wmo.vmo", include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/empty-2x0.wmo.vmo")),
-    ("hole-occluder.wmo.vmo", include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/hole-occluder.wmo.vmo")),
-    ("type-0.wmo.vmo", include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/type-0.wmo.vmo")),
-    ("type-1.wmo.vmo", include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/type-1.wmo.vmo")),
-    ("type-2.wmo.vmo", include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/type-2.wmo.vmo")),
-    ("type-21.wmo.vmo", include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/type-21.wmo.vmo")),
-    ("type-3.wmo.vmo", include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/type-3.wmo.vmo")),
-    ("type-305419896.wmo.vmo", include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/type-305419896.wmo.vmo")),
-    ("type-4.wmo.vmo", include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/type-4.wmo.vmo")),
-    ("type-41.wmo.vmo", include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/type-41.wmo.vmo")),
-    ("type-61.wmo.vmo", include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/type-61.wmo.vmo")),
-    ("type-999.wmo.vmo", include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/type-999.wmo.vmo")),
-    ("wet.m2.vmo", include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/wet.m2.vmo")),
-    ("wet.wmo.vmo", include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/wet.wmo.vmo")),
-    ("zero-corner.wmo.vmo", include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/zero-corner.wmo.vmo")),
+    (
+        "dry-occluder.wmo.vmo",
+        include_bytes!(
+            "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/dry-occluder.wmo.vmo"
+        ),
+    ),
+    (
+        "dry.wmo.vmo",
+        include_bytes!(
+            "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/dry.wmo.vmo"
+        ),
+    ),
+    (
+        "empty-0x0.wmo.vmo",
+        include_bytes!(
+            "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/empty-0x0.wmo.vmo"
+        ),
+    ),
+    (
+        "empty-0x2.wmo.vmo",
+        include_bytes!(
+            "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/empty-0x2.wmo.vmo"
+        ),
+    ),
+    (
+        "empty-2x0.wmo.vmo",
+        include_bytes!(
+            "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/empty-2x0.wmo.vmo"
+        ),
+    ),
+    (
+        "hole-occluder.wmo.vmo",
+        include_bytes!(
+            "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/hole-occluder.wmo.vmo"
+        ),
+    ),
+    (
+        "type-0.wmo.vmo",
+        include_bytes!(
+            "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/type-0.wmo.vmo"
+        ),
+    ),
+    (
+        "type-1.wmo.vmo",
+        include_bytes!(
+            "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/type-1.wmo.vmo"
+        ),
+    ),
+    (
+        "type-2.wmo.vmo",
+        include_bytes!(
+            "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/type-2.wmo.vmo"
+        ),
+    ),
+    (
+        "type-21.wmo.vmo",
+        include_bytes!(
+            "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/type-21.wmo.vmo"
+        ),
+    ),
+    (
+        "type-3.wmo.vmo",
+        include_bytes!(
+            "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/type-3.wmo.vmo"
+        ),
+    ),
+    (
+        "type-305419896.wmo.vmo",
+        include_bytes!(
+            "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/type-305419896.wmo.vmo"
+        ),
+    ),
+    (
+        "type-4.wmo.vmo",
+        include_bytes!(
+            "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/type-4.wmo.vmo"
+        ),
+    ),
+    (
+        "type-41.wmo.vmo",
+        include_bytes!(
+            "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/type-41.wmo.vmo"
+        ),
+    ),
+    (
+        "type-61.wmo.vmo",
+        include_bytes!(
+            "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/type-61.wmo.vmo"
+        ),
+    ),
+    (
+        "type-999.wmo.vmo",
+        include_bytes!(
+            "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/type-999.wmo.vmo"
+        ),
+    ),
+    (
+        "wet.m2.vmo",
+        include_bytes!(
+            "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/wet.m2.vmo"
+        ),
+    ),
+    (
+        "wet.wmo.vmo",
+        include_bytes!(
+            "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/wet.wmo.vmo"
+        ),
+    ),
+    (
+        "zero-corner.wmo.vmo",
+        include_bytes!(
+            "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/zero-corner.wmo.vmo"
+        ),
+    ),
 ];
 pub(crate) fn source_fixture() -> (InventorySpec, BTreeMap<String, Vec<u8>>) {
     let (mut spec, mut files) = vmap_tests::fixture();
@@ -462,8 +557,12 @@ pub(crate) fn source_fixture() -> (InventorySpec, BTreeMap<String, Vec<u8>>) {
     }
     spec.products
         .retain(|item| !matches!(item.id, ProductId::VmapModel(_)));
-    const TREE: &[u8] = include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/000.vmtree");
-    const TILE: &[u8] = include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/000_32_32.vmtile");
+    const TREE: &[u8] = include_bytes!(
+        "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/000.vmtree"
+    );
+    const TILE: &[u8] = include_bytes!(
+        "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/000_32_32.vmtile"
+    );
     product_tests::mutate(&mut spec, &mut files, &ProductId::VmapTree, |bytes| {
         *bytes = TREE.to_vec()
     });

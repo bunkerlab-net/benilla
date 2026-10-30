@@ -97,6 +97,7 @@ impl ActionBarTogglesState {
         self.value = value;
         Ok(())
     }
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub(super) fn validate(
         &self,
         profile: &Profile,

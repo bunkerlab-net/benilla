@@ -1218,9 +1218,15 @@ fn resident_joined_cold_preserves_runtime_source_ancestry_and_expiry() {
                     let segment = provider
                         .joined_segment_los(&joined, context, 107, until(), || false)
                         .unwrap();
-                    eprintln!("native114 live joined: points={:?} body={:?} liquid_tickets={:?} segment={:?} capacity={} active={}",
-                        observed.terminal.points, observed.body, observed.terminal.liquid_tickets,
-                        segment.request, observed.terminal.query_capacity, observed.terminal.active_len);
+                    eprintln!(
+                        "native114 live joined: points={:?} body={:?} liquid_tickets={:?} segment={:?} capacity={} active={}",
+                        observed.terminal.points,
+                        observed.body,
+                        observed.terminal.liquid_tickets,
+                        segment.request,
+                        observed.terminal.query_capacity,
+                        observed.terminal.active_len
+                    );
                     (joined, observed)
                 },
             );

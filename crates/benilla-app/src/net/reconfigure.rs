@@ -1,7 +1,7 @@
 //! Fork-only reload of saved P2P settings. A retiring worker retains its profile lock until
 //! its checkpoint completes; no replacement transport exists before that result is known.
 use super::*;
-use crate::char_select::ClientState;
+use crate::client_state::ClientState;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) enum ApplyStatus {
@@ -187,8 +187,8 @@ pub(super) fn drive(world: &mut World) {
                 };
                 world.resource::<P2pEndpointTicket>().clear();
                 // Queued old roster/world events must never populate the replacement session.
-                world.resource::<NetEvents>().0.try_iter().for_each(drop);
-                if let Some(mut intent) = world.get_resource_mut::<crate::login::LoginIntent>() {
+                super::apply::discard_retired_inbound(world);
+                if let Some(mut intent) = world.get_resource_mut::<crate::glue_session::login::LoginIntent>() {
                     intent.clear();
                 }
                 // Use the established teardown handlers, including all session-scoped caches.
@@ -227,7 +227,6 @@ pub(super) fn drive(world: &mut World) {
                 world.insert_resource(NetCommands(handles.commands));
                 world.insert_resource(CharPick(handles.pick));
                 world.insert_resource(RealmChoice(handles.realm));
-                world.insert_resource(RosterPolicy(handles.screen_asks_roster));
                 world.insert_resource(LoginSubmit(handles.login));
                 world.insert_resource(LoginAbandon(handles.login_abandon));
                 world.insert_resource(PingShared(handles.ping));

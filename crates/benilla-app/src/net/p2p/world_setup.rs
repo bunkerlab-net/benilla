@@ -46,9 +46,14 @@ impl Service {
         service
     }
     fn unavailable(&self, profile: &ProfileStore, error: &Error) -> ui::WorldSetupView {
-        ui::WorldSetupView { context: self.context.clone(), owner_id: hex(profile.owner_id()),
-            status: format!("Local world setup unavailable: {error}. Existing files are preserved; no grants are enabled."),
-            ..ui::WorldSetupView::default() }
+        ui::WorldSetupView {
+            context: self.context.clone(),
+            owner_id: hex(profile.owner_id()),
+            status: format!(
+                "Local world setup unavailable: {error}. Existing files are preserved; no grants are enabled."
+            ),
+            ..ui::WorldSetupView::default()
+        }
     }
     fn view(&self, profile: &mut ProfileStore) -> Result<ui::WorldSetupView, Error> {
         let snapshot = profile.world_setups()?;

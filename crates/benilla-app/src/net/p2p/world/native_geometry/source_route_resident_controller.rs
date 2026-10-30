@@ -756,7 +756,17 @@ fn run(mode: Mode) {
                                     Some(cache.as_ref()),
                                     retained_notice.as_ref().unwrap().boundary().heads()[0].cache()
                                 );
-                                eprintln!("resident actual second retained dispatch: tick={} query={} prior-revision={} storage={} active={} filter={} origin={:?} goal={:?}", request.binding.tick, route.request.binding.query_id, cache.revision, cache.poly_refs.len(), cache.active_len, cache.include_flags, route.request.origin, route.request.goal);
+                                eprintln!(
+                                    "resident actual second retained dispatch: tick={} query={} prior-revision={} storage={} active={} filter={} origin={:?} goal={:?}",
+                                    request.binding.tick,
+                                    route.request.binding.query_id,
+                                    cache.revision,
+                                    cache.poly_refs.len(),
+                                    cache.active_len,
+                                    cache.include_flags,
+                                    route.request.origin,
+                                    route.request.goal
+                                );
                                 retained_witness = Some((request.clone(), before));
                                 assert_eq!(routes.fetch_add(1, Ordering::SeqCst), 2);
                                 reply
@@ -816,7 +826,17 @@ fn run(mode: Mode) {
                                 assert_eq!(cache.include_flags, 13);
                                 assert_eq!(cache.exclude_flags, 0);
                                 assert_eq!(cache.path_type, 1);
-                                eprintln!("resident actual retained dispatch: tick={} query={} prior-revision={} storage={} active={} filter={} origin={:?} goal={:?}", request.binding.tick, route.request.binding.query_id, cache.revision, cache.poly_refs.len(), cache.active_len, cache.include_flags, route.request.origin, route.request.goal);
+                                eprintln!(
+                                    "resident actual retained dispatch: tick={} query={} prior-revision={} storage={} active={} filter={} origin={:?} goal={:?}",
+                                    request.binding.tick,
+                                    route.request.binding.query_id,
+                                    cache.revision,
+                                    cache.poly_refs.len(),
+                                    cache.active_len,
+                                    cache.include_flags,
+                                    route.request.origin,
+                                    route.request.goal
+                                );
                                 retained_witness = Some((request.clone(), before));
                                 assert_eq!(routes.fetch_add(1, Ordering::SeqCst), 1);
                                 reply
@@ -833,8 +853,12 @@ fn run(mode: Mode) {
                                 ) && routes.load(Ordering::SeqCst) >= 2
                                 {
                                     let attempt = routes.fetch_add(1, Ordering::SeqCst);
-                                    assert!(attempt == 2 || third_mode == three_epoch::Mode::RollbackRetry && attempt == 3,
-                                        "only the actual third calculation or its equal-input retry is supported");
+                                    assert!(
+                                        attempt == 2
+                                            || third_mode == three_epoch::Mode::RollbackRetry
+                                                && attempt == 3,
+                                        "only the actual third calculation or its equal-input retry is supported"
+                                    );
                                     assert!(retained_accepted);
                                     three_epoch::assert_request(
                                         &p,
@@ -896,9 +920,19 @@ fn run(mode: Mode) {
                                         );
                                         assert!(Instant::now() >= attempts[0].1);
                                         assert!(Instant::now() >= attempts[1].1);
-                                        assert!(matches!(ledger.check_fresh_candidate(&provider, &attempts[1].0, runtime::until()),
-                                            Err(ResidentFilterError::Context(Failure::Deadline))),
-                                            "expired predecessor source observations never become fresh third authority");
+                                        assert!(
+                                            matches!(
+                                                ledger.check_fresh_candidate(
+                                                    &provider,
+                                                    &attempts[1].0,
+                                                    runtime::until()
+                                                ),
+                                                Err(ResidentFilterError::Context(
+                                                    Failure::Deadline
+                                                ))
+                                            ),
+                                            "expired predecessor source observations never become fresh third authority"
+                                        );
                                     }
                                     let deadline = Instant::now() + Duration::from_secs(30);
                                     geometry.advance_physics();
@@ -949,7 +983,13 @@ fn run(mode: Mode) {
                                         2 + ownership.staged_count
                                     );
                                     assert!(ownership.storage_bytes <= ownership.upper_bound_bytes);
-                                    eprintln!("resident third staging: attempt={attempt} terminals={} staged={} logical-storage-bytes={} bound-bytes={}", ownership.terminal_count, ownership.staged_count, ownership.storage_bytes, ownership.upper_bound_bytes);
+                                    eprintln!(
+                                        "resident third staging: attempt={attempt} terminals={} staged={} logical-storage-bytes={} bound-bytes={}",
+                                        ownership.terminal_count,
+                                        ownership.staged_count,
+                                        ownership.storage_bytes,
+                                        ownership.upper_bound_bytes
+                                    );
 
                                     assert_eq!(
                                         provider.retained_constructor_for_test(&request).unwrap(),
@@ -974,7 +1014,8 @@ fn run(mode: Mode) {
                                     let attempt = routes.fetch_add(1, Ordering::SeqCst);
                                     assert!(
                                         attempt == 1
-                                            || retained_mode == retained::Mode::RollbackRetry && attempt == 2,
+                                            || retained_mode == retained::Mode::RollbackRetry
+                                                && attempt == 2,
                                         "only one retained calculation, or its identical-input retry, is supported"
                                     );
                                     assert_eq!(
@@ -1018,10 +1059,17 @@ fn run(mode: Mode) {
                                                 *failed_deadline,
                                             )
                                             .unwrap();
-                                        assert!(matches!(
-                                            ledger.check_fresh_candidate(&provider, &request, *failed_deadline),
-                                            Err(ResidentFilterError::Context(Failure::Binding))
-                                        ), "old warm dependency cannot answer the equal-byte new live dispatch");
+                                        assert!(
+                                            matches!(
+                                                ledger.check_fresh_candidate(
+                                                    &provider,
+                                                    &request,
+                                                    *failed_deadline
+                                                ),
+                                                Err(ResidentFilterError::Context(Failure::Binding))
+                                            ),
+                                            "old warm dependency cannot answer the equal-byte new live dispatch"
+                                        );
                                     }
                                     if retained_mode == retained::Mode::Accept && attempt == 1 {
                                         retained::assert_source_order(
@@ -1041,12 +1089,19 @@ fn run(mode: Mode) {
                                             &request,
                                         );
                                         assert!(Instant::now() >= attempts[0].1);
-                                        assert!(matches!(
-                                            ledger.check_fresh_candidate(
-                                                &provider, &attempts[0].0, runtime::until(),
+                                        assert!(
+                                            matches!(
+                                                ledger.check_fresh_candidate(
+                                                    &provider,
+                                                    &attempts[0].0,
+                                                    runtime::until(),
+                                                ),
+                                                Err(ResidentFilterError::Context(
+                                                    Failure::Deadline
+                                                ))
                                             ),
-                                            Err(ResidentFilterError::Context(Failure::Deadline))
-                                        ), "expired cold point/LOS evidence stays expired; only native/filter ancestry survives");
+                                            "expired cold point/LOS evidence stays expired; only native/filter ancestry survives"
+                                        );
                                     }
                                     let deadline = Instant::now() + Duration::from_secs(30);
                                     // New physics observation and source sequence for every attempt;
@@ -1514,15 +1569,22 @@ fn run(mode: Mode) {
                                         .all(|proposal| !proposal.is_alive()
                                             && proposal.cold_is_alive()));
                                     assert!(third_proposals.last().unwrap().head_is_alive());
-                                    assert!(third_proposals[..third_proposals.len()-1].iter().all(|proposal| !proposal.head_is_alive()),
-                                        "failed warm proposals are released only after exact successful ACK");
+                                    assert!(
+                                        third_proposals[..third_proposals.len() - 1]
+                                            .iter()
+                                            .all(|proposal| !proposal.head_is_alive()),
+                                        "failed warm proposals are released only after exact successful ACK"
+                                    );
                                     let ownership = ledger.flat_ownership_for_test().unwrap();
                                     assert_eq!(ownership.terminal_count, 2);
                                     assert_eq!(ownership.staged_count, 0);
                                     assert!(ownership.storage_bytes <= ownership.upper_bound_bytes);
                                     if third_accepted {
-                                        assert_eq!(ledger.diagnostic(), prior,
-                                            "third ACK retry is exact historical bookkeeping, not source reauthorization");
+                                        assert_eq!(
+                                            ledger.diagnostic(),
+                                            prior,
+                                            "third ACK retry is exact historical bookkeeping, not source reauthorization"
+                                        );
                                     }
                                     let accepted = ledger.diagnostic();
                                     ledger.acknowledge(&notice).unwrap();
@@ -1850,7 +1912,9 @@ fn run(mode: Mode) {
                     assert_eq!(ledger.counts(), (2, 2));
                     assert_eq!(callbacks.load(Ordering::SeqCst), count);
                     owner.finish(&pair_proof_receive.recv().unwrap(), &ledger);
-                    eprintln!("resident two-owner first retained: mode={mode:?} tick={tick} callbacks={count} events={events} constructors=2; co-located fixture only, no NPC avoidance claim");
+                    eprintln!(
+                        "resident two-owner first retained: mode={mode:?} tick={tick} callbacks={count} events={events} constructors=2; co-located fixture only, no NPC avoidance claim"
+                    );
                     return;
                 }
                 if let Some(owner) = &finite {
@@ -1869,7 +1933,10 @@ fn run(mode: Mode) {
                         routes.load(Ordering::SeqCst),
                         late_failures,
                     );
-                    eprintln!("resident finite actual controller: mode={mode:?} tick={tick} accepted={} callbacks={count} cold-through-final-events={events} constructors=1", owner.accepted_epochs());
+                    eprintln!(
+                        "resident finite actual controller: mode={mode:?} tick={tick} accepted={} callbacks={count} cold-through-final-events={events} constructors=1",
+                        owner.accepted_epochs()
+                    );
                     return;
                 }
                 assert!(loop_proofs.is_none());
@@ -2006,7 +2073,14 @@ fn run(mode: Mode) {
                         } else {
                             "ok"
                         };
-                    eprintln!("resident third flat ownership: terminals={} staged={} logical-storage-bytes={} bound-bytes={} previous-warm-released=true proposal-wrappers-released={} original-source-check-after-release={source_result}", owned.terminal_count, owned.staged_count, owned.storage_bytes, owned.upper_bound_bytes, third_proposals.len());
+                    eprintln!(
+                        "resident third flat ownership: terminals={} staged={} logical-storage-bytes={} bound-bytes={} previous-warm-released=true proposal-wrappers-released={} original-source-check-after-release={source_result}",
+                        owned.terminal_count,
+                        owned.staged_count,
+                        owned.storage_bytes,
+                        owned.upper_bound_bytes,
+                        third_proposals.len()
+                    );
                 }
                 // Direct negative source work occurs only after all controller
                 // retry measurements and worker shutdown, never during ACK retry.
@@ -2098,7 +2172,9 @@ fn run(mode: Mode) {
                     );
                 }
 
-                eprintln!("resident controller actual ACK: mode={mode:?} tick={tick} owners={owner_count} candidates={owner_count} committed={owner_count} deliveries={deliveries} callbacks={count} published-events={events}");
+                eprintln!(
+                    "resident controller actual ACK: mode={mode:?} tick={tick} owners={owner_count} candidates={owner_count} committed={owner_count} deliveries={deliveries} callbacks={count} published-events={events}"
+                );
             });
         },
     );

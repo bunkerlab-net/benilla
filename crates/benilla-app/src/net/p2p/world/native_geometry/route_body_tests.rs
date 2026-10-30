@@ -326,6 +326,24 @@ fn partial_body_rejects_changed_session_request_and_equal_byte_dispatch() {
     ] {
         for field in 0..18 {
             let (_, mut service) = mailbox(session.clone()).unwrap();
+            // Prepare mutations before the real Work lease starts. JSON/deep-clone fixture
+            // work is not provider work and must not spend the unchanged 500ms lease.
+            let replacement_request = match field {
+                8 => {
+                    let roundtrip: AuthorityRequest =
+                        serde_json::from_value(serde_json::to_value(&request).unwrap()).unwrap();
+                    assert_eq!(roundtrip, request);
+                    Some(roundtrip)
+                }
+                9 => Some(fresh_request.clone()),
+                _ => None,
+            };
+            let replacement_profile = (field == 10).then(|| {
+                let policy = service.session.player_environment.as_ref().unwrap();
+                let mut profile = (*policy.profile).clone();
+                profile.tick_ms += 1;
+                Arc::new(profile)
+            });
             let (mut work, reply) = work(&service, request.clone());
             let lease = work.lease();
             pause_after(&service, &mut work, boundary);
@@ -346,17 +364,10 @@ fn partial_body_rejects_changed_session_request_and_equal_byte_dispatch() {
                     };
                     route.request.goal.x = ai::Real::ONE;
                 }
-                8 => {
-                    progress.request =
-                        serde_json::from_value(serde_json::to_value(&request).unwrap()).unwrap();
-                    assert_eq!(progress.request, request);
-                }
-                9 => progress.request = fresh_request.clone(),
+                8 | 9 => progress.request = replacement_request.unwrap(),
                 10 => {
-                    let policy = service.session.player_environment.as_mut().unwrap();
-                    let mut profile = (*policy.profile).clone();
-                    profile.tick_ms += 1;
-                    policy.profile = Arc::new(profile);
+                    service.session.player_environment.as_mut().unwrap().profile =
+                        replacement_profile.unwrap();
                 }
                 11 => service.session.geometry[0] ^= 1,
                 12 => progress.request.binding.world[0] ^= 1,

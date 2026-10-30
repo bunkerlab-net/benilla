@@ -99,6 +99,7 @@ fn stock_cursor_move_waits_for_checkpoint_retry_then_reopens_exact_instance() {
     let guid = cache.guid(23);
     let instance = inventory(&c).slots[&23].clone();
     let mut ui = UiScript::new().unwrap();
+    ui.keep_calls();
     ui.set_container(
         0,
         Some(ContainerState {

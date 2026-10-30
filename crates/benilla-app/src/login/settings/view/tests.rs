@@ -6,7 +6,6 @@ fn panel_app() -> App {
     app.add_plugins(MinimalPlugins)
         .init_resource::<GlueArt>()
         .init_resource::<Settings>()
-        .init_resource::<crate::login::LoginForm>()
         .add_message::<MouseWheel>()
         .add_systems(
             Update,

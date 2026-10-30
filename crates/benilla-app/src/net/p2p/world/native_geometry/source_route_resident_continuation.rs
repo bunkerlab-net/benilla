@@ -67,7 +67,10 @@ pub(super) fn after_cold_ack(
             assert_eq!(driver.checkpoint(), before);
             assert_eq!(driver.records(), records);
             assert_eq!(driver.pending_inputs().unwrap(), inputs);
-            eprintln!("resident retained dispatch rollback: cold-tick={cold_tick} refused-tick={} input-step={step} committed-routes=1", tick + 1);
+            eprintln!(
+                "resident retained dispatch rollback: cold-tick={cold_tick} refused-tick={} input-step={step} committed-routes=1",
+                tick + 1
+            );
             return (tick, cold_events, count);
         }
         assert_eq!(routes.load(Ordering::SeqCst), 1);

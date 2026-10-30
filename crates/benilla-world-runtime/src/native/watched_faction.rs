@@ -76,6 +76,7 @@ impl WatchedFactionState {
         self.value = value;
         Ok(())
     }
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub(super) fn validate(&self, next_sequence: u64) -> Result<(), NativeError> {
         if self.writes.len() > MAX_WRITES {
             return Err(NativeError::InvalidCheckpoint);

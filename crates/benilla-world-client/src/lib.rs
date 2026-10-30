@@ -636,6 +636,7 @@ impl Projection {
                 subname: None,
                 creature_type: None,
                 pet_family: 0,
+                pet_spell_list: 0, // Native/fixture profiles do not expose tamed-pet spells.
                 rank: 0,
                 type_flags: 0,
                 display_id: c.display_id,
@@ -846,6 +847,7 @@ impl Projection {
                         total: u32_value(xp)?,
                         base: u32_value(xp)?,
                         kill: true,
+                        group: 1.0, // Fixture solo award, no group multiplier.
                     }));
                 }
                 runtime::Event::QuestRewarded { player, quest } if player == selected => {
@@ -889,6 +891,9 @@ impl Projection {
                 } => {
                     let target = self.target_guid(target, player, &next_npcs)?;
                     events.push(SessionEvent::SpellGo {
+                        unit_caster: self.players[&player],
+                        target_mask: 0x0002, // TARGET_FLAG_UNIT
+                        source: None,
                         caster: self.players[&player],
                         spell_id: ability,
                         cast_flags: 0,

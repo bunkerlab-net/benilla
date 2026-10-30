@@ -146,17 +146,29 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
                 // Inspect only this already-created terminal/witness. The owned report
                 // stays private until the same attempt passes its original lease again.
                 let report = match &detail {
-                    SupportAttribution::Indexed(detail) => band_refusal_report(&dependency.terminal, detail, generated),
-                    SupportAttribution::Endpoints(detail) => Ok(format!("supplemental-endpoint-support-refused probes={:?} triangle-tests={} original-height-calls=0", detail.probes(), detail.triangle_tests())),
+                    SupportAttribution::Indexed(detail) => {
+                        band_refusal_report(&dependency.terminal, detail, generated)
+                    }
+                    SupportAttribution::Endpoints(detail) => Ok(format!(
+                        "supplemental-endpoint-support-refused probes={:?} triangle-tests={} original-height-calls=0",
+                        detail.probes(),
+                        detail.triangle_tests()
+                    )),
                 };
-                match (report, self.straight_for(dependency, origin, context, deadline, &cancelled)) {
+                match (
+                    report,
+                    self.straight_for(dependency, origin, context, deadline, &cancelled),
+                ) {
                     (Ok(report), Ok(_)) => eprintln!(
                         "resident generated-support source admission refusal: tick={} source-revision={} error={error:?}; {report}; fresh-source-observation=true concrete-support=not-established original-error-preserved=true",
-                        context.binding.tick, dependency.source_revision(),
+                        context.binding.tick,
+                        dependency.source_revision(),
                     ),
                     (report, freshness) => eprintln!(
                         "resident generated-support source refusal diagnostic unavailable: tick={} report-error={:?} freshness-error={:?}; original-error={error:?} preserved",
-                        context.binding.tick, report.err(), freshness.err(),
+                        context.binding.tick,
+                        report.err(),
+                        freshness.err(),
                     ),
                 }
                 return Err(error);

@@ -203,8 +203,10 @@ pub(super) fn assert_commit_proof(proof: &CommittedTick, notice: &RouteCommitNot
     };
     assert_eq!(boundary.heads()[0].cache(), Some(&calculation.after_cache));
     assert_eq!(calculation.after_cache.revision, 2);
-    eprintln!("resident retained durable proof: tick={} generation={} accepted-routes=1 live-journal-retired=true",
-        proof.saved.tick, proof.saved.generation);
+    eprintln!(
+        "resident retained durable proof: tick={} generation={} accepted-routes=1 live-journal-retired=true",
+        proof.saved.tick, proof.saved.generation
+    );
 }
 
 pub(super) fn after_cold_ack(
@@ -369,7 +371,10 @@ pub(super) fn after_cold_ack(
         );
         assert_eq!(driver.tick(), tick + 1);
         events += out.events.len();
-        eprintln!("resident retained ACK measurement: mode={mode:?} cold-tick={cold_tick} warm-tick={} input-step={step}", tick + 1);
+        eprintln!(
+            "resident retained ACK measurement: mode={mode:?} cold-tick={cold_tick} warm-tick={} input-step={step}",
+            tick + 1
+        );
         return (tick + 1, events, count, committed);
     }
     panic!("ordinary bounded player movement produced no retained Chase dispatch");

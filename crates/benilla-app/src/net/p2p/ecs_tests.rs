@@ -52,17 +52,38 @@ fn saved_characters_materialize_as_distinct_players_through_the_ecs_bridge() {
     tx.send(SessionEvent::Connected {
         self_guid: character_guid(&me),
         name: me.name.clone(),
-        billing_time_rested: 0,
+        billing: benilla_protocol::messages::Billing {
+            plan_flags: benilla_protocol::messages::Billing::RECURRING,
+            ..Default::default()
+        },
         tutorial_flags: None,
         addon_info: Some(Vec::new()),
     })
     .unwrap();
-    tx.send(character_avatar(&me, &AvatarCatalog::fixture()).unwrap())
-        .unwrap();
+    emit(
+        &tx,
+        character_avatar(&me, &AvatarCatalog::fixture()).unwrap(),
+    )
+    .unwrap();
     tx.send(character_name(&other)).unwrap();
-    tx.send(character_avatar(&other, &AvatarCatalog::fixture()).unwrap())
-        .unwrap();
-    super::super::apply_net_updates(app.world_mut());
+    emit(
+        &tx,
+        character_avatar(&other, &AvatarCatalog::fixture()).unwrap(),
+    )
+    .unwrap();
+    // Stock entry loading holds the burst until its UI is initialized. Exercise the same
+    // schedule rather than bypassing the load with a direct dispatcher call.
+    for _ in 0..10 {
+        app.update();
+        if app
+            .world()
+            .resource::<super::super::GuidIndex>()
+            .0
+            .contains_key(&character_guid(&other))
+        {
+            break;
+        }
+    }
     let index = app.world().resource::<super::super::GuidIndex>();
     assert!(index.0.contains_key(&character_guid(&me)));
     assert!(index.0.contains_key(&character_guid(&other)));

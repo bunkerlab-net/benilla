@@ -400,10 +400,10 @@ impl LoadedChaseGate<'_> {
                 .map_err(|_| Failure::Invalid)?;
         match numeric {
             chase_gate::NumericGate::Distance => {
-                return Ok(result.reject(ChaseGateRejection::Distance))
+                return Ok(result.reject(ChaseGateRejection::Distance));
             }
             chase_gate::NumericGate::Vertical => {
-                return Ok(result.reject(ChaseGateRejection::Vertical))
+                return Ok(result.reject(ChaseGateRejection::Vertical));
             }
             chase_gate::NumericGate::Pass => (),
         }

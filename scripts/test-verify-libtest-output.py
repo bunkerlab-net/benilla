@@ -1452,10 +1452,10 @@ class ExactProofTests(unittest.TestCase):
 
     def test_aggregate_requires_every_job_and_rejects_non_success(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-        aggregate = workflow.split("\n  gates:\n", 1)[1]
+        aggregate = workflow.split("\n  gates:\n", 1)[1].split("\n  windows:\n", 1)[0]
         self.assertIn("    if: always()\n", aggregate)
         self.assertIn(
-            "    needs: [workspace-gates, workspace-tests, player-gates]\n", aggregate
+            "    needs: [workspace-gates, workspace-tests, player-gates, windows]\n", aggregate
         )
         self.assertNotIn("continue-on-error:", aggregate)
         self.assertEqual(re.findall(r"(?m)^\s+if:.*$", aggregate), ["    if: always()"])
@@ -1463,6 +1463,7 @@ class ExactProofTests(unittest.TestCase):
             "WORKSPACE_RESULT": "workspace-gates",
             "WORKSPACE_TESTS_RESULT": "workspace-tests",
             "PLAYER_RESULT": "player-gates",
+            "WINDOWS_RESULT": "windows",
         }
         for variable, job in variables.items():
             self.assertIn(

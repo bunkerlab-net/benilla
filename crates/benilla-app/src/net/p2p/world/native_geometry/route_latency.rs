@@ -116,7 +116,22 @@ impl RouteLatency {
                 )
             })
             .collect();
-        eprintln!("F05 bounded first-occurrence latency (not final-attempt stamps): tick={} ticket={} budget_us={} stamps=(event, optional(offset_us, expired))={stamps:?} receive={:?} send={:?}; queue_upper={:?} worker_queue_upper={:?} verify={:?} publication_to_channel_receive_bounds={:?} channel_receive_to_finalize={:?} finalize={:?}; send/receive are observations, not authority; missing stamps remain missing", self.tick, self.ticket, self.deadline.saturating_duration_since(self.started).as_micros(), self.receive_outcome.get(), self.send_outcome.get(), self.interval(Event::EnqueueBefore, Event::FirstDequeue), self.interval(Event::F05EnqueueBefore, Event::WorkerEntered), self.interval(Event::VerifyBefore, Event::VerifyAfter), self.publication_to_drain(), self.interval(Event::CompletionReceivedUnvalidated, Event::FinalizeBefore), self.interval(Event::FinalizeBefore, Event::FinalizeAfter));
+        eprintln!(
+            "F05 bounded first-occurrence latency (not final-attempt stamps): tick={} ticket={} budget_us={} stamps=(event, optional(offset_us, expired))={stamps:?} receive={:?} send={:?}; queue_upper={:?} worker_queue_upper={:?} verify={:?} publication_to_channel_receive_bounds={:?} channel_receive_to_finalize={:?} finalize={:?}; send/receive are observations, not authority; missing stamps remain missing",
+            self.tick,
+            self.ticket,
+            self.deadline
+                .saturating_duration_since(self.started)
+                .as_micros(),
+            self.receive_outcome.get(),
+            self.send_outcome.get(),
+            self.interval(Event::EnqueueBefore, Event::FirstDequeue),
+            self.interval(Event::F05EnqueueBefore, Event::WorkerEntered),
+            self.interval(Event::VerifyBefore, Event::VerifyAfter),
+            self.publication_to_drain(),
+            self.interval(Event::CompletionReceivedUnvalidated, Event::FinalizeBefore),
+            self.interval(Event::FinalizeBefore, Event::FinalizeAfter)
+        );
     }
 }
 /// Only the cold and first retained Route are relevant to the paired fixture.

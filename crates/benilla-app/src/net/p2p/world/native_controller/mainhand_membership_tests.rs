@@ -113,6 +113,7 @@ fn mainhand_cursor_move_withholds_same_object_until_save_then_reopens_and_reequi
     let mana = c.world.state().resources.caster.mana;
     let maximum = c.world.state().combat.as_ref().unwrap().stats.max_mana;
     let mut ui = UiScript::new().unwrap();
+    ui.keep_calls();
     let mut doll: InventorySlots = Default::default();
     doll[16] = Some(InvSlotView {
         item_id: 900002,
@@ -182,6 +183,7 @@ fn mainhand_cursor_move_withholds_same_object_until_save_then_reopens_and_reequi
     );
     let before_mana = c.world.state().resources.caster.mana;
     let mut ui = UiScript::new().unwrap();
+    ui.keep_calls();
     ui.set_container(
         0,
         Some(ContainerState {
@@ -203,6 +205,16 @@ fn mainhand_cursor_move_withholds_same_object_until_save_then_reopens_and_reequi
         }),
     );
     ui.set_inventory_slots(Default::default());
+    // Equipping through SwapItem waits for the cached record before deciding whether to
+    // ask for bind confirmation; the container slot alone is not that record.
+    ui.set_item_template(
+        900002,
+        benilla_ui::script::ItemTemplateView {
+            class: 2,
+            inventory_type: 17,
+            ..Default::default()
+        },
+    );
     ui.run("PickupContainerItem(0, 1); PickupInventoryItem(16)")
         .unwrap();
     let moves = ui.take_container_moves();

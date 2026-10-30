@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Actual Lua auto-store intent and durable registered-original custody, without admission.
+//! Own-bag Lua cancellation and explicit protocol auto-store custody, without admission.
 use super::*;
 use benilla_world_runtime::native::synthetic_equipment_fixture as armor;
 
@@ -72,9 +72,10 @@ fn autostore(source: u8) -> ClientCommand {
         dst_bag: 255,
     }
 }
-fn lua_autostore(guid: u64) -> ClientCommand {
+fn assert_own_backpack_drop_cancels(guid: u64) {
     use benilla_ui::script::{ContainerSlot, ContainerState, UiScript};
     let mut ui = UiScript::new().unwrap();
+    ui.keep_calls();
     ui.set_container(
         0,
         Some(ContainerState {
@@ -94,24 +95,16 @@ fn lua_autostore(guid: u64) -> ClientCommand {
     );
     ui.run("PickupContainerItem(0, 16); PutItemInBackpack()")
         .unwrap();
-    let requests = ui.take_bag_autostores();
-    assert_eq!(requests.len(), 1);
-    let request = &requests[0];
-    assert_eq!(
-        (
-            request.src_bag,
-            request.src_slot,
-            request.dst_bag,
-            request.count
-        ),
-        (0, 16, 0, None)
+    assert!(
+        ui.take_bag_autostores().is_empty(),
+        "own-backpack drop cancels"
     );
-    let (bag, slot) = crate::ui_items::wire_pos(request.src_bag, request.src_slot).unwrap();
-    assert_eq!((bag, slot), (255, 38));
-    autostore(slot)
+    assert!(ui.cursor_item().is_none());
 }
+
 #[test]
-fn registered_armor_lua_autostore_reuses_original_at_first_empty_after_save_retry_and_reopen() {
+fn registered_armor_explicit_autostore_reuses_original_at_first_empty_after_save_retry_and_reopen()
+{
     let h = Harness::new();
     let mut c = enter_armor(&h, false, false);
     let guid = detach_and_relocate(&mut c);
@@ -125,7 +118,9 @@ fn registered_armor_lua_autostore_reuses_original_at_first_empty_after_save_retr
     assert!(recipe.is_object());
     let calls = progress(&c).derived_calls.len();
     let quests = progress(&c).quests.clone();
-    c.receive(lua_autostore(guid)).unwrap();
+    assert_own_backpack_drop_cancels(guid);
+    // Explicit controller protocol coverage; the Lua drop above emits no command.
+    c.receive(autostore(38)).unwrap();
     inject(&h);
     let failed = c.pump(c.tick_duration());
     paused(&failed);

@@ -340,7 +340,7 @@ fn check_failed_reputation_reopen(modifier: bool) {
 #[test]
 fn actual_lua_reputation_controls_wait_for_save_then_reopen_without_invented_ack() {
     use benilla_sim::reputation as r;
-    use benilla_ui::script::{FactionEntry, ReputationSend, ReputationState, UiScript};
+    use benilla_ui::script::{FactionEntry, ReputationCall, ReputationState, UiScript};
     let h = Harness::new();
     let mut c = enter(&h, false, false, false);
     c.initial_events().unwrap();
@@ -362,6 +362,7 @@ fn actual_lua_reputation_controls_wait_for_save_then_reopen_without_invented_ack
     assert_ne!(flags & r::VISIBLE, 0);
     assert_eq!(flags & (r::AT_WAR | r::INACTIVE), 0);
     let mut ui = UiScript::new().unwrap();
+    ui.keep_calls();
     ui.set_reputation(ReputationState {
         entries: vec![FactionEntry {
             faction_id: rep::SPILLOVER,
@@ -382,15 +383,15 @@ fn actual_lua_reputation_controls_wait_for_save_then_reopen_without_invented_ack
         watched: None,
     });
     ui.run("for i=1,GetNumFactions() do local name=GetFactionInfo(i); if name=='Authored visible faction' then FactionToggleAtWar(i); SetFactionInactive(i); break end end").unwrap();
-    let sends = ui.take_reputation_sends();
+    let sends = ui.take_reputation_calls();
     assert_eq!(
         sends,
         vec![
-            ReputationSend::AtWar {
+            ReputationCall::AtWar {
                 rep_list_id: 7,
                 at_war: true
             },
-            ReputationSend::Inactive {
+            ReputationCall::Inactive {
                 rep_list_id: 7,
                 inactive: true
             }
@@ -398,21 +399,21 @@ fn actual_lua_reputation_controls_wait_for_save_then_reopen_without_invented_ack
     );
     for send in sends {
         c.receive(match send {
-            ReputationSend::AtWar {
+            ReputationCall::AtWar {
                 rep_list_id,
                 at_war,
             } => ClientCommand::SetFactionAtWar {
                 rep_list_id,
                 at_war,
             },
-            ReputationSend::Inactive {
+            ReputationCall::Inactive {
                 rep_list_id,
                 inactive,
             } => ClientCommand::SetFactionInactive {
                 rep_list_id,
                 inactive,
             },
-            ReputationSend::Watch(_) => unreachable!(),
+            ReputationCall::Watch(_) => unreachable!(),
         })
         .unwrap();
     }
@@ -502,7 +503,7 @@ fn actual_lua_reputation_controls_wait_for_save_then_reopen_without_invented_ack
 
 #[test]
 fn actual_lua_watched_faction_waits_for_descriptor_commit_and_retains_raw_signed_values() {
-    use benilla_ui::script::{FactionEntry, ReputationSend, ReputationState, UiScript};
+    use benilla_ui::script::{FactionEntry, ReputationCall, ReputationState, UiScript};
     let h = Harness::new();
     let mut c = enter(&h, false, false, false);
     let initial = c.initial_events().unwrap();
@@ -532,6 +533,7 @@ fn actual_lua_watched_faction_waits_for_descriptor_commit_and_retains_raw_signed
         inactive: false,
     };
     let mut ui = UiScript::new().unwrap();
+    ui.keep_calls();
     ui.set_reputation(ReputationState {
         entries: vec![entry.clone()],
         watched: None,
@@ -542,10 +544,7 @@ fn actual_lua_watched_faction_waits_for_descriptor_commit_and_retains_raw_signed
             .unwrap(),
         "stock UI waits for server descriptor, no local watch mirror"
     );
-    assert_eq!(
-        ui.take_reputation_sends(),
-        vec![ReputationSend::Watch(Some(7))]
-    );
+    assert_eq!(ui.take_reputation_calls(), vec![ReputationCall::Watch(7)]);
     c.receive(ClientCommand::SetWatchedFaction { rep_list_id: 7 })
         .unwrap();
     let reputation_before = c
@@ -606,10 +605,7 @@ fn actual_lua_watched_faction_waits_for_descriptor_commit_and_retains_raw_signed
     assert_eq!(c.world.state_digest(), digest);
     assert_eq!(field(&c.initial_events().unwrap()), Some(7));
     ui.run("SetWatchedFactionIndex(0)").unwrap();
-    assert_eq!(
-        ui.take_reputation_sends(),
-        vec![ReputationSend::Watch(None)]
-    );
+    assert_eq!(ui.take_reputation_calls(), vec![ReputationCall::Watch(-1)]);
     c.receive(ClientCommand::SetWatchedFaction { rep_list_id: -1 })
         .unwrap();
     let out = c.pump(c.tick_duration());
@@ -645,6 +641,7 @@ fn actual_lua_action_bar_toggles_wait_for_saved_descriptor_and_reopen_raw_byte()
     let initial = c.initial_events().unwrap();
     assert_eq!(field(&initial), Some(0));
     let mut ui = UiScript::new().unwrap();
+    ui.keep_calls();
     ui.set_action_bar_toggles(field(&initial).unwrap());
     ui.run("SetActionBarToggles(1, nil, 1, nil)").unwrap();
     assert_eq!(ui.take_action_bar_toggle_sends(), vec![5]);

@@ -2409,8 +2409,14 @@ impl Mailbox {
                     publication.error,
                     disposition,
                     immediate_times.0.map(|at| at.duration_since(timing.0)),
-                    immediate_times.1.zip(immediate_times.0).map(|(end, start)| end.duration_since(start)),
-                    immediate_times.2.zip(immediate_times.1).map(|(end, start)| end.duration_since(start)),
+                    immediate_times
+                        .1
+                        .zip(immediate_times.0)
+                        .map(|(end, start)| end.duration_since(start)),
+                    immediate_times
+                        .2
+                        .zip(immediate_times.1)
+                        .map(|(end, start)| end.duration_since(start)),
                     finish_returned.duration_since(finish_started),
                     stamp(publication.slice_guard),
                     stamp(publication.active_guard_before),
@@ -2418,7 +2424,9 @@ impl Mailbox {
                     stamp(publication.send_before),
                     stamp(publication.send_after),
                     stamp(Some(finish_returned)),
-                    publication.send_after.map(|at| finish_returned.duration_since(at)),
+                    publication
+                        .send_after
+                        .map(|at| finish_returned.duration_since(at)),
                 );
             }
             // Pending always ends this invocation, including a full tail.

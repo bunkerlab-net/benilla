@@ -9,10 +9,12 @@ mod path;
 /// Rejoining a live source spline retains its original path clock instead of
 /// restarting at the saved map pose or waiting for a future replan.
 /// The existing presentation type carries total duration, not source per-segment
-/// timestamps or final facing. Its interpolation never supplies authority facts.
+/// timestamps. Final facing is retained; interpolation never supplies authority facts.
 pub(super) fn create_spline(
     npc: &n::Npc,
     ids: Option<&n::SourceSplineIds>,
+    player_guid: u64,
+    represented: &BTreeMap<NpcId, u64>,
 ) -> Result<Option<p::CreateSpline>, Error> {
     let Some(source) = &npc.source_motion else {
         return Ok(None);
@@ -41,7 +43,26 @@ pub(super) fn create_spline(
         flying: false,
         cyclic: false,
         run_mode: !active.walking,
+        facing: project_facing(&active.facing, player_guid, represented)?,
     }))
+}
+
+fn project_facing(
+    facing: &source::Facing,
+    player_guid: u64,
+    represented: &BTreeMap<NpcId, u64>,
+) -> Result<p::MonsterMoveFacing, Error> {
+    Ok(match facing {
+        source::Facing::Tangent => p::MonsterMoveFacing::None,
+        source::Facing::Angle(angle) => p::MonsterMoveFacing::Angle(angle.as_f32()),
+        source::Facing::Target(n::SOLO_UNIT) => p::MonsterMoveFacing::Target(player_guid),
+        source::Facing::Target(target) => p::MonsterMoveFacing::Target(
+            represented
+                .iter()
+                .find_map(|(id, guid)| (id.spawn == *target).then_some(*guid))
+                .ok_or(Error::UnknownTarget)?,
+        ),
+    })
 }
 
 /// Source lifecycle packets follow the journal, preserving motion emitted before
@@ -129,7 +150,6 @@ impl Frame {
         }
         Ok(())
     }
-    #[cfg(test)]
     pub(super) fn represented(&self) -> &BTreeMap<NpcId, u64> {
         &self.represented
     }
@@ -190,17 +210,7 @@ pub(super) fn project(
         } => {
             let start = point(*path.first().ok_or(Error::Unrepresentable)?);
             let wire_id = u32::try_from(*spline_id).map_err(|_| Error::Unrepresentable)?;
-            let facing = match facing {
-                source::Facing::Tangent => p::MonsterMoveFacing::None,
-                source::Facing::Angle(angle) => p::MonsterMoveFacing::Angle(angle.as_f32()),
-                source::Facing::Target(n::SOLO_UNIT) => p::MonsterMoveFacing::Target(player_guid),
-                source::Facing::Target(target) => p::MonsterMoveFacing::Target(
-                    represented
-                        .iter()
-                        .find_map(|(id, guid)| (id.spawn == *target).then_some(*guid))
-                        .ok_or(Error::UnknownTarget)?,
-                ),
-            };
+            let facing = project_facing(facing, player_guid, represented)?;
             Ok(Some(SessionEvent::MonsterMove {
                 guid,
                 transport: None,

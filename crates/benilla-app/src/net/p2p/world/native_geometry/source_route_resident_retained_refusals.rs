@@ -386,11 +386,17 @@ fn probe_inner(
     assert_eq!(ledger.counts(), (1, 1));
     assert_eq!(install.bytes(), original_source);
     if prior_revision >= 3 {
-        eprintln!("resident repeated concrete refusals: prior-revision={prior_revision} attempts=6 emitted=0 post-segment-hooks=3 committed=1 staged=0");
+        eprintln!(
+            "resident repeated concrete refusals: prior-revision={prior_revision} attempts=6 emitted=0 post-segment-hooks=3 committed=1 staged=0"
+        );
     } else if prior_revision == 2 {
-        eprintln!("resident second retained concrete refusals: attempts=6 emitted=0 post-segment-hooks=3 committed-cache2=1 staged-cache3=0");
+        eprintln!(
+            "resident second retained concrete refusals: attempts=6 emitted=0 post-segment-hooks=3 committed-cache2=1 staged-cache3=0"
+        );
     } else {
-        eprintln!("resident retained concrete refusals: attempts=6 emitted=0 post-segment-hooks=3 committed-cold=1 staged-warm=0");
+        eprintln!(
+            "resident retained concrete refusals: attempts=6 emitted=0 post-segment-hooks=3 committed-cold=1 staged-warm=0"
+        );
     }
 }
 

@@ -55,6 +55,7 @@ fn shell() -> UiScript {
         end
         CreateFrame("CheckButton", "BenillaOptionsFrameContainerBodyKeybindingsCharacterRowCheck", BenillaOptionsFrame)
         BenillaOptionsFrameContainerBodyKeybindingsCharacterRowLabel = BenillaOptionsFrame:CreateFontString()
+        BenillaOptionsFrameContainerBodyKeybindingsCharacterRowLabel:SetFont("synthetic.ttf", 12)
     "#).unwrap();
     script.run(include_str!("login_options.lua")).unwrap();
     script
@@ -103,7 +104,12 @@ fn login_shell_disables_server_settings_and_defaults_cannot_write_them() {
     "#,
     )
     .unwrap();
-    assert!(s.eval::<bool>("return BenillaOptionsFrameContainerBodyInterfaceRowShowTutorialsCheck:IsEnabled() == 0").unwrap());
+    assert!(
+        s.eval::<bool>(
+            "return BenillaOptionsFrameContainerBodyInterfaceRowShowTutorialsCheck:IsEnabled() == 0"
+        )
+        .unwrap()
+    );
     assert!(s
         .eval::<bool>(
             "return BenillaOptionsFrameContainerBodyInterfaceRowShowTutorials.saved == nil"

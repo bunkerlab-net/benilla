@@ -46,6 +46,7 @@ pub(super) fn enabled(profile: &Profile) -> bool {
         && profile.player_slow.is_none()
 }
 impl SourceSplineIds {
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub(super) fn new(profile: &Profile) -> Option<Self> {
         enabled(profile).then(|| Self {
             owners: std::iter::once(SOLO_UNIT)

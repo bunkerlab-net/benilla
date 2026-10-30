@@ -157,6 +157,7 @@ impl PlayerMeleeState {
     pub(in crate::native) fn replay_work(&self) -> u64 {
         self.proof.replay_work()
     }
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub(in crate::native) fn new(profile: &Profile, current: &State) -> Self {
         Self {
             proof: state::PlayerMeleeProof::genesis(profile, current),

@@ -88,6 +88,7 @@ fn genuine_signed_zero_uses_exact_source_fallback_and_small_nonzero_is_retained(
 
 #[test]
 fn raw_invalid_missing_short_and_scale_mismatched_rows_do_not_invent_a_width() {
+    assert!(models::short_model_catalog_is_rejected());
     for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -0.125, f32::MAX] {
         assert!(
             CreatureCollisionWidthSource::from_initial_model(
@@ -101,7 +102,6 @@ fn raw_invalid_missing_short_and_scale_mismatched_rows_do_not_invent_a_width() {
     }
     for catalog in [
         benilla_formats::CreatureCatalog::default(),
-        models::catalog_with_fields(1.0, 2.5, 1.75, true),
         models::catalog_with_fields(1.0, 2.5, 1.5, false),
     ] {
         assert!(
