@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Any, Protocol
 
 from .columns import COLUMNS, STARTER_SCHEMA, INITIAL_HOOK_SCHEMA, EVENT_TEXT_ALIASES
-from . import event_ai, event_text, starter, learning, native_spawn, spell_registry, initial_hooks, loot, quest_relationships
+from . import event_ai, event_text, starter, learning, native_spawn, spell_registry, initial_hooks, loot, quest_relationships, spawn_entries
 from .core import (CORE_REVISION, DATABASE_REVISION, FORMAT, STARTER_FORMAT, KEYS, MAX_BUNDLE_BYTES,
                    MAX_ITEMS, MAX_QUESTS, MAX_ROWS, MAX_SCHEMA_BYTES, MAX_SPELLS, Selection,
                    canonical, check, digest, integer, normalize_rows, normalize_version_notes,
@@ -37,6 +37,8 @@ class Query:
               "query.event_text_mode")
         check(self.table not in loot.TABLES or self.mode == loot.MODE, "query.loot_mode")
         check(not self.source_names or self.table in event_text.TABLES, "query.source_names")
+        check(self.table != spawn_entries.TABLE or self.mode == spawn_entries.MODE,
+              "query.spawn_entry_mode")
         integer(self.limit, 1, MAX_ROWS, "query.limit")
         names = self.source_names or tuple(COLUMNS[self.table])
         check(len(names) == len(COLUMNS[self.table]), "query.source_names")
@@ -109,6 +111,14 @@ class Query:
             field = initial_hooks.SELECTOR_COLUMNS[self.table]
             where = f"`{field}` IN ({','.join(['%s']*len(self.ids))})"
             params = self.ids
+        elif self.mode == spawn_entries.MODE:
+            check(self.table == spawn_entries.TABLE and self.selection is None
+                  and 0 < len(self.ids) <= MAX_ROWS, "query.spawn_entry_selectors")
+            check(tuple(sorted(set(self.ids))) == self.ids, "query.spawn_entry_order")
+            for value in self.ids:
+                integer(value, 1, 0xffffffff, "query.spawn_entry_domain")
+            where = f"`guid` IN ({','.join(['%s']*len(self.ids))})"
+            params = self.ids
         elif self.mode == quest_relationships.MODE:
             check(self.table == "quest_template" and self.selection is None
                   and 0 < len(self.ids) <= MAX_QUESTS, "query.quest_relationship_selectors")
@@ -159,17 +169,21 @@ class ReadSource(Protocol):
 def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             dependency_request: dict[str, Any] | None = None, *,
             capture_initial_hooks: bool = False, capture_body_loot: bool = False,
-            capture_quest_relationships: bool = False) -> dict[str, Any]:
+            capture_quest_relationships: bool = False,
+            capture_spawn_entries: bool = False) -> dict[str, Any]:
     selection = Selection.parse(selection.json())
     if dependency_request is not None:
         learning.request(dependency_request, selection)
     check(type(capture_quest_relationships) is bool, "quest_relationships.request_boolean")
+    check(type(capture_spawn_entries) is bool, "spawn_entries.request_boolean")
     inventory = source.inspect()
     check(type(capture_initial_hooks) is bool, "initial_hooks.request_boolean")
     check(not capture_initial_hooks or selection.starter is not None, "initial_hooks.starter_selection_required")
     check(type(capture_body_loot) is bool, "loot.request_boolean")
     check(not capture_body_loot or selection.starter is not None, "loot.starter_selection_required")
     minimum = required_tables(selection)
+    if capture_spawn_entries:
+        minimum.add(spawn_entries.TABLE)
     if (selection.starter is not None and type(inventory) is dict
             and type(inventory.get("tables")) is dict):
         minimum.update(set(event_text.TABLES) & set(inventory["tables"]))
@@ -217,6 +231,9 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
         spawns_query.sql()
         spawns = account(normalize_rows("creature", source.fetch(spawns_query), profiles["creature"], MAX_ROWS))
         tables["creature"] = spawns
+        if capture_spawn_entries:
+            tables[spawn_entries.TABLE] = get(spawn_entries.TABLE,
+                set(spawn_entries.selected_guids(tables)), mode=spawn_entries.MODE)
         creature_ids = {r["id"] for r in spawns if r["id"] > 0}
         quest_ids = set(selection.quest_ids)
         for table in ["creature_questrelation", "creature_involvedrelation"]:
@@ -400,11 +417,13 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             bundle["loot_capture"] = loot.evidence(bundle)
         if capture_initial_hooks:
             bundle["initial_hook_capture"] = initial_hooks.evidence(bundle)
+        if capture_spawn_entries:
+            bundle["spawn_entry_capture"] = spawn_entries.evidence(bundle)
         if capture_quest_relationships:
             bundle["quest_relationship_capture"] = quest_relationships.evidence(bundle, inbound_quests)
-            bundle["report"]["unsupported"] = sorted(
-                findings + quest_relationships.blockers(bundle),
-                key=lambda row: (row["table"], str(row["key"]), row["reason"]))
+        bundle["report"]["unsupported"] = sorted(
+            findings + quest_relationships.blockers(bundle) + spawn_entries.blockers(bundle),
+            key=lambda row: (row["table"], str(row["key"]), row["reason"]))
         check(len(canonical(bundle)) <= MAX_BUNDLE_BYTES, "bundle.byte_limit")
         validate_bundle(bundle)
         return bundle
@@ -435,6 +454,8 @@ def validate_bundle(bundle: Any) -> None:
             expected.add("loot_capture")
     if "quest_relationship_capture" in bundle:
         expected.add("quest_relationship_capture")
+    if "spawn_entry_capture" in bundle:
+        expected.add("spawn_entry_capture")
     check(set(bundle) == expected, "bundle.fields")
     check(bundle["format"] in {FORMAT, STARTER_FORMAT} and bundle["core_revision"] == CORE_REVISION
           and bundle["database_revision"] == DATABASE_REVISION and bundle["client_build"] == 5875,
@@ -551,6 +572,10 @@ def validate_bundle(bundle: Any) -> None:
         check(all(row[f"spellid_{i}"] <= 0 or row[f"spellid_{i}"] in spells for i in range(1,6)), "bundle.item_spell_reference")
     for row in bundle["tables"].get("spell_template", []):
         check(all(row[f"EffectTriggerSpell{i}"] == 0 or row[f"EffectTriggerSpell{i}"] in spells for i in range(1,4)), "bundle.trigger_reference")
+    check((spawn_entries.TABLE in bundle["tables"]) == ("spawn_entry_capture" in bundle),
+          "spawn_entries.coverage_required_with_table")
+    if "spawn_entry_capture" in bundle:
+        spawn_entries.validate(bundle)
     if "quest_relationship_capture" in bundle:
         quest_relationships.validate(bundle)
     status = bundle["report"]
@@ -564,7 +589,7 @@ def validate_bundle(bundle: Any) -> None:
         check(type(issue["key"]) is str and len(issue["key"]) <= 128, "bundle.issue_key")
         check(type(issue["reason"]) is str and len(issue["reason"]) <= 128, "bundle.issue_reason")
     required_findings = full_report(bundle["tables"], profiles, selection, body_loot="loot_capture" in bundle)
-    required_findings = sorted(required_findings + quest_relationships.blockers(bundle),
+    required_findings = sorted(required_findings + quest_relationships.blockers(bundle) + spawn_entries.blockers(bundle),
                                key=lambda row: (row["table"], str(row["key"]), row["reason"]))
     check(status["unsupported"] == required_findings, "bundle.missing_or_inconsistent_blocker")
     check(len(canonical(bundle)) <= MAX_BUNDLE_BYTES, "bundle.byte_limit")

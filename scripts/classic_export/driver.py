@@ -9,7 +9,7 @@ import warnings
 import re
 from typing import Any
 
-from .columns import COLUMNS, EVENT_TEXT_PRIMARY_KEYS, LOOT_PRIMARY_KEYS
+from .columns import COLUMNS, EVENT_TEXT_PRIMARY_KEYS, LOOT_PRIMARY_KEYS, SPAWN_ENTRY_PRIMARY_KEYS
 from .core import (ExportError, MAX_ROW_BYTES, MAX_SCHEMA_BYTES, MAX_TABLE_BYTES, MAX_BUNDLE_BYTES, canonical, check,
                    integer, normalize_version_notes, schema_profile)
 from .capture import Query
@@ -104,7 +104,7 @@ class LocalSqlSource:
                   "schema.registry_key_metadata")
             result["tables"]["spell_scripts"]["primary_key"] = [row["name"] for row in keys]
         from .initial_hooks import PRIMARY_KEYS
-        for table, expected in (PRIMARY_KEYS | EVENT_TEXT_PRIMARY_KEYS | LOOT_PRIMARY_KEYS).items():
+        for table, expected in (PRIMARY_KEYS | EVENT_TEXT_PRIMARY_KEYS | LOOT_PRIMARY_KEYS | SPAWN_ENTRY_PRIMARY_KEYS).items():
             if table not in result["tables"]:
                 continue
             keys = self._select(

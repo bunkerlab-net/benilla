@@ -18,8 +18,8 @@ import getpass
 from classic_export.capture import Query, capture, validate_bundle
 from classic_export.columns import (COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA, SPAWN_SCHEMA,
                                     REGISTRY_SCHEMA, EVENT_TEXT_SCHEMA, EVENT_TEXT_PRIMARY_KEYS,
-                                    LOOT_SCHEMA, LOOT_PRIMARY_KEYS)
-from classic_export import starter, quest_relationships
+                                    LOOT_SCHEMA, LOOT_PRIMARY_KEYS, SPAWN_ENTRY_SCHEMA, SPAWN_ENTRY_PRIMARY_KEYS)
+from classic_export import starter, quest_relationships, spawn_entries
 from classic_export.core import (ExportError, MAX_ROWS, Selection, TEXT_COLUMNS,
                                  canonical, decode_json, digest, normalize_cell,
                                  normalize_rows, schema_profile)
@@ -37,16 +37,16 @@ def schema():
             if name in FLOAT_FIELDS:
                 kind = "decimal(40,20)"
             columns.append({"name": name, "type": kind, "nullable": False, "ordinal": ordinal})
-        if table in (LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA | EVENT_TEXT_SCHEMA | LOOT_SCHEMA):
+        if table in (LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA | EVENT_TEXT_SCHEMA | LOOT_SCHEMA | SPAWN_ENTRY_SCHEMA):
             columns = [{"name": name, "type": kind, "nullable": nullable, "ordinal": ordinal}
-                       for ordinal, (name, kind, nullable) in enumerate((LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA | EVENT_TEXT_SCHEMA | LOOT_SCHEMA)[table], 1)]
+                       for ordinal, (name, kind, nullable) in enumerate((LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA | EVENT_TEXT_SCHEMA | LOOT_SCHEMA | SPAWN_ENTRY_SCHEMA)[table], 1)]
         tables[table] = {"engine": "InnoDB", "table_type": "BASE TABLE", "columns": columns}
         if table in REGISTRY_SCHEMA:
             tables[table]["primary_key"] = ["Id"]
         if table in EVENT_TEXT_PRIMARY_KEYS:
             tables[table]["primary_key"] = EVENT_TEXT_PRIMARY_KEYS[table].copy()
-        if table in LOOT_PRIMARY_KEYS:
-            tables[table]["primary_key"] = LOOT_PRIMARY_KEYS[table].copy()
+        if table in (LOOT_PRIMARY_KEYS | SPAWN_ENTRY_PRIMARY_KEYS):
+            tables[table]["primary_key"] = (LOOT_PRIMARY_KEYS | SPAWN_ENTRY_PRIMARY_KEYS)[table].copy()
     return {"format_version": 1, "tables": tables}
 
 def row(table, **changes):
@@ -2471,6 +2471,189 @@ class QuestRelationshipTests(unittest.TestCase):
                                             if r["reason"] != "quest.inbound_relationship"]
         with self.assertRaisesRegex(ExportError, "missing_or_inconsistent_blocker"):
             validate_bundle(bundle)
+
+
+class SpawnEntryCaptureTests(unittest.TestCase):
+    def capture(self, source=None, **kwargs):
+        return capture(source or FakeSource(), selection(), capture_spawn_entries=True, **kwargs)
+
+    def test_complete_empty_and_legacy_unknown_are_distinct(self):
+        old = capture(FakeSource(), selection())
+        self.assertNotIn("spawn_entry_capture", old)
+        self.assertNotIn(spawn_entries.TABLE, old["tables"])
+        validate_bundle(old)
+        new = self.capture()
+        self.assertEqual(new["tables"][spawn_entries.TABLE], [])
+        self.assertEqual(new["spawn_entry_capture"]["roots"], [1])
+        self.assertEqual(new["spawn_entry_capture"]["status"], "complete")
+        self.assertFalse(new["report"]["runnable"])
+        self.assertFalse(new["report"]["capture_complete"])
+        self.assertFalse(new["spawn_entry_capture"]["source_loader_order_proven"])
+        self.assertFalse(new["spawn_entry_capture"]["other_native_hooks_proven"])
+
+    def test_all_selected_guids_and_raw_zero_alternatives_are_preserved(self):
+        source = FakeSource()
+        source.rows["creature"].append(row("creature", guid=2, id=0))
+        source.rows[spawn_entries.TABLE] = [row(spawn_entries.TABLE, guid=g, entry=e)
+                                          for g, e in [(2, 999998), (1, 999999), (2, 0), (3, 999997)]]
+        bundle = self.capture(source)
+        self.assertEqual(bundle["tables"][spawn_entries.TABLE], [
+            {"guid": 1, "entry": 999999}, {"guid": 2, "entry": 0}, {"guid": 2, "entry": 999998}])
+        self.assertEqual(bundle["spawn_entry_capture"]["roots"], [1, 2])
+        self.assertEqual([r["Entry"] for r in bundle["tables"]["creature_template"]], [900001])
+        self.assertEqual(bundle["tables"]["creature"][1]["id"], 0)
+        self.assertEqual(len(spawn_entries.blockers(bundle)), 3)
+        self.assertIn("spawn.entry_substitution_unresolved",
+                      [r["reason"] for r in bundle["report"]["unsupported"]])
+        validate_bundle(bundle)
+
+    def test_unresolved_zero_id_still_blocks_with_complete_empty_scan(self):
+        source = FakeSource(); source.rows["creature"].append(row("creature", guid=2, id=0))
+        bundle = self.capture(source)
+        self.assertEqual(bundle["tables"][spawn_entries.TABLE], [])
+        self.assertIn("spawn.entry_substitution_unresolved",
+                      [r["reason"] for r in bundle["report"]["unsupported"]])
+
+    def test_empty_region_has_no_invalid_in_query(self):
+        source = FakeSource(); source.rows["creature"] = []
+        bundle = self.capture(source)
+        self.assertEqual(bundle["spawn_entry_capture"]["roots"], [])
+        self.assertFalse(any("FROM `creature_spawn_entry`" in sql for sql, _ in source.queries))
+        self.assertFalse(bundle["report"]["runnable"])
+
+    def test_fixed_sql_is_bounded_parameterized_and_mode_is_exclusive(self):
+        sql, args = Query(spawn_entries.TABLE, spawn_entries.MODE, (1, 0xffffffff)).sql()
+        self.assertEqual(sql, "SELECT `guid` AS `guid`,`entry` AS `entry` FROM `creature_spawn_entry` "
+                         "WHERE `guid` IN (%s,%s) ORDER BY `guid`,`entry` LIMIT %s")
+        self.assertEqual(args, (1, 0xffffffff, MAX_ROWS+1))
+        for table, mode, ids in [("creature", spawn_entries.MODE, (1,)),
+                (spawn_entries.TABLE, "ids", (1,)), (spawn_entries.TABLE, spawn_entries.MODE, ()),
+                (spawn_entries.TABLE, spawn_entries.MODE, (True,)),
+                (spawn_entries.TABLE, spawn_entries.MODE, (0,)),
+                (spawn_entries.TABLE, spawn_entries.MODE, (0x100000000,)),
+                (spawn_entries.TABLE, spawn_entries.MODE, (2, 1)),
+                (spawn_entries.TABLE, spawn_entries.MODE, (1, 1))]:
+            with self.subTest(table=table, mode=mode, ids=ids), self.assertRaises(ExportError):
+                Query(table, mode, ids).sql()
+
+    def test_numeric_domains_and_duplicate_or_unselected_rows_fail(self):
+        class InvalidSource(FakeSource):
+            def fetch(self, query):
+                return self.invalid if query.mode == spawn_entries.MODE else super().fetch(query)
+        cases = [[{"guid": 1, "entry": value}] for value in [-1, 0x1000000, True, None]]
+        cases += [[{"guid": 0, "entry": 1}], [{"guid": 3, "entry": 1}],
+                  [{"guid": 1, "entry": 2}]*2, [{"guid": 1, "entry": 2}]*(MAX_ROWS+1)]
+        for rows in cases:
+            source = InvalidSource(); source.invalid = rows
+            with self.subTest(rows=rows[:2]), self.assertRaises(ExportError):
+                self.capture(source)
+            self.assertTrue(source.finished)
+
+    def test_schema_key_types_nullability_and_ordinals_are_exact(self):
+        mutations = [lambda m: m.pop("primary_key"),
+                     lambda m: m.update(primary_key=["entry", "guid"]),
+                     lambda m: m["columns"][0].update(type="int"),
+                     lambda m: m["columns"][1].update(type="int unsigned"),
+                     lambda m: m["columns"][1].update(nullable=True),
+                     lambda m: m["columns"][1].update(ordinal=3),
+                     lambda m: m["columns"].append({"name": "extra", "type": "int", "nullable": False, "ordinal": 3})]
+        for mutate in mutations:
+            source = FakeSource(); mutate(source.inventory["tables"][spawn_entries.TABLE])
+            with self.assertRaises(ExportError):
+                self.capture(source)
+            self.assertFalse(source.started)
+        source = FakeSource()
+        source.inventory["tables"][spawn_entries.TABLE]["columns"][0]["type"] = "int(10) unsigned"
+        validate_bundle(self.capture(source))
+
+    def test_missing_table_and_interrupted_scan_are_not_complete_empty(self):
+        source = FakeSource(); source.inventory["tables"].pop(spawn_entries.TABLE)
+        with self.assertRaisesRegex(ExportError, "schema.missing_table"):
+            self.capture(source)
+        class FailedSource(FakeSource):
+            def fetch(self, query):
+                if query.mode == spawn_entries.MODE:
+                    raise RuntimeError("interrupted spawn scan")
+                return super().fetch(query)
+        source = FailedSource()
+        with self.assertRaisesRegex(RuntimeError, "interrupted spawn scan"):
+            self.capture(source)
+        self.assertTrue(source.finished)
+
+    def test_myisam_requires_quiescence_and_version_changes_fail(self):
+        source = FakeSource(); source.inventory["tables"][spawn_entries.TABLE]["engine"] = "MyISAM"
+        with self.assertRaisesRegex(ExportError, "quiescent_required"):
+            self.capture(source)
+        bundle = self.capture(source, quiescent=True)
+        self.assertEqual(bundle["spawn_entry_capture"]["snapshot"]["consistency"], "operator_quiescent_snapshot")
+        source = FakeSource(); source.mutate_version = True
+        with self.assertRaisesRegex(ExportError, "version_changed"):
+            self.capture(source)
+        self.assertTrue(source.finished)
+
+    def test_tampered_bindings_and_missing_pair_fail(self):
+        original = self.capture()
+        for field, value in [("roots", []), ("selector", {}), ("status", "partial"),
+                             ("row_limit", 1), ("rows_sha256", "bad"), ("snapshot", {}),
+                             ("source_loader_order_proven", True), ("other_native_hooks_proven", True)]:
+            bundle = copy.deepcopy(original); bundle["spawn_entry_capture"][field] = value
+            with self.subTest(field=field), self.assertRaises(ExportError):
+                validate_bundle(bundle)
+        bundle = copy.deepcopy(original); bundle.pop("spawn_entry_capture")
+        with self.assertRaisesRegex(ExportError, "coverage_required"):
+            validate_bundle(bundle)
+        bundle = copy.deepcopy(original); bundle["tables"].pop(spawn_entries.TABLE)
+        bundle["table_sha256"].pop(spawn_entries.TABLE)
+        with self.assertRaisesRegex(ExportError, "coverage_required"):
+            validate_bundle(bundle)
+
+    def test_rehashed_rows_require_matching_evidence_and_blockers(self):
+        source = FakeSource(); source.rows[spawn_entries.TABLE] = [{"guid": 1, "entry": 999999}]
+        original = self.capture(source)
+        bundle = copy.deepcopy(original); bundle["tables"][spawn_entries.TABLE] = []
+        bundle["table_sha256"][spawn_entries.TABLE] = digest([])
+        with self.assertRaisesRegex(ExportError, "coverage_mismatch"):
+            validate_bundle(bundle)
+        bundle = copy.deepcopy(original)
+        bundle["report"]["unsupported"] = [r for r in bundle["report"]["unsupported"]
+                                            if r["table"] != spawn_entries.TABLE]
+        with self.assertRaisesRegex(ExportError, "missing_or_inconsistent_blocker"):
+            validate_bundle(bundle)
+
+    def test_extension_composes_with_quest_evidence_without_promoting_readiness(self):
+        source = FakeSource(); source.rows[spawn_entries.TABLE] = [{"guid": 1, "entry": 999999}]
+        source.rows["quest_template"].append(row("quest_template", entry=910099, NextQuestId=910001))
+        bundle = self.capture(source, capture_quest_relationships=True)
+        self.assertTrue(quest_relationships.blockers(bundle))
+        self.assertTrue(spawn_entries.blockers(bundle))
+        self.assertFalse(bundle["report"]["runnable"])
+        self.assertFalse(bundle["report"]["capture_complete"])
+        validate_bundle(bundle)
+
+    def test_request_is_boolean(self):
+        with self.assertRaisesRegex(ExportError, "request_boolean"):
+            capture(FakeSource(), selection(), capture_spawn_entries=1)
+
+    def test_driver_inspects_composite_key_without_data_queries(self):
+        instance = LocalSqlSource.__new__(LocalSqlSource)
+        metadata = schema()["tables"][spawn_entries.TABLE]
+        calls = []
+        def select(sql, params, limit):
+            calls.append((sql, params, limit))
+            if "information_schema.TABLES" in sql:
+                return [{"name": spawn_entries.TABLE, "engine": "MyISAM", "table_type": "BASE TABLE"}]
+            if "information_schema.COLUMNS" in sql:
+                return [{"table_name": spawn_entries.TABLE,
+                         **{**c, "nullable": "NO"}} for c in metadata["columns"]]
+            self.assertIn("information_schema.KEY_COLUMN_USAGE", sql)
+            self.assertEqual(params, (spawn_entries.TABLE, "PRIMARY", 3))
+            self.assertEqual(limit, 3)
+            return [{"name": "guid", "ordinal": 1}, {"name": "entry", "ordinal": 2}]
+        instance._select = select
+        inspected = instance.inspect()
+        self.assertEqual(inspected["tables"][spawn_entries.TABLE]["primary_key"], ["guid", "entry"])
+        self.assertTrue(all(sql.startswith("SELECT ") and "information_schema." in sql
+                            and ";" not in sql for sql, _, _ in calls))
 
 
 if __name__ == "__main__":

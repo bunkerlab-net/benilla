@@ -695,3 +695,10 @@ LOOT_SCHEMA = {table: [
     ("condition_id", "mediumint unsigned", False), ("comments", "varchar(300)", True)]
     for table in ("creature_loot_template", "reference_loot_template")}
 LOOT_PRIMARY_KEYS = {table: ["entry", "item"] for table in LOOT_SCHEMA}
+
+# Pinned ObjectMgr::LoadCreatureSpawnEntry inputs; no loader ordering is implied.
+SPAWN_ENTRY_SCHEMA = {"creature_spawn_entry": [
+    ("guid", "int unsigned", False), ("entry", "mediumint unsigned", False)]}
+SPAWN_ENTRY_PRIMARY_KEYS = {"creature_spawn_entry": ["guid", "entry"]}
+COLUMNS.update({table: [column[0] for column in columns]
+                for table, columns in SPAWN_ENTRY_SCHEMA.items()})
