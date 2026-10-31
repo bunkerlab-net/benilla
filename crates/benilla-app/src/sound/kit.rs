@@ -1111,11 +1111,11 @@ pub(super) fn plugin(app: &mut App) {
         .add_systems(
             Update,
             (
-                // Attachment readers run after this frame's rig construction/reseating and
-                // on-demand quest-marker anchors. Present supplies the engine's camera pose.
+                // Sample the constructed and reseated attachments, before later display teardown.
                 pump_channels
                     .in_set(benilla_world::schedule::WorldStage::Present)
-                    .after(crate::entities::EntityVisualsSet)
+                    .after(crate::entities::AttachmentPoseReadySet)
+                    .before(crate::entities::AppearanceMaintenanceSet)
                     .after(crate::quest_markers::QuestMarkerBuildSet),
                 apply_kit_debug.after(crate::vm_pass::VmPass::End),
                 evict_kit_cache,

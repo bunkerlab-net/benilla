@@ -1032,6 +1032,49 @@ pub(crate) mod schedule_tests {
     }
 
     #[test]
+    fn native_overlay_painters_read_the_shared_visual_flush() {
+        let mut app = headless_client();
+        let graph = census(&mut app, Update, SyncPoints::Built);
+        if !type_names_available(&graph) {
+            return;
+        }
+        let key = |suffix: &str| {
+            graph
+                .systems
+                .iter()
+                .find_map(|(key, system)| system.name.ends_with(suffix).then_some(*key))
+                .unwrap_or_else(|| panic!("missing system {suffix}"))
+        };
+        for (producer, consumer) in [
+            (
+                "::login::screen::materialize_screen",
+                "::login::screen::refresh_listen_addresses",
+            ),
+            (
+                "::login::settings::view::render",
+                "::login::screen::refresh_boxes",
+            ),
+            (
+                "::char_select::recovery::render",
+                "::glue::glue_button_visuals",
+            ),
+            (
+                "::glue::dialog::render_glue_dialog",
+                "::glue::dialog::refresh_dialog_box",
+            ),
+        ] {
+            assert!(
+                graph.systems.iter().any(|(sync, system)| {
+                    is_sync_point(&system.name)
+                        && graph.runs_before(key(producer), *sync)
+                        && graph.runs_before(*sync, key(consumer))
+                }),
+                "{consumer} must see the entities queued by {producer} this frame"
+            );
+        }
+    }
+
+    #[test]
     fn wheel_ownership_is_published_before_camera_bindings() {
         let mut app = headless_client();
         let graph = census(&mut app, Update, SyncPoints::Declared);
@@ -1227,10 +1270,31 @@ pub(crate) mod schedule_tests {
                 "{producer} must precede attached audio"
             );
         }
+        let mut seen = HashSet::new();
+        let mut pending = vec![pump];
+        while let Some(system) = pending.pop() {
+            if seen.insert(system) {
+                pending.extend(
+                    graph
+                        .dependencies
+                        .iter()
+                        .filter_map(|(from, to)| (*from == system).then_some(*to)),
+                );
+            }
+        }
+        for maintenance in [
+            "::entities::live_display::refresh_live_display",
+            "::entities::live_display::tick_scale_ease",
+            "::entities::live_display::heal_rig_starved",
+        ] {
+            assert!(
+                seen.contains(&key(maintenance)),
+                "attached audio must sample the current pose before {maintenance}"
+            );
+        }
     }
 
-    /// Recovery uses the shared glue art and this frame's window snapshot, like the settings
-    /// painter: after screen preparation and input, before pending video changes are committed.
+    /// Recovery uses prepared glue art and the window snapshot before video changes commit.
     #[test]
     fn character_recovery_orders_shared_art_and_window_access() {
         let mut app = headless_client();
@@ -1247,7 +1311,16 @@ pub(crate) mod schedule_tests {
         };
         let recovery = "::char_select::recovery::drive";
         for (producer, consumer) in [
-            ("::login::screen::materialize_screen", recovery),
+            ("::login::screen::prepare_art", recovery),
+            (recovery, "::char_select::recovery::render"),
+            (
+                "::char_select::recovery::render",
+                "::video::apply_present_mode",
+            ),
+            (
+                "::char_select::recovery::render",
+                "::video::apply_window_mode",
+            ),
             (recovery, "::video::apply_present_mode"),
             (recovery, "::video::apply_window_mode"),
         ] {

@@ -90,16 +90,12 @@ pub(crate) enum Action {
 }
 
 pub(crate) fn drive(
-    mut commands: Commands,
     mut panel: ResMut<RecoveryPanel>,
     pick: Res<CharPick>,
     glue: crate::ui_script::glue::StockGlueProbe,
-    art: Res<GlueArt>,
-    assets: Res<AssetServer>,
     keys: Res<ButtonInput<KeyCode>>,
     clicks: Res<crate::glue::GlueClicks>,
     buttons: Query<(Entity, &Action)>,
-    window: Query<&Window, With<bevy::window::PrimaryWindow>>,
 ) {
     if !panel.open {
         return;
@@ -108,7 +104,7 @@ pub(crate) fn drive(
         if panel.confirmation.0.take().is_some() {
             panel.dirty = true;
         } else {
-            panel.dismiss(&mut commands);
+            panel.open = false;
             return;
         }
     }
@@ -141,7 +137,7 @@ pub(crate) fn drive(
         }
         match action {
             Action::Close => {
-                panel.dismiss(&mut commands);
+                panel.open = false;
                 return;
             }
             Action::Cancel => {
@@ -183,6 +179,19 @@ pub(crate) fn drive(
         panel.dirty = true;
         // One action per frame prevents a stale confirm from being dispatched twice.
         break;
+    }
+}
+
+pub(crate) fn render(
+    mut commands: Commands,
+    mut panel: ResMut<RecoveryPanel>,
+    art: Res<GlueArt>,
+    assets: Res<AssetServer>,
+    window: Query<&Window, With<bevy::window::PrimaryWindow>>,
+) {
+    if !panel.open {
+        panel.dismiss(&mut commands);
+        return;
     }
     let s = crate::glue::screen_scale(window.single().ok());
     if !panel.needs_rebuild(s, art.button_up.is_some()) {

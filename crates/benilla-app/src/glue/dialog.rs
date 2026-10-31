@@ -5,9 +5,7 @@
 //! a press means belongs to the screen that opened it, so a press is published as
 //! [`GlueDialogAnswer`]; only [`DialogKind::Error`] is dismissed here, by its Okay.
 //!
-//! [`drive_glue_dialog`] runs inside each screen's own chain, not hoisted out with a
-//! `before`/`after` pair: ordering it from outside against the shared painters in those chains
-//! makes a painter ordered against its own `SystemTypeSet`, which panics at schedule build.
+//! Input publishes answers before the VM drains; rendering and field paint use the visual flush.
 use bevy::prelude::*;
 
 use benilla_ui::widget::EditBoxState;
@@ -151,8 +149,7 @@ impl GlueDialog {
             self.dirty = true;
         }
     }
-    /// Close and despawn the tree this frame: on the edges out of the glue layer,
-    /// [`drive_glue_dialog`] never runs again to take it down.
+    /// Close and despawn the tree on glue exit, when the visual pass no longer runs.
     pub(crate) fn dismiss(&mut self, commands: &mut Commands) {
         self.close();
         if let Some(root) = self.root.take() {
@@ -306,61 +303,19 @@ pub(crate) fn spawn_dialog(
         .id()
 }
 
-/// Keep the dialog tree in step with [`GlueDialog`] and read its buttons from mouse and keys.
+/// Read dialog buttons and keys before the visual pass materializes the resulting state.
 pub(crate) fn drive_glue_dialog(
-    mut commands: Commands,
     mut dialog: ResMut<GlueDialog>,
-    art: Res<crate::glue::art::GlueArt>,
-    assets: Res<AssetServer>,
-    strings: Option<Res<GlueStrings>>,
     keys: Res<ButtonInput<KeyCode>>,
     buttons: Query<(Entity, &GlueDialogAction)>,
     clicks: Res<crate::glue::GlueClicks>,
-    mut texts: Query<&mut Text, With<DialogText>>,
     glue: crate::ui_script::glue::StockGlueProbe,
     mut answers: MessageWriter<GlueDialogAnswer>,
-    window: Query<&Window, With<bevy::window::PrimaryWindow>>,
 ) {
-    let empty = GlueStrings::default();
-    let strings = strings.as_deref().unwrap_or(&empty);
-
     let Some(kind) = dialog.kind else {
-        if let Some(root) = dialog.root.take() {
-            commands.entity(root).despawn();
-        }
-        dialog.spawned = None;
         return;
     };
-
-    // Respawn on open, a kind change or a resize; a text change updates in place. `fresh` (the
-    // dialog appearing, not a resize) is also `dialog_keys`' `!on_screen`.
-    let s = crate::glue::screen_scale(window.single().ok());
     let fresh = dialog.root.is_none() || dialog.spawned != Some(kind);
-    if fresh || dialog.spawned_s != s {
-        if let Some(root) = dialog.root.take() {
-            commands.entity(root).despawn();
-        }
-        dialog.root = Some(spawn_dialog(
-            &mut commands,
-            &art,
-            &assets,
-            strings,
-            kind,
-            &dialog.text,
-            s,
-        ));
-        dialog.edit.reset_blink();
-        dialog.spawned = Some(kind);
-        dialog.spawned_s = s;
-        dialog.dirty = false;
-    } else if dialog.dirty {
-        for mut t in &mut texts {
-            if t.0 != dialog.text {
-                t.0 = dialog.text.clone();
-            }
-        }
-        dialog.dirty = false;
-    }
 
     // A click needs no `fresh` guard: its button did not exist on the frame the tree spawned.
     let hit = |want: GlueDialogAction| buttons.iter().any(|(e, a)| *a == want && clicks.hit(e));
@@ -385,15 +340,61 @@ pub(crate) fn drive_glue_dialog(
         });
         // An error's Okay only dismisses it, so any glue screen can raise one and answer nothing.
         if kind == DialogKind::Error {
-            dialog.dismiss(&mut commands);
+            dialog.close();
         }
+    }
+}
+
+/// Materialize the dialog in the visual pass; its input handler only changes the model.
+pub(crate) fn render_glue_dialog(
+    mut commands: Commands,
+    mut dialog: ResMut<GlueDialog>,
+    art: Res<crate::glue::art::GlueArt>,
+    assets: Res<AssetServer>,
+    strings: Option<Res<GlueStrings>>,
+    mut texts: Query<&mut Text, With<DialogText>>,
+    window: Query<&Window, With<bevy::window::PrimaryWindow>>,
+) {
+    let empty = GlueStrings::default();
+    let strings = strings.as_deref().unwrap_or(&empty);
+    let Some(kind) = dialog.kind else {
+        if let Some(root) = dialog.root.take() {
+            commands.entity(root).despawn();
+        }
+        dialog.spawned = None;
+        return;
+    };
+    let s = crate::glue::screen_scale(window.single().ok());
+    if dialog.root.is_none() || dialog.spawned != Some(kind) || dialog.spawned_s != s {
+        if let Some(root) = dialog.root.take() {
+            commands.entity(root).despawn();
+        }
+        dialog.root = Some(spawn_dialog(
+            &mut commands,
+            &art,
+            &assets,
+            strings,
+            kind,
+            &dialog.text,
+            s,
+        ));
+        dialog.edit.reset_blink();
+        dialog.spawned = Some(kind);
+        dialog.spawned_s = s;
+        dialog.dirty = false;
+    } else if dialog.dirty {
+        for mut t in &mut texts {
+            if t.0 != dialog.text {
+                t.0 = dialog.text.clone();
+            }
+        }
+        dialog.dirty = false;
     }
 }
 
 /// Paint the dialog's edit box from [`GlueDialog::edit`] through [`paint_glue_field`].
 ///
-/// Runs after [`drive_glue_dialog`], which spawns the box; before it, an opening dialog would show
-/// one frame of empty box.
+/// Runs after [`render_glue_dialog`] and the visual flush so an opening dialog has painted text.
 #[allow(clippy::type_complexity)]
 pub(crate) fn refresh_dialog_box(
     dialog: Res<GlueDialog>,

@@ -490,6 +490,14 @@ pub(crate) struct VisualAttached;
 #[derive(SystemSet, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) struct EntityVisualsSet;
 
+/// Attachment construction and mount seating precede readers of the current posed anchors.
+#[derive(SystemSet, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) struct AttachmentPoseReadySet;
+
+/// Display teardown and scale maintenance follow consumers of the current attachment pose.
+#[derive(SystemSet, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) struct AppearanceMaintenanceSet;
+
 /// [`update_display_models`]' set: a creator of display-cache entries orders before it.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct DisplayBuildSet;
@@ -739,20 +747,20 @@ impl Plugin for EntitiesPlugin {
                 // Event keyframes and completion callbacks, after attach so a just-spawned
                 // instance's first window `[0, cur]` fires this frame.
                 (spell_fx::fire_fx_anim_events, spell_fx::advance_fx_anim),
-                // A gear change re-dresses the standing visual in place, every attachment left
-                // alone as in the reference; a new corpse arms its Dead or Drowned pose.
-                (attach::redress_player_looks, corpse::pose_corpses),
-                // A mount change re-seats the rig on the mount's attachment 0 or back, as the
-                // reference re-parents the body model (`0x712f70`, `0x713020`).
-                reseat_mounts,
+                (
+                    // Redress leaves rig attachments alone (`0x712f70`); mount seating reads them.
+                    (attach::redress_player_looks, corpse::pose_corpses),
+                    reseat_mounts.in_set(AttachmentPoseReadySet),
+                )
+                    .chain_ignore_deferred(),
                 // A display swap rebuilds, a scale change eases over the reference's 2 s, and a
                 // unit denied a palette rig rebuilds once the table has room.
                 (
                     refresh_live_display,
-                    tick_scale_ease,
-                    live_display::heal_rig_starved,
+                    (tick_scale_ease, live_display::heal_rig_starved),
                 )
-                    .chain(),
+                    .chain()
+                    .in_set(AppearanceMaintenanceSet),
             )
                 .chain()
                 .in_set(EntityVisualsSet)

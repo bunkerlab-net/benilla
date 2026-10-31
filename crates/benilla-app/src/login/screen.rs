@@ -5,6 +5,17 @@ pub(super) struct Root;
 #[derive(Component)]
 pub(super) struct ListenAddressReadout;
 
+pub(super) fn prepare_art(
+    mut art: ResMut<crate::glue::art::GlueArt>,
+    world_assets: Option<ResMut<benilla_assets::WorldAssets>>,
+    mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<crate::glue::add_material::AddUiMaterial>>,
+) {
+    if let Some(mut world_assets) = world_assets {
+        art.ensure_loaded(&mut world_assets, &mut images, &mut materials);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn materialize_screen(
     mut commands: Commands,
@@ -15,14 +26,7 @@ pub(super) fn materialize_screen(
     mut roots: Query<(Entity, &mut Visibility), With<Root>>,
     mut previous: Local<Option<(ClientState, bool)>>,
     assets: Res<AssetServer>,
-    mut art: ResMut<crate::glue::art::GlueArt>,
-    world_assets: Option<ResMut<benilla_assets::WorldAssets>>,
-    mut images: ResMut<Assets<Image>>,
-    mut materials: ResMut<Assets<crate::glue::add_material::AddUiMaterial>>,
 ) {
-    if let Some(mut world_assets) = world_assets {
-        art.ensure_loaded(&mut world_assets, &mut images, &mut materials);
-    }
     let key = (*state.get(), p2p.is_some());
     let hidden = settings.open || options.active || options.requested;
     if *previous == Some(key) && !roots.is_empty() {

@@ -21,23 +21,33 @@ impl Plugin for LoginPlugin {
             .add_systems(
                 Update,
                 (
-                    screen::materialize_screen,
-                    // Overlay input belongs before UiDrain and world Input; loading tips
-                    // run after Present and publish their CVar cursor for the next frame.
-                    login_input.in_set(crate::vm_pass::VmPass::Member),
-                    settings::recover.in_set(crate::vm_pass::VmPass::Member),
-                    settings::input.in_set(crate::vm_pass::VmPass::Member),
-                    settings::render.before(crate::cvars::sync_cvars),
-                    screen::refresh_boxes,
-                    screen::refresh_listen_addresses,
-                    crate::char_select::recovery::drive,
-                    crate::glue::dialog::drive_glue_dialog,
-                    crate::glue::dialog::refresh_dialog_box,
+                    (
+                        screen::prepare_art,
+                        login_input.in_set(crate::vm_pass::VmPass::Member),
+                        settings::recover.in_set(crate::vm_pass::VmPass::Member),
+                        settings::input.in_set(crate::vm_pass::VmPass::Member),
+                        crate::char_select::recovery::drive,
+                        crate::glue::dialog::drive_glue_dialog,
+                    )
+                        .chain(),
+                    (
+                        screen::materialize_screen,
+                        settings::render,
+                        crate::char_select::recovery::render,
+                        crate::glue::dialog::render_glue_dialog,
+                    )
+                        // The trees are independent; only their painters need their commands.
+                        .chain_ignore_deferred(),
+                    (
+                        screen::refresh_boxes,
+                        screen::refresh_listen_addresses,
+                        crate::glue::dialog::refresh_dialog_box,
+                    )
+                        .chain(),
                 )
                     .chain()
                     .after(crate::ui_script::UiTick)
                     .before(crate::ui_script::UiDrain)
-                    .after(benilla_world::schedule::WorldStage::Net)
                     .before(crate::glue::GlueVisuals)
                     .before(crate::video::apply_present_mode)
                     .before(crate::video::apply_window_mode)
