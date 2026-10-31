@@ -1037,6 +1037,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "benilla-srp",
+ "benilla-ui",
  "clap",
  "flate2",
  "libc",

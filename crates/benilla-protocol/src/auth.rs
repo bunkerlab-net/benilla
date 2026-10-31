@@ -473,30 +473,7 @@ mod tests {
         assert_eq!(spelled(PLATFORM_X86), "x86");
     }
 
-    /// Holds `TZ` for a test: the lock keeps two zone tests apart, the drop restores it.
-    struct Zone {
-        old: Option<std::ffi::OsString>,
-        _lock: std::sync::MutexGuard<'static, ()>,
-    }
-
-    impl Zone {
-        fn set(tz: &str) -> Self {
-            static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-            let lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-            let old = std::env::var_os("TZ");
-            std::env::set_var("TZ", tz);
-            Self { old, _lock: lock }
-        }
-    }
-
-    impl Drop for Zone {
-        fn drop(&mut self) {
-            match self.old.take() {
-                Some(v) => std::env::set_var("TZ", v),
-                None => std::env::remove_var("TZ"),
-            }
-        }
-    }
+    use benilla_ui::civil::ZoneGuard as Zone;
 
     /// The dword after the locale is `OsGetTimeZoneBias` (`0x4297c0`, stored at `0x5b2127`):
     /// the zone's bias negated, minutes east of UTC, without daylight saving's.

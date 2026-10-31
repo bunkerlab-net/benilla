@@ -22,5 +22,7 @@ sha1.workspace = true
 strum = { version = "0.26", features = ["derive"] }
 
 [dev-dependencies]
+# Shared OS/CRT timezone guard for the logon challenge's local-zone fixtures.
+benilla-ui = { path = "../benilla-ui", features = ["test-support"] }
 # The SRP probe example re-derives the handshake by hand, to vary what `benilla-srp` fixes.
 num-bigint = "0.4.6"

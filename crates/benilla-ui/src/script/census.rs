@@ -107,7 +107,11 @@ fn survey(kind: &str, n: usize, site: &str) {
 
 /// The three nearest frames of the app crate on the stack, as `file:line` joined by `<`.
 fn site() -> String {
-    let trace = std::backtrace::Backtrace::force_capture().to_string();
+    site_frames(&std::backtrace::Backtrace::force_capture().to_string())
+}
+
+fn site_frames(trace: &str) -> String {
+    let trace = normalized_path(trace);
     let frames: Vec<&str> = trace
         .lines()
         .filter_map(|l| l.trim().strip_prefix("at "))
@@ -116,6 +120,22 @@ fn site() -> String {
         .map(|at| at.rsplit_once("src/").map_or(at, |(_, rest)| rest))
         .collect();
     frames.join("<")
+}
+
+fn normalized_path(path: &str) -> std::borrow::Cow<'_, str> {
+    if path.contains('\\') {
+        path.replace('\\', "/").into()
+    } else {
+        path.into()
+    }
+}
+
+fn turn_label(file: &str, line: u32) -> String {
+    let file = normalized_path(file);
+    let file = file
+        .rsplit_once("src/")
+        .map_or(file.as_ref(), |(_, rest)| rest);
+    format!("turn@{file}:{line}")
 }
 
 /// With a survey running, a frame that hears every event and does nothing, so each signal an
@@ -189,9 +209,7 @@ impl Applying {
 
     /// An engine turn called from `at`, counted as `turn@` and its file and line under `src/`.
     pub(crate) fn turn(at: &std::panic::Location) -> Self {
-        let file = at.file();
-        let file = file.rsplit_once("src/").map_or(file, |(_, rest)| rest);
-        Self::kind(format!("turn@{file}:{}", at.line()))
+        Self::kind(turn_label(at.file(), at.line()))
     }
 
     fn kind(kind: String) -> Self {
@@ -287,6 +305,27 @@ mod tests {
     use std::cell::Cell;
     use std::collections::BTreeMap;
     use std::rc::Rc;
+
+    #[test]
+    fn turn_labels_use_source_relative_forward_slashes() {
+        for file in [
+            "crates/benilla-ui/src/script/census.rs",
+            r"crates\benilla-ui\src\script\census.rs",
+        ] {
+            assert_eq!(super::turn_label(file, 352), "turn@script/census.rs:352");
+        }
+    }
+
+    #[test]
+    fn survey_sites_use_source_relative_forward_slashes() {
+        for trace in [
+            "at crates/benilla-app/src/script_calls.rs:42\nat ./src/lanes.rs:99",
+            r"at crates\benilla-app\src\script_calls.rs:42
+at .\src\lanes.rs:99",
+        ] {
+            assert_eq!(super::site_frames(trace), "script_calls.rs:42<lanes.rs:99");
+        }
+    }
 
     /// A host that signals `PLAYER_TARGET_CHANGED` in each apply, stops at a signal point when
     /// `point`, then sends.

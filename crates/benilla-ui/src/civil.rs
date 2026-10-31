@@ -332,15 +332,16 @@ pub fn unix_seconds() -> i64 {
         .unwrap_or(0)
 }
 
-/// Holds the process's time zone at a `TZ` value for a test, so a local-time answer is the same on
-/// every machine: the lock keeps two zone tests apart, the zone is read at once (so `tzset` has
-/// run for the platform's own `localtime_r` too), and the drop puts the old `TZ` and zone back.
-/// The process reads its zone once (`0x414568`), so a test sets it here and never through `TZ`
-/// alone. Behind `test-support` for the tests of crates that read local time through [`local`].
+/// Holds the process's time zone at a `TZ` value for a test, under a shared lock.
+/// Saves and restores both the OS environment and, on Windows, the CRT's separate environment.
+/// The zone cache is reset on entry and exit, matching the process's first read (`0x414568`).
+/// Behind `test-support` for tests of crates that read local time through [`local`].
 #[cfg(any(test, feature = "test-support"))]
 #[doc(hidden)]
 pub struct ZoneGuard {
     old: Option<std::ffi::OsString>,
+    #[cfg(windows)]
+    old_crt: Option<std::ffi::CString>,
     _lock: std::sync::MutexGuard<'static, ()>,
 }
 
@@ -350,22 +351,67 @@ impl ZoneGuard {
         static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
         let lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let old = std::env::var_os("TZ");
-        std::env::set_var("TZ", tz);
+        #[cfg(windows)]
+        let old_crt = test_crt::get();
+        let guard = Self {
+            old,
+            #[cfg(windows)]
+            old_crt,
+            _lock: lock,
+        };
+        Self::change(tz);
         reread_zone();
         drop(zone());
-        Self { old, _lock: lock }
+        guard
+    }
+
+    fn change(tz: &str) {
+        #[cfg(windows)]
+        test_crt::set(Some(
+            &std::ffi::CString::new(tz).expect("TZ contains no NUL"),
+        ));
+        std::env::set_var("TZ", tz);
+        platform::tzset();
+    }
+
+    fn restore(&self) {
+        #[cfg(windows)]
+        test_crt::set(self.old_crt.as_deref());
+        match &self.old {
+            Some(v) => std::env::set_var("TZ", v),
+            None => std::env::remove_var("TZ"),
+        }
+        platform::tzset();
+        reread_zone();
+        drop(zone());
     }
 }
 
 #[cfg(any(test, feature = "test-support"))]
 impl Drop for ZoneGuard {
     fn drop(&mut self) {
-        match self.old.take() {
-            Some(v) => std::env::set_var("TZ", v),
-            None => std::env::remove_var("TZ"),
-        }
-        reread_zone();
-        drop(zone());
+        self.restore();
+    }
+}
+
+#[cfg(all(windows, any(test, feature = "test-support")))]
+mod test_crt {
+    use std::ffi::{c_char, c_int, CStr, CString};
+
+    extern "C" {
+        fn _putenv_s(varname: *const c_char, value_string: *const c_char) -> c_int;
+    }
+
+    pub(super) fn get() -> Option<CString> {
+        // SAFETY: the zone guard holds the lock while copying the CRT-owned NUL-terminated TZ.
+        let value = unsafe { libc::getenv(c"TZ".as_ptr()) };
+        (!value.is_null()).then(|| unsafe { CStr::from_ptr(value) }.to_owned())
+    }
+
+    pub(super) fn set(value: Option<&CStr>) {
+        // SAFETY: both strings are NUL-terminated; an empty value removes TZ in the CRT.
+        let error = unsafe { _putenv_s(c"TZ".as_ptr(), value.unwrap_or(c"").as_ptr()) };
+        assert_eq!(error, 0, "CRT refused TZ");
     }
 }
 
@@ -406,13 +452,25 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_guard_restores_each_environment() {
+        let guard = ZoneGuard::set("NPT-05:45");
+        assert_eq!(std::env::var("TZ").unwrap(), "NPT-05:45");
+        #[cfg(windows)]
+        assert_eq!(test_crt::get().as_deref(), Some(c"NPT-05:45"));
+        guard.restore();
+        assert_eq!(std::env::var_os("TZ"), guard.old);
+        #[cfg(windows)]
+        assert_eq!(test_crt::get(), guard.old_crt);
+    }
+
     /// The zone is read once (`0x414568`): a `TZ` changed after the first local time is not seen,
     /// in the offset, the biases or the names.
     #[test]
     fn the_zone_is_read_once() {
         let _zone = ZoneGuard::set("UTC0");
         assert_eq!(local(0).0.hour, 0);
-        std::env::set_var("TZ", "JST-9");
+        ZoneGuard::change("JST-9");
         assert_eq!(local(0), (from_unix(0), false));
         assert_eq!(local_seconds(0, false), Some(0));
         assert_eq!(zone_name(false), b"UTC");
@@ -424,9 +482,14 @@ mod tests {
     /// A zone with daylight time: each change of offset found to the second.
     #[test]
     fn the_zone_changes_at_its_second() {
-        let _zone = ZoneGuard::set("CET-1CEST,M3.5.0,M10.5.0/3");
-        // 2024-03-31 01:00 UTC, when 02:00 CET becomes 03:00 CEST.
-        let at = 1_711_846_800;
+        let (tz, at) = if cfg!(windows) {
+            // The CRT's US rule advances 02:00 to 03:00 at 2024-03-10 01:00 UTC.
+            ("CET-1CDT", 1_710_032_400)
+        } else {
+            // POSIX rules: 2024-03-31 01:00 UTC, 02:00 CET becomes 03:00 CEST.
+            ("CET-1CEST,M3.5.0,M10.5.0/3", 1_711_846_800)
+        };
+        let _zone = ZoneGuard::set(tz);
         assert_eq!(local(at - 1).0.hour, 1);
         assert!(!local(at - 1).1);
         assert_eq!(local(at).0.hour, 3);
