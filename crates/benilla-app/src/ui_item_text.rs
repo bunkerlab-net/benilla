@@ -1371,6 +1371,23 @@ mod tests {
                 .add_systems(Update, apply_reads);
             net::register(&mut app);
             let script = UiScript::new().unwrap();
+            // Another world's pushes must not interrupt this world's item-text lane.
+            script
+                .lua()
+                .globals()
+                .set(
+                    "StampOtherThread",
+                    script
+                        .lua()
+                        .create_function(|_, ()| {
+                            std::thread::spawn(crate::lanes::stamp)
+                                .join()
+                                .expect("the other world's lane stamps");
+                            Ok(())
+                        })
+                        .unwrap(),
+                )
+                .unwrap();
             script
                 .run(
                     r#"SEEN = {} local f = CreateFrame("Frame")
@@ -1378,6 +1395,7 @@ mod tests {
                             "ITEM_TEXT_TRANSLATION", "ITEM_TEXT_CLOSED"}) do f:RegisterEvent(e) end
                     f:SetScript("OnEvent", function()
                         table.insert(SEEN, event .. (arg1 and (":" .. arg1) or ""))
+                        if event == "ITEM_TEXT_READY" then StampOtherThread() end
                     end)"#,
                 )
                 .unwrap();

@@ -104,11 +104,14 @@ static CLOCK: AtomicU64 = AtomicU64::new(1);
 thread_local! {
     /// The item firing on this thread, which what is pushed meanwhile nests under.
     static FIRING: Cell<Option<Stamp>> = const { Cell::new(None) };
+    /// The latest push on this thread; another world's pushes do not yield its lane.
+    static LAST_STAMP: Cell<u64> = const { Cell::new(0) };
 }
 
 /// The next stamp: a fresh one, or with an item firing, one nested under it.
 pub(crate) fn stamp() -> Stamp {
     let n = CLOCK.fetch_add(1, Ordering::Relaxed);
+    LAST_STAMP.set(n);
     match FIRING.get() {
         Some(cause) if usize::from(cause.len) < DEPTH => cause.child(n),
         _ => Stamp::root(n),
@@ -205,13 +208,14 @@ pub(crate) fn waits_behind(head: Option<Stamp>) -> bool {
 }
 
 /// Run `f` as the firing of the item stamped `at`, so what it pushes nests under the item; with
-/// whether anything was stamped meanwhile, after which the drain takes the lowest stamp again.
+/// whether anything was stamped on this thread meanwhile, after which the drain takes the lowest
+/// stamp again.
 pub(crate) fn firing<R>(at: Stamp, f: impl FnOnce() -> R) -> (R, bool) {
-    let before = CLOCK.load(Ordering::Relaxed);
+    let before = LAST_STAMP.get();
     let outer = FIRING.replace(Some(at));
     let r = benilla_ui::script::origin::within(benilla_ui::script::origin::Origin::Lane, f);
     FIRING.set(outer);
-    (r, CLOCK.load(Ordering::Relaxed) != before)
+    (r, LAST_STAMP.get() != before)
 }
 
 /// What a lane's firing may fire, among the stamps whose outermost push came before the drain
