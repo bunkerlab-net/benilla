@@ -1,0 +1,537 @@
+{
+  "exclude_flags": 0,
+  "extents_bits": [
+    "40a00000",
+    "40a00000",
+    "40a00000"
+  ],
+  "include_flags": 1,
+  "queries": [
+    {
+      "input_height_bits": "40ecccc9",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "441b8e38",
+        "40ecccc9",
+        "42b1c71c"
+      ],
+      "nearest_height_bits": "40ecccc9",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "441b8e38",
+        "40ecccc9",
+        "42b1c71c"
+      ],
+      "poly_ref": 4503599627370600,
+      "source_poly_ref": 4503599627370600,
+      "source_query_index": 0,
+      "status": 1073741824
+    },
+    {
+      "input_height_bits": "41a7a4fe",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "4431c71c",
+        "41a7a4fe",
+        "42b1c71c"
+      ],
+      "nearest_height_bits": "41a7a4fe",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "4431c71c",
+        "41a7a4fe",
+        "42b1c71c"
+      ],
+      "poly_ref": 4503599627370604,
+      "source_poly_ref": 4503599627370604,
+      "source_query_index": 1,
+      "status": 1073741824
+    },
+    {
+      "input_height_bits": "423eaaa2",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "44480000",
+        "423eaaa2",
+        "42b1c71c"
+      ],
+      "nearest_height_bits": "423eaaa2",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "44480000",
+        "423eaaa2",
+        "42b1c71c"
+      ],
+      "poly_ref": 4503599627370608,
+      "source_poly_ref": 4503599627370608,
+      "source_query_index": 2,
+      "status": 1073741824
+    },
+    {
+      "input_height_bits": "41a79dd0",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "445e38e3",
+        "41a79dd0",
+        "42b1c71c"
+      ],
+      "nearest_height_bits": "41a79dd0",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "445e38e3",
+        "41a79dd0",
+        "42b1c71c"
+      ],
+      "poly_ref": 4503599627370612,
+      "source_poly_ref": 4503599627370612,
+      "source_query_index": 3,
+      "status": 1073741824
+    },
+    {
+      "input_height_bits": "40ecccc9",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "447471c6",
+        "40ecccc9",
+        "42b1c71c"
+      ],
+      "nearest_height_bits": "40ecccc9",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "447471c6",
+        "40ecccc9",
+        "42b1c71c"
+      ],
+      "poly_ref": 4503599627370616,
+      "source_poly_ref": 4503599627370616,
+      "source_query_index": 4,
+      "status": 1073741824
+    },
+    {
+      "input_height_bits": "40d8e38a",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "441b8e38",
+        "40d8e38a",
+        "4331c71c"
+      ],
+      "nearest_height_bits": "40d8e38a",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "441b8e38",
+        "40d8e38a",
+        "4331c71c"
+      ],
+      "poly_ref": 4503599627370700,
+      "source_poly_ref": 4503599627370700,
+      "source_query_index": 5,
+      "status": 1073741824
+    },
+    {
+      "input_height_bits": "41a1999d",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "4431c71c",
+        "41a1999d",
+        "4331c71c"
+      ],
+      "nearest_height_bits": "41a1999d",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "4431c71c",
+        "41a1999d",
+        "4331c71c"
+      ],
+      "poly_ref": 4503599627370704,
+      "source_poly_ref": 4503599627370704,
+      "source_query_index": 6,
+      "status": 1073741824
+    },
+    {
+      "input_height_bits": "423c2d7a",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "44480000",
+        "423c2d7a",
+        "4331c71c"
+      ],
+      "nearest_height_bits": "423c2d7a",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "44480000",
+        "423c2d7a",
+        "4331c71c"
+      ],
+      "poly_ref": 4503599627370708,
+      "source_poly_ref": 4503599627370708,
+      "source_query_index": 7,
+      "status": 1073741824
+    },
+    {
+      "input_height_bits": "41a1998a",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "445e38e3",
+        "41a1998a",
+        "4331c71c"
+      ],
+      "nearest_height_bits": "41a1998a",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "445e38e3",
+        "41a1998a",
+        "4331c71c"
+      ],
+      "poly_ref": 4503599627370712,
+      "source_poly_ref": 4503599627370712,
+      "source_query_index": 8,
+      "status": 1073741824
+    },
+    {
+      "input_height_bits": "40d8e38a",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "447471c6",
+        "40d8e38a",
+        "4331c71c"
+      ],
+      "nearest_height_bits": "40d8e38a",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "447471c6",
+        "40d8e38a",
+        "4331c71c"
+      ],
+      "poly_ref": 4503599627370716,
+      "source_poly_ref": 4503599627370716,
+      "source_query_index": 9,
+      "status": 1073741824
+    },
+    {
+      "input_height_bits": "40c66662",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "441b8e38",
+        "40c66662",
+        "43855555"
+      ],
+      "nearest_height_bits": "40c66662",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "441b8e38",
+        "40c66662",
+        "43855555"
+      ],
+      "poly_ref": 4503599627370800,
+      "source_poly_ref": 4503599627370800,
+      "source_query_index": 10,
+      "status": 1073741824
+    },
+    {
+      "input_height_bits": "419c4448",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "4431c71c",
+        "419c4448",
+        "43855555"
+      ],
+      "nearest_height_bits": "419c4448",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "4431c71c",
+        "419c4448",
+        "43855555"
+      ],
+      "poly_ref": 4503599627370804,
+      "source_poly_ref": 4503599627370804,
+      "source_query_index": 11,
+      "status": 1073741824
+    },
+    {
+      "input_height_bits": "4239ddd5",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "44480000",
+        "4239ddd5",
+        "43855555"
+      ],
+      "nearest_height_bits": "4239ddd5",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "44480000",
+        "4239ddd5",
+        "43855555"
+      ],
+      "poly_ref": 4503599627370808,
+      "source_poly_ref": 4503599627370808,
+      "source_query_index": 12,
+      "status": 1073741824
+    },
+    {
+      "input_height_bits": "419c4434",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "445e38e3",
+        "419c4434",
+        "43855555"
+      ],
+      "nearest_height_bits": "419c4434",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "445e38e3",
+        "419c4434",
+        "43855555"
+      ],
+      "poly_ref": 4503599627370812,
+      "source_poly_ref": 4503599627370812,
+      "source_query_index": 13,
+      "status": 1073741824
+    },
+    {
+      "input_height_bits": "40c66662",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "447471c6",
+        "40c66662",
+        "43855555"
+      ],
+      "nearest_height_bits": "40c66662",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "447471c6",
+        "40c66662",
+        "43855555"
+      ],
+      "poly_ref": 4503599627370816,
+      "source_poly_ref": 4503599627370816,
+      "source_query_index": 14,
+      "status": 1073741824
+    },
+    {
+      "input_height_bits": "40b1110e",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "441b8e38",
+        "40b1110e",
+        "43b1c71c"
+      ],
+      "nearest_height_bits": "40b1110e",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "441b8e38",
+        "40b1110e",
+        "43b1c71c"
+      ],
+      "poly_ref": 4503599627370900,
+      "source_poly_ref": 4503599627370900,
+      "source_query_index": 15,
+      "status": 1073741824
+    },
+    {
+      "input_height_bits": "4196eef3",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "4431c71c",
+        "4196eef3",
+        "43b1c71c"
+      ],
+      "nearest_height_bits": "4196eef3",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "4431c71c",
+        "4196eef3",
+        "43b1c71c"
+      ],
+      "poly_ref": 4503599627370904,
+      "source_poly_ref": 4503599627370904,
+      "source_query_index": 16,
+      "status": 1073741824
+    },
+    {
+      "input_height_bits": "4237332b",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "44480000",
+        "4237332b",
+        "43b1c71c"
+      ],
+      "nearest_height_bits": "4237332b",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "44480000",
+        "4237332b",
+        "43b1c71c"
+      ],
+      "poly_ref": 4503599627370908,
+      "source_poly_ref": 4503599627370908,
+      "source_query_index": 17,
+      "status": 1073741824
+    },
+    {
+      "input_height_bits": "4196eee0",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "445e38e3",
+        "4196eee0",
+        "43b1c71c"
+      ],
+      "nearest_height_bits": "4196eee0",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "445e38e3",
+        "4196eee0",
+        "43b1c71c"
+      ],
+      "poly_ref": 4503599627370912,
+      "source_poly_ref": 4503599627370912,
+      "source_query_index": 18,
+      "status": 1073741824
+    },
+    {
+      "input_height_bits": "40b1110e",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "447471c6",
+        "40b1110e",
+        "43b1c71c"
+      ],
+      "nearest_height_bits": "40b1110e",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "447471c6",
+        "40b1110e",
+        "43b1c71c"
+      ],
+      "poly_ref": 4503599627370916,
+      "source_poly_ref": 4503599627370916,
+      "source_query_index": 19,
+      "status": 1073741824
+    },
+    {
+      "input_height_bits": "4098e389",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "441b8e38",
+        "4098e389",
+        "43de38e3"
+      ],
+      "nearest_height_bits": "4098e389",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "441b8e38",
+        "4098e389",
+        "43de38e3"
+      ],
+      "poly_ref": 4503599627371000,
+      "source_poly_ref": 4503599627371000,
+      "source_query_index": 20,
+      "status": 1073741824
+    },
+    {
+      "input_height_bits": "4190e391",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "4431c71c",
+        "4190e391",
+        "43de38e3"
+      ],
+      "nearest_height_bits": "4190e391",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "4431c71c",
+        "4190e391",
+        "43de38e3"
+      ],
+      "poly_ref": 4503599627371004,
+      "source_poly_ref": 4503599627371004,
+      "source_query_index": 21,
+      "status": 1073741824
+    },
+    {
+      "input_height_bits": "42342d7a",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "44480000",
+        "42342d7a",
+        "43de38e3"
+      ],
+      "nearest_height_bits": "42342d7a",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "44480000",
+        "42342d7a",
+        "43de38e3"
+      ],
+      "poly_ref": 4503599627371008,
+      "source_poly_ref": 4503599627371008,
+      "source_query_index": 22,
+      "status": 1073741824
+    },
+    {
+      "input_height_bits": "4190e37e",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "445e38e3",
+        "4190e37e",
+        "43de38e3"
+      ],
+      "nearest_height_bits": "4190e37e",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "445e38e3",
+        "4190e37e",
+        "43de38e3"
+      ],
+      "poly_ref": 4503599627371012,
+      "source_poly_ref": 4503599627371012,
+      "source_query_index": 23,
+      "status": 1073741824
+    },
+    {
+      "input_height_bits": "4098e389",
+      "input_height_status": 1073741824,
+      "is_over_poly": true,
+      "nearest_bits": [
+        "447471c6",
+        "4098e389",
+        "43de38e3"
+      ],
+      "nearest_height_bits": "4098e389",
+      "nearest_height_status": 1073741824,
+      "point_bits": [
+        "447471c6",
+        "4098e389",
+        "43de38e3"
+      ],
+      "poly_ref": 4503599627371016,
+      "source_poly_ref": 4503599627371016,
+      "source_query_index": 24,
+      "status": 1073741824
+    }
+  ],
+  "schema": 1
+}

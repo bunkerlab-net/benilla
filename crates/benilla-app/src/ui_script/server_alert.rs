@@ -469,7 +469,9 @@ pub(super) fn fetch_alert(url: &str, timeouts: Timeouts) -> Option<Vec<u8>> {
     });
     match result {
         Err(FetchError::Https) => {
-            info!("server alert: {url} is https; the reference shows nothing for it, nor does benilla");
+            info!(
+                "server alert: {url} is https; the reference shows nothing for it, nor does benilla"
+            );
         }
         Err(e) => debug!("server alert: {url}: {e}"),
         Ok(()) => {}

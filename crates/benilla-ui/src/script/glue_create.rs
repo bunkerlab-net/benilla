@@ -182,6 +182,7 @@ struct Info {
 }
 
 /// The words the draws take.
+#[derive(Clone)]
 struct Words {
     state: u64,
     /// Words given ahead of the generator's, consumed first.
@@ -228,7 +229,7 @@ fn scale(r: u32, n: u32) -> u32 {
 }
 
 /// The name generator (`0xb420b8`): a trigram table learned from one race's `NameGen` rows.
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct NameGen {
     /// Each key, one to three bytes of a lowered `_name`, and how often it was seen, sorted by key
     /// (`0x4753fb`, comparator `0x475420`).
@@ -330,6 +331,7 @@ impl NameGen {
 }
 
 /// The create screen's state.
+#[derive(Clone)]
 pub(crate) struct GlueCreate {
     catalog: Rc<GlueCreateCatalog>,
     /// `[0xb420f0]`: the name `SetCharCustomizeFrame` found.
@@ -559,6 +561,11 @@ impl GlueCreate {
             v = 0;
         }
         obj.dials[which] = v;
+        if which == HAIR_STYLE {
+            // A colour must belong to the newly selected style's CharSections grid.
+            let colors = self.catalog.count(obj.race, obj.sex, HAIR_COLOR, v);
+            obj.dials[HAIR_COLOR] = obj.dials[HAIR_COLOR].clamp(0, colors.saturating_sub(1).max(0));
+        }
     }
 
     /// `RandomizeCharCustomization`'s body (`0x471080`): five fresh customizations for the
@@ -968,14 +975,15 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     g.set(
         "GetRandomName",
         lua.create_function(|lua, _: MultiValue| {
-            let lists = model(lua).glue.name_lists();
+            let lists = model(lua).name_lists();
             let mut m = model(lua);
+            let charsets = m.name_charsets();
             let c = &mut m.glue.create;
             for _ in 0..NAME_TRIES {
                 let name = c.names.generate(&mut c.words, NAME_BUFFER);
                 let name = String::from_utf8_lossy(&name).into_owned();
                 if (4..=10).contains(&name.len())
-                    && check_char_name(Some(&name), &*lists) == CHAR_NAME_SUCCESS
+                    && check_char_name(Some(&name), &*lists, charsets) == CHAR_NAME_SUCCESS
                 {
                     return text(lua, Some(&name));
                 }
@@ -1004,7 +1012,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
             let (status, request) = {
                 let m = model(lua);
                 let status = match &name {
-                    Some(n) => check_char_name(Some(n), &*m.glue.name_lists()),
+                    Some(n) => check_char_name(Some(n), &*m.name_lists(), m.name_charsets()),
                     None => 0x45,
                 };
                 let c = &m.glue.create;

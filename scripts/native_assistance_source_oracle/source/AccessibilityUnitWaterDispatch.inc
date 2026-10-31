@@ -1,0 +1,1 @@
+        virtual bool IsInWater() const;

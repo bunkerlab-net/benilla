@@ -56,10 +56,6 @@ impl Plugin for GluePlugin {
             .init_resource::<dialog::GlueDialog>()
             .add_message::<dialog::GlueDialogAnswer>()
             .add_systems(PreUpdate, glue_clicks.after(bevy::ui::UiSystems::Focus))
-            .add_systems(
-                Update,
-                (backdrop::fit_backdrop_borders, seat_outline_copies),
-            )
             // Fitted before layout, so a screen spawned this frame never lays out against the
             // window first.
             .add_systems(
@@ -67,14 +63,19 @@ impl Plugin for GluePlugin {
                 fit_glue_canvas.before(bevy::ui::UiSystems::Layout),
             )
             .add_systems(
-                PostUpdate,
-                hide_native_glue
-                    .before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate)
-                    .run_if(not(crate::ui_script::glue::native_glue)),
-            )
-            .add_systems(
                 Update,
-                (art_swaps, glue_button_visuals, glue_hilights, sync_outlines).in_set(GlueVisuals),
+                (
+                    backdrop::fit_backdrop_borders,
+                    seat_outline_copies,
+                    art_swaps,
+                    glue_button_visuals,
+                    glue_hilights,
+                    sync_outlines,
+                )
+                    .chain()
+                    .in_set(GlueVisuals)
+                    .after(benilla_world::schedule::WorldStage::Present)
+                    .after(crate::game_tip::drive_game_tip),
             );
     }
 }
@@ -204,11 +205,8 @@ pub(crate) fn fit_glue_canvas(
     }
     // Off the window, not `CreateScene`: the box is one aspect for every scene, so the canvas
     // never waits on the booth.
-    let window = window.single().ok();
-    let (left, right) = crate::portrait::glue_canvas_bars(
-        window,
-        window.and_then(|w| crate::portrait::glue_box_aspect(w.width() / w.height().max(1.0))),
-    );
+    let _ = window;
+    let (left, right) = (0.0, 0.0);
     let (left, right) = (Val::Px(left), Val::Px(right));
     for mut node in &mut canvases {
         if node.left != left || node.right != right {
@@ -332,8 +330,17 @@ type SheenSource = (
 ///
 /// It walks up from each sheen, not down from each button: a modal dialog's root is itself a
 /// `Button`, so a walk down would light every sheen in the dialog.
+#[allow(clippy::type_complexity)]
 pub(crate) fn glue_hilights(
-    mut hilights: Query<(Entity, &mut Visibility), With<widgets::Hilight>>,
+    mut hilights: Query<
+        (Entity, &mut Visibility),
+        (
+            With<widgets::Hilight>,
+            // Native UI sheens never share the world's 3D material or mesh-tag visibility.
+            Without<bevy::mesh::MeshTag>,
+            Without<MeshMaterial3d<benilla_assets::materials::WowModelMaterial>>,
+        ),
+    >,
     parents: Query<&ChildOf>,
     buttons: Query<SheenSource, With<Button>>,
 ) {

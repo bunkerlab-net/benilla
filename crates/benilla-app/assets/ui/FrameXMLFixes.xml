@@ -3,6 +3,22 @@
         benilla's fixes to the stock FrameXML Lua, loaded after every stock file.
     -->
     <Script><![CDATA[
+        -- Deviation: stock 1.12 chat uses arrow buttons only. Allow wheel scrollback over
+        -- the message pane without enabling mouse clicks, using the same history/fade verbs.
+        for i = 1, NUM_CHAT_WINDOWS or 0 do
+            local chatFrame = getglobal("ChatFrame" .. i)
+            if chatFrame then
+                chatFrame:EnableMouseWheel(true)
+                chatFrame:SetScript("OnMouseWheel", function()
+                    if arg1 > 0 then
+                        this:ScrollUp()
+                    elseif arg1 < 0 then
+                        this:ScrollDown()
+                    end
+                end)
+            end
+        end
+
         -- Deviation: the stock FCF_ChatTabFadeFinished (FloatingChatFrame.lua:989-992) nils
         -- oldAlpha even under a live hover, so leaving and re-entering within
         -- CHAT_FRAME_FADE_TIME (a flick to the scroll buttons, outside the hover box, does it)
@@ -47,5 +63,20 @@
             end
         end
         RegisterForSave("FRIENDNAMEPLATES_ON")
+
+        -- Deviation: a button whose key moved away keeps the old key's label while it holds an
+        -- action with no range (a stance, a self buff). The stock ActionButton_UpdateHotkeys
+        -- (ActionButton.lua:129-140) writes no text in that one unbound case; this clears it. The
+        -- stock function runs first, unchanged.
+        local refUpdateHotkeys = ActionButton_UpdateHotkeys
+        function ActionButton_UpdateHotkeys(actionButtonType)
+            refUpdateHotkeys(actionButtonType)
+            local action = (actionButtonType or "ACTIONBUTTON")..this:GetID()
+            local button = ActionButton_GetPagedID(this)
+            if ( GetBindingText(GetBindingKey(action), "KEY_", 1) == ""
+                    and HasAction(button) and not ActionHasRange(button) ) then
+                getglobal(this:GetName().."HotKey"):SetText("")
+            end
+        end
     ]]></Script>
 </Ui>

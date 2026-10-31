@@ -1,0 +1,93 @@
+# Bounded VMap source acquisition
+
+`prepare(data_path, map_id, cancelled)` reads a local Classic MPQ chain and returns
+private, complete raw model candidates, ordered raw placement inputs and selected
+profile-ordered doodad candidates for a selected map. It writes nothing and grants no gameplay admission.
+The separate [map bundle API](MAP-BUNDLE.md) assembles bounded map/tree and selected
+model products in memory. This library is not a player CLI or a publisher, and
+these products do not grant collision-clearance authority.
+
+Preparation performs the required LiquidType table check, the global per-archive
+listfile/WMO pass, and the physical Map.dbc prefix through the selected record.
+Each present WDT causes all 4096 ADT attempts in x-major order, regardless of MAIN.
+Earlier maps are processed because they can seed the source's flat model cache.
+Only selected-map placements are retained. Complete M2 and bounded WMO dependencies,
+including ordered MODN extraction,
+feed the existing raw writers; unsupported roots stop preparation without exposing
+partial products. See [source scope](PROVENANCE.md).
+
+The returned object owns immutable raw model outputs and ordered lookup receipts.
+Archive buffers are dropped after parsing; bounded final MODN Paths remain for
+source-timed doodad lookups. `verify_unchanged` reopens the chain and checks consumed
+inputs, including missing members and blocking dummy winners. It detects changed
+inputs; it is not an atomic filesystem snapshot, a live lease, or protection
+against a file being changed and restored between reads. Diagnostic summaries
+cannot construct a preparation object.
+
+`summary()` and `Error::diagnostic()` contain fixed categories, counts, numeric
+identifiers, source revision/policy labels and a digest, with no asset text or
+personal paths. Model names and raw placement values are accessible only through
+the explicit product/placement interface, not these diagnostic serializers.
+
+The app also provides a separate [prepared collision view](PREPARED-COLLISION-VIEW.md)
+for source-version-bound historical queries without terrain or navigation placeholders.
+The player’s [read-only collision diagnostics](COLLISION-DIAGNOSTICS.md) exercise
+that real capture and query path and report each reachable stage independently.
+
+## Supported boundary
+
+- Numeric patches 1 through 99, reverse mount winner order and blocking members
+  of at most one byte
+- Bounded legacy MPQ headers and version-one headers with zero extended offsets
+- Complete MD20 collision products and WMO roots with every declared group, including validated MLIQ
+- Source-order name events, direct placement-name ordinals and raw client IDs
+- Cooperative cancellation, checked bounds and changed-input rejection
+
+[Doodad dependency closure](DOODADS.md) retains raw transforms and selected-set
+membership. Reference ordering and per-candidate G3D projection use the explicit
+compatibility profiles below; global encounter identities follow the [bounded source ledger](ENCOUNTER-IDS.md).
+Malformed or unsupported MLIQ dimensions, incompatible emitted/lookup model basenames, nonempty global-WMO
+placement, flat-name collisions between distinct canonical members, empty ADT/WDT
+name-table entries and other
+unsupported input profiles fail explicitly. These restrictions can stop an actual
+install during its global WMO pass before the selected map is reached. Real asset
+acceptance has not been established for this acquisition library.
+
+The map bundle API now assembles transformed placements, profiled doodad instances,
+map/model BIHs and source first-wins geometry within its validated envelope.
+[Captured source query tests](CAPTURED-MAP-QUERIES.md) exercise an authored ordinary
+WMO from MPQ preparation through the existing inventory and geometry queries.
+They do not establish real-install acceptance or complete world geometry. The
+later GameObjectDisplayInfo extraction phase remains outside this selected-prefix
+result. The independent terrain helper's successful real Northshire conversion
+does not establish acceptance of the collision source library.
+
+WMO liquid production uses the witnessed root member for the source
+case-sensitive type override and identifies `wmo-liquid-header-zero-padding-v1`
+in its summary. See [the raw liquid contract](../benilla-native-vmap/WMO-LIQUID.md).
+
+[Per-candidate doodad projection](DOODAD-PROJECTION.md) is available only through
+explicit selection of its pinned portable numerical compatibility profile. Its
+record spans deliberately omit the generated-ID word and do not establish map
+assembly or portable equality with every native C++ libm.
+
+The [reference-container order proof](DOODAD-REFERENCE-ORDER.md) checks a bounded
+portable reproduction of one pinned GCC/libstdc++ uint16 insertion profile.
+Captured references use this profile before selected-set and late raw-file
+filtering. Its policy identifier is included in the summary and projection binding.
+
+
+[Selected-map placement records](PLACEMENT-RECORDS.md) combine the captured source
+order, generated IDs and explicitly profiled projections into an in-memory
+`dir_bin` stream. This API rechecks captured inputs before returning, writes no
+files and does not build the map/model BIHs or enable gameplay admission.
+
+See [map spawn indexing](MAP-SPAWN-INDEX.md) for source first-wins ID handling,
+duplicate tile references, bounds and the remaining complete-map dependencies.
+
+[Source placement bounds](ASSEMBLED-BOUNDS.md) describes the first-wins M2 vertex
+scan, WMO handling, numeric profile and remaining collision-map assembly work.
+
+The private [tile-resident collision view](TILE-COLLISION-RESIDENCY.md) validates the complete placement index while decoding an explicit bounded tile selection. Unloaded geometry remains unavailable to queries.
+
+The private [consumed-source height composition](CONSUMED-SOURCE-COMPOSITION.md) checks shared terrain/collision receipts before calculating historical scalar height observations.

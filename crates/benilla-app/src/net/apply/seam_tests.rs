@@ -72,10 +72,10 @@ fn claimed() -> SessionEvent {
 
 /// One frame of the real drain over `events`; what the unit ended up as.
 fn drained(events: Vec<SessionEvent>) -> (Vec<(u16, u32)>, MoveSpeeds, UnitMoveModes) {
-    let mut app = crate::game_plugins::schedule_tests::headless_client();
+    let mut app = crate::game_plugins::schedule_tests::headless_client_unrun();
     let (tx, rx) = crossbeam_channel::unbounded();
     app.insert_resource(NetEvents(rx));
-    for ev in events {
+    for ev in crate::net::wire(events) {
         tx.send(ev).unwrap();
     }
     let world = app.world_mut();
@@ -171,10 +171,10 @@ fn force_run(speed: f32) -> SessionEvent {
 
 /// One frame of the real drain; the unit's live speed set, if any.
 fn speeds_after(events: Vec<SessionEvent>) -> Option<MoveSpeeds> {
-    let mut app = crate::game_plugins::schedule_tests::headless_client();
+    let mut app = crate::game_plugins::schedule_tests::headless_client_unrun();
     let (tx, rx) = crossbeam_channel::unbounded();
     app.insert_resource(NetEvents(rx));
-    for ev in events {
+    for ev in crate::net::wire(events) {
         tx.send(ev).unwrap();
     }
     let world = app.world_mut();
@@ -254,4 +254,23 @@ fn a_change_on_a_live_mover_keeps_its_other_slots() {
 #[test]
 fn a_change_with_no_speed_set_invents_none() {
     assert!(speeds_after(vec![create_with_speeds(None), force_run(7.0)]).is_none());
+}
+
+#[test]
+fn bounded_peer_drain_defers_excess_and_eventually_observes_closed_channel() {
+    let (tx, rx) = crossbeam_channel::unbounded();
+    for _ in 0..2048 {
+        tx.send(SessionEvent::ServerUnixTime { unix_time: 1 })
+            .unwrap();
+    }
+    drop(tx);
+    let (first, closed) = super::drain(&rx, 1024);
+    assert_eq!(first.len(), 1024);
+    assert!(!closed);
+    let (second, closed) = super::drain(&rx, 1024);
+    assert_eq!(second.len(), 1024);
+    assert!(!closed);
+    let (last, closed) = super::drain(&rx, 1024);
+    assert!(last.is_empty());
+    assert!(closed);
 }

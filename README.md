@@ -4,9 +4,111 @@
   <p>
     <a href="https://discord.gg/wJSJx467G4"><img src="https://img.shields.io/discord/1529280129518538922?style=for-the-badge&logo=discord&logoColor=white&label=discord&color=5865F2" alt="Discord"></a>
     <a href="https://www.youtube.com/playlist?list=PLdCnpZNKxyb8"><img src="https://img.shields.io/badge/devlog-youtube-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="YouTube devlog"></a>
-    <a href="LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue?style=for-the-badge" alt="License"></a>
+    <a href="DISTRIBUTION-NOTICE.md"><img src="https://img.shields.io/badge/combined_player-GPL--3.0--or--later-blue?style=for-the-badge" alt="Combined player license"></a>
   </p>
 </div>
+
+Player downloads ship `config.example.toml`, never a live `config.toml`. For
+first-time setup, copy the example to `config.toml` only if no `config.toml`
+already exists beside the executable. Keep your existing configuration when
+updating; do not overwrite it with the example.
+
+## This fork: experimental peer-to-peer mode
+
+This fork adds an **experimental trusted-friends P2P exploration backend**. A
+`config.toml` beside the executable selects it with `[p2p]`, supplies a locally kept
+shared passphrase of any length (derived into a PSK at startup; strong random words recommended), and points `[wow].data` at your own read-only 1.12.1 install. See
+[configuration and security](docs/P2P-CONFIG.md). No realm process, login account,
+matchmaking service or elected game host runs in P2P mode.
+
+- [Login Settings](docs/LOGIN-OPTIONS.md): the existing WoW-style Options window; a separate
+  [Connection setup](docs/P2P-SETTINGS.md) edits startup config and runs explicit diagnostics
+- [Saved characters](docs/P2P-CHARACTERS.md): local Classic character creation/selection,
+  persistent owner identity, appearance and position checkpoints; deliberate Enter World
+- Implemented: authenticated, encrypted TCP and optional iroh QUIC peer links; matching network,
+  protocol, exploration-contract version and ruleset fingerprints; owner-authenticated saved
+  avatars with optional [local source-backed racial starts](docs/CLASSIC-EXPLORATION-STARTS.md)
+  (built-in racial defaults; optional private capture overrides); peer movement, `/say` and direct private `/w` / `/whisper` (`/r` replies); join/disconnect cleanup
+- Connectivity: explicit peer addresses on a LAN, reachable IPv6, or manually
+  forwarded TCP ports by default. Opt-in `[p2p.iroh]` uses private endpoint tickets,
+  iroh NAT hole punching and encrypted relay fallback through explicitly configured
+  relay URLs. Router mapping (UPnP/PCP/NAT-PMP) is off unless explicitly enabled.
+  Each participant still needs a logical link to every other participant. A passphrase
+  alone cannot discover peers; no public discovery or relay service is enabled by default.
+  Real household NAT/CGNAT coverage has not been verified
+- Not implemented in P2P gameplay: combat/AI, spells, XP awards, drops/inventory,
+  quests, progression, durable shared-world simulation, dynamic
+  simulation membership, authority transfer, dungeons, raids, economies or PvP
+- `[ruleset]` is validated and checked for equality when peers join. Its XP/drop
+  settings do not create a missing gameplay system and do not currently award
+  anything in exploration mode
+- [Classic parity ledger](docs/CMANGOS-PARITY.md) tracks the named ports and remaining
+  dependencies. A [local source exporter](docs/CLASSIC-WORLD-IMPORT.md) captures bounded
+  user-owned server data; its output is not yet runnable Classic content. Separate
+  world runtime/client/store crates test original solo combat, quests, per-slot loot,
+  protocol projection and durable checkpoints. The app now contains a tested
+  command/tick/checkpoint controller, but native-content entry remains gated; these
+  mechanics are not yet available through the player UI
+- Native component [format `NATIVE_FORMAT_VERSION`](crates/benilla-world-runtime/src/native/README.md#initial-cast-genesis)
+  binds seed-independent initial-cast plans and per-life creature initialization
+  to shared-RNG receipts. Creature selection owns current/historical stats through
+  actual death and respawn. Retained mainhand equipment and static NPC disarm
+  bind virtual fields and source damage. Retained ordinary creature addons select
+  a complete spawn row before a template row and apply bounded sheath state.
+  Explicit generation-source closures compose those rows with capability, Home
+  and ordinary visitors without applying addon movement flags. A separately
+  selected [dry habitat-3 domain](crates/benilla-world-runtime/CREATURE-DRY-HABITAT.md)
+  retains swimming capability, observes source-ordered initialization, and uses
+  swimming-capable allowed Z and filter 13 over ground-only products. Wet
+  execution, mounts, stand/emote state, addon auras, scripts and production
+  content remain gated. This does not admit complete actual entry-6 content.
+  Earlier native saves reject without migration; RNG v2, original World
+  v2 and character saves retain their own contracts. Authored fixtures establish
+  this mechanism only; actual Human source order/data and production admission
+  remain unproved
+- `benilla-sim` contains GPL-covered CMaNGOS-derived deterministic XP, selected
+  stat/armor, quest-reward and target-validation primitives, plus bounded native
+  spell/AI/melee, creation/equipment and death reducers with provenance and parity
+  tests. An opt-in [current-pose facing service](crates/benilla-world-runtime/FACING-AUTHORITY.md)
+  derives bearing and front arcs using pinned software arithmetic and replay checks.
+  A separate native runtime/checkpoint path is tested but still awaiting
+  real data/geometry admission. The crate also has an original headless fixed-roster
+  encounter harness with deterministic combat fixtures, XP, guaranteed loot,
+  snapshots and replay hashes. This is preparatory simulation code, not a full
+  server port; an explicit [synthetic encounter mode](docs/P2P-ENCOUNTER.md) now
+  links it through local chat controls, separate from exploration
+- `benilla-session` adds a separate headless full-mesh adapter with agreed roster/epoch,
+  matching input/state votes and fail-stop barriers. Its tests use synthetic encounter
+  fixtures; opt-in encounter mode uses a fresh session and fixed configured roster.
+  Local confirmed ticks do not
+  provide atomic distributed persistence or anti-cheat
+
+The PSK admits group members; short or empty values are accepted but provide little or no
+private group access. Saved-character sessions additionally require a persistent owner-key
+signature bound to the encrypted connection. Character introductions and movement are bound
+to that authenticated owner. This does not prevent a member cheating about their own state,
+editing/restoring their own save, or causing denial of service. Invalid character frames are
+quarantined instead of being applied to another owner. The exploration-contract label is not
+an attestation of installed assets. Synthetic encounter mode remains a separate temporary-avatar
+fixture with an explicitly configured roster; it does not award persistent character rewards.
+
+Without a `[p2p]` table, the existing realm-client path remains available. The
+following feature list describes that path, with a compatible external 1.12.1
+server supplying gameplay simulation; it does **not** describe P2P completeness.
+
+### Licensing
+
+The original client code remains MIT OR Apache-2.0 under its existing notices.
+`crates/benilla-sim`, `crates/benilla-session` and `crates/benilla-encounter` are GPL-3.0-or-later. The
+combined player now links these crates; its distribution is GPL-covered even when
+launched in exploration or realm mode. See [distribution requirements](DISTRIBUTION-NOTICE.md). The
+simulation crate retains CMaNGOS notices and source references in [its provenance](crates/benilla-sim/PROVENANCE.md). An executable
+that links these crates is a GPL-covered combined work; distribute its corresponding
+source and the applicable GPL notices and license. The root permissive license
+files are not a license for the CMaNGOS-derived crate. No Blizzard assets or world
+database are bundled.
+
+## Existing realm-client features
 
 benilla plays the whole game: character creation, questing and professions, dungeons and raids,
 battlegrounds and honor, groups, guilds, trade, mail and the auction house, on the stock 1.12
@@ -14,6 +116,10 @@ interface and with your addons. It connects to a 1.12.1 server over the original
 reads the game's data from your own 1.12.1 install. Every file format, the network protocol and
 the interface engine are written from scratch, with no original client code, no third-party WoW
 crates and no bundled game assets.
+
+What the real client does is read at its bytes in
+[benilla-re](https://github.com/samwhosung/benilla-re), the reverse engineering benilla is built
+against, by the same client addresses the comments here cite.
 
 ## What's inside
 
@@ -39,9 +145,12 @@ crates and no bundled game assets.
 
 The format readers and the UI engine core are plain Rust with no Bevy in them, and the world
 renderer runs with no game attached. [`docs/MAP.md`](docs/MAP.md) maps every crate and subsystem,
+and [`docs/DEVIATIONS.md`](docs/DEVIATIONS.md) lists everywhere benilla differs from 1.12.1; both are
 generated from the code.
 
-## Status
+## Upstream realm-client status
+
+The following describes the external-server client, not this fork's incomplete P2P simulation.
 
 Complete and fully playable. What is left:
 
@@ -60,11 +169,13 @@ Not planned: other expansions or client versions, Warden (anticheat).
 
 benilla builds and runs on macOS, Linux and Windows. You need:
 
-- **An English 1.12.1 client (build 5875)** for the game data. benilla only reads it.
-- **A 1.12.1 server with Warden off.** [vmangos](https://github.com/vmangos/core) is what
-  development runs against, and it ships with Warden off; cMaNGOS and the other 1.12.1 cores speak
-  the same protocol.
-- **Stable Rust and a C compiler**, because the client's Lua is built from source: on macOS the
+- **A 1.12.1 client (build 5875)** for the game data, in any locale. benilla only reads it, and
+  shows its text in the client's language; development runs on English clients.
+- **A 1.12.1 server.** [vmangos](https://github.com/vmangos/core) is what development runs
+  against; cMaNGOS and the other 1.12.1 cores speak the same protocol. benilla does not answer
+  Warden, so a server that enforces it disconnects the session after its timeout; vmangos ships
+  with Warden off.
+- **Stable Rust and a C compiler**, which some dependencies build with: on macOS the
   Xcode command line tools, on Linux the ALSA and udev development packages and pkg-config, on
   Windows the MSVC build tools that the Rust installer sets up.
 
@@ -112,6 +223,5 @@ runtime. The few files under `crates/benilla-app/assets/ui/` are our own, not co
 adapters over stock files, and the settings windows and script error log benilla draws itself.
 
 World of Warcraft is a trademark of Blizzard Entertainment, Inc. Our own code is licensed under
-[MIT](LICENSE-MIT) or [Apache 2.0](LICENSE-APACHE), at your option. The two vendored components
-under `third_party/`, the kira audio engine and a Lua 5.1 patched to the 1.12 client's dialect,
-keep their own upstream licenses, alongside each.
+[MIT](LICENSE-MIT) or [Apache 2.0](LICENSE-APACHE), at your option. The kira audio engine under
+`third_party/` is vendored under the same two licenses, with its author's copyright notices beside it.

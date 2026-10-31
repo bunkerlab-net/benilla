@@ -1,0 +1,123 @@
+# Every text file checks out with LF on every platform: tests and `include_str!` read sources,
+# shaders, Lua and XML and match them on "\n", so a Windows checkout must read the same bytes.
+* text=auto eol=lf
+
+# Vendored benilla-re tables are compared and read byte for byte; no line-ending conversion.
+reference/*.tsv -text
+
+# The vendored kira tree is CRLF in the index and stays byte for byte.
+third_party/kira/** -text
+
+# The vendored wgpu-hal tree is the registry crate byte for byte (one CRLF file stays CRLF).
+third_party/wgpu-hal/** -text
+
+# Exact-byte source oracles and digest fixtures must survive CRLF checkouts.
+crates/benilla-sim/tools/event_processor_source/EventProcessor.cpp text eol=lf
+crates/benilla-sim/tools/event_processor_source/EventProcessor.h text eol=lf
+crates/benilla-sim/tools/spell_event_source/SpellEvent.methods.inc text eol=lf
+crates/benilla-sim/tools/spell_event_source/SpellEvent.declaration.inc text eol=lf
+crates/benilla-sim/tools/spell_event_source/SpellState.inc text eol=lf
+crates/benilla-sim/tools/spell_event_source/SpellDeletable.inc text eol=lf
+crates/benilla-sim/tools/spell_event_source/UniqueTrackablePtr.h text eol=lf
+crates/benilla-sim/tools/spell_event_source/source_manifest.json text eol=lf
+crates/benilla-sim/tests/fixtures/relations_reputation_cmangos.sha256 text eol=lf
+crates/benilla-sim/tests/fixtures/lifecycle_reputation_cmangos.sha256 text eol=lf
+crates/benilla-sim/tools/creature_capabilities_source/*.inc text eol=lf
+crates/benilla-sim/tools/creature_capabilities_source/source_manifest.json text eol=lf
+crates/benilla-sim/tests/fixtures/creature_capabilities_cmangos.test-fixture text eol=lf
+# License digest and multiline dispatch source contract are exact LF inputs.
+crates/benilla-sim/src/source_atan/GLIBC-LICENSE.txt text eol=lf
+crates/benilla-sim/src/creature_motion/state.rs text eol=lf
+
+# Player model oracle is an exact-byte numeric fixture.
+crates/benilla-sim/tests/fixtures/player_model_cmangos.test-fixture text eol=lf
+
+# Hostile-reference retained source/manifest and selection fixtures are exact LF inputs.
+crates/benilla-sim/tools/hostile_reference_source/** text eol=lf
+crates/benilla-sim/tests/fixtures/hostile_reference_cmangos.test-fixture text eol=lf
+crates/benilla-world-runtime/tools/fixtures/water-aura-selection.tsv text eol=lf
+
+# Chase gate oracle source extraction and numeric fixture are exact LF inputs.
+crates/benilla-sim/tools/chase_gate_oracle.cpp text eol=lf
+crates/benilla-sim/tools/chase_gate_source_hashes.sha256 text eol=lf
+crates/benilla-sim/tools/generate_chase_gate_fixture.py text eol=lf
+crates/benilla-sim/tools/test_chase_gate_oracle.py text eol=lf
+crates/benilla-sim/tests/fixtures/chase_gate_cmangos.test-fixture text eol=lf
+
+# Loaded HaveTile/coordinate source oracle exact LF text; binary authored tiles remain binary.
+crates/benilla-native-nav/tools/tile_presence*.py text eol=lf
+crates/benilla-native-nav/tools/tile_presence*.cpp text eol=lf
+crates/benilla-native-nav/tools/tile_presence*.sha256 text eol=lf
+crates/benilla-native-nav/tools/tile_presence_README.md text eol=lf
+crates/benilla-native-nav/tools/tile_presence_source_fragments.test-fixture text eol=lf -whitespace
+crates/benilla-native-nav/tools/fixtures/tile-presence/*.test-fixture -text
+crates/benilla-native-nav/tools/fixtures/tile-presence/cases.test-fixture text eol=lf
+
+# Selected cold same-polygon source oracle remains exact LF text on all checkouts.
+crates/benilla-native-nav/tools/cold_same_poly*.py text eol=lf
+crates/benilla-native-nav/tools/cold_same_poly*.cpp text eol=lf
+crates/benilla-native-nav/tools/cold_same_poly*.md text eol=lf
+crates/benilla-native-nav/tools/cold_same_poly_source_fragments.test-fixture text eol=lf -whitespace
+crates/benilla-native-nav/tools/fixtures/cold-same-poly/*.test-fixture text eol=lf
+
+# Retained same-polygon original-warm observer exact LF text.
+crates/benilla-native-nav/tools/retained_same_poly*.py text eol=lf
+crates/benilla-native-nav/tools/retained_same_poly*.cpp text eol=lf
+crates/benilla-native-nav/tools/retained_same_poly*.md text eol=lf
+crates/benilla-native-nav/tools/retained_same_poly_source_fragments.test-fixture text eol=lf -whitespace
+crates/benilla-native-nav/tools/fixtures/retained-same-poly/*.test-fixture text eol=lf
+
+# SHA-pinned native combat numeric fixtures must retain exact source-oracle bytes.
+crates/benilla-sim/tests/fixtures/player_melee_cmangos.tsv text eol=lf
+crates/benilla-sim/tests/fixtures/player_melee_geometry_cmangos.tsv text eol=lf
+crates/benilla-sim/tests/fixtures/player_weapon_skill_cmangos.tsv text eol=lf
+crates/benilla-world-runtime/src/native/combat/melee_timers/source_oracle.tsv text eol=lf
+crates/benilla-world-runtime/src/native/interactions/spell_projectile_delay_oracle.tsv text eol=lf
+
+# Original M2 extractor fragments retain source whitespace; authored products are binary.
+crates/benilla-native-geometry-tests/tools/fixtures/m2_vmap_source/source-fragments.cpp.test-fixture text eol=lf -whitespace
+crates/benilla-native-geometry-tests/tools/fixtures/m2_vmap_source/*.tsv text eol=lf
+crates/benilla-native-geometry-tests/tools/fixtures/m2_vmap_source/*.m2.test-fixture -text
+crates/benilla-native-geometry-tests/tools/fixtures/m2_vmap_source/*.raw.vmap -text
+crates/benilla-native-geometry-tests/tools/fixtures/m2_vmap_source/products/* -text
+
+# Original WMO extractor fragments and authored products retain exact oracle bytes.
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_vmap_source/source-fragments.cpp.test-fixture text eol=lf -whitespace
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_vmap_source/*.tsv text eol=lf
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_vmap_source/*.root.test-fixture -text
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_vmap_source/*.group.test-fixture -text
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_vmap_source/*.raw.vmap -text
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_vmap_source/products/* -text
+
+# Authored WMO-liquid oracle products retain exact binary bytes.
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_liquid_source/source-fragments.cpp.test-fixture text eol=lf -whitespace
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_liquid_source/*.tsv text eol=lf
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_liquid_source/*.patch.test-fixture text eol=lf -whitespace
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_liquid_source/inputs/* -text
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_liquid_source/raw/* -text
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_liquid_source/products/* -text
+
+# Authored one-candidate WMO doodad records are exact binary source fixtures.
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_transform_source/*/*.modf -text
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_transform_source/*/*.modd -text
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_transform_source/*/*.modn -text
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_transform_source/*/*.dir -text
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_transform_source/*.tsv text eol=lf
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_transform_source/source-fragments.cpp.test-fixture text eol=lf -whitespace
+
+# Authored reference-container input/iteration vectors are fixed little-endian uint16.
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_order_source/*.u16le -text
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_order_source/*.tsv text eol=lf
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_order_source/source-fragments.test-fixture text eol=lf -whitespace
+
+# Pinned navigation source is byte-preserved, including original whitespace and encodings.
+crates/benilla-native-nav-generator/native/Detour/** -text -whitespace
+crates/benilla-native-nav-generator/native/Recast/** -text -whitespace
+crates/benilla-native-nav-generator/native/RECAST-DETOUR-LICENSE.txt -text -whitespace
+crates/benilla-native-nav-generator/CMANGOS-* -text -whitespace
+crates/benilla-native-nav-generator/source_config/** -text -whitespace
+tools/native-navigation/source/** -text -whitespace
+tools/native-navigation/notices/** -text -whitespace
+# Authored binary products and their hashed metadata must survive CRLF checkouts.
+tools/native-navigation/fixtures/** -text
+tools/native-navigation/fixtures/**/*.zlib binary

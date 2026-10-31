@@ -1,0 +1,1395 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Derived from CMaNGOS Classic at 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f.
+// Copyright CMaNGOS Project contributors; see ../../licenses/AUTHORS.md.
+// Source grant GPL-2.0-or-later; 2026 Rust translation GPL-3.0-or-later.
+// WITHOUT ANY WARRANTY. See ../../PROVENANCE.md and ../../CREATURE-AI.md.
+//! Outdoor solo ordinary-creature control, not a native world enablement gate.
+//! Only one authenticated player threat reference is supported. Damage, movement
+//! generation, scripts, roaming, health/regen and native row resolution are external.
+//! No wire decoding, wallclock, assets, fixed damage, teleport or stationary chase.
+
+pub mod hostile_reference;
+pub mod movement;
+use hostile_reference::{HostileReference, HostileReferences};
+mod generation;
+mod numeric;
+pub use generation::DeathTiming;
+use generation::GenerationLifecycle;
+use movement::{BlockReason, MovementPurpose, MovementResult, Revision, ValidatedMovement};
+pub use numeric::{
+    attack_distance, combat_reach, distance_2d, in_melee_range, pulls_aggro,
+    within_interaction_distance, Point, Real,
+};
+
+pub const CREATURE_AI_POLICY_ID: &str =
+    "cmangos-8ec338a1-outdoor-solo-ai-binary32-rne-source-default-motion-v8";
+const COMBAT_TICK_MS: u32 = 1200;
+const UNREACHABLE_MS: u32 = 10_000;
+
+fn home_position(combat_start: Point, respawn: Point) -> Point {
+    // HomeMovementGenerator::_setTargetLocation falls back on Position::IsEmpty.
+    if combat_start.is_empty() {
+        respawn
+    } else {
+        combat_start
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub enum Unsupported {
+    ScriptedAi,
+    SpellList,
+    AssistanceOrLinking,
+    ControlledOrSummoned,
+    Dungeon,
+    FlightSwimmingOrTransport,
+    CrowdControlOrSpecialFlags,
+    OffhandOrExtraAttacks,
+    RandomOrWaypointIdle,
+    MultipleThreatTargets,
+    LootAdjustedCorpseTimer,
+    LongDistanceHomeDespawn,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AiError {
+    Invalid(&'static str),
+    Unsupported(Unsupported),
+    Movement(BlockReason),
+}
+impl std::fmt::Display for AiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "bounded creature AI: {self:?}")
+    }
+}
+impl std::error::Error for AiError {}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub enum Reaction {
+    Passive,
+    Defensive,
+    Aggressive,
+}
+/// Resolved native configuration, not a DB row and not evidence of complete metadata.
+/// No Default: native values must be supplied and unsupported features audited.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Profile {
+    pub creature_id: u64,
+    pub map_id: u32,
+    pub content_revision: Revision,
+    pub spawn: Point,
+    /// Shared authoritative map clock; zero is a whole-second boundary.
+    pub clock_origin_ms: u64,
+    pub level: u8,
+    pub reaction: Reaction,
+    pub neutral_to_all: bool,
+    pub detection: Real,
+    pub aggro_rate: Real,
+    pub combat_reach: Real,
+    pub bounding_radius: Real,
+    pub melee_leeway: Real,
+    pub run_speed: Real,
+    pub home_speed: Real,
+    pub mainhand_interval_ms: u32,
+    pub pursuit_ms: u32,
+    pub leash_radius: Real,
+    pub hard_leash_radius: Option<Real>,
+    pub corpse_decay_ms: u32,
+    pub respawn_delay_seconds: u32,
+    pub unsupported: Vec<Unsupported>,
+}
+impl Profile {
+    fn validate(&self) -> Result<(), AiError> {
+        if let Some(feature) = self.unsupported.first() {
+            return Err(AiError::Unsupported(*feature));
+        }
+        if self.creature_id == 0
+            || self.level == 0
+            || self.mainhand_interval_ms == 0
+            || self.mainhand_interval_ms > 60_000
+        {
+            return Err(AiError::Invalid("creature identity/level/attack interval"));
+        }
+        self.spawn.validate()?;
+        for v in [
+            self.detection,
+            self.aggro_rate,
+            self.combat_reach,
+            self.bounding_radius,
+            self.melee_leeway,
+            self.run_speed,
+            self.home_speed,
+            self.leash_radius,
+        ] {
+            v.nonnegative("profile scalar")?;
+        }
+        if self.run_speed == Real::ZERO || self.home_speed == Real::ZERO {
+            return Err(AiError::Invalid("native speed"));
+        }
+        if let Some(leash) = self.hard_leash_radius {
+            leash.nonnegative("hard leash")?;
+        }
+        Ok(())
+    }
+}
+
+/// An ordinary player sampled by the authority, including resolved native relationship
+/// and visibility predicates. This must not be filled from a peer's claimed state.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Target {
+    pub id: u64,
+    pub position: Point,
+    pub level: u8,
+    pub combat_reach: Real,
+    pub bounding_radius: Real,
+    pub moving_and_running: bool,
+    pub alive: bool,
+    pub online: bool,
+    pub can_attack_in_combat: bool,
+    pub can_attack_on_sight: bool,
+    pub visible: bool,
+    pub accessible: bool,
+    pub line_of_sight: bool,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub enum ThreatKind {
+    DirectDamage,
+    PeriodicDamage,
+}
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub enum CombatEvent {
+    /// UnitAI::AttackedBy; authenticated successful attack initiation, not a peer command.
+    AttackedBy {
+        target: u64,
+    },
+    /// Explicit CombatManager::TriggerCombatTimer callback, including resisted
+    /// hostile spells. It changes pursuit/lastRefresh without inventing damage.
+    CombatTimerTriggered {
+        target: u64,
+    },
+    /// Already-resolved post-modifier threat. DOT does not refresh the pursuit timer.
+    Threat {
+        target: u64,
+        amount: Real,
+        kind: ThreatKind,
+    },
+    Died,
+}
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Receipt {
+    pub id: u64,
+    pub event: CombatEvent,
+}
+/// A simulation-step snapshot from an authenticated/validated authority.
+/// There is deliberately no deserializer for this or the validated movement token.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Observation {
+    pub sequence: u64,
+    pub elapsed_ms: u32,
+    pub geometry_revision: Revision,
+    pub target: Option<Target>,
+    pub can_initiate_attack: bool,
+    pub casting_non_melee: bool,
+    /// Post-movement authority predicate: lastMoveTime + 3s < now and victim !IsMoving.
+    /// Applied only if this update actually issues a mainhand swing.
+    pub stationary_melee_refresh_eligible: bool,
+    pub creature_moving_and_running: bool,
+    pub movement: Option<ValidatedMovement>,
+    pub receipts: Vec<Receipt>,
+}
+/// Only the simulation authority implements this adapter. Receiving an authenticated
+/// PSK packet is insufficient: validate ownership, movement and combat effects first.
+pub trait CombatAuthority {
+    fn observe(&mut self, creature_id: u64) -> Result<Observation, AiError>;
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub enum Phase {
+    Idle,
+    Combat,
+    ReturningHome,
+    Corpse,
+    Despawned,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub enum EvadeReason {
+    NoTarget,
+    PursuitLeash,
+    HardLeash,
+    Unreachable,
+}
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MotionCommand {
+    pub command_id: u64,
+    pub purpose: MovementPurpose,
+    pub home: Option<Point>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub enum Effect {
+    AttackStopped {
+        target: u64,
+    },
+    CombatStarted {
+        target: u64,
+    },
+    FaceTarget {
+        target: u64,
+    },
+    /// Invoke native hit/damage/spell resolution. Never a fixed damage amount.
+    MainhandSwing {
+        target: u64,
+    },
+    SwingDelayed {
+        error: SwingError,
+        retry_ms: u32,
+    },
+    Motion(MotionCommand),
+    PositionCommitted(Point),
+    /// Clear combat/threat/loot ownership and removable evade auras; do NOT instantly heal.
+    EvadeStarted(EvadeReason),
+    HomeReached,
+    Died,
+    CorpseRemoved,
+    /// Reset native entry/health/addon/loot state and emit the normal spawn projection.
+    Respawned {
+        position: Point,
+    },
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub enum SwingError {
+    OutOfRange,
+    BadFacing,
+    DeadTarget,
+    CannotAttack,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SwingConditions {
+    pub has_victim: bool,
+    pub casting_non_melee: bool,
+    pub can_initiate: bool,
+    pub in_range: bool,
+    pub in_arc: bool,
+    pub target_alive: bool,
+    pub can_attack: bool,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SwingDecision {
+    Wait,
+    Swing,
+    Retry(SwingError),
+}
+/// Unit::UpdateMeleeAttackingState's single-mainhand branches. The source's boolean
+/// return means an error (and OutOfRange == 0), so expose actual decisions instead.
+pub fn melee_decision(timer_ms: u32, c: SwingConditions) -> SwingDecision {
+    if !c.has_victim || c.casting_non_melee || !c.can_initiate || timer_ms != 0 {
+        return SwingDecision::Wait;
+    }
+    if !c.in_range {
+        SwingDecision::Retry(SwingError::OutOfRange)
+    } else if !c.in_arc {
+        SwingDecision::Retry(SwingError::BadFacing)
+    } else if !c.target_alive {
+        SwingDecision::Retry(SwingError::DeadTarget)
+    } else if !c.can_attack {
+        SwingDecision::Retry(SwingError::CannotAttack)
+    } else {
+        SwingDecision::Swing
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SoloCreatureAi {
+    profile: Profile,
+    generation_lifecycle: Option<GenerationLifecycle>,
+    phase: Phase,
+    position: Point,
+    combat_start: Point,
+    last_refresh: Point,
+    target: Option<u64>,
+    victim_detached_at_ms: Option<u64>,
+    pending_receipts: Option<(u64, u64)>,
+    hostile_references: HostileReferences,
+    now_ms: u64,
+    sequence: u64,
+    receipt_id: u64,
+    movement_request_id: u64,
+    command_id: u64,
+    motion: Option<MotionCommand>,
+    mainhand_ms: u32,
+    mainhand_timer_limit_ms: u32,
+    pursuit_ms: u32,
+    combat_tick_ms: u32,
+    unreachable_ms: u32,
+    corpse_at_ms: u64,
+    corpse_timer_previous_ms: u64,
+    corpse_timer_last_ms: u64,
+    corpse_timer_calls: Vec<CorpseTimerCall>,
+    death_at_ms: Option<u64>,
+    death_deferred: bool,
+    despawned_at_ms: Option<u64>,
+    respawn_at_ms: u64,
+}
+/// Single-use receipt prelude token. No timer, movement or AI update has run yet.
+/// Owned by the same enclosing transaction as the mutated AI; never deserialize it.
+pub struct ReceiptStep {
+    prepared: SoloCreatureAi,
+    creature_id: u64,
+    sequence: u64,
+    now_ms: u64,
+    elapsed_ms: u32,
+    prior_command: u64,
+    geometry_revision: Revision,
+    receipts: Vec<Receipt>,
+    effects: Vec<Effect>,
+    source_sight_events: bool,
+    skip_current_death_corpse: bool,
+}
+impl ReceiptStep {
+    pub fn effects(&self) -> &[Effect] {
+        &self.effects
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MainhandResult {
+    Unchanged,
+    TargetDied,
+}
+/// Source-ordered UnitAI callbacks; facing occurs on every selected-target update,
+/// before a possible swing, without implying movement or relocation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OrderedHook {
+    FaceTarget {
+        target: u64,
+        position: Point,
+    },
+    Mainhand {
+        target: u64,
+        position: Point,
+        combat_started: bool,
+    },
+}
+impl SoloCreatureAi {
+    pub fn new(profile: Profile) -> Result<Self, AiError> {
+        profile.validate()?;
+        Ok(Self {
+            position: profile.spawn,
+            combat_start: profile.spawn,
+            last_refresh: profile.spawn,
+            now_ms: profile.clock_origin_ms,
+            mainhand_timer_limit_ms: profile.mainhand_interval_ms.max(100),
+            profile,
+            generation_lifecycle: None,
+            phase: Phase::Idle,
+            target: None,
+            victim_detached_at_ms: None,
+            pending_receipts: None,
+            hostile_references: HostileReferences::new(),
+            sequence: 0,
+            receipt_id: 0,
+            movement_request_id: 0,
+            command_id: 0,
+            motion: None,
+            mainhand_ms: 0,
+            pursuit_ms: 0,
+            combat_tick_ms: COMBAT_TICK_MS,
+            unreachable_ms: 0,
+            corpse_at_ms: 0,
+            corpse_timer_previous_ms: 0,
+            corpse_timer_last_ms: 0,
+            corpse_timer_calls: vec![],
+            death_at_ms: None,
+            death_deferred: true,
+            despawned_at_ms: None,
+            respawn_at_ms: 0,
+        })
+    }
+    pub fn phase(&self) -> Phase {
+        self.phase
+    }
+    pub fn position(&self) -> Point {
+        self.position
+    }
+    pub fn combat_start_position(&self) -> Point {
+        self.combat_start
+    }
+    /// Whether this death entered CORPSE before the current Creature::Update.
+    /// Legacy batched receipt adapters never admit this source-only phase.
+    pub fn has_pre_unit_death(&self) -> bool {
+        self.death_at_ms.is_some() && !self.death_deferred
+    }
+    pub fn target(&self) -> Option<u64> {
+        self.target
+    }
+    pub fn threat(&self) -> Real {
+        self.hostile_reference()
+            .map_or(Real::ZERO, HostileReference::threat)
+    }
+    pub fn hostile_reference(&self) -> Option<&HostileReference> {
+        self.hostile_references.reference()
+    }
+    pub fn current_victim(&self) -> Option<u64> {
+        self.hostile_references.current_victim()
+    }
+    /// HostileRefManager::updateThreatTables callback; no Unit clock or timer advance.
+    pub fn update_online_status(
+        &mut self,
+        target: u64,
+        rebound_target: Option<u64>,
+        offline: bool,
+    ) -> Result<bool, AiError> {
+        self.require_finished_generation()?;
+        if self.pending_receipts.is_some() {
+            return Err(AiError::Invalid("online status during receipt prelude"));
+        }
+        Ok(!self
+            .hostile_references
+            .update_online_status(target, rebound_target, offline)?
+            .is_empty())
+    }
+    pub fn mainhand_timer_limit_ms(&self) -> u32 {
+        self.mainhand_timer_limit_ms
+    }
+    pub fn mainhand_timer_ms(&self) -> u32 {
+        self.mainhand_ms
+    }
+    /// Apply DealMeleeDamage's BASE_ATTACK parry-haste branch to this owned
+    /// single-mainhand creature. The native caller must have a verified Parry
+    /// outcome and checked CREATURE_EXTRA_FLAG_NO_PARRY_HASTEN; this method is
+    /// not an attack authorization and accepts no caller-authored timer value.
+    pub fn apply_player_mainhand_parry_haste(&mut self) -> Result<(), AiError> {
+        self.require_finished_generation()?;
+        if self.pending_receipts.is_some() || matches!(self.phase, Phase::Corpse | Phase::Despawned)
+        {
+            return Err(AiError::Invalid(
+                "player parry outside live finished AI state",
+            ));
+        }
+        let next = crate::player_melee::mainhand_parry_haste(
+            self.mainhand_ms,
+            self.profile.mainhand_interval_ms,
+        )
+        .map_err(|_| AiError::Invalid("player parry mainhand timer"))?;
+        self.mainhand_ms = next;
+        Ok(())
+    }
+    pub fn pursuit_timer_ms(&self) -> u32 {
+        self.pursuit_ms
+    }
+    pub fn unreachable_timer_ms(&self) -> u32 {
+        self.unreachable_ms
+    }
+    pub fn is_evading(&self) -> bool {
+        self.phase == Phase::ReturningHome || self.unreachable_ms != 0
+    }
+    pub fn is_evade_regeneration(&self) -> bool {
+        self.phase == Phase::ReturningHome
+            || (self.unreachable_ms != 0 && self.unreachable_ms <= 5000)
+    }
+    pub fn motion(&self) -> Option<&MotionCommand> {
+        self.motion.as_ref()
+    }
+    pub fn next_sequence(&self) -> Option<u64> {
+        self.sequence.checked_add(1)
+    }
+    /// Input rejection is transactional. The adapter's observations and movement proposals
+    /// must be non-mutating; commit returned effects together with this state.
+    pub fn step(&mut self, authority: &mut impl CombatAuthority) -> Result<Vec<Effect>, AiError> {
+        self.step_with_mainhand(authority, &mut |_, _, _| Ok(()))
+    }
+    /// Source AI-to-DealMeleeDamage callback before CombatManager::Update. The callback
+    /// receives target ID, post-movement position, and whether CombatStarted happened
+    /// earlier in this step. Rejection preserves AI; the caller must discard its staged
+    /// callback state too. Ordinary NPC attacks do not refresh NPC pursuit: the source
+    /// TriggerCombatTimer target is the player, who cannot hold a threat list.
+    pub fn step_with_mainhand(
+        &mut self,
+        authority: &mut impl CombatAuthority,
+        mainhand: &mut impl FnMut(u64, Point, bool) -> Result<(), AiError>,
+    ) -> Result<Vec<Effect>, AiError> {
+        let observation = authority.observe(self.profile.creature_id)?;
+        let mut next = self.clone();
+        let token = next.begin_receipts(&observation)?;
+        let effects = next.finish_receipts(observation, token, &mut |id, point, started| {
+            mainhand(id, point, started)?;
+            Ok(MainhandResult::Unchanged)
+        })?;
+        *self = next;
+        Ok(effects)
+    }
+    /// Applies already-resolved events at their bound frame instant, without advancing
+    /// this creature's unit clock/timers/movement/AI. Finish in the original update order.
+    pub fn begin_receipts(&mut self, o: &Observation) -> Result<ReceiptStep, AiError> {
+        self.begin_receipts_with_death_timing(o, None)
+    }
+    pub fn begin_receipts_with_death_timing(
+        &mut self,
+        o: &Observation,
+        timing: Option<DeathTiming>,
+    ) -> Result<ReceiptStep, AiError> {
+        self.begin_receipts_inner(o, false, false, timing)
+    }
+    /// A source visitor has either called MoveInLineOfSight at the event phase or
+    /// proved no such visit. Unlike legacy observations, later AI never polls sight.
+    pub fn begin_source_receipts(
+        &mut self,
+        o: &Observation,
+        sight_visitor: bool,
+    ) -> Result<ReceiptStep, AiError> {
+        self.begin_source_receipts_with_death_timing(o, sight_visitor, None)
+    }
+    pub fn begin_source_receipts_with_death_timing(
+        &mut self,
+        o: &Observation,
+        sight_visitor: bool,
+        timing: Option<DeathTiming>,
+    ) -> Result<ReceiptStep, AiError> {
+        self.begin_receipts_inner(o, true, sight_visitor, timing)
+    }
+    /// Creature::Update selects CORPSE immediately if death preceded its entry;
+    /// a death inside its ALIVE Unit update defers corpse handling one frame.
+    pub fn begin_source_receipts_in_phase(
+        &mut self,
+        o: &Observation,
+        entered_alive: bool,
+    ) -> Result<ReceiptStep, AiError> {
+        self.begin_source_receipts_in_phase_with_death_timing(o, entered_alive, None)
+    }
+    pub fn begin_source_receipts_in_phase_with_death_timing(
+        &mut self,
+        o: &Observation,
+        entered_alive: bool,
+        timing: Option<DeathTiming>,
+    ) -> Result<ReceiptStep, AiError> {
+        let now = self
+            .now_ms
+            .checked_add(u64::from(o.elapsed_ms))
+            .ok_or(AiError::Invalid("source phase clock"))?;
+        if self.death_at_ms == Some(now) && self.death_deferred != entered_alive {
+            return Err(AiError::Invalid("source death phase binding"));
+        }
+        let mut token = self.begin_receipts_inner(o, true, false, timing)?;
+        if o.receipts
+            .iter()
+            .any(|receipt| receipt.event == CombatEvent::Died)
+        {
+            self.death_deferred = entered_alive;
+            token.prepared = self.clone();
+        }
+        token.skip_current_death_corpse = entered_alive;
+        Ok(token)
+    }
+    fn begin_receipts_inner(
+        &mut self,
+        o: &Observation,
+        source_sight_events: bool,
+        sight_visitor: bool,
+        timing: Option<DeathTiming>,
+    ) -> Result<ReceiptStep, AiError> {
+        self.validate_observation(o)?;
+        if self.pending_receipts.is_some() {
+            return Err(AiError::Invalid("unfinished receipt prelude"));
+        }
+        let now_ms = self
+            .now_ms
+            .checked_add(u64::from(o.elapsed_ms))
+            .ok_or(AiError::Invalid("event time overflow"))?;
+        self.validate_death_timing(o, now_ms, timing)?;
+        let mut next = self.clone();
+        let old_now = next.now_ms;
+        next.now_ms = now_ms; // used only by event timestamp derivation, never timers
+        let prior_command = next.command_id;
+        let mut effects = Vec::new();
+        for receipt in &o.receipts {
+            if receipt.id <= next.receipt_id {
+                return Err(AiError::Invalid("replayed/reordered combat receipt"));
+            }
+            next.receipt_id = receipt.id;
+            if let Some(timing) = timing.filter(|timing| timing.receipt_id == receipt.id) {
+                next.profile.respawn_delay_seconds = timing.respawn_delay_seconds;
+            }
+            next.event(&receipt.event, o.target.as_ref(), &mut effects)?;
+        }
+        if sight_visitor {
+            next.observe_sight(o, &mut effects)?;
+        }
+        next.now_ms = old_now;
+        next.pending_receipts = Some((o.sequence, now_ms));
+        let token = ReceiptStep {
+            prepared: next.clone(),
+            creature_id: self.profile.creature_id,
+            sequence: o.sequence,
+            now_ms,
+            elapsed_ms: o.elapsed_ms,
+            prior_command,
+            geometry_revision: o.geometry_revision,
+            receipts: o.receipts.clone(),
+            effects,
+            source_sight_events,
+            skip_current_death_corpse: true,
+        };
+        *self = next;
+        Ok(token)
+    }
+    /// A synchronous source combat callback at the current map frame, before
+    /// this creature's Unit update. Apply each event while its health/pose witness
+    /// is current; never replay its Motion effect against a later final AI state.
+    pub fn source_combat_event(&mut self, o: &Observation) -> Result<Vec<Effect>, AiError> {
+        self.source_combat_event_with_phase(o, true)
+    }
+    pub fn source_combat_event_with_phase(
+        &mut self,
+        o: &Observation,
+        inside_alive_unit_update: bool,
+    ) -> Result<Vec<Effect>, AiError> {
+        self.source_combat_event_with_death_timing(o, inside_alive_unit_update, None)
+    }
+    /// Atomically install a generation-owned death delay before deriving death clocks.
+    pub fn source_combat_event_with_death_timing(
+        &mut self,
+        o: &Observation,
+        inside_alive_unit_update: bool,
+        timing: Option<DeathTiming>,
+    ) -> Result<Vec<Effect>, AiError> {
+        self.validate_observation(o)?;
+        if self.pending_receipts.is_some() || o.receipts.len() != 1 {
+            return Err(AiError::Invalid("source combat event phase"));
+        }
+        let mut next = self.clone();
+        next.now_ms = next
+            .now_ms
+            .checked_add(u64::from(o.elapsed_ms))
+            .ok_or(AiError::Invalid("source combat event clock"))?;
+        self.validate_death_timing(o, next.now_ms, timing)?;
+        let receipt = &o.receipts[0];
+        if receipt.id <= next.receipt_id {
+            return Err(AiError::Invalid("source combat receipt identity"));
+        }
+        next.receipt_id = receipt.id;
+        if let Some(timing) = timing {
+            next.profile.respawn_delay_seconds = timing.respawn_delay_seconds;
+        }
+        let mut effects = Vec::new();
+        next.event(&receipt.event, o.target.as_ref(), &mut effects)?;
+        if matches!(receipt.event, CombatEvent::Died) {
+            next.death_deferred = inside_alive_unit_update;
+        }
+        next.now_ms = self.now_ms;
+        *self = next;
+        Ok(effects)
+    }
+    /// Player-owned visitor runs before this creature's Unit update. It can
+    /// synchronously AttackStart without decrementing any creature timer.
+    pub fn source_sight_event(&mut self, o: &Observation) -> Result<Vec<Effect>, AiError> {
+        self.validate_observation(o)?;
+        if self.pending_receipts.is_some() {
+            return Err(AiError::Invalid("sight during receipt prelude"));
+        }
+        let mut next = self.clone();
+        next.now_ms = next
+            .now_ms
+            .checked_add(u64::from(o.elapsed_ms))
+            .ok_or(AiError::Invalid("sight clock"))?;
+        let mut effects = Vec::new();
+        next.observe_sight(o, &mut effects)?;
+        next.now_ms = self.now_ms;
+        *self = next;
+        Ok(effects)
+    }
+    /// UnitAI::CheckForHelp invokes AttackStart directly, without AttackedBy or
+    /// observation/timer advancement. The host proves the ordered help predicates
+    /// and supplies the current map time, including a peer already updated this frame.
+    pub fn source_help_attack_start(
+        &mut self,
+        target: &Target,
+        event_ms: u64,
+    ) -> Result<Vec<Effect>, AiError> {
+        self.require_finished_generation()?;
+        if self.pending_receipts.is_some()
+            || self.phase != Phase::Idle
+            || event_ms < self.now_ms
+            || target.id == 0
+            || target.level == 0
+            || !target.alive
+            || !target.online
+        {
+            return Err(AiError::Invalid("source help AttackStart binding"));
+        }
+        target.position.validate()?;
+        target.combat_reach.nonnegative("target reach")?;
+        target
+            .bounding_radius
+            .nonnegative("target bounding radius")?;
+        let mut next = self.clone();
+        let mut effects = Vec::new();
+        next.now_ms = event_ms;
+        next.attack_start(target, &mut effects)?;
+        next.now_ms = self.now_ms;
+        *self = next;
+        Ok(effects)
+    }
+    /// Creature-owned visitor runs after earlier damage receipts but before its
+    /// spline/AI phase. Extend only the matching source prelude's prepared state.
+    pub fn source_sight_after_receipts(
+        &mut self,
+        o: &Observation,
+        token: &mut ReceiptStep,
+    ) -> Result<(), AiError> {
+        if !token.source_sight_events
+            || *self != token.prepared
+            || token.sequence != o.sequence
+            || token.elapsed_ms != o.elapsed_ms
+            || token.geometry_revision != o.geometry_revision
+        {
+            return Err(AiError::Invalid("sight receipt binding"));
+        }
+        self.validate_observation(o)?;
+        let mut next = self.clone();
+        let old_now = next.now_ms;
+        next.now_ms = token.now_ms;
+        let mut effects = Vec::new();
+        next.observe_sight(o, &mut effects)?;
+        next.now_ms = old_now;
+        token.effects.extend(effects);
+        token.prepared = next.clone();
+        *self = next;
+        Ok(())
+    }
+    /// Synchronous RemoveAllAttackers/hostile-reference removal. AttackStop(false)
+    /// retains visible TargetGuid and chase; ordinary later AI selects no target.
+    pub fn detach_dead_victim(&mut self, target: u64, event_ms: u64) -> Result<bool, AiError> {
+        self.require_finished_generation()?;
+        if event_ms < self.now_ms || self.pending_receipts.is_some_and(|(_, at)| at != event_ms) {
+            return Err(AiError::Invalid("victim detach event time"));
+        }
+        let stopped = self.phase == Phase::Combat
+            && self.target == Some(target)
+            && self.victim_detached_at_ms.is_none();
+        if stopped {
+            self.hostile_references.remove(target)?;
+            self.victim_detached_at_ms = Some(event_ms);
+        }
+        Ok(stopped)
+    }
+    pub fn victim_detached_at_ms(&self) -> Option<u64> {
+        self.victim_detached_at_ms
+    }
+    pub fn finish_receipts(
+        &mut self,
+        o: Observation,
+        token: ReceiptStep,
+        mainhand: &mut impl FnMut(u64, Point, bool) -> Result<MainhandResult, AiError>,
+    ) -> Result<Vec<Effect>, AiError> {
+        self.finish_receipts_with_hooks(o, token, &mut |hook| match hook {
+            OrderedHook::FaceTarget { .. } => Ok(MainhandResult::Unchanged),
+            OrderedHook::Mainhand {
+                target,
+                position,
+                combat_started,
+            } => mainhand(target, position, combat_started),
+        })
+    }
+    /// The caller stages hook mutations with the complete world transaction.
+    pub fn finish_receipts_with_hooks(
+        &mut self,
+        o: Observation,
+        token: ReceiptStep,
+        hook: &mut impl FnMut(OrderedHook) -> Result<MainhandResult, AiError>,
+    ) -> Result<Vec<Effect>, AiError> {
+        self.finish_receipts_with_current(o, token, &mut |event, _current| hook(event))
+    }
+    /// Borrow the actual staged AI at the ordered callback, after movement and
+    /// victim selection. The borrow cannot be retained or mutate a second owner.
+    pub fn finish_receipts_with_current(
+        &mut self,
+        o: Observation,
+        token: ReceiptStep,
+        hook: &mut impl FnMut(OrderedHook, &Self) -> Result<MainhandResult, AiError>,
+    ) -> Result<Vec<Effect>, AiError> {
+        self.validate_observation(&o)?;
+        if token.geometry_revision != o.geometry_revision
+            || (!o.receipts.is_empty() && o.receipts != token.receipts)
+            || token.creature_id != self.profile.creature_id
+            || token.sequence != o.sequence
+            || token.elapsed_ms != o.elapsed_ms
+            || self.pending_receipts != Some((token.sequence, token.now_ms))
+        {
+            return Err(AiError::Invalid("receipt token binding"));
+        }
+        let mut expected = token.prepared.clone();
+        // The only admitted interlude mutation is synchronous victim death cleanup.
+        // Comparing all remaining state also binds profile, movement, timers and receipts;
+        // a token from a different same-ID AI cannot inject its effects into this one.
+        if expected.victim_detached_at_ms.is_none()
+            && self.victim_detached_at_ms == Some(token.now_ms)
+        {
+            if let Some(target) = expected.target {
+                expected.detach_dead_victim(target, token.now_ms)?;
+            }
+        }
+        if *self != expected {
+            return Err(AiError::Invalid("receipt token prepared-state binding"));
+        }
+        let mut next = self.clone();
+        let effects = next.apply(o, token, hook)?;
+        *self = next;
+        Ok(effects)
+    }
+    fn validate_observation(&self, o: &Observation) -> Result<(), AiError> {
+        self.require_finished_generation()?;
+        if Some(o.sequence) != self.next_sequence()
+            || o.elapsed_ms == 0
+            || o.elapsed_ms > 60_000
+            || o.receipts.len() > 64
+        {
+            return Err(AiError::Invalid("step sequence/time/receipt count"));
+        }
+        if let Some(t) = &o.target {
+            if t.id == 0 || t.level == 0 {
+                return Err(AiError::Invalid("target identity/level"));
+            }
+            t.position.validate()?;
+            t.combat_reach.nonnegative("target reach")?;
+            t.bounding_radius.nonnegative("target bounding radius")?;
+            if self.target.is_some_and(|id| id != t.id) {
+                return Err(AiError::Unsupported(Unsupported::MultipleThreatTargets));
+            }
+        }
+        Ok(())
+    }
+    fn apply(
+        &mut self,
+        o: Observation,
+        token: ReceiptStep,
+        hook: &mut impl FnMut(OrderedHook, &Self) -> Result<MainhandResult, AiError>,
+    ) -> Result<Vec<Effect>, AiError> {
+        self.now_ms = token.now_ms;
+        self.sequence = o.sequence;
+        self.pending_receipts = None;
+        let mut effects = token.effects;
+        let prior_command = token.prior_command;
+        // Unit::Update still decrements attack timers on the death tick and while a corpse.
+        if self.phase != Phase::Despawned {
+            self.mainhand_ms = self.mainhand_ms.saturating_sub(o.elapsed_ms);
+        }
+        // Death during Unit::Update waits until the next Creature::Update for corpse timers.
+        if self.death_at_ms == Some(self.now_ms) && token.skip_current_death_corpse {
+            return Ok(effects);
+        }
+        match self.phase {
+            Phase::Corpse => {
+                if o.movement.is_some() {
+                    return Err(AiError::Invalid("corpse movement"));
+                }
+                if self.now_ms >= self.corpse_at_ms {
+                    self.phase = Phase::Despawned;
+                    self.despawned_at_ms = Some(self.now_ms);
+                    self.position = self.profile.spawn; // native invisible corpse removal relocation
+                    effects.push(Effect::CorpseRemoved);
+                }
+                return Ok(effects);
+            }
+            Phase::Despawned => {
+                if o.movement.is_some() {
+                    return Err(AiError::Invalid("despawned movement"));
+                }
+                if self.now_ms >= self.respawn_at_ms {
+                    self.phase = Phase::Idle;
+                    self.death_at_ms = None;
+                    self.death_deferred = true;
+                    self.corpse_timer_calls.clear();
+                    self.corpse_timer_previous_ms = 0;
+                    self.corpse_timer_last_ms = 0;
+                    self.despawned_at_ms = None;
+                    self.mark_respawn_boundary()?;
+                    effects.push(Effect::Respawned {
+                        position: self.position,
+                    });
+                }
+                return Ok(effects);
+            }
+            _ => {}
+        }
+        let reachability = self.apply_movement(&o, &mut effects)?;
+        if self.phase == Phase::ReturningHome {
+            if o.movement.is_none() {
+                return Err(AiError::Movement(BlockReason::MissingGeometry));
+            }
+            return Ok(effects);
+        }
+        if !token.source_sight_events {
+            self.observe_sight(&o, &mut effects)?;
+        }
+        if self.phase != Phase::Combat {
+            return Ok(effects);
+        }
+        // Unit::SelectHostileTarget calls getHostileTarget only for a nonempty
+        // online container; an offline/removed reference does not clear dirty.
+        if self
+            .hostile_reference()
+            .is_some_and(HostileReference::online)
+        {
+            self.hostile_references.select_current_victim();
+        }
+        let Some(t) = o.target.as_ref().filter(|t| {
+            t.alive
+                && t.online
+                && Some(t.id) == self.target
+                && self.victim_detached_at_ms.is_none()
+                && self
+                    .hostile_references
+                    .reference()
+                    .is_some_and(|r| r.valid() && r.online())
+        }) else {
+            self.evade(EvadeReason::NoTarget, &mut effects)?;
+            return Ok(effects);
+        };
+        // SelectHostileTarget faces the current victim before UpdateMeleeAttackingState.
+        hook(
+            OrderedHook::FaceTarget {
+                target: t.id,
+                position: self.position,
+            },
+            self,
+        )?;
+        effects.push(Effect::FaceTarget { target: t.id });
+        match reachability {
+            Some(false) if self.unreachable_ms == 0 => self.unreachable_ms = UNREACHABLE_MS,
+            Some(true) => self.unreachable_ms = 0,
+            _ => {}
+        }
+        let reach = combat_reach(self.profile.combat_reach, t.combat_reach)?;
+        let leeway = if o.creature_moving_and_running && t.moving_and_running {
+            self.profile.melee_leeway
+        } else {
+            Real::ZERO
+        };
+        let in_range = in_melee_range(self.position, t.position, reach, leeway)?;
+        if !in_range && o.movement.is_none() && self.command_id == prior_command {
+            return Err(AiError::Movement(BlockReason::MissingGeometry));
+        }
+        let decision = melee_decision(
+            self.mainhand_ms,
+            SwingConditions {
+                has_victim: true,
+                casting_non_melee: o.casting_non_melee,
+                can_initiate: o.can_initiate_attack,
+                in_range,
+                in_arc: true,
+                target_alive: t.alive,
+                can_attack: t.can_attack_in_combat,
+            },
+        );
+        match decision {
+            SwingDecision::Wait => {}
+            SwingDecision::Swing => {
+                if o.stationary_melee_refresh_eligible {
+                    self.refresh_pursuit();
+                }
+                self.mainhand_ms = self.profile.mainhand_interval_ms;
+                self.mainhand_timer_limit_ms = self.profile.mainhand_interval_ms.max(100);
+                effects.push(Effect::MainhandSwing { target: t.id });
+                let result = hook(
+                    OrderedHook::Mainhand {
+                        target: t.id,
+                        position: self.position,
+                        combat_started: effects
+                            .iter()
+                            .any(|e| matches!(e, Effect::CombatStarted { .. })),
+                    },
+                    self,
+                )?;
+                if result == MainhandResult::TargetDied {
+                    self.detach_dead_victim(t.id, self.now_ms)?;
+                }
+            }
+            SwingDecision::Retry(error) => {
+                // Upstream SWING_ERROR_NOT_IN_RANGE is enum value zero, so this particular
+                // error leaves both timers ready. Preserve that pinned-source quirk.
+                if error != SwingError::OutOfRange {
+                    self.mainhand_ms = 100;
+                    self.mainhand_timer_limit_ms = self.profile.mainhand_interval_ms.max(100);
+                }
+                effects.push(Effect::SwingDelayed {
+                    error,
+                    retry_ms: self.mainhand_ms,
+                });
+            }
+        }
+        // CombatManager::Update runs after AI; it subtracts at most one 1200ms interval.
+        if self.unreachable_ms != 0 {
+            if self.unreachable_ms <= o.elapsed_ms {
+                self.unreachable_ms = 0;
+                self.evade(EvadeReason::Unreachable, &mut effects)?;
+                return Ok(effects);
+            }
+            self.unreachable_ms -= o.elapsed_ms;
+        }
+        self.pursuit_ms = self.pursuit_ms.saturating_sub(o.elapsed_ms);
+        self.combat_tick_ms = self
+            .combat_tick_ms
+            .checked_add(o.elapsed_ms)
+            .ok_or(AiError::Invalid("combat tick overflow"))?;
+        if self.combat_tick_ms >= COMBAT_TICK_MS {
+            self.combat_tick_ms -= COMBAT_TICK_MS;
+            let distance = distance_2d(t.position, self.last_refresh, t.bounding_radius)?;
+            if self.victim_detached_at_ms.is_none()
+                && self.pursuit_ms == 0
+                && distance.greater(self.profile.leash_radius)
+            {
+                self.evade(EvadeReason::PursuitLeash, &mut effects)?;
+            } else if let Some(limit) = self.profile.hard_leash_radius {
+                if limit != Real::ZERO
+                    && distance_2d(
+                        self.position,
+                        self.combat_start,
+                        self.profile.bounding_radius,
+                    )?
+                    .greater(limit)
+                {
+                    self.evade(EvadeReason::HardLeash, &mut effects)?;
+                }
+            }
+        }
+        Ok(effects)
+    }
+    fn observe_sight(&mut self, o: &Observation, effects: &mut Vec<Effect>) -> Result<(), AiError> {
+        if self.phase == Phase::Idle {
+            if let Some(t) = &o.target {
+                if self.profile.reaction == Reaction::Aggressive
+                    && !self.profile.neutral_to_all
+                    && o.can_initiate_attack
+                    && t.alive
+                    && t.online
+                    && t.visible
+                    && t.can_attack_on_sight
+                    && t.accessible
+                    && t.line_of_sight
+                {
+                    let radius = attack_distance(
+                        self.profile.level,
+                        t.level,
+                        self.profile.detection,
+                        self.profile.aggro_rate,
+                    )?;
+                    if !self
+                        .position
+                        .square_distance(t.position, true)?
+                        .greater(radius.mul(radius)?)
+                    {
+                        self.attack_start(t, effects)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    fn event(
+        &mut self,
+        e: &CombatEvent,
+        target: Option<&Target>,
+        effects: &mut Vec<Effect>,
+    ) -> Result<(), AiError> {
+        if matches!(e, CombatEvent::Died) {
+            if matches!(self.phase, Phase::Corpse | Phase::Despawned) {
+                return Err(AiError::Invalid("duplicate death"));
+            }
+            self.death_at_ms = Some(self.now_ms);
+            self.death_deferred = true;
+            self.corpse_timer_calls.clear();
+            self.corpse_timer_previous_ms = 0;
+            self.corpse_timer_last_ms = self.now_ms;
+            self.phase = Phase::Corpse;
+            self.target = None;
+            self.victim_detached_at_ms = None;
+            self.hostile_references.clear();
+            self.motion = None;
+            self.unreachable_ms = 0;
+            self.corpse_at_ms = self
+                .now_ms
+                .checked_add(u64::from(self.profile.corpse_decay_ms))
+                .ok_or(AiError::Invalid("corpse time overflow"))?;
+            self.respawn_at_ms = (self.now_ms / 1000)
+                .checked_add(u64::from(self.profile.respawn_delay_seconds))
+                .and_then(|seconds| seconds.checked_mul(1000))
+                .ok_or(AiError::Invalid("respawn time overflow"))?;
+            effects.push(Effect::Died);
+            return Ok(());
+        }
+        if matches!(
+            self.phase,
+            Phase::Corpse | Phase::Despawned | Phase::ReturningHome
+        ) || self.unreachable_ms != 0
+        {
+            return Err(AiError::Invalid("combat receipt during death/home evade"));
+        }
+        let id = match e {
+            CombatEvent::AttackedBy { target }
+            | CombatEvent::CombatTimerTriggered { target }
+            | CombatEvent::Threat { target, .. } => *target,
+            _ => unreachable!(),
+        };
+        if self.target.is_some_and(|existing| existing != id) {
+            return Err(AiError::Unsupported(Unsupported::MultipleThreatTargets));
+        }
+        let t = target
+            .filter(|t| t.id == id && t.alive && t.online)
+            .ok_or(AiError::Invalid("combat target not validated"))?;
+        match e {
+            CombatEvent::AttackedBy { .. } => {
+                if self.phase == Phase::Idle {
+                    self.attack_start(t, effects)?;
+                }
+            }
+            CombatEvent::CombatTimerTriggered { .. } => {
+                if self.phase != Phase::Combat {
+                    return Err(AiError::Invalid("combat timer without represented victim"));
+                }
+                self.refresh_pursuit();
+            }
+            CombatEvent::Threat { amount, kind, .. } => {
+                amount.nonnegative("resolved threat")?;
+                if self.profile.reaction == Reaction::Passive {
+                    return Err(AiError::Unsupported(
+                        Unsupported::CrowdControlOrSpecialFlags,
+                    ));
+                }
+                // A periodic tick creates threat, but cannot initiate combat on its own in this
+                // bounded controller. An authenticated AttackedBy/direct hit must precede it.
+                if *kind == ThreatKind::PeriodicDamage && self.phase != Phase::Combat {
+                    return Err(AiError::Invalid("periodic threat without combat"));
+                }
+                self.attack_start(t, effects)?;
+                self.hostile_references
+                    .add_threat(t.id, *amount, !t.online)?;
+                if *kind == ThreatKind::DirectDamage {
+                    self.refresh_pursuit();
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+    fn attack_start(&mut self, t: &Target, effects: &mut Vec<Effect>) -> Result<(), AiError> {
+        if self.profile.reaction == Reaction::Passive
+            || !t.can_attack_in_combat
+            || self.phase == Phase::Combat
+        {
+            return Ok(());
+        }
+        self.phase = Phase::Combat;
+        self.target = Some(t.id);
+        self.victim_detached_at_ms = None;
+        self.combat_start = self.position;
+        self.hostile_references
+            .add_threat(t.id, Real::ZERO, !t.online)?;
+        self.refresh_pursuit();
+        self.combat_tick_ms = COMBAT_TICK_MS;
+        effects.push(Effect::CombatStarted { target: t.id });
+        self.command(MovementPurpose::Chase { target: t.id }, None, effects)
+    }
+    fn refresh_pursuit(&mut self) {
+        self.pursuit_ms = self.profile.pursuit_ms;
+        self.last_refresh = self.position;
+    }
+    fn command(
+        &mut self,
+        purpose: MovementPurpose,
+        home: Option<Point>,
+        effects: &mut Vec<Effect>,
+    ) -> Result<(), AiError> {
+        self.command_id = self
+            .command_id
+            .checked_add(1)
+            .ok_or(AiError::Invalid("command overflow"))?;
+        let command = MotionCommand {
+            command_id: self.command_id,
+            purpose,
+            home,
+        };
+        self.motion = Some(command.clone());
+        effects.push(Effect::Motion(command));
+        Ok(())
+    }
+    fn evade(&mut self, reason: EvadeReason, effects: &mut Vec<Effect>) -> Result<(), AiError> {
+        let home = home_position(self.combat_start, self.profile.spawn);
+        // HomeMovementGenerator switches to delayed forced despawn beyond 150 yards.
+        // That separate lifecycle is outside this bounded controller.
+        let home_limit = Real::integer(150);
+        if self
+            .position
+            .square_distance(home, true)?
+            .greater(home_limit.mul(home_limit)?)
+        {
+            return Err(AiError::Unsupported(Unsupported::LongDistanceHomeDespawn));
+        }
+        self.target = None;
+        self.victim_detached_at_ms = None;
+        self.hostile_references.clear();
+        self.unreachable_ms = 0;
+        self.pursuit_ms = 0;
+        self.phase = Phase::ReturningHome;
+        effects.push(Effect::EvadeStarted(reason));
+        self.command(MovementPurpose::Home, Some(home), effects)
+    }
+    /// Commit only the exact source-generated synchronous InterruptMoving
+    /// relocation. This is outside a pending Unit/AI receipt update.
+    pub fn apply_source_relocation(
+        &mut self,
+        receipt: crate::creature_motion::SourceRelocation,
+        geometry_revision: Revision,
+    ) -> Result<Effect, AiError> {
+        self.require_finished_generation()?;
+        let source_phase = match receipt.purpose {
+            MovementPurpose::Chase { .. } => self.phase == Phase::Combat && receipt.home.is_none(),
+            MovementPurpose::Home => {
+                self.phase == Phase::ReturningHome
+                    && receipt.home == Some(home_position(self.combat_start, self.profile.spawn))
+            }
+            MovementPurpose::Wander => false,
+        };
+        if self.pending_receipts.is_some()
+            || !source_phase
+            || receipt.identity.creature != self.profile.creature_id
+            || receipt.identity.map != self.profile.map_id
+            || receipt.identity.content != self.profile.content_revision
+            || receipt.identity.geometry != geometry_revision
+            || receipt.origin != self.position
+            || receipt.now_ms < self.now_ms
+            || receipt.now_ms - self.now_ms > 60_000
+            || self.motion.as_ref().is_none_or(|command| {
+                command.purpose != receipt.purpose || command.home != receipt.home
+            })
+        {
+            return Err(AiError::Invalid("synchronous source relocation binding"));
+        }
+        receipt.position.validate()?;
+        self.position = receipt.position;
+        Ok(Effect::PositionCommitted(receipt.position))
+    }
+    fn apply_movement(
+        &mut self,
+        o: &Observation,
+        effects: &mut Vec<Effect>,
+    ) -> Result<Option<bool>, AiError> {
+        let Some(m) = &o.movement else {
+            // Issuing a chase command is not evidence of reachability or movement.
+            return Ok(None);
+        };
+        let r = &m.request;
+        let default_wander = self.motion.is_none()
+            && self.phase == Phase::Idle
+            && r.command_id == 0
+            && r.purpose == MovementPurpose::Wander
+            && matches!(m.result, MovementResult::SourceSpline(_));
+        if !default_wander
+            && self.motion.as_ref().is_none_or(|command| {
+                r.command_id != command.command_id || r.purpose != command.purpose
+            })
+            || r.creature_id != self.profile.creature_id
+            || r.map_id != self.profile.map_id
+            || r.origin != self.position
+            || r.request_id <= self.movement_request_id
+            || r.elapsed_ms != o.elapsed_ms
+        {
+            return Err(AiError::Invalid("movement binding/time/origin"));
+        }
+        if r.content_revision != self.profile.content_revision {
+            return Err(AiError::Movement(BlockReason::StaleContent));
+        }
+        if r.geometry_revision != o.geometry_revision {
+            return Err(AiError::Movement(BlockReason::StaleGeometry));
+        }
+        let speed = if r.purpose == MovementPurpose::Home {
+            self.profile.home_speed
+        } else {
+            self.profile.run_speed
+        };
+        // The private source token already advanced a validated current Unit
+        // walk/run/wounded spline. External segments retain the legacy speed gate.
+        if !matches!(m.result, MovementResult::SourceSpline(_)) && r.speed != speed {
+            return Err(AiError::Invalid(
+                "movement speed is not resolved native speed",
+            ));
+        }
+        if r.purpose == MovementPurpose::Home
+            && self.motion.as_ref().and_then(|c| c.home) != Some(r.goal)
+        {
+            return Err(AiError::Invalid("wrong home destination"));
+        }
+        self.movement_request_id = r.request_id;
+        match &m.result {
+            MovementResult::SourceSpline(source) => {
+                if source.now_ms != self.now_ms
+                    || source.last_move_ms > source.now_ms
+                    || source.moving_and_running != o.creature_moving_and_running
+                    || source.stationary_melee_refresh_eligible
+                        != o.stationary_melee_refresh_eligible
+                    || o.target.as_ref().is_some_and(|target| {
+                        target.moving_and_running != source.target_moving_and_running
+                    })
+                {
+                    return Err(AiError::Invalid("source movement clock/flags"));
+                }
+                self.position = source.position;
+                if source.relocated {
+                    effects.push(Effect::PositionCommitted(source.position));
+                }
+                if source.home_arrived {
+                    if r.purpose != MovementPurpose::Home {
+                        return Err(AiError::Invalid("chase cannot complete Home"));
+                    }
+                    self.phase = Phase::Idle;
+                    self.motion = None;
+                    effects.push(Effect::HomeReached);
+                }
+                Ok(source.reachable)
+            }
+            MovementResult::Blocked(
+                BlockReason::MissingGeometry
+                | BlockReason::UnsupportedNavigation
+                | BlockReason::StaleGeometry
+                | BlockReason::StaleContent
+                | BlockReason::WrongMap
+                | BlockReason::StaleRequest,
+            ) => {
+                if let MovementResult::Blocked(reason) = m.result {
+                    Err(AiError::Movement(reason))
+                } else {
+                    unreachable!()
+                }
+            }
+            MovementResult::Blocked(_) => Ok(Some(false)),
+            MovementResult::Progress {
+                position, arrived, ..
+            } => {
+                self.position = *position;
+                effects.push(Effect::PositionCommitted(*position));
+                if *arrived && r.purpose == MovementPurpose::Home {
+                    self.phase = Phase::Idle;
+                    self.motion = None;
+                    effects.push(Effect::HomeReached);
+                }
+                Ok(Some(true))
+            }
+        }
+    }
+}
+
+mod checkpoint;
+mod loot_timer;
+pub use checkpoint::*;
+pub use loot_timer::{loot_interaction_distance, CorpseTimerCall};
+
+#[cfg(test)]
+mod player_parry_tests;

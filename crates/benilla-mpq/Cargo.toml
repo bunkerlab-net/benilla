@@ -13,3 +13,7 @@ workspace = true
 benilla-bytes = { path = "../benilla-bytes" }
 # Inflate for the ZLIB (0x02) sector codec, on its pure-Rust miniz_oxide backend.
 flate2 = "1.1"
+
+[target.'cfg(unix)'.dependencies]
+# Only the opt-in bounded reader's nonblocking, no-symlink archive opens.
+libc = "0.2"

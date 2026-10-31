@@ -1,0 +1,440 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Authored driver. All generation and query algorithms are linked original source.
+#include <array>
+#include <cfenv>
+#include <cmath>
+#include <cstdint>
+#include <cstdlib>
+#include <cstdio>
+#include <cstring>
+#include <limits>
+#include <memory>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
+#include "MapBuilder.h"
+#include "DetourNavMeshQuery.h"
+#include "TileAssembler.h"
+#include "MapTree.h"
+#include "DetourAlloc.h"
+#include "DetourNavMeshBuilder.h"
+
+static int merged_polygons=-1;
+extern "C" bool __real__Z17rcMergePolyMeshesP9rcContextPP10rcPolyMeshiRS1_(rcContext*,rcPolyMesh**,int,rcPolyMesh&);
+extern "C" bool __wrap__Z17rcMergePolyMeshesP9rcContextPP10rcPolyMeshiRS1_(rcContext* c,rcPolyMesh** p,int n,rcPolyMesh& out) {
+    bool ok=__real__Z17rcMergePolyMeshesP9rcContextPP10rcPolyMeshiRS1_(c,p,n,out);
+    merged_polygons=out.npolys; return ok;
+}
+static bool trace_files=false;
+static std::vector<json> file_events;
+extern "C" FILE* __real_fopen(const char*,const char*);
+extern "C" FILE* __wrap_fopen(const char* path,const char* mode) {
+    FILE* file=__real_fopen(path,mode);
+    if(trace_files) {
+        const char* base=std::strrchr(path,'/'); base=base?base+1:path;
+        file_events.push_back({{"basename",base},{"mode",mode},{"opened",file!=nullptr}});
+    }
+    return file;
+}
+static uint32_t bits(float value) { uint32_t word; std::memcpy(&word, &value, 4); return word; }
+static json float_bits(const float* values, size_t count) {
+    json out=json::array();
+    for(size_t i=0; i<count; ++i) { char buf[9]; std::snprintf(buf,9,"%08x",bits(values[i])); out.push_back(buf); }
+    return out;
+}
+static void write_u32(FILE* out, uint32_t value) { if(fwrite(&value,4,1,out)!=1) std::abort(); }
+static void write_array(FILE* out, const void* data, size_t item_size, size_t count) {
+    if(count && fwrite(data,item_size,count,out)!=count) std::abort();
+}
+static void dump_mesh(const std::string& path, const MMAP::MeshData& data) {
+    FILE* arrays=std::fopen(path.c_str(),"wb");
+    for(bool liquid:{false,true}) {
+        const auto& vertices=liquid?data.liquidVerts:data.solidVerts;
+        const auto& triangles=liquid?data.liquidTris:data.solidTris;
+        write_u32(arrays,vertices.size()/3); write_u32(arrays,triangles.size()/3);
+        write_array(arrays,vertices.getCArray(),4,vertices.size()); write_array(arrays,triangles.getCArray(),4,triangles.size());
+        if(liquid) write_array(arrays,data.liquidType.getCArray(),1,data.liquidType.size());
+    }
+    fclose(arrays);
+}
+static std::vector<unsigned char> read_file(const std::string& path) {
+    std::ifstream input(path,std::ios::binary); return {std::istreambuf_iterator<char>(input),{}};
+}
+// Allocation-only harness adaptation: original Detour lays out dtLink with
+// dtAlign4 despite its 8-byte alignment. Serialized bytes remain unchanged.
+struct AlignedTileBytes {
+    std::unique_ptr<unsigned char,decltype(&std::free)> storage{nullptr,&std::free};
+    unsigned char* data=nullptr;
+    size_t links_offset=0;
+    AlignedTileBytes(const unsigned char* source,size_t size) {
+        static_assert(sizeof(dtMeshHeader)==100 && sizeof(dtPoly)==32 && sizeof(dtLink)==16);
+        static_assert(alignof(dtLink)==8 && alignof(dtMeshHeader)==4 && alignof(dtPoly)==4);
+        if(size<sizeof(dtMeshHeader))throw std::runtime_error("short original tile");
+        dtMeshHeader header;std::memcpy(&header,source,sizeof(header));
+        if(header.vertCount<0 || header.polyCount<0)throw std::runtime_error("negative original tile count");
+        links_offset=sizeof(header)+size_t(header.vertCount)*3*sizeof(float)+size_t(header.polyCount)*sizeof(dtPoly);
+        if(links_offset>size)throw std::runtime_error("short original tile arrays");
+        storage.reset(static_cast<unsigned char*>(std::malloc(size+8)));
+        if(!storage)throw std::bad_alloc();
+        data=storage.get()+(links_offset%8?4:0);
+        if(reinterpret_cast<uintptr_t>(data)%alignof(dtMeshHeader) ||
+           reinterpret_cast<uintptr_t>(data+links_offset)%alignof(dtLink))throw std::runtime_error("unaligned original tile copy");
+        std::memcpy(data,source,size);
+    }
+};
+// Allocation-only adapter for original MapBuilder's own addTile/free path.
+// Original dtCreateNavMeshData bytes are copied before any source consumer runs;
+// every source dtFree(data) is translated to the matching original allocation
+// base. The bounded registry never changes source algorithms or emitted bytes.
+extern "C" bool __real__Z19dtCreateNavMeshDataP21dtNavMeshCreateParamsPPhPi(dtNavMeshCreateParams*,unsigned char**,int*);
+extern "C" void __real__Z6dtFreePv(void*);
+struct GeneratedTileAllocation {unsigned char* base=nullptr;unsigned char* data=nullptr;};
+static std::array<GeneratedTileAllocation,2> generated_allocations{};
+static size_t generated_copies=0,generated_releases=0;
+static unsigned char* align_generated_tile(unsigned char* original,size_t size) {
+    std::unique_ptr<unsigned char,decltype(&__real__Z6dtFreePv)> original_owner(original,&__real__Z6dtFreePv);
+    if(size<sizeof(dtMeshHeader) || size>1024*1024)throw std::runtime_error("original generated tile size outside harness bound");
+    dtMeshHeader header;std::memcpy(&header,original,sizeof(header));
+    if(header.vertCount<0 || header.polyCount<0)throw std::runtime_error("negative generated tile count");
+    const size_t links=sizeof(header)+size_t(header.vertCount)*3*sizeof(float)+size_t(header.polyCount)*sizeof(dtPoly);
+    if(links>size)throw std::runtime_error("short generated tile arrays");
+    for(auto& owned:generated_allocations)if(!owned.base) {
+        auto* base=static_cast<unsigned char*>(dtAlloc(size+8,DT_ALLOC_PERM));
+        if(!base)throw std::bad_alloc();
+        auto* data=base+(links%8?4:0);
+        if(reinterpret_cast<uintptr_t>(data)%alignof(dtMeshHeader) || reinterpret_cast<uintptr_t>(data+links)%alignof(dtLink)) {
+            __real__Z6dtFreePv(base);throw std::runtime_error("unaligned generated tile allocation");
+        }
+        std::memcpy(data,original,size);
+        if(std::memcmp(data,original,size)!=0)std::abort();
+        owned={base,data};++generated_copies;return data;
+    }
+    throw std::runtime_error("generated tile allocation registry full");
+}
+extern "C" bool __wrap__Z19dtCreateNavMeshDataP21dtNavMeshCreateParamsPPhPi(dtNavMeshCreateParams* params,unsigned char** data,int* size) {
+    const bool created=__real__Z19dtCreateNavMeshDataP21dtNavMeshCreateParamsPPhPi(params,data,size);
+    if(created)*data=align_generated_tile(*data,static_cast<size_t>(*size));
+    return created;
+}
+extern "C" void __wrap__Z6dtFreePv(void* pointer) {
+    for(auto& owned:generated_allocations)if(owned.data && pointer==owned.data) {
+        auto* base=owned.base;owned={};++generated_releases;__real__Z6dtFreePv(base);return;
+    }
+    __real__Z6dtFreePv(pointer);
+}
+static void check_generated_allocations_released() {
+    for(const auto& owned:generated_allocations)if(owned.base || owned.data)throw std::runtime_error("unreleased generated tile allocation");
+    if(generated_copies!=generated_releases)throw std::runtime_error("generated tile release count differs");
+}
+// Independent original-allocator callbacks verify the pointer actually received
+// by original dtFree, including both shifted and unshifted copied layouts.
+struct AllocationAudit {void* base=nullptr;bool live=false;};
+static std::array<AllocationAudit,4> allocation_audit{};
+static size_t audit_allocations=0,audit_releases=0;
+static void* audit_allocate(size_t size,dtAllocHint) {
+    if(audit_allocations==allocation_audit.size())std::abort();
+    void* base=std::malloc(size);if(!base)throw std::bad_alloc();
+    allocation_audit[audit_allocations++]={base,true};return base;
+}
+static void audit_release(void* pointer) {
+    for(auto& item:allocation_audit)if(item.live && item.base==pointer) {
+        item.live=false;++audit_releases;std::free(pointer);return;
+    }
+    std::abort(); // A shifted pointer or duplicate release is never passed to free.
+}
+static void check_generated_copy_parities() {
+    dtAllocSetCustom(&audit_allocate,&audit_release);
+    std::array<unsigned char*,2> copies{};
+    for(int vertices:{1,2}) {
+        const size_t size=sizeof(dtMeshHeader)+vertices*12+sizeof(dtPoly)+sizeof(dtLink);
+        auto* bytes=static_cast<unsigned char*>(dtAlloc(size,DT_ALLOC_PERM));std::memset(bytes,0xa5,size);
+        dtMeshHeader header{};header.vertCount=vertices;header.polyCount=1;std::memcpy(bytes,&header,sizeof(header));
+        copies[vertices-1]=align_generated_tile(bytes,size);
+        const auto& owned=generated_allocations[vertices-1];
+        if(owned.data-owned.base!=(vertices==1?0:4))std::abort();
+    }
+    // Both owners are live at once, then released in the opposite order.
+    __wrap__Z6dtFreePv(copies[1]);__wrap__Z6dtFreePv(copies[0]);
+    check_generated_allocations_released();
+    if(audit_allocations!=4 || audit_releases!=4)std::abort();
+    for(const auto& item:allocation_audit)if(item.live)std::abort();
+    dtAllocSetCustom(nullptr,nullptr);
+    std::printf("Generator allocation audit: both parities; 4 original allocation bases released exactly once\n");
+}
+static void check_tile_copy_parities() {
+    // Both layouts are exercised even when captured source tiles share parity.
+    for(int vertices:{1,2}) {
+        std::vector<unsigned char> bytes(sizeof(dtMeshHeader)+vertices*12+sizeof(dtPoly)+sizeof(dtLink),0xa5);
+        dtMeshHeader header{};header.vertCount=vertices;header.polyCount=1;
+        std::memcpy(bytes.data(),&header,sizeof(header));AlignedTileBytes copy(bytes.data(),bytes.size());
+        if(std::memcmp(bytes.data(),copy.data,bytes.size())!=0)throw std::runtime_error("tile copy changed bytes");
+    }
+}
+static void check_loaded_tile_alignment(const dtMeshTile* tile) {
+    if(reinterpret_cast<uintptr_t>(tile->links)%alignof(dtLink))throw std::runtime_error("unaligned loaded original links");
+}
+static json queries(const std::string& base, uint32_t map, uint32_t x, uint32_t y) {
+    const bool details=std::getenv("BENILLA_ORACLE_QUERY_DETAILS")!=nullptr;
+    char path[1024]; std::snprintf(path,sizeof(path),"%s/mmaps/%03u.mmap",base.c_str(),map);
+    auto mmap=read_file(path); if(mmap.size()!=sizeof(dtNavMeshParams)) throw std::runtime_error("missing mmap");
+    dtNavMeshParams params; memcpy(&params,mmap.data(),sizeof(params));
+    json result; result["params_origin_bits"]=float_bits(params.orig,3);
+    result["max_tiles"]=params.maxTiles; result["max_polys"]=params.maxPolys;
+    std::snprintf(path,sizeof(path),"%s/mmaps/%03u%02u%02u.mmtile",base.c_str(),map,y,x);
+    auto bytes=read_file(path); result["emitted"]=!bytes.empty(); if(bytes.empty()) return result;
+    MmapTileHeader framing; memcpy(&framing,bytes.data(),sizeof(framing));
+    if(framing.size+sizeof(framing)!=bytes.size()) throw std::runtime_error("bad original framing");
+    AlignedTileBytes tile_bytes(bytes.data()+sizeof(framing),framing.size);
+    std::unique_ptr<dtNavMesh,decltype(&dtFreeNavMesh)> mesh(dtAllocNavMesh(),&dtFreeNavMesh);
+    if(!mesh)throw std::bad_alloc();
+    auto init_status=mesh->init(&params);
+    if(dtStatusFailed(init_status)) {
+        // Pinned init can leave m_tiles null/uninitialized after setting maxTiles.
+        // Its destructor is unsafe then. Fail this subprocess; the OS reclaims
+        // this unpublished partial owner rather than invoking that destructor.
+        (void)mesh.release();throw std::runtime_error("init failed");
+    }
+    dtTileRef tile_ref=0;
+    auto status=mesh->addTile(tile_bytes.data,framing.size,0,0,&tile_ref);
+    if(dtStatusFailed(status)) throw std::runtime_error("addTile failed");
+    if(details) { result["mesh_init_status"]=init_status; result["add_tile_status"]=status; }
+    const dtMeshTile* tile=mesh->getTileByRef(tile_ref); const dtMeshHeader* header=tile->header;
+    check_loaded_tile_alignment(tile);
+    result["poly_count"]=header->polyCount; result["vert_count"]=header->vertCount;
+    result["detail_vert_count"]=header->detailVertCount; result["detail_tri_count"]=header->detailTriCount;
+    result["bv_node_count"]=header->bvNodeCount; result["tile_x"]=header->x; result["tile_y"]=header->y;
+    result["tile_bmin_bits"]=float_bits(header->bmin,3); result["tile_bmax_bits"]=float_bits(header->bmax,3);
+    json areas=json::object(); for(int i=0;i<header->polyCount;++i) {auto key=std::to_string(tile->polys[i].getArea()); areas[key]=areas.value(key,0)+1;}
+    result["areas"]=areas;
+    if(details) {
+        json flags=json::object(); for(int i=0;i<header->polyCount;++i) {auto key=std::to_string(tile->polys[i].flags);flags[key]=flags.value(key,0)+1;}
+        result["polygon_flags"]=flags;
+    }
+    std::unique_ptr<dtNavMeshQuery,decltype(&dtFreeNavMeshQuery)> query(dtAllocNavMeshQuery(),&dtFreeNavMeshQuery);
+    if(!query)throw std::bad_alloc();
+    auto query_init_status=query->init(mesh.get(),32768);
+    if(dtStatusFailed(query_init_status)) throw std::runtime_error("query init failed");
+    dtQueryFilter filter; filter.setIncludeFlags(NAV_GROUND); filter.setExcludeFlags(0);
+    if(details) {
+        result["query_init_status"]=query_init_status;
+        result["query_filter"]={{"include_flags",filter.getIncludeFlags()},{"exclude_flags",filter.getExcludeFlags()}};
+    }
+    const float extents[3]={5.f,10000.f,5.f};
+    result["queries"]=json::array(); std::vector<dtPolyRef> refs; std::vector<std::array<float,3>> points;
+    for(int row=1;row<=5;++row) for(int col=1;col<=5;++col) {
+        float request[3]={header->bmin[0]+(header->bmax[0]-header->bmin[0])*col/6.f,
+                          header->bmax[1]+1.f,
+                          header->bmin[2]+(header->bmax[2]-header->bmin[2])*row/6.f};
+        float nearest[3]={}; dtPolyRef ref=0; auto nearest_status=query->findNearestPoly(request,extents,&filter,&ref,nearest);
+        json item={{"point_bits",float_bits(request,3)},{"extents_bits",float_bits(extents,3)},
+                   {"status",nearest_status},{"poly_ref",ref},{"nearest_bits",float_bits(nearest,3)}};
+        if(ref) { float height=0; auto hs=query->getPolyHeight(ref,nearest,&height); item["height_status"]=hs; item["height_bits"]=float_bits(&height,1)[0];
+            refs.push_back(ref); points.push_back({nearest[0],nearest[1],nearest[2]}); }
+        result["queries"].push_back(item);
+    }
+    result["paths"]=json::array();
+    if(refs.size()>1) for(size_t end=1;end<refs.size();++end) {
+        dtPolyRef corridor[65536]; int count=0; auto ps=query->findPath(refs[0],refs[end],points[0].data(),points[end].data(),&filter,corridor,&count,65536);
+        json item={{"start_ref",refs[0]},{"end_ref",refs[end]},{"start_bits",float_bits(points[0].data(),3)},
+                   {"end_bits",float_bits(points[end].data(),3)},{"status",ps},{"corridor",json::array()}};
+        for(int i=0;i<count;++i) item["corridor"].push_back(corridor[i]);
+        float straight[4096*3]; unsigned char flags[4096]; dtPolyRef straight_refs[4096]; int straight_count=0;
+        auto ss=query->findStraightPath(points[0].data(),points[end].data(),corridor,count,straight,flags,straight_refs,&straight_count,4096);
+        item["straight_status"]=ss; item["straight_bits"]=float_bits(straight,straight_count*3);
+        result["paths"].push_back(item);
+    }
+    // Declaration order destroys query, then mesh (flags=0), then tile_bytes.
+    return result;
+}
+static int scalar_nearest_queries(const char* base,const char* source_points,const char* destination) {
+    std::ifstream original_points(source_points);json fixture=json::parse(original_points);
+    auto mmap=read_file(std::string(base)+"/mmaps/000.mmap");
+    auto bytes=read_file(std::string(base)+"/mmaps/0003130.mmtile");
+    if(mmap.size()!=sizeof(dtNavMeshParams) || bytes.size()<sizeof(MmapTileHeader)) throw std::runtime_error("missing original scalar-query input");
+    dtNavMeshParams params;std::memcpy(&params,mmap.data(),sizeof(params));
+    MmapTileHeader framing;std::memcpy(&framing,bytes.data(),sizeof(framing));
+    if(framing.size+sizeof(framing)!=bytes.size())throw std::runtime_error("bad original scalar-query framing");
+    AlignedTileBytes tile_bytes(bytes.data()+sizeof(framing),framing.size);
+    std::unique_ptr<dtNavMesh,decltype(&dtFreeNavMesh)> mesh(dtAllocNavMesh(),&dtFreeNavMesh);
+    if(!mesh)throw std::bad_alloc();
+    if(dtStatusFailed(mesh->init(&params))) {
+        // Same process-bounded failed-init ownership as the wide-height queries.
+        (void)mesh.release();throw std::runtime_error("scalar query mesh init failed");
+    }
+    dtTileRef tile_ref=0;auto add_status=mesh->addTile(tile_bytes.data,framing.size,0,0,&tile_ref);
+    if(dtStatusFailed(add_status))throw std::runtime_error("scalar query tile load failed");
+    check_loaded_tile_alignment(mesh->getTileByRef(tile_ref));
+    std::unique_ptr<dtNavMeshQuery,decltype(&dtFreeNavMeshQuery)> query(dtAllocNavMeshQuery(),&dtFreeNavMeshQuery);
+    if(!query)throw std::bad_alloc();
+    if(dtStatusFailed(query->init(mesh.get(),32768)))throw std::runtime_error("scalar query init failed");
+    dtQueryFilter filter;filter.setIncludeFlags(NAV_GROUND);filter.setExcludeFlags(0);
+    const float extents[3]={5.f,5.f,5.f};
+    json result={{"schema",1},{"include_flags",NAV_GROUND},{"exclude_flags",0},{"extents_bits",float_bits(extents,3)},{"queries",json::array()}};
+    unsigned index=0;
+    for(const auto& original:fixture["output"]["queries"]) {
+        float point[3];for(unsigned axis=0;axis<3;++axis){uint32_t word=std::stoul(original["nearest_bits"][axis].get<std::string>(),nullptr,16);std::memcpy(&point[axis],&word,4);}
+        float nearest[3]={};dtPolyRef ref=0;bool over=false;
+        auto status=query->findNearestPoly(point,extents,&filter,&ref,nearest,&over);
+        json item={{"source_query_index",index++},{"source_poly_ref",original["poly_ref"]},{"point_bits",float_bits(point,3)},
+                   {"status",status},{"poly_ref",ref},{"nearest_bits",float_bits(nearest,3)},{"is_over_poly",over}};
+        if(ref){float input_height=0,nearest_height=0;
+            auto input_status=query->getPolyHeight(ref,point,&input_height);auto nearest_status=query->getPolyHeight(ref,nearest,&nearest_height);
+            item["input_height_status"]=input_status;item["input_height_bits"]=float_bits(&input_height,1)[0];
+            item["nearest_height_status"]=nearest_status;item["nearest_height_bits"]=float_bits(&nearest_height,1)[0];
+        }
+        result["queries"].push_back(item);
+    }
+    std::ofstream(destination)<<result.dump(2)<<"\n";return 0;
+}
+// Two emitted original tiles, retained in owned aligned buffers until after the
+// query and mesh have been destroyed. This mode neither changes nor rebuilds
+// serialized source output. Inputs and capacities are deliberately bounded.
+static std::vector<unsigned char> read_bounded_file(const std::string& path,size_t maximum) {
+    std::ifstream file(path,std::ios::binary|std::ios::ate);
+    const auto size=file.tellg();
+    if(size<0 || static_cast<uint64_t>(size)>maximum)throw std::runtime_error("missing or oversized two-tile input");
+    file.seekg(0);std::vector<unsigned char> bytes(static_cast<size_t>(size));
+    if(size && !file.read(reinterpret_cast<char*>(bytes.data()),size))throw std::runtime_error("short two-tile input");
+    return bytes;
+}
+static std::array<float,3> point_from_bits(const json& values) {
+    if(!values.is_array() || values.size()!=3)throw std::runtime_error("bad two-tile point");
+    std::array<float,3> point{};
+    for(size_t axis=0;axis<3;++axis) {
+        const auto text=values[axis].get<std::string>();
+        if(text.size()!=8 || text.find_first_not_of("0123456789abcdef")!=std::string::npos)throw std::runtime_error("bad float bits");
+        uint32_t word=std::stoul(text,nullptr,16);std::memcpy(&point[axis],&word,4);
+        if(!std::isfinite(point[axis]))throw std::runtime_error("nonfinite two-tile point");
+    }
+    return point;
+}
+static int two_tile_queries(const char* base,const char* source_points,const char* destination) {
+    const auto input_bytes=read_bounded_file(source_points,65536);
+    const json input=json::parse(input_bytes.begin(),input_bytes.end());
+    if(!input["queries"].is_array() || input["queries"].empty() || input["queries"].size()>16)throw std::runtime_error("bad two-tile query count");
+    const auto mmap=read_bounded_file(std::string(base)+"/mmaps/000.mmap",sizeof(dtNavMeshParams));
+    if(mmap.size()!=sizeof(dtNavMeshParams))throw std::runtime_error("missing two-tile mmap");
+    dtNavMeshParams params;std::memcpy(&params,mmap.data(),sizeof(params));
+    if(params.maxTiles!=2)throw std::runtime_error("two-tile map capacity differs");
+    std::array<std::unique_ptr<AlignedTileBytes>,2> owned_tiles;
+    std::array<int,2> tile_sizes{};
+    const std::array<std::string,2> filenames={"0003130.mmtile","0003129.mmtile"};
+    for(size_t index=0;index<filenames.size();++index) {
+        const auto bytes=read_bounded_file(std::string(base)+"/mmaps/"+filenames[index],1024*1024);
+        if(bytes.size()<sizeof(MmapTileHeader))throw std::runtime_error("missing original two-tile input");
+        MmapTileHeader framing;std::memcpy(&framing,bytes.data(),sizeof(framing));
+        if(size_t(framing.size)+sizeof(framing)!=bytes.size())throw std::runtime_error("bad original two-tile framing");
+        tile_sizes[index]=static_cast<int>(framing.size);
+        owned_tiles[index]=std::make_unique<AlignedTileBytes>(bytes.data()+sizeof(framing),framing.size);
+    }
+    std::unique_ptr<dtNavMesh,decltype(&dtFreeNavMesh)> mesh(dtAllocNavMesh(),&dtFreeNavMesh);
+    if(!mesh)throw std::bad_alloc();
+    const auto init_status=mesh->init(&params);
+    if(dtStatusFailed(init_status)) {
+        // Same process-bounded failed-init ownership as the single-tile modes.
+        (void)mesh.release();throw std::runtime_error("two-tile mesh init failed");
+    }
+    json result={{"schema",1},{"mesh_init_status",init_status},{"max_tiles",params.maxTiles},
+                 {"params_origin_bits",float_bits(params.orig,3)},{"loaded_tiles",json::array()},{"queries",json::array()}};
+    for(size_t index=0;index<filenames.size();++index) {
+        dtTileRef tile_ref=0;
+        const auto status=mesh->addTile(owned_tiles[index]->data,tile_sizes[index],0,0,&tile_ref);
+        if(dtStatusFailed(status))throw std::runtime_error("two-tile add failed");
+        const dtMeshTile* tile=mesh->getTileByRef(tile_ref);check_loaded_tile_alignment(tile);
+        result["loaded_tiles"].push_back({{"filename",filenames[index]},{"tile_ref",tile_ref},{"add_tile_status",status},
+            {"tile_x",tile->header->x},{"tile_y",tile->header->y},{"poly_count",tile->header->polyCount},
+            {"tile_bmin_bits",float_bits(tile->header->bmin,3)},{"tile_bmax_bits",float_bits(tile->header->bmax,3)}});
+    }
+    std::unique_ptr<dtNavMeshQuery,decltype(&dtFreeNavMeshQuery)> query(dtAllocNavMeshQuery(),&dtFreeNavMeshQuery);
+    if(!query)throw std::bad_alloc();
+    const auto query_status=query->init(mesh.get(),32768);
+    if(dtStatusFailed(query_status))throw std::runtime_error("two-tile query init failed");
+    dtQueryFilter filter;filter.setIncludeFlags(NAV_GROUND);filter.setExcludeFlags(0);
+    const float extents[3]={5.f,5.f,5.f};
+    result["query_init_status"]=query_status;
+    result["query_filter"]={{"include_flags",filter.getIncludeFlags()},{"exclude_flags",filter.getExcludeFlags()}};
+    result["extents_bits"]=float_bits(extents,3);
+    for(const auto& request:input["queries"]) {
+        const auto start=point_from_bits(request["start_bits"]),end=point_from_bits(request["end_bits"]);
+        dtPolyRef start_ref=0,end_ref=0;float start_nearest[3]={},end_nearest[3]={};bool start_over=false,end_over=false;
+        const auto start_status=query->findNearestPoly(start.data(),extents,&filter,&start_ref,start_nearest,&start_over);
+        const auto end_status=query->findNearestPoly(end.data(),extents,&filter,&end_ref,end_nearest,&end_over);
+        if(!start_ref || !end_ref)throw std::runtime_error("two-tile endpoint missed");
+        dtPolyRef corridor[256];int count=0;
+        const auto path_status=query->findPath(start_ref,end_ref,start_nearest,end_nearest,&filter,corridor,&count,256);
+        json item={{"name",request["name"]},{"start_bits",float_bits(start.data(),3)},{"end_bits",float_bits(end.data(),3)},
+            {"start_status",start_status},{"end_status",end_status},{"start_ref",start_ref},{"end_ref",end_ref},
+            {"start_nearest_bits",float_bits(start_nearest,3)},{"end_nearest_bits",float_bits(end_nearest,3)},
+            {"start_over_poly",start_over},{"end_over_poly",end_over},{"status",path_status},
+            {"corridor",json::array()},{"corridor_tile_refs",json::array()},{"corridor_tile_coordinates",json::array()}};
+        for(int index=0;index<count;++index) {
+            const dtMeshTile* tile=nullptr;const dtPoly* poly=nullptr;
+            if(dtStatusFailed(mesh->getTileAndPolyByRef(corridor[index],&tile,&poly)))throw std::runtime_error("two-tile path reference missing");
+            item["corridor"].push_back(corridor[index]);item["corridor_tile_refs"].push_back(mesh->getTileRef(tile));
+            item["corridor_tile_coordinates"].push_back({tile->header->x,tile->header->y});
+        }
+        float straight[256*3];unsigned char flags[256];dtPolyRef straight_refs[256];int straight_count=0;
+        const auto straight_status=query->findStraightPath(start_nearest,end_nearest,corridor,count,straight,flags,straight_refs,&straight_count,256);
+        item["straight_status"]=straight_status;item["straight_bits"]=float_bits(straight,straight_count*3);
+        item["straight_flags"]=json::array();item["straight_refs"]=json::array();
+        for(int index=0;index<straight_count;++index) {item["straight_flags"].push_back(flags[index]);item["straight_refs"].push_back(straight_refs[index]);}
+        result["queries"].push_back(item);
+    }
+    // Declaration order destroys query, mesh (flags=0), then BOTH owned tiles.
+    std::ofstream(destination)<<result.dump(2)<<"\n";return 0;
+}
+void from_json(const json&,rcConfig&);
+static int config_queries(const char* base,const char* config_path) {
+    MMAP::MapBuilder builder(config_path,1,false,false,false,false,false,nullptr,base);
+    json results=json::array();
+    for(const auto& key:std::vector<std::array<uint32_t,3>>{{0,30,31},{0,36,53},{429,30,32},{545,0,0},{562,0,0},{572,28,29},{1,1,23},{1,12,3}}) {
+        json values=builder.getTileConfig(key[0],key[1],key[2]); rcConfig config{};from_json(values,config);
+        results.push_back({{"map_id",key[0]},{"tile_x",key[1]},{"tile_y",key[2]},{"merged_json",values},
+                           {"walkable_radius",config.walkableRadius},{"walkable_climb",config.walkableClimb},
+                           {"min_region_area_squared",config.minRegionArea},{"merge_region_area_squared",config.mergeRegionArea}});
+    }
+    std::ofstream(std::string(base)+"/config-result.json")<<results.dump(2)<<"\n";return 0;
+}
+int main(int argc,char** argv) {
+    static_assert(sizeof(float)==4 && sizeof(dtNavMeshParams)==28 && sizeof(MmapTileHeader)==20);
+    if(std::fesetround(FE_TONEAREST)!=0) return 1;
+    check_tile_copy_parities();
+    check_generated_copy_parities();
+    if(argc==5 && std::string(argv[1])=="two_tile_queries") return two_tile_queries(argv[2],argv[3],argv[4]);
+    if(argc==5 && std::string(argv[1])=="scalar_queries") return scalar_nearest_queries(argv[2],argv[3],argv[4]);
+    if(argc==4 && std::string(argv[1])=="configs") return config_queries(argv[2],argv[3]);
+    if(argc==4 && std::string(argv[1])=="assemble") { VMAP::TileAssembler assembler(argv[2],argv[3]); return assembler.convertWorld2()?0:2; }
+    if(argc!=7) { std::fprintf(stderr,"usage: oracle DIR MAP X Y CONFIG OFFMESH\n"); return 2; }
+    const std::string base=argv[1]; uint32_t map=std::stoul(argv[2]),x=std::stoul(argv[3]),y=std::stoul(argv[4]);
+    MMAP::MapBuilder builder(argv[5],1,false,false,false,false,false,argv[6],base.c_str());
+    MMAP::MeshData data; trace_files=true; builder.m_terrainBuilder->loadMap(map,x,y,data); trace_files=false;
+    dump_mesh(base+"/source-terrain.bin",data);
+    json result; result["terrain_file_events"]=file_events; result["terrain_vertices_before_clean"]=data.solidVerts.size()/3;
+    result["terrain_triangles"]=data.solidTris.size()/3;
+    result["vmap_loaded"]=builder.m_terrainBuilder->loadVMap(map,y,x,data);
+    dump_mesh(base+"/source-combined.bin",data);
+    result["combined_vertices_before_clean"]=data.solidVerts.size()/3;
+    result["combined_triangles"]=data.solidTris.size()/3;
+    MMAP::TerrainBuilder::cleanVertices(data.solidVerts,data.solidTris);
+    MMAP::TerrainBuilder::cleanVertices(data.liquidVerts,data.liquidTris);
+    G3D::Array<float> all; all.append(data.liquidVerts); all.append(data.solidVerts);
+    float bmin[3],bmax[3]; builder.getTileBounds(x,y,all.getCArray(),all.size()/3,bmin,bmax);
+    const json config=builder.getTileConfig(map,x,y); result["config"]=config;
+    result["bounds_min_bits"]=float_bits(bmin,3); result["bounds_max_bits"]=float_bits(bmax,3);
+    result["solid_vertices"]=data.solidVerts.size()/3; result["solid_triangles"]=data.solidTris.size()/3;
+    result["liquid_vertices"]=data.liquidVerts.size()/3; result["liquid_triangles"]=data.liquidTris.size()/3;
+    if(std::getenv("BENILLA_ORACLE_QUERY_DETAILS")) {
+        json areas=json::object(); for(int i=0;i<data.liquidType.size();++i) {auto key=std::to_string(data.liquidType[i]);areas[key]=areas.value(key,0)+1;}
+        result["liquid_triangle_areas"]=areas;
+    }
+    result["tile_union"]=json::array(); for(auto tile:builder.getTileList(map)) { uint32_t tx,ty; VMAP::StaticMapTree::unpackTileID(tile,tx,ty); result["tile_union"].push_back({tx,ty}); }
+    if(!std::getenv("BENILLA_ORACLE_COLLECT_ONLY")) {
+        builder.buildSingleTile(map,x,y);
+        check_generated_allocations_released();
+        result["output"]=queries(base,map,x,y);
+        result["output"]["merged_polygons"]=merged_polygons;
+    }
+    dump_mesh(base+"/source-mesh.bin",data);
+    std::ofstream(base+"/source-result.json")<<result.dump(2)<<"\n";
+}

@@ -1,0 +1,27 @@
+[package]
+name = "benilla-profile"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Local owner identities and durable exploration characters for the P2P fork"
+
+[dependencies]
+ed25519-dalek = { version = "3", features = ["zeroize"] }
+getrandom = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+zeroize = { version = "1", features = ["serde"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+# Compile the actual app action bridge without linking Bevy.
+anyhow.workspace = true
+benilla-protocol = { path = "../benilla-protocol" }
+
+benilla-ui = { path = "../benilla-ui" }

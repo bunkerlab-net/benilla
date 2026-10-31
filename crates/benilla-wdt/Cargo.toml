@@ -5,5 +5,8 @@ edition.workspace = true
 license.workspace = true
 description = "WDT map tile-table reader and tile/world coordinates for WoW 1.12.1 (build 5875)"
 
+[dependencies]
+sha2 = "0.10"
+
 [lints]
 workspace = true

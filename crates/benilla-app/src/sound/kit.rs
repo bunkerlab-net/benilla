@@ -80,11 +80,13 @@ impl SoundKits {
 /// One playing channel the pump owns, the client's channel struct.
 pub(crate) struct ActiveChannel {
     pub(crate) kit: u32,
+    /// The file it opened, whose `SStrHash` the sound keeps at `+0x80` for the duplicate walk.
+    file: String,
     /// The entity this channel belongs to; [`Latch`] says whether it also holds a latch, which
     /// the pump's reap releases when the sound stops.
     source: Option<Entity>,
-    /// A source-tagged loop follows its unit (the tracked play `0x61fec0`); one-shots stay put.
-    tracked: bool,
+    /// Explicit source positioning, independent of playback lifetime and per-unit latches.
+    follow: Option<FollowSource>,
     handle: mixer::StaticSoundHandle,
     /// The spatial track keeping the 3D voice alive; `None` = 2D (main track).
     track: Option<mixer::SpatialTrackHandle>,
@@ -224,6 +226,10 @@ impl Bus {
     /// `CustomAttack[n]` column that replaces it (`0x6248ea`) and the parry or block clang
     /// (`0x623640` → `0x457dc0`). The deflect clang is a fixed kit on bus 0.
     pub(super) const MELEE_IMPACT: Bus = Bus(10);
+
+    /// Bus 3, cap 2: Lua's `PlaySoundFile` (`mov ecx,3` at `0x4587bc`), so a third file while two
+    /// still play is refused.
+    pub(super) const PLAY_SOUND_FILE: Bus = Bus(3);
 }
 
 /// The reference's cap table, `.data` `0x87ce60`: 13 dwords with no writer, read only at
@@ -235,10 +241,29 @@ const BUS_CAP: [u32; 13] = [0x7fff_ffff, 1, 2, 2, 1, 1, 2, 2, 1, 6, 4, 1, 2];
 /// coherently (five are one sound +14 dB), so a mass buff distorts.
 const SAME_KIT_MAX: usize = 2;
 
-/// The reference's per-kit suppressor: kit flag 0x20 and a same-kit channel still live
-/// (`0x458f40` lifts it into the flags word the pre-play gate `0x7a66a0` reads).
-fn no_duplicates_blocks(dedupe_exempt: bool, flags: u32, live_same_kit: usize) -> bool {
-    !dedupe_exempt && flags & sound_kit_flags::NO_DUPLICATES != 0 && live_same_kit > 0
+/// The reference's duplicate suppressor: kit flag 0x20 and a channel of the same file still live
+/// ([`live_duplicates`]; `0x458f40` lifts the flag into the flags word the pre-play gate `0x7a66a0`
+/// reads).
+fn no_duplicates_blocks(dedupe_exempt: bool, flags: u32, live_same_file: usize) -> bool {
+    !dedupe_exempt && flags & sound_kit_flags::NO_DUPLICATES != 0 && live_same_file > 0
+}
+
+/// How many live channels the duplicate walk (`0x7a66e7`-`0x7a670b`) matches for a play of `file`,
+/// each live channel given as the file it opened: whatever kit opened it.
+fn live_duplicates<'a>(live: impl Iterator<Item = &'a str>, file: &str) -> usize {
+    live.filter(|f| same_file(f, file)).count()
+}
+
+/// Two names `SStrHash` (`0x64af90`, flags 0) hashes alike: ASCII case and `/` against `\` folded.
+fn same_file(a: &str, b: &str) -> bool {
+    let fold = |c: u8| {
+        if c == b'/' {
+            b'\\'
+        } else {
+            c.to_ascii_uppercase()
+        }
+    };
+    a.len() == b.len() && a.bytes().zip(b.bytes()).all(|(x, y)| fold(x) == fold(y))
 }
 
 /// The [`SAME_KIT_MAX`] cap, part of the one-shot lane ([`PlayExtras::dedupe_exempt`]).
@@ -338,6 +363,8 @@ pub(super) struct PlayExtras {
     pub(super) variant: Option<usize>,
     /// The entity the channel belongs to ([`ActiveChannel`]'s `source`).
     pub(super) source: Option<Entity>,
+    /// Follow a live emitter even for a one-shot. None preserves the ordinary loop-only policy.
+    pub(super) follow: Option<FollowSource>,
     /// Loop regardless of the kit's 0x200 flag, for drivers whose column is the loop authority:
     /// every `CreatureSoundData` column-23 kit is named `*Loop*` yet half lack 0x200. The
     /// reference's loop start `0x461d80` is untraced.
@@ -366,7 +393,8 @@ impl Default for Volume {
     }
 }
 
-/// A kit to play, by id or by `PlaySoundByName` name.
+/// A kit to play, by id or by `PlaySoundByName` name: an interface sound, a type-2 row
+/// (`0x458030`, the table `0x45c2c0` builds).
 pub(crate) enum KitRef<'a> {
     Id(u32),
     Name(&'a str),
@@ -414,6 +442,7 @@ pub(super) fn play_kit_ext(
     let PlayExtras {
         variant,
         source,
+        follow,
         force_loop,
         dedupe_exempt,
         latch,
@@ -427,7 +456,7 @@ pub(super) fn play_kit_ext(
     }
     let kit = match kit_ref {
         KitRef::Id(id) => kits.catalog.get(id),
-        KitRef::Name(name) => kits.catalog.by_name(name),
+        KitRef::Name(name) => kits.catalog.interface_sound(name),
     }
     .ok_or_else(|| anyhow!("unknown sound kit"))?;
 
@@ -452,27 +481,9 @@ pub(super) fn play_kit_ext(
         return Ok(false); // a kit with no files is playable-as-nothing, not an error
     }
 
-    // The per-bus cap, the pre-play gate `0x7a66a0`'s always-on arm, before the duplicate walk
-    // (`0x7a66b5` precedes `0x7a66c4`). It counts allocated channels (`[0xcf553c + 4*bus]`), and a
-    // distance cull releases one, as the pump's reap does here.
-    if bus_at_cap(out.channels.iter().map(|c| c.bus), bus) {
-        return Ok(false);
-    }
-
-    // Duplicate suppression, the gate's other arm: kit flag 0x20 and a same-kit channel still
-    // live drop the play (`0x458f40` lifts `SoundEntries +0x7c` bit 0x20 into the flags word).
-    let live_same_kit = out.channels.iter().filter(|c| c.kit == id).count();
-    if no_duplicates_blocks(dedupe_exempt, flags, live_same_kit) {
-        return Ok(false);
-    }
-
-    // The same-kit cap ([`SAME_KIT_MAX`]) for kits the flag leaves ungated.
-    if same_kit_cap_blocks(dedupe_exempt, live_same_kit) {
-        out.copies_dropped += 1;
-        return Ok(false);
-    }
-
-    // An explicit index when the caller drives the cycle, else the depleting weighted pick.
+    // The file is picked ahead of the open's gate (`0x45cf52`, `0x45ce8c` → `0x7a66a0`), which
+    // tests it: an explicit index when the caller drives the cycle, else the depleting weighted
+    // pick.
     let pick = match variant {
         Some(i) if i < weights.len() => i,
         Some(_) => return Ok(false), // out-of-range explicit variant: playable-as-nothing
@@ -481,6 +492,27 @@ pub(super) fn play_kit_ext(
     let path = kits.catalog.get(id).expect("resolved above").files[pick]
         .0
         .clone();
+
+    // The per-bus cap, the pre-play gate `0x7a66a0`'s always-on arm, before the duplicate walk
+    // (`0x7a66b5` precedes `0x7a66c4`). It counts allocated channels (`[0xcf553c + 4*bus]`), and a
+    // distance cull releases one, as the pump's reap does here.
+    if bus_at_cap(out.channels.iter().map(|c| c.bus), bus) {
+        return Ok(false);
+    }
+
+    // Duplicate suppression, the gate's other arm: kit flag 0x20 and a live channel of the same
+    // file drop the play (`0x458f40` lifts `SoundEntries +0x7c` bit 0x20 into the flags word).
+    let live_same_file = live_duplicates(out.channels.iter().map(|c| c.file.as_str()), &path);
+    if no_duplicates_blocks(dedupe_exempt, flags, live_same_file) {
+        return Ok(false);
+    }
+    let live_same_kit = out.channels.iter().filter(|c| c.kit == id).count();
+
+    // The same-kit cap ([`SAME_KIT_MAX`]) for kits the flag leaves ungated.
+    if same_kit_cap_blocks(dedupe_exempt, live_same_kit) {
+        out.copies_dropped += 1;
+        return Ok(false);
+    }
 
     // Decode (cached).
     let data = kits.sfx(assets, &path)?;
@@ -548,8 +580,9 @@ pub(super) fn play_kit_ext(
     }
     out.channels.push(ActiveChannel {
         kit: id,
+        file: path,
         source,
-        tracked: looping && source.is_some(),
+        follow: source_follow(looping, source, pos, follow),
         handle,
         track,
         pos,
@@ -697,8 +730,17 @@ pub(super) fn stop_source(out: &mut SoundOutput, source: Entity) -> usize {
     before - out.channels.len()
 }
 
-/// The `PlaySoundFile` path: a raw file with no gates and no variation, volume 1.0, 2D on the
-/// caller's category, through the kit decode cache. Kit id 0 keeps it out of kit dedupe.
+/// The bus a `PlaySoundFile` opens on, or `None` when `0x7a5450`'s gate `0x7a66a0` refuses it:
+/// bus 3 already holds its cap of live channels (`0x7a66b5`). No duplicate test: the call passes
+/// flags 0 (`0x4587b6`).
+fn sound_file_bus(live: impl Iterator<Item = Bus>) -> Option<Bus> {
+    let bus = Bus::PLAY_SOUND_FILE;
+    (!bus_at_cap(live, bus)).then_some(bus)
+}
+
+/// The `PlaySoundFile` path: a raw file with no kit and no variation, volume 1.0, 2D on the
+/// caller's category, through the kit decode cache, on its own bus ([`sound_file_bus`]). Kit id
+/// 0 keeps it out of kit dedupe.
 pub(crate) fn play_file(
     kits: &mut SoundKits,
     assets: &WorldAssets,
@@ -711,6 +753,9 @@ pub(crate) fn play_file(
     if config.world_hold {
         return Ok(());
     }
+    let Some(bus) = sound_file_bus(out.channels.iter().map(|c| c.bus)) else {
+        return Ok(());
+    };
     let data = kits.sfx(assets, path)?;
     let amp = config.category_amp(category);
     let data = data.volume(mixer::amp_to_db(amp));
@@ -727,8 +772,9 @@ pub(crate) fn play_file(
     }
     out.channels.push(ActiveChannel {
         kit: 0,
+        file: path.to_string(),
         source: None,
-        tracked: false,
+        follow: None,
         handle,
         track: None,
         pos: None,
@@ -739,7 +785,7 @@ pub(crate) fn play_file(
         category,
         looping: false,
         amp,
-        bus: Bus::DEFAULT,
+        bus,
         latch: Latch::None,
     });
     Ok(())
@@ -829,7 +875,7 @@ impl SoundKits {
         if let Some(d) = self.cache.get(&key) {
             return Ok(d.clone());
         }
-        // The chain, then an addon's loose file ([`benilla_assets::read_chain_or_loose`]):
+        // An addon's loose file, then the chain ([`benilla_assets::read_loose_or_chain`]):
         // `PlaySoundFile` is by path, and addon audio lives on disk, never in an MPQ.
         let bytes = assets
             .read_file_or_loose(path)
@@ -862,6 +908,52 @@ pub(super) fn load_sound_kits(mut commands: Commands, assets: Option<Res<WorldAs
     }
 }
 
+/// How an explicitly attached sound follows its emitter. This is not a voice bus or a latch:
+/// unlatched grunts also follow, while fixed event sounds retain their initial position.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum FollowSource {
+    /// The current Transform origin of a world-root unit (also the existing loop policy).
+    Origin,
+    /// A model child, such as a mount, whose local Transform is not a world position.
+    WorldOrigin,
+    /// A live model attachment, with the resolver's usual fallback offset.
+    Attachment(u16),
+}
+
+fn source_follow(
+    looping: bool,
+    source: Option<Entity>,
+    pos: Option<Vec3>,
+    follow: Option<FollowSource>,
+) -> Option<FollowSource> {
+    // A source tag cannot turn a 2D channel into an attenuated, track-less pseudo-3D channel.
+    if source.is_none() || pos.is_none() {
+        return None;
+    }
+    follow.or_else(|| looping.then_some(FollowSource::Origin))
+}
+
+/// Resolve the live emitter before distance culling and attenuation. Missing sources retain
+/// their last position until the existing source-despawn reaper stops their channels.
+fn tracked_position(
+    follow: Option<FollowSource>,
+    source: Option<Entity>,
+    transforms: &Query<&Transform, Without<Camera3d>>,
+    globals: &Query<&GlobalTransform>,
+    attach: &crate::entities::AttachPoints,
+) -> Option<Vec3> {
+    let follow = follow?;
+    let source = source?;
+    if follow == FollowSource::WorldOrigin {
+        return globals.get(source).ok().map(GlobalTransform::translation);
+    }
+    let origin = transforms.get(source).ok()?.translation;
+    Some(match follow {
+        FollowSource::Attachment(id) => attach.point(source, id, origin),
+        _ => origin,
+    })
+}
+
 /// The per-frame channel pump (`0x7a4ad0`): reap finished channels, follow tracked sources, cull
 /// positional ones beyond cutoff, recompute each volume.
 pub(super) fn pump_channels(
@@ -869,25 +961,19 @@ pub(super) fn pump_channels(
     config: Res<SoundConfig>,
     listener: Res<AudioListener>,
     transforms: Query<&Transform, Without<Camera3d>>,
+    globals: Query<&GlobalTransform>,
+    attach: crate::entities::AttachPoints,
 ) {
     let listener = listener.pos;
     out.channels.retain_mut(|ch| {
         if ch.handle.state() == PlaybackState::Stopped {
             return false;
         }
-        // A tracked loop follows its unit (`0x61fec0`); a despawned source keeps its last
-        // position until the despawn reaper stops the channel.
-        if ch.tracked {
-            if let Some(p) = ch
-                .source
-                .and_then(|s| transforms.get(s).ok())
-                .map(|t| t.translation)
-            {
-                if ch.pos != Some(p) {
-                    ch.pos = Some(p);
-                    if let Some(track) = ch.track.as_mut() {
-                        mixer::set_track_position(track, p);
-                    }
+        if let Some(p) = tracked_position(ch.follow, ch.source, &transforms, &globals, &attach) {
+            if ch.pos != Some(p) {
+                ch.pos = Some(p);
+                if let Some(track) = ch.track.as_mut() {
+                    mixer::set_track_position(track, p);
                 }
             }
         }
@@ -1025,13 +1111,18 @@ pub(super) fn plugin(app: &mut App) {
         .add_systems(
             Update,
             (
-                pump_channels.in_set(benilla_world::schedule::WorldStage::Present),
-                apply_kit_debug,
+                // Sample the constructed and reseated attachments, before later display teardown.
+                pump_channels
+                    .in_set(benilla_world::schedule::WorldStage::Present)
+                    .after(crate::entities::AttachmentPoseReadySet)
+                    .before(crate::entities::AppearanceMaintenanceSet)
+                    .after(crate::quest_markers::QuestMarkerBuildSet),
+                apply_kit_debug.after(crate::vm_pass::VmPass::End),
                 evict_kit_cache,
             ),
         )
         .add_systems(
-            OnExit(crate::char_select::ClientState::InWorld),
+            OnExit(crate::client_state::ClientState::InWorld),
             stop_all_channels,
         );
 }
@@ -1039,6 +1130,199 @@ pub(super) fn plugin(app: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn attached_one_shots_follow_without_changing_fixed_sounds_loops_or_2d_audio() {
+        let unit = Some(Entity::from_raw_u32(1).expect("valid entity id"));
+        let pos = Some(Vec3::ZERO);
+        for mode in [
+            FollowSource::Origin,
+            FollowSource::WorldOrigin,
+            FollowSource::Attachment(17),
+        ] {
+            assert_eq!(source_follow(false, unit, pos, Some(mode)), Some(mode));
+            assert_eq!(source_follow(true, unit, pos, Some(mode)), Some(mode));
+            assert_eq!(source_follow(false, None, pos, Some(mode)), None);
+            assert_eq!(source_follow(false, unit, None, Some(mode)), None);
+            assert_eq!(source_follow(true, unit, None, Some(mode)), None);
+        }
+        assert_eq!(source_follow(false, unit, pos, None), None);
+        assert_eq!(
+            source_follow(true, unit, pos, None),
+            Some(FollowSource::Origin)
+        );
+        assert_eq!(source_follow(true, None, pos, None), None);
+    }
+
+    #[test]
+    fn emote_emitter_follows_each_speaker_and_preserves_voice_attachment_fallback() {
+        use bevy::ecs::system::SystemState;
+        type Params<'w, 's> = (
+            Query<'w, 's, &'static Transform, Without<Camera3d>>,
+            Query<'w, 's, &'static GlobalTransform>,
+            crate::entities::AttachPoints<'w, 's>,
+        );
+        let mut world = World::new();
+        let local = world.spawn(Transform::from_xyz(1.0, 2.0, 3.0)).id();
+        let peer = world.spawn(Transform::from_xyz(20.0, 4.0, 6.0)).id();
+        let mut state = SystemState::<Params>::new(&mut world);
+        for step in 0..3 {
+            let local_pos = Vec3::new(step as f32 * 10.0, 2.0, 3.0);
+            let peer_pos = Vec3::new(20.0, 4.0, step as f32 * -7.0);
+            world.get_mut::<Transform>(local).unwrap().translation = local_pos;
+            world.get_mut::<Transform>(peer).unwrap().translation = peer_pos;
+            let (transforms, globals, attach) = state.get(&world);
+            for (speaker, origin) in [(local, local_pos), (peer, peer_pos)] {
+                assert_eq!(
+                    tracked_position(
+                        Some(FollowSource::Attachment(17)),
+                        Some(speaker),
+                        &transforms,
+                        &globals,
+                        &attach
+                    ),
+                    Some(origin + Vec3::Y * 2.0)
+                );
+                assert_eq!(
+                    tracked_position(
+                        Some(FollowSource::Origin),
+                        Some(speaker),
+                        &transforms,
+                        &globals,
+                        &attach
+                    ),
+                    Some(origin)
+                );
+                assert_eq!(
+                    tracked_position(None, Some(speaker), &transforms, &globals, &attach),
+                    None
+                );
+            }
+        }
+        world.despawn(local);
+        let (transforms, globals, attach) = state.get(&world);
+        assert_eq!(
+            tracked_position(
+                Some(FollowSource::Attachment(17)),
+                Some(local),
+                &transforms,
+                &globals,
+                &attach
+            ),
+            None
+        );
+        assert!(tracked_position(
+            Some(FollowSource::Attachment(17)),
+            Some(peer),
+            &transforms,
+            &globals,
+            &attach
+        )
+        .is_some());
+    }
+
+    #[test]
+    fn emote_emitter_uses_live_model_attachment_instead_of_origin_or_fallback() {
+        use bevy::ecs::system::SystemState;
+        type Params<'w, 's> = (
+            Query<'w, 's, &'static Transform, Without<Camera3d>>,
+            Query<'w, 's, &'static GlobalTransform>,
+            crate::entities::AttachPoints<'w, 's>,
+        );
+        let mut world = World::new();
+        let speaker = world.spawn(Transform::from_xyz(1.0, 2.0, 3.0)).id();
+        // A separate model root also covers a rider/conform frame: never substitute the
+        // speaker's local transform for the model's propagated world transform.
+        let root = world
+            .spawn(GlobalTransform::from_xyz(10.0, 20.0, 30.0))
+            .id();
+        let mut pose =
+            benilla_world::rig_anim::RigPose::new(root, &benilla_assets::ModelSkeleton::default());
+        pose.model.push(bevy::math::Affine3A::IDENTITY);
+        world.entity_mut(speaker).insert((
+            pose,
+            crate::entities::BoneAttach {
+                points: [(super::super::emote::VOICE_ATTACH, (0, Vec3::Y * 3.0))]
+                    .into_iter()
+                    .collect(),
+                markers: HashMap::new(),
+            },
+        ));
+        let mut state = SystemState::<Params>::new(&mut world);
+        for x in [10.0, 15.0, 25.0] {
+            *world.get_mut::<GlobalTransform>(root).unwrap() =
+                GlobalTransform::from_xyz(x, 20.0, 30.0);
+            let (transforms, globals, attach) = state.get(&world);
+            assert_eq!(
+                tracked_position(
+                    Some(FollowSource::Attachment(17)),
+                    Some(speaker),
+                    &transforms,
+                    &globals,
+                    &attach
+                ),
+                Some(Vec3::new(x, 23.0, 30.0))
+            );
+        }
+    }
+
+    #[test]
+    fn model_child_voice_follows_world_origin_not_its_local_seat_offset() {
+        use bevy::ecs::system::SystemState;
+        type Params<'w, 's> = (
+            Query<'w, 's, &'static Transform, Without<Camera3d>>,
+            Query<'w, 's, &'static GlobalTransform>,
+            crate::entities::AttachPoints<'w, 's>,
+        );
+        let mut world = World::new();
+        let parent = world.spawn_empty().id();
+        let child = world
+            .spawn((
+                Transform::from_xyz(0.0, 1.0, 0.0),
+                GlobalTransform::from_xyz(10.0, 2.0, 30.0),
+                ChildOf(parent),
+            ))
+            .id();
+        let mut state = SystemState::<Params>::new(&mut world);
+        for x in [10.0, 20.0, 30.0] {
+            *world.get_mut::<GlobalTransform>(child).unwrap() =
+                GlobalTransform::from_xyz(x, 2.0, 30.0);
+            let (transforms, globals, attach) = state.get(&world);
+            assert_eq!(
+                tracked_position(
+                    Some(FollowSource::WorldOrigin),
+                    Some(child),
+                    &transforms,
+                    &globals,
+                    &attach
+                ),
+                Some(Vec3::new(x, 2.0, 30.0))
+            );
+            // The legacy loop policy still reads its original local-origin lane.
+            assert_eq!(
+                tracked_position(
+                    Some(FollowSource::Origin),
+                    Some(child),
+                    &transforms,
+                    &globals,
+                    &attach
+                ),
+                Some(Vec3::Y)
+            );
+        }
+        world.despawn(child);
+        let (transforms, globals, attach) = state.get(&world);
+        assert_eq!(
+            tracked_position(
+                Some(FollowSource::WorldOrigin),
+                Some(child),
+                &transforms,
+                &globals,
+                &attach
+            ),
+            None
+        );
+    }
 
     /// Pinned as the 13 dwords at `.data` `0x87ce60`.
     #[test]
@@ -1071,6 +1355,21 @@ mod tests {
 
         // Buses are independent domains: a saturated bus 5 does not gate bus 7.
         assert!(!bus_at_cap(live(5, 9), Bus(7)));
+    }
+
+    /// `PlaySoundFile` opens on bus 3 (`0x4587bc`), whose cap is 2 (`0x87ce60`): a third file
+    /// while two play is refused, and the plays of other buses do not count against it.
+    #[test]
+    fn play_sound_file_opens_on_bus_3_and_refuses_a_third() {
+        let live = |bus: u8, n: usize| std::iter::repeat_n(Bus(bus), n);
+        assert_eq!(sound_file_bus(std::iter::empty()), Some(Bus(3)));
+        assert_eq!(sound_file_bus(live(3, 1)), Some(Bus(3)));
+        assert_eq!(sound_file_bus(live(3, 2)), None, "the third is refused");
+        assert_eq!(
+            sound_file_bus(live(0, 50)),
+            Some(Bus(3)),
+            "bus 0 is another domain"
+        );
     }
 
     /// With all-1 weights every variation plays once per cycle (`0x45bb70`/`0x45bd40`).
@@ -1315,6 +1614,28 @@ mod tests {
             same_kit_cap_blocks(false, SAME_KIT_MAX),
             "the exemption is scoped to the caller that asks for it, not global"
         );
+    }
+
+    /// The duplicate walk compares the open file's `SStrHash` (`0x7a66cf`, which folds ASCII case
+    /// and `/` to `\`) with each live sound's `+0x80` (`0x7a66f0`): another file of the same
+    /// kit is no duplicate, and the same file is one whatever kit or `PlaySoundFile` opened it.
+    #[test]
+    fn the_duplicate_walk_matches_the_file_not_the_kit() {
+        // Kit 7 sounds A and B; `PlaySoundFile` sounds C.
+        let live = [
+            "Sound\\Spells\\A.wav",
+            "Sound\\Spells\\B.wav",
+            "Sound\\Spells\\C.wav",
+        ];
+        let dupes = |file| live_duplicates(live.into_iter(), file);
+        assert_eq!(dupes("Sound\\Spells\\D.wav"), 0, "kit 7's other file");
+        assert_eq!(dupes("sound/spells/a.WAV"), 1, "the same file, folded");
+        assert_eq!(
+            dupes("Sound\\Spells\\C.wav"),
+            1,
+            "a file another open holds"
+        );
+        assert_eq!(dupes("Sound\\Spells\\A.wa"), 0, "a prefix is another name");
     }
 
     /// A kit with flag 0x20 is still capped at one; the looser cap does not loosen it.

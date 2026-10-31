@@ -72,6 +72,8 @@ pub struct WmoModel {
     pub collision_bounds: Option<([f32; 3], [f32; 3])>,
     /// Walking collision across all groups in WMO-local coords, DETAIL faces excluded.
     pub collision: Option<CollisionMesh>,
+    /// Strict raw root/group witness; skipped, malformed or wet groups leave this unavailable.
+    pub native_collision: Option<benilla_formats::NativeWmoCollision>,
     /// Camera and line-of-sight collision: DETAIL kept, NOCAMCOLLIDE dropped.
     pub collision_camera: Option<CollisionMesh>,
     /// The root's MODD doodads in WMO model space, spawned by doodad set.
@@ -107,6 +109,9 @@ pub struct WmoModel {
     pub group_light_refs: Vec<Vec<u16>>,
     /// Per-group MLIQ liquid surface in WMO model space; `None` for a group without one.
     pub group_liquids: Vec<Option<LiquidMesh>>,
+    /// The root's MCVP convex volume in WMO model space, which a transport's rider is held aboard
+    /// while inside (`0x6a4990`, [`benilla_formats::point_in_convex_volume`]).
+    pub convex_volume: Vec<[f32; 4]>,
 }
 
 /// One MODD doodad's lighting base. The reference fills an interior doodad's words at create from
@@ -369,6 +374,9 @@ impl AssetLoader for WmoModelLoader {
         reader.read_to_end(&mut bytes).await?;
         let to_io = |e: anyhow::Error| std::io::Error::other(format!("{e:#}"));
         let root = parse_wmo_root(&bytes).map_err(to_io)?;
+        let native_root = benilla_formats::NativeWmoRoot::read(&bytes);
+        let mut native_groups = native_root.as_ref().map(|_| Vec::new());
+        let (mut native_vertices, mut native_triangles, mut native_refs) = (0usize, 0usize, 0usize);
 
         // Lowercased so the `.wmo` strip matches; MPQ lookup is case-insensitive anyway.
         let root_path = ctx.path().path().to_string_lossy().to_ascii_lowercase();
@@ -418,8 +426,26 @@ impl AssetLoader for WmoModelLoader {
         for gi in 0..root.group_count() {
             let group_url = format!("mpq://{stem}_{gi:03}.wmo");
             let Ok(gbytes) = ctx.read_asset_bytes(group_url).await else {
-                continue; // a missing or unreadable group is skipped
+                native_groups = None;
+                continue; // renderer recovery never produces a native source witness
             };
+            if let (Some(root), Some(groups)) = (&native_root, &mut native_groups) {
+                if let Some(g) = benilla_formats::NativeWmoGroup::read(&gbytes, root, gi as usize) {
+                    native_vertices += g.walking().positions.len() + g.camera().positions.len();
+                    native_triangles += (g.walking().indices.len() + g.camera().indices.len()) / 3;
+                    native_refs += g.doodad_refs().len();
+                    if native_vertices <= 2_097_152
+                        && native_triangles <= 2_097_152
+                        && native_refs <= 1_048_576
+                    {
+                        groups.push(g);
+                    } else {
+                        native_groups = None;
+                    }
+                } else {
+                    native_groups = None;
+                }
+            }
             if let (Some(h), Some(nav)) =
                 (wmo_group_header(&gbytes), group_nav.get_mut(gi as usize))
             {
@@ -499,6 +525,8 @@ impl AssetLoader for WmoModelLoader {
                     window: sub.window, // MOMT WINDOW (0x20): the interior midpoint light
                     additive: sub.additive,
                     env_map: false,
+                    stage1: None, // a WMO batch is one texture stage
+                    combine: None,
                     no_depth_write: false,
                     no_depth_test: false,
                     fog_policy: sub.fog_policy,
@@ -542,7 +570,11 @@ impl AssetLoader for WmoModelLoader {
         let group_footprint_bounds = footprint_tri_bounds(&group_footprints);
         let group_collision_grids = collision_tri_grids(&group_collision_tris);
         let group_footprint_grids = footprint_tri_grids(&group_footprints);
+        let native_collision = native_root.zip(native_groups).and_then(|(root, groups)| {
+            benilla_formats::NativeWmoCollision::from_parts(root, groups)
+        });
         Ok(WmoModel {
+            native_collision,
             wmo_id: benilla_formats::wmo_root_id(&bytes),
             submeshes,
             submesh_group,
@@ -573,6 +605,7 @@ impl AssetLoader for WmoModelLoader {
             group_footprint_grids,
             group_light_refs,
             group_liquids,
+            convex_volume: root.convex_volume().to_vec(),
         })
     }
 

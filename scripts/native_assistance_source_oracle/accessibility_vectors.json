@@ -1,0 +1,530 @@
+{
+  "schema_version": 1,
+  "source_revision": "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f",
+  "coverage": "unchanged Unit::isInAccessablePlaceFor and virtual Player::IsInWater cache accessor; authored cached environment flags and helper capability leaves; no cache lifecycle, terrain, geometry, CheckForHelp integration or production admission proof",
+  "cases": [
+    {
+      "name": "water_0_swim_0_walk_0_fly_0",
+      "input": {
+        "environment_flags": 0,
+        "can_swim": false,
+        "can_walk": false,
+        "can_fly": false
+      },
+      "observation": {
+        "accessible": false,
+        "leaves": [
+          "cached_environment_flags:77:0",
+          "can_walk:1:false",
+          "can_fly:1:false"
+        ]
+      }
+    },
+    {
+      "name": "water_0_swim_0_walk_0_fly_1",
+      "input": {
+        "environment_flags": 0,
+        "can_swim": false,
+        "can_walk": false,
+        "can_fly": true
+      },
+      "observation": {
+        "accessible": true,
+        "leaves": [
+          "cached_environment_flags:77:0",
+          "can_walk:1:false",
+          "can_fly:1:true"
+        ]
+      }
+    },
+    {
+      "name": "water_0_swim_0_walk_1_fly_0",
+      "input": {
+        "environment_flags": 0,
+        "can_swim": false,
+        "can_walk": true,
+        "can_fly": false
+      },
+      "observation": {
+        "accessible": true,
+        "leaves": [
+          "cached_environment_flags:77:0",
+          "can_walk:1:true"
+        ]
+      }
+    },
+    {
+      "name": "water_0_swim_0_walk_1_fly_1",
+      "input": {
+        "environment_flags": 0,
+        "can_swim": false,
+        "can_walk": true,
+        "can_fly": true
+      },
+      "observation": {
+        "accessible": true,
+        "leaves": [
+          "cached_environment_flags:77:0",
+          "can_walk:1:true"
+        ]
+      }
+    },
+    {
+      "name": "water_0_swim_1_walk_0_fly_0",
+      "input": {
+        "environment_flags": 0,
+        "can_swim": true,
+        "can_walk": false,
+        "can_fly": false
+      },
+      "observation": {
+        "accessible": false,
+        "leaves": [
+          "cached_environment_flags:77:0",
+          "can_walk:1:false",
+          "can_fly:1:false"
+        ]
+      }
+    },
+    {
+      "name": "water_0_swim_1_walk_0_fly_1",
+      "input": {
+        "environment_flags": 0,
+        "can_swim": true,
+        "can_walk": false,
+        "can_fly": true
+      },
+      "observation": {
+        "accessible": true,
+        "leaves": [
+          "cached_environment_flags:77:0",
+          "can_walk:1:false",
+          "can_fly:1:true"
+        ]
+      }
+    },
+    {
+      "name": "water_0_swim_1_walk_1_fly_0",
+      "input": {
+        "environment_flags": 0,
+        "can_swim": true,
+        "can_walk": true,
+        "can_fly": false
+      },
+      "observation": {
+        "accessible": true,
+        "leaves": [
+          "cached_environment_flags:77:0",
+          "can_walk:1:true"
+        ]
+      }
+    },
+    {
+      "name": "water_0_swim_1_walk_1_fly_1",
+      "input": {
+        "environment_flags": 0,
+        "can_swim": true,
+        "can_walk": true,
+        "can_fly": true
+      },
+      "observation": {
+        "accessible": true,
+        "leaves": [
+          "cached_environment_flags:77:0",
+          "can_walk:1:true"
+        ]
+      }
+    },
+    {
+      "name": "water_1_swim_0_walk_0_fly_0",
+      "input": {
+        "environment_flags": 1,
+        "can_swim": false,
+        "can_walk": false,
+        "can_fly": false
+      },
+      "observation": {
+        "accessible": false,
+        "leaves": [
+          "cached_environment_flags:77:1",
+          "can_swim:1:false"
+        ]
+      }
+    },
+    {
+      "name": "water_1_swim_0_walk_0_fly_1",
+      "input": {
+        "environment_flags": 1,
+        "can_swim": false,
+        "can_walk": false,
+        "can_fly": true
+      },
+      "observation": {
+        "accessible": false,
+        "leaves": [
+          "cached_environment_flags:77:1",
+          "can_swim:1:false"
+        ]
+      }
+    },
+    {
+      "name": "water_1_swim_0_walk_1_fly_0",
+      "input": {
+        "environment_flags": 1,
+        "can_swim": false,
+        "can_walk": true,
+        "can_fly": false
+      },
+      "observation": {
+        "accessible": false,
+        "leaves": [
+          "cached_environment_flags:77:1",
+          "can_swim:1:false"
+        ]
+      }
+    },
+    {
+      "name": "water_1_swim_0_walk_1_fly_1",
+      "input": {
+        "environment_flags": 1,
+        "can_swim": false,
+        "can_walk": true,
+        "can_fly": true
+      },
+      "observation": {
+        "accessible": false,
+        "leaves": [
+          "cached_environment_flags:77:1",
+          "can_swim:1:false"
+        ]
+      }
+    },
+    {
+      "name": "water_1_swim_1_walk_0_fly_0",
+      "input": {
+        "environment_flags": 1,
+        "can_swim": true,
+        "can_walk": false,
+        "can_fly": false
+      },
+      "observation": {
+        "accessible": true,
+        "leaves": [
+          "cached_environment_flags:77:1",
+          "can_swim:1:true"
+        ]
+      }
+    },
+    {
+      "name": "water_1_swim_1_walk_0_fly_1",
+      "input": {
+        "environment_flags": 1,
+        "can_swim": true,
+        "can_walk": false,
+        "can_fly": true
+      },
+      "observation": {
+        "accessible": true,
+        "leaves": [
+          "cached_environment_flags:77:1",
+          "can_swim:1:true"
+        ]
+      }
+    },
+    {
+      "name": "water_1_swim_1_walk_1_fly_0",
+      "input": {
+        "environment_flags": 1,
+        "can_swim": true,
+        "can_walk": true,
+        "can_fly": false
+      },
+      "observation": {
+        "accessible": true,
+        "leaves": [
+          "cached_environment_flags:77:1",
+          "can_swim:1:true"
+        ]
+      }
+    },
+    {
+      "name": "water_1_swim_1_walk_1_fly_1",
+      "input": {
+        "environment_flags": 1,
+        "can_swim": true,
+        "can_walk": true,
+        "can_fly": true
+      },
+      "observation": {
+        "accessible": true,
+        "leaves": [
+          "cached_environment_flags:77:1",
+          "can_swim:1:true"
+        ]
+      }
+    },
+    {
+      "name": "environment_mask_2_walker",
+      "input": {
+        "environment_flags": 2,
+        "can_swim": false,
+        "can_walk": true,
+        "can_fly": false
+      },
+      "observation": {
+        "accessible": true,
+        "leaves": [
+          "cached_environment_flags:77:2",
+          "can_walk:1:true"
+        ]
+      }
+    },
+    {
+      "name": "environment_mask_2_swimmer",
+      "input": {
+        "environment_flags": 2,
+        "can_swim": true,
+        "can_walk": false,
+        "can_fly": false
+      },
+      "observation": {
+        "accessible": false,
+        "leaves": [
+          "cached_environment_flags:77:2",
+          "can_walk:1:false",
+          "can_fly:1:false"
+        ]
+      }
+    },
+    {
+      "name": "environment_mask_4_walker",
+      "input": {
+        "environment_flags": 4,
+        "can_swim": false,
+        "can_walk": true,
+        "can_fly": false
+      },
+      "observation": {
+        "accessible": true,
+        "leaves": [
+          "cached_environment_flags:77:4",
+          "can_walk:1:true"
+        ]
+      }
+    },
+    {
+      "name": "environment_mask_4_swimmer",
+      "input": {
+        "environment_flags": 4,
+        "can_swim": true,
+        "can_walk": false,
+        "can_fly": false
+      },
+      "observation": {
+        "accessible": false,
+        "leaves": [
+          "cached_environment_flags:77:4",
+          "can_walk:1:false",
+          "can_fly:1:false"
+        ]
+      }
+    },
+    {
+      "name": "environment_mask_8_walker",
+      "input": {
+        "environment_flags": 8,
+        "can_swim": false,
+        "can_walk": true,
+        "can_fly": false
+      },
+      "observation": {
+        "accessible": true,
+        "leaves": [
+          "cached_environment_flags:77:8",
+          "can_walk:1:true"
+        ]
+      }
+    },
+    {
+      "name": "environment_mask_8_swimmer",
+      "input": {
+        "environment_flags": 8,
+        "can_swim": true,
+        "can_walk": false,
+        "can_fly": false
+      },
+      "observation": {
+        "accessible": false,
+        "leaves": [
+          "cached_environment_flags:77:8",
+          "can_walk:1:false",
+          "can_fly:1:false"
+        ]
+      }
+    },
+    {
+      "name": "environment_mask_16_walker",
+      "input": {
+        "environment_flags": 16,
+        "can_swim": false,
+        "can_walk": true,
+        "can_fly": false
+      },
+      "observation": {
+        "accessible": true,
+        "leaves": [
+          "cached_environment_flags:77:16",
+          "can_walk:1:true"
+        ]
+      }
+    },
+    {
+      "name": "environment_mask_16_swimmer",
+      "input": {
+        "environment_flags": 16,
+        "can_swim": true,
+        "can_walk": false,
+        "can_fly": false
+      },
+      "observation": {
+        "accessible": false,
+        "leaves": [
+          "cached_environment_flags:77:16",
+          "can_walk:1:false",
+          "can_fly:1:false"
+        ]
+      }
+    },
+    {
+      "name": "environment_mask_32_walker",
+      "input": {
+        "environment_flags": 32,
+        "can_swim": false,
+        "can_walk": true,
+        "can_fly": false
+      },
+      "observation": {
+        "accessible": true,
+        "leaves": [
+          "cached_environment_flags:77:32",
+          "can_walk:1:true"
+        ]
+      }
+    },
+    {
+      "name": "environment_mask_32_swimmer",
+      "input": {
+        "environment_flags": 32,
+        "can_swim": true,
+        "can_walk": false,
+        "can_fly": false
+      },
+      "observation": {
+        "accessible": false,
+        "leaves": [
+          "cached_environment_flags:77:32",
+          "can_walk:1:false",
+          "can_fly:1:false"
+        ]
+      }
+    },
+    {
+      "name": "environment_mask_64_walker",
+      "input": {
+        "environment_flags": 64,
+        "can_swim": false,
+        "can_walk": true,
+        "can_fly": false
+      },
+      "observation": {
+        "accessible": true,
+        "leaves": [
+          "cached_environment_flags:77:64",
+          "can_walk:1:true"
+        ]
+      }
+    },
+    {
+      "name": "environment_mask_64_swimmer",
+      "input": {
+        "environment_flags": 64,
+        "can_swim": true,
+        "can_walk": false,
+        "can_fly": false
+      },
+      "observation": {
+        "accessible": false,
+        "leaves": [
+          "cached_environment_flags:77:64",
+          "can_walk:1:false",
+          "can_fly:1:false"
+        ]
+      }
+    },
+    {
+      "name": "environment_mask_126_walker",
+      "input": {
+        "environment_flags": 126,
+        "can_swim": false,
+        "can_walk": true,
+        "can_fly": false
+      },
+      "observation": {
+        "accessible": true,
+        "leaves": [
+          "cached_environment_flags:77:126",
+          "can_walk:1:true"
+        ]
+      }
+    },
+    {
+      "name": "environment_mask_126_swimmer",
+      "input": {
+        "environment_flags": 126,
+        "can_swim": true,
+        "can_walk": false,
+        "can_fly": false
+      },
+      "observation": {
+        "accessible": false,
+        "leaves": [
+          "cached_environment_flags:77:126",
+          "can_walk:1:false",
+          "can_fly:1:false"
+        ]
+      }
+    },
+    {
+      "name": "environment_mask_4294967295_walker",
+      "input": {
+        "environment_flags": 4294967295,
+        "can_swim": false,
+        "can_walk": true,
+        "can_fly": false
+      },
+      "observation": {
+        "accessible": false,
+        "leaves": [
+          "cached_environment_flags:77:4294967295",
+          "can_swim:1:false"
+        ]
+      }
+    },
+    {
+      "name": "environment_mask_4294967295_swimmer",
+      "input": {
+        "environment_flags": 4294967295,
+        "can_swim": true,
+        "can_walk": false,
+        "can_fly": false
+      },
+      "observation": {
+        "accessible": true,
+        "leaves": [
+          "cached_environment_flags:77:4294967295",
+          "can_swim:1:true"
+        ]
+      }
+    }
+  ]
+}

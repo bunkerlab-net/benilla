@@ -44,13 +44,16 @@ pub(crate) enum CharFilter {
     /// Everything printable (the login boxes).
     Any,
     /// ASCII letters only (the character-name box).
+    #[cfg(test)]
     Letters,
 }
 
 impl CharFilter {
+    #[cfg(test)]
     fn allows(self, c: char) -> bool {
         match self {
             CharFilter::Any => true,
+            #[cfg(test)]
             CharFilter::Letters => c.is_ascii_alphabetic(),
         }
     }
@@ -59,6 +62,7 @@ impl CharFilter {
     fn keep(self, text: &str) -> String {
         match self {
             CharFilter::Any => text.chars().filter(|c| !c.is_control()).collect(),
+            #[cfg(test)]
             CharFilter::Letters => text.chars().filter(|&c| self.allows(c)).collect(),
         }
     }
@@ -135,6 +139,7 @@ pub(crate) fn feed_key(
 }
 
 /// A fresh single-line field with `max_letters` (0 = unlimited) and optional password masking.
+#[cfg(test)]
 pub(crate) fn field(max_letters: usize, password: bool) -> EditBoxState {
     EditBoxState {
         max_letters,
@@ -183,7 +188,7 @@ mod tests {
         assert_eq!(f.text, "abcd");
     }
 
-    /// Copying from a password field yields the mask, not the secret.
+    /// Password display uses a mask; copying yields the empty string (`0x77e1ef`).
     #[test]
     fn a_password_field_masks_display_and_copies() {
         let mut f = field(0, true);
@@ -191,6 +196,6 @@ mod tests {
         assert_eq!(f.text, "hunter2");
         assert_eq!(f.display(), "*******");
         f.highlight_text(0, -1);
-        assert_eq!(f.selected_text().as_deref(), Some("*******"));
+        assert_eq!(f.selected_text().as_deref(), Some(""));
     }
 }

@@ -1,0 +1,12 @@
+--- a/contrib/vmap_extractor/vmapextract/wmo.cpp
++++ b/contrib/vmap_extractor/vmapextract/wmo.cpp
+@@ -250,6 +250,9 @@
+         {
+             liquflags |= 1;
+             hlq = new WMOLiquidHeader;
++            // WMO_LIQUID_HEADER_ZERO_PADDING_V1: only ABI tail padding.
++            reinterpret_cast<unsigned char*>(hlq)[30] = 0;
++            reinterpret_cast<unsigned char*>(hlq)[31] = 0;
+             f.read(hlq, 0x1E);
+             LiquEx_size = sizeof(WMOLiquidVert) * hlq->xverts * hlq->yverts;
+             LiquEx = new WMOLiquidVert[hlq->xverts * hlq->yverts];

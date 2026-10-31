@@ -12,6 +12,7 @@ use super::test_ui::{bag_open, load_ui as load_xml, BAG_UI};
 /// with `extra` in its way and the layer's reshaping, each file once, in the production order.
 fn harness_with(extra: &[&str]) -> UiScript {
     let mut s = UiScript::new().unwrap();
+    s.keep_calls();
     s.set_screen_size(1024.0, 768.0);
     const MENU: &[&str] = &[
         "Interface\\FrameXML\\GlobalStrings.lua",
@@ -47,8 +48,9 @@ fn bag_harness_with(extra: &[&str]) -> UiScript {
 
 /// Top to bottom. Deviation: the 1.15 era client's ESC ladder, because its settings screens
 /// replace 1.12's; without the AddOns rung, as the character-select screen is the only addon UI.
-const LADDER: [&str; 7] = [
+const LADDER: [&str; 8] = [
     "GameMenuButtonOptions",
+    "BenillaGameMenuButtonAdmin",
     "BenillaGameMenuButtonEditMode",
     "BenillaGameMenuButtonSupport",
     "GameMenuButtonMacros",
@@ -58,7 +60,7 @@ const LADDER: [&str; 7] = [
 ];
 
 /// The era layout (MainMenuFrameTemplates: padding 32 top and 28 elsewhere, 20-unit section
-/// gaps) over seven 144x21 rungs: 200x267, gaps after Options, after Macros and before Return.
+/// gaps) over eight 144x21 rungs: 200x288, gaps after Options, after Macros and before Return.
 #[test]
 fn the_menu_has_the_era_frame_and_button_ladder() {
     let _data = benilla_formats::wow_data_or_skip!();
@@ -69,18 +71,18 @@ fn the_menu_has_the_era_frame_and_button_ladder() {
     let (w, h) = s
         .eval::<(f64, f64)>("return GameMenuFrame:GetWidth(), GameMenuFrame:GetHeight()")
         .unwrap();
-    assert_eq!((w, h), (200.0, 267.0), "the era frame size");
+    assert_eq!((w, h), (200.0, 288.0), "the era frame size");
 
     let top = s.eval::<f64>("return GameMenuFrame:GetTop()").unwrap();
     let left = s.eval::<f64>("return GameMenuFrame:GetLeft()").unwrap();
-    const TOPS: [f64; 7] = [32.0, 73.0, 94.0, 115.0, 156.0, 177.0, 218.0];
+    const TOPS: [f64; 8] = [32.0, 73.0, 94.0, 115.0, 136.0, 177.0, 198.0, 239.0];
     for (name, down) in LADDER.iter().zip(TOPS) {
         let (bw, bh, btop, bleft) = s
             .eval::<(f64, f64, f64, f64)>(&format!(
                 "return {name}:GetWidth(), {name}:GetHeight(), {name}:GetTop(), {name}:GetLeft()"
             ))
             .unwrap_or_else(|e| panic!("{name}: {e}"));
-        assert_eq!(
+        benilla_ui::assert_near!(
             (bw, bh),
             (144.0, 21.0),
             "{name} is a GameMenuButtonTemplate"
@@ -99,24 +101,37 @@ fn the_menu_has_the_era_frame_and_button_ladder() {
     assert!(s.errors().is_empty(), "script errors: {:?}", s.errors());
 }
 
+/// Support closes the menu and toggles the stock help window, as the "?" micro button does
+/// (`MainMenuBarMicroButtons.xml:217`).
 #[test]
-fn the_unbacked_entries_are_disabled_and_the_rest_are_live() {
+fn support_closes_the_menu_and_toggles_the_help_window() {
+    let _data = benilla_formats::wow_data_or_skip!();
+    let s = harness();
+    s.run("HELP_TOGGLES = 0; function ToggleHelpFrame() HELP_TOGGLES = HELP_TOGGLES + 1 end")
+        .unwrap();
+    s.run("ShowUIPanel(GameMenuFrame); BenillaGameMenuButtonSupport:Click()")
+        .unwrap();
+    assert_eq!(s.eval::<i64>("return HELP_TOGGLES").unwrap(), 1);
+    assert!(!s
+        .eval::<bool>("return GameMenuFrame:IsVisible() == 1")
+        .unwrap());
+    assert!(s.errors().is_empty(), "script errors: {:?}", s.errors());
+}
+
+#[test]
+fn the_unbacked_entry_is_disabled_and_the_rest_are_live() {
     let _data = benilla_formats::wow_data_or_skip!();
     let s = harness();
     s.run("ShowUIPanel(GameMenuFrame)").unwrap();
 
-    for name in [
-        "BenillaGameMenuButtonEditMode",
-        "BenillaGameMenuButtonSupport",
-    ] {
-        assert!(
-            !s.eval::<bool>(&format!("return {name}:IsEnabled() ~= 0"))
-                .unwrap(),
-            "{name} has no panel behind it and must read that way"
-        );
-    }
+    assert!(
+        !s.eval::<bool>("return BenillaGameMenuButtonEditMode:IsEnabled() ~= 0")
+            .unwrap(),
+        "Edit Mode has no panel behind it and must read that way"
+    );
     for name in [
         "GameMenuButtonOptions",
+        "BenillaGameMenuButtonSupport",
         "GameMenuButtonMacros",
         "GameMenuButtonLogout",
         "GameMenuButtonQuit",
@@ -233,12 +248,13 @@ fn the_open_menu_takes_the_screen_and_refuses_every_other_panel() {
         "Interface\\FrameXML\\LootFrame.xml",
         "ScrollTemplates.xml",
     ]);
+    s.keep_calls();
     s.set_money(0);
     s.set_container(0, Some(backpack()));
     s.run("MainMenuBarBackpackButton:Click()").unwrap();
     s.set_loot(Some(LootState {
         source_unit: false,
-        fishing: false,
+        has_money: false,
         master_candidates: Vec::new(),
         rows: vec![Some(LootRow {
             item_id: 0,
@@ -247,6 +263,7 @@ fn the_open_menu_takes_the_screen_and_refuses_every_other_panel() {
             quantity: 1,
             quality: Some(1),
             is_coin: false,
+            money: 0,
             link: None,
             random_property_id: 0,
         })],
@@ -694,11 +711,14 @@ fn backpack() -> ContainerState {
     slots.insert(
         1,
         ContainerSlot {
+            uncached_link: None,
             use_fork: Default::default(),
             item_class: None,
             duration_ms: None,
+            field_duration: 0,
             petition: None,
             already_bound: false,
+            occupied_seats: None,
             bonding: 0,
             use_spell: 0,
             bar_placeable: true,
@@ -715,12 +735,17 @@ fn backpack() -> ContainerState {
             cooldown: None,
             readable: false,
             creator: None,
+            gift_creator: None,
+            creator_guid: 0,
+            gift_creator_guid: 0,
             flags: 0,
             enchants: Vec::new(),
+            spell_0: false,
+            spell_charges: [0; 5],
         },
     );
     ContainerState {
-        name: Some("Backpack".into()),
+        name: None,
         num_slots: 16,
         slots,
     }
@@ -747,4 +772,33 @@ fn the_menu_rides_the_shared_era_window_scale() {
     let want = s.eval::<f64>("return BENILLA_ERA_WINDOW_SCALE").unwrap();
     assert!((k - want).abs() < 1e-6, "menu scale {k} != knob {want}");
     assert!((want - 0.78).abs() < 1e-6, "the knob itself moved: {want}");
+}
+
+/// The fork panel inherits the player's real 1.12 templates, not a synthetic render lookalike.
+#[test]
+fn admin_panel_uses_stock_controls_and_escape_closes_without_reopening_the_menu() {
+    let _data = benilla_formats::wow_data_or_skip!();
+    let s = harness();
+    s.install_admin_interface().unwrap();
+    s.run("ToggleGameMenu(); BenillaGameMenuButtonAdmin:Click()")
+        .unwrap();
+    assert!(s.frame_visible("BenillaAdminFrame"));
+    assert!(!s.frame_visible("GameMenuFrame"));
+    assert!(s.eval::<bool>("return IsOptionFrameOpen() ~= nil").unwrap());
+    for index in 1..=11 {
+        s.run(&format!("BenillaAdmin_Select({index})")).unwrap();
+        assert!(!s
+            .eval::<bool>("return BenillaAdminFrameApply:IsEnabled() ~= 0")
+            .unwrap());
+        assert!(!s
+            .eval::<String>("return BenillaAdminFrameReason:GetText()")
+            .unwrap()
+            .is_empty());
+    }
+    s.run("ToggleGameMenu()").unwrap();
+    assert!(!s.frame_visible("BenillaAdminFrame"));
+    assert!(!s.frame_visible("GameMenuFrame"));
+    s.run("ToggleGameMenu(); BenillaGameMenuButtonAdmin:Click(); BenillaAdminFrameCloseButton:Click()").unwrap();
+    assert!(!s.frame_visible("BenillaAdminFrame"));
+    assert!(s.errors().is_empty(), "{:?}", s.errors());
 }

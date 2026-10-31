@@ -1,0 +1,132 @@
+{
+  "format_version": 1,
+  "profile": "benilla-world-slice-v1",
+  "source": {
+    "kind": "original_fixture",
+    "revision": "original-camp-v1"
+  },
+  "unsupported_features": [],
+  "creatures": [
+    {
+      "entry": 900001,
+      "name": "Camp Steward",
+      "display_id": 0,
+      "faction_template_id": 0,
+      "level": 1,
+      "max_health": 80,
+      "armor": 0,
+      "melee_damage": 0,
+      "melee_period_ms": 2000,
+      "combat_reach_milliunits": 1500,
+      "behavior": "passive"
+    },
+    {
+      "entry": 900002,
+      "name": "Brass Training Construct",
+      "display_id": 0,
+      "faction_template_id": 0,
+      "level": 1,
+      "max_health": 30,
+      "armor": 0,
+      "melee_damage": 2,
+      "melee_period_ms": 2000,
+      "combat_reach_milliunits": 1500,
+      "behavior": "stationary_melee"
+    }
+  ],
+  "spawns": [
+    {
+      "spawn_id": 1,
+      "creature_entry": 900001,
+      "map_id": 0,
+      "position_milliunits": [
+        0,
+        0,
+        0
+      ],
+      "orientation_milliradians": 0,
+      "respawn_ms": 5000
+    },
+    {
+      "spawn_id": 2,
+      "creature_entry": 900002,
+      "map_id": 0,
+      "position_milliunits": [
+        3000,
+        0,
+        0
+      ],
+      "orientation_milliradians": 3142,
+      "respawn_ms": 5000
+    }
+  ],
+  "quests": [
+    {
+      "entry": 910001,
+      "title": "A lesson in timing",
+      "details": "Defeat two training constructs, then return to the camp steward.",
+      "min_level": 1,
+      "max_level": 60,
+      "objectives": [
+        {
+          "creature_entry": 900002,
+          "count": 2
+        }
+      ],
+      "reward_xp": 25,
+      "reward_money": 10,
+      "reward_items": [
+        {
+          "item_entry": 920001,
+          "count": 1
+        }
+      ]
+    }
+  ],
+  "quest_relations": [
+    {
+      "creature_entry": 900001,
+      "quest_entry": 910001,
+      "kind": "starts"
+    },
+    {
+      "creature_entry": 900001,
+      "quest_entry": 910001,
+      "kind": "finishes"
+    }
+  ],
+  "items": [
+    {
+      "entry": 920001,
+      "name": "Brass Practice Token",
+      "display_id": 0,
+      "max_stack": 20
+    }
+  ],
+  "abilities": [
+    {
+      "entry": 930001,
+      "name": "Practice Spark",
+      "effect": "damage",
+      "amount": 5,
+      "mana_cost": 2,
+      "cast_time_ms": 500,
+      "cooldown_ms": 1000,
+      "global_cooldown_ms": 1000,
+      "min_range_milliunits": 0,
+      "max_range_milliunits": 10000
+    },
+    {
+      "entry": 930002,
+      "name": "Practice Mend",
+      "effect": "heal",
+      "amount": 5,
+      "mana_cost": 2,
+      "cast_time_ms": 500,
+      "cooldown_ms": 1000,
+      "global_cooldown_ms": 1000,
+      "min_range_milliunits": 0,
+      "max_range_milliunits": 10000
+    }
+  ]
+}

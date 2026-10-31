@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Fail on a doc link whose target is declared nowhere in the workspace.
 
-It reads rustdoc's unresolved-link warnings and fails on a `crate::`, `super::`, `self::` or
+It runs `cargo doc` over the whole workspace (a full doc build, minutes on a cold tree) and reads
+rustdoc's unresolved-link warnings and fails on a `crate::`, `super::`, `self::` or
 `Self::` path whose leaf name is declared nowhere: the item is gone. Every other warning is a
 convention here, not rot (a private module named through its parent, another crate's module
 named with `crate::`, a bare name for an unimported bevy type).
@@ -30,6 +31,8 @@ def run_rustdoc() -> str:
         capture_output=True,
         text=True,
     )
+    if out.returncode != 0:
+        raise RuntimeError(f"cargo doc failed with exit code {out.returncode}:\n{out.stderr}{out.stdout}")
     return out.stderr + out.stdout
 
 
@@ -59,7 +62,11 @@ def main() -> int:
         print(__doc__.strip())
         return 0
     report = "--report" in sys.argv
-    text = run_rustdoc()
+    try:
+        text = run_rustdoc()
+    except (OSError, RuntimeError) as error:
+        print(f"doc-links FAILED: {error}", file=sys.stderr)
+        return 1
     found = re.findall(r"warning: unresolved link to `([^`]+)`\n\s*--> ([^\s:]+):(\d+)", text)
 
     names = declared_names()

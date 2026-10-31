@@ -6,9 +6,9 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use anyhow::{anyhow, bail, Context, Result};
-use benilla_mpq::Archive;
+use benilla_mpq::{Archive, ReadLimits};
 
-use crate::VANILLA_BASE_ORDER;
+use crate::{Locale, VANILLA_BASE_ORDER};
 
 /// One entry from a chain listing: an internal path and its uncompressed size.
 pub struct ChainEntry {
@@ -20,6 +20,21 @@ pub struct ChainEntry {
 pub struct Chain {
     /// Ascending priority: later archives win.
     archives: Vec<Archive>,
+    /// The locale the chain's `Wow.ini` names, read once at open as start-up reads it once.
+    locale: Locale,
+}
+
+/// Opt-in budgets for offline inspection of an untrusted installation.
+/// Index bytes are cumulative across all mounted archives; sector/member caps
+/// remain attached to every returned archive handle.
+#[derive(Clone, Copy, Debug)]
+pub struct ChainLimits {
+    pub index_bytes: usize,
+    pub sector_bytes: usize,
+    pub member_bytes: usize,
+    pub header_scan_bytes: u64,
+    pub archives: usize,
+    pub directory_entries: usize,
 }
 
 /// `patch-?.MPQ` as the reference's `FindFirstFileW` glob matches it (template `0x82edbc`, wrapper
@@ -62,38 +77,99 @@ fn mount_order(dir_names: &[String]) -> Vec<String> {
 impl Chain {
     /// Open a `Data` directory's archives in [`mount_order`], or a single `.MPQ` file.
     ///
-    /// Deviation: an archive that fails to open is an error, where the reference logs
-    /// `"Failed to open archive"` and goes on, because a skipped corrupt archive surfaces only as
-    /// missing files far downstream.
+    /// Deviation: an archive that fails to open is an error. In 1.12.1 a failed base archive is
+    /// fatal (Error #134: `0x4038ea` → `0x64d0e0` → `0x64cfa0` → `0x64cc80`, `ExitProcess`) and
+    /// only a failing patch archive is skipped, silently; benilla fails on that too, because a
+    /// skipped corrupt archive surfaces only as missing files far downstream.
     pub fn open(path: &Path) -> Result<Self> {
+        Self::open_inner(path, None)
+    }
+
+    /// Same mount order/locale/tombstone policy as `open`, with explicit budgets.
+    pub fn open_bounded(path: &Path, limits: ChainLimits) -> Result<Self> {
+        Self::open_inner(path, Some(limits))
+    }
+
+    fn open_inner(path: &Path, limits: Option<ChainLimits>) -> Result<Self> {
         let mut archives = Vec::new();
+        let mut index_remaining = limits.map_or(usize::MAX, |l| l.index_bytes);
+        let mut open = |path: &Path| -> Result<Archive> {
+            let archive = match limits {
+                Some(limits) => Archive::open_bounded(
+                    path,
+                    ReadLimits {
+                        index_bytes: index_remaining,
+                        sector_bytes: limits.sector_bytes,
+                        member_bytes: limits.member_bytes,
+                        header_scan_bytes: limits.header_scan_bytes,
+                    },
+                )?,
+                None => Archive::open(path)?,
+            };
+            if limits.is_some() {
+                index_remaining -= archive.index_bytes(); // checked by bounded open
+            }
+            Ok(archive)
+        };
         if path.is_dir() {
-            let mut names: Vec<String> = std::fs::read_dir(path)
+            let mut names = Vec::new();
+            for (index, entry) in std::fs::read_dir(path)
                 .with_context(|| format!("listing {}", path.display()))?
-                .filter_map(|entry| {
-                    let entry = entry.ok()?;
-                    // `path().is_file()` follows symlinks (`read_dir`'s file_type doesn't).
-                    entry.path().is_file().then(|| entry.file_name())
-                })
-                .filter_map(|name| name.into_string().ok())
-                .collect();
+                .enumerate()
+            {
+                if limits.is_some_and(|l| index >= l.directory_entries) {
+                    bail!("bounded chain directory-entry limit");
+                }
+                let Ok(entry) = entry else { continue };
+                if entry.path().is_file() {
+                    if let Ok(name) = entry.file_name().into_string() {
+                        names.push(name);
+                    }
+                }
+            }
             // read_dir order is arbitrary; sort so case-variant ties resolve deterministically.
             names.sort();
-            for name in mount_order(&names) {
+            let ordered = mount_order(&names);
+            if limits.is_some_and(|l| ordered.len() > l.archives) {
+                bail!("bounded chain archive-count limit");
+            }
+            for name in ordered {
                 let mpq = path.join(&name);
-                archives.push(
-                    Archive::open(&mpq).with_context(|| format!("opening {}", mpq.display()))?,
-                );
+                archives.push(open(&mpq).with_context(|| format!("opening {}", mpq.display()))?);
             }
             if archives.is_empty() {
                 bail!("no known vanilla MPQs found in {}", path.display());
             }
         } else {
-            archives.push(
-                Archive::open(path).with_context(|| format!("opening MPQ {}", path.display()))?,
-            );
+            if limits.is_some_and(|l| l.archives == 0) {
+                bail!("bounded chain archive-count limit");
+            }
+            archives.push(open(path).with_context(|| format!("opening MPQ {}", path.display()))?);
         }
-        Ok(Self { archives })
+        let mut chain = Self {
+            archives,
+            locale: Locale::default(),
+        };
+        chain.locale = crate::wow_ini::client_locale(&chain);
+        Ok(chain)
+    }
+
+    /// The client locale, from the chain's `Wow.ini` (`0x402350`): its index picks the column of
+    /// every localized DBC string.
+    pub fn locale(&self) -> Locale {
+        self.locale
+    }
+
+    /// The same archives read as another locale, for a test of the column a loader reads.
+    #[cfg(test)]
+    pub(crate) fn with_locale(mut self, locale: Locale) -> Self {
+        self.locale = locale;
+        self
+    }
+
+    /// Mounted archives in ascending priority, for read-only source-profile checks.
+    pub fn archives(&self) -> impl Iterator<Item = &Archive> {
+        self.archives.iter()
     }
 
     /// The highest-priority archive with an entry for `name`, a delete marker included, as a
@@ -119,6 +195,22 @@ impl Chain {
         archive
             .read_file(name)
             .with_context(|| format!("reading {name} from {}", archive.path().display()))
+    }
+
+    /// Opt-in pinned extractor compatibility check, independent of normal reads.
+    /// True means the first matching member has a supported `ad` shape; false is
+    /// true absence. A malformed matching entry or tombstone never falls back.
+    /// Callers using one fixed source archive can also check an otherwise hidden
+    /// malformed hash entry before deciding that archive lacks the selected name.
+    pub fn verify_classic_ad_member(&self, name: &str) -> Result<bool> {
+        for archive in self.archives.iter().rev() {
+            match archive.verify_classic_ad_member(name) {
+                Ok(()) => return Ok(true),
+                Err(benilla_mpq::Error::NotFound(_)) => continue,
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(false)
     }
 
     /// The archive `name` reads from, as a cheap handle: a caller holding the chain behind a lock
@@ -172,11 +264,228 @@ impl Chain {
         }
         Ok(out)
     }
+
+    /// `EnumerateArchiveFiles` (`0x401470`): every `(listfile)` line that begins with `prefix`,
+    /// without ASCII case and with `\` only as `\` (`SStrCmpI` at `0x4014fe`), as written and
+    /// unresolved. The archives are the mount's slots below the base ones, the patches and
+    /// `speech2.MPQ` in their opening order (`0x4014a0`-`0x4014bf`, up to `[0x882740]`), then
+    /// `interface.MPQ`, base slot 6 (`0x4014c1`-`0x4014e1`); a slot with no archive is passed over.
+    ///
+    /// Not walked, as benilla mounts neither: the `speech2` child record each patch gets beside a
+    /// real `speech2.MPQ` (`0x648e80` at `0x403886`), which the reference's slots also hold and
+    /// which names its parent's `speech2\`-prefixed files, and an SZip archive, `0x648fb0`'s
+    /// type-1 arm (`0x668b30`; `0x648e38` types any name not ending `.mpq`). A child's type word is
+    /// never written (`0x648e85`-`0x648ea0`, `SMemAlloc` without the zero flag), so which arm
+    /// reads it is not fixed by the bytes.
+    pub fn enumerate_archive_files(&self, prefix: &str) -> Vec<String> {
+        let named = |a: &&Archive, name: &str| {
+            a.path()
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.eq_ignore_ascii_case(name))
+        };
+        let base = |a: &&Archive| VANILLA_BASE_ORDER.iter().any(|b| named(a, b));
+        let interface = self.archives.iter().find(|a| named(a, "interface.MPQ"));
+        let mut out = Vec::new();
+        for archive in self.archives.iter().filter(|a| !base(a)).chain(interface) {
+            if let Ok(listfile) = archive.read_file("(listfile)") {
+                listfile_lines(&listfile, prefix, &mut out);
+            }
+        }
+        out
+    }
+}
+
+/// The longest line `0x648fb0` keeps: its buffer takes bytes while below `[ebp-5]` of `[ebp-0x108]`
+/// (`0x64902a`-`0x649031`), and drops the rest of a longer one.
+const LISTFILE_LINE_MAX: usize = 0x103;
+
+/// `EnumerateArchiveListfile` (`0x648fb0`) over one listfile, with `0x4014f0`'s prefix test: a line
+/// ends at a CR or LF (`0x649022`, `0x649026`); an empty one, and one whose text from its last dot
+/// is `.md5` without case (`0x865bd8`, `0x64905f`), is passed over. Deviation: a last line with no
+/// CR or LF after it is passed too, where `0x648fb0` ends at the buffer's end without a flush
+/// (`0x64907f`) and drops it, a bug that loses a listfile's last name when it lacks a newline.
+fn listfile_lines(listfile: &[u8], prefix: &str, out: &mut Vec<String>) {
+    let mut line: Vec<u8> = Vec::with_capacity(LISTFILE_LINE_MAX);
+    for &b in listfile {
+        if b != b'\r' && b != b'\n' {
+            if line.len() < LISTFILE_LINE_MAX {
+                line.push(b);
+            }
+            continue;
+        }
+        pass_line(&line, prefix, out);
+        line.clear();
+    }
+    pass_line(&line, prefix, out);
+}
+
+/// One finished listfile line, passed unless empty, a `.md5` or outside the prefix.
+fn pass_line(line: &[u8], prefix: &str, out: &mut Vec<String>) {
+    let md5 = line
+        .iter()
+        .rposition(|&c| c == b'.')
+        .is_some_and(|dot| line[dot..].eq_ignore_ascii_case(b".md5"));
+    let under =
+        line.len() >= prefix.len() && line[..prefix.len()].eq_ignore_ascii_case(prefix.as_bytes());
+    if !line.is_empty() && !md5 && under {
+        out.push(String::from_utf8_lossy(line).into_owned());
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Lines end at CR or LF; the prefix compares without case and reads `/` as itself; `.md5`
+    /// lines and empty lines are passed over, an unterminated last line is kept; a long line is cut.
+    #[test]
+    fn a_listfile_walk_passes_the_lines_under_the_prefix() {
+        let long = format!("Interface\\Icons\\{}", "x".repeat(400));
+        let text = format!(
+            "Interface\\Icons\\Spell_A.blp\r\ninterface\\ICONS\\b.blp\n\nInterface/Icons/c.blp\n\
+             Interface\\Icons\\d.blp.MD5\rTextures\\e.blp\n{long}\nInterface\\Icons\\last.blp"
+        );
+        let mut out = Vec::new();
+        listfile_lines(text.as_bytes(), "Interface\\Icons\\", &mut out);
+        assert_eq!(out.len(), 4, "{out:?}");
+        assert_eq!(out[0], "Interface\\Icons\\Spell_A.blp");
+        assert_eq!(out[1], "interface\\ICONS\\b.blp");
+        assert_eq!(out[2].len(), LISTFILE_LINE_MAX);
+        assert_eq!(
+            out[3], "Interface\\Icons\\last.blp",
+            "the unterminated last line"
+        );
+    }
+
+    /// A minimal V1 archive holding stored files, its tables encrypted as the reader expects: the
+    /// MPQ string hash and table cipher, written out here since `benilla-mpq` keeps its own private.
+    fn fixture_mpq(files: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut table = [0u32; 0x500];
+        let mut seed: u32 = 0x0010_0001;
+        for i in 0..0x100 {
+            for j in 0..5 {
+                seed = (seed * 125 + 3) % 0x2A_AAAB;
+                let hi = (seed & 0xFFFF) << 16;
+                seed = (seed * 125 + 3) % 0x2A_AAAB;
+                table[i + j * 0x100] = hi | (seed & 0xFFFF);
+            }
+        }
+        let hash = |name: &str, kind: usize| {
+            let (mut s1, mut s2): (u32, u32) = (0x7FED_7FED, 0xEEEE_EEEE);
+            for b in name.bytes() {
+                let ch = b.to_ascii_uppercase() as u32;
+                s1 = table[kind + ch as usize] ^ s1.wrapping_add(s2);
+                s2 = ch
+                    .wrapping_add(s1)
+                    .wrapping_add(s2)
+                    .wrapping_add(s2 << 5)
+                    .wrapping_add(3);
+            }
+            s1
+        };
+        let encrypt = |data: &mut [u32], mut key: u32| {
+            let mut seed: u32 = 0xEEEE_EEEE;
+            for v in data.iter_mut() {
+                seed = seed.wrapping_add(table[0x400 + (key & 0xFF) as usize]);
+                let plain = *v;
+                *v = plain ^ key.wrapping_add(seed);
+                key = (!key << 0x15).wrapping_add(0x1111_1111) | (key >> 0x0B);
+                seed = plain
+                    .wrapping_add(seed)
+                    .wrapping_add(seed << 5)
+                    .wrapping_add(3);
+            }
+        };
+        const SLOTS: usize = 16;
+        let hash_pos = 32u32;
+        let block_pos = hash_pos + SLOTS as u32 * 16;
+        let mut data_pos = block_pos + files.len() as u32 * 16;
+        let mut hashes = vec![0xFFFF_FFFFu32; SLOTS * 4];
+        let mut blocks = Vec::new();
+        let mut body = Vec::new();
+        for (i, (name, bytes)) in files.iter().enumerate() {
+            let mut slot = hash(name, 0) as usize & (SLOTS - 1);
+            while hashes[slot * 4 + 3] != 0xFFFF_FFFF {
+                slot = (slot + 1) & (SLOTS - 1);
+            }
+            hashes[slot * 4..slot * 4 + 4].copy_from_slice(&[
+                hash(name, 0x100),
+                hash(name, 0x200),
+                0,
+                i as u32,
+            ]);
+            blocks.extend([
+                data_pos,
+                bytes.len() as u32,
+                bytes.len() as u32,
+                0x8000_0000,
+            ]);
+            body.extend_from_slice(bytes);
+            data_pos += bytes.len() as u32;
+        }
+        encrypt(&mut hashes, hash("(hash table)", 0x300));
+        encrypt(&mut blocks, hash("(block table)", 0x300));
+        let mut out = Vec::new();
+        for w in [
+            0x1A51_504D,
+            32,
+            data_pos,
+            0,
+            hash_pos,
+            block_pos,
+            SLOTS as u32,
+        ] {
+            out.extend_from_slice(&w.to_le_bytes());
+        }
+        out.extend_from_slice(&(files.len() as u32).to_le_bytes());
+        // The 16-bit format version and block size shift (bytes 12..16) stay 0.
+        for w in hashes.into_iter().chain(blocks) {
+            out.extend_from_slice(&w.to_le_bytes());
+        }
+        out.extend_from_slice(&body);
+        out
+    }
+
+    /// The walk reads the patches and `speech2.MPQ` in mount order, then `interface.MPQ`, and no
+    /// other base archive, each listfile's lines as written.
+    #[test]
+    fn the_archive_walk_reads_the_patches_then_interface_mpq() {
+        let dir = std::env::temp_dir().join(format!(
+            "benilla-chain-walk-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for archive in [
+            "interface.MPQ",
+            "model.MPQ",
+            "dbc.MPQ",
+            "patch.MPQ",
+            "patch-2.MPQ",
+            "speech2.MPQ",
+        ] {
+            let line = format!("X\\{archive}\r\nY\\{archive}\r\n");
+            std::fs::write(
+                dir.join(archive),
+                fixture_mpq(&[("(listfile)", line.as_bytes())]),
+            )
+            .unwrap();
+        }
+        let chain = Chain::open(&dir).expect("open the fixture chain");
+        let walked = chain.enumerate_archive_files("x\\");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            walked,
+            [
+                "X\\patch.MPQ",
+                "X\\patch-2.MPQ",
+                "X\\speech2.MPQ",
+                "X\\interface.MPQ"
+            ]
+        );
+    }
 
     fn owned(names: &[&str]) -> Vec<String> {
         names.iter().map(|n| n.to_string()).collect()

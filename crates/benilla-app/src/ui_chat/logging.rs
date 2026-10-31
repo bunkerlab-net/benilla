@@ -9,8 +9,6 @@ use std::io::Write as _;
 
 use bevy::prelude::*;
 
-use benilla_ui::script::UiScript;
-
 /// The open log files, kept on the chat windows since every line passes [`super::frames::route`].
 #[derive(Default)]
 pub(crate) struct ChatLogFiles {
@@ -128,16 +126,18 @@ fn local_fields(secs: i64) -> [u32; 5] {
 
 /// The VM's two flags → the two files, on the frame either flag moves.
 pub(super) fn sync_chat_logging(
-    script: Option<NonSendMut<UiScript>>,
+    mut hosted_vm: crate::script_calls::HostedVm,
     mut windows: ResMut<super::frames::ChatWindows>,
 ) {
-    let Some(mut script) = script else { return };
-    if !script.take_logging_changes() {
-        return;
-    }
-    let (chat, combat) = script.logging_flags();
-    windows.logs.set(false, chat);
-    windows.logs.set(true, combat);
+    hosted_vm.run(|script| {
+        let Some(script) = script else { return };
+        if !script.take_logging_changes() {
+            return;
+        }
+        let (chat, combat) = script.logging_flags();
+        windows.logs.set(false, chat);
+        windows.logs.set(true, combat);
+    })
 }
 
 pub(super) fn plugin(app: &mut App) {
@@ -145,29 +145,25 @@ pub(super) fn plugin(app: &mut App) {
         Update,
         // After the UI tick, so a flag Lua moved is read the same frame.
         sync_chat_logging
-            .after(crate::ui_script::UiInput)
-            .in_set(crate::char_select::InWorldGated),
+            .in_set(crate::ui_script::UiDrain)
+            .in_set(crate::client_state::InWorldGated),
     );
 }
 
 #[cfg(all(test, unix))]
 mod tests {
-    use crate::local_state::test_env::{EnvGuard, ENV_LOCK};
-
-    extern "C" {
-        fn tzset();
-    }
+    use benilla_ui::civil::ZoneGuard;
 
     /// Under a zone 5:45 east of UTC, the epoch reads 05:45, and 20:00 UTC is past local midnight.
+    /// The stamp is `GetLocalTime`'s (`0x65a871`), the system's zone as it is now, so it reads the
+    /// platform's `localtime_r` and not [`benilla_ui::civil`]'s once-read zone; the guard only
+    /// holds `TZ` (and runs `tzset`) for the test.
     #[test]
     fn the_stamp_fields_follow_the_local_zone() {
-        let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let tz = EnvGuard::set("TZ", "NPT-05:45");
-        // SAFETY: `tzset` rereads `TZ`; the lock keeps other env tests out.
-        unsafe { tzset() };
-        let fields = [super::local_fields(0), super::local_fields(72_000)];
-        drop(tz);
-        unsafe { tzset() };
+        let fields = {
+            let _zone = ZoneGuard::set("NPT-05:45");
+            [super::local_fields(0), super::local_fields(72_000)]
+        };
         assert_eq!(fields, [[1, 1, 5, 45, 0], [1, 2, 1, 45, 0]]);
     }
 }

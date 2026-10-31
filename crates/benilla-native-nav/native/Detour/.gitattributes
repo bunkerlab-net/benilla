@@ -1,0 +1,4 @@
+# Pinned upstream source retains its original whitespace; exact hashes are in ../UPSTREAM-SHA256SUMS.
+Source/* -whitespace
+Include/* -whitespace
+CMakeLists.txt -whitespace

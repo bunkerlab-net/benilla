@@ -17,6 +17,24 @@ use bevy::math::{Dir3, Quat, Vec3};
 
 mod one_sided;
 
+/// A body sweep's first hit: avian's hit data, whose `normal1` is the contact normal (at an edge or
+/// a vertex, the direction to the touched feature), and the hit face's own authored normal. The
+/// reference classifies a hit by the face's record (`0xc4e534`, read at `0x636592` and `0x636ecf`),
+/// never by the contact, so a body resting on a stair's nosing touches a tread, not a 30° slope.
+#[derive(Clone, Copy, Debug)]
+pub struct BodyHit {
+    pub hit: MoveHitData,
+    /// The hit triangle's authored normal, world space; a convex collider's contact normal.
+    pub face_normal: Vec3,
+}
+
+impl core::ops::Deref for BodyHit {
+    type Target = MoveHitData;
+    fn deref(&self) -> &MoveHitData {
+        &self.hit
+    }
+}
+
 /// The collision audiences. avian puts every collider without explicit `CollisionLayers` on bit 0,
 /// [`CollisionLayer::Default`]; only WMO faces and liquid carry a layer.
 #[derive(PhysicsLayer, Default, Clone, Copy)]
@@ -97,10 +115,12 @@ pub struct GroundDecalSurface;
 /// Marks a static collider that occludes the mouse pick: the reference traces the world too and
 /// drops the object hit when the world hit is strictly nearer (`0x480df0` at `0x480eb4`,
 /// `CWorld::Intersect` `0x672170`, mask `0x1000114`), so a unit behind a wall is not hoverable.
-/// Occluders are terrain (DDA `0x69c920`), WMO group faces outside MOPY reject mask `0x84` (here
-/// the walk collider, which rejects only `0x04`: a `0x84` face set is not built) and static
-/// default-set doodad hulls (`0x69cdb0`). Liquid (mask bits 16-19 off) is not, nor are unit and
-/// server-spawned GameObject hulls, transports included: those are the object trace.
+/// Occluder colliders are terrain (DDA `0x69c920`) and WMO group faces outside MOPY reject mask
+/// `0x84` (here the walk collider, which rejects only `0x04`: a `0x84` face set is not built). A
+/// static doodad occludes by its drawn opaque render batches, never its collision hull
+/// (`0x69cdb0` queues it in mode 2, [`crate::interact::DoodadOccluders`]), so no doodad hull
+/// carries this. Liquid (mask bits 16-19 off) is not an occluder, nor are unit and server-spawned
+/// GameObject hulls, transports included: those are the object trace.
 #[derive(Component)]
 pub struct PickOccluder;
 
@@ -115,15 +135,38 @@ pub struct MoverTraceExclusions(pub bevy::ecs::entity::EntityHashSet);
 pub struct WorldCollision<'w, 's> {
     ms: MoveAndSlide<'w, 's>,
     exclusions: bevy::ecs::system::Res<'w, MoverTraceExclusions>,
+    /// Absent in an app with no terrain streamer, which gates nothing.
+    residency: Option<bevy::ecs::system::Res<'w, crate::terrain_stream::TerrainResidency>>,
 }
 
 impl WorldCollision<'_, '_> {
+    /// Whether the terrain leg of the mover's world query over the WoW-space box `min..max` (x, y)
+    /// would complete: the reference's `0x6721b0` returns its gather's result, which is 0 when a
+    /// chunk under the box is not loaded ([`crate::terrain_stream::TerrainResidency::box_resident`],
+    /// whose module names the legs not built), and the substep loop then resolves nothing
+    /// (`0x634154`). An app with no streamer gates nothing.
+    pub fn terrain_resident(&self, min: [f32; 2], max: [f32; 2]) -> bool {
+        self.residency
+            .as_deref()
+            .is_none_or(|r| r.box_resident(min, max))
+    }
+
     /// What a walking body collides with: the default layer and the WMO walking colliders. Public
     /// for the lanes that hand a filter elsewhere (the mouse pick's occlusion trace, the mount-tilt
     /// probe); the casts below apply it themselves.
     pub fn body_filter() -> SpatialQueryFilter {
         SpatialQueryFilter::from_mask(LayerMask(
             CollisionLayer::Default.to_bits() | CollisionLayer::Walk.to_bits(),
+        ))
+    }
+
+    /// Conservative native static LOS: retain walking faces and include camera-only DETAIL
+    /// faces. This local union is deliberately stricter than either client audience alone.
+    pub fn conservative_los_filter() -> SpatialQueryFilter {
+        SpatialQueryFilter::from_mask(LayerMask(
+            CollisionLayer::Default.to_bits()
+                | CollisionLayer::Walk.to_bits()
+                | CollisionLayer::Camera.to_bits(),
         ))
     }
 
@@ -164,7 +207,7 @@ impl WorldCollision<'_, '_> {
         from: Vec3,
         movement: Vec3,
         skin_width: f32,
-    ) -> Option<MoveHitData> {
+    ) -> Option<BodyHit> {
         self.cast_body_with(shape, from, movement, skin_width, &Self::body_filter())
     }
 
@@ -177,7 +220,7 @@ impl WorldCollision<'_, '_> {
         movement: Vec3,
         skin_width: f32,
         filter: &SpatialQueryFilter,
-    ) -> Option<MoveHitData> {
+    ) -> Option<BodyHit> {
         one_sided::cast_move(&self.ms, shape, from, movement, skin_width, filter)
     }
 
@@ -264,7 +307,7 @@ impl WorldCollision<'_, '_> {
         from: Vec3,
         movement: Vec3,
         skin_width: f32,
-    ) -> Option<MoveHitData> {
+    ) -> Option<BodyHit> {
         self.cast_body_with(shape, from, movement, skin_width, &self.mover_filter())
     }
 
@@ -297,6 +340,87 @@ impl WorldCollision<'_, '_> {
     /// Every front-facing triangle in a box around `at`: the step probe's face gather.
     pub fn faces_near_body(&self, at: Vec3, half: Vec3, limit: usize) -> Vec<one_sided::FaceProbe> {
         one_sided::faces_near(&self.ms, at, half, &Self::body_filter(), limit)
+    }
+}
+
+#[cfg(test)]
+mod native_los_mask {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+    use bevy::prelude::*;
+
+    fn world_with_wall(layers: CollisionLayers) -> App {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            bevy::transform::TransformPlugin,
+            bevy::asset::AssetPlugin::default(),
+            bevy::scene::ScenePlugin,
+            PhysicsPlugins::new(bevy::app::PostUpdate),
+        ));
+        app.init_asset::<Mesh>();
+        app.world_mut().spawn((
+            RigidBody::Static,
+            Collider::trimesh(
+                vec![
+                    Vec3::new(0.0, 1.0, -1.0),
+                    Vec3::new(0.0, 3.0, -1.0),
+                    Vec3::new(0.0, 3.0, 1.0),
+                    Vec3::new(0.0, 1.0, 1.0),
+                ],
+                vec![[0u32, 1, 2], [0, 2, 3]],
+            ),
+            layers,
+            Transform::default(),
+        ));
+        app.finish();
+        app.cleanup();
+        app.update();
+        app.update();
+        app
+    }
+
+    fn ray_distance(app: &mut App, filter: SpatialQueryFilter) -> Option<f32> {
+        app.world_mut()
+            .run_system_once(move |spatial: SpatialQuery| {
+                spatial
+                    .cast_ray(Vec3::new(-2.0, 2.0, 0.0), Dir3::X, 4.0, true, &filter)
+                    .map(|hit| hit.distance)
+            })
+            .expect("LOS system runs")
+    }
+
+    #[test]
+    fn native_los_catches_camera_only_faces_between_clear_endpoints() {
+        // A WMO DETAIL face is excluded from the walk bake and retained in the camera bake.
+        // Both radius-0.5 endpoint bodies (x=-2 and x=2) miss this wall's x=0 source AABB,
+        // so endpoint containment checks cannot substitute for the elevated segment ray.
+        let mut app = world_with_wall(camera_layers());
+        assert_eq!(ray_distance(&mut app, WorldCollision::body_filter()), None);
+        assert_eq!(
+            ray_distance(&mut app, WorldCollision::conservative_los_filter()),
+            Some(2.0)
+        );
+    }
+
+    #[test]
+    fn native_los_keeps_default_and_walk_faces_without_adding_liquids() {
+        for layers in [CollisionLayers::DEFAULT, walk_layers()] {
+            assert_eq!(
+                ray_distance(
+                    &mut world_with_wall(layers),
+                    WorldCollision::conservative_los_filter()
+                ),
+                Some(2.0)
+            );
+        }
+        assert_eq!(
+            ray_distance(
+                &mut world_with_wall(liquid_layers()),
+                WorldCollision::conservative_los_filter()
+            ),
+            None
+        );
     }
 }
 

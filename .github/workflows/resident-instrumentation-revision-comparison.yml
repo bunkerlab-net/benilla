@@ -1,0 +1,251 @@
+# Bounded whole-revision diagnostic, not a production or performance acceptance gate.
+name: Resident instrumentation revision comparison
+
+on:
+  push:
+    branches: [feat/psk-p2p-foundation]
+    paths:
+      - .github/workflows/resident-instrumentation-revision-comparison.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: resident-instrumentation-revision-comparison-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compare-pinned-revisions:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 180
+    env:
+      CARGO_TERM_COLOR: never
+      CARGO_INCREMENTAL: 0
+      CARGO_BUILD_JOBS: 3
+      CARGO_PROFILE_TEST_DEBUG: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+      WOW_DATA: ""
+    steps:
+      - name: Check out trusted workflow and verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Check out pinned baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 0d522190eca69f2c56d582d874a3c19d7df8d435
+          path: baseline
+          persist-credentials: false
+      - name: Check out pinned instrumented revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 10fff5126b5edaaed3330cb7374099cae95e971f
+          path: current
+          persist-credentials: false
+      - name: Verify exact identities and build inputs
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          python3 - <<'PY'
+          import pathlib
+          import subprocess
+          import tomllib
+
+          roots = [pathlib.Path("baseline"), pathlib.Path("current")]
+          pins = [
+              ("0d522190eca69f2c56d582d874a3c19d7df8d435", "c506058280ea97f266a07932909556da4243e467"),
+              ("10fff5126b5edaaed3330cb7374099cae95e971f", "f725aad16265f70657e83784438f1f24a3311a19"),
+          ]
+          inventories = []
+          for root, (head, tree) in zip(roots, pins):
+              def git(*args):
+                  return subprocess.check_output(["git", "-C", str(root), *args]).decode().strip()
+              assert git("rev-parse", "HEAD") == head
+              assert git("rev-parse", "HEAD^{tree}") == tree
+              assert not git("status", "--porcelain", "--untracked-files=all")
+              paths = git("ls-files", "-z").split("\0")
+              selected = [p for p in paths if p and (
+                  pathlib.PurePosixPath(p).name in {"Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "rust-toolchain"}
+                  or ".cargo" in pathlib.PurePosixPath(p).parts
+              )]
+              inventory = {p: (root / p).read_bytes() for p in selected}
+              assert "Cargo.lock" in inventory and "Cargo.toml" in inventory
+              assert tomllib.loads(inventory["rust-toolchain.toml"].decode())["toolchain"]["channel"] == "1.98.1"
+              inventories.append(inventory)
+              print(f"{root}: head={head} tree={tree} build-input-files={len(inventory)}")
+          # Key equality detects additions/removals, including absent nested .cargo configs.
+          assert inventories[0] == inventories[1], "manifests/locks/toolchain/Cargo config differ"
+          PY
+          echo 'Fixed baseline-then-current order: page caches, machine load and time remain confounders.'
+          echo 'Whole-patch/fixture/codegen comparison, not source-hook causation or a zero-overhead baseline.'
+          echo 'Existing cfg(test) default-feature authored component test; not packaged-player or gameplay evidence.'
+          echo 'Original 500ms Work lease unchanged; no retries, deadline widening, overhead subtraction or NEW cross-revision improvement assertion.'
+          echo 'One existing test invocation per revision; each test internally compares two controller arms and retains its original assertions.'
+          echo "BENILLA_SKIP_LOG=$RUNNER_TEMP/revision-data-skips.log" >> "$GITHUB_ENV"
+      - name: Test trusted exact libtest gates
+        run: python3 scripts/test-verify-libtest-output.py
+      - name: System libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq pkg-config libasound2-dev libudev-dev libwayland-dev
+          pkg-config --exists wayland-client
+      - name: Pinned toolchain
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          rustc +1.98.1 -Vv
+          cargo +1.98.1 -V
+      - name: Build both revisions before running either comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import subprocess
+
+          workspace = pathlib.Path(os.environ["GITHUB_WORKSPACE"])
+          logs = pathlib.Path(os.environ["RUNNER_TEMP"]) / "resident-revision-comparison"
+          logs.mkdir()
+          records = []
+          # Every command here is --no-run. Serial builds finish before any test starts.
+          for label in ("baseline", "current"):
+              root = workspace / label
+              target = pathlib.Path(os.environ["RUNNER_TEMP"]) / f"resident-target-{label}"
+              env = dict(os.environ, CARGO_TARGET_DIR=str(target))
+              record = {"label": label, "root": str(root), "target": str(target), "build_ok": True}
+              for kind, package, selector, target_name, target_kind in (
+                  ("helper", "benilla-native-nav-generator", ["--test", "process"], "process", "test"),
+                  ("app", "benilla-app", ["--lib"], "benilla_app", "lib"),
+              ):
+                  log = logs / f"{label}-{kind}-build.jsonl"
+                  command = ["cargo", "+1.98.1", "test", "--locked", "--release", "--no-run",
+                             "--message-format=json", "-p", package, *selector]
+                  print(f"BUILD ONLY {label}/{kind}: {command}", flush=True)
+                  with log.open("w") as output:
+                      result = subprocess.run(command, cwd=root, env=env, stdout=output)
+                  record["build_ok"] &= result.returncode == 0
+                  try:
+                      messages = [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
+                  except (UnicodeError, ValueError) as error:
+                      record["build_ok"] = False
+                      print(f"BUILD FAILURE {label}/{kind}: malformed Cargo artifact log: {error}; not a performance result", flush=True)
+                      continue
+                  artifacts = [m for m in messages if m.get("reason") == "compiler-artifact"
+                               and m.get("executable") and m["profile"]["test"]
+                               and m["target"]["name"] == target_name
+                               and target_kind in m["target"]["kind"]]
+                  if result.returncode != 0 or len(artifacts) != 1:
+                      record["build_ok"] = False
+                      print(f"BUILD FAILURE {label}/{kind}: exit={result.returncode}, artifacts={len(artifacts)}; not a performance result", flush=True)
+                      continue
+                  artifact = artifacts[0]
+                  executable = pathlib.Path(artifact["executable"])
+                  assert executable.is_file() and executable.parent == target / "release" / "deps"
+                  # Cargo adds target-local build-script search paths to its loader path.
+                  library_paths = []
+                  for message in messages:
+                      if message.get("reason") == "build-script-executed":
+                          for linked in message.get("linked_paths", []):
+                              path = pathlib.Path(linked.split("=", 1)[-1])
+                              if path.is_relative_to(target) and str(path) not in library_paths:
+                                  library_paths.append(str(path))
+                  record[kind] = {"executable": str(executable), "library_paths": library_paths}
+              records.append(record)
+          (logs / "build-records.json").write_text(json.dumps(records, indent=2))
+          # Failures are aggregated after both arms; never label a missing build as a timing.
+          PY
+      - name: Run each pinned artifact once and verify both raw logs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import subprocess
+          import sys
+          import tomllib
+
+          workspace = pathlib.Path(os.environ["GITHUB_WORKSPACE"])
+          logs = pathlib.Path(os.environ["RUNNER_TEMP"]) / "resident-revision-comparison"
+          records = json.loads((logs / "build-records.json").read_text())
+          verifier = workspace / "scripts" / "verify-libtest-output.py"
+          rust_lib = subprocess.check_output(["rustc", "+1.98.1", "--print", "target-libdir"], text=True).strip()
+          cargo = subprocess.check_output(["rustup", "which", "--toolchain", "1.98.1", "cargo"], text=True).strip()
+          status = 0
+
+          def run_exact(record, kind, name, ignored):
+              root = pathlib.Path(record["root"])
+              target = pathlib.Path(record["target"])
+              package = "benilla-app" if kind == "app" else "benilla-native-nav-generator"
+              manifest_dir = root / "crates" / package
+              manifest = tomllib.loads((manifest_dir / "Cargo.toml").read_text())["package"]
+              inherited = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]["package"]
+              manifest = {key: inherited[key] if isinstance(value, dict) and value.get("workspace") else value
+                          for key, value in manifest.items()}
+              env = dict(os.environ, CARGO=cargo, CARGO_MANIFEST_DIR=str(manifest_dir),
+                         CARGO_MANIFEST_PATH=str(manifest_dir / "Cargo.toml"), CARGO_TARGET_DIR=str(target))
+              for key in ("name", "version", "authors", "description", "homepage", "repository", "license", "license_file", "rust_version", "readme"):
+                  value = manifest.get(key.replace("_", "-"), "")
+                  env["CARGO_PKG_" + key.upper()] = ":".join(value) if isinstance(value, list) else str(value)
+              version = manifest["version"].split("-", 1)
+              for key, value in zip(("MAJOR", "MINOR", "PATCH"), version[0].split(".")):
+                  env["CARGO_PKG_VERSION_" + key] = value
+              env["CARGO_PKG_VERSION_PRE"] = version[1] if len(version) == 2 else ""
+              paths = [*record[kind]["library_paths"], str(target / "release" / "deps"), str(target / "release"), rust_lib]
+              if env.get("LD_LIBRARY_PATH"):
+                  paths.append(env["LD_LIBRARY_PATH"])
+              env["LD_LIBRARY_PATH"] = os.pathsep.join(paths)
+              command = [record[kind]["executable"], name, "--exact", "--show-output", "--test-threads=1", "--color", "never"]
+              if ignored:
+                  command.append("--ignored")
+              stdout = logs / f"{record['label']}-{kind}.stdout.log"
+              stderr = logs / f"{record['label']}-{kind}.stderr.log"
+              print(f"RUN ONCE {record['label']}/{kind}: {command}", flush=True)
+              with stdout.open("w") as out, stderr.open("w") as err:
+                  try:
+                      result = subprocess.run(command, cwd=manifest_dir, env=env, stdout=out, stderr=err)
+                      exit_code = result.returncode
+                  except OSError as error:
+                      print(f"artifact launch failed: {error}", file=err)
+                      exit_code = 1
+              print(stdout.read_text(), flush=True)
+              print(stderr.read_text(), file=sys.stderr, flush=True)
+              proof = subprocess.run([sys.executable, str(verifier), str(stdout), name], cwd=workspace)
+              print(f"RESULT {record['label']}/{kind}: exit={exit_code} strict_verifier={proof.returncode}", flush=True)
+              return exit_code == 0 and proof.returncode == 0
+
+          # Both prerequisites run after all builds, before either measured comparison.
+          for record in records:
+              record["ready"] = False
+              if not record["build_ok"]:
+                  print(f"NOT RUN {record['label']}: build failure; no performance result", flush=True)
+                  status = 1
+                  continue
+              record["ready"] = run_exact(record, "helper", "empty_request_runs_without_inherited_environment", False)
+              if not record["ready"]:
+                  print(f"NOT RUN {record['label']} comparison: prerequisite failure; no performance result", flush=True)
+                  status = 1
+          name = "net::p2p::native_geometry::retained_phased_controller_tests::cold_phased_frame_cadenced_comparison"
+          for record in records:
+              if record["ready"]:
+                  if not run_exact(record, "app", name, True):
+                      status = 1
+          sys.exit(status)
+          PY
+      - name: Preserve raw diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: resident-instrumentation-revision-comparison
+          path: ${{ runner.temp }}/resident-revision-comparison/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Report final disk space
+        if: always()
+        run: df -h "$GITHUB_WORKSPACE" "$RUNNER_TEMP"

@@ -7,6 +7,8 @@ use bevy::prelude::*;
 
 /// One WMO doodad prop at its world transform, spawned once its M2 loads.
 pub(crate) struct WmoDoodadInst {
+    /// Raw MODD index, retained through paced loading and collider welding.
+    pub(crate) source_index: u32,
     pub(crate) handle: Handle<M2Model>,
     pub(crate) transform: Transform,
     /// The groups whose MODR names this prop, its portal-cull key: drawn while any is visible.

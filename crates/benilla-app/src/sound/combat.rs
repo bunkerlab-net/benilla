@@ -29,9 +29,9 @@ use benilla_world::schedule::WorldStage;
 
 use super::creature::CreatureVoices;
 use super::kit::{
-    bark_chance_pass, object_sound_playing, play_kit_ext, Bus, KitRef, PlayExtras, SoundCategory,
-    SoundKits, Volume, EXERTION_CHANCE_CREATURE, EXERTION_CHANCE_PLAYER, INJURY_CHANCE_CREATURE,
-    INJURY_CHANCE_PLAYER,
+    bark_chance_pass, object_sound_playing, play_kit_ext, Bus, FollowSource, KitRef, PlayExtras,
+    SoundCategory, SoundKits, Volume, EXERTION_CHANCE_CREATURE, EXERTION_CHANCE_PLAYER,
+    INJURY_CHANCE_CREATURE, INJURY_CHANCE_PLAYER,
 };
 use super::{AudioListener, SoundConfig, SoundOutput};
 
@@ -282,7 +282,6 @@ fn combat_sounds(
     attach: crate::entities::AttachPoints,
     objects: crate::net::Objects,
     mut items: Option<ResMut<crate::items::Items>>,
-    net_commands: Res<crate::net::NetCommands>,
     kits: Option<ResMut<SoundKits>>,
     assets: Option<Res<WorldAssets>>,
     mut out: NonSendMut<SoundOutput>,
@@ -378,6 +377,8 @@ fn combat_sounds(
             tr.translation,
             PlayExtras {
                 bus: Bus::EXERTION,
+                source: Some(attacker),
+                follow: Some(FollowSource::Origin),
                 ..default()
             },
             "exertion",
@@ -504,9 +505,7 @@ fn combat_sounds(
                         {
                             items
                                 .as_mut()
-                                .and_then(|it| {
-                                    super::worn_chest_material(vstore, &objects, it, &net_commands)
-                                })
+                                .and_then(|it| super::worn_chest_material(vstore, &objects, it))
                                 .map_or(impact_slot::FLESH, |m| mats.armor_impact_slot(m) as usize)
                         }
                         _ => creature_impact_slot(
@@ -635,7 +634,12 @@ fn combat_sounds(
                     &mut out,
                     vocal,
                     victim_tr.translation,
-                    PlayExtras { bus, ..default() },
+                    PlayExtras {
+                        bus,
+                        source: swing.victim,
+                        follow: Some(FollowSource::Origin),
+                        ..default()
+                    },
                     "injury",
                 );
             }
