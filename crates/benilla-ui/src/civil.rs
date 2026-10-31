@@ -333,7 +333,7 @@ pub fn unix_seconds() -> i64 {
 }
 
 /// Holds the process's time zone at a `TZ` value for a test, under a shared lock.
-/// Saves and restores both the OS environment and, on Windows, the CRT's separate environment.
+/// Saves and restores both the OS environment and, on Windows, the CRT's environment and DST bias.
 /// The zone cache is reset on entry and exit, matching the process's first read (`0x414568`).
 /// Behind `test-support` for tests of crates that read local time through [`local`].
 #[cfg(any(test, feature = "test-support"))]
@@ -342,6 +342,8 @@ pub struct ZoneGuard {
     old: Option<std::ffi::OsString>,
     #[cfg(windows)]
     old_crt: Option<std::ffi::CString>,
+    #[cfg(windows)]
+    old_dstbias: libc::c_long,
     _lock: std::sync::MutexGuard<'static, ()>,
 }
 
@@ -353,10 +355,17 @@ impl ZoneGuard {
         let old = std::env::var_os("TZ");
         #[cfg(windows)]
         let old_crt = test_crt::get();
+        #[cfg(windows)]
+        let old_dstbias = {
+            platform::tzset();
+            test_crt::dstbias()
+        };
         let guard = Self {
             old,
             #[cfg(windows)]
             old_crt,
+            #[cfg(windows)]
+            old_dstbias,
             _lock: lock,
         };
         Self::change(tz);
@@ -372,6 +381,8 @@ impl ZoneGuard {
         ));
         std::env::set_var("TZ", tz);
         platform::tzset();
+        #[cfg(windows)]
+        test_crt::reset_dstbias();
     }
 
     fn restore(&self) {
@@ -382,6 +393,8 @@ impl ZoneGuard {
             None => std::env::remove_var("TZ"),
         }
         platform::tzset();
+        #[cfg(windows)]
+        test_crt::set_dstbias(self.old_dstbias);
         reread_zone();
         drop(zone());
     }
@@ -396,10 +409,11 @@ impl Drop for ZoneGuard {
 
 #[cfg(all(windows, any(test, feature = "test-support")))]
 mod test_crt {
-    use std::ffi::{c_char, c_int, CStr, CString};
+    use std::ffi::{c_char, c_int, c_long, CStr, CString};
 
     extern "C" {
         fn _putenv_s(varname: *const c_char, value_string: *const c_char) -> c_int;
+        fn __dstbias() -> *mut c_long;
     }
 
     pub(super) fn get() -> Option<CString> {
@@ -412,6 +426,27 @@ mod test_crt {
         // SAFETY: both strings are NUL-terminated; an empty value removes TZ in the CRT.
         let error = unsafe { _putenv_s(c"TZ".as_ptr(), value.unwrap_or(c"").as_ptr()) };
         assert_eq!(error, 0, "CRT refused TZ");
+    }
+
+    pub(super) fn dstbias() -> c_long {
+        // SAFETY: the accessor returns the CRT's live long; the zone guard holds the lock.
+        unsafe { *__dstbias() }
+    }
+
+    pub(super) fn set_dstbias(bias: c_long) {
+        // SAFETY: the accessor returns the CRT's writable long; the zone guard holds the lock.
+        unsafe { *__dstbias() = bias };
+    }
+
+    pub(super) fn reset_dstbias() {
+        // UCRT time/tzset.cpp's tzset_from_environment_nolock updates _daylight but leaves
+        // _dstbias unchanged, including 0 from a no-DST host. Set the fixture's one-hour bias.
+        // Source: https://www.nuget.org/packages/Microsoft.Windows.SDK.CRTSource/10.0.22621.3
+        let mut daylight = 0;
+        // SAFETY: the runtime writes the one int it is handed, after the guard called tzset.
+        let error = unsafe { libc::get_daylight(&mut daylight) };
+        assert_eq!(error, 0, "CRT refused daylight flag");
+        set_dstbias(if daylight == 0 { 0 } else { -3600 });
     }
 }
 
@@ -458,10 +493,14 @@ mod tests {
         assert_eq!(std::env::var("TZ").unwrap(), "NPT-05:45");
         #[cfg(windows)]
         assert_eq!(test_crt::get().as_deref(), Some(c"NPT-05:45"));
+        #[cfg(windows)]
+        assert_eq!(test_crt::dstbias(), 0);
         guard.restore();
         assert_eq!(std::env::var_os("TZ"), guard.old);
         #[cfg(windows)]
         assert_eq!(test_crt::get(), guard.old_crt);
+        #[cfg(windows)]
+        assert_eq!(test_crt::dstbias(), guard.old_dstbias);
     }
 
     /// The zone is read once (`0x414568`): a `TZ` changed after the first local time is not seen,
