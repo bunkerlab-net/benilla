@@ -31,6 +31,7 @@ use benilla_formats::{tile_to_world, world_to_tile, MinimapTranslate};
 
 use interior::{interior_drawable, wmo_minimap_stem, InteriorWindow};
 
+use benilla_ui::script::origin::{self, Origin};
 use benilla_ui::widget::{MinimapArt, MinimapArtSlot, MINIMAP_DEFAULT_ZOOM};
 
 use crate::player::Player;
@@ -745,6 +746,7 @@ fn feed_minimap_inside(
     mut inside_res: ResMut<MinimapInside>,
     mut was_inside: Local<crate::ui_script::VmMemo<Option<bool>>>,
 ) {
+    let _origin = origin::enter(Origin::Allowed("minimap::feed_minimap_inside"));
     hosted_vm.run(|script| {
         let inside = minimap_interior(&player, &instances, &wmos, &world, &asset_server).is_some();
         inside_res.0 = inside;

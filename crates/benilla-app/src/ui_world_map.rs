@@ -17,6 +17,7 @@ use benilla_formats::{
     load_world_map_area_catalog, load_world_map_continent_catalog, load_world_map_overlay_catalog,
     load_zone_map, WorldMapArea,
 };
+use benilla_ui::script::origin::{self, Origin};
 use benilla_ui::script::{
     UiScript, WorldMapContinentView, WorldMapLandmarkSource, WorldMapLevel, WorldMapOverlayView,
     WorldMapSheetRow, WorldMapZoneView,
@@ -500,6 +501,7 @@ pub(crate) fn project_on_displayed(
 
 /// Hand the engine `GetWorldLocMapPosition`'s projection (`0x4a7360`) over a copy of the catalog.
 fn install_world_loc_projector(script: &mut UiScript, data: &WorldMapUiData) {
+    let _origin = origin::enter(Origin::Allowed("ui_world_map::install_world_loc_projector"));
     let copy = data.clone();
     script.set_world_loc_projector(Box::new(move |selection, map, x, y| {
         project_on_displayed(&copy, selection, map, x, y)
@@ -739,6 +741,7 @@ fn feed_world_map(
     unit_pos: Query<&GlobalTransform, With<crate::net::NetEntity>>,
     mut memo: Local<crate::ui_script::VmMemo<FeedMemos>>,
 ) {
+    let _origin = origin::enter(Origin::Allowed("ui_world_map::feed_world_map"));
     let corpse = vm.own().corpse;
     vm.run(|script| {
         let (Some(script), Some(data), Some(map), Some(areas)) = (script, data, map, areas) else {

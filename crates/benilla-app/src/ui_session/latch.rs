@@ -27,6 +27,7 @@
 
 use bevy::prelude::*;
 
+use benilla_ui::script::origin::{self, Origin};
 use benilla_ui::script::UiScript;
 
 /// The windows `0x493310` tests, in its order (`0x493341` to `0x4934de`): the first whose cell
@@ -292,6 +293,7 @@ pub(crate) fn dispatch(world: &mut World) {
 
 /// [`dispatch`], then the check that at most `left` windows still hold the guid it released.
 fn walk(world: &mut World, left: usize) {
+    let _origin = origin::enter(Origin::Allowed("ui_session::latch::walk"));
     let Some(guid) = world
         .get_resource_mut::<InteractLatch>()
         .and_then(|mut l| l.guid.take())

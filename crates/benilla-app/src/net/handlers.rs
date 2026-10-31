@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 
 use benilla_protocol::{SessionEvent, SessionEventKind};
+use benilla_ui::script::origin::{self, Origin};
 use bevy::ecs::system::SystemId;
 use bevy::prelude::*;
 
@@ -201,6 +202,7 @@ pub(crate) fn add_packet_hook(
 
 /// One drain's dispatch in wire order, each handler's commands applied before the next event.
 pub(crate) fn dispatch(world: &mut World, events: Vec<SessionEvent>) {
+    let _origin = origin::enter(Origin::Allowed("net::handlers::dispatch"));
     let handlers = world.remove_resource::<NetHandlers>().unwrap_or_default();
     let hooks = world
         .get_resource::<PacketHooks>()

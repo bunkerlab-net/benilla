@@ -4,10 +4,10 @@
 //! raise here is right inside a script call (a verb segment, a handler, the host's apply of a
 //! call), a lane's firing or the VM's own tick. One made anywhere else is a system raising at its
 //! own place in the frame, which the source scans cannot see when it goes through a helper in
-//! another module: it fails, naming its caller, unless a frame of its stack is on the host's allow
-//! list with its reason. Each raise is judged where it enters the VM, at one of its two doors: the
-//! fire (`tick::fire_event_into`) or the push onto the host queue (`Model::queue_event`); a queued
-//! one fires later inside the tick, and a held one inside the host's drain.
+//! another module: it fails, naming its caller, unless its scoped identifier is on the host's
+//! allow list with its reason. Each raise is judged where it enters the VM, at one of its two
+//! doors: the fire (`tick::fire_event_into`) or the push onto the host queue (`Model::queue_event`).
+//! A queued one fires later inside the tick, and a held one inside the host's drain.
 //!
 //! The check runs only while the host has armed it ([`arm`]), around its frame's schedules, so a
 //! test that drives a VM by hand is not judged. How an unlisted raise fails is the host's
@@ -24,14 +24,15 @@ pub enum Origin {
     Lane,
     /// The VM's own tick: the queued events, the `OnUpdate` walk and the pump.
     Tick,
+    /// A host function's explicit identifier, checked against the armed allow list.
+    Allowed(&'static str),
 }
 
-/// An origin outside the three [`Origin`]s that may raise: a stack frame's function path, matched
-/// as a suffix of a frame's symbol (`ui_world_map::feed_landmarks`), with why it may.
+/// An explicit host origin that may raise, with why it may.
 #[derive(Clone, Copy, Debug)]
 pub struct Allow {
-    /// The function, by a suffix of its path.
-    pub frame: &'static str,
+    /// The identifier passed to [`Origin::Allowed`], normally the function's module path.
+    pub id: &'static str,
     /// Why it raises at its own place: a reference fact, or the guard row that names it.
     pub why: &'static str,
 }
@@ -41,8 +42,8 @@ pub struct Allow {
 pub enum Failure {
     /// A panic naming the event and its caller, for a test.
     Panic,
-    /// The same line handed to the host's reporter, once per site (the raise's line and its
-    /// callers), for a live run that must go on.
+    /// The same line handed to the host's reporter, once per site and scoped origin, for a live
+    /// run that must go on.
     Report(fn(&str)),
 }
 
@@ -57,28 +58,20 @@ mod imp {
     use super::{ArmedState, Failure, Origin};
 
     thread_local! {
-        /// The origins open on this thread, innermost last.
-        static OPEN: RefCell<Vec<Origin>> = const { RefCell::new(Vec::new()) };
+        /// The innermost origin open on this thread.
+        static OPEN: Cell<Option<Origin>> = const { Cell::new(None) };
         /// The host's allow list and failure while the check is armed.
         static ARMED: Cell<ArmedState> = const { Cell::new(None) };
         /// The sites reported so far ([`Failure::Report`]).
         static REPORTED: RefCell<Option<HashSet<String>>> = const { RefCell::new(None) };
     }
 
-    pub(super) fn within<R>(origin: Origin, f: impl FnOnce() -> R) -> R {
-        struct Close;
-        impl Drop for Close {
-            fn drop(&mut self) {
-                OPEN.with_borrow_mut(|open| open.pop());
-            }
-        }
-        OPEN.with_borrow_mut(|open| open.push(origin));
-        let _close = Close;
-        f()
+    pub(super) fn set_current(origin: Option<Origin>) -> Option<Origin> {
+        OPEN.replace(origin)
     }
 
     pub(super) fn current() -> Option<Origin> {
-        OPEN.with_borrow(|open| open.last().copied())
+        OPEN.get()
     }
 
     pub(super) fn set_armed(armed: ArmedState) -> ArmedState {
@@ -90,27 +83,22 @@ mod imp {
         let Some((allow, failure)) = ARMED.get() else {
             return;
         };
-        if current().is_some() {
+        if match current() {
+            Some(Origin::Script | Origin::Lane | Origin::Tick) => true,
+            Some(Origin::Allowed(id)) => allow.iter().any(|a| a.id == id),
+            None => false,
+        } {
             return;
         }
         // A Rust function a script called: what it raises is the script call's.
         if lua.is_some_and(|lua| lua.inspect_stack(0, |_| ()).is_some()) {
             return;
         }
-        let trace = std::backtrace::Backtrace::force_capture().to_string();
-        let symbols: Vec<&str> = trace
-            .lines()
-            .map(str::trim)
-            .filter_map(|l| l.split_once(": ").map(|(_, s)| s))
-            .collect();
-        if allow.iter().any(|a| allowed(a.frame, &symbols)) {
-            return;
-        }
         let at = std::panic::Location::caller();
-        let from = callers(&symbols);
+        let from = current();
         let line = format!(
             "`{event}` was raised outside every script call, lane firing and tick, at {at}, \
-             from {from}: put it on a lane or inside the call that causes it, or give its origin \
+             from {from:?}: put it on a lane or inside the call that causes it, or give its origin \
              a row on the host's allow list with its reason"
         );
         match failure {
@@ -118,7 +106,7 @@ mod imp {
             Failure::Report(report) => {
                 let fresh = REPORTED.with_borrow_mut(|seen| {
                     seen.get_or_insert_with(HashSet::new)
-                        .insert(format!("{at} {from}"))
+                        .insert(format!("{at} {from:?}"))
                 });
                 if fresh {
                     report(&line);
@@ -126,85 +114,40 @@ mod imp {
             }
         }
     }
+}
 
-    /// Whether a frame of `symbols` is `frame`'s function, or a closure inside it.
-    pub(super) fn allowed(frame: &str, symbols: &[&str]) -> bool {
-        symbols.iter().any(|s| {
-            let s = path_of(s);
-            s.strip_suffix(frame).is_some_and(|p| p.ends_with("::"))
-        })
-    }
+/// Enter `origin` until the returned guard drops on this thread.
+#[must_use = "the origin is open while the guard lives"]
+#[inline]
+pub fn enter(origin: Origin) -> Entered {
+    #[cfg(debug_assertions)]
+    let previous = imp::set_current(Some(origin));
+    #[cfg(not(debug_assertions))]
+    let previous = {
+        let _ = origin;
+        None
+    };
+    Entered(previous, std::marker::PhantomData)
+}
 
-    /// A symbol's function path: its generic arguments, its closures and its hash cut.
-    fn path_of(symbol: &str) -> String {
-        let mut out = String::with_capacity(symbol.len());
-        let mut depth = 0usize;
-        let mut chars = symbol.chars().peekable();
-        while let Some(c) = chars.next() {
-            match c {
-                // A turbofish's arguments: `::<` opens them.
-                '<' if depth > 0 || out.ends_with("::") => {
-                    if depth == 0 {
-                        out.truncate(out.len() - 2);
-                    }
-                    depth += 1;
-                }
-                '>' if depth > 0 => depth -= 1,
-                _ if depth > 0 => {}
-                '{' => {
-                    // `{closure#0}`, `{{closure}}`: cut with the `::` before it.
-                    while let Some(c) = chars.next() {
-                        if c == '}' && chars.peek() != Some(&'}') {
-                            break;
-                        }
-                    }
-                    if out.ends_with("::") {
-                        out.truncate(out.len() - 2);
-                    }
-                }
-                _ => out.push(c),
-            }
-        }
-        match out.rsplit_once("::h") {
-            Some((p, hash)) if hash.len() == 16 && hash.bytes().all(|b| b.is_ascii_hexdigit()) => {
-                p.to_string()
-            }
-            _ => out,
-        }
-    }
+/// [`enter`]'s thread-bound guard, restoring the previous origin even on panic.
+pub struct Entered(Option<Origin>, std::marker::PhantomData<*mut ()>);
 
-    /// The nearest functions of benilla's own crates past the check, innermost first, each once.
-    fn callers(symbols: &[&str]) -> String {
-        let mut ours: Vec<String> = Vec::new();
-        for s in symbols {
-            let path = path_of(s);
-            let path = path.trim_start_matches('<');
-            // A trait's shim (`<f as FnMut<…>>::call_mut`) repeats the function under it.
-            if !path.starts_with("benilla_") || path.contains("::origin::") || path.contains(" as ")
-            {
-                continue;
-            }
-            if ours.last().map(String::as_str) != Some(path) {
-                ours.push(path.to_string());
-            }
-        }
-        ours.truncate(16);
-        ours.join(" < ")
+impl Drop for Entered {
+    #[inline]
+    fn drop(&mut self) {
+        #[cfg(debug_assertions)]
+        imp::set_current(self.0);
+        #[cfg(not(debug_assertions))]
+        let _ = self.0;
     }
 }
 
 /// Run `f` as `origin`: a raise inside it is that origin's.
 #[inline]
 pub fn within<R>(origin: Origin, f: impl FnOnce() -> R) -> R {
-    #[cfg(debug_assertions)]
-    {
-        imp::within(origin, f)
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        let _ = origin;
-        f()
-    }
+    let _origin = enter(origin);
+    f()
 }
 
 /// The innermost origin open on this thread; `None` without `debug_assertions`.
@@ -268,21 +211,6 @@ pub(crate) fn check(event: &str, lua: Option<&mlua::Lua>) {
     imp::check(event, lua);
     #[cfg(not(debug_assertions))]
     let _ = (event, lua);
-}
-
-/// Whether one of `symbols` (a backtrace's frame symbols) is `frame`'s function or a closure in
-/// it, as the allow list matches.
-#[cfg(test)]
-fn frame_matches(frame: &str, symbols: &[&str]) -> bool {
-    #[cfg(debug_assertions)]
-    {
-        imp::allowed(frame, symbols)
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        let _ = (frame, symbols);
-        false
-    }
 }
 
 #[cfg(test)]
@@ -353,33 +281,77 @@ mod tests {
         s.queue_event("PLAYER_MONEY", Vec::new());
     }
 
-    /// A raise whose stack holds an allowed function passes.
+    /// A host identifier grants permission only while its allow-listed scope is open.
     #[test]
     #[cfg_attr(not(debug_assertions), ignore = "the check compiles out")]
-    fn an_allowed_frame_passes() {
+    fn an_allowed_identifier_passes_only_in_its_scope() {
         const ALLOW: &[Allow] = &[Allow {
-            frame: "origin::tests::an_allowed_frame_passes",
+            id: "origin::tests::allowed",
             why: "the test's own",
         }];
         let s = UiScript::new().unwrap();
         let _armed = arm(ALLOW, Failure::Panic);
-        fire_event_into(&s.lua, "PLAYER_MONEY", Vec::new());
+        within(Origin::Allowed(ALLOW[0].id), || {
+            fire_event_into(&s.lua, "PLAYER_MONEY", Vec::new());
+            within(Origin::Tick, || {
+                fire_event_into(&s.lua, "PLAYER_MONEY", Vec::new());
+            });
+            assert_eq!(current(), Some(Origin::Allowed(ALLOW[0].id)));
+        });
+        assert_eq!(current(), None);
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fire_event_into(&s.lua, "PLAYER_MONEY", Vec::new());
+        }))
+        .is_err());
     }
 
+    /// An identifier that is not exactly on the allow list grants no permission.
     #[test]
     #[cfg_attr(not(debug_assertions), ignore = "the check compiles out")]
-    fn a_frame_matches_its_function_and_its_closures_by_path_suffix() {
-        let symbols = [
-            "std::rt::lang_start",
-            "benilla_app::ui_world_map::feed_landmarks::{{closure}}",
-            "benilla_app::lanes::fire_in_order::h0123456789abcdef",
-            "benilla_app::script_calls::hosted::<(), benilla_app::ui_social::feed::feed_social::{closure#0}>::{closure#0}",
-        ];
-        assert!(frame_matches("script_calls::hosted", &symbols));
-        assert!(!frame_matches("ui_social::feed::feed_social", &symbols));
-        assert!(frame_matches("ui_world_map::feed_landmarks", &symbols));
-        assert!(frame_matches("lanes::fire_in_order", &symbols));
-        assert!(!frame_matches("map::feed_landmarks", &symbols));
-        assert!(!frame_matches("ui_world_map::feed", &symbols));
+    fn an_unlisted_identifier_is_rejected_and_restored_after_panic() {
+        const ALLOW: &[Allow] = &[Allow {
+            id: "origin::tests::allowed",
+            why: "the test's own",
+        }];
+        let s = UiScript::new().unwrap();
+        let _armed = arm(ALLOW, Failure::Panic);
+        for id in [
+            "tests::allowed",
+            "origin::tests::allowed::closure",
+            "unlisted",
+        ] {
+            within(Origin::Lane, || {
+                let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    within(Origin::Allowed(id), || {
+                        fire_event_into(&s.lua, "PLAYER_MONEY", Vec::new());
+                    });
+                }));
+                assert!(failed.is_err(), "{id} passed without an allow entry");
+                assert_eq!(current(), Some(Origin::Lane));
+                fire_event_into(&s.lua, "PLAYER_MONEY", Vec::new());
+            });
+            assert_eq!(current(), None);
+        }
+    }
+
+    /// Unwinding an allowed scope restores the unmarked state rather than granting later raises.
+    #[test]
+    #[cfg_attr(not(debug_assertions), ignore = "the check compiles out")]
+    fn an_allowed_identifier_restores_after_panic() {
+        const ALLOW: &[Allow] = &[Allow {
+            id: "origin::tests::allowed",
+            why: "the test's own",
+        }];
+        let s = UiScript::new().unwrap();
+        let _armed = arm(ALLOW, Failure::Panic);
+        let failed = std::panic::catch_unwind(|| {
+            within(Origin::Allowed(ALLOW[0].id), || panic!("unwind the scope"));
+        });
+        assert!(failed.is_err());
+        assert_eq!(current(), None);
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fire_event_into(&s.lua, "PLAYER_MONEY", Vec::new());
+        }))
+        .is_err());
     }
 }

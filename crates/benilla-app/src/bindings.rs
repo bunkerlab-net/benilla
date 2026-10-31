@@ -30,6 +30,7 @@ use bevy::input::ButtonState;
 use bevy::prelude::*;
 
 use benilla_ui::script::keybind::KeybindRequest;
+use benilla_ui::script::origin::{self, Origin};
 use benilla_ui::script::{KeyUp, KeyWalk, UiScript};
 
 use crate::client_state::InWorldGated;
@@ -473,6 +474,7 @@ fn sync_dispatch(
     mut hosted_vm: crate::script_calls::HostedVm,
     mut dispatch: ResMut<BindingDispatch>,
 ) {
+    let _origin = origin::enter(Origin::Allowed("bindings::sync_dispatch"));
     hosted_vm.run(|script| {
         let Some(script) = script else { return };
         let generation = script.keybinds_generation();

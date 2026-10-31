@@ -2,6 +2,7 @@
 
 use super::*;
 use benilla_protocol::messages::trainer_spell_state;
+use benilla_ui::script::origin::{self, Origin};
 use benilla_ui::script::UiScript;
 
 /// The `vplates` fixture's wolf, the reference screenshot's subject (vmangos `creature_template`
@@ -120,6 +121,7 @@ pub(super) fn seed_ui_fixture(
     progress: Res<WorldLoadProgress>,
     icons: Option<Res<crate::entities::ItemDisplays>>,
 ) {
+    let _origin = origin::enter(Origin::Allowed("capture::fixtures::seed_ui_fixture"));
     let icons = icons.as_deref();
     // The seed's Lua (its pushes, chunks and hovers) runs once the turn's world writes are in,
     // with the host lent: what it fires runs in place, and what it calls applies inside the verb.

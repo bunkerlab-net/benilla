@@ -26,6 +26,7 @@ use bevy::ecs::schedule::{ExecutorKind, ScheduleConfigs, ScheduleLabel};
 use bevy::ecs::system::ScheduleSystem;
 use bevy::prelude::*;
 
+use benilla_ui::script::origin::{self, Origin};
 use benilla_ui::script::UiScript;
 
 /// The world latch, the reference's `[0xb4b424]`: set at `0x4908ce` in the world-enter cascade
@@ -277,9 +278,8 @@ pub(crate) fn arm_leaving_world_on_self_create(
 /// load posted ([`crate::net::PendingWorldports`]; the initial-login map posts none), inside the
 /// teardown, ahead of the objects' leg ([`crate::net::WorldportTimer`]). It precedes the new
 /// world's create, which the server sends after the teardown's acknowledgement.
-// The event-origin allow list needs this timer's own frame in optimised debug builds.
-#[inline(never)]
 pub(crate) fn sweep_on_worldport(world: &mut World) {
+    let _origin = origin::enter(Origin::Allowed("ui_script::sweep::sweep_on_worldport"));
     if world
         .get_resource::<crate::net::PendingWorldports>()
         .is_some_and(|p| p.is_posted())

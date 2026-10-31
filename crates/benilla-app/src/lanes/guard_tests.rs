@@ -2025,27 +2025,32 @@ fn every_raise_origin_allowed_names_its_function_and_its_row() {
         .collect();
     let mut wrong = Vec::new();
     for a in RAISES_AT_THEIR_OWN_PLACE {
-        let (path, func) = a.frame.rsplit_once("::").expect("a `module::fn` frame");
+        let (path, func) = a.id.rsplit_once("::").expect("a `module::fn` identifier");
         let dir = path.replace("::", "/");
         let found = [format!("{dir}.rs"), format!("{dir}/mod.rs")]
             .iter()
             .filter_map(|f| std::fs::read_to_string(src.join(f)).ok())
             .any(|code| {
-                code.contains(&format!("fn {func}(")) || code.contains(&format!("fn {func}<"))
+                let compact: String = code.split_whitespace().collect();
+                (code.contains(&format!("fn {func}(")) || code.contains(&format!("fn {func}<")))
+                    && compact.contains(&format!("origin::enter(Origin::Allowed(\"{}\"", a.id))
             });
         if !found {
-            wrong.push(format!("{}: no such function", a.frame));
+            wrong.push(format!(
+                "{}: no such function opening its scoped origin",
+                a.id
+            ));
         }
         if a.why.trim().is_empty() {
-            wrong.push(format!("{}: no reason", a.frame));
+            wrong.push(format!("{}: no reason", a.id));
         }
         let Some((list, _)) = a.why.split_once(':').filter(|(l, _)| ROW_LISTS.contains(l)) else {
             continue;
         };
-        let suffix = format!("::{}", a.frame);
+        let suffix = format!("::{}", a.id);
         let named = a.why.split('`').nth(1).filter(|n| n.starts_with("::"));
         let has_row = match list {
-            "QUEUED_FOR_THE_TICK" => queued.contains(a.frame),
+            "QUEUED_FOR_THE_TICK" => queued.contains(a.id),
             "AT_THEIR_OWN_PLACE" => AT_THEIR_OWN_PLACE.iter().any(|(s, _)| s.ends_with(&suffix)),
             "NOT_YET_ON_A_LANE" => NOT_YET_ON_A_LANE
                 .iter()
@@ -2053,11 +2058,11 @@ fn every_raise_origin_allowed_names_its_function_and_its_row() {
             _ => false,
         };
         if !has_row {
-            wrong.push(format!("{}: {list} has no row for it", a.frame));
+            wrong.push(format!("{}: {list} has no row for it", a.id));
         }
     }
     for q in &queued {
-        if !RAISES_AT_THEIR_OWN_PLACE.iter().any(|a| a.frame == q) {
+        if !RAISES_AT_THEIR_OWN_PLACE.iter().any(|a| a.id == q) {
             wrong.push(format!("{q}: queues for the tick and has no allow entry"));
         }
     }

@@ -544,6 +544,26 @@ fn a_walk_away_says_no_goodbye() {
     }
 }
 
+/// The watchdog's deferred close signals at command execution, as `0x493305` calls `0x493310`.
+#[test]
+fn the_watchdogs_deferred_close_opens_its_origin_when_it_runs() {
+    use benilla_ui::script::origin::{self, Failure};
+    let mut app = harness();
+    open(&mut app, W::Stable, NPC);
+    app.world_mut()
+        .spawn((crate::net::SelfPlayer, Transform::default()));
+    app.add_systems(Update, super::latch::watch_interaction_range);
+    let _armed = origin::arm(
+        crate::ui_script::raise_origin::RAISES_AT_THEIR_OWN_PLACE,
+        Failure::Panic,
+    );
+    assert_eq!(origin::current(), None);
+    app.update();
+    assert_eq!(seen_in(&app), ["PET_STABLE_CLOSED"]);
+    assert_eq!(latch(&app), None);
+    assert_eq!(origin::current(), None);
+}
+
 /// A window that writes its cell on a latched guid without registering leaves two holders, so a
 /// close verb releasing the latch inside its call (`LatchSteps::release`, which skips
 /// `0x493310`'s walk) would strand the other: the next walk's check trips in a debug build.

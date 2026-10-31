@@ -169,6 +169,7 @@ use std::cell::{Ref, RefCell, RefMut};
 use std::rc::Rc;
 
 use benilla_protocol::{Character, LoginRefusal, LoginStage, RealmInfo, RosterCause};
+use benilla_ui::script::origin::{self, Origin};
 use benilla_ui::script::{
     GlueCall, GlueCharacter, GlueHost, GlueNotice, GlueRealm, GlueRealmCells, GlueRequest,
     GlueSelectCells, GlueSignal, GlueText as Text, NoticeState, ScriptValue, UiScript, VmKind,
@@ -1984,6 +1985,7 @@ pub(crate) fn drive_glue_mgr(
     state: Option<Res<State<crate::client_state::ClientState>>>,
     time: Res<Time>,
 ) {
+    let _origin = origin::enter(Origin::Allowed("ui_script::glue_mgr::drive_glue_mgr"));
     // The realmlist as the frame starts, and the typed value it refused as no address.
     let (realmlist, mut refused) = {
         let (realmlist, _) = vm.own();
