@@ -352,7 +352,10 @@ impl Plugin for AreaPlugin {
             // The session's end stands in for `ShutdownGame` (`0x491180`), the one zeroing.
             .add_systems(
                 OnExit(crate::client_state::ClientState::InWorld),
-                (clear_committed_zone, clear_player_zone),
+                (
+                    clear_committed_zone,
+                    clear_player_zone.in_set(crate::ui_script::SessionEnd::Clears),
+                ),
             )
             .add_systems(
                 Update,

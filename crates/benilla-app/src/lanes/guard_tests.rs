@@ -426,6 +426,8 @@ pub(super) const READ_ONLY_TO_HANDLERS: &[&str] = &[
     // The connection's state, which the death getters' body test reads through the host; the
     // socket's handlers write it through their own `ResMut`.
     "::net::NetStatus",
+    // The peer-emote clock handler only tests whether the P2P configuration is present.
+    "::net::P2pSettings",
     // The login pick, which names the character the account-data sections belong to.
     "::glue_session::roster::Roster",
     // `0xb4e314`, which the party snapshot reads; only the zone feed commits it.
