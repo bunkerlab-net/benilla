@@ -1081,12 +1081,30 @@ jobs:
           # Same-repository PR writes stay in that PR's cache scope; forks never save.
           save-on-pull-request: true
           save-on-workflow-dispatch: true
+      # The target cache omits mbx's learned compiler memory estimates.
+      - name: Restore mbx scheduler memory
+        id: mbx-memory
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/mbx/scheduler/memory.json
+          key: mbx-memory-v1-${{ runner.os }}-${{ runner.arch }}-ubuntu26-workspace-tests-${{ hashFiles('rust-toolchain.toml') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            mbx-memory-v1-${{ runner.os }}-${{ runner.arch }}-ubuntu26-workspace-tests-${{ hashFiles('rust-toolchain.toml') }}-
+      - name: Report restored mbx scheduler memory
+        run: mbx stats --scheduler
       # Keep one workspace invocation: package shards change feature unification.
       - name: test
         env:
           # App lib-test rustc peaks near 12 GiB, so another heavy target can exceed the 16 GB runner.
           CARGO_BUILD_JOBS: 1
         run: mbx test --locked --no-fail-fast --workspace
+      - name: Save mbx scheduler memory
+        # Preserve completed compiler measurements even if a later compile or test fails.
+        if: always() && steps.mbx-memory.outputs.cache-primary-key != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/mbx/scheduler/memory.json
+          key: ${{ steps.mbx-memory.outputs.cache-primary-key }}
       - name: Report unavailable data checks
         if: always()
         shell: bash

@@ -1342,9 +1342,15 @@ class ExactProofTests(unittest.TestCase):
         for job, generation in expected.items():
             section = workflow.split(f"  {job}:\n", 1)[1]
             section = re.split(r"\n  [a-z][a-z0-9-]*:\n", section, maxsplit=1)[0]
-            values = re.findall(r"^          cache-generation: (.+)$", section, re.M)
+            # These inputs govern the target cache, not the separate scheduler ledger.
+            setup = [
+                step for step in re.split(r"(?=^      - )", section, flags=re.MULTILINE)
+                if step.startswith("      - name: Set up Mr Boxington\n")
+            ]
+            self.assertEqual(len(setup), 1, job)
+            values = re.findall(r"^          cache-generation: (.+)$", setup[0], re.M)
             self.assertEqual(values, [generation], job)
-            self.assertNotRegex(section, r"(?m)^          (?:cache-key|cache-key-suffix|restore-keys):", job)
+            self.assertNotRegex(setup[0], r"(?m)^          (?:cache-key|cache-key-suffix|restore-keys):", job)
             actual[job] = values[0]
         self.assertEqual(len(set(actual.values())), len(actual))
 
@@ -1457,6 +1463,28 @@ class ExactProofTests(unittest.TestCase):
             + command
         )
         self.assertIn(expected_step, steps)
+        restore = next(step for step in steps if step.startswith("      - name: Restore mbx scheduler memory\n"))
+        report = next(step for step in steps if step.startswith("      - name: Report restored mbx scheduler memory\n"))
+        save = next(step for step in steps if step.startswith("      - name: Save mbx scheduler memory\n"))
+        self.assertLess(steps.index(restore), steps.index(report))
+        self.assertLess(steps.index(report), steps.index(expected_step))
+        self.assertLess(steps.index(expected_step), steps.index(save))
+        pin = "55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0"
+        self.assertIn(f"uses: actions/cache/restore@{pin}\n", restore)
+        self.assertIn(f"uses: actions/cache/save@{pin}\n", save)
+        for step in (restore, save):
+            self.assertIn("          path: ~/.cache/mbx/scheduler/memory.json\n", step)
+        prefix = "mbx-memory-v1-${{ runner.os }}-${{ runner.arch }}-ubuntu26-workspace-tests-${{ hashFiles('rust-toolchain.toml') }}-"
+        self.assertIn(f"          key: {prefix}" + "${{ github.run_id }}-${{ github.run_attempt }}\n", restore)
+        self.assertIn(f"          restore-keys: |\n            {prefix}\n", restore)
+        self.assertIn("        id: mbx-memory\n", restore)
+        self.assertIn("        run: mbx stats --scheduler\n", report)
+        self.assertIn(
+            "        if: always() && steps.mbx-memory.outputs.cache-primary-key != '' && "
+            "(github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)\n",
+            save,
+        )
+        self.assertIn("          key: ${{ steps.mbx-memory.outputs.cache-primary-key }}\n", save)
 
     def test_aggregate_requires_every_job_and_rejects_non_success(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
