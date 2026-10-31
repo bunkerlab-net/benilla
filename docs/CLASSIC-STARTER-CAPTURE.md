@@ -160,6 +160,13 @@ and unknown tables never become complete-empty evidence. See the
 schema variants, exact aliases, readback validation and incomplete states.
 No EventAI action executes here, and no production capability is issued.
 
+Preparation records a bounded `event_ai_plan` for complete AGGRO SAY-text
+captures. The Rust `EventAiCapturedInput` adapter splits the captured ordered
+rows into entry and negative-GUID lists and validates the existing catalog.
+It refuses substituted entries and incomplete selectors or text coverage.
+Runtime catalog construction still requires explicit loaded configuration;
+the plan does not establish an audience or grant production admission.
+
 Custom creation items and item-type actions (128) require item_template rows.
 Initial spells and spell-type actions (0) require spell_template rows. For v2,
 item requiredspell and all five item spell slots are followed, then the existing

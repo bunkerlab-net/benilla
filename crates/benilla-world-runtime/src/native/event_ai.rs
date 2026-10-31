@@ -15,6 +15,8 @@ mod audience;
 pub use audience::*;
 mod runtime;
 pub use runtime::*;
+mod captured;
+pub use captured::*;
 
 pub const EVENT_AI_POLICY: &str = "cmangos-8ec338a1-aggro-text-v2";
 const MAX_EVENTS: usize = 32;
@@ -439,5 +441,7 @@ impl EventAiCatalog {
     }
 }
 
+#[cfg(test)]
+mod captured_tests;
 #[cfg(test)]
 mod tests;

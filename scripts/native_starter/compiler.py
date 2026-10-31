@@ -16,6 +16,7 @@ from classic_export.core import (CORE_REVISION, STARTER_FORMAT, KEYS, Selection,
 from .learning import discover
 from .talent import inputs as talent_inputs
 from .dbc import DbcRow, DbcTable, LAYOUTS, binary32_bits, finite_float, signed
+from .event_ai_plan import supported_plan
 
 PROFILE = "cmangos-8ec338a1-native-starter-bindings-v1"
 FORMAT = "benilla-native-starter-preparation-v1"
@@ -495,6 +496,7 @@ class Compiler:
             entry = creature["Entry"]
             event_scope = event_ai.scope(self.tables, entry)
             spawn_scope = native_spawn.scope(self.source, entry)
+            event_plan = supported_plan(self.source, entry, event_scope) if event_scope else None
             model_ids = native_spawn.model_closure(self.tables, native_spawn.model_roots(self.tables, entry))
             display_inputs = []
             available_models = {row["modelid"]: row for row in self.tables["creature_model_info"]}
@@ -523,6 +525,7 @@ class Compiler:
                                  if r["modelid"] in model_ids],
                 "display_inputs": display_inputs, "selected_display_ids": sorted(model_ids),
                 "event_ai_capture": event_scope,
+                "event_ai_plan": event_plan,
                 "native_spawn_dependencies": spawn_scope,
                 "resolved_combat_stats": None, "ai_profile": None})
             self.issue("creature_template", [entry], "creature.ai_selection_and_native_melee_required",
@@ -542,7 +545,7 @@ class Compiler:
                        else "creature.unexported_groups_assistance_context")
             if event_scope is None:
                 self.issue("creature_template", [entry], "creature.event_ai_applicability_absence_not_proven")
-            elif event_scope["matching_rows"]:
+            elif event_scope["matching_rows"] and event_plan is None:
                 self.issue("creature_template", [entry], "creature.event_ai_matching_rows_require_execution",
                            event_ids=[r["id"] for r in event_scope["matching_rows"]])
             # Even an empty captured selector set does not cover substituted

@@ -111,8 +111,44 @@ fn install_rows(mut profile: Profile, chance: u32, with_guid: bool) -> Profile {
             verified_build: 0,
         }]),
     };
+    let EventAiRows::Complete(owners) = input.owners else {
+        unreachable!()
+    };
+    let mut selectors = std::collections::BTreeSet::new();
+    let mut events = std::collections::BTreeMap::new();
+    let owners = owners
+        .into_iter()
+        .map(|owner| {
+            selectors.insert(owner.entry as i32);
+            selectors.insert(-(owner.database_guid as i32));
+            for rows in [owner.entry_events, owner.guid_events] {
+                let EventAiRows::Complete(rows) = rows else {
+                    unreachable!()
+                };
+                for row in rows {
+                    events.insert(row.id, row);
+                }
+            }
+            EventAiCapturedOwner {
+                spawn_id: owner.spawn_id,
+                database_guid: owner.database_guid,
+                entry: owner.entry,
+                captured_entry: owner.entry,
+                gender: owner.gender,
+                name: owner.name,
+                name_locales: owner.name_locales,
+            }
+        })
+        .collect();
+    let captured = EventAiCapturedInput {
+        owners: EventAiRows::Complete(owners),
+        selectors: EventAiRows::Complete(selectors.into_iter().collect()),
+        events: EventAiRows::Complete(events.into_values().collect()),
+        broadcasts: input.broadcasts,
+        locales: input.locales,
+    };
     let catalog = EventAiRuntimeCatalog::validate_sources(
-        EventAiCatalog::validate_sources(input).unwrap(),
+        captured.compile().unwrap(),
         EventAiRuntimeSource {
             session: EventAiSessionPolicy::SoloSelfCamera,
             locale: EventAiLocale::FrFr,

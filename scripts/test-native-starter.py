@@ -24,6 +24,7 @@ from native_starter.compiler import (Request, SPELL_FIELDS, FLOAT_SPELL_FIELDS, 
                                      outfit_quantity, verify_preparation)
 from native_starter.dbc import (LAYOUTS, MAX_RECORDS, binary32_bits,
                                 load_directory, load_extraction_manifest, parse_table)
+from native_starter.event_ai_plan import supported_plan
 
 ROOT = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("export_tests", ROOT / "test-classic-export.py")
@@ -1244,6 +1245,44 @@ class QuestRelationshipPreparationTests(unittest.TestCase):
                                 for r in graph["refusals"]))
         self.assertEqual(resolve(self.bundle(extension=False))["refusals"],
                          [{"quest": 0, "field": "inbound", "target": 0, "reason": "unknown_coverage"}])
+
+
+class EventAiPlanTests(unittest.TestCase):
+    def source(self, chance=10):
+        row = {"id": 601, "creature_id": 6, "event_type": 4,
+               "event_inverse_phase_mask": 0, "event_flags": 0, "event_chance": chance}
+        row.update({f"event_param{i}": 0 for i in range(1, 7)})
+        for i in range(1, 4):
+            row[f"action{i}_type"] = 1 if i == 1 else 0
+            row.update({f"action{i}_param{j}": 0 for j in range(1, 4)})
+        row["action1_param1"], row["action1_param2"] = 1868, 1864
+        texts = [{"Id": key, "Text": "Authored speech", "ChatTypeID": 0, "LanguageID": 0,
+                  **{field: 0 for field in ("SoundEntriesID1", "SoundEntriesID2", "EmoteID1",
+                     "EmoteID2", "EmoteID3", "EmoteDelay1", "EmoteDelay2", "EmoteDelay3")}}
+                 for key in (1868, 1864)]
+        return {"event_text_capture": {"status": "complete"}, "tables": {
+            "creature": [{"id": 6, "guid": 99}], "broadcast_text": texts}}, {"matching_rows": [row]}
+
+    def test_supported_chances(self):
+        for chance in (10, 100):
+            source, scope = self.source(chance)
+            plan = supported_plan(source, 6, scope)
+            self.assertEqual(plan["owners"][0]["event_ids"], [601])
+            self.assertFalse(plan["runtime_admission"])
+        source, scope = self.source(0)
+        self.assertIsNone(supported_plan(source, 6, scope))
+
+    def test_unknown_missing_and_wolf_refused(self):
+        source, scope = self.source()
+        source["event_text_capture"]["status"] = "unknown"
+        self.assertIsNone(supported_plan(source, 6, scope))
+        source, scope = self.source()
+        source["tables"]["broadcast_text"].pop()
+        self.assertIsNone(supported_plan(source, 6, scope))
+        source, scope = self.source()
+        scope["matching_rows"][0]["event_type"] = 1
+        scope["matching_rows"][0]["action1_type"] = 4
+        self.assertIsNone(supported_plan(source, 6, scope))
 
 
 if __name__ == "__main__":
