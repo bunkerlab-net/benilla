@@ -89,6 +89,15 @@ pub(crate) fn node_deferred(
 
 /// The Rust-side model behind the Lua VM, in `lua.app_data`. It holds no Lua handles, each of
 /// which is a collector root.
+/// The fields of the top's stored mouse event (`[root+0x1104]`) its readers take: the button
+/// (`+0x1108`) and the point (`+0x1118`, `+0x111c`) a move is compared with (`0x766122`).
+#[derive(Clone, Debug, Default)]
+pub(crate) struct StoredMouseEvent {
+    /// The press's button by name; `None` for a move's, which carries 0.
+    pub(crate) button: Option<String>,
+    pub(crate) at: (f32, f32),
+}
+
 #[derive(Clone)]
 pub(crate) struct Model {
     /// Which FrameScript state this VM is: it picks the event table and the frame types.
@@ -391,7 +400,7 @@ pub(crate) struct Model {
     /// Every unit's auras by guid, the player's too, ascending aura slot: one list per unit,
     /// whatever token names it.
     pub(crate) unit_auras: HashMap<u64, super::UnitAuraList>,
-    /// The unit-token resolver's inputs (`0x515970`), which the aura bindings resolve through.
+    /// The unit-token resolver's no-host stand-in and its mouseover global (`0x515970`).
     pub(crate) unit_guids: super::UnitGuids,
     /// The player's active tracking aura, behind `GetTrackingTexture`.
     pub(crate) tracking: Option<super::aura::TrackingState>,
@@ -399,11 +408,6 @@ pub(crate) struct Model {
     /// or the targeting cursor made while it was out, and the handlers an engine step fired then
     /// ([`super::host::holding`]), for it to run as soon as it is back.
     pub(crate) script_calls: Vec<super::calls::Waiting>,
-    /// What deferred stretches left waiting, parked by key until the app runs them
-    /// ([`super::UiScript::park_since`]).
-    pub(crate) parked: HashMap<u64, Vec<super::calls::Waiting>>,
-    /// The next key [`Self::parked`] hands out.
-    pub(crate) next_parked: u64,
     /// How many drains of [`Self::script_calls`] are running, each inside a call the one outside
     /// it applied ([`super::calls::submit`]).
     pub(crate) call_depth: u8,
@@ -454,6 +458,9 @@ pub(crate) struct Model {
     /// `SetLookingForGroup` writes and `GetLookingForGroup` reads; the reference's slots stay 0.
     pub(crate) lfg_slots: [u32; 3],
     pub(crate) lfg_comment: String,
+    /// The looking-for-group result list `MSG_LOOKING_FOR_GROUP`'s reply writes, and its title
+    /// waits.
+    pub(crate) lfg_store: super::lfg::LfgStore,
     /// Guild roster, ranks, MOTD and info, sorted and filtered by the app, which holds the toggles.
     pub(crate) guild: guild::GuildState,
     /// The roster module's own cells and the rank editor's unsaved edits, apart from `guild` so a
@@ -483,10 +490,9 @@ pub(crate) struct Model {
     pub(crate) guild_recruitment_plan: super::channel::RecruitmentPlan,
     /// Lua changed the recruitment mode: the chat cache's dirty signal.
     pub(crate) guild_recruitment_changed: bool,
-    /// `LoggingChat` and `LoggingCombat`'s flags, and their change cue.
+    /// `LoggingChat` and `LoggingCombat`'s flags.
     pub(crate) logging_chat: bool,
     pub(crate) logging_combat: bool,
-    pub(crate) logging_changed: bool,
     /// A user-placed frame moved or resized, or `SetUserPlaced` ran: the layout cache's save cue.
     pub(crate) user_placed_changed: bool,
     /// The default chat language; `None` is no player, so `GetDefaultLanguage()` returns nothing.
@@ -909,9 +915,6 @@ pub(crate) struct Model {
     pub(crate) quest_blip: Option<quest_log::QuestBlip>,
     /// Item id to its tooltip view.
     pub(crate) item_templates: HashMap<u32, ItemTemplateView>,
-    /// Item ids asked for and missing, for the app to answer: a lookup with a callback, which
-    /// asks the server.
-    pub(crate) item_stat_asks: HashSet<u32>,
     /// Item ids `GetItemInfo` read and missing: its lookup passes no callback (`0x48e185`), so
     /// the app answers from its cache only.
     pub(crate) item_stat_reads: HashSet<u32>,
@@ -1020,6 +1023,10 @@ pub(crate) struct Model {
 
     /// `GetBillingTimeRested()` (`0x48ec50`) in minutes from `SMSG_AUTH_RESPONSE`, unconverted.
     pub(crate) billing_time_rested: u32,
+    /// `GetBillingTimeRemaining()`'s minutes (`+0x1af4`, `0x46dbf0`) from the same group.
+    pub(crate) billing_time_remaining: u32,
+    /// The plan flags (`+0x1afc`) `GetBillingPlan()` decodes (`0x46dc40`).
+    pub(crate) billing_plan_flags: u8,
     /// `InCinematic()`. While set, `StaticPopup_Show` refuses any dialog without
     /// `interruptCinematic` (`StaticPopup.lua:1454`).
     pub(crate) in_cinematic: bool,
@@ -1101,6 +1108,8 @@ pub(crate) struct Model {
     pub(crate) worldmap: super::worldmap::WorldMapState,
     /// Nameplate `Button`s under `WorldFrame`, never shrunk, visible to `GetChildren()`.
     pub(crate) nameplates: super::nameplate::NamePlates,
+    /// The units' watch lists in link order ([`super::unit_watch`]).
+    pub(crate) unit_watches: super::unit_watch::UnitWatches,
     /// Chat bubble `Frame`s under `WorldFrame`, pooled the same way.
     pub(crate) chat_bubbles: super::chat_bubble::ChatBubbles,
     /// The world-state readout's rows, gated and resolved by the app.
@@ -1122,6 +1131,11 @@ pub(crate) struct Model {
     pub(crate) item_locks: std::collections::HashSet<u64>,
     /// The last cursor position in UI space (logical px, y-up), behind `GetCursorPosition()`.
     pub(crate) cursor_pos: (f32, f32),
+    /// The last mouse event the top stored (`[root+0x1104]`), as the focus change's release reads
+    /// it ([`super::UiScript::focus_world_frame`]): a press stores its own at its handler's top
+    /// (`0x76631b`), a move to a new point its own (`0x76615f`), whose button is 0, and a release
+    /// or a wheel notch stores nothing.
+    pub(crate) stored_event: StoredMouseEvent,
 
     /// The minimap's process-wide statics (zoom cells, indoor byte, mask), shared by every
     /// Minimap frame of this VM.
@@ -1149,6 +1163,23 @@ pub(crate) struct Model {
 }
 
 impl Model {
+    /// The `LoggingChat` (`combat` false) or `LoggingCombat` flag.
+    pub(crate) fn logging(&self, combat: bool) -> bool {
+        if combat {
+            self.logging_combat
+        } else {
+            self.logging_chat
+        }
+    }
+
+    pub(crate) fn set_logging(&mut self, combat: bool, on: bool) {
+        if combat {
+            self.logging_combat = on;
+        } else {
+            self.logging_chat = on;
+        }
+    }
+
     /// The profession windows open (`[0xbde040]`, `[0xbdcfb8]`): the trade skill's line and the
     /// craft's type while each window is open, which a close zeroes (`0x4fc870`, `0x4f5fe0`).
     pub(crate) fn open_professions(&self) -> super::OpenProfessions {
@@ -1228,7 +1259,7 @@ impl Model {
 
     /// The state of the unit `token` names off the snapshots alone: the snapshot the app pushed
     /// under the token, else, for a token with a `target` hop or for `target` itself, what the
-    /// getters read for the guid the pushed resolver inputs name. A getter reads it through
+    /// getters read for the guid the resolver's stand-in names. A getter reads it through
     /// [`super::unit::view`], which resolves at the call.
     pub(crate) fn snapshot_unit(&self, token: &str) -> Option<&UnitState> {
         self.pushed_unit(token).or_else(|| self.chained_unit(token))
@@ -1408,8 +1439,6 @@ impl Model {
             unit_guids: Default::default(),
             tracking: None,
             script_calls: Vec::new(),
-            parked: HashMap::new(),
-            next_parked: 0,
             call_depth: 0,
             kept_calls: None,
             call_raises: Default::default(),
@@ -1432,6 +1461,7 @@ impl Model {
             lfg_dungeons: Vec::new(),
             lfg_slots: [0; 3],
             lfg_comment: String::new(),
+            lfg_store: Default::default(),
             guild: guild::GuildState::default(),
             guild_cells: guild::GuildCells::default(),
             petition: petition::PetitionState::default(),
@@ -1449,7 +1479,6 @@ impl Model {
             guild_recruitment_changed: false,
             logging_chat: false,
             logging_combat: false,
-            logging_changed: false,
             user_placed_changed: false,
             default_language: None,
             glue: Default::default(),
@@ -1617,7 +1646,6 @@ impl Model {
             random_properties: HashMap::new(),
             enchant_names: HashMap::new(),
             known_spells: HashSet::new(),
-            item_stat_asks: HashSet::new(),
             item_stat_reads: HashSet::new(),
             player_req: PlayerReqState::default(),
             lock_rows: HashMap::new(),
@@ -1647,12 +1675,14 @@ impl Model {
             shown_chat_lines: Vec::new(),
             worldmap: super::worldmap::WorldMapState::default(),
             nameplates: super::nameplate::NamePlates::default(),
+            unit_watches: Default::default(),
             chat_bubbles: super::chat_bubble::ChatBubbles::default(),
             worldstate: super::worldstate::WorldStateUiState::default(),
             pending_events: Vec::new(),
             verb_events: None,
             item_locks: std::collections::HashSet::new(),
             cursor_pos: (0.0, 0.0),
+            stored_event: StoredMouseEvent::default(),
             minimap: crate::widget::MinimapStatics::default(),
             screenshot_asks: 0,
             realm_name: String::new(),
@@ -1676,6 +1706,8 @@ impl Model {
             partial_play_time: false,
             no_play_time: false,
             billing_time_rested: 0,
+            billing_time_remaining: 0,
+            billing_plan_flags: 0,
             in_cinematic: false,
             exhaustion: [
                 (1, ("Rested".to_string(), 2.0)),

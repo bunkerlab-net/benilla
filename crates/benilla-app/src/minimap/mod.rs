@@ -11,8 +11,6 @@
 //! - North up: screen up is world +X, screen left world +Y.
 
 pub(crate) mod blips;
-/// Where a party member is, shared with the world map so the two surfaces never disagree.
-pub(crate) use blips::party_member_pos;
 mod composite;
 mod interior;
 /// The minimap ping, engine-owned and pinned to a world point.
@@ -31,7 +29,7 @@ use benilla_formats::{tile_to_world, world_to_tile, MinimapTranslate};
 
 use interior::{interior_drawable, wmo_minimap_stem, InteriorWindow};
 
-use benilla_ui::script::origin::{self, Origin};
+use benilla_ui::script::origin::{within, Origin};
 use benilla_ui::widget::{MinimapArt, MinimapArtSlot, MINIMAP_DEFAULT_ZOOM};
 
 use crate::player::Player;
@@ -297,9 +295,7 @@ fn setup_minimap(
                 match benilla_formats::load_shapeshift_forms(&mut chain) {
                     Ok(f) => Some(f),
                     Err(e) => {
-                        warn!(
-                            "minimap: SpellShapeshiftForm.dbc failed — no shapeshift creature-type override: {e:#}"
-                        );
+                        warn!("minimap: SpellShapeshiftForm.dbc failed — no shapeshift creature-type override: {e:#}");
                         None
                     }
                 }
@@ -746,7 +742,6 @@ fn feed_minimap_inside(
     mut inside_res: ResMut<MinimapInside>,
     mut was_inside: Local<crate::ui_script::VmMemo<Option<bool>>>,
 ) {
-    let _origin = origin::enter(Origin::Allowed("minimap::feed_minimap_inside"));
     hosted_vm.run(|script| {
         let inside = minimap_interior(&player, &instances, &wmos, &world, &asset_server).is_some();
         inside_res.0 = inside;
@@ -754,7 +749,10 @@ fn feed_minimap_inside(
         if *was_inside.get(script) != Some(inside) {
             script.set_minimap_inside(inside);
             *was_inside.get(script) = Some(inside);
-            script.fire_event("MINIMAP_UPDATE_ZOOM", vec![]);
+            // The update signals the change itself, at frame time (`0x6d95b8`).
+            within(Origin::Allowed("minimap::feed_minimap_inside"), || {
+                script.fire_event("MINIMAP_UPDATE_ZOOM", vec![])
+            });
         }
     })
 }

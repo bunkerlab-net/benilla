@@ -80,6 +80,11 @@ impl PendingEquips {
         u32::try_from(idx).unwrap_or(u32::MAX)
     }
 
+    /// The element as the table holds it now; `None` for an index nobody filed or one freed.
+    pub(crate) fn get(&self, index: u32) -> Option<PendingEquip> {
+        self.slots.get(index as usize).copied().flatten()
+    }
+
     /// Frees the element. An index nobody filed does nothing, as `0x5e1be0` bounds-checks it.
     pub(crate) fn take(&mut self, index: u32) -> Option<PendingEquip> {
         self.slots.get_mut(index as usize)?.take()
@@ -213,15 +218,10 @@ impl BindGate<'_> {
 }
 
 /// The lookup's miss (`0x55ba30`): ask the record with the callback, which its answer runs. A
-/// record the cache holds, which the VM's copy had not caught up with (a new VM's seat, a cache
-/// file's load), runs it as the frame's drain comes rather than wait for an answer that has come
-/// ([`replay_equip_records`]). A refused entry holds no record, its node destroyed with the
+/// record the cache holds never comes here: the call acts on it in its body (`0x5e163b`,
+/// [`crate::ui_items::ItemSteps`]). A refused entry holds no record, its node destroyed with the
 /// refusal (`0x55bed2`), so its lookup waits and asks again.
 fn wait_for(entry: u32, callback: RecordCallback, items: &Items, commands: &NetCommands) {
-    if items.template(entry, 0, Ask::Read).is_some() {
-        items.run_with_vm(entry, callback, true);
-        return;
-    }
     items.wait(entry, callback);
     let _ = items.template(entry, 0, Ask::Event(commands));
 }
@@ -263,9 +263,9 @@ fn replay(vm: &mut ReplayVm, entry: u32, callback: RecordCallback, found: bool) 
 /// The equip callback the record's answer runs inside its handler (`ItemCacheReceive`
 /// `0x55bdb0`, `0x55bf39`, from `0x555140`), in its place among the entry's other callbacks
 /// ([`crate::net::objects`]), once the VM's copy holds the record
-/// ([`crate::ui_items::feed::push_answered_record`]): its send goes out at the packet, ahead of
-/// a later packet's, and what it signals is parked at the packet's place among the frame's events
-/// ([`crate::field_callbacks::Parked::split`]).
+/// ([`crate::ui_items::feed::push_answered_record`]): a step in its place
+/// ([`crate::lanes::step`]), its send going out at the packet, ahead of a later packet's, and its
+/// signals' listeners running inside it, ahead of the entry's next callback.
 pub(crate) fn replay_at_answer(
     world: &mut World,
     entry: u32,
@@ -275,43 +275,10 @@ pub(crate) fn replay_at_answer(
     fn run(In((entry, callback, found)): In<(u32, RecordCallback, bool)>, mut vm: ReplayVm) {
         replay(&mut vm, entry, callback, found);
     }
-    let mut parked = crate::field_callbacks::Parked::split(world);
-    parked.leg(world, |world| {
+    crate::lanes::step(world, |world| {
         if let Err(err) = world.run_system_cached_with(run, (entry, callback, found)) {
             debug!("ui_bind_confirm: the equip callback did not run: {err}");
         }
         crate::creature_anim::apply_unit_edits(world);
     });
-}
-
-/// The equip callbacks a lookup ran on a record the cache held and the VM's copy lacked
-/// ([`wait_for`]), with the VM and the host lent, after the record feed has pushed it.
-pub(crate) fn replay_equip_records(mut vm: ReplayVm) {
-    let ran = vm.own().0.take_vm_callbacks();
-    for (entry, callback, found) in ran {
-        replay(&mut vm, entry, callback, found);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    /// The replays read the VM's item records, so they run after the record feed has pushed the
-    /// answer.
-    #[test]
-    fn the_equip_replays_run_after_the_record_feed() {
-        let app = crate::game_plugins::schedule_tests::headless_client();
-        let order = &app.world().resource::<crate::vm_pass::PassOrder>().0;
-        if !order.iter().any(|n| n.contains("benilla_app::")) {
-            eprintln!("skipped: this build carries no type names");
-            return;
-        }
-        let at = |name: &str| {
-            order
-                .iter()
-                .position(|n| n.ends_with(name))
-                .unwrap_or_else(|| panic!("`{name}` is in the pass"))
-        };
-        let replay = at("::ui_bind_confirm::replay_equip_records");
-        assert!(at("::ui_items::feed::feed_item_stats") < replay);
-    }
 }

@@ -50,10 +50,7 @@ pub(crate) fn apply_net_updates(world: &mut World) {
             end: benilla_protocol::SessionEnd::Lost,
         });
     }
-    // `drn`: where the frame's packets land, against the input records' `prs` and `snd` lines.
-    if !events.is_empty() && benilla_assets::trace::enabled_for("drn") {
-        benilla_assets::trace::line("drn", &format!("events={}", events.len()));
-    }
+    let arrived = events.len();
     let mut hold = world.remove_resource::<InboundHold>().unwrap_or_default();
     let mut out = hold.release(world);
     for ev in events {
@@ -75,7 +72,26 @@ pub(crate) fn apply_net_updates(world: &mut World) {
         hold.admit(ev, &mut out);
     }
     world.insert_resource(hold);
+    // `drn`: where the frame's packets land, against the input records' `prs` and `snd` lines;
+    // then, behind what they sent, the flushes the dispatch fired, their lane firings and its time.
+    let traced = !out.is_empty() && benilla_assets::trace::enabled_for("drn");
+    if traced {
+        benilla_assets::trace::line("drn", &format!("events={arrived} packets={}", out.len()));
+    }
+    let before = traced.then(|| (crate::lanes::tally(), std::time::Instant::now()));
     super::handlers::dispatch(world, out);
+    if let Some(((flushes, fired), at)) = before {
+        let (f, k) = crate::lanes::tally();
+        benilla_assets::trace::line(
+            "drn",
+            &format!(
+                "done flushes={} fired={} us={}",
+                f - flushes,
+                k - fired,
+                at.elapsed().as_micros()
+            ),
+        );
+    }
 }
 
 /// Called only after retirement finishes, before installing the replacement transport.

@@ -38,7 +38,7 @@ mod worldmap_arrow;
 mod button;
 mod calls;
 mod camera_view;
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(debug_assertions)]
 pub mod census;
 mod channel;
 mod char_stats;
@@ -70,7 +70,7 @@ mod addon_enable;
 pub mod addon_gate;
 mod char_name;
 mod client;
-pub use client::FrameTimeRing;
+pub use client::{BindLocationQuery, FrameTimeRing};
 mod clock;
 mod cooldown_read;
 mod cvar_checks;
@@ -161,8 +161,10 @@ mod messageframe;
 mod minimap;
 mod movieframe;
 pub mod nameplate;
+pub mod unit_watch;
 pub use nameplate::{
-    PlateBitWrite, PlateBitWrites, PlateGeometry, PlateState, PLATE_BIT_ENEMY, PLATE_BIT_FRIEND,
+    PlateAction, PlateBitWrite, PlateBitWrites, PlateClick, PlateGateQuery, PlateGeometry,
+    PlateState, PlateUnit, PlateUnitQuery, PLATE_BIT_ENEMY, PLATE_BIT_FRIEND,
 };
 mod model;
 mod modelframe;
@@ -219,7 +221,10 @@ mod ui_errors;
 mod ui_scale;
 mod update_walk;
 pub use tooltip_studied::{PetAbility, StudiedCreature};
-pub use tooltip_unit::{OwnerTitle, OwnerTitleKind, PartyRecord, TooltipTint, UnitTooltipFacts};
+pub use tooltip_unit::{
+    CorpsePlateQuery, ObjectPlate, ObjectPlateQuery, OwnerTitle, OwnerTitleKind, PartyRecord,
+    TooltipTint, UnitTooltipFacts,
+};
 mod trade;
 mod tradeskill;
 mod trainer;
@@ -231,6 +236,7 @@ mod weapon_enchant;
 mod who_sort;
 mod worldmap;
 mod worldstate;
+mod worn;
 mod worn_display;
 pub(crate) mod xml_layout;
 mod zone_text;
@@ -273,7 +279,7 @@ pub use calls::{spell_owner, ItemCallback, NearestMode, QueuedCall, RecordAsk, S
 pub use camera_view::{CameraViewRequest, CAMERA_VIEW_COUNT};
 pub use channel::{
     channel_send_target, ChannelCommand, JoinedChannel, JoinedChannelsQuery, RecruitmentPlan,
-    ZoneChannelRow,
+    RecruitmentPlanQuery, ZoneChannelRow,
 };
 pub use char_stats::{
     weapon_subclass_skill, AlertInputs, AlertItem, BankBagSlots, InvSlotView, InventoryAlertInputs,
@@ -310,8 +316,8 @@ pub use cvar_checks::{
     check_anisotropic, check_dist_cull, check_error_filter, check_error_level_max,
     check_error_level_min, check_ffx_echo, check_footstep_bias, check_horizon_farclip,
     check_lod_dist, check_map_obj_light_lod, check_max_lights, check_particle_density,
-    check_shadow_bias, check_target_nearest_distance, check_texture_lod_dist, check_unit_draw_dist,
-    check_water_lod, check_weather_density, scanf_f_prefix,
+    check_shadow_bias, check_shadow_lod, check_target_nearest_distance, check_texture_lod_dist,
+    check_unit_draw_dist, check_water_lod, check_weather_density, scanf_f_prefix,
 };
 pub use cvar_checks::{
     check_base_mip, check_camera_decay, check_camera_distance_max, check_camera_pitch,
@@ -345,14 +351,14 @@ pub use guild::{
 };
 pub use guild_read::{GuildAnswer, GuildRead, OwnGuild, UnitGuildRead};
 pub use held::{BagGuidQuery, BagHead, BagItemsQuery, BagQuery, BagSlotQuery, HasKeyQuery};
-pub use host::{CallHost, CallTail, Deferring, LiveReader};
+pub use host::{CallHost, CallTail, LiveReader};
 pub use input_verbs::{
-    BindingInput, ClickCall, ClickMode, ClickPress, FiredInput, HeldInput, LookCall, PostureCall,
-    ViewAxis,
+    BindingInput, ClickCall, ClickMode, ClickPress, FiredInput, HeldInput, LookCall,
+    MouselookingQuery, PostureCall, ViewAxis,
 };
 pub use item_calls::ItemCall;
 pub use item_read::{ItemInfoFields, ItemKey, ItemRead, ItemRoll};
-pub use lfg::LfgDungeon;
+pub use lfg::{LfgDungeon, LfgReply, LfgResultRead, LfgStore};
 pub use lottery::UnservedSend;
 pub use modelframe::{CharacterPaneFrame, ModelPaneFrame, ModelWanted};
 pub use movieframe::{
@@ -375,14 +381,15 @@ pub use tabard::{
 };
 pub use video_pairs::VIDEO_PAIR_CVARS;
 pub use worldmap_arrow::ARROW_MODEL;
+pub use worn::{WornKeys, WornKeysQuery, WornSlotQuery};
 
 pub(crate) use button::{refresh_label_lua, state_font_lua, LabelFont};
 pub(crate) use font_block::{face_loads, font_size_loads, own_font_lua, SAME_FONT_HEIGHT};
 pub use inspect::{InspectCall, UnitReach, UnitReachQuery, VisibleSlotQuery};
 pub use instance::InstanceCall;
 pub use item_stats::{
-    item_usable, ItemRecipe, ItemSetQuery, ItemSetView, ItemSpellLine, ItemTemplateView,
-    LiveItemSet, PlayerReqState, TaughtSpell,
+    item_usable, reputation_line, ItemRecipe, ItemSetQuery, ItemSetView, ItemSpellLine,
+    ItemTemplateView, ItemViewQuery, LiveItemSet, LiveItemView, PlayerReqState, TaughtSpell,
 };
 pub use item_text::{ItemTextCall, ItemTextCreator, ItemTextQuery, ItemTextState, ItemTextView};
 pub use layout_cache::{AnchorLayout, FrameLayout, LayoutPoint};
@@ -420,6 +427,7 @@ pub use model::{
     FontProbe, MacroIconSource, TextureProbe, TextureSizeFn, TextureSizeProbe, WorldLocFn,
     WorldLocProjector,
 };
+pub use mouseover::FreelookQuery;
 pub use party::{
     PartyMemberInfo, PartyRequest, PartyState, RaidMemberInfo, ReadyCheckState, SavedInstanceInfo,
 };
@@ -427,6 +435,7 @@ pub use pet::{
     PetActionView, PetBarFlags, PetBarFlagsView, PetBookNow, PetCall, PetMenuNow, PetSlot,
     PetSlots, PetStats, PetStatsNow, PET_DISMISS_WORD,
 };
+pub use pointer::PointerTarget;
 pub use pvp::{
     decorated_name, pvp_name_global_keys, HonorNow, HonorState, InspectHonorData, InspectHonorNow,
     InspectHonorSlot, PvpCall, RankTitle,
@@ -515,14 +524,19 @@ pub use unit::{
     UnitRelations, UnitState, UnitStateAnswer, UnitStateQuery, UnitTokenGlobals, UnitTokenObjects,
     UnitTokenParse,
 };
-pub use use_gates::ControlBypassQuery;
-pub use weapon_enchant::WeaponEnchant;
+pub use unit_watch::{
+    HealthWatch, TokenChange, TokenFlagsCarry, TOKEN_PARTY, TOKEN_PARTY_PET, TOKEN_PET,
+    TOKEN_PLAYER, TOKEN_RAID, TOKEN_RAID_PET, TOKEN_TARGET,
+};
+pub use use_gates::{ControlBypassQuery, FarSightOnQuery};
+pub use weapon_enchant::{WeaponEnchant, WeaponEnchantQuery};
 pub use who_sort::{WhoSortChain, WhoSortKey};
 pub use worldmap::{
+    CorpseMapPointQuery, MapSetterQuery, MapSetterReads, UnitMapPosition, UnitMapPositionQuery,
     WorldMapContinentView, WorldMapLandmarkSource, WorldMapLandmarkView, WorldMapLevel,
     WorldMapOverlayView, WorldMapSheetRow, WorldMapState, WorldMapZoneView,
 };
-pub use worldstate::WorldStateUiView;
+pub use worldstate::{WorldStateUiQuery, WorldStateUiView};
 pub use worn_display::{WornDisplay, WornDisplaySet};
 pub use zone_text::{PlayerFactionMasksQuery, ZonePvp, ZoneTexts};
 
@@ -849,7 +863,7 @@ impl UiScript {
         let lua = install_framescript(VmKind::InGame)?;
         install_in_game(&lua)?;
         object::guard_receivers(&lua)?;
-        #[cfg(any(test, feature = "test-support"))]
+        #[cfg(debug_assertions)]
         census::survey_listener(&lua);
         Ok(Self::host(lua))
     }
@@ -939,8 +953,9 @@ impl UiScript {
     /// runs. The app arms it only for the world-entry load, so a hung load reports instead of
     /// freezing the loading screen, and disarms it ([`Self::clear_instruction_budget`]) before the
     /// session's first frame. Deviation: the client's Lua has no such bound, as nothing sets a
-    /// hook (`lua_sethook`, `0x6fba40`, has no caller and no pointer to it), so a load that
-    /// never ends hangs it.
+    /// hook (`lua_sethook`, `0x6fba40`, has no caller and no pointer to it), so a load that never
+    /// ends hangs it; benilla bounds it because a hung load would otherwise freeze the loading
+    /// screen instead of reporting.
     ///
     /// An abort runs no error handler, so its message waits and is handed to the error function
     /// when the budget is disarmed, as a compile failure is (`0x704b42`), once per arming: the

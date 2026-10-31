@@ -438,15 +438,190 @@ fn a_switch_to_a_friend_while_swinging_stops_again() {
     );
 }
 
-/// The keys of the refusals a handler queued for the action feed's lines.
-fn error_keys(f: &Frame) -> Vec<String> {
+/// We swing at the selected `OLD`, now friendly, and `party1` targets it, with `assistAttack`
+/// on: `AssistUnit("party1")`'s select is the setter's dedup, so its StartAttack's refused target
+/// (`0x5ecc2e`) makes the call's first StopAttack (`0x5ecc48` → `0x5ecac0`). A listener of
+/// `event` rolls.
+fn assist_a_friend_while_swinging(f: &mut Frame, event: &str) {
+    with_factions(f, FRIEND, &[]);
+    let world = f.app.world_mut();
+    world.resource_mut::<crate::target::AssistAttack>().0 = true;
+    let new = world.resource::<GuidIndex>().0[&NEW];
+    world
+        .get_mut::<ObjectStore>(new)
+        .unwrap()
+        .0
+        .merge(benilla_protocol::ObjectFields::from_pairs(&[
+            (16, OLD as u32),
+            (17, (OLD >> 32) as u32),
+        ]));
+    swinging_at_old(f);
+    run(
+        f,
+        &format!(
+            r#"local r = CreateFrame("Frame")
+            r:RegisterEvent("{event}")
+            r:SetScript("OnEvent", function() RandomRoll(1, 2) end)"#
+        ),
+    );
+    f.rx.try_iter().for_each(drop);
+}
+
+/// The attack stops, cancels and rolls sent, in order.
+fn stop_wire(f: &Frame) -> Vec<String> {
+    f.rx.try_iter()
+        .filter_map(|c| match c {
+            ClientCommand::AttackStop => Some("AttackStop".to_string()),
+            ClientCommand::CancelCast { spell_id } => Some(format!("CancelCast {spell_id}")),
+            ClientCommand::RandomRoll { .. } => Some("RandomRoll".to_string()),
+            ClientCommand::SetSelection { guid } => Some(format!("SetSelection {guid:#x}")),
+            ClientCommand::AttackSwing { guid } => Some(format!("AttackSwing {guid:#x}")),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A refused StartAttack's stop (`0x5ecc48`) triggers its tutorials (`0x5ecb17`, `0x5ecb54`),
+/// whose listeners run before its `CMSG_ATTACKSTOP` (`0x5ecb5b`).
+#[test]
+fn a_refused_assists_stop_tutorial_listener_sends_ahead_of_its_attack_stop() {
+    let mut f = frame(true);
     f.app
         .world()
-        .resource::<crate::ui_action::UiErrorKeys>()
-        .snapshot()
-        .into_iter()
-        .map(|e| e.key.to_string())
-        .collect()
+        .resource::<crate::tutorial::Tutorials>()
+        .lock()
+        .apply_flags(&[0u8; 32]);
+    assist_a_friend_while_swinging(&mut f, "TUTORIAL_TRIGGER");
+    run(&mut f, r#"AssistUnit("party1")"#);
+    assert_eq!(selected(&f), Some(OLD));
+    assert_eq!(stop_wire(&f), ["RandomRoll", "AttackStop"]);
+}
+
+/// The refused StartAttack's stop cancels the slot's strike (`0x6e6f68`), whose listeners run
+/// before the save's strike goes on the wire (`0x6e6ff3`): Cleave over a queued Heroic Strike.
+#[test]
+fn a_refused_assists_slot_cancel_listener_sends_ahead_of_the_saves_cancel() {
+    const CLEAVE: u32 = 845;
+    let mut f = frame(true);
+    queue_strike(&mut f);
+    f.app
+        .world_mut()
+        .resource_mut::<crate::spell::QueuedMeleeSpell>()
+        .hold(CLEAVE, 78);
+    assist_a_friend_while_swinging(&mut f, "SPELLCAST_STOP");
+    run(&mut f, r#"AssistUnit("party1")"#);
+    assert_eq!(
+        stop_wire(&f),
+        [
+            "AttackStop",
+            "CancelCast 845",
+            "RandomRoll",
+            "CancelCast 78"
+        ]
+    );
+}
+
+/// A sit's leave (`0x5f0790`) closes the loot on the dead `MOB` we swing at and have selected
+/// (`0x48f200` at `0x5f07d5`), whose last step deselects it (`0x48f369` → `0x493910`): that
+/// teardown's stop, its send and its `PLAYER_TARGET_CHANGED` listener's packet go ahead of the
+/// leave's own attack stop (`0x5f07e7`).
+#[test]
+fn a_sits_dead_loot_source_deselect_signals_ahead_of_its_attack_stop() {
+    let mut f = frame(false);
+    spawn_mob(&mut f, &[(2, 0x9), (HEALTH, 0)]);
+    let world = f.app.world_mut();
+    let mob = world.resource::<GuidIndex>().0[&MOB];
+    *world.resource_mut::<Selection>() = Selection {
+        target: Some(mob),
+        guid: Some(MOB),
+        ..Default::default()
+    };
+    let me = world.resource::<GuidIndex>().0[&ME];
+    world
+        .entity_mut(me)
+        .insert(crate::creature_anim::Engaged(MOB));
+    world.resource_mut::<crate::ui_loot::LootState>().open(
+        MOB,
+        benilla_protocol::messages::loot_type::CORPSE,
+        0,
+        Vec::new(),
+    );
+    // The loot target an admitted response leaves latched, which the leave's close asks
+    // (`0x5f07c6`).
+    world.resource_mut::<crate::ui_loot::LootLatch>().0 = Some(MOB);
+    on_target_changed(&mut f, "RandomRoll(1, 2)");
+    f.rx.try_iter().for_each(drop);
+    run(&mut f, "SitOrStand()");
+    assert_eq!(selected(&f), None);
+    let wire: Vec<String> =
+        f.rx.try_iter()
+            .filter_map(|c| match c {
+                ClientCommand::LootRelease { guid } => Some(format!("LootRelease {guid:#x}")),
+                ClientCommand::AttackStop => Some("AttackStop".to_string()),
+                ClientCommand::SetSelection { guid } => Some(format!("SetSelection {guid:#x}")),
+                ClientCommand::RandomRoll { .. } => Some("RandomRoll".to_string()),
+                _ => None,
+            })
+            .collect();
+    assert_eq!(
+        wire,
+        [
+            "LootRelease 0x31",
+            "AttackStop",
+            "SetSelection 0x0",
+            "RandomRoll",
+            "AttackStop"
+        ]
+    );
+}
+
+/// `SetSelection`'s tutorial ladder (`0x4937be`-`0x49383c`) signals ahead of its send
+/// (`0x49388d`): Combat Mode for an attackable unit, its `TUTORIAL_TRIGGER` listener's packet
+/// before `CMSG_SET_SELECTION`, with nothing selected before and past a swing's teardown, whose
+/// stop triggers Drink first (`0x5ecb54`).
+#[test]
+fn a_selections_ladder_listener_sends_ahead_of_its_send() {
+    for swinging in [false, true] {
+        let mut f = frame(swinging);
+        if swinging {
+            swinging_at_old(&mut f);
+        } else {
+            as_creature(f.app.world_mut(), NEW);
+        }
+        f.app
+            .world()
+            .resource::<crate::tutorial::Tutorials>()
+            .lock()
+            .apply_flags(&[0u8; 32]);
+        run(
+            &mut f,
+            r#"local r = CreateFrame("Frame")
+            r:RegisterEvent("TUTORIAL_TRIGGER")
+            r:SetScript("OnEvent", function() RandomRoll(1, 2) end)"#,
+        );
+        f.rx.try_iter().for_each(drop);
+        run(&mut f, r#"TargetUnit("party1")"#);
+        let wire: Vec<String> =
+            f.rx.try_iter()
+                .filter_map(|c| match c {
+                    ClientCommand::AttackStop => Some("AttackStop".to_string()),
+                    ClientCommand::SetSelection { guid } => Some(format!("SetSelection {guid:#x}")),
+                    ClientCommand::RandomRoll { .. } => Some("RandomRoll".to_string()),
+                    _ => None,
+                })
+                .collect();
+        let expected: &[&str] = if swinging {
+            &[
+                "RandomRoll",
+                "AttackStop",
+                "RandomRoll",
+                "SetSelection 0x22",
+            ]
+        } else {
+            &["RandomRoll", "SetSelection 0x22"]
+        };
+        assert_eq!(wire, expected, "swinging: {swinging}");
+    }
 }
 
 /// Backstab's `SMSG_SPELL_GO` from us at [`MOB`], whose start of the swing it defers
@@ -457,6 +632,16 @@ fn backstab_lands(f: &mut Frame) {
 
 /// [`backstab_lands`] with `hits` and the packet's `target`.
 fn backstab_lands_at(f: &mut Frame, hits: Vec<u64>, target: Option<u64>) {
+    backstab_lands_after(f, Vec::new(), hits, target);
+}
+
+/// [`backstab_lands_at`] behind `before`'s packets, one dispatch.
+fn backstab_lands_after(
+    f: &mut Frame,
+    before: Vec<benilla_protocol::SessionEvent>,
+    hits: Vec<u64>,
+    target: Option<u64>,
+) {
     const BACKSTAB: u32 = 53;
     let world = f.app.world_mut();
     let me = world.resource::<GuidIndex>().0[&ME];
@@ -482,24 +667,22 @@ fn backstab_lands_at(f: &mut Frame, hits: Vec<u64>, target: Option<u64>) {
         durations: Default::default(),
         radii: Default::default(),
     });
-    crate::net::handlers::dispatch(
-        world,
-        vec![benilla_protocol::SessionEvent::SpellGo {
-            caster: ME,
-            spell_id: BACKSTAB,
-            cast_flags: 0,
-            hits,
-            misses: vec![],
-            target,
-            go_target: None,
-            target_mask: 0x2,
-            source: None,
-            dest: None,
-            ammo_display_id: None,
-            item_caster: None,
-            unit_caster: ME,
-        }],
-    );
+    let go = benilla_protocol::SessionEvent::SpellGo {
+        caster: ME,
+        spell_id: BACKSTAB,
+        cast_flags: 0,
+        hits,
+        misses: vec![],
+        target,
+        go_target: None,
+        target_mask: 0x2,
+        source: None,
+        dest: None,
+        ammo_display_id: None,
+        item_caster: None,
+        unit_caster: ME,
+    };
+    crate::net::handlers::dispatch(world, before.into_iter().chain([go]).collect());
 }
 
 /// A GO with no hit falls back to the packet's target (the `Deviation:` at `spell_go`), but only
@@ -514,7 +697,7 @@ fn a_go_with_no_hit_and_a_friendly_target_starts_nothing() {
     backstab_lands_at(&mut f, vec![], Some(OLD));
     assert_eq!(attack_wire(&f), Vec::<String>::new());
     assert_eq!(selected(&f), Some(OLD));
-    assert!(error_keys(&f).is_empty());
+    assert!(errors(&f).is_empty());
 }
 
 /// The GO's deferred start is the player's Attack at its first hit (`0x6e8402` → `0x6131a0`),
@@ -535,6 +718,41 @@ fn a_go_deferred_attack_selects_its_hit_before_it_swings() {
     );
 }
 
+/// A line's listeners run at its packet, before the next packet's handler (`0x537ae5`): a
+/// monster's line, then a GO whose deferred attack selects its hit and signals
+/// `PLAYER_TARGET_CHANGED` in place (`0x49389c`), are heard in their packets' order.
+#[test]
+fn a_lines_listeners_run_ahead_of_the_next_packets_in_place_signal() {
+    let mut f = frame(true);
+    spawn_mob(&mut f, &[]);
+    swinging_at_old(&mut f);
+    run(
+        &mut f,
+        r#"HEARD = {}
+        local r = CreateFrame("Frame")
+        r:RegisterEvent("CHAT_MSG_MONSTER_SAY")
+        r:RegisterEvent("PLAYER_TARGET_CHANGED")
+        r:SetScript("OnEvent", function() table.insert(HEARD, event) end)"#,
+    );
+    let says = benilla_protocol::SessionEvent::Chat(benilla_protocol::messages::ChatMessage {
+        chat_type: benilla_protocol::messages::CHAT_MSG_MONSTER_SAY,
+        language: 0,
+        sender_guid: 0xF130_0000_0045_0003,
+        target_guid: 0,
+        sender_name: Some("Boar".into()),
+        channel: None,
+        text: "a".into(),
+        chat_tag: 0,
+    });
+    backstab_lands_after(&mut f, vec![says], vec![MOB], Some(MOB));
+    crate::lanes::fire_in_order(f.app.world_mut());
+    assert_eq!(selected(&f), Some(MOB));
+    assert_eq!(
+        eval::<Vec<String>>(&mut f, "return HEARD"),
+        ["CHAT_MSG_MONSTER_SAY", "PLAYER_TARGET_CHANGED"]
+    );
+}
+
 /// The validator's actor checks run first (`0x612e10`-`0x61305a`): a stunned player's GO shows
 /// its line, selects nothing and sends no swing.
 #[test]
@@ -551,7 +769,7 @@ fn a_stunned_casters_go_shows_its_line_and_does_not_swing() {
         flags | 0x0004_0000,
     )]));
     backstab_lands(&mut f);
-    assert_eq!(error_keys(&f), ["ERR_ATTACK_STUNNED"]);
+    assert_eq!(errors(&f), ["ERR_ATTACK_STUNNED"]);
     assert_eq!(attack_wire(&f), Vec::<String>::new());
     assert_eq!(selected(&f), Some(OLD));
 }
@@ -598,7 +816,7 @@ fn a_go_deferred_attack_the_cursor_took_with_nothing_selected_shows_no_target() 
     swinging_at_old(&mut f);
     with_the_cursor_up(&mut f);
     backstab_lands(&mut f);
-    assert_eq!(error_keys(&f), ["ERR_NO_ATTACK_TARGET"]);
+    assert_eq!(errors(&f), ["ERR_NO_ATTACK_TARGET"]);
     let sent: Vec<_> = f.rx.try_iter().collect();
     assert!(
         sent.iter().any(|c| matches!(
@@ -992,6 +1210,78 @@ fn a_unit_casters_pick_signals_its_target_change_before_the_cast_and_the_order()
     );
 }
 
+/// A listener of `CURRENT_SPELL_CAST_CHANGED` that rolls each time it hears it.
+fn roll_on_cast_changes(f: &mut Frame) {
+    run(
+        f,
+        r#"local r = CreateFrame("Frame")
+        r:RegisterEvent("CURRENT_SPELL_CAST_CHANGED")
+        r:SetScript("OnEvent", function() RandomRoll(1, 2) end)"#,
+    );
+}
+
+/// The send signals once more past its packet (`0x6e589d`), and its listeners run before
+/// `TryCast`'s attack tail swings (`0x6e51de` → `0x6131a0`): a roll between the strike's cast and
+/// its `CMSG_ATTACKSWING`.
+#[test]
+fn a_sends_own_signal_listener_sends_ahead_of_its_swing() {
+    let mut f = frame(false);
+    spawn_mob(&mut f, &[]);
+    with_named_mob(&mut f);
+    with_strike(&mut f);
+    roll_on_cast_changes(&mut f);
+    f.rx.try_iter().for_each(drop);
+    run(&mut f, "UseAction(1)");
+    let wire = pick_wire(&f);
+    let cast = wire
+        .iter()
+        .position(|w| w == "CastSpell 0x31")
+        .expect("the strike goes out");
+    assert_eq!(
+        wire[cast + 1..cast + 3],
+        ["RandomRoll", "AttackSwing 0x31"],
+        "{wire:?}"
+    );
+}
+
+/// A unit caster's attempt runs its attack tail (`0x6e51de` → the bar's Attack, `0x4bd630`) before
+/// it signals as it returns (`0x6e51e3`): the last roll follows the pet's order.
+#[test]
+fn a_unit_casters_return_signals_after_its_attack_tail() {
+    const PUMMEL: u32 = 10887;
+    let mut f = frame(true);
+    with_factions(&mut f, FRIEND, &[]);
+    spawn_mob(&mut f, &[(TEMPLATE, FOE)]);
+    with_pet(
+        &mut f,
+        true,
+        PUMMEL | (u32::from(benilla_protocol::messages::PET_ACT_ENABLED) << 24),
+    );
+    f.app.world_mut().insert_resource(crate::ui_action::Spells {
+        catalog: benilla_formats::SpellCatalog::from_displays(
+            [(
+                PUMMEL,
+                benilla_formats::SpellDisplay {
+                    name: "Pummel".into(),
+                    attributes_ex: 0x200,
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        ),
+        ..crate::ui_action::Spells::empty_for_tests()
+    });
+    roll_on_cast_changes(&mut f);
+    f.rx.try_iter().for_each(drop);
+    run_pressed(&mut f, "CastPetAction(1)");
+    let wire = pet_wire(&f);
+    assert_eq!(
+        wire[wire.len() - 2..],
+        ["PetAction 0x31", "RandomRoll"],
+        "{wire:?}"
+    );
+}
+
 /// A queued on-next-swing strike in the in-flight slot, Heroic Strike's.
 pub(super) fn queue_strike(f: &mut Frame) {
     let world = f.app.world_mut();
@@ -1021,6 +1311,247 @@ fn a_teardowns_strike_cancel_reports_before_the_target_change() {
     );
     run(&mut f, r#"ClearTarget() SEEN = table.concat(ORDER, ",")"#);
     assert_eq!(seen(&mut f), "SPELLCAST_STOP,PLAYER_TARGET_CHANGED");
+}
+
+/// The teardown's strike cancel reports its stop inside StopAttack (`0x493a08`), after the pair
+/// is zeroed (`0x4939d3`) and before `CMSG_SET_SELECTION` (`0x493a64` for a clear; `0x49388d` for
+/// a switch, behind the store `0x4936e2`): its listeners read no target, and their packets go out
+/// ahead of the selection's.
+#[test]
+fn a_teardowns_strike_cancel_listeners_run_ahead_of_the_store_and_the_send() {
+    for (lua, wire) in [
+        (
+            "ClearTarget()",
+            vec!["AttackStop", "RandomRoll", "SetSelection 0x0"],
+        ),
+        (
+            r#"TargetUnit("party1")"#,
+            vec![
+                "AttackStop",
+                "RandomRoll",
+                "SetSelection 0x22",
+                "AttackSwing 0x22",
+            ],
+        ),
+    ] {
+        let mut f = frame(true);
+        swinging_at_old(&mut f);
+        queue_strike(&mut f);
+        run(
+            &mut f,
+            r#"local r = CreateFrame("Frame")
+            r:RegisterEvent("SPELLCAST_STOP")
+            r:SetScript("OnEvent", function()
+                SEEN = UnitExists("target") and "target" or "none"
+                RandomRoll(1, 2)
+            end)"#,
+        );
+        run(&mut f, lua);
+        assert_eq!(attack_wire(&f), wire, "{lua}");
+        assert_eq!(seen(&mut f), "none", "{lua}");
+    }
+}
+
+/// The release's pet leg (`0x493a0f`-`0x493a18`) runs after its StopAttack (`0x493a08`) returned,
+/// so the strike cancel's listeners send ahead of `PetStopAttack`'s packet.
+#[test]
+fn a_teardowns_strike_cancel_listeners_send_ahead_of_the_pet_stop() {
+    let mut f = frame(true);
+    with_pet_attacking(&mut f, true);
+    swinging_at_old(&mut f);
+    queue_strike(&mut f);
+    run(
+        &mut f,
+        r#"local r = CreateFrame("Frame")
+        r:RegisterEvent("SPELLCAST_STOP")
+        r:SetScript("OnEvent", function() RandomRoll(1, 2) end)"#,
+    );
+    run(&mut f, "ClearTarget()");
+    let wire: Vec<String> =
+        f.rx.try_iter()
+            .filter_map(|c| match c {
+                ClientCommand::AttackStop => Some("AttackStop".to_string()),
+                ClientCommand::PetStopAttack { .. } => Some("PetStopAttack".to_string()),
+                ClientCommand::SetSelection { guid } => Some(format!("SetSelection {guid:#x}")),
+                ClientCommand::RandomRoll { .. } => Some("RandomRoll".to_string()),
+                _ => None,
+            })
+            .collect();
+    assert_eq!(
+        wire,
+        [
+            "AttackStop",
+            "RandomRoll",
+            "PetStopAttack",
+            "SetSelection 0x0"
+        ]
+    );
+}
+
+/// A strike cancel's listener that calls the pet off (`PetStopAttack`, `0x4bd650`) lowers the latch
+/// and signals `PET_BAR_UPDATE` (`0x4bd6b4`) there, so the release's pet leg (`0x493a0f`-`0x493a18`)
+/// and its change find the latch down and signal nothing more: one `PET_BAR_UPDATE`, the
+/// listener's, with a possessed unit or a pet of the bar's own.
+#[test]
+fn a_strike_cancel_listeners_pet_stop_signals_the_pet_bar_once() {
+    for possessed in [false, true] {
+        let mut f = frame(true);
+        with_pet_attacking(&mut f, possessed);
+        swinging_at_old(&mut f);
+        queue_strike(&mut f);
+        run(
+            &mut f,
+            r#"BARS = 0
+            local r = CreateFrame("Frame")
+            r:RegisterEvent("SPELLCAST_STOP")
+            r:RegisterEvent("PET_BAR_UPDATE")
+            r:SetScript("OnEvent", function()
+                if event == "SPELLCAST_STOP" then PetStopAttack() else BARS = BARS + 1 end
+            end)"#,
+        );
+        f.rx.try_iter().for_each(drop);
+        run(&mut f, "ClearTarget()");
+        assert_eq!(
+            eval::<i64>(&mut f, "return BARS"),
+            1,
+            "possessed {possessed}"
+        );
+        let stops =
+            f.rx.try_iter()
+                .filter(|c| matches!(c, ClientCommand::PetStopAttack { .. }))
+                .count();
+        assert_eq!(stops, 1, "possessed {possessed}");
+    }
+}
+
+/// StopAttack's Drink tutorial (`0x5ecb54`, for a mana user with no maximum) signals before its
+/// `CMSG_ATTACKSTOP` (`0x5ecb5b`), so its listener's packet goes first: in a teardown's stop
+/// (`0x493a08`) and in the Attack toggle's (`0x6131ce`).
+#[test]
+fn a_stop_attacks_tutorial_listener_sends_ahead_of_its_attack_stop() {
+    for lua in ["ClearTarget()", "AttackTarget()"] {
+        let mut f = frame(true);
+        swinging_at_old(&mut f);
+        f.app
+            .world()
+            .resource::<crate::tutorial::Tutorials>()
+            .lock()
+            .apply_flags(&[0u8; 32]);
+        run(
+            &mut f,
+            r#"local r = CreateFrame("Frame")
+            r:RegisterEvent("TUTORIAL_TRIGGER")
+            r:SetScript("OnEvent", function() RandomRoll(1, 2) end)"#,
+        );
+        f.rx.try_iter().for_each(drop);
+        run(&mut f, lua);
+        let wire: Vec<&str> =
+            f.rx.try_iter()
+                .filter_map(|c| match c {
+                    ClientCommand::AttackStop => Some("AttackStop"),
+                    ClientCommand::RandomRoll { .. } => Some("RandomRoll"),
+                    _ => None,
+                })
+                .collect();
+        assert_eq!(wire, ["RandomRoll", "AttackStop"], "{lua}");
+    }
+}
+
+/// The teardown's StopAttack cancels the slot's strike (`0x6e6f68`), whose listeners run before
+/// the save is read and its strike goes on the wire (`0x6e6f6d`, `0x6e6ff3`): Cleave cast over a
+/// queued Heroic Strike holds the slot over the save.
+#[test]
+fn a_teardowns_slot_cancel_listeners_send_ahead_of_the_saves_cancel() {
+    const CLEAVE: u32 = 845;
+    let mut f = frame(true);
+    swinging_at_old(&mut f);
+    queue_strike(&mut f);
+    f.app
+        .world_mut()
+        .resource_mut::<crate::spell::QueuedMeleeSpell>()
+        .hold(CLEAVE, 78);
+    run(
+        &mut f,
+        r#"local r = CreateFrame("Frame")
+        r:RegisterEvent("SPELLCAST_STOP")
+        r:SetScript("OnEvent", function() RandomRoll(1, 2) end)"#,
+    );
+    f.rx.try_iter().for_each(drop);
+    run(&mut f, "ClearTarget()");
+    let wire: Vec<String> =
+        f.rx.try_iter()
+            .filter_map(|c| match c {
+                ClientCommand::AttackStop => Some("AttackStop".to_string()),
+                ClientCommand::CancelCast { spell_id } => Some(format!("CancelCast {spell_id}")),
+                ClientCommand::RandomRoll { .. } => Some("RandomRoll".to_string()),
+                ClientCommand::SetSelection { guid } => Some(format!("SetSelection {guid:#x}")),
+                _ => None,
+            })
+            .collect();
+    assert_eq!(
+        wire,
+        [
+            "AttackStop",
+            "CancelCast 845",
+            "RandomRoll",
+            "CancelCast 78",
+            "SetSelection 0x0"
+        ]
+    );
+}
+
+/// `lua` run with a listener of `event` that selects `party1` the first time it hears it: the
+/// pick signals its change itself, nested (`0x493540` → `0x49389c`), and the call's own end tells
+/// it no more. The `PLAYER_TARGET_CHANGED`s heard.
+fn changes_for_a_pick_at(f: &mut Frame, event: &str, lua: &str) -> i64 {
+    run(
+        f,
+        &format!(
+            r#"CHANGES = 0
+            local p = CreateFrame("Frame")
+            p:RegisterEvent("PLAYER_TARGET_CHANGED")
+            p:SetScript("OnEvent", function() CHANGES = CHANGES + 1 end)
+            local r = CreateFrame("Frame")
+            r:RegisterEvent("{event}")
+            r:SetScript("OnEvent", function()
+                if not PICKED then PICKED = 1 TargetUnit("party1") end
+            end)"#
+        ),
+    );
+    run(f, lua);
+    assert_eq!(selected(f), Some(NEW));
+    eval::<i64>(f, "return CHANGES")
+}
+
+/// A pick at the Attack toggle's StopAttack tutorial (`0x5ecb54`) signals once.
+#[test]
+fn a_pick_at_the_stops_tutorial_signals_its_target_change_once() {
+    let mut f = frame(true);
+    swinging_at_old(&mut f);
+    f.app
+        .world()
+        .resource::<crate::tutorial::Tutorials>()
+        .lock()
+        .apply_flags(&[0u8; 32]);
+    assert_eq!(
+        changes_for_a_pick_at(&mut f, "TUTORIAL_TRIGGER", "AttackTarget()"),
+        1
+    );
+}
+
+/// A pick at a gossip close core's `GOSSIP_CLOSED` (`0x4931c0` → the core's signal) signals once.
+#[test]
+fn a_pick_at_a_close_cores_signal_signals_its_target_change_once() {
+    let mut f = frame(true);
+    crate::ui_session::latch_tests::open(
+        &mut f.app,
+        crate::ui_session::NpcWindow::Gossip,
+        super::systems::NPC,
+    );
+    assert_eq!(
+        changes_for_a_pick_at(&mut f, "GOSSIP_CLOSED", "CloseGossip()"),
+        1
+    );
 }
 
 /// `UnitCreatureFamily("target")` (`0x51a310`) reads the held unit's cached creature record

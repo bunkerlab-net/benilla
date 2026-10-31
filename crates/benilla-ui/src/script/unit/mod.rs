@@ -440,11 +440,6 @@ impl super::UiScript {
         self.model_ref().pushed_unit(token).cloned()
     }
 
-    /// The unit-token resolver's inputs as last pushed ([`Self::set_unit_guids`]).
-    pub fn unit_guids_view(&self) -> UnitGuids {
-        self.model_ref().unit_guids.clone()
-    }
-
     /// Push the player's copper (`PLAYER_FIELD_COINAGE`), read by `GetMoney`.
     pub fn set_money(&mut self, copper: u64) {
         self.model_mut().money = copper;
@@ -477,10 +472,15 @@ impl super::UiScript {
         model.no_play_time = none;
     }
 
-    /// Push `GetBillingTimeRested()`'s minutes, from the last `SMSG_AUTH_RESPONSE` that carried the
-    /// billing group; nothing else on the wire writes it.
-    pub fn set_billing_time_rested(&mut self, minutes: u32) {
-        self.model_mut().billing_time_rested = minutes;
+    /// Push the connection's billing group, from the last `SMSG_AUTH_RESPONSE` that carried it
+    /// (nothing else on the wire writes it): the minutes remaining (`+0x1af4`), the rested minutes
+    /// (`+0x1af8`) and the plan flags (`+0x1afc`) that the billing verbs read (`0x46dbf0`,
+    /// `0x46dcf0`, `0x46dc40`, in-game `0x48ec50`).
+    pub fn set_billing(&mut self, time_remaining: u32, time_rested: u32, plan_flags: u8) {
+        let mut model = self.model_mut();
+        model.billing_time_remaining = time_remaining;
+        model.billing_time_rested = time_rested;
+        model.billing_plan_flags = plan_flags;
     }
 
     /// Enter the UI-load sound-suppression scope (`0x458f50`): a depth every name-keyed
@@ -606,6 +606,24 @@ pub(crate) fn view_held<'m>(
     token: &str,
 ) -> Option<Cow<'m, UnitState>> {
     view_as(lua, model, token, true)
+}
+
+/// The unit `guid` names as a builder that finds it by guid reads it (`0x529fe0` looks the object
+/// up at `0x52a021`, then the group's records at `0x52a02b`, `0x52a036`): through the lent host as
+/// a token naming it does, else, with no host, what the getters read for the guid.
+pub(crate) fn view_of_guid<'m>(lua: &Lua, model: &'m Model, guid: u64) -> Cow<'m, UnitState> {
+    let query = UnitStateQuery {
+        guid,
+        player: false,
+    };
+    if let Some(UnitStateAnswer::Held(state) | UnitStateAnswer::Unheld(state)) =
+        super::live::ask(lua, &query)
+    {
+        return Cow::Owned(state);
+    }
+    let held =
+        super::host::read_host(lua, |h| h.read_unit_object(guid, &mut |_| {})) != Some(false);
+    model.unit_of_guid(guid, held)
 }
 
 fn view_as<'m>(lua: &Lua, model: &'m Model, token: &str, thin: bool) -> Option<Cow<'m, UnitState>> {
@@ -846,7 +864,7 @@ pub use resolve::{
     bound_tokens_in, field_watchers_in, parse_unit_token, resolve_unit_in, tokens_in, UnitBase,
     UnitGuids, UnitTokenGlobals, UnitTokenObjects, UnitTokenParse,
 };
-pub(crate) use resolve::{token_guid, with_live_objects, LiveGlobals};
+pub(crate) use resolve::{token_flags_in, token_guid, with_live_objects, LiveGlobals};
 pub use selection_read::{ObjectNameQuery, SelectionGlobals, SelectionQuery};
 pub use state_read::{UnitHeld, UnitHeldQuery, UnitStateAnswer, UnitStateQuery};
 

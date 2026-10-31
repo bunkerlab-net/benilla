@@ -26,6 +26,7 @@ use benilla_protocol::{ObjectFields, OwnerFallback};
 use bevy::prelude::*;
 
 use crate::tutorial::id as tutorial;
+use crate::vplates::PlateCall;
 
 /// One signal a reference callback raised, in the order the packets raised them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,6 +38,17 @@ pub(crate) enum FieldNotice {
     /// Any other callback's own `0x515e50(guid, id)`: a type watcher's, a packet handler's or a
     /// cache answer's. It reaches every token naming `guid`, with no watcher of the unit's own.
     Signal { guid: u64, id: u16 },
+    /// `RefreshTooltipForUnit` (`0x4919d0`) on a held unit: `GameTooltip`'s unit plate built
+    /// again while it still shows `guid`. `NotifyUnitNameUpdate` (`0x491a00`) runs it for a unit the
+    /// object manager holds (`0x491a1a`-`0x491a27`) ahead of its `UNIT_NAME_UPDATE`, from the name
+    /// and creature callbacks (`0x5fb875`, `0x6046d1`), the entry watcher (`0x604651`), the
+    /// `PLAYER_BYTES_3` watchers (`0x5e2a36`, `0x5e2a56`) and the party record's pet name
+    /// (`0x5e5873`); the unit-flags watcher runs it on the skinnable bit (`0x5ff7be`).
+    TooltipUnit { guid: u64 },
+    /// `CGTooltip::OnCorpseOwnerName` (`0x52afe0`), which the corpse plate's name lookup registered
+    /// (`0x52af77`), on a found name: `GameTooltip`'s corpse plate built again while it keeps a
+    /// corpse (`0x52b004`-`0x52b022`).
+    CorpsePlate,
     /// A callback's `FrameScript_SignalEvent2(id, "%s", "player")`: `0x5de4b0` on the active
     /// player, the event its registration pushes as the argument (`0x5de4b3`, `0x5de4c1`); the
     /// ammunition watch's, the item slot path's and the ammo getters' record callback's
@@ -171,12 +183,22 @@ pub(crate) enum FieldNotice {
     /// `AREA_SPIRIT_HEALER_OUT_OF_RANGE`. The packet's handler runs it at its place and writes
     /// the signal, so this never reaches the lane.
     AreaSpiritHealerClear,
+    /// `QueryCorpse 0x491f50` behind the ghost state, on either edge of the active player's ghost
+    /// bit (`0x5eeac1`): the corpse cache reset, the range latch out and, for a ghost, the corpse
+    /// query ([`crate::death::reset_corpse`]). The packet's handler runs it at its place and
+    /// writes the signal, so this never reaches the lane.
+    QueryCorpse,
     /// `SMSG_PLAYED_TIME`'s handler `0x401850`, after its console lines: `TIME_PLAYED_MSG` with
     /// the total and the level's time (`0x4018df`).
     PlayedTime { total: u32, level: u32 },
     /// `SMSG_PLAYER_SKINNED`'s handler `0x5e7d40`: `PLAYER_SKINNED` with the byte's truth
     /// (`0x5e7d57` → `0x48f412`).
     Skinned { free_repop: bool },
+    /// The guild recruitment cascade `0x49ea90` behind the active player's guild tag: its create's
+    /// `PostInit` (`0x5dec1e`) and its `PLAYER_GUILDID` watcher (`0x5e279a`), each right after the
+    /// tag's signals ([`guild_tag`]). It runs on AUTO alone, and arms the retry when it cannot act
+    /// ([`crate::ui_chat::GuildRecruitmentCascade`]).
+    RecruitmentCascade,
     /// The explored bytes' watcher `0x4a6460` on the active player (`PLAYER_EXPLORED_ZONES`, 0x100
     /// bytes at the player section's `+0xe6c`, armed by `0x4a6430` in the world-enter cascade):
     /// `0x4a6477` calls the map setter `0x4a67a0` over the map already shown. It reads the bytes
@@ -200,6 +222,10 @@ pub(crate) enum FieldNotice {
     /// the feign-death bit's rise (`0x6004f5`-`0x600530`), whose tick runs with `apply` clear, so
     /// both its predicates fail (`0x51468d`, `0x5146a6`) and it stops (`0x5146d6`).
     AutoMoveStop,
+    /// The active player's flags watcher's taxi arm, the flag's clear (`0x5ff538`-`0x5ff56e`):
+    /// the zone channels walked at the watcher's place, unless a cinematic runs (`0x5ff565`), with
+    /// the walk's tail ([`crate::ui_chat::TaxiWalk`]).
+    ZoneChannelWalk,
     /// A follow's stop clearing autorun (`0x60fc08` → `0x514630` at `0x60e83f`), right behind its
     /// `AUTOFOLLOW_END`, which `StopAutoMove` signals first (`0x60fb84`): it runs after that
     /// event's listeners, so a toggle one of them made is undone
@@ -209,10 +235,24 @@ pub(crate) enum FieldNotice {
     /// with `apply` set, which stops the auto-move when the unit may neither translate nor turn
     /// (`0x5146c1`-`0x5146d6`).
     InputTick,
-    /// A far-sight start on `object` (`UpdateFarSight 0x5ee290` from `0x5de0d0`): with the object
-    /// held, the view goes out and the mover's tick stops its auto-move (`0x5ee4a2`), or a
-    /// controlled unit takes the mover, whose switch stops it (`0x5ee477` → `0x600742`).
-    FarSightStop { object: u64 },
+    /// A plate callback on the unit `guid` ([`crate::vplates::PlateCall`]), run on its plate at
+    /// the notice's place, inside its packet.
+    Plate {
+        guid: u64,
+        call: crate::vplates::PlateCall,
+    },
+    /// A writer's change of the unit `guid`'s token flags at the notice's place
+    /// ([`benilla_ui::script::TokenChange`]), which links or unlinks its unit-field watchers.
+    TokenFlags {
+        guid: u64,
+        change: benilla_ui::script::TokenChange,
+    },
+    /// The far-sight field's change to `object`, 0 for none (`0x5de0d0`): with the object held the
+    /// start (`0x5de144` → `0x5ee270`), whose update while far sight is off sends
+    /// `CMSG_FAR_SIGHT` 1, puts the view out and stops the auto-move, through the mover's tick
+    /// (`0x5ee4a2`) or a controlled unit's mover switch (`0x5ee477` → `0x600742`); else the end
+    /// (`0x5de15d` → `0x5ee590`). Both run ahead of the change's signal.
+    FarSight { object: u64 },
 }
 
 /// The notice lane: each notice stamped as a handler writes it ([`crate::lanes::stamp`]), fired
@@ -224,6 +264,13 @@ impl NoticeLane {
     /// Queue `notice` behind everything stamped before it.
     pub(crate) fn write(&mut self, notice: FieldNotice) {
         let stamp = crate::lanes::stamp();
+        let at = self.0.partition_point(|(s, _)| *s < stamp);
+        self.0.insert(at, (stamp, notice));
+    }
+
+    /// Queue `notice` at `stamp`, a place its writer took ahead of what it wrote since, as a
+    /// callback that runs ahead of a line its handler words first.
+    pub(crate) fn write_at(&mut self, stamp: crate::lanes::Stamp, notice: FieldNotice) {
         let at = self.0.partition_point(|(s, _)| *s < stamp);
         self.0.insert(at, (stamp, notice));
     }
@@ -328,6 +375,7 @@ pub(crate) mod id {
     pub(crate) const TABARD_CANSAVE_CHANGED: u16 = 376;
     pub(crate) const MERCHANT_UPDATE: u16 = 317;
     pub(crate) const PLAYER_UNGHOST: u16 = 401;
+    pub(crate) const CORPSE_OUT_OF_RANGE: u16 = 399;
     pub(crate) const PLAYER_UPDATE_RESTING: u16 = 405;
     pub(crate) const PET_UI_UPDATE: u16 = 427;
     pub(crate) const PLAYTIME_CHANGED: u16 = 530;
@@ -342,11 +390,16 @@ pub(crate) mod id {
     pub(crate) const AUTOFOLLOW_END: u16 = 368;
 }
 
-/// `CGPlayer_C::RefreshGuildTag` (`0x5e08e0`) on the player `guid`: `TABARD_CANSAVE_CHANGED` bare
-/// (`0x5e0907`), then `PLAYER_GUILD_UPDATE` through `0x515e50` (`0x5e0922`). A player's first create
-/// runs it from `PostInit` (`0x5dec19`) and a `PLAYER_GUILDID` change from `0x5e2795`.
-pub(crate) fn guild_tag(guid: u64) -> [FieldNotice; 2] {
+/// `CGPlayer_C::RefreshGuildTag` (`0x5e08e0`) on the player `guid`: the name's gate
+/// (`0x5e08fd`), `TABARD_CANSAVE_CHANGED` bare (`0x5e0907`), then `PLAYER_GUILD_UPDATE` through
+/// `0x515e50` (`0x5e0922`). A player's first create runs it from `PostInit` (`0x5dec19`) and a
+/// `PLAYER_GUILDID` change from `0x5e2795`.
+pub(crate) fn guild_tag(guid: u64) -> [FieldNotice; 3] {
     [
+        FieldNotice::Plate {
+            guid,
+            call: PlateCall::Gate,
+        },
         FieldNotice::Global {
             id: id::TABARD_CANSAVE_CHANGED,
         },
@@ -398,6 +451,34 @@ pub(crate) fn pets_moved_off(
             u64::from(copy(lo, now as u32)) | (u64::from(copy(lo + 1, (now >> 32) as u32)) << 32);
         (old != 0 && old != now).then_some(old)
     })
+    .collect()
+}
+
+/// `OnCharmOrSummonChanged`'s two guids of each field, `CHARM` then `SUMMON`, when it runs: the
+/// copy's then the field's, each nonzero (`0x5e26e0`, `0x5e2721`), whose units it reads the token
+/// flags of again (`0x5e2702`, `0x5e2743`). Its other gates are the caller's, as for
+/// [`pets_moved_off`].
+pub(crate) fn pet_guids_moved(
+    block: &Notified,
+    kind: ObjectType,
+    fields: &ObjectFields,
+) -> Vec<u64> {
+    if kind != ObjectType::Player || block.fired(UNIT_SECTION, 0, 16).is_none() {
+        return Vec::new();
+    }
+    [
+        (UNIT_SECTION, fields.unit_charm()),
+        (UNIT_SECTION + 2, fields.unit_summon()),
+    ]
+    .into_iter()
+    .flat_map(|(lo, now)| {
+        let now = now.unwrap_or(0);
+        let copy = |index: u16, value: u32| block.edge(index).map_or(value, |(copy, _)| copy);
+        let old =
+            u64::from(copy(lo, now as u32)) | (u64::from(copy(lo + 1, (now >> 32) as u32)) << 32);
+        [old, now]
+    })
+    .filter(|&g| g != 0)
     .collect()
 }
 
@@ -518,6 +599,9 @@ const WEAPON_SLOTS: [u8; 3] = [15, 16, 17];
 /// (`0x60441a`, `0x604b30` → `0x600440`); and in the object section `OBJECT_FIELD_ENTRY`
 /// (`0x60427d`, `0x604600`).
 const UNIT_FLAGS: (u16, u16) = (0xa0, 4);
+/// `UNIT_FLAG_SKINNABLE`, `UNIT_FIELD_FLAGS` bit 26, which the unit tooltip's `UNIT_SKINNABLE` line
+/// reads (`0x52a914`).
+const UNIT_FLAG_SKINNABLE: u32 = 0x0400_0000;
 const FACTION_TEMPLATE: (u16, u16) = (0x74, 4);
 const OWNERS: (u16, u16) = (0x10, 0x10);
 const PERSUADED: (u16, u16) = (0x30, 8);
@@ -727,6 +811,28 @@ impl Pass {
         }
     }
 
+    fn plate(&mut self, at: Place, guid: u64, call: PlateCall) {
+        if guid != 0 {
+            self.push(at, FieldNotice::Plate { guid, call });
+        }
+    }
+
+    /// `NotifyUnitNameUpdate` (`0x491a00`) on the watched unit: the tooltip's refresh
+    /// (`0x491a27`) and the name's gate (`0x491a2e`), then `UNIT_NAME_UPDATE` (`0x491a3c`).
+    fn name_update(&mut self, at: Place, guid: u64) {
+        if guid != 0 {
+            self.push(at, FieldNotice::TooltipUnit { guid });
+            self.push(
+                at,
+                FieldNotice::Plate {
+                    guid,
+                    call: PlateCall::Gate,
+                },
+            );
+        }
+        self.signal(at, guid, id::UNIT_NAME_UPDATE);
+    }
+
     /// `CGUnit_C::RefreshReaction` (`0x606e20`) on `guid`: `UNIT_FACTION` for it (`0x606e57`),
     /// for its `SUMMON` (`0x606e9d`) and its `CHARM` (`0x606edf`) when set, then, for the active
     /// player, for every other unit not its own (`0x606efb`).
@@ -823,6 +929,18 @@ pub(crate) fn placed_values(
 
     // The unit type watchers (`0x6041f0`), on every unit.
     let mine = around.me == Some(guid);
+    // The health watcher `0x6046f0` on every unit, its plate legs first: the bar's colour
+    // (`0x60471b` → `0x607080`), then the flash on a loss, compared signed (`cmp edi,[health]` at
+    // `0x60475d`, `jle` at `0x604760`, `0x604764` → `0x6122e0`).
+    if let Some(at) = at(UNIT_SECTION, HEALTH, List::Type) {
+        pass.plate(at, guid, PlateCall::Colour);
+        let lost = block
+            .edge(UNIT_SECTION + HEALTH.0 / 4)
+            .is_some_and(|(old, new)| old as i32 > new as i32);
+        if lost {
+            pass.plate(at, guid, PlateCall::Flash);
+        }
+    }
     // The health watcher's revive arm (`0x6047ee`-`0x6047f4`, a health of 0 or less rising above
     // it) for the active player (`0x5fef9f`): `0x5fef70`'s unlock and `PLAYER_ALIVE`, ahead of the
     // watcher's usable refresh.
@@ -845,22 +963,33 @@ pub(crate) fn placed_values(
             pass.push(at, FieldNotice::UsableRefresh);
         }
     }
-    // `0x5ff800` on byte 3's bit 0x2 against its copy, for the active player (`0x5ff81a`,
-    // `0x5ff831`).
+    // `0x5ff800` on byte 3 against its copy: on bit 0x2 the name's gate (`0x5ff82a`), then, for
+    // the active player, the usable refresh (`0x5ff831`, `0x5ff83a`); on bit 0x1 the name's gate
+    // again (`0x5ff846`).
     if let Some(at) = at(UNIT_SECTION, BYTES_1_BYTE_3, List::Type) {
         let flipped = block.flipped(UNIT_SECTION + BYTES_1_BYTE_3.0 / 4);
-        if mine && flipped & 0x0200_0000 != 0 {
-            pass.push(at, FieldNotice::UsableRefresh);
+        if flipped & 0x0200_0000 != 0 {
+            pass.plate(at, guid, PlateCall::Gate);
+            if mine {
+                pass.push(at, FieldNotice::UsableRefresh);
+            }
+        }
+        if flipped & 0x0100_0000 != 0 {
+            pass.plate(at, guid, PlateCall::Gate);
         }
     }
     if let Some(at) = at(OBJECT_SECTION, ENTRY, List::Type) {
         // `0x604600`: a cached record names the unit at once (`0x604651`); a miss asks.
         if (around.creature_lookup)(fields.object_entry().unwrap_or(0)) {
-            pass.signal(at, guid, id::UNIT_NAME_UPDATE);
+            pass.name_update(at, guid);
         }
     }
     for range in [OWNERS, PERSUADED, FACTION_TEMPLATE] {
         if let Some(at) = at(UNIT_SECTION, range, List::Type) {
+            // `0x604910`: the name's gate (`0x604938`) ahead of the reaction (`0x60493f`).
+            if range == OWNERS {
+                pass.plate(at, guid, PlateCall::Gate);
+            }
             pass.reaction(at, guid, fields, around);
         }
     }
@@ -888,9 +1017,15 @@ pub(crate) fn placed_values(
             };
             pass.push(at, FieldNotice::Global { id });
         }
-        // Last in the active player's arm, the taxi flag's rise (`0x5ff538`-`0x5ff55a`).
-        if mine && flipped & flags & crate::player::UNIT_FLAG_TAXI_FLIGHT != 0 {
-            pass.push(at, FieldNotice::AutoMoveStop);
+        // Last in the active player's arm, the taxi flag's edge (`0x5ff538`): its rise stops the
+        // auto-move (`0x5ff55a`), its clear walks the zone channels (`0x5ff565`-`0x5ff56e`).
+        if mine && flipped & crate::player::UNIT_FLAG_TAXI_FLIGHT != 0 {
+            let notice = if flags & crate::player::UNIT_FLAG_TAXI_FLIGHT != 0 {
+                FieldNotice::AutoMoveStop
+            } else {
+                FieldNotice::ZoneChannelWalk
+            };
+            pass.push(at, notice);
         }
         // The reaction on 0x4080 (`0x5ff71c`) and again on 0x1000 (`0x5ff72b`).
         if flipped & 0x4080 != 0 {
@@ -920,6 +1055,10 @@ pub(crate) fn placed_values(
                 id::PET_ATTACK_STOP
             };
             pass.push(at, FieldNotice::Global { id });
+        }
+        // The tooltip's refresh on the skinnable bit 0x4000000 (`0x5ff7a4`-`0x5ff7be`).
+        if flipped & UNIT_FLAG_SKINNABLE != 0 {
+            pass.push(at, FieldNotice::TooltipUnit { guid });
         }
         // `UNIT_AURA` on 0x8000000 (`0x5ff7e2`).
         if flipped & 0x0800_0000 != 0 {
@@ -970,6 +1109,13 @@ pub(crate) fn placed_values(
         // behind the quest-giver sweep (`0x5edb85`).
         let id = id::UPDATE_LFG_TYPES;
         pass.push(at, FieldNotice::Global { id });
+        // Last, the plates' level latch (`0x5edb93` → `0x605550`).
+        pass.plate(at, guid, PlateCall::LevelLatch);
+    }
+    // `0x60cdd0` on every unit, after the active player's arm (`0x60ce4b`): its plate's level
+    // (`0x60ce5b` → `0x7cbb40`).
+    if let Some(at) = at(UNIT_SECTION, LEVEL, List::Type) {
+        pass.plate(at, guid, PlateCall::Level);
     }
 
     // The bridge (`0x51bbb0`), the object's own watches. The happiness watch carries its field's
@@ -1002,7 +1148,7 @@ pub(crate) fn placed_values(
                 let flags = fields.player_flags();
                 // 0x10, the ghost state (`0x5eeab4` → `0x5de9c0`) on either edge: set, its
                 // tutorial (`0x5de9eb`-`0x5de9f0`); clear, the healer's clear (`0x5dea20`), then
-                // `PLAYER_UNGHOST` (`0x5dea2a`).
+                // `PLAYER_UNGHOST` (`0x5dea2a`). Then the corpse query (`0x5eeac1` → `0x491f50`).
                 if flipped & 0x10 != 0 {
                     if flags & 0x10 != 0 {
                         pass.push(
@@ -1016,6 +1162,7 @@ pub(crate) fn placed_values(
                         let id = id::PLAYER_UNGHOST;
                         pass.push(at, FieldNotice::Global { id });
                     }
+                    pass.push(at, FieldNotice::QueryCorpse);
                 }
                 // 0x20, resting: the rest tutorial when now set (`0x5eeae6`-`0x5eeaed`), then
                 // `PLAYER_UPDATE_RESTING` on either edge (`0x5eead0`, `0x5eeaf2`).
@@ -1044,9 +1191,13 @@ pub(crate) fn placed_values(
             }
         }
         if let Some(at) = at(PLAYER_SECTION, GUILD_ID, List::Type) {
-            // `0x5e2770`: the player's guild tag (`0x5e2795`).
+            // `0x5e2770`: the player's guild tag (`0x5e2795`), then the recruitment cascade
+            // (`0x5e279a`), ours alone (the module's deviation in `crate::ui_chat`).
             for notice in guild_tag(guid) {
                 pass.push(at, notice);
+            }
+            if around.me == Some(guid) {
+                pass.push(at, FieldNotice::RecruitmentCascade);
             }
         }
         if let Some(at) = at(PLAYER_SECTION, GUILD_RANK, List::Type) {
@@ -1055,10 +1206,10 @@ pub(crate) fn placed_values(
             pass.push(at, FieldNotice::Global { id });
         }
         if let Some(at) = at(PLAYER_SECTION, BYTES_3_BYTE_2, List::Type) {
-            pass.signal(at, guid, id::UNIT_NAME_UPDATE);
+            pass.name_update(at, guid);
         }
         if let Some(at) = at(PLAYER_SECTION, BYTES_3_BYTE_3, List::Type) {
-            pass.signal(at, guid, id::UNIT_NAME_UPDATE);
+            pass.name_update(at, guid);
             pass.reaction(at, guid, fields, around);
         }
         if let Some(at) = at(PLAYER_SECTION, BYTES_3_BYTE_1, List::Type) {
@@ -1097,13 +1248,11 @@ pub(crate) fn placed_values(
             pass.push(at, FieldNotice::UsableRefresh);
             pass.push(at, FieldNotice::ComboPoints);
         }
-        // `0x5de0d0`: the far-sight update, then `PLAYER_FARSIGHT_FOCUS_CHANGED` bare on every
-        // change, whether or not the new guid resolves (`0x5de14e`, `0x5de167`).
+        // `0x5de0d0`: the far-sight start or end, then `PLAYER_FARSIGHT_FOCUS_CHANGED` bare on
+        // every change, whether or not the new guid resolves (`0x5de14e`, `0x5de167`).
         if let Some(at) = at(PLAYER_SECTION, FARSIGHT, List::Object) {
             let object = fields.player_farsight().unwrap_or(0);
-            if object != 0 {
-                pass.push(at, FieldNotice::FarSightStop { object });
-            }
+            pass.push(at, FieldNotice::FarSight { object });
             let id = id::PLAYER_FARSIGHT_FOCUS_CHANGED;
             pass.push(at, FieldNotice::Global { id });
         }
@@ -1289,12 +1438,22 @@ pub(crate) fn reaction_signals(
     if me == Some(guid) {
         guids.extend(others());
     }
+    // Each guid's `RefreshNameDesc` (`0x607080`), whose plate leg recolours the bar, ahead of its
+    // signal (`0x606e3c` before `0x606e57`, `0x606e8a`, `0x606ecf`, `0x606fa2` before `0x606fbd`).
     guids
         .into_iter()
         .filter(|&g| g != 0)
-        .map(|guid| FieldNotice::Signal {
-            guid,
-            id: id::UNIT_FACTION,
+        .flat_map(|guid| {
+            [
+                FieldNotice::Plate {
+                    guid,
+                    call: PlateCall::Colour,
+                },
+                FieldNotice::Signal {
+                    guid,
+                    id: id::UNIT_FACTION,
+                },
+            ]
         })
         .collect()
 }
@@ -1562,7 +1721,9 @@ mod tests {
         assert_eq!(
             block(&mut other, Some(ME), OTHER, &[(bytes_3, 0x0102_0001)]),
             [
+                tooltip(OTHER),
                 signal(OTHER, id::UNIT_NAME_UPDATE),
+                tooltip(OTHER),
                 signal(OTHER, id::UNIT_NAME_UPDATE),
                 signal(OTHER, id::UNIT_FACTION),
                 FieldNotice::Drunk {
@@ -1831,7 +1992,21 @@ mod tests {
     }
 
     /// [`block`] with the world's answers given: the creature cache's and the reaction sweep's.
+    /// The plate legs are left out: these tests read the signals, and
+    /// [`each_plate_leg_runs_where_its_watcher_calls_it`] reads the legs ([`block_with_plates`]).
     fn block_around(
+        store: &mut ObjectFields,
+        around: &Around,
+        guid: u64,
+        delta: &[(u16, u32)],
+    ) -> Vec<FieldNotice> {
+        let mut notices = block_with_plates(store, around, guid, delta);
+        notices.retain(|n| !matches!(n, FieldNotice::Plate { .. }));
+        notices
+    }
+
+    /// [`block_around`] with the plate legs kept.
+    fn block_with_plates(
         store: &mut ObjectFields,
         around: &Around,
         guid: u64,
@@ -1853,6 +2028,133 @@ mod tests {
 
     fn signal(guid: u64, id: u16) -> FieldNotice {
         FieldNotice::Signal { guid, id }
+    }
+
+    /// Each watcher's plate legs where it calls them, ahead of the bridge on the same field: the
+    /// health watcher's colour, then on a loss compared signed its flash, ahead of the revive arm
+    /// and the usable refresh (`0x60471b`, `0x604764`, `0x6047ee`, `0x604848`); the reaction's
+    /// colour ahead of each `UNIT_FACTION` (`0x606e3c` before `0x606e57`); the owners' gate ahead
+    /// of their reaction (`0x604938`, `0x60493f`); byte 3 of `UNIT_FIELD_BYTES_1` on bit 0x2 its
+    /// gate then the active player's refresh, on bit 0x1 its gate (`0x5ff82a`, `0x5ff83a`,
+    /// `0x5ff846`); the name update's gate between the tooltip's refresh and the signal
+    /// (`0x491a2e`); the level's after the active player's arm and its latch (`0x5edb93`,
+    /// `0x60ce5b`); the guild tag's gate first (`0x5e08fd`).
+    #[test]
+    fn each_plate_leg_runs_where_its_watcher_calls_it() {
+        use PlateCall::*;
+        let plate = |guid, call| FieldNotice::Plate { guid, call };
+        let around = Around {
+            me: Some(ME),
+            target: None,
+            creature_lookup: &|entry| entry == 299,
+            others: &Vec::new,
+            pet_bar: 0,
+        };
+        let run = |store: &mut ObjectFields, guid, delta: &[(u16, u32)]| {
+            block_with_plates(store, &around, guid, delta)
+        };
+        const R: FieldNotice = FieldNotice::UsableRefresh;
+
+        let mut mob = unit();
+        assert_eq!(
+            run(&mut mob, MOB, &[(22, 50)]),
+            [plate(MOB, Colour), bridge(MOB, 16)],
+            "a rise: the colour alone"
+        );
+        assert_eq!(
+            run(&mut mob, MOB, &[(22, 0xFFFF_FFF0)]),
+            [plate(MOB, Colour), plate(MOB, Flash), bridge(MOB, 16)],
+            "50 to -16 is a loss"
+        );
+        assert_eq!(
+            run(&mut mob, MOB, &[(22, 5)]),
+            [plate(MOB, Colour), bridge(MOB, 16)],
+            "-16 to 5 is a rise"
+        );
+        assert_eq!(
+            run(&mut mob, MOB, &[(28, 90)]),
+            [bridge(MOB, 22)],
+            "the maximum has no type watcher"
+        );
+        let mut me = player();
+        assert_eq!(
+            run(&mut me, ME, &[(22, 90)]),
+            [plate(ME, Colour), FieldNotice::Revived, R, bridge(ME, 16)]
+        );
+        assert_eq!(
+            run(&mut me, ME, &[(22, 80)]),
+            [plate(ME, Colour), plate(ME, Flash), R, bridge(ME, 16)]
+        );
+
+        assert_eq!(
+            run(&mut mob, MOB, &[(10, 7)]),
+            [
+                plate(MOB, Gate),
+                plate(MOB, Colour),
+                signal(MOB, id::UNIT_FACTION)
+            ],
+            "the owners' gate, then the reaction"
+        );
+        let bytes_1 = UNIT_SECTION + BYTES_1_BYTE_3.0 / 4;
+        let bytes_1_bridge = BYTES_1_BYTE_3.0 / 4;
+        assert_eq!(
+            run(&mut mob, MOB, &[(bytes_1, 0x0200_0000)]),
+            [plate(MOB, Gate), bridge(MOB, bytes_1_bridge)]
+        );
+        assert_eq!(
+            run(&mut me, ME, &[(bytes_1, 0x0300_0000)]),
+            [
+                plate(ME, Gate),
+                R,
+                plate(ME, Gate),
+                bridge(ME, bytes_1_bridge)
+            ]
+        );
+        assert_eq!(
+            run(&mut mob, MOB, &[(3, 299)]),
+            [
+                tooltip(MOB),
+                plate(MOB, Gate),
+                signal(MOB, id::UNIT_NAME_UPDATE)
+            ]
+        );
+
+        assert_eq!(
+            run(&mut mob, MOB, &[(34, 12)]),
+            [plate(MOB, Level), bridge(MOB, id::UNIT_LEVEL)]
+        );
+        assert_eq!(
+            run(&mut me, ME, &[(34, 2)]),
+            [
+                FieldNotice::Global {
+                    id: id::SPELLS_CHANGED
+                },
+                FieldNotice::TrainerPass,
+                FieldNotice::Global {
+                    id: id::UPDATE_LFG_TYPES
+                },
+                plate(ME, LevelLatch),
+                plate(ME, Level),
+                bridge(ME, id::UNIT_LEVEL)
+            ]
+        );
+
+        let mut other = player();
+        assert_eq!(
+            run(&mut other, OTHER, &[(pf(GUILD_ID.0), 5)]),
+            [
+                plate(OTHER, Gate),
+                FieldNotice::Global {
+                    id: id::TABARD_CANSAVE_CHANGED
+                },
+                signal(OTHER, id::PLAYER_GUILD_UPDATE)
+            ]
+        );
+    }
+
+    /// `0x4919d0` on `guid`, the tooltip's refresh ahead of a name signal.
+    fn tooltip(guid: u64) -> FieldNotice {
+        FieldNotice::TooltipUnit { guid }
     }
 
     fn bridge(guid: u64, id: u16) -> FieldNotice {
@@ -2041,12 +2343,16 @@ mod tests {
         );
         assert_eq!(
             block(&mut other, Some(ME), OTHER, &[(195, 0x0100_0000)]),
-            [signal(OTHER, 183), signal(OTHER, 29)]
+            [tooltip(OTHER), signal(OTHER, 183), signal(OTHER, 29)]
         );
         let mut me = player();
         assert_eq!(
             block(&mut me, Some(ME), ME, &[(195, 0x0001_0000)]),
-            [signal(ME, 183), FieldNotice::Player { id: 524 }]
+            [
+                tooltip(ME),
+                signal(ME, 183),
+                FieldNotice::Player { id: 524 }
+            ]
         );
         // The duel team.
         assert_eq!(
@@ -2153,7 +2459,7 @@ mod tests {
         };
         assert_eq!(
             block_around(&mut mob, &cached, MOB, &[(3, 299)]),
-            [signal(MOB, 183)]
+            [tooltip(MOB), signal(MOB, 183)]
         );
         assert!(block_around(&mut mob, &cached, MOB, &[(3, 300)]).is_empty());
     }
@@ -2239,7 +2545,8 @@ mod tests {
     /// `0x5ee990`'s ghost arm runs the ghost state `0x5de9c0` on either edge of bit 0x10
     /// (`0x5eeab4` → `0x5eeabc`), after `PLAYER_FLAGS_CHANGED` (`0x5eea35`): set, its tutorial
     /// (`0x5de9eb`-`0x5de9f0`); clear, the healer's clear (`0x5dea20`) and `PLAYER_UNGHOST`
-    /// (`0x5dea25`-`0x5dea2a`), with no gate before them, so the health plays no part. Another player's ghost bit reaches neither.
+    /// (`0x5dea25`-`0x5dea2a`), with no gate before them, so the health plays no part; then, on
+    /// either edge, the corpse query (`0x5eeac1`). Another player's ghost bit reaches neither.
     #[test]
     fn the_ghost_bit_runs_the_ghost_state_on_either_edge() {
         let flags = pf(PLAYER_FLAGS.0);
@@ -2247,14 +2554,19 @@ mod tests {
         let mut me = player();
         assert_eq!(
             block(&mut me, Some(ME), ME, &[(flags, 0x10)]),
-            [changed, FieldNotice::Tutorial { id: 0x18 }]
+            [
+                changed,
+                FieldNotice::Tutorial { id: 0x18 },
+                FieldNotice::QueryCorpse
+            ]
         );
         assert_eq!(
             block(&mut me, Some(ME), ME, &[(flags, 0)]),
             [
                 changed,
                 FieldNotice::AreaSpiritHealerClear,
-                FieldNotice::Global { id: 401 }
+                FieldNotice::Global { id: 401 },
+                FieldNotice::QueryCorpse
             ],
             "with no health in the store"
         );
@@ -2366,14 +2678,15 @@ mod tests {
         );
         assert_eq!(
             block(&mut me, Some(ME), ME, &[(flags, 0x10)]),
-            [changed, tutorial(0x18)]
+            [changed, tutorial(0x18), FieldNotice::QueryCorpse]
         );
         assert_eq!(
             block(&mut me, Some(ME), ME, &[(flags, 0)]),
             [
                 changed,
                 FieldNotice::AreaSpiritHealerClear,
-                FieldNotice::Global { id: 401 }
+                FieldNotice::Global { id: 401 },
+                FieldNotice::QueryCorpse
             ],
             "the ghost bit's clear runs the ghost state too, its event and no tutorial"
         );
@@ -2408,7 +2721,8 @@ mod tests {
         );
     }
 
-    /// `PLAYER_GUILDID` runs the guild tag on any player (`0x5e2770`), `PLAYER_GUILDRANK` signals
+    /// `PLAYER_GUILDID` runs the guild tag on any player (`0x5e2770`), and on the active player
+    /// the recruitment cascade behind it (`0x5e279a`); `PLAYER_GUILDRANK` signals
     /// `PLAYER_GUILD_UPDATE` bare (`0x5e27b0`).
     #[test]
     fn the_guild_watchers_reach_every_player() {
@@ -2432,6 +2746,7 @@ mod tests {
             [
                 FieldNotice::Global { id: 376 },
                 signal(ME, 345),
+                FieldNotice::RecruitmentCascade,
                 FieldNotice::Global { id: 345 }
             ]
         );

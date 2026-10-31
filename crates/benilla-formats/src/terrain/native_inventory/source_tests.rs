@@ -21,6 +21,13 @@ impl Temp {
             NEXT.fetch_add(1, Ordering::Relaxed),
         ));
         std::fs::create_dir(&path).unwrap();
+        let empty = archive(&[]);
+        for name in crate::VANILLA_BASE_ORDER {
+            // Each caller writes terrain.MPQ, including its mixed-case name fixture.
+            if *name != "terrain.MPQ" {
+                std::fs::write(path.join(name), &empty).unwrap();
+            }
+        }
         Self(path)
     }
     fn write(&self, name: &str, members: &[(&str, Vec<u8>)]) {

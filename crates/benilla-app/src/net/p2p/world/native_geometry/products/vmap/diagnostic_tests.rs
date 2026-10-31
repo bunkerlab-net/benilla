@@ -122,7 +122,9 @@ fn capture_failure_reports_blocked_phases_and_never_leaks_asset_names() {
 fn empty_install_matches_actual_player_smoke_schema() {
     // Keep this independent of the Python fixture: execute the real Rust body.
     let install = Install::new(&[]);
-    fs::remove_file(install.0.join("model.MPQ")).unwrap();
+    for name in benilla_formats::VANILLA_BASE_ORDER {
+        fs::remove_file(install.0.join(name)).unwrap();
+    }
     let mut args = arguments(&install.0);
     args[5] = "48,32".into();
     let mut output = Vec::new();

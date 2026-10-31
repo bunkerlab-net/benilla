@@ -6,9 +6,11 @@
 //! world sheet, zone 0 the whole continent; continents in `WorldMapArea` file order (`0x4a5d00`),
 //! zones by case-insensitive name (`0x4a6390`). An instance map is a third state (`0x4a67a0`).
 //!
-//! A Lua verb that moves the selection is the reference's setter `0x4a67a0` whole: it stores the
-//! cells, rebuilds the landmark list for the new map, then fires `WORLD_MAP_UPDATE` before it
-//! returns (`0x4a6ce4`), so `WorldMapFrame`'s OnShow repaints the map before its first draw.
+//! A Lua verb that moves the selection is the reference's setter `0x4a67a0` whole: it reads the
+//! explored bytes and the landmark sources as they stand, through the lent host
+//! ([`MapSetterQuery`]), stores the cells, rebuilds the landmark list for the new map, then fires
+//! `WORLD_MAP_UPDATE` before it returns (`0x4a6ce4`), so `WorldMapFrame`'s OnShow repaints the map
+//! before its first draw.
 //!
 //! Deviation: the engine's own push (the world-enter sync) queues `WORLD_MAP_UPDATE` for the next
 //! frame's tick and fires only on a change, where the reference fires in place from the handler
@@ -269,6 +271,70 @@ fn next_pow2(n: i64) -> i64 {
     p
 }
 
+/// `GetPlayerMapPosition`'s read of the unit it projects (`0x4a7870`), by guid, through the lent
+/// host as of the call: a player object the manager holds (`0x4a78ae`, typemask 0x10) at its
+/// position (`0x4a78c1`) under the active player's map (`0x4a78e2` → `0x5ea700`); else the group's
+/// record of it (`0x4a78fd` → `0x496400`), unless its status has bit 0x20 (`0x4a7906`), at its
+/// position words (`0x4a7929`, `0x4a792d`) under the map its zone's `AreaTable` row names
+/// (`0x4a790c`-`0x4a7934`). `None` for neither, whose position is (0, 0).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UnitMapPositionQuery(pub u64);
+
+/// A unit's world position and the map id `0x4a7360` projects it under.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct UnitMapPosition {
+    pub map: u32,
+    pub x: f32,
+    pub y: f32,
+}
+
+impl super::live::LiveQuery for UnitMapPositionQuery {
+    type Answer = Option<UnitMapPosition>;
+}
+
+/// `GetCorpseMapPosition`'s read of the corpse cache at the call (`0x4a86df` → `0x4a7960` →
+/// `0x492090`): the display map `0xb4e31c` and the position `0xb4e284`-`0xb4e28c` the corpse
+/// query's answer stored, `None` with none cached. The position projects under the display map.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CorpseMapPointQuery;
+
+impl super::live::LiveQuery for CorpseMapPointQuery {
+    type Answer = Option<UnitMapPosition>;
+}
+
+/// What the setter `0x4a67a0` reads as it builds, through the lent host: the active player's
+/// explored bytes the overlay and landmark passes test (`0x4a9a40`, at `0x4a68bf` and
+/// `0x4a6bfa`), and the landmark sources off the `AreaPOI` rows, the world states and the gossip
+/// marker (`0x4a6819`-`0x4a69c7`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MapSetterQuery;
+
+/// [`MapSetterQuery`]'s answer, each half `None` where the host lacks it (no active player, no
+/// map data), which leaves what the VM holds.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MapSetterReads {
+    pub explored: Option<Vec<u32>>,
+    pub sources: Option<Vec<WorldMapLandmarkSource>>,
+}
+
+impl super::live::LiveQuery for MapSetterQuery {
+    type Answer = MapSetterReads;
+}
+
+/// Store what the lent host answers of the setter's reads, ahead of a build: with no host, the
+/// VM's own copies stand.
+fn read_setter_inputs(lua: &Lua, model: &mut Model) {
+    let Some(reads) = super::live::ask(lua, &MapSetterQuery) else {
+        return;
+    };
+    if let Some(explored) = reads.explored {
+        model.worldmap.explored = explored;
+    }
+    if let Some(sources) = reads.sources {
+        model.worldmap.landmark_sources = sources;
+    }
+}
+
 /// The engine-side world-map state: the pushed catalog and feed, and the selection.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WorldMapState {
@@ -288,22 +354,19 @@ pub struct WorldMapState {
     /// The resolver's orphan leg, the `WorldMapArea` row id on the player's map. `0x4a6650`
     /// reaches it only when its continent loop misses (`0x4a66c3`), so at most one is set.
     pub player_direct_area: Option<u32>,
-    /// `GetPlayerMapPosition("player")` on the displayed map; `None` is off it.
+    /// The player's position on the displayed map as the frame's projection left it, which the
+    /// arrows draw at; `None` is off it. `GetPlayerMapPosition` reads it only with no host to ask.
     pub player_uv: Option<(f32, f32)>,
     /// The arrow frames' wrapper ids, built once per session; `None` until created.
     pub arrow_world: Option<u32>,
     pub arrow_mini: Option<u32>,
-    /// `party1`..`party4` in `party_slots` order; `None` or missing answers `(0, 0)`.
-    pub party_uv: Vec<Option<(f32, f32)>>,
-    /// `raid1`..`raid40` in roster order, fed like [`Self::party_uv`].
-    pub raid_uv: Vec<Option<(f32, f32)>>,
     /// Radians, 0 north, counterclockwise-positive; `UpdateWorldMapArrowFrames` turns the arrows.
     pub player_facing: f32,
-    /// `GetCorpseMapPosition()` on the displayed map; `None` is no corpse or off the map.
-    pub corpse_uv: Option<(f32, f32)>,
-    /// `PLAYER_EXPLORED_ZONES_1`, 64 words, bit n being `AreaTable.dbc` exploreFlag n.
+    /// `PLAYER_EXPLORED_ZONES_1`, 64 words, bit n being `AreaTable.dbc` exploreFlag n, as the
+    /// setter's last run or the explored bytes' watcher read them.
     pub explored: Vec<u32>,
-    /// What the landmark list is built from, pushed by the host when it changes.
+    /// What the landmark list is built from, as the setter's last run read it through the host
+    /// ([`MapSetterQuery`]) or the host's own run handed it.
     pub landmark_sources: Vec<WorldMapLandmarkSource>,
     /// The displayed map's landmarks, built from the sources whenever the selection is stored.
     pub landmarks: Vec<WorldMapLandmarkView>,
@@ -562,13 +625,6 @@ impl super::UiScript {
         }
     }
 
-    /// Stores the discovery bitset without a signal: the world enter's read of the bytes the
-    /// watcher below has not run on. The reference reads them live whenever `0x4a67a0` builds
-    /// (`0x4a6bf4`), so a map first selected over a loaded player already sees them.
-    pub fn seed_world_map_explored(&mut self, explored: Vec<u32>) {
-        self.model_mut().worldmap.explored = explored;
-    }
-
     /// The explored bytes' watcher (`0x4a6460` → `0x4a6477` → `0x4a67a0`, armed by `0x4a6430`) as
     /// it runs in the update packet's notify pass. The setter re-selects the map it already shows:
     /// the overlays follow the new bits, and the landmark list is rebuilt from `sources` when the
@@ -603,11 +659,14 @@ impl super::UiScript {
 
     /// The map setter `0x4a67a0` re-run over the map it shows by the gossip marker's set
     /// (`0x6dac93`) and its clears in the minimap's update, at the deadline (`0x6d9411`) and on
-    /// arrival (`0x6d9a4c`): the landmark list is rebuilt from `sources` when the host has them,
-    /// then `WORLD_MAP_UPDATE` signals in place (`0x4a6ce4`), whether or not the list moved.
+    /// arrival (`0x6d9a4c`): the explored bytes are read as it runs (`0x4a6bf4`), the landmark
+    /// list is rebuilt from `sources` when the host has them, then `WORLD_MAP_UPDATE` signals in
+    /// place (`0x4a6ce4`), whether or not the list moved.
     pub fn world_map_landmarks_changed(&mut self, sources: Option<Vec<WorldMapLandmarkSource>>) {
         {
+            let lua = self.lua.clone();
             let mut model = self.model_mut();
+            read_setter_inputs(&lua, &mut model);
             if let Some(sources) = sources {
                 model.worldmap.landmark_sources = sources;
             }
@@ -616,38 +675,29 @@ impl super::UiScript {
         self.fire_event("WORLD_MAP_UPDATE", Vec::new());
     }
 
-    /// Stores the landmark sources with no rebuild and no signal, for an input the reference reads
-    /// only at the setter's next run (`0x4a67a0` reads the rows and the marker as it builds).
-    pub fn seed_world_map_landmark_sources(&mut self, sources: Vec<WorldMapLandmarkSource>) {
-        self.model_mut().worldmap.landmark_sources = sources;
-    }
-
     /// [`Self::set_world_map_landmark_sources`] with nothing queued: the rebuild a world-state
     /// packet makes, which signals `WORLD_MAP_UPDATE` itself at the packet's place (`0x48fa0d`
-    /// into `0x4a6cdf`), and a new VM's seed.
+    /// into `0x4a6cdf`). The setter's run reads the explored bytes as it builds (`0x4a6bf4`).
     pub fn rebuild_world_map_landmarks(&mut self, sources: Vec<WorldMapLandmarkSource>) {
+        let lua = self.lua.clone();
         let mut model = self.model_mut();
+        read_setter_inputs(&lua, &mut model);
         model.worldmap.landmark_sources = sources;
         model.worldmap.landmarks = build_landmarks(&model);
     }
 
-    /// Pushes the per-frame feed: the player's zone, the projected positions and the facing.
+    /// Pushes the per-frame feed: the player's zone, its projected position and facing, which the
+    /// arrows draw.
     pub fn set_world_map_feed(
         &mut self,
         player_zone: Option<(u32, u32)>,
         player_uv: Option<(f32, f32)>,
         player_facing: f32,
-        corpse_uv: Option<(f32, f32)>,
-        party_uv: Vec<Option<(f32, f32)>>,
-        raid_uv: Vec<Option<(f32, f32)>>,
     ) {
         let mut model = self.model_mut();
         model.worldmap.player_zone = player_zone;
         model.worldmap.player_uv = player_uv;
         model.worldmap.player_facing = player_facing;
-        model.worldmap.corpse_uv = corpse_uv;
-        model.worldmap.party_uv = party_uv;
-        model.worldmap.raid_uv = raid_uv;
     }
 
     /// The selection's three cells, which the app reads each frame to project the feed: continent,
@@ -659,10 +709,12 @@ impl super::UiScript {
     }
 
     /// Install the host's world-to-map projection behind `GetWorldLocMapPosition` and the
-    /// landmark list.
+    /// landmark list, which it rebuilds over the sources the lent host holds now.
     pub fn set_world_loc_projector(&mut self, projector: Box<super::WorldLocFn>) {
+        let lua = self.lua.clone();
         let mut model = self.model_mut();
         model.world_loc_projector = Some(projector.into());
+        read_setter_inputs(&lua, &mut model);
         refresh_landmarks(&mut model);
     }
 
@@ -677,7 +729,9 @@ impl super::UiScript {
         zone: u32,
         direct_area: Option<u32>,
     ) {
+        let lua = self.lua.clone();
         let mut model = self.model_mut();
+        read_setter_inputs(&lua, &mut model);
         select_resolved(&mut model, continent, zone, direct_area);
         model.queue_event("WORLD_MAP_UPDATE", Vec::new());
     }
@@ -860,11 +914,11 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
             let z = lua
                 .coerce_number(z)?
                 .map_or(0, |n| i64::from(binding_abi::ftol(n)));
-            select(
-                &mut lua.app_data_mut::<Model>().expect("model app_data"),
-                c,
-                z,
-            );
+            {
+                let mut model = lua.app_data_mut::<Model>().expect("model app_data");
+                read_setter_inputs(lua, &mut model);
+                select(&mut model, c, z);
+            }
             fire_world_map_update(lua);
             Ok(())
         })?,
@@ -877,6 +931,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(|lua, ()| {
             {
                 let mut model = lua.app_data_mut::<Model>().expect("model app_data");
+                read_setter_inputs(lua, &mut model);
                 let (c, z) = model.worldmap.player_zone.unwrap_or((0, 0));
                 let direct = model.worldmap.player_direct_area;
                 select_resolved(&mut model, c, z, direct);
@@ -947,21 +1002,33 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
         })?,
     )?;
 
-    // GetCorpseMapPosition() → map UV, or (0, 0), which WorldMapFrame.lua:445 hides.
+    // GetCorpseMapPosition() → map UV, or (0, 0), which WorldMapFrame.lua:445 hides (`0x4a86d0`):
+    // the corpse cache read at the call ([`CorpseMapPointQuery`]) projected onto the displayed map
+    // under its display map (`0x4a79a4` → `0x4a7360`). With no host to ask, no corpse.
     g.set(
         "GetCorpseMapPosition",
         lua.create_function(|lua, ()| {
             let model = lua.app_data_ref::<Model>().expect("model app_data");
-            let (x, y) = model.worldmap.corpse_uv.unwrap_or((0.0, 0.0));
+            let wm = &model.worldmap;
+            let selection = (wm.selection.0, wm.selection.1, wm.direct_area);
+            let (x, y) = super::live::ask(lua, &CorpseMapPointQuery)
+                .flatten()
+                .and_then(|at| {
+                    let project = model.world_loc_projector.as_ref()?;
+                    project(selection, at.map, at.x, at.y)
+                })
+                .unwrap_or((0.0, 0.0));
             Ok((f64::from(x), f64::from(y)))
         })?,
     )?;
 
     // GetPlayerMapPosition(unit) → map UV, or (0, 0) off the map (`0x4a8610`): a string or number
     // else the usage line (`0x4a861e`, `0x4a8627`), the token's guid through `GetGUIDFromName`
-    // (`0x4a8658` → `0x515970`: any case, the `target` hops, "Unknown unit name" raised), and the
-    // position by guid only for the player (`0x4a8668`), a party member (`0x4a8675`) or a raid
-    // member (`0x4a8681`); anyone else leaves (0, 0).
+    // (`0x4a8658` → `0x515970`: any case, the `target` hops, "Unknown unit name" raised), and,
+    // only for the player (`0x4a8668`), a party member (`0x4a8675` → `0x4e7f70`) or a raid member
+    // (`0x4a8681` → `0x4baee0`), the unit's position read at the call (`0x4a8698` → `0x4a7870`,
+    // [`UnitMapPositionQuery`]) projected onto the displayed map (`0x4a7360`); anyone else leaves
+    // (0, 0). With no host to ask, the player reads the frame's projection and a member (0, 0).
     g.set(
         "GetPlayerMapPosition",
         lua.create_function(|lua, unit: Value| {
@@ -970,18 +1037,21 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
             let model = lua.app_data_ref::<Model>().expect("model app_data");
             let guid = crate::script::unit::guid_of(lua, &model, &token)?.unwrap_or(0);
             let (guids, wm) = (&model.unit_guids, &model.worldmap);
-            let at = |members: &[u64], uv: &[Option<(f32, f32)>]| {
-                members
-                    .iter()
-                    .position(|g| *g == guid)
-                    .and_then(|n| uv.get(n).copied().flatten())
+            let member = || match crate::script::roster_read::live_membership(lua, guid) {
+                Some(m) => m.party || m.raid,
+                None => guids.party.contains(&guid) || guids.raid.contains(&guid),
             };
-            let (x, y) = if guid == 0 {
-                None
-            } else if guid == guids.player {
-                wm.player_uv
+            let selection = (wm.selection.0, wm.selection.1, wm.direct_area);
+            let (x, y) = if guid != 0 && (guid == guids.player || member()) {
+                match super::live::ask(lua, &UnitMapPositionQuery(guid)) {
+                    Some(at) => at.and_then(|at| {
+                        let project = model.world_loc_projector.as_ref()?;
+                        project(selection, at.map, at.x, at.y)
+                    }),
+                    None => wm.player_uv.filter(|_| guid == guids.player),
+                }
             } else {
-                at(&guids.party, &wm.party_uv).or_else(|| at(&guids.raid, &wm.raid_uv))
+                None
             }
             .unwrap_or((0.0, 0.0));
             Ok((f64::from(x), f64::from(y)))
@@ -1010,11 +1080,11 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
             };
             // Only a hit reaches the setter (`0x4a75bd`, `0x4a7608`).
             if let Some((c, z)) = target {
-                select(
-                    &mut lua.app_data_mut::<Model>().expect("model app_data"),
-                    c,
-                    z,
-                );
+                {
+                    let mut model = lua.app_data_mut::<Model>().expect("model app_data");
+                    read_setter_inputs(lua, &mut model);
+                    select(&mut model, c, z);
+                }
                 fire_world_map_update(lua);
             }
             Ok(())

@@ -11,14 +11,12 @@ use benilla_protocol::ObjectFields;
 use benilla_ui::script::{
     ClickMode, ContainerSlot, ContainerState, MerchantItem, MerchantState, UiScript,
 };
-use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 
 use super::front_tests::{fix, Fix, ME, MOB, OLD};
-use super::{click, cursor_mode, Hovered, PickOcclusion, PressPick};
+use super::{cursor_mode, Hovered, PickOcclusion, PressPick};
 use crate::net::{ClientCommand, GuidIndex, ObjectStore};
 use crate::ui_action::UiErrorKeys;
-use crate::vplates::PlateClicks;
 
 /// A gossip NPC, and a hostile unit.
 const NPC: u64 = 0x51;
@@ -120,25 +118,15 @@ impl Fix {
         super::release_click(world, ClickMode::Action);
     }
 
-    /// A right-click on `unit`'s nameplate, begun on what the press latched, through the systems
-    /// in the schedule's order (`plate_right_click_runs_after_the_script_calls_head` pins it):
-    /// the click's `SelectTarget`, the head of the script calls' pass that binds what it parked,
-    /// then the unit's interact.
-    fn plate_right_click(&mut self, unit: Entity) {
-        self.app
-            .world_mut()
-            .resource_mut::<PlateClicks>()
-            .right
-            .push(unit);
-        self.app
-            .world_mut()
-            .run_system_once(click::select_on_plate_click)
-            .expect("the plate click runs");
-        self.bind();
-        self.app
-            .world_mut()
-            .run_system_once(click::act_on_interact)
-            .expect("the unit's interact runs");
+    /// A mouse right-click on `guid`'s nameplate, begun on what the press latched, through the
+    /// click's call (`0x7cb910` → `0x4949f0` → `0x492820`).
+    fn plate_right_click(&mut self, guid: u64) {
+        super::click_plate(
+            self.app.world_mut(),
+            guid,
+            benilla_ui::script::PlateAction::Interact,
+            false,
+        );
     }
 
     /// Everything sent since the last look.
@@ -235,6 +223,48 @@ fn swung_at(sent: &[ClientCommand], guid: u64) -> bool {
 fn greeted(sent: &[ClientCommand], guid: u64) -> bool {
     sent.iter()
         .any(|c| matches!(c, ClientCommand::GossipHello { guid: g } if *g == guid))
+}
+
+/// The Unavailable Quest Givers trigger (`0x5f0278`) signals before the service ladder
+/// (`0x5f0289`), so inside a right-click's call its listener's packet goes ahead of the gossip
+/// hello.
+#[test]
+fn an_unavailable_quest_givers_listener_sends_ahead_of_the_ladder() {
+    let mut f = fix(false);
+    f.app.world_mut().init_resource::<crate::player::Player>();
+    f.app
+        .world()
+        .resource::<crate::tutorial::Tutorials>()
+        .lock()
+        .apply_flags(&[0u8; 32]);
+    let npc = f.unit_with(NPC, 3.0, &[(FIELD_UNIT_NPC_FLAGS, GOSSIP)]);
+    f.app
+        .world_mut()
+        .resource_mut::<crate::ui_quest::QuestGiver>()
+        .set_status(NPC, 1);
+    f.app
+        .world_mut()
+        .insert_non_send_resource(UiScript::new().expect("a VM"));
+    crate::script_calls::with_hosted_vm(f.app.world_mut(), |s| {
+        s.expect("a VM").run(
+            r#"local r = CreateFrame("Frame")
+            r:RegisterEvent("TUTORIAL_TRIGGER")
+            r:SetScript("OnEvent", function() RandomRoll(1, 2) end)"#,
+        )
+    })
+    .expect("the listener installs");
+    f.press_on(npc, NPC, false);
+    f.right_click();
+    let sent: Vec<&str> = f
+        .sent()
+        .into_iter()
+        .filter_map(|c| match c {
+            ClientCommand::RandomRoll { .. } => Some("roll"),
+            ClientCommand::GossipHello { .. } => Some("hello"),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sent, ["roll", "hello"]);
 }
 
 /// `CGPlayer_C::InteractWithNpc` (`0x5f0130`) opens with `IsShapeShifted` (`0x60e9f0`, at
@@ -345,7 +375,7 @@ fn a_charmed_players_world_right_click_does_nothing_and_a_plates_still_interacts
         let npc = f.unit_with(NPC, 3.0, &[(FIELD_UNIT_NPC_FLAGS, GOSSIP)]);
         f.press_on(npc, NPC, false);
         if plate {
-            f.plate_right_click(npc);
+            f.plate_right_click(NPC);
         } else {
             f.right_click();
         }
@@ -357,6 +387,40 @@ fn a_charmed_players_world_right_click_does_nothing_and_a_plates_still_interacts
             "{what}"
         );
     }
+}
+
+/// Mid-combat, the world right-click's select (`0x492870` → `0x493540`) stops and re-swings at the
+/// new unit by Attack's own legs on it (`0x4938c8` → `0x5ecb70`: alive, `CanAttack` at
+/// `0x5ecc2e`), whatever cursor the press showed: a gossip NPC we can attack, pressed under the
+/// Speak cursor, is swung at, then talked to.
+#[test]
+fn a_right_click_mid_combat_reswings_at_an_attackable_unit_under_any_cursor() {
+    let mut f = fix(false);
+    f.app.world_mut().init_resource::<crate::player::Player>();
+    let old = f.app.world().resource::<GuidIndex>().0[&OLD];
+    // A creature (`OBJECT_FIELD_TYPE` 0x9), which the latch (`0x60ecb0`) looks up as a unit.
+    f.make_unit(old);
+    let npc = f.unit_with(NPC, 3.0, &[(2, 0x9), (FIELD_UNIT_NPC_FLAGS, GOSSIP)]);
+    f.app
+        .world_mut()
+        .insert_non_send_resource(UiScript::new().expect("a VM"));
+    crate::script_calls::with_hosted_vm(f.app.world_mut(), |s| {
+        s.expect("a VM").run("AttackTarget()")
+    })
+    .expect("the attack runs");
+    f.press_on(npc, NPC, false);
+    f.right_click();
+    let sent = f.sent();
+    assert!(
+        swung_at(&sent, OLD),
+        "the attack began on the old target: {sent:?}"
+    );
+    assert!(
+        swung_at(&sent, NPC),
+        "the select re-swings at the NPC: {sent:?}"
+    );
+    assert!(greeted(&sent, NPC), "and the interact talks: {sent:?}");
+    assert_eq!(f.selected(), Some(NPC));
 }
 
 /// The router's nothing leg for a charmed player has no points to walk along (`0x492d3f` on a
@@ -430,7 +494,7 @@ fn a_plate_right_click_binds_then_selects_then_acts_in_the_references_order() {
         };
         let unit = f.unit_with(guid, 3.0, fields);
         f.press_on(unit, guid, attack);
-        f.plate_right_click(unit);
+        f.plate_right_click(guid);
         let sent = f.sent();
         let what = format!("attack leg {attack}, cursor up {cursor}: {sent:?}");
         assert_eq!(steps(&sent), want, "{what}");
@@ -639,9 +703,9 @@ fn a_right_press_with_a_payload_is_consumed_before_the_world_sees_it() {
 }
 
 /// Talking to an NPC in reach whose dialog status is 1, unavailable, triggers Unavailable Quest
-/// Givers (`0x5f0268`-`0x5f0278`) ahead of its service ladder; another status triggers nothing.
-/// The click's select lit the NPC, which the selection's tutorial ladder then judges
-/// (`0x493789`).
+/// Givers (`0x5f0268`-`0x5f0278`) inside the click, ahead of its service ladder; another status
+/// triggers nothing. The click's select lit the NPC, whose tutorial ladder (`0x493789`) has
+/// nothing for it.
 #[test]
 fn talking_to_an_npc_with_status_one_triggers_unavailable_quest_givers() {
     for (status, fired) in [(1, vec![0x2b]), (5, vec![])] {
@@ -657,11 +721,30 @@ fn talking_to_an_npc_with_status_one_triggers_unavailable_quest_givers() {
             .world_mut()
             .resource_mut::<crate::ui_quest::QuestGiver>()
             .set_status(NPC, status);
+        let script = UiScript::new().expect("a VM");
+        script
+            .run(
+                r#"FIRED = {}
+                local r = CreateFrame("Frame")
+                r:RegisterEvent("TUTORIAL_TRIGGER")
+                r:SetScript("OnEvent", function() table.insert(FIRED, arg1) end)"#,
+            )
+            .expect("the listener installs");
+        f.app.world_mut().insert_non_send_resource(script);
         f.press_on(npc, NPC, false);
         f.right_click();
         assert!(greeted(&f.sent(), NPC), "status {status}: in reach");
-        let tutorials = f.app.world().resource::<crate::tutorial::Tutorials>();
-        assert_eq!(tutorials.take_fired(), fired, "status {status}");
-        assert_eq!(tutorials.take_selects(), [(npc, NPC)], "the select it made");
+        let heard: Vec<u32> = f
+            .app
+            .world_mut()
+            .non_send_resource_mut::<UiScript>()
+            .eval("return FIRED")
+            .expect("the record reads");
+        assert_eq!(heard, fired, "status {status}");
+        assert_eq!(
+            f.app.world().resource::<crate::target::Selection>().guid,
+            Some(NPC),
+            "the select it made"
+        );
     }
 }

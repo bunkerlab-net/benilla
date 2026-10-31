@@ -57,6 +57,10 @@ impl Install {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&path).unwrap();
+        let empty = archive(&[]);
+        for name in benilla_formats::VANILLA_BASE_ORDER {
+            fs::write(path.join(name), &empty).unwrap();
+        }
         let install = Self(path);
         install.write(entries);
         install
@@ -167,7 +171,8 @@ fn assert_capture(prepared: &PreparedDiscovery) {
     assert_ne!(unhex(&prepared.source_epoch()), [0; 32]);
     assert_eq!(unhex(&prepared.source_epoch()).len(), 32);
     assert_eq!(summary.state, source::MapDiscoveryState::Scanned);
-    assert_eq!((summary.archive_count, summary.global_root_events), (1, 1));
+    // Collision discovery mounts terrain, model, texture and WMO from the complete base chain.
+    assert_eq!((summary.archive_count, summary.global_root_events), (4, 1));
     assert_eq!(
         (
             summary.adt_attempts,

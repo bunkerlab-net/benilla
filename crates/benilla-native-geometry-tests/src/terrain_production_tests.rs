@@ -485,6 +485,10 @@ impl Temp {
     fn data(&self, case: &str) -> PathBuf {
         let data = self.0.join("authored-install/Data");
         fs::create_dir_all(&data).unwrap();
+        let empty = archive(&[]);
+        for name in benilla_formats::VANILLA_BASE_ORDER {
+            fs::write(data.join(name), &empty).unwrap();
+        }
         fs::write(data.join("terrain.MPQ"), archive(&members(case))).unwrap();
         data
     }

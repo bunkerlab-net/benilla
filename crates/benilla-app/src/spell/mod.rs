@@ -31,8 +31,8 @@ pub(crate) mod validator;
 // The one cast path: every caster takes [`CastLadder`] and commits through [`CastCommit`];
 // `send_spell_cast` is private to `cast_send`, so no second send path can exist.
 pub(crate) use cast_send::{
-    CastCommit, CastLadder, HeldCast, HeldForPick, ScriptCastPermit, TargetedBind, UnitAttackOwed,
-    UnitPress,
+    CastCommit, CastLadder, CastPark, CastStage, HeldCast, HeldForPick, ScriptCastPermit,
+    TargetedBind, UnitAttackOwed, UnitPress,
 };
 pub(crate) use cast_target::AutoSelfCast;
 pub(crate) use cooldowns::{CooldownLive, Cooldowns, Signal};
@@ -49,7 +49,7 @@ pub(crate) use mods::{CategoryPad, SpellModifiers, OP_CAST_TIME, OP_COST, OP_GCD
 pub(crate) use mods::{OP_COOLDOWN, OP_RANGE};
 pub(crate) use range_units::{with_ranged_slot, RangeUnits, DEFAULT_REACH};
 pub(crate) use report::{
-    CastCore, CastSlots, CursorCancel, Held, REASON_ERROR, REASON_TARGETS_DEAD,
+    CastCore, CastSlots, CursorCancel, Held, ItemCastLeg, REASON_ERROR, REASON_TARGETS_DEAD,
 };
 // `TargetingWants` is exported for the ground reticle, which draws for the location word alone.
 pub(crate) use targeting::{
@@ -63,6 +63,29 @@ pub(crate) use targeting::{
 pub(crate) struct ScriptCast<'w, 's> {
     pub(crate) targeting: cast_target::CastTargeting<'w, 's>,
     pub(crate) ladder: CastLadder<'w, 's>,
+}
+
+impl ScriptCast<'_, '_> {
+    /// `ArmCast` past its signal's listeners (`0x6e5338`): its candidate read again where the
+    /// attempt took it, the selection at `0x6e539f` included ([`CastLadder::reread_arm`]).
+    pub(crate) fn reread_arm(
+        &mut self,
+        park: &mut cast_send::ArmPark,
+    ) -> Option<cast_send::OwedRefusal> {
+        let ctx = self.targeting.context_for(park.candidate());
+        self.ladder.reread_arm(park, ctx.as_ref())
+    }
+
+    /// The arm's range refusal past its line's listeners ([`CastLadder::reread_refused`]), its
+    /// candidate read again there.
+    pub(crate) fn reread_refused(
+        &mut self,
+        park: &mut cast_send::ArmPark,
+        owed: cast_send::OwedRefusal,
+    ) {
+        let ctx = self.targeting.context_for(park.candidate());
+        self.ladder.reread_refused(park, owed, ctx.as_ref());
+    }
 }
 
 /// The local self-cancel's set: a reader of the in-flight state orders `.after(LocalCancel)` so a
@@ -84,6 +107,7 @@ impl Plugin for SpellPlugin {
             .init_resource::<AutoSelfCast>()
             .init_resource::<SpellTargeting>()
             .init_resource::<HeldForPick>()
+            .init_resource::<CastPark>()
             .init_resource::<UnitAttackOwed>()
             .init_resource::<ScriptCastPermit>()
             .init_resource::<CursorPicks>()
@@ -352,24 +376,6 @@ fn line_skill_value(
         }
     }
     0
-}
-
-/// Each skill slot's line and effective value, all [`spell_skill_value`] reads: a text built
-/// against one snapshot is rebuilt when the next differs.
-pub(crate) type SkillSnapshot =
-    [(u16, u32); benilla_protocol::messages::PLAYER_SKILL_SLOTS as usize];
-
-/// The [`SkillSnapshot`] of the player; all zeros without one.
-pub(crate) fn skill_snapshot(me: Option<&crate::net::ObjectStore>) -> SkillSnapshot {
-    std::array::from_fn(|slot| {
-        me.and_then(|s| s.0.player_skill(slot as u8))
-            .map_or((0, 0), |s| {
-                (
-                    s.skill_id,
-                    line_skill_value(std::iter::once(s), s.skill_id.into()),
-                )
-            })
-    })
 }
 
 #[cfg(test)]

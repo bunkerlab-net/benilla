@@ -198,7 +198,7 @@ pub(in crate::script) struct BuilderFlags {
 
 /// The deepest product build a recipe line nests. Deviation: the reference recurses without a
 /// bound (`0x52dbce` builds the product whatever the depth), so a product that teaches a recipe
-/// for itself would recurse until the stack overflows; benilla stops here, so a cyclic
+/// for itself would recurse until the stack overflows; benilla stops here because that way a cyclic
 /// `Spell.dbc` chain cannot crash the client.
 const MAX_PRODUCT_DEPTH: u8 = 4;
 
@@ -269,12 +269,16 @@ pub(super) fn render_view_flagged(
                 view
             })
             .flatten();
-        let equipped: std::collections::HashSet<u32> = model
-            .inventory_slots
-            .iter()
-            .flatten()
-            .map(|s| s.item_id)
-            .collect();
+        // The worn item ids as the call runs (`0x6228a0`), off the doll's keys, for a set alone.
+        let equipped: std::collections::HashSet<u32> = if set_view.is_some() {
+            crate::script::worn::worn_keys(lua, &model)
+                .iter()
+                .flatten()
+                .map(|&(_, id)| id)
+                .collect()
+        } else {
+            std::collections::HashSet::new()
+        };
         (
             crate::script::requirements::player_req(lua, &model),
             known,
@@ -568,7 +572,7 @@ pub(super) fn render_view_flagged(
         }
         // Stats in the display order of `0x808e88` (4,3,7,5,6,1,0, then 8,9,2,10 and zero padding;
         // `0x52c6b0..0x52c801`), not wire order. Deviation: the reference's padding repeats a mana
-        // stat once per zero entry; not emulated, since only the internal test ring 6674 has one.
+        // stat once per zero entry; not emulated, because only the internal test ring 6674 has one.
         const STAT_DISPLAY_ORDER: [u32; 7] = [4, 3, 7, 5, 6, 1, 0];
         for &want in &STAT_DISPLAY_ORDER {
             for &(t, val) in &v.stats {
@@ -1014,7 +1018,6 @@ fn lock_lines(lua: &Lua, v: &ItemTemplateView, inst: Option<&ItemInstance>) -> O
                 let entry = first.index;
                 let name = model.item_templates.get(&entry).map(|t| t.name.clone());
                 if name.is_none() && entry != 0 {
-                    model.item_stat_asks.insert(entry);
                     note_miss(model, CacheWait::Template(entry));
                 }
                 name.map(|arg| LockSubLine {

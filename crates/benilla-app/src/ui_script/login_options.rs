@@ -66,7 +66,8 @@ fn open(world: &mut World) -> Result<(), ()> {
         script.set_cvar_saved_base(cvars.orphans());
         script.seed_cvars(cvars.vm_seed());
     }
-    crate::bindings::seed_bindings_for_vm(world, &mut script);
+    crate::bindings::seed_bindings_for_vm(&mut script);
+    crate::bindings::register_binding_readers(world, &mut script);
     script.load_binding_set(1);
     super::lifecycle::seat_raster_seam_for_load(world, &mut script);
     super::addons::register_login_options_addons(&mut script);

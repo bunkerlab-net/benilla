@@ -191,9 +191,10 @@ pub(super) fn load_creature_types(mut commands: Commands, world_assets: Option<R
 
 /// Everything the scan reads, shared by TAB, the attack acquire and the pet bar's Attack.
 ///
-/// Deviation: our own body is never a candidate. The reference's friendly scan picks the player at
-/// some facings (`CanAssist(P, P)` is true, `0x6061e0`; the cone test `0x47f220`), but our scoring
-/// always puts the player dead centre at distance 0, so CTRL-TAB would pick us on every press.
+/// Deviation: our own body is never a candidate because our scoring always puts the player dead
+/// centre at distance 0, so CTRL-TAB would pick us on every press. The reference's friendly scan
+/// picks the player at some facings (`CanAssist(P, P)` is true, `0x6061e0`; the cone test
+/// `0x47f220`).
 #[derive(SystemParam)]
 #[allow(clippy::type_complexity)] // one bundled system param, the app's convention
 pub(crate) struct TargetScan<'w, 's> {
@@ -459,49 +460,168 @@ pub(super) struct CommitOutcome {
     pub(super) swung: bool,
 }
 
-/// The `CMSG_SET_SELECTION` a selection's teardown owes when it called a possessed unit off
-/// (`0x493a18`): `PetStopAttack` signals `PET_BAR_UPDATE` (`0x4bd6b4`) with the pair zeroed
-/// (`0x4939d3`), and its listeners run before the store (`0x4936e2`) and the send (`0x493871`), or
-/// a clear's send (`0x493a2a`).
+/// The rest of a selection's release (`0x493910`) once it signalled, with the pair zeroed
+/// (`0x4939d3`): its `StopAttack` past its head (`0x493a08`), whose tutorials' listeners run
+/// before its `CMSG_ATTACKSTOP` and whose next-swing cancel's (`0x5ecb63` → `0x6e6f30`) before the
+/// save's leg and the pet leg, or the pet leg called a possessed unit off (`0x493a18`), whose
+/// `PET_BAR_UPDATE` (`0x4bd6b4`) listeners run before the store (`0x4936e2`) and the send
+/// (`0x493871`), or a clear's send (`0x493a2a`).
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum OwedSend {
+pub(crate) struct OwedSend {
+    to: OwedTo,
+    pet: PetLeg,
+    stop: Option<crate::creature_anim::StopTail>,
+}
+
+/// What an [`OwedSend`] stores and sends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum OwedTo {
     /// A switch to `guid`, whose object is `entity`.
     Select { entity: Option<Entity>, guid: u64 },
     /// A clear, whose send names the selection as the listeners left it.
     Deselect,
 }
 
+/// The release's pet leg (`0x493a0f`-`0x493a18`), `0x5ee5a0` then `PetStopAttack 0x4bd650`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PetLeg {
+    /// Still to run, behind the release's `StopAttack`.
+    Owed,
+    /// It called a possessed unit off: its `PET_BAR_UPDATE` is owed.
+    CalledOff,
+    /// It ran and called nothing off.
+    Ran,
+}
+
+/// What a release owes once its `StopAttack`'s head ran (`stop`, when we attack): the rest of
+/// the stop and then the pet leg, else the pet leg now, owing the store and the send of `to` when
+/// it called a unit off. `None` when nothing signals, for the caller to pay `to` at once.
+pub(super) fn release_owing(
+    seam: &mut crate::creature_anim::AttackSeam,
+    stop: Option<crate::creature_anim::StopTail>,
+    to: OwedTo,
+) -> Option<OwedSend> {
+    let pet = if stop.is_some() {
+        PetLeg::Owed
+    } else if seam.call_pet_off() {
+        PetLeg::CalledOff
+    } else {
+        return None;
+    };
+    Some(OwedSend { to, pet, stop })
+}
+
 impl OwedSend {
-    /// The store and the light (`0x4936e2`, `0x493701`), over whatever a listener selected, the
-    /// lit unit's tutorial ladder (`0x493789`-`0x49383c`, [`crate::tutorial::select_tutorial`]),
-    /// and the send.
-    pub(crate) fn pay(self, selection: &mut Selection, seam: &crate::creature_anim::AttackSeam) {
-        let guid = match self {
-            OwedSend::Select { entity, guid } => {
+    /// `to`, with nothing signalled ahead of it.
+    pub(super) fn now(to: OwedTo) -> Self {
+        Self {
+            to,
+            pet: PetLeg::Ran,
+            stop: None,
+        }
+    }
+
+    /// The release's `StopAttack` past its head, for a caller that signals between its steps
+    /// ([`crate::creature_anim::AttackSeam::stop_send`]); `None` once taken, or when we were not
+    /// attacking.
+    pub(crate) fn take_stop(&mut self) -> Option<crate::creature_anim::StopTail> {
+        self.stop.take()
+    }
+
+    /// Run the pet leg if it waits: whether the release called a unit off, so its
+    /// `PET_BAR_UPDATE` (`0x4bd6b4`) is owed.
+    pub(crate) fn run_pet_leg(&mut self, seam: &mut crate::creature_anim::AttackSeam) -> bool {
+        if self.pet == PetLeg::Owed {
+            self.pet = if seam.call_pet_off() {
+                PetLeg::CalledOff
+            } else {
+                PetLeg::Ran
+            };
+        }
+        self.pet == PetLeg::CalledOff
+    }
+
+    /// The stop's rest and the pet leg if they wait, then the store and the light (`0x4936e2`,
+    /// `0x493701`), over whatever a listener selected, the lit unit's tutorial ladder
+    /// (`0x493789`-`0x49383c`, [`crate::tutorial::select_tutorial`]), and the send.
+    pub(crate) fn pay(
+        self,
+        selection: &mut Selection,
+        seam: &mut crate::creature_anim::AttackSeam,
+    ) {
+        self.store(selection, seam).send(seam);
+    }
+
+    /// [`Self::pay`] up to its send: the ladder queued, and the send it owes past the ladder's
+    /// listeners (`0x49388d`).
+    pub(crate) fn store(
+        mut self,
+        selection: &mut Selection,
+        seam: &mut crate::creature_anim::AttackSeam,
+    ) -> OwedWire {
+        if let Some(stop) = self.take_stop() {
+            seam.stop_send(stop);
+            seam.stop_save();
+        }
+        self.run_pet_leg(seam);
+        match self.to {
+            OwedTo::Select { entity, guid } => {
                 selection.target = entity;
                 selection.guid = Some(guid);
                 selection.lit = entity;
-                if let (Some(entity), Some(tutorials)) = (entity, seam.slots.tutorials()) {
-                    tutorials.selected(entity, guid);
-                }
-                guid
+                let ladder = match (entity, seam.slots.tutorials()) {
+                    (Some(entity), Some(tutorials)) => {
+                        tutorials.selected(entity, guid);
+                        true
+                    }
+                    _ => false,
+                };
+                OwedWire { guid, ladder }
             }
             // The clear's send reads the selection as it stands (`0x493a49`-`0x493a4f`): a
             // listener's pick, or none.
-            OwedSend::Deselect => selection.guid.unwrap_or(0),
-        };
-        let _ = seam.net.0.send(ClientCommand::SetSelection { guid });
+            OwedTo::Deselect => OwedWire {
+                guid: selection.guid.unwrap_or(0),
+                ladder: false,
+            },
+        }
+    }
+}
+
+/// `SetSelection`'s `CMSG_SET_SELECTION` (`0x493857`-`0x49388d`), owed past its tutorial
+/// ladder's `TUTORIAL_TRIGGER` (`0x4937be`-`0x49383c`), whose listeners run first.
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct OwedWire {
+    guid: u64,
+    ladder: bool,
+}
+
+impl OwedWire {
+    /// Whether the store queued its unit's ladder, whose listeners run before the send.
+    pub(crate) fn ladder(self) -> bool {
+        self.ladder
+    }
+
+    /// The send.
+    pub(crate) fn send(self, seam: &crate::creature_anim::AttackSeam) {
+        let _ = seam
+            .net
+            .0
+            .send(ClientCommand::SetSelection { guid: self.guid });
     }
 }
 
 /// What a [`commit_owing`] owes after its signals, for a caller that runs their listeners in place
-/// first: the send after the teardown's `PET_BAR_UPDATE`, then the re-swing after
+/// first: the release's rest after its stop's report and its `PET_BAR_UPDATE`, or with no release
+/// to signal the send after the ladder's `TUTORIAL_TRIGGER`, then the re-swing after
 /// `PLAYER_TARGET_CHANGED`.
 #[must_use]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Owed {
     pub(crate) send: Option<OwedSend>,
+    pub(crate) wire: Option<OwedWire>,
     pub(crate) swing: Option<OwedSwing>,
 }
 
@@ -516,9 +636,15 @@ impl Owed {
         if let Some(send) = self.send {
             send.pay(selection, seam);
         }
+        if let Some(wire) = self.wire {
+            wire.send(seam);
+        }
         if let Some(swing) = self.swing {
             // Nothing ran since the commit, so the selection is the guid it stored.
-            swing.pay(selection, seam, StartTarget::Unheld);
+            if let Some(stop) = swing.pay(selection, seam, StartTarget::Unheld) {
+                seam.stop_send(stop);
+                seam.stop_save();
+            }
         }
     }
 }
@@ -540,21 +666,21 @@ impl OwedSwing {
     /// selection's address, `0xb4e2d8`, which a listener of the signal may have moved. Our own
     /// guid gets none (`0x4938ae`-`0x4938c1`), nothing selected finds no unit (`0x5ecbef`), and a
     /// unit a listener selected is judged `now`. The swing goes out despite the lock, the stop
-    /// just set `[+0xc54]` (`0x5eccda`); a refused target stops again (`0x5ecc48`).
+    /// just set `[+0xc54]` (`0x5eccda`); a refused target stops again (`0x5ecc48`), its stop's
+    /// rest owed past its tutorials' listeners.
+    #[must_use]
     pub(crate) fn pay(
         self,
         selection: &Selection,
         seam: &mut crate::creature_anim::AttackSeam,
         now: StartTarget,
-    ) {
-        let Some(guid) = selection.guid else {
-            return;
-        };
+    ) -> Option<crate::creature_anim::StopTail> {
+        let guid = selection.guid?;
         if self.self_guid == Some(guid) {
-            return;
+            return None;
         }
         let verdict = if guid == self.guid { self.verdict } else { now };
-        seam.start(guid, verdict);
+        seam.start(guid, verdict)
     }
 }
 
@@ -603,22 +729,37 @@ pub(super) fn commit_owing(
     }
     // The latch's `0x60ecb0` leg, read before the store (`0x49367d`).
     let stop_and_repoint = seam.engaged() && had_old;
-    if stop_and_repoint {
-        // `0x493a08`: the real StopAttack, which also un-queues a next-swing strike (`0x6e6f30`).
-        seam.stop();
-    }
+    // `0x493a08`: the real StopAttack, which also un-queues a next-swing strike (`0x6e6f30`): its
+    // head here, its tutorials queued, and the rest owed behind their listeners.
+    let stop = if stop_and_repoint {
+        seam.stop_head()
+    } else {
+        None
+    };
     // `0x493a0f`-`0x493a18`: the release calls a possessed unit off after its StopAttack, with the
-    // pair zeroed (`0x4939d3`); the store and the send wait for its signal's listeners.
-    let called_off = had_old && seam.call_pet_off();
-    let send = OwedSend::Select { entity, guid };
-    let send = if called_off {
+    // pair zeroed (`0x4939d3`); the store and the send wait for the listeners of what either
+    // signalled.
+    let to = OwedTo::Select { entity, guid };
+    let send = if had_old {
+        release_owing(seam, stop, to)
+    } else {
+        None
+    };
+    // With no release to signal, the store and the ladder run now and the send waits for the
+    // ladder's listeners.
+    let wire = if send.is_some() {
         selection.target = None;
         selection.guid = None;
         selection.lit = None;
-        Some(send)
-    } else {
-        send.pay(selection, seam);
         None
+    } else {
+        let wire = OwedSend::now(to).store(selection, seam);
+        if wire.ladder() {
+            Some(wire)
+        } else {
+            wire.send(seam);
+            None
+        }
     };
     // The latch `[ebp-1]` was read before the store (`0x4936ac`); the rest of the test reads the
     // selection after the signal (`0x4938ae`).
@@ -639,7 +780,7 @@ pub(super) fn commit_owing(
             changed: true,
             swung,
         },
-        Owed { send, swing },
+        Owed { send, wire, swing },
     )
 }
 
@@ -940,6 +1081,21 @@ pub(super) fn latches_on(relations: &RelationWorld, old: Option<u64>) -> bool {
         })
 }
 
+/// The re-swing's verdict on the unit `guid`, `store`, a select commits (`0x4938c8` →
+/// `Attack 0x5ecb70`): Attack's own legs on its target, read then, not the press or the cursor's:
+/// a unit (`0x5ecbe6`, typemask 8), alive (`0x5ecc16`-`0x5ecc29`) and `CanAttack` (`0x5ecc2e`).
+/// Its gate `0x494a50(1)` passes in every context. The player's own returns are the seam's.
+pub(super) fn reswing_allowed(
+    relations: &RelationWorld,
+    guid: u64,
+    store: Option<&ObjectStore>,
+) -> bool {
+    store.filter(|s| s.is_unit()).is_some_and(|store| {
+        let unit = relations.unit_of(guid, store);
+        attack_target_valid(&relations.get(), relations.me().as_ref(), &unit, store)
+    })
+}
+
 /// The final gate's target legs (`0x613152`–`0x613169`): alive, where a zero-health target passes
 /// iff `UNIT_DYNAMIC_FLAGS` bit 5 is set (`0x613159`), and the full `CanAttack 0x606980` from the
 /// player. No player fails; the reference always holds one here.
@@ -970,8 +1126,9 @@ pub(crate) struct LastEnemy(pub(crate) Option<u64>);
 /// alive was stamped the frame it was selected, so its death's deselect (`super::died`, in a later
 /// frame's packet) leaves it remembered.
 ///
-/// Deviation: sampled each frame, not stamped in `SetSelection`, so every selection writer is
-/// covered; a selected unit that turns hostile is remembered, where the reference's is not.
+/// Deviation: sampled each frame, not stamped in `SetSelection`, because that way every selection
+/// writer is covered; a selected unit that turns hostile is remembered, where the reference's is
+/// not.
 pub(super) fn remember_last_enemy(
     selection: Res<Selection>,
     stores: Query<&ObjectStore>,
@@ -1143,17 +1300,16 @@ fn select_in_place(world: &mut World, select: OwedSelect) {
     crate::script_calls::bind_picks_here(world);
 }
 
-/// The packet's owed selects, after its handlers, each run as the firing of its stamp with the
-/// world's VM held, so its sends go out in the packet and what it signals is parked on the release
-/// lane at its place ([`super::release::park_signals`]): the reference signals inside the packet
-/// (`0x49389c`, `0x493a73`).
+/// The packet's owed selects, after its handlers, each nested under its stamp as a step in its
+/// place ([`super::release::in_place`]), so its sends go out in the packet and its signals'
+/// listeners run there: the reference signals inside the packet (`0x49389c`, `0x493a73`).
 pub(super) fn run_owed_selects(world: &mut World, _: crate::lanes::Stamp) {
     let Some(mut owed) = world.get_resource_mut::<OwedSelects>() else {
         return;
     };
     for (at, select) in std::mem::take(&mut owed.0) {
         crate::lanes::firing(at, || {
-            super::release::park_signals(world, |world| select_in_place(world, select));
+            super::release::in_place(world, |world| select_in_place(world, select));
         });
     }
 }
@@ -1194,7 +1350,10 @@ pub(super) fn owed_select(
             }
             let before = super::click::Standing::of(&c.selection, &c.seam);
             let send = super::click::clear_owing(&mut c.selection, &mut c.seam);
-            Some(before.owing(Owed { send, swing: None }))
+            Some(before.owing(Owed {
+                send,
+                ..Default::default()
+            }))
         }
     };
     if let Some(select) = select {
@@ -1374,9 +1533,10 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         let open = |world: &mut World, guid: u64| {
-            world
-                .resource_mut::<crate::ui_loot::LootState>()
-                .open(guid, 1, 0, Vec::new());
+            let mut loot = world.resource_mut::<crate::ui_loot::LootState>();
+            loot.open(guid, 1, 0, Vec::new());
+            // Open long ago: its `LOOT_OPENED` has fired.
+            loot.signals_fired();
             world.resource_mut::<crate::ui_loot::LootLatch>().0 = Some(guid);
         };
         let source = |world: &World| world.resource::<crate::ui_loot::LootState>().source();

@@ -6,15 +6,16 @@ use crate::messages::{
     DamageShield, DispelFailed, EnchantmentLog, EnvironmentalDamageLog, ExplorationXp, FriendEntry,
     FriendStatusUpdate, GmTicket, GossipOption, GroupLootInfo, GroupMemberEntry,
     GuildCommandResult, GuildEventNotice, GuildInfo, GuildQueryResponse, GuildRoster,
-    InspectHonorStats, ItemInfo, ItemPushResult, JumpInfo, LevelUpInfo, LootAllPassed, LootItem,
-    LootRoll, LootRollWon, LootStartRoll, MailListEntry, MirrorTimerStart, MonsterMoveFacing,
-    MoverState, ObjectFields, PartyKillLog, PartyMemberStatsInfo, PeriodicAuraLog, PetMode,
-    PetSpells, PetitionQueryResponse, PetitionRename, PetitionShowList, PetitionShowSignatures,
-    PetitionSignResults, PvpCredit, QuestComplete, QuestConfirmAccept, QuestDetails,
-    QuestGiverList, QuestOfferReward, QuestRequestItems, QuestShareMsg, QuestTemplate,
-    SpellDamageLog, SpellDispelLog, SpellEnergizeLog, SpellHealLog, SpellInstaKillLog,
-    SpellLogExecute, SpellLogMiss, SpellOutcomeLog, StabledPet, TaxiMask, TradeStatus,
-    TradeStatusExtended, TrainerSpell, TransportPose, VendorItem, WhoResults, WowTime, XpGain,
+    InspectHonorStats, ItemInfo, ItemPushResult, JumpInfo, LevelUpInfo, LfgResults, LootAllPassed,
+    LootItem, LootRoll, LootRollWon, LootStartRoll, MailListEntry, MirrorTimerStart,
+    MonsterMoveFacing, MoverState, ObjectFields, PartyKillLog, PartyMemberStatsInfo,
+    PeriodicAuraLog, PetMode, PetSpells, PetitionQueryResponse, PetitionRename, PetitionShowList,
+    PetitionShowSignatures, PetitionSignResults, PvpCredit, QuestComplete, QuestConfirmAccept,
+    QuestDetails, QuestGiverList, QuestOfferReward, QuestRequestItems, QuestShareMsg,
+    QuestTemplate, SpellDamageLog, SpellDispelLog, SpellEnergizeLog, SpellHealLog,
+    SpellInstaKillLog, SpellLogExecute, SpellLogMiss, SpellOutcomeLog, StabledPet, TaxiMask,
+    TradeStatus, TradeStatusExtended, TrainerSpell, TransportPose, VendorItem, WhoResults, WowTime,
+    XpGain,
 };
 
 /// Coarse entity classification, free of wire types, carried on [`SessionEvent::ObjectCreate`].
@@ -543,6 +544,9 @@ pub enum SessionEvent {
     /// `SMSG_GAMEOBJECT_DESPAWN_ANIM`: the reference arms substate 12 (AnimationData 157 Despawn)
     /// and keeps the object alive through the same-tick `SMSG_DESTROY_OBJECT` while it plays.
     GameObjectDespawnAnim { guid: u64 },
+    /// `SMSG_GAMEOBJECT_RESET_STATE`: the reference re-applies the object's descriptor
+    /// `GAMEOBJECT_STATE` to its animation (`0x6e9790` → `0x5f8c00` → `0x5f8bd0`).
+    GameObjectResetState { guid: u64 },
     /// `SMSG_GAMEOBJECT_PAGETEXT`: the reference resolves the GameObject and opens the item-text
     /// reader on it (`0x5f88c0` → `0x4e32e0(guid, 0)`), as a right-click on a TEXT object does.
     GameObjectPageText { guid: u64 },
@@ -1060,6 +1064,8 @@ pub enum SessionEvent {
     },
     /// Someone invited us to their group (`SMSG_GROUP_INVITE`): the invite popup.
     GroupInvite { inviter: String },
+    /// The inviter withdrew our invite (`SMSG_GROUP_CANCEL`): `PARTY_INVITE_CANCEL`.
+    GroupCancel,
     /// An invite we sent was declined (`SMSG_GROUP_DECLINE`).
     GroupDecline { name: String },
     /// We were removed from our group (`SMSG_GROUP_UNINVITE`, empty body), kicked or left.
@@ -1161,6 +1167,8 @@ pub enum SessionEvent {
     FriendStatus(FriendStatusUpdate),
     /// A `/who` answer (`SMSG_WHO`): at most 49 rows, plus the true match total.
     WhoResults(WhoResults),
+    /// A looking-for-group reply (`MSG_LOOKING_FOR_GROUP`): `UPDATE_LFG_LIST`.
+    LfgResults(LfgResults),
     /// A guild's name, ten rank names and tabard (`SMSG_GUILD_QUERY_RESPONSE`), cached by id.
     GuildQueryResponse(GuildQueryResponse),
     /// The whole guild (`SMSG_GUILD_ROSTER`), a complete snapshot that replaces what is held.

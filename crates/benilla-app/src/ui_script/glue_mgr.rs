@@ -169,7 +169,7 @@ use std::cell::{Ref, RefCell, RefMut};
 use std::rc::Rc;
 
 use benilla_protocol::{Character, LoginRefusal, LoginStage, RealmInfo, RosterCause};
-use benilla_ui::script::origin::{self, Origin};
+use benilla_ui::script::origin::{within, Origin};
 use benilla_ui::script::{
     GlueCall, GlueCharacter, GlueHost, GlueNotice, GlueRealm, GlueRealmCells, GlueRequest,
     GlueSelectCells, GlueSignal, GlueText as Text, NoticeState, ScriptValue, UiScript, VmKind,
@@ -720,7 +720,31 @@ impl GlueMgr {
             GlueCall::RenameCharacter { guid, name } => self.rename_character(guid, name),
             GlueCall::EnterWorld { index, guid, flags } => self.enter_world(index, guid, flags),
             GlueCall::CreateCharacter(request) => self.create_character(request),
+            GlueCall::CancelPatchDownload => self.return_to_login(),
+            // EndSurvey's report (`0x473ef5`), which arms the latch only during a logon, as
+            // `on_logon_done` gates it.
+            // Deviation: the screen state is not set to 1 after the report (`0x473ef9`), because that
+            // store returns the glue from the survey state 11, which benilla never enters, and from
+            // the idle screen it would leave a logon standing with none running.
+            GlueCall::SurveyDone => self.on_logon_done(),
+            GlueCall::ApplyPatch => {
+                // `FailPatch(4, 0)` (`0x474ab0`): the logon cancelled and the login screen up,
+                // then, for any code but 2, the `OKAY` dialog with `PATCH_FAILED_MESSAGE`
+                // (`0x474ae4`, `0x838a78`, `0x474b39`).
+                self.return_to_login();
+                self.open("OKAY", Some(Text::Key("PATCH_FAILED_MESSAGE")));
+            }
         }
+    }
+
+    /// The tail `CancelPatchDownload` (`0x474710`) and `FailPatch` (`0x474ab0`) share: the logon
+    /// cancelled (`0x5b3320`), the screen state 0 (`0x474ad0`, `0x474754`) and `SET_GLUE_SCREEN`
+    /// `login` (`0x46b840`, `0x82e3e0`). The operation in flight goes with the state, as at a drop.
+    fn return_to_login(&mut self) {
+        self.login_out.push(GlueLogin::Abandon);
+        self.state = ScreenState::Idle;
+        self.op = Operation::default();
+        self.outbox.push(Outgoing::Screen("login"));
     }
 
     /// `DisconnectFromServer` (`0x46d340`): with the world link up, its flag goes down in the call
@@ -1520,9 +1544,9 @@ impl GlueMgr {
     ///
     /// Deviation: the reference's handler completes whichever operation is current; here only the
     /// character list's does, in state 3, and a reply of another cause (a roster nothing of the
-    /// screen asked for) or of another link (before a realm change) completes nothing. Those
-    /// replies cannot be told from the operation they would be applied to in the reference, which
-    /// has one link and one request in flight; here the IO thread's park serves several.
+    /// screen asked for) or of another link (before a realm change) completes nothing, because the
+    /// reference has one link and one request in flight and so cannot tell those replies from the
+    /// operation they would be applied to, while here the IO thread's park serves several.
     fn on_roster(&mut self, roster: Vec<Character>, cause: RosterCause, epoch: u64) {
         if cause != RosterCause::Asked
             || epoch != self.link
@@ -1981,11 +2005,11 @@ pub(crate) fn drive_glue_mgr(
     run: Option<Res<RunModeRealm>>,
     env_pin: Option<Res<EnvPin>>,
     areas: Option<Res<crate::area::AreaTableRes>>,
+    billing: Option<Res<crate::net::SessionBilling>>,
     sources: super::glue_create::CreateSources,
     state: Option<Res<State<crate::client_state::ClientState>>>,
     time: Res<Time>,
 ) {
-    let _origin = origin::enter(Origin::Allowed("ui_script::glue_mgr::drive_glue_mgr"));
     // The realmlist as the frame starts, and the typed value it refused as no address.
     let (realmlist, mut refused) = {
         let (realmlist, _) = vm.own();
@@ -2041,6 +2065,13 @@ pub(crate) fn drive_glue_mgr(
             if !fresh_vm && r.is_changed() {
                 let (categories, types) = r.glue_setup();
                 s.set_glue_realm_setup(categories, types);
+            }
+        }
+        // The connection's billing group, which the billing verbs read (`0x46dbf0`, `0x46dc40`,
+        // `0x46dcf0`), on a new VM and whenever the session rewrites it.
+        if let (Some(s), Some(b)) = (script.as_deref_mut(), billing.as_ref()) {
+            if fresh_vm || b.is_changed() {
+                s.set_billing(b.0.time_remaining, b.0.time_rested, b.0.plan_flags);
             }
         }
         // The name a connect resolves (`0x5ab7d0`).
@@ -2103,7 +2134,10 @@ pub(crate) fn drive_glue_mgr(
             // holds the list for the next one.
             if let Some(s) = script.as_deref_mut() {
                 s.note_addon_info_records(super::addons::addon_replies(&msg.records));
-                s.fire_event("ADDON_LIST_UPDATE", Vec::new());
+                within(
+                    Origin::Allowed("ui_script::glue_mgr::drive_glue_mgr"),
+                    || s.fire_event("ADDON_LIST_UPDATE", Vec::new()),
+                );
             }
         }
 
@@ -2113,6 +2147,16 @@ pub(crate) fn drive_glue_mgr(
             classes: sources.classes.as_deref().map(|c| &c.0),
             creatures: sources.creatures.as_deref(),
         };
+        // What the manager raised signals into the glue VM at its frame, `CGlueMgr::Update`
+        // (`0x46b930`), outside any packet.
+        let pump_here =
+            |script: Option<&mut UiScript>,
+             roster: Option<&mut crate::glue_session::roster::Roster>| {
+                within(
+                    Origin::Allowed("ui_script::glue_mgr::drive_glue_mgr"),
+                    || pump(&shared, script, realmlist, now_ms, &names, roster),
+                )
+            };
 
         let (lists, latched) = {
             let mut mgr = shared.get_mut();
@@ -2140,14 +2184,7 @@ pub(crate) fn drive_glue_mgr(
             (lists, latched)
         };
         if latched {
-            pump(
-                &shared,
-                script.as_deref_mut(),
-                realmlist,
-                now_ms,
-                &names,
-                asks.roster.as_deref_mut(),
-            );
+            pump_here(script.as_deref_mut(), asks.roster.as_deref_mut());
         }
         let auth_waits = {
             let mut mgr = shared.get_mut();
@@ -2176,14 +2213,7 @@ pub(crate) fn drive_glue_mgr(
             mgr.auth_waits
         };
         if auth_waits {
-            pump(
-                &shared,
-                script.as_deref_mut(),
-                realmlist,
-                now_ms,
-                &names,
-                asks.roster.as_deref_mut(),
-            );
+            pump_here(script.as_deref_mut(), asks.roster.as_deref_mut());
             shared.get_mut().finish_auth();
         }
         {
@@ -2209,14 +2239,7 @@ pub(crate) fn drive_glue_mgr(
         }
         // What the news raised runs out before the frame's arm, as the reference's network handlers
         // signal inside the net pump, ahead of `CGlueMgr::Update`.
-        pump(
-            &shared,
-            script.as_deref_mut(),
-            realmlist,
-            now_ms,
-            &names,
-            asks.roster.as_deref_mut(),
-        );
+        pump_here(script.as_deref_mut(), asks.roster.as_deref_mut());
         {
             let mut mgr = shared.get_mut();
             mgr.tick();
@@ -2233,14 +2256,7 @@ pub(crate) fn drive_glue_mgr(
                 }
             }
         }
-        pump(
-            &shared,
-            script.as_deref_mut(),
-            realmlist,
-            now_ms,
-            &names,
-            asks.roster.as_deref_mut(),
-        );
+        pump_here(script.as_deref_mut(), asks.roster.as_deref_mut());
         let mut mgr = shared.get_mut();
         if let Some(s) = script.as_deref() {
             mgr.select_cells = s.glue_select_cells();

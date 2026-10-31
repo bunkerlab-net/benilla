@@ -66,8 +66,8 @@ use motion::{
 // `pub(crate)`: `creature_anim` reads the shuffle latch it produces, and a test runs both.
 pub(crate) use motion::drive_display_facing;
 pub(crate) use motion::{
-    grounded_y, jump_seed, CreatureSwimming, FacingStep, RemoteMotion, Spline, SplineStopped,
-    UnitMoveModes,
+    grounded_y, jump_seed, CreatureSwimming, FacingStep, MoveTick, RemoteMotion, Spline,
+    SplineStopped, UnitMoveModes,
 };
 
 /// The net subsystem: spawns the background IO threads and drives the per-frame event drain.
@@ -150,6 +150,7 @@ impl Plugin for NetPlugin {
             .add_message::<TeleportMessage>()
             .add_message::<FieldChanged>()
             .add_message::<AuraFieldsChanged>()
+            .add_message::<crate::entities::DisplayRebuilt>()
             .init_resource::<crate::item_lane::ItemLane>()
             .init_resource::<crate::item_watch::BagCache>()
             .init_resource::<crate::field_watch::NoticeLane>()
@@ -174,6 +175,7 @@ impl Plugin for NetPlugin {
             .add_message::<CharacterLoginFailedMessage>()
             .add_message::<EnteredWorldMessage>()
             .init_resource::<MoverClaim>()
+            .init_resource::<MoveTick>()
             .add_message::<CinematicTriggeredMessage>()
             .add_message::<ServerSaidMessage>()
             .add_message::<LoggedOutMessage>()
@@ -1689,6 +1691,12 @@ pub(crate) enum ClientCommand {
     CastSpellTradeItem {
         spell_id: u32,
         slot: u8,
+    },
+    /// `CMSG_CAST_SPELL` with the targets block a held record gathered over more than one bind
+    /// ([`benilla_protocol::messages::HeldTargets`]).
+    CastSpellTargets {
+        spell_id: u32,
+        target: benilla_protocol::messages::UseItemTarget,
     },
     /// `CMSG_LOOT` on a unit; the server rejects a GameObject guid, which loots by `GameObjUse`.
     Loot {

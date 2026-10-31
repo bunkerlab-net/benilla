@@ -20,6 +20,10 @@ impl Temp {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         std::fs::create_dir(&path).unwrap();
+        let empty = archive(&[]);
+        for name in crate::VANILLA_BASE_ORDER {
+            std::fs::write(path.join(name), &empty).unwrap();
+        }
         Self(path)
     }
 

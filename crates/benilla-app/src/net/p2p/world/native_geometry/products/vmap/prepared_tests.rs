@@ -112,7 +112,18 @@ fn prepared_collision_public_capture_matches_all_original_queries_without_invent
     let before = install.bytes();
     assert_eq!(
         before.keys().map(String::as_str).collect::<Vec<_>>(),
-        ["model.MPQ"]
+        [
+            "dbc.MPQ",
+            "fonts.MPQ",
+            "interface.MPQ",
+            "misc.MPQ",
+            "model.MPQ",
+            "sound.MPQ",
+            "speech.MPQ",
+            "terrain.MPQ",
+            "texture.MPQ",
+            "wmo.MPQ",
+        ]
     );
     let capture = source::prepare(&install.0, 0, || false).unwrap();
     assert_capture(&capture);

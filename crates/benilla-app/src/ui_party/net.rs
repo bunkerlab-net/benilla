@@ -27,6 +27,7 @@ const INVITE_ACCEPT_SOUND: &str = "igPlayerInviteAccept";
 pub(super) fn register(app: &mut App) {
     use SessionEventKind as K;
     app.net_handler(K::GroupInvite, on_invite)
+        .net_handler(K::GroupCancel, on_cancel)
         .net_handler(K::GroupDecline, on_decline)
         .net_handler(K::GroupUninvited, on_uninvited)
         .net_handler(K::GroupLeaderChanged, on_leader_changed)
@@ -47,6 +48,13 @@ pub(super) fn register(app: &mut App) {
 fn on_invite(In(ev): In<SessionEvent>, mut group: ResMut<GroupState>) {
     if let SessionEvent::GroupInvite { inviter } = ev {
         group.apply_invited(&inviter);
+    }
+}
+
+/// `SMSG_GROUP_CANCEL` (`0x5e6770`): the popup's hide, `PARTY_INVITE_CANCEL` (`0x5e6784`).
+fn on_cancel(In(ev): In<SessionEvent>, mut group: ResMut<GroupState>) {
+    if let SessionEvent::GroupCancel = ev {
+        group.apply_invite_cancelled();
     }
 }
 
@@ -155,6 +163,8 @@ struct RosterTeardown<'w, 's> {
     log: Option<ResMut<'w, crate::ui_unit::views::ViewLog>>,
     /// The party slots and raid rows the relation reads take, written where the packet wrote them.
     roster: Option<ResMut<'w, crate::spell::group_relation::GroupRoster>>,
+    /// Where the slot writers' plate legs go, each at its place ([`super::RosterColour`]).
+    notices: Option<ResMut<'w, crate::field_watch::NoticeLane>>,
 }
 
 impl RosterTeardown<'_, '_> {
@@ -177,6 +187,75 @@ impl RosterTeardown<'_, '_> {
                 log.roster(cells);
             }
             log.close();
+        }
+        // The slot writers' token flags and refreshes, each on a member the object manager holds
+        // as the packet left it: as a player for a seat, an arrival or a departure (`0x4e838d`,
+        // `0x4bab18`, `0x4baa18`), as a unit for a clear (`0x4e84d7`), and its pet as a unit
+        // (`0x4e83c9`, `0x4e8523`, `0x4bab55`, `0x4baa64`).
+        let moves = group.take_token_moves();
+        let colours = group.take_roster_colours();
+        let unit = |guid: u64| {
+            self.index
+                .as_deref()
+                .and_then(|index| index.0.get(&guid))
+                .and_then(|&e| self.stores.get(e).ok())
+                .filter(|s| s.is_unit())
+        };
+        let player = |guid: u64| {
+            unit(guid).filter(|s| {
+                s.0.created_as() == Some(benilla_protocol::messages::ObjectType::Player)
+            })
+        };
+        let mut placed = Vec::new();
+        for moved in moves {
+            let member = if moved.as_player {
+                player(moved.guid)
+            } else {
+                unit(moved.guid)
+            };
+            let Some(member) = member else {
+                continue;
+            };
+            let change = |bits| {
+                if moved.add {
+                    benilla_ui::script::TokenChange::Add(bits)
+                } else {
+                    benilla_ui::script::TokenChange::Remove(bits)
+                }
+            };
+            placed.push((moved.at, moved.guid, change(moved.bits)));
+            // `CHARM`, else `SUMMON` (`0x4e83a3`-`0x4e83b0`, `0x4e84e6`-`0x4e84f3`).
+            if let Some(pet) = member.0.unit_pet_guid().filter(|&g| unit(g).is_some()) {
+                placed.push((moved.pet_at, pet, change(moved.bits << 1)));
+            }
+        }
+        let colours: Vec<_> = colours
+            .into_iter()
+            .filter(|c| {
+                if c.seat {
+                    player(c.guid).is_some()
+                } else {
+                    unit(c.guid).is_some()
+                }
+            })
+            .collect();
+        if let Some(notices) = self.notices.as_deref_mut() {
+            for (at, guid, change) in placed {
+                notices.write_at(
+                    at,
+                    crate::field_watch::FieldNotice::TokenFlags { guid, change },
+                );
+            }
+            for colour in colours {
+                let call = crate::vplates::PlateCall::ColourInParty {
+                    party: colour.party,
+                };
+                let notice = crate::field_watch::FieldNotice::Plate {
+                    guid: colour.guid,
+                    call,
+                };
+                notices.write_at(colour.at, notice);
+            }
         }
         let released = group.take_released();
         let guids: Vec<u64> = released

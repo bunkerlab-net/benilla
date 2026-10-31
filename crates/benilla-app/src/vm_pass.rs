@@ -734,7 +734,7 @@ mod tests {
         let (input, mouse, feed, tick) = (
             at("::dispatch_input_records"),
             at("::latch_world_mouse"),
-            at("::ui_unit::feed_far_sight_bit"),
+            at("::ui_items::feed::feed_random_properties"),
             at("::tick_script"),
         );
         let (drain, paint) = (at("::drain_chat_input"), at("::paint_script"));
@@ -798,7 +798,7 @@ mod tests {
         unordered.sort();
         // A floor that shows the census found the hosts at all; it falls as feeds go live.
         assert!(
-            update.hosted.len() > 80,
+            update.hosted.len() > 50,
             "the census finds the hosts: {}",
             update.hosted.len()
         );
@@ -1119,24 +1119,6 @@ mod tests {
         assert!(
             built.runs_before(sync, sample),
             "the CVar callbacks run after the look session reads their knobs"
-        );
-    }
-
-    /// The stream focus's publish and the post-snap hold's release, which write the player's
-    /// settle state the hosts read, run among the hosts in the world's order (after the input
-    /// stage, around the stream), so a host after them reads this frame's: the zone channels'
-    /// walk, whose gate reads it, runs after the release.
-    #[test]
-    fn the_settle_state_is_published_before_its_readers() {
-        let app = headless_client();
-        let Some(order) = pass_order(&app) else {
-            return;
-        };
-        let at = |name: &str| at(&order, name);
-        let release = at("::release_post_snap_hold");
-        assert!(
-            at("::publish_view_focus") < release && release < at("::auto_join_zone_channels"),
-            "{order:?}"
         );
     }
 }

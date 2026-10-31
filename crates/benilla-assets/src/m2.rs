@@ -264,10 +264,9 @@ impl AssetLoader for M2ModelLoader {
             let texture = sub.texture.as_deref().map(|t| {
                 ctx.load::<Image>(crate::texture_url_on(source, t, (sub.wrap_x, sub.wrap_y)))
             });
-            // Stage 1 at the generated coordinate, the only kind a stock unit authors. Not built: a
-            // stage 1 reading the vertex's second UV set, which the mesh does not carry; such a
-            // unit draws its stage 0 alone.
-            let stage1 = sub.stage1.as_ref().filter(|s| s.env_map).and_then(|s| {
+            // Stage 1 at the generated coordinate, the only kind a stock unit authors, or on the
+            // vertex's UV set 1, which the mesh then carries (`RenderSubmesh::uvs2`).
+            let stage1 = sub.stage1.as_ref().and_then(|s| {
                 let t = s.texture.as_deref()?;
                 Some(Stage1 {
                     texture: ctx.load::<Image>(crate::texture_url_on(
@@ -276,6 +275,8 @@ impl AssetLoader for M2ModelLoader {
                         (s.wrap_x, s.wrap_y),
                     )),
                     combine: s.combine,
+                    uv_set: !s.env_map,
+                    uv_anim: s.uv_anim.clone(),
                 })
             });
             submeshes.push(ModelSubmesh {
@@ -319,12 +320,10 @@ impl AssetLoader for M2ModelLoader {
             .unwrap_or_default()
             .into_iter()
             .map(|def| {
-                let texture = def.texture.as_deref().map(|t| {
-                    ctx.load::<Image>(format!(
-                        "mpq://{}",
-                        t.replace('\\', "/").to_ascii_lowercase()
-                    ))
-                });
+                let texture = def
+                    .texture
+                    .as_deref()
+                    .map(|t| ctx.load::<Image>(crate::texture_url(t, (true, true))));
                 let bone_pivot = skeleton_raw
                     .bones
                     .get(def.bone as usize)
@@ -363,12 +362,10 @@ impl AssetLoader for M2ModelLoader {
             .unwrap_or_default()
             .into_iter()
             .map(|def| {
-                let texture = def.texture.as_deref().map(|t| {
-                    ctx.load::<Image>(format!(
-                        "mpq://{}",
-                        t.replace('\\', "/").to_ascii_lowercase()
-                    ))
-                });
+                let texture = def
+                    .texture
+                    .as_deref()
+                    .map(|t| ctx.load::<Image>(crate::texture_url(t, (true, true))));
                 let bone_pivot = skeleton_raw
                     .bones
                     .get(def.bone as usize)
