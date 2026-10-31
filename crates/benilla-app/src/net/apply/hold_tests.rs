@@ -42,7 +42,7 @@ fn p2p_overflow_retires_transport_and_never_dispatches_its_tail() {
     }
     let config = benilla_config::AppConfig::parse(
         "[p2p]\npsk = \"public bounded queue fixture only\"\nlisten = \"127.0.0.1:31337\"\n",
-        std::path::Path::new("/tmp"),
+        &std::env::temp_dir(),
     )
     .unwrap();
     let settings = P2pSettings(config.p2p.unwrap(), config.ruleset);

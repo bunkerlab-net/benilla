@@ -239,11 +239,9 @@ pub(crate) fn compare(mut run: impl FnMut(Mode, Fault, bool) -> Evidence) {
             if matches!(fault, Fault::None) {
                 let old_source = old.trace[0];
                 let current_source = current.trace[0];
-                assert!(old_source
-                    .0
+                assert!(std::path::Path::new(old_source.0)
                     .ends_with("source_route_filter/chase_los/equivalence.rs"));
-                assert!(current_source
-                    .0
+                assert!(std::path::Path::new(current_source.0)
                     .ends_with("source_route_filter/chase_los.rs"));
                 assert_effect_location(
                     old_source,

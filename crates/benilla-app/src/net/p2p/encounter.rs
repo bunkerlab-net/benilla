@@ -115,8 +115,7 @@ epoch = "0101010101010101010101010101010101010101010101010101010101010101"
 roster = [{{id="01010101010101010101010101010101", address="{endpoint}"}}, {{id="02020202020202020202020202020202", address="127.0.0.1:65534"}}]
 "#
         );
-        let config =
-            benilla_config::AppConfig::parse(&config, std::path::Path::new("/tmp")).unwrap();
+        let config = benilla_config::AppConfig::parse(&config, &std::env::temp_dir()).unwrap();
         let (handles, mut start) = prepare(
             P2pSettings(config.p2p.unwrap(), config.ruleset),
             P2pEndpointTicket::default(),

@@ -237,6 +237,25 @@ fn assert_default_route_expiry(owner: &OwnedResident, request: &AuthorityRequest
     });
 }
 
+#[cfg(test)]
+fn retry_preparation_refusal(
+    error: super::super::super::source_route_filter::resident::ResidentFilterError,
+    lease: &JobLease,
+    slice: Instant,
+) -> Failure {
+    use super::super::super::source_route_filter::resident::ResidentFilterError;
+    assert!(
+        matches!(error, ResidentFilterError::Context(Failure::Deadline)),
+        "resident preparation failed: {error:?}"
+    );
+    assert!(
+        lease.is_active(),
+        "preparation exhausted the original lease"
+    );
+    std::thread::sleep(slice.saturating_duration_since(Instant::now()) + Duration::from_millis(1));
+    Failure::Deadline
+}
+
 /// Genuine component setup supplies the live request; no seed Facts enter this probe.
 #[cfg(test)]
 pub(in super::super::super) fn exercise_result_transport(
@@ -325,6 +344,8 @@ pub(in super::super::super) fn exercise_result_transport(
             slice,
             |owner, job, phase| {
                 assert!(job.lease().same_job(&lease));
+                // Preparation uses the original live lease; only publication tests the short slice.
+                let job = ResidentDispatchJob { deadline, ..job };
                 geometry.advance_physics();
                 if callbacks == 0 {
                     let mut after_called = false;
@@ -354,22 +375,21 @@ pub(in super::super::super) fn exercise_result_transport(
                     if let Ok(ResidentPhaseResult::Prepared(prepared)) = result {
                         return Ok(ResidentPhaseResult::Prepared(prepared));
                     }
-                    assert!(
-                        after_called,
-                        "injected failure follows genuine certification"
-                    );
+                    let Err(error) = result else {
+                        panic!("rejection hook must refuse completed certification");
+                    };
+                    if !after_called {
+                        return Err(retry_preparation_refusal(error, &lease, slice));
+                    }
                     assert!(matches!(
-                        result,
-                        Err(ResidentFilterError::Context(Failure::Deadline))
+                        error,
+                        ResidentFilterError::Context(Failure::Deadline)
                     ));
                     callbacks += 1;
                     return Err(Failure::Deadline);
                 }
                 let result = certify(owner, phase, job, geometry.app.world_mut(), &installed)
-                    .map_err(|error| match error {
-                        ResidentFilterError::Context(error) => error,
-                        _ => Failure::Binding,
-                    })?;
+                    .map_err(|error| retry_preparation_refusal(error, &lease, slice))?;
                 let ResidentPhaseResult::Complete(result) = result else {
                     return Ok(result);
                 };
@@ -419,8 +439,12 @@ pub(in super::super::super) fn exercise_result_transport(
             |owner, job, phase| {
                 assert!(job.lease().same_job(&lease));
                 geometry.advance_physics();
+                let job = ResidentDispatchJob { deadline, ..job };
                 let result = certify(owner, phase, job, geometry.app.world_mut(), &installed)
-                    .map_err(|_| Failure::Binding)?;
+                    .map_err(|error| match error {
+                        ResidentFilterError::Context(Failure::Deadline) => Failure::Deadline,
+                        error => panic!("resident preparation failed: {error:?}"),
+                    })?;
                 let ResidentPhaseResult::Complete(result) = result else {
                     return Ok(result);
                 };
@@ -433,6 +457,10 @@ pub(in super::super::super) fn exercise_result_transport(
         );
         std::thread::yield_now();
     }
+    assert!(
+        mailbox.route_rx.is_empty(),
+        "transport cannot publish a commit/ACK"
+    );
     assert_eq!(callbacks, 3);
     if drop_reply {
         owner
@@ -625,11 +653,7 @@ pub(in super::super::super) fn exercise_result_terminal_retirement(
     let (_, mailbox) = paired_test_mailbox(owner).unwrap();
     let mut selector = ResidentFifoSelection::new(&mailbox).unwrap();
     let watchdog = Instant::now() + Duration::from_secs(120);
-    let original_deadline = if expire {
-        Instant::now() + Duration::from_secs(5)
-    } else {
-        watchdog
-    };
+    let original_deadline = watchdog;
     let (lease, receive) = mailbox
         .enqueue_resident_test_request(owner, 904, request.clone(), original_deadline)
         .unwrap();
@@ -645,11 +669,7 @@ pub(in super::super::super) fn exercise_result_terminal_retirement(
     let mut facts = None;
     while facts.is_none() {
         assert!(Instant::now() < watchdog);
-        let slice = if expire {
-            watchdog
-        } else {
-            Instant::now() + Duration::from_secs(2)
-        };
+        let slice = Instant::now() + Duration::from_secs(2);
         selector.serve_phased_results(
             &mailbox,
             owner,
@@ -657,9 +677,13 @@ pub(in super::super::super) fn exercise_result_terminal_retirement(
             slice,
             |owner, job, phase| {
                 assert!(job.lease().same_job(&lease));
+                let job = ResidentDispatchJob {
+                    deadline: original_deadline,
+                    ..job
+                };
                 geometry.advance_physics();
-                let result =
-                    certify(owner, phase, job, geometry.app.world_mut(), &installed).unwrap();
+                let result = certify(owner, phase, job, geometry.app.world_mut(), &installed)
+                    .map_err(|error| retry_preparation_refusal(error, &lease, slice))?;
                 let ResidentPhaseResult::Complete(result) = result else {
                     return Ok(result);
                 };
@@ -688,10 +712,22 @@ pub(in super::super::super) fn exercise_result_terminal_retirement(
                         Err(Failure::QueueCapacity)
                     ));
                 }
-                let until = if expire { original_deadline } else { slice };
-                std::thread::sleep(
-                    until.saturating_duration_since(Instant::now()) + Duration::from_millis(1),
-                );
+                if expire {
+                    assert!(
+                        lease.is_active(),
+                        "mint completed under the original live lease"
+                    );
+                    lease.0.test_now.set(original_deadline).unwrap();
+                    assert!(
+                        !lease.is_active(),
+                        "post-mint clock reaches the original expiry"
+                    );
+                    assert_eq!(lease.deadline(), original_deadline);
+                } else {
+                    std::thread::sleep(
+                        slice.saturating_duration_since(Instant::now()) + Duration::from_millis(1),
+                    );
+                }
                 Ok(ResidentPhaseResult::Complete(result))
             },
             |_, _| panic!("selected resident Work only"),
@@ -713,6 +749,10 @@ pub(in super::super::super) fn exercise_result_terminal_retirement(
         assert_eq!(mailbox.rx.len(), QUEUE_CAPACITY);
         assert!(tail.iter().all(|(lease, _)| lease.is_active()));
     }
+    assert!(
+        mailbox.route_rx.is_empty(),
+        "retirement cannot publish a commit/ACK"
+    );
     owner
         .inspect(
             &installed,

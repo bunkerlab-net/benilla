@@ -791,9 +791,9 @@ mod f05 {
             1,
             "actual worker TLS source occurrence"
         );
-        assert!(raw.diagnostics.trace[0]
-            .0
-            .ends_with("source_height/owned.rs"));
+        assert!(
+            std::path::Path::new(raw.diagnostics.trace[0].0).ends_with("source_height/owned.rs")
+        );
         assert!(raw.diagnostics().cancel_checks > 0);
         assert_eq!(raw.diagnostics().first_cancelled_check, None);
         assert_eq!(raw.diagnostics().counts.started(Phase::Total), 1);

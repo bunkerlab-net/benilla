@@ -36,7 +36,7 @@ pub(super) fn settings(
     let text = format!(
         "[p2p]\npsk = \"public app integration test phrase only\"\nlisten = \"{listen}\"\npeers = [{peers}]\n"
     );
-    let config = benilla_config::AppConfig::parse(&text, Path::new("/tmp")).unwrap();
+    let config = benilla_config::AppConfig::parse(&text, &std::env::temp_dir()).unwrap();
     P2pSettings(config.p2p.unwrap(), config.ruleset)
 }
 fn request(root: &Path) -> StartRequest {

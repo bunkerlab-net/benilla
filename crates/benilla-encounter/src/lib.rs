@@ -296,7 +296,7 @@ epoch = "0101010101010101010101010101010101010101010101010101010101010101"
 roster = [{{id="01010101010101010101010101010101", address="{addr}"}}, {{id="02020202020202020202020202020202", address="127.0.0.1:65534"}}]
 "#
         );
-        let cfg = benilla_config::AppConfig::parse(&text, std::path::Path::new("/tmp")).unwrap();
+        let cfg = benilla_config::AppConfig::parse(&text, &std::env::temp_dir()).unwrap();
         let mut c = Controller::new(cfg.p2p.unwrap(), cfg.ruleset).unwrap();
         drop(reservation);
         c.start().unwrap();

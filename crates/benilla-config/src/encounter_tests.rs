@@ -14,7 +14,7 @@ roster = [{{id="02020202020202020202020202020202", address="127.0.0.1:7475"}}, {
     )
 }
 fn parse(s: &str) -> Result<AppConfig, ConfigError> {
-    AppConfig::parse(s, Path::new("/tmp"))
+    AppConfig::parse(s, &std::env::temp_dir())
 }
 #[test]
 fn canonical_roster_and_default_exploration() {

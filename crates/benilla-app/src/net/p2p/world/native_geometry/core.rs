@@ -987,6 +987,8 @@ struct JobIdentity {
     owner_alive: AtomicBool,
     #[cfg(all(test, not(benilla_headless_geometry)))]
     latency: OnceLock<Arc<route_latency::RouteLatency>>,
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    test_now: OnceLock<Instant>,
 }
 struct JobOwner(Arc<JobIdentity>);
 impl Drop for JobOwner {
@@ -1005,9 +1007,13 @@ impl JobLease {
         Arc::ptr_eq(&self.0, &other.0)
     }
     pub(super) fn is_active(&self) -> bool {
-        self.0.owner_alive.load(Ordering::Acquire)
-            && self.0.attachment.load(Ordering::Acquire)
-            && Instant::now() < self.0.deadline
+        self.0.owner_alive.load(Ordering::Acquire) && self.0.attachment.load(Ordering::Acquire) && {
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            let now = self.0.test_now.get().copied().unwrap_or_else(Instant::now);
+            #[cfg(not(all(test, not(benilla_headless_geometry))))]
+            let now = Instant::now();
+            now < self.0.deadline
+        }
     }
     pub(super) fn request(&self) -> &AuthorityRequest {
         &self.0.request
@@ -1403,6 +1409,8 @@ impl Work {
                 owner_alive: AtomicBool::new(true),
                 #[cfg(all(test, not(benilla_headless_geometry)))]
                 latency: OnceLock::new(),
+                #[cfg(all(test, not(benilla_headless_geometry)))]
+                test_now: OnceLock::new(),
             })),
             route_body: None,
             route_validation: None,

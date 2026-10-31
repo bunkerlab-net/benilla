@@ -294,19 +294,23 @@ fn replace(path: &Path, bytes: &[u8]) -> Result<(), ConfigError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
     struct Temp(PathBuf);
     impl Temp {
         fn new() -> Self {
-            let p = std::env::temp_dir().join(format!(
-                "benilla-editor-{}-{}",
-                std::process::id(),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos()
-            ));
-            fs::create_dir(&p).unwrap();
-            Self(p)
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            loop {
+                let path = std::env::temp_dir().join(format!(
+                    "benilla-editor-{}-{}",
+                    std::process::id(),
+                    NEXT.fetch_add(1, Ordering::SeqCst)
+                ));
+                match fs::create_dir(&path) {
+                    Ok(()) => return Self(path),
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => panic!("cannot create editor test directory: {error}"),
+                }
+            }
         }
         fn path(&self) -> PathBuf {
             self.0.join("config.toml")

@@ -488,7 +488,7 @@ mod tests {
         if local {
             let config = benilla_config::AppConfig::parse(
                 "[p2p]\npsk = \"public test label only\"\n",
-                std::path::Path::new("/tmp"),
+                &std::env::temp_dir(),
             )
             .unwrap();
             app.insert_resource(crate::net::P2pSettings(config.p2p.unwrap(), config.ruleset));

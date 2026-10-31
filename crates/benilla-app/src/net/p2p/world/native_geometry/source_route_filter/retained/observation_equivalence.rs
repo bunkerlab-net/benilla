@@ -334,10 +334,11 @@ pub(crate) fn compare(
             assert_eq!(&old[..final_slot - 1], &current[..final_slot - 1]);
             let old_final = old[final_slot - 1];
             let current_final = current[final_slot - 1];
-            assert!(old_final
-                .0
+            assert!(std::path::Path::new(old_final.0)
                 .ends_with("source_route_filter/retained/observation_equivalence.rs"));
-            assert!(current_final.0.ends_with("source_route_filter/retained.rs"));
+            assert!(
+                std::path::Path::new(current_final.0).ends_with("source_route_filter/retained.rs")
+            );
             assert_effect_location(
                 old_final,
                 include_str!("observation_equivalence.rs"),

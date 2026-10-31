@@ -356,7 +356,7 @@ mod tests {
         }
         let config = benilla_config::AppConfig::parse(
             "[p2p]\npsk = \"public reload test phrase only\"\nlisten = \"127.0.0.1:7474\"\n",
-            std::path::Path::new("/tmp"),
+            &std::env::temp_dir(),
         )
         .unwrap();
         let settings = P2pSettings(config.p2p.clone().unwrap(), config.ruleset);

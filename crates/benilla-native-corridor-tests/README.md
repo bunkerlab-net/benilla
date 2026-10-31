@@ -66,3 +66,16 @@ tick to cross 2048 total ticks without changing source lifecycle delays. The
 2048-tick/8-MiB cap remains per retained history; active cache compaction,
 indefinite arbitrary play and normal startup integration remain unsupported.
 Ordinary direct loaded-checkpoint restore remains rejected.
+
+Resident result transport probes use the original 120-second lease for native
+preparation, independently of the two-second service slice. A preparation
+deadline refusal retries the same live Work without counting as an injected
+failure. The rejection hook runs only after concrete certification completes.
+The post-mint expiry probe advances a job-local test clock to the original
+deadline after certification. It does not cancel the job during preparation.
+The probes still require genuine Facts and verify that rejected or expired
+candidates publish neither staging authority nor a commit acknowledgement.
+
+Source-location assertions compare native `Path` components. Windows backslashes
+and forward slashes therefore identify the same expected source suffix, without
+changing the recorded source location or its line and column checks.

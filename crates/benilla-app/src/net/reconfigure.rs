@@ -245,7 +245,7 @@ mod tests {
     fn fixture() -> benilla_config::AppConfig {
         benilla_config::AppConfig::parse(
             "[p2p]\npsk = \"public reload test phrase only\"\nlisten = \"127.0.0.1:7474\"\n",
-            std::path::Path::new("/tmp"),
+            &std::env::temp_dir(),
         )
         .unwrap()
     }
@@ -260,7 +260,7 @@ mod tests {
         assert!(!same_settings(&current, &desired));
         let desired = benilla_config::AppConfig::parse(
             "[p2p]\npsk = \"another public test phrase\"\nlisten = \"127.0.0.1:7474\"\n",
-            std::path::Path::new("/tmp"),
+            &std::env::temp_dir(),
         )
         .unwrap();
         assert!(!same_settings(&current, &desired));

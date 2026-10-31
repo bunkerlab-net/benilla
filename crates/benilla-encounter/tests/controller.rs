@@ -3,7 +3,6 @@ use benilla_encounter::Controller;
 use benilla_session::Status;
 use std::{
     net::TcpListener,
-    path::Path,
     thread,
     time::{Duration, Instant},
 };
@@ -29,7 +28,7 @@ roster = [{{id="01010101010101010101010101010101", address="{}"}}, {{id="0202020
 "#,
             addresses[i], addresses[0], addresses[1]
         );
-        let mut cfg = benilla_config::AppConfig::parse(&text, Path::new("/tmp")).unwrap();
+        let mut cfg = benilla_config::AppConfig::parse(&text, &std::env::temp_dir()).unwrap();
         if mismatch && i == 1 {
             cfg.p2p.as_mut().unwrap().encounter.as_mut().unwrap().epoch = [9; 32];
         }

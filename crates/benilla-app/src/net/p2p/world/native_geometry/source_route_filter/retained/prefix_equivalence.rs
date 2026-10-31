@@ -359,12 +359,13 @@ pub(crate) fn compare(
             assert_ne!(old[0], old[1]);
             assert_ne!(current[0], current[1]);
             for location in old {
-                assert!(location
-                    .0
+                assert!(std::path::Path::new(location.0)
                     .ends_with("source_route_filter/retained/prefix_equivalence.rs"));
             }
             for location in current {
-                assert!(location.0.ends_with("source_route_filter/retained.rs"));
+                assert!(
+                    std::path::Path::new(location.0).ends_with("source_route_filter/retained.rs")
+                );
             }
             let oracle_source = include_str!("prefix_equivalence.rs");
             let current_source = include_str!("../retained.rs");
