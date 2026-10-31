@@ -15,10 +15,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Exact proof gates and full workspace tests have independent time budgets.
+  # Independent workspace budgets cover nominal 100-124 min runs on runners measured ~1.5x slower.
   workspace-gates:
     runs-on: ubuntu-26.04
-    timeout-minutes: 150
+    timeout-minutes: 210
     env:
       CARGO_TERM_COLOR: always
       CARGO_INCREMENTAL: 0
@@ -1042,7 +1042,7 @@ jobs:
 
   workspace-tests:
     runs-on: ubuntu-26.04
-    timeout-minutes: 150
+    timeout-minutes: 210
     env:
       CARGO_TERM_COLOR: always
       CARGO_INCREMENTAL: 0

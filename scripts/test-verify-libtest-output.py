@@ -1444,7 +1444,7 @@ class ExactProofTests(unittest.TestCase):
         self.assertEqual(len(jobs), 1)
         job = jobs[0]
         self.assertNotRegex(job, r"(?m)^    (?:if|needs|continue-on-error):")
-        self.assertIn("    timeout-minutes: 150\n", job)
+        self.assertIn("    timeout-minutes: 210\n", job)
         command = "        run: mbx test --locked --no-fail-fast --workspace\n"
         self.assertEqual(workflow.count(command), 1)
         steps = re.split(r"(?=^      - )", job, flags=re.MULTILINE)
