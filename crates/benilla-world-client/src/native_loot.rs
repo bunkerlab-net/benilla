@@ -470,11 +470,12 @@ impl NativeProjection {
             .and_then(|npc| npc.corpse_loot.as_ref())
             .filter(|loot| loot.owner == self.player)
             .ok_or(Error::StaleProjection)?;
+        let owner_quests = w.loot_quest_items().map_err(|_| Error::StaleProjection)?;
         self.loot_event(
             w,
             &n::LootEvent::Opened(n::LootWindow {
                 corpse,
-                items: loot.items().cloned().collect(),
+                items: loot.visible_items(&owner_quests).cloned().collect(),
                 money: loot.money(),
             }),
             &mut Frame::new(w.state()),

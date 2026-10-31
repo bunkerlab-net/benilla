@@ -773,11 +773,8 @@ mod tests {
                 .unwrap();
         assert!(restored.replay(&records).is_err());
         assert_eq!(restored.checkpoint().unwrap(), initial);
-        assert_eq!(NATIVE_FORMAT_VERSION, 81);
-        assert_eq!(
-            NATIVE_POLICY,
-            "benilla-native-creature-string-identities-v81"
-        );
+        assert_eq!(NATIVE_FORMAT_VERSION, 82);
+        assert_eq!(NATIVE_POLICY, "benilla-native-solo-quest-loot-v82");
         assert_eq!(crate::FORMAT_VERSION, 2);
     }
     #[test]

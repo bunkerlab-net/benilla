@@ -1,6 +1,6 @@
 # Source-qualified creature pose-cell observations
 
-Native format 81 optionally retains a `CreaturePoseCellIndex` for the exact
+Native format `NATIVE_FORMAT_VERSION` optionally retains a `CreaturePoseCellIndex` for the exact
 current NPC roster. This is a connected constructor/committed-frame observation
 index, **not source CurrentCell, a grid-load receipt, object registration,
 GetUnit lookup, visibility, movement permission, or native admission**. Existing

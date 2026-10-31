@@ -130,6 +130,12 @@ impl Profile {
     }
 }
 impl QuestProgressionGenesis {
+    pub(super) fn loot_quest_items(
+        &self,
+        state: &QuestProgressionState,
+    ) -> Result<BTreeSet<u32>, NativeError> {
+        Ok(state.quests.needed_items(&self.quests)?)
+    }
     fn build(
         profile: &Profile,
         input: &init::StarterInput,

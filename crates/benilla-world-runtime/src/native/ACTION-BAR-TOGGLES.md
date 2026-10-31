@@ -65,5 +65,5 @@ host resource limit, not an upstream rejection. Controller checkpoint failures
 withhold the descriptor; retry publishes the retained batch without executing
 the command twice.
 
-Native format **81** rejects earlier context. No migration, ghost/release support,
+Native format `NATIVE_FORMAT_VERSION` rejects earlier context. No migration, ghost/release support,
 private capture/compiler work, or native admission is added.

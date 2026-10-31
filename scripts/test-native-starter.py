@@ -1285,5 +1285,36 @@ class EventAiPlanTests(unittest.TestCase):
         self.assertIsNone(supported_plan(source, 6, scope))
 
 
+class QuestLootPreparationTests(unittest.TestCase):
+    def test_negative_body_leaf_plan_is_recomputed_and_keeps_remaining_admission_blockers(self):
+        from decimal import Decimal
+        source = source_input()
+        source.rows["creature_template"][0]["LootId"] = 970101
+        source.rows["creature_loot_template"] = [export_tests.row(
+            "creature_loot_template", entry=970101, item=920001,
+            ChanceOrQuestChance=Decimal("-37.5"), mincountOrRef=1, maxcount=1)]
+        bundle = capture(source, export_tests.starter_selection(), capture_body_loot=True)
+        dbcs = parsed(dbcs_for(bundle))
+        output = compile_starter(bundle, dbcs, Request(1, 1, 0))
+        plan = output["quest_loot_inputs"]
+        self.assertEqual(len(plan), 1)
+        self.assertEqual((plan[0]["item"], plan[0]["chance"]), (920001, "37.5"))
+        self.assertTrue(plan[0]["quest_only"])
+        self.assertFalse(plan[0]["runtime_admitted"])
+        reasons = {finding["reason"] for finding in output["unsupported"]}
+        self.assertNotIn("loot.quest_chance_not_interpreted", reasons)
+        self.assertIn("loot.source_loader_order_unproven", reasons)
+        self.assertIn("loot.generation_and_item_admission_not_established", reasons)
+        self.assertIn("native.runtime_profile_not_implemented", reasons)
+        self.assertEqual(output["status"], "blocked")
+        self.assertIsNone(output["runtime_export"])
+        verify_preparation(output, bundle, dbcs)
+        output["quest_loot_inputs"][0]["chance"] = "100"
+        output.pop("preparation_sha256")
+        output["preparation_sha256"] = digest(output)
+        with self.assertRaisesRegex(ExportError, "compiler.preparation_mismatch"):
+            verify_preparation(output, bundle, dbcs)
+
+
 if __name__ == "__main__":
     unittest.main()

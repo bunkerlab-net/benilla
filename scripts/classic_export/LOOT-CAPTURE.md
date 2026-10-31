@@ -54,9 +54,20 @@ shared references, grouped children and missing targets do not disappear.
 
 Visited IDs terminate chains and cycles without an arbitrary depth cutoff.
 Iterative strongly connected components identify every cyclic component;
-nested/grouped references, cycles, unresolved conditions, quest chances and
-unsupported count/group shapes remain semantic blockers. Enumeration neither
+nested/grouped references, cycles, unresolved conditions, unsupported quest-leaf
+shapes and unsupported count/group shapes remain semantic blockers. Enumeration neither
 repairs rows as the native loader may nor rolls probabilities or generates loot.
+
+An ungrouped negative-chance body leaf with positive valid counts and no condition
+has an interpreted quest-only shape. Preparation retains its absolute chance and
+count bounds in `quest_loot_inputs`, with explicit quest-drop-rate and active
+incomplete owner-need policies. It does not turn the row into ordinary or guaranteed
+loot. Grouped leaves, negative reference chances and quest leaves inside reference
+tables retain `loot.quest_leaf_shape_unsupported`. Whole-loader order,
+generation/item admission, unknown quest state and group ownership remain separate
+requirements. This interpretation removes only `loot.quest_chance_not_interpreted`
+for supported body leaves and never manufactures native admission.
+
 
 Existing limits remain: 4,096 rows per selected loot table, 4,096 cumulative
 reference IDs, 2,048 total item IDs, 512 spells, 64 KiB per row, 16 MiB per

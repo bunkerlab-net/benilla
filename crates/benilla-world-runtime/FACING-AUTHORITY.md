@@ -74,8 +74,8 @@ third-party database rows are included.
 
 ## Format boundary
 
-The experimental native simulation checkpoint/record contract is format 81,
-`benilla-native-creature-string-identities-v81`, with v81 profile/state/record/checkpoint
+The experimental native simulation checkpoint/record contract is format `NATIVE_FORMAT_VERSION`,
+`NATIVE_POLICY`, with current native profile/state/record/checkpoint
 and separate v51 melee-action/melee-chain hash domains. Published native format 11 is rejected by
 decode, restore and replay, with no reinterpretation or implicit migration.
 Incompatible store current and previous files remain intact on refusal.

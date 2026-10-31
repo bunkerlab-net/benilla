@@ -195,9 +195,9 @@ fn rehashed_pose_cell_or_static_identity_corruption_and_missing_field_are_reject
         }
         assert_ne!(value, serde_json::to_value(&cp.state).unwrap());
         cp.state = serde_json::from_value(value).unwrap();
-        cp.digest = crate::digest(b"benilla-native-state-v81\0", &cp.state);
+        cp.digest = crate::digest(b"benilla-native-state-v82\0", &cp.state);
         cp.checksum = crate::digest(
-            b"benilla-native-checkpoint-v81\0",
+            b"benilla-native-checkpoint-v82\0",
             &(&cp.state, cp.digest, cp.history_tip),
         );
         assert!(NativeWorld::restore_synthetic_component_test(w.profile.clone(), cp).is_err());

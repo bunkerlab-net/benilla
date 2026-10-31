@@ -121,9 +121,9 @@ fn assert_selection(w: &NativeWorld, spawn: u64) {
 }
 fn resign(value: serde_json::Value) -> Checkpoint {
     let mut cp: Checkpoint = serde_json::from_value(value).unwrap();
-    cp.digest = crate::digest(b"benilla-native-state-v81\0", &cp.state);
+    cp.digest = crate::digest(b"benilla-native-state-v82\0", &cp.state);
     cp.checksum = crate::digest(
-        b"benilla-native-checkpoint-v81\0",
+        b"benilla-native-checkpoint-v82\0",
         &(&cp.state, cp.digest, cp.history_tip),
     );
     cp
@@ -754,6 +754,7 @@ fn actual_body_loot_precedes_death_delay_and_recomputed_overlaps_fail_after_reha
                 row.minimum_money,
                 row.maximum_money,
                 &genesis.rules,
+                &benilla_sim::loot::OwnerQuestItems::Unknown,
                 &mut loot::RandomHost {
                     state: &mut probe,
                     corpse,

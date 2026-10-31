@@ -620,6 +620,26 @@ captures use separate table namespaces and retain whole-loader order witnesses;
 no source database loading order is inferred. See [LOOT.md](LOOT.md) for the
 admitted domain and checked work/draw accounting.
 
+Solo quest-only body leaves additionally translate `LootStoreItem`'s absolute
+chance and `needs_quest` construction, `LootMgr.h:215-217`, the quest-drop-rate
+branch in `LootStoreItem::Roll`, `LootMgr.cpp:374-389`, and the quest item type
+from `LootItem`, `:397-431`. `LootStore::LoadLootTable`, `:125-185`, retains
+whole-loader order; `IsValidItemTemplate`, `:310-365`, refuses negative reference
+chances. `LootTemplate::Process`, `:2619-2668`, rolls before count construction;
+`Loot::FillLoot`, `:959-1001`, assigns owner permissions after generation, using
+`LootItem::AllowedForPlayer`, `:463-483`. Ineligible entries still consume the
+source rolls, successful count draws, slots and duplicate checks, but do not
+become owner-visible loot.
+
+The bounded quest need translation is the logged, incomplete ReqItem branch of
+`Player::HasQuestForItem`, `Player.cpp:13777-13807`; source-item/raid/group branches
+remain refused by the catalog/solo host. Collection uses the existing
+`Player::StoreNewItem`, `:9914-9925`, callback-before-storage ordering and atomic
+runtime inventory staging. Authored tests cover quest states, partial/eight-item
+completion, quest-rate/draw equality, source-slot/cap retention, failed collection,
+and actual controller/store retry and reopen. No SQL or DBC rows are copied.
+
+
 `tools/generate_loot_timer_fixture.py` extracts Creature's InspectingLoot (2805),
 ReduceCorpseDecayTimer (2818) and SetLootStatus (2831) for 800 UBSan vectors.
 The runtime additionally preserves JUST_DIED's later full expiry assignment and

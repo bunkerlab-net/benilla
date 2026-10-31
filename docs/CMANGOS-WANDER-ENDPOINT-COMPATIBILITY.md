@@ -169,7 +169,7 @@ and height, the applicable dry suffix, and actual loaded corridor/body/ground/LO
 coverage where required by the branch. Historical request checks share the ordinary
 initialized-body policy; the final retained request must equal the generator-owned
 successful head and current saved spline in full for NORMAL, or the generator-owned
-failed-route head for current MinimumDistance. Native format 81 requires both
+failed-route head for current MinimumDistance. Native format `NATIVE_FORMAT_VERSION` requires both
 nullable head fields explicitly, and recipe version 3 distinguishes this owner
 contract. A retained older spline
 cannot stand in for the failed calculation. The narrow failed restore requires

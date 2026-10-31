@@ -638,6 +638,16 @@ impl NativeProjection {
             Some(n::SOLO_UNIT) => self.player_guid,
             Some(_) => return Err(Error::UnknownTarget),
         };
+        let lootable = if let Some(loot) = &npc.corpse_loot {
+            let owner_quests = w.loot_quest_items().map_err(|_| Error::StaleProjection)?;
+            loot.owner == self.player
+                && !loot.looted
+                && (loot.visible_items(&owner_quests).next().is_some()
+                    || loot.money() != 0
+                    || loot.generated.fake && !loot.opened)
+        } else {
+            false
+        };
         let mut pairs = vec![
             (16, target as u32),
             (17, (target >> 32) as u32),
@@ -656,11 +666,7 @@ impl NativeProjection {
                     0x4 | 0x8
                 } else {
                     0
-                } | u32::from(
-                    npc.corpse_loot
-                        .as_ref()
-                        .is_some_and(|l| l.owner == self.player && l.lootable()),
-                ),
+                } | u32::from(lootable),
             ),
         ];
         if let Some(selected) = npc.initialized_creature() {

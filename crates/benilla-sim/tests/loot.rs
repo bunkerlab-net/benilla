@@ -101,6 +101,9 @@ fn exact_pinned_loot_process_group_roll_money_and_empty_window() {
         let rules = Rules {
             quality_rate_bits: std::array::from_fn(|i| rates[i] as u32),
             referenced_rate_bits: 1f32.to_bits(),
+            quest_drop_rate: QuestDropRate {
+                multiplier_bits: 1f32.to_bits(),
+            },
             money_rate_bits: rules[1].parse().unwrap(),
             corpse_empty_loot_show: rules[2] == "1",
         };
@@ -144,6 +147,7 @@ fn exact_pinned_loot_process_group_roll_money_and_empty_window() {
                 money[0] as u32,
                 money[1] as u32,
                 &rules,
+                &benilla_sim::loot::OwnerQuestItems::Unknown,
                 &mut random,
             )
             .unwrap();
@@ -162,6 +166,7 @@ fn exact_pinned_loot_process_group_roll_money_and_empty_window() {
                         count: n[2] as u8,
                         display_id: n[3] as u32,
                         random_property: n[4] as i32,
+                        quest_only: false,
                     }
                 })
                 .collect()
@@ -170,6 +175,7 @@ fn exact_pinned_loot_process_group_roll_money_and_empty_window() {
             generated,
             Generated {
                 items,
+                owner_quests: OwnerQuestItems::Unknown,
                 money: summary[0] as u32,
                 fake: summary[1] != 0,
             },
@@ -211,7 +217,7 @@ fn reject_unproven_loader_order_and_unsupported_loot_dependencies() {
     assert!(Catalog::new(vec![bad]).is_err());
     let mut bad = c.clone();
     bad.rows[0].chance_or_quest_chance_bits = (-50f32).to_bits();
-    assert!(Catalog::new(vec![bad]).is_err());
+    assert!(Catalog::new(vec![bad]).is_ok());
     let mut bad = c;
     if let ItemLookup::Present(item) = bad.items.get_mut(&70001).unwrap() {
         item.random_property = 1;
@@ -243,6 +249,9 @@ fn malformed_distribution_outcomes_are_rejected_before_use() {
     let rules = Rules {
         quality_rate_bits: [1f32.to_bits(); 7],
         referenced_rate_bits: 1f32.to_bits(),
+        quest_drop_rate: QuestDropRate {
+            multiplier_bits: 1f32.to_bits(),
+        },
         money_rate_bits: 1f32.to_bits(),
         corpse_empty_loot_show: true,
     };
@@ -263,7 +272,7 @@ fn malformed_distribution_outcomes_are_rejected_before_use() {
             invalid_permutation: false,
         };
         assert_eq!(
-            catalog.generate(1, 0, 0, &rules, &mut random),
+            catalog.generate(1, 0, 0, &rules, &OwnerQuestItems::Unknown, &mut random),
             Err(Error::Draw)
         );
     }
@@ -275,7 +284,7 @@ fn malformed_distribution_outcomes_are_rejected_before_use() {
             invalid_permutation: false,
         };
         assert_eq!(
-            catalog.generate(1, 0, 0, &rules, &mut random),
+            catalog.generate(1, 0, 0, &rules, &OwnerQuestItems::Unknown, &mut random),
             Err(Error::Draw)
         );
     }
@@ -285,9 +294,14 @@ fn malformed_distribution_outcomes_are_rejected_before_use() {
         invalid_permutation: false,
     };
     assert_eq!(
-        Catalog::new(vec![])
-            .unwrap()
-            .generate(0, 1, 2, &rules, &mut random),
+        Catalog::new(vec![]).unwrap().generate(
+            0,
+            1,
+            2,
+            &rules,
+            &OwnerQuestItems::Unknown,
+            &mut random
+        ),
         Err(Error::Draw)
     );
     // Both explicit and equal groups must reject a forged index before indexing rows.
@@ -303,7 +317,7 @@ fn malformed_distribution_outcomes_are_rejected_before_use() {
             invalid_permutation: true,
         };
         assert_eq!(
-            catalog.generate(1, 0, 0, &rules, &mut random),
+            catalog.generate(1, 0, 0, &rules, &OwnerQuestItems::Unknown, &mut random),
             Err(Error::Draw)
         );
     }
@@ -331,6 +345,9 @@ fn unit_rules() -> Rules {
     Rules {
         quality_rate_bits: [1f32.to_bits(); 7],
         referenced_rate_bits: 1f32.to_bits(),
+        quest_drop_rate: QuestDropRate {
+            multiplier_bits: 1f32.to_bits(),
+        },
         money_rate_bits: 1f32.to_bits(),
         corpse_empty_loot_show: false,
     }
@@ -393,6 +410,9 @@ fn exact_pinned_one_hop_reference_process_and_draw_order() {
         let rules = Rules {
             quality_rate_bits: std::array::from_fn(|i| quality[i] as u32),
             referenced_rate_bits: rules[1].parse().unwrap(),
+            quest_drop_rate: QuestDropRate {
+                multiplier_bits: 1f32.to_bits(),
+            },
             money_rate_bits: rules[2].parse().unwrap(),
             corpse_empty_loot_show: rules[3] == "1",
         };
@@ -430,6 +450,7 @@ fn exact_pinned_one_hop_reference_process_and_draw_order() {
                 money[0] as u32,
                 money[1] as u32,
                 &rules,
+                &benilla_sim::loot::OwnerQuestItems::Unknown,
                 &mut random,
             )
             .unwrap();
@@ -448,6 +469,7 @@ fn exact_pinned_one_hop_reference_process_and_draw_order() {
                         count: n[2] as u8,
                         display_id: n[3] as u32,
                         random_property: n[4] as i32,
+                        quest_only: false,
                     }
                 })
                 .collect()
@@ -456,6 +478,7 @@ fn exact_pinned_one_hop_reference_process_and_draw_order() {
             generated,
             Generated {
                 items,
+                owner_quests: OwnerQuestItems::Unknown,
                 money: summary[0] as u32,
                 fake: summary[1] != 0
             },
@@ -482,7 +505,14 @@ fn reference_namespace_is_distinct_and_placeholder_is_not_a_leaf_item() {
         draws: VecDeque::from(["u:1:1:1".into()]),
     };
     let generated = catalog
-        .generate(1, 0, 0, &unit_rules(), &mut random)
+        .generate(
+            1,
+            0,
+            0,
+            &unit_rules(),
+            &benilla_sim::loot::OwnerQuestItems::Unknown,
+            &mut random,
+        )
         .unwrap();
     assert_eq!(generated.items[0].item, 70001);
     assert!(random.draws.is_empty());
@@ -505,7 +535,7 @@ fn references_keep_source_chance_shortcut_zero_repetitions_and_tiny_chances() {
     };
     assert_eq!(
         catalog
-            .generate(1, 0, 0, &rules, &mut random)
+            .generate(1, 0, 0, &rules, &OwnerQuestItems::Unknown, &mut random)
             .unwrap()
             .items
             .len(),
@@ -517,7 +547,14 @@ fn references_keep_source_chance_shortcut_zero_repetitions_and_tiny_chances() {
         draws: VecDeque::from([format!("c:{}", 0f64.to_bits())]),
     };
     assert!(catalog
-        .generate(1, 0, 0, &unit_rules(), &mut random)
+        .generate(
+            1,
+            0,
+            0,
+            &unit_rules(),
+            &OwnerQuestItems::Unknown,
+            &mut random
+        )
         .unwrap()
         .items
         .is_empty());
@@ -529,7 +566,7 @@ fn references_keep_source_chance_shortcut_zero_repetitions_and_tiny_chances() {
             draws: VecDeque::new(),
         };
         assert_eq!(
-            catalog.generate(1, 0, 0, &rules, &mut random),
+            catalog.generate(1, 0, 0, &rules, &OwnerQuestItems::Unknown, &mut random),
             Err(Error::Invalid("loot rate"))
         );
     }
@@ -649,6 +686,173 @@ fn references_require_exact_leaf_items_and_coherent_order_evidence() {
     let mut missing = refs;
     missing.pop();
     assert!(Catalog::new_with_references(body, missing).is_err());
+}
+
+#[test]
+fn quest_only_chance_uses_explicit_owner_need_and_quest_rate() {
+    let catalog = Catalog::new(vec![capture(vec![ordinary(70001, -80., 0)], 0)]).unwrap();
+    let needed = OwnerQuestItems::Known([70001].into());
+    let mut rules = unit_rules();
+    rules.quest_drop_rate = QuestDropRate {
+        multiplier_bits: 0.5f32.to_bits(),
+    };
+    rules.quality_rate_bits = [0f32.to_bits(); 7];
+    for (roll, expected) in [(0., true), (39.999, true), (40., false), (99.999, false)] {
+        let mut rng = InvalidDraw {
+            chance: roll,
+            invalid_integer: false,
+            invalid_permutation: false,
+        };
+        let loot = catalog
+            .generate(1, 0, 0, &rules, &needed, &mut rng)
+            .unwrap();
+        assert_eq!(loot.items.len(), usize::from(expected));
+        if expected {
+            assert!(loot.items[0].quest_only);
+        }
+    }
+    let mut rng = InvalidDraw {
+        chance: 0.,
+        invalid_integer: false,
+        invalid_permutation: false,
+    };
+    assert_eq!(
+        catalog.generate(1, 0, 0, &rules, &OwnerQuestItems::Unknown, &mut rng),
+        Err(Error::Unsupported("unknown owner quest state"))
+    );
+    assert!(catalog
+        .generate(
+            1,
+            0,
+            0,
+            &rules,
+            &OwnerQuestItems::Known(Default::default()),
+            &mut rng
+        )
+        .unwrap()
+        .items
+        .is_empty());
+    rules.quest_drop_rate.multiplier_bits = 0f32.to_bits();
+    assert!(catalog
+        .generate(1, 0, 0, &rules, &needed, &mut rng)
+        .unwrap()
+        .items
+        .is_empty());
+    rules.quest_drop_rate.multiplier_bits = 1.25f32.to_bits();
+    let mut scaled = Replay {
+        draws: [format!("c:{}", 99.999f64.to_bits()), "u:1:1:1".into()].into(),
+    };
+    assert_eq!(
+        catalog
+            .generate(1, 0, 0, &rules, &needed, &mut scaled)
+            .unwrap()
+            .items
+            .len(),
+        1
+    );
+    assert!(scaled.draws.is_empty());
+    rules.quest_drop_rate.multiplier_bits = f32::NAN.to_bits();
+    assert_eq!(
+        catalog.generate(1, 0, 0, &rules, &needed, &mut rng),
+        Err(Error::Invalid("loot rate"))
+    );
+}
+
+#[test]
+fn quest_permissions_preserve_source_roll_count_slot_and_output_cap() {
+    let catalog = Catalog::new(vec![capture(
+        vec![ordinary(70001, -40., 0), ordinary(70002, 100., 0)],
+        0,
+    )])
+    .unwrap();
+    let mut rules = unit_rules();
+    rules.corpse_empty_loot_show = true;
+    let mut rng = Replay {
+        draws: [
+            format!("c:{}", 10f64.to_bits()),
+            "u:1:1:1".into(),
+            "u:1:1:1".into(),
+        ]
+        .into(),
+    };
+    let generated = catalog
+        .generate(
+            1,
+            0,
+            0,
+            &rules,
+            &OwnerQuestItems::Known(Default::default()),
+            &mut rng,
+        )
+        .unwrap();
+    assert_eq!(generated.items.len(), 1);
+    assert_eq!(
+        (generated.items[0].item, generated.items[0].slot),
+        (70002, 1)
+    );
+    assert!(!generated.fake);
+    assert!(rng.draws.is_empty());
+    let mut rows = vec![ordinary(70001, -100., 0); 16];
+    rows.push(ordinary(70002, 100., 0));
+    let catalog = Catalog::new(vec![capture(rows, 0)]).unwrap();
+    let mut rng = Replay {
+        draws: vec!["u:1:1:1".into(); 16].into(),
+    };
+    rules.quest_drop_rate.multiplier_bits = 0f32.to_bits();
+    let generated = catalog
+        .generate(
+            1,
+            0,
+            0,
+            &rules,
+            &OwnerQuestItems::Known(Default::default()),
+            &mut rng,
+        )
+        .unwrap();
+    assert!(generated.items.is_empty());
+    assert!(!generated.fake);
+    assert!(rng.draws.is_empty());
+    let catalog = Catalog::new(vec![capture(vec![ordinary(70001, -100., 0)], 0)]).unwrap();
+    let mut rng = Replay {
+        draws: ["u:1:1:1".into()].into(),
+    };
+    assert_eq!(
+        catalog
+            .generate(
+                1,
+                0,
+                0,
+                &rules,
+                &OwnerQuestItems::Known([70001].into()),
+                &mut rng
+            )
+            .unwrap()
+            .items
+            .len(),
+        1
+    );
+    assert!(rng.draws.is_empty());
+    assert!(Catalog::new(vec![capture(vec![ordinary(70001, -40., 1)], 0)]).is_err());
+}
+
+#[test]
+fn quest_only_leaves_keep_loader_metadata_and_condition_refusals() {
+    for fault in 0..5 {
+        let mut source = capture(vec![ordinary(70001, -40., 0)], 0);
+        match fault {
+            0 => source.loader_order.complete_result_observed = false,
+            1 => source.rows[0].condition_id = 1,
+            2 => source.items.clear(),
+            3 => {
+                let ItemLookup::Present(item) = source.items.get_mut(&70001).unwrap() else {
+                    unreachable!()
+                };
+                item.start_quest = 1;
+            }
+            _ => source.rows[0].min_count_or_reference = -1,
+        }
+        assert!(Catalog::new(vec![source]).is_err());
+    }
 }
 
 #[test]

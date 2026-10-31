@@ -40,6 +40,15 @@ Reviewed CMaNGOS Classic revision:
 - The existing private [capture contract](../../docs/CLASSIC-STARTER-CAPTURE.md)
   and `classic_export` validator establish source v2 type/key/hash/selection
   semantics. Preparation calls the validator; it does not weaken its gates
+- [LootMgr.h, LootStoreItem](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Loot/LootMgr.h#L215-L217)
+  splits a negative SQL chance into absolute chance and quest-only identity.
+  [LootStoreItem::Roll](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Loot/LootMgr.cpp#L374-L389)
+  applies the distinct quest-drop rate.
+  [LootItem::AllowedForPlayer](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Loot/LootMgr.cpp#L463-L483)
+  uses [Player::HasQuestForItem](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Player.cpp#L13777-L13807).
+  Preparation reports only ungrouped, unconditional body leaves with valid positive
+  counts as `quest_loot_inputs`. It retains whole-loader order and full item-admission
+  blockers, and requires explicit owner quest state and quest-drop policy at runtime.
 
 CMaNGOS copyright belongs to CMaNGOS Project contributors; upstream permits GPL
 version 2 or, at your option, any later version. The modified quantity translation

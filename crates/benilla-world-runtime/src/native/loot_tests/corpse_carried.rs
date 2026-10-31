@@ -302,9 +302,9 @@ fn corpse_carried_tampered_bound_charge_bag_and_receipt_reject_after_outer_rehas
                 }
             }
             let mut forged: Checkpoint = serde_json::from_value(value).unwrap();
-            forged.digest = crate::digest(b"benilla-native-state-v81\0", &forged.state);
+            forged.digest = crate::digest(b"benilla-native-state-v82\0", &forged.state);
             forged.checksum = crate::digest(
-                b"benilla-native-checkpoint-v81\0",
+                b"benilla-native-checkpoint-v82\0",
                 &(&forged.state, forged.digest, forged.history_tip),
             );
             assert!(

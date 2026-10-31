@@ -1,21 +1,21 @@
-# Ordinary native corpse loot and item rewards
+# Solo native corpse loot and item rewards
 
 This is a fresh GPL-3.0-or-later reconstruction from CMaNGOS Classic
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`, not recovery of the lost patch.
 `NativeCapability` remains uninhabited. Authored source comparisons and controller
 integration tests do not admit real content or establish a playable starting zone.
-Native format is 81 (`benilla-native-creature-string-identities-v81`). Loot generation policy
-is v2 and loot genesis is v3. Older saves do not migrate implicitly.
+Native format is `NATIVE_FORMAT_VERSION` (`NATIVE_POLICY`). Loot generation policy
+is `cmangos-8ec338a1-solo-quest-loot-reconstruction-v3` and loot genesis is v3. Older saves do not migrate implicitly.
 
 ## Captured inputs and fail-closed scope
 
 `QuestProgressionInput::loot` supplies an audited ordinary item catalog, complete
 ordered selected creature-loot and reference-loot captures, explicit
-quality/reference/money/empty-window rules,
+quality, quest-drop, reference, money and empty-window rules,
 and one resolved corpse row per selected creature entry. Capture identities bind
 the pinned source and the complete observed loader result/order. No canonical sort
 is substituted for the source query's observed order. Missing templates, unknown
-closure, nested or grouped references, conditional/quest-only loot, item-started quests,
+closure, nested or grouped references, conditional loot, grouped or referenced quest-only leaves, item-started quests,
 property or item-script hooks, bag contents/bank/keyring, trades, skinning/pickpocket, group or controlled
 units, wield-loot, multi-tap, special corpse timers and death callbacks reject.
 
@@ -46,6 +46,44 @@ bounds expanded work and distribution draws independently of the sixteen-item
 output cap: filling the corpse does not skip later source rolls or shuffles.
 Neither dump order nor selected-row sorting supplies an observed loader result.
 Authored component inputs exercise these mechanics without certifying real data.
+
+## Solo quest-only body leaves
+
+A negative `ChanceOrQuestChance` retains its quest-only identity and uses its absolute
+binary32 chance. `Rules::quest_drop_rate` is an explicit `QuestDropRate`, not a quality
+rate or an inferred server default. The source shortcut at a chance of at least 100
+precedes rate multiplication. Smaller chances still consume a chance draw when the
+scaled threshold reaches 100, and equality with the threshold fails.
+
+`Player::HasQuestForItem` contributes only logged, incomplete, unrewarded quests whose
+ReqItem counter is below its requirement. Completed, unaccepted and rewarded quests
+cannot admit a quest-only item. Unknown owner quest state rejects. Generation stores
+this bounded owner-needed set and marks each admitted quest-only slot separately from
+ordinary slots. Source rolls, successful count draws and the sixteen-source-item cap
+still include ineligible quest entries. Such entries do not become owner-visible loot
+or fake-empty-window rolls, and their omitted slots do not renumber ordinary slots.
+
+Opening, current-state reopen projection and collection recheck current objective need.
+An extra generated slot cannot be collected after another collection fills the objective.
+Quest callbacks still run before inventory storage in the same transaction. A full bag,
+allocator failure or callback failure cannot advance objective counters or consume a
+corpse slot. Saved generation eligibility is replay input, not proof that a private
+database capture or an owner-modified checkpoint is authentic.
+
+The source preparation reports `quest_loot_inputs` for this morphology. It leaves
+`loot.source_loader_order_unproven` and `loot.generation_and_item_admission_not_established`
+intact. Conditional leaves, negative reference chances, grouped quest leaves, quest
+leaves inside reference tables and group or multi-owner looting remain refused.
+
+The pinned source witnesses are `src/game/Loot/LootMgr.cpp:125-185`
+`LootStore::LoadLootTable`, `:310-365` `IsValidItemTemplate`, `:374-389`
+`LootStoreItem::Roll`, `:397-431` `LootItem`, `:463-483` `AllowedForPlayer`,
+`:959-1001` `Loot::FillLoot`, and `:2619-2668` `LootTemplate::Process`.
+`src/game/Loot/LootMgr.h:215-217` separates absolute chance from quest identity.
+`src/game/Entities/Player.cpp:13777-13807` defines the supported ReqItem need branch,
+and `:9914-9925` calls `ItemAddedQuestCheck` before `StoreItem`. Required-source-item
+quest branches remain outside the quest catalog's admitted morphology.
+
 
 ## Source transaction order
 

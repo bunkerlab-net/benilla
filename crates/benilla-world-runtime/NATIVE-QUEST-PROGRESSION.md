@@ -13,7 +13,7 @@ capture fits the supported domain.
 `Profile::initialize_quest_progression` takes the actual starter initializer and
 `QuestProgressionInput`. It stages and validates the entire optional genesis;
 merely loading a quest catalog does not bypass validation. Native format/policy
-is native81 (`benilla-native-creature-string-identities-v81`), quest genesis policy v11,
+is current native (`NATIVE_POLICY`), quest genesis policy v11,
 and live training policy v3 with its unchanged journal layout v2. Quest genesis
 also binds the immutable prepared first-entry identity, when selected.
 Older policies are rejected rather than silently migrated.
@@ -93,7 +93,7 @@ training/stat histories. The cast checkpoint records the exact prepare recipe an
 release rank/cost, and restore also verifies the exact release timestamp against
 projectile travel. Unsupported next-level source context still rejects the whole
 transaction; true rank replacement and unsupported learning remain excluded.
-Native format 81 explicitly rejects prior schemas; cast checkpoints use version 3,
+Native format `NATIVE_FORMAT_VERSION` explicitly rejects prior schemas; cast checkpoints use version 3,
 while common resource and aura checkpoints use versions 1 and 2 respectively. No migration or production
 NativeCapability admission is added. The authored controller harness drives the
 actual stock command/projection/store path with save failures and pending/flight
@@ -101,7 +101,7 @@ reopen checks; this is not proof of graphical or real-asset playability.
 
 ## History references and capacity
 
-Native81 binds each execution witness's callback journals through
+The current native format binds each execution witness's callback journals through
 count/digest references into the durable owner's histories. The streaming digest
 binds exact profile, genesis, policy, domain, world, owner and character identity,
 kind and actual prefix. Restoration checks bounds/digests and replays the actual
@@ -172,7 +172,7 @@ exactly-once delivery claim. Durable quest/XP/money awards themselves remain onc
 
 ## Distinct-actor source-selected component loop
 
-The authored native81 [two-actor fixture](src/native/synthetic_distinct_quest_fixture.rs)
+The authored current native [two-actor fixture](src/native/synthetic_distinct_quest_fixture.rs)
 composes the selected interaction, combat, spell-133, current-pose facing, complete
 visitor, quest, progression and loot hosts. A is the hostile kill target; neutral-to-all
 B is both starter and finisher with matching QUESTGIVER flags and relations. B keeps
@@ -255,7 +255,7 @@ cargo clippy -p benilla-sim -p benilla-world-runtime -p benilla-world-client \
 
 ## Corpse-carried metadata boundary
 
-Native81 retains corpse acquisition of inert carried metadata and
+The current native format retains corpse acquisition of inert carried metadata and
 ordinary empty bags through the checked inventory corpse policy. Unused spell
 cooldowns, all five charges and durability retain source values; Bag instances
 retain source container slots and zero creation charges. The existing sixteen
@@ -266,7 +266,7 @@ self-unbinding are not used. Quest rewards and starter inventory still use the
 unchanged ordinary readiness; timed/auto-reward quest and effect audits remain.
 
 Inventory policy v5, corpse policy v1, loot genesis v3 and corpse-item receipt v2
-are bound under native81 profile/state/record/checkpoint identities. Native50 and earlier
+are bound under current native profile/state/record/checkpoint identities. Native50 and earlier
 headers, policies, legacy digest domains and profile contexts reject, including
 rehashed outer checkpoints/journals; no serde defaults or replay migration exist.
 One-hop ungrouped body references have separate catalog/rate semantics; nested

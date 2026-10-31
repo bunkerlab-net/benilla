@@ -1,6 +1,6 @@
-# Ordinary body loot and one-hop references
+# Solo body loot and one-hop references
 
-`src/loot.rs` reconstructs the ordinary single-owner corpse path from CMaNGOS
+`src/loot.rs` reconstructs the solo ordinary and quest-only corpse paths from CMaNGOS
 Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`, principally
 `LootMgr.cpp` 135–195 (loading), 306–367 (row validation), 374–391 (Roll),
 930–941 (AddItem), 2397–2477 (group Roll), and 2606–2670 (template processing).
@@ -30,7 +30,7 @@ Reference captures are exactly the targets named by body references, including
 references with zero repetitions. Missing or extra targets are rejected. Each
 capture's item map contains exactly its positive leaves; reference placeholder
 item IDs do not imply an item dependency. Repeated leaf IDs in either namespace
-must have identical metadata. Policy v2 hashes both namespace labels/counts even
+must have identical metadata. Policy v3 hashes both namespace labels/counts even
 when empty, plus the retained row, item and order inputs. The upstream pin and
 complete-capture flags are fixed admission invariants.
 
@@ -41,7 +41,7 @@ reference a child. The checked negation is the child ID. `i32::MIN`, missing
 children, nested references and grouped references are rejected. Group IDs are
 current-template membership, never a child-group selector. All child rows are
 ordinary positive leaves, including the existing explicit/equal-chance groups.
-Conditions, quest chances, quest items and unsupported item properties remain
+Conditions, quest leaves inside references and unsupported item properties remain
 excluded. Source `maxcount` is an unsigned byte for leaves and references; the
 loader rejects values above 255. A reference may have zero repetitions and a
 positive chance below the leaf-only 0.000001 threshold.
@@ -60,6 +60,30 @@ references and parent rows.
 AddItem stops inserting/count-rolling at sixteen output slots. The surrounding
 entry chance rolls, reference expansions, group shuffles, group chance draws and
 duplicate coins continue. Admission never assumes the output cap stops work.
+
+## Quest-only body leaves
+
+An ungrouped body leaf with negative `ChanceOrQuestChance` retains `quest_only`
+on its generated slot. `LootStoreItem` normalizes its chance to the absolute value,
+`LootMgr.h:215-217`. Its roll uses the mandatory typed `Rules::quest_drop_rate`,
+`LootMgr.cpp:374-389`, rather than its item quality rate. The chance-at-least-100
+shortcut still precedes rate multiplication. Smaller chances use strict
+draw-less-than-scaled-chance comparison, including at a zero rate.
+
+`generate` requires explicit `OwnerQuestItems`. `Unknown` rejects any quest branch.
+`quest_lifecycle::State::needed_items` derives `Known` from the source's logged,
+incomplete ReqItem counters below their requirements, `Player.cpp:13777-13807`.
+It does not infer need from an item ID or accept unknown quest state as an empty set.
+
+Generation keeps the source roll/count order and cap even for ineligible quest
+entries, `LootMgr.cpp:959-1001`. The output retains only the owner's admitted
+quest-only slots, with their source slot numbers. A fixed sixteen-entry source
+list preserves the cap and equal-group duplicate tests without allocating hidden
+items. No fake-empty draw occurs merely because every generated source item is
+ineligible. Runtime visibility and collection also require current objective need,
+`LootItem::AllowedForPlayer`, `LootMgr.cpp:463-483`. Grouped body quest leaves,
+quest references and quest leaves inside reference templates reject.
+
 
 ## Bounds before generation
 

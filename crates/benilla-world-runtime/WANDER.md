@@ -146,7 +146,7 @@ documented in [HOME.md](HOME.md). Other Home routing branches remain unsupported
 The pinned base entry-6 rows include 24 random-moving and seven idle map-0
 spawns. Successful bounded movement does not establish their final loader-order
 capture, actual model 10913 dimensions, complete behavioral content or normal
-solo startup. Native format 81 (`benilla-native-creature-string-identities-v81`) separates the
+solo startup. Native format `NATIVE_FORMAT_VERSION` (`NATIVE_POLICY`) separates the
 required failed and NORMAL owner/receipt shapes. The app reconstruction recipe
 is version 3 and rejects the earlier owner schemas. The motion policy is
 `cmangos-8ec338a1-ground-linear-home-wander-v7` and the Wander policy is

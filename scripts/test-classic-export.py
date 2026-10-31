@@ -1839,8 +1839,31 @@ class BodyLootCaptureTests(unittest.TestCase):
         self.assertFalse(bundle["report"]["capture_complete"])
         reasons = {finding["reason"] for finding in evidence["unsupported"]}
         self.assertTrue({"loot.source_loader_order_unproven", "loot.condition_not_resolved",
-            "loot.quest_chance_not_interpreted", "loot.group_domain_unsupported",
+            "loot.quest_leaf_shape_unsupported", "loot.group_domain_unsupported",
             "loot.count_shape_unsupported", "loot.nested_reference_not_executable"} <= reasons)
+
+    def test_negative_body_leaf_is_interpreted_without_discharging_loader_or_item_admission(self):
+        from classic_export import loot
+        source = self.source()
+        source.rows[self.BODY][1].update(groupid=0, condition_id=0)
+        bundle = self.captured(source)
+        findings = bundle["loot_capture"]["unsupported"]
+        item_findings = {f["reason"] for f in findings if f["key"] == "970101:920201"}
+        self.assertNotIn("loot.quest_chance_not_interpreted", item_findings)
+        self.assertNotIn("loot.quest_leaf_shape_unsupported", item_findings)
+        self.assertEqual(loot.quest_inputs(bundle["tables"]), [{
+            "entry": 970101, "item": 920201, "quest_only": True, "chance": "15.5",
+            "minimum_count": 1, "maximum_count": 3,
+            "rate_policy": "explicit_CONFIG_FLOAT_RATE_DROP_ITEM_QUEST",
+            "owner_policy": "active_incomplete_ReqItem_below_required_count",
+            "runtime_admitted": False}])
+        reasons = {f["reason"] for f in findings}
+        self.assertIn("loot.source_loader_order_unproven", reasons)
+        self.assertIn("loot.generation_and_item_admission_not_established", reasons)
+        for table, changes in [(self.BODY, {"groupid": 1}), (self.BODY, {"condition_id": 1}),
+                               (self.BODY, {"mincountOrRef": -971101}), (self.REFERENCE, {})]:
+            row = dict(bundle["tables"][self.BODY][1], **changes)
+            self.assertFalse(loot.quest_leaf(row, table))
 
     def test_six_row_candidate_captures_thirty_two_leaf_items_and_full_spell_metadata(self):
         source = starter_source()

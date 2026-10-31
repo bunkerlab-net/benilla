@@ -1,6 +1,6 @@
 # Bounded source-thread spline IDs and first-life forced stop
 
-Native format 81 composes one **fresh isolated logical source thread**, seeded at
+Native format `NATIVE_FORMAT_VERSION` composes one **fresh isolated logical source thread**, seeded at
 1. It does not import or guess a running server's counter or reproduce upstream
 MapManager scheduling. Production native entry remains closed. This is a real
 bounded runtime/controller path under authored source fixtures, not proof of a

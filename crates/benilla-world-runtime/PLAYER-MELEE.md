@@ -55,7 +55,7 @@ only by the source class/outcome/alive conditions and expire in NPC Unit update.
 
 ## Persistence contract
 
-Native format 81 rejects older envelopes; no migration is provided. Existing
+Native format `NATIVE_FORMAT_VERSION` rejects older envelopes; no migration is provided. Existing
 unrelated callback hash domains retain their prior versions.
 
 The bounded player proof retains the latest writers of lifecycle, BASE, OFF and
@@ -90,76 +90,76 @@ derived callback journal and aggregate replay-work/byte limits remain fail-close
 and transactional. Unsupported operations or exhausted limits are errors, never
 successful no-op swings or fabricated defaults.
 
-Native format 81 retains exact selected ordinary-instance destruction even when
+Native format `NATIVE_FORMAT_VERSION` retains exact selected ordinary-instance destruction even when
 a registered original with the same entry remains carried. The selected receipt
 must preserve every registered instance; unselected quest consumption and
 registered-item destruction remain unsupported. No old-save migration or native
 admission is provided.
 
-Native format 81 (`benilla-native-creature-string-identities-v81`) requires the optional shared
+Native format `NATIVE_FORMAT_VERSION` (`NATIVE_POLICY`) requires the optional shared
 spline-ID owner. Its bounded source-thread domain includes actual NPC allocation
 callbacks and the first-life player forced stop; profiles outside that domain
 retain the older partial motion lane. Compact endpoints prove reachable
 interleaving, while TickRecord replay establishes callback order. No old-save
 migration, ghost/recovery capability, or native admission is provided.
 
-Native format 81 (`benilla-native-creature-string-identities-v81`) retains an optional immutable
+Native format `NATIVE_FORMAT_VERSION` (`NATIVE_POLICY`) retains an optional immutable
 selected-character appearance owner from exact loaded source-row choices.
 `PLAYER_BYTES` projects only its four owned cosmetic bytes; facial hair remains
 retained without inventing the bank/rest siblings of `PLAYER_BYTES_2`. No old-save
 migration, native admission, corpse creation, or ghost release is provided.
 
-Native format 81 (`benilla-native-creature-string-identities-v81`) retains source hide-helm/hide-cloak
+Native format `NATIVE_FORMAT_VERSION` (`NATIVE_POLICY`) retains source hide-helm/hide-cloak
 XOR commands under the combined initial-control, spell and fresh-rest owner
 contract. The full player-flags descriptor is not inferred for other profiles.
 No old-save migration, native admission, guild state, or ghost release is added.
 
-Native format 81 (`benilla-native-creature-string-identities-v81`) binds optional exact loaded Map.dbc classification
+Native format `NATIVE_FORMAT_VERSION` (`NATIVE_POLICY`) binds optional exact loaded Map.dbc classification
 to the native profile map identity. Classification is not geometry, admission,
 or evidence that a corpse was created. No old-save migration or ghost release
 is added.
 
-Native format 81 (`benilla-native-creature-string-identities-v81`) supports selected detached-original armor destruction
+Native format `NATIVE_FORMAT_VERSION` (`NATIVE_POLICY`) supports selected detached-original armor destruction
 with retained tombstone custody; registered identities remain reserved. Generic
 and indirect consumption remain unsupported. No old-save migration, native
 admission, or ghost release is added.
 
-Native format 81 (`benilla-native-creature-string-identities-v81`) binds bounded original mainhand membership
+Native format `NATIVE_FORMAT_VERSION` (`NATIVE_POLICY`) binds bounded original mainhand membership
 to source-ordered equipment observations and retained weapon fields. This does
 not admit generic weapons, in-combat switching, or held private consumers.
 No old-save migration or native admission is added.
 
-Native format 81 (`benilla-native-creature-string-identities-v81`) binds bounded original mainhand AutoEquip for singleton types 17/21
+Native format `NATIVE_FORMAT_VERSION` (`NATIVE_POLICY`) binds bounded original mainhand AutoEquip for singleton types 17/21
 to existing source-ordered membership and retained weapon fields. This does
 not admit generic weapons, in-combat switching, or held private consumers.
 No old-save migration or native admission is added.
 
-Native format 81 (`benilla-native-creature-string-identities-v81`) binds bounded carried-original-mainhand relocation and AutoStore
+Native format `NATIVE_FORMAT_VERSION` (`NATIVE_POLICY`) binds bounded carried-original-mainhand relocation and AutoStore
 to existing exact custody receipts without equipment or stat callbacks. This does
 not admit generic consumers, mainhand destruction, or held private consumers.
 No old-save migration or native admission is added.
 
-Native format 81 (`benilla-native-creature-string-identities-v81`) binds selected destruction of detached pristine original mainhand
+Native format `NATIVE_FORMAT_VERSION` (`NATIVE_POLICY`) binds selected destruction of detached pristine original mainhand
 to exact quest callbacks and permanent identity tombstones without stat callbacks.
 This does not admit generic consumption or held private consumers.
 No old-save migration or native admission is added.
 
-Native format 81 (`benilla-native-creature-string-identities-v81`) binds optional explicit host-selected health regeneration
+Native format `NATIVE_FORMAT_VERSION` (`NATIVE_POLICY`) binds optional explicit host-selected health regeneration
 to validated standing-mage owners and the shared source regeneration cadence.
 No rate is inferred when unset; no external server configuration is claimed.
 No old-save migration or native admission is added.
 
-Native format 81 (`benilla-native-creature-string-identities-v81`) binds bounded player sheath controls
+Native format `NATIVE_FORMAT_VERSION` (`NATIVE_POLICY`) binds bounded player sheath controls
 to qualified fresh-player and no-enchantment owners, with field 164 composition.
 Unsupported profiles do not gain source-backed sheath state.
 No old-save migration or native admission is added.
 
-Native format 81 (`benilla-native-creature-string-identities-v81`) binds bounded occupied-backpack exchange
+Native format `NATIVE_FORMAT_VERSION` (`NATIVE_POLICY`) binds bounded occupied-backpack exchange
 to exact both-endpoint original custody and existing source swap receipts.
 No equipment replacement or generic consumption admission is added.
 No old-save migration or native admission is added.
 
-Native format 81 (`benilla-native-creature-string-identities-v81`) binds optional source-qualified
+Native format `NATIVE_FORMAT_VERSION` (`NATIVE_POLICY`) binds optional source-qualified
 static creature identity and committed-pose cell observations. These are not source
 CurrentCell, loaded-grid, registration, lookup or selection authority.
 No old-save migration or native admission is added.

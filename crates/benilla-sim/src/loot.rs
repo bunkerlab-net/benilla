@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic LootMgr.cpp at 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f.
 // Copyright CMaNGOS contributors, GPL-2.0-or-later; Rust GPL-3.0-or-later, no warranty.
-//! Reconstructed ordinary single-owner corpse generation. Draws are distribution outcomes,
+//! Reconstructed single-owner ordinary and quest-only corpse generation. Draws are distribution outcomes,
 //! not a claim of equivalence to the upstream MT engine or std::shuffle word stream.
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 pub const UPSTREAM_COMMIT: &str = "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f";
-pub const POLICY: &str = "cmangos-8ec338a1-ordinary-loot-reconstruction-v2";
+pub const POLICY: &str = "cmangos-8ec338a1-solo-quest-loot-reconstruction-v3";
 pub const MAX_ITEMS: usize = 16;
 /// Admission bounds apply even after the output has filled all sixteen slots.
 pub const MAX_PROCESS_BUDGET: u32 = 4096;
@@ -76,21 +76,50 @@ pub struct Capture {
     pub rows: Vec<Row>,
     pub items: BTreeMap<u32, ItemLookup>,
 }
+/// Explicit CONFIG_FLOAT_RATE_DROP_ITEM_QUEST policy, LootMgr.cpp:374-389.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QuestDropRate {
+    pub multiplier_bits: u32,
+}
+/// Complete solo-owner HasQuestForItem result, never an absent-state empty default.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub enum OwnerQuestItems {
+    Unknown,
+    Known(BTreeSet<u32>),
+}
+impl OwnerQuestItems {
+    fn validate(&self) -> Result<(), Error> {
+        if matches!(self, Self::Known(items) if items.len() > 80 || items.contains(&0)) {
+            return Err(Error::Invalid("bounded owner quest items"));
+        }
+        Ok(())
+    }
+    pub fn needs(&self, item: u32) -> Result<bool, Error> {
+        self.validate()?;
+        match self {
+            Self::Unknown => Err(Error::Unsupported("unknown owner quest state")),
+            Self::Known(items) => Ok(items.contains(&item)),
+        }
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Rules {
     pub quality_rate_bits: [u32; 7],
+    pub quest_drop_rate: QuestDropRate,
     pub referenced_rate_bits: u32,
     pub money_rate_bits: u32,
     pub corpse_empty_loot_show: bool,
 }
 impl Rules {
     pub fn validate(&self) -> Result<(), Error> {
-        for b in self
-            .quality_rate_bits
-            .into_iter()
-            .chain([self.referenced_rate_bits, self.money_rate_bits])
-        {
+        for b in self.quality_rate_bits.into_iter().chain([
+            self.quest_drop_rate.multiplier_bits,
+            self.referenced_rate_bits,
+            self.money_rate_bits,
+        ]) {
             let f = f32::from_bits(b);
             if !f.is_finite() || !(0.0..=1000.0).contains(&f) {
                 return Err(Error::Invalid("loot rate"));
@@ -140,6 +169,11 @@ pub struct Catalog {
     #[serde(skip)]
     reference_plans: BTreeMap<u32, TemplatePlan>,
     identity: [u8; 32],
+}
+#[derive(Default)]
+struct SourceItems {
+    entries: [u32; MAX_ITEMS],
+    count: usize,
 }
 impl Catalog {
     pub fn new(captures: Vec<Capture>) -> Result<Self, Error> {
@@ -242,9 +276,11 @@ impl Catalog {
         min_money: u32,
         max_money: u32,
         rules: &Rules,
+        owner_quests: &OwnerQuestItems,
         random: &mut impl Random,
     ) -> Result<Generated, Error> {
         rules.validate()?;
+        owner_quests.validate()?;
         if f64::from(max_money) * f64::from(f32::from_bits(rules.money_rate_bits)) > 1_000_000_000.0
         {
             return Err(Error::Invalid("bounded money"));
@@ -253,6 +289,7 @@ impl Catalog {
             items: vec![],
             money: 0,
             fake: false,
+            owner_quests: owner_quests.clone(),
         };
         let capture = if loot_id == 0 {
             None
@@ -263,8 +300,16 @@ impl Catalog {
                     .ok_or(Error::Invalid("unresolved loot id"))?,
             )
         };
+        let mut source_items = SourceItems::default();
         if let Some(c) = capture {
-            self.process(c, &self.plans[&loot_id], &mut out, rules, random)?;
+            self.process(
+                c,
+                &self.plans[&loot_id],
+                &mut out,
+                rules,
+                random,
+                &mut source_items,
+            )?;
         }
         if capture.is_some() || max_money > 0 {
             if max_money > 0 {
@@ -279,7 +324,7 @@ impl Catalog {
                         .ok_or(Error::Invalid("money shift"))?
                 };
             }
-            if out.items.is_empty() && out.money == 0 && rules.corpse_empty_loot_show {
+            if source_items.count == 0 && out.money == 0 && rules.corpse_empty_loot_show {
                 out.fake = integer_draw(random, 0, 2)? == 1;
             }
         }
@@ -292,12 +337,19 @@ impl Catalog {
         out: &mut Generated,
         rules: &Rules,
         random: &mut impl Random,
+        source_items: &mut SourceItems,
     ) -> Result<(), Error> {
         for &ordinal in &plan.entries {
             let row = &c.rows[ordinal];
-            let chance = f32::from_bits(row.chance_or_quest_chance_bits);
+            let source_chance = f32::from_bits(row.chance_or_quest_chance_bits);
+            let chance = source_chance.abs();
+            if source_chance < 0.0 {
+                out.owner_quests.needs(row.item)?;
+            }
             let rate_bits = if row.min_count_or_reference < 0 {
                 rules.referenced_rate_bits
+            } else if source_chance < 0.0 {
+                rules.quest_drop_rate.multiplier_bits
             } else {
                 let ItemLookup::Present(item) = &c.items[&row.item] else {
                     unreachable!()
@@ -315,10 +367,17 @@ impl Catalog {
                 let child = &self.reference_captures[&id];
                 // LootTemplate::Process runs the complete child at this entry position.
                 for _ in 0..row.max_count {
-                    self.process(child, &self.reference_plans[&id], out, rules, random)?;
+                    self.process(
+                        child,
+                        &self.reference_plans[&id],
+                        out,
+                        rules,
+                        random,
+                        source_items,
+                    )?;
                 }
             } else {
-                add(out, c, ordinal, random)?;
+                add(out, c, ordinal, random, source_items)?;
             }
         }
         for group in &plan.groups {
@@ -344,7 +403,7 @@ impl Catalog {
                 let mut equal = group.equal.clone();
                 shuffle_draw(random, &mut equal)?;
                 for i in equal {
-                    if out.items.iter().any(|x| x.item == c.rows[i].item)
+                    if source_items.entries[..source_items.count].contains(&c.rows[i].item)
                         && integer_draw(random, 0, 1)? != 0
                     {
                         continue;
@@ -354,7 +413,7 @@ impl Catalog {
                 }
             }
             if let Some(i) = selected {
-                add(out, c, i, random)?;
+                add(out, c, i, random, source_items)?;
             }
         }
         Ok(())
@@ -416,8 +475,11 @@ fn validate_namespace(
         let mut plan = TemplatePlan::default();
         for (ordinal, r) in c.rows.iter().enumerate() {
             let chance = f32::from_bits(r.chance_or_quest_chance_bits);
-            if !chance.is_finite() || chance < 0.0 || r.condition_id != 0 {
-                return Err(Error::Unsupported("quest or conditional loot"));
+            if !chance.is_finite() || r.condition_id != 0 {
+                return Err(Error::Unsupported("conditional or nonfinite loot"));
+            }
+            if chance < 0.0 && (references || r.group != 0 || r.min_count_or_reference < 0) {
+                return Err(Error::Unsupported("grouped or referenced quest loot"));
             }
             // LootStore::Load checks the uint8 maxcount bound for every row.
             if r.group >= 128 || r.max_count > 255 || r.min_count_or_reference == 0 {
@@ -435,7 +497,7 @@ fn validate_namespace(
                 if r.item == 0
                     || r.max_count < r.min_count_or_reference as u32
                     || (chance == 0.0 && r.group == 0)
-                    || (chance > 0.0 && chance < 0.000001)
+                    || (chance != 0.0 && chance.abs() < 0.000001)
                 {
                     return Err(Error::Invalid("source loader row"));
                 }
@@ -493,7 +555,7 @@ fn template_budget(
             Budget {
                 passes: 0,
                 work: 1,
-                draws: u32::from(f32::from_bits(row.chance_or_quest_chance_bits) < 100.0),
+                draws: u32::from(f32::from_bits(row.chance_or_quest_chance_bits).abs() < 100.0),
             },
             1,
         )?;
@@ -595,8 +657,14 @@ fn shuffle_draw(random: &mut impl Random, values: &mut [usize]) -> Result<(), Er
     }
     Ok(())
 }
-fn add(out: &mut Generated, c: &Capture, i: usize, rng: &mut impl Random) -> Result<(), Error> {
-    if out.items.len() == MAX_ITEMS {
+fn add(
+    out: &mut Generated,
+    c: &Capture,
+    i: usize,
+    rng: &mut impl Random,
+    source: &mut SourceItems,
+) -> Result<(), Error> {
+    if source.count == MAX_ITEMS {
         return Ok(());
     }
     let r = &c.rows[i];
@@ -607,12 +675,21 @@ fn add(out: &mut Generated, c: &Capture, i: usize, rng: &mut impl Random) -> Res
     if count < r.min_count_or_reference as u32 || count > r.max_count {
         return Err(Error::Draw);
     }
+    let slot = source.count as u8;
+    source.entries[source.count] = r.item;
+    source.count += 1;
+    let quest_only = f32::from_bits(r.chance_or_quest_chance_bits) < 0.0;
+    // FillLoot assigns solo permissions after source Roll/count draws, LootMgr.cpp:976-994.
+    if quest_only && !out.owner_quests.needs(r.item)? {
+        return Ok(());
+    }
     out.items.push(LootItem {
-        slot: out.items.len() as u8,
+        slot,
         item: r.item,
         count: count as u8,
         display_id: item.display_id,
         random_property: 0,
+        quest_only,
     });
     Ok(())
 }
@@ -630,11 +707,13 @@ pub struct LootItem {
     pub count: u8,
     pub display_id: u32,
     pub random_property: i32,
+    pub quest_only: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Generated {
     pub items: Vec<LootItem>,
+    pub owner_quests: OwnerQuestItems,
     pub money: u32,
     pub fake: bool,
 }

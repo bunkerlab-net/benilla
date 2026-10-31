@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from classic_export.capture import validate_bundle
-from classic_export import event_ai, native_spawn, spell_registry, initial_hooks, quest_relationships
+from classic_export import event_ai, native_spawn, spell_registry, initial_hooks, quest_relationships, loot
 from classic_export.columns import COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA
 from classic_export.core import (CORE_REVISION, STARTER_FORMAT, KEYS, Selection,
                                  canonical, check, digest, integer)
@@ -676,6 +676,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
         "initial_hook_capture": source.get("initial_hook_capture"),
         "creature_display_inputs": display_evidence,
         "quest_relationships": relationships,
+        "quest_loot_inputs": loot.quest_inputs(c.tables),
         "player": {"identity": identity, "level_inputs": c.progression(), "outfit": outfit,
                    "initial_sql_spells": source["tables"]["playercreateinfo_spell"],
                    "actions": source["tables"]["playercreateinfo_action"], "skills": skills},

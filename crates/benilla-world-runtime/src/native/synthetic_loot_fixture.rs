@@ -112,6 +112,9 @@ pub fn setup() -> (Profile, init::StarterInput, QuestProgressionInput) {
             quality_rate_bits: [1f32.to_bits(); 7],
             money_rate_bits: 1f32.to_bits(),
             referenced_rate_bits: 1f32.to_bits(),
+            quest_drop_rate: l::QuestDropRate {
+                multiplier_bits: 1f32.to_bits(),
+            },
             corpse_empty_loot_show: false,
         },
         captures: vec![capture],

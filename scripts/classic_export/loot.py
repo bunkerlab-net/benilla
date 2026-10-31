@@ -164,6 +164,26 @@ def derived(tables: dict[str, Any]) -> dict[str, Any]:
             "tables": captured}
 
 
+def quest_leaf(row: dict[str, Any], table: str) -> bool:
+    """Bounded body leaf only; LootStore::LoadLootTable/IsValidItemTemplate at the pin."""
+    chance = Decimal(row["ChanceOrQuestChance"]["decimal"])
+    return (table == BODY and chance < 0 and chance.copy_abs() >= Decimal("0.000001")
+            and row["condition_id"] == 0 and row["groupid"] == 0 and row["item"] > 0
+            and 0 < row["mincountOrRef"] <= row["maxcount"] <= 255)
+
+
+def quest_inputs(tables: dict[str, Any]) -> list[dict[str, Any]]:
+    """Interpreted rows still need whole-loader, item, solo-owner and explicit rate evidence."""
+    return [{"entry": row["entry"], "item": row["item"],
+             "quest_only": True,
+             "chance": str(Decimal(row["ChanceOrQuestChance"]["decimal"]).copy_abs()),
+             "minimum_count": row["mincountOrRef"], "maximum_count": row["maxcount"],
+             "rate_policy": "explicit_CONFIG_FLOAT_RATE_DROP_ITEM_QUEST",
+             "owner_policy": "active_incomplete_ReqItem_below_required_count",
+             "runtime_admitted": False}
+            for row in tables.get(BODY, []) if quest_leaf(row, BODY)]
+
+
 def unsupported(tables: dict[str, Any], graph: dict[str, Any]) -> list[dict[str, Any]]:
     findings = []
     def add(table, key, reason):
@@ -191,8 +211,8 @@ def unsupported(tables: dict[str, Any], graph: dict[str, Any]) -> list[dict[str,
                 reasons.append("condition_not_resolved")
             if row["condition_id"] > 0xffff:
                 reasons.append("condition_uint16_conversion_unproven")
-            if chance < 0:
-                reasons.append("quest_chance_not_interpreted")
+            if chance < 0 and not quest_leaf(row, table):
+                reasons.append("quest_leaf_shape_unsupported")
             if not row["mincountOrRef"]:
                 reasons.append("zero_mincount_unsupported")
             if not row["maxcount"] or row["mincountOrRef"] > row["maxcount"]:

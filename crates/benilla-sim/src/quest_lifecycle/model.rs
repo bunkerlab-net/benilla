@@ -364,6 +364,30 @@ impl State {
             records: self.snapshot.records.clone(),
         }
     }
+    /// Player::HasQuestForItem, Player.cpp:13777-13807 at the pinned core, solo ReqItem branch.
+    pub fn needed_items(&self, catalog: &Catalog) -> Result<BTreeSet<u32>, Error> {
+        if self.snapshot.catalog_hash != catalog.hash {
+            return Err(Error::Invalid("snapshot_rules"));
+        }
+        let mut needed = BTreeSet::new();
+        for &id in self.snapshot.log.iter().flatten() {
+            let progress = self
+                .snapshot
+                .records
+                .get(&id)
+                .ok_or(Error::Invalid("log_record"))?;
+            if progress.status != Status::Incomplete || progress.rewarded {
+                continue;
+            }
+            let row = catalog.row(id)?;
+            for i in 0..OBJECTIVES {
+                if row.required_item[i] != 0 && progress.items[i] < row.required_item_count[i] {
+                    needed.insert(row.required_item[i]);
+                }
+            }
+        }
+        Ok(needed)
+    }
     pub fn next_sequence(&self) -> u64 {
         self.snapshot.next_sequence
     }

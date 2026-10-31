@@ -52,7 +52,7 @@ Same-state and invalid raw requests do not spend the budget. Restore validates
 an earlier checkpoint establishes command chronology. The ledger itself proves
 reachable state, not authenticated external sender history.
 
-Native 81 rejects old snapshots; there is no migration. Production native entry
+The current native format rejects old snapshots; there is no migration. Production native entry
 remains uninhabited, and no held private compiler/raw consumer or admission path
 is changed. This is weapon presentation only, not stand/sit, enchantments,
 spell interruption, ghost/release, or new equipment admission.

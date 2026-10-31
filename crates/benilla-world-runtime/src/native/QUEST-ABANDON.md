@@ -47,7 +47,7 @@ NPC-status packet in this no-gameobject slice: normal explicit status/menu queri
 show the reoffered quest. Checkpoint failure withholds slot-clear events until retry;
 reopen preservesNONE history and does not re-abandon or reward the quest.
 
-Native81 and quest-lifecycle-v4 reject prior checkpoint identities without migration.
+The current native format and quest-lifecycle-v4 reject prior checkpoint identities without migration.
 Tests use original authored fixtures, actual Lua/controller commands, real simulated
 death, checkpoint failure/retry/reopen, replay and rehashed malformed states. This
 is not graphical user verification, private content admission, a native capability,

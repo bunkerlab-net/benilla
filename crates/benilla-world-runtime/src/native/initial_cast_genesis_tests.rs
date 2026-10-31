@@ -6,9 +6,9 @@ use synthetic_initial_cast_fixture as fixture;
 
 fn resign(value: serde_json::Value) -> Checkpoint {
     let mut cp: Checkpoint = serde_json::from_value(value).unwrap();
-    cp.digest = crate::digest(b"benilla-native-state-v81\0", &cp.state);
+    cp.digest = crate::digest(b"benilla-native-state-v82\0", &cp.state);
     cp.checksum = crate::digest(
-        b"benilla-native-checkpoint-v81\0",
+        b"benilla-native-checkpoint-v82\0",
         &(&cp.state, cp.digest, cp.history_tip),
     );
     cp
@@ -464,6 +464,7 @@ fn loot_cannot_regenerate_its_receipt_inside_genesis_span() {
             row.minimum_money,
             row.maximum_money,
             &g.rules,
+            &benilla_sim::loot::OwnerQuestItems::Unknown,
             &mut loot::RandomHost {
                 state: &mut probe,
                 corpse,

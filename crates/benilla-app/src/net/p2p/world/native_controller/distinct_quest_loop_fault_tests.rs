@@ -68,11 +68,13 @@ fn flush_fault(
     published.events
 }
 
-#[test]
-fn distinct_source_quest_kill_collection_reward_checkpoint_faults_publish_once_without_reexecution()
-{
+fn collection_reward_checkpoint_faults(quest_only: bool) {
     let h = Harness::new();
-    let data = loop_fixture::profile();
+    let data = if quest_only {
+        quest_only::profile(1)
+    } else {
+        loop_fixture::profile()
+    };
     let controls = Controls::default();
     let mut c = enter(&h, data.clone(), false, controls.clone());
     c.initial_events().unwrap();
@@ -122,7 +124,7 @@ fn distinct_source_quest_kill_collection_reward_checkpoint_faults_publish_once_w
                 }
             ))
             .count(),
-        1
+        usize::from(!quest_only)
     );
     c = reopen(&h, c, &data, &controls);
 
@@ -198,6 +200,13 @@ fn distinct_source_quest_kill_collection_reward_checkpoint_faults_publish_once_w
     assert_eq!(inventory(&c).item_count(loop_fixture::ITEM).unwrap(), 0);
     assert_source_hosts(&controls);
     c.shutdown().unwrap();
+}
+
+#[test]
+fn distinct_source_quest_kill_collection_reward_checkpoint_faults_publish_once_without_reexecution()
+{
+    collection_reward_checkpoint_faults(false);
+    collection_reward_checkpoint_faults(true);
 }
 
 #[test]

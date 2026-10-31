@@ -207,11 +207,11 @@ fn mutate_resigned(
     let state: super::persistence::StateCheckpoint =
         serde_json::from_value(cp["state"].clone()).unwrap();
     cp["digest"] =
-        serde_json::to_value(crate::digest(b"benilla-native-state-v81\0", &state)).unwrap();
+        serde_json::to_value(crate::digest(b"benilla-native-state-v82\0", &state)).unwrap();
     let digest: crate::Digest = serde_json::from_value(cp["digest"].clone()).unwrap();
     let tip: crate::Digest = serde_json::from_value(cp["history_tip"].clone()).unwrap();
     cp["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v81\0",
+        b"benilla-native-checkpoint-v82\0",
         &(&state, digest, tip),
     ))
     .unwrap();
@@ -375,7 +375,7 @@ fn original_fixture_snapshot_has_no_native_decode_path() {
     let original = br#"{"version":2,"content_digest":[],"rules_digest":[],"state":{}}"#;
     assert!(Checkpoint::decode(original).is_err());
     assert_eq!(crate::FORMAT_VERSION, 2);
-    assert_eq!(NATIVE_FORMAT_VERSION, 81);
+    assert_eq!(NATIVE_FORMAT_VERSION, 82);
     // The compiler token is uninhabited even when the synthetic feature is unified.
     assert_eq!(std::mem::size_of::<NativeCapability>(), 0);
 }
@@ -424,7 +424,7 @@ fn resign_identity_checkpoint(
     checkpoint
 }
 
-const PREVIOUS_NATIVE_IDENTITIES: [(u32, &str); 47] = [
+const PREVIOUS_NATIVE_IDENTITIES: [(u32, &str); 48] = [
     (34, "benilla-native-event-ai-aggro-text-v34"),
     (35, "benilla-native-corpse-carried-items-v35"),
     (36, "benilla-native-source-combat-timers-v36"),
@@ -472,15 +472,13 @@ const PREVIOUS_NATIVE_IDENTITIES: [(u32, &str); 47] = [
     (78, "benilla-native-player-sheath-v78"),
     (79, "benilla-native-backpack-exchange-v79"),
     (80, "benilla-native-creature-pose-cell-index-v80"),
+    (81, "benilla-native-creature-string-identities-v81"),
 ];
 
 #[test]
-fn native81_profile_state_record_and_checkpoint_domains_are_exact() {
-    assert_eq!(NATIVE_FORMAT_VERSION, 81);
-    assert_eq!(
-        NATIVE_POLICY,
-        "benilla-native-creature-string-identities-v81"
-    );
+fn native82_profile_state_record_and_checkpoint_domains_are_exact() {
+    assert_eq!(NATIVE_FORMAT_VERSION, 82);
+    assert_eq!(NATIVE_POLICY, "benilla-native-solo-quest-loot-v82");
     assert_eq!(
         RNG_POLICY,
         "benilla-native-sha256-counter-le64-rejection-fraction53-v2"
@@ -489,13 +487,13 @@ fn native81_profile_state_record_and_checkpoint_domains_are_exact() {
     let mut w = world();
     assert_eq!(
         w.profile().digest(),
-        profile_identity_for_format(w.profile(), 81, NATIVE_POLICY)
+        profile_identity_for_format(w.profile(), NATIVE_FORMAT_VERSION, NATIVE_POLICY)
     );
     for (old_format, old_policy) in PREVIOUS_NATIVE_IDENTITIES {
         for (format, policy) in [
             (old_format, old_policy),
             (old_format, NATIVE_POLICY),
-            (81, old_policy),
+            (NATIVE_FORMAT_VERSION, old_policy),
         ] {
             assert_ne!(
                 w.profile().digest(),
@@ -507,27 +505,27 @@ fn native81_profile_state_record_and_checkpoint_domains_are_exact() {
     advance(&mut w, 2, &mut SyntheticAuthority::default());
     let checkpoint = w.checkpoint().unwrap();
     let value = serde_json::to_value(&checkpoint).unwrap();
-    assert_eq!(value["version"], 81);
-    assert_eq!(value["state"]["version"], 81);
+    assert_eq!(value["version"], NATIVE_FORMAT_VERSION);
+    assert_eq!(value["state"]["version"], NATIVE_FORMAT_VERSION);
     assert_eq!(value["state"]["policy"], NATIVE_POLICY);
     assert_eq!(
         checkpoint.digest,
-        crate::digest(b"benilla-native-state-v81\0", &checkpoint.state)
+        crate::digest(b"benilla-native-state-v82\0", &checkpoint.state)
     );
     assert_eq!(checkpoint.digest, w.state_digest());
     assert_eq!(
         checkpoint.checksum,
         crate::digest(
-            b"benilla-native-checkpoint-v81\0",
+            b"benilla-native-checkpoint-v82\0",
             &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
         )
     );
     for record in w.records() {
-        assert_eq!(record.version, 81);
+        assert_eq!(record.version, NATIVE_FORMAT_VERSION);
         assert_eq!(record.profile, w.profile().digest());
         assert_eq!(
             record.digest(),
-            crate::digest(b"benilla-native-record-v81\0", record)
+            crate::digest(b"benilla-native-record-v82\0", record)
         );
         for (format, _) in PREVIOUS_NATIVE_IDENTITIES {
             assert_ne!(
@@ -556,11 +554,11 @@ fn previous_native_checkpoint_headers_and_policies_reject_with_current_outer_has
     for (old_format, old_policy) in PREVIOUS_NATIVE_IDENTITIES {
         for (outer, state, policy) in [
             (old_format, old_format, old_policy),
-            (old_format, 81, NATIVE_POLICY),
-            (81, old_format, NATIVE_POLICY),
-            (81, 81, old_policy),
+            (old_format, NATIVE_FORMAT_VERSION, NATIVE_POLICY),
+            (NATIVE_FORMAT_VERSION, old_format, NATIVE_POLICY),
+            (NATIVE_FORMAT_VERSION, NATIVE_FORMAT_VERSION, old_policy),
         ] {
-            for hash_format in [old_format, 81] {
+            for hash_format in [old_format, NATIVE_FORMAT_VERSION] {
                 let mut value = serde_json::to_value(&initial).unwrap();
                 value["version"] = outer.into();
                 value["state"]["version"] = state.into();
@@ -580,13 +578,15 @@ fn previous_native_checkpoint_headers_and_policies_reject_with_current_outer_has
 }
 
 #[test]
-fn previous_native_state_checkpoint_and_profile_context_cannot_reseal_as_native81() {
+fn previous_native_state_checkpoint_and_profile_context_cannot_reseal_as_native82() {
     let w = world();
     let initial = w.checkpoint().unwrap();
     for (old_format, old_policy) in PREVIOUS_NATIVE_IDENTITIES {
-        for (state_format, checkpoint_format) in
-            [(old_format, old_format), (old_format, 81), (81, old_format)]
-        {
+        for (state_format, checkpoint_format) in [
+            (old_format, old_format),
+            (old_format, NATIVE_FORMAT_VERSION),
+            (NATIVE_FORMAT_VERSION, old_format),
+        ] {
             let old = resign_identity_checkpoint(
                 serde_json::to_value(&initial).unwrap(),
                 state_format,
@@ -604,13 +604,14 @@ fn previous_native_state_checkpoint_and_profile_context_cannot_reseal_as_native8
         for (format, policy) in [
             (old_format, old_policy),
             (old_format, NATIVE_POLICY),
-            (81, old_policy),
+            (NATIVE_FORMAT_VERSION, old_policy),
         ] {
             let mut value = serde_json::to_value(&initial).unwrap();
             value["state"]["profile"] =
                 serde_json::to_value(profile_identity_for_format(w.profile(), format, policy))
                     .unwrap();
-            let old = resign_identity_checkpoint(value, 81, 81);
+            let old =
+                resign_identity_checkpoint(value, NATIVE_FORMAT_VERSION, NATIVE_FORMAT_VERSION);
             // Decode checks the envelope; only restore has the executable profile context.
             let decoded = Checkpoint::decode(&old.encode().unwrap()).unwrap();
             assert!(matches!(
@@ -658,7 +659,10 @@ fn previous_native_records_and_rehashed_context_reject_without_committing_a_pref
                     forged[1].profile =
                         profile_identity_for_format(w.profile(), format, NATIVE_POLICY)
                 }
-                _ => forged[1].profile = profile_identity_for_format(w.profile(), 81, policy),
+                _ => {
+                    forged[1].profile =
+                        profile_identity_for_format(w.profile(), NATIVE_FORMAT_VERSION, policy)
+                }
             }
             let bytes = encode_records(&forged).unwrap();
             if case == 0 {
@@ -1002,7 +1006,8 @@ fn previous_native_event_ai_evidence_rejects_rehashed_checkpoints_and_records() 
             };
             forged["state"]["npcs"]["2"]["events"]["event_ai_anchor"]["tip"] =
                 serde_json::to_value(tip).unwrap();
-            let forged = resign_identity_checkpoint(forged, 81, 81);
+            let forged =
+                resign_identity_checkpoint(forged, NATIVE_FORMAT_VERSION, NATIVE_FORMAT_VERSION);
             let decoded = Checkpoint::decode(&forged.encode().unwrap()).unwrap();
             assert!(
                 NativeWorld::restore_synthetic_component_test(w.profile.clone(), decoded).is_err()

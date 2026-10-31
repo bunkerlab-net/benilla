@@ -46,7 +46,7 @@ Classifying a BG row does not implement BG gameplay or allow BG death.
 
 This closes one input needed by a future ordinary corpse capture; it does not
 capture, allocate, create, place or publish a corpse, execute ghost spells,
-accept spirit release, or relax first-life restore. Native format 81 identifies
+accept spirit release, or relax first-life restore. Native format `NATIVE_FORMAT_VERSION` identifies
 the profile source shape and rejects earlier identities without migration.
 Production admission and private source/compiler holds remain unchanged.
 

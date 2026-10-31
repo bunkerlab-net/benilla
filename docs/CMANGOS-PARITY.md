@@ -137,7 +137,7 @@ is meaningful without a bounded content/mechanics inventory.
   Kill awards require proven owner-generated death/tap state and explicit
   no-effect honor/reputation and fresh-online clock contracts. Native ordinary
   quests, kill XP and gated admin +1 already compose these reducers, project
-  talent field 1102 and persist their source callback histories. Native81 binds
+  talent field 1102 and persist their source callback histories. The current native format binds
   historical casts/auras to owner-specific journal prefixes within unchanged
   count/byte bounds. Authored headless fixtures do not establish real-data
   playability or full Classic parity.
@@ -196,7 +196,7 @@ is meaningful without a bounded content/mechanics inventory.
   filter update. The receipt proves only that single bit is clear under the
   explicit control/script/aura closure, including current executable abilities;
   it does not claim complete UnitState or effective MMap settings. Native record
-  format 81 retains this required-option evidence and rejects earlier formats.
+  format `NATIVE_FORMAT_VERSION` retains this required-option evidence and rejects earlier formats.
   The first ordinary Chase source-owner cache contract requires explicit first
   dispatch, revision one and Complete NORMAL with exact endpoints/all segment predicates. Retained
   use still requires exact prior and increment. Runtime-owned live dispatch is
@@ -273,7 +273,7 @@ is meaningful without a bounded content/mechanics inventory.
   front arcs, spell-facing arcs and motion bearings with a pinned software-IEEE
   glibc profile. Receipts are recomputed during replay; unrelated LOS, range,
   visibility, navigation and raw-content dependencies remain open. This bounded
-  service uses experimental native checkpoint format 81, without changing the
+  service uses experimental native checkpoint format `NATIVE_FORMAT_VERSION`, without changing the
   separate character/profile save format or admitting production gameplay.
   Each native NPC now owns a real source EventProcessor for AI notifications,
   preserving corpse updates, DEAD clock suspension, forced respawn replacement,
@@ -319,7 +319,7 @@ is meaningful without a bounded content/mechanics inventory.
   semantics cannot disappear. Unsupported learned active executors remain visibly
   unavailable only after their learning/stat effects have been validated. Selected
   spell authority v7 retains the bounded full-raw ID 133 fields only after a
-  source-backed neutral modifier closure. Native81 owns idle player BASE/OFF
+  source-backed neutral modifier closure. The current native format owns idle player BASE/OFF
   attack timers, source equipment Delay/break transitions, successful-release
   COMBAT resets and durable historical reset validation. Full-raw execution also
   requires an owned pose-bound zone/area observation and scoped absence from a
@@ -327,7 +327,7 @@ is meaningful without a bounded content/mechanics inventory.
   The authored full-raw
   fixture does not establish actual DBC equality; the producer/compiler and
   native admission remain closed. See [the bounded spell contract](../crates/benilla-world-runtime/SPELL-AUTHORITY.md).
-  Native81 retains source-derived creation/entry plans and realizes the selected
+  The current native format retains source-derived creation/entry plans and realizes the selected
   first-entry RNG receipt once, before tick0. The authored Dodge81/Detect3050
   phase fixtures do not establish actual Human loaded order, DBC rows or
   production admission. General channels, procs, triggered scripts and arbitrary
@@ -358,6 +358,12 @@ is meaningful without a bounded content/mechanics inventory.
   tables, rates and loader-order witnesses, with bounded complete child execution
   and pinned differential cases. Nested/grouped references remain excluded;
   selected SQL rows still do not establish authentic loader order.
+  Ungrouped negative-chance body leaves retain quest-only identity and an explicit
+  typed quest-drop rate. Logged incomplete ReqItem counters govern owner-visible
+  generation, current visibility and collection. Authored eight-item controller
+  cases and existing store outbox faults cover callbacks, duplicate refusal and
+  reopen; conditions, grouped/referenced quest leaves and group loot still reject.
+  See the [solo quest-only boundary](../crates/benilla-world-runtime/LOOT-INVENTORY.md#solo-quest-only-body-leaves).
   Admin grants allow exact partial capacity/unique results,
   self-unbinding, retained spell/set/quest metadata and real empty carried Bags.
   Backpack-only positional move/swap/merge now has a source policy, transactional

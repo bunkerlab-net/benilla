@@ -108,7 +108,7 @@ Graphical assets, font/language tables and client talk gestures remain unverifie
 
 ## Transaction, continuation and incompatible format
 
-Native format 81 (`benilla-native-creature-string-identities-v81`) binds profile, state,
+Native format `NATIVE_FORMAT_VERSION` (`NATIVE_POLICY`) binds profile, state,
 record and checkpoint domains, with separate melee and callback domains. Native50 and earlier are rejected,
 even after outer checksums are recomputed. The periodic-roll reorder also changes
 callback witnesses and is an independent reason old journals cannot be replayed.

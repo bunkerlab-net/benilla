@@ -47,7 +47,7 @@ flags, not hostility. Existing historical mainhand proof still excludes tracked
 factions; this change does not enable those attacks or weaken that proof. Faction cheats, PvP control, and new source content are not added. The separate
 player watched-faction descriptor is described in [WATCHED-FACTION.md](WATCHED-FACTION.md).
 This integration introduced native format **57** and native reputation policy **v3**;
-current native format **81** also owns the separate watched field and action-bar display byte and rejects earlier snapshots;
+current native format `NATIVE_FORMAT_VERSION` also owns the separate watched field and action-bar display byte and rejects earlier snapshots;
 there is no migration and the production capability remains uninhabited.
 
 ## Adjacent work not claimed

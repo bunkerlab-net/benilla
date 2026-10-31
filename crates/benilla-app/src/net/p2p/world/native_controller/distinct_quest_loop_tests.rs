@@ -9,12 +9,24 @@ struct LoopCatalog {
     quest: q::QuestRow,
     map: u32,
     displays: Vec<u32>,
+    loot_item: inv::Item,
 }
 impl LoopCatalog {
     fn new(profile: &n::Profile) -> Self {
         Self {
             map: profile.map_id,
             displays: profile.npcs.iter().map(|npc| npc.display_id).collect(),
+            loot_item: profile
+                .quest_progression
+                .as_ref()
+                .unwrap()
+                .loot
+                .as_ref()
+                .unwrap()
+                .inventory
+                .item(loop_fixture::ITEM)
+                .unwrap()
+                .clone(),
             quest: profile
                 .quest_progression
                 .as_ref()
@@ -55,7 +67,11 @@ impl ClientCatalog for LoopCatalog {
             return None;
         }
         Some(benilla_protocol::messages::ItemInfo {
-            class: if entry == 900001 { 4 } else { 15 },
+            class: if entry == 900001 {
+                4
+            } else {
+                self.loot_item.class
+            },
             subclass: 0,
             name: format!("Authored item {entry}"),
             display_info_id: if entry == 900001 { 900002 } else { 70002 },
@@ -95,7 +111,11 @@ impl ClientCatalog for LoopCatalog {
             spells: Vec::new(),
             spell_charges_0: 0,
             use_spell: None,
-            bonding: 0,
+            bonding: if entry == 900001 {
+                0
+            } else {
+                self.loot_item.bonding
+            },
             description: "An original test token.".into(),
             page_text: 0,
             language_id: 0,
@@ -331,6 +351,9 @@ fn assert_source_hosts(controls: &Controls) {
 mod fault_tests;
 #[path = "distinct_quest_loop_progress_tests.rs"]
 mod progress_tests;
+
+#[path = "quest_only_loot_tests.rs"]
+mod quest_only;
 
 #[allow(dead_code)] // Invoked by the app-only loaded Service fixture; compiled by the controller harness.
 #[path = "loaded_quest_loop_fixture.rs"]

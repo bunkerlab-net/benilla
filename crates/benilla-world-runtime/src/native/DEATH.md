@@ -76,7 +76,7 @@ relax the HP/phase restore relation or enable ghost/release states.
 
 ### Bounded forced-stop composition and remaining gaps
 
-Native format 81 composes the actual forced player stop in the narrowly selected
+Native format `NATIVE_FORMAT_VERSION` composes the actual forced player stop in the narrowly selected
 source-motion + first-life death + raw spell/control owner domain, without player
 slow. See [source-thread spline IDs](SOURCE-SPLINE-IDS.md) for exact closure,
 shared NPC/player allocation, callback pose and checkpoint proof. Outside that

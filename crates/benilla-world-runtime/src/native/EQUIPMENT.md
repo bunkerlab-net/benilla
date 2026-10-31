@@ -106,7 +106,7 @@ does not prove effective-stat consistency.
 Focused helper tests establish these callbacks only. They do not establish complete
 native combat, multiplayer, inventory/equipment management, or real-client parity.
 
-## Immutable equipped origin (equipment format2, native81)
+## Immutable equipped origin (equipment format2, current native)
 
 Source `Item.cpp::CreateItem` creates an item object once; `CloneItem` creates a
 new object. `Player.cpp::RemoveItem`, `StoreItem` and `EquipItem` move the existing
@@ -137,11 +137,11 @@ membership checks remain strict. Future movement needs source-ordered membership
 and stat/resource transition proofs, stable carried/equipped identity, item-use
 requirements and complete callback ownership. Damaged carried items, bind-on-equip
 transitions, weapons/bags, loadout substitutions and native admission remain outside
-this phase. Native81 rejects earlier formats; no save migration is claimed.
+this phase. The current native format rejects earlier formats; no save migration is claimed.
 
 ## Shared local equipment handles
 
-Native81 additionally registers each source-initialized worn object in the existing
+The current native format additionally registers each source-initialized worn object in the existing
 local item-handle space. Initial backpack creation keeps its existing order and
 IDs; then ascending genesis equipment slots receive one checked, contiguous handle
 each. The resulting frontier is the next ordinary creation handle. This names
@@ -162,4 +162,4 @@ This supplies shared identity, not armor movement. No live command, loadout/stat
 recipe relaxation, damaged carried support, ghost state or native admission is
 added. Controller save-failure/retry/reopen and headless parser tests validate this
 boundary; they do not establish a rendered or user-tested equip/unequip feature.
-Native81 has no migration from earlier formats.
+The current native format has no migration from earlier formats.

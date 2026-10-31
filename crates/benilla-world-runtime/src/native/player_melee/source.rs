@@ -519,6 +519,7 @@ impl SwingWitness {
                     row.minimum_money,
                     row.maximum_money,
                     &loot.rules,
+                    &saved.generated.owner_quests,
                     &mut crate::native::loot::RandomHost {
                         state: &mut probe,
                         corpse: target,

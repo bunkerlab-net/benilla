@@ -33,6 +33,17 @@ impl<A: Authority> Frame<'_, A> {
         if row.no_loot {
             return Ok(());
         }
+        let owner_quests = self
+            .profile
+            .quest_progression
+            .as_ref()
+            .unwrap()
+            .loot_quest_items(
+                self.state
+                    .quest_progression
+                    .as_ref()
+                    .ok_or(NativeError::InvalidState)?,
+            )?;
         let first_counter = self.state.rng_counter;
         let start = self.draws.len();
         let generated = g.catalog.generate(
@@ -40,6 +51,7 @@ impl<A: Authority> Frame<'_, A> {
             row.minimum_money,
             row.maximum_money,
             &g.rules,
+            &benilla_sim::loot::OwnerQuestItems::Known(owner_quests),
             &mut super::super::loot::RandomHost {
                 state: self.state,
                 corpse: id,
@@ -145,13 +157,25 @@ impl<A: Authority> Frame<'_, A> {
                 reason: 4,
             }));
         }
+        let owner_quests = self
+            .profile
+            .quest_progression
+            .as_ref()
+            .unwrap()
+            .loot_quest_items(
+                self.state
+                    .quest_progression
+                    .as_ref()
+                    .ok_or(NativeError::InvalidState)?,
+            )?;
         let exhausted_nonempty = self.loot_exists(id)
             && self.state.npcs[&id.spawn]
                 .corpse_loot
                 .as_ref()
                 .is_some_and(|loot| {
                     !loot.generated.items.is_empty()
-                        && loot.empty()
+                        && loot.visible_items(&owner_quests).next().is_none()
+                        && loot.money() == 0
                         && !(loot.generated.fake && !loot.opened)
                 });
         // Loot::ShowContentTo checks CanLoot only when the original item list is
@@ -183,7 +207,7 @@ impl<A: Authority> Frame<'_, A> {
             }
             let window = LootWindow {
                 corpse: id,
-                items: loot.items().cloned().collect(),
+                items: loot.visible_items(&owner_quests).cloned().collect(),
                 money: loot.money(),
             };
             self.state.quest_progression.as_mut().unwrap().loot_target = Some(id);
@@ -266,7 +290,13 @@ impl<A: Authority> Frame<'_, A> {
             return Ok(None);
         }
         let corpse = self.state.npcs[&id.spawn].corpse_loot.as_ref().unwrap();
-        let Some(item) = corpse.generated.items.get(slot as usize).cloned() else {
+        let Some(item) = corpse
+            .generated
+            .items
+            .iter()
+            .find(|item| item.slot == slot)
+            .cloned()
+        else {
             self.events.push(Event::Loot(LootEvent::StorageFailed {
                 corpse: id,
                 item: 0,
@@ -281,6 +311,9 @@ impl<A: Authority> Frame<'_, A> {
         let g = self.profile.quest_progression.as_ref().unwrap();
         let catalog = &g.loot.as_ref().unwrap().inventory;
         let current = self.state.quest_progression.as_ref().unwrap();
+        if item.quest_only && !g.loot_quest_items(current)?.contains(&item.item) {
+            return self.release_loot(id);
+        }
         let mut inventory = current.inventory.clone().ok_or(NativeError::InvalidState)?;
         let plan = inventory.can_store_corpse_item(catalog, item.item, item.count.into())?;
         if plan.result != inv::InventoryResult::Ok {
@@ -320,6 +353,12 @@ impl<A: Authority> Frame<'_, A> {
         self.events
             .extend(callbacks.into_iter().map(Event::QuestProgression));
         self.events.push(Event::InventoryStored(Box::new(stored)));
+        let owner_quests = self
+            .profile
+            .quest_progression
+            .as_ref()
+            .unwrap()
+            .loot_quest_items(self.state.quest_progression.as_ref().unwrap())?;
         let corpse = self
             .state
             .npcs
@@ -329,9 +368,20 @@ impl<A: Authority> Frame<'_, A> {
             .as_mut()
             .unwrap();
         corpse.collected.insert(slot);
-        let empty = corpse.empty();
+        let empty = corpse.visible_items(&owner_quests).next().is_none() && corpse.money() == 0;
         self.events
             .push(Event::Loot(LootEvent::ItemRemoved { corpse: id, slot }));
+        if !owner_quests.contains(&item.item) {
+            for hidden in corpse
+                .items()
+                .filter(|other| other.quest_only && other.item == item.item)
+            {
+                self.events.push(Event::Loot(LootEvent::ItemRemoved {
+                    corpse: id,
+                    slot: hidden.slot,
+                }));
+            }
+        }
         self.events
             .push(Event::ItemAcquired(ItemAcquisition::CorpseLoot));
         if empty {

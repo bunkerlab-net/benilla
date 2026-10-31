@@ -1,6 +1,6 @@
 # Registered original backpack exchanges
 
-Native format 81, inventory policy v18 and quest reconstruction v17 extend the
+Native format `NATIVE_FORMAT_VERSION`, inventory policy v18 and quest reconstruction v17 extend the
 existing custody-only relocation owner to occupied backpack slots 23–38. This is
 conditional native-component functionality, not production native admission.
 

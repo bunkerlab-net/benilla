@@ -365,6 +365,14 @@ impl CorpseLoot {
             .iter()
             .filter(|i| !self.collected.contains(&i.slot))
     }
+    /// Quest-only slots also require current need, LootItem::AllowedForPlayer at LootMgr.cpp:479-483.
+    pub fn visible_items<'a>(
+        &'a self,
+        owner: &'a BTreeSet<u32>,
+    ) -> impl Iterator<Item = &'a l::LootItem> {
+        self.items()
+            .filter(move |item| !item.quest_only || owner.contains(&item.item))
+    }
     pub fn money(&self) -> u32 {
         if self.money_taken {
             0
@@ -541,6 +549,18 @@ impl From<l::Error> for NativeError {
     }
 }
 impl NativeWorld {
+    pub fn loot_quest_items(&self) -> Result<BTreeSet<u32>, NativeError> {
+        self.profile
+            .quest_progression
+            .as_ref()
+            .ok_or(NativeError::InvalidState)?
+            .loot_quest_items(
+                self.state
+                    .quest_progression
+                    .as_ref()
+                    .ok_or(NativeError::InvalidState)?,
+            )
+    }
     #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub(super) fn validate_loot_state(&self) -> Result<(), NativeError> {
         let genesis = self
@@ -579,7 +599,7 @@ impl NativeWorld {
                         || c.generated.items.len() > 16
                         || c.collected
                             .iter()
-                            .any(|slot| usize::from(*slot) >= c.generated.items.len())
+                            .any(|slot| !c.generated.items.iter().any(|item| item.slot == *slot))
                         || c.looted && !(c.empty() || c.generated.fake)
                         || npc
                             .ai
@@ -597,6 +617,7 @@ impl NativeWorld {
                         row.minimum_money,
                         row.maximum_money,
                         &g.rules,
+                        &c.generated.owner_quests,
                         &mut RandomHost {
                             state: &mut probe,
                             corpse: npc.id,

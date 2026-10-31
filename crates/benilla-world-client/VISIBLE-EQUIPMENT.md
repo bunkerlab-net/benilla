@@ -48,7 +48,7 @@ links are unchanged. Consolidated descriptor repetition is not an assertion abou
 upstream dirty-mask packet timing. Checkpoint failures still withhold the batch,
 and retry publishes without re-executing input.
 
-The current native schema is format81. There is no save migration,
+The current native schema is format`NATIVE_FORMAT_VERSION`. There is no save migration,
 no private input/compiler work and no wider source/admission domain. Mutable
 loadout membership, equip/unequip callbacks and additional appearance fields remain
 separate work requiring their own authenticated owners.
