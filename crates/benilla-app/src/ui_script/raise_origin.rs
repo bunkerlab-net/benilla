@@ -175,6 +175,7 @@ mod tests {
         assert!(matches!(super::failure(), super::Failure::Panic));
     }
 
+    const FRAME_TIME_RAISE_LINE: u32 = line!() + 3;
     fn raises_at_frame_time(world: &mut World) {
         let mut ui = world.non_send_resource_mut::<UiScript>();
         ui.fire_event("PLAYER_MONEY", Vec::new());
@@ -185,8 +186,8 @@ mod tests {
         within(Origin::Lane, || ui.fire_event("PLAYER_MONEY", Vec::new()));
     }
 
-    /// A frame-time system that raises outside every script call, lane firing and tick fails, its
-    /// own function named.
+    /// A frame-time system that raises outside every script call, lane firing and tick fails,
+    /// naming its raise location even when backtrace symbols are unavailable.
     #[test]
     #[cfg_attr(not(debug_assertions), ignore = "the check compiles out")]
     fn a_raise_from_a_frame_time_system_fails_naming_it() {
@@ -194,9 +195,12 @@ mod tests {
         let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| app.update()))
             .expect_err("the raise passed");
         let message = failed.downcast_ref::<String>().cloned().unwrap_or_default();
+        // Caller locations do not depend on backtrace symbols or debug info.
+        let message = message.replace('\\', "/");
+        let file = file!().replace('\\', "/");
         assert!(
             message.contains("`PLAYER_MONEY`")
-                && message.contains("raise_origin::tests::raises_at_frame_time"),
+                && message.contains(&format!("{file}:{FRAME_TIME_RAISE_LINE}:")),
             "{message}"
         );
     }
