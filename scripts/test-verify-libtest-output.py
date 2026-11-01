@@ -1457,9 +1457,9 @@ class ExactProofTests(unittest.TestCase):
         expected_step = (
             "      - name: test\n"
             "        env:\n"
-            "          # App lib-test rustc peaks near 12 GiB, so another heavy target "
-            "can exceed the 16 GB runner.\n"
-            "          CARGO_BUILD_JOBS: 1\n"
+            "          # Parallelize only with learned heavy app history; the 11 GiB budget keeps that compile exclusive.\n"
+            "          CARGO_BUILD_JOBS: ${{ steps.mbx-memory-history.outputs.heavy-learned == 'true' && '3' || '1' }}\n"
+            "          MBX_SCHEDULER_MEMORY: 11GiB\n"
             + command
         )
         self.assertIn(expected_step, steps)
@@ -1478,13 +1478,62 @@ class ExactProofTests(unittest.TestCase):
         self.assertIn(f"          key: {prefix}" + "${{ github.run_id }}-${{ github.run_attempt }}\n", restore)
         self.assertIn(f"          restore-keys: |\n            {prefix}\n", restore)
         self.assertIn("        id: mbx-memory\n", restore)
-        self.assertIn("        run: mbx stats --scheduler\n", report)
+        self.assertIn("        id: mbx-memory-history\n", report)
+        self.assertIn("        run: |\n          python3 - <<'PY'\n", report)
         self.assertIn(
             "        if: always() && steps.mbx-memory.outputs.cache-primary-key != '' && "
             "(github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)\n",
             save,
         )
         self.assertIn("          key: ${{ steps.mbx-memory.outputs.cache-primary-key }}\n", save)
+
+    def test_workspace_parallel_compilation_requires_learned_heavy_charge(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        report = workflow.split("      - name: Report restored mbx scheduler memory\n", 1)[1]
+        code = textwrap.dedent(report.split("python3 - <<'PY'\n", 1)[1].split("\n          PY", 1)[0])
+        header = "Scheduler: enabled (4 cores, 13.3 GiB memory budget, from the global settings)\n"
+        entry = (
+            "  benilla_app [opt1 lto-off cgu- debug0] [link]: peak=13.2 GiB, samples=0, "
+            "n=2, window max=13.2 GiB, bound=13.2 GiB, charge=1 cores + 13.2 GiB (window)\n"
+        )
+        cases = (
+            ("learned", header + entry, 0, "true"),
+            ("missing", header, 0, "false"),
+            ("empty", "", 0, "false"),
+            ("wrong profile", header + entry.replace("opt1", "opt3"), 0, "false"),
+            ("legacy", header + entry.replace("(window)", "(legacy)"), 0, "false"),
+            ("zero samples", header + entry.replace("n=2,", "n=0,"), 0, "false"),
+            ("small charge", header + entry.replace("charge=1 cores + 13.2", "charge=1 cores + 10.9"), 0, "false"),
+            ("budget boundary", header + entry.replace("charge=1 cores + 13.2", "charge=1 cores + 11.0"), 0, "false"),
+            ("invalid charge", header + entry.replace("charge=1 cores + 13.2", "charge=1 cores + NaN"), 0, "false"),
+            ("duplicate", header + entry + entry, 0, "false"),
+            ("disabled", header.replace("enabled", "disabled") + entry, 0, "false"),
+            ("command failure", header + entry, 1, "false"),
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            mbx = root / "mbx"
+            mbx.write_text(
+                "#!" + sys.executable + "\n"
+                "import os, sys\n"
+                "assert sys.argv[1:] == ['stats', '--scheduler']\n"
+                "print(os.environ['FAKE_OUTPUT'], end='')\n"
+                "sys.exit(int(os.environ['FAKE_EXIT']))\n"
+            )
+            mbx.chmod(0o755)
+            for name, text, status, expected in cases:
+                with self.subTest(case=name):
+                    output = root / "output"
+                    output.write_text("")
+                    env = dict(os.environ, PATH=f"{root}:{os.environ['PATH']}", GITHUB_OUTPUT=str(output),
+                               FAKE_OUTPUT=text, FAKE_EXIT=str(status))
+                    result = subprocess.run([sys.executable, "-c", code], env=env, text=True,
+                                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(output.read_text(), f"heavy-learned={expected}\n")
+            env["GITHUB_OUTPUT"] = str(root)
+            result = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_aggregate_requires_every_job_and_rejects_non_success(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
