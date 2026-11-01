@@ -58,6 +58,7 @@ mod input;
 pub(crate) mod land;
 mod move_trace;
 mod movement_net;
+pub(crate) use movement_net::send_heartbeat;
 mod posture;
 // A movement command's press or release, run inside the frame's input records.
 mod press;
@@ -91,6 +92,7 @@ pub(crate) struct ControlRestore;
 // The last writer of a self body part's render alpha: `entities::apply_unit_mat_alpha` orders
 // itself before it.
 pub(crate) use camera::apply_self_model_fade;
+pub(crate) use camera_saved::{camera_at_interface_load, rebuild_camera};
 use controller::control;
 pub(crate) use controller::LookSample;
 // The private camera and `state` items are re-imported for the modules beside this one, which
@@ -130,9 +132,12 @@ use state::{
 /// The swim boundary `0.75·h`, also the wade ceiling, for the creature swim marker and the
 /// footstep splash, which have no `Player`.
 pub(crate) use swim::{may_swim, swim_enter_depth};
+/// The camera on a followed object, for the tests of the arrows' feeds.
+#[cfg(test)]
+pub(crate) use view_subject::followed_tests::camera_on_an_eye;
 /// The camera's followed unit when not our body; [`crate::camera_shake`] takes its body frame and
 /// two suspend gates from it, as the reference does from `[cam+0x88]`.
-pub(crate) use view_subject::{FarSight, ViewSubject};
+pub(crate) use view_subject::{FarSight, FollowedObject, ViewSubject};
 
 /// `UNIT_FLAG_STUNNED`, the `UNIT_FIELD_FLAGS` bit that stops turning. The reference reads it off
 /// the descriptor (`[[unit+0x110]+0xa0]`, predicate `0x5145b0`, an inverted `not/shr/and` test) at
@@ -381,8 +386,8 @@ impl Plugin for PlayerPlugin {
                 Update,
                 (
                     view_subject::publish_view_subject,
-                    // The spyglass zoom (aura 76), before `control`, which reads it to hold the
-                    // rig in first person.
+                    // The spyglass zoom (aura 76), before `control`, which takes its start and end
+                    // onto the camera.
                     scoped_view::apply_scoped_view,
                 )
                     .in_set(WorldStage::Input)

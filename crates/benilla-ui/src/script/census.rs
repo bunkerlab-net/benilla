@@ -161,31 +161,25 @@ fn site() -> String {
 }
 
 fn site_frames(trace: &str) -> String {
-    let trace = normalized_path(trace);
-    let frames: Vec<&str> = trace
+    let frames: Vec<String> = trace
         .lines()
         .filter_map(|l| l.trim().strip_prefix("at "))
+        .map(|at| at.replace('\\', "/"))
         .filter(|at| at.starts_with("./src/") || at.contains("benilla-app/src/"))
         .take(3)
-        .map(|at| at.rsplit_once("src/").map_or(at, |(_, rest)| rest))
+        .map(|at| under_src(&at))
         .collect();
     frames.join("<")
 }
 
-fn normalized_path(path: &str) -> std::borrow::Cow<'_, str> {
-    if path.contains('\\') {
-        path.replace('\\', "/").into()
-    } else {
-        path.into()
+/// `path` past its last `src` folder, its parts joined by `/` whichever separator the platform
+/// wrote: a Windows path reads `crates\benilla-ui\src\script\census.rs`.
+fn under_src(path: &str) -> String {
+    let path = path.replace('\\', "/");
+    match path.rsplit_once("src/") {
+        Some((_, rest)) => rest.to_string(),
+        None => path,
     }
-}
-
-fn turn_label(file: &str, line: u32) -> String {
-    let file = normalized_path(file);
-    let file = file
-        .rsplit_once("src/")
-        .map_or(file.as_ref(), |(_, rest)| rest);
-    format!("turn@{file}:{line}")
 }
 
 /// With a survey running, a frame that hears every event and does nothing ([`listen_to_all`]), so
@@ -271,7 +265,7 @@ impl Applying {
 
     /// An engine turn called from `at`, counted as `turn@` and its file and line under `src/`.
     pub(crate) fn turn(at: &std::panic::Location) -> Self {
-        Self::kind(turn_label(at.file(), at.line()))
+        Self::kind(format!("turn@{}:{}", under_src(at.file()), at.line()))
     }
 
     fn kind(kind: String) -> Self {
@@ -412,7 +406,10 @@ mod tests {
             "crates/benilla-ui/src/script/census.rs",
             r"crates\benilla-ui\src\script\census.rs",
         ] {
-            assert_eq!(super::turn_label(file, 352), "turn@script/census.rs:352");
+            assert_eq!(
+                format!("turn@{}:352", super::under_src(file)),
+                "turn@script/census.rs:352"
+            );
         }
     }
 
@@ -492,6 +489,21 @@ at .\src\lanes.rs:99",
             s.fire_event("PLAYER_TARGET_CHANGED", vec![]);
             sent.set(sent.get() + 1);
         });
+    }
+
+    /// A site is named by its path under `src/` with `/` on every platform, so a Windows build's
+    /// `\` paths (`Location::file`, a backtrace's frames) name it as a unix build's do.
+    #[test]
+    fn a_site_is_its_path_under_src_with_forward_slashes() {
+        for path in [
+            "crates/benilla-ui/src/script/census.rs",
+            r"crates\benilla-ui\src\script\census.rs",
+            r"D:\a\benilla\crates\benilla-ui\src\script\census.rs",
+            r".\src\script\census.rs",
+        ] {
+            assert_eq!(super::under_src(path), "script/census.rs", "{path}");
+        }
+        assert_eq!(super::under_src(r"build\out.rs"), "build/out.rs");
     }
 
     /// A live debug build panics over a count by default, and `BENILLA_SEND_CENSUS_PANIC=0` alone

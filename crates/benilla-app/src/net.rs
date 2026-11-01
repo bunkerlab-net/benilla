@@ -666,6 +666,10 @@ pub(crate) enum CharRequest {
     /// Fetch the roster again (`CMSG_CHAR_ENUM`) on the parked session, then stay parked with
     /// the fresh roster: `GetCharacterListUpdate`, which the stock screen calls whenever it shows.
     Enumerate,
+    /// Ask for a guild's record (`CMSG_GUILD_QUERY`) on the parked session and stay parked: the
+    /// select build's emblem lookup (`0x472cde` → `0x6d6d20` → `0x560e30`). The answer comes when
+    /// the server sends it, as any session's `SMSG_GUILD_QUERY_RESPONSE` does.
+    GuildQuery(u32),
 }
 
 /// The realm channel: the answer to each [`RealmListMessage`]. Two parks listen, the login-side
@@ -1832,10 +1836,11 @@ pub(crate) enum ClientCommand {
         mail_id: u32,
         template_id: u32,
     },
-    /// `CMSG_ITEM_TEXT_QUERY`, once per mail with a nonzero `item_text_id`.
+    /// `CMSG_ITEM_TEXT_QUERY`, once per text: `key` is the mail-body key, the item's guid or 0
+    /// (`benilla_protocol::messages::item_text_query`).
     ItemTextQuery {
         text_id: u32,
-        mail_id: u32,
+        key: u64,
     },
     /// `MSG_QUERY_NEXT_MAIL_TIME`, on entering the world, to seed `HasNewMail()`.
     QueryNextMailTime,
@@ -2374,11 +2379,13 @@ pub(crate) enum ClientCommand {
 }
 
 /// The realm list (`CMD_REALM_LIST`); the IO thread waits for a [`RealmRequest`]. `failed` is a
-/// query that got no answer (`REALM_LIST_FAILED`), `realms` then the list last held.
+/// query that got no answer (`REALM_LIST_FAILED`), `realms` then the list last held, and `emptied`
+/// a query that empties the holder ([`benilla_protocol::SessionEvent::RealmList`]).
 #[derive(Message)]
 pub(crate) struct RealmListMessage {
     pub(crate) realms: Vec<benilla_protocol::RealmInfo>,
     pub(crate) failed: bool,
+    pub(crate) emptied: Option<benilla_protocol::RealmListEmptied>,
 }
 
 /// The character roster (`SMSG_CHAR_ENUM`); the IO thread waits for the select screen to pick. `realm` is the realm this session connected to.
@@ -2404,10 +2411,12 @@ pub(crate) struct WorldAuthMessage {
     pub(crate) generation: u64,
 }
 
-/// A roster ask on the world session `epoch` failed on the stream.
+/// A roster ask on the world session `epoch` failed: on the stream, or with `emptied` in a reply
+/// that failed the list itself (`0x5b4539`-`0x5b455d`).
 #[derive(Message)]
 pub(crate) struct RosterFailedMessage {
     pub(crate) epoch: u64,
+    pub(crate) emptied: bool,
 }
 
 /// The world session read `SMSG_ADDON_INFO` (the handler `0x5b4260`): the addons it hid from the

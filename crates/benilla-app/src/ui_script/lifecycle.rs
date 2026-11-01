@@ -537,6 +537,7 @@ fn load_ingame_ui_seated(world: &mut World, seat: LoadSeat) {
         return;
     }
     mint_entry_vm(world);
+    crate::player::camera_at_interface_load(world);
     let Some(mut script) = world.remove_non_send_resource::<UiScript>() else {
         warn!("ui_script: entering the world with no VM — the in-game UI will not load");
         return;
@@ -645,6 +646,7 @@ fn load_ingame_ui_seated(world: &mut World, seat: LoadSeat) {
     crate::ui_items::feed::seed_vm_item_records(world, &mut script);
     crate::ui_tradeskill::seed_repeat(world, &mut script);
     crate::ui_unit::seed_language_table(world, &mut script);
+    crate::ui_unit::seed_item_req_names(world, &mut script);
     // The world map's continent and zone lists: static DBC data in the reference, read at file
     // scope (Astrolabe builds its whole zone table from `GetMapContinents`/`GetMapZones` there).
     crate::ui_world_map::seed_world_map_catalog(world, &mut script);
@@ -1108,6 +1110,8 @@ fn close_ui_session(world: &mut World, root: ShutdownRoot) {
     if silenced {
         unsilence_ui_shutdown(world);
     }
+    // Every store's callbacks freed, running none, behind the shutdown's event (`0x490c35`).
+    crate::wdb::free_store_callbacks(world);
     // After the shutdown events (a `PLAYER_LOGOUT` handler may `SetCVar`, which in the reference
     // lands in an engine-side store that survives) and before the VM is replaced.
     crate::cvars::fold_dying_vm_cvars(world);
@@ -1180,6 +1184,9 @@ pub(crate) fn run_pending_reload(world: &mut World) {
     // A boot VM, never the glue's: the reload builds no glue (`0x495664` then `0x495669`), and the
     // load replaces this VM at once.
     close_ui_session(world, ShutdownRoot::Reload);
+    // The teardown destroys the camera with the world frame and the load builds a new one
+    // (`0x481e12`, `0x481b4e` → `0x50c0e0`), ahead of the new VM's first line.
+    crate::player::rebuild_camera(world);
     install_boot_vm(world);
     load_ingame_ui_seated(world, LoadSeat::Live);
     // `UI_Init` ends by re-entering the world-enter cascade (`0x490168`), its sends included, but

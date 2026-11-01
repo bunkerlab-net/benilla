@@ -172,6 +172,7 @@ pub(super) fn roster_character(c: &Character) -> RosterCharacter {
             y: c.position.position[1],
             z: c.position.position[2],
         },
+        guild_id: 0,
         flags: 0,
         // Local profiles already hold their actual level/start; they never encode the
         // realm's level-zero cinematic/intro-eye sentinel.
@@ -398,6 +399,8 @@ pub(super) fn browse(
                         roster(saved, events, RosterCause::Unasked, generation)
                     })?
                 }
+                // Local profiles have no guild membership or guild records to query.
+                super::super::CharRequest::GuildQuery(_) => {}
                 // Rename remains unsupported; deletion never changes names or identities.
                 super::super::CharRequest::Rename { .. } => emit(
                     events,
@@ -412,6 +415,7 @@ pub(super) fn browse(
                 SessionEvent::RealmList {
                     realms: Vec::new(),
                     failed: true,
+                    emptied: None,
                 },
             )?,
             Ok(ParkRequest::Realm(super::super::RealmRequest::Close)) => {}

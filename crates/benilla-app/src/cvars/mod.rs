@@ -1525,6 +1525,10 @@ mod tests {
             ClickConfig::default().deselect_on_click
         );
         assert_eq!(
+            d["targetNearestDistance"],
+            crate::target::TabRange::default().0
+        );
+        assert_eq!(
             d["mouseInvertPitch"] != 0.0,
             LookConfig::default().invert_pitch
         );
@@ -1545,6 +1549,11 @@ mod tests {
             follow.tracking_style.cvar().parse::<f32>().unwrap()
         );
         assert_eq!(d["cameraYawSmoothSpeed"], follow.yaw_speed);
+        assert_eq!(d["cameraPitchSmoothSpeed"], follow.pitch_speed);
+        assert_eq!(d["cameraDistanceSmoothSpeed"], follow.distance_speed);
+        assert_eq!(d["cameraSmoothTimeMin"], follow.time_min);
+        assert_eq!(d["cameraSmoothTimeMax"], follow.time_max);
+        assert_eq!(d["cameraViewBlendStyle"], follow.view_blend_style as f32);
         assert_eq!(FollowStyle::default(), FollowStyle::Smart);
         assert_eq!(d["autoLootDefault"] != 0.0, LootConfig::default().auto_loot);
         assert_eq!(
@@ -1852,6 +1861,8 @@ mod tests {
         assert!(res::<SoundConfig>(&app).enabled);
         apply(&mut app, "deselectonclick", "0");
         assert!(!res::<ClickConfig>(&app).deselect_on_click);
+        apply(&mut app, "targetnearestdistance", "20");
+        assert_eq!(res::<crate::target::TabRange>(&app).0, 20.0);
         apply(&mut app, "MouseInvertPitch", "1");
         assert!(res::<LookConfig>(&app).invert_pitch);
         apply(&mut app, "mousespeed", "1.4");
@@ -2894,6 +2905,7 @@ mod tests {
             .init_resource::<crate::ui_gamma::DisplayGamma>()
             .init_resource::<ClickConfig>()
             .init_resource::<crate::target::AssistAttack>()
+            .init_resource::<crate::target::TabRange>()
             .init_resource::<LootConfig>()
             .init_resource::<NameConfig>()
             .init_resource::<ClutterConfig>()
@@ -3656,10 +3668,6 @@ mod tests {
                 "TextStatusBar.lua reads it on each CVAR_UPDATE",
             ),
             ("gxApi", "pfUI's system tooltip names the backend"),
-            (
-                "cameraPitchSmoothSpeed",
-                "UIOptionsFrame.lua's Save writes it at a quarter of the Auto Follow Speed slider",
-            ),
             (
                 "useUiScale",
                 "UIOptionsFrame.lua and OptionsFrame.lua branch on it to gate the uiScale slider",

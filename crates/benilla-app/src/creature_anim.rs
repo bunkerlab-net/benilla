@@ -147,11 +147,12 @@ impl AttackStopInFlight {
 
 /// The local player's auto-repeat is armed: the reference's `[+0xd58] & 0x200`, set only by the
 /// local cast-send (`0x6e593b`); with the ranged sheath drawn a standing unit idles on the Load
-/// clip (`0x5fd460`). Cleared only through `cancel_auto_repeat_local`: on the selection's death
-/// (`0x605906`) and on `SMSG_CANCEL_AUTO_REPEAT`, which vmangos sends when a volley's target dies
-/// (`SpellCaster.cpp:1829`). A remote shooter plays LoadBow once at its `SMSG_SPELL_START`
-/// (`CastHold`, `0x6e7901`), then the fire clip per GO; the reference holds HoldBow (109) from
-/// the end of the Load until the first GO.
+/// clip (`0x5fd460`). Cleared by the stop `cancel_auto_repeat_local` (`0x6ea113`), whichever of
+/// its callers runs it, `SMSG_CANCEL_AUTO_REPEAT` among them, which vmangos sends when a volley's
+/// target dies (`SpellCaster.cpp:1829`). Not built: the reference's other clear, a cast result of
+/// 0x2f or 0x30 for any spell (`0x6e1e45`). A remote shooter plays LoadBow once at its
+/// `SMSG_SPELL_START` (`CastHold`, `0x6e7901`), then the fire clip per GO; the reference holds
+/// HoldBow (109) from the end of the Load until the first GO.
 #[derive(Component)]
 pub(crate) struct AutoRepeatArmed;
 
@@ -215,6 +216,15 @@ pub(crate) fn cancel_auto_repeat_local(
     core.pop_if(spell_id);
     auto_repeat.0 = None;
     core.reports.auto_repeat(false);
+}
+
+/// The reach test of our landed swing (`0x5ea880`-`0x5ea8a4`): the squared 3D distance between
+/// the two units' positions against `(4 * max(r1 + r2 + 4/3, 5))^2`, `reach` being the melee reach
+/// `max(...)` ([`crate::target::cursor_mode::melee_reach`]). At or beyond it, `SendAttackStop`
+/// (`0x5ea8a8`); a NaN distance does not stop (`0x5ea8a4` jp).
+fn swing_beyond_stop_reach(dist_sq: f32, reach: f32) -> bool {
+    let limit = reach * 4.0;
+    dist_sq >= limit * limit
 }
 
 /// The local StopAttack, reference `0x5ecac0`, for a caller with nobody to signal between its
