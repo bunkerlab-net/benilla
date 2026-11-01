@@ -1,5 +1,6 @@
 //! The real game Options frame before login. This is a separate, short-lived FrameXML VM:
 //! no PLAYER_LOGIN, world feeds, third-party addons, or server preference writes.
+use benilla_ui::script::origin::{within, Origin};
 use benilla_ui::script::UiScript;
 use bevy::prelude::*;
 
@@ -66,23 +67,28 @@ fn open(world: &mut World) -> Result<(), ()> {
         script.set_cvar_saved_base(cvars.orphans());
         script.seed_cvars(cvars.vm_seed());
     }
-    crate::bindings::seed_bindings_for_vm(&mut script);
-    crate::bindings::register_binding_readers(world, &mut script);
-    script.load_binding_set(1);
-    super::lifecycle::seat_raster_seam_for_load(world, &mut script);
-    super::addons::register_login_options_addons(&mut script);
-    script.set_instruction_budget(super::addons::LOAD_INSTRUCTION_BUDGET);
-    let result = super::manifest::silenced_ui_load(&mut script, |script| {
-        if !super::load_default_ui(script).is_empty() {
-            return Err(());
-        }
+    // The fork's pre-login interface mirrors UI_Init's own VARIABLES_LOADED (`0x49156a`).
+    let result = within(Origin::Allowed("ui_script::login_options::open"), || {
+        crate::bindings::seed_bindings_for_vm(&mut script);
+        crate::bindings::register_binding_readers(world, &mut script);
+        script.load_binding_set(1);
+        super::lifecycle::seat_raster_seam_for_load(world, &mut script);
+        super::addons::register_login_options_addons(&mut script);
         script.set_instruction_budget(super::addons::LOAD_INSTRUCTION_BUDGET);
-        crate::ui_saved::load_saved_variables(script, |_| {});
-        script.run(SHELL).map_err(|_| ())?;
-        if !script.frame_visible("BenillaOptionsFrame") {
-            return Err(());
-        }
-        Ok(())
+        super::manifest::silenced_ui_load(&mut script, |script| {
+            crate::script_calls::lent_by_world(world, script, |script| {
+                if !super::load_default_ui(script).is_empty() {
+                    return Err(());
+                }
+                script.set_instruction_budget(super::addons::LOAD_INSTRUCTION_BUDGET);
+                crate::ui_saved::load_saved_variables(script, |_| {});
+                script.run(SHELL).map_err(|_| ())?;
+                if !script.frame_visible("BenillaOptionsFrame") {
+                    return Err(());
+                }
+                Ok(())
+            })
+        })
     });
     script.clear_instruction_budget();
     result?;
@@ -112,10 +118,12 @@ pub(super) fn close(world: &mut World) {
     {
         return;
     }
-    if let Some(mut script) = world.get_non_send_resource_mut::<UiScript>() {
-        let _ = script.run("BenillaOptionsFrame:Hide()");
-        crate::ui_saved::save(&mut script);
-    }
+    crate::script_calls::with_hosted_vm(world, |script| {
+        if let Some(script) = script {
+            let _ = script.run("BenillaOptionsFrame:Hide()");
+            crate::ui_saved::save(script);
+        }
+    });
     crate::cvars::fold_dying_vm_cvars(world);
     if let Some(mut cvars) = world.get_resource_mut::<crate::cvars::Cvars>() {
         cvars.save();
@@ -131,16 +139,18 @@ pub(super) fn escape(
     options: Res<LoginOptions>,
     keys: Res<ButtonInput<KeyCode>>,
     capture: Res<super::UiKeyboardCapture>,
-    script: Option<NonSend<UiScript>>,
+    mut vm: crate::script_calls::HostedVm,
 ) {
     if options.active
         && keys.just_pressed(KeyCode::Escape)
         && !capture.typing
         && !capture.consumed.contains(&KeyCode::Escape)
     {
-        if let Some(script) = script {
-            let _ = script.run("BenillaOptionsFrame:Hide()");
-        }
+        vm.run(|script| {
+            if let Some(script) = script {
+                let _ = script.run("BenillaOptionsFrame:Hide()");
+            }
+        });
     }
 }
 
@@ -212,12 +222,32 @@ mod tests {
     #[test]
     fn actual_options_bootstrap_opens_every_category_without_a_player_session() {
         let _data = benilla_formats::wow_data_or_skip!();
-        let mut world = World::new();
-        world.insert_resource(crate::cvars::Cvars::default());
-        world.insert_resource(LoginOptions::default());
+        let mut app = crate::game_plugins::schedule_tests::headless_client_unrun();
+        let world = app.world_mut();
+        world.insert_resource(State::new(crate::client_state::ClientState::Login));
+        assert!(world.resource::<crate::net::SelfGuid>().0.is_none());
+        world.insert_resource(crate::vplates::VPlateMode {
+            enemies: true,
+            friends: true,
+        });
         world.insert_non_send_resource(UiScript::new().unwrap());
-        open(&mut world).expect("production pre-login Options bootstrap");
+        let _origin = benilla_ui::script::origin::arm(
+            super::super::raise_origin::RAISES_AT_THEIR_OWN_PLACE,
+            benilla_ui::script::origin::Failure::Panic,
+        );
+        open(world).expect("production pre-login Options bootstrap");
         let script = world.non_send_resource::<UiScript>();
+        assert!(script.errors().is_empty(), "{:?}", script.errors());
+        let (enemies, friends) = script
+            .eval::<(bool, bool)>(
+                "return NAMEPLATES_ON and true or false, FRIENDNAMEPLATES_ON and true or false",
+            )
+            .unwrap();
+        assert_eq!(
+            *world.resource::<crate::vplates::VPlateMode>(),
+            crate::vplates::VPlateMode { enemies, friends },
+            "VARIABLES_LOADED applies the nameplate verbs through the real host"
+        );
         for category in [
             "Controls",
             "Interface",

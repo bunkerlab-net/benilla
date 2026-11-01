@@ -25,6 +25,14 @@
             return page, pages
         end
 
+        -- A slot's OnShow can precede the page-arrow update; stock slot math reads the saved
+        -- cursor directly (SpellBookFrame.lua:463), so repair it before that read as well.
+        local refGetSpellID = SpellBook_GetSpellID
+        function SpellBook_GetSpellID(id)
+            SpellBook_GetCurrentPage()
+            return refGetSpellID(id)
+        end
+
         for i = 1, 12 do
             local button = getglobal("SpellButton" .. i)
             local overlay = getglobal("SpellButton" .. i .. "AutoCastable")

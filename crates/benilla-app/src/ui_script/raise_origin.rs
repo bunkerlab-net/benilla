@@ -56,6 +56,11 @@ pub(crate) const RAISES_AT_THEIR_OWN_PLACE: &[Allow] = &[
               (`0x49156a`), outside any packet",
     },
     Allow {
+        site: "ui_script::login_options::open",
+        why: "the fork's pre-login interface mirrors the 1.12 UI_Init load, which signals its \
+              own `VARIABLES_LOADED` (`0x49156a`), outside any packet",
+    },
+    Allow {
         site: "ui_script::lifecycle::close_ui_session",
         why: "the interface's shutdown (`0x490bd0`) signals `PLAYER_LEAVING_WORLD` (`0x490b4d`) \
               and `PLAYER_LOGOUT` (`0x490c2a`) itself, at a logout's, a disconnect's or a \

@@ -346,6 +346,9 @@ fn empty_spellbook_adapter_keeps_a_valid_page_without_fabricating_spells() {
             local _, _, _, count = GetSpellTabInfo(SpellBookFrame.selectedSkillLine)
             return SPELLBOOK_PAGENUMBERS[SpellBookFrame.selectedSkillLine], math.ceil(count / 12)
         end
+        function SpellBook_GetSpellID(id)
+            return id + 12 * (SPELLBOOK_PAGENUMBERS[1] - 1)
+        end
         for i = 1, 12 do
             local name = "SpellButton" .. i
             local button = CreateFrame("Button", name)
@@ -361,6 +364,11 @@ fn empty_spellbook_adapter_keeps_a_valid_page_without_fabricating_spells() {
     for page in [-2, 0, 1, 7] {
         s.run(&format!("SPELLBOOK_PAGENUMBERS[1] = {page}"))
             .unwrap();
+        assert_eq!(
+            s.eval::<i64>("return SpellBook_GetSpellID(1)").unwrap(),
+            1,
+            "a slot can update before the page arrows read the page count"
+        );
         assert_eq!(
             s.eval::<(i64, i64)>("return SpellBook_GetCurrentPage()")
                 .unwrap(),
@@ -439,15 +447,16 @@ fn shipped_empty_spellbook_reopens_and_recovers_from_a_saved_zero_page() {
                 .unwrap(),
             (1, 1)
         );
+        // IsEnabled (`0x7800b0`) returns numeric 0/1; 0 itself is truthy in Lua.
         assert!(s
             .eval::<bool>(
-                "return not SpellBookPrevPageButton:IsEnabled() \
-                 and not SpellBookNextPageButton:IsEnabled()"
+                "return SpellBookPrevPageButton:IsEnabled() == 0 \
+                 and SpellBookNextPageButton:IsEnabled() == 0"
             )
             .unwrap());
         for i in 1..=12 {
             s.run(&format!(
-                "assert(not SpellButton{i}:IsEnabled()) \
+                "assert(SpellButton{i}:IsEnabled() == 0) \
                  assert(not SpellButton{i}IconTexture:IsShown()) \
                  this = SpellButton{i} SpellButton_OnEnter() \
                  SpellButton_OnClick(1) SpellButton_OnClick()"
@@ -469,7 +478,7 @@ fn shipped_empty_spellbook_reopens_and_recovers_from_a_saved_zero_page() {
     s.fire_event("SPELLS_CHANGED", vec![]);
     assert!(s
         .eval::<bool>(
-            "return not SpellButton1:IsEnabled() and not SpellButton1IconTexture:IsShown()"
+            "return SpellButton1:IsEnabled() == 0 and not SpellButton1IconTexture:IsShown()"
         )
         .unwrap());
     assert!(s.errors().is_empty(), "empty book errors: {:?}", s.errors());
