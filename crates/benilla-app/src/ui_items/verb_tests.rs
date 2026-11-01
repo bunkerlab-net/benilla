@@ -485,6 +485,7 @@ fn an_accepts_listener_finds_its_record_still_filed() {
 /// cursor (`0x5e0fe7`), so the clear's handlers send after the packet. The send is handed over in
 /// place, so the census counts no send made while a handler waits.
 #[test]
+#[cfg(debug_assertions)]
 fn an_accepted_swap_sends_before_its_clears_signals() {
     let mut h = Bags::new();
     h.run("PickupContainerItem(0, 7) PickupInventoryItem(1)");

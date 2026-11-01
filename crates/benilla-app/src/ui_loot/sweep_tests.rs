@@ -88,6 +88,7 @@ fn the_sweep_prints_the_money_line_once_per_session() {
 /// place, after the coin request and ahead of the rows' stores (`0x4c1ffc`, then `0x4c2170` →
 /// `AddChatLine 0x49a870`, then `0x4c2180`): nothing sends while one is held.
 #[test]
+#[cfg(debug_assertions)]
 fn a_sweep_runs_its_money_lines_listeners_before_its_rows() {
     let mut l = client();
     note_money(&mut l);

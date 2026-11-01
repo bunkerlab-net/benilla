@@ -437,6 +437,7 @@ fn freelook_walks_no_hover_at_its_records_but_a_shown_frame_re_picks() {
 /// on to its cancel and its tick (`0x51512a`, `0x5151a0`): no write of theirs follows the leave's
 /// listener ([`crate::script_calls::census::writes_after`]).
 #[test]
+#[cfg(debug_assertions)]
 fn freelooks_entry_leave_runs_ahead_of_its_press_tick() {
     let mut c = client(
         r#"WorldFrame = CreateFrame("WorldFrame", "WorldFrame") WorldFrame:SetAllPoints()

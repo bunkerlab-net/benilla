@@ -518,6 +518,7 @@ fn move_forward_start_mid_cast_cancels_inside_the_call() {
 /// its tick (`0x5151a0`) writes the commands' state: no write of the tick follows the report's
 /// listeners ([`crate::script_calls::census::writes_after`]).
 #[test]
+#[cfg(debug_assertions)]
 fn a_movement_starts_cancel_report_runs_ahead_of_its_tick() {
     let mut f = frame(false);
     with_book_spell(

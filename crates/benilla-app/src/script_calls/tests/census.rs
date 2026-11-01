@@ -4,12 +4,16 @@
 //! write is read by the handler as it stands later. No send goes ahead of a handler the reference
 //! runs first, and no write follows one the reference runs ahead of it.
 
+#[cfg(debug_assertions)]
 use super::selection::{queue_strike, swinging_at_old};
+#[cfg(debug_assertions)]
 use super::*;
+#[cfg(debug_assertions)]
 use crate::script_calls::census::{shows_no_send, writes_after};
 
 /// A frame noting every event, so each signal a call makes is held for a listener, and the
 /// census watching the writes while the guard lives.
+#[cfg(debug_assertions)]
 fn listening(f: &mut Frame) -> benilla_ui::script::census::WriteWatch {
     run(
         f,
@@ -28,6 +32,7 @@ fn listening(f: &mut Frame) -> benilla_ui::script::census::WriteWatch {
 /// (`0x5e1757`), whose own clear signals (`0x5e1763`) after the send. A listener's roll shows each
 /// point's place on the wire.
 #[test]
+#[cfg(debug_assertions)]
 fn a_bar_equip_signals_its_cursor_set_ahead_of_its_send() {
     let mut f = frame(false);
     with_bar_helm(&mut f, 0);
@@ -58,6 +63,7 @@ fn a_bar_equip_signals_its_cursor_set_ahead_of_its_send() {
 /// ahead of the release's usable refresh (`0x493a69`) and `PLAYER_TARGET_CHANGED` (`0x493a73`):
 /// its listeners run there, so no write of the bar's states follows them.
 #[test]
+#[cfg(debug_assertions)]
 fn a_teardowns_strike_cancel_report_runs_ahead_of_the_bars_usable_refresh() {
     let mut f = frame(true);
     swinging_at_old(&mut f);
@@ -71,6 +77,7 @@ fn a_teardowns_strike_cancel_report_runs_ahead_of_the_bars_usable_refresh() {
 /// An engine writer's deselect (`SelectTarget(0)`, `0x490927`) is the same teardown as an engine
 /// turn: its strike cancel's report runs ahead of the bar's usable refresh.
 #[test]
+#[cfg(debug_assertions)]
 fn an_engine_deselects_strike_cancel_report_runs_ahead_of_the_bars_usable_refresh() {
     let mut f = frame(true);
     swinging_at_old(&mut f);
@@ -88,6 +95,7 @@ fn an_engine_deselects_strike_cancel_report_runs_ahead_of_the_bars_usable_refres
 /// mailbox (`0x5f6820`) and no letter (`0x4e32e0`) writes neither window's cell after that
 /// report's listeners.
 #[test]
+#[cfg(debug_assertions)]
 fn an_item_use_that_opens_no_window_writes_none_after_its_held_report() {
     let mut f = frame(false);
     let mut t = crate::items::test_template("Trinket");
@@ -107,6 +115,7 @@ fn an_item_use_that_opens_no_window_writes_none_after_its_held_report() {
 /// The selection, cast, attack and chat verbs send and write nothing after a handler they
 /// signalled that waits.
 #[test]
+#[cfg(debug_assertions)]
 fn the_other_verbs_send_nothing_ahead_of_a_held_handler() {
     for lua in [
         r#"TargetUnit("party1")"#,

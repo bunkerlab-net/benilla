@@ -798,6 +798,7 @@ fn a_right_click_cancels_the_pending_target() {
 /// → `0x495190`), so its listeners run before the router's leg goes on: nothing the click writes
 /// after the payload leg follows them ([`crate::script_calls::census::writes_after`]).
 #[test]
+#[cfg(debug_assertions)]
 fn a_right_clicks_payload_clear_runs_ahead_of_the_rest_of_its_leg() {
     let mut app = client("CAMERAORSELECTORMOVE");
     aim(&mut app);

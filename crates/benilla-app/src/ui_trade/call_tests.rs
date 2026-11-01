@@ -606,6 +606,7 @@ fn a_drop_started_trade_folds_held_coins_with_one_money_signal() {
 /// of `ClearCursor(0, 1)` (`0x4bf6ca`): nothing sends while the clear's `CURSOR_UPDATE` handler
 /// waits, and that handler's packet follows the send, ahead of the leg's own signals.
 #[test]
+#[cfg(debug_assertions)]
 fn a_drop_started_trade_sends_its_offer_before_it_clears_the_cursor() {
     for pickup in ["PickupPlayerMoney(300)", "PickupContainerItem(0, 1)"] {
         let mut t = client();

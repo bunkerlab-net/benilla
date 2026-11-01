@@ -31,3 +31,9 @@ After merging, inspect **Actions → Sync upstream main** for failures and compa
 `upstream/main` with upstream `main`. To test immediately, manually run the sync
 workflow from the default branch. Branch rules may need owner review if they
 reject the mirror/archive updates; the workflow does not bypass them.
+
+Release lib-test builds exclude tests and helpers that use the debug-only
+`script_calls::census` or `benilla_ui::script::census` APIs. Keep their
+`#[cfg(debug_assertions)]` attributes aligned with those APIs when merging
+upstream changes. Debug builds retain all census assertions. The workspace
+release F05 control and current-scene refusal gate remains enabled.
