@@ -1001,6 +1001,26 @@ class LearningExportTests(unittest.TestCase):
         with self.assertRaisesRegex(ExportError, "empty_probe_with_selected_rows"):
             validate_bundle(bundle)
 
+    def test_global_chain_probe_is_versioned_bounded_and_not_selected_absence(self):
+        source = starter_source()
+        source.rows["spell_chain"] = [row("spell_chain", spell_id=50001, first_spell=50001, rank=1)]
+        bundle = capture(source, starter_selection())
+        evidence = bundle["learning_capture"]
+        self.assertEqual(evidence["format"], "benilla-classic-learning-selection-v2")
+        self.assertEqual(bundle["tables"]["spell_chain"], [])
+        self.assertEqual(evidence["global_chain_probe"]["rows"], source.rows["spell_chain"])
+        probes = [q for q in source.queries if "FROM `spell_chain` WHERE 1=1" in q[0]]
+        self.assertEqual(len(probes), 1)
+        self.assertEqual(probes[0][1], (1,))
+        invalid = copy.deepcopy(bundle)
+        invalid["learning_capture"]["global_chain_probe"]["rows"] *= 2
+        with self.assertRaisesRegex(ExportError, "limit"):
+            validate_bundle(invalid)
+        legacy = copy.deepcopy(bundle)
+        legacy["learning_capture"].pop("global_chain_probe")
+        legacy["learning_capture"]["format"] = "benilla-classic-learning-selection-v1"
+        validate_bundle(legacy)
+
     def test_invalid_cli_request_fails_before_authentication(self):
         path = Path(__file__).with_name("classic-export.py")
         spec = importlib.util.spec_from_file_location("export_cli_learning", path)

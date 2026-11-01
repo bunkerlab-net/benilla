@@ -119,6 +119,20 @@ that loader branch. Validation rejects more than one probe row, an empty probe
 with captured learning rows, and disagreement when the probe's parent is in the
 selected set. Probe bytes count toward the same snapshot/aggregate budget.
 
+Learning evidence `benilla-classic-learning-selection-v2` also records a bounded
+global `spell_chain` probe. Its empty-table branch skips the loader's next-cache
+postprocessing. Legacy learning evidence v1 remains readable but cannot resolve
+this branch. Validation checks each probe against selected matching rows and
+charges both probes to the existing snapshot and byte budgets.
+
+Preparation publishes `player.skills.loader_plan` separately from effective
+learning. The plan resolves selected obtainability, ranks, and learned links.
+It retains raw source findings and marks field dispositions with their scoped
+loader result. It never clears passive execution, numeric overlay, initial-hook,
+loaded-order, creation, or production admission requirements. Canonical SQL key
+order is not an observed creation or first-entry traversal order.
+
+
 An optional `--dependency-request` contains only bounded sorted unique item/spell
 IDs and their discovery source/DBC hashes. It must match the exact starter
 selection and pinned core revision, and cannot contain query text. The capture

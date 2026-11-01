@@ -51,6 +51,16 @@ The Rust adapter revalidates numeric shape independently and uses the existing
 final authority constructor. Neither preparation success nor a caller-created
 typed projection authenticates the source bundle.
 
+The learning loader plan is not an effective-learning verdict. Reconstruct it
+with `CapturedStarterLearning` from verified rows and exact lookup coverage,
+including incoming ability-forward rows and both global SQL branch probes.
+Bind complete numeric projections and independently checked initial hooks, then
+populate the existing `StarterInput`. Run `prepare_starter` with real loaded-order
+evidence and seal its reached casts through `NativeInitialCastSourceInput`.
+The authored-order path remains synthetic. A nonempty global SpellArea table
+requires the independent entry-location source. The existing runtime entry
+validator still resolves actual location facts and refuses applicable rows before casting.
+
 
 ## Initializer inputs
 

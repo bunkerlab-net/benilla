@@ -582,6 +582,66 @@ pub struct NativeInitialCastSourceInput {
     pub queried_spell_ids: SpellSourceRows<u32>,
 }
 impl NativeInitialCastSourceInput {
+    /// Resolve the bounded absent-hook learning domain before actual preparation.
+    /// The final source seal independently checks reached casts, location and input identity.
+    pub fn bind_learning_spell_rows(
+        &self,
+        learning: &init::CompiledStarterLearning,
+        numeric: &[init::LearningSpellNumeric],
+    ) -> Result<Vec<init::SpellRow>, NativeError> {
+        if numeric.len() > MAX_INITIAL_SPELLS {
+            return Err(NativeError::TooLarge);
+        }
+        self.hooks.validate()?;
+        if !self.hooks.spell_area.complete()?.is_empty() && self.entry_location.is_none() {
+            return Err(NativeError::AuthorityUnavailable(
+                "initial entry location source",
+            ));
+        }
+        self.queried_spell_ids
+            .complete("learning initial hook scope")?;
+        let SpellSourceRows::Complete(queried) = &self.queried_spell_ids else {
+            unreachable!()
+        };
+        let selected: BTreeSet<_> = numeric.iter().map(|row| row.id).collect();
+        if !queried.iter().copied().eq(selected.iter().copied()) {
+            return Err(NativeError::AuthorityBinding);
+        }
+        self.hooks
+            .spell_rank_chain
+            .complete("learning initial rank scope")?;
+        let SpellSourceRows::Complete(ranks) = &self.hooks.spell_rank_chain else {
+            unreachable!()
+        };
+        for &id in &selected {
+            let observed = ranks.iter().find(|row| row.spell_id == id);
+            match (learning.rank(id), observed) {
+                (None, None) => {}
+                (Some(loaded), Some(raw))
+                    if (loaded.previous, loaded.first, loaded.rank, loaded.required)
+                        == (
+                            raw.previous_spell,
+                            raw.first_spell,
+                            raw.rank,
+                            raw.required_spell,
+                        ) => {}
+                _ => return Err(NativeError::AuthorityBinding),
+            }
+        }
+        let dispositions = init::Rows::Complete(
+            numeric
+                .iter()
+                .map(|row| init::LearningInitialHooks {
+                    spell: row.id,
+                    source_identity: row.source_identity,
+                    external_hooks: Some(false),
+                })
+                .collect(),
+        );
+        learning
+            .bind_spell_rows(numeric, &dispositions)
+            .map_err(NativeError::from)
+    }
     pub fn hook_scope_identity(&self) -> crate::Digest {
         crate::digest(
             b"benilla-native-initial-cast-hook-scope-v1\0",

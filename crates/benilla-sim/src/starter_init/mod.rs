@@ -5,6 +5,7 @@
 //! This initializes state; it does not certify the caller's capture completeness.
 //! See STARTER-INIT.md for row closure, source ordering, and excluded semantics.
 mod captured_items;
+mod captured_learning;
 mod equipment;
 pub mod initial_cast_phases;
 mod items;
@@ -15,6 +16,11 @@ mod training;
 use crate::mage_resource::{CurrentSkill, CurrentSkills};
 pub use captured_items::{
     CapturedStarterItems, CharStartOutfitRow, CustomStartingItem, StartingItemRow,
+};
+pub use captured_learning::{
+    CapturedLearnSpell, CapturedSpellChain, CapturedStarterLearning, CompiledStarterLearning,
+    CreationSkill, CreationSpell, LearningInitialHooks, LearningSpellNumeric,
+    SkillLoaderDisposition,
 };
 pub use equipment::{EquipmentItemModifiers, EquipmentRecompute, StatRecipe, StatRecipeSnapshot};
 pub use items::{

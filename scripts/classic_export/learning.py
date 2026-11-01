@@ -11,6 +11,7 @@ from .core import (CORE_REVISION, MAX_ITEMS, MAX_ROWS, MAX_SPELLS, Selection,
                    canonical, check, integer, normalize_rows)
 
 FORMAT = "benilla-classic-learning-selection-v1"
+LOADER_FORMAT = "benilla-classic-learning-selection-v2"
 REQUEST_FORMAT = "benilla-native-dependency-request-v1"
 TABLES = ("spell_chain", "spell_learn_spell")
 
@@ -42,12 +43,17 @@ def request(value: Any, selection: Selection) -> dict[str, Any]:
 
 
 def evidence(tables: dict[str, Any], dependency_request: dict[str, Any] | None = None,
-             global_learning_rows: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    return {"format": FORMAT, "spell_ids": [r["Id"] for r in tables["spell_template"]],
+             global_learning_rows: list[dict[str, Any]] | None = None,
+             global_chain_rows: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    value = {"format": FORMAT if global_chain_rows is None else LOADER_FORMAT,
+            "spell_ids": [r["Id"] for r in tables["spell_template"]],
             "tables": list(TABLES), "filter": "all_matching_rows_no_loader_filters",
             "row_limit": MAX_ROWS, "dependency_request": dependency_request,
             "global_learn_spell_probe": {"predicate": "all_rows_limit_one",
                                          "rows": global_learning_rows}}
+    if global_chain_rows is not None:
+        value["global_chain_probe"] = {"predicate": "all_rows_limit_one", "rows": global_chain_rows}
+    return value
 
 
 def references(tables: dict[str, Any]) -> set[int]:
@@ -64,7 +70,8 @@ def references(tables: dict[str, Any]) -> set[int]:
     return ids
 
 
-def validate(value: Any, tables: dict[str, Any], selection: Selection, profile: dict[str, Any]) -> None:
+def validate(value: Any, tables: dict[str, Any], selection: Selection, profile: dict[str, Any],
+             chain_profile: dict[str, Any]) -> None:
     check(set(TABLES) <= set(tables), "learning.tables_required")
     check(type(value) is dict, "learning.coverage_fields")
     dependency_request = value.get("dependency_request")
@@ -75,7 +82,19 @@ def validate(value: Any, tables: dict[str, Any], selection: Selection, profile: 
     rows = probe["rows"]
     check(type(rows) is list and normalize_rows("spell_learn_spell", rows, profile, 1) == rows,
           "learning.probe_rows")
-    check(canonical(value) == canonical(evidence(tables, dependency_request, rows)), "learning.coverage_mismatch")
+    chains = None
+    if value.get("format") == LOADER_FORMAT:
+        chain_probe = value.get("global_chain_probe")
+        check(type(chain_probe) is dict and set(chain_probe) == {"predicate", "rows"},
+              "learning.chain_probe_fields")
+        chains = chain_probe["rows"]
+        check(type(chains) is list and normalize_rows("spell_chain", chains, chain_profile, 1) == chains,
+              "learning.chain_probe_rows")
+        check(bool(chains) or not tables["spell_chain"], "learning.empty_chain_probe_with_selected_rows")
+        if chains and chains[0]["spell_id"] in {r["Id"] for r in tables["spell_template"]}:
+            check(chains[0] in tables["spell_chain"], "learning.chain_probe_missing_selected_row")
+    check(canonical(value) == canonical(evidence(tables, dependency_request, rows, chains)),
+          "learning.coverage_mismatch")
     check(bool(rows) or not tables["spell_learn_spell"], "learning.empty_probe_with_selected_rows")
     spells = {r["Id"] for r in tables["spell_template"]}
     if rows and rows[0]["entry"] in spells:

@@ -21,6 +21,7 @@ from .dbc import DbcRow, DbcTable, LAYOUTS, binary32_bits, finite_float, signed
 from .event_ai_plan import supported_plan
 from .outfit_plan import supported_plan as outfit_placement_plan
 from . import creature_plan
+from .learning_plan import supported_plan as starter_learning_plan
 
 PROFILE = "cmangos-8ec338a1-native-starter-bindings-v1"
 FORMAT = "benilla-native-starter-preparation-v1"
@@ -438,11 +439,13 @@ class Compiler:
 
     def skills(self) -> dict[str, Any]:
         self.learning = discover(self)
+        plan = starter_learning_plan(self.source, self.dbcs, self.learning)
+        self.issues.extend(plan["refusals"])
         self.issue("SkillRaceClassInfo", [], "player.native_skill_obtainability_and_learning_required")
         return {"sql_candidates": self.tables["playercreateinfo_skills"],
                 "race_class_candidates": self.learning["race_class_candidates"],
                 "ability_candidates": self.learning["ability_candidates"],
-                "dependency_closure": self.learning, "effective_skills": None}
+                "dependency_closure": self.learning, "loader_plan": plan, "effective_skills": None}
 
     def spells(self) -> list[dict[str, Any]]:
         result = []
@@ -669,7 +672,7 @@ class Compiler:
                 "eligibility": "not_evaluated", "runtime_profile": None})
         return paths
 
-    def dispositions(self, relationships_resolved: bool) -> list[dict[str, Any]]:
+    def dispositions(self, relationships_resolved: bool, learning_resolved: bool) -> list[dict[str, Any]]:
         result = []
         for table, rows in sorted(self.tables.items()):
             for row in rows:
@@ -682,6 +685,9 @@ class Compiler:
                         p["status"] == "complete_inputs" and row in p["class_level_rows"]
                         for p in self.creature_generation_plans.values()):
                     consumed = set(row)
+                learning_table = table in {"playercreateinfo_skills", "playercreateinfo_spell", "spell_chain", "spell_learn_spell"}
+                if learning_table and not learning_resolved:
+                    consumed = set()
                 comments = {"Note", "note", "comments"} & set(row)
                 blocked = set(row) - consumed - comments
                 reason = BLOCKED_TABLE_REASON.get(table, "player.native_creation_progression_rules_required")
@@ -693,6 +699,10 @@ class Compiler:
                     "capability": PROFILE, "consumed_by_preparation": sorted(consumed),
                     "inert_source_annotations": sorted(comments),
                     "blocked_for_gameplay": {reason: sorted(blocked)} if blocked else {}})
+                if learning_table:
+                    result[-1]["loaded_learning_maps_resolved"] = learning_resolved
+                    result[-1]["effective_learning_proven"] = False
+                    result[-1]["remaining_obligation"] = "player.native_skill_obtainability_and_learning_required"
         return result
 
 
@@ -754,7 +764,8 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
         "missing_ids": [entry for entry in display_ids if entry not in display_table.by_id]
                        if display_table else None}
     c.issue("runtime", [], "native.runtime_profile_not_implemented")
-    dispositions = c.dispositions(relationships["status"] == "resolved")
+    dispositions = c.dispositions(relationships["status"] == "resolved",
+                                 skills["loader_plan"]["loaded_learning_maps_resolved"])
     fireball = next((s["fireball_plan"] for s in spells if s["id"] == 133), None)
     discharged = [i for i in c.issues if fireball_plan.discharges(i, fireball)]
     c.issues = [i for i in c.issues if not fireball_plan.discharges(i, fireball)]

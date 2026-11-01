@@ -51,6 +51,33 @@ override, with category 11 and stack size above four, or category 59 and stack
 size above two. Consumable subclass 0 keeps BuyCount even with those categories.
 Custom grants retain their explicit counts.
 
+`CapturedStarterLearning::compile` normalises selected Human Mage creation skills,
+Talent and forward-derived ranks, SQL chain merges, and SQL or Effect36 learning
+links. It preserves SQL root order and DBC row-ID insertion order. SQL zero masks
+are wildcards; DBC obtainability masks are not. The adapter bounds skills to 512,
+abilities and talent rows to 4,096 each, spells to 512, and references to 16,384.
+Every collection distinguishes missing coverage from an observed empty lookup.
+The caller must independently verify the complete relevant skill, spell,
+incoming-forward, talent, and server-existence lookup scope.
+
+The compiled plan retains first-rank metadata even without a predecessor.
+Conflicting ranks, cycles, ambiguous talent membership, invalid steps, duplicate
+effective skills, and unknown global SQL table branches refuse. The existing
+initializer still refuses reached talents, previous ranks, and spellbook
+successors. Numeric binding compares complete effective and original client
+words against the compiled source. Unused DBC words remain source data, not
+execution instructions. A source identity binds content; it does not authenticate it.
+
+`bind_spell_rows` requires independently resolved initial hooks. Runtime
+`NativeInitialCastSourceInput::bind_learning_spell_rows` validates its complete
+hook scope and global SpellArea table for the bounded absent-hook domain.
+`populate` fills only the existing initializer learning fields. It does not cast,
+grant items, set final resources, or complete source-order evidence.
+`prepare_starter` and the existing source dispatcher remain mandatory for Human
+Spirit, Diplomacy, weapon specialisations, staff proficiency, and Dodge.
+Unknown order, missing numeric projections, present hooks, and unsupported
+mandatory passives remain errors. No native policy, hash domain, or save format changes.
+
 A `SpellRow` has all 173 canonical numeric SpellEntry word positions, with SQL
 `spell_template` values overlaid by the upstream server precedence. Passing raw
 client Spell.dbc words without checking server overrides is invalid. Its duration

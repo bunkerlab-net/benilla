@@ -358,3 +358,6 @@ mod quest_only;
 #[allow(dead_code)] // Invoked by the app-only loaded Service fixture; compiled by the controller harness.
 #[path = "loaded_quest_loop_fixture.rs"]
 pub(crate) mod loaded;
+
+#[path = "starter_learning_tests.rs"]
+mod starter_learning;

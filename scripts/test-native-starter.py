@@ -118,6 +118,8 @@ def rehash_source(bundle):
         from classic_export.native_spawn import evidence
         bundle["native_spawn_capture"] = evidence(bundle)
     profiles = schema_profile(bundle["schema"], set(bundle["tables"]) | {"db_version"})
+    if bundle.get("learning_capture", {}).get("global_chain_probe") is not None and bundle["tables"]["spell_chain"]:
+        bundle["learning_capture"]["global_chain_probe"]["rows"] = bundle["tables"]["spell_chain"][:1]
     bundle["report"]["unsupported"] = full_report(bundle["tables"], profiles, Selection.parse(bundle["selection"]))
 
 
@@ -816,6 +818,62 @@ class LearningClosureTests(unittest.TestCase):
         self.assertEqual(result["player"]["skills"]["dependency_closure"]["derived_learn_spell_scan"],
                          "enabled_by_nonempty_table")
         self.assertEqual(result["player"]["skills"]["dependency_closure"]["server_relationships"]["spell_learn_spell"], [])
+
+    def test_shared_authored_sql_dbc_obtainability_cases(self):
+        from native_starter.learning_plan import supported_plan
+        cases = decode_json((ROOT/"native_starter"/"learning_cases.json").read_bytes(), 65536)["cases"]
+        for case in cases:
+            step = case["step"]
+            source = {"selection": {"starter": {"race": 1, "class": 8}},
+                      "learning_capture": {"format": "benilla-classic-learning-selection-v2",
+                                           "global_learn_spell_probe": {"rows": []}},
+                      "tables": {"playercreateinfo_skills": [{
+                          "skill": 8, "step": step, "raceMask": case["sql_masks"][0],
+                          "classMask": case["sql_masks"][1]}], "playercreateinfo_spell": [],
+                          "spell_template": [], "spell_chain": [], "spell_learn_spell": []}}
+            rows = {"SkillLine": [{0: 8, 1: 7}], "SkillRaceClassInfo": [{
+                0: 1, 1: 8, 2: case["dbc_masks"][0], 3: case["dbc_masks"][1], 6: 9}],
+                "SkillLineAbility": [], "Talent": [], "SkillTiers": []}
+            if case["tier_max"] is not None:
+                rows["SkillTiers"] = [{0: 9, **({16+step: case["tier_max"]} if 1 <= step <= 16 else {})}]
+            tables = {name: parse_table(name, dbc_bytes(name, values)) for name, values in rows.items()}
+            closure = {"captured_inputs_complete": True, "spell_ids": [], "ability_candidates": [],
+                       "dependency_request": {"source_sha256": "a"*64}}
+            plan = supported_plan(source, tables, closure)
+            self.assertEqual(plan["status"] == "blocked", case["refused"], case)
+            self.assertEqual(bool(plan["default_skill_candidates"]), case["loaded"], case)
+
+    def test_loader_plan_keeps_effective_learning_and_unrelated_blockers_closed(self):
+        result = self.compile()
+        plan = result["player"]["skills"]["loader_plan"]
+        self.assertTrue(plan["loaded_learning_maps_resolved"])
+        self.assertFalse(plan["effective_learning_proven"])
+        self.assertIn("unknown", plan["root_order"])
+        reasons = {row["reason"] for row in result["unsupported"]}
+        self.assertTrue({"native.runtime_profile_not_implemented",
+                         "player.native_skill_obtainability_and_learning_required",
+                         "player.spell_learning_passive_dependencies_not_captured"} <= reasons)
+        fields = [r for r in result["source_field_dispositions"] if r["table"] == "playercreateinfo_skills"]
+        self.assertTrue(all(r["loaded_learning_maps_resolved"] for r in fields))
+
+    def test_legacy_chain_probe_and_missing_talent_remain_unknown(self):
+        self.source["learning_capture"].pop("global_chain_probe")
+        self.source["learning_capture"]["format"] = "benilla-classic-learning-selection-v1"
+        plan = self.compile()["player"]["skills"]["loader_plan"]
+        self.assertFalse(plan["loaded_learning_maps_resolved"])
+        self.assertIn("player.learning_global_chain_probe_not_captured",
+                      {r["reason"] for r in plan["refusals"]})
+        self.files.pop("Talent")
+        plan = self.compile()["player"]["skills"]["loader_plan"]
+        self.assertIn("Talent", {r["table"] for r in plan["refusals"]})
+
+    def test_loader_plan_sql_masks_and_dbc_nonwildcards(self):
+        self.files["SkillRaceClassInfo"] = dbc_bytes("SkillRaceClassInfo", [
+            {0: 800001, 1: 60001, 2: 1, 3: 1}, {0: 800002, 1: 60002, 2: 0, 3: 1}])
+        plan = self.compile()["player"]["skills"]["loader_plan"]
+        self.assertTrue(plan["loaded_learning_maps_resolved"])
+        self.assertEqual([r["skill"] for r in plan["default_skill_candidates"]], [60001])
+        self.assertEqual(plan["skill_dispositions"][-1]["disposition"], "unobtainable")
 
     def test_rank_cycle_terminates_and_is_entry_blocker(self):
         self.source["tables"]["spell_chain"] = [

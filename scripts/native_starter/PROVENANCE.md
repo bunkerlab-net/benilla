@@ -8,6 +8,17 @@ be an authentic race/class, spell, creature or quest setup.
 Reviewed CMaNGOS Classic revision:
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`.
 
+- [ObjectMgr::LoadPlayerInfo, ObjectMgr.cpp:3225-3330](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Globals/ObjectMgr.cpp#L3225-L3330)
+  supplies SQL wildcard masks, DBC obtainability, and tier checks.
+- [SpellMgr.cpp:1284-1770](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Spells/SpellMgr.cpp#L1284-L1770)
+  supplies Talent and ability-forward rank construction, SQL validation, global
+  empty-table branches, and all three Effect36 slots with auto-learning rules.
+- [SpellMgr.cpp:2340-2389](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Spells/SpellMgr.cpp#L2340-L2389)
+  supplies DBC row-ID insertion order and missing-SkillLine exclusion.
+  Python publishes a scoped loader plan. Rust independently reconstructs these
+  maps before the existing initializer runs; neither authenticates capture.
+
+
 - [DBCStructure.h](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Server/DBCStructure.h):
   named table/field offsets and scalar signedness, Spell's 173 client columns,
   all three effects, cast times, ranges, factions and skills. CMaNGOS's extra

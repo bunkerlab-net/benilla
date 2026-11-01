@@ -62,6 +62,11 @@ def discover(c) -> dict[str, Any]:
     table = c.dbcs.get("SkillRaceClassInfo")
     for row in sorted(table.rows, key=lambda r: r.key) if table else []:
         info_by_skill[row.words[1]].append(row)
+    talent_by_spell = defaultdict(list)
+    talent_table = c.dbcs.get("Talent")
+    for row in sorted(talent_table.rows, key=lambda r: r.key) if talent_table else []:
+        for spell in set(row.words[4:9]) - {0}:
+            talent_by_spell[spell].append(row)
     chains = {r["spell_id"]: r for r in c.tables.get("spell_chain", [])}
     sql_learn = defaultdict(list)
     for row in c.tables.get("spell_learn_spell", []):
@@ -151,6 +156,10 @@ def discover(c) -> dict[str, Any]:
                         add("item", item, "Spell", entry, "reagent_or_totem")
             for row in by_spell[entry] + by_forward[entry]:
                 ability(row)
+            for talent in talent_by_spell[entry]:
+                c.use(talent, set(range(21)))
+                for reference in {*talent.words[4:9], talent.words[20]} - {0}:
+                    add("spell", reference, "Talent", talent.words[0], "rank_or_required_spell")
             chain = chains.get(entry)
             if chain:
                 for field in ("prev_spell", "first_spell", "req_spell"):
@@ -197,7 +206,7 @@ def discover(c) -> dict[str, Any]:
         c.issue("spell_learn_spell", [], "player.server_learning_relationships_not_captured")
     missing_spells = nodes["spell"] - set(sql_spells)
     missing_items = nodes["item"] - set(sql_items)
-    dbc_required = {"SkillLine", "SkillRaceClassInfo", "SkillTiers", "SkillLineAbility", "Spell"}
+    dbc_required = {"SkillLine", "SkillRaceClassInfo", "SkillTiers", "SkillLineAbility", "Spell", "Talent"}
     # A fixed point is a finite discovery result; it is not evidence that missing
     # SQL rows would introduce no additional edges on the next local recapture.
     complete = (not missing_spells and not missing_items and sql_coverage is not None

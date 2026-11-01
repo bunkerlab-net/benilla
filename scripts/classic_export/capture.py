@@ -135,7 +135,7 @@ class Query:
                      f"`BreadcrumbForQuestId` IN ({','.join(['%s']*len(self.ids))})")
             params = signed + self.ids + self.ids
         elif self.mode == "learning_presence":
-            check(self.table == "spell_learn_spell" and self.selection is None and not self.ids
+            check(self.table in learning.TABLES and self.selection is None and not self.ids
                   and self.limit == 1, "query.learning_presence")
             where, params = "1=1", ()
         elif self.mode == "region":
@@ -365,6 +365,7 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
                 spell_ids.add(integer(item["requiredspell"], 1, 0xffffffff, "reference.required_spell"))
         spells: dict[int, dict[str, Any]] = {}
         global_learning_rows = []
+        global_chain_rows = []
         if selection.starter is not None:
             # Native LoadSpellLearnSpells exits before its effect scan if the
             # entire SQL table is empty. Selected-empty rows cannot prove that.
@@ -372,6 +373,10 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             query.sql()
             global_learning_rows = account(normalize_rows("spell_learn_spell", source.fetch(query),
                                                           profiles["spell_learn_spell"], 1))
+            chain_query = Query("spell_chain", "learning_presence", limit=1)
+            chain_query.sql()
+            global_chain_rows = account(normalize_rows("spell_chain", source.fetch(chain_query),
+                                                       profiles["spell_chain"], 1))
         if selection.starter is not None:
             tables.update({table: [] for table in learning.TABLES})
         # Each productive pass consumes a previously unseen spell. Cycles terminate
@@ -434,7 +439,8 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             bundle["event_text_capture"] = event_text.evidence(bundle, profiles)
             bundle["native_spawn_capture"] = native_spawn.evidence(bundle)
             bundle["spell_script_capture"] = spell_registry.evidence(bundle)
-            bundle["learning_capture"] = learning.evidence(tables, dependency_request, global_learning_rows)
+            bundle["learning_capture"] = learning.evidence(
+                tables, dependency_request, global_learning_rows, global_chain_rows)
         if capture_spell_numeric:
             bundle["spell_numeric_capture"] = spell_numeric.evidence(bundle, numeric_rows, facing_rows)
         if capture_body_loot:
@@ -536,7 +542,8 @@ def validate_bundle(bundle: Any) -> None:
           "learning.coverage_required_with_tables")
     if "learning_capture" in bundle:
         check(selection.starter is not None, "learning.starter_selection_required")
-        learning.validate(bundle["learning_capture"], bundle["tables"], selection, profiles["spell_learn_spell"])
+        learning.validate(bundle["learning_capture"], bundle["tables"], selection,
+                          profiles["spell_learn_spell"], profiles["spell_chain"])
     check(bool(set(native_spawn.TABLES) & set(bundle["tables"])) == ("native_spawn_capture" in bundle),
           "native_spawn.coverage_required_with_tables")
     if "native_spawn_capture" in bundle:
