@@ -17,6 +17,7 @@ from .learning import discover
 from .talent import inputs as talent_inputs
 from .dbc import DbcRow, DbcTable, LAYOUTS, binary32_bits, finite_float, signed
 from .event_ai_plan import supported_plan
+from .outfit_plan import supported_plan as outfit_placement_plan
 
 PROFILE = "cmangos-8ec338a1-native-starter-bindings-v1"
 FORMAT = "benilla-native-starter-preparation-v1"
@@ -355,9 +356,15 @@ class Compiler:
                 grants.append(asdict(OutfitGrant("CharStartOutfit", slot, entry, count)))
         for slot, item in enumerate(self.tables["playercreateinfo_item"]):
             grants.append(asdict(OutfitGrant("playercreateinfo_item", slot, item["itemid"], item["amount"])))
-        self.issue("playercreateinfo_item", [s.race, s.class_id], "player.native_equipment_placement_required")
+        plan, reasons = outfit_placement_plan(grants, items) if len(rows) == 1 else (None, [])
+        for reason in reasons:
+            self.issue("item_template", [reason.get("item_id", 0)], reason["reason"])
+        if plan is None:
+            self.issue("playercreateinfo_item", [s.race, s.class_id],
+                       "player.native_equipment_placement_required")
         return {"outfit_record_id": rows[0].words[0] if len(rows) == 1 else None,
-                "grants_in_source_order": grants, "equipment_slots": None}
+                "grants_in_source_order": grants, "equipment_slots": None,
+                "placement_plan": plan}
 
     def factions(self, identity: dict[str, Any]) -> dict[str, Any]:
         # ReputationMgr::Initialize uses the full Faction table, not encountered NPCs only.

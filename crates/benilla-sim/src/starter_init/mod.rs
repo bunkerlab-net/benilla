@@ -4,6 +4,7 @@
 //! No bundled game rows, guessed race profiles, or neutral missing dependencies.
 //! This initializes state; it does not certify the caller's capture completeness.
 //! See STARTER-INIT.md for row closure, source ordering, and excluded semantics.
+mod captured_items;
 mod equipment;
 pub mod initial_cast_phases;
 mod items;
@@ -12,6 +13,9 @@ mod skills;
 mod stats;
 mod training;
 use crate::mage_resource::{CurrentSkill, CurrentSkills};
+pub use captured_items::{
+    CapturedStarterItems, CharStartOutfitRow, CustomStartingItem, StartingItemRow,
+};
 pub use equipment::{EquipmentItemModifiers, EquipmentRecompute, StatRecipe, StatRecipeSnapshot};
 pub use items::{
     EquippedItem, GrantSource, InventoryStack, ItemDamage, ItemGrant, ItemRow, ItemSpell, ItemStat,
@@ -403,8 +407,6 @@ fn initialize_mage_inner<'a>(
         s.learn(id, true)?;
     }
     let (equipped, inventory) = s.items()?;
-    s.trace.push(InitEvent::SecondInventoryPass);
-    // For the admitted no-offhand/no-special-bag subset, second pass is a no-op.
     s.trace.push(InitEvent::EnableStatModification);
     s.stats.update()?;
     s.trace.push(InitEvent::UpdateAllStats);

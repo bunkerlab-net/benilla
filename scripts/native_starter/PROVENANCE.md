@@ -14,9 +14,13 @@ Reviewed CMaNGOS Classic revision:
   server-side fields after client column 172 are not misread as local DBC columns
 - [Player.cpp, Player::Create](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Player.cpp#L855-L919):
   packed race/class/gender comparison, skip nonpositive outfit slots, starting
-  item quantity branch, then SQL custom item grants. Only the quantity branch is
-  translated into executable Python. Upstream comparison/ordering informs the
-  fail-closed resolver. Inventory placement is not ported
+  item quantity branch, then SQL custom item grants. Python reports the bounded
+  source-ordered placement operations. Rust `CapturedStarterItems::compile`
+  supplies the existing initializer with grants and item rows. The initializer
+  uses `StoreNewItemInBestSlots` at lines 952-985, `FindEquipSlot` and
+  `ViableEquipSlots` at lines 7858-8042, `CanEquipItem` at lines 9432-9555,
+  `CanUseItem` at lines 9779-9847, and the second inventory pass at lines 913-945.
+  The admitted subset excludes offhands, ammo, and equipped bags.
   `outfit_cases.json` contains all 378 original boundary tuples and C++ results;
   its source hash is SHA-256 of UTF-8 source with LF-normalized line endings so
   native platform checkout line endings cannot silently skip numeric checks.

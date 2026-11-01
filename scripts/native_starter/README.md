@@ -76,8 +76,12 @@ The tool rejects output inside the DBC input directory.
   Negative/zero slots are skipped exactly as `Player::Create` does. Missing
   positive IDs become explicit `item_template` requests. Known item quantities
   use the bounded native BuyCount/food/drink branch; SQL custom grants follow
-  outfit grants in order. Equipment placement and item-instance creation are not
-  implemented. Ambiguous outfit matches fail instead of picking an arbitrary row
+  outfit grants in order. A bounded `placement_plan` reports equip candidates,
+  source guards, backpack storage, and the second inventory pass. It names
+  `starter_init::CapturedStarterItems::compile` as its Rust consumer. The plan
+  does not claim resolved equipment or effective skill/spell learning. The
+  placement blocker remains if any selected row is missing or unsupported.
+  Ambiguous outfit matches fail instead of picking an arbitrary row
 - `player.initial_reputation` reports source race/class-selected initial bases,
   flags, reputation indices, and zero stored deltas when the complete Faction
   table and selected template/quest/item references resolve. Missing or invalid

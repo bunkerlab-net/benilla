@@ -1279,3 +1279,6 @@ mod armor_registered_destroy_tests;
 
 #[path = "mainhand_membership_tests.rs"]
 mod mainhand_membership_tests;
+
+#[path = "outfit_placement_tests.rs"]
+mod outfit_placement_tests;

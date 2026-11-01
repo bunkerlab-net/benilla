@@ -36,6 +36,21 @@ items, skills, tier limits, or spell effects. Duplicate row IDs fail. This modul
 is a rules reducer, not a cryptographic data-origin or capture-completeness
 certificate, a spell executor, or a native-world capability token.
 
+`CapturedStarterItems::compile` accepts the validated selected CharStartOutfit
+lookup, item-template-shaped rows, and ordered custom grants. It compiles the
+twelve signed outfit slots before custom grants. It validates item domains
+without executing initial casts. `initialize_mage` or `prepare_starter` then
+checks learned skill eligibility, item effects, and exact backpack capacity.
+Missing or ambiguous outfits, missing items, unknown equip types, invalid counts,
+and uncaptured skill or spell requirements fail without a partial input.
+The adapter also rejects definite storage overflow before initialization.
+It bounds item and custom rows to 256 each and does not grant production admission.
+
+Outfit quantities use BuyCount. Only consumable subclass 5 uses the food or drink
+override, with category 11 and stack size above four, or category 59 and stack
+size above two. Consumable subclass 0 keeps BuyCount even with those categories.
+Custom grants retain their explicit counts.
+
 A `SpellRow` has all 173 canonical numeric SpellEntry word positions, with SQL
 `spell_template` values overlaid by the upstream server precedence. Passing raw
 client Spell.dbc words without checking server overrides is invalid. Its duration
@@ -73,7 +88,7 @@ The admitted sequence is:
 3. Learn default skills, including recursive skill-trained spells
 4. Learn ordered default spells, initial casts, trained skills and dependencies
 5. Process outfit grants in source order, then custom SQL grants
-6. Perform the second inventory pass, proven inert for the admitted equipment set
+6. Re-store carried stacks in backpack-slot order, merging before the first empty slot
 7. Enable stat calculation and materialize UpdateAllStats attributes/resources
 8. Preserve the created current health/mana, clamping to final maxima
 
