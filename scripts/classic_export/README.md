@@ -31,6 +31,35 @@ artifact; it is not executable SQL and `capture` does not execute plan contents.
 Capture independently validates selection/schema. Paths above are examples;
 create the private state directory first. Outputs must be new files.
 
+## Optional complete spell numeric capture
+
+For source-v2, `capture --spell-numeric` adds
+`benilla-classic-spell-numeric-selection-v1` as `spell_numeric_capture`.
+It reads every selected spell's complete pinned numeric SQL projection and
+the complete selected `spell_facing` lookup inside the existing read snapshot.
+Both tables require reviewed numeric types and observed primary keys.
+The extension binds exact selected IDs, field coverage, row limits, schema,
+selection, DB version, legacy rows, numeric rows, and facing rows by canonical
+hashes. Validation rejects duplicate, missing, extraneous, or conflicting rows.
+It never changes the mandatory 108-column legacy `spell_template` rows.
+
+SQL supplies `EffectBonusCoefficient1=0.123`; there is no corresponding client
+DBC field. The extension also retains `IsServerSide`, totems, reagents/counts,
+target limits, the full uint64 family mask, damage multipliers, faction,
+reputation, aura-vision constraints, and numeric visual/unused annotations.
+Each decimal stays a canonical tagged decimal until the preparation verifier
+projects it directly to binary32. Names and ranks have explicit
+presentation-only dispositions in the positive audited mage domain.
+Every original client word remains a separate local DBC input.
+
+Legacy bundles still validate without the extension, but have unknown effective
+numeric coverage. Additional installed columns still produce
+`schema.unreviewed_columns`; this extension does not clear table-wide warnings.
+Facing absence is neutral only after a complete selected read.
+The extension grants no registry, hook, learning, initial-cast, global-area,
+NPC, geometry, or world-entry authority.
+
+
 ## Optional local read-only capture
 
 This requires an already prepared local world DB, an existing SELECT-only account

@@ -9,6 +9,7 @@ from typing import Any, Protocol
 
 from .columns import COLUMNS, STARTER_SCHEMA, INITIAL_HOOK_SCHEMA, EVENT_TEXT_ALIASES
 from . import event_ai, event_text, starter, learning, native_spawn, spell_registry, initial_hooks, loot, quest_relationships, spawn_entries
+from . import spell_numeric
 from .core import (CORE_REVISION, DATABASE_REVISION, FORMAT, STARTER_FORMAT, KEYS, MAX_BUNDLE_BYTES,
                    MAX_ITEMS, MAX_QUESTS, MAX_ROWS, MAX_SCHEMA_BYTES, MAX_SPELLS, Selection,
                    canonical, check, digest, integer, normalize_rows, normalize_version_notes,
@@ -24,7 +25,10 @@ class Query:
     source_names: tuple[str, ...] = ()
 
     def sql(self) -> tuple[str, tuple[Any, ...]]:
+        if self.mode == spell_numeric.MODE:
+            return spell_numeric.sql(self)
         check(self.table in COLUMNS and self.table in KEYS, "query.unreviewed_table")
+        check(self.table != "spell_facing", "query.spell_numeric_mode")
         check(self.table != event_ai.TABLE or self.mode == "event_ai_selectors",
               "query.event_ai_mode")
         check(self.table not in native_spawn.TABLES or self.mode == "native_spawn_selectors",
@@ -170,7 +174,8 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             dependency_request: dict[str, Any] | None = None, *,
             capture_initial_hooks: bool = False, capture_body_loot: bool = False,
             capture_quest_relationships: bool = False,
-            capture_spawn_entries: bool = False) -> dict[str, Any]:
+            capture_spawn_entries: bool = False,
+            capture_spell_numeric: bool = False) -> dict[str, Any]:
     selection = Selection.parse(selection.json())
     if dependency_request is not None:
         learning.request(dependency_request, selection)
@@ -181,7 +186,11 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
     check(not capture_initial_hooks or selection.starter is not None, "initial_hooks.starter_selection_required")
     check(type(capture_body_loot) is bool, "loot.request_boolean")
     check(not capture_body_loot or selection.starter is not None, "loot.starter_selection_required")
+    check(type(capture_spell_numeric) is bool, "spell_numeric.request_boolean")
+    check(not capture_spell_numeric or selection.starter is not None, "spell_numeric.starter_required")
     minimum = required_tables(selection)
+    if capture_spell_numeric:
+        minimum.add("spell_facing")
     if capture_spawn_entries:
         minimum.add(spawn_entries.TABLE)
     if (selection.starter is not None and type(inventory) is dict
@@ -192,9 +201,13 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
     if capture_initial_hooks:
         minimum.update(INITIAL_HOOK_SCHEMA)
     profiles = schema_profile(inventory, minimum)
+    if capture_spell_numeric:
+        spell_numeric.profile(inventory, "spell_template")
+        spell_numeric.profile(inventory, "spell_facing")
     if capture_quest_relationships:
         quest_relationships.validate_schema(inventory)
-    engines = {p["engine"] for p in profiles.values()}
+    engines = {p["engine"] for table, p in profiles.items()
+               if table != "spell_facing" or capture_spell_numeric}
     tables: dict[str, list[dict[str, Any]]] = {}
     required: dict[str, set[int]] = {}
     try:
@@ -393,6 +406,15 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             hook_ids = set(initial_hooks.selected_ids(tables))
             for table in initial_hooks.TABLES:
                 tables[table] = get(table, hook_ids, initial_hooks.LIMITS[table], mode="initial_hook_selectors")
+        numeric_rows, facing_rows = [], []
+        if capture_spell_numeric:
+            ids = tuple(spell_registry.selected_ids(tables))
+            for table, target in (("spell_template", numeric_rows), ("spell_facing", facing_rows)):
+                if ids:
+                    query = Query(table, spell_numeric.MODE, ids, limit=MAX_SPELLS)
+                    query.sql()
+                    target.extend(account(spell_numeric.normalize(
+                        source.fetch(query), spell_numeric.profile(inventory, table))))
         check(version_before == normalize_version_notes(source.version_notes(), profiles["db_version"]), "snapshot.version_changed")
         findings = full_report(tables, profiles, selection, body_loot=capture_body_loot)
         bundle = {
@@ -413,6 +435,8 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             bundle["native_spawn_capture"] = native_spawn.evidence(bundle)
             bundle["spell_script_capture"] = spell_registry.evidence(bundle)
             bundle["learning_capture"] = learning.evidence(tables, dependency_request, global_learning_rows)
+        if capture_spell_numeric:
+            bundle["spell_numeric_capture"] = spell_numeric.evidence(bundle, numeric_rows, facing_rows)
         if capture_body_loot:
             bundle["loot_capture"] = loot.evidence(bundle)
         if capture_initial_hooks:
@@ -452,6 +476,8 @@ def validate_bundle(bundle: Any) -> None:
             expected.add("initial_hook_capture")
         if "loot_capture" in bundle:
             expected.add("loot_capture")
+        if "spell_numeric_capture" in bundle:
+            expected.add("spell_numeric_capture")
     if "quest_relationship_capture" in bundle:
         expected.add("quest_relationship_capture")
     if "spawn_entry_capture" in bundle:
@@ -466,6 +492,7 @@ def validate_bundle(bundle: Any) -> None:
           "bundle.selection_version")
     check(bundle["consistency"] in {"transactional_snapshot", "operator_quiescent_snapshot"}, "bundle.consistency")
     check(type(bundle["tables"]) is dict and set(bundle["tables"]) <= set(KEYS), "bundle.tables")
+    check("spell_facing" not in bundle["tables"], "spell_numeric.facing_rows_require_extension")
     check(selection.starter is not None or not (set(bundle["tables"]) & set(STARTER_SCHEMA)),
           "bundle.unselected_starter_tables")
     mandatory = {"creature", "creature_template", "creature_model_info", "creature_template_classlevelstats",
@@ -476,7 +503,9 @@ def validate_bundle(bundle: Any) -> None:
     check(mandatory <= set(bundle["tables"]), "bundle.missing_tables")
     check(len(canonical(bundle["schema"])) <= MAX_SCHEMA_BYTES, "bundle.schema_byte_limit")
     profiles = schema_profile(bundle["schema"], set(bundle["tables"]) | {"db_version"})
-    check(bundle["consistency"] == "operator_quiescent_snapshot" or all(p["engine"] == "InnoDB" for p in profiles.values()), "bundle.myisam_consistency")
+    check(bundle["consistency"] == "operator_quiescent_snapshot" or all(
+        p["engine"] == "InnoDB" for table, p in profiles.items()
+        if table != "spell_facing" or "spell_numeric_capture" in bundle), "bundle.myisam_consistency")
     check(digest(bundle["schema"]) == bundle["schema_sha256"], "bundle.schema_hash")
     check(type(bundle["table_sha256"]) is dict and set(bundle["table_sha256"]) == set(bundle["tables"]), "bundle.table_hashes")
     for table, rows in bundle["tables"].items():
@@ -578,6 +607,8 @@ def validate_bundle(bundle: Any) -> None:
         spawn_entries.validate(bundle)
     if "quest_relationship_capture" in bundle:
         quest_relationships.validate(bundle)
+    if "spell_numeric_capture" in bundle:
+        spell_numeric.validate(bundle)
     status = bundle["report"]
     check(type(status) is dict and set(status) == {"runnable", "capture_complete", "scope", "unsupported"}, "bundle.report")
     check(status["runnable"] is False and status["capture_complete"] is False, "bundle.not_runnable")

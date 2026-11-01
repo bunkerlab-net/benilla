@@ -1451,5 +1451,106 @@ class InitialReputationPreparationTests(unittest.TestCase):
             parse_table("Faction", dbc_bytes("Faction", [{0: 980001, 1: 3}, {0: 980001, 1: 4}]))
 
 
+class FireballPlanTests(unittest.TestCase):
+    def authored(self):
+        import json
+        from native_starter import fireball_plan
+        source, selected = export_tests.authored_numeric_source()
+        bundle = capture(source, selected, capture_spell_numeric=True)
+        case = json.loads((ROOT / "native_starter/fireball-authored.json").read_text())
+        files = dbcs_for(bundle)
+        spell_rows = []
+        for row in bundle["tables"]["spell_template"]:
+            if row["Id"] == 133:
+                spell_rows.append(dict(enumerate(case["words"])))
+            else:
+                spell_rows.append({column: binary32_bits(row[name]["decimal"])
+                                   if name in FLOAT_SPELL_FIELDS else row[name] & 0xffffffff
+                                   for name, column in SPELL_FIELDS.items()})
+        files["Spell"] = dbc_bytes("Spell", spell_rows)
+        files["SpellCastTimes"] = dbc_bytes("SpellCastTimes", [{0: 16, 1: 1500, 3: 1500}])
+        files["SpellRange"] = dbc_bytes("SpellRange", [{0: 35, 2: 0x420c0000}])
+        files["SpellDuration"] = dbc_bytes("SpellDuration", [{0: 35, 1: 4000, 3: 4000}])
+        return bundle, parsed(files), case, fireball_plan
+
+    def test_only_the_audited_six_obligations_are_discharged_and_sources_are_unchanged(self):
+        bundle, dbcs, case, plan = self.authored()
+        before = copy.deepcopy(bundle)
+        report = compile_starter(bundle, dbcs, Request(1, 1, 0))
+        self.assertEqual(bundle, before)
+        bound = next(s for s in report["spells"] if s["id"] == 133)
+        self.assertEqual(bound["fireball_plan"]["status"], "supported_shape")
+        self.assertEqual(bound["server_client_differences"], [])
+        self.assertEqual(report["status"], "blocked")
+        self.assertIsNone(report["runtime_export"])
+        self.assertFalse(report["ability_admission"]["effective_learning_proven"])
+        self.assertEqual({i["reason"] for i in report["fireball_plan_obligations"]}, plan.REASONS)
+        remaining = report["unsupported"]
+        self.assertTrue(any(i["reason"] == "spell.server_overlay_and_learning_closure_required"
+                            and i["key"] == [133] for i in remaining))
+        self.assertTrue(any(i["reason"] == "native.runtime_profile_not_implemented" for i in remaining))
+        self.assertTrue(any(i["reason"] == "schema.unreviewed_columns" for i in remaining))
+        for issue in before["report"]["unsupported"]:
+            if issue["table"] != "spell_template" or issue["key"] != "133":
+                self.assertFalse(plan.discharges(issue, bound["fireball_plan"]))
+        for reason in plan.REASONS:
+            unrelated = {"table": "spell_template", "key": [168], "reason": reason, "slot": 2}
+            self.assertFalse(plan.discharges(unrelated, bound["fireball_plan"]))
+        self.assertTrue(all(case["numeric_projection"][name] == binary32_bits(value["decimal"])
+                            for name, value in case["row"].items() if isinstance(value, dict)))
+        verify_preparation(report, bundle, dbcs)
+
+    def test_shared_authored_refusals_and_missing_effective_numeric_coverage_do_not_plan_support(self):
+        bundle, dbcs, case, plan = self.authored()
+        bound = next(s for s in compile_starter(bundle, dbcs, Request(1, 1, 0))["spells"] if s["id"] == 133)
+        from classic_export import spell_numeric
+        for refusal in case["refusals"]:
+            changed = copy.deepcopy(bundle)
+            row = next(r for r in changed["spell_numeric_capture"]["rows"] if r["Id"] == 133)
+            row[refusal["field"]] = refusal["value"]
+            result = plan.supported_plan(changed, 133, case["words"],
+                                        bound["cast_time"], bound["range"], bound["duration"])
+            with self.subTest(field=refusal["field"]):
+                self.assertEqual(result["status"], "blocked")
+        legacy = copy.deepcopy(bundle)
+        legacy.pop("spell_numeric_capture")
+        report = compile_starter(legacy, dbcs, Request(1, 1, 0))
+        self.assertFalse(report["fireball_plan_obligations"])
+        bound = next(s for s in report["spells"] if s["id"] == 133)
+        self.assertEqual(bound["fireball_plan"]["refusals"], ["spell_numeric.complete_effective_overlay_unknown"])
+
+    def test_mismatch_diagnostics_and_registry_learning_hook_blockers_remain(self):
+        bundle, dbcs, case, plan = self.authored()
+        from classic_export import spell_numeric, spell_registry
+        for field in spell_numeric.WORD_FIELDS:
+            changed = copy.deepcopy(bundle)
+            row = next(r for r in changed["spell_numeric_capture"]["rows"] if r["Id"] == 133)
+            value = row[field]
+            row[field] = {"decimal": "2"} if isinstance(value, dict) else value + 1
+            # Shape checking remains independent of the producer's selected evidence.
+            bound = next(s for s in compile_starter(bundle, dbcs, Request(1, 1, 0))["spells"] if s["id"] == 133)
+            result = plan.supported_plan(changed, 133, case["words"],
+                                        bound["cast_time"], bound["range"], bound["duration"])
+            self.assertEqual(result["status"], "blocked", field)
+            if field != "Id":
+                self.assertIn(field, result["server_client_differences"])
+        for registry in ("unknown", "present"):
+            changed = copy.deepcopy(bundle)
+            if registry == "unknown":
+                changed.pop("spell_script_capture")
+                changed["tables"].pop("spell_scripts")
+                rehash_source(changed)
+            else:
+                changed["tables"]["spell_scripts"] = [{"Id": 133, "ScriptName": ""}]
+                rehash_source(changed)
+                extension = changed["spell_numeric_capture"]
+                changed["spell_numeric_capture"] = spell_numeric.evidence(changed, extension["rows"], extension["facing"])
+            report = compile_starter(changed, dbcs, Request(1, 1, 0))
+            reason = ("spell.registry_coverage_not_proven" if registry == "unknown"
+                      else "spell.registry_row_requires_named_handler_semantics")
+            self.assertTrue(any(i["reason"] == reason for i in report["unsupported"]))
+            self.assertEqual(report["status"], "blocked")
+
+
 if __name__ == "__main__":
     unittest.main()

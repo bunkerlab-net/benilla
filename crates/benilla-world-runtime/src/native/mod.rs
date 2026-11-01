@@ -114,18 +114,20 @@ pub mod synthetic_event_ai_fixture;
 #[cfg(any(test, feature = "synthetic-native-tests"))]
 pub mod synthetic_two_owner_fixture;
 pub use interactions::{
+    CapturedFireballInput, CapturedSpellEffect, CapturedSpellFacing, CapturedSpellTemplate,
     CombatAuthorityCatalog, CombatFacts, CombatPhase, CombatQuery, CombatRequest, CombatWitness,
-    FacingNumericPolicy, InitialCastDependencies, InitialSpellLookup, InteractionAudit,
-    InteractionCatalog, InteractionControlSeed, InteractionEvidence, InteractionFactionSource,
-    InteractionInput, InteractionMoment, InteractionWitness, MeleeCombatFacts, MeleeEntryFacts,
-    NativeInitialCastSourceInput, NpcCombatAuthoritySource, NpcInteractionSource, NpcSemanticFacts,
-    NpcSpellSource, PeerHelpContinuation, PeerHelpDenial, PeerHelpDenialReceipt, PeerHelpFacts,
-    PeerHelpQuery, PeerHelpReceipt, PeerHelpRequest, PeerSightDisposition, PeerSightReceipt,
-    PlayerInteractionSource, SourceSpellFacts, SourceSpellPhase, SourceSpellQuery,
-    SourceSpellRequest, SpellAreaSourceRow, SpellAreaSourceRows, SpellAuthorityCatalog,
-    SpellAuthorityInput, SpellAuthoritySource, SpellCastTimeSource, SpellDurationSource,
-    SpellGroupSource, SpellHookSources, SpellRangeResult, SpellRangeSource, SpellRankSource,
-    SpellSessionSource, SpellSourceRows, INTERACTION_POLICY, SPELL_AUTHORITY_POLICY,
+    CompiledFireball, FacingNumericPolicy, InitialCastDependencies, InitialSpellLookup,
+    InteractionAudit, InteractionCatalog, InteractionControlSeed, InteractionEvidence,
+    InteractionFactionSource, InteractionInput, InteractionMoment, InteractionWitness,
+    MeleeCombatFacts, MeleeEntryFacts, NativeInitialCastSourceInput, NpcCombatAuthoritySource,
+    NpcInteractionSource, NpcSemanticFacts, NpcSpellSource, PeerHelpContinuation, PeerHelpDenial,
+    PeerHelpDenialReceipt, PeerHelpFacts, PeerHelpQuery, PeerHelpReceipt, PeerHelpRequest,
+    PeerSightDisposition, PeerSightReceipt, PlayerInteractionSource, SourceSpellFacts,
+    SourceSpellPhase, SourceSpellQuery, SourceSpellRequest, SpellAreaSourceRow,
+    SpellAreaSourceRows, SpellAuthorityCatalog, SpellAuthorityInput, SpellAuthoritySource,
+    SpellCastTimeSource, SpellDurationSource, SpellGroupSource, SpellHookSources, SpellRangeResult,
+    SpellRangeSource, SpellRankSource, SpellSessionSource, SpellSourceRows, INTERACTION_POLICY,
+    SPELL_AUTHORITY_POLICY,
 };
 pub use motion::*;
 #[cfg(test)]
@@ -718,6 +720,8 @@ pub mod synthetic_combat_fixture;
 
 #[cfg(test)]
 mod spell_authority_tests;
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub mod synthetic_captured_spell_fixture;
 #[cfg(any(test, feature = "synthetic-native-tests"))]
 pub mod synthetic_spell_fixture;
 

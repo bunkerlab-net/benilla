@@ -104,7 +104,7 @@ class LocalSqlSource:
                   "schema.registry_key_metadata")
             result["tables"]["spell_scripts"]["primary_key"] = [row["name"] for row in keys]
         from .initial_hooks import PRIMARY_KEYS
-        for table, expected in (PRIMARY_KEYS | EVENT_TEXT_PRIMARY_KEYS | LOOT_PRIMARY_KEYS | SPAWN_ENTRY_PRIMARY_KEYS).items():
+        for table, expected in (PRIMARY_KEYS | EVENT_TEXT_PRIMARY_KEYS | LOOT_PRIMARY_KEYS | SPAWN_ENTRY_PRIMARY_KEYS | {"spell_template": ("Id",), "spell_facing": ("entry",)}).items():
             if table not in result["tables"]:
                 continue
             keys = self._select(

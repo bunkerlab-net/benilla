@@ -10,6 +10,8 @@ from typing import Any
 
 from classic_export.capture import validate_bundle
 from classic_export import event_ai, native_spawn, spell_registry, initial_hooks, quest_relationships, loot
+from classic_export import spell_numeric
+from . import fireball_plan
 from classic_export.columns import COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA
 from classic_export.core import (CORE_REVISION, STARTER_FORMAT, KEYS, Selection,
                                  canonical, check, digest, integer)
@@ -447,14 +449,18 @@ class Compiler:
         initial = {r["Spell"] for r in self.tables["playercreateinfo_spell"]}
         for source in self.tables["spell_template"]:
             entry = source["Id"]
-            row = self.lookup("Spell", entry, set(SPELL_FIELDS.values()) | set(range(40, 58)) |
+            numeric_scope = spell_numeric.scope(self.source, entry)
+            effective = numeric_scope["row"] if numeric_scope else source
+            mapped_fields = spell_numeric.WORD_FIELDS if numeric_scope else SPELL_FIELDS
+            float_fields = set(spell_numeric.FLOAT_FIELDS) if numeric_scope else FLOAT_SPELL_FIELDS
+            row = self.lookup("Spell", entry, set(mapped_fields.values()) | set(range(40, 58)) |
                               {159, 161, 162, 163, 167, 168, 169})
             differences = []
             server_words = list(row.words) if row else None
             if row:
-                for name, column in SPELL_FIELDS.items():
-                    value = source[name]
-                    if name in FLOAT_SPELL_FIELDS:
+                for name, column in mapped_fields.items():
+                    value = effective[name]
+                    if name in float_fields:
                         check(type(value) is dict and set(value) == {"decimal"}, "spell.source_float_domain")
                         bits = binary32_bits(value["decimal"])
                         finite_float(row.words[column], "spell.dbc_nonfinite")
@@ -463,10 +469,19 @@ class Compiler:
                     else:
                         integer(value, -0x80000000, 0xffffffff, "spell.source_integer_domain")
                         matches = value & 0xffffffff == row.words[column]
-                    server_words[column] = bits if name in FLOAT_SPELL_FIELDS else value & 0xffffffff
+                    server_words[column] = bits if name in float_fields else value & 0xffffffff
                     if not matches:
                         differences.append(name)
-                        self.issue("spell_template", [entry], "spell.server_client_field_mismatch", field=name)
+                        self.issue("spell_template", [entry], "spell.server_client_field_mismatch",
+                                   field=name, sql_value=value, dbc_word=row.words[column])
+                if numeric_scope:
+                    family = effective["SpellFamilyFlags"]
+                    for column, bits in ((161, family & 0xffffffff), (162, family >> 32)):
+                        server_words[column] = bits
+                        if bits != row.words[column]:
+                            differences.append("SpellFamilyFlags")
+                            self.issue("spell_template", [entry], "spell.server_client_field_mismatch",
+                                       field="SpellFamilyFlags", sql_value=family, dbc_value=row.words[column])
             cast = self.lookup("SpellCastTimes", source["CastingTimeIndex"], {0, 1, 2, 3})
             range_row = self.lookup("SpellRange", source["rangeIndex"], {0, 1, 2, 3})
             if source["Category"]:
@@ -543,6 +558,11 @@ class Compiler:
                     "reagents": [signed(w) for w in row.words[42:50]], "reagent_counts": list(row.words[50:58]),
                     "max_target_level": row.words[159], "family_mask_words": list(row.words[161:163]),
                     "max_affected_targets": row.words[163], "damage_multiplier_binary32": list(row.words[167:170])} if row else None})
+            bound = result[-1]
+            bound["numeric_capture"] = numeric_scope
+            bound["fireball_plan"] = fireball_plan.supported_plan(
+                self.source, entry, list(row.words) if row else None,
+                bound["cast_time"], bound["range"], bound["duration"])
             self.issue("spell_template", [entry], "spell.server_overlay_and_learning_closure_required")
         return result
 
@@ -708,6 +728,17 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
                        if display_table else None}
     c.issue("runtime", [], "native.runtime_profile_not_implemented")
     dispositions = c.dispositions(relationships["status"] == "resolved")
+    fireball = next((s["fireball_plan"] for s in spells if s["id"] == 133), None)
+    discharged = [i for i in c.issues if fireball_plan.discharges(i, fireball)]
+    c.issues = [i for i in c.issues if not fireball_plan.discharges(i, fireball)]
+    if fireball and fireball["status"] == "supported_shape":
+        for disposition in dispositions:
+            if disposition["table"] == "spell_template" and disposition["key"] == [133]:
+                fields = disposition["blocked_for_gameplay"].pop(
+                    "spell.native_effect_target_scaling_rules_required", [])
+                disposition["supported_catalog_plan"] = {
+                    "adapter": fireball_plan.ADAPTER, "fields": fields,
+                    "input_bindings": fireball["input_bindings"]}
     dbc_bindings = []
     for key, row in sorted(c.selected_dbc.items()):
         used = c.used_dbc[key]
@@ -730,6 +761,10 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
         "native_spawn_capture": source.get("native_spawn_capture"),
         "spell_script_capture": source.get("spell_script_capture"),
         "initial_hook_capture": source.get("initial_hook_capture"),
+        "spell_numeric_capture": source.get("spell_numeric_capture"),
+        "fireball_plan_obligations": [
+            {**i, "disposition": "supported_shape", "adapter": fireball_plan.ADAPTER,
+             "input_bindings": fireball["input_bindings"]} for i in discharged],
         "creature_display_inputs": display_evidence,
         "quest_relationships": relationships,
         "quest_loot_inputs": loot.quest_inputs(c.tables),
@@ -743,7 +778,8 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
                                      for t, i, r in sorted(c.dependencies)],
         "source_field_dispositions": dispositions, "dbc_bindings": dbc_bindings,
         "source_capture_findings": [{**i, "disposition": "replaced_by_exact_dependency_report"
-                                     if i["reason"] in replaced else "retained"}
+                                     if i["reason"] in replaced else "supported_shape"
+                                     if fireball_plan.discharges(i, fireball) else "retained"}
                                     for i in source["report"]["unsupported"]],
         "unsupported": issues}
     output["preparation_sha256"] = digest(output)

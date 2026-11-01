@@ -28,6 +28,7 @@ MAX_BUNDLE_BYTES = 64 * 1024 * 1024
 MAX_SCHEMA_BYTES = 2 * 1024 * 1024
 MAX_TEXT_BYTES = 16384
 KEYS = {
+    "spell_facing": ("entry",),
     "creature_spawn_entry": ("guid", "entry"),
     "spell_area": ("spell", "area", "quest_start", "quest_start_active", "aura_spell", "racemask", "gender"),
     "spell_proc_event": ("entry",),
@@ -199,7 +200,7 @@ def schema_profile(inventory: Any, required: set[str]) -> dict[str, Any]:
     profiles = {}
     for table, meta in inventory["tables"].items():
         fields = {"engine", "table_type", "columns"}
-        if table in (REGISTRY_SCHEMA | INITIAL_HOOK_SCHEMA | EVENT_TEXT_SCHEMA | LOOT_SCHEMA | SPAWN_ENTRY_SCHEMA) and type(meta) is dict and "primary_key" in meta:
+        if (table in (REGISTRY_SCHEMA | INITIAL_HOOK_SCHEMA | EVENT_TEXT_SCHEMA | LOOT_SCHEMA | SPAWN_ENTRY_SCHEMA) or table in {"spell_template", "spell_facing"}) and type(meta) is dict and "primary_key" in meta:
             fields.add("primary_key")
         check(type(meta) is dict and set(meta) == fields, "schema.table_fields")
         if table in REGISTRY_SCHEMA and table in required:

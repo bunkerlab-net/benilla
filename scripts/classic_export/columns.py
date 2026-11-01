@@ -545,6 +545,9 @@ COLUMNS = {
   ]
 }
 
+# Optional numeric extension reads this selected lookup without inventing absence.
+COLUMNS["spell_facing"] = ["entry", "facingcasterflag"]
+
 
 # Version notes are inspected before the fixed singleton read, never queried by key.
 COLUMNS["db_version"] = ["version", "creature_ai_version"]

@@ -107,6 +107,9 @@ pub fn source(p: &Profile) -> SpellAuthorityInput {
             })
         })
         .collect();
+    context(p, spells)
+}
+pub(super) fn context(p: &Profile, spells: Vec<SpellAuthoritySource>) -> SpellAuthorityInput {
     SpellAuthorityInput {
         spells,
         npcs: p

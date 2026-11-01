@@ -27,6 +27,31 @@ Legacy v1/v2 manifests require new local extraction, never a silently repaired
 coverage assertion. The diagnostic library may inspect missing tables, but null
 coverage never proves empty membership or a neutral display scale.
 
+### Captured Fireball numeric plan
+
+The optional source-v2 `spell_numeric_capture` extension retains the complete
+pinned numeric SQL projection and selected `spell_facing` rows in the same
+snapshot. Its absence remains unknown. The legacy 108-column row shape stays
+unchanged. The local verifier recomputes each decimal's binary32 projection
+with `binary32_bits` before constructing runtime typed inputs.
+
+For exact spell 133, `fireball_plan` can report `supported_shape` and replace
+only the six morphology, periodic-effect, execution, selector, attribute, and
+projectile obligations for that row. Each replaced obligation retains its
+adapter name and numeric/auxiliary bindings. Original source findings stay
+visible. The named numeric recipe consumer replaces only that row's
+`spell.native_effect_target_scaling_rules_required` field disposition.
+Other spells and schema warnings remain unchanged.
+
+Server/client disagreement, registry rows or unknown registry coverage,
+learning and initial-cast requirements, hook/global-area closure, and world
+entry remain blockers. Preparation still reports `status: blocked`,
+`runtime_export: null`, and `effective_learning_proven: false`.
+The Rust adapter revalidates numeric shape independently and uses the existing
+final authority constructor. Neither preparation success nor a caller-created
+typed projection authenticates the source bundle.
+
+
 ## Initializer inputs
 
 The following bindings are sufficient to *construct candidate typed inputs*;

@@ -22,6 +22,53 @@ world-boss target-level overrides and partial-resistance paths remain excluded.
 Historical source-authority preparation/release/aura witnesses use the same
 level-60 ceiling, including after reload.
 
+## Captured rank-one Fireball adapter
+
+`CapturedFireballInput::compile` constructs the existing immutable source from
+one complete effective numeric SQL row and the original 173 client words.
+It requires ID 133's exact direct-plus-periodic shape, coefficient bits
+`0x3dfbe76d` from SQL, cast row 16 at 1500 ms, range row 35 at 35 yards,
+and duration row 35 at 4000 ms. Every shared numeric SQL field must agree
+with its client word. The six coefficient fields have no client DBC columns.
+Unused client text/visual words remain intact. SQL numeric annotations and
+visual fields are compared too, but do not receive fabricated stock values.
+
+The typed template has no defaults. Partial legacy overlays are unknown inputs,
+not complete templates. Selected facing coverage must be complete, including
+observed absence. Category flags are neutral only because both category and
+category recovery are zero. Hook, rank/group, registry, location, session,
+modifier, NPC, and initial-cast closure remain independent requirements.
+
+Compile before player initialisation, use the compiled words for the same raw
+initializer row, then call `ability_recipe` with the initialized mage.
+The adapter derives rank from the complete row-ID-ordered skill mappings and
+retained skills, and derives cost from create mana. It shares the host's effect
+conversion and checks the resulting recipe with the existing validators.
+`hit_policy` copies raw targeting fields, not an external targeting verdict.
+Pass the generated source to `Profile::initialize_spell_authority`; compilation
+does not replace that final constructor or create a `NativeCapability`.
+
+The adapter changes no stored profile members, hash domains, execution engines,
+event order, restore rules, native version, or authority policy.
+Numeric mismatch uses the existing `Initialization(Invalid(field))` error
+because `InvalidProfile` and `AuthorityBinding` have no contextual payload.
+Preparation preserves the exact SQL/client values in its field diagnostics.
+
+On controller reopen, the existing client projection emits `SpellStart` with the
+remaining time for a currently casting spell, `world-client/src/native.rs:890`.
+This reconstructs the current cast bar. It does not replay the historical start
+or any `SpellGo`, direct-damage, or periodic-damage notification.
+
+The controller does not persist every spell-only tick before publishing it.
+The authored publication-fault test queues an unchanged pose at release to select
+the existing pose-bearing save-before-publication path without cancelling the cast.
+Successful checkpoint acknowledgement clears the bounded runtime journal.
+Controllers reopened at different ticks can therefore have different `last_tick`
+retention at the same frame. The reopen test compares an unsaved reference frame,
+both complete checkpoints and their committed history tip, and all client events.
+A missing retained frame must coincide with that controller's acknowledged save.
+
+
 ### Interrupt flags and source-owned melee timers
 
 SpellEntry word 21 is `InterruptFlags`, distinct from words 22/23's aura/channel

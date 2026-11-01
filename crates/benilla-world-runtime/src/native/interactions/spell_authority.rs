@@ -7,6 +7,13 @@ use super::*;
 use benilla_sim::starter_init as init;
 use std::collections::BTreeSet;
 
+#[path = "spell_authority/captured.rs"]
+mod captured;
+pub use captured::{
+    CapturedFireballInput, CapturedSpellEffect, CapturedSpellFacing, CapturedSpellTemplate,
+    CompiledFireball,
+};
+
 #[path = "initial_cast_source.rs"]
 mod initial_cast_source;
 #[path = "spell_area_source.rs"]
@@ -1003,31 +1010,35 @@ impl SpellAuthoritySource {
             return Err(NativeError::InvalidProfile);
         }
         for i in 0..3 {
-            let value = spell::EffectValue {
-                base_points: w[76 + i] as i32,
-                base_dice: w[67 + i] as i32,
-                die_sides: w[64 + i] as i32,
-                points_per_level: spell::SpellFloat::from_bits(w[73 + i])?,
-                dice_per_level: spell::SpellFloat::from_bits(w[70 + i])?,
-                base_level: u8::try_from(w[28]).map_err(|_| NativeError::InvalidProfile)?,
-                spell_level: u8::try_from(w[29]).map_err(|_| NativeError::InvalidProfile)?,
-                max_level: u8::try_from(w[27]).map_err(|_| NativeError::InvalidProfile)?,
-            };
-            let effect = match w[61 + i] {
-                0 => spell::MageEffect::Empty,
-                2 => spell::MageEffect::SchoolDamage(value),
-                6 => spell::MageEffect::PeriodicDamage {
-                    value,
-                    amplitude_ms: w[94 + i],
-                    duration_ms: self.duration.ok_or(NativeError::InvalidProfile)?.base_ms as u32,
-                },
-                _ => return Err(NativeError::InvalidProfile),
-            };
+            let effect = self.effect(i)?;
             if spec.effects[i] != effect {
                 return Err(NativeError::InvalidProfile);
             }
         }
         Ok(())
+    }
+    fn effect(&self, i: usize) -> Result<spell::MageEffect, NativeError> {
+        let w = &self.words;
+        let value = spell::EffectValue {
+            base_points: w[76 + i] as i32,
+            base_dice: w[67 + i] as i32,
+            die_sides: w[64 + i] as i32,
+            points_per_level: spell::SpellFloat::from_bits(w[73 + i])?,
+            dice_per_level: spell::SpellFloat::from_bits(w[70 + i])?,
+            base_level: u8::try_from(w[28]).map_err(|_| NativeError::InvalidProfile)?,
+            spell_level: u8::try_from(w[29]).map_err(|_| NativeError::InvalidProfile)?,
+            max_level: u8::try_from(w[27]).map_err(|_| NativeError::InvalidProfile)?,
+        };
+        Ok(match w[61 + i] {
+            0 => spell::MageEffect::Empty,
+            2 => spell::MageEffect::SchoolDamage(value),
+            6 => spell::MageEffect::PeriodicDamage {
+                value,
+                amplitude_ms: w[94 + i],
+                duration_ms: self.duration.ok_or(NativeError::InvalidProfile)?.base_ms as u32,
+            },
+            _ => return Err(NativeError::InvalidProfile),
+        })
     }
 }
 

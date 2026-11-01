@@ -2682,5 +2682,123 @@ class SpawnEntryCaptureTests(unittest.TestCase):
                             and ";" not in sql for sql, _, _ in calls))
 
 
+def authored_numeric_source():
+    import json
+    from classic_export import spell_numeric
+    source = starter_source()
+    case = json.loads((Path(__file__).parent / "native_starter/fireball-authored.json").read_text())
+    full = case["row"]
+    source.rows["spell_template"].append({name: (
+        Decimal(full[name]["decimal"]) if isinstance(full[name], dict) else full[name])
+        for name in COLUMNS["spell_template"]})
+    columns = []
+    for ordinal, name in enumerate(spell_numeric.COLUMNS + spell_numeric.TEXT_FIELDS, 1):
+        kind = ("text" if name in spell_numeric.TEXT_FIELDS else "float" if name in spell_numeric.FLOAT_FIELDS
+                else "bigint unsigned" if name == "SpellFamilyFlags"
+                else "int" if name in spell_numeric.SIGNED_FIELDS else "int unsigned")
+        columns.append({"name": name, "type": kind, "nullable": name in spell_numeric.TEXT_FIELDS,
+                        "ordinal": ordinal})
+    source.inventory["tables"]["spell_template"].update(columns=columns, primary_key=["Id"])
+    source.inventory["tables"]["spell_facing"].update(
+        columns=[{"name": "entry", "type": "int unsigned", "nullable": False, "ordinal": 1},
+                 {"name": "facingcasterflag", "type": "tinyint", "nullable": False, "ordinal": 2}],
+        primary_key=["entry"])
+    numeric = []
+    for legacy in source.rows["spell_template"]:
+        values = {name: Decimal("0") if name in spell_numeric.FLOAT_FIELDS else 0
+                  for name in spell_numeric.COLUMNS}
+        values.update(legacy)
+        if values["Id"] == 133:
+            values.update({name: Decimal(value["decimal"]) if isinstance(value, dict) else value
+                           for name, value in full.items()})
+        numeric.append(values)
+    original_fetch = source.fetch
+    def fetch(query):
+        if query.mode == spell_numeric.MODE:
+            source.queries.append(query.sql())
+            rows = numeric if query.table == "spell_template" else source.rows["spell_facing"]
+            key = "Id" if query.table == "spell_template" else "entry"
+            return copy.deepcopy([r for r in rows if r[key] in query.ids][:query.limit+1])
+        return original_fetch(query)
+    source.fetch = fetch
+    selected = starter_selection().json()
+    selected["spell_ids"] = sorted(set(selected["spell_ids"]) | {133})
+    return source, Selection.parse(selected)
+
+
+class SpellNumericTests(unittest.TestCase):
+    def test_same_snapshot_numeric_capture_preserves_legacy_rows_and_sql_only_coefficient(self):
+        from classic_export import spell_numeric
+        source, selected = authored_numeric_source()
+        bundle = capture(source, selected, capture_spell_numeric=True)
+        validate_bundle(bundle)
+        scope = spell_numeric.scope(bundle, 133)
+        self.assertEqual(scope["row"]["EffectBonusCoefficient1"], {"decimal": "0.123"})
+        self.assertEqual(scope["row"]["SpellFamilyFlags"], 0x40000001)
+        self.assertEqual(scope["row"]["EquippedItemSubClassMask"], -1)
+        self.assertEqual(scope["facing"], [])
+        self.assertEqual(set(bundle["tables"]["spell_template"][0]), set(COLUMNS["spell_template"]))
+        self.assertTrue(source.finished)
+        self.assertTrue(any("`IsServerSide`" in sql for sql, _ in source.queries))
+        self.assertFalse(bundle["report"]["runnable"])
+        legacy = capture(authored_numeric_source()[0], selected)
+        validate_bundle(legacy)
+        self.assertIsNone(spell_numeric.scope(legacy, 133))
+        self.assertTrue(any(i["reason"] == "schema.unreviewed_columns" for i in bundle["report"]["unsupported"]))
+
+    def test_numeric_coverage_hash_keys_domains_and_omitted_columns_refuse(self):
+        from classic_export import spell_numeric
+        source, selected = authored_numeric_source()
+        bundle = capture(source, selected, capture_spell_numeric=True)
+        for fault in ("rows", "fields", "snapshot", "facing", "legacy"):
+            changed = copy.deepcopy(bundle)
+            extension = changed["spell_numeric_capture"]
+            if fault == "rows":
+                extension["rows"].append(copy.deepcopy(extension["rows"][0]))
+            elif fault == "fields":
+                extension["fields"].remove("IsServerSide")
+            elif fault == "snapshot":
+                extension["snapshot"]["schema_sha256"] = "0"*64
+            elif fault == "facing":
+                extension["facing"] = [{"entry": 134, "facingcasterflag": 0}]
+            else:
+                extension["rows"][0]["School"] += 1
+                changed["spell_numeric_capture"] = spell_numeric.evidence(
+                    changed, extension["rows"], extension["facing"])
+            with self.subTest(fault=fault), self.assertRaises(ExportError):
+                validate_bundle(changed)
+        for missing in ("IsServerSide", "SpellFamilyFlags", "DmgMultiplier3", "Totem1", "Reagent8", "MaxAffectedTargets"):
+            source, selected = authored_numeric_source()
+            columns = source.inventory["tables"]["spell_template"]["columns"]
+            columns[:] = [c for c in columns if c["name"] != missing]
+            with self.subTest(missing=missing), self.assertRaises(ExportError):
+                capture(source, selected, capture_spell_numeric=True)
+        source, selected = authored_numeric_source()
+        source.inventory["tables"]["spell_facing"]["primary_key"] = []
+        with self.assertRaisesRegex(ExportError, "primary_key"):
+            capture(source, selected, capture_spell_numeric=True)
+        with self.assertRaisesRegex(ExportError, "query_limit"):
+            Query("spell_template", spell_numeric.MODE, (133,), limit=1).sql()
+        with self.assertRaisesRegex(ExportError, "spell_numeric_mode"):
+            Query("spell_facing", "ids", (133,)).sql()
+
+    def test_facing_snapshot_gate_does_not_change_legacy_capture_or_invent_empty_coverage(self):
+        from classic_export import spell_numeric
+        source, selected = authored_numeric_source()
+        source.inventory["tables"]["spell_facing"]["engine"] = "MyISAM"
+        legacy = capture(source, selected)
+        self.assertEqual(legacy["consistency"], "transactional_snapshot")
+        self.assertIsNone(spell_numeric.scope(legacy, 133))
+        source, selected = authored_numeric_source()
+        source.inventory["tables"]["spell_facing"]["engine"] = "MyISAM"
+        with self.assertRaisesRegex(ExportError, "quiescent_required"):
+            capture(source, selected, capture_spell_numeric=True)
+        source.rows["spell_facing"] = [{"entry": 133, "facingcasterflag": 1}]
+        bundle = capture(source, selected, quiescent=True, capture_spell_numeric=True)
+        validate_bundle(bundle)
+        self.assertEqual(spell_numeric.scope(bundle, 133)["facing"],
+                         [{"entry": 133, "facingcasterflag": 1}])
+
+
 if __name__ == "__main__":
     unittest.main()
