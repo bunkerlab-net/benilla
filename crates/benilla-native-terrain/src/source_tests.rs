@@ -29,6 +29,7 @@ impl Temp {
     fn data(&self) -> PathBuf {
         let data = self.0.join("Data");
         fs::create_dir(&data).unwrap();
+        crate::test_support::base_archives::write_base_archives(&data);
         data
     }
 }
@@ -154,7 +155,10 @@ fn capture_reads_real_patch_winner_and_preserves_every_source_byte() {
     );
     source.verify_unchanged().unwrap();
     assert_error(source.bytes(LIQUID), "source.not_captured");
-    assert_eq!(fs::read_dir(&data).unwrap().count(), originals.len());
+    assert_eq!(
+        fs::read_dir(&data).unwrap().count(),
+        benilla_formats::VANILLA_BASE_ORDER.len() + originals.len() - 1
+    );
     for (name, bytes) in originals {
         assert_eq!(fs::read(data.join(name)).unwrap(), bytes);
     }
@@ -513,7 +517,10 @@ fn mixed_raw_versions_accept_the_reported_patch_header_shapes_and_lengths() {
         fs::metadata(data.join("patch-2.MPQ")).unwrap().len(),
         9_095_701
     );
-    assert_eq!(fs::read_dir(&data).unwrap().count(), 5);
+    assert_eq!(
+        fs::read_dir(&data).unwrap().count(),
+        benilla_formats::VANILLA_BASE_ORDER.len() + 2
+    );
 }
 
 #[test]
@@ -1067,7 +1074,7 @@ fn history_rejects_unsupported_headers_and_malformed_hash_matches_without_receip
         "source.ad_header_version",
     );
     assert_eq!(source_receipts(&source), receipts);
-    fs::remove_file(data.join("terrain.MPQ")).unwrap();
+    fs::write(data.join("terrain.MPQ"), archive(&[])).unwrap();
     let mut malformed = archive(&[entry(HISTORY_ADT, 2)]);
     let mut words: Vec<_> = malformed[32..32 + 64 * 16]
         .as_chunks::<4>()
@@ -1255,7 +1262,10 @@ fn real_mpq_prepare_and_private_publish_match_oracle_without_source_writes() {
     assert_eq!(fs::read_dir(&output).unwrap().count(), 2);
     assert_eq!(fs::read_dir(output.join("maps")).unwrap().count(), 1);
     assert_eq!(fs::read(data.join("terrain.MPQ")).unwrap(), original);
-    assert_eq!(fs::read_dir(&data).unwrap().count(), 1);
+    assert_eq!(
+        fs::read_dir(&data).unwrap().count(),
+        benilla_formats::VANILLA_BASE_ORDER.len()
+    );
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -1301,7 +1311,10 @@ fn prepared_version_one_extension_change_refuses_before_creating_output() {
         assert_error(prepared.publish(&output), "source.ad_header_extension");
         assert!(!output.exists());
         assert_eq!(fs::read(&path).unwrap(), changed);
-        assert_eq!(fs::read_dir(&data).unwrap().count(), 1);
+        assert_eq!(
+            fs::read_dir(&data).unwrap().count(),
+            benilla_formats::VANILLA_BASE_ORDER.len()
+        );
     }
 }
 

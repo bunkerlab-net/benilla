@@ -5,6 +5,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[path = "../../benilla-native-terrain/tests/support/base_archives.rs"]
+mod base_archives;
 // Reuse the repository's test-only table encoder, not a second MPQ algorithm.
 #[path = "../../benilla-mpq/src/crypto.rs"]
 mod crypto;
@@ -24,6 +26,7 @@ impl Temp {
     fn data(&self) -> PathBuf {
         let data = self.0.join("Data");
         fs::create_dir(&data).unwrap();
+        base_archives::write_base_archives(&data);
         data
     }
 }
@@ -227,8 +230,8 @@ fn bounded_chain_enforces_cumulative_indices_and_mount_counts() {
         sector_bytes: 4096,
         member_bytes: MAX_FILE_BYTES,
         header_scan_bytes: 1024,
-        archives: 2,
-        directory_entries: 2,
+        archives: benilla_formats::VANILLA_BASE_ORDER.len() + 1,
+        directory_entries: benilla_formats::VANILLA_BASE_ORDER.len() + 1,
     };
     let error = Chain::open_bounded(&data, limits)
         .err()
@@ -237,7 +240,7 @@ fn bounded_chain_enforces_cumulative_indices_and_mount_counts() {
     assert!(Chain::open_bounded(
         &data,
         ChainLimits {
-            index_bytes: 4096,
+            index_bytes: 16 * 1024,
             ..limits
         }
     )
@@ -245,8 +248,8 @@ fn bounded_chain_enforces_cumulative_indices_and_mount_counts() {
     assert!(Chain::open_bounded(
         &data,
         ChainLimits {
-            index_bytes: 4096,
-            archives: 1,
+            index_bytes: 16 * 1024,
+            archives: benilla_formats::VANILLA_BASE_ORDER.len(),
             ..limits
         }
     )
@@ -254,8 +257,8 @@ fn bounded_chain_enforces_cumulative_indices_and_mount_counts() {
     assert!(Chain::open_bounded(
         &data,
         ChainLimits {
-            index_bytes: 4096,
-            directory_entries: 1,
+            index_bytes: 16 * 1024,
+            directory_entries: benilla_formats::VANILLA_BASE_ORDER.len(),
             ..limits
         }
     )

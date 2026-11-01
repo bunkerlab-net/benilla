@@ -548,6 +548,7 @@ mod tests {
     /// the `.blp`, and a loose file that will not open falls to the next candidate.
     #[test]
     fn the_loose_source_falls_through_per_candidate() {
+        #[cfg(unix)]
         use std::os::unix::fs::PermissionsExt;
         let data = benilla_formats::wow_data_or_skip!();
         let install =
@@ -566,8 +567,19 @@ mod tests {
         good_tga[16] = 32;
         std::fs::write(dir.join("b.tga"), &good_tga).unwrap();
         std::fs::write(dir.join("b.blp"), b"BLP2-b").unwrap();
+        #[cfg(unix)]
         std::fs::set_permissions(dir.join("b.blp"), std::fs::Permissions::from_mode(0o000))
             .unwrap();
+        #[cfg(windows)]
+        let unreadable = {
+            use std::os::windows::fs::OpenOptionsExt;
+            // Deny subsequent read opens until this handle closes.
+            std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(0)
+                .open(dir.join("b.blp"))
+                .unwrap()
+        };
         let root = install.clone();
         let cell = LooseIndexCell::new(move || LooseIndex::build(Some(&root), &root.join("Data")));
         let reader = LooseAssetReader {
@@ -593,6 +605,12 @@ mod tests {
         );
         let got = read(&texture_url("zzfall\\b", (true, true)));
         let readable = std::fs::read(dir.join("b.blp")).is_ok();
+        #[cfg(windows)]
+        {
+            assert!(!readable, "the exclusive handle must prevent reading");
+            drop(unreadable);
+        }
+        #[cfg(unix)]
         let _ = std::fs::set_permissions(dir.join("b.blp"), std::fs::Permissions::from_mode(0o600));
         let _ = std::fs::remove_dir_all(&install);
         if !readable {

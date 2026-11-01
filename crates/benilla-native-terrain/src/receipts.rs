@@ -99,6 +99,7 @@ mod tests {
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));
             fs::create_dir_all(root.join("Data")).unwrap();
+            base_archives::write_base_archives(&root.join("Data"));
             Self(root)
         }
 

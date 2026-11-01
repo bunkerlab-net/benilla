@@ -29,6 +29,7 @@ impl Fixture {
         ));
         let data = root.join("installation/Data");
         fs::create_dir_all(&data).unwrap();
+        support::base_archives::write_base_archives(&data);
         Self { root, data }
     }
     fn install(&self, case: &str) -> Vec<u8> {
@@ -1229,7 +1230,7 @@ fn diagnose_keeps_table_and_adt_checks_independent() {
 #[test]
 fn diagnose_absent_or_invalid_source_has_no_epoch_or_invented_results() {
     let fixture = Fixture::new();
-    fs::remove_dir(&fixture.data).unwrap();
+    fs::remove_dir_all(&fixture.data).unwrap();
     for (present, id) in [
         (false, "source.data_directory_required"),
         (true, "source.ad_header_signature"),

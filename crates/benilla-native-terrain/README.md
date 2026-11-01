@@ -301,6 +301,13 @@ replaced, and no output is automatically activated.
 
 ## Evidence and remaining acceptance
 
+Authored directory fixtures seed all ten required base archives with valid empty
+MPQs through `tests/support/base_archives.rs`, then overwrite the archives needed
+by each case. The native DBC extraction fixtures share this test-only helper.
+Keep required bases present when testing member absence or corrupt patch winners.
+Tests for a missing directory or an invalid archive deliberately construct those
+failures instead.
+
 Tests use only original authored MPQ/DBC/WDT/ADT data. The source oracle compiles
 isolated pinned source routines/readers with authored local-file transport; it
 neither builds nor runs the external `ad` executable. Byte-level comparisons,
