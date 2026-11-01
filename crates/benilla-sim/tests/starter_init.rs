@@ -1761,3 +1761,258 @@ fn armor_membership_cannot_be_restored_as_unproven_flags() {
     assert!(recipe.set_item_active(255, false, out.resources).is_err());
     assert_eq!(recipe, fresh);
 }
+
+fn captured_outfit() -> (StarterInput, CapturedStarterItems) {
+    let mut i = input();
+    i.skill_lines = vec![SkillLineRow {
+        id: 136,
+        category: 6,
+    }];
+    i.default_skills = Rows::Complete(vec![DefaultSkill { id: 136, step: 0 }]);
+    let ids = [
+        900_000_208,
+        900_000_207,
+        900_000_206,
+        900_000_205,
+        900_000_204,
+        900_000_203,
+        900_000_202,
+        900_000_201,
+    ];
+    let rows = ids
+        .iter()
+        .enumerate()
+        .map(|(n, &id)| {
+            let mut row = item(id);
+            row.inventory_type = [20, 7, 8, 17, 4, 0, 0, 0][n];
+            if n == 3 {
+                row.class = 2;
+                row.subclass = 10;
+            } else if n >= 5 {
+                row.class = if n == 7 { 15 } else { 0 };
+                row.stackable = if n == 7 { 1 } else { 20 };
+                row.spells[0] = ItemSpell {
+                    id: 900_000_250 + n as u32,
+                    trigger: 0,
+                };
+            }
+            StartingItemRow {
+                item: row,
+                buy_count: if matches!(n, 5 | 6) { 5 } else { 1 },
+                first_spell_category: if n == 5 {
+                    11
+                } else if n == 6 {
+                    59
+                } else {
+                    0
+                },
+            }
+        })
+        .collect();
+    let mut outfit = [0; 12];
+    for (slot, &id) in ids.iter().enumerate() {
+        outfit[slot] = id as i32;
+    }
+    outfit[8] = -1;
+    (
+        i,
+        CapturedStarterItems {
+            outfits: Rows::Complete(vec![CharStartOutfitRow {
+                id: 900_000_200,
+                race_class_gender: 0x0801,
+                items: outfit,
+            }]),
+            custom: Rows::Complete(vec![CustomStartingItem {
+                race: 1,
+                class: 8,
+                item: ids[5],
+                amount: 2,
+            }]),
+            items: rows,
+        },
+    )
+}
+
+#[test]
+fn captured_outfit_preserves_equip_order_buy_count_and_custom_grants() {
+    let (i, rows) = captured_outfit();
+    let i = rows.compile(i).unwrap();
+    let mage = initialize_mage(&i).unwrap();
+    let equips: Vec<_> = mage
+        .trace
+        .iter()
+        .filter_map(|event| match event {
+            InitEvent::Equip { item, slot } => Some((*item, *slot)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        equips,
+        [
+            (900_000_208, 4),
+            (900_000_207, 6),
+            (900_000_206, 7),
+            (900_000_205, 15),
+            (900_000_204, 3)
+        ]
+    );
+    assert_eq!(
+        mage.inventory,
+        [
+            InventoryStack {
+                item: 900_000_203,
+                count: 7
+            },
+            InventoryStack {
+                item: 900_000_202,
+                count: 5
+            },
+            InventoryStack {
+                item: 900_000_201,
+                count: 1
+            },
+        ]
+    );
+    let second = mage
+        .trace
+        .iter()
+        .position(|e| *e == InitEvent::SecondInventoryPass)
+        .unwrap();
+    assert_eq!(
+        mage.trace[second + 1],
+        InitEvent::Store {
+            item: 900_000_203,
+            count: 7
+        }
+    );
+    assert_eq!(
+        mage.trace[second + 2],
+        InitEvent::Store {
+            item: 900_000_202,
+            count: 5
+        }
+    );
+    assert_eq!(
+        mage.trace[second + 3],
+        InitEvent::Store {
+            item: 900_000_201,
+            count: 1
+        }
+    );
+}
+
+#[test]
+fn captured_food_drink_special_counts_require_subclass_and_strict_stack_threshold() {
+    for (food_stack, drink_stack, food_count, drink_count) in
+        [(20, 20, 4, 2), (4, 2, 5, 5), (5, 3, 4, 2)]
+    {
+        let (i, mut rows) = captured_outfit();
+        rows.custom = Rows::Complete(vec![]);
+        rows.items[5].item.subclass = 5;
+        rows.items[5].item.stackable = food_stack;
+        rows.items[6].item.subclass = 5;
+        rows.items[6].item.stackable = drink_stack;
+        let i = rows.compile(i).unwrap();
+        let mage = initialize_mage(&i).unwrap();
+        assert_eq!(
+            mage.inventory
+                .iter()
+                .filter(|s| s.item == 900_000_203)
+                .map(|s| s.count)
+                .sum::<u32>(),
+            food_count
+        );
+        assert_eq!(
+            mage.inventory
+                .iter()
+                .filter(|s| s.item == 900_000_202)
+                .map(|s| s.count)
+                .sum::<u32>(),
+            drink_count
+        );
+        assert!(mage.inventory.iter().all(|s| s.count
+            <= i.items
+                .iter()
+                .find(|item| item.id == s.item)
+                .unwrap()
+                .stackable));
+    }
+}
+
+#[test]
+fn captured_outfit_refuses_incomplete_ambiguous_and_unsupported_sources() {
+    let (i, rows) = captured_outfit();
+    let mut missing = rows.clone();
+    missing.items.remove(0);
+    assert!(matches!(
+        missing.compile(i.clone()),
+        Err(InitError::Missing {
+            table: "item_template",
+            id: 900_000_208
+        })
+    ));
+    for outfits in [Rows::Missing, Rows::Complete(vec![])] {
+        let mut bad = rows.clone();
+        bad.outfits = outfits;
+        assert!(matches!(
+            bad.compile(i.clone()),
+            Err(InitError::Missing {
+                table: "CharStartOutfit",
+                ..
+            })
+        ));
+    }
+    let mut bad = rows.clone();
+    let Rows::Complete(outfits) = &mut bad.outfits else {
+        unreachable!()
+    };
+    outfits.push(outfits[0].clone());
+    assert_eq!(
+        bad.compile(i.clone()),
+        Err(InitError::Invalid("ambiguous CharStartOutfit"))
+    );
+    for change in 0..9 {
+        let mut bad = rows.clone();
+        match change {
+            0 => bad.items[0].item.inventory_type = 28,
+            1 => bad.items[0].item.class = 99,
+            2 => bad.items[0].item.subclass = 99,
+            3 => bad.items[5].item.stackable = 0,
+            4 => bad.items[5].item.stackable = 10_001,
+            5 => bad.items[0].item.required_skill = 60_001,
+            6 => bad.items[0].item.required_spell = 900_000_299,
+            7 => {
+                bad.items[0].item.spells[0] = ItemSpell {
+                    id: 900_000_299,
+                    trigger: 1,
+                }
+            }
+            8 => bad.items[0].buy_count = 0,
+            _ => unreachable!(),
+        }
+        assert!(bad.compile(i.clone()).is_err(), "case {change}");
+    }
+    let mut bad = rows.clone();
+    bad.custom = Rows::Missing;
+    assert!(matches!(
+        bad.compile(i.clone()),
+        Err(InitError::Missing {
+            table: "playercreateinfo_item",
+            ..
+        })
+    ));
+    let mut bad = rows;
+    bad.custom = Rows::Complete(vec![CustomStartingItem {
+        race: 1,
+        class: 8,
+        item: 900_000_201,
+        amount: 17,
+    }]);
+    assert!(matches!(
+        bad.compile(i),
+        Err(InitError::Unsupported {
+            domain: "initial backpack capacity",
+            ..
+        })
+    ));
+}

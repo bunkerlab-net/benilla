@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pinned Player::StoreNewItemInBestSlots/CanUseItem/_ApplyItemBonuses and Item::GetSkill.
+// CMaNGOS Classic 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f, Entities/Player.cpp:857-985,7858-8042,9432-9555,9779-9847; Entities/Item.cpp:560-596.
+// Upstream GPL-2.0-or-later, Copyright CMaNGOS contributors.
 use super::{missing, unsupported, Init, InitError, InitEvent, Result};
 use std::collections::BTreeMap;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -90,16 +91,24 @@ pub(super) fn skill(item: &ItemRow) -> u16 {
         _ => 0,
     }
 }
-fn slots(item: &ItemRow) -> Result<Vec<u8>> {
+fn slots(item: &ItemRow) -> Result<&'static [u8]> {
     let slots = match item.inventory_type {
-        0 => vec![],
-        1..=10 => vec![(item.inventory_type - 1) as u8],
-        11 => vec![10, 11],
-        12 => vec![12, 13],
-        13 | 17 | 21 => vec![15],
-        16 => vec![14],
-        19 => vec![18],
-        20 => vec![4],
+        0 => &[][..],
+        1 => &[0],
+        2 => &[1],
+        3 => &[2],
+        4 => &[3],
+        5 | 20 => &[4],
+        6 => &[5],
+        7 => &[6],
+        8 => &[7],
+        9 => &[8],
+        10 => &[9],
+        11 => &[10, 11],
+        12 => &[12, 13],
+        13 | 17 | 21 => &[15],
+        16 => &[14],
+        19 => &[18],
         _ => {
             return Err(unsupported(
                 "initial item placement",
@@ -108,26 +117,139 @@ fn slots(item: &ItemRow) -> Result<Vec<u8>> {
             ))
         }
     };
+    let supported = match item.class {
+        0 => item.subclass <= 8 && item.inventory_type == 0,
+        2 => {
+            matches!(item.subclass, 0 | 1 | 4 | 5 | 6 | 7 | 8 | 10 | 13 | 15 | 20)
+                && matches!(item.inventory_type, 0 | 13 | 17 | 21)
+        }
+        4 => item.subclass <= 4 && matches!(item.inventory_type, 0..=12 | 16 | 19 | 20),
+        15 => item.subclass == 0 && item.inventory_type == 0,
+        _ => false,
+    };
+    if !supported {
+        return Err(unsupported(
+            "initial item class/subclass/inventory type",
+            item.id,
+            item.inventory_type,
+        ));
+    }
     Ok(slots)
 }
+pub(super) fn validate_grants(input: &super::StarterInput) -> Result<()> {
+    if input.item_creation_hooks {
+        return Err(unsupported("item creation hooks", 0, 0));
+    }
+    let grants = input
+        .item_grants
+        .require("complete outfit/custom grants", 0)?;
+    if grants.len() > 4096 {
+        return Err(InitError::Invalid("starting item grant limit"));
+    }
+    if grants
+        .windows(2)
+        .any(|w| (w[0].source, w[0].source_order) >= (w[1].source, w[1].source_order))
+    {
+        return Err(InitError::Invalid("outfit/custom source order"));
+    }
+    let mut counts = BTreeMap::<u32, u32>::new();
+    for grant in grants {
+        let item = input
+            .items
+            .iter()
+            .find(|row| row.id == grant.item)
+            .ok_or(missing("item_template", grant.item))?;
+        if grant.count == 0
+            || grant.count > 10_000
+            || item.stackable == 0
+            || item.stackable > 10_000
+        {
+            return Err(InitError::Invalid("item grant/stack count"));
+        }
+        if item.item_set != 0
+            || item.random_property != 0
+            || item.duration != 0
+            || item.scripted
+            || item.bag_family != 0
+            || item.container_slots != 0
+            || item.block != 0
+        {
+            return Err(unsupported(
+                "initial item set/random/duration/script/bag/block",
+                item.id,
+                0,
+            ));
+        }
+        if item.flags != 0 {
+            return Err(unsupported("initial item flags", item.id, item.flags));
+        }
+        if item.required_reputation_faction != 0 || item.required_honor_rank != 0 {
+            return Err(unsupported("initial item reputation/honor", item.id, 0));
+        }
+        if item.required_skill != 0
+            && !input
+                .skill_lines
+                .iter()
+                .any(|row| row.id == item.required_skill)
+        {
+            return Err(missing(
+                "item required SkillLine",
+                u32::from(item.required_skill),
+            ));
+        }
+        if item.required_spell != 0 && !input.spells.iter().any(|row| row.id == item.required_spell)
+        {
+            return Err(missing("item required Spell", item.required_spell));
+        }
+        let count = counts.entry(item.id).or_default();
+        *count = count
+            .checked_add(grant.count)
+            .ok_or(InitError::Numeric("item count"))?;
+        if item.unique_max_count > 0 && *count > item.unique_max_count {
+            return Err(unsupported("initial unique item count", item.id, *count));
+        }
+        if !slots(item)?.is_empty() {
+            for spell in item.spells {
+                if spell.id != 0 && spell.trigger != 0 {
+                    return Err(unsupported(
+                        "initial item equip/proc spell",
+                        item.id,
+                        spell.id,
+                    ));
+                }
+            }
+        }
+    }
+    let stored_slots: u32 = counts
+        .iter()
+        .map(|(&id, &count)| {
+            let item = input
+                .items
+                .iter()
+                .find(|row| row.id == id)
+                .expect("validated item");
+            if item.inventory_type == 0 {
+                count.div_ceil(item.stackable)
+            } else {
+                0
+            }
+        })
+        .sum();
+    if stored_slots > 16 {
+        return Err(unsupported("initial backpack capacity", 0, stored_slots));
+    }
+    Ok(())
+}
+
 impl Init<'_> {
     pub(super) fn items(&mut self) -> Result<(BTreeMap<u8, EquippedItem>, Vec<InventoryStack>)> {
-        if self.input.item_creation_hooks {
-            return Err(unsupported("item creation hooks", 0, 0));
-        }
+        validate_grants(self.input)?;
         let grants = self
             .input
             .item_grants
             .require("complete outfit/custom grants", 0)?;
-        if grants
-            .windows(2)
-            .any(|w| (w[0].source, w[0].source_order) >= (w[1].source, w[1].source_order))
-        {
-            return Err(InitError::Invalid("outfit/custom source order"));
-        }
         let mut equipped = BTreeMap::new();
         let mut inventory: Vec<InventoryStack> = vec![];
-        let mut counts: BTreeMap<u32, u32> = BTreeMap::new();
         for grant in grants {
             self.step()?;
             let item = self
@@ -136,44 +258,8 @@ impl Init<'_> {
                 .iter()
                 .find(|i| i.id == grant.item)
                 .ok_or(missing("item_template", grant.item))?;
-            if grant.count == 0
-                || grant.count > 10_000
-                || item.stackable == 0
-                || item.stackable > 10_000
-            {
-                return Err(InitError::Invalid("item grant/stack count"));
-            }
-            if item.item_set != 0
-                || item.random_property != 0
-                || item.duration != 0
-                || item.scripted
-                || item.bag_family != 0
-                || item.container_slots != 0
-                || item.block != 0
-            {
-                return Err(unsupported(
-                    "initial item set/random/duration/script/bag/block",
-                    item.id,
-                    0,
-                ));
-            }
-            // Unique-equipped and special flags need their own source admission.
-            if item.flags != 0 {
-                return Err(unsupported("initial item flags", item.id, item.flags));
-            }
-            let count = counts.entry(item.id).or_default();
-            *count = count
-                .checked_add(grant.count)
-                .ok_or(InitError::Numeric("item count"))?;
-            if item.unique_max_count > 0 && *count > item.unique_max_count {
-                return Err(unsupported("initial unique item count", item.id, *count));
-            }
-            let possible = slots(item)?;
             let race = 1u32 << (self.input.race - 1);
             let class = 1u32 << (self.input.class - 1);
-            if item.required_reputation_faction != 0 || item.required_honor_rank != 0 {
-                return Err(unsupported("initial item reputation/honor", item.id, 0));
-            }
             let proficiency = if item.class == 2 && item.subclass == 13 {
                 473
             } else {
@@ -190,7 +276,7 @@ impl Init<'_> {
                 && (proficiency == 0 || self.skill_value(proficiency) != 0);
             let mut remaining = grant.count;
             if usable {
-                for slot in possible {
+                for &slot in slots(item)? {
                     if remaining == 0 {
                         break;
                     }
@@ -242,20 +328,49 @@ impl Init<'_> {
                 }
             }
         }
+        // Re-store each carried stack in slot order; Player::Create:913-945 and _CanStoreItem_InInventorySlots:8775-8819.
+        self.trace.push(InitEvent::SecondInventoryPass);
+        for index in 0..inventory.len() {
+            let stack = inventory[index];
+            if stack.count == 0 {
+                continue;
+            }
+            let item = self
+                .input
+                .items
+                .iter()
+                .find(|row| row.id == stack.item)
+                .ok_or(missing("item_template", stack.item))?;
+            // No offhand, special bag or ammo is admitted, so CanEquipItem still refuses.
+            inventory[index].count = 0;
+            let mut remaining = stack.count;
+            for target in inventory
+                .iter_mut()
+                .filter(|s| s.item == item.id && s.count != 0)
+            {
+                let added = remaining.min(item.stackable - target.count);
+                target.count += added;
+                remaining -= added;
+            }
+            if remaining > 0 {
+                let empty = inventory
+                    .iter_mut()
+                    .find(|s| s.count == 0)
+                    .ok_or(InitError::Invalid("second-pass storage"))?;
+                *empty = InventoryStack {
+                    item: item.id,
+                    count: remaining,
+                };
+            }
+            self.trace.push(InitEvent::Store {
+                item: item.id,
+                count: stack.count,
+            });
+        }
+        inventory.retain(|stack| stack.count != 0);
         Ok((equipped, inventory))
     }
     fn apply_item(&mut self, item: &ItemRow) -> Result<()> {
-        // Unknown stored-item use spells are not invoked at initialization. Any
-        // on-equip/proc spell on equipped items remains a critical blocker.
-        for spell in item.spells {
-            if spell.id != 0 && spell.trigger != 0 {
-                return Err(unsupported(
-                    "initial item equip/proc spell",
-                    item.id,
-                    spell.id,
-                ));
-            }
-        }
         for stat in item.stats {
             if stat.value == 0 {
                 continue;

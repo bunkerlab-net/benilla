@@ -25,6 +25,7 @@ from native_starter.compiler import (Request, SPELL_FIELDS, FLOAT_SPELL_FIELDS, 
 from native_starter.dbc import (LAYOUTS, MAX_RECORDS, binary32_bits,
                                 load_directory, load_extraction_manifest, parse_table)
 from native_starter.event_ai_plan import supported_plan
+from native_starter.outfit_plan import supported_plan as outfit_plan
 
 ROOT = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("export_tests", ROOT / "test-classic-export.py")
@@ -245,6 +246,51 @@ class DbcTests(unittest.TestCase):
                 load_extraction_manifest(root, tables)
 
 
+class OutfitPlacementTests(unittest.TestCase):
+    def setUp(self):
+        base = source_bundle()["tables"]["item_template"][0]
+        self.item = {**base, "class": 4, "subclass": 0, "InventoryType": 20,
+                     "BuyCount": 1, "stackable": 1, "RequiredSkill": 0,
+                     "RequiredSkillRank": 0, "requiredspell": 0}
+        self.grant = {"source": "CharStartOutfit", "source_slot": 0,
+                      "item_id": self.item["entry"], "count": 1}
+
+    def plan(self, item=None, count=1):
+        row = self.item if item is None else item
+        return outfit_plan([{**self.grant, "count": count}], {row["entry"]: row})
+
+    def test_ordered_robe_pants_boots_staff_shirt_and_stored_items(self):
+        items, grants = {}, []
+        for n, kind in enumerate([20, 7, 8, 17, 4, 0, 0, 0]):
+            row = {**self.item, "entry": 990008 - n, "InventoryType": kind}
+            if n == 3:
+                row.update({"class": 2, "subclass": 10})
+            elif n >= 5:
+                row.update({"class": 15 if n == 7 else 0, "stackable": 20})
+            items[row["entry"]] = row
+            grants.append({**self.grant, "source_slot": n, "item_id": row["entry"],
+                           "count": 5 if n in {5, 6} else 1})
+        plan, reasons = outfit_plan(grants, items)
+        self.assertEqual(reasons, [])
+        self.assertEqual([g["candidate_slots"] for g in plan["grants"]],
+                         [[4], [6], [7], [15], [3], [], [], []])
+        self.assertEqual([g["count"] for g in plan["grants"]], [1, 1, 1, 1, 1, 5, 5, 1])
+        self.assertEqual(plan["second_pass"], "backpack_slot_order_equip_else_merge_then_first_empty")
+
+    def test_refuses_missing_item_unknown_types_stacks_capacity_and_requirements(self):
+        self.assertIsNone(outfit_plan([self.grant], {})[0])
+        for fields in [{"class": 99}, {"subclass": 99}, {"InventoryType": 28},
+                       {"stackable": 0}, {"stackable": 10001}, {"RequiredSkill": 1},
+                       {"requiredspell": 1}, {"ContainerSlots": 4},
+                       {"spellid_1": 999001, "spelltrigger_1": 1}]:
+            with self.subTest(fields=fields):
+                self.assertIsNone(self.plan({**self.item, **fields})[0])
+        for count in [0, None, 10001, 18]:
+            with self.subTest(count=count):
+                self.assertIsNone(self.plan(count=count)[0])
+        self.assertIsNotNone(self.plan()[0])
+
+
 class CompilerTests(unittest.TestCase):
     def setUp(self):
         self.source = source_bundle()
@@ -274,6 +320,22 @@ class CompilerTests(unittest.TestCase):
         self.assertFalse(any(s["server_client_differences"] for s in result["spells"]))
         self.assertEqual(result["source_sha256"], digest(self.source))
         self.assertIn("native.runtime_profile_not_implemented", {i["reason"] for i in result["unsupported"]})
+
+    def test_complete_outfit_reports_guarded_placement_and_keeps_production_closed(self):
+        for row in self.source["tables"]["item_template"]:
+            row.update({"class": 15, "subclass": 0, "InventoryType": 0,
+                        "stackable": 20, "RequiredSkill": 0, "RequiredSkillRank": 0,
+                        "requiredspell": 0})
+        rehash_source(self.source)
+        result = self.compile()
+        plan = result["player"]["outfit"]["placement_plan"]
+        self.assertIsNotNone(plan)
+        self.assertEqual([g["item_id"] for g in plan["grants"]], [920001, 920101])
+        self.assertEqual([g["count"] for g in plan["grants"]], [1, 2])
+        self.assertFalse(plan["equipment_resolved"])
+        self.assertNotIn("player.native_equipment_placement_required",
+                         {r["reason"] for r in result["unsupported"]})
+        self.assertIsNone(result["runtime_export"])
 
     def test_every_sql_and_selected_dbc_field_has_exactly_one_disposition(self):
         result = self.compile()
