@@ -396,6 +396,8 @@ fn source_profile_rejects_app_only_winners_even_with_identical_bytes() {
 fn source_profile_rejects_case_aliases_of_fixed_archive_names() {
     let temp = Temp::new();
     let data = temp.data();
+    // Recreate the entry so case-insensitive filesystems retain the alias spelling.
+    fs::remove_file(data.join("dbc.MPQ")).unwrap();
     fs::write(data.join("DBC.MPQ"), archive(&[entry(MAP, 1)])).unwrap();
     assert_error(
         CapturedSource::capture(&data, &[MAP]),
