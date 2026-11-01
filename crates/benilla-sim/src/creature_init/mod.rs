@@ -633,15 +633,15 @@ pub fn prepare(input: &Input) -> Result<Plan<'_>> {
     if t.regenerate_stats & !15 != 0 {
         return Err(InitError::Invalid("regeneration flags"));
     }
-    // Static settings outside the one arithmetic consumer are left to a future
-    // branch, rather than silently executing their behavioral substitutions.
-    if t.static_flags[0] != 0
+    // CreatureDefines.h:30 NO_XP is retained for the native kill-policy binding.
+    // This creation subset only accepts it on player-immune quest givers.
+    if t.static_flags[0] & !2 != 0
         || t.static_flags[1] & !0x10 != 0
         || t.static_flags[2] != 0
         || t.static_flags[3] != 0
     {
         return Err(InitError::Unsupported(
-            "static setting outside no-crushing branch",
+            "static setting outside no-XP immune/no-crushing branch",
         ));
     }
     if !input
@@ -676,6 +676,11 @@ pub fn prepare(input: &Input) -> Result<Plan<'_>> {
     } else {
         spawn.unit_flags as u32
     };
+    if t.static_flags[0] & 2 != 0 && flags & 0x100 == 0 {
+        return Err(InitError::Unsupported(
+            "no-XP template without player immunity",
+        ));
+    }
     if flags & (0x8 | 0x01000000) != 0 {
         return Err(InitError::Unsupported("player-controlled or possessed"));
     }

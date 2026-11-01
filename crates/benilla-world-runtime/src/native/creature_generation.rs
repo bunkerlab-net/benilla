@@ -8,6 +8,8 @@ use super::*;
 use benilla_sim::{creature_init as init, creature_regeneration as regeneration};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+mod captured;
+pub use captured::{CreatureCapturedFactionTemplate, CreatureCapturedInput, CreatureCapturedRow};
 
 pub const CREATURE_GENERATION_POLICY: &str = "cmangos-8ec338a1-native-creature-generation-v5";
 pub const MAX_CREATURE_GENERATIONS: usize = 256;
@@ -68,6 +70,19 @@ impl CreatureGenerationSource {
         }
         // prepare validates every reachable stat and model row before any request.
         let plan = init::prepare(&self.input)?;
+        let template = &self.input.template;
+        let unit_flags = if spawn.unit_flags == -1 {
+            template.unit_flags
+        } else {
+            spawn.unit_flags as u32
+        };
+        if template.extra_flags & 0x10000 != 0
+            && (template.static_flags[0] & 2 == 0 || unit_flags & 0x100 == 0)
+        {
+            return Err(NativeError::UnsupportedMechanic(
+                "civilian generation requires no-XP and player immunity",
+            ));
+        }
         let model = plan.model_roll_range().map(|range| range.0);
         let gender = plan.gender_roll_range(model)?.map(|range| range.1);
         let levels = self.input.template.minimum_level..=self.input.template.maximum_level;
@@ -257,7 +272,14 @@ impl CreatureGenerationCatalog {
                 .interactions
                 .as_ref()
                 .is_some_and(|catalog| catalog.has_combat_authority());
-            let owned_extra_flags = 0x2 | if has_combat_authority { 0x0008_0000 } else { 0 };
+            // Creature.h:65 CIVILIAN remains source data on immune, no-XP lives.
+            let civilian = if template.static_flags[0] & 2 != 0 {
+                0x10000
+            } else {
+                0
+            };
+            let owned_extra_flags =
+                0x2 | civilian | if has_combat_authority { 0x0008_0000 } else { 0 };
             if template.extra_flags & !owned_extra_flags != 0 {
                 return Err(NativeError::UnsupportedMechanic(
                     "unowned creature generation extra flags",

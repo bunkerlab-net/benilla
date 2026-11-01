@@ -1129,6 +1129,9 @@ mod creature_model_width_tests;
 #[path = "creature_model_height_tests.rs"]
 mod creature_model_height_tests;
 
+#[path = "creature_stats_tests.rs"]
+mod creature_stats_tests;
+
 #[path = "player_appearance_tests.rs"]
 mod player_appearance_tests;
 #[path = "player_model_height_tests.rs"]

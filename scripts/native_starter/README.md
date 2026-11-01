@@ -107,6 +107,16 @@ The tool rejects output inside the DBC input directory.
   evidence is usable only for those named selectors; legacy missing evidence is
   null. Substitutions, groups and other hooks remain unresolved, and no AI profile
   is constructed
+  Each creature also has a `generation_plan` for the bounded captured-template
+  adapter. It names the inclusive level range, whether a level draw is required,
+  current display probabilities, class-level rows, exact faction-template words,
+  and numeric binary32 inputs. Only a complete supported plan replaces that
+  entry's coarse stat/faction and variable-level findings. Script names,
+  unsupported AI names, unknown flags/ranks, missing levels, and incomplete
+  model/display/faction closure retain those findings. The remaining template
+  lifecycle fields stay blocked. The plan does not choose a level or invent
+  resolved stats, rates, or faction hostility. See the
+  [adapter formulas and refusals](../../crates/benilla-sim/CREATURE-INIT.md#captured-template-generation-adapter).
 - A bounded fixed point over default skills, all matching SkillLineAbility
   rows, their skill/spell/forward references, all three SkillStep/Skill/LearnSpell
   effects, items/reagents/totems, and captured SQL learning/rank links. These are

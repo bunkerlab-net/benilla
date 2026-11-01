@@ -131,6 +131,90 @@ read a WoW install. `Creature.h` is the unchanged UTF-8 file from the pinned
 repository. No Classic-DB rows, DBC files, assets or full upstream source files
 are distributed by this change.
 
+## Captured-template generation adapter
+
+`benilla_world_runtime::native::CreatureCapturedInput::compile` translates one
+complete 99-column `creature_template` row and the captured SQL class-level rows
+into the existing `CreatureGenerationSource`. It replaces the source's template
+and class-level inputs. The caller still supplies the actual resolved spawn
+template, complete model/display closure, equipment, addons, strings, external
+dependencies, and explicit rates. The adapter does not supply defaults for
+those inputs, authenticate capture completeness, construct an AI catalog, or
+grant native admission.
+
+The adapter accepts the current capture's decimal envelopes or integer SQL
+values. Rust's decimal-to-binary32 conversion rounds the source value once;
+`SpellFloat` then rejects nonfinite, subnormal, or out-of-range values. The
+existing software-binary32 initializer performs all derived arithmetic. Every
+reachable level and model must validate before the existing generator requests
+any draw.
+
+The source contracts are the following pinned GPL ports:
+
+- `Creature.cpp:1613-1693`, `LoadFromDB`, binds the database GUID and resolved
+  entry before creation. Entry substitutions, events, pools, groups, and
+  respawn ownership remain separate obligations.
+- `Creature.cpp:506-546`, `UpdateEntry`, calls `SelectLevel`, then applies
+  captured current resources and the spawn-template faction override.
+  `ObjectMgr.cpp:412-414` requires a real `FactionTemplate` identity. The adapter
+  requires the template faction and every effective spawn override to resolve
+  to a supplied row. It never turns a faction ID into a hostility boolean.
+- `Creature.cpp:1273-1279`, `SelectLevel`, requests `urand(min,max)` with inclusive
+  endpoints only when the levels differ. Equal levels consume no level draw.
+  `src/shared/Util/Util.cpp:74-77` implements this as
+  `std::uniform_int_distribution<uint32>` over the requested endpoints.
+  The existing native generator owns deterministic draws in model, gender,
+  level order on the world's shared counter. It does not reproduce CMaNGOS's
+  global RNG state or claim a universal map-load schedule.
+- `ObjectMgr.cpp:779-782`, `LoadCreatureClassLvlStats`, subtracts the bounded
+  intellect mana bonus, agility ranged-AP bonus, and twice agility from the raw
+  class-level row before multiplier application.
+- `Creature.cpp:1313-1368,1417-1489`, `SelectLevel`, loads class-level health,
+  mana, attributes, AP, rounded base armor, and weapon endpoints. Modern weapon
+  endpoints are `BaseDamage * (1 - DamageVariance/2)` and
+  `BaseDamage * (1 + DamageVariance/2)`, with binary32 operation order preserved.
+- `StatSystem.cpp:664-672,675-715,739-817` applies the final attributes and
+  multipliers. Armor is rounded loaded base armor times `ArmorMultiplier`,
+  plus twice effective agility. AP includes the class-specific attribute term
+  and base AP times the template damage multiplier and explicit rank-zero
+  damage rate. Final weapon damage is stored AP divided by 14, plus the weapon
+  endpoint times that same damage multiplier. It does not multiply by attack
+  interval. Create health truncates class-level health times the explicit
+  rank-zero health rate and clamps to one. Maximum health rounds the create
+  health and stamina-difference contributions after the health multiplier.
+
+These paths use the installed capture's `DamageMultiplier`, `DamageVariance`,
+and `DisplayIdProbability1..4`, not constants copied from the older full dump.
+Classic DB pin `ec4f596146be6467ea93c57397858e329e2db852`,
+`Updates/4620_z2823_01_mangos_displayid_probability.sql:14-19` and
+`Updates/4835_charm_cls.sql:78-79` explain why the later probability and damage
+fields matter. The adapter validates the obsolete damage fields but never
+substitutes them for the current damage fields.
+
+Rank zero, levels one through 20, classes 1/2/4/8, and physical mainhand remain
+the supported domain. Unknown or unsupported flag bits, missing or duplicate
+class-level/faction rows, unsupported AI names, and any nonempty `ScriptName`
+refuse. `EventAI` names do not bypass the separate EventAI adapter.
+`StaticFlags1.NO_XP` is retained only for player-immune templates.
+`NativeKillPolicy::validate` binds its `is_no_xp` to that retained bit, and the
+existing kill-XP port awards zero. Other static bits remain refused except the
+existing no-crushing branch.
+`ExtraFlags.CIVILIAN` is retained only together with `NO_XP` and effective
+player immunity. The raw source and its digest survive each generated life
+and checkpoint reconstruction. Other civilian combinations remain refused.
+The runtime's existing regeneration policy still refuses active nonzero mana,
+focus, or energy regeneration. A mana-class stat input needs inactive power
+regeneration to pass that host check.
+
+The Python preparation's per-creature `generation_plan` reports complete stat
+inputs or precise refusals. Only complete supported stat, faction, and
+model/display inputs discharge `creature.native_stats_combat_faction_required`
+and `creature.variable_level` for that entry. Remaining template columns keep a
+separate lifecycle disposition. Trainer/vendor/gossip, loot and XP policy,
+spell/charm lists, movement, assistance, and AI are not admitted by a stat plan.
+The preparation remains blocked with no runtime export, and
+`NativeCapability` remains uninhabited.
+
 ## Exact supported input boundary
 
 - Fresh, living, ordinary rank-zero, uncontrolled nonpet outdoor creatures,

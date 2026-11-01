@@ -20,6 +20,7 @@ from .talent import inputs as talent_inputs
 from .dbc import DbcRow, DbcTable, LAYOUTS, binary32_bits, finite_float, signed
 from .event_ai_plan import supported_plan
 from .outfit_plan import supported_plan as outfit_placement_plan
+from . import creature_plan
 
 PROFILE = "cmangos-8ec338a1-native-starter-bindings-v1"
 FORMAT = "benilla-native-starter-preparation-v1"
@@ -568,6 +569,7 @@ class Compiler:
 
     def creature_inputs(self) -> list[dict[str, Any]]:
         result = []
+        self.creature_generation_plans = {}
         for creature in self.tables["creature_template"]:
             entry = creature["Entry"]
             event_scope = event_ai.scope(self.tables, entry)
@@ -592,6 +594,13 @@ class Compiler:
                     display_inputs.append({"id": model_id, "model_id": display.words[1],
                         "extended_display_info_id": display.words[3], "scale_binary32": scale,
                         "size_class": signed(display.words[9]), "source": display.raw()})
+            self.lookup("FactionTemplate", creature["Faction"], set(range(14)))
+            generation_plan = creature_plan.plan(
+                creature, self.tables["creature_template_classlevelstats"],
+                self.dbcs.get("FactionTemplate"),
+                [r for r in self.tables["creature_model_info"] if r["modelid"] in model_ids],
+                display_inputs)
+            self.creature_generation_plans[entry] = generation_plan
             result.append({"entry": entry, "source_row": creature,
                 "spawns": [r for r in self.tables["creature"] if r["id"] == entry],
                 "class_level_inputs": [r for r in self.tables["creature_template_classlevelstats"]
@@ -602,6 +611,7 @@ class Compiler:
                 "display_inputs": display_inputs, "selected_display_ids": sorted(model_ids),
                 "event_ai_capture": event_scope,
                 "event_ai_plan": event_plan,
+                "generation_plan": generation_plan,
                 "native_spawn_dependencies": spawn_scope,
                 "resolved_combat_stats": None, "ai_profile": None})
             self.issue("creature_template", [entry], "creature.ai_selection_and_native_melee_required",
@@ -666,11 +676,19 @@ class Compiler:
                 consumed = CONSUMED.get(table, set())
                 if table == "quest_template" and relationships_resolved:
                     consumed = consumed | set(quest_relationships.FIELDS)
+                if table == "creature_template" and self.creature_generation_plans[row["Entry"]]["status"] == "complete_inputs":
+                    consumed = consumed | creature_plan.FIELDS
+                if table == "creature_template_classlevelstats" and any(
+                        p["status"] == "complete_inputs" and row in p["class_level_rows"]
+                        for p in self.creature_generation_plans.values()):
+                    consumed = set(row)
                 comments = {"Note", "note", "comments"} & set(row)
                 blocked = set(row) - consumed - comments
                 reason = BLOCKED_TABLE_REASON.get(table, "player.native_creation_progression_rules_required")
                 if table == "creature" and "native_spawn_capture" in self.source:
                     reason = "creature.native_spawn_resolution_required"
+                if table == "creature_template" and self.creature_generation_plans[row["Entry"]]["status"] == "complete_inputs":
+                    reason = "creature.template_lifecycle_rules_required"
                 result.append({"table": table, "key": [row[k] for k in KEYS[table]],
                     "capability": PROFILE, "consumed_by_preparation": sorted(consumed),
                     "inert_source_annotations": sorted(comments),
@@ -718,6 +736,15 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
     spells = c.spells()
     talents = talent_inputs(dbcs.get("Talent"), set(c.learning["spell_ids"]))
     creatures = c.creature_inputs()
+    resolved_creatures = {str(row["entry"]) for row in creatures
+                          if row["generation_plan"]["status"] == "complete_inputs"}
+
+    def replaced_creature_finding(issue: dict[str, Any]) -> bool:
+        return (issue["table"] == "creature_template" and str(issue["key"]) in resolved_creatures
+                and issue["reason"] in {"creature.native_stats_combat_faction_required", "creature.variable_level"})
+
+    c.issues = [issue for issue in c.issues
+                if not (issue.get("origin") == "source_capture" and replaced_creature_finding(issue))]
     display_table = dbcs.get("CreatureDisplayInfo")
     display_ids = sorted({entry for creature in creatures for entry in creature["selected_display_ids"]})
     display_evidence = {"coverage": "complete_raw_table" if display_table else "not_captured",
@@ -778,7 +805,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
                                      for t, i, r in sorted(c.dependencies)],
         "source_field_dispositions": dispositions, "dbc_bindings": dbc_bindings,
         "source_capture_findings": [{**i, "disposition": "replaced_by_exact_dependency_report"
-                                     if i["reason"] in replaced else "supported_shape"
+                                     if i["reason"] in replaced or replaced_creature_finding(i) else "supported_shape"
                                      if fireball_plan.discharges(i, fireball) else "retained"}
                                     for i in source["report"]["unsupported"]],
         "unsupported": issues}

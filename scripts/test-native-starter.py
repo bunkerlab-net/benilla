@@ -1552,5 +1552,101 @@ class FireballPlanTests(unittest.TestCase):
             self.assertEqual(report["status"], "blocked")
 
 
+class CreatureGenerationPreparationTests(unittest.TestCase):
+    def test_rust_adapter_columns_match_complete_capture_projection(self):
+        from classic_export.columns import COLUMNS
+        source = (ROOT.parent / "crates/benilla-world-runtime/src/native/creature_generation/captured.rs").read_text()
+        for table, constant in [("creature_template", "TEMPLATE_FIELDS"),
+                                ("creature_template_classlevelstats", "CLASS_FIELDS")]:
+            fields = re.search(r"const " + constant + r": &\[&str\] = &\[(.*?)\];", source, re.S)
+            self.assertIsNotNone(fields)
+            self.assertEqual(re.findall(r'"([^"]+)"', fields[1]), COLUMNS[table])
+
+    def setUp(self):
+        self.source = source_bundle()
+        creature = self.source["tables"]["creature_template"][0]
+        creature.update(MaxLevel=2, CreatureType=7, InhabitType=3,
+                        DisplayIdProbability1=1, MeleeBaseAttackTime=2500)
+        stats = self.source["tables"]["creature_template_classlevelstats"][0]
+        stats.update(BaseDamageExp0=4, BaseArmor=100, BaseMeleeAttackPower=14,
+                     Strength=10, Agility=10, Stamina=10, Intellect=10, Spirit=10)
+        self.source["tables"]["creature_template_classlevelstats"].append(
+            {**stats, "Level": 2, "BaseHealthExp0": 80, "BaseDamageExp0": 8})
+        self.source["tables"]["creature_model_info"][0].update(
+            bounding_radius={"decimal": "0.5"}, SpeedWalk={"decimal": "1"}, SpeedRun={"decimal": "1"})
+        rehash_source(self.source)
+        self.files = dbcs_for(self.source)
+
+    def compile(self):
+        return compile_starter(self.source, parsed(self.files), Request(1, 1, 0))
+
+    def test_complete_stats_plan_discharges_only_stats_and_level_findings(self):
+        output = self.compile()
+        plan = output["creatures"][0]["generation_plan"]
+        self.assertEqual(plan["status"], "complete_inputs")
+        self.assertEqual(plan["level_roll"], {"minimum": 1, "maximum": 2, "inclusive": True,
+            "draw_required": True, "rng_owner": "existing_world_counter"})
+        self.assertEqual([row["Level"] for row in plan["class_level_rows"]], [1, 2])
+        reasons = {issue["reason"] for issue in output["unsupported"]}
+        self.assertNotIn("creature.native_stats_combat_faction_required", reasons)
+        self.assertNotIn("creature.variable_level", reasons)
+        self.assertIn("creature.ai_selection_and_native_melee_required", reasons)
+        self.assertIn("native.runtime_profile_not_implemented", reasons)
+        self.assertEqual(output["status"], "blocked")
+        self.assertIsNone(output["runtime_export"])
+        for row in output["source_field_dispositions"]:
+            if row["table"] in {"creature_template", "creature_template_classlevelstats"}:
+                self.assertNotIn("creature.native_stats_combat_faction_required", row["blocked_for_gameplay"])
+        verify_preparation(output, self.source, parsed(self.files))
+
+    def test_missing_level_faction_display_and_unsupported_template_keep_blockers(self):
+        for mutation in [
+            lambda: self.source["tables"]["creature_template_classlevelstats"].pop(),
+            lambda: self.files.pop("FactionTemplate"),
+            lambda: self.files.pop("CreatureDisplayInfo"),
+            lambda: self.source["tables"]["creature_template"][0].update(ScriptName="script"),
+            lambda: self.source["tables"]["creature_template"][0].update(AIName="other"),
+            lambda: self.source["tables"]["creature_template"][0].update(Rank=1),
+            lambda: self.source["tables"]["creature_template"][0].update(UnitFlags=0x80000000),
+            lambda: self.source["tables"]["creature_template"][0].update(ExtraFlags=0x10002),
+            lambda: self.source["tables"]["creature_template"][0].update(Civilian=1),
+            lambda: self.source["tables"]["creature_template"][0].update(HealthMultiplier=1000001),
+            lambda: self.source["tables"]["creature_model_info"][0].update(bounding_radius={"decimal": "0"}),
+            lambda: self.source["tables"]["creature_model_info"][0].update(SpeedRun={"decimal": "0"}),
+        ]:
+            with self.subTest(mutation=mutation):
+                self.setUp()
+                mutation()
+                rehash_source(self.source)
+                output = self.compile()
+                self.assertEqual(output["creatures"][0]["generation_plan"]["status"], "refused")
+                self.assertIn("creature.native_stats_combat_faction_required",
+                              {issue["reason"] for issue in output["unsupported"]})
+                self.assertIn("creature.variable_level",
+                              {issue["reason"] for issue in output["unsupported"]})
+
+    def test_fixed_level_omits_draw_and_no_xp_giver_preserves_flag(self):
+        row = self.source["tables"]["creature_template"][0]
+        row.update(MaxLevel=1, StaticFlags1=2, UnitFlags=0x1300, ExtraFlags=0x10002,
+                   NpcFlags=19, Civilian=1)
+        rehash_source(self.source)
+        output = self.compile()
+        self.assertEqual(output["creatures"][0]["generation_plan"]["status"], "complete_inputs")
+        self.assertFalse(output["creatures"][0]["generation_plan"]["level_roll"]["draw_required"])
+        self.assertEqual(output["creatures"][0]["source_row"]["StaticFlags1"], 2)
+
+    def test_active_mana_regeneration_remains_outside_generation_host(self):
+        creature = self.source["tables"]["creature_template"][0]
+        creature.update(UnitClass=8, RegenerateStats=10)
+        for row in self.source["tables"]["creature_template_classlevelstats"]:
+            row.update(Class=8, BaseMana=100)
+        rehash_source(self.source)
+        plan = self.compile()["creatures"][0]["generation_plan"]
+        self.assertIn("active_power_regeneration", plan["refusals"])
+        creature["RegenerateStats"] = 2
+        rehash_source(self.source)
+        self.assertEqual(self.compile()["creatures"][0]["generation_plan"]["status"], "complete_inputs")
+
+
 if __name__ == "__main__":
     unittest.main()
