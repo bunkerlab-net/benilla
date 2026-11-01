@@ -1133,6 +1133,39 @@ pub(crate) mod schedule_tests {
         }
     }
 
+    /// The spyglass writes this frame's zoom before projection-dependent world queries run.
+    #[test]
+    fn world_fov_reads_current_zoom_before_stream_projection_readers() {
+        let mut app = headless_client();
+        let graph = census(&mut app, Update, SyncPoints::Declared);
+        if !type_names_available(&graph) {
+            return;
+        }
+        let key = |suffix: &str| {
+            graph
+                .systems
+                .iter()
+                .find_map(|(key, system)| system.name.ends_with(suffix).then_some(*key))
+                .unwrap_or_else(|| panic!("missing system {suffix}"))
+        };
+        let stamp = key("::view::stamp_world_fov");
+        assert!(
+            graph.runs_before(key("::player::scoped_view::apply_scoped_view"), stamp),
+            "the FOV stamp must see this frame's scoped-view zoom"
+        );
+        for reader in [
+            "::wmo_portal::compute_wmo_pvs",
+            "::model_render::visibility::apply_model_visibility",
+            "::liquid::query::detect_submersion",
+            "::clutter::stream_chunk_clutter",
+        ] {
+            assert!(
+                graph.runs_before(stamp, key(reader)),
+                "{reader} must see this frame's world FOV"
+            );
+        }
+    }
+
     /// The real sound plugins must bind the same-frame interior contract, not merely declare
     /// unused ordered sets. Inspect declared edges, independent of the executor's tie breaks.
     #[test]

@@ -365,8 +365,8 @@ pub fn stamp_world_fov(
     }
 }
 
-/// The world camera's pose made current within `Update`, for every viewer authority there: Bevy
-/// propagates `GlobalTransform` in `PostUpdate`, a whole jump late after a teleport snap.
+/// The world camera's pose and field of view made current within `Update`, before world queries.
+/// Bevy propagates `GlobalTransform` in `PostUpdate`, a whole jump late after a teleport snap.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CameraPoseSet;
 
@@ -398,7 +398,6 @@ pub(crate) fn plugin(app: &mut App) {
     // runs inside the world-frame driver; initialized here too for a harness with only this plugin.
     app.init_resource::<ViewDistance>()
         .init_resource::<FovZoom>()
-        .add_systems(Update, stamp_world_fov)
         // After the frame's script calls, whose `nearclip` callback writes it.
         .add_systems(
             Update,
@@ -406,11 +405,11 @@ pub(crate) fn plugin(app: &mut App) {
         );
     app.add_systems(
         Update,
-        publish_camera_pose
+        (stamp_world_fov, publish_camera_pose)
             .in_set(CameraPoseSet)
-            // Publish the controller's current root-camera pose before the public presentation
-            // stage, so game consumers need not name this engine-internal synchronization set.
+            // Read this frame's controller pose and scoped-view zoom before streaming and PVS.
             .after(crate::schedule::WorldStage::Input)
+            .before(crate::schedule::WorldStage::Stream)
             .before(crate::schedule::WorldStage::Present),
     );
 }
