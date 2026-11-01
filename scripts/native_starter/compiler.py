@@ -359,23 +359,72 @@ class Compiler:
         return {"outfit_record_id": rows[0].words[0] if len(rows) == 1 else None,
                 "grants_in_source_order": grants, "equipment_slots": None}
 
-    def factions(self, identity: dict[str, Any]) -> None:
+    def factions(self, identity: dict[str, Any]) -> dict[str, Any]:
+        # ReputationMgr::Initialize uses the full Faction table, not encountered NPCs only.
+        start = len(self.issues)
         ids = {r["Faction"] for r in self.tables["creature_template"]}
         if identity["faction_template_id"] is not None:
             ids.add(identity["faction_template_id"])
+        else:
+            self.issue("ChrRaces", [self.request.race], "player.initial_reputation_identity_missing")
         for entry in sorted(ids):
             row = self.lookup("FactionTemplate", entry, set(range(14)))
             if row:
-                faction_ids = {row.words[1], *row.words[6:14]} - {0}
-                for faction in sorted(faction_ids):
-                    self.lookup("Faction", faction, {0, 1})
-        # All factions can seed initial reputation, not just encountered templates.
+                for faction in sorted({row.words[1], *row.words[6:14]} - {0}):
+                    self.lookup("Faction", faction, set(range(19)))
+        required = {r["RequiredReputationFaction"] for r in self.tables["item_template"]}
+        for quest in self.tables["quest_template"]:
+            required.update(quest[field] for field in
+                ["RepObjectiveFaction", "RequiredMinRepFaction", "RequiredMaxRepFaction",
+                 *[f"RewRepFaction{i}" for i in range(1, 6)]])
+        for faction in sorted(required - {0}):
+            self.lookup("Faction", faction, set(range(19)))
         table = self.dbcs.get("Faction")
-        if table:
+        entries, indices, seen = [], set(), set()
+        if table is None:
+            self.issue("Faction", [], "player.initial_reputation_table_missing")
+        elif len(table.rows) > 4096 or len(ids) > 4096:
+            self.issue("Faction", [], "player.initial_reputation_row_limit")
+        else:
+            race_mask, class_mask = 1 << (self.request.race - 1), 1 << (self.request.class_id - 1)
             for row in table.rows:
-                if signed(row.words[1]) >= 0:
-                    self.use(row, {0, 1})
-        self.issue("Faction", [], "player.native_reputation_initialization_required")
+                self.use(row, set(range(19)))
+                words = row.words
+                faction, index = words[0], signed(words[1])
+                if faction == 0 or not -1 <= index < 64:
+                    self.issue("Faction", [faction], "player.initial_reputation_index_or_id")
+                if faction in seen:
+                    self.issue("Faction", [faction], "player.initial_reputation_duplicate_row")
+                seen.add(faction)
+                if any(flags & ~0x7f for flags in words[14:18]):
+                    self.issue("Faction", [faction], "player.initial_reputation_flag_bits")
+                last = max((i for i in range(4) if any(words[offset+i] for offset in (2, 6, 10, 14))),
+                           default=0)
+                matches = [i for i in range(4)
+                    if (words[2+i] == 0 or words[2+i] & race_mask)
+                    and (words[6+i] == 0 or words[6+i] & class_mask)]
+                values = {(signed(words[10+i]), words[14+i]) for i in matches if i <= last}
+                if len(values) > 1:
+                    self.issue("Faction", [faction], "player.initial_reputation_conflicting_slots")
+                if index < 0:
+                    continue
+                if index in indices:
+                    self.issue("Faction", [faction], "player.initial_reputation_duplicate_index")
+                indices.add(index)
+                slot = matches[0] if matches else None
+                entries.append({"faction": faction, "reputation_list_id": index,
+                    "matched_slot": slot, "base_standing": signed(words[10+slot]) if slot is not None else 0,
+                    "stored_delta": 0, "flags": words[14+slot] if slot is not None else 0,
+                    "need_send": True, "need_save": True})
+        complete = len(self.issues) == start
+        if not complete:
+            self.issue("Faction", [], "player.native_reputation_initialization_required")
+        return {"status": "supported" if complete else "blocked",
+                "coverage": "complete_raw_table" if table else "not_captured",
+                "table_sha256": table.sha256 if table else None,
+                "initial_standings": sorted(entries, key=lambda row: row["reputation_list_id"]) if complete else None,
+                "aura156_affects_initial_standing": False,
+                "reward_rates_and_spillover": "require_independent_sql_resolution"}
 
     def skills(self) -> dict[str, Any]:
         self.learning = discover(self)
@@ -637,7 +686,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
                     if i["reason"] not in replaced)
     identity = c.identity()
     outfit = c.outfit()
-    c.factions(identity)
+    reputation = c.factions(identity)
     skills = c.skills()
     spells = c.spells()
     talents = talent_inputs(dbcs.get("Talent"), set(c.learning["spell_ids"]))
@@ -679,7 +728,8 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
         "quest_loot_inputs": loot.quest_inputs(c.tables),
         "player": {"identity": identity, "level_inputs": c.progression(), "outfit": outfit,
                    "initial_sql_spells": source["tables"]["playercreateinfo_spell"],
-                   "actions": source["tables"]["playercreateinfo_action"], "skills": skills},
+                   "actions": source["tables"]["playercreateinfo_action"], "skills": skills,
+                   "initial_reputation": reputation},
         "spells": spells, "creatures": creatures, "talent_inputs": talents,
         "candidate_paths": c.candidate_paths(spells),
         "required_additional_rows": [{"table": t, "id": i, "reason": r}

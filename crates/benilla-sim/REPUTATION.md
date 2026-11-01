@@ -62,6 +62,48 @@ closure. Modifiers cannot be edited through `State`, commands, or saved standing
 fields. Initial reconstruction reinstates the same passive once; dynamic aura
 application/removal and mutable aura persistence are outside this policy.
 
+## DBC initialization adapter
+
+`InitialFactionCapture::compile` accepts the complete validated Faction numeric
+projection, selected FactionTemplate rows, required lookup IDs, and one race/class.
+`None` for Faction means missing full-table coverage. An empty complete table
+cannot satisfy a required faction lookup. Each list has a limit of 4,096 rows.
+The fixed Rust word arrays enforce uint32 storage and signed int32 reinterpretation.
+Bases retain the full int32 domain, not the later reputation reward clamp.
+
+`Catalog::from_initial_factions` converts those rows into the existing catalog.
+Every faction needs an independently resolved reward-rate and spillover policy.
+Missing, duplicate, and extra policies reject. DBC input never implies absent SQL
+policies, absent passive effects, or production admission. No serialized state,
+catalog identity policy, or native format changes.
+
+The adapter refuses missing template/faction references, duplicate IDs, unknown
+reputation flag bits, indices outside -1 through 63, and duplicate nonnegative
+indices. It refuses matching substantive slots with different base/flag results.
+Trailing all-zero slots remain source wildcard fallbacks, not conflicting rules.
+An earlier zero wildcard before a later substantive match still participates in
+conflict detection. These are bounded refusals, not changes to the primitive's
+source first-match or duplicate-index overwrite semantics.
+
+The source definitions are `src/game/Server/DBCStructure.h:359-386,401-410`
+at the pin above. `ReputationMgr::GetBaseReputation` at
+`src/game/Reputation/ReputationMgr.cpp:74-84` and `GetDefaultStateFlags` at
+`:140-150` select the same race/class slot. `Initialize` at `:243-263` creates
+zero stored deltas and copies flags without normalising visible, at-war, hidden,
+invisible-forced, peace-forced, inactive, or the known rival bit.
+`SendInitialReputations` at `:197-229` sends those deltas, clears only `needSend`,
+and fills 64 packet entries. It does not send the base as a stored delta.
+
+Human Diplomacy 20599 changes gains, never the initial base or stored delta.
+The [pinned spell source](STARTER-INIT.md#actual-row-motivation-and-unresolved-client-evidence) identifies
+its constant +10 aura156 effect. The source
+`src/game/Spells/SpellAuraDefines.h:291` names aura156 `MOD_REPUTATION_GAIN`.
+`Player::CalculateReputationGain` at `src/game/Entities/Player.cpp:6304-6314`
+reads this modifier for awards. Neither `Initialize`, `GetBaseReputation`,
+`GetDefaultStateFlags`, nor `SendInitialReputations` reads a spell or aura.
+Authored tests compare equal initial bases/deltas with and without the modifier,
+then compare a 250 award with a 275 award.
+
 ## Source mechanics preserved
 
 - `FactionEntry::GetIndexFitTo` selects the first matching slot. A zero race or

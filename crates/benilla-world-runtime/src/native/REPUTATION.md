@@ -35,9 +35,16 @@ The retained modifier changes no physical dimensions; arbitrary, duplicated or
 dynamic holders and unknown model-changing auras still reject. The height test
 selects authored loaded model rows and does not establish real client DBC values.
 
-The runtime does not certify the supplied initialization set or invent raw absence
-proofs. The full native raw producer remains separate and `NativeCapability`
-remains uninhabited.
+The bounded `benilla_sim::reputation::Catalog::from_initial_factions` adapter
+compiles a complete validated Faction projection and selected FactionTemplate
+references into this existing explicit catalog. It preserves the four race/class
+slots, bases, indices, and default flags. Reward-rate/spillover policies and
+initial passive closure remain independent required inputs. The runtime repeats
+its existing race/class and retained-aura checks. Controller coverage creates a
+profile from authored DBC-shaped rows, checks nonzero initial bases with zero
+packet deltas, checkpoints, and reopens with the same standings and flags.
+The full native raw producer remains separate and `NativeCapability` remains
+uninhabited.
 
 `QuestHost::reward_reputation` invokes the hosted reputation reducer. Each
 `ReputationChanged` receives the exact intermediate reputation state and executes

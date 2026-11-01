@@ -41,6 +41,14 @@ all named semantic gaps below must still be resolved before initialization:
 - The level-one member of `player.level_inputs` supplies create_health,
   create_mana, strength, agility, stamina, intellect and spirit. These are base
   creation inputs, not effective attributes, full resources or combat values
+- `player.initial_reputation` is a bounded initialization plan, not a runtime
+  profile. Recompile it from the complete verified Faction numeric projection,
+  selected FactionTemplate references, and the request's race/class with
+  `InitialFactionCapture`. Supply independently resolved SQL reward-rate and
+  spillover policies to `Catalog::from_initial_factions`, then pass that catalog
+  through `QuestProgressionInput.reputation`. Preserve zero stored deltas and
+  source flags. Do not apply aura156 to base standing. The existing initializer
+  cross-check still requires the exact retained passive list for later awards
 - `player.skills.sql_candidates` maps in captured source order to
   default_skills `{id: skill, step}`; `player.initial_sql_spells` maps in captured
   order to default_spells `Spell`. No action-button row proves a learned spell

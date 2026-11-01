@@ -78,6 +78,13 @@ The tool rejects output inside the DBC input directory.
   use the bounded native BuyCount/food/drink branch; SQL custom grants follow
   outfit grants in order. Equipment placement and item-instance creation are not
   implemented. Ambiguous outfit matches fail instead of picking an arbitrary row
+- `player.initial_reputation` reports source race/class-selected initial bases,
+  flags, reputation indices, and zero stored deltas when the complete Faction
+  table and selected template/quest/item references resolve. Missing or invalid
+  inputs retain the initialization blocker and precise reasons. The bounded
+  [Rust adapter](../../crates/benilla-sim/REPUTATION.md#dbc-initialization-adapter)
+  feeds the existing explicit catalog. Diplomacy affects awards, not initial
+  standing. Reward policies and effective passive closure remain independent
 - All three effects and the entire selected server spell rows, matched to local
   Spell.dbc fields. Server/client differences are reported by field. Signed cast
   times and exact binary32 range words retain precision. Reagents, totems,
@@ -246,7 +253,7 @@ game data is a verification limitation, not a permanent admission rule.
 The next ports depend on the actual report:
 
 1. Player creation: effective skills/spells, passive and equipment resolution,
-   final stat calculation, start/server settings and initial reputation
+   final stat calculation, start/server settings, and reputation reward policies
 2. Spells: all actual effect slots, attribute words, target selectors, projectile
    travel, aura/periodic state, bonus/scaling, power, cooldown and interruption
    rules. Effect 2/6/10 labels indicate damage/aura/heal work, never support

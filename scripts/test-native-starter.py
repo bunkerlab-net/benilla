@@ -1316,5 +1316,78 @@ class QuestLootPreparationTests(unittest.TestCase):
             verify_preparation(output, bundle, dbcs)
 
 
+class InitialReputationPreparationTests(unittest.TestCase):
+    def setUp(self):
+        self.source = source_bundle()
+        self.files = dbcs_for(self.source)
+        self.files["Faction"] = dbc_bytes("Faction", [
+            {0: 980001, 1: 3, 2: 1, 3: 2, 6: 1, 7: 1,
+             10: 1100, 11: -250, 14: 17, 15: 2},
+            {0: 980002, 1: 7, 10: -75, 14: 44}])
+        self.request = Request(1, 1, 0)
+
+    def compile(self):
+        return compile_starter(self.source, parsed(self.files), self.request)
+
+    def test_complete_plan_replaces_only_initialization_blocker_and_binds_all_slots(self):
+        output = self.compile()
+        plan = output["player"]["initial_reputation"]
+        self.assertEqual(plan["status"], "supported")
+        self.assertEqual([(r["faction"], r["base_standing"], r["stored_delta"], r["flags"])
+                          for r in plan["initial_standings"]],
+                         [(980001, 1100, 0, 17), (980002, -75, 0, 44)])
+        self.assertFalse(plan["aura156_affects_initial_standing"])
+        self.assertNotIn("player.native_reputation_initialization_required",
+                         {r["reason"] for r in output["unsupported"]})
+        for binding in output["dbc_bindings"]:
+            if binding["table"] == "Faction":
+                self.assertTrue(set(range(19)) <= set(binding["consumed_by_preparation"]))
+        self.assertEqual(output["status"], "blocked")
+        self.assertIsNone(output["runtime_export"])
+        verify_preparation(output, self.source, parsed(self.files))
+        output["player"]["initial_reputation"]["initial_standings"][0]["base_standing"] = 999
+        output.pop("preparation_sha256")
+        output["preparation_sha256"] = digest(output)
+        with self.assertRaisesRegex(ExportError, "compiler.preparation_mismatch"):
+            verify_preparation(output, self.source, parsed(self.files))
+
+    def test_race_class_masks_and_wildcard_fallback(self):
+        from native_starter.compiler import Compiler
+        for race, class_id, expected in [(1, 1, 1100), (2, 1, -250), (1, 8, 0)]:
+            compiler = Compiler(self.source, parsed(self.files), Request(race, class_id, 0))
+            plan = compiler.factions({"faction_template_id": 970001})
+            self.assertEqual(plan["status"], "supported")
+            self.assertEqual(plan["initial_standings"][0]["base_standing"], expected)
+
+    def test_missing_tables_and_template_references_keep_precise_blockers(self):
+        for name in ["Faction", "FactionTemplate"]:
+            with self.subTest(table=name):
+                files = dict(self.files)
+                files.pop(name)
+                output = compile_starter(self.source, parsed(files), self.request)
+                self.assertEqual(output["player"]["initial_reputation"]["status"], "blocked")
+                self.assertIsNone(output["player"]["initial_reputation"]["initial_standings"])
+                self.assertIn("player.native_reputation_initialization_required",
+                              {r["reason"] for r in output["unsupported"]})
+        self.files["FactionTemplate"] = dbc_bytes("FactionTemplate", [{0: 970001, 1: 999}])
+        output = self.compile()
+        self.assertIn({"table": "Faction", "id": 999, "reason": "dbc.required_record_missing"},
+                      output["required_additional_rows"])
+
+    def test_indices_flags_conflicts_and_duplicate_rows_fail_closed(self):
+        for fields, reason in [
+            ({1: 64}, "index_or_id"), ({1: -2}, "index_or_id"),
+            ({14: 128}, "flag_bits"), ({10: 100, 11: 200}, "conflicting_slots"),
+        ]:
+            with self.subTest(reason=reason):
+                self.files["Faction"] = dbc_bytes("Faction", [{0: 980001, 1: 3, **fields}])
+                output = self.compile()
+                self.assertIn("player.initial_reputation_" + reason,
+                              {r["reason"] for r in output["unsupported"]})
+                self.assertIsNone(output["player"]["initial_reputation"]["initial_standings"])
+        with self.assertRaisesRegex(ExportError, "duplicate_key"):
+            parse_table("Faction", dbc_bytes("Faction", [{0: 980001, 1: 3}, {0: 980001, 1: 4}]))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1, GPL-2.0-or-later; translation GPL-3.0-or-later.
 //! Source-native reputation primitives with explicit resolved inputs. See ../../REPUTATION.md.
+mod initial;
+pub use initial::{FactionRewardPolicy, InitialFactionCapture, MAX_INITIAL_FACTION_ROWS};
 mod numeric;
 use crate::classic_spell::SpellFloat;
 use serde::{Deserialize, Serialize};

@@ -146,6 +146,105 @@ fn reputation(c: &NativeController) -> i32 {
         )
         .unwrap()
 }
+
+#[test]
+fn compiled_dbc_initial_standings_survive_controller_checkpoint_and_reopen() {
+    use benilla_sim::reputation as r;
+    let h = Harness::new();
+    let enter = |open| {
+        let (mut profile, input, mut data) = rep::setup();
+        let original = data.reputation.take().unwrap();
+        let mut words = vec![];
+        let mut policies = vec![];
+        for (id, index, base, flags) in [
+            (rep::PRIMARY, 3, 321i32, r::VISIBLE | r::PEACE_FORCED),
+            (rep::SPILLOVER, 7, 123, r::HIDDEN | r::INACTIVE),
+            (rep::OTHER, 11, -19, r::AT_WAR | r::INVISIBLE_FORCED),
+        ] {
+            let mut row = [0; 19];
+            row[0] = id;
+            row[1] = index;
+            row[2] = 1;
+            row[6] = 128;
+            row[10] = base as u32;
+            row[14] = flags;
+            words.push(row);
+            let source = original.row(id).unwrap().unwrap();
+            policies.push(r::FactionRewardPolicy {
+                faction: id,
+                reward_rates: source.reward_rates.clone(),
+                spillover: source.spillover.clone(),
+            });
+        }
+        let capture = r::InitialFactionCapture {
+            factions: Some(words),
+            templates: vec![],
+            required_templates: vec![],
+            required_factions: vec![rep::PRIMARY, rep::SPILLOVER, rep::OTHER],
+            race: input.race,
+            class: input.class,
+        };
+        data.reputation = Some(
+            r::Catalog::from_initial_factions(
+                &capture,
+                policies,
+                original.config(),
+                r::Audit {
+                    general_reputation_auras: r::Evidence::Absent,
+                    faction_reputation_auras: r::Evidence::Absent,
+                    forced_reactions: r::Evidence::Absent,
+                    reputation_scripts: r::Evidence::Absent,
+                },
+                vec![],
+            )
+            .unwrap(),
+        );
+        profile.initialize_quest_progression(&input, data).unwrap();
+        let catalog = ReputationCatalog::new(&profile);
+        NativeController::enter_component_test(
+            &h.root,
+            &h.profile,
+            &h.character,
+            if open {
+                Entry::Open { world: [8; 16] }
+            } else {
+                Entry::Create {
+                    world: [8; 16],
+                    seed: 7,
+                }
+            },
+            profile,
+            &catalog,
+            quests::QuestAuthority::default(),
+        )
+        .unwrap()
+    };
+    let check = |c: &mut NativeController| {
+        let genesis = c.world.profile().quest_progression.as_ref().unwrap();
+        let state = c.world.state().quest_progression.as_ref().unwrap();
+        for (faction, standing) in [
+            (rep::PRIMARY, 321),
+            (rep::SPILLOVER, 123),
+            (rep::OTHER, -19),
+        ] {
+            assert_eq!(state.reputation(genesis, faction).unwrap(), standing);
+        }
+        let events = c.initial_events().unwrap();
+        assert!(events.iter().any(|event| matches!(event,
+            SessionEvent::Reputations { standings } if standings.len() == 64
+                && standings[3] == ((r::VISIBLE | r::PEACE_FORCED) as u8, 0)
+                && standings[7] == ((r::HIDDEN | r::INACTIVE) as u8, 0)
+                && standings[11] == ((r::AT_WAR | r::INVISIBLE_FORCED) as u8, 0))));
+    };
+    let mut controller = enter(false);
+    check(&mut controller);
+    assert!(controller.pump(controller.tick_duration()).pause.is_none());
+    let digest = controller.world.state_digest();
+    drop(controller);
+    let mut reopened = enter(true);
+    assert_eq!(reopened.world.state_digest(), digest);
+    check(&mut reopened);
+}
 #[test]
 fn initial_reputation_ack_waits_for_natural_tick_and_survives_authority_save_failure() {
     check_initial_reputation_ack(false);

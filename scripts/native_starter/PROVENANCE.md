@@ -50,6 +50,23 @@ Reviewed CMaNGOS Classic revision:
   counts as `quest_loot_inputs`. It retains whole-loader order and full item-admission
   blockers, and requires explicit owner quest state and quest-drop policy at runtime.
 
+- [ReputationMgr.cpp, initialization and base queries](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Reputation/ReputationMgr.cpp#L74-L84)
+  and `:140-150,197-229,243-263` define base/flag slot selection, zero stored
+  deltas, dirty bits, and the 64-entry initial packet.
+  [FactionEntry](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Server/DBCStructure.h#L359-L386)
+  defines all four mask/base/flag slots. Preparation reports
+  `player.initial_reputation` as supported only with the complete Faction table,
+  selected template references, and required quest/item faction lookups.
+  Missing rows, unknown flags, invalid indices, duplicate indices, and conflicting
+  substantive matches retain precise reasons and the initialization blocker.
+  Trailing zero slots remain wildcard fallbacks. Every numeric Faction column
+  is bound. The Rust adapter documents the same bounded input contract in
+  [REPUTATION.md](../../crates/benilla-sim/REPUTATION.md#dbc-initialization-adapter).
+  [Player::CalculateReputationGain](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Player.cpp#L6304-L6314)
+  consumes aura156 only for awards, not initialization. Human Diplomacy 20599
+  therefore does not multiply initial base standing. SQL reward policies and
+  effective racial/passive closure remain separate requirements.
+
 CMaNGOS copyright belongs to CMaNGOS Project contributors; upstream permits GPL
 version 2 or, at your option, any later version. The modified quantity translation
 and standalone C++ oracle are distributed under GPL version 3 or later, WITHOUT
