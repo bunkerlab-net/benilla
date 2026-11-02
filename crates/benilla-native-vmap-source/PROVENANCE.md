@@ -16,6 +16,12 @@ No client-install assets are distributed. Regression MPQs are authored fixtures.
   iteration. The listfile pass selects the case-sensitive `.wmo` substring before
   normalization and root/group filtering. Global raw products remain private if
   any later prerequisite fails.
+- A listed global WMO root can be absent or a winning zero/one-byte placeholder.
+  `WMORoot::open` then fails, and `ExtractSingleWmo` returns true without creating
+  a raw file at `vmapexport.cpp:190-194`. Acquisition retains the absence/dummy
+  receipt and global attempt, emits no product, and does not cache an empty model.
+  Repeated list entries retry the lookup. Any later MWMO reference still requires
+  a captured product and otherwise refuses with `vmap.unresolved_wmo_reference`.
 - `ParsMapFiles` gates on WDT availability, then attempts all 4096 ADTs with x outer
   and y inner. MAIN does not select the traversal. Earlier physical map records
   can seed the flat model cache and are consumed through the selected record.
@@ -47,6 +53,12 @@ member names, empty ADT/WDT name-table entries, and unsupported WMO liquid/insta
 profiles. Doodad extraction and selected-set
 membership follow [their separate bounded contract](DOODADS.md).
 Missing required models/groups are errors even where upstream would skip output.
+An unavailable global root candidate is distinct from a missing declared group
+or required M2. `vmapexport.cpp:225-230,260-263` deletes the whole partial WMO output
+when a declared group cannot open. It does not emit an empty group.
+`model.cpp:35-43` and `wmo.cpp:102-104` omit an unavailable M2 from valid doodad
+names. They do not emit an empty M2. These required-dependency errors remain
+atomic refusals in this bounded profile.
 Distinct canonical members with the same normalized flat output name are rejected
 instead of treating equal names as a proof of identical content.
 

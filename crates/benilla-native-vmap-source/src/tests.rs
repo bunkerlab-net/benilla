@@ -235,6 +235,102 @@ fn missing_skipped_group_cannot_return_partial_raw_product() {
 }
 
 #[test]
+fn unavailable_global_roots_keep_receipts_without_emitting_or_caching_empty_products() {
+    const ROOT: &str = "World\\Wmo\\Temple.wmo";
+    for placeholder in [None, Some(vec![]), Some(vec![0])] {
+        let temp = Temp::new();
+        let data = temp.data();
+        let mut base = wmo_entries(1);
+        base.retain(|entry| {
+            entry.name != "(listfile)" && (placeholder.is_some() || entry.name != ROOT)
+        });
+        save(&data, "wmo.MPQ", &base);
+        let mut patch = vec![raw_entry(
+            "(listfile)",
+            b"World\\Wmo\\Temple.wmo\r\nWorld\\Wmo\\Temple.wmo\r\n\0".to_vec(),
+        )];
+        if let Some(bytes) = &placeholder {
+            patch.push(raw_entry(ROOT, bytes.clone()));
+        }
+        save(&data, "patch.MPQ", &patch);
+        let prepared = prepare(&data, 0, || false).unwrap();
+        assert_eq!(prepared.summary().global_root_events, 2);
+        assert_eq!(prepared.summary().wmo_raw_products, 0);
+        assert!(prepared.products().is_empty());
+        assert!(prepared.placements().is_empty());
+        assert!(prepared.doodad_candidates().is_empty());
+        let roots: Vec<_> = prepared
+            .source_receipts()
+            .filter(|receipt| receipt.name() == ROOT)
+            .collect();
+        assert_eq!(roots.len(), 2);
+        for receipt in roots {
+            match &placeholder {
+                Some(bytes) => assert!(
+                    matches!(receipt.outcome(), SourceOutcome::Dummy { winning_archive: "patch.MPQ", bytes: count } if count == bytes.len())
+                ),
+                None => assert!(matches!(receipt.outcome(), SourceOutcome::Absent)),
+            }
+        }
+        assert!(!prepared
+            .source_receipts()
+            .any(|receipt| receipt.name().ends_with("_000.wmo")));
+        prepared.verify_unchanged(|| false).unwrap();
+        patch.retain(|entry| entry.name != ROOT);
+        patch.push(raw_entry(ROOT, wmo_root(1)));
+        save(&data, "patch.MPQ", &patch);
+        assert!(matches!(
+            prepared.verify_unchanged(|| false),
+            Err(Error::Source(SourceError::Changed))
+        ));
+    }
+}
+
+#[test]
+fn referenced_unavailable_global_root_still_refuses_instead_of_becoming_empty_collision() {
+    const ROOT: &str = "World\\Wmo\\Temple.wmo";
+    for placeholder in [None, Some(vec![]), Some(vec![0])] {
+        let temp = Temp::new();
+        let data = temp.data();
+        let mut base = wmo_entries(1);
+        if placeholder.is_none() {
+            base.retain(|entry| entry.name != ROOT);
+        }
+        base.push(raw_entry(ADT, wmo_adt(ROOT, 0, 72)));
+        save(&data, "wmo.MPQ", &base);
+        if let Some(bytes) = placeholder {
+            save(&data, "patch.MPQ", &[raw_entry(ROOT, bytes)]);
+        }
+        let error = prepare(&data, 0, || false).unwrap_err();
+        assert_eq!(error.diagnostic().category, "vmap.unresolved_wmo_reference");
+        assert_eq!(
+            error.diagnostic().stage,
+            Some(PreparationStage::AdtTraversal)
+        );
+    }
+}
+
+#[test]
+fn dummy_required_wmo_groups_remain_errors_without_lower_archive_fallback() {
+    for size in [0, 1] {
+        let temp = Temp::new();
+        let data = temp.data();
+        save(&data, "wmo.MPQ", &wmo_entries(1));
+        save(
+            &data,
+            "patch.MPQ",
+            &[raw_entry("World\\Wmo\\Temple_000.wmo", vec![0; size])],
+        );
+        let error = prepare(&data, 0, || false).unwrap_err();
+        assert_eq!(error.diagnostic().category, "vmap.required_member_dummy");
+        assert_eq!(
+            error.diagnostic().stage,
+            Some(PreparationStage::GlobalWmoRoot)
+        );
+    }
+}
+
+#[test]
 fn global_prepass_winner_and_listfile_order_are_receipted_before_map() {
     let temp = Temp::new();
     let data = temp.data();

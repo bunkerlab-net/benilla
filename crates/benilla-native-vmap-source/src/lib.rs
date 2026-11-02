@@ -506,9 +506,9 @@ impl From<DiscoveryError> for Error {
 }
 
 /// Capture and discover one selected map using the exact pinned VMap archive
-/// policy. Cancellation returns true to stop. Missing required model inputs are
-/// stricter failures than upstream's silent placement omission. WDT absence and
-/// dummy members retain an explicit gated outcome; ADT absence/dummy is receipted.
+/// policy. Cancellation returns true to stop. Unavailable global WMO candidates
+/// emit no product; missing required models/groups remain errors. WDT absence
+/// and dummy outcomes gate traversal; ADT absence/dummy is receipted.
 /// This function never writes to the install or publishes a partial product.
 pub fn prepare(
     data_path: &Path,
@@ -565,7 +565,7 @@ fn prepare_inner(
             builder.global_root_ordinal = Some(builder.summary.global_root_events);
             builder.summary.global_root_events += 1;
             builder.stage = PreparationStage::GlobalWmoRoot;
-            builder.capture(&dependency, cancelled)?;
+            let _ = builder.capture(&dependency, cancelled)?;
         }
     }
     builder.global_root_ordinal = None;
@@ -750,7 +750,9 @@ impl Builder {
                         .get(index)
                         .ok_or(Error::DependencyOrder)?;
                     let product = match event {
-                        DiscoveryEvent::ExtractModel(_) => self.capture(dependency, cancelled)?,
+                        DiscoveryEvent::ExtractModel(_) => self
+                            .capture(dependency, cancelled)?
+                            .ok_or(Error::DependencyOrder)?,
                         DiscoveryEvent::ReferenceWmo(_) => {
                             let index = *self
                                 .names
@@ -936,7 +938,7 @@ impl Builder {
         &mut self,
         dependency: &ModelDependency,
         cancelled: &dyn Fn() -> bool,
-    ) -> Result<usize, Error> {
+    ) -> Result<Option<usize>, Error> {
         let key = dependency.extracted_name.to_ascii_lowercase();
         let existing = self.names.get(&key).copied();
         if let Some(index) = existing {
@@ -948,11 +950,18 @@ impl Builder {
             }
             // FileExists caches only emitted files; M2::open's zero hull emits none.
             if !matches!(product.collision, Collision::M2EmptyHull) {
-                return Ok(index);
+                return Ok(Some(index));
             }
         }
-        let captured = required(self.source.read(&dependency.member, cancelled)?)?;
+        let lookup = self.source.read(&dependency.member, cancelled)?;
         check_cancel(cancelled)?;
+        let captured = match lookup {
+            // ExtractSingleWmo emits no file and continues for unavailable global roots; vmapexport.cpp:190-194.
+            Lookup::Absent | Lookup::Dummy { .. } if dependency.kind == ModelKind::Wmo => {
+                return Ok(None);
+            }
+            other => required(other)?,
+        };
         let (collision, doodads) = match dependency.kind {
             ModelKind::M2 => (
                 match extract_m2_collision(captured.bytes()).map_err(Error::M2)? {
@@ -972,7 +981,7 @@ impl Builder {
             if !matches!(collision, Collision::M2EmptyHull) {
                 return Err(Error::SourceChangedDuringPreparation);
             }
-            return Ok(index);
+            return Ok(Some(index));
         }
         if self.products.len() == MAX_PRODUCTS {
             return Err(Error::ProductLimit);
@@ -1003,7 +1012,7 @@ impl Builder {
         self.products.push(product);
         self.names.insert(key, index);
         self.summary.retained_raw_bytes = total;
-        Ok(index)
+        Ok(Some(index))
     }
     fn capture_wmo(
         &mut self,
@@ -1025,7 +1034,9 @@ impl Builder {
             let Some(model) = discovery::doodad_model_dependency(&event.path)? else {
                 continue;
             };
-            let index = self.capture(&model, cancelled)?;
+            let index = self
+                .capture(&model, cancelled)?
+                .ok_or(Error::DependencyOrder)?;
             if self.products[index].source_has_collision() {
                 // Deviation: Resolve doodad basenames case-insensitively because CMaNGOS 8ec338a1 wmo.cpp:85-100 copies MODN before fixnamen and model.cpp:242-258 fopens the fixnamen spelling and skips missing files, making collision depend on filesystem and extraction order.
                 if !model

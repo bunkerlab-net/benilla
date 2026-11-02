@@ -660,7 +660,7 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 
 #### (crate root)
 
-- Resolve doodad basenames case-insensitively because CMaNGOS 8ec338a1 wmo.cpp:85-100 copies MODN before fixnamen and model.cpp:242-258 fopens the fixnamen spelling and skips missing files, making collision depend on filesystem and extraction order. ([`src/lib.rs:1030`](../crates/benilla-native-vmap-source/src/lib.rs#L1030))
+- Resolve doodad basenames case-insensitively because CMaNGOS 8ec338a1 wmo.cpp:85-100 copies MODN before fixnamen and model.cpp:242-258 fopens the fixnamen spelling and skips missing files, making collision depend on filesystem and extraction order. ([`src/lib.rs:1041`](../crates/benilla-native-vmap-source/src/lib.rs#L1041))
 ### benilla-protocol
 
 #### (crate root)

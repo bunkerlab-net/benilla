@@ -182,6 +182,34 @@ fn unused_missing_modn_model_fails_before_an_also_missing_group() {
 }
 
 #[test]
+fn dummy_required_modn_models_remain_errors_without_lower_archive_fallback() {
+    for size in [0, 1] {
+        let temp = Temp::new();
+        let data = temp.data();
+        let mut entries = wmo_entries(1);
+        dc_replace(
+            &mut entries,
+            ROOT,
+            dc_root(1, b"Models\\Solid.mdx\0", &[], &[]),
+        );
+        entries.push(raw_entry(SOLID, m2(true)));
+        save(&data, "wmo.MPQ", &entries);
+        save(&data, "patch.MPQ", &[raw_entry(SOLID, vec![0; size])]);
+        let error = prepare(&data, 0, || false).unwrap_err();
+        assert_eq!(error.diagnostic().category, "vmap.required_member_dummy");
+        assert_eq!(
+            error.diagnostic().stage,
+            Some(PreparationStage::GlobalWmoRoot)
+        );
+        assert_eq!(
+            error.diagnostic().progress.unwrap().complete_raw_products,
+            0
+        );
+        assert_eq!(error.diagnostic().progress.unwrap().adt_attempts, 0);
+    }
+}
+
+#[test]
 fn duplicate_modn_names_cache_emitted_files_retry_zero_hulls_and_keep_nul_offsets() {
     let temp = Temp::new();
     let data = temp.data();
