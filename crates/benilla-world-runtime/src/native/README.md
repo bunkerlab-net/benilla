@@ -7,6 +7,46 @@ validates the source closure and every critical semantic dependency. That is an
 implementation condition, not a requirement that developers possess game assets.
 A complete compiler should issue a capability from each user's validated local data.
 
+`diagnose_production_inputs` is the read-only Rust input verifier. Its implementation
+lives in the private `production_compiler` module. Supply fixed local paths for
+the source-v2 bundle, explicit selection, completed v4 DBC directory, preparation
+report, and explicit rules JSON or the named stock preset. The request adds
+race, class, and gender. The source selection, request, and rules level cap must
+agree.
+
+The verifier checks the source schema, canonical rows, keys, references, source
+findings, and every supplied coverage extension. It parses all 21 WDBC files,
+including packed records, and binds their whole bytes plus the exact bytes of
+`extraction.json`. It independently recomputes the complete Python preparation,
+including nested plans and field dispositions. Updating an outer hash cannot
+remove an obligation. The authored JSON parity corpus is shared with the Python
+export and preparation suites.
+
+Quest mechanics retain captured completion scripts, gossip menus, conditions,
+and their exact lookup closure without claiming loaded script order. Skill
+training probes bind the candidate IDs, effective SQL effect fields, and actual
+DBC hashes. An omitted repair lookup remains unknown rather than becoming
+evidence of no training mapping.
+Spawn-context coverage includes inbound linking selectors and complete-empty
+exclusion tables. Supported static spawn shapes still require actual cold
+loader order and assistance traversal. Neither source hashes nor a resolved
+quest or training plan discharge those independent host obligations.
+
+Regular-file reads reject symlink leaves, pipes, and devices before reading.
+JSON rejects duplicate keys, nonfinite numbers, invalid Unicode, nesting beyond
+128 levels, and more than 4,000,000 values. Source, DBC, text, field, dependency,
+and report bounds remain enforced. Imported strings and archive labels never
+become executable instructions or input filenames.
+
+The returned `benilla-production-input-identity-v1` binds the canonical source,
+selection, request, exact binary32 rules, extraction, compiler policy, and complete
+preparation. It is a diagnostic identity, not a saved-world format or admission
+proof. Reports retain `native.runtime_profile_not_implemented`, blocked status,
+and false build-authenticity and revision-verification claims. Transactional
+mode requires the covered InnoDB tables. An operator-quiescent snapshot records
+the operator's claim; this reader cannot prove that no writer existed. No call
+constructs a runtime profile, world, store, or `NativeCapability`.
+
 The opt-in `synthetic-native-tests` feature exposes only synthetic construction and
 restoration. Feature unification, preparation JSON, hashes, and source initializer
 outputs cannot produce `NativeCapability`. Fabricated test rows are not native data.

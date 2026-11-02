@@ -1,0 +1,2092 @@
+{
+  "cases": [
+    {
+      "bindings": [],
+      "diagnostic": "bundle.table_hash_or_order",
+      "fixture": "starter",
+      "name": "source-table-binding",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/tables/item_template/0/name",
+          "value": "Authored changed token"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "bundle.myisam_consistency",
+      "fixture": "starter",
+      "name": "schema-binding",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/schema/tables/item_template/engine",
+          "value": "MyISAM"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "bundle.schema_hash",
+      "fixture": "starter",
+      "name": "schema-hash",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/schema_sha256",
+          "value": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "bundle.profile",
+      "fixture": "starter",
+      "name": "adapter-core",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/core_revision",
+          "value": "0000000000000000000000000000000000000000"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "bundle.profile",
+      "fixture": "starter",
+      "name": "adapter-database",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/database_revision",
+          "value": "0000000000000000000000000000000000000000"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "bundle.profile",
+      "fixture": "starter",
+      "name": "build-claim",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/client_build",
+          "value": 5876
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "bundle.unverified_provenance",
+      "fixture": "starter",
+      "name": "unverified-provenance",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/revision_claims_verified_against_installation",
+          "value": true
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "bundle.fields",
+      "fixture": "starter",
+      "name": "unknown-envelope",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/unknown",
+          "value": 0
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "row.fields:item_template",
+      "fixture": "starter",
+      "name": "unknown-row-field",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/tables/item_template/0/unknown",
+          "value": 0
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [
+        {
+          "of": "/tables/item_template",
+          "path": "/table_sha256/item_template"
+        }
+      ],
+      "diagnostic": "row.duplicate_key:item_template",
+      "fixture": "starter",
+      "name": "duplicate-key-rehashed",
+      "operations": [
+        {
+          "op": "append",
+          "path": "/tables/item_template",
+          "value": {
+            "AllowableClass": 0,
+            "AllowableRace": 0,
+            "BagFamily": 0,
+            "BuyCount": 1,
+            "BuyPrice": 0,
+            "ContainerSlots": 0,
+            "DisenchantID": 0,
+            "Duration": 0,
+            "ExtraFlags": 0,
+            "Flags": 0,
+            "FoodType": 0,
+            "InventoryType": 0,
+            "ItemLevel": 0,
+            "LanguageID": 0,
+            "Map": 0,
+            "Material": 0,
+            "MaxDurability": 0,
+            "PageMaterial": 0,
+            "PageText": 0,
+            "Quality": 0,
+            "RandomProperty": 0,
+            "RangedModRange": 0,
+            "RequiredCityRank": 0,
+            "RequiredLevel": 0,
+            "RequiredReputationFaction": 0,
+            "RequiredReputationRank": 0,
+            "RequiredSkill": 0,
+            "RequiredSkillRank": 0,
+            "ScriptName": "",
+            "SellPrice": 0,
+            "ammo_type": 0,
+            "arcane_res": 0,
+            "area": 0,
+            "armor": 0,
+            "block": 0,
+            "bonding": 0,
+            "class": 0,
+            "delay": 0,
+            "description": "",
+            "displayid": 0,
+            "dmg_max1": 0,
+            "dmg_max2": 0,
+            "dmg_max3": 0,
+            "dmg_max4": 0,
+            "dmg_max5": 0,
+            "dmg_min1": 0,
+            "dmg_min2": 0,
+            "dmg_min3": 0,
+            "dmg_min4": 0,
+            "dmg_min5": 0,
+            "dmg_type1": 0,
+            "dmg_type2": 0,
+            "dmg_type3": 0,
+            "dmg_type4": 0,
+            "dmg_type5": 0,
+            "entry": 920001,
+            "fire_res": 0,
+            "frost_res": 0,
+            "holy_res": 0,
+            "itemset": 0,
+            "lockid": 0,
+            "maxMoneyLoot": 0,
+            "maxcount": 0,
+            "minMoneyLoot": 0,
+            "name": "Original Export Token",
+            "nature_res": 0,
+            "requiredhonorrank": 0,
+            "requiredspell": 0,
+            "shadow_res": 0,
+            "sheath": 0,
+            "spellcategory_1": 0,
+            "spellcategory_2": 0,
+            "spellcategory_3": 0,
+            "spellcategory_4": 0,
+            "spellcategory_5": 0,
+            "spellcategorycooldown_1": 0,
+            "spellcategorycooldown_2": 0,
+            "spellcategorycooldown_3": 0,
+            "spellcategorycooldown_4": 0,
+            "spellcategorycooldown_5": 0,
+            "spellcharges_1": 0,
+            "spellcharges_2": 0,
+            "spellcharges_3": 0,
+            "spellcharges_4": 0,
+            "spellcharges_5": 0,
+            "spellcooldown_1": 0,
+            "spellcooldown_2": 0,
+            "spellcooldown_3": 0,
+            "spellcooldown_4": 0,
+            "spellcooldown_5": 0,
+            "spellid_1": 0,
+            "spellid_2": 0,
+            "spellid_3": 0,
+            "spellid_4": 0,
+            "spellid_5": 0,
+            "spellppmRate_1": 0,
+            "spellppmRate_2": 0,
+            "spellppmRate_3": 0,
+            "spellppmRate_4": 0,
+            "spellppmRate_5": 0,
+            "spelltrigger_1": 0,
+            "spelltrigger_2": 0,
+            "spelltrigger_3": 0,
+            "spelltrigger_4": 0,
+            "spelltrigger_5": 0,
+            "stackable": 20,
+            "startquest": 0,
+            "stat_type1": 0,
+            "stat_type10": 0,
+            "stat_type2": 0,
+            "stat_type3": 0,
+            "stat_type4": 0,
+            "stat_type5": 0,
+            "stat_type6": 0,
+            "stat_type7": 0,
+            "stat_type8": 0,
+            "stat_type9": 0,
+            "stat_value1": 0,
+            "stat_value10": 0,
+            "stat_value2": 0,
+            "stat_value3": 0,
+            "stat_value4": 0,
+            "stat_value5": 0,
+            "stat_value6": 0,
+            "stat_value7": 0,
+            "stat_value8": 0,
+            "stat_value9": 0,
+            "subclass": 0
+          }
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [
+        {
+          "of": "/tables/spell_template",
+          "path": "/table_sha256/spell_template"
+        }
+      ],
+      "diagnostic": "bundle.table_hash_or_order",
+      "fixture": "starter",
+      "name": "row-order-rehashed",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/tables/spell_template",
+          "value": [
+            {
+              "Attributes": 0,
+              "AttributesEx": 0,
+              "AttributesEx2": 0,
+              "AttributesEx3": 0,
+              "AttributesEx4": 0,
+              "AttributesServerside": 0,
+              "AuraInterruptFlags": 0,
+              "CasterAuraState": 0,
+              "CastingTimeIndex": 700001,
+              "Category": 0,
+              "CategoryRecoveryTime": 0,
+              "ChannelInterruptFlags": 0,
+              "Dispel": 0,
+              "DmgClass": 0,
+              "DurationIndex": 0,
+              "Effect1": 2,
+              "Effect2": 0,
+              "Effect3": 0,
+              "EffectAmplitude1": 0,
+              "EffectAmplitude2": 0,
+              "EffectAmplitude3": 0,
+              "EffectApplyAuraName1": 0,
+              "EffectApplyAuraName2": 0,
+              "EffectApplyAuraName3": 0,
+              "EffectBaseDice1": 0,
+              "EffectBaseDice2": 0,
+              "EffectBaseDice3": 0,
+              "EffectBasePoints1": 0,
+              "EffectBasePoints2": 0,
+              "EffectBasePoints3": 0,
+              "EffectBonusCoefficient1": 0,
+              "EffectBonusCoefficient2": 0,
+              "EffectBonusCoefficient3": 0,
+              "EffectBonusCoefficientFromAP1": 0,
+              "EffectBonusCoefficientFromAP2": 0,
+              "EffectBonusCoefficientFromAP3": 0,
+              "EffectChainTarget1": 0,
+              "EffectChainTarget2": 0,
+              "EffectChainTarget3": 0,
+              "EffectDicePerLevel1": {
+                "decimal": "0"
+              },
+              "EffectDicePerLevel2": {
+                "decimal": "0"
+              },
+              "EffectDicePerLevel3": {
+                "decimal": "0"
+              },
+              "EffectDieSides1": 0,
+              "EffectDieSides2": 0,
+              "EffectDieSides3": 0,
+              "EffectImplicitTargetA1": 0,
+              "EffectImplicitTargetA2": 0,
+              "EffectImplicitTargetA3": 0,
+              "EffectImplicitTargetB1": 0,
+              "EffectImplicitTargetB2": 0,
+              "EffectImplicitTargetB3": 0,
+              "EffectItemType1": 0,
+              "EffectItemType2": 0,
+              "EffectItemType3": 0,
+              "EffectMechanic1": 0,
+              "EffectMechanic2": 0,
+              "EffectMechanic3": 0,
+              "EffectMiscValue1": 0,
+              "EffectMiscValue2": 0,
+              "EffectMiscValue3": 0,
+              "EffectMultipleValue1": {
+                "decimal": "0"
+              },
+              "EffectMultipleValue2": {
+                "decimal": "0"
+              },
+              "EffectMultipleValue3": {
+                "decimal": "0"
+              },
+              "EffectPointsPerComboPoint1": {
+                "decimal": "0"
+              },
+              "EffectPointsPerComboPoint2": {
+                "decimal": "0"
+              },
+              "EffectPointsPerComboPoint3": {
+                "decimal": "0"
+              },
+              "EffectRadiusIndex1": 0,
+              "EffectRadiusIndex2": 0,
+              "EffectRadiusIndex3": 0,
+              "EffectRealPointsPerLevel1": {
+                "decimal": "0"
+              },
+              "EffectRealPointsPerLevel2": {
+                "decimal": "0"
+              },
+              "EffectRealPointsPerLevel3": {
+                "decimal": "0"
+              },
+              "EffectTriggerSpell1": 0,
+              "EffectTriggerSpell2": 0,
+              "EffectTriggerSpell3": 0,
+              "EquippedItemClass": 0,
+              "EquippedItemInventoryTypeMask": 0,
+              "EquippedItemSubClassMask": 0,
+              "Id": 930102,
+              "InterruptFlags": 0,
+              "ManaCostPercentage": 0,
+              "Mechanic": 0,
+              "PreventionType": 0,
+              "RecoveryTime": 0,
+              "RequiresSpellFocus": 0,
+              "School": 0,
+              "SpellFamilyName": 0,
+              "StackAmount": 0,
+              "Stances": 0,
+              "StancesNot": 0,
+              "StartRecoveryCategory": 0,
+              "StartRecoveryTime": 0,
+              "TargetAuraState": 0,
+              "TargetCreatureType": 0,
+              "Targets": 0,
+              "baseLevel": 0,
+              "manaCost": 0,
+              "manaCostPerlevel": 0,
+              "manaPerSecond": 0,
+              "manaPerSecondPerLevel": 0,
+              "maxLevel": 0,
+              "powerType": 0,
+              "procChance": 0,
+              "procCharges": 0,
+              "procFlags": 0,
+              "rangeIndex": 710001,
+              "speed": {
+                "decimal": "0"
+              },
+              "spellLevel": 0
+            },
+            {
+              "Attributes": 0,
+              "AttributesEx": 0,
+              "AttributesEx2": 0,
+              "AttributesEx3": 0,
+              "AttributesEx4": 0,
+              "AttributesServerside": 0,
+              "AuraInterruptFlags": 0,
+              "CasterAuraState": 0,
+              "CastingTimeIndex": 700001,
+              "Category": 0,
+              "CategoryRecoveryTime": 0,
+              "ChannelInterruptFlags": 0,
+              "Dispel": 0,
+              "DmgClass": 0,
+              "DurationIndex": 0,
+              "Effect1": 2,
+              "Effect2": 0,
+              "Effect3": 0,
+              "EffectAmplitude1": 0,
+              "EffectAmplitude2": 0,
+              "EffectAmplitude3": 0,
+              "EffectApplyAuraName1": 0,
+              "EffectApplyAuraName2": 0,
+              "EffectApplyAuraName3": 0,
+              "EffectBaseDice1": 0,
+              "EffectBaseDice2": 0,
+              "EffectBaseDice3": 0,
+              "EffectBasePoints1": 0,
+              "EffectBasePoints2": 0,
+              "EffectBasePoints3": 0,
+              "EffectBonusCoefficient1": 0,
+              "EffectBonusCoefficient2": 0,
+              "EffectBonusCoefficient3": 0,
+              "EffectBonusCoefficientFromAP1": 0,
+              "EffectBonusCoefficientFromAP2": 0,
+              "EffectBonusCoefficientFromAP3": 0,
+              "EffectChainTarget1": 0,
+              "EffectChainTarget2": 0,
+              "EffectChainTarget3": 0,
+              "EffectDicePerLevel1": {
+                "decimal": "0"
+              },
+              "EffectDicePerLevel2": {
+                "decimal": "0"
+              },
+              "EffectDicePerLevel3": {
+                "decimal": "0"
+              },
+              "EffectDieSides1": 0,
+              "EffectDieSides2": 0,
+              "EffectDieSides3": 0,
+              "EffectImplicitTargetA1": 0,
+              "EffectImplicitTargetA2": 0,
+              "EffectImplicitTargetA3": 0,
+              "EffectImplicitTargetB1": 0,
+              "EffectImplicitTargetB2": 0,
+              "EffectImplicitTargetB3": 0,
+              "EffectItemType1": 0,
+              "EffectItemType2": 0,
+              "EffectItemType3": 0,
+              "EffectMechanic1": 0,
+              "EffectMechanic2": 0,
+              "EffectMechanic3": 0,
+              "EffectMiscValue1": 0,
+              "EffectMiscValue2": 0,
+              "EffectMiscValue3": 0,
+              "EffectMultipleValue1": {
+                "decimal": "0"
+              },
+              "EffectMultipleValue2": {
+                "decimal": "0"
+              },
+              "EffectMultipleValue3": {
+                "decimal": "0"
+              },
+              "EffectPointsPerComboPoint1": {
+                "decimal": "0"
+              },
+              "EffectPointsPerComboPoint2": {
+                "decimal": "0"
+              },
+              "EffectPointsPerComboPoint3": {
+                "decimal": "0"
+              },
+              "EffectRadiusIndex1": 0,
+              "EffectRadiusIndex2": 0,
+              "EffectRadiusIndex3": 0,
+              "EffectRealPointsPerLevel1": {
+                "decimal": "0"
+              },
+              "EffectRealPointsPerLevel2": {
+                "decimal": "0"
+              },
+              "EffectRealPointsPerLevel3": {
+                "decimal": "0"
+              },
+              "EffectTriggerSpell1": 930102,
+              "EffectTriggerSpell2": 0,
+              "EffectTriggerSpell3": 0,
+              "EquippedItemClass": 0,
+              "EquippedItemInventoryTypeMask": 0,
+              "EquippedItemSubClassMask": 0,
+              "Id": 930101,
+              "InterruptFlags": 0,
+              "ManaCostPercentage": 0,
+              "Mechanic": 0,
+              "PreventionType": 0,
+              "RecoveryTime": 0,
+              "RequiresSpellFocus": 0,
+              "School": 0,
+              "SpellFamilyName": 0,
+              "StackAmount": 0,
+              "Stances": 0,
+              "StancesNot": 0,
+              "StartRecoveryCategory": 0,
+              "StartRecoveryTime": 0,
+              "TargetAuraState": 0,
+              "TargetCreatureType": 0,
+              "Targets": 0,
+              "baseLevel": 0,
+              "manaCost": 0,
+              "manaCostPerlevel": 0,
+              "manaPerSecond": 0,
+              "manaPerSecondPerLevel": 0,
+              "maxLevel": 0,
+              "powerType": 0,
+              "procChance": 0,
+              "procCharges": 0,
+              "procFlags": 0,
+              "rangeIndex": 710001,
+              "speed": {
+                "decimal": "0"
+              },
+              "spellLevel": 0
+            },
+            {
+              "Attributes": 0,
+              "AttributesEx": 0,
+              "AttributesEx2": 0,
+              "AttributesEx3": 0,
+              "AttributesEx4": 0,
+              "AttributesServerside": 0,
+              "AuraInterruptFlags": 0,
+              "CasterAuraState": 0,
+              "CastingTimeIndex": 700001,
+              "Category": 0,
+              "CategoryRecoveryTime": 0,
+              "ChannelInterruptFlags": 0,
+              "Dispel": 0,
+              "DmgClass": 0,
+              "DurationIndex": 0,
+              "Effect1": 2,
+              "Effect2": 0,
+              "Effect3": 0,
+              "EffectAmplitude1": 0,
+              "EffectAmplitude2": 0,
+              "EffectAmplitude3": 0,
+              "EffectApplyAuraName1": 0,
+              "EffectApplyAuraName2": 0,
+              "EffectApplyAuraName3": 0,
+              "EffectBaseDice1": 1,
+              "EffectBaseDice2": 0,
+              "EffectBaseDice3": 0,
+              "EffectBasePoints1": 4,
+              "EffectBasePoints2": 0,
+              "EffectBasePoints3": 0,
+              "EffectBonusCoefficient1": 0,
+              "EffectBonusCoefficient2": 0,
+              "EffectBonusCoefficient3": 0,
+              "EffectBonusCoefficientFromAP1": 0,
+              "EffectBonusCoefficientFromAP2": 0,
+              "EffectBonusCoefficientFromAP3": 0,
+              "EffectChainTarget1": 0,
+              "EffectChainTarget2": 0,
+              "EffectChainTarget3": 0,
+              "EffectDicePerLevel1": {
+                "decimal": "0"
+              },
+              "EffectDicePerLevel2": {
+                "decimal": "0"
+              },
+              "EffectDicePerLevel3": {
+                "decimal": "0"
+              },
+              "EffectDieSides1": 0,
+              "EffectDieSides2": 0,
+              "EffectDieSides3": 0,
+              "EffectImplicitTargetA1": 0,
+              "EffectImplicitTargetA2": 0,
+              "EffectImplicitTargetA3": 0,
+              "EffectImplicitTargetB1": 0,
+              "EffectImplicitTargetB2": 0,
+              "EffectImplicitTargetB3": 0,
+              "EffectItemType1": 0,
+              "EffectItemType2": 0,
+              "EffectItemType3": 0,
+              "EffectMechanic1": 0,
+              "EffectMechanic2": 0,
+              "EffectMechanic3": 0,
+              "EffectMiscValue1": 0,
+              "EffectMiscValue2": 0,
+              "EffectMiscValue3": 0,
+              "EffectMultipleValue1": {
+                "decimal": "0"
+              },
+              "EffectMultipleValue2": {
+                "decimal": "0"
+              },
+              "EffectMultipleValue3": {
+                "decimal": "0"
+              },
+              "EffectPointsPerComboPoint1": {
+                "decimal": "0"
+              },
+              "EffectPointsPerComboPoint2": {
+                "decimal": "0"
+              },
+              "EffectPointsPerComboPoint3": {
+                "decimal": "0"
+              },
+              "EffectRadiusIndex1": 0,
+              "EffectRadiusIndex2": 0,
+              "EffectRadiusIndex3": 0,
+              "EffectRealPointsPerLevel1": {
+                "decimal": "0"
+              },
+              "EffectRealPointsPerLevel2": {
+                "decimal": "0"
+              },
+              "EffectRealPointsPerLevel3": {
+                "decimal": "0"
+              },
+              "EffectTriggerSpell1": 0,
+              "EffectTriggerSpell2": 0,
+              "EffectTriggerSpell3": 0,
+              "EquippedItemClass": 0,
+              "EquippedItemInventoryTypeMask": 0,
+              "EquippedItemSubClassMask": 0,
+              "Id": 930001,
+              "InterruptFlags": 0,
+              "ManaCostPercentage": 0,
+              "Mechanic": 0,
+              "PreventionType": 0,
+              "RecoveryTime": 0,
+              "RequiresSpellFocus": 0,
+              "School": 0,
+              "SpellFamilyName": 0,
+              "StackAmount": 0,
+              "Stances": 0,
+              "StancesNot": 0,
+              "StartRecoveryCategory": 0,
+              "StartRecoveryTime": 0,
+              "TargetAuraState": 0,
+              "TargetCreatureType": 0,
+              "Targets": 0,
+              "baseLevel": 0,
+              "manaCost": 0,
+              "manaCostPerlevel": 0,
+              "manaPerSecond": 0,
+              "manaPerSecondPerLevel": 0,
+              "maxLevel": 0,
+              "powerType": 0,
+              "procChance": 0,
+              "procCharges": 0,
+              "procFlags": 0,
+              "rangeIndex": 710001,
+              "speed": {
+                "decimal": "0"
+              },
+              "spellLevel": 0
+            }
+          ]
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [
+        {
+          "of": "/tables/item_template",
+          "path": "/table_sha256/item_template"
+        }
+      ],
+      "diagnostic": "bundle.item_spell_reference",
+      "fixture": "starter",
+      "name": "inconsistent-reference-rehashed",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/tables/item_template/0/spellid_1",
+          "value": 999999
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "row.integer",
+      "fixture": "starter",
+      "name": "invalid-integer-bool",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/tables/item_template/0/entry",
+          "value": true
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "row.integer",
+      "fixture": "starter",
+      "name": "invalid-integer-fraction",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/tables/item_template/0/entry",
+          "value": 1.5
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "row.integer",
+      "fixture": "starter",
+      "name": "integer-overflow",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/tables/item_template/0/entry",
+          "value": 18446744073709551616
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "row.decimal_range",
+      "fixture": "starter",
+      "name": "decimal-nonfinite",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/tables/creature/0/position_x",
+          "value": {
+            "decimal": "NaN"
+          }
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "row.decimal_range",
+      "fixture": "starter",
+      "name": "decimal-overflow",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/tables/creature/0/position_x",
+          "value": {
+            "decimal": "1000000000000000000000000000001"
+          }
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "row.decimal_precision",
+      "fixture": "starter",
+      "name": "decimal-underprecision",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/tables/creature/0/position_x",
+          "value": {
+            "decimal": "0.0000000000000000000000000000000000000000000000000000000000001"
+          }
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "bundle.table_hash_or_order",
+      "fixture": "starter",
+      "name": "decimal-not-canonical",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/tables/creature/0/position_x",
+          "value": {
+            "decimal": "0.00"
+          }
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "row.nul_text",
+      "fixture": "starter",
+      "name": "text-nul",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/tables/item_template/0/name",
+          "value": "a\u0000b"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "row.text_limit",
+      "fixture": "starter",
+      "name": "text-byte-limit",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/tables/item_template/0/name",
+          "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "bundle.missing_or_inconsistent_blocker",
+      "fixture": "starter",
+      "name": "source-report-removed-blocker",
+      "operations": [
+        {
+          "op": "remove",
+          "path": "/report/unsupported/0"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "bundle.starter_keys",
+      "fixture": "starter",
+      "name": "selected-keys",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/starter_required_keys/playercreateinfo",
+          "value": []
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "reference.missing_or_unexpected:item_template",
+      "fixture": "starter",
+      "name": "required-identities",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/required_ids/item_template",
+          "value": []
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "selection.fields",
+      "fixture": "starter",
+      "name": "selection-unknown",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/selection/unknown",
+          "value": 0
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "selection.duplicate_id",
+      "fixture": "starter",
+      "name": "selection-duplicate-root",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/selection/quest_ids",
+          "value": [
+            910001,
+            910001
+          ]
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "selection.reversed_bounds",
+      "fixture": "starter",
+      "name": "selection-reversed",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/selection/min_milliunits",
+          "value": [
+            20000,
+            20000,
+            20000
+          ]
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "event_ai.coverage_mismatch",
+      "fixture": "starter",
+      "name": "event-selectors",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/event_ai_capture/selectors",
+          "value": []
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "event_text.coverage_mismatch",
+      "fixture": "starter",
+      "name": "event-text-binding",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/event_text_capture/snapshot/schema_sha256",
+          "value": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "learning.coverage_mismatch",
+      "fixture": "starter",
+      "name": "learning-binding",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/learning_capture/spell_ids",
+          "value": []
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "native_spawn.coverage_mismatch",
+      "fixture": "starter",
+      "name": "spawn-binding",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/native_spawn_capture/snapshot/selection_sha256",
+          "value": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "spell_registry.coverage_mismatch",
+      "fixture": "starter",
+      "name": "registry-binding",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/spell_script_capture/selector/ids",
+          "value": []
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "initial_hooks.coverage_mismatch",
+      "fixture": "numeric",
+      "name": "hooks-binding",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/initial_hook_capture/snapshot/schema_sha256",
+          "value": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "loot.coverage_mismatch",
+      "fixture": "numeric",
+      "name": "loot-binding",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/loot_capture/snapshot/schema_sha256",
+          "value": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "loot.loader_projection_binding",
+      "fixture": "numeric",
+      "name": "loot-loader-projection",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/loot_loader_capture/tables/creature_loot_template/selected_projection_sha256",
+          "value": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "spell_numeric.coverage_mismatch",
+      "fixture": "numeric",
+      "name": "numeric-binding",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/spell_numeric_capture/snapshot/numeric_rows_sha256",
+          "value": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [
+        {
+          "of": "/spell_numeric_capture/rows",
+          "path": "/spell_numeric_capture/snapshot/numeric_rows_sha256"
+        }
+      ],
+      "diagnostic": "spell_numeric.legacy_row_mismatch",
+      "fixture": "numeric",
+      "name": "numeric-rehashed-inconsistent",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/spell_numeric_capture/rows/0/School",
+          "value": 3
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "quest_relationships.coverage_mismatch",
+      "fixture": "numeric",
+      "name": "relationship-binding",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/quest_relationship_capture/own_sha256",
+          "value": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "spawn_entries.coverage_mismatch",
+      "fixture": "numeric",
+      "name": "spawn-entry-binding",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/spawn_entry_capture/rows_sha256",
+          "value": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "quest_presentation.binding_mismatch",
+      "fixture": "presentation",
+      "name": "presentation-binding",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/quest_giver_presentation_capture/registered_callbacks",
+          "value": []
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "world_rules.unsupported_or_missing_key",
+      "fixture": "starter",
+      "name": "rule-unknown",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/unknown",
+          "value": 0
+        }
+      ],
+      "target": "rules"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "world_rules.rate_outside_bounded_binary32_domain",
+      "fixture": "starter",
+      "name": "rule-rate-nan",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/quest_xp_rate_bits",
+          "value": 2143289344
+        }
+      ],
+      "target": "rules"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "world_rules.rate_outside_bounded_binary32_domain",
+      "fixture": "starter",
+      "name": "rule-rate-subnormal",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/quest_xp_rate_bits",
+          "value": 1
+        }
+      ],
+      "target": "rules"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "world_rules.rate_outside_bounded_binary32_domain",
+      "fixture": "starter",
+      "name": "rule-rate-negative-zero",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/quest_xp_rate_bits",
+          "value": 2147483648
+        }
+      ],
+      "target": "rules"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "world_rules.StartPlayerMoney",
+      "fixture": "starter",
+      "name": "rule-money",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/start_player_money",
+          "value": 2147483647
+        }
+      ],
+      "target": "rules"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "world_rules.global_skill_max",
+      "fixture": "starter",
+      "name": "rule-skill-cap",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/progression/global_skill_max",
+          "value": 16
+        }
+      ],
+      "target": "rules"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "world_rules.version",
+      "fixture": "starter",
+      "name": "rule-boolean-integer",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/version",
+          "value": true
+        }
+      ],
+      "target": "rules"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "compiler.preparation_mismatch",
+      "fixture": "starter",
+      "name": "stale-rules",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/start_player_money",
+          "value": 1
+        }
+      ],
+      "target": "rules"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "compiler.preparation_mismatch",
+      "fixture": "starter",
+      "name": "stale-request",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/gender",
+          "value": 1
+        }
+      ],
+      "target": "request"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "compiler.preparation_mismatch",
+      "fixture": "starter",
+      "name": "stale-preparation",
+      "operations": [
+        {
+          "op": "remove",
+          "path": "/unsupported/0"
+        }
+      ],
+      "target": "preparation"
+    },
+    {
+      "bindings": [
+        {
+          "of": "",
+          "path": "/preparation_sha256"
+        }
+      ],
+      "diagnostic": "compiler.preparation_mismatch",
+      "fixture": "starter",
+      "name": "rehashed-preparation",
+      "operations": [
+        {
+          "op": "remove",
+          "path": "/unsupported/0"
+        },
+        {
+          "op": "remove",
+          "path": "/preparation_sha256"
+        }
+      ],
+      "target": "preparation"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "row.unexpected_null",
+      "fixture": "starter",
+      "name": "invalid-integer-null",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/tables/item_template/0/entry",
+          "value": null
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "row.integer",
+      "fixture": "starter",
+      "name": "invalid-integer-integral-float",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/tables/item_template/0/entry",
+          "value": 1.0
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "row.sql_integer_range",
+      "fixture": "starter",
+      "name": "sql-integer-width",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/tables/playercreateinfo/0/race",
+          "value": 256
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "row.key:item_template",
+      "fixture": "starter",
+      "name": "zero-key",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/tables/item_template/0/entry",
+          "value": 0
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "row.sql_decimal_precision",
+      "fixture": "starter",
+      "name": "sql-decimal-integer-precision",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/tables/creature/0/position_x",
+          "value": {
+            "decimal": "1000000000000000000000"
+          }
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "row.sql_decimal_precision",
+      "fixture": "starter",
+      "name": "sql-decimal-fraction-precision",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/tables/creature/0/position_x",
+          "value": {
+            "decimal": "0.000000000000000000001"
+          }
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "row.sql_unsigned_decimal",
+      "fixture": "starter",
+      "name": "sql-unsigned-decimal",
+      "operations": [
+        {
+          "op": "append",
+          "path": "/tables/pool_creature",
+          "value": {
+            "chance": {
+              "decimal": "-1"
+            },
+            "description": "",
+            "guid": 1,
+            "pool_entry": 1
+          }
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "row.sql_string_length",
+      "fixture": "loot-events",
+      "name": "sql-string-width",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/tables/creature_ai_scripts/0/comment",
+          "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "schema.registry_primary_key",
+      "fixture": "starter",
+      "name": "schema-primary-key",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/schema/tables/spell_scripts/primary_key",
+          "value": []
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "schema.sql_type",
+      "fixture": "starter",
+      "name": "schema-unknown-type",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/schema/tables/item_template/columns/0/type",
+          "value": "unreviewed"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "schema.duplicate_ordinal",
+      "fixture": "starter",
+      "name": "schema-duplicate-ordinal",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/schema/tables/item_template/columns/0/ordinal",
+          "value": 2
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "schema.duplicate_column",
+      "fixture": "starter",
+      "name": "schema-duplicate-column",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/schema/tables/item_template/columns/1/name",
+          "value": "entry"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "schema.nullability",
+      "fixture": "starter",
+      "name": "schema-nullability-type",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/schema/tables/item_template/columns/0/nullable",
+          "value": 1
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "bundle.missing_tables",
+      "fixture": "starter",
+      "name": "missing-mandatory-table",
+      "operations": [
+        {
+          "op": "remove",
+          "path": "/tables/player_xp_for_level"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "event_ai.coverage_required_with_table",
+      "fixture": "starter",
+      "name": "orphan-event-table",
+      "operations": [
+        {
+          "op": "remove",
+          "path": "/event_ai_capture"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "compiler.rules_selection_mismatch",
+      "fixture": "starter",
+      "name": "rules-cap-selection",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/progression/max_player_level",
+          "value": 4
+        },
+        {
+          "op": "set",
+          "path": "/progression/global_skill_max",
+          "value": 20
+        }
+      ],
+      "target": "rules"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "quest_mechanics.binding_mismatch",
+      "fixture": "mechanics-spawn",
+      "name": "quest-mechanics-format",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/quest_mechanics_capture/format",
+          "value": "unknown"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "quest_mechanics.binding_mismatch",
+      "fixture": "mechanics-spawn",
+      "name": "quest-mechanics-script-selectors",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/quest_mechanics_capture/selectors/scripts",
+          "value": []
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "quest_mechanics.binding_mismatch",
+      "fixture": "mechanics-spawn",
+      "name": "quest-mechanics-menu-lookups",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/quest_mechanics_capture/lookup_keys/gossip_menu",
+          "value": []
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "quest_mechanics.binding_mismatch",
+      "fixture": "mechanics-spawn",
+      "name": "quest-mechanics-rows-hash",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/quest_mechanics_capture/rows_sha256",
+          "value": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "quest_mechanics.binding_mismatch",
+      "fixture": "mechanics-spawn",
+      "name": "quest-mechanics-snapshot",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/quest_mechanics_capture/snapshot/selection_sha256",
+          "value": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "quest_mechanics.binding_mismatch",
+      "fixture": "mechanics-spawn",
+      "name": "quest-mechanics-loaded-order",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/quest_mechanics_capture/loaded_script_order",
+          "value": []
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "quest_mechanics.unselected_key:dbscripts_on_quest_end",
+      "fixture": "mechanics-spawn",
+      "name": "quest-mechanics-script-selector",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/quest_mechanics_capture/rows/dbscripts_on_quest_end/0/id",
+          "value": 71022
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "quest_mechanics.row_fields",
+      "fixture": "mechanics-spawn",
+      "name": "quest-mechanics-script-fields",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/quest_mechanics_capture/rows/dbscripts_on_quest_end/0/unexpected",
+          "value": 0
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "row.integer",
+      "fixture": "mechanics-spawn",
+      "name": "quest-mechanics-integer-domain",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/quest_mechanics_capture/rows/dbscripts_on_quest_end/0/command",
+          "value": true
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "row.decimal_range",
+      "fixture": "mechanics-spawn",
+      "name": "quest-mechanics-decimal-domain",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/quest_mechanics_capture/rows/dbscripts_on_quest_end/0/x",
+          "value": {
+            "decimal": "NaN"
+          }
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "quest_mechanics.unselected_key:gossip_menu",
+      "fixture": "mechanics-spawn",
+      "name": "quest-mechanics-gossip-selector",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/quest_mechanics_capture/rows/gossip_menu/0/entry",
+          "value": 44002
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "quest_mechanics.unselected_key:gossip_menu_option",
+      "fixture": "mechanics-spawn",
+      "name": "quest-mechanics-option-selector",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/quest_mechanics_capture/rows/gossip_menu_option/0/menu_id",
+          "value": 44002
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "quest_mechanics.tables",
+      "fixture": "mechanics-spawn",
+      "name": "quest-mechanics-table-omitted",
+      "operations": [
+        {
+          "op": "remove",
+          "path": "/quest_mechanics_capture/rows/conditions"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [
+        {
+          "of": "/quest_mechanics_capture/rows",
+          "path": "/quest_mechanics_capture/rows_sha256"
+        }
+      ],
+      "diagnostic": "quest_mechanics.row_order_or_shape",
+      "fixture": "mechanics-spawn",
+      "name": "quest-mechanics-row-rehashed",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/quest_mechanics_capture/rows/dbscripts_on_quest_end/0/command",
+          "value": 99
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "quest_mechanics.duplicate_key",
+      "fixture": "mechanics-spawn",
+      "name": "quest-mechanics-duplicate-option",
+      "operations": [
+        {
+          "op": "append",
+          "path": "/quest_mechanics_capture/rows/gossip_menu_option",
+          "value": {
+            "action_menu_id": 0,
+            "action_poi_id": 0,
+            "action_script_id": 0,
+            "box_broadcast_text": 0,
+            "box_coded": 0,
+            "box_money": 0,
+            "box_text": "",
+            "condition_id": 0,
+            "id": 0,
+            "menu_id": 0,
+            "npc_option_npcflag": 2,
+            "option_broadcast_text": 0,
+            "option_icon": 0,
+            "option_id": 2,
+            "option_text": ""
+          }
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "spawn_context.coverage_mismatch",
+      "fixture": "mechanics-spawn",
+      "name": "spawn-context-format",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/spawn_context_capture/format",
+          "value": "unknown"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "spawn_context.coverage_mismatch",
+      "fixture": "mechanics-spawn",
+      "name": "spawn-context-selectors",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/spawn_context_capture/selectors/creature_linking/ids",
+          "value": []
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "spawn_context.coverage_mismatch",
+      "fixture": "mechanics-spawn",
+      "name": "spawn-context-snapshot",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/spawn_context_capture/snapshot/table_sha256/creature",
+          "value": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "spawn_context.coverage_mismatch",
+      "fixture": "mechanics-spawn",
+      "name": "spawn-context-loader-claim",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/spawn_context_capture/source_loader_order_proven",
+          "value": true
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "spawn_context.coverage_mismatch",
+      "fixture": "mechanics-spawn",
+      "name": "spawn-context-assistance-claim",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/spawn_context_capture/assistance_traversal_proven",
+          "value": true
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "spawn_context.coverage_required_with_tables",
+      "fixture": "mechanics-spawn",
+      "name": "spawn-context-orphan-tables",
+      "operations": [
+        {
+          "op": "remove",
+          "path": "/spawn_context_capture"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [
+        {
+          "of": "/tables/creature_linking",
+          "path": "/table_sha256/creature_linking"
+        }
+      ],
+      "diagnostic": "spawn_context.unselected_row",
+      "fixture": "training-spawn-membership",
+      "name": "spawn-context-unselected-inbound",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/tables/creature_linking/0/master_guid",
+          "value": 19
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "skill_training.dbc_hashes",
+      "fixture": "training-spawn-membership",
+      "name": "skill-training-hashes",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/skill_training_capture/dbc_sha256",
+          "value": {}
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "skill_training.dbc_name",
+      "fixture": "training-spawn-membership",
+      "name": "skill-training-hash-name",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/skill_training_capture/dbc_sha256/invalid_name",
+          "value": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "skill_training.dbc_hash",
+      "fixture": "training-spawn-membership",
+      "name": "skill-training-hash-domain",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/skill_training_capture/dbc_sha256/Spell",
+          "value": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "skill_training.probe_order",
+      "fixture": "training-spawn-membership",
+      "name": "skill-training-duplicate-probe",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/skill_training_capture/spell_ids",
+          "value": [
+            90001,
+            90001
+          ]
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "skill_training.spell_id",
+      "fixture": "training-spawn-membership",
+      "name": "skill-training-probe-type",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/skill_training_capture/spell_ids",
+          "value": [
+            true
+          ]
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "skill_training.row_fields",
+      "fixture": "training-spawn-membership",
+      "name": "skill-training-row-fields",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/skill_training_capture/rows/0/unexpected",
+          "value": 0
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "skill_training.field_domain",
+      "fixture": "training-spawn-membership",
+      "name": "skill-training-row-domain",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/skill_training_capture/rows/0/EffectMiscValue1",
+          "value": 2147483648
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "skill_training.unselected_row",
+      "fixture": "training-spawn-membership",
+      "name": "skill-training-unselected-row",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/skill_training_capture/rows/0/Id",
+          "value": 90005
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "skill_training.coverage_mismatch",
+      "fixture": "training-spawn-membership",
+      "name": "skill-training-binding",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/skill_training_capture/binding/rows_sha256",
+          "value": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "skill_training.coverage_mismatch",
+      "fixture": "training-spawn-membership",
+      "name": "skill-training-unknown-field",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/skill_training_capture/unexpected",
+          "value": 0
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [
+        {
+          "of": "/skill_training_capture/rows",
+          "path": "/skill_training_capture/binding/rows_sha256"
+        }
+      ],
+      "diagnostic": "compiler.preparation_mismatch",
+      "fixture": "training-spawn-membership",
+      "name": "skill-training-row-rehashed",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/skill_training_capture/rows/0/EffectBasePoints1",
+          "value": 5
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "quest_mechanics.binding_mismatch",
+      "fixture": "mechanics-spawn",
+      "name": "quest-mechanics-condition-lookup",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/quest_mechanics_capture/lookup_keys/conditions",
+          "value": []
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "quest_mechanics.unselected_key:conditions",
+      "fixture": "mechanics-spawn",
+      "name": "quest-mechanics-condition-selector",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/quest_mechanics_capture/rows/conditions/0/condition_entry",
+          "value": 44006
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [
+        {
+          "of": "/skill_training_capture/rows",
+          "path": "/skill_training_capture/binding/rows_sha256"
+        },
+        {
+          "of": "/skill_training_capture/spell_ids",
+          "path": "/skill_training_capture/binding/selectors_sha256"
+        }
+      ],
+      "diagnostic": "skill_training.effective_row_mismatch",
+      "fixture": "training-spawn-membership",
+      "name": "skill-training-effective-row-mismatch",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/skill_training_capture/rows/0/Id",
+          "value": 930001
+        },
+        {
+          "op": "set",
+          "path": "/skill_training_capture/spell_ids",
+          "value": [
+            930001
+          ]
+        }
+      ],
+      "target": "source"
+    }
+  ],
+  "format": "benilla-production-verifier-mutations-v1"
+}

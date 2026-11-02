@@ -3124,5 +3124,8 @@ class QuestMechanicsTests(unittest.TestCase):
             capture(authored_mechanics_source(), starter_selection(),
                     capture_quest_presentation=0, capture_quest_mechanics=True)
 
+from native_starter.verifier_parity import SourceVerifierParityTests
+
+
 if __name__ == "__main__":
     unittest.main()

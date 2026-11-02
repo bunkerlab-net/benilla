@@ -26,10 +26,12 @@ oversize or malformed winners instead of falling back to older archive copies.
 It writes into a new private directory and publishes extraction.json last.
 A crash may leave an incomplete directory without that manifest; retry to a new
 output path, never assume those partial files constitute a completed extraction.
-The CLI requires that manifest and verifies the exact 20-file v3 allowlist, hashes,
-lengths and layouts before preparing anything. Manual/external unmanifested
-directories are not accepted by the CLI. The diagnostic Python library can still
-inspect synthetic/incomplete tables, recording no extraction claim.
+The Python CLI requires that manifest and verifies the completed v3 or v4
+allowlist, hashes, lengths, and layouts before preparing anything. The production
+Rust verifier requires v4 and all 21 tables, including Emotes. Manual or
+unmanifested directories are not accepted by the CLI. The diagnostic Python
+library can still inspect synthetic or incomplete tables, recording no
+extraction claim.
 
 Then prepare from your private source and those exact extracted bytes:
 
@@ -62,6 +64,26 @@ Outputs contain private game data: keep them under gitignored local state, never
 commit or publish them. Publication uses a private 0600 temporary file, fsync and
 atomic no-replace hard link; it cannot overwrite an earlier preparation or input.
 The tool rejects output inside the DBC input directory.
+
+The runtime's `native::diagnose_production_inputs` independently reconstructs this
+complete report from source-v2, v4 DBC files, an explicit selected identity, and
+explicit `NativeWorldRules`. It compares canonical reports, not just
+`preparation_sha256`. Its diagnostic identity also binds the exact bytes and
+length of `extraction.json`. It never constructs `NativeCapability` or a runtime
+profile. See the [runtime verifier contract](../../crates/benilla-world-runtime/src/native/README.md).
+
+The shared `production_verifier_cases.json`, `production_verifier_mutations.json`,
+and `production_verifier_malformed.json` contain authored data only. Rust and
+Python consume the same cases for complete preparation equality, stale bindings,
+rehashed inconsistent artifacts, strict JSON, packed WDBC layouts, and numeric
+limits. Preparation uses sorted presentation field names so JSON object key
+order cannot change its identity. JSON decoding has a 128-level nesting bound
+and a 4,000,000-value bound in addition to each input's byte limit.
+
+The corpus includes same-snapshot quest completion scripts, source items and
+gossip lookup closure, exact SQL skill-training probes and profession repair,
+and selected spawn-context exclusions. Complete-empty exclusions retain cold
+loader-order and assistance obligations. Inbound linking rows remain blockers.
 
 ## Compiled facts and exact references
 

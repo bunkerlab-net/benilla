@@ -27,6 +27,8 @@ MAX_TABLE_BYTES = 16 * 1024 * 1024
 MAX_BUNDLE_BYTES = 64 * 1024 * 1024
 MAX_SCHEMA_BYTES = 2 * 1024 * 1024
 MAX_TEXT_BYTES = 16384
+MAX_JSON_DEPTH = 128
+MAX_JSON_NODES = 4_000_000
 KEYS = {
     "spell_facing": ("entry",),
     "creature_spawn_entry": ("guid", "entry"),
@@ -118,8 +120,43 @@ def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 def decode_json(data: bytes, max_bytes: int) -> Any:
     check(len(data) <= max_bytes, "json.byte_limit")
     try:
-        return json.loads(data, object_pairs_hook=_pairs,
-                          parse_constant=lambda _: (_ for _ in ()).throw(ExportError("json.nonfinite")))
+        # Bound nesting before the decoder can exhaust its own recursion stack.
+        text = data.decode("utf-8")
+        depth, quoted, escaped = 0, False, False
+        for char in text:
+            if quoted:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    quoted = False
+            elif char == '"':
+                quoted = True
+            elif char in "[{":
+                depth += 1
+                check(depth <= MAX_JSON_DEPTH + 1, "json.nesting_limit")
+            elif char in "]}":
+                depth -= 1
+        value = json.loads(text, object_pairs_hook=_pairs,
+                           parse_constant=lambda _: (_ for _ in ()).throw(ExportError("json.nonfinite")))
+        pending, count = [(value, 0)], 0
+        while pending:
+            node, depth = pending.pop()
+            count += 1
+            check(depth <= MAX_JSON_DEPTH, "json.nesting_limit")
+            check(count <= MAX_JSON_NODES, "json.node_limit")
+            if type(node) is float:
+                check(math.isfinite(node), "json.nonfinite")
+            elif type(node) is str:
+                node.encode("utf-8", errors="strict")
+            elif type(node) is dict:
+                for key in node:
+                    key.encode("utf-8", errors="strict")
+                pending.extend((child, depth + 1) for child in node.values())
+            elif type(node) is list:
+                pending.extend((child, depth + 1) for child in node)
+        return value
     except (ValueError, UnicodeError, RecursionError) as error:
         if isinstance(error, ExportError):
             raise

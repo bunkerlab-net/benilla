@@ -2,6 +2,11 @@
 //! Versioned integration of native-mechanic components. Production admission is closed.
 //! OriginalFixture `World` v2 remains distinct. This module is not a full Classic server.
 mod creature_pose_cells;
+mod production_compiler;
+pub use production_compiler::{
+    diagnose_production_inputs, ProductionDiagnostic, ProductionInputPaths, ProductionInputReport,
+    ProductionRequest, ProductionRules,
+};
 mod fresh_creature_cell;
 pub use creature_pose_cells::{
     CreaturePoseCell, CreaturePoseCellIndex, CreaturePoseCellSource, SourceStaticCreatureIdentity,
