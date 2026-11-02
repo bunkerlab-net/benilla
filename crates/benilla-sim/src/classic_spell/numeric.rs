@@ -8,16 +8,16 @@ use rustc_apfloat::{
 };
 const R: Round = Round::NearestTiesToEven;
 
-fn checked<T>(value: StatusAnd<T>) -> Result<T, SpellError> {
+pub(super) fn checked<T>(value: StatusAnd<T>) -> Result<T, SpellError> {
     if !(value.status & !Status::INEXACT).is_empty() {
         return Err(SpellError::Domain("binary32 exception"));
     }
     Ok(value.value)
 }
-fn integer(value: i64) -> Result<Single, SpellError> {
+pub(super) fn integer(value: i64) -> Result<Single, SpellError> {
     checked(Single::from_i128_r(i128::from(value), R))
 }
-fn signed(value: Single) -> Result<i32, SpellError> {
+pub(super) fn signed(value: Single) -> Result<i32, SpellError> {
     let n = checked(value.to_i128_r(32, Round::TowardZero, &mut false))?;
     i32::try_from(n).map_err(|_| SpellError::Domain("integer conversion"))
 }
@@ -263,6 +263,26 @@ pub fn zero_resistance_npc_miss(
     {
         return Err(SpellError::Domain("zero-resistance level domain"));
     }
+    npc_magic_miss(caster_level, target_level, base_miss)
+}
+/// Binary spells at zero effective school resistance do not receive the
+/// non-binary NPC level-resistance term. Dispel/mechanic modifiers remain the
+/// caller's source-owned exclusions. Unit.cpp:3911-3952,4002-4047.
+pub fn zero_resistance_binary_npc_miss(
+    caster_level: u8,
+    target_level: u8,
+    base_miss: SpellFloat,
+) -> Result<u16, SpellError> {
+    if !(1..=60).contains(&caster_level) || !(1..=63).contains(&target_level) {
+        return Err(SpellError::Domain("zero-resistance binary level domain"));
+    }
+    npc_magic_miss(caster_level, target_level, base_miss)
+}
+fn npc_magic_miss(
+    caster_level: u8,
+    target_level: u8,
+    base_miss: SpellFloat,
+) -> Result<u16, SpellError> {
     let mut chance = base_miss.value();
     if chance < Single::ZERO || chance > integer(100)? {
         return Err(SpellError::Domain("base miss"));

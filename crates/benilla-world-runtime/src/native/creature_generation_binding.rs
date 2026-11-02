@@ -64,12 +64,13 @@ pub(super) fn validate_prefix(
             .source_generation
             .as_ref()
             .ok_or(NativeError::AuthorityBinding)?;
+        let effective = npc.effective_profile(profile)?;
         if owner.npc_id() != npc.id
             || owner.world() != state.world
             || owner.profile_identity() != profile_identity
             || npc.ai.generation() != Some(npc.id.generation)
-            || npc.ai.effective_profile() != &npc.effective_profile(profile)?.ai
-            || npc.ai.mainhand_timer_limit_ms() != owner.result().mainhand_interval_ms.max(100)
+            || npc.ai.effective_profile() != &effective.ai
+            || npc.ai.mainhand_timer_limit_ms() != effective.ai.mainhand_interval_ms.max(100)
             || npc.health > owner.result().stats.resources.max_health
             || (npc.health == 0) != owner.current_death_tick().is_some()
         {

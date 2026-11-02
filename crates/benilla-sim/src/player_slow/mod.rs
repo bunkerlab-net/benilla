@@ -89,5 +89,25 @@ impl SpeedRates {
     }
 }
 
+/// Creature branch of Unit::UpdateSpeed(MOVE_RUN), using the selected raw
+/// template/model base rate before SetSpeedRate's clamp and GetSpeed's *7.
+pub fn creature_run_speed(amount: i32, base_rate: Real) -> Result<Real, SlowError> {
+    numeric::creature_run_speed(amount, base_rate)
+}
+
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod creature_tests {
+    use super::*;
+    #[test]
+    fn creature_base_rate_precedes_minimum_speed_clamp() {
+        let twice = Real::new(2.0).unwrap();
+        assert_eq!(creature_run_speed(-50, twice).unwrap().as_f32(), 7.0);
+        assert_eq!(creature_run_speed(0, twice).unwrap().as_f32(), 14.0);
+        assert_eq!(creature_run_speed(-100, twice).unwrap().as_f32(), 0.07);
+        assert!(creature_run_speed(1, twice).is_err());
+        assert!(creature_run_speed(-30, Real::ZERO).is_err());
+    }
+}

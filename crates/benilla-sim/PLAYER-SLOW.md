@@ -37,6 +37,20 @@ kernel does not infer that closure from an empty vector. `SpeedRates` is a
 serializable value, never an authority capability; the runtime validates it
 against owned holders.
 
+## Creature run-speed arithmetic
+
+`creature_run_speed` accepts the selected raw template/model run rate and one
+source-resolved decrease-speed amount. It follows
+[`Unit::UpdateSpeed`:8411-8431](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Unit.cpp#L8411).
+The slow factor multiplies the creature's base rate before the 0.01 clamp.
+`GetSpeed` then multiplies by seven. Applying a clamped player multiplier to an
+already rounded creature speed does not reproduce this order.
+
+The helper does not select a creature, apply a Chilled holder, alter movement,
+notify a movement generator, or extend `PlayerSlowSource` admission. Its caller
+must prove the absence of other speed modifiers and supply the raw base rate,
+not recover that rate by dividing a rounded `GetSpeed` result.
+
 ## Effective source and amount/duration derivation
 
 `PlayerSlowSource` retains all173 effective SpellEntry words after server

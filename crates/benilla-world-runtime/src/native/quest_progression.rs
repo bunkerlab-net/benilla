@@ -830,6 +830,27 @@ impl QuestProgressionGenesis {
                 .ok_or(NativeError::UnsupportedAbility(known.spell_id))?;
             let mut ability = recipe.ability.clone();
             match (&known.availability, &mut ability.admission) {
+                (init::AbilityAvailability::Available, AbilityAdmission::FrostArmor)
+                    if known.spell_id == 168 && ability.school == 4 =>
+                {
+                    let raw = input
+                        .spells
+                        .iter()
+                        .find(|r| r.id == 168)
+                        .ok_or(NativeError::InvalidProfile)?;
+                    let time = recipe
+                        .cast_time
+                        .as_ref()
+                        .ok_or(NativeError::InvalidProfile)?;
+                    if raw.words[18] != time.id
+                        || raw.words[1] != 4
+                        || time.base_ms != 0
+                        || time.per_level_ms != 0
+                        || time.minimum_ms != 0
+                    {
+                        return Err(NativeError::InvalidProfile);
+                    }
+                }
                 (init::AbilityAvailability::Available, AbilityAdmission::Available(spec)) => {
                     let raw = input
                         .spells

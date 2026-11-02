@@ -678,13 +678,16 @@ impl<'a> Compiler<'a> {
                 &duration_input,
             )?;
             result.push(json!({"id":num(id),"initial_sql_spell":initial.contains(&id),"script_registry":registry,"initial_hooks":hooks,"name_locales":row.map(|r|(120..128).map(|i|r.text(i)).collect::<Vec<_>>()),"cast_time":cast_input,"range":range_input,"effects":effects,"speed":source["speed"],"duration":duration_input,"server_client_differences":differences,"source_row":source,"server_numeric_words":server_words,"dbc_only_inputs":row.map(|r|json!({"totems":(40..42).map(|i|r.word(i)).collect::<Vec<_>>(),"reagents":(42..50).map(|i|r.word(i) as i32).collect::<Vec<_>>(),"reagent_counts":(50..58).map(|i|r.word(i)).collect::<Vec<_>>(),"max_target_level":r.word(159),"family_mask_words":[r.word(161),r.word(162)],"max_affected_targets":r.word(163),"damage_multiplier_binary32":(167..170).map(|i|r.word(i)).collect::<Vec<_>>()})),"numeric_capture":numeric,"fireball_plan":fireball}));
-            let spell = result.last_mut().unwrap();
-            spell["execution_plan"] = plans::spell_execution::supported_plan(self.source, spell)?;
             self.issue(
                 "spell_template",
                 json!([num(id)]),
                 "spell.server_overlay_and_learning_closure_required",
             );
+        }
+        for index in 0..result.len() {
+            let plan =
+                plans::spell_execution::supported_plan(self.source, &result[index], &result)?;
+            result[index]["execution_plan"] = plan;
         }
         Ok(json!(result))
     }
@@ -1252,7 +1255,7 @@ pub(super) fn compile(
                 .unwrap()
                 .remove("spell.native_effect_target_scaling_rules_required")
                 .unwrap_or(json!([]));
-            d["supported_catalog_plan"] = json!({"adapter":plans::spell_execution::ADAPTER,
+            d["supported_catalog_plan"] = json!({"adapter":plan["adapter"],
                 "fields":fields,"input_bindings":plan["input_bindings"]});
         }
     }

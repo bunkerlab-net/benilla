@@ -715,6 +715,7 @@ impl<A: Authority> Frame<'_, A> {
                 }
                 npc.auras.clear();
                 npc.aura_bindings.clear();
+                self.clear_chilled(npc)?;
                 let source = npc.source_motion.as_mut().unwrap();
                 source.motion.begin_map_frame(self.state.now_ms)?;
                 let event = source.motion.stop_for_death()?;
@@ -1020,6 +1021,7 @@ impl<A: Authority> Frame<'_, A> {
         let mut source = npc.source_motion.take().unwrap();
         let mut failure = None;
         let effective = npc.effective_profile(self.profile)?;
+        let mut pending_chilled = None;
         let result =
             npc.ai
                 .finish_receipts_with_current(observation, token, &mut |hook, working_ai| {
@@ -1054,7 +1056,7 @@ impl<A: Authority> Frame<'_, A> {
                                 self.enter_player_combat();
                             }
                             if self.state.combat.is_some() {
-                                self.native_melee(
+                                let chilled = self.native_melee(
                                     npc.id,
                                     position,
                                     npc.health,
@@ -1071,6 +1073,7 @@ impl<A: Authority> Frame<'_, A> {
                                         events: &npc.events,
                                     }),
                                 )?;
+                                pending_chilled = chilled;
                             }
                             Ok(if !self.state.player_alive() {
                                 ai::MainhandResult::TargetDied
@@ -1088,6 +1091,7 @@ impl<A: Authority> Frame<'_, A> {
         if let Some(error) = failure {
             return Err(error);
         }
+        self.sync_chilled(npc, pending_chilled)?;
         let callbacks = self.events.split_off(start);
         Ok((result?.into_iter().skip(prefix).collect(), callbacks))
     }

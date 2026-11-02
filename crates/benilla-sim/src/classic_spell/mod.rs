@@ -7,16 +7,25 @@
 //! damage/AI engine. Native admission remains closed; see ../../SPELLS.md.
 //! Every supplied check, stat and modifier-exclusion assertion must be resolved
 //! from authoritative state. Never use a default 'true' to admit native content.
+mod lifecycle;
 mod numeric;
+pub use lifecycle::{AuraLifecycleSpec, AuraLifecycleUpdate, TimedAura};
+mod instant_aura;
+pub use instant_aura::InstantAuraResources;
 pub use numeric::{
     cast_time, combat_chance, critical_damage, mana_cost, projectile_delay,
-    zero_resistance_npc_miss, EffectValue, SpellFloat,
+    zero_resistance_binary_npc_miss, zero_resistance_npc_miss, EffectValue, SpellFloat,
 };
 use std::collections::BTreeMap;
 
 pub const SPELL_EXECUTION_POLICY_ID: &str = "cmangos-8ec338a1-mage-projectile-periodic-binary32-v4";
 const MAX_AMOUNT: u32 = 1_000_000;
 const MAX_TIME: u32 = 3_600_000;
+
+/// Spell.h:589 and Spell.cpp:3444-3453 at CMaNGOS Classic 8ec338a1.
+pub fn resets_melee_timers(triggered: bool, interrupt_flags: u32, attributes_ex2: u32) -> bool {
+    !triggered && interrupt_flags & 0x08 != 0 && attributes_ex2 & 0x0002_0000 == 0
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SpellError {
@@ -201,13 +210,56 @@ impl CasterResources {
         self.spells.get(&spell).copied()
     }
     fn ready(&self, p: &MageProjectileSpec, now: u64, strict: bool) -> bool {
-        !self.spells.get(&p.spell_id).is_some_and(|t| *t > now)
-            && !(p.category != 0 && self.categories.get(&p.category).is_some_and(|t| *t > now))
-            && !(strict
-                && self
-                    .global
-                    .get(&p.global_category)
-                    .is_some_and(|t| *t > now))
+        self.ready_at(p.spell_id, p.category, p.global_category, now, strict)
+    }
+    fn ready_at(
+        &self,
+        spell_id: u32,
+        category: u32,
+        global_category: u32,
+        now: u64,
+        strict: bool,
+    ) -> bool {
+        !self.spells.get(&spell_id).is_some_and(|t| *t > now)
+            && !(category != 0 && self.categories.get(&category).is_some_and(|t| *t > now))
+            && !(strict && self.global.get(&global_category).is_some_and(|t| *t > now))
+    }
+    fn start_global(
+        &mut self,
+        category: u32,
+        recovery_ms: u32,
+        now_ms: u64,
+    ) -> Result<(), SpellError> {
+        if recovery_ms != 0 {
+            let until = now_ms
+                .checked_add(u64::from(recovery_ms))
+                .ok_or(SpellError::Domain("GCD overflow"))?;
+            self.global.retain(|_, t| *t > now_ms);
+            self.global.entry(category).or_insert(until);
+        }
+        Ok(())
+    }
+    fn start_recovery(
+        &mut self,
+        spell_id: u32,
+        recovery_ms: u32,
+        category: u32,
+        category_recovery_ms: u32,
+        now_ms: u64,
+    ) -> Result<(), SpellError> {
+        let spell_until = now_ms
+            .checked_add(u64::from(recovery_ms))
+            .ok_or(SpellError::Domain("spell cooldown"))?;
+        let category_until = now_ms
+            .checked_add(u64::from(category_recovery_ms))
+            .ok_or(SpellError::Domain("category cooldown"))?;
+        if recovery_ms != 0 {
+            self.spells.insert(spell_id, spell_until);
+        }
+        if category != 0 && category_recovery_ms != 0 {
+            self.categories.insert(category, category_until);
+        }
+        Ok(())
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -507,16 +559,7 @@ impl MageProjectileCast {
         let events = if let Some(f) = fail {
             vec![SpellEvent::Failed(f)]
         } else {
-            if spec.global_recovery_ms != 0 {
-                let until = now_ms
-                    .checked_add(u64::from(spec.global_recovery_ms))
-                    .ok_or(SpellError::Domain("GCD overflow"))?;
-                resources.global.retain(|_, t| *t > now_ms);
-                resources
-                    .global
-                    .entry(spec.global_category)
-                    .or_insert(until);
-            }
+            resources.start_global(spec.global_category, spec.global_recovery_ms, now_ms)?;
             vec![SpellEvent::Started {
                 cast_ms: spec.cast_ms,
             }]
@@ -776,20 +819,13 @@ impl MageProjectileCast {
         let impact_at_ms = now_ms
             .checked_add(u64::from(delay))
             .ok_or(SpellError::Domain("impact timestamp"))?;
-        let spell_until = now_ms
-            .checked_add(u64::from(self.spec.recovery_ms))
-            .ok_or(SpellError::Domain("spell cooldown"))?;
-        let category_until = now_ms
-            .checked_add(u64::from(self.spec.category_recovery_ms))
-            .ok_or(SpellError::Domain("category cooldown"))?;
-        if self.spec.recovery_ms != 0 {
-            resources.spells.insert(self.spec.spell_id, spell_until);
-        }
-        if self.spec.category != 0 && self.spec.category_recovery_ms != 0 {
-            resources
-                .categories
-                .insert(self.spec.category, category_until);
-        }
+        resources.start_recovery(
+            self.spec.spell_id,
+            self.spec.recovery_ms,
+            self.spec.category,
+            self.spec.category_recovery_ms,
+            now_ms,
+        )?;
         resources.mana -= current.mana_cost;
         if current.mana_cost > 0 {
             resources.last_mana_use_ms = Some(now_ms);

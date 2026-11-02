@@ -83,10 +83,17 @@ hooks do not prove global absence, loaded creation order, actual effective
 learning, cross-spell stacking, or final runtime host binding. The source cast
 seal and preparation reducer must still establish those facts.
 
-The classification identifies bounded extensions for Frost Armor and Chilled,
-food and drink, and Hearthstone. Their armor/proc/slow, item-use/regeneration,
-and teleport/home-bind lifecycles remain unimplemented by this plan. Other
-unhandled spells remain out of scope. Neither classification authorises a cast
+Frost Armor 168 and Chilled 6136 use a separate exact execution contract through
+the existing spell authority. Both effective numeric rows must pass together.
+Unknown fields, missing triggered closure, registry hooks, invalid finite
+durations or unsupported aura operands keep both spells blocked. The runtime
+requires source-owned creature generations and historical reset inputs.
+The execution plan does not prove effective learning or production admission.
+
+Food, drink and Hearthstone remain bounded extensions without admitted
+item-use/regeneration or teleport/home-bind lifecycles. Food 433 additionally
+requires its named `spell_food_animation` heartbeat, visual kit 406 and saved
+heartbeat phase. Unhandled spells remain out of scope. No classification authorises a cast
 or hides any per-spell refusal.
 
 

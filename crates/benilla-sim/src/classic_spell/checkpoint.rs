@@ -31,13 +31,14 @@ impl CasterResources {
         s: ResourceCheckpoint,
         now_ms: u64,
         specs: &[MageProjectileSpec],
+        instant_specs: &[InstantAuraResources],
     ) -> Result<Self, SpellError> {
         if s.version != SPELL_CHECKPOINT_VERSION
             || s.mana > MAX_AMOUNT
             || s.last_mana_use_ms.is_some_and(|t| t > now_ms)
-            || s.global.len() > specs.len()
-            || s.spells.len() > specs.len()
-            || s.categories.len() > specs.len()
+            || s.global.len() > specs.len().saturating_add(instant_specs.len())
+            || s.spells.len() > specs.len().saturating_add(instant_specs.len())
+            || s.categories.len() > specs.len().saturating_add(instant_specs.len())
         {
             return Err(SpellError::State("resource checkpoint bounds/version"));
         }
@@ -45,6 +46,8 @@ impl CasterResources {
             for (&id, &until) in map {
                 let duration = specs
                     .iter()
+                    .map(InstantAuraResources::from)
+                    .chain(instant_specs.iter().copied())
                     .filter_map(|p| match kind {
                         0 if p.global_category == id => Some(p.global_recovery_ms),
                         1 if p.spell_id == id => Some(p.recovery_ms),

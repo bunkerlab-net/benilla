@@ -62,6 +62,7 @@ pub struct Ability {
 #[serde(deny_unknown_fields)]
 pub enum AbilityAdmission {
     Available(spell::MageProjectileSpec),
+    FrostArmor,
     /// Known learned active remains visible; its precise unsupported reason is preserved.
     Unavailable {
         reason: String,
@@ -113,7 +114,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v84\0",
+            b"benilla-native-profile-v85\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -349,6 +350,8 @@ pub struct Cast {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Npc {
+    pub fireball_aura_slot: u8,
+    pub chilled: Option<ChilledHolder>,
     pub(in crate::native) defense_reactive: Option<player_melee::NpcDefenseReactive>,
     pub(super) source_generation: Option<CreatureGenerationOwner>,
     pub events: NpcEvents,
@@ -434,15 +437,20 @@ impl Npc {
         let base = profile
             .npc(self.id.spawn)
             .ok_or(NativeError::UnknownTarget)?;
-        match (&profile.creature_generations, &self.source_generation) {
-            (None, None) => Ok(base.clone()),
-            (Some(_), Some(owner)) if owner.npc_id() == self.id => owner.project_profile(base),
-            _ => Err(NativeError::AuthorityBinding),
+        let mut effective = match (&profile.creature_generations, &self.source_generation) {
+            (None, None) => base.clone(),
+            (Some(_), Some(owner)) if owner.npc_id() == self.id => owner.project_profile(base)?,
+            _ => return Err(NativeError::AuthorityBinding),
+        };
+        if let Some(holder) = &self.chilled {
+            frost_armor::modify_profile(profile, self.id.spawn, &mut effective, holder)?;
         }
+        Ok(effective)
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct State {
+    pub(super) frost_armor: Option<FrostArmorHolder>,
     pub(super) creature_pose_cells: Option<CreaturePoseCellIndex>,
     pub source_splines: Option<SourceSplineIds>,
     pub(super) action_bar_toggles: action_bar_toggles::ActionBarTogglesState,
@@ -481,6 +489,9 @@ pub struct State {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Command {
+    CastSelf {
+        ability: u32,
+    },
     AttackStart {
         target: NpcId,
     },
@@ -652,6 +663,7 @@ pub enum Rejection {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Event {
+    FrostArmor(FrostArmorEvent),
     QuestScript(QuestScriptEvent),
     PlayerAttackStart {
         target: NpcId,
@@ -1000,6 +1012,9 @@ impl Ability {
             return Err(NativeError::InvalidProfile);
         }
         match &self.admission {
+            AbilityAdmission::FrostArmor if self.id != 168 || self.school != 4 => {
+                return Err(NativeError::InvalidProfile);
+            }
             AbilityAdmission::Available(s) => {
                 s.validate()?;
                 if s.spell_id != self.id || s.cast_ms == 0 {

@@ -2219,7 +2219,7 @@ class CapturedItemAdmissionTests(unittest.TestCase):
 
 class CapturedSpellExecutionTests(unittest.TestCase):
     @staticmethod
-    def authored():
+    def authored(frost=False):
         """Authored mechanism rows, never copies of installed DBC or SQL rows."""
         from decimal import Decimal
         from classic_export import spell_numeric
@@ -2274,6 +2274,34 @@ class CapturedSpellExecutionTests(unittest.TestCase):
             words[entry] = w
             source.rows['spell_template'].append({name: numeric[name]
                                                    for name in export_tests.COLUMNS['spell_template']})
+        if frost:
+            for entry in (168, 6136):
+                armor = entry == 168
+                w = [0] * 173
+                for i, value in {0: entry, 1: 4, 4: 1, 5: 0 if armor else 11,
+                        6: 0x10000 if armor else 0, 7: 0 if armor else 0x488, 18: 1,
+                        21: 8 if armor else 0, 24: 40 if armor else 0, 25: 100 if armor else 101,
+                        28: 1, 29: 1, 30: 900 if armor else 901, 32: 7 if armor else 0,
+                        36: 1 if armor else 4, 58: 0xffffffff, 59: 0xffffffff, 61: 6, 62: 6,
+                        64: 1, 65: int(not armor), 67: 1, 68: int(not armor),
+                        76: 44 if armor else (-16 & 0xffffffff), 77: 0 if armor else (-41 & 0xffffffff),
+                        82: 1 if armor else 6, 83: 1 if armor else 6, 91: 22 if armor else 138,
+                        92: 42 if armor else 33, 106: int(armor), 110: 6136 if armor else 0,
+                        157: 133 if armor else 0, 158: 1500 if armor else 0,
+                        160: 3, 161: 0x2080000 if armor else 0x100000, 164: 1, 165: 1,
+                        166: 0xffffffff, 167: execution.ONE, 168: execution.ONE, 169: execution.ONE}.items():
+                    w[i] = value
+                numeric = {name: Decimal('0') if name in spell_numeric.FLOAT_FIELDS else 0
+                           for name in spell_numeric.COLUMNS}
+                for name, i in spell_numeric.WORD_FIELDS.items():
+                    numeric[name] = (Decimal(str(struct.unpack('<f', struct.pack('<I', w[i]))[0]))
+                                     if name in spell_numeric.FLOAT_FIELDS else
+                                     w[i] - 0x100000000 if name in spell_numeric.SIGNED_FIELDS and w[i] > 0x7fffffff
+                                     else w[i])
+                numeric['SpellFamilyFlags'] = w[161] | (w[162] << 32)
+                authored[entry], words[entry] = numeric, w
+                source.rows['spell_template'].append({name: numeric[name]
+                                                       for name in export_tests.COLUMNS['spell_template']})
         old_fetch = source.fetch
         def fetch(query):
             if query.mode == spell_numeric.MODE and query.table == 'spell_template':
@@ -2297,6 +2325,11 @@ class CapturedSpellExecutionTests(unittest.TestCase):
         files['SpellCastTimes'] = dbc_bytes('SpellCastTimes', [{0: 1}, {0: 16, 1: 1500, 3: 1500}])
         files['SpellDuration'] = dbc_bytes('SpellDuration', [{0: 21, 1: -1, 3: -1}, {0: 35, 1: 4000, 3: 4000}])
         files['SpellRange'] = dbc_bytes('SpellRange', [{0: 1}, {0: 35, 2: 0x420c0000}])
+        if frost:
+            files['SpellDuration'] = dbc_bytes('SpellDuration', [
+                {0: 21, 1: -1, 3: -1}, {0: 35, 1: 4000, 3: 4000},
+                {0: 900, 1: 4000, 3: 4000}, {0: 901, 1: 1200, 3: 1200}])
+            files['SpellRange'] = dbc_bytes('SpellRange', [{0: 1}, {0: 4, 2: 0x41f00000}, {0: 35, 2: 0x420c0000}])
         return bundle, files
 
     def test_complete_initial_shapes_discharge_only_execution_obligations(self):
@@ -2323,11 +2356,30 @@ class CapturedSpellExecutionTests(unittest.TestCase):
                 changed = copy.deepcopy(bound[entry])
                 changed['server_numeric_words'][index] ^= 1
                 with self.subTest(spell=entry, word=index):
-                    self.assertEqual(execution.supported_plan(bundle, changed)['status'], 'blocked')
+                    self.assertEqual(execution.supported_plan(bundle, changed, report['spells'])['status'], 'blocked')
             changed = copy.deepcopy(bound[entry])
             changed['script_registry']['rows'] = [{'Id': entry, 'ScriptName': 'authored_handler'}]
             self.assertIn('spell_execution.selected_registry_absence_required',
-                          execution.supported_plan(bundle, changed)['refusals'])
+                          execution.supported_plan(bundle, changed, report['spells'])['refusals'])
+
+    def test_frost_armor_and_chilled_discharge_only_the_complete_pair(self):
+        from native_starter import spell_execution as execution
+        bundle, files = self.authored(frost=True)
+        report = compile_starter(bundle, parsed(files), Request(1, 1, 0))
+        spells = report['spells']
+        for entry in (168, 6136):
+            spell = next(s for s in spells if s['id'] == entry)
+            self.assertEqual(spell['execution_plan']['status'], 'supported_shape')
+            self.assertFalse(spell['execution_plan']['effective_learning_proven'])
+            self.assertEqual(execution.supported_plan(bundle, spell, [])['status'], 'blocked')
+            for index in (5, 6, 7, 8, 21, 22, 24, 26, 33, 61, 63, 70, 73, 82, 84, 85, 91, 93, 94, 106, 108, 110, 112, 159, 161, 163):
+                changed = copy.deepcopy(spell)
+                changed['server_numeric_words'][index] ^= 1
+                self.assertEqual(execution.supported_plan(bundle, changed, spells)['status'], 'blocked', (entry, index))
+            changed = copy.deepcopy(spell)
+            changed['script_registry']['rows'] = [{'Id': entry, 'ScriptName': 'authored_unimplemented_hook'}]
+            self.assertEqual(execution.supported_plan(bundle, changed, spells)['status'], 'blocked')
+        verify_preparation(report, bundle, parsed(files))
 
 
 class CreatureCombatEvidenceTests(unittest.TestCase):

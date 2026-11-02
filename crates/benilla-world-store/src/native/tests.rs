@@ -354,6 +354,7 @@ fn prior_native_formats_current_or_previous_are_preserved_on_refusal() {
         (46, "benilla-native-peer-help-v46"),
         (47, "benilla-native-positive-peer-help-v47"),
         (48, "benilla-native-wander-leg-v48"),
+        (84, "benilla-native-solo-quest-loot-v84"),
     ] {
         for incompatible in ["world.checkpoint", "world.previous"] {
             let t = Temp::new();
@@ -403,7 +404,7 @@ fn prior_native_formats_current_or_previous_are_preserved_on_refusal() {
 
 #[test]
 fn previous_native_records_cannot_enter_a_fresh_version_one_envelope() {
-    for version in [35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48] {
+    for version in [35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 84] {
         let t = Temp::new();
         let mut world = f::world();
         let (mut store, _) = NativeStore::create(t.path(), &world).unwrap();

@@ -42,6 +42,39 @@ The no-modifier domain is a precondition of these low-level functions. In
 particular, a caller must not pass a resistant NPC to `DamageTarget` and then
 interpret the zero-resistance calculation as a full combat implementation.
 
+## Frost Armor components
+
+`TimedAura` retains finite Frost Armor and Chilled durations and their armor,
+attack-time, and movement operands. The native spell authority binds the
+complete 168/6136 source pair and owns application, proc eligibility, RNG,
+removal, controller projection, and saved-state validation.
+
+- `SpellAuras.cpp:3367-3386` owns the physical resistance modifier. The native
+  owner adds it to the current armor used by melee defense and player fields.
+- `SpellAuras.cpp:3934-3941` and `Unit.cpp:10474-10490` own attack speed.
+  Applying and removing Chilled adjust the running attack countdown by the
+  difference between the old and new attack times.
+- `Unit.cpp:8337-8431` multiplies the creature's raw model/template run rate
+  before the minimum-rate clamp. The existing movement owner reads that speed.
+- `UnitAuraProcHandler.cpp:343-406,514-605` dispatches the victim-side proc.
+  A qualifying melee hit still requires the triggered Chilled spell's real
+  binary miss roll. `Unit.cpp:3911-3952,4002-4047` owns that miss calculation.
+
+These citations use CMaNGOS Classic revision
+`8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`.
+`CasterResources::cast_instant_aura` shares the existing GCD, spell, and
+category maps and positive-mana expenditure timestamp. Ordinary spells reset
+melee timers only with the combat-interrupt flag and without the Ex2
+timer-reset suppression attribute. Triggered Chilled never resets them.
+Native snapshots bind the latest Fireball or Frost Armor reset to the latest
+mana use, per `Spell.h:589` and `Spell.cpp:3444-3453`.
+
+Food 433 and Drink 430 remain refused. Item consumption, seated regeneration,
+their interrupt callbacks, and the food script heartbeat are not implemented.
+No unused item-consumption, food-tick, drink-tick, or healing-threat component
+is retained here.
+
+
 ## Stateful source mapping
 
 - `Spell::SpellStart`, `PreCastCheck`, `Prepare`: reject failed preparation before

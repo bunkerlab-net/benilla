@@ -42,9 +42,9 @@ fn current(w: &NativeWorld, faction: u32) -> i32 {
 }
 fn resign(mut checkpoint: Checkpoint, state: serde_json::Value) -> Checkpoint {
     checkpoint.state = serde_json::from_value(state).unwrap();
-    checkpoint.digest = crate::digest(b"benilla-native-state-v84\0", &checkpoint.state);
+    checkpoint.digest = crate::digest(b"benilla-native-state-v85\0", &checkpoint.state);
     checkpoint.checksum = crate::digest(
-        b"benilla-native-checkpoint-v84\0",
+        b"benilla-native-checkpoint-v85\0",
         &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
     );
     checkpoint
@@ -218,7 +218,7 @@ fn zero_gain_still_calls_reputation_callbacks_and_slot_flags_still_gate_spillove
 
 #[test]
 fn old_quest_policy_and_nested_identity_tampering_cannot_be_reblessed() {
-    assert_eq!(NATIVE_FORMAT_VERSION, 84);
+    assert_eq!(NATIVE_FORMAT_VERSION, 85);
     assert_eq!(
         init::STARTER_INIT_POLICY_ID,
         "cmangos-8ec338a1-level1-mage-init-softfloat-v4"
@@ -363,7 +363,7 @@ fn prior_initializer_profile_identity_rejects_without_changing_native33_shape() 
         .all(|a| a.aura_type != 156));
     // Exactly the prior profile digest contract for this unchanged no-aura input.
     let legacy = crate::digest(
-        b"benilla-native-profile-v84\0",
+        b"benilla-native-profile-v85\0",
         &(
             NATIVE_POLICY,
             NPC_SPELL_POLICY,

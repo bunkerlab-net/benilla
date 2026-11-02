@@ -71,6 +71,54 @@ fn derived_audit() -> DerivedAudit {
         parry_block_or_dual_wield: DerivedEvidence::Absent,
     }
 }
+pub(super) fn level_catalog(
+    input: &init::StarterInput,
+    supplied: u32,
+    rules: pg::Rules,
+) -> pg::Catalog {
+    pg::Catalog::new(
+        1,
+        8,
+        rules,
+        (1..=supplied)
+            .map(|level| pg::LevelStatsRow {
+                race: 1,
+                class: 8,
+                level,
+                attributes: init::Attributes([17, 23, 29, 31, 37].map(|v| v + level as i32 - 1)),
+            })
+            .collect(),
+        (1..=supplied)
+            .map(|level| pg::ClassLevelStatsRow {
+                class: 8,
+                level,
+                base_health: 5000 + (level - 1) * 10,
+                base_mana: 59 + (level - 1) * 6,
+            })
+            .collect(),
+        (1..=supplied)
+            .map(|level| pg::XpRow {
+                level,
+                xp_for_next_level: if level == rules.max_player_level {
+                    0
+                } else {
+                    level * 40
+                },
+            })
+            .collect(),
+        input
+            .skill_lines
+            .iter()
+            .map(|line| pg::SkillDependency {
+                skill: line.id,
+                line: Some(*line),
+                race_class: init::Rows::Complete(vec![]),
+            })
+            .collect(),
+    )
+    .unwrap()
+}
+
 pub fn setup() -> (Profile, init::StarterInput, QuestProgressionInput) {
     setup_with_levels(3, 60, true, 0x3f800000)
 }
@@ -99,43 +147,11 @@ pub fn setup_with_levels(
     giver.max_health = 100;
     giver.name = "Authored quest giver".into();
     p.npcs.push(giver);
-    let levels = pg::Catalog::new(
-        1,
-        8,
+    let levels = level_catalog(
+        &input,
+        supplied,
         pg::Rules::from_classic_config(cap, maximize, talent_rate_bits).unwrap(),
-        (1..=supplied)
-            .map(|level| pg::LevelStatsRow {
-                race: 1,
-                class: 8,
-                level,
-                attributes: init::Attributes([17, 23, 29, 31, 37].map(|v| v + level as i32 - 1)),
-            })
-            .collect(),
-        (1..=supplied)
-            .map(|level| pg::ClassLevelStatsRow {
-                class: 8,
-                level,
-                base_health: 5000 + (level - 1) * 10,
-                base_mana: 59 + (level - 1) * 6,
-            })
-            .collect(),
-        (1..=supplied)
-            .map(|level| pg::XpRow {
-                level,
-                xp_for_next_level: if level == cap { 0 } else { level * 40 },
-            })
-            .collect(),
-        input
-            .skill_lines
-            .iter()
-            .map(|line| pg::SkillDependency {
-                skill: line.id,
-                line: Some(*line),
-                race_class: init::Rows::Complete(vec![]),
-            })
-            .collect(),
-    )
-    .unwrap();
+    );
     let skills = [95, 8]
         .into_iter()
         .enumerate()

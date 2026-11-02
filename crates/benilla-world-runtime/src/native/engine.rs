@@ -16,6 +16,7 @@ mod source_location;
 mod spell_authority;
 mod spell_range;
 use spell_authority::SpellHistory;
+mod frost_armor;
 mod inventory;
 mod loot;
 mod mainhand;
@@ -51,6 +52,7 @@ impl NativeWorld {
         CreaturePoseCellIndex::validate(&self.profile, &self.state)?;
         initial_cast_genesis::validate_state(&self.profile, &self.state)?;
         player_melee::validate_weapon_history(&self.profile, &self.state)?;
+        self.state.validate_frost_armor(&self.profile)?;
         if tick != self.state.tick.checked_add(1).ok_or(NativeError::Limit)?
             || tick > crate::MAX_TICK
         {
@@ -166,6 +168,7 @@ impl NativeWorld {
                 .ok_or(NativeError::Limit)?;
         }
         frame.player_event_update()?;
+        frame.player_frost_armor_update()?;
         #[cfg(any(test, feature = "synthetic-native-tests"))]
         frame.synthetic_player_slow_effects(false)?;
         frame.player_slow_update()?;
@@ -227,7 +230,7 @@ impl NativeWorld {
         let events = frame.events;
         let draws = frame.draws;
         SourceSplineIds::validate_events(&self.state, &next, &events)?;
-        let after = crate::digest(b"benilla-native-state-v84\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v85\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -738,6 +741,7 @@ impl<A: Authority> Frame<'_, A> {
             }
             Command::TurnInQuest { quest, giver } => self.quest_command(*quest, *giver, true, 0)?,
             Command::AbandonQuest { slot } => self.abandon_quest(*slot)?,
+            Command::CastSelf { ability } => self.cast_frost_armor(*ability)?,
             Command::ReleaseSpirit => Some(Rejection::SpiritReleaseUnavailable {
                 phase: self
                     .state
@@ -762,6 +766,10 @@ impl<A: Authority> Frame<'_, A> {
                         return Ok(());
                     }
                     AbilityAdmission::Available(s) => s.clone(),
+                    AbilityAdmission::FrostArmor => {
+                        self.events.push(Event::Rejected(Rejection::UnknownTarget));
+                        return Ok(());
+                    }
                 };
                 if !self.state.player_alive() {
                     Some(Rejection::Dead)
@@ -1203,6 +1211,14 @@ impl<A: Authority> Frame<'_, A> {
                     .any(|e| matches!(e, spell::SpellEvent::AuraApplied { .. }))
                 {
                     npc.aura_bindings.insert(c.ability, impact_binding);
+                    if c.ability == 133 {
+                        npc.fireball_aura_slot =
+                            if npc.chilled.as_ref().is_some_and(|h| h.slot == 32) {
+                                33
+                            } else {
+                                32
+                            };
+                    }
                 }
             } else {
                 npc.aura_bindings.remove(&c.ability);
@@ -1266,6 +1282,7 @@ impl<A: Authority> Frame<'_, A> {
             }
             self.spell_events(0, ability, id, events, None)?;
         }
+        self.npc_chilled_update(id)?;
         Ok(())
     }
     fn npcs(&mut self) -> Result<(), NativeError> {
@@ -1393,6 +1410,7 @@ impl<A: Authority> Frame<'_, A> {
             }
             npc.auras.clear();
             npc.aura_bindings.clear();
+            self.clear_chilled(&mut npc)?;
         }
         let (effects, mut melee_events) = if npc.source_motion.is_some() {
             let (token, _) = receipt_step.ok_or(NativeError::InvalidState)?;
@@ -1495,16 +1513,20 @@ impl<A: Authority> Frame<'_, A> {
                 let mut failure = None;
                 let npc_id = npc.id;
                 let health = npc.health;
+                let mut pending_chilled = None;
                 let mut callback = |_, position, started| {
                     if started {
                         self.enter_player_combat();
                     }
                     match self.native_melee(npc_id, position, health, &p, None, None) {
-                        Ok(()) => Ok(if !self.state.player_alive() {
-                            ai::MainhandResult::TargetDied
-                        } else {
-                            ai::MainhandResult::Unchanged
-                        }),
+                        Ok(chilled) => {
+                            pending_chilled = chilled;
+                            Ok(if !self.state.player_alive() {
+                                ai::MainhandResult::TargetDied
+                            } else {
+                                ai::MainhandResult::Unchanged
+                            })
+                        }
                         Err(error) => {
                             failure = Some(error);
                             Err(ai::AiError::Invalid("native melee callback"))
@@ -1530,6 +1552,7 @@ impl<A: Authority> Frame<'_, A> {
                 if let Some(error) = failure {
                     return Err(error);
                 }
+                self.sync_chilled(&mut npc, pending_chilled)?;
                 melee_events = self.events.split_off(start);
                 result?
             } else if npc.source_generation.is_some() {
@@ -1562,6 +1585,7 @@ impl<A: Authority> Frame<'_, A> {
                     }
                     npc.auras.clear();
                     npc.aura_bindings.clear();
+                    self.clear_chilled(&mut npc)?;
                 }
                 ai::Effect::CorpseRemoved => {
                     if let Some(owner) = &npc.source_generation {
@@ -1655,6 +1679,7 @@ impl<A: Authority> Frame<'_, A> {
                         .map_or(p.max_health, |owner| owner.result().stats.resources.health);
                     npc.auras.clear();
                     npc.aura_bindings.clear();
+                    self.clear_chilled(&mut npc)?;
                 }
                 _ => {}
             }
@@ -1776,7 +1801,7 @@ impl<A: Authority> Frame<'_, A> {
         p: &NpcProfile,
         npc_orientation: Option<Orientation>,
         working: Option<&interactions::WorkingNpc<'_>>,
-    ) -> Result<(), NativeError> {
+    ) -> Result<Option<ChilledHolder>, NativeError> {
         use benilla_sim::npc_melee as m;
         let attack = p
             .combat
@@ -1853,7 +1878,7 @@ impl<A: Authority> Frame<'_, A> {
                 agility: u32::try_from(c.stats.attributes[1])
                     .map_err(|_| NativeError::InvalidState)?,
                 defense_skill: defense.map(SkillState::current_value).unwrap_or(0),
-                armor: c.stats.resistances[0],
+                armor: self.state.effective_armor()?,
                 standing: c.standing,
                 casting_non_melee: self
                     .state
@@ -1896,6 +1921,7 @@ impl<A: Authority> Frame<'_, A> {
             &mut self.draws,
         )? as u16;
         let result = m::resolve(plan, m::MeleeRolls { damage, outcome })?;
+        let resolved_outcome = result.outcome();
         let callbacks = result.callbacks();
         let (hit_info, victim_state) = match result.outcome() {
             m::MeleeOutcome::Miss => (2 | 0x10, 0),
@@ -2013,6 +2039,7 @@ impl<A: Authority> Frame<'_, A> {
                     remaining_ms: c.defense_reactive_ms,
                 }));
         }
+        let chilled = self.frost_armor_proc(id, action, p.ai.level, resolved_outcome)?;
         let c = self.state.combat.as_mut().unwrap();
         c.next_action = c.next_action.checked_add(1).ok_or(NativeError::Limit)?;
         c.action_tip = crate::digest(
@@ -2025,7 +2052,7 @@ impl<A: Authority> Frame<'_, A> {
                 binding,
                 tip: c.action_tip,
             }));
-        Ok(())
+        Ok(chilled)
     }
     fn native_spell_damage(&mut self) -> Result<(), NativeError> {
         let ids = self
@@ -2081,6 +2108,11 @@ impl<A: Authority> Frame<'_, A> {
             .iter()
             .filter_map(|e| match e {
                 Event::Spell { event, .. } => Some(*event),
+                Event::FrostArmor(FrostArmorEvent::Cast {
+                    failure: None,
+                    mana_spent,
+                    ..
+                }) => Some(spell::SpellEvent::ManaSpent(*mana_spent)),
                 _ => None,
             })
             .collect();

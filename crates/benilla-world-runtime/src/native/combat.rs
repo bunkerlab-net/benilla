@@ -281,6 +281,8 @@ impl Profile {
                 .ability(known.spell_id)
                 .ok_or(NativeError::InvalidProfile)?;
             match (&known.availability, &ability.admission) {
+                (init::AbilityAvailability::Available, AbilityAdmission::FrostArmor)
+                    if known.spell_id == 168 => {}
                 (init::AbilityAvailability::Available, AbilityAdmission::Available(spec)) => {
                     let raw = input
                         .spells

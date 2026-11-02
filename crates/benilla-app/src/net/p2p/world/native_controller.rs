@@ -1031,6 +1031,12 @@ impl Driven for NativeController {
                 self.queue(input.input.command)?;
             }
             ClientCommand::CastSpell {
+                spell_id: 168,
+                target,
+            } if target.is_none_or(|guid| guid == self.projection.player_guid()) => {
+                self.queue(n::Command::CastSelf { ability: 168 })?;
+            }
+            ClientCommand::CastSpell {
                 spell_id,
                 target: Some(guid),
             } => {

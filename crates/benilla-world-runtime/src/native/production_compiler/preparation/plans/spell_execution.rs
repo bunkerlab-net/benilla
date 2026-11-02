@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Mirrors starter_init::initial_cast_phases::classify, not its source-plan constructor.
 use super::*;
+#[path = "frost_execution.rs"]
+mod frost_execution;
 pub(in super::super) const ADAPTER: &str = "captured_initial_spell_existing_phase_handlers_v1";
 const ONE: u32 = 0x3f80_0000;
 type InitialShape = (&'static [(u32, u32, i32)], i32, u32);
@@ -24,8 +26,15 @@ fn shape(id: i128) -> Option<InitialShape> {
         _ => return None,
     })
 }
-pub(in super::super) fn supported_plan(bundle: &Value, spell: &Value) -> Result<Value> {
+pub(in super::super) fn supported_plan(
+    bundle: &Value,
+    spell: &Value,
+    spells: &[Value],
+) -> Result<Value> {
     let id = int(&spell["id"]);
+    if matches!(id, 168 | 6136) {
+        return frost_execution::frost_plan(spell, spells);
+    }
     let mut plan = json!({"adapter":ADAPTER,"status":"blocked","classification":"out_of_scope","effective_learning_proven":false,"runtime_export":null,"refusals":[]});
     if id == 133 {
         plan["classification"] = json!("existing_spell_authority");
@@ -34,8 +43,6 @@ pub(in super::super) fn supported_plan(bundle: &Value, spell: &Value) -> Result<
     }
     let Some((effects, item_class, item_mask)) = shape(id) else {
         let extension = match id {
-            168 => Some("armor_and_chill_proc_lifecycle"),
-            6136 => Some("chill_slow_and_attack_speed_lifecycle"),
             430 => Some("item_use_and_mana_regeneration_lifecycle"),
             433 => Some("item_use_and_health_regeneration_lifecycle"),
             8690 => Some("item_use_teleport_and_home_bind_lifecycle"),

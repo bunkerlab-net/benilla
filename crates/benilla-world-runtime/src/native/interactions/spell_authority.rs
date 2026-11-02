@@ -9,6 +9,8 @@ use std::collections::BTreeSet;
 
 #[path = "spell_authority/captured.rs"]
 mod captured;
+#[path = "spell_authority/frost.rs"]
+mod frost;
 pub use captured::{
     CapturedFireballInput, CapturedSpellEffect, CapturedSpellFacing, CapturedSpellTemplate,
     CompiledFireball,
@@ -625,12 +627,49 @@ impl SpellAuthorityCatalog {
                 "spell zero-resistance level domain",
             ));
         }
-        if self.spells.len() != 1 || !self.spells.contains_key(&133) {
+        let frost = self.spells.keys().copied().eq([133, 168, 6136]);
+        if !frost && !self.spells.keys().copied().eq([133]) {
             return Err(NativeError::UnsupportedMechanic(
-                "single audited active spell",
+                "audited Fireball and Frost Armor closure",
             ));
         }
-        self.spells[&133].validate()?;
+        if frost {
+            let companion = &self.spells[&133].words;
+            if !spell::resets_melee_timers(false, companion[21], companion[8]) {
+                return Err(NativeError::UnsupportedMechanic(
+                    "Frost Armor requires companion Fireball melee-reset source",
+                ));
+            }
+            if profile.creature_generations.is_none()
+                || !profile
+                    .abilities
+                    .iter()
+                    .any(|a| a.id == 168 && a.admission == AbilityAdmission::FrostArmor)
+            {
+                return Err(NativeError::UnsupportedMechanic(
+                    "Frost Armor requires generation-owned creatures and learned self cast",
+                ));
+            }
+            if profile.quest_progression.is_none()
+                || self
+                    .initial_modifiers
+                    .holders
+                    .iter()
+                    .any(|h| matches!(h.aura_type, 22 | 83 | 101 | 142) && h.misc_value & 1 != 0)
+            {
+                return Err(NativeError::UnsupportedMechanic(
+                    "Frost Armor historical reset source or nonneutral initial armor modifiers",
+                ));
+            }
+        } else if profile
+            .abilities
+            .iter()
+            .any(|a| a.admission == AbilityAdmission::FrostArmor)
+        {
+            return Err(NativeError::AuthorityUnavailable(
+                "Frost Armor and Chilled source closure",
+            ));
+        }
         if profile.quest_progression.is_none()
             && profile
                 .combat
@@ -791,6 +830,9 @@ impl SpellAuthoritySource {
     }
     fn validate(&self) -> Result<(), NativeError> {
         let w = &self.words;
+        if w.len() == 173 && matches!(w[0], 168 | 6136) {
+            return self.validate_frost();
+        }
         if w.len() != 173 || w[0] == 0 || w[0] > u16::MAX.into() || !(1..=6).contains(&w[1]) {
             return Err(NativeError::InvalidProfile);
         }
@@ -1091,9 +1133,12 @@ pub(in crate::native) fn resets_melee_timers(
         .spells
         .get(&ability)
         .ok_or(NativeError::AuthorityBinding)?;
-    // This host only executes ordinary nontriggered spells. Ex2 timer-reset
-    // suppression is excluded by raw validation, rather than silently ignored.
-    Ok(raw.words[21] & INTERRUPT_COMBAT != 0)
+    // Fireball and the self cast are ordinary spells; proc casts are triggered.
+    Ok(spell::resets_melee_timers(
+        false,
+        raw.words[21],
+        raw.words[8],
+    ))
 }
 /// Private live view; no public constructor or deserializable authority snapshot.
 pub(in crate::native) struct CurrentSpell<'a> {

@@ -150,6 +150,18 @@ impl MeleeExecutionBinding {
         now: u64,
         identity: (crate::Digest, Domain, crate::WorldId, crate::PlayerId),
     ) -> Result<ValidatedMeleeOperands, NativeError> {
+        self.validate_history(profile, current, now, identity)?;
+        self.current_operands(profile)
+    }
+
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    pub(in crate::native) fn validate_history(
+        &self,
+        profile: &Profile,
+        current: Option<&QuestProgressionState>,
+        now: u64,
+        identity: (crate::Digest, Domain, crate::WorldId, crate::PlayerId),
+    ) -> Result<(), NativeError> {
         if self.captured_ms < profile.clock_origin_ms
             || self.captured_ms > now
             || !(self.captured_ms - profile.clock_origin_ms)
@@ -171,7 +183,7 @@ impl MeleeExecutionBinding {
         )?;
         self.progression
             .validate(g, current, self.level, identity)?;
-        self.current_operands(profile)
+        Ok(())
     }
 }
 

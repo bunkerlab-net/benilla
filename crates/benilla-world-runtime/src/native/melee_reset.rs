@@ -3,12 +3,14 @@
 //! Latest source release survives the SpellEvent, projectile and target lifetime.
 use super::*;
 use serde::{Deserialize, Serialize};
+mod frost;
+pub(in crate::native) use frost::MeleeResetWitness;
 
 const POLICY: &str = "cmangos-8ec338a1-native-melee-reset-witness-v1";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(in crate::native) struct MeleeResetWitness {
+pub(in crate::native) struct ProjectileResetWitness {
     policy: String,
     profile: crate::Digest,
     domain: Domain,
@@ -26,7 +28,7 @@ pub(in crate::native) struct MeleeResetWitness {
     intervals_ms: [u32; 2],
 }
 
-impl MeleeResetWitness {
+impl ProjectileResetWitness {
     pub(in crate::native) fn capture(
         profile: &Profile,
         state: &State,
@@ -358,18 +360,6 @@ impl MeleeResetWitness {
         }
         Ok(())
     }
-
-    fn remaining_ms(&self, now: u64, diff: u32) -> Result<[u32; 2], NativeError> {
-        // The release event precedes the BASE/OFF subtraction in this same Unit update.
-        let elapsed = now
-            .checked_sub(self.released.captured_ms)
-            .and_then(|n| n.checked_add(u64::from(diff)))
-            .ok_or(NativeError::InvalidState)?;
-        Ok([
-            u64::from(self.intervals_ms[0]).saturating_sub(elapsed) as u32,
-            0,
-        ])
-    }
 }
 
 /// Validate owned idle state and exact countdown independently of outer hashes.
@@ -391,26 +381,24 @@ pub(in crate::native) fn validate_current(
         combat.validate_melee_timers(genesis)?;
     }
     if interactions::spell_authority::resets_melee_timers(profile, 133)? {
-        // The selected single active spell has positive effective source mana cost.
-        // TakePower's retained latest-use timestamp anchors the latest release,
-        // even after its projectile/holder/event has disappeared or expired.
-        if combat.melee_reset.as_ref().map(|w| w.released.captured_ms)
+        // Both admitted paid spells reset melee timers from their source flags.
+        // TakePower's latest-use timestamp anchors the latest actual reset,
+        // even after its projectile, holder, or event has disappeared.
+        if combat
+            .melee_reset
+            .as_ref()
+            .map(MeleeResetWitness::release_ms)
             != state.resources.caster.last_mana_use_ms
         {
             return Err(NativeError::InvalidState);
         }
         if let Some(witness) = &combat.melee_reset {
-            if (
-                witness.profile,
-                witness.domain,
-                witness.world,
-                witness.player,
-            ) != (profile.digest(), state.domain, state.world, state.player)
+            if (witness.identity()) != (profile.digest(), state.domain, state.world, state.player)
                 || state
                     .casts
                     .values()
                     .filter_map(|c| c.release_binding.as_ref())
-                    .any(|b| b.captured_ms > witness.released.captured_ms)
+                    .any(|b| b.captured_ms > witness.release_ms())
             {
                 return Err(NativeError::InvalidState);
             }

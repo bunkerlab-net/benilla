@@ -463,6 +463,25 @@ impl SoloCreatureAi {
     pub fn mainhand_timer_ms(&self) -> u32 {
         self.mainhand_ms
     }
+    /// Unit::ApplyAttackTimePercentMod adjusts the running timer by new minus
+    /// old. The enclosing host binds these operands to its owned aura source.
+    pub fn apply_aura_profile(&mut self, projected: Profile) -> Result<(), AiError> {
+        projected.validate()?;
+        let mut permitted = self.profile.clone();
+        permitted.mainhand_interval_ms = projected.mainhand_interval_ms;
+        permitted.run_speed = projected.run_speed;
+        permitted.home_speed = projected.home_speed;
+        if permitted != projected {
+            return Err(AiError::Invalid("aura changed stable creature profile"));
+        }
+        let difference = i64::from(projected.mainhand_interval_ms)
+            - i64::from(self.profile.mainhand_interval_ms);
+        self.mainhand_ms = u32::try_from((i64::from(self.mainhand_ms) + difference).max(0))
+            .map_err(|_| AiError::Invalid("aura attack countdown"))?;
+        self.mainhand_timer_limit_ms = projected.mainhand_interval_ms.max(100);
+        self.profile = projected;
+        Ok(())
+    }
     /// Apply DealMeleeDamage's BASE_ATTACK parry-haste branch to this owned
     /// single-mainhand creature. The native caller must have a verified Parry
     /// outcome and checked CREATURE_EXTRA_FLAG_NO_PARRY_HASTEN; this method is

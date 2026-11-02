@@ -81,6 +81,16 @@ impl<A: Authority> Frame<'_, A> {
                 caster_aura_state: h.caster_aura_state,
             }));
         }
+        if self.state.frost_armor().is_some() {
+            let raw = crate::native::frost_armor::source(self.profile, 168)?;
+            holders.push(d::DeathAura {
+                holder_id: 168,
+                spell_id: 168,
+                attributes: raw.words[6],
+                attributes_ex3: raw.words[9],
+                caster_aura_state: raw.words[16],
+            });
+        }
         // Unit's holder multimap removes by spell-ID order, not insertion/allocator order.
         holders.sort_by_key(|h| (h.spell_id, h.holder_id));
         let (current, released) = self.death_spells();
@@ -182,26 +192,31 @@ impl<A: Authority> Frame<'_, A> {
                     holder_id,
                     spell_id,
                 } => {
-                    let slow =
+                    if spell_id == 168 && holder_id == 168 {
                         self.state
-                            .player_slow
-                            .as_mut()
-                            .ok_or(NativeError::UnsupportedMechanic(
-                                "active player aura removal",
-                            ))?;
-                    if !slow
-                        .holders()
-                        .any(|h| h.id == holder_id && h.spell_id == spell_id)
-                    {
-                        return Err(NativeError::InvalidState);
-                    }
-                    let holder = slow
-                        .holders()
-                        .find(|h| h.id == holder_id)
-                        .ok_or(NativeError::InvalidState)?;
-                    // The melee callback owns its current NPC outside state.npcs until return.
-                    let level =
-                        if callback_owned_npc.is_some_and(|npc| npc.spawn == holder.caster.spawn) {
+                            .frost_armor
+                            .take()
+                            .ok_or(NativeError::InvalidState)?;
+                        self.events
+                            .push(Event::FrostArmor(FrostArmorEvent::Removed));
+                    } else {
+                        let slow = self.state.player_slow.as_mut().ok_or(
+                            NativeError::UnsupportedMechanic("active player aura removal"),
+                        )?;
+                        if !slow
+                            .holders()
+                            .any(|h| h.id == holder_id && h.spell_id == spell_id)
+                        {
+                            return Err(NativeError::InvalidState);
+                        }
+                        let holder = slow
+                            .holders()
+                            .find(|h| h.id == holder_id)
+                            .ok_or(NativeError::InvalidState)?;
+                        // The melee callback owns its current NPC outside state.npcs until return.
+                        let level = if callback_owned_npc
+                            .is_some_and(|npc| npc.spawn == holder.caster.spawn)
+                        {
                             self.profile
                                 .npc(holder.caster.spawn)
                                 .ok_or(NativeError::InvalidState)?
@@ -210,7 +225,8 @@ impl<A: Authority> Frame<'_, A> {
                         } else {
                             slow.removal_level(holder_id, self.profile, &self.state.npcs)?
                         };
-                    slow.remove(holder_id, PlayerSlowRemoval::Death, level, &mut self.events)?;
+                        slow.remove(holder_id, PlayerSlowRemoval::Death, level, &mut self.events)?;
+                    }
                 }
                 // All other mutable dependencies are absent in the checked bounded policy.
                 // Body/root/timer/release facts are committed by the checked lifecycle and
@@ -302,6 +318,7 @@ impl<A: Authority> Frame<'_, A> {
                 }
                 npc.auras.clear();
                 npc.aura_bindings.clear();
+                self.clear_chilled(&mut npc)?;
             }
             // Only receipt-bearing NPCs require event-time relationship predicates.
             let target = if receipts

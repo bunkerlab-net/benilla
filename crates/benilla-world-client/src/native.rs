@@ -89,6 +89,31 @@ fn player_melee_event(
         _ => return Err(Error::Unrepresentable),
     })
 }
+fn frost_spell_go(caster: u64, target: u64, spell_id: u32, missed: bool) -> SessionEvent {
+    SessionEvent::SpellGo {
+        unit_caster: caster,
+        caster,
+        spell_id,
+        cast_flags: 0,
+        target_mask: 2,
+        source: None,
+        dest: None,
+        target: Some(target),
+        go_target: None,
+        hits: if missed { vec![] } else { vec![target] },
+        misses: if missed {
+            vec![p::SpellGoMiss {
+                target,
+                info: 2,
+                reflect_result: 0,
+            }]
+        } else {
+            vec![]
+        },
+        ammo_display_id: None,
+        item_caster: None,
+    }
+}
 fn prepare_range_failure(events: &[n::Event], input: &n::Input) -> Option<(u64, u8)> {
     let n::Command::Cast { ability, target } = &input.command else {
         return None;
@@ -204,6 +229,13 @@ impl NativeProjection {
             if !catalog.contains_spell(a.id) {
                 return Err(Error::UnboundSpell(a.id));
             }
+        }
+        if w.abilities()
+            .iter()
+            .any(|a| a.admission == n::AbilityAdmission::FrostArmor)
+            && !catalog.contains_spell(6136)
+        {
+            return Err(Error::UnboundSpell(6136));
         }
         // Incoming aura renderability is independent of the player's learned spellbook.
         if let Some(slow) = &w.profile().player_slow {
@@ -498,7 +530,14 @@ impl NativeProjection {
                 pairs.push((150 + i as u16, *value as u32));
             }
             for (i, value) in c.stats.resistances.iter().enumerate() {
-                pairs.push((155 + i as u16, *value as u32));
+                let armor = w
+                    .state()
+                    .frost_armor()
+                    .map_or(0, |holder| holder.aura.armor());
+                pairs.push((
+                    155 + i as u16,
+                    (i64::from(*value) + if i == 0 { i64::from(armor) } else { 0 }) as u32,
+                ));
             }
             for (slot, skill) in c
                 .skills
@@ -563,6 +602,25 @@ impl NativeProjection {
         pairs.extend(quests::player_pairs(w, &self.quest_metadata));
         pairs.extend(loot::player_pairs(w));
         pairs.extend(player_slow::player_pairs(w));
+        if w.abilities()
+            .iter()
+            .any(|a| a.admission == n::AbilityAdmission::FrostArmor)
+        {
+            let holder = w.state().frost_armor();
+            pairs.extend([
+                (47, if holder.is_some() { 168 } else { 0 }),
+                (95, if holder.is_some() { 5 } else { 0 }),
+                (
+                    101,
+                    holder.map_or(u32::from(w.player_level()), |h| u32::from(h.level)),
+                ),
+                (113, 0),
+            ]);
+            pairs.push((
+                1187,
+                (holder.map_or(0, |h| h.aura.armor()) as f32).to_bits(),
+            ));
+        }
         SessionEvent::ObjectValues {
             guid: self.player_guid,
             fields: ObjectFields::from_pairs(&pairs),
@@ -706,8 +764,8 @@ impl NativeProjection {
                             0
                         },
                 ),
-                (126, selected.mainhand_interval_ms),
-                (127, selected.mainhand_interval_ms),
+                (126, profile.ai.mainhand_interval_ms),
+                (127, profile.ai.mainhand_interval_ms),
                 (
                     147,
                     if npc.health == 0 {
@@ -746,6 +804,35 @@ impl NativeProjection {
         let mut levels = [0u32; 4];
         for offset in 0..16 {
             let slot = 32 + offset;
+            if w.abilities()
+                .iter()
+                .any(|a| a.admission == n::AbilityAdmission::FrostArmor)
+            {
+                let holder = npc.chilled.as_ref().filter(|h| usize::from(h.slot) == slot);
+                let damage = npc
+                    .auras
+                    .get(&133)
+                    .filter(|_| usize::from(npc.fireball_aura_slot) == slot);
+                let (id, level) = if let Some(holder) = holder {
+                    (6136, holder.caster_level)
+                } else if damage.is_some() {
+                    (
+                        133,
+                        npc.aura_bindings
+                            .get(&133)
+                            .ok_or(Error::Unrepresentable)?
+                            .level,
+                    )
+                } else {
+                    (0, 0)
+                };
+                if id != 0 {
+                    flags[offset / 8] |= 8 << ((offset % 8) * 4);
+                    levels[offset / 4] |= u32::from(level) << ((offset % 4) * 8);
+                }
+                pairs.push((47 + slot as u16, id));
+                continue;
+            }
             let id = if let Some((id, target)) = auras.get(offset) {
                 let aura = target.aura().ok_or(Error::Unrepresentable)?;
                 flags[offset / 8] |= (1u32 << aura.effect_slot) << ((offset % 8) * 4);
@@ -862,12 +949,33 @@ impl NativeProjection {
             .filter(|n| n.ai.phase() != ai::Phase::Despawned)
         {
             events.extend(self.create(w, npc, &self.npcs)?);
+            if npc.chilled.is_some() {
+                let speeds = npc
+                    .chilled_speeds(w.profile())
+                    .map_err(|_| Error::Unrepresentable)?;
+                for (kind, speed) in [p::SpeedKind::Run, p::SpeedKind::RunBack, p::SpeedKind::Swim]
+                    .into_iter()
+                    .zip(speeds)
+                {
+                    events.push(SessionEvent::SpeedChanged {
+                        guid: npc_guid(w, npc.id)?,
+                        kind,
+                        speed: speed.as_f32(),
+                    });
+                }
+            }
         }
         events.extend(self.equipment_events(w, true)?);
         events.extend(self.initial_inventory(w));
         events.extend(self.initial_reputations(w)?);
         events.push(self.player_values(w));
         events.extend(player_slow::initial(w, self.player_guid, orders)?);
+        if let Some(holder) = w.state().frost_armor() {
+            events.push(SessionEvent::AuraDuration {
+                slot: 0,
+                remaining_ms: holder.aura.remaining_ms() as i32,
+            });
+        }
         events.push(SessionEvent::ObjectMove {
             guid: self.player_guid,
             position: point(w.state().position),
@@ -1079,6 +1187,18 @@ impl NativeProjection {
                             arg: None,
                         });
                     }
+                    if let n::Command::CastSelf { ability } = input.command {
+                        let reason=record.events[event_index+1..].iter()
+                            .take_while(|e|!matches!(e,n::Event::InputResult {..}))
+                            .find_map(|e|match e {
+                                n::Event::Rejected(n::Rejection::CastFailed(spell::CastFailure::NotReady))=>Some(0x3c),
+                                n::Event::Rejected(n::Rejection::CastFailed(spell::CastFailure::NoPower))=>Some(0x4d),
+                                n::Event::Rejected(n::Rejection::CastFailed(spell::CastFailure::Rejected(0x3e)))=>Some(0x3e),
+                                n::Event::Rejected(n::Rejection::Dead)=>Some(0x13),
+                                _=>None,
+                            });
+                        events.push(SessionEvent::CastResult {spell_id:ability,success:*accepted,reason,arg:None});
+                    }
                 }
                 n::Event::QuestProgression(event) => {
                     reward_refusal_presented |= matches!(event, n::QuestProgressionEvent::RewardRefused { .. } | n::QuestProgressionEvent::SourceItemRefused { .. });
@@ -1095,6 +1215,34 @@ impl NativeProjection {
                 n::Event::ItemAcquired(source) => events.push(self.item_acquired(*source, &mut loot_frame)?),
                 n::Event::NpcSpell(_) => {}, // Internal Unit lifetime, not a client cast bar.
                 n::Event::PlayerSlow(event) => events.extend(slow_frame.project(event, self.player_guid, orders)?),
+                n::Event::FrostArmor(event) => {
+                    match event {
+                        n::FrostArmorEvent::Cast { failure, .. } => {
+                            if failure.is_none() {
+                                events.push(frost_spell_go(self.player_guid,self.player_guid,168,false));
+                            }
+                        },
+                        n::FrostArmorEvent::Chilled { target, missed, .. } => {
+                            events.push(frost_spell_go(self.player_guid,target_guid(target)?,6136,*missed));
+                            if !missed {
+                                let npc=w.state().npcs.get(&target.spawn).filter(|n|n.id==*target).ok_or(Error::UnknownTarget)?;
+                                events.push(SessionEvent::ObjectValues {guid:target_guid(target)?,fields:self.npc_fields(w,npc)?});
+                            }
+                        },
+                        n::FrostArmorEvent::Applied => {
+                            events.push(self.player_values(w));
+                            if let Some(holder)=w.state().frost_armor() {
+                                events.push(SessionEvent::AuraDuration {slot:0,remaining_ms:holder.aura.remaining_ms() as i32});
+                            }
+                        },
+                        n::FrostArmorEvent::NpcSpeeds {target,speeds} => {
+                            for (kind,speed) in [p::SpeedKind::Run,p::SpeedKind::RunBack,p::SpeedKind::Swim].into_iter().zip(speeds) {
+                                events.push(SessionEvent::SpeedChanged {guid:target_guid(target)?,kind,speed:speed.as_f32()});
+                            }
+                        },
+                        n::FrostArmorEvent::Removed | n::FrostArmorEvent::ChilledRemoved { .. } => {},
+                    }
+                },
                 n::Event::Death(benilla_sim::player_death::DeathAction::RootMovement) => events.push(root_order(self.player_guid, orders)?),
                 n::Event::Death(benilla_sim::player_death::DeathAction::SendDurabilityDamageDeath) => events.push(SessionEvent::DurabilityDamageDeath),
                 n::Event::Death(benilla_sim::player_death::DeathAction::ReleaseUnavailable { .. }) => events.push(SessionEvent::Notification { text: "Spirit release is unavailable: corpse, ghost and graveyard traversal are not implemented".into() }),

@@ -579,7 +579,8 @@ class Compiler:
                 self.source, entry, list(row.words) if row else None,
                 bound["cast_time"], bound["range"], bound["duration"])
             self.issue("spell_template", [entry], "spell.server_overlay_and_learning_closure_required")
-            bound["execution_plan"] = spell_execution.supported_plan(self.source, bound)
+        for bound in result:
+            bound["execution_plan"] = spell_execution.supported_plan(self.source, bound, result)
         return result
 
     def creature_inputs(self, rules: Any) -> list[dict[str, Any]]:
@@ -838,7 +839,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
             fields = disposition["blocked_for_gameplay"].pop(
                 "spell.native_effect_target_scaling_rules_required", [])
             disposition["supported_catalog_plan"] = {
-                "adapter": spell_execution.ADAPTER, "fields": fields,
+                "adapter": plan["adapter"], "fields": fields,
                 "input_bindings": plan["input_bindings"]}
     for disposition in dispositions:
         if disposition["table"] != "item_template":

@@ -96,6 +96,23 @@ silently changing script, source-item, or gossip semantics. Format 84 binds
 world-rules v2 combat configuration and rejects all earlier checkpoints. The
 [quest lifecycle contract](../../../benilla-sim/QUEST-LIFECYCLE.md#checked-completion-scripts-and-quest-gossip)
 describes the supported command/condition subset and precise remaining refusals.
+
+The current `NATIVE_FORMAT_VERSION` in `mod.rs` also binds finite Frost Armor
+168 and triggered Chilled 6136 holders, harmful-slot allocation, the binary
+miss receipt, and the latest instant or projectile melee-reset witness.
+Self casts use `Command::CastSelf` through the existing spell authority.
+The selected Frost Armor's combat-interrupt flag resets melee timers;
+triggered Chilled does not. Chilled updates the creature's attack countdown
+and the existing movement owner's run speed.
+Reopen revalidates the source operands and persisted counters rather than
+assuming neutral modifiers. All prior native identities, including format 84,
+refuse. Production `NativeCapability` remains uninhabited.
+The bounded Frost Armor catalog requires its Fireball companion's source
+combat-interrupt flag. Standalone Fireball keeps its existing contract.
+
+Food 433 and Drink 430 still refuse. Their item-use, seated regeneration,
+interrupt order and food visual-kit heartbeat are not implemented.
+
 Format61 retained immutable genesis-origin equipment identity under equipment-v2,
 with the exact existing projected GUIDs and strict unchanged-loadout validation.
 Format62 registers pre-existing equipped origins with reserved local handles after

@@ -89,7 +89,11 @@ mod source_splines;
 pub mod synthetic_source_spline_fixture;
 pub use source_splines::{PlayerSplineStop, SourceSplineIds, SplineAllocation};
 mod engine;
+mod frost_armor;
+pub use frost_armor::{ChilledHolder, FrostArmorEvent, FrostArmorHolder};
 pub mod environment;
+#[cfg(test)]
+mod frost_armor_tests;
 mod npc_events;
 mod npc_spell;
 pub use npc_events::{NpcEventHandle, NpcEvents, NPC_EVENT_POLICY};
@@ -116,6 +120,8 @@ mod motion;
 pub mod synthetic_distinct_quest_fixture;
 #[cfg(any(test, feature = "synthetic-native-tests"))]
 pub mod synthetic_event_ai_fixture;
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub mod synthetic_frost_armor_fixture;
 #[cfg(any(test, feature = "synthetic-native-tests"))]
 pub mod synthetic_quest_giver_fixture;
 #[cfg(any(test, feature = "synthetic-native-tests"))]
@@ -166,8 +172,8 @@ pub use persistence::{PendingWanderAndChaseReopen, PendingWanderReopen};
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 84;
-pub const NATIVE_POLICY: &str = "benilla-native-solo-quest-loot-v84";
+pub const NATIVE_FORMAT_VERSION: u32 = 85;
+pub const NATIVE_POLICY: &str = "benilla-native-solo-spell-lifecycles-v85";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -430,6 +436,8 @@ impl NativeWorld {
             npcs.insert(
                 p.ai.creature_id,
                 Npc {
+                    chilled: None,
+                    fireball_aura_slot: 32,
                     defense_reactive: None,
                     source_generation: source_generation.clone(),
                     events: NpcEvents::new(
@@ -515,6 +523,7 @@ impl NativeWorld {
             player_events.schedule_notify(0, false)?;
         }
         let mut state = State {
+            frost_armor: None,
             creature_pose_cells: None,
             source_splines: SourceSplineIds::new(&profile),
             watched_faction: watched_faction::WatchedFactionState::default(),
@@ -585,7 +594,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v84\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v85\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest

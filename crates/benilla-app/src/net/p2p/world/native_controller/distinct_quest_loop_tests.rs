@@ -5,17 +5,34 @@ use super::*;
 use benilla_sim::{creature_ai as ai, inventory as inv, quest_lifecycle as q};
 use n::synthetic_distinct_quest_fixture as loop_fixture;
 
-struct LoopCatalog {
+pub(super) struct LoopCatalog {
     quest: q::QuestRow,
     map: u32,
     displays: Vec<u32>,
     loot_item: inv::Item,
 }
 impl LoopCatalog {
-    fn new(profile: &n::Profile) -> Self {
+    pub(super) fn new(profile: &n::Profile) -> Self {
+        let mut displays = profile
+            .npcs
+            .iter()
+            .map(|npc| npc.display_id)
+            .collect::<Vec<_>>();
+        if let Some(generations) = &profile.creature_generations {
+            for npc in &profile.npcs {
+                let source = generations.source(npc.ai.creature_id).unwrap();
+                let benilla_sim::creature_init::Rows::Complete(rows) = &source.input.displays
+                else {
+                    panic!("authored complete displays")
+                };
+                displays.extend(rows.iter().map(|row| row.id));
+            }
+        }
+        displays.sort_unstable();
+        displays.dedup();
         Self {
             map: profile.map_id,
-            displays: profile.npcs.iter().map(|npc| npc.display_id).collect(),
+            displays,
             loot_item: profile
                 .quest_progression
                 .as_ref()

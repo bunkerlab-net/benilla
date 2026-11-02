@@ -444,6 +444,26 @@ pub(in crate::native) fn record_spell_reset(
     Ok(())
 }
 
+pub(in crate::native) fn record_instant_spell_reset(
+    profile: &Profile,
+    current: &mut State,
+) -> Result<(), NativeError> {
+    if profile.player_melee.is_none() {
+        return Ok(());
+    }
+    let witness = current
+        .combat
+        .as_ref()
+        .and_then(|combat| combat.melee_reset.as_ref())
+        .ok_or(NativeError::InvalidState)?
+        .clone();
+    let cause = source::SourceCause::SpellReset {
+        key: key(current, state::Phase::PreUnit)?,
+        witness: Box::new(witness),
+    };
+    commit_cause(profile, current, state::Phase::PreUnit, cause)
+}
+
 pub(in crate::native) struct PendingSwing {
     key: state::CauseKey,
     context: context::SourceContext,

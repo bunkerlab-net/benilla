@@ -16,7 +16,7 @@ fn out(value: Single) -> Result<Real, SlowError> {
     Real::from_bits(value.to_bits() as u32)
         .map_err(|_| SlowError::Numeric("bounded binary32 output"))
 }
-pub(super) fn rate(amount: i32) -> Result<Real, SlowError> {
+fn unclamped_rate(amount: i32) -> Result<Single, SlowError> {
     let one = Single::from_bits(0x3f80_0000);
     let mut speed = one;
     if amount != 0 {
@@ -26,9 +26,24 @@ pub(super) fn rate(amount: i32) -> Result<Real, SlowError> {
         let multiplier = checked(numerator.div_r(hundred, R))?;
         speed = checked(speed.mul_r(multiplier, R))?;
     }
-    // UpdateSpeed passes speed * ratio; the admitted source ratio is exactly1.
-    speed = checked(speed.mul_r(one, R))?;
+    Ok(speed)
+}
+pub(super) fn rate(amount: i32) -> Result<Real, SlowError> {
+    let speed = checked(unclamped_rate(amount)?.mul_r(Single::from_bits(0x3f80_0000), R))?;
     out(speed.max(Single::from_bits(u128::from(FLOOR))))
+}
+pub(super) fn creature_run_speed(amount: i32, base_rate: Real) -> Result<Real, SlowError> {
+    if !(-1_000_000..=0).contains(&amount)
+        || base_rate.bits() & 0x8000_0000 != 0
+        || base_rate.bits() == 0
+    {
+        return Err(SlowError::Invalid("creature slow source rate"));
+    }
+    let speed =
+        checked(unclamped_rate(amount)?.mul_r(Single::from_bits(u128::from(base_rate.bits())), R))?;
+    let speed = checked(speed.mul_r(Single::from_bits(0x3f80_0000), R))?;
+    let speed = speed.max(Single::from_bits(u128::from(FLOOR)));
+    out(checked(speed.mul_r(Single::from_bits(0x40e0_0000), R))?)
 }
 pub(super) fn speed(rates: SpeedRates, mode: MoveType) -> Result<Real, SlowError> {
     for rate in [rates.run, rates.run_back, rates.swim] {

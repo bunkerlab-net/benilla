@@ -32,14 +32,17 @@ REASONS = {"spell.native_effect_target_scaling_rules_required",
            "spell.multiple_or_missing_effects", "spell.aura_or_trigger_dependency",
            "spell.effect_execution_required", "spell.target_selector_execution_required",
            "spell.attribute_bits_execution_required"}
-EXTENSIONS = {168: "armor_and_chill_proc_lifecycle", 6136: "chill_slow_and_attack_speed_lifecycle",
-              430: "item_use_and_mana_regeneration_lifecycle", 433: "item_use_and_health_regeneration_lifecycle",
+EXTENSIONS = {430: "item_use_and_mana_regeneration_lifecycle",
+              433: "item_use_and_health_regeneration_lifecycle",
               8690: "item_use_teleport_and_home_bind_lifecycle"}
 ONE = 0x3f800000
 
 
-def supported_plan(bundle, spell):
+def supported_plan(bundle, spell, spells):
     entry = spell["id"]
+    if entry in (168, 6136):
+        from . import frost_execution
+        return frost_execution.supported_plan(spell, spells)
     plan = {"adapter": ADAPTER, "status": "blocked", "classification": "out_of_scope",
             "effective_learning_proven": False, "runtime_export": None, "refusals": []}
     if entry == 133:
