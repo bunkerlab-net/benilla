@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parent
 
 
 def corpus():
-    return core.decode_json((ROOT / "production_verifier_cases.json").read_bytes(), 4 * 1024 * 1024)
+    return core.decode_json((ROOT / "production_verifier_cases.json").read_bytes(), 8 * 1024 * 1024)
 
 
 def mutations():
@@ -152,6 +152,29 @@ class PreparationVerifierParityTests(unittest.TestCase):
         for fixture in corpus()["fixtures"]:
             with self.subTest(fixture=fixture["name"]):
                 verify(fixture)
+
+    def test_route_and_item_plans_keep_exact_preparation_decisions(self):
+        fixtures = {f["name"]: f["preparation"] for f in corpus()["fixtures"]}
+        route = fixtures["route-zero-outfit"]
+        self.assertEqual(route["spells"][0]["cast_time"],
+                         {"id": 0, "base_ms": 0, "per_level_ms": 0, "minimum_ms": 0})
+        self.assertNotIn({"table": "SpellCastTimes", "id": 0},
+                         route["player"]["skills"]["dependency_closure"]["dbc_references"])
+        self.assertIn(929999, route["dependency_request"]["item_ids"])
+        self.assertTrue(any(e["role"] == "outfit_item" and e["to_id"] == 929999
+                            for e in route["player"]["skills"]["dependency_closure"]["edges"]))
+        self.assertFalse(any(r["reason"] == "invalid_text" for r in
+                             fixtures["request-null-items"]["quest_giver_presentation_plan"]["refusals"]))
+        self.assertTrue(any(r["field"] == "RequestItemsText" and r["reason"] == "invalid_text"
+                            for r in fixtures["request-control-items"]["quest_giver_presentation_plan"]["refusals"]))
+        items = fixtures["carried-items"]
+        self.assertTrue(all(i["status"] == "supported_shape" for i in items["captured_item_plan"]["items"]))
+        self.assertEqual(items["captured_item_plan"]["items"][0]["carried_operation"], "empty_carried_bag")
+        self.assertTrue(items["captured_item_obligations"])
+        self.assertTrue(all(i["disposition"] == "supported_shape" for i in items["source_capture_findings"]
+                            if i["reason"] == "item.native_inventory_equipment_rules_required"))
+        self.assertTrue(all(i["status"] == "blocked" for i in
+                            fixtures["carried-item-refusals"]["captured_item_plan"]["items"]))
 
     def test_extension_fixtures_retain_supported_shapes_and_unknown_host_proof(self):
         fixtures = {f["name"]: f for f in corpus()["fixtures"]}

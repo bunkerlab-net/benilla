@@ -85,6 +85,15 @@ gossip lookup closure, exact SQL skill-training probes and profession repair,
 and selected spawn-context exclusions. Complete-empty exclusions retain cold
 loader-order and assistance obligations. Inbound linking rows remain blockers.
 
+The verifier also reproduces the captured item plan and its carried-storage
+dispositions. Supported item shapes replace only the per-item inventory-rule
+finding. Starter eligibility, inventory audits, and newly looted equipment or use
+remain separate obligations. The shared corpus covers signed spell sentinels,
+class and race masks, bags, weapon stats and damage, precise item refusals, NULL
+request-items text, outfit-only discovery roots, and cast-time selector zero.
+A zero cast-time selector ignores even an existing DBC row with ID zero.
+Rehashed report mutations cannot change any of these decisions.
+
 ## Compiled facts and exact references
 
 - Explicit race/class/gender, native starting map/zone/decimal pose, selected

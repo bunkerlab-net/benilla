@@ -10,7 +10,7 @@ use std::{
 const CASES: &str =
     include_str!("../../../../../scripts/native_starter/production_verifier_cases.json");
 fn corpus() -> Value {
-    json::decode(CASES.as_bytes(), 4 * 1024 * 1024).unwrap()
+    json::decode(CASES.as_bytes(), 8 * 1024 * 1024).unwrap()
 }
 fn unhex(s: &str) -> Vec<u8> {
     s.as_bytes()

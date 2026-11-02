@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 mod creature;
+pub(in super::super) mod item;
 mod loot;
 pub(in super::super) mod spawn;
 pub(super) use creature::creatures;
@@ -17,28 +18,9 @@ pub(super) fn outfit(grants: &[Value], items: &BTreeMap<i128, &Value>) -> (Value
             reasons.push(json!({"item_id":num(id),"reason":"item.placement_row_missing"}));
             continue;
         };
-        let class = int(&item["class"]);
-        let sub = int(&item["subclass"]);
-        let kind = int(&item["InventoryType"]);
-        let supported = class == 0 && (0..=8).contains(&sub) && kind == 0
-            || class == 15 && sub == 0 && kind == 0
-            || class == 4
-                && (0..=4).contains(&sub)
-                && ((0..13).contains(&kind) || [16, 19, 20].contains(&kind))
-            || class == 2
-                && [0, 1, 4, 5, 6, 7, 8, 10, 13, 15, 20].contains(&sub)
-                && [0, 13, 17, 21].contains(&kind);
-        let slots: Vec<u32> = match kind {
-            0 => vec![],
-            1..=10 => vec![kind as u32 - 1],
-            11 => vec![10, 11],
-            12 => vec![12, 13],
-            13 | 17 | 21 => vec![15],
-            16 => vec![14],
-            19 => vec![18],
-            20 => vec![4],
-            _ => vec![],
-        };
+        let candidate_slots = item::equip_slots(item);
+        let supported = candidate_slots.is_some();
+        let slots = candidate_slots.unwrap_or_default();
         let reason = if !supported {
             Some("item.placement_type_unsupported")
         } else if integer(&grant["count"], 1, 10000, "domain").is_err()
@@ -317,6 +299,9 @@ pub(super) fn quests(
         }
         for field in PLAN["quest_text"].as_array().unwrap() {
             let field = field.as_str().unwrap();
+            if field == "RequestItemsText" && row[field].is_null() {
+                continue;
+            }
             if row[field].as_str().is_none_or(|text| {
                 text.chars()
                     .any(|c| (c as u32) < 32 && c != '\n' && c != '\t')
@@ -755,7 +740,7 @@ pub(super) fn classify(
             ("SpellFocusObject", "RequiresSpellFocus"),
         ] {
             let key = int(&row[field]);
-            if key != 0 || ["SpellCastTimes", "SpellRange"].contains(&table) {
+            if key != 0 || table == "SpellRange" {
                 owners
                     .entry((table.into(), key))
                     .or_default()

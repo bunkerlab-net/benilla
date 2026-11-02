@@ -503,7 +503,11 @@ impl<'a> Compiler<'a> {
                     }
                 }
             }
-            let cast = self.lookup("SpellCastTimes", int(&source["CastingTimeIndex"]), 0..4)?;
+            let cast = if nonzero(&source["CastingTimeIndex"]) {
+                self.lookup("SpellCastTimes", int(&source["CastingTimeIndex"]), 0..4)?
+            } else {
+                None
+            };
             let range = self.lookup("SpellRange", int(&source["rangeIndex"]), 0..4)?;
             if nonzero(&source["Category"]) {
                 self.lookup("SpellCategory", int(&source["Category"]), 0..2)?;
@@ -659,6 +663,11 @@ impl<'a> Compiler<'a> {
             }
             let hooks=self.source.get("initial_hook_capture").map_or(Value::Null,|v|json!({"status":"complete","coverage_sha256":digest(v),"spell_area":filtered(self.source,"spell_area","spell",id),"spell_proc_event":filtered(self.source,"spell_proc_event","entry",id)}));
             let cast_input=cast.map_or(Value::Null,|r|json!({"id":source["CastingTimeIndex"],"base_ms":r.word(1) as i32,"per_level_ms":r.word(2) as i32,"minimum_ms":r.word(3) as i32}));
+            let cast_input = if !nonzero(&source["CastingTimeIndex"]) {
+                json!({"id":0,"base_ms":0,"per_level_ms":0,"minimum_ms":0})
+            } else {
+                cast_input
+            };
             let duration_input=duration.map_or(Value::Null,|r|json!({"id":source["DurationIndex"],"base_ms":r.word(1) as i32,"per_level_ms":r.word(2) as i32,"maximum_ms":r.word(3) as i32}));
             let fireball = plans::fireball(
                 self.source,
@@ -996,6 +1005,14 @@ pub(super) fn compile(
     let quests = plans::quests(source, dbcs, &relationships, &source_sha);
     let rules_plan = rules_plan(source, rules);
     let corpse_loot = plans::loot(source, &source_sha)?;
+    let mut captured_items = plans::item::supported(source, &source_sha);
+    c.issues.extend(
+        captured_items["refusals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .cloned(),
+    );
     for refusal in relationships["refusals"].as_array().unwrap() {
         c.context_issue(
             "quest_template",
@@ -1134,6 +1151,49 @@ pub(super) fn compile(
         .collect();
     c.issues
         .retain(|i| !plans::loot_discharges(i, &corpse_loot));
+    let item_discharged: Vec<_> = c
+        .issues
+        .iter()
+        .filter(|i| plans::item::discharges(i, &captured_items))
+        .cloned()
+        .collect();
+    c.issues
+        .retain(|i| !plans::item::discharges(i, &captured_items));
+    for d in &mut dispositions {
+        if d["table"] != "item_template" {
+            continue;
+        }
+        let plan = captured_items["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| d["key"] == json!([p["entry"]]))
+            .unwrap();
+        if plan["status"] == "supported_shape" {
+            let fields = d["blocked_for_gameplay"]
+                .as_object_mut()
+                .unwrap()
+                .remove(plans::item::REASON)
+                .unwrap_or(json!([]));
+            let consumed: BTreeSet<_> = d["consumed_by_preparation"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .chain(fields.as_array().unwrap())
+                .map(|v| v.as_str().unwrap().to_owned())
+                .collect();
+            d["consumed_by_preparation"] = json!(consumed);
+            let fields: BTreeSet<_> = plans::item::INVENTORY
+                .iter()
+                .map(|(source, _)| source)
+                .collect();
+            d["supported_catalog_plan"] = json!({"adapter":plans::item::ADAPTER,
+                "scope":"carried_storage_only","fields":fields,
+                "item_template_sha256":plan["item_template_sha256"],
+                "starter_placement":plan["starter_placement"],
+                "unavailable_operations":plan["unavailable_operations"]});
+        }
+    }
     if corpse_loot["status"] == "supported_shape" {
         c.issue(
             "loot",
@@ -1188,6 +1248,16 @@ pub(super) fn compile(
     for refusal in skills["loader_plan"]["refusals"].as_array_mut().unwrap() {
         refusal["admission_scope"] = json!({"kind":"selection_entry"});
     }
+    // Item refusals also share Python objects with the top-level issues.
+    // item.* findings cannot be scoped to an unavailable active ability.
+    for refusal in captured_items["refusals"].as_array_mut().unwrap() {
+        refusal["admission_scope"] = json!({"kind":"selection_entry"});
+    }
+    for item in captured_items["items"].as_array_mut().unwrap() {
+        for refusal in item["refusals"].as_array_mut().unwrap() {
+            refusal["admission_scope"] = json!({"kind":"selection_entry"});
+        }
+    }
     let annotate =
         |rs: &[Value], disposition: &str, adapter: Option<&str>, binding: Option<&Value>| {
             rs.iter()
@@ -1220,6 +1290,7 @@ pub(super) fn compile(
                 "replaced_by_exact_dependency_report"
             } else if plans::fireball_discharges(i, fireball)
                 || plans::spawn::discharges(i, &creatures)
+                || plans::item::discharges(i, &captured_items)
             {
                 "supported_shape"
             } else if rules_discharges(i, &rules_plan) {
@@ -1259,6 +1330,14 @@ pub(super) fn compile(
         "world_rules_obligations": rules_obligations,
         "quest_loot_inputs": plans::quest_loot(source),
         "corpse_loot_plan": corpse_loot,
+        "captured_item_plan": captured_items,
+        "captured_item_obligations": item_discharged.iter().map(|i| {
+            let mut v = i.clone();
+            v["disposition"] = json!("supported_shape");
+            v["adapter"] = json!(plans::item::ADAPTER);
+            v["scope"] = json!("carried_storage_only");
+            v
+        }).collect::<Vec<_>>(),
         "corpse_loot_plan_obligations": annotate(&loot_discharged, "supported_shape",
             Some(LOOT_ADAPTER), None),
         "player": {

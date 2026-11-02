@@ -143,80 +143,17 @@ pub(in super::super) fn loot(source: &Value, source_sha: &str) -> Result<Value> 
         let entry = int(id);
         let mut reasons = Vec::new();
         if let Some(item) = items.get(&entry) {
-            let bag = int(&item["class"]) == 1
-                && int(&item["InventoryType"]) == 18
-                && (1..=36).contains(&int(&item["ContainerSlots"]))
-                && int(&item["stackable"]) == 1;
-            if !((0..=6).contains(&int(&item["Quality"]))
-                && (1..=0xffffffff).contains(&int(&item["displayid"]))
-                && (0..16).contains(&int(&item["class"]))
-                && (0..29).contains(&int(&item["InventoryType"]))
-                && (1..=255).contains(&int(&item["stackable"]))
-                && (0..=0x7fffffff).contains(&int(&item["maxcount"]))
-                && (0..=4).contains(&int(&item["bonding"]))
-                && (0..=0xffffffff).contains(&int(&item["MaxDurability"])))
-            {
-                reasons.push("item_template_domain".to_string());
-            }
-            for field in [
-                "startquest",
-                "RandomProperty",
-                "ExtraFlags",
-                "Duration",
-                "area",
-                "Map",
-                "ScriptName",
-                "BagFamily",
-                "itemset",
-                "lockid",
-            ] {
-                if nonzero(&item[field]) {
-                    reasons.push(format!("item_{field}_unsupported"));
-                }
-            }
-            if int(&item["Flags"]) & !0x800 != 0 {
-                reasons.push("item_flags_unsupported".into());
-            }
-            if int(&item["class"]) == 11
-                || int(&item["InventoryType"]) == 27
-                || !bag
-                    && (int(&item["class"]) == 1
-                        || int(&item["InventoryType"]) == 18
-                        || nonzero(&item["ContainerSlots"]))
-            {
-                reasons.push("item_container_shape_unsupported".into());
-            }
-            if (1..=5).any(|i| {
-                nonzero(&item[format!("spellid_{i}")])
-                    && nonzero(&item[format!("spelltrigger_{i}")])
-            }) {
-                reasons.push("item_equip_spell_unsupported".into());
-            }
-            for i in 1..=5 {
-                if ["spellid", "spelltrigger", "spellcategory"]
+            let plan = item::item_plan(item);
+            reasons.extend(
+                plan["refusals"]
+                    .as_array()
+                    .unwrap()
                     .iter()
-                    .any(|n| !(0..=0xffffffff).contains(&int(&item[format!("{n}_{i}")])))
-                    || ["spellcharges", "spellcooldown", "spellcategorycooldown"]
-                        .iter()
-                        .any(|n| {
-                            !(i32::MIN as i128..=i32::MAX as i128)
-                                .contains(&int(&item[format!("{n}_{i}")]))
-                        })
-                {
-                    reasons.push(format!("item_spell_slot_{i}_projection_domain"));
-                }
-                let ppm = &item[format!("spellppmRate_{i}")];
-                let text = ppm
-                    .get("decimal")
-                    .and_then(Value::as_str)
-                    .map(String::from)
-                    .unwrap_or_else(|| ppm.to_string());
-                if dbc::binary32(&text).is_err() {
-                    reasons.push(format!("item_spell_slot_{i}_binary32_domain"));
-                }
-            }
+                    .map(|r| r["reason"].as_str().unwrap().to_owned()),
+            );
             if reasons.is_empty() {
-                admitted.push(json!({"entry":id,"item_template_sha256":digest(item),"acquisition":if bag{"empty_carried_bag"}else{"backpack_item"},"equip_and_use_admitted":false}));
+                admitted.push(json!({"entry":id,"item_template_sha256":digest(item),
+                    "acquisition":plan["carried_operation"],"equip_and_use_admitted":false}));
             }
         } else {
             reasons.push("item_template_missing".into());

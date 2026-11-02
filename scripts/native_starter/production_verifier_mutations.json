@@ -2086,6 +2086,104 @@
         }
       ],
       "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "compiler.preparation_mismatch",
+      "fixture": "request-null-items",
+      "name": "null-request-not-invalid",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/quest_giver_presentation_plan/refusals/0/reason",
+          "value": "invalid_text"
+        }
+      ],
+      "target": "preparation"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "compiler.preparation_mismatch",
+      "fixture": "route-zero-outfit",
+      "name": "zero-selector-not-dbc-row",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/spells/0/cast_time/base_ms",
+          "value": 999
+        }
+      ],
+      "target": "preparation"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "compiler.preparation_mismatch",
+      "fixture": "route-zero-outfit",
+      "name": "outfit-discovery-edge",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/player/skills/dependency_closure/edges/1/to_id",
+          "value": 920001
+        }
+      ],
+      "target": "preparation"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "compiler.preparation_mismatch",
+      "fixture": "carried-items",
+      "name": "carried-spell-sentinel",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/captured_item_plan/items/0/captured_input/inventory/spells/4/cooldown",
+          "value": 0
+        }
+      ],
+      "target": "preparation"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "compiler.preparation_mismatch",
+      "fixture": "carried-items",
+      "name": "carried-mask",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/captured_item_plan/items/0/captured_input/placement/allowable_class",
+          "value": 0
+        }
+      ],
+      "target": "preparation"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "compiler.preparation_mismatch",
+      "fixture": "carried-items",
+      "name": "carried-disposition",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/captured_item_obligations/0/scope",
+          "value": "equipment"
+        }
+      ],
+      "target": "preparation"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "compiler.preparation_mismatch",
+      "fixture": "carried-item-refusals",
+      "name": "item-refusal-not-supported",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/captured_item_plan/items/0/status",
+          "value": "supported_shape"
+        }
+      ],
+      "target": "preparation"
     }
   ],
   "format": "benilla-production-verifier-mutations-v1"

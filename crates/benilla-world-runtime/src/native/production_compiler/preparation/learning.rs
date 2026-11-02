@@ -346,6 +346,32 @@ pub(super) fn discover(c: &mut Compiler<'_>) -> Result<Value> {
     for id in items.keys() {
         d.add("item", *id, None)?;
     }
+    let packed =
+        c.request.race as u32 | ((c.request.class as u32) << 8) | ((c.request.gender as u32) << 16);
+    let outfits: Vec<_> = c.dbcs["CharStartOutfit"]
+        .by_id
+        .values()
+        .map(|i| c.dbcs["CharStartOutfit"].row(*i))
+        .filter(|r| r.word(0) != 0 && r.word(1) == packed)
+        .collect();
+    if outfits.len() == 1 {
+        let outfit = outfits[0];
+        for slot in 0..12 {
+            let id = outfit.word(2 + slot);
+            if id as i32 > 0 {
+                d.add(
+                    "item",
+                    id as i128,
+                    Some((
+                        "CharStartOutfit",
+                        outfit.word(0) as i128,
+                        "outfit_item",
+                        slot,
+                    )),
+                )?;
+            }
+        }
+    }
     for (table, id, _) in &c.dependencies {
         if table == "item_template" {
             d.add("item", *id, None)?;
@@ -423,7 +449,7 @@ pub(super) fn discover(c: &mut Compiler<'_>) -> Result<Value> {
                         ("SpellCategory", "Category"),
                         ("SpellFocusObject", "RequiresSpellFocus"),
                     ] {
-                        if nonzero(&s[field]) || ["SpellCastTimes", "SpellRange"].contains(&table) {
+                        if nonzero(&s[field]) || table == "SpellRange" {
                             d.lookup(c, table, int(&s[field]), [0])?;
                         }
                     }
@@ -464,8 +490,7 @@ pub(super) fn discover(c: &mut Compiler<'_>) -> Result<Value> {
                         ("SpellCategory", 2),
                         ("SpellFocusObject", 15),
                     ] {
-                        if row.word(field) != 0 || ["SpellCastTimes", "SpellRange"].contains(&table)
-                        {
+                        if row.word(field) != 0 || table == "SpellRange" {
                             d.lookup(c, table, row.word(field) as i128, [0])?;
                         }
                     }
