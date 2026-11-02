@@ -217,7 +217,7 @@ def classify_spell_admission(tables: dict[str, Any], spells: list[dict[str, Any]
         for table, field in (("SpellCastTimes", "CastingTimeIndex"), ("SpellRange", "rangeIndex"),
                              ("SpellCategory", "Category"), ("SpellDuration", "DurationIndex"),
                              ("SpellFocusObject", "RequiresSpellFocus")):
-            if row[field] or table in {"SpellCastTimes", "SpellRange"}:
+            if row[field] or table == "SpellRange":
                 own(table, row[field], entry)
         for slot in range(1, 4):
             if row[f"EffectRadiusIndex{slot}"]:
@@ -489,7 +489,9 @@ class Compiler:
                             differences.append("SpellFamilyFlags")
                             self.issue("spell_template", [entry], "spell.server_client_field_mismatch",
                                        field="SpellFamilyFlags", sql_value=family, dbc_value=row.words[column])
-            cast = self.lookup("SpellCastTimes", source["CastingTimeIndex"], {0, 1, 2, 3})
+            # SpellMgr.cpp:137-141 returns zero before modifiers for no cast row.
+            cast = (self.lookup("SpellCastTimes", source["CastingTimeIndex"], {0, 1, 2, 3})
+                    if source["CastingTimeIndex"] else None)
             range_row = self.lookup("SpellRange", source["rangeIndex"], {0, 1, 2, 3})
             if source["Category"]:
                 self.lookup("SpellCategory", source["Category"], {0, 1})
@@ -553,8 +555,10 @@ class Compiler:
                 "script_registry": registry_scope,
                 "initial_hooks": initial_hooks.scope(self.source, entry),
                 "name_locales": [row.text[i] for i in range(120, 128)] if row else None,
-                "cast_time": {"id": source["CastingTimeIndex"], "base_ms": signed(cast.words[1]),
-                              "per_level_ms": signed(cast.words[2]), "minimum_ms": signed(cast.words[3])} if cast else None,
+                "cast_time": ({"id": source["CastingTimeIndex"], "base_ms": signed(cast.words[1]),
+                              "per_level_ms": signed(cast.words[2]), "minimum_ms": signed(cast.words[3])} if cast else
+                              {"id": 0, "base_ms": 0, "per_level_ms": 0, "minimum_ms": 0}
+                              if not source["CastingTimeIndex"] else None),
                 "range": range_input, "effects": effects, "speed": source["speed"],
                 "duration": {"id": source["DurationIndex"], "base_ms": signed(duration.words[1]),
                              "per_level_ms": signed(duration.words[2]), "maximum_ms": signed(duration.words[3])}

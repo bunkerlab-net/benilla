@@ -367,6 +367,44 @@ class CompilerTests(unittest.TestCase):
         self.assertIn({"table": "item_template", "id": 999001, "reason": "player.outfit_item_not_captured"},
                       result["required_additional_rows"])
         self.assertIsNone(result["player"]["outfit"]["grants_in_source_order"][0]["count"])
+        self.assertIn(999001, result["dependency_request"]["item_ids"])
+        from native_starter.compiler import Compiler
+        from native_starter.learning import discover
+        # SQL recapture discovery must not depend on outfit() running first.
+        closure = discover(Compiler(self.source, parsed(self.files), self.request))
+        self.assertIn(999001, closure["dependency_request"]["item_ids"])
+        self.assertIn({"from_table": "CharStartOutfit", "from_id": 960001,
+                       "to_kind": "item", "to_id": 999001, "role": "outfit_item", "slot": 0},
+                      closure["edges"])
+        sql = source_input()
+        item = copy.deepcopy(sql.rows["item_template"][0])
+        item["entry"] = 999001
+        sql.rows["item_template"].append(item)
+        recaptured = capture(sql, export_tests.starter_selection(),
+                             dependency_request=result["dependency_request"])
+        self.assertIn(999001, {r["entry"] for r in recaptured["tables"]["item_template"]})
+        second = compile_starter(recaptured, parsed(self.files), self.request)
+        self.assertNotIn({"table": "item_template", "id": 999001,
+                          "reason": "player.outfit_item_not_captured"},
+                         second["required_additional_rows"])
+
+    def test_zero_cast_index_has_core_zero_time_without_record_zero(self):
+        for row in self.source["tables"]["spell_template"]:
+            row["CastingTimeIndex"] = 0
+        self.files["SpellCastTimes"] = dbc_bytes("SpellCastTimes", [])
+        words = [{i: word for i, word in enumerate(row.words)}
+                 for row in parsed(self.files)["Spell"].rows]
+        for row in words:
+            row[18] = 0
+        self.files["Spell"] = dbc_bytes("Spell", words)
+        rehash_source(self.source)
+        result = self.compile()
+        self.assertTrue(all(s["cast_time"] == {"id": 0, "base_ms": 0,
+                            "per_level_ms": 0, "minimum_ms": 0} for s in result["spells"]))
+        self.assertFalse(any(r["table"] == "SpellCastTimes" and r["id"] == 0
+                             for r in result["required_additional_rows"]))
+        self.assertNotIn({"table": "SpellCastTimes", "id": 0},
+                         result["player"]["skills"]["dependency_closure"]["dbc_references"])
 
     def test_gender_and_high_outfit_byte_are_not_ignored(self):
         for packed in [0x010101, 0x01000101]:
@@ -1860,6 +1898,21 @@ class QuestGiverPreparationTests(unittest.TestCase):
         self.assertIn("CompleteEmoteDelay", plan["field_dispositions"]["quest_template"]["consumed_by_ordinary_presentation"])
         del dbcs["Emotes"]
         self.assertIn("unknown_coverage_reextract_v4", {row["reason"] for row in quest_plan(bundle, dbcs)["refusals"]})
+
+    def test_null_request_items_text_keeps_source_and_skips_text_refusal(self):
+        from native_starter.quest_plan import supported_plan as quest_plan
+        source = export_tests.authored_presentation_source()
+        source.rows["quest_template"][0]["RequestItemsText"] = None
+        next(c for c in source.inventory["tables"]["quest_template"]["columns"]
+             if c["name"] == "RequestItemsText")["nullable"] = True
+        bundle = capture(source, export_tests.starter_selection(), capture_quest_presentation=True)
+        dbcs = {"Emotes": parse_table("Emotes", dbc_bytes("Emotes", [{0: 1}]))}
+        plan = quest_plan(bundle, dbcs)
+        self.assertTrue(plan["raw_presentation_resolved"])
+        self.assertIsNone(bundle["quest_giver_presentation_capture"]["rows"]["quest_template"][0]["RequestItemsText"])
+        source.rows["quest_template"][0]["RequestItemsText"] = "\x01"
+        bundle = capture(source, export_tests.starter_selection(), capture_quest_presentation=True)
+        self.assertIn("invalid_text", {r["reason"] for r in quest_plan(bundle, dbcs)["refusals"]})
 
     def test_checked_content_mechanics_remove_only_their_raw_refusals(self):
         from native_starter.quest_plan import supported_plan as quest_plan

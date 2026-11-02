@@ -44,6 +44,10 @@ def supported_plan(source, dbcs):
                 refuse(row["entry"], field, row[field], "unsupported_packet_shape")
         for field in QUEST_TEXT:
             text = row[field]
+            # QuestDef.cpp:58 loads NULL through Field::GetCppString as empty.
+            # GossipDef.cpp:531-534 skips request-items when that text is empty.
+            if field == "RequestItemsText" and text is None:
+                continue
             if text is None or any(ord(c) < 32 and c not in "\n\t" for c in text):
                 refuse(row["entry"], field, 0, "invalid_text")
     entries = set(value["selectors"]["entries"])

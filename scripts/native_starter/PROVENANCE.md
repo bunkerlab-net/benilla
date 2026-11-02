@@ -91,6 +91,28 @@ graph and loader plan do not prove effective learning or gameplay admission.
 - The existing private [capture contract](../../docs/CLASSIC-STARTER-CAPTURE.md)
   and `classic_export` validator establish source v2 type/key/hash/selection
   semantics. Preparation calls the validator; it does not weaken its gates
+- [QuestDef.cpp:58](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Quests/QuestDef.cpp#L58)
+  loads request-items text through
+  [Field::GetCppString, Field.h:49-52](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/shared/Database/Field.h#L49-L52),
+  which maps SQL NULL to an empty string.
+  [PlayerMenu::SendQuestGiverRequestItems, GossipDef.cpp:510-534](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/GossipDef.cpp#L510-L534)
+  applies nonempty locale overrides first, then sends offer-reward instead when
+  the resulting text is empty, or when a completable quest requires no items.
+  Preparation preserves the captured NULL and accepts it as empty request text,
+  without inventing prose or removing other presentation refusals. The client
+  distinguishes progress and reward presentation through `QUEST_PROGRESS` and
+  `QUEST_COMPLETE`, recorded at addresses 0x51b185 and 0x51b18f in
+  [events.tsv](../../reference/events.tsv).
+- [GetSpellCastTime, SpellMgr.cpp:137-145](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Spells/SpellMgr.cpp#L137-L145)
+  returns zero when the cast-time lookup is absent, before rank and cast modifiers.
+  Preparation represents the absent zero selector as zero cast-time inputs,
+  without requesting a nonexistent record zero. Missing nonzero selectors still
+  require exact rows.
+- Selected positive CharStartOutfit slots are explicit item roots in dependency
+  discovery. Pass preparation's `dependency_request` to the next SQL capture,
+  then prepare again. SQL-only initial capture cannot discover DBC outfit items.
+  Recapture resolves their item-template and spell dependencies without copying
+  client rows into the source bundle.
 - [LootMgr.h, LootStoreItem](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Loot/LootMgr.h#L215-L217)
   splits a negative SQL chance into absolute chance and quest-only identity.
   [LootStoreItem::Roll](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Loot/LootMgr.cpp#L374-L389)

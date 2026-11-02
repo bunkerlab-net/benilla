@@ -143,6 +143,15 @@ def discover(c) -> dict[str, Any]:
         add("spell", entry)
     for entry in sql_items:
         add("item", entry)
+    # CharStartOutfit has no SQL counterpart. Request its positive item slots
+    # explicitly so the next SQL capture closes their spell/skill dependencies.
+    outfit = c.dbcs.get("CharStartOutfit")
+    packed = c.request.race | c.request.class_id << 8 | c.request.gender << 16
+    outfits = [r for r in outfit.rows if r.words[0] and r.words[1] == packed] if outfit else []
+    if len(outfits) == 1:
+        for slot, word in enumerate(outfits[0].words[2:14]):
+            if signed(word) > 0:
+                add("item", word, "CharStartOutfit", outfits[0].words[0], "outfit_item", slot)
     for table, entry, _ in sorted(c.dependencies):
         if table == "item_template":
             add("item", entry)
@@ -205,7 +214,7 @@ def discover(c) -> dict[str, Any]:
                 for table, field in (("SpellCastTimes", "CastingTimeIndex"), ("SpellRange", "rangeIndex"),
                                      ("SpellDuration", "DurationIndex"), ("SpellCategory", "Category"),
                                      ("SpellFocusObject", "RequiresSpellFocus")):
-                    if source[field] or table in {"SpellCastTimes", "SpellRange"}:
+                    if source[field] or table == "SpellRange":
                         lookup(table, source[field], {0})
                 for slot in range(1, 4):
                     if source[f"EffectRadiusIndex{slot}"]:
@@ -217,7 +226,7 @@ def discover(c) -> dict[str, Any]:
                 for table, field in (("SpellCastTimes", 18), ("SpellRange", 36),
                                      ("SpellDuration", 30), ("SpellCategory", 2),
                                      ("SpellFocusObject", 15)):
-                    if row.words[field] or table in {"SpellCastTimes", "SpellRange"}:
+                    if row.words[field] or table == "SpellRange":
                         lookup(table, row.words[field], {0})
                 for field in range(88, 91):
                     if row.words[field]:
