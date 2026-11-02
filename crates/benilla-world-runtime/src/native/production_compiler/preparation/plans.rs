@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 mod creature;
+mod creature_combat;
 pub(in super::super) mod item;
 mod loot;
 pub(in super::super) mod spawn;

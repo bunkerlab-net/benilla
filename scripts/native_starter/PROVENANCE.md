@@ -238,3 +238,51 @@ original synthetic inputs.
   establishes the other-gender/alternative relations. Capture follows the
   selected other-gender closure but preserves alternatives as unresolved
   context, without executing loader corrections or renderer substitutions
+
+## Creature combat selection and cold loading
+
+All source citations below use CMaNGOS Classic
+`8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. The source is GPL-2.0-or-later.
+The Python and Rust combat evidence plans are GPL-3.0-or-later translations.
+Their tests contain authored rows only.
+
+- [AIRegistry::Initialize, CreatureAIRegistry.cpp:35-43](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/AI/CreatureAIRegistry.cpp#L35-L43)
+  registers `NullAI`, `GuardAI`, `PetAI`, `TotemAI`, `EventAI`, `GuardianAI`, and
+  `PossessedAI`. This pin has no registered `AggressorAI` or `ReactorAI`.
+- [FactorySelector::selectAI, CreatureAISelector.cpp:38-90](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/AI/CreatureAISelector.cpp#L38-L90)
+  checks scripts before pet, charm, totem, explicit name, guard, and permit
+  selection. An unknown explicit name does not enter permit selection.
+- [CreatureEventAI::Permissible, CreatureEventAI.cpp:51-62](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/AI/EventAI/CreatureEventAI.cpp#L51-L62)
+  supplies scores 800 for explicit EventAI, 100 for neutral or non-aggro ordinary
+  creatures, and 200 otherwise.
+  [NullCreatureAI.h:30-38](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/AI/BaseAI/NullCreatureAI.h#L30-L38)
+  defines inert callbacks and permit score 1.
+- [CreatureAI::CreatureAI, CreatureAI.cpp:35-46](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/AI/BaseAI/CreatureAI.cpp#L35-L46)
+  applies NO_AGGRO_ON_SIGHT and SPAWN_DEFENSIVE. Its IGNORE_COMBAT branch disables
+  combat entry. These source branches do not widen current runtime flag support.
+- [Unit::GetAttackDistance, Unit.cpp:11768-11805](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Unit.cpp#L11768-L11805)
+  owns detection, level difference, aura modifiers, minimum radius, pet scaling,
+  and aggro rate. The existing Rust numeric port supports the ordinary
+  player/no-detect-aura branch. The function belongs to `Unit` at this pin,
+  not `Creature`.
+- [Unit::IsNeutralToAll, Unit.cpp:6228-6238](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Unit.cpp#L6228-L6238)
+  checks the raw faction's reputation index before template neutrality.
+  [FactionTemplateEntry, DBCStructure.h:414-446](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Server/DBCStructure.h#L414-L446)
+  checks explicit enemy/friend factions before group masks.
+  [Unit::IsEnemy, Relations.cpp:326-329](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Relations.cpp#L326-L329)
+  uses directional `GetReactionTo`. This pin does not name that Unit method
+  `IsHostileTo`. The current reputation/combat authority owns live reactions.
+- [Creature.cpp:555-559](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Creature.cpp#L555-L559)
+  initializes both melee attack times from `MeleeBaseAttackTime`.
+- [Creature::CallAssistance and MarkCallAssistanceOnPull, Creature.cpp:2154-2197](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Creature.cpp#L2154-L2197)
+  distinguish the retained latch, CanCallForAssistance, family radius, template
+  override, delayed events, and actual receiver traversal.
+  [Creature::CallForHelp, Creature.cpp:2217-2227](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Creature.cpp#L2217-L2227)
+  uses a different radius fallback and synchronous grid visitation.
+- [ObjectGridLoader.cpp:114-160,207-218,250-271](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Grids/ObjectGridLoader.cpp#L114-L271)
+  traverses actual cell GUID containers, constructs objects, calls LoadFromDB,
+  and combines static and persistent-state containers.
+  [Map::EnsureGridLoaded, Map.cpp:384-402](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Maps/Map.cpp#L384-L402)
+  invokes this traversal on grid activation. Selected SQL rows do not contain
+  that activation history or the resulting live update and visitor order.
+

@@ -400,15 +400,17 @@ pub(in super::super) fn creatures(c: &mut Compiler<'_>) -> Result<Value> {
             );
         }
         if selected_spawn["status"] == "supported_shape" {
-            c.issue(
+            c.context_issue(
                 "creature_template",
                 json!([num(entry)]),
                 "creature.cold_loader_order_required",
+                json!({"required_evidence":super::creature_combat::COLD_EVIDENCE}),
             );
-            c.issue(
+            c.context_issue(
                 "creature_template",
                 json!([num(entry)]),
                 "creature.assistance_runtime_traversal_required",
+                json!({"required_evidence":["ordered_current_generation_grid_and_world_traversal","complete_assistance_hooks_and_spatial_predicates"]}),
             );
         }
         let mut selectors = BTreeSet::from([entry]);
@@ -501,8 +503,11 @@ pub(in super::super) fn creatures(c: &mut Compiler<'_>) -> Result<Value> {
             &selected_models,
             &displays,
         )?;
-        result.push(json!({"entry":num(entry),"source_row":creature,"spawns":filtered(b,"creature","id",entry),"class_level_inputs":rows(b,"creature_template_classlevelstats").iter().filter(|r|r["Class"]==creature["UnitClass"]&&(int(&creature["MinLevel"])..=int(&creature["MaxLevel"])).contains(&int(&r["Level"]))).collect::<Vec<_>>(),"model_inputs":selected_models,"display_inputs":displays,"selected_display_ids":numbers(model_ids),"event_ai_capture":event,"event_ai_plan":event_plan,"generation_plan":generation,"native_spawn_dependencies":spawn,"spawn_context_plan":selected_spawn,"resolved_combat_stats":null,"ai_profile":null}));
-        c.context_issue("creature_template",json!([num(entry)]),"creature.ai_selection_and_native_melee_required",json!({"ai_name":creature["AIName"],"scripted":nonzero(&creature["ScriptName"]),"movement_type":creature["MovementType"],"unit_class":creature["UnitClass"]}));
+        let combat_plan =
+            super::creature_combat::plan(creature, &generation, &event, &event_plan, c.dbcs);
+        c.context_issue("creature_template",json!([num(entry)]),"creature.ai_selection_and_native_melee_required",json!({"ai_name":creature["AIName"],"scripted":nonzero(&creature["ScriptName"]),"movement_type":creature["MovementType"],"unit_class":creature["UnitClass"],"refusals":combat_plan["ai_selection"]["refusals"]}));
+        c.context_issue("creature_template",json!([num(entry)]),"creature.explicit_world_rules_and_aggro_context_required",json!({"required_policy":combat_plan["aggro"]["required_policy"],"required_context":combat_plan["aggro"]["required_context"]}));
+        result.push(json!({"entry":num(entry),"source_row":creature,"spawns":filtered(b,"creature","id",entry),"class_level_inputs":rows(b,"creature_template_classlevelstats").iter().filter(|r|r["Class"]==creature["UnitClass"]&&(int(&creature["MinLevel"])..=int(&creature["MaxLevel"])).contains(&int(&r["Level"]))).collect::<Vec<_>>(),"model_inputs":selected_models,"display_inputs":displays,"selected_display_ids":numbers(model_ids),"event_ai_capture":event,"event_ai_plan":event_plan,"generation_plan":generation,"native_spawn_dependencies":spawn,"spawn_context_plan":selected_spawn,"combat_evidence_plan":combat_plan,"resolved_combat_stats":null,"ai_profile":null}));
         if spawn.is_null() {
             c.issue(
                 "creature_template",
@@ -550,11 +555,6 @@ pub(in super::super) fn creatures(c: &mut Compiler<'_>) -> Result<Value> {
         } else if !event["matching_rows"].as_array().unwrap().is_empty() && event_plan.is_null() {
             c.context_issue("creature_template",json!([num(entry)]),"creature.event_ai_matching_rows_require_execution",json!({"event_ids":event["matching_rows"].as_array().unwrap().iter().map(|r|r["id"].clone()).collect::<Vec<_>>()}));
         }
-        c.issue(
-            "creature_template",
-            json!([num(entry)]),
-            "creature.explicit_world_rules_and_aggro_context_required",
-        );
         c.issue(
             "creature_template",
             json!([num(entry)]),

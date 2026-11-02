@@ -176,6 +176,17 @@ class PreparationVerifierParityTests(unittest.TestCase):
         self.assertTrue(all(i["status"] == "blocked" for i in
                             fixtures["carried-item-refusals"]["captured_item_plan"]["items"]))
 
+    def test_combat_selection_keeps_source_shape_separate_from_runtime_evidence(self):
+        fixture = next(f for f in corpus()["fixtures"] if f["name"] == "combat-defensive")
+        plan = fixture["preparation"]["creatures"][0]["combat_evidence_plan"]
+        self.assertEqual(plan["ai_selection"]["factory"], "EventAI")
+        self.assertEqual(plan["ai_selection"]["initial_reaction"], "Defensive")
+        self.assertEqual(plan["ai_selection"]["event_ai_permit"], 800)
+        self.assertTrue(plan["assistance"]["pull_radius_supported"])
+        self.assertFalse(plan["assistance"]["runtime_traversal_proven"])
+        self.assertFalse(plan["cold_loader"]["sql_order_is_runtime_order"])
+        self.assertFalse(plan["production_admission"])
+
     def test_extension_fixtures_retain_supported_shapes_and_unknown_host_proof(self):
         fixtures = {f["name"]: f for f in corpus()["fixtures"]}
         mechanics = fixtures["mechanics-spawn"]

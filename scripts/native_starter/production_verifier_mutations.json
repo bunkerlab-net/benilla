@@ -2186,6 +2186,144 @@
       "target": "preparation"
     },
     {
+      "bindings": [
+        {
+          "of": "",
+          "path": "/preparation_sha256"
+        }
+      ],
+      "diagnostic": "compiler.preparation_mismatch",
+      "fixture": "combat-defensive",
+      "name": "combat-factory",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/creatures/0/combat_evidence_plan/ai_selection/factory",
+          "value": "NullCreatureAI"
+        },
+        {
+          "op": "remove",
+          "path": "/preparation_sha256"
+        }
+      ],
+      "target": "preparation"
+    },
+    {
+      "bindings": [
+        {
+          "of": "",
+          "path": "/preparation_sha256"
+        }
+      ],
+      "diagnostic": "compiler.preparation_mismatch",
+      "fixture": "combat-defensive",
+      "name": "combat-neutrality",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/creatures/0/combat_evidence_plan/ai_selection/neutral_to_all",
+          "value": false
+        },
+        {
+          "op": "remove",
+          "path": "/preparation_sha256"
+        }
+      ],
+      "target": "preparation"
+    },
+    {
+      "bindings": [
+        {
+          "of": "",
+          "path": "/preparation_sha256"
+        }
+      ],
+      "diagnostic": "compiler.preparation_mismatch",
+      "fixture": "combat-defensive",
+      "name": "combat-reaction",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/creatures/0/combat_evidence_plan/ai_selection/initial_reaction",
+          "value": "Aggressive"
+        },
+        {
+          "op": "remove",
+          "path": "/preparation_sha256"
+        }
+      ],
+      "target": "preparation"
+    },
+    {
+      "bindings": [
+        {
+          "of": "",
+          "path": "/preparation_sha256"
+        }
+      ],
+      "diagnostic": "compiler.preparation_mismatch",
+      "fixture": "combat-defensive",
+      "name": "combat-melee-timer",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/creatures/0/combat_evidence_plan/melee/base_attack_time_ms",
+          "value": 999
+        },
+        {
+          "op": "remove",
+          "path": "/preparation_sha256"
+        }
+      ],
+      "target": "preparation"
+    },
+    {
+      "bindings": [
+        {
+          "of": "",
+          "path": "/preparation_sha256"
+        }
+      ],
+      "diagnostic": "compiler.preparation_mismatch",
+      "fixture": "combat-defensive",
+      "name": "combat-assistance-traversal",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/creatures/0/combat_evidence_plan/assistance/runtime_traversal_proven",
+          "value": true
+        },
+        {
+          "op": "remove",
+          "path": "/preparation_sha256"
+        }
+      ],
+      "target": "preparation"
+    },
+    {
+      "bindings": [
+        {
+          "of": "",
+          "path": "/preparation_sha256"
+        }
+      ],
+      "diagnostic": "compiler.preparation_mismatch",
+      "fixture": "combat-defensive",
+      "name": "combat-cold-order",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/creatures/0/combat_evidence_plan/cold_loader/sql_order_is_runtime_order",
+          "value": true
+        },
+        {
+          "op": "remove",
+          "path": "/preparation_sha256"
+        }
+      ],
+      "target": "preparation"
+    },
+    {
       "bindings": [],
       "diagnostic": "compiler.preparation_mismatch",
       "fixture": "initial-spell-execution-refusals",

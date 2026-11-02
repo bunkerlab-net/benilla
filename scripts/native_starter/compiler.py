@@ -27,6 +27,7 @@ from . import loot_plan
 from . import spawn_plan
 from . import item_plan
 from . import spell_execution
+from . import creature_combat_plan
 
 PROFILE = "cmangos-8ec338a1-native-starter-bindings-v1"
 FORMAT = "benilla-native-starter-preparation-v1"
@@ -594,8 +595,11 @@ class Compiler:
             for refusal in selected_spawn_plan["refusals"]:
                 self.issue("creature", [refusal["guid"]], refusal["reason"])
             if selected_spawn_plan["status"] == "supported_shape":
-                self.issue("creature_template", [entry], "creature.cold_loader_order_required")
-                self.issue("creature_template", [entry], "creature.assistance_runtime_traversal_required")
+                self.issue("creature_template", [entry], "creature.cold_loader_order_required",
+                           required_evidence=creature_combat_plan.COLD_EVIDENCE)
+                self.issue("creature_template", [entry], "creature.assistance_runtime_traversal_required",
+                           required_evidence=["ordered_current_generation_grid_and_world_traversal",
+                                              "complete_assistance_hooks_and_spatial_predicates"])
             model_ids = native_spawn.model_closure(self.tables, native_spawn.model_roots(self.tables, entry))
             display_inputs = []
             available_models = {row["modelid"]: row for row in self.tables["creature_model_info"]}
@@ -622,6 +626,7 @@ class Compiler:
                 [r for r in self.tables["creature_model_info"] if r["modelid"] in model_ids],
                 display_inputs)
             self.creature_generation_plans[entry] = generation_plan
+            combat_plan = creature_combat_plan.plan(creature, generation_plan, event_scope, event_plan, self.dbcs)
             result.append({"entry": entry, "source_row": creature,
                 "spawns": [r for r in self.tables["creature"] if r["id"] == entry],
                 "class_level_inputs": [r for r in self.tables["creature_template_classlevelstats"]
@@ -635,10 +640,12 @@ class Compiler:
                 "generation_plan": generation_plan,
                 "native_spawn_dependencies": spawn_scope,
                 "spawn_context_plan": selected_spawn_plan,
+                "combat_evidence_plan": combat_plan,
                 "resolved_combat_stats": None, "ai_profile": None})
             self.issue("creature_template", [entry], "creature.ai_selection_and_native_melee_required",
                        ai_name=creature["AIName"], scripted=bool(creature["ScriptName"]),
-                       movement_type=creature["MovementType"], unit_class=creature["UnitClass"])
+                       movement_type=creature["MovementType"], unit_class=creature["UnitClass"],
+                       refusals=combat_plan["ai_selection"]["refusals"])
             if spawn_scope is None:
                 self.issue("creature_template", [entry], "creature.spawn_dependency_coverage_not_proven")
             else:
@@ -658,7 +665,9 @@ class Compiler:
                            event_ids=[r["id"] for r in event_scope["matching_rows"]])
             # Even an empty captured selector set does not cover substituted
             # entries, pools, groups or other hooks; those blockers remain.
-            self.issue("creature_template", [entry], "creature.explicit_world_rules_and_aggro_context_required")
+            self.issue("creature_template", [entry], "creature.explicit_world_rules_and_aggro_context_required",
+                       required_policy=combat_plan["aggro"]["required_policy"],
+                       required_context=combat_plan["aggro"]["required_context"])
             self.issue("creature_template", [entry], "creature.deterministic_respawn_selection_required")
         return result
 

@@ -2296,5 +2296,59 @@ class CapturedSpellExecutionTests(unittest.TestCase):
                           execution.supported_plan(bundle, changed)['refusals'])
 
 
+class CreatureCombatEvidenceTests(unittest.TestCase):
+    def setUp(self):
+        self.source = source_bundle()
+        self.dbcs = parsed(dbcs_for(self.source))
+        self.creature = self.source["tables"]["creature_template"][0]
+        self.creature.update(AIName="", ScriptName="", ExtraFlags=0,
+                             StaticFlags1=0, StaticFlags2=0, StaticFlags3=0, StaticFlags4=0)
+
+    def plan(self, event_scope=None, event_plan=None):
+        from native_starter.creature_combat_plan import plan
+        return plan(self.creature, {"status": "complete_inputs"},
+                    event_scope, event_plan, self.dbcs)
+
+    def test_pinned_registry_uses_event_ai_for_ordinary_reactive_and_proactive(self):
+        selected = self.plan()["ai_selection"]
+        self.assertEqual(selected["factory"], "EventAI")
+        self.assertEqual(selected["branch"], "highest_permit")
+        self.creature["ExtraFlags"] = 2
+        selected = self.plan()["ai_selection"]
+        self.assertEqual(selected["initial_reaction"], "Defensive")
+        self.assertEqual(selected["event_ai_permit"], 100)
+        self.creature["AIName"] = "EventAI"
+        self.assertEqual(self.plan()["ai_selection"]["event_ai_permit"], 800)
+
+    def test_unknown_names_are_null_not_obsolete_aggressor_or_reactor(self):
+        for name in ("AggressorAI", "ReactorAI", "AuthoredUnknownAI"):
+            self.creature["AIName"] = name
+            selected = self.plan()["ai_selection"]
+            self.assertEqual(selected["factory"], "NullCreatureAI")
+            self.assertIn("selected_factory_not_supported", selected["refusals"])
+        self.creature.update(AIName="", ExtraFlags=0x400)
+        self.assertEqual(self.plan()["ai_selection"]["factory"], "GuardAI")
+        self.creature["AIName"] = "EventAI"
+        self.assertEqual(self.plan()["ai_selection"]["factory"], "EventAI")
+        self.creature["ScriptName"] = "authored_script"
+        self.assertIsNone(self.plan()["ai_selection"]["factory"])
+
+    def test_event_coverage_fallback_radius_and_static_guards_remain_independent(self):
+        self.assertFalse(self.plan()["ai_selection"]["event_rows_supported"])
+        self.assertTrue(self.plan({"matching_rows": []})["ai_selection"]["event_rows_supported"])
+        self.assertFalse(self.plan({"matching_rows": [{"id": 1}]})["ai_selection"]["event_rows_supported"])
+        self.creature["CallForHelp"] = 0
+        self.assertEqual(self.plan()["assistance"]["pull_radius_source"], "world_rules_family_radius")
+        self.assertFalse(self.plan()["assistance"]["pull_radius_supported"])
+        self.creature["CallForHelp"] = 5
+        self.assertTrue(self.plan()["assistance"]["pull_radius_supported"])
+        self.creature["StaticFlags2"] = 0x4000000
+        self.assertEqual(self.plan()["ai_selection"]["initial_reaction"], "Defensive")
+        self.assertIn("combat_authority_static_flags_unsupported",
+                      self.plan()["ai_selection"]["refusals"])
+        self.assertFalse(self.plan()["production_admission"])
+        self.assertFalse(self.plan()["cold_loader"]["sql_order_is_runtime_order"])
+
+
 if __name__ == "__main__":
     unittest.main()

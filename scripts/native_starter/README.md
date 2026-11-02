@@ -94,6 +94,60 @@ request-items text, outfit-only discovery roots, and cast-time selector zero.
 A zero cast-time selector ignores even an existing DBC row with ID zero.
 Rehashed report mutations cannot change any of these decisions.
 
+## Creature combat evidence
+
+Each creature has a `combat_evidence_plan`. The plan derives the pinned ordinary
+AI selector branch, reaction flags, neutrality, melee timer inputs, and assistance
+radius source. It does not construct an effective AI or replace current runtime
+state with template values. The four combat, aggro, assistance, and cold-order
+obligations retain their precise missing-context lists.
+
+At the pinned revision, `AIRegistry::Initialize` does not register `AggressorAI`
+or `ReactorAI`. Ordinary creatures with an empty `AIName` select `EventAI` through
+its reactive or proactive permit score. `NullAI` has a lower permit score.
+An explicit unknown name falls back to `NullCreatureAI`, not `EventAI`.
+Script callbacks precede this ordinary branch. Pet, charm, totem, and guard
+selection require their own source context. `NO_AGGRO_ON_SIGHT` makes the supported
+ordinary AI Defensive. It does not make neutral creatures hostile or disable
+retaliation and assistance traversal.
+
+The existing `creature_ai::attack_distance` reducer owns the level calculation.
+It clamps player level minus creature level to at least -25, subtracts that
+difference from detection range, applies a five-yard minimum, and multiplies by
+the explicit aggro rate. Zero detection or zero rate returns zero. The supported
+ordinary player branch excludes both detection-range aura modifiers and pet
+scaling. Faction-template reactions remain directional. Current reputation and
+attackability checks remain separate from the radius.
+
+The existing generation and mainhand owners consume `MeleeBaseAttackTime`, damage
+school, generated damage, and per-life timers. A captured 2000 ms template timer
+does not prove current attack readiness, target selection, facing, or combat
+callbacks. `resolved_combat_stats` remains null until runtime composition.
+
+`CallAssistance` and pull assistance use positive template `CallForHelp`, otherwise
+the configured family radius. The current runtime admits only the positive
+template branch. `CallForHelp` instead uses its argument, or template `CallForHelp`
+when that argument is nonpositive. It visits grid objects synchronously. It does
+not apply the family-radius fallback. Visible-peer `CheckForHelp` uses another
+configured radius. The existing world-rules v1 schema supplies none of these
+combat settings. The progression preset cannot supply them implicitly.
+
+SQL can capture templates, positions, exclusions, and row order. SQL cannot
+capture the loaded map's grid activation sequence, linked-list membership order,
+current generations, pending events, or shared RNG interleaving. A canonical GUID
+sort is not that evidence. `CreatureColdEntrySchedule` supports only a synthetic
+player-then-authored-spawns schedule, so even an observed realm trace cannot yet
+construct a production schedule.
+
+Cold admission requires source and configuration identity, map and grid activation,
+persistent spawn state, ordered grid/world membership, cold-entry and consecutive
+update order, and the shared draw schedule. Assistance additionally requires each
+request's exact current-generation inventory, complete hooks, reactions, range,
+and LOS evidence. Empty linking/group SQL results do not prove an empty receiver
+traversal. Nonempty delayed dispatch and direct `CallForHelp` remain unsupported.
+See the [assistance contract](../../crates/benilla-world-runtime/COMBAT-ASSISTANCE.md)
+and [pinned source citations](PROVENANCE.md#creature-combat-selection-and-cold-loading).
+
 ## Compiled facts and exact references
 
 - Explicit race/class/gender, native starting map/zone/decimal pose, selected
