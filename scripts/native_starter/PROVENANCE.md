@@ -17,6 +17,42 @@ Reviewed CMaNGOS Classic revision:
   supplies DBC row-ID insertion order and missing-SkillLine exclusion.
   Python publishes a scoped loader plan. Rust independently reconstructs these
   maps before the existing initializer runs; neither authenticates capture.
+- [Player::UpdateSkillTrainedSpells, Player.cpp:5642-5698](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Player.cpp#L5642-L5698)
+  supplies wildcard race/class masks, nonzero acquisition-method training,
+  minimum skill-value gating, and the zero-method profession-repair branch.
+  The pinned core uses this name, not `learnSkillRewardedSpells`.
+- [SpellMgr::LoadSpellLearnSkills, SpellMgr.cpp:1625-1656](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Spells/SpellMgr.cpp#L1625-L1656)
+  selects the first valid server `SPELL_EFFECT_SKILL`, effect 118, with nonzero
+  skill and simple value. Effect 44 does not create a repair-map entry.
+  `skill_training_capture` records the effective SQL fields for all three slots,
+  exact candidate IDs, missing lookups, and coverage hashes. Client bytes cannot
+  prove that a server repair mapping is absent.
+- [SkillLineAbilityEntry, DBCStructure.h:653-668](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Server/DBCStructure.h#L653-L668)
+  supplies words 3/4 for masks, 7 for the threshold, and 9 for acquisition.
+  Discovery reports every visited ability row's training disposition, including
+  excluded rows. Independently reached spell and forward-rank metadata retain
+  their separate SpellMgr lookup semantics; a zero-method sibling is not a
+  learning dependency merely because it shares a skill.
+
+To add the SQL training projection to a private, unchanged operator-quiescent
+capture, run the following command. The password prompt does not echo its input.
+The command validates the existing source and extraction, derives candidate IDs
+to a fixed point, and publishes a new private file without overwriting the source.
+
+```sh
+python3 scripts/classic-export.py skill-training \
+  --source benilla-config/source.json --dbc-dir benilla-config/dbc \
+  --database LOCAL_DATABASE --user SELECT_ONLY_USER --port 33306 \
+  --gender 0 --quiescent-snapshot --output benilla-config/source-training.json
+```
+
+This operation requires the database to have remained unchanged since the source
+capture. Matching schema, version, and selected spell fields do not establish that
+historical fact. The extension retains the operator provenance limitation.
+Its 4,096 candidate-row bound is separate from the unchanged 512 spell-node bound.
+Unknown repair lookups remain explicit blockers and never become an invented
+client-derived absence. Unknown skill state remains conservative. The discovery
+graph and loader plan do not prove effective learning or gameplay admission.
 
 
 - [DBCStructure.h](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Server/DBCStructure.h):

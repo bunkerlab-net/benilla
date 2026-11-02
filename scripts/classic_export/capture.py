@@ -13,6 +13,7 @@ from . import spell_numeric
 from . import quest_presentation
 from . import loot_loader
 from . import spawn_context
+from . import skill_training
 from .core import (CORE_REVISION, DATABASE_REVISION, FORMAT, STARTER_FORMAT, KEYS, MAX_BUNDLE_BYTES,
                    MAX_ITEMS, MAX_QUESTS, MAX_ROWS, MAX_SCHEMA_BYTES, MAX_SPELLS, Selection,
                    canonical, check, digest, integer, normalize_rows, normalize_version_notes,
@@ -536,6 +537,8 @@ def validate_bundle(bundle: Any) -> None:
         expected.add("spawn_entry_capture")
     if "spawn_context_capture" in bundle:
         expected.add("spawn_context_capture")
+    if "skill_training_capture" in bundle:
+        expected.add("skill_training_capture")
     check(set(bundle) == expected, "bundle.fields")
     check(bundle["format"] in {FORMAT, STARTER_FORMAT} and bundle["core_revision"] == CORE_REVISION
           and bundle["database_revision"] == DATABASE_REVISION and bundle["client_build"] == 5875,
@@ -674,6 +677,9 @@ def validate_bundle(bundle: Any) -> None:
         spell_numeric.validate(bundle)
     if "quest_giver_presentation_capture" in bundle:
         quest_presentation.validate(bundle)
+    if "skill_training_capture" in bundle:
+        check(selection.starter is not None, "skill_training.starter_required")
+        skill_training.validate(bundle)
     status = bundle["report"]
     check(type(status) is dict and set(status) == {"runnable", "capture_complete", "scope", "unsupported"}, "bundle.report")
     check(status["runnable"] is False and status["capture_complete"] is False, "bundle.not_runnable")

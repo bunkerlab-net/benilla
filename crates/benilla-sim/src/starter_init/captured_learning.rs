@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f, SpellMgr.cpp:1284-1770,2340-2389; ObjectMgr.cpp:3225-3330.
+// src/game/Entities/Player.cpp:5642-5698, UpdateSkillTrainedSpells; Server/DBCStructure.h:653-668.
 // Upstream GPL-2.0-or-later, Copyright CMaNGOS contributors.
 //! Selected loader projections, not source authentication or completed initial casts.
 use super::*;
@@ -68,6 +69,9 @@ pub struct CapturedStarterLearning {
     pub skill_lines: Rows<[u32; 22]>,
     pub skill_race_class: Rows<[u32; 8]>,
     pub skill_tiers: Rows<[u32; 33]>,
+    /// Complete zero-acquire SQL lookups: spell ID and first valid Skill effect.
+    /// None proves no repair mapping, including a verified missing server spell.
+    pub skill_training: Rows<(u32, Option<(u16, u16)>)>,
     /// Union by reachable skill, spell AND incoming forward spell, in any capture order.
     pub skill_abilities: Rows<[u32; 15]>,
     /// Complete talent membership and rank/dependency closure.
@@ -89,6 +93,7 @@ pub struct CompiledStarterLearning {
     defaults: Vec<DefaultSkill>,
     roots: Vec<u32>,
     dispositions: Vec<SkillLoaderDisposition>,
+    ability_dispositions: Vec<(u32, &'static str)>,
     lines: Vec<SkillLineRow>,
     infos: Vec<SkillRaceClassRow>,
     tiers: Vec<SkillTierRow>,
@@ -278,6 +283,7 @@ impl CapturedStarterLearning {
             defaults: Vec::new(),
             roots: Vec::new(),
             dispositions: Vec::new(),
+            ability_dispositions: Vec::new(),
             lines: Vec::with_capacity(lines.len()),
             infos: Vec::new(),
             tiers: Vec::new(),
@@ -380,11 +386,106 @@ impl CapturedStarterLearning {
             }
             out.roots.push(row.spell);
         }
-        for row in abilities.values() {
-            if !lines.contains_key(&row[1]) {
-                return Err(missing("SkillLine", row[1]));
+        let mut training = BTreeMap::new();
+        if let Rows::Complete(rows) = &self.skill_training {
+            if rows.len() > MAX_ABILITIES {
+                return Err(InitError::Invalid("skill training probe limit"));
             }
+            for &(id, mapping) in rows {
+                if id == 0 || training.insert(id, mapping).is_some() {
+                    return Err(InitError::Invalid("skill training probe IDs"));
+                }
+            }
+        }
+        let mut skill_steps = BTreeMap::<u32, u16>::new();
+        for skill in skills {
+            if (skill.race_mask == 0 || skill.race_mask & 1 != 0)
+                && (skill.class_mask == 0 || skill.class_mask & 128 != 0)
+            {
+                let step = skill_steps.entry(skill.skill).or_default();
+                *step = (*step).max(skill.step as u16);
+            }
+        }
+        for numeric in numeric {
+            for words in [&numeric.client_words, &numeric.effective_words] {
+                for slot in 0..3 {
+                    if matches!(words[61 + slot], 44 | 118) && (words[106 + slot] as i32) > 0 {
+                        let step = skill_steps.entry(words[106 + slot]).or_default();
+                        *step = (*step).max(words[76 + slot].wrapping_add(1) as u16);
+                    }
+                }
+            }
+        }
+        for row in abilities.values() {
+            let line = lines.get(&row[1]).ok_or(missing("SkillLine", row[1]))?;
+            let step = skill_steps.get(&row[1]).copied().unwrap_or(0);
+            let disposition = if row[3] != 0 && row[3] & 1 == 0 || row[4] != 0 && row[4] & 128 == 0
+            {
+                "unmatched_masks"
+            } else if row[9] == 0 {
+                let mapping = if let Some(numeric) = numerics.get(&row[2]) {
+                    let mut mapping = None;
+                    for slot in 0..3 {
+                        let w = &numeric.effective_words;
+                        if w[61 + slot] == 118
+                            && w[106 + slot] != 0
+                            && w[76 + slot].wrapping_add(1) != 0
+                        {
+                            mapping =
+                                Some((w[106 + slot] as u16, w[76 + slot].wrapping_add(1) as u16));
+                            break;
+                        }
+                    }
+                    mapping
+                } else {
+                    *training
+                        .get(&row[2])
+                        .ok_or(missing("SQL skill training probe", row[2]))?
+                };
+                if mapping.is_some_and(|(skill, previous_step)| {
+                    u32::from(skill) == row[1] && previous_step < step
+                }) {
+                    "profession_repair"
+                } else {
+                    "acquire_method_excluded"
+                }
+            } else {
+                let value = match line[1] {
+                    10 => 300,
+                    6 if row[1] != 473 => 1,
+                    _ if matches!(row[1], 40 | 633) => 1,
+                    6 | 7 | 8 | 9 | 11 => infos
+                        .values()
+                        .find(|info| info[1] == row[1] && info[2] & 1 != 0 && info[3] & 128 != 0)
+                        .map_or(65535, |info| {
+                            if info[4] & 0x10 == 0 {
+                                1
+                            } else if info[6] == 0 {
+                                5
+                            } else {
+                                let step = usize::from(step.max(1));
+                                tiers
+                                    .get(&info[6])
+                                    .filter(|_| step <= 16)
+                                    .map_or(65535, |tier| tier[16 + step] & 0xffff)
+                            }
+                        }),
+                    _ => 65535,
+                };
+                if row[7] > value {
+                    "minimum_value_excluded"
+                } else {
+                    "auto_training"
+                }
+            };
+            out.ability_dispositions.push((row[0], disposition));
             if !selected.contains(&row[2]) {
+                if matches!(
+                    disposition,
+                    "unmatched_masks" | "acquire_method_excluded" | "minimum_value_excluded"
+                ) {
+                    continue;
+                }
                 return Err(missing("selected ability spell numeric", row[2]));
             }
             out.abilities.push(SkillAbilityRow {
@@ -678,6 +779,9 @@ impl CompiledStarterLearning {
     }
     pub fn skill_dispositions(&self) -> &[SkillLoaderDisposition] {
         &self.dispositions
+    }
+    pub fn ability_dispositions(&self) -> &[(u32, &'static str)] {
+        &self.ability_dispositions
     }
     pub fn rank(&self, spell: u32) -> Option<&CapturedSpellChain> {
         self.ranks.get(&spell)

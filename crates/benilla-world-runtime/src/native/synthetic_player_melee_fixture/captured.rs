@@ -58,6 +58,7 @@ pub(super) fn starter(input: StarterInput) -> StarterInput {
     let capture = CapturedStarterLearning {
         source_identity: [71; 32],
         selected_spell_ids: input.spells.iter().map(|row| row.id).collect(),
+        skill_training: Rows::Complete(vec![]),
         creation_skills: Rows::Complete(
             defaults
                 .iter()

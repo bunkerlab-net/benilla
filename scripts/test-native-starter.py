@@ -18,7 +18,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from classic_export.capture import capture
+from classic_export.capture import capture, validate_bundle
 from classic_export.core import CORE_REVISION, ExportError, canonical, decode_json, digest
 from native_starter.compiler import (Request, SPELL_FIELDS, FLOAT_SPELL_FIELDS, compile_starter,
                                      outfit_quantity, verify_preparation)
@@ -677,6 +677,76 @@ class CompilerTests(unittest.TestCase):
 class LearningClosureTests(unittest.TestCase):
     setUp = CompilerTests.setUp
     compile = CompilerTests.compile
+
+    def test_shared_python_rust_ability_filter_cases(self):
+        from native_starter.compiler import Compiler
+        from native_starter.learning import discover
+        from classic_export import skill_training
+        cases = decode_json((ROOT/"native_starter"/"ability_filter_cases.json").read_bytes(), 65536)["cases"]
+        for case in cases:
+            with self.subTest(case=case["name"]):
+                self.files["SkillLine"] = dbc_bytes("SkillLine", [{0: 8, 1: 8}])
+                self.files["SkillRaceClassInfo"] = dbc_bytes("SkillRaceClassInfo", [
+                    {0: 10, 1: 8, 2: 1, 3: 128, 4: 16}])
+                self.files["SkillLineAbility"] = dbc_bytes("SkillLineAbility", [{
+                    0: 31, 1: 8, 2: 90001, 3: case["race_mask"], 4: case["class_mask"],
+                    7: case["minimum"], 9: case["acquire"]}])
+                self.source["tables"]["playercreateinfo_skills"] = [
+                    {"skill": 8, "step": 0, "raceMask": 0, "classMask": 0}]
+                dbcs = parsed(self.files)
+                hashes = {name: table.sha256 for name, table in sorted(dbcs.items())}
+                self.source["skill_training_capture"] = skill_training.evidence(self.source, [90001], [], hashes)
+                closure = discover(Compiler(self.source, dbcs, Request(1, 8, 0)))
+                self.assertEqual(90001 in closure["spell_ids"], case["included"])
+                self.assertEqual(closure["ability_dispositions"], [
+                    {"row_id": 31, "disposition": case["disposition"]}])
+                self.source["skill_training_capture"] = skill_training.evidence(self.source, [90001, 90002], [], hashes)
+                compiler = Compiler(self.source, dbcs, Request(1, 8, 0))
+                discover(compiler)
+                self.assertIn("player.learning_training_probe_scope_mismatch",
+                              {issue["reason"] for issue in compiler.issues})
+
+    def test_training_capture_preserves_effective_sql_and_exact_hashes(self):
+        from classic_export import skill_training
+        row = {"Id": 90001, **{f"{field}{slot}": 0 for slot in range(1, 4)
+                                for field in ("Effect", "EffectMiscValue", "EffectBasePoints")}}
+        row.update(Effect1=44, EffectMiscValue1=8, EffectBasePoints1=7,
+                   Effect2=118, EffectMiscValue2=8, EffectBasePoints2=0,
+                   Effect3=118, EffectMiscValue3=9, EffectBasePoints3=2)
+        self.assertEqual(skill_training.training(row), (8, 1))
+        hashes = {name: table.sha256 for name, table in sorted(parsed(self.files).items())}
+        self.source["skill_training_capture"] = skill_training.evidence(self.source, [90001], [row], hashes)
+        validate_bundle(self.source)
+        self.source["skill_training_capture"]["rows"][0]["EffectMiscValue2"] = 9
+        with self.assertRaisesRegex(ExportError, "coverage_mismatch"):
+            validate_bundle(self.source)
+
+    def test_repair_uses_reached_client_basepoints_not_effect_mechanics(self):
+        from classic_export import skill_training
+        from native_starter.compiler import Compiler
+        from native_starter.learning import discover
+        self.source["tables"]["playercreateinfo_skills"] = [
+            {"skill": 8, "step": 0, "raceMask": 0, "classMask": 0}]
+        self.files["SkillLine"] = dbc_bytes("SkillLine", [{0: 8, 1: 8}])
+        self.files["SkillRaceClassInfo"] = dbc_bytes("SkillRaceClassInfo", [
+            {0: 10, 1: 8, 2: 1, 3: 128, 4: 16}])
+        self.files["SkillLineAbility"] = dbc_bytes("SkillLineAbility", [{0: 31, 1: 8, 2: 90001}])
+        spell_rows = [{i: word for i, word in enumerate(r.words)}
+                      for r in parsed(self.files)["Spell"].rows]
+        spell_rows[0].update({61: 44, 106: 8, 76: 7, 79: 0})
+        self.files["Spell"] = dbc_bytes("Spell", spell_rows)
+        row = {"Id": 90001, **{f"{field}{slot}": 0 for slot in range(1, 4)
+                                for field in ("Effect", "EffectMiscValue", "EffectBasePoints")}}
+        row.update(Effect1=118, EffectMiscValue1=8, EffectBasePoints1=4,
+                   Effect2=44, EffectMiscValue2=9, EffectBasePoints2=2)
+        dbcs = parsed(self.files)
+        hashes = {name: table.sha256 for name, table in sorted(dbcs.items())}
+        self.source["skill_training_capture"] = skill_training.evidence(self.source, [90001], [row], hashes)
+        closure = discover(Compiler(self.source, dbcs, Request(1, 8, 0)))
+        self.assertIn(90001, closure["spell_ids"])
+        self.assertIn(9, closure["skill_ids"])
+        self.assertEqual(closure["ability_dispositions"], [{"row_id": 31, "disposition": "profession_repair"}])
+
     def test_recursive_missing_sql_spells_still_expand_local_skill_effects(self):
         ability = []
         skill_rows = [{0: 60001}, {0: 60002}]
@@ -704,15 +774,17 @@ class LearningClosureTests(unittest.TestCase):
         self.assertEqual(result["dependency_request"]["spell_ids"], closure["spell_ids"])
         self.assertTrue(any(e["role"] == "skill_step" and e["slot"] == 3 for e in closure["edges"]))
 
-    def test_zero_auto_learn_ability_and_spell_to_skill_reverse_edge_are_retained(self):
+    def test_reverse_spell_metadata_does_not_train_zero_acquire_siblings(self):
         self.files["SkillLineAbility"] = dbc_bytes("SkillLineAbility", [
             {0: 830002, 1: 60003, 2: 930101, 9: 0},
             {0: 830001, 1: 60003, 2: 50001, 3: 0xffffffff, 4: 0xffffffff, 9: 0, 8: 50002}])
         result = self.compile()
         closure = result["player"]["skills"]["dependency_closure"]
         self.assertIn(60003, closure["skill_ids"])
-        self.assertTrue({50001, 50002} <= set(closure["spell_ids"]))
-        self.assertEqual([r["key"][0] for r in closure["ability_candidates"]], [830001, 830002])
+        self.assertFalse({50001, 50002} & set(closure["spell_ids"]))
+        self.assertEqual([r["key"][0] for r in closure["ability_candidates"]], [830002])
+        self.assertIn({"row_id": 830001, "disposition": "repair_source_unknown"},
+                      closure["ability_dispositions"])
         self.assertTrue(any(r["table"] == "SkillLine" and r["id"] == 60003
                             for r in result["required_additional_rows"]))
 
@@ -779,7 +851,7 @@ class LearningClosureTests(unittest.TestCase):
         rows = [{i: w for i, w in enumerate(r.words)} for r in parsed(self.files)["Spell"].rows]
         rows += [{0: 50001, 61: 36, 109: 50002}, {0: 50002, 62: 36, 110: 50001}]
         self.files["Spell"] = dbc_bytes("Spell", rows)
-        self.files["SkillLineAbility"] = dbc_bytes("SkillLineAbility", [{0: 830001, 1: 60001, 2: 50001}])
+        self.files["SkillLineAbility"] = dbc_bytes("SkillLineAbility", [{0: 830001, 1: 60001, 2: 50001, 9: 2}])
         result = self.compile()
         issues = [i for i in result["unsupported"] if i["reason"] == "player.learning_spell_cycle"]
         self.assertEqual(len(issues), 1)

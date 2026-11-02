@@ -80,6 +80,7 @@ fn captured(
     init::CapturedStarterLearning {
         source_identity,
         selected_spell_ids: input.spells.iter().map(|r| r.id).collect(),
+        skill_training: init::Rows::Complete(vec![]),
         creation_skills: init::Rows::Complete(
             skills
                 .iter()

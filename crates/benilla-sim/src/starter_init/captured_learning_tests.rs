@@ -50,6 +50,7 @@ fn fixture() -> CapturedStarterLearning {
     CapturedStarterLearning {
         source_identity: [17; 32],
         selected_spell_ids: vec![133, 6603],
+        skill_training: Rows::Complete(vec![]),
         creation_skills: Rows::Complete(vec![
             CreationSkill {
                 race_mask: 0,
@@ -136,6 +137,67 @@ fn add_spell(c: &mut CapturedStarterLearning, row: LearningSpellNumeric) {
     if let Rows::Complete(rows) = &mut c.numeric {
         rows.push(row);
     }
+}
+
+#[test]
+fn shared_python_rust_ability_filter_cases() {
+    let fixture_json: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../scripts/native_starter/ability_filter_cases.json"
+    ))
+    .unwrap();
+    for case in fixture_json["cases"].as_array().unwrap() {
+        let mut c = fixture();
+        let mut row = ability(31, 8, 90001);
+        row[3] = case["race_mask"].as_u64().unwrap() as u32;
+        row[4] = case["class_mask"].as_u64().unwrap() as u32;
+        row[7] = case["minimum"].as_u64().unwrap() as u32;
+        row[9] = case["acquire"].as_u64().unwrap() as u32;
+        c.skill_abilities = Rows::Complete(vec![row]);
+        c.skill_training = Rows::Complete(vec![(90001, None)]);
+        let included = case["included"].as_bool().unwrap();
+        if included {
+            add_spell(&mut c, numeric(90001));
+        }
+        let plan = c.compile(1, 8).unwrap();
+        assert_eq!(
+            plan.ability_dispositions(),
+            &[(31, case["disposition"].as_str().unwrap())]
+        );
+        assert_eq!(
+            plan.abilities.iter().any(|row| row.spell == 90001),
+            included
+        );
+    }
+}
+
+#[test]
+fn missing_sql_repair_probe_cannot_be_inferred_from_client_absence() {
+    let mut c = fixture();
+    let mut row = ability(31, 8, 90001);
+    row[9] = 0;
+    c.skill_abilities = Rows::Complete(vec![row]);
+    assert_eq!(
+        c.compile(1, 8),
+        Err(missing("SQL skill training probe", 90001))
+    );
+}
+
+#[test]
+fn repair_and_reached_skill_steps_read_basepoints_not_mechanics() {
+    let mut c = fixture();
+    if let Rows::Complete(rows) = &mut c.skill_abilities {
+        rows[0][9] = 0;
+    }
+    if let Rows::Complete(rows) = &mut c.numeric {
+        rows[0].effective_words[61] = 118;
+        rows[0].effective_words[106] = 8;
+        rows[0].effective_words[76] = 4;
+        rows[1].effective_words[61] = 44;
+        rows[1].effective_words[106] = 8;
+        rows[1].effective_words[76] = 7;
+    }
+    let plan = c.compile(1, 8).unwrap();
+    assert_eq!(plan.ability_dispositions(), &[(30, "profession_repair")]);
 }
 
 #[test]

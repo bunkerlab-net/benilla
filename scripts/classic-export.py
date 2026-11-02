@@ -53,12 +53,18 @@ def main() -> int:
         return 2
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ["inspect", "capture"]:
+    for name in ["inspect", "capture", "skill-training"]:
         cmd = sub.add_parser(name)
         cmd.add_argument("--database", required=True)
         cmd.add_argument("--user", required=True, help="existing SELECT-only account; never created here")
         cmd.add_argument("--port", type=int, default=3306, help="127.0.0.1 only")
         cmd.add_argument("--output", type=Path, required=True, help="new private local file, preferably under benilla-config")
+        if name == "skill-training":
+            cmd.add_argument("--source", type=Path, required=True)
+            cmd.add_argument("--dbc-dir", type=Path, required=True)
+            cmd.add_argument("--gender", type=int, required=True)
+            cmd.add_argument("--quiescent-snapshot", action="store_true",
+                             help="operator confirms this database has remained unchanged since source capture")
         if name == "capture":
             cmd.add_argument("--selection", type=Path, required=True)
             cmd.add_argument("--dependency-request", type=Path, help="bounded native preparation recapture request")
@@ -119,10 +125,23 @@ def main() -> int:
             from classic_export.driver import LocalSqlSource
             source = LocalSqlSource(args.database, args.user, args.port)
             try:
-                output = source.inspect() if args.command == "inspect" else capture(source, selection, args.quiescent_snapshot,
-                    dependency_request, capture_initial_hooks=args.initial_hooks, capture_body_loot=args.body_loot,
-                    capture_spell_numeric=args.spell_numeric, capture_quest_presentation=args.quest_presentation,
-                    capture_quest_relationships=args.quest_presentation)
+                if args.command == "skill-training":
+                    from classic_export import skill_training
+                    from native_starter.compiler import Request
+                    from native_starter.dbc import load_directory, load_extraction_manifest, read_regular
+                    bundle = decode_json(read_regular(args.source, MAX_BUNDLE_BYTES), MAX_BUNDLE_BYTES)
+                    dbcs, errors = load_directory(args.dbc_dir)
+                    check(not errors, "skill_training.dbc_errors")
+                    load_extraction_manifest(args.dbc_dir, dbcs)
+                    starter = bundle["selection"]["starter"]
+                    request = Request.parse({"race": starter["race"], "class": starter["class"],
+                                             "gender": args.gender})
+                    output = skill_training.recapture(source, bundle, dbcs, request, args.quiescent_snapshot)
+                else:
+                    output = source.inspect() if args.command == "inspect" else capture(source, selection, args.quiescent_snapshot,
+                        dependency_request, capture_initial_hooks=args.initial_hooks, capture_body_loot=args.body_loot,
+                        capture_spell_numeric=args.spell_numeric, capture_quest_presentation=args.quest_presentation,
+                        capture_quest_relationships=args.quest_presentation)
             finally:
                 source.close()
         write_new(args.output, output)

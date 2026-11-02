@@ -9,6 +9,7 @@ from collections import defaultdict
 from typing import Any
 
 from classic_export import learning as server_learning
+from classic_export import skill_training
 from classic_export.core import MAX_ITEMS, MAX_SPELLS, check, digest, integer
 from .dbc import signed
 
@@ -21,8 +22,8 @@ MAX_DBC_REFERENCES = 16_384
 def discover(c) -> dict[str, Any]:
     """Close skill <-> ability <-> spell effects, items and captured SQL links.
 
-    This deliberately keeps rows with unmatched masks/zero learnOnGetSkill: the
-    native initializer, not capture, resolves obtainability and profession repair.
+    Skill traversal follows Player::UpdateSkillTrainedSpells; spell traversal
+    retains the separate SpellMgr rank/skill metadata lookup.
     All indexes are built once; each distinct node and ability row is visited once.
     """
     sql_spells = {r["Id"]: r for r in c.tables["spell_template"]}
@@ -34,6 +35,59 @@ def discover(c) -> dict[str, Any]:
     learn_edges: set[tuple[int, int]] = set()
     rank_edges: set[tuple[int, int]] = set()
     dbc_references: set[tuple[str, int]] = set()
+    ability_dispositions = {}
+    race_mask = 1 << (c.request.race - 1)
+    class_mask = 1 << (c.request.class_id - 1)
+    probes = c.source.get("skill_training_capture")
+    probe_rows = {r["Id"]: r for r in probes["rows"]} if probes else {}
+    probe_ids = set(probes["spell_ids"]) if probes else set()
+    required_probes = set()
+    skill_steps = {}
+    for r in c.tables["playercreateinfo_skills"]:
+        if (not r["raceMask"] or r["raceMask"] & race_mask) and (not r["classMask"] or r["classMask"] & class_mask):
+            skill_steps[r["skill"]] = max(skill_steps.get(r["skill"], 0), r["step"])
+    if probes:
+        check(probes["dbc_sha256"] == {name: t.sha256 for name, t in sorted(c.dbcs.items())},
+              "skill_training.dbc_binding")
+
+    def training_disposition(row):
+        w = row.words
+        required_probes.add(w[2])
+        check(len(required_probes) <= MAX_ABILITY_ROWS, "learning.ability_row_limit")
+        current_step = skill_steps.get(w[1], 0)
+        if w[3] and not w[3] & race_mask or w[4] and not w[4] & class_mask:
+            return "unmatched_masks"
+        if not w[9]:
+            spell = sql_spells.get(w[2], probe_rows.get(w[2]))
+            if spell is None and w[2] not in probe_ids:
+                return "repair_source_unknown"
+            trained = skill_training.training(spell) if spell else None
+            return ("profession_repair" if trained is not None and trained[0] == w[1]
+                    and trained[1] < current_step else "acquire_method_excluded")
+        line = c.dbcs.get("SkillLine")
+        line = line.by_id.get(w[1]) if line else None
+        # Unknown skill state is retained, never treated as proof of exclusion.
+        value = 65535
+        if line:
+            category = line.words[1]
+            if category == 10:
+                value = 300
+            elif category == 6 and w[1] != 473 or w[1] in {40, 633}:
+                value = 1
+            elif category in {6, 7, 8, 9, 11}:
+                info = next((r for r in info_by_skill[w[1]]
+                             if r.words[2] & race_mask and r.words[3] & class_mask), None)
+                if info:
+                    value = 1
+                    if info.words[4] & 0x10:
+                        if not info.words[6]:
+                            value = 5
+                        else:
+                            table = c.dbcs.get("SkillTiers")
+                            tier = table.by_id.get(info.words[6]) if table else None
+                            step = current_step or 1
+                            value = tier.words[16 + step] & 0xffff if tier and step <= 16 else 65535
+        return "minimum_value_excluded" if w[7] > value else "auto_training"
 
     def lookup(table, entry, columns):
         dbc_references.add((table, entry))
@@ -97,12 +151,16 @@ def discover(c) -> dict[str, Any]:
             add("skill", row["RequiredSkill"], "quest_template", row["entry"], "quest_required_skill")
 
     def spell_effects(entry, effects, origin):
-        for slot, effect, misc, trigger in effects:
+        for slot, effect, misc, trigger, step in effects:
             # 44 SkillStep and 118 Skill name a skill in EffectMiscValue; a
             # nonzero misc on any other effect is not a skill reference.
             if effect in {44, 118}:
                 if misc > 0:
                     add("skill", misc, origin, entry, "skill_step" if effect == 44 else "skill", slot)
+                    step &= 0xffff
+                    if step > skill_steps.get(misc, 0):
+                        skill_steps[misc] = step
+                        pending.append(("skill", misc))
                 else:
                     c.issue("spell_template", [entry], "player.learning_skill_effect_invalid", slot=slot,
                             effect_id=effect, raw_misc=misc, source=origin)
@@ -121,14 +179,29 @@ def discover(c) -> dict[str, Any]:
                 if row.words[6]:
                     lookup("SkillTiers", row.words[6], set(range(33)))
             for row in by_skill[entry]:
-                ability(row)
+                c.use(row, set(range(15)))
+                disposition = training_disposition(row)
+                ability_dispositions[row.key] = disposition
+                check(len(ability_dispositions) <= MAX_ABILITY_ROWS, "learning.ability_row_limit")
+                if disposition == "repair_source_unknown":
+                    c.issue("SkillLineAbility", [row.words[0]], "player.learning_repair_probe_unknown",
+                            spell_id=row.words[2])
+                elif disposition not in {"unmatched_masks", "acquire_method_excluded", "minimum_value_excluded"}:
+                    ability(row)
         elif kind == "spell":
             source = sql_spells.get(entry)
             if source is None:
                 c.need("spell_template", entry, "player.skill_candidate_spell_not_captured")
+                projection = probe_rows.get(entry)
+                if projection is not None:
+                    # Only the captured effect/misc/base-point fields are known here.
+                    spell_effects(entry, [(i, projection[f"Effect{i}"], projection[f"EffectMiscValue{i}"],
+                                           0, projection[f"EffectBasePoints{i}"] + 1)
+                                          for i in range(1, 4)], "spell_template")
             else:
                 spell_effects(entry, [(i, source[f"Effect{i}"], source[f"EffectMiscValue{i}"],
-                                       source[f"EffectTriggerSpell{i}"]) for i in range(1, 4)], "spell_template")
+                                       source[f"EffectTriggerSpell{i}"], source[f"EffectBasePoints{i}"] + 1)
+                                      for i in range(1, 4)], "spell_template")
                 for table, field in (("SpellCastTimes", "CastingTimeIndex"), ("SpellRange", "rangeIndex"),
                                      ("SpellDuration", "DurationIndex"), ("SpellCategory", "Category"),
                                      ("SpellFocusObject", "RequiresSpellFocus")):
@@ -149,7 +222,8 @@ def discover(c) -> dict[str, Any]:
                 for field in range(88, 91):
                     if row.words[field]:
                         lookup("SpellRadius", row.words[field], {0})
-                spell_effects(entry, [(i+1, row.words[61+i], signed(row.words[106+i]), row.words[109+i])
+                spell_effects(entry, [(i+1, row.words[61+i], signed(row.words[106+i]), row.words[109+i],
+                                       signed(row.words[76+i]) + 1)
                                       for i in range(3)], "Spell")
                 for item in {*row.words[40:42], *[signed(v) for v in row.words[42:50]]}:
                     if item > 0:
@@ -201,6 +275,9 @@ def discover(c) -> dict[str, Any]:
     for pairs, reason in ((learn_edges, "player.learning_spell_cycle"), (rank_edges, "player.learning_rank_cycle")):
         if has_cycle(pairs):
             c.issue("spell_template", [], reason)
+    probe_scope_matches = probes is None or probe_ids == required_probes
+    if not probe_scope_matches:
+        c.issue("SkillLineAbility", [], "player.learning_training_probe_scope_mismatch")
     sql_coverage = c.source.get("learning_capture")
     if sql_coverage is None:
         c.issue("spell_learn_spell", [], "player.server_learning_relationships_not_captured")
@@ -210,6 +287,8 @@ def discover(c) -> dict[str, Any]:
     # A fixed point is a finite discovery result; it is not evidence that missing
     # SQL rows would introduce no additional edges on the next local recapture.
     complete = (not missing_spells and not missing_items and sql_coverage is not None
+                and "repair_source_unknown" not in ability_dispositions.values()
+                and probe_scope_matches
                 and dbc_required <= set(c.dbcs)
                 and all(table in c.dbcs and entry in c.dbcs[table].by_id
                         for table, entry in dbc_references))
@@ -228,6 +307,9 @@ def discover(c) -> dict[str, Any]:
             "edges": [{"from_table": a, "from_id": b, "to_kind": d, "to_id": e, "role": f, "slot": g}
                       for a, b, d, e, f, g in sorted(edges)],
             "race_class_candidates": [selected_info[k] for k in sorted(selected_info)],
+            "training_probe_ids": sorted(required_probes),
+            "ability_dispositions": [{"row_id": key[0], "disposition": value}
+                                     for key, value in sorted(ability_dispositions.items())],
             "ability_candidates": [selected_abilities[k] for k in sorted(selected_abilities)],
             "dependency_request": {"format": server_learning.REQUEST_FORMAT,
                 "core_revision": c.source["core_revision"], "selection": c.source["selection"],
