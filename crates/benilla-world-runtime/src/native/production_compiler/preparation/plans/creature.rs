@@ -373,7 +373,7 @@ fn event_plan(source: &Value, entry: i128, scope: &Value) -> Value {
         .collect();
     json!({"policy":"cmangos-8ec338a1-aggro-text-v2","status":"supported_catalog_plan","scope":"captured_current_entry_and_selected_spawn_guids","owners":owners,"runtime_configuration":"unknown","loaded_audience":"unknown","runtime_admission":false})
 }
-pub(in super::super) fn creatures(c: &mut Compiler<'_>) -> Result<Value> {
+pub(in super::super) fn creatures(c: &mut Compiler<'_>, rules: &Value) -> Result<Value> {
     let b = c.source;
     let mut result = Vec::new();
     let models: BTreeMap<_, _> = rows(b, "creature_model_info")
@@ -504,7 +504,7 @@ pub(in super::super) fn creatures(c: &mut Compiler<'_>) -> Result<Value> {
             &displays,
         )?;
         let combat_plan =
-            super::creature_combat::plan(creature, &generation, &event, &event_plan, c.dbcs);
+            super::creature_combat::plan(creature, &generation, &event, &event_plan, c.dbcs, rules);
         c.context_issue("creature_template",json!([num(entry)]),"creature.ai_selection_and_native_melee_required",json!({"ai_name":creature["AIName"],"scripted":nonzero(&creature["ScriptName"]),"movement_type":creature["MovementType"],"unit_class":creature["UnitClass"],"refusals":combat_plan["ai_selection"]["refusals"]}));
         c.context_issue("creature_template",json!([num(entry)]),"creature.explicit_world_rules_and_aggro_context_required",json!({"required_policy":combat_plan["aggro"]["required_policy"],"required_context":combat_plan["aggro"]["required_context"]}));
         result.push(json!({"entry":num(entry),"source_row":creature,"spawns":filtered(b,"creature","id",entry),"class_level_inputs":rows(b,"creature_template_classlevelstats").iter().filter(|r|r["Class"]==creature["UnitClass"]&&(int(&creature["MinLevel"])..=int(&creature["MaxLevel"])).contains(&int(&r["Level"]))).collect::<Vec<_>>(),"model_inputs":selected_models,"display_inputs":displays,"selected_display_ids":numbers(model_ids),"event_ai_capture":event,"event_ai_plan":event_plan,"generation_plan":generation,"native_spawn_dependencies":spawn,"spawn_context_plan":selected_spawn,"combat_evidence_plan":combat_plan,"resolved_combat_stats":null,"ai_profile":null}));

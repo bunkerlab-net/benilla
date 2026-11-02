@@ -131,12 +131,15 @@ does not prove current attack readiness, target selection, facing, or combat
 callbacks. `resolved_combat_stats` remains null until runtime composition.
 
 `CallAssistance` and pull assistance use positive template `CallForHelp`, otherwise
-the configured family radius. The current runtime admits only the positive
-template branch. `CallForHelp` instead uses its argument, or template `CallForHelp`
-when that argument is nonpositive. It visits grid objects synchronously. It does
+the configured family radius. With explicit world-rules v2, the combat evidence
+plan binds `combat.family_assistance_radius_bits` and records the selected pull
+radius as binary32 bits. The selected pull host supports both branches, including
+a zero configured radius. Without explicit rules, only a positive template radius
+is supported. This does not prove traversal, hook, generation, or admission
+requirements. `CallForHelp` instead uses its argument, or template `CallForHelp`
+when that argument is nonpositive. It visits grid objects synchronously and does
 not apply the family-radius fallback. Visible-peer `CheckForHelp` uses another
-configured radius. The existing world-rules v1 schema supplies none of these
-combat settings. The progression preset cannot supply them implicitly.
+configured radius.
 
 SQL can capture templates, positions, exclusions, and row order. SQL cannot
 capture the loaded map's grid activation sequence, linked-list membership order,

@@ -7,7 +7,7 @@ Creature.cpp:555-559,2154-2227. Upstream GPL-2.0-or-later.
 """
 from __future__ import annotations
 from typing import Any
-from .dbc import signed
+from .dbc import signed, binary32_bits
 
 POLICY = "cmangos-8ec338a1-creature-combat-evidence-v1"
 REGISTERED = {"NullAI", "GuardAI", "PetAI", "TotemAI", "EventAI", "GuardianAI", "PossessedAI"}
@@ -21,7 +21,7 @@ COLD_EVIDENCE = ["source_and_configuration_identity", "map_and_grid_activation_s
 
 
 def plan(creature: dict[str, Any], generation: dict[str, Any], event_scope: Any,
-         event_plan: Any, dbcs: dict[str, Any]) -> dict[str, Any]:
+         event_plan: Any, dbcs: dict[str, Any], rules: Any) -> dict[str, Any]:
     # This is the ordinary, uncharmed, non-pet/non-totem selector branch only.
     # Script registry/control/entry overrides remain independent requirements.
     name = creature["AIName"]
@@ -62,6 +62,8 @@ def plan(creature: dict[str, Any], generation: dict[str, Any], event_scope: Any,
     if generation["status"] != "complete_inputs":
         ai_refusals.append("creature_generation_inputs_required")
     ai_refusals.append("source_melee_motion_hooks_and_current_target_context_required")
+    family_radius = rules["combat"]["family_assistance_radius_bits"] if rules is not None else None
+    template_radius = creature["CallForHelp"] > 0
     return {"policy": POLICY, "production_admission": False,
         "ai_selection": {"scope": "ordinary_uncontrolled_creature_before_external_overrides",
             "factory": factory, "branch": branch, "neutral_to_all": neutral,
@@ -85,7 +87,9 @@ def plan(creature: dict[str, Any], generation: dict[str, Any], event_scope: Any,
                                  "attackability_control_and_event_notify_state", "current_spatial_evidence"]},
         "assistance": {"call_for_help": creature["CallForHelp"],
             "pull_radius_source": "template" if creature["CallForHelp"] > 0 else "world_rules_family_radius",
-            "pull_radius_supported": creature["CallForHelp"] > 0,
+            "family_assistance_radius_bits": family_radius,
+            "pull_radius_bits": binary32_bits(str(creature["CallForHelp"])) if template_radius else family_radius,
+            "pull_radius_supported": template_radius or family_radius is not None,
             "runtime_traversal_proven": False,
             "required_context": ["ordered_current_generation_grid_and_world_traversal",
                 "complete_linking_group_instance_and_control_hooks", "current_reactions_range_and_los",

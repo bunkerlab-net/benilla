@@ -54,7 +54,7 @@ def main() -> int:
         cmd.add_argument("--dbc-dir", type=Path, required=True,
                          help="completed benilla-native-dbc output directory, including extraction.json")
         rules = cmd.add_mutually_exclusive_group()
-        rules.add_argument("--world-rules", type=Path, help="explicit NativeWorldRules v1 JSON")
+        rules.add_argument("--world-rules", type=Path, help="explicit NativeWorldRules v2 JSON")
         rules.add_argument("--world-rules-preset", choices=[PRESET])
         if command in {"prepare", "dependencies"}:
             cmd.add_argument("--race", type=int, required=True)

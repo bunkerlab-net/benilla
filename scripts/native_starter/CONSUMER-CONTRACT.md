@@ -309,3 +309,10 @@ Runtime policy binding occurs through existing consuming hosts, as specified in
 loot, or combat hosts admit only that host's inactive stock settings. Present
 hosts must agree exactly with the explicit policy. The retained combat block also
 checks hosts installed later. Combat configuration alone discharges no combat evidence.
+
+`creatures[].combat_evidence_plan.assistance.family_assistance_radius_bits`
+retains the explicit v2 family radius, or null when rules were not supplied.
+`pull_radius_bits` selects a positive template `CallForHelp` before that fallback.
+`pull_radius_supported` describes this numeric selection only, including a zero
+configured radius. It does not prove ordered current-generation traversal,
+linking/control hooks, spatial predicates, generation, or production admission.

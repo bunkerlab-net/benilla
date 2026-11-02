@@ -688,8 +688,8 @@ impl<'a> Compiler<'a> {
         }
         Ok(json!(result))
     }
-    fn creatures(&mut self) -> Result<Value> {
-        plans::creatures(self)
+    fn creatures(&mut self, rules: &Value) -> Result<Value> {
+        plans::creatures(self, rules)
     }
     fn paths(&self, spells: &Value) -> Value {
         let spell_candidates: Vec<_> = spells
@@ -1113,7 +1113,7 @@ pub(super) fn compile(
     let mut skills = json!({"sql_candidates":source["tables"]["playercreateinfo_skills"],"race_class_candidates":learning["race_class_candidates"],"ability_candidates":learning["ability_candidates"],"dependency_closure":learning,"loader_plan":loader,"effective_skills":null});
     let spells = c.spells()?;
     let talents = plans::talents(&dbcs["Talent"], &learning["spell_ids"]);
-    let creatures = c.creatures()?;
+    let creatures = c.creatures(&rules_plan["rules"])?;
     let resolved: BTreeSet<_> = creatures
         .as_array()
         .unwrap()

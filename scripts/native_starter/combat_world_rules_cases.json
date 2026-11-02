@@ -1142,6 +1142,82 @@
                 "Strength": 0
               }
             ],
+            "combat_evidence_plan": {
+              "aggro": {
+                "detection_range": 0,
+                "level_interval": [
+                  1,
+                  1
+                ],
+                "neutral_is_not_forced_hostile": true,
+                "required_context": [
+                  "directional_faction_and_current_reputation",
+                  "detect_range_aura_closure",
+                  "attackability_control_and_event_notify_state",
+                  "current_spatial_evidence"
+                ],
+                "required_policy": [
+                  "aggro_rate_binary32",
+                  "initial_and_relocation_aggro_delay_ms",
+                  "aggro_help_delay_ms",
+                  "family_assistance_radius_binary32",
+                  "family_assistance_delay_ms",
+                  "check_for_help_radius_binary32",
+                  "leash_and_melee_policy"
+                ],
+                "runtime_consumer": "creature_ai::attack_distance_and_source_combat_authority"
+              },
+              "ai_selection": {
+                "branch": "highest_permit",
+                "can_enter_combat_from_static_flags": true,
+                "event_ai_permit": 100,
+                "event_rows_supported": true,
+                "factory": "EventAI",
+                "initial_reaction": "Aggressive",
+                "neutral_to_all": true,
+                "refusals": [
+                  "effective_script_registry_control_and_spawn_selection_required",
+                  "creature_generation_inputs_required",
+                  "source_melee_motion_hooks_and_current_target_context_required"
+                ],
+                "scope": "ordinary_uncontrolled_creature_before_external_overrides"
+              },
+              "assistance": {
+                "call_for_help": 0,
+                "family_assistance_radius_bits": 0,
+                "pull_radius_bits": 0,
+                "pull_radius_source": "world_rules_family_radius",
+                "pull_radius_supported": true,
+                "required_context": [
+                  "ordered_current_generation_grid_and_world_traversal",
+                  "complete_linking_group_instance_and_control_hooks",
+                  "current_reactions_range_and_los",
+                  "nonempty_delayed_dispatch_not_supported",
+                  "direct_call_for_help_not_supported"
+                ],
+                "runtime_traversal_proven": false
+              },
+              "cold_loader": {
+                "required_evidence": [
+                  "source_and_configuration_identity",
+                  "map_and_grid_activation_sequence",
+                  "persistent_spawn_state",
+                  "ordered_cell_grid_and_world_membership",
+                  "cold_entry_and_consecutive_update_order",
+                  "shared_rng_draw_schedule"
+                ],
+                "sql_order_is_runtime_order": false
+              },
+              "melee": {
+                "base_attack_time_ms": 2000,
+                "damage_school": 0,
+                "generation_inputs_complete": false,
+                "resolved_combat_stats": null,
+                "runtime_consumer": "existing_creature_generation_and_native_mainhand"
+              },
+              "policy": "cmangos-8ec338a1-creature-combat-evidence-v1",
+              "production_admission": false
+            },
             "display_inputs": [
               {
                 "extended_display_info_id": 0,
@@ -4731,7 +4807,7 @@
             ]
           }
         },
-        "preparation_sha256": "d4604b6decc686832f746529cd3257ced341574d3977837928100838a7ac4f9e",
+        "preparation_sha256": "626ce1ef43fa6dd9d79a411cf4843762024d1450658031b87e190a18d54ad61d",
         "quest_giver_presentation_plan": {
           "adapter": "quest_lifecycle::CapturedOrdinaryQuests + captured_quests::CapturedQuestPresentation",
           "input_bindings": null,
@@ -6358,6 +6434,7 @@
         "source_sha256": "3485635bdfb1b9d70ccf821809fa011f961abca786962dc58f16148623d801a3",
         "spawn_context_capture": null,
         "spawn_context_obligations": [],
+        "spell_execution_obligations": [],
         "spell_numeric_capture": null,
         "spell_script_capture": {
           "filter": "all_matching_rows_no_loader_filters",
@@ -6476,6 +6553,16 @@
                 "EffectTriggerSpell": 0
               }
             ],
+            "execution_plan": {
+              "adapter": "captured_initial_spell_existing_phase_handlers_v1",
+              "classification": "out_of_scope",
+              "effective_learning_proven": false,
+              "refusals": [
+                "spell_execution.handler_not_implemented"
+              ],
+              "runtime_export": null,
+              "status": "blocked"
+            },
             "fireball_plan": null,
             "id": 930001,
             "initial_hooks": null,
@@ -6910,6 +6997,16 @@
                 "EffectTriggerSpell": 0
               }
             ],
+            "execution_plan": {
+              "adapter": "captured_initial_spell_existing_phase_handlers_v1",
+              "classification": "out_of_scope",
+              "effective_learning_proven": false,
+              "refusals": [
+                "spell_execution.handler_not_implemented"
+              ],
+              "runtime_export": null,
+              "status": "blocked"
+            },
             "fireball_plan": null,
             "id": 930101,
             "initial_hooks": null,
@@ -7344,6 +7441,16 @@
                 "EffectTriggerSpell": 0
               }
             ],
+            "execution_plan": {
+              "adapter": "captured_initial_spell_existing_phase_handlers_v1",
+              "classification": "out_of_scope",
+              "effective_learning_proven": false,
+              "refusals": [
+                "spell_execution.handler_not_implemented"
+              ],
+              "runtime_export": null,
+              "status": "blocked"
+            },
             "fireball_plan": null,
             "id": 930102,
             "initial_hooks": null,
@@ -7710,6 +7817,11 @@
             ],
             "movement_type": 0,
             "reason": "creature.ai_selection_and_native_melee_required",
+            "refusals": [
+              "effective_script_registry_control_and_spawn_selection_required",
+              "creature_generation_inputs_required",
+              "source_melee_motion_hooks_and_current_target_context_required"
+            ],
             "scripted": false,
             "table": "creature_template",
             "unit_class": 1
@@ -7947,6 +8059,21 @@
               900001
             ],
             "reason": "creature.explicit_world_rules_and_aggro_context_required",
+            "required_context": [
+              "directional_faction_and_current_reputation",
+              "detect_range_aura_closure",
+              "attackability_control_and_event_notify_state",
+              "current_spatial_evidence"
+            ],
+            "required_policy": [
+              "aggro_rate_binary32",
+              "initial_and_relocation_aggro_delay_ms",
+              "aggro_help_delay_ms",
+              "family_assistance_radius_binary32",
+              "family_assistance_delay_ms",
+              "check_for_help_radius_binary32",
+              "leash_and_melee_policy"
+            ],
             "table": "creature_template"
           },
           {

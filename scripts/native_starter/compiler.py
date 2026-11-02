@@ -581,7 +581,7 @@ class Compiler:
             bound["execution_plan"] = spell_execution.supported_plan(self.source, bound)
         return result
 
-    def creature_inputs(self) -> list[dict[str, Any]]:
+    def creature_inputs(self, rules: Any) -> list[dict[str, Any]]:
         result = []
         self.creature_generation_plans = {}
         self.spawn_plans = {}
@@ -626,7 +626,7 @@ class Compiler:
                 [r for r in self.tables["creature_model_info"] if r["modelid"] in model_ids],
                 display_inputs)
             self.creature_generation_plans[entry] = generation_plan
-            combat_plan = creature_combat_plan.plan(creature, generation_plan, event_scope, event_plan, self.dbcs)
+            combat_plan = creature_combat_plan.plan(creature, generation_plan, event_scope, event_plan, self.dbcs, rules)
             result.append({"entry": entry, "source_row": creature,
                 "spawns": [r for r in self.tables["creature"] if r["id"] == entry],
                 "class_level_inputs": [r for r in self.tables["creature_template_classlevelstats"]
@@ -782,7 +782,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
     skills = c.skills()
     spells = c.spells()
     talents = talent_inputs(dbcs.get("Talent"), set(c.learning["spell_ids"]))
-    creatures = c.creature_inputs()
+    creatures = c.creature_inputs(rules_plan["rules"])
     resolved_creatures = {str(row["entry"]) for row in creatures
                           if row["generation_plan"]["status"] == "complete_inputs"}
 

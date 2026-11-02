@@ -2326,10 +2326,10 @@ class CreatureCombatEvidenceTests(unittest.TestCase):
         self.creature.update(AIName="", ScriptName="", ExtraFlags=0,
                              StaticFlags1=0, StaticFlags2=0, StaticFlags3=0, StaticFlags4=0)
 
-    def plan(self, event_scope=None, event_plan=None):
+    def plan(self, event_scope=None, event_plan=None, rules=None):
         from native_starter.creature_combat_plan import plan
         return plan(self.creature, {"status": "complete_inputs"},
-                    event_scope, event_plan, self.dbcs)
+                    event_scope, event_plan, self.dbcs, rules)
 
     def test_pinned_registry_uses_event_ai_for_ordinary_reactive_and_proactive(self):
         selected = self.plan()["ai_selection"]
@@ -2362,8 +2362,21 @@ class CreatureCombatEvidenceTests(unittest.TestCase):
         self.creature["CallForHelp"] = 0
         self.assertEqual(self.plan()["assistance"]["pull_radius_source"], "world_rules_family_radius")
         self.assertFalse(self.plan()["assistance"]["pull_radius_supported"])
+        from native_starter.world_rules import stock_preset
+        rules = stock_preset()
+        rules["combat"]["family_assistance_radius_bits"] = 0x41200000
+        assistance = self.plan(rules=rules)["assistance"]
+        self.assertTrue(assistance["pull_radius_supported"])
+        self.assertEqual(assistance["family_assistance_radius_bits"], 0x41200000)
+        self.assertEqual(assistance["pull_radius_bits"], 0x41200000)
+        self.assertFalse(self.plan(rules=rules)["production_admission"])
+        self.assertFalse(assistance["runtime_traversal_proven"])
+        rules["combat"]["family_assistance_radius_bits"] = 0
+        self.assertEqual(self.plan(rules=rules)["assistance"]["pull_radius_bits"], 0)
+        self.assertTrue(self.plan(rules=rules)["assistance"]["pull_radius_supported"])
         self.creature["CallForHelp"] = 5
         self.assertTrue(self.plan()["assistance"]["pull_radius_supported"])
+        self.assertEqual(self.plan(rules=rules)["assistance"]["pull_radius_bits"], 0x40a00000)
         self.creature["StaticFlags2"] = 0x4000000
         self.assertEqual(self.plan()["ai_selection"]["initial_reaction"], "Defensive")
         self.assertIn("combat_authority_static_flags_unsupported",

@@ -29,6 +29,7 @@ pub(super) fn plan(
     event_scope: &Value,
     event_plan: &Value,
     dbcs: &BTreeMap<String, dbc::Table>,
+    rules: &Value,
 ) -> Value {
     let name = creature["AIName"].as_str().unwrap();
     // Only the ordinary uncharmed non-pet/non-totem branch is inferred here.
@@ -114,6 +115,13 @@ pub(super) fn plan(
     } else {
         neutral.map(|_| 200)
     };
+    let family_radius = &rules["combat"]["family_assistance_radius_bits"];
+    let template_radius = int(&creature["CallForHelp"]) > 0;
+    let pull_radius = if template_radius {
+        json!((int(&creature["CallForHelp"]) as f32).to_bits())
+    } else {
+        family_radius.clone()
+    };
     json!({"policy":"cmangos-8ec338a1-creature-combat-evidence-v1","production_admission":false,
         "ai_selection":{"scope":"ordinary_uncontrolled_creature_before_external_overrides",
             "factory":factory,"branch":branch,"neutral_to_all":neutral,"event_ai_permit":permit,
@@ -130,7 +138,8 @@ pub(super) fn plan(
                 "attackability_control_and_event_notify_state","current_spatial_evidence"]},
         "assistance":{"call_for_help":creature["CallForHelp"],
             "pull_radius_source":if int(&creature["CallForHelp"]) > 0 {"template"} else {"world_rules_family_radius"},
-            "pull_radius_supported":int(&creature["CallForHelp"]) > 0,"runtime_traversal_proven":false,
+            "family_assistance_radius_bits":family_radius,"pull_radius_bits":pull_radius,
+            "pull_radius_supported":template_radius || !family_radius.is_null(),"runtime_traversal_proven":false,
             "required_context":["ordered_current_generation_grid_and_world_traversal",
                 "complete_linking_group_instance_and_control_hooks","current_reactions_range_and_los",
                 "nonempty_delayed_dispatch_not_supported","direct_call_for_help_not_supported"]},

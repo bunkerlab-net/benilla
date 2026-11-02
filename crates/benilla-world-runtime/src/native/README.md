@@ -75,8 +75,9 @@ composes the existing death release-timer flag without overwriting that byte.
 Format60 added bounded backpack autostore with ordered detach/store receipts,
 unchanged allocation and no quest-count callbacks; carried-items policy is v12.
 The current `NATIVE_FORMAT_VERSION` also retains checked quest completion-script
-invocations and cursors. Format 83 rejects earlier native checkpoints instead of
-silently changing their script, source-item, or gossip semantics. The
+invocations and cursors. Format 83 introduced these bindings rather than
+silently changing script, source-item, or gossip semantics. Format 84 binds
+world-rules v2 combat configuration and rejects all earlier checkpoints. The
 [quest lifecycle contract](../../../benilla-sim/QUEST-LIFECYCLE.md#checked-completion-scripts-and-quest-gossip)
 describes the supported command/condition subset and precise remaining refusals.
 Format61 retained immutable genesis-origin equipment identity under equipment-v2,
