@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Authored learning and durable controller corridor, never production admission.
 use super::*;
+use benilla_sim::creature_init as creature;
 use benilla_sim::{player_progression as pg, reputation as rep, starter_init as init};
+
+macro_rules! assert_events_eq {
+    ($actual:expr, $expected:expr) => {
+        assert_eq!(format!("{:?}", $actual), format!("{:?}", $expected))
+    };
+}
 
 fn mandatory(id: u32) -> init::SpellRow {
     if id == 81 {
@@ -165,28 +172,7 @@ fn profile(order_identity: u8) -> n::Profile {
     profile_with_bound_change(order_identity, 0)
 }
 fn profile_with_bound_change(order_identity: u8, change: u8) -> n::Profile {
-    let (mut profile, mut input, mut progression) = loop_fixture::setup();
-    profile.interactions = None;
-    profile
-        .initialize_interactions(loop_fixture::interaction_rows(&profile))
-        .unwrap();
-    profile
-        .initialize_combat_authority(
-            profile
-                .npcs
-                .iter()
-                .map(|npc| n::NpcCombatAuthoritySource {
-                    entry: npc.entry,
-                    extra_flags: 0,
-                    static_flags1: 0,
-                    static_flags2: 0,
-                    static_flags3: 0,
-                    static_flags4: 0,
-                })
-                .collect(),
-        )
-        .unwrap();
-    profile.initialize_facing_authority().unwrap();
+    let (profile, mut input, mut progression) = loop_fixture::setup_with_unbound_spells();
     for id in [136, 162] {
         if let init::Rows::Complete(rows) = &mut input.default_skills {
             rows.push(init::DefaultSkill { id, step: 0 });
@@ -374,8 +360,22 @@ fn profile_with_bound_change(order_identity: u8, change: u8) -> n::Profile {
         },
     )
     .unwrap();
+    let mut scene = profile;
+    let mut profile = n::synthetic_fixture::profile();
+    profile.content_digest = scene.content_digest;
+    profile.authority_policy = scene.authority_policy;
+    profile.geometry_revision = scene.geometry_revision;
+    profile.tick_ms = scene.tick_ms;
+    profile.clock_origin_ms = scene.clock_origin_ms;
+    profile.map_id = scene.map_id;
+    profile.player = scene.player.clone();
+    profile.abilities = std::mem::take(&mut scene.abilities);
+    profile.npcs = std::mem::take(&mut scene.npcs);
     profile
         .initialize_player_prepared(&input, &prepared, n::synthetic_fixture::float(100.0), 1)
+        .unwrap();
+    profile
+        .initialize_initial_cast_source(&input, source)
         .unwrap();
     progression.skills = prepared
         .first_entry()
@@ -396,8 +396,13 @@ fn profile_with_bound_change(order_identity: u8, change: u8) -> n::Profile {
     progression.levels = pg::Catalog::new(
         1,
         8,
-        progression.levels.rules(),
-        (1..=60)
+        pg::Rules::from_classic_config(
+            10,
+            progression.levels.rules().always_max_skill_for_level,
+            progression.levels.rules().talent_rate_bits,
+        )
+        .unwrap(),
+        (1..=10)
             .map(|level| pg::LevelStatsRow {
                 race: 1,
                 class: 8,
@@ -405,7 +410,7 @@ fn profile_with_bound_change(order_identity: u8, change: u8) -> n::Profile {
                 attributes: init::Attributes([17, 23, 29, 31, 37].map(|v| v + level as i32 - 1)),
             })
             .collect(),
-        (1..=60)
+        (1..=10)
             .map(|level| pg::ClassLevelStatsRow {
                 class: 8,
                 level,
@@ -413,10 +418,10 @@ fn profile_with_bound_change(order_identity: u8, change: u8) -> n::Profile {
                 base_mana: 59 + (level - 1) * 6,
             })
             .collect(),
-        (1..=60)
+        (1..=10)
             .map(|level| pg::XpRow {
                 level,
-                xp_for_next_level: if level == 60 { 0 } else { level * 40 },
+                xp_for_next_level: if level == 10 { 0 } else { level * 40 },
             })
             .collect(),
         input
@@ -433,19 +438,34 @@ fn profile_with_bound_change(order_identity: u8, change: u8) -> n::Profile {
     let diplomacy = input.spells.iter().find(|r| r.id == 20599).unwrap();
     progression.reputation = Some(
         rep::Catalog::new_with_general_reputation_auras(
-            vec![rep::Row {
-                faction: rep::Faction {
-                    id: 99001,
-                    reputation_list_id: 0,
-                    race_masks: [0; 4],
-                    class_masks: [0; 4],
-                    base_values: [0; 4],
-                    flags: [1, 0, 0, 0],
-                    team: 0,
+            vec![
+                rep::Row {
+                    faction: rep::Faction {
+                        id: 99001,
+                        reputation_list_id: 0,
+                        race_masks: [0; 4],
+                        class_masks: [0; 4],
+                        base_values: [0; 4],
+                        flags: [1, 0, 0, 0],
+                        team: 0,
+                    },
+                    reward_rates: rep::Resolved::Absent,
+                    spillover: rep::Resolved::Absent,
                 },
-                reward_rates: rep::Resolved::Absent,
-                spillover: rep::Resolved::Absent,
-            }],
+                rep::Row {
+                    faction: rep::Faction {
+                        id: 96002,
+                        reputation_list_id: -1,
+                        race_masks: [0; 4],
+                        class_masks: [0; 4],
+                        base_values: [0; 4],
+                        flags: [0; 4],
+                        team: 0,
+                    },
+                    reward_rates: rep::Resolved::Absent,
+                    spillover: rep::Resolved::Absent,
+                },
+            ],
             vec![],
             rep::Config {
                 gain_rate: benilla_sim::classic_spell::SpellFloat::ONE,
@@ -476,7 +496,7 @@ fn profile_with_bound_change(order_identity: u8, change: u8) -> n::Profile {
     );
     let mut intro = progression.quests[0].clone();
     intro.id = 783;
-    intro.special_flags = q::SPEAK;
+    intro.special_flags = 0;
     intro.required_creature = [0; 4];
     intro.required_creature_count = [0; 4];
     intro.required_item = [0; 4];
@@ -512,6 +532,11 @@ fn profile_with_bound_change(order_identity: u8, change: u8) -> n::Profile {
     };
     let loot = progression.loot.as_mut().unwrap();
     let mut items: Vec<_> = loot.inventory.items().cloned().collect();
+    items
+        .iter_mut()
+        .find(|item| item.entry == loop_fixture::ITEM)
+        .unwrap()
+        .maximum_count = 0;
     let mut staff = items.iter().find(|r| r.entry == 900001).unwrap().clone();
     staff.entry = 900003;
     staff.class = 2;
@@ -525,11 +550,52 @@ fn profile_with_bound_change(order_identity: u8, change: u8) -> n::Profile {
     profile
         .initialize_quest_progression(&input, progression)
         .unwrap();
-    profile
-        .initialize_initial_cast_source(&input, source)
-        .unwrap();
+    scene.player = profile.player;
+    scene.abilities = profile.abilities;
+    scene.npcs = profile.npcs;
+    scene.combat = profile.combat;
+    scene.quest_progression = profile.quest_progression;
+    let mut profile = scene;
+    profile.validate().expect("learning scene composition");
+    profile = n::synthetic_creature_model_fixture::with_complete_scene_generations_and_source_edit(
+        profile,
+        |source| {
+            let creature::Rows::Complete(levels) = &mut source.input.class_levels else {
+                unreachable!()
+            };
+            for level in levels {
+                level.base_health = 10;
+            }
+            source.input.template.corpse_delay_seconds = 2;
+            source.respawn_delay_min_seconds = 3;
+            source.respawn_delay_max_seconds = 3;
+            source.input.template.displays[1..].fill(creature::DisplayChoice {
+                id: 0,
+                probability: 0,
+            });
+            let creature::Rows::Complete(models) = &mut source.input.models else {
+                unreachable!()
+            };
+            for model in models {
+                model.other_gender_id = 0;
+            }
+        },
+    );
     let mut spell = n::synthetic_spell_fixture::source(&profile);
     spell.initial_cast_dependencies = n::SpellSourceRows::Complete(dependencies);
+    let n::SpellSourceRows::Complete(modifier_ids) = &mut spell.modifier_spell_ids else {
+        unreachable!()
+    };
+    let mut scope: std::collections::BTreeSet<_> = modifier_ids.iter().copied().collect();
+    scope.extend(
+        prepared
+            .creation_plan()
+            .occurrences()
+            .iter()
+            .chain(prepared.first_entry_plan().occurrences())
+            .map(|cast| cast.row().id),
+    );
+    *modifier_ids = scope.into_iter().collect();
     profile.initialize_spell_authority(&input, spell).unwrap();
     profile.initialize_player_melee(1).unwrap();
     profile
@@ -550,7 +616,22 @@ impl LearningCatalog {
             base: LoopCatalog {
                 quest: progression.quest(783).unwrap().clone(),
                 map: profile.map_id,
-                displays: profile.npcs.iter().map(|r| r.display_id).collect(),
+                displays: profile
+                    .npcs
+                    .iter()
+                    .flat_map(|npc| {
+                        let source = profile
+                            .creature_generations
+                            .as_ref()
+                            .unwrap()
+                            .source(npc.ai.creature_id)
+                            .unwrap();
+                        let creature::Rows::Complete(displays) = &source.input.displays else {
+                            unreachable!()
+                        };
+                        displays.iter().map(|display| display.id)
+                    })
+                    .collect(),
                 loot_item: progression
                     .loot
                     .as_ref()
@@ -673,12 +754,36 @@ fn reopen_learning(h: &Harness, c: NativeController, profile: &n::Profile) -> Na
     drop(c);
     let mut next = enter_learning(h, profile.clone(), true).unwrap();
     assert_eq!(next.world.checkpoint().unwrap(), checkpoint);
-    assert!(!next.initial_events().unwrap().iter().any(|event| matches!(
+    let projection = next.initial_events().unwrap();
+    let remaining: Vec<_> = next
+        .world
+        .state()
+        .casts
+        .values()
+        .filter_map(|cast| match cast.execution.state() {
+            benilla_sim::classic_spell::CastState::Casting { remaining_ms } => {
+                Some((133, remaining_ms))
+            }
+            _ => None,
+        })
+        .collect();
+    let projected: Vec<_> = projection
+        .iter()
+        .filter_map(|event| match event {
+            SessionEvent::SpellStart {
+                spell_id,
+                cast_time_ms,
+                ..
+            } => Some((*spell_id, *cast_time_ms)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(projected, remaining);
+    assert!(!projection.iter().any(|event| matches!(
         event,
         SessionEvent::XpGain(_)
             | SessionEvent::LevelUp(_)
             | SessionEvent::SpellLearned { .. }
-            | SessionEvent::SpellStart { .. }
             | SessionEvent::SpellGo { .. }
     )));
     next
@@ -697,6 +802,17 @@ fn quest_command(c: &mut NativeController, quest: u32, reward: bool) -> Pump {
     .unwrap();
     step(c)
 }
+
+fn collect_and_release(c: &mut NativeController) -> Pump {
+    c.receive(ClientCommand::LootMoney).unwrap();
+    c.receive(ClientCommand::AutostoreLootItem { slot: 0 })
+        .unwrap();
+    c.receive(ClientCommand::LootRelease {
+        guid: guid(c, loop_fixture::HOSTILE),
+    })
+    .unwrap();
+    step(c)
+}
 #[test]
 fn captured_learning_controller_creation_cast_level_rewards_and_reopen_are_identical() {
     let profile = profile(88);
@@ -704,25 +820,27 @@ fn captured_learning_controller_creation_cast_level_rewards_and_reopen_are_ident
     let baseline_h = Harness::new();
     let mut c = enter_learning(&h, profile.clone(), false).unwrap();
     let mut baseline = enter_learning_at(&baseline_h.root, &h, profile.clone(), false).unwrap();
-    assert_eq!(
+    assert_events_eq!(
         c.initial_events().unwrap(),
         baseline.initial_events().unwrap()
     );
     assert!(c.world.state().rng_counter > 0);
     c = reopen_learning(&h, c, &profile);
     for quest in [783, 7] {
-        assert_eq!(
+        assert_events_eq!(
             quest_command(&mut c, quest, false).events,
             quest_command(&mut baseline, quest, false).events
         );
         if quest == 7 {
             for kill_index in 0..10 {
-                for _ in 0..300 {
+                // Opening loot retains the source's 120-second inspection timer.
+                for _ in 0..1500 {
                     if c.world.state().npcs[&loop_fixture::HOSTILE].health > 0 {
                         break;
                     }
-                    assert_eq!(step(&mut c).events, step(&mut baseline).events);
+                    assert_events_eq!(step(&mut c).events, step(&mut baseline).events);
                 }
+                assert!(c.world.state().npcs[&loop_fixture::HOSTILE].health > 0);
                 if kill_index == 0 {
                     c.receive(ClientCommand::AttackSwing {
                         guid: guid(&c, loop_fixture::HOSTILE),
@@ -734,7 +852,7 @@ fn captured_learning_controller_creation_cast_level_rewards_and_reopen_are_ident
                         })
                         .unwrap();
                     for _ in 0..500 {
-                        assert_eq!(step(&mut c).events, step(&mut baseline).events);
+                        assert_events_eq!(step(&mut c).events, step(&mut baseline).events);
                         if c.world.state().npcs[&loop_fixture::HOSTILE].health == 0 {
                             break;
                         }
@@ -748,7 +866,7 @@ fn captured_learning_controller_creation_cast_level_rewards_and_reopen_are_ident
                         .any(|skill| skill.id == 136 && skill.value > 1));
                     assert!(progress(&c).player.view().level > 1);
                 } else {
-                    assert_eq!(
+                    assert_events_eq!(
                         begin_cast(&mut c, loop_fixture::HOSTILE).events,
                         begin_cast(&mut baseline, loop_fixture::HOSTILE).events
                     );
@@ -757,35 +875,46 @@ fn captured_learning_controller_creation_cast_level_rewards_and_reopen_are_ident
                         if c.world.state().npcs[&loop_fixture::HOSTILE].health == 0 {
                             break;
                         }
-                        assert_eq!(step(&mut c).events, step(&mut baseline).events);
+                        assert_events_eq!(step(&mut c).events, step(&mut baseline).events);
                     }
                     c = reopen_learning(&h, c, &profile);
                 }
                 assert_eq!(c.world.state().npcs[&loop_fixture::HOSTILE].health, 0);
-                assert_eq!(
-                    open_loot(&mut c, loop_fixture::HOSTILE).events,
-                    open_loot(&mut baseline, loop_fixture::HOSTILE).events
+                assert!(
+                    c.projection
+                        .npc_guid(c.world.state().npcs[&loop_fixture::HOSTILE].id)
+                        .is_some(),
+                    "missing corpse after kill {kill_index} at tick {}",
+                    c.tick(),
                 );
-                assert_eq!(collect(&mut c).events, collect(&mut baseline).events);
-                c.receive(ClientCommand::LootRelease {
-                    guid: guid(&c, loop_fixture::HOSTILE),
-                })
-                .unwrap();
-                baseline
-                    .receive(ClientCommand::LootRelease {
-                        guid: guid(&baseline, loop_fixture::HOSTILE),
-                    })
-                    .unwrap();
-                assert_eq!(step(&mut c).events, step(&mut baseline).events);
+                let opened = open_loot(&mut c, loop_fixture::HOSTILE);
+                let expected = open_loot(&mut baseline, loop_fixture::HOSTILE);
+                assert_events_eq!(opened.events, expected.events);
+                assert!(
+                    opened
+                        .events
+                        .iter()
+                        .any(|event| matches!(event, SessionEvent::LootResponse { .. })),
+                    "missing loot response after kill {kill_index} at tick {}",
+                    c.tick(),
+                );
+                let collected = collect_and_release(&mut c);
+                let expected = collect_and_release(&mut baseline);
+                assert_events_eq!(collected.events, expected.events);
+                assert!(collected
+                    .events
+                    .iter()
+                    .any(|event| matches!(event, SessionEvent::LootReleaseResponse { .. })));
+                assert_events_eq!(step(&mut c).events, step(&mut baseline).events);
             }
         }
-        assert_eq!(
+        assert_events_eq!(
             quest_command(&mut c, quest, true).events,
             quest_command(&mut baseline, quest, true).events
         );
         c = reopen_learning(&h, c, &profile);
     }
-    assert_eq!(
+    assert_events_eq!(
         quest_command(&mut c, 15, false).events,
         quest_command(&mut baseline, 15, false).events
     );
@@ -807,11 +936,11 @@ fn learning_reward_checkpoint_retry_publishes_once_without_replaying_learning() 
     let baseline_h = Harness::new();
     let mut c = enter_learning(&h, data.clone(), false).unwrap();
     let mut baseline = enter_learning_at(&baseline_h.root, &h, data.clone(), false).unwrap();
-    assert_eq!(
+    assert_events_eq!(
         c.initial_events().unwrap(),
         baseline.initial_events().unwrap()
     );
-    assert_eq!(
+    assert_events_eq!(
         quest_command(&mut c, 783, false).events,
         quest_command(&mut baseline, 783, false).events
     );
@@ -836,7 +965,7 @@ fn learning_reward_checkpoint_retry_publishes_once_without_replaying_learning() 
     c.retry_checkpoint().unwrap();
     let published = c.pump(Duration::ZERO);
     assert!(published.pause.is_none());
-    assert_eq!(published.events, expected.events);
+    assert_events_eq!(published.events, expected.events);
     assert!(!published
         .events
         .iter()

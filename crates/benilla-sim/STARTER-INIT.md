@@ -78,6 +78,14 @@ Spirit, Diplomacy, weapon specialisations, staff proficiency, and Dodge.
 Unknown order, missing numeric projections, present hooks, and unsupported
 mandatory passives remain errors. No native policy, hash domain, or save format changes.
 
+An authored controller fixture must prepare the new player before installing its
+spell authority. Seal initial casts before constructing progression, whose
+reputation catalog binds Diplomacy's retained aura. Interaction and collision
+classifiers require that reputation binding when they validate the finished
+profile. A catalog built against an earlier starter input cannot be reused as
+the new player's spell authority.
+A complete level-60 progression with the full learning closure exceeds the current encoded-capacity guard and is unsupported.
+
 A `SpellRow` has all 173 canonical numeric SpellEntry word positions, with SQL
 `spell_template` values overlaid by the upstream server precedence. Passing raw
 client Spell.dbc words without checking server overrides is invalid. Its duration

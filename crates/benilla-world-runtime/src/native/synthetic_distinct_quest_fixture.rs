@@ -40,12 +40,26 @@ pub fn setup() -> (Profile, init::StarterInput, QuestProgressionInput) {
     setup_with_spawns(HOSTILE, GIVER, [HOSTILE, GIVER])
 }
 
+/// Complete authored scene draft for constructing a different starter binding.
+pub fn setup_with_unbound_spells() -> (Profile, init::StarterInput, QuestProgressionInput) {
+    setup_inner(HOSTILE, GIVER, [HOSTILE, GIVER], false)
+}
+
 /// Source-selected draft plus complete progression inputs for admission tests.
 /// Stable actor IDs and update order are independent of each actor's role.
 pub fn setup_with_spawns(
     hostile_spawn: u64,
     giver_spawn: u64,
     owner_order: [u64; 2],
+) -> (Profile, init::StarterInput, QuestProgressionInput) {
+    setup_inner(hostile_spawn, giver_spawn, owner_order, true)
+}
+
+fn setup_inner(
+    hostile_spawn: u64,
+    giver_spawn: u64,
+    owner_order: [u64; 2],
+    bind_spells: bool,
 ) -> (Profile, init::StarterInput, QuestProgressionInput) {
     let mut profile = two::profile_with_spawns(hostile_spawn, giver_spawn, owner_order);
     let (_, mut initial, mut progression) = synthetic_loot_fixture::setup();
@@ -172,9 +186,11 @@ pub fn setup_with_spawns(
         }
     }
     loot.inventory = synthetic_loot_fixture::inventory_catalog(items);
-    profile
-        .initialize_spell_authority(&initial, source)
-        .unwrap();
+    if bind_spells {
+        profile
+            .initialize_spell_authority(&initial, source)
+            .unwrap();
+    }
     profile.initialize_facing_authority().unwrap();
     (profile, initial, progression)
 }
