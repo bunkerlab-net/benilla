@@ -38,9 +38,32 @@ calls ExtractSet after those early-return constructors too.
 
 ## Portable and bounded profile
 
-Successful MODN extraction must emit a basename byte-equal to the later normalized
-lookup basename. A mismatch fails explicitly, avoiding different Windows/Linux
-filesystem case rules. Existing distinct-member flat-name collision refusals remain.
+MODN extraction and placement lookup basenames must match ignoring ASCII case.
+An owner-approved deviation resolves each lookup to its captured M2 product,
+without opening a case-dependent flat filename. It retains collision when only
+the stem or extension case differs. Non-case mismatches, including spaces changed
+to underscores, still fail with `vmap.doodad_name_identity`. Different source
+members sharing a case-insensitive output name still fail with
+`vmap.flat_name_collision`, including different bytes or collision dispositions.
+Existing missing-input, member-name-profile, and source-replacement refusals remain.
+
+In `vmapextract/wmo.cpp:89-103`, both retained Paths and the local extraction path
+precede the `fixnamen`/`fixname2` mutation of the MPQ buffer. In
+`gameobject_extract.cpp:14-33`, `.MDX` becomes `.M2`, and `GetPlainName` preserves
+the original basename's case. In `model.cpp:241-260`, ExtractSet instead applies
+`fixnamen`, then `fixname2`, then the lowercase legacy-extension conversion.
+For an authored `AUTHOREDXX01.MDX`, extraction therefore emits `AUTHOREDXX01.M2`,
+but placement opens `Authoredxx01.m2`. A case-sensitive filesystem can skip that
+doodad when `fopen` fails. ADT MMDX extraction can create the lookup spelling
+later because `adtfile.cpp:150-156` normalizes before ExtractSingleModel.
+Benilla differs because source collision membership otherwise depends on
+filesystem case rules and extraction order.
+
+Case aliases retain the exact captured product and use its emitted basename in
+placement records and assembled models. Runtime never needs a filesystem alias:
+`MapTree.cpp:310,399` passes `spawn.name` to `VMapManager2.cpp:310-321`, which reads
+`basepath + filename + ".vmo"` without normalization.
+
 Missing required model/group inputs fail the complete preparation atomically.
 Malformed records, nonfinite values and overflowing set ranges are rejected rather
 than reproducing unsafe source accesses or unsigned wrapping. Group MLIQ framing is ignored by the doodad-only parser after the prior raw
@@ -53,7 +76,7 @@ verification cover the expanded dependency reads. No output is published on fail
 Public diagnostic summaries expose only counts/categories and policy labels; raw
 asset paths/set-name bytes are excluded from their serializers.
 
-The writer policy is `cmangos-vmaps05-encounter-ledger-v5`.
+The writer policy is `cmangos-vmaps05-encounter-ledger-ci-doodad-v6`.
 This revision captures dependencies and selected membership, not final placement.
 
 ## Remaining assembly obligations

@@ -680,7 +680,7 @@ impl Builder {
                 source_pin: SOURCE_PIN,
                 acquisition_policy: source::SOURCE_POLICY,
                 listfile_policy: discovery::LISTFILE_POLICY,
-                writer_policy: "cmangos-vmaps05-encounter-ledger-v5",
+                writer_policy: "cmangos-vmaps05-encounter-ledger-ci-doodad-v6",
                 liquid_header_policy: WMO_LIQUID_HEADER_ZERO_PADDING_V1,
                 doodad_reference_order_policy: doodad_reference_order::POLICY,
                 encounter_id_policy: encounter_ids::POLICY,
@@ -879,11 +879,13 @@ impl Builder {
                 .path_at(spawn.name_index)
                 .map_err(Error::Doodad)?;
             let name = discovery::doodad_lookup_name(path)?;
-            // ExtractSet opens the flat file now, after later global roots may seed it.
+            // ExtractSet checks flat output after global extraction; aliases here resolve captured M2 products.
             let Some(&product_index) = self.names.get(&name.to_ascii_lowercase()) else {
                 continue;
             };
-            if self.products[product_index].extracted_name != name
+            if !self.products[product_index]
+                .extracted_name
+                .eq_ignore_ascii_case(&name)
                 || self.products[product_index].kind != ModelKind::M2
             {
                 return Err(Error::DoodadNameIdentity);
@@ -1023,16 +1025,13 @@ impl Builder {
             let Some(model) = discovery::doodad_model_dependency(&event.path)? else {
                 continue;
             };
-            if let Some(&index) = self.names.get(&model.extracted_name.to_ascii_lowercase()) {
-                if self.products[index].source_has_collision()
-                    && self.products[index].extracted_name != model.extracted_name
-                {
-                    return Err(Error::DoodadNameIdentity);
-                }
-            }
             let index = self.capture(&model, cancelled)?;
             if self.products[index].source_has_collision() {
-                if model.extracted_name != discovery::doodad_lookup_name(&event.path)? {
+                // Deviation: Resolve doodad basenames case-insensitively because CMaNGOS 8ec338a1 wmo.cpp:85-100 copies MODN before fixnamen and model.cpp:242-258 fopens the fixnamen spelling and skips missing files, making collision depend on filesystem and extraction order.
+                if !model
+                    .extracted_name
+                    .eq_ignore_ascii_case(&discovery::doodad_lookup_name(&event.path)?)
+                {
                     return Err(Error::DoodadNameIdentity);
                 }
                 valid_names.insert(event.name_index);

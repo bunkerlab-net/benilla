@@ -552,39 +552,131 @@ fn changed_used_unused_zero_hull_and_skipped_group_dependencies_invalidate_captu
 }
 
 #[test]
-fn original_extraction_basename_must_match_later_normalized_lookup_explicitly() {
-    for (path, member) in [
-        ("Models\\lower.mdx", "Models\\lower.m2"),
-        ("Models\\Space Name.mdl", "Models\\Space Name.m2"),
-        ("Models\\LOUD.MDX", "Models\\LOUD.M2"),
+fn non_case_extraction_lookup_mismatch_remains_an_explicit_refusal() {
+    let (path, member) = ("Models\\Space Name.mdl", "Models\\Space Name.m2");
+    let temp = Temp::new();
+    let data = temp.data();
+    let (paths, _) = dc_names(&[path]);
+    let mut entries = wmo_entries(1);
+    dc_replace(&mut entries, ROOT, dc_root(1, &paths, &[(0, 1)], &[0]));
+    dc_replace(
+        &mut entries,
+        "World\\Wmo\\Temple_000.wmo",
+        dc_group(false, true, &[0]),
+    );
+    entries.push(raw_entry(member, m2(true)));
+    entries.push(raw_entry(ADT, dc_adt(0, 0, 123)));
+    save(&data, "wmo.MPQ", &entries);
+    let error = prepare(&data, 0, || false).unwrap_err();
+    assert!(matches!(error.category(), Error::DoodadNameIdentity));
+    assert_eq!(
+        error.diagnostic().stage,
+        Some(PreparationStage::GlobalWmoRoot)
+    );
+    let progress = error.diagnostic().progress.unwrap();
+    assert_eq!(progress.member_lookups, 4);
+    assert_eq!(progress.complete_raw_products, 1);
+    assert_eq!(progress.adt_attempts, 0);
+    let diagnostic = format!(
+        "{error:?} {error} {}",
+        serde_json::to_string(&error.diagnostic()).unwrap()
+    );
+    assert!(!diagnostic.contains(path));
+    assert!(!diagnostic.contains(member));
+    assert!(!diagnostic.contains("Temple"));
+    assert!(!diagnostic.contains(&data.display().to_string()));
+}
+
+#[test]
+fn case_variant_legacy_modn_names_retain_collision_in_either_extraction_order() {
+    for (paths, member, lookup) in [
+        (
+            ["Models\\lower.mdx", "Models\\Lower.mdx"],
+            "Models\\lower.m2",
+            "Lower.m2",
+        ),
+        (
+            ["Models\\LOUD.MDX", "Models\\Loud.mdx"],
+            "Models\\LOUD.M2",
+            "Loud.m2",
+        ),
+        (
+            ["Models\\AUTHOREDXX01.MDX", "Models\\Authoredxx01.mdx"],
+            "Models\\AUTHOREDXX01.M2",
+            "Authoredxx01.m2",
+        ),
+        (
+            ["Models\\Authoredxx01.mdx", "Models\\AUTHOREDXX01.MDX"],
+            "Models\\AUTHOREDXX01.M2",
+            "Authoredxx01.m2",
+        ),
     ] {
         let temp = Temp::new();
         let data = temp.data();
-        let (paths, _) = dc_names(&[path]);
+        let (names, offsets) = dc_names(&paths);
         let mut entries = wmo_entries(1);
-        dc_replace(&mut entries, ROOT, dc_root(1, &paths, &[(0, 1)], &[0]));
+        dc_replace(&mut entries, ROOT, dc_root(1, &names, &[(0, 2)], &offsets));
         dc_replace(
             &mut entries,
             "World\\Wmo\\Temple_000.wmo",
-            dc_group(false, true, &[0]),
+            dc_group(false, true, &[0, 1]),
         );
         entries.push(raw_entry(member, m2(true)));
         entries.push(raw_entry(ADT, dc_adt(0, 0, 123)));
         save(&data, "wmo.MPQ", &entries);
+
+        let prepared = prepare(&data, 0, || false).unwrap();
+        assert_eq!(prepared.summary().m2_raw_products, 1);
+        assert_eq!(prepared.doodad_candidates().len(), 2);
+        let candidates = prepared.doodad_candidates();
+        assert_eq!(candidates[0].product_index, candidates[1].product_index);
+        let product = &prepared.products()[candidates[0].product_index];
+        assert!(product.source_has_collision());
+        assert!(product.extracted_name().eq_ignore_ascii_case(lookup));
+        let profile =
+            DoodadProjectionProfile::from_policy_id(crate::doodad_transform_math::POLICY).unwrap();
+        assert_eq!(
+            prepared
+                .placement_records(profile, || false)
+                .unwrap()
+                .record_count(),
+            3
+        );
+        assert_eq!(
+            prepared
+                .assemble_map_bundle(profile, || false)
+                .unwrap()
+                .unwrap()
+                .models()
+                .len(),
+            2
+        );
+        prepared.verify_unchanged(|| false).unwrap();
+    }
+}
+
+#[test]
+fn case_insensitive_flat_name_conflicts_keep_the_exact_refusal() {
+    for other_has_collision in [false, true] {
+        let temp = Temp::new();
+        let data = temp.data();
+        let (names, _) = dc_names(&["Models\\AUTHOREDXX01.MDX", "Other\\Authoredxx01.mdx"]);
+        let mut entries = wmo_entries(0);
+        dc_replace(&mut entries, ROOT, dc_root(0, &names, &[], &[]));
+        entries.push(raw_entry("Models\\AUTHOREDXX01.M2", m2(true)));
+        let mut other = m2(other_has_collision);
+        if other_has_collision {
+            set_word(&mut other, 330, 2.0_f32.to_bits());
+        }
+        entries.push(raw_entry("Other\\Authoredxx01.m2", other));
+        save(&data, "wmo.MPQ", &entries);
         let error = prepare(&data, 0, || false).unwrap_err();
-        assert!(matches!(error.category(), Error::DoodadNameIdentity));
+        assert_eq!(error.diagnostic().category, "vmap.flat_name_collision");
         assert_eq!(
             error.diagnostic().stage,
             Some(PreparationStage::GlobalWmoRoot)
         );
-        let diagnostic = format!(
-            "{error:?} {error} {}",
-            serde_json::to_string(&error.diagnostic()).unwrap()
-        );
-        assert!(!diagnostic.contains(path));
-        assert!(!diagnostic.contains(member));
-        assert!(!diagnostic.contains("Temple"));
-        assert!(!diagnostic.contains(&data.display().to_string()));
+        assert_eq!(error.diagnostic().progress.unwrap().adt_attempts, 0);
     }
 }
 

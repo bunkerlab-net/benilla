@@ -34,6 +34,7 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 - [benilla-blp](#benilla-blp): 1
 - [benilla-formats](#benilla-formats): 24
 - [benilla-lua](#benilla-lua): 11
+- [benilla-native-vmap-source](#benilla-native-vmap-source): 1
 - [benilla-protocol](#benilla-protocol): 29
 - [benilla-srp](#benilla-srp): 2
 - [benilla-ui](#benilla-ui): 135
@@ -655,6 +656,11 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 
 - These are benilla's own needs, past what the client's checks (`Vm::checkstack`) reserve: a frame's registers above `c_maxstack` (`Proto::maxstack`), and the host's and natives' pushes, which ask for no margin of `EXTRA_STACK` and one more. Where they pass what the client reserved, the stack grows where the client's would not. ([`src/vm.rs:975`](../crates/benilla-lua/src/vm.rs#L975))
 - benilla's scratch registers above a frame's `c_maxstack` (`Proto::maxstack`) stay on the stack; the client has none, and halves. ([`src/vm.rs:2322`](../crates/benilla-lua/src/vm.rs#L2322))
+### benilla-native-vmap-source
+
+#### (crate root)
+
+- Resolve doodad basenames case-insensitively because CMaNGOS 8ec338a1 wmo.cpp:85-100 copies MODN before fixnamen and model.cpp:242-258 fopens the fixnamen spelling and skips missing files, making collision depend on filesystem and extraction order. ([`src/lib.rs:1030`](../crates/benilla-native-vmap-source/src/lib.rs#L1030))
 ### benilla-protocol
 
 #### (crate root)
