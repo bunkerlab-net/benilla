@@ -33,6 +33,10 @@ pub fn lethal_weapon_profile() -> Profile {
 pub fn weapon_profile_with_type(inventory_type: u32) -> Profile {
     build(false, true, None, false, false, Some(inventory_type))
 }
+/// Authored paired prototypes pass the captured adapter before any genesis seal.
+pub fn profile_with_item_admission() -> Profile {
+    build_with_items(false, false, None, false, false, None, true)
+}
 fn build(
     lethal: bool,
     mainhand: bool,
@@ -40,6 +44,25 @@ fn build(
     duplicate_armor: bool,
     second_original: bool,
     weapon_type: Option<u32>,
+) -> Profile {
+    build_with_items(
+        lethal,
+        mainhand,
+        armor_type,
+        duplicate_armor,
+        second_original,
+        weapon_type,
+        false,
+    )
+}
+fn build_with_items(
+    lethal: bool,
+    mainhand: bool,
+    armor_type: Option<u32>,
+    duplicate_armor: bool,
+    second_original: bool,
+    weapon_type: Option<u32>,
+    admit_items: bool,
 ) -> Profile {
     let original_weapon = weapon_type.is_some();
     let (mut p, mut input, mut rows) = synthetic_loot_fixture::setup();
@@ -198,7 +221,7 @@ fn build(
         .unwrap();
         p.npcs[0].ai.spawn = f::point(2.0);
     }
-    p.npcs[0].max_health = 1000;
+    p.npcs[0].max_health = if admit_items { 1 } else { 1000 };
     if lethal {
         p.npcs[0].combat.as_mut().unwrap().minimum_damage = f::float(10000.0);
         p.npcs[0].combat.as_mut().unwrap().maximum_damage = f::float(10000.0);
@@ -220,6 +243,14 @@ fn build(
         source.spells[0].words[21] |= 8;
     }
     input.spells[0].words = source.spells[0].words.clone().try_into().unwrap();
+    if admit_items {
+        let loot = rows.loot.as_mut().unwrap();
+        let leaf = &mut loot.captures[0].rows[0];
+        leaf.chance_or_quest_chance_bits = 100f32.to_bits();
+        leaf.min_count_or_reference = 1;
+        leaf.max_count = 1;
+        admit_authored_items(&mut input, loot);
+    }
     p.initialize_player(&input, f::float(100.0), 1).unwrap();
     if mainhand {
         let skill = &p.combat.as_ref().unwrap().skills[&162];
@@ -400,4 +431,57 @@ impl Authority for EquipmentAuthority {
             self.scene.observe_derived(reply)
         }
     }
+}
+
+fn admit_authored_items(
+    input: &mut benilla_sim::starter_init::StarterInput,
+    loot: &mut NativeLootInput,
+) {
+    use benilla_sim::{inventory as inv, starter_init as init};
+    let mut captured = Vec::new();
+    for item in loot.inventory.items() {
+        let mut placement = input
+            .items
+            .iter()
+            .find(|row| row.id == item.entry)
+            .cloned()
+            .unwrap_or_else(|| {
+                // The fixture's authored non-equippable loot token has no equipment effects.
+                let mut token = input.items[0].clone();
+                token.id = item.entry;
+                token.class = item.class;
+                token.subclass = 0;
+                token.inventory_type = item.inventory_type;
+                token.stackable = item.stackable as u32;
+                token.max_durability = item.maximum_durability;
+                token.required_level = 0;
+                token.armor = 0;
+                token.stats = [init::ItemStat { kind: 0, value: 0 }; 10];
+                token
+            });
+        placement.unique_max_count = item.maximum_count as u32;
+        captured.push(inv::captured::CapturedItem {
+            inventory: item.clone(),
+            placement,
+            buy_count: 1,
+        });
+    }
+    for original in &mut input.items {
+        let row = captured
+            .iter()
+            .find(|row| row.inventory.entry == original.id)
+            .unwrap();
+        *original = row.clone().compile_starting().unwrap().item;
+    }
+    loot.inventory = inv::captured::compile_catalog(
+        captured,
+        inv::Audit {
+            item_creation_and_loot_scripts: inv::Evidence::Absent,
+            equipped_bags: inv::Evidence::Absent,
+            bank_and_keyring_items: inv::Evidence::Absent,
+            trade_or_temporary_item_loot: inv::Evidence::Absent,
+            additional_item_mutations: inv::Evidence::Absent,
+        },
+    )
+    .unwrap();
 }

@@ -227,3 +227,73 @@ fn autoequip_refuses_actual_cast_and_prioritizes_actual_combat_over_casting() {
     drop(c);
     assert_eq!(enter_armor(&h, true).world.state_digest(), digest);
 }
+
+#[test]
+fn captured_item_admission_loot_store_original_equip_and_reopen() {
+    fn enter_admitted(h: &Harness, open: bool) -> NativeController {
+        NativeController::enter_component_test(
+            &h.root,
+            &h.profile,
+            &h.character,
+            if open {
+                Entry::Open { world: [8; 16] }
+            } else {
+                Entry::Create {
+                    world: [8; 16],
+                    seed: 7,
+                }
+            },
+            armor::profile_with_item_admission(),
+            &LootCatalog,
+            armor::EquipmentAuthority::default(),
+        )
+        .unwrap()
+    }
+    let h = Harness::new();
+    let mut c = enter_admitted(&h, false);
+    let guid = detach(&mut c);
+    c.receive(ClientCommand::CastSpell {
+        spell_id: 133,
+        target: Some(c.projection.npc_guid(c.world.state().npcs[&2].id).unwrap()),
+    })
+    .unwrap();
+    let cast = step(&mut c);
+    assert!(cast
+        .events
+        .iter()
+        .any(|e| matches!(e, SessionEvent::SpellStart { spell_id: 133, .. })));
+    for _ in 0..100 {
+        step(&mut c);
+        if c.world.state().npcs[&2].health == 0 {
+            break;
+        }
+    }
+    assert_eq!(c.world.state().npcs[&2].health, 0);
+    open(&mut c);
+    c.receive(ClientCommand::AutostoreLootItem { slot: 0 })
+        .unwrap();
+    step(&mut c);
+    assert_eq!(inventory(&c).item_count(70001).unwrap(), 1);
+    // A carried original remains registered. New corpse objects never acquire that authority.
+    c.receive(lua_autoequip(guid)).unwrap();
+    step(&mut c);
+    let carried = inventory(&c).clone();
+    let equipment = c.world.state().combat.as_ref().unwrap().equipment.clone();
+    let digest = c.world.state_digest();
+    drop(c);
+    let mut reopened = enter_admitted(&h, true);
+    assert_eq!(reopened.world.state_digest(), digest);
+    assert_eq!(inventory(&reopened), &carried);
+    assert_eq!(
+        reopened.world.state().combat.as_ref().unwrap().equipment,
+        equipment
+    );
+    let initial = reopened.initial_events().unwrap();
+    assert_eq!(
+        values(&initial, reopened.player_guid()).player_inv_slot(4),
+        Some(guid)
+    );
+    assert!(!initial
+        .iter()
+        .any(|e| matches!(e, SessionEvent::ItemPushResult(_))));
+}

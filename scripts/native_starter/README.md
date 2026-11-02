@@ -104,6 +104,14 @@ loader-order and assistance obligations. Inbound linking rows remain blockers.
   does not claim resolved equipment or effective skill/spell learning. The
   placement blocker remains if any selected row is missing or unsupported.
   Ambiguous outfit matches fail instead of picking an arbitrary row
+- `captured_item_plan` binds every selected item to exact inventory and starter
+  inputs. Supported carried rows discharge only their own coarse inventory/item
+  finding. The output preserves five spell slots and their sentinels and reports
+  separate starter-placement support. Class/race masks, level, proficiency, and
+  other equip requirements never become pickup restrictions. Newly looted gear
+  equipping and all item use remain unavailable. Independent audits, client
+  metadata, and actual initializer/custody composition remain required. See the
+  [captured item contract](../../crates/benilla-sim/INVENTORY.md#captured-item-admission).
 - `player.initial_reputation` reports source race/class-selected initial bases,
   flags, reputation indices, and zero stored deltas when the complete Faction
   table and selected template/quest/item references resolve. Missing or invalid

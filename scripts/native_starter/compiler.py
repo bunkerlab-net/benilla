@@ -25,6 +25,7 @@ from .learning_plan import supported_plan as starter_learning_plan
 from . import quest_plan, world_rules
 from . import loot_plan
 from . import spawn_plan
+from . import item_plan
 
 PROFILE = "cmangos-8ec338a1-native-starter-bindings-v1"
 FORMAT = "benilla-native-starter-preparation-v1"
@@ -742,6 +743,9 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
     quests = quest_plan.supported_plan(source, dbcs)
     rules_plan = world_rules.supported_plan(source, native_world_rules)
     corpse_loot = loot_plan.supported_plan(source)
+    captured_items = item_plan.supported_plan(source)
+    for refusal in captured_items["refusals"]:
+        c.issues.append(refusal)
     for refusal in relationships["refusals"]:
         c.issue("quest_template", [refusal["quest"]], "quest.chain", edge=refusal)
     observed_errors = {i["table"] for i in dbc_errors or []}
@@ -808,6 +812,22 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
     c.issues = [i for i in c.issues if not fireball_plan.discharges(i, fireball)]
     loot_discharged = [i for i in c.issues if loot_plan.discharges(i, corpse_loot)]
     c.issues = [i for i in c.issues if not loot_plan.discharges(i, corpse_loot)]
+    item_discharged = [i for i in c.issues if item_plan.discharges(i, captured_items)]
+    c.issues = [i for i in c.issues if not item_plan.discharges(i, captured_items)]
+    for disposition in dispositions:
+        if disposition["table"] != "item_template":
+            continue
+        plan = next(p for p in captured_items["items"] if disposition["key"] == [p["entry"]])
+        if plan["status"] == "supported_shape":
+            fields = disposition["blocked_for_gameplay"].pop(item_plan.REASON, [])
+            disposition["consumed_by_preparation"] = sorted(
+                set(disposition["consumed_by_preparation"]) | set(fields))
+            disposition["supported_catalog_plan"] = {
+                "adapter": item_plan.ADAPTER, "scope": "carried_storage_only",
+                "fields": sorted(item_plan.INVENTORY_FIELDS),
+                "item_template_sha256": plan["item_template_sha256"],
+                "starter_placement": plan["starter_placement"],
+                "unavailable_operations": plan["unavailable_operations"]}
     if corpse_loot["status"] == "supported_shape":
         c.issue("loot", [], "loot.explicit_rates_inventory_audit_and_host_binding_required")
         for disposition in dispositions:
@@ -861,6 +881,9 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
                                     "input_binding": rules_plan["input_binding"]} for i in rule_discharged],
         "quest_loot_inputs": loot.quest_inputs(c.tables),
         "corpse_loot_plan": corpse_loot,
+        "captured_item_plan": captured_items,
+        "captured_item_obligations": [{**i, "disposition": "supported_shape",
+            "adapter": item_plan.ADAPTER, "scope": "carried_storage_only"} for i in item_discharged],
         "corpse_loot_plan_obligations": [{**i, "disposition": "supported_shape",
             "adapter": loot_plan.ADAPTER} for i in loot_discharged],
         "player": {"identity": identity, "level_inputs": c.progression(), "outfit": outfit,
@@ -874,7 +897,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
         "source_field_dispositions": dispositions, "dbc_bindings": dbc_bindings,
         "source_capture_findings": [{**i, "disposition": "replaced_by_exact_dependency_report"
                                      if i["reason"] in replaced or replaced_creature_finding(i) else "supported_shape"
-                                     if fireball_plan.discharges(i, fireball) or spawn_plan.discharges(i, spawn_plans) else "supported_numeric_policy"
+                                     if fireball_plan.discharges(i, fireball) or spawn_plan.discharges(i, spawn_plans) or item_plan.discharges(i, captured_items) else "supported_numeric_policy"
                                      if world_rules.discharges(i, rules_plan) else "retained"}
                                     for i in source["report"]["unsupported"]],
         "unsupported": issues}

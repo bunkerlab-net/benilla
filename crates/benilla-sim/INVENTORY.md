@@ -70,6 +70,40 @@ remain explicit grant blockers. BagFamily is the Classic enum, not a bitmask;
 keys (9) require the missing keyring route. Other families reach the backpack in
 this no-equipped-bag domain. No input field is zeroed to pass a gate.
 
+## Captured item admission
+
+`inventory::captured::CapturedItem` binds the inventory and starter projections
+of one source prototype. Compilation rejects disagreement in shared fields and
+unsupported loader repairs. It preserves all five spell slots, signed charges
+and cooldown sentinels, binary32 PPM values, class/race masks, requirements,
+damage, stats, and durability. `compile_catalog` returns no partial catalog and
+requires the independent inventory audit. `compile_starting` feeds the existing
+initializer, which still resolves actual learned proficiency, eligibility,
+unique counts, source grant order, and capacity.
+
+The Python `captured_item_plan` uses this same carried domain for every selected
+item and for corpse-loot leaves. Only supported rows discharge their individual
+`item.native_inventory_equipment_rules_required` finding. Source findings remain
+in the preparation, with an operation-scoped disposition and source-row digest.
+This establishes supported input shapes, not a runnable world. Item-started
+quests, equipment/proc spells, scripts, random properties, location or duration
+lifecycle, sets, locks, and unsupported bag shapes retain precise refusals.
+
+Storage does not check equip-only class/race, level, skill, spell, honour, or
+reputation requirements because `CanStoreItem` does not call `CanUseItem`.
+The starter projection preserves requirements rather than treating possession
+as eligibility. Generic equip and item use remain unavailable. Existing runtime
+equipment commands still require exact registered genesis custody. A newly
+looted item never becomes an original merely because its template matches.
+No native format, inventory policy, or capability changes.
+
+The validation witnesses at pin `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`
+are `src/game/Globals/ObjectMgr.cpp:2557-2815`,
+`src/game/Entities/Player.cpp:8822-9195` for storage and `:9432-9555` for
+equipment. `src/game/Entities/Item.cpp:834-862` checks spell equipment
+requirements, not pickup eligibility. This adapter does not authorise enchanting
+or item-use spells and does not substitute those checks for equipment admission.
+
 ## Corpse-carried acquisition
 
 `corpse_carried_ready`, `can_store_corpse_item` and `store_corpse_item` use

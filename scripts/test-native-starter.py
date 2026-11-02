@@ -2113,6 +2113,75 @@ class CorpseLootPreparationTests(unittest.TestCase):
 
 from native_starter.verifier_parity import PreparationVerifierParityTests
 
+class CapturedItemAdmissionTests(unittest.TestCase):
+    def item(self):
+        row = copy.deepcopy(source_bundle()["tables"]["item_template"][0])
+        row.update(displayid=920002, stackable=1)
+        return row
+
+    def test_authored_selected_classes_and_unavailable_actions(self):
+        from native_starter.item_plan import item_plan
+        for cls, sub, kind in [(0, 0, 0), (1, 0, 18), (2, 10, 17), (4, 1, 5),
+                               (7, 0, 0), (12, 0, 0), (15, 0, 0), (2, 2, 15), (4, 6, 14)]:
+            with self.subTest(cls=cls, sub=sub, kind=kind):
+                row = self.item()
+                row.update({"class": cls, "subclass": sub, "InventoryType": kind,
+                            "ContainerSlots": 6 if cls == 1 else 0})
+                plan = item_plan(row)
+                self.assertEqual(plan["status"], "supported_shape", plan["refusals"])
+                self.assertEqual(plan["unavailable_operations"]["equip_newly_looted"],
+                                 "item.carried_item_equipment_not_implemented")
+                self.assertEqual(plan["captured_input"]["inventory"]["bonding"], row["bonding"])
+
+    def test_spell_sentinels_masks_requirements_and_all_slots_survive(self):
+        from native_starter.item_plan import item_plan
+        row = self.item()
+        row.update(AllowableClass=-1, AllowableRace=-1, RequiredLevel=53,
+                   RequiredSkill=415, RequiredSkillRank=200, requiredspell=800003,
+                   spellid_1=800004, spelltrigger_1=0, spellcharges_1=-2,
+                   spellcooldown_5=-1, spellcategorycooldown_5=-1)
+        plan = item_plan(row)
+        self.assertEqual(plan["status"], "supported_shape", plan["refusals"])
+        captured = plan["captured_input"]
+        self.assertEqual(captured["placement"]["allowable_class"], 0xffffffff)
+        self.assertEqual(captured["placement"]["required_skill_rank"], 200)
+        self.assertEqual(captured["inventory"]["spells"][0]["charges"], -2)
+        self.assertEqual(captured["inventory"]["spells"][4]["cooldown"], -1)
+        self.assertEqual(captured["inventory"]["spells"][4]["category_cooldown"], -1)
+
+    def test_precise_refusals_do_not_discharge_other_items(self):
+        from native_starter import item_plan
+        for field, value in [("startquest", 800003), ("Flags", 1), ("RandomProperty", 8),
+                             ("stackable", 0), ("spelltrigger_1", 6), ("subclass", 99)]:
+            row = self.item()
+            row[field] = value
+            plan = item_plan.supported_plan({"tables": {"item_template": [row]}})
+            self.assertTrue(plan["refusals"], field)
+            self.assertFalse(item_plan.discharges(
+                {"table": "item_template", "key": str(row["entry"]), "reason": item_plan.REASON}, plan))
+        row = self.item()
+        plan = item_plan.supported_plan({"tables": {"item_template": [row]}})
+        self.assertTrue(item_plan.discharges(
+            {"table": "item_template", "key": str(row["entry"]), "reason": item_plan.REASON}, plan))
+        self.assertFalse(item_plan.discharges(
+            {"table": "item_template", "key": "99999999", "reason": item_plan.REASON}, plan))
+
+    def test_preparation_recomputes_item_admission_and_preserves_source_findings(self):
+        from native_starter import item_plan
+        source = source_bundle()
+        for row in source["tables"]["item_template"]:
+            row["displayid"] = 920002
+        rehash_source(source)
+        dbcs = parsed(dbcs_for(source))
+        report = compile_starter(source, dbcs, Request(1, 1, 0))
+        self.assertTrue(report["captured_item_obligations"])
+        self.assertNotIn(item_plan.REASON, {i["reason"] for i in report["unsupported"]})
+        self.assertTrue(any(i["reason"] == item_plan.REASON for i in report["source_capture_findings"]))
+        verify_preparation(report, source, dbcs)
+        report["captured_item_plan"]["items"][0]["captured_input"]["inventory"]["bonding"] = 4
+        report["preparation_sha256"] = digest({k: v for k, v in report.items() if k != "preparation_sha256"})
+        with self.assertRaisesRegex(ExportError, "preparation_mismatch"):
+            verify_preparation(report, source, dbcs)
 
 if __name__ == "__main__":
     unittest.main()
