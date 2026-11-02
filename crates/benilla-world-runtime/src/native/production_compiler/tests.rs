@@ -487,3 +487,84 @@ fn named_pipe(inputs: &Inputs) -> (PathBuf, std::os::windows::io::OwnedHandle) {
     let server = unsafe { OwnedHandle::from_raw_handle(handle) };
     (path, server)
 }
+
+#[test]
+fn initial_execution_shapes_agree_with_existing_runtime_phase_classifier() {
+    use benilla_sim::starter_init::{
+        initial_cast_phases::{
+            AuthoredInitialCast, AuthoredPhasePrerequisites, AuthoredPhaseResolutions,
+            InitialCastPlan,
+        },
+        Rows, SpellRow,
+    };
+    let corpus = corpus();
+    for (name, supported) in [
+        ("initial-spell-execution", true),
+        ("initial-spell-execution-refusals", false),
+    ] {
+        let fixture = corpus["fixtures"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["name"] == name)
+            .unwrap();
+        let mut checked = 0;
+        for spell in fixture["preparation"]["spells"].as_array().unwrap() {
+            if spell["execution_plan"]["classification"] != "existing_initial_phase_handlers" {
+                continue;
+            }
+            checked += 1;
+            assert_eq!(
+                spell["execution_plan"]["status"] == "supported_shape",
+                supported
+            );
+            let words =
+                std::array::from_fn(|i| spell["server_numeric_words"][i].as_u64().unwrap() as u32);
+            let row = &spell["numeric_capture"]["row"];
+            let coefficients = |name: &str| {
+                std::array::from_fn(|i| {
+                    dbc::binary32(row[format!("{name}{}", i + 1)]["decimal"].as_str().unwrap())
+                        .unwrap()
+                })
+            };
+            let duration_ms = spell["duration"]["base_ms"].as_i64().unwrap_or(0) as i32;
+            let cast = AuthoredInitialCast {
+                row: SpellRow {
+                    id: words[0],
+                    words,
+                    duration_ms: Some(duration_ms),
+                    previous_rank: None,
+                    talent: false,
+                    learned_spells: Rows::Complete(vec![]),
+                    external_initial_hooks: false,
+                },
+                prerequisites: Some(AuthoredPhasePrerequisites {
+                    fresh_unshapeshifted_player_not_in_world: true,
+                    successful_conditions_and_location_checks: true,
+                    spell_and_aura_scripts_absent: true,
+                    spell_modifiers_absent: true,
+                    neutral_proc_and_finish_paths: true,
+                    server_side: row["IsServerSide"].as_u64().unwrap() as u32,
+                    server_attributes: row["AttributesServerside"].as_u64().unwrap() as u32,
+                    effect_bonus_coefficient_bits: coefficients("EffectBonusCoefficient"),
+                    effect_bonus_coefficient_from_ap_bits: coefficients(
+                        "EffectBonusCoefficientFromAP",
+                    ),
+                }),
+                resolutions: Some(AuthoredPhaseResolutions {
+                    cast_time_index: words[18],
+                    cast_time_ms: 0,
+                    duration_index: words[30],
+                    duration_ms,
+                }),
+            };
+            assert_eq!(
+                InitialCastPlan::from_authored(&[cast]).is_ok(),
+                supported,
+                "existing runtime classifier disagrees for {}",
+                words[0]
+            );
+        }
+        assert_eq!(checked, 15);
+    }
+}

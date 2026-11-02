@@ -4,6 +4,7 @@ mod creature;
 pub(in super::super) mod item;
 mod loot;
 pub(in super::super) mod spawn;
+pub(in super::super) mod spell_execution;
 pub(super) use creature::creatures;
 pub(super) use loot::{loot, loot_discharges, quest_loot};
 const QUEST_ADAPTER: &str =

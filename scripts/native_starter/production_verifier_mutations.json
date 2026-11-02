@@ -2184,6 +2184,48 @@
         }
       ],
       "target": "preparation"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "compiler.preparation_mismatch",
+      "fixture": "initial-spell-execution-refusals",
+      "name": "initial-execution-forged-status",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/spells/0/execution_plan/status",
+          "value": "supported_shape"
+        }
+      ],
+      "target": "preparation"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "compiler.preparation_mismatch",
+      "fixture": "initial-spell-execution",
+      "name": "initial-execution-digest",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/spells/0/execution_plan/input_bindings/effective_words_sha256",
+          "value": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "target": "preparation"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "compiler.preparation_mismatch",
+      "fixture": "initial-spell-execution-refusals",
+      "name": "initial-execution-refusal",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/spells/0/execution_plan/refusals",
+          "value": []
+        }
+      ],
+      "target": "preparation"
     }
   ],
   "format": "benilla-production-verifier-mutations-v1"

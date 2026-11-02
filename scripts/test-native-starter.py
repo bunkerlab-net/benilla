@@ -2183,5 +2183,118 @@ class CapturedItemAdmissionTests(unittest.TestCase):
         with self.assertRaisesRegex(ExportError, "preparation_mismatch"):
             verify_preparation(report, source, dbcs)
 
+class CapturedSpellExecutionTests(unittest.TestCase):
+    @staticmethod
+    def authored():
+        """Authored mechanism rows, never copies of installed DBC or SQL rows."""
+        from decimal import Decimal
+        from classic_export import spell_numeric
+        from classic_export.core import Selection
+        from native_starter import spell_execution as execution
+        from classic_export import initial_hooks
+        from classic_export.columns import INITIAL_HOOK_SCHEMA
+        source, selected = export_tests.authored_numeric_source()
+        for table, columns in INITIAL_HOOK_SCHEMA.items():
+            source.inventory["tables"][table] = {
+                "engine": "InnoDB", "table_type": "BASE TABLE",
+                "columns": [{"name": name, "type": kind, "nullable": nullable, "ordinal": i}
+                            for i, (name, kind, nullable) in enumerate(columns, 1)],
+                "primary_key": initial_hooks.PRIMARY_KEYS[table]}
+            source.rows[table] = []
+        authored = {}
+        words = {}
+        for entry, (effects, item_class, item_mask) in execution.SHAPES.items():
+            w = [0] * 173
+            holder = effects[0][0] == 6
+            weapon = entry in {81, 203, 204, 227, 522, 668, 2382, 5009}
+            for i, value in {0: entry, 6: 0x50 if holder or entry == 81 else 0xc0,
+                             7: 0x02000000 if entry == 3050 else 0, 18: int(entry != 81),
+                             25: 101, 28: int(entry == 81), 29: int(entry in {81, 668}),
+                             30: 21 if holder else 0, 36: 1, 58: item_class & 0xffffffff,
+                             59: item_mask, 164: int(weapon), 165: int(weapon),
+                             166: 0 if holder else 0xffffffff}.items():
+                w[i] = value
+            for slot in range(3):
+                w[167+slot] = execution.ONE if not holder or slot < len(effects) else 0
+            for slot, (effect, aura, misc) in enumerate(effects):
+                w[61+slot], w[91+slot], w[106+slot] = effect, aura, misc
+                w[82+slot] = int(holder)
+                if holder:
+                    w[64+slot] = w[67+slot] = 1
+                    w[76+slot] = 9 if entry == 20599 else 4
+            if entry == 81:
+                w[64], w[97] = 6, execution.ONE
+            if entry == 3050:
+                w[64], w[67], w[73], w[76] = 1, 1, 0x40a00000, 0xffffffff
+            numeric = {name: Decimal('0') if name in spell_numeric.FLOAT_FIELDS else 0
+                       for name in spell_numeric.COLUMNS}
+            for name, i in spell_numeric.WORD_FIELDS.items():
+                numeric[name] = (Decimal(str(struct.unpack('<f', struct.pack('<I', w[i]))[0]))
+                                 if name in spell_numeric.FLOAT_FIELDS else
+                                 w[i] - 0x100000000 if name in spell_numeric.SIGNED_FIELDS and w[i] > 0x7fffffff
+                                 else w[i])
+            for slot in range(3):
+                numeric[f'EffectBonusCoefficient{slot+1}'] = Decimal(int(
+                    (holder or entry == 81) and slot < len(effects)))
+            authored[entry] = numeric
+            words[entry] = w
+            source.rows['spell_template'].append({name: numeric[name]
+                                                   for name in export_tests.COLUMNS['spell_template']})
+        old_fetch = source.fetch
+        def fetch(query):
+            if query.mode == spell_numeric.MODE and query.table == 'spell_template':
+                return old_fetch(query) + [copy.deepcopy(row) for entry, row in authored.items() if entry in query.ids]
+            return old_fetch(query)
+        source.fetch = fetch
+        selection = selected.json()
+        selection['spell_ids'] = sorted(set(selection['spell_ids']) | set(authored))
+        bundle = capture(source, Selection.parse(selection), capture_spell_numeric=True, capture_initial_hooks=True)
+        files = dbcs_for(bundle)
+        numeric = {r['Id']: r for r in bundle['spell_numeric_capture']['rows']}
+        spell_words = []
+        for row in bundle['tables']['spell_template']:
+            if row['Id'] in words:
+                spell_words.append(dict(enumerate(words[row['Id']])))
+            else:
+                spell_words.append({i: binary32_bits(numeric[row['Id']][name]['decimal'])
+                                    if name in spell_numeric.FLOAT_FIELDS else numeric[row['Id']][name] & 0xffffffff
+                                    for name, i in spell_numeric.WORD_FIELDS.items()})
+        files['Spell'] = dbc_bytes('Spell', spell_words)
+        files['SpellCastTimes'] = dbc_bytes('SpellCastTimes', [{0: 1}, {0: 16, 1: 1500, 3: 1500}])
+        files['SpellDuration'] = dbc_bytes('SpellDuration', [{0: 21, 1: -1, 3: -1}, {0: 35, 1: 4000, 3: 4000}])
+        files['SpellRange'] = dbc_bytes('SpellRange', [{0: 1}, {0: 35, 2: 0x420c0000}])
+        return bundle, files
+
+    def test_complete_initial_shapes_discharge_only_execution_obligations(self):
+        from native_starter import spell_execution as execution
+        bundle, files = self.authored()
+        report = compile_starter(bundle, parsed(files), Request(1, 1, 0))
+        plans = {s['id']: s['execution_plan'] for s in report['spells']}
+        self.assertTrue(all(plans[i]['status'] == 'supported_shape' for i in execution.SHAPES))
+        self.assertEqual({i['key'][0] if isinstance(i['key'], list) else int(i['key'])
+                          for i in report['spell_execution_obligations']}, set(execution.SHAPES))
+        self.assertTrue(all(any(i['key'] == [entry] and i['reason'] ==
+                               'spell.server_overlay_and_learning_closure_required'
+                               for i in report['unsupported']) for entry in execution.SHAPES))
+        self.assertFalse(report['ability_admission']['effective_learning_proven'])
+        verify_preparation(report, bundle, parsed(files))
+
+    def test_each_reached_numeric_cell_is_guarded_before_discharge(self):
+        from native_starter import spell_execution as execution
+        bundle, files = self.authored()
+        report = compile_starter(bundle, parsed(files), Request(1, 1, 0))
+        bound = {s['id']: s for s in report['spells']}
+        for entry in execution.SHAPES:
+            for index in (6, 7, 8, 9, 10, 12, 15, 37, 40, 61, 63, 79, 82, 85, 88, 91, 94, 100, 109, 112, 159, 163, 170):
+                changed = copy.deepcopy(bound[entry])
+                changed['server_numeric_words'][index] ^= 1
+                with self.subTest(spell=entry, word=index):
+                    self.assertEqual(execution.supported_plan(bundle, changed)['status'], 'blocked')
+            changed = copy.deepcopy(bound[entry])
+            changed['script_registry']['rows'] = [{'Id': entry, 'ScriptName': 'authored_handler'}]
+            self.assertIn('spell_execution.selected_registry_absence_required',
+                          execution.supported_plan(bundle, changed)['refusals'])
+
+
 if __name__ == "__main__":
     unittest.main()

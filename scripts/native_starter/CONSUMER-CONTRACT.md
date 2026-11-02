@@ -43,7 +43,7 @@ projectile obligations for that row. Each replaced obligation retains its
 adapter name and numeric/auxiliary bindings. Original source findings stay
 visible. The named numeric recipe consumer replaces only that row's
 `spell.native_effect_target_scaling_rules_required` field disposition.
-Other spells and schema warnings remain unchanged.
+Unmatched spells and schema warnings remain unchanged.
 
 Server/client disagreement, registry rows or unknown registry coverage,
 learning and initial-cast requirements, hook/global-area closure, and world
@@ -62,6 +62,33 @@ evidence and seal its reached casts through `NativeInitialCastSourceInput`.
 The authored-order path remains synthetic. A nonempty global SpellArea table
 requires the independent entry-location source. The existing runtime entry
 validator still resolves actual location facts and refuses applicable rows before casting.
+
+### Captured initial spell execution shapes
+
+`spells[].execution_plan` checks the complete effective numeric morphology
+against the existing `starter_init::initial_cast_phases` handlers. The bounded
+IDs are 81, 203, 204, 227, 522, 668, 2382, 3050, 5009, 9078, 9125, 20597,
+20598, 20599, and 20864. The plan checks all three slots, target selectors,
+attribute words, scaling, server coefficients, indexed cast and duration
+resolutions, self range, and captured selected registry, hook, and rank scope.
+A matching ID, opcode, or aura type alone cannot produce `supported_shape`.
+Missing indexed duration zero resolves to zero through `GetSpellDuration`.
+
+Only a complete per-spell shape discharges its effect, target, attribute,
+aura/trigger, morphology, and native scaling obligations. The report retains
+each discharged obligation in `spell_execution_obligations` and replaces that
+row's native scaling field disposition with the bound adapter plan.
+`spell.server_overlay_and_learning_closure_required` remains. Selected-empty
+hooks do not prove global absence, loaded creation order, actual effective
+learning, cross-spell stacking, or final runtime host binding. The source cast
+seal and preparation reducer must still establish those facts.
+
+The classification identifies bounded extensions for Frost Armor and Chilled,
+food and drink, and Hearthstone. Their armor/proc/slow, item-use/regeneration,
+and teleport/home-bind lifecycles remain unimplemented by this plan. Other
+unhandled spells remain out of scope. Neither classification authorises a cast
+or hides any per-spell refusal.
+
 
 The [ordinary giver contract](../classic_export/QUEST-RELATIONSHIP-CONTRACT.md#captured-ordinary-givers-and-presentation)
 defines the optional snapshot-bound quest/text extension, checked Rust giver

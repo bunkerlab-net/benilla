@@ -26,6 +26,7 @@ from . import quest_plan, world_rules
 from . import loot_plan
 from . import spawn_plan
 from . import item_plan
+from . import spell_execution
 
 PROFILE = "cmangos-8ec338a1-native-starter-bindings-v1"
 FORMAT = "benilla-native-starter-preparation-v1"
@@ -530,8 +531,8 @@ class Compiler:
                          "EffectImplicitTargetA", "EffectImplicitTargetB", "EffectApplyAuraName",
                          "EffectAmplitude", "EffectMiscValue", "EffectItemType", "EffectTriggerSpell", "EffectBonusCoefficient",
                          "EffectBonusCoefficientFromAP")} for slot in range(1, 4)]
-            # These labels choose the next port, not a support allowlist. Every
-            # effect, attribute word and target selector remains runtime-blocked.
+            # Whole-spell execution plans below may discharge these obligations.
+            # An effect opcode alone never admits a target or attribute word.
             for slot, effect in enumerate(effects, 1):
                 if effect["Effect"]:
                     branch = {2: "school_damage", 6: "apply_aura", 10: "heal"}.get(effect["Effect"], "other")
@@ -576,6 +577,7 @@ class Compiler:
                 self.source, entry, list(row.words) if row else None,
                 bound["cast_time"], bound["range"], bound["duration"])
             self.issue("spell_template", [entry], "spell.server_overlay_and_learning_closure_required")
+            bound["execution_plan"] = spell_execution.supported_plan(self.source, bound)
         return result
 
     def creature_inputs(self) -> list[dict[str, Any]]:
@@ -814,6 +816,18 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
     c.issues = [i for i in c.issues if not loot_plan.discharges(i, corpse_loot)]
     item_discharged = [i for i in c.issues if item_plan.discharges(i, captured_items)]
     c.issues = [i for i in c.issues if not item_plan.discharges(i, captured_items)]
+    execution_discharged = [i for i in c.issues if spell_execution.discharges(i, spells)]
+    c.issues = [i for i in c.issues if not spell_execution.discharges(i, spells)]
+    for disposition in dispositions:
+        if disposition["table"] != "spell_template":
+            continue
+        plan = next(s["execution_plan"] for s in spells if disposition["key"] == [s["id"]])
+        if plan["status"] == "supported_shape":
+            fields = disposition["blocked_for_gameplay"].pop(
+                "spell.native_effect_target_scaling_rules_required", [])
+            disposition["supported_catalog_plan"] = {
+                "adapter": spell_execution.ADAPTER, "fields": fields,
+                "input_bindings": plan["input_bindings"]}
     for disposition in dispositions:
         if disposition["table"] != "item_template":
             continue
@@ -873,6 +887,9 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
         "fireball_plan_obligations": [
             {**i, "disposition": "supported_shape", "adapter": fireball_plan.ADAPTER,
              "input_bindings": fireball["input_bindings"]} for i in discharged],
+        "spell_execution_obligations": [
+            {**i, "disposition": "supported_shape", "adapter": spell_execution.ADAPTER}
+            for i in execution_discharged],
         "creature_display_inputs": display_evidence,
         "quest_relationships": relationships,
         "quest_giver_presentation_plan": quests,
@@ -897,7 +914,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
         "source_field_dispositions": dispositions, "dbc_bindings": dbc_bindings,
         "source_capture_findings": [{**i, "disposition": "replaced_by_exact_dependency_report"
                                      if i["reason"] in replaced or replaced_creature_finding(i) else "supported_shape"
-                                     if fireball_plan.discharges(i, fireball) or spawn_plan.discharges(i, spawn_plans) or item_plan.discharges(i, captured_items) else "supported_numeric_policy"
+                                     if fireball_plan.discharges(i, fireball) or spell_execution.discharges(i, spells) or spawn_plan.discharges(i, spawn_plans) or item_plan.discharges(i, captured_items) else "supported_numeric_policy"
                                      if world_rules.discharges(i, rules_plan) else "retained"}
                                     for i in source["report"]["unsupported"]],
         "unsupported": issues}

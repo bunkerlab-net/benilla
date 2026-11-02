@@ -199,6 +199,18 @@ class PreparationVerifierParityTests(unittest.TestCase):
             {"guid": 1, "reason": "spawn.unsupported_creature_linking"},
             {"guid": 1, "reason": "spawn.unsupported_creature_linking_template"}])
 
+    def test_initial_execution_plans_match_whole_spell_positive_and_mutated_shapes(self):
+        from . import spell_execution
+        fixtures = {f["name"]: f["preparation"] for f in corpus()["fixtures"]}
+        for name, expected in (("initial-spell-execution", "supported_shape"),
+                               ("initial-spell-execution-refusals", "blocked")):
+            selected = [s for s in fixtures[name]["spells"] if s["id"] in spell_execution.SHAPES]
+            self.assertEqual(len(selected), 15)
+            self.assertTrue(all(s["execution_plan"]["status"] == expected for s in selected))
+            self.assertTrue(all(any(i["key"] == [s["id"]] and i["reason"] ==
+                                   "spell.server_overlay_and_learning_closure_required"
+                                   for i in fixtures[name]["unsupported"]) for s in selected))
+
     def test_shared_non_source_mutations_have_exact_diagnostic_ids(self):
         fixtures = {f["name"]: f for f in corpus()["fixtures"]}
         for case in mutations():

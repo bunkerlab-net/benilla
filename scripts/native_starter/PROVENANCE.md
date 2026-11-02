@@ -33,6 +33,22 @@ Reviewed CMaNGOS Classic revision:
   excluded rows. Independently reached spell and forward-rank metadata retain
   their separate SpellMgr lookup semantics; a zero-method sibling is not a
   learning dependency merely because it shares a skill.
+- [Spell::FillTargetMap, Spell.cpp:533-683](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Spells/Spell.cpp#L533-L683)
+  supplies per-effect target selection. The captured initial execution plan
+  mirrors the existing Rust phase classifier, including targetless markers and
+  the unscheduled Detect effect. It does not add a general spell dispatcher.
+- [Effect dispatch, SpellEffects.cpp:78-97](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Spells/SpellEffects.cpp#L78-L97)
+  maps Dodge, weapon, defense, spell-defense, and language to `EffectEmpty`.
+  [EffectProficiency:2311-2329](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Spells/SpellEffects.cpp#L2311-L2329)
+  updates the player weapon and armor proficiency masks.
+- [Aura skill modifiers, SpellAuras.cpp:2060](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Spells/SpellAuras.cpp#L2060),
+  [total percent stats:3542](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Spells/SpellAuras.cpp#L3542),
+  and [reputation aura dispatch:217](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Spells/SpellAuras.cpp#L217)
+  define the existing initial skill, spirit, and deferred reputation modifiers.
+  A supported execution shape does not prove actual learning or reward policy.
+- [GetSpellDuration and GetSpellMaxDuration, SpellMgr.cpp:56-73](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Spells/SpellMgr.cpp#L56-L73)
+  return zero for a missing indexed duration record. The preparation plan only
+  applies that resolution to selector zero; it never invents a DBC row.
 
 To add the SQL training projection to a private, unchanged operator-quiescent
 capture, run the following command. The password prompt does not echo its input.

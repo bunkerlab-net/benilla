@@ -678,6 +678,8 @@ impl<'a> Compiler<'a> {
                 &duration_input,
             )?;
             result.push(json!({"id":num(id),"initial_sql_spell":initial.contains(&id),"script_registry":registry,"initial_hooks":hooks,"name_locales":row.map(|r|(120..128).map(|i|r.text(i)).collect::<Vec<_>>()),"cast_time":cast_input,"range":range_input,"effects":effects,"speed":source["speed"],"duration":duration_input,"server_client_differences":differences,"source_row":source,"server_numeric_words":server_words,"dbc_only_inputs":row.map(|r|json!({"totems":(40..42).map(|i|r.word(i)).collect::<Vec<_>>(),"reagents":(42..50).map(|i|r.word(i) as i32).collect::<Vec<_>>(),"reagent_counts":(50..58).map(|i|r.word(i)).collect::<Vec<_>>(),"max_target_level":r.word(159),"family_mask_words":[r.word(161),r.word(162)],"max_affected_targets":r.word(163),"damage_multiplier_binary32":(167..170).map(|i|r.word(i)).collect::<Vec<_>>()})),"numeric_capture":numeric,"fireball_plan":fireball}));
+            let spell = result.last_mut().unwrap();
+            spell["execution_plan"] = plans::spell_execution::supported_plan(self.source, spell)?;
             self.issue(
                 "spell_template",
                 json!([num(id)]),
@@ -1159,6 +1161,34 @@ pub(super) fn compile(
         .collect();
     c.issues
         .retain(|i| !plans::item::discharges(i, &captured_items));
+    let execution_discharged: Vec<_> = c
+        .issues
+        .iter()
+        .filter(|i| plans::spell_execution::discharges(i, &spells))
+        .cloned()
+        .collect();
+    c.issues
+        .retain(|i| !plans::spell_execution::discharges(i, &spells));
+    for d in &mut dispositions {
+        if d["table"] != "spell_template" {
+            continue;
+        }
+        let plan = &spells
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| d["key"] == json!([s["id"]]))
+            .unwrap()["execution_plan"];
+        if plan["status"] == "supported_shape" {
+            let fields = d["blocked_for_gameplay"]
+                .as_object_mut()
+                .unwrap()
+                .remove("spell.native_effect_target_scaling_rules_required")
+                .unwrap_or(json!([]));
+            d["supported_catalog_plan"] = json!({"adapter":plans::spell_execution::ADAPTER,
+                "fields":fields,"input_bindings":plan["input_bindings"]});
+        }
+    }
     for d in &mut dispositions {
         if d["table"] != "item_template" {
             continue;
@@ -1290,6 +1320,7 @@ pub(super) fn compile(
                 "replaced_by_exact_dependency_report"
             } else if plans::fireball_discharges(i, fireball)
                 || plans::spawn::discharges(i, &creatures)
+                || plans::spell_execution::discharges(i, &spells)
                 || plans::item::discharges(i, &captured_items)
             {
                 "supported_shape"
@@ -1323,6 +1354,8 @@ pub(super) fn compile(
         "spell_numeric_capture": source.get("spell_numeric_capture"),
         "fireball_plan_obligations": annotate(&discharged, "supported_shape",
             Some(FIREBALL_ADAPTER), Some(&fireball["input_bindings"])),
+        "spell_execution_obligations": annotate(&execution_discharged, "supported_shape",
+            Some(plans::spell_execution::ADAPTER), None),
         "creature_display_inputs": display_evidence,
         "quest_relationships": relationships,
         "quest_giver_presentation_plan": quests,
