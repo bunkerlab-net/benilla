@@ -169,9 +169,9 @@ distinguishes selected-key completeness from a separate whole-loader query
 observation. Preparation can resolve bounded ordinary/reference loot shapes;
 source authenticity, explicit rates, inventory audits, and native admission remain separate.
 
-Not captured: other event override/group/linking state; gameobjects; non-body loot;
-conditions; other AI/script data; local starter outfits/DBC records; quest chains
-beyond referenced fields; spell procs/stacking or the local client DBCs.
+Without the optional extensions, the capture omits other event/group/linking
+state, gameobjects, non-body loot, conditions, other AI/script data, quest chains
+beyond referenced fields, spell procs/stacking, and the local client DBCs.
 The optional Python API `capture(..., capture_spawn_entries=True)` adds
 [raw entry-alternative exclusion evidence](SPAWN-ENTRY-CONTRACT.md) for all
 selected GUIDs. It does not resolve alternatives, promote template dependencies,
@@ -239,3 +239,29 @@ capture; see [the contract](QUEST-RELATIONSHIP-CONTRACT.md). It preserves signed
 incoming NextQuestId, incoming chain and breadcrumb edges without importing
 external quests as playable content. Legacy missing evidence remains unknown.
 This diagnostic is not connected to a compiler/consumer or native admission.
+
+## Optional participant evidence
+
+For a source-v2 starter selection, use `capture --participants` or the Python
+API `capture(..., capture_participants=True)`.
+The versioned `participants_capture` binds the selector, source pins, schema,
+snapshot, selected roots, retained rows, and whole-table loader observations.
+Strict checks cover exact columns, types, nullability, order, and primary keys.
+DB script tables have no primary key at this pin. Their observation retains
+duplicate rows and source priority order rather than inventing a unique key.
+
+The extension captures selected gameobject spawns and entry alternatives.
+It captures complete template data fields, addon state, event/pool membership,
+all transports, EventAI summon positions, and all ten DB script table scans.
+It keeps non-text script commands as conservative candidates across all maps.
+Missing tables have explicit Unknown observations, never captured-empty rows.
+Whole-table scans have separate bounds of two million rows and 512 MiB per table.
+Selected rows remain bounded to 4,096 per table and 16 MiB in total.
+These scans do not authenticate source bytes or establish a live database lease.
+
+Preparation refuses every positive participant type under the current
+empty-participant geometry contract. It also refuses unproved exterior bounds,
+transport paths, and runtime creation paths.
+See the [participant consumer requirements](../native_starter/CONSUMER-CONTRACT.md#non-render-participant-requirements).
+No raw SQL rows or extracted assets belong in repository fixtures.
+

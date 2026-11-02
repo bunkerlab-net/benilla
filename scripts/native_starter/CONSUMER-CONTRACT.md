@@ -316,3 +316,38 @@ retains the explicit v2 family radius, or null when rules were not supplied.
 `pull_radius_supported` describes this numeric selection only, including a zero
 configured radius. It does not prove ordered current-generation traversal,
 linking/control hooks, spatial predicates, generation, or production admission.
+
+## Non-render participant requirements
+
+`--participants` adds the optional `benilla-classic-participants-v1` capture.
+Preparation derives `participants_plan` independently in Python and Rust.
+Only `proved_empty` discharges the empty-participant obligation.
+Missing tables remain Unknown, even if all captured tables contain no rows.
+Every positive gameobject produces an exact type-specific refusal.
+The collision policy follows pinned `GameObject.cpp:1317-1334`.
+It does not prove that a display has a usable collision model.
+
+The capture binds selected creature, quest, spell, and spatial roots.
+It observes whole tables before any loader rejection or event/pool filter.
+It retains selected gameobject spawns, alternatives, templates, addon state,
+event membership, and pool membership. All transports remain candidates.
+Whole-table script observations retain every non-text command as a conservative
+candidate, including relay scripts. They do not prove selected dispatch.
+Selected EventAI, spell effects, script names, and initial hooks retain separate
+creation-path refusals. The compiler never executes scripts to infer absence.
+
+`ProductionInputReport::participants()` returns privately constructed
+`CheckedParticipantRequirements`. The requirement binds the checked source SHA,
+map, capture SHA, and exact refusals. Its closed-controller policy cannot create
+a `NativeCapability` or an app collision token.
+Phase 6 must bind the final runtime content digest and closed controller
+capabilities before the app can construct `NonRenderParticipants`.
+The app's production token constructor remains closed.
+
+`transport_path_coverage_required` needs a `TaxiPathNode` extraction and the
+pinned transport path interpolation before exclusion is possible.
+`exterior_bounds_coverage_required` needs complete display/model bounds,
+transforms, motion, and the admitted request envelope from 5.3/5.5.
+Neither spawn origins outside the selector nor absent DBC data prove exclusion.
+Any applicable nonempty type needs its own 5.6c lifecycle and collision port.
+

@@ -4285,6 +4285,33 @@
             }
           }
         },
+        "participants_plan": {
+          "capture_sha256": null,
+          "controller_binding": "closed_no_native_capability",
+          "empty_participant_obligation_discharged": false,
+          "format": "cmangos-8ec338a1-empty-participants-plan-v1",
+          "inventory": [],
+          "production_admission": false,
+          "refusals": [
+            {
+              "admission_scope": {
+                "kind": "selection_entry"
+              },
+              "key": [],
+              "reason": "participants.capture_required",
+              "table": "participants"
+            },
+            {
+              "admission_scope": {
+                "kind": "selection_entry"
+              },
+              "key": [],
+              "reason": "participants.creation_hook_coverage_required",
+              "table": "initial_hook_capture"
+            }
+          ],
+          "status": "unknown"
+        },
         "player": {
           "actions": [
             {
@@ -4807,7 +4834,7 @@
             ]
           }
         },
-        "preparation_sha256": "626ce1ef43fa6dd9d79a411cf4843762024d1450658031b87e190a18d54ad61d",
+        "preparation_sha256": "3df60bd676c43246f0070bdd6eee2ab35fa67b56afe4cbe539bf4e4aeb37ff4d",
         "quest_giver_presentation_plan": {
           "adapter": "quest_lifecycle::CapturedOrdinaryQuests + captured_quests::CapturedQuestPresentation",
           "input_bindings": null,
@@ -8129,6 +8156,22 @@
             "key": [],
             "reason": "native.runtime_profile_not_implemented",
             "table": "runtime"
+          },
+          {
+            "admission_scope": {
+              "kind": "selection_entry"
+            },
+            "key": [],
+            "reason": "participants.capture_required",
+            "table": "participants"
+          },
+          {
+            "admission_scope": {
+              "kind": "selection_entry"
+            },
+            "key": [],
+            "reason": "participants.creation_hook_coverage_required",
+            "table": "initial_hook_capture"
           },
           {
             "admission_scope": {

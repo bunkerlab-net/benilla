@@ -109,6 +109,12 @@ class SourceVerifierParityTests(unittest.TestCase):
             "text": {k: sorted(v) for k, v in quest_mechanics_columns.TEXT.items()}}
         self.assertEqual(json.loads((contract_path.parent / "extensions/quest_mechanics_contract.json").read_text()),
                          mechanics)
+        from classic_export import participants_columns
+        participants = {"schema": {k: [list(row) for row in v] for k, v in participants_columns.SCHEMA.items()},
+                        "keys": {k: list(v) for k, v in participants_columns.KEYS.items()},
+                        "columns": participants_columns.COLUMNS}
+        self.assertEqual(json.loads((contract_path.parent / "extensions/participants_contract.json").read_text()),
+                         participants)
 
     def test_shared_source_mutations_have_exact_diagnostic_ids(self):
         fixtures = {f["name"]: f for f in corpus()["fixtures"]}

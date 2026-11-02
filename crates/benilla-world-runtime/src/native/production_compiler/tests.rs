@@ -571,3 +571,49 @@ fn initial_execution_shapes_agree_with_existing_runtime_phase_classifier() {
         assert_eq!(checked, 15);
     }
 }
+
+#[test]
+fn production_participant_requirements_refuse_missing_positive_edges_and_creation() {
+    let fixtures = corpus();
+    for (name, reason) in [
+        ("participants-empty", None),
+        (
+            "participants-missing-table",
+            Some("participants.table_unknown"),
+        ),
+        ("participants-door", Some("participants.unsupported_door")),
+        (
+            "participants-event-pool",
+            Some("participants.event_membership_required"),
+        ),
+        (
+            "participants-creation",
+            Some("participants.runtime_db_script_command_required"),
+        ),
+    ] {
+        let fixture = fixtures["fixtures"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["name"] == name)
+            .unwrap();
+        let report = Inputs::new(fixture).run().unwrap();
+        let requirement = report.participants();
+        assert_eq!(requirement.map(), 0);
+        assert_eq!(
+            requirement.source_sha256(),
+            report.identity()["source_sha256"].as_str().unwrap()
+        );
+        assert!(requirement.capture_sha256().is_some());
+        assert_eq!(requirement.proved_empty(), reason.is_none());
+        if let Some(reason) = reason {
+            assert!(
+                requirement.refusals().iter().any(|r| r["reason"] == reason),
+                "{name}"
+            );
+        } else {
+            assert!(requirement.refusals().is_empty());
+        }
+        assert_eq!(report.identity()["runtime_admitted"], false);
+    }
+}

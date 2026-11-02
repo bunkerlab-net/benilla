@@ -28,6 +28,7 @@ from . import spawn_plan
 from . import item_plan
 from . import spell_execution
 from . import creature_combat_plan
+from . import participants
 
 PROFILE = "cmangos-8ec338a1-native-starter-bindings-v1"
 FORMAT = "benilla-native-starter-preparation-v1"
@@ -754,6 +755,8 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
     quests = quest_plan.supported_plan(source, dbcs)
     rules_plan = world_rules.supported_plan(source, native_world_rules)
     corpse_loot = loot_plan.supported_plan(source)
+    participant_plan = participants.supported_plan(source)
+    c.issues.extend(participant_plan["refusals"])
     captured_items = item_plan.supported_plan(source)
     for refusal in captured_items["refusals"]:
         c.issues.append(refusal)
@@ -884,6 +887,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
         "extraction_manifest": extraction_manifest,
         "dbc_manifest": [t.manifest() for _, t in sorted(dbcs.items())],
         "status": "blocked", "runtime_export": None,
+        "participants_plan": participant_plan,
         "ability_admission": admission,
         "dependency_request": c.learning["dependency_request"],
         "native_spawn_capture": source.get("native_spawn_capture"),

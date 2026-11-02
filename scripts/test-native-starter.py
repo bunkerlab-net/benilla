@@ -1287,6 +1287,10 @@ class RegistryAndDisplayPreparationTests(unittest.TestCase):
                 rehash_source(self.source)
                 result = self.compile()
                 issues = [i for i in result["unsupported"] if i["table"] == "spell_scripts"]
+                participant = [i for i in issues if i["reason"] == "participants.runtime_script_required"]
+                self.assertEqual(len(participant), 1)
+                self.assertEqual(participant[0]["admission_scope"], {"kind": "selection_entry"})
+                issues = [i for i in issues if i["reason"] != "participants.runtime_script_required"]
                 self.assertEqual(len(issues), 2)
                 self.assertTrue(any(i.get("origin") == "source_capture" for i in issues))
                 self.assertTrue(all(i["admission_scope"] == {
@@ -1322,6 +1326,10 @@ class RegistryAndDisplayPreparationTests(unittest.TestCase):
                 self.assertIn(930102, result["ability_admission"]["entry_critical_spell_ids"])
                 self.assertFalse(result["ability_admission"]["unavailable_active_abilities"])
                 issues = [i for i in result["unsupported"] if i["table"] == "spell_scripts"]
+                participant = [i for i in issues if i["reason"] == "participants.runtime_script_required"]
+                self.assertEqual(len(participant), 1)
+                self.assertEqual(participant[0]["admission_scope"], {"kind": "selection_entry"})
+                issues = [i for i in issues if i["reason"] != "participants.runtime_script_required"]
                 self.assertEqual(len(issues), 2)
                 self.assertTrue(all(i["admission_scope"] == {"kind": "selection_entry"} for i in issues))
 
@@ -1340,6 +1348,10 @@ class RegistryAndDisplayPreparationTests(unittest.TestCase):
         self.assertEqual(admission["entry_critical_spell_ids"], [930001, 930102])
         self.assertEqual([row["id"] for row in admission["unavailable_active_abilities"]], [930101])
         issues = [i for i in result["unsupported"] if i["table"] == "spell_scripts"]
+        participant = [i for i in issues if i["reason"] == "participants.runtime_script_required"]
+        self.assertEqual(len(participant), 1)
+        self.assertEqual(participant[0]["admission_scope"], {"kind": "selection_entry"})
+        issues = [i for i in issues if i["reason"] != "participants.runtime_script_required"]
         self.assertEqual(len(issues), 2)
         self.assertTrue(all(i["admission_scope"] == {"kind": "selection_entry"} for i in issues))
 

@@ -3,6 +3,7 @@ use super::{check, fail, json::*, source::*, Result, COMPILER_CONTRACT};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 mod loot;
+pub(super) mod participants;
 pub(super) mod quest_mechanics;
 pub(super) mod skill_training;
 const FILTER: &str = "all_matching_rows_no_loader_filters";
@@ -798,6 +799,9 @@ pub(super) fn validate_late(b: &Value, p: &Profiles) -> Result<()> {
     }
     if present(b, "quest_mechanics_capture") {
         quest_mechanics::validate(b)?;
+    }
+    if present(b, "participants_capture") {
+        participants::validate(b)?;
     }
     if present(b, "skill_training_capture") {
         check(

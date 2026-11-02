@@ -86,6 +86,15 @@
       "action3_param3",
       "comment"
     ],
+    "creature_ai_summons": [
+      "id",
+      "position_x",
+      "position_y",
+      "position_z",
+      "orientation",
+      "spawntimesecs",
+      "comment"
+    ],
     "creature_conditional_spawn": [
       "Guid",
       "EntryAlliance",
@@ -284,7 +293,223 @@
       "version",
       "creature_ai_version"
     ],
+    "dbscripts_on_creature_death": [
+      "id",
+      "delay",
+      "priority",
+      "command",
+      "datalong",
+      "datalong2",
+      "datalong3",
+      "buddy_entry",
+      "search_radius",
+      "data_flags",
+      "dataint",
+      "dataint2",
+      "dataint3",
+      "dataint4",
+      "datafloat",
+      "x",
+      "y",
+      "z",
+      "o",
+      "speed",
+      "condition_id",
+      "comments"
+    ],
+    "dbscripts_on_creature_movement": [
+      "id",
+      "delay",
+      "priority",
+      "command",
+      "datalong",
+      "datalong2",
+      "datalong3",
+      "buddy_entry",
+      "search_radius",
+      "data_flags",
+      "dataint",
+      "dataint2",
+      "dataint3",
+      "dataint4",
+      "datafloat",
+      "x",
+      "y",
+      "z",
+      "o",
+      "speed",
+      "condition_id",
+      "comments"
+    ],
+    "dbscripts_on_event": [
+      "id",
+      "delay",
+      "priority",
+      "command",
+      "datalong",
+      "datalong2",
+      "datalong3",
+      "buddy_entry",
+      "search_radius",
+      "data_flags",
+      "dataint",
+      "dataint2",
+      "dataint3",
+      "dataint4",
+      "datafloat",
+      "x",
+      "y",
+      "z",
+      "o",
+      "speed",
+      "condition_id",
+      "comments"
+    ],
+    "dbscripts_on_go_template_use": [
+      "id",
+      "delay",
+      "priority",
+      "command",
+      "datalong",
+      "datalong2",
+      "datalong3",
+      "buddy_entry",
+      "search_radius",
+      "data_flags",
+      "dataint",
+      "dataint2",
+      "dataint3",
+      "dataint4",
+      "datafloat",
+      "x",
+      "y",
+      "z",
+      "o",
+      "speed",
+      "condition_id",
+      "comments"
+    ],
+    "dbscripts_on_go_use": [
+      "id",
+      "delay",
+      "priority",
+      "command",
+      "datalong",
+      "datalong2",
+      "datalong3",
+      "buddy_entry",
+      "search_radius",
+      "data_flags",
+      "dataint",
+      "dataint2",
+      "dataint3",
+      "dataint4",
+      "datafloat",
+      "x",
+      "y",
+      "z",
+      "o",
+      "speed",
+      "condition_id",
+      "comments"
+    ],
+    "dbscripts_on_gossip": [
+      "id",
+      "delay",
+      "priority",
+      "command",
+      "datalong",
+      "datalong2",
+      "datalong3",
+      "buddy_entry",
+      "search_radius",
+      "data_flags",
+      "dataint",
+      "dataint2",
+      "dataint3",
+      "dataint4",
+      "datafloat",
+      "x",
+      "y",
+      "z",
+      "o",
+      "speed",
+      "condition_id",
+      "comments"
+    ],
     "dbscripts_on_quest_end": [
+      "id",
+      "delay",
+      "priority",
+      "command",
+      "datalong",
+      "datalong2",
+      "datalong3",
+      "buddy_entry",
+      "search_radius",
+      "data_flags",
+      "dataint",
+      "dataint2",
+      "dataint3",
+      "dataint4",
+      "datafloat",
+      "x",
+      "y",
+      "z",
+      "o",
+      "speed",
+      "condition_id",
+      "comments"
+    ],
+    "dbscripts_on_quest_start": [
+      "id",
+      "delay",
+      "priority",
+      "command",
+      "datalong",
+      "datalong2",
+      "datalong3",
+      "buddy_entry",
+      "search_radius",
+      "data_flags",
+      "dataint",
+      "dataint2",
+      "dataint3",
+      "dataint4",
+      "datafloat",
+      "x",
+      "y",
+      "z",
+      "o",
+      "speed",
+      "condition_id",
+      "comments"
+    ],
+    "dbscripts_on_relay": [
+      "id",
+      "delay",
+      "priority",
+      "command",
+      "datalong",
+      "datalong2",
+      "datalong3",
+      "buddy_entry",
+      "search_radius",
+      "data_flags",
+      "dataint",
+      "dataint2",
+      "dataint3",
+      "dataint4",
+      "datafloat",
+      "x",
+      "y",
+      "z",
+      "o",
+      "speed",
+      "condition_id",
+      "comments"
+    ],
+    "dbscripts_on_spell": [
       "id",
       "delay",
       "priority",
@@ -320,6 +545,76 @@
       "spell_start",
       "spell_end",
       "event"
+    ],
+    "game_event_gameobject": [
+      "guid",
+      "event"
+    ],
+    "gameobject": [
+      "guid",
+      "id",
+      "map",
+      "spawnMask",
+      "position_x",
+      "position_y",
+      "position_z",
+      "orientation",
+      "rotation0",
+      "rotation1",
+      "rotation2",
+      "rotation3",
+      "spawntimesecsmin",
+      "spawntimesecsmax"
+    ],
+    "gameobject_addon": [
+      "guid",
+      "animprogress",
+      "state",
+      "StringId"
+    ],
+    "gameobject_spawn_entry": [
+      "guid",
+      "entry"
+    ],
+    "gameobject_template": [
+      "entry",
+      "type",
+      "displayId",
+      "name",
+      "IconName",
+      "faction",
+      "flags",
+      "ExtraFlags",
+      "size",
+      "data0",
+      "data1",
+      "data2",
+      "data3",
+      "data4",
+      "data5",
+      "data6",
+      "data7",
+      "data8",
+      "data9",
+      "data10",
+      "data11",
+      "data12",
+      "data13",
+      "data14",
+      "data15",
+      "data16",
+      "data17",
+      "data18",
+      "data19",
+      "data20",
+      "data21",
+      "data22",
+      "data23",
+      "CustomData1",
+      "mingold",
+      "maxgold",
+      "StringId",
+      "ScriptName"
     ],
     "gossip_menu": [
       "entry",
@@ -874,6 +1169,18 @@
       "chance",
       "description"
     ],
+    "pool_gameobject": [
+      "guid",
+      "pool_entry",
+      "chance",
+      "description"
+    ],
+    "pool_gameobject_template": [
+      "id",
+      "pool_entry",
+      "chance",
+      "description"
+    ],
     "quest_template": [
       "entry",
       "Method",
@@ -1182,6 +1489,11 @@
       "EffectBonusCoefficientFromAP1",
       "EffectBonusCoefficientFromAP2",
       "EffectBonusCoefficientFromAP3"
+    ],
+    "transports": [
+      "entry",
+      "name",
+      "period"
     ]
   },
   "event_aliases": {
@@ -1472,6 +1784,9 @@
     "creature_ai_scripts": [
       "id"
     ],
+    "creature_ai_summons": [
+      "id"
+    ],
     "creature_conditional_spawn": [
       "Guid"
     ],
@@ -1517,6 +1832,16 @@
       "Class",
       "Level"
     ],
+    "dbscripts_on_creature_death": [],
+    "dbscripts_on_creature_movement": [],
+    "dbscripts_on_event": [],
+    "dbscripts_on_go_template_use": [],
+    "dbscripts_on_go_use": [],
+    "dbscripts_on_gossip": [],
+    "dbscripts_on_quest_end": [],
+    "dbscripts_on_quest_start": [],
+    "dbscripts_on_relay": [],
+    "dbscripts_on_spell": [],
     "game_event_creature": [
       "guid",
       "event"
@@ -1524,6 +1849,23 @@
     "game_event_creature_data": [
       "guid",
       "event"
+    ],
+    "game_event_gameobject": [
+      "guid",
+      "event"
+    ],
+    "gameobject": [
+      "guid"
+    ],
+    "gameobject_addon": [
+      "guid"
+    ],
+    "gameobject_spawn_entry": [
+      "guid",
+      "entry"
+    ],
+    "gameobject_template": [
+      "entry"
     ],
     "item_template": [
       "entry"
@@ -1589,6 +1931,12 @@
     "pool_creature_template": [
       "id"
     ],
+    "pool_gameobject": [
+      "guid"
+    ],
+    "pool_gameobject_template": [
+      "id"
+    ],
     "quest_template": [
       "entry"
     ],
@@ -1631,6 +1979,9 @@
     ],
     "spell_template": [
       "Id"
+    ],
+    "transports": [
+      "entry"
     ]
   },
   "learning": [
@@ -2509,6 +2860,9 @@
     "creature_ai_scripts": [
       "comment"
     ],
+    "creature_ai_summons": [
+      "comment"
+    ],
     "creature_conditional_spawn": [
       "Comments"
     ],
@@ -2531,8 +2885,44 @@
       "creature_ai_version",
       "version"
     ],
+    "dbscripts_on_creature_death": [
+      "comments"
+    ],
+    "dbscripts_on_creature_movement": [
+      "comments"
+    ],
+    "dbscripts_on_event": [
+      "comments"
+    ],
+    "dbscripts_on_go_template_use": [
+      "comments"
+    ],
+    "dbscripts_on_go_use": [
+      "comments"
+    ],
+    "dbscripts_on_gossip": [
+      "comments"
+    ],
     "dbscripts_on_quest_end": [
       "comments"
+    ],
+    "dbscripts_on_quest_start": [
+      "comments"
+    ],
+    "dbscripts_on_relay": [
+      "comments"
+    ],
+    "dbscripts_on_spell": [
+      "comments"
+    ],
+    "game_event_gameobject": [],
+    "gameobject": [],
+    "gameobject_addon": [],
+    "gameobject_spawn_entry": [],
+    "gameobject_template": [
+      "IconName",
+      "ScriptName",
+      "name"
     ],
     "gossip_menu_option": [
       "box_text",
@@ -2797,6 +3187,12 @@
     "pool_creature_template": [
       "description"
     ],
+    "pool_gameobject": [
+      "description"
+    ],
+    "pool_gameobject_template": [
+      "description"
+    ],
     "quest_template": [
       "Details",
       "EndText",
@@ -2817,6 +3213,9 @@
     ],
     "spell_scripts": [
       "ScriptName"
+    ],
+    "transports": [
+      "name"
     ]
   }
 }

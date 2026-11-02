@@ -1066,6 +1066,14 @@ pub(super) fn compile(
     let quests = plans::quests(source, dbcs, &relationships, &source_sha);
     let rules_plan = rules_plan(source, rules);
     let corpse_loot = plans::loot(source, &source_sha)?;
+    let mut participant_plan = super::extensions::participants::supported(source);
+    c.issues.extend(
+        participant_plan["refusals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .cloned(),
+    );
     let mut captured_items = plans::item::supported(source, &source_sha);
     c.issues.extend(
         captured_items["refusals"]
@@ -1342,6 +1350,9 @@ pub(super) fn compile(
     for refusal in captured_items["refusals"].as_array_mut().unwrap() {
         refusal["admission_scope"] = json!({"kind":"selection_entry"});
     }
+    for refusal in participant_plan["refusals"].as_array_mut().unwrap() {
+        refusal["admission_scope"] = json!({"kind":"selection_entry"});
+    }
     for item in captured_items["items"].as_array_mut().unwrap() {
         for refusal in item["refusals"].as_array_mut().unwrap() {
             refusal["admission_scope"] = json!({"kind":"selection_entry"});
@@ -1452,6 +1463,7 @@ pub(super) fn compile(
         "source_capture_findings": source_findings,
         "unsupported": issues,
     });
+    output["participants_plan"] = participant_plan;
     output["preparation_sha256"] = json!(digest(&output));
     bounded_len(&output, 128 * 1024 * 1024, "compiler.report_byte_limit")?;
     Ok(output)

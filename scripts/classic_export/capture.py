@@ -13,6 +13,7 @@ from . import spell_numeric
 from . import quest_presentation
 from . import loot_loader
 from . import spawn_context
+from . import participants
 from . import skill_training
 from . import quest_mechanics
 from .core import (CORE_REVISION, DATABASE_REVISION, FORMAT, STARTER_FORMAT, KEYS, MAX_BUNDLE_BYTES,
@@ -196,6 +197,7 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             capture_spell_numeric: bool = False,
             capture_quest_presentation: bool = False,
             capture_spawn_context: bool = False,
+            capture_participants: bool = False,
             capture_quest_mechanics: bool = False) -> dict[str, Any]:
     selection = Selection.parse(selection.json())
     if dependency_request is not None:
@@ -218,6 +220,10 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
     check(type(capture_spawn_context) is bool, "spawn_context.request_boolean")
     check(not capture_spawn_context or selection.starter is not None, "spawn_context.starter_required")
     capture_spawn_entries = capture_spawn_entries or capture_spawn_context
+    check(type(capture_participants) is bool, "participants.request_boolean")
+    check(not capture_participants or selection.starter is not None, "participants.starter_required")
+    if capture_participants:
+        participants.schema(inventory)
     minimum = required_tables(selection)
     if capture_quest_presentation:
         minimum.update(quest_presentation.TABLES)
@@ -247,7 +253,10 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
     engines = {p["engine"] for table, p in profiles.items()
                if (table != "spell_facing" or capture_spell_numeric)
                and (table not in quest_presentation.KEYS or capture_quest_presentation)
-               and (table not in quest_mechanics.SCHEMA or capture_quest_mechanics)}
+               and (table not in quest_mechanics.SCHEMA or capture_quest_mechanics
+                    or (capture_participants and table in participants.SCHEMA))
+               and (table not in participants.SCHEMA or capture_participants
+                    or table in quest_mechanics.SCHEMA)}
     tables: dict[str, list[dict[str, Any]]] = {}
     required: dict[str, set[int]] = {}
     try:
@@ -290,6 +299,7 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
         if capture_spawn_context:
             for table, ids in spawn_context.selectors(tables).items():
                 tables[table] = get(table, set(ids), mode=spawn_context.MODE)
+        participant_data = participants.capture(source, selection.json(), inventory) if capture_participants else None
         creature_ids = {r["id"] for r in spawns if r["id"] > 0}
         quest_ids = set(selection.quest_ids)
         for table in ["creature_questrelation", "creature_involvedrelation"]:
@@ -502,6 +512,8 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             bundle["spawn_entry_capture"] = spawn_entries.evidence(bundle)
         if capture_spawn_context:
             bundle["spawn_context_capture"] = spawn_context.evidence(bundle)
+        if capture_participants:
+            bundle["participants_capture"] = participants.evidence(bundle, *participant_data)
         if capture_quest_relationships:
             bundle["quest_relationship_capture"] = quest_relationships.evidence(bundle, inbound_quests)
         if capture_quest_presentation:
@@ -553,6 +565,8 @@ def validate_bundle(bundle: Any) -> None:
         expected.add("spawn_entry_capture")
     if "spawn_context_capture" in bundle:
         expected.add("spawn_context_capture")
+    if "participants_capture" in bundle:
+        expected.add("participants_capture")
     if "skill_training_capture" in bundle:
         expected.add("skill_training_capture")
     check(set(bundle) == expected, "bundle.fields")
@@ -580,7 +594,10 @@ def validate_bundle(bundle: Any) -> None:
         p["engine"] == "InnoDB" for table, p in profiles.items()
         if (table != "spell_facing" or "spell_numeric_capture" in bundle)
         and (table not in quest_presentation.KEYS or "quest_giver_presentation_capture" in bundle)
-        and (table not in quest_mechanics.SCHEMA or "quest_mechanics_capture" in bundle)),
+        and (table not in quest_mechanics.SCHEMA or "quest_mechanics_capture" in bundle
+             or ("participants_capture" in bundle and table in participants.SCHEMA))
+        and (table not in participants.SCHEMA or "participants_capture" in bundle
+             or table in quest_mechanics.SCHEMA)),
         "bundle.myisam_consistency")
     check(digest(bundle["schema"]) == bundle["schema_sha256"], "bundle.schema_hash")
     check(type(bundle["table_sha256"]) is dict and set(bundle["table_sha256"]) == set(bundle["tables"]), "bundle.table_hashes")
@@ -623,6 +640,8 @@ def validate_bundle(bundle: Any) -> None:
           "spawn_context.coverage_required_with_tables")
     if "spawn_context_capture" in bundle:
         spawn_context.validate(bundle)
+    if "participants_capture" in bundle:
+        participants.validate(bundle)
     check(bool(set(initial_hooks.TABLES) & set(bundle["tables"])) == ("initial_hook_capture" in bundle),
           "initial_hooks.coverage_required_with_tables")
     if "initial_hook_capture" in bundle:

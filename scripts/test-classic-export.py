@@ -3124,6 +3124,108 @@ class QuestMechanicsTests(unittest.TestCase):
             capture(authored_mechanics_source(), starter_selection(),
                     capture_quest_presentation=0, capture_quest_mechanics=True)
 
+def authored_participants_source():
+    from classic_export.participants_columns import SCHEMA, KEYS
+    source = starter_source()
+    from classic_export.columns import INITIAL_HOOK_SCHEMA
+    from classic_export.initial_hooks import PRIMARY_KEYS
+    for table, fields in INITIAL_HOOK_SCHEMA.items():
+        source.inventory["tables"][table] = {"engine": "InnoDB", "table_type": "BASE TABLE",
+            "primary_key": PRIMARY_KEYS[table], "columns": [
+                {"name": name, "type": kind, "nullable": nullable, "ordinal": ordinal}
+                for ordinal, (name, kind, nullable) in enumerate(fields, 1)]}
+    for table, fields in SCHEMA.items():
+        source.inventory["tables"][table] = {"engine": "InnoDB", "table_type": "BASE TABLE",
+            "primary_key": list(KEYS[table]), "columns": [
+                {"name": name, "type": kind, "nullable": nullable, "ordinal": ordinal}
+                for ordinal, (name, kind, nullable) in enumerate(fields, 1)]}
+    def scan(query):
+        source.queries.append(query.sql())
+        return iter(copy.deepcopy(source.rows[query.table]))
+    source.scan_participants = scan
+    return source
+
+
+class ParticipantCaptureTests(unittest.TestCase):
+    def test_complete_empty_capture_discharges_only_closed_participant_obligation(self):
+        from native_starter.participants import supported_plan
+        source = authored_participants_source()
+        bundle = capture(source, starter_selection(), capture_participants=True, capture_initial_hooks=True)
+        validate_bundle(bundle)
+        plan = supported_plan(bundle)
+        self.assertEqual(plan["status"], "proved_empty")
+        self.assertTrue(plan["empty_participant_obligation_discharged"])
+        self.assertFalse(plan["production_admission"])
+
+    def test_missing_table_remains_unknown_and_bound_to_schema(self):
+        from native_starter.participants import supported_plan
+        source = authored_participants_source()
+        del source.inventory["tables"]["gameobject_addon"]
+        bundle = capture(source, starter_selection(), capture_participants=True, capture_initial_hooks=True)
+        self.assertEqual(bundle["participants_capture"]["observations"]["gameobject_addon"], {"status": "unknown"})
+        self.assertIn("participants.table_unknown", [r["reason"] for r in supported_plan(bundle)["refusals"]])
+        bundle["participants_capture"]["observations"]["gameobject_addon"] = {"status": "observed"}
+        with self.assertRaisesRegex(ExportError, "participants.absent_table_unknown"):
+            validate_bundle(bundle)
+
+    def test_per_type_refusals_and_pinned_collision_policy(self):
+        from native_starter.participants import supported_plan
+        for kind, name, policy in ((0, "door", "door_state_dependent"), (3, "chest", "enabled_when_spawned"),
+                                   (6, "trap", "disabled"), (11, "transport", "enabled_when_spawned")):
+            with self.subTest(kind=kind):
+                source = authored_participants_source()
+                source.rows["gameobject"] = [row("gameobject", guid=51, id=52, spawnMask=1)]
+                source.rows["gameobject_template"] = [row("gameobject_template", entry=52, type=kind)]
+                bundle = capture(source, starter_selection(), capture_participants=True, capture_initial_hooks=True)
+                plan = supported_plan(bundle)
+                self.assertEqual(plan["inventory"][0]["collision_policy"], policy)
+                self.assertIn("participants.unsupported_" + name, [r["reason"] for r in plan["refusals"]])
+                self.assertFalse(plan["empty_participant_obligation_discharged"])
+
+    def test_event_pool_and_runtime_creation_paths_cannot_be_empty(self):
+        from native_starter.participants import supported_plan
+        source = authored_participants_source()
+        source.rows["gameobject"] = [row("gameobject", guid=51, id=52)]
+        source.rows["gameobject_template"] = [row("gameobject_template", entry=52, type=3)]
+        source.rows["game_event_gameobject"] = [row("game_event_gameobject", guid=51, event=-2)]
+        source.rows["pool_gameobject_template"] = [row("pool_gameobject_template", id=52, pool_entry=4)]
+        source.rows["dbscripts_on_event"] = [row("dbscripts_on_event", id=71, command=10, datalong=900001)]
+        bundle = capture(source, starter_selection(), capture_participants=True, capture_initial_hooks=True)
+        reasons = {r["reason"] for r in supported_plan(bundle)["refusals"]}
+        self.assertTrue({"participants.event_membership_required", "participants.pool_membership_required",
+                         "participants.runtime_db_script_command_required"} <= reasons)
+
+    def test_exterior_and_transport_candidates_require_exclusion_proofs(self):
+        from native_starter.participants import supported_plan
+        source = authored_participants_source()
+        source.rows["gameobject"] = [row("gameobject", guid=51, id=52, position_x=Decimal(500))]
+        source.rows["transports"] = [row("transports", entry=53)]
+        source.rows["gameobject_template"] = [row("gameobject_template", entry=53, type=15, data0=900)]
+        bundle = capture(source, starter_selection(), capture_participants=True, capture_initial_hooks=True)
+        plan = supported_plan(bundle)
+        self.assertEqual(plan["inventory"], [])
+        self.assertIn("participants.exterior_bounds_coverage_required", [r["reason"] for r in plan["refusals"]])
+        self.assertIn("participants.transport_path_coverage_required", [r["reason"] for r in plan["refusals"]])
+
+    def test_loader_bindings_and_primary_keys_reject_mutations(self):
+        source = authored_participants_source()
+        source.inventory["tables"]["gameobject"]["primary_key"] = []
+        with self.assertRaisesRegex(ExportError, "participants.primary_key:gameobject"):
+            capture(source, starter_selection(), capture_participants=True)
+        bundle = capture(authored_participants_source(), starter_selection(), capture_participants=True)
+        bundle["participants_capture"]["roots"]["creature_guids"] = []
+        with self.assertRaisesRegex(ExportError, "participants.coverage_mismatch"):
+            validate_bundle(bundle)
+
+    def test_participant_snapshot_engines_apply_only_to_requested_capture(self):
+        source = authored_participants_source()
+        source.inventory["tables"]["gameobject"]["engine"] = "MyISAM"
+        capture(source, starter_selection())
+        with self.assertRaisesRegex(ExportError, "snapshot.quiescent_required_for_myisam"):
+            capture(source, starter_selection(), capture_participants=True)
+        bundle = capture(source, starter_selection(), quiescent=True, capture_participants=True)
+        validate_bundle(bundle)
+
 from native_starter.verifier_parity import SourceVerifierParityTests
 
 

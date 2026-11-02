@@ -273,6 +273,7 @@ pub(super) fn schema(inventory: &Value, required: &BTreeSet<&str>) -> Result<Pro
         .any(|g| contract_names(g).contains(table.as_str()))
             || CONTRACT["event_text"].get(table).is_some()
             || super::extensions::quest_mechanics::is_table(table)
+            || super::extensions::participants::is_table(table)
             || ["spell_template", "spell_facing"].contains(&table.as_str());
         if pk_allowed && meta.get("primary_key").is_some() {
             expected.push("primary_key");
@@ -805,6 +806,7 @@ pub(super) fn validate(bundle: &Value) -> Result<(Selection, Profiles)> {
         "spawn_entry_capture",
         "spawn_context_capture",
         "skill_training_capture",
+        "participants_capture",
     ] {
         if obj.contains_key(k) {
             expected.push(k);
@@ -893,7 +895,12 @@ pub(super) fn validate(bundle: &Value) -> Result<(Selection, Profiles)> {
                     || (contract_names("presentation").contains(table.as_str())
                         && !obj.contains_key("quest_giver_presentation_capture"))
                     || (super::extensions::quest_mechanics::is_table(table)
-                        && !obj.contains_key("quest_mechanics_capture")))
+                        && !obj.contains_key("quest_mechanics_capture")
+                        && !(obj.contains_key("participants_capture")
+                            && super::extensions::participants::is_table(table)))
+                    || (super::extensions::participants::is_table(table)
+                        && !super::extensions::quest_mechanics::is_table(table)
+                        && !obj.contains_key("participants_capture")))
                     || p.engine == "InnoDB"
             }),
         "bundle.myisam_consistency",

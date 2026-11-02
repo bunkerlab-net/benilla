@@ -758,7 +758,7 @@
         {
           "op": "set",
           "path": "/tables/item_template/0/entry",
-          "value": 18446744073709551616
+          "value": 18446744073709552000
         }
       ],
       "target": "source"
@@ -2364,6 +2364,75 @@
         }
       ],
       "target": "preparation"
+    },
+    {
+      "name": "participants-missing-table",
+      "fixture": "participants-empty",
+      "target": "source",
+      "operations": [
+        {
+          "op": "remove",
+          "path": "/participants_capture/rows/gameobject_addon"
+        }
+      ],
+      "bindings": [],
+      "diagnostic": "participants.tables_required"
+    },
+    {
+      "name": "participants-selected-roots",
+      "fixture": "participants-empty",
+      "target": "source",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/participants_capture/roots/creature_guids",
+          "value": []
+        }
+      ],
+      "bindings": [],
+      "diagnostic": "participants.coverage_mismatch"
+    },
+    {
+      "name": "participants-positive-door",
+      "fixture": "participants-door",
+      "target": "preparation",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/participants_plan/empty_participant_obligation_discharged",
+          "value": true
+        }
+      ],
+      "bindings": [],
+      "diagnostic": "compiler.preparation_mismatch"
+    },
+    {
+      "name": "participants-event-pool",
+      "fixture": "participants-event-pool",
+      "target": "preparation",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/participants_plan/refusals",
+          "value": []
+        }
+      ],
+      "bindings": [],
+      "diagnostic": "compiler.preparation_mismatch"
+    },
+    {
+      "name": "participants-runtime-creation",
+      "fixture": "participants-creation",
+      "target": "preparation",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/participants_plan/status",
+          "value": "proved_empty"
+        }
+      ],
+      "bindings": [],
+      "diagnostic": "compiler.preparation_mismatch"
     }
   ],
   "format": "benilla-production-verifier-mutations-v1"

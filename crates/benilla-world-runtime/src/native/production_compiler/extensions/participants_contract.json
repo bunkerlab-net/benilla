@@ -1,0 +1,1911 @@
+{
+  "columns": {
+    "creature_ai_summons": [
+      "id",
+      "position_x",
+      "position_y",
+      "position_z",
+      "orientation",
+      "spawntimesecs",
+      "comment"
+    ],
+    "dbscripts_on_creature_death": [
+      "id",
+      "delay",
+      "priority",
+      "command",
+      "datalong",
+      "datalong2",
+      "datalong3",
+      "buddy_entry",
+      "search_radius",
+      "data_flags",
+      "dataint",
+      "dataint2",
+      "dataint3",
+      "dataint4",
+      "datafloat",
+      "x",
+      "y",
+      "z",
+      "o",
+      "speed",
+      "condition_id",
+      "comments"
+    ],
+    "dbscripts_on_creature_movement": [
+      "id",
+      "delay",
+      "priority",
+      "command",
+      "datalong",
+      "datalong2",
+      "datalong3",
+      "buddy_entry",
+      "search_radius",
+      "data_flags",
+      "dataint",
+      "dataint2",
+      "dataint3",
+      "dataint4",
+      "datafloat",
+      "x",
+      "y",
+      "z",
+      "o",
+      "speed",
+      "condition_id",
+      "comments"
+    ],
+    "dbscripts_on_event": [
+      "id",
+      "delay",
+      "priority",
+      "command",
+      "datalong",
+      "datalong2",
+      "datalong3",
+      "buddy_entry",
+      "search_radius",
+      "data_flags",
+      "dataint",
+      "dataint2",
+      "dataint3",
+      "dataint4",
+      "datafloat",
+      "x",
+      "y",
+      "z",
+      "o",
+      "speed",
+      "condition_id",
+      "comments"
+    ],
+    "dbscripts_on_go_template_use": [
+      "id",
+      "delay",
+      "priority",
+      "command",
+      "datalong",
+      "datalong2",
+      "datalong3",
+      "buddy_entry",
+      "search_radius",
+      "data_flags",
+      "dataint",
+      "dataint2",
+      "dataint3",
+      "dataint4",
+      "datafloat",
+      "x",
+      "y",
+      "z",
+      "o",
+      "speed",
+      "condition_id",
+      "comments"
+    ],
+    "dbscripts_on_go_use": [
+      "id",
+      "delay",
+      "priority",
+      "command",
+      "datalong",
+      "datalong2",
+      "datalong3",
+      "buddy_entry",
+      "search_radius",
+      "data_flags",
+      "dataint",
+      "dataint2",
+      "dataint3",
+      "dataint4",
+      "datafloat",
+      "x",
+      "y",
+      "z",
+      "o",
+      "speed",
+      "condition_id",
+      "comments"
+    ],
+    "dbscripts_on_gossip": [
+      "id",
+      "delay",
+      "priority",
+      "command",
+      "datalong",
+      "datalong2",
+      "datalong3",
+      "buddy_entry",
+      "search_radius",
+      "data_flags",
+      "dataint",
+      "dataint2",
+      "dataint3",
+      "dataint4",
+      "datafloat",
+      "x",
+      "y",
+      "z",
+      "o",
+      "speed",
+      "condition_id",
+      "comments"
+    ],
+    "dbscripts_on_quest_end": [
+      "id",
+      "delay",
+      "priority",
+      "command",
+      "datalong",
+      "datalong2",
+      "datalong3",
+      "buddy_entry",
+      "search_radius",
+      "data_flags",
+      "dataint",
+      "dataint2",
+      "dataint3",
+      "dataint4",
+      "datafloat",
+      "x",
+      "y",
+      "z",
+      "o",
+      "speed",
+      "condition_id",
+      "comments"
+    ],
+    "dbscripts_on_quest_start": [
+      "id",
+      "delay",
+      "priority",
+      "command",
+      "datalong",
+      "datalong2",
+      "datalong3",
+      "buddy_entry",
+      "search_radius",
+      "data_flags",
+      "dataint",
+      "dataint2",
+      "dataint3",
+      "dataint4",
+      "datafloat",
+      "x",
+      "y",
+      "z",
+      "o",
+      "speed",
+      "condition_id",
+      "comments"
+    ],
+    "dbscripts_on_relay": [
+      "id",
+      "delay",
+      "priority",
+      "command",
+      "datalong",
+      "datalong2",
+      "datalong3",
+      "buddy_entry",
+      "search_radius",
+      "data_flags",
+      "dataint",
+      "dataint2",
+      "dataint3",
+      "dataint4",
+      "datafloat",
+      "x",
+      "y",
+      "z",
+      "o",
+      "speed",
+      "condition_id",
+      "comments"
+    ],
+    "dbscripts_on_spell": [
+      "id",
+      "delay",
+      "priority",
+      "command",
+      "datalong",
+      "datalong2",
+      "datalong3",
+      "buddy_entry",
+      "search_radius",
+      "data_flags",
+      "dataint",
+      "dataint2",
+      "dataint3",
+      "dataint4",
+      "datafloat",
+      "x",
+      "y",
+      "z",
+      "o",
+      "speed",
+      "condition_id",
+      "comments"
+    ],
+    "game_event_gameobject": [
+      "guid",
+      "event"
+    ],
+    "gameobject": [
+      "guid",
+      "id",
+      "map",
+      "spawnMask",
+      "position_x",
+      "position_y",
+      "position_z",
+      "orientation",
+      "rotation0",
+      "rotation1",
+      "rotation2",
+      "rotation3",
+      "spawntimesecsmin",
+      "spawntimesecsmax"
+    ],
+    "gameobject_addon": [
+      "guid",
+      "animprogress",
+      "state",
+      "StringId"
+    ],
+    "gameobject_spawn_entry": [
+      "guid",
+      "entry"
+    ],
+    "gameobject_template": [
+      "entry",
+      "type",
+      "displayId",
+      "name",
+      "IconName",
+      "faction",
+      "flags",
+      "ExtraFlags",
+      "size",
+      "data0",
+      "data1",
+      "data2",
+      "data3",
+      "data4",
+      "data5",
+      "data6",
+      "data7",
+      "data8",
+      "data9",
+      "data10",
+      "data11",
+      "data12",
+      "data13",
+      "data14",
+      "data15",
+      "data16",
+      "data17",
+      "data18",
+      "data19",
+      "data20",
+      "data21",
+      "data22",
+      "data23",
+      "CustomData1",
+      "mingold",
+      "maxgold",
+      "StringId",
+      "ScriptName"
+    ],
+    "pool_gameobject": [
+      "guid",
+      "pool_entry",
+      "chance",
+      "description"
+    ],
+    "pool_gameobject_template": [
+      "id",
+      "pool_entry",
+      "chance",
+      "description"
+    ],
+    "transports": [
+      "entry",
+      "name",
+      "period"
+    ]
+  },
+  "keys": {
+    "creature_ai_summons": [
+      "id"
+    ],
+    "dbscripts_on_creature_death": [],
+    "dbscripts_on_creature_movement": [],
+    "dbscripts_on_event": [],
+    "dbscripts_on_go_template_use": [],
+    "dbscripts_on_go_use": [],
+    "dbscripts_on_gossip": [],
+    "dbscripts_on_quest_end": [],
+    "dbscripts_on_quest_start": [],
+    "dbscripts_on_relay": [],
+    "dbscripts_on_spell": [],
+    "game_event_gameobject": [
+      "guid",
+      "event"
+    ],
+    "gameobject": [
+      "guid"
+    ],
+    "gameobject_addon": [
+      "guid"
+    ],
+    "gameobject_spawn_entry": [
+      "guid",
+      "entry"
+    ],
+    "gameobject_template": [
+      "entry"
+    ],
+    "pool_gameobject": [
+      "guid"
+    ],
+    "pool_gameobject_template": [
+      "id"
+    ],
+    "transports": [
+      "entry"
+    ]
+  },
+  "schema": {
+    "creature_ai_summons": [
+      [
+        "id",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "position_x",
+        "float",
+        false
+      ],
+      [
+        "position_y",
+        "float",
+        false
+      ],
+      [
+        "position_z",
+        "float",
+        false
+      ],
+      [
+        "orientation",
+        "float",
+        false
+      ],
+      [
+        "spawntimesecs",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "comment",
+        "varchar(255)",
+        false
+      ]
+    ],
+    "dbscripts_on_creature_death": [
+      [
+        "id",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "delay",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "priority",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "command",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "datalong",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "datalong2",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "datalong3",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "buddy_entry",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "search_radius",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "data_flags",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "dataint",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint2",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint3",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint4",
+        "int(11)",
+        false
+      ],
+      [
+        "datafloat",
+        "float",
+        false
+      ],
+      [
+        "x",
+        "float",
+        false
+      ],
+      [
+        "y",
+        "float",
+        false
+      ],
+      [
+        "z",
+        "float",
+        false
+      ],
+      [
+        "o",
+        "float",
+        false
+      ],
+      [
+        "speed",
+        "float",
+        false
+      ],
+      [
+        "condition_id",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "comments",
+        "varchar(255)",
+        false
+      ]
+    ],
+    "dbscripts_on_creature_movement": [
+      [
+        "id",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "delay",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "priority",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "command",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "datalong",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "datalong2",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "datalong3",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "buddy_entry",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "search_radius",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "data_flags",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "dataint",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint2",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint3",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint4",
+        "int(11)",
+        false
+      ],
+      [
+        "datafloat",
+        "float",
+        false
+      ],
+      [
+        "x",
+        "float",
+        false
+      ],
+      [
+        "y",
+        "float",
+        false
+      ],
+      [
+        "z",
+        "float",
+        false
+      ],
+      [
+        "o",
+        "float",
+        false
+      ],
+      [
+        "speed",
+        "float",
+        false
+      ],
+      [
+        "condition_id",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "comments",
+        "varchar(255)",
+        false
+      ]
+    ],
+    "dbscripts_on_event": [
+      [
+        "id",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "delay",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "priority",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "command",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "datalong",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "datalong2",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "datalong3",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "buddy_entry",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "search_radius",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "data_flags",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "dataint",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint2",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint3",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint4",
+        "int(11)",
+        false
+      ],
+      [
+        "datafloat",
+        "float",
+        false
+      ],
+      [
+        "x",
+        "float",
+        false
+      ],
+      [
+        "y",
+        "float",
+        false
+      ],
+      [
+        "z",
+        "float",
+        false
+      ],
+      [
+        "o",
+        "float",
+        false
+      ],
+      [
+        "speed",
+        "float",
+        false
+      ],
+      [
+        "condition_id",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "comments",
+        "varchar(255)",
+        false
+      ]
+    ],
+    "dbscripts_on_go_template_use": [
+      [
+        "id",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "delay",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "priority",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "command",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "datalong",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "datalong2",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "datalong3",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "buddy_entry",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "search_radius",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "data_flags",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "dataint",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint2",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint3",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint4",
+        "int(11)",
+        false
+      ],
+      [
+        "datafloat",
+        "float",
+        false
+      ],
+      [
+        "x",
+        "float",
+        false
+      ],
+      [
+        "y",
+        "float",
+        false
+      ],
+      [
+        "z",
+        "float",
+        false
+      ],
+      [
+        "o",
+        "float",
+        false
+      ],
+      [
+        "speed",
+        "float",
+        false
+      ],
+      [
+        "condition_id",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "comments",
+        "varchar(255)",
+        false
+      ]
+    ],
+    "dbscripts_on_go_use": [
+      [
+        "id",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "delay",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "priority",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "command",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "datalong",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "datalong2",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "datalong3",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "buddy_entry",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "search_radius",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "data_flags",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "dataint",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint2",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint3",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint4",
+        "int(11)",
+        false
+      ],
+      [
+        "datafloat",
+        "float",
+        false
+      ],
+      [
+        "x",
+        "float",
+        false
+      ],
+      [
+        "y",
+        "float",
+        false
+      ],
+      [
+        "z",
+        "float",
+        false
+      ],
+      [
+        "o",
+        "float",
+        false
+      ],
+      [
+        "speed",
+        "float",
+        false
+      ],
+      [
+        "condition_id",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "comments",
+        "varchar(255)",
+        false
+      ]
+    ],
+    "dbscripts_on_gossip": [
+      [
+        "id",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "delay",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "priority",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "command",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "datalong",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "datalong2",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "datalong3",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "buddy_entry",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "search_radius",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "data_flags",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "dataint",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint2",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint3",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint4",
+        "int(11)",
+        false
+      ],
+      [
+        "datafloat",
+        "float",
+        false
+      ],
+      [
+        "x",
+        "float",
+        false
+      ],
+      [
+        "y",
+        "float",
+        false
+      ],
+      [
+        "z",
+        "float",
+        false
+      ],
+      [
+        "o",
+        "float",
+        false
+      ],
+      [
+        "speed",
+        "float",
+        false
+      ],
+      [
+        "condition_id",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "comments",
+        "varchar(255)",
+        false
+      ]
+    ],
+    "dbscripts_on_quest_end": [
+      [
+        "id",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "delay",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "priority",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "command",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "datalong",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "datalong2",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "datalong3",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "buddy_entry",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "search_radius",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "data_flags",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "dataint",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint2",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint3",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint4",
+        "int(11)",
+        false
+      ],
+      [
+        "datafloat",
+        "float",
+        false
+      ],
+      [
+        "x",
+        "float",
+        false
+      ],
+      [
+        "y",
+        "float",
+        false
+      ],
+      [
+        "z",
+        "float",
+        false
+      ],
+      [
+        "o",
+        "float",
+        false
+      ],
+      [
+        "speed",
+        "float",
+        false
+      ],
+      [
+        "condition_id",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "comments",
+        "varchar(255)",
+        false
+      ]
+    ],
+    "dbscripts_on_quest_start": [
+      [
+        "id",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "delay",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "priority",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "command",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "datalong",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "datalong2",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "datalong3",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "buddy_entry",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "search_radius",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "data_flags",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "dataint",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint2",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint3",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint4",
+        "int(11)",
+        false
+      ],
+      [
+        "datafloat",
+        "float",
+        false
+      ],
+      [
+        "x",
+        "float",
+        false
+      ],
+      [
+        "y",
+        "float",
+        false
+      ],
+      [
+        "z",
+        "float",
+        false
+      ],
+      [
+        "o",
+        "float",
+        false
+      ],
+      [
+        "speed",
+        "float",
+        false
+      ],
+      [
+        "condition_id",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "comments",
+        "varchar(255)",
+        false
+      ]
+    ],
+    "dbscripts_on_relay": [
+      [
+        "id",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "delay",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "priority",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "command",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "datalong",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "datalong2",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "datalong3",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "buddy_entry",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "search_radius",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "data_flags",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "dataint",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint2",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint3",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint4",
+        "int(11)",
+        false
+      ],
+      [
+        "datafloat",
+        "float",
+        false
+      ],
+      [
+        "x",
+        "float",
+        false
+      ],
+      [
+        "y",
+        "float",
+        false
+      ],
+      [
+        "z",
+        "float",
+        false
+      ],
+      [
+        "o",
+        "float",
+        false
+      ],
+      [
+        "speed",
+        "float",
+        false
+      ],
+      [
+        "condition_id",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "comments",
+        "varchar(255)",
+        false
+      ]
+    ],
+    "dbscripts_on_spell": [
+      [
+        "id",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "delay",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "priority",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "command",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "datalong",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "datalong2",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "datalong3",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "buddy_entry",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "search_radius",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "data_flags",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "dataint",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint2",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint3",
+        "int(11)",
+        false
+      ],
+      [
+        "dataint4",
+        "int(11)",
+        false
+      ],
+      [
+        "datafloat",
+        "float",
+        false
+      ],
+      [
+        "x",
+        "float",
+        false
+      ],
+      [
+        "y",
+        "float",
+        false
+      ],
+      [
+        "z",
+        "float",
+        false
+      ],
+      [
+        "o",
+        "float",
+        false
+      ],
+      [
+        "speed",
+        "float",
+        false
+      ],
+      [
+        "condition_id",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "comments",
+        "varchar(255)",
+        false
+      ]
+    ],
+    "game_event_gameobject": [
+      [
+        "guid",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "event",
+        "smallint(6)",
+        false
+      ]
+    ],
+    "gameobject": [
+      [
+        "guid",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "id",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "map",
+        "smallint(5) unsigned",
+        false
+      ],
+      [
+        "spawnMask",
+        "tinyint(3) unsigned",
+        false
+      ],
+      [
+        "position_x",
+        "decimal(40,20)",
+        false
+      ],
+      [
+        "position_y",
+        "decimal(40,20)",
+        false
+      ],
+      [
+        "position_z",
+        "decimal(40,20)",
+        false
+      ],
+      [
+        "orientation",
+        "decimal(40,20)",
+        false
+      ],
+      [
+        "rotation0",
+        "decimal(40,20)",
+        false
+      ],
+      [
+        "rotation1",
+        "decimal(40,20)",
+        false
+      ],
+      [
+        "rotation2",
+        "decimal(40,20)",
+        false
+      ],
+      [
+        "rotation3",
+        "decimal(40,20)",
+        false
+      ],
+      [
+        "spawntimesecsmin",
+        "int(11)",
+        false
+      ],
+      [
+        "spawntimesecsmax",
+        "int(11)",
+        false
+      ]
+    ],
+    "gameobject_addon": [
+      [
+        "guid",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "animprogress",
+        "tinyint(3) unsigned",
+        false
+      ],
+      [
+        "state",
+        "tinyint(4)",
+        false
+      ],
+      [
+        "StringId",
+        "int(10) unsigned",
+        false
+      ]
+    ],
+    "gameobject_spawn_entry": [
+      [
+        "guid",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "entry",
+        "mediumint(8) unsigned",
+        false
+      ]
+    ],
+    "gameobject_template": [
+      [
+        "entry",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "type",
+        "tinyint(3) unsigned",
+        false
+      ],
+      [
+        "displayId",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "name",
+        "varchar(100)",
+        false
+      ],
+      [
+        "IconName",
+        "varchar(100)",
+        false
+      ],
+      [
+        "faction",
+        "smallint(5) unsigned",
+        false
+      ],
+      [
+        "flags",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "ExtraFlags",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "size",
+        "float",
+        false
+      ],
+      [
+        "data0",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "data1",
+        "int(11)",
+        false
+      ],
+      [
+        "data2",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "data3",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "data4",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "data5",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "data6",
+        "int(11)",
+        false
+      ],
+      [
+        "data7",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "data8",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "data9",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "data10",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "data11",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "data12",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "data13",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "data14",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "data15",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "data16",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "data17",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "data18",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "data19",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "data20",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "data21",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "data22",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "data23",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "CustomData1",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "mingold",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "maxgold",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "StringId",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "ScriptName",
+        "varchar(64)",
+        false
+      ]
+    ],
+    "pool_gameobject": [
+      [
+        "guid",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "pool_entry",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "chance",
+        "float unsigned",
+        false
+      ],
+      [
+        "description",
+        "varchar(255)",
+        false
+      ]
+    ],
+    "pool_gameobject_template": [
+      [
+        "id",
+        "int(10) unsigned",
+        false
+      ],
+      [
+        "pool_entry",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "chance",
+        "float unsigned",
+        false
+      ],
+      [
+        "description",
+        "varchar(255)",
+        false
+      ]
+    ],
+    "transports": [
+      [
+        "entry",
+        "mediumint(8) unsigned",
+        false
+      ],
+      [
+        "name",
+        "text",
+        true
+      ],
+      [
+        "period",
+        "mediumint(8) unsigned",
+        false
+      ]
+    ]
+  }
+}

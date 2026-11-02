@@ -69,6 +69,8 @@ KEYS = {
 from .quest_columns import KEYS as QUEST_PRESENTATION_KEYS, TEXT as QUEST_PRESENTATION_TEXT
 KEYS.update(QUEST_PRESENTATION_KEYS)
 from .quest_mechanics_columns import KEYS as QUEST_MECHANICS_KEYS, TEXT as QUEST_MECHANICS_TEXT
+from .participants_columns import KEYS as PARTICIPANT_KEYS, TEXT as PARTICIPANT_TEXT
+KEYS.update(PARTICIPANT_KEYS)
 TEXT_COLUMNS = {
     "creature_ai_scripts": {"comment"},
     "creature_conditional_spawn": {"Comments"},
@@ -88,6 +90,7 @@ TEXT_COLUMNS = {
 }
 TEXT_COLUMNS.update(QUEST_PRESENTATION_TEXT)
 TEXT_COLUMNS.update(QUEST_MECHANICS_TEXT)
+TEXT_COLUMNS.update({k: set(v) for k, v in PARTICIPANT_TEXT.items()})
 INTEGER_SQL = {"tinyint", "smallint", "mediumint", "int", "integer", "bigint", "bit"}
 DECIMAL_SQL = {"float", "double", "decimal", "numeric", "real"}
 TEXT_SQL = {"char", "varchar", "text", "tinytext", "mediumtext", "longtext"}
@@ -248,7 +251,7 @@ def schema_profile(inventory: Any, required: set[str]) -> dict[str, Any]:
     profiles = {}
     for table, meta in inventory["tables"].items():
         fields = {"engine", "table_type", "columns"}
-        if (table in (REGISTRY_SCHEMA | INITIAL_HOOK_SCHEMA | EVENT_TEXT_SCHEMA | LOOT_SCHEMA | SPAWN_ENTRY_SCHEMA | SPAWN_CONTEXT_SCHEMA) or table in {"spell_template", "spell_facing"} or table in QUEST_PRESENTATION_KEYS or table in QUEST_MECHANICS_KEYS) and type(meta) is dict and "primary_key" in meta:
+        if (table in (REGISTRY_SCHEMA | INITIAL_HOOK_SCHEMA | EVENT_TEXT_SCHEMA | LOOT_SCHEMA | SPAWN_ENTRY_SCHEMA | SPAWN_CONTEXT_SCHEMA) or table in {"spell_template", "spell_facing"} or table in QUEST_PRESENTATION_KEYS or table in QUEST_MECHANICS_KEYS or table in PARTICIPANT_KEYS) and type(meta) is dict and "primary_key" in meta:
             fields.add("primary_key")
         check(type(meta) is dict and set(meta) == fields, "schema.table_fields")
         if table in REGISTRY_SCHEMA and table in required:

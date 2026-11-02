@@ -74,12 +74,45 @@ pub struct ProductionInputReport {
     identity: Value,
     preparation: Value,
 }
+/// Checked compiler requirements, not an app collision token or gameplay authority.
+/// Phase 6 must bind the final runtime content identity and closed controller
+/// before the app can construct its empty non-render participant token.
+pub struct CheckedParticipantRequirements<'a> {
+    report: &'a ProductionInputReport,
+}
+impl CheckedParticipantRequirements<'_> {
+    pub fn map(&self) -> u32 {
+        self.report.identity["selection"]["map_id"]
+            .as_u64()
+            .expect("checked map") as u32
+    }
+    pub fn source_sha256(&self) -> &str {
+        self.report.identity["source_sha256"]
+            .as_str()
+            .expect("checked source identity")
+    }
+    pub fn capture_sha256(&self) -> Option<&str> {
+        self.report.preparation["participants_plan"]["capture_sha256"].as_str()
+    }
+    pub fn proved_empty(&self) -> bool {
+        self.report.preparation["participants_plan"]["empty_participant_obligation_discharged"]
+            == true
+    }
+    pub fn refusals(&self) -> &[Value] {
+        self.report.preparation["participants_plan"]["refusals"]
+            .as_array()
+            .expect("checked participant plan")
+    }
+}
 impl ProductionInputReport {
     pub fn identity(&self) -> &Value {
         &self.identity
     }
     pub fn preparation(&self) -> &Value {
         &self.preparation
+    }
+    pub fn participants(&self) -> CheckedParticipantRequirements<'_> {
+        CheckedParticipantRequirements { report: self }
     }
 }
 /// Independently recompiles diagnostics from bounded raw inputs and compares the complete report.
