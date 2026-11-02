@@ -27,6 +27,7 @@ pub struct QuestScriptEvent {
     pub delivered: bool,
 }
 impl QuestProgressionGenesis {
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub(in crate::native) fn validate_scripts(
         &self,
         state: &QuestProgressionState,
