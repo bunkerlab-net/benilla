@@ -10,7 +10,22 @@ use std::{
 const CASES: &str =
     include_str!("../../../../../scripts/native_starter/production_verifier_cases.json");
 fn corpus() -> Value {
-    json::decode(CASES.as_bytes(), 8 * 1024 * 1024).unwrap()
+    let mut value = json::decode(CASES.as_bytes(), 8 * 1024 * 1024).unwrap();
+    value["fixtures"].as_array_mut().unwrap().extend(
+        combat_corpus()["fixtures"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .cloned(),
+    );
+    value
+}
+fn combat_corpus() -> Value {
+    json::decode(
+        include_bytes!("../../../../../scripts/native_starter/combat_world_rules_cases.json"),
+        1024 * 1024,
+    )
+    .unwrap()
 }
 fn unhex(s: &str) -> Vec<u8> {
     s.as_bytes()
@@ -122,11 +137,15 @@ fn difference(a: &Value, b: &Value, path: &str) -> Option<String> {
 #[test]
 fn production_verifier_shared_mutations_have_exact_diagnostic_ids() {
     let fixtures = corpus();
-    let cases = json::decode(
+    let mut cases = json::decode(
         include_bytes!("../../../../../scripts/native_starter/production_verifier_mutations.json"),
         4 * 1024 * 1024,
     )
     .unwrap();
+    cases["cases"]
+        .as_array_mut()
+        .unwrap()
+        .extend(combat_corpus()["cases"].as_array().unwrap().iter().cloned());
     for case in cases["cases"].as_array().unwrap() {
         let mut fixture = fixtures["fixtures"]
             .as_array()

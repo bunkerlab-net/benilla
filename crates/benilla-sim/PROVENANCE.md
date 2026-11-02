@@ -1176,9 +1176,13 @@ preset from CMaNGOS Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`.
 Copyright CMaNGOS Project contributors. Upstream GPL-2.0-or-later;
 Rust translation GPL-3.0-or-later, without warranty.
 
-- `src/game/World/World.cpp:411-427,456,548-553,653,686` contains
-  `World::LoadConfigSettings` defaults for drop, XP, reputation, talent, level,
-  money, skill and empty-loot configuration.
+- `src/game/World/World.cpp:411-427,443,456,464-476,548-553,653,661-662,686,703-704,743`
+  contains `World::LoadConfigSettings` defaults for drop, XP, reputation, talent,
+  level, money, skill, empty-loot, aggro, assistance, text ranges, and notification
+  configuration. Version 2 adds the explicit combat block.
+- `src/game/Entities/Creature.cpp:2171-2174,2186-2188` selects the family assistance
+  radius when template `CallForHelp` is not positive. The pull host uses the same
+  radius branch, but keeps its distinct `CreatureCheckForHelpAggroDelay` scheduling.
 - `World.cpp:2420-2427` resets negative rates after a warning. This bounded input
   refuses invalid values instead of repairing them. Its positive-zero and normal
   binary32 rate domain ends at 1000, matching `quest::Binary32Rate`.

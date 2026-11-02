@@ -307,6 +307,8 @@ fn build_with_items(
         .npcs
         .extend(synthetic_motion_fixture::genesis(&one, 3).npcs);
     p.source_motion = Some(motion);
+    rows.world_rules.combat.respawn_aggro_delay_ms = 200;
+    rows.world_rules.combat.relocation_notify_delay_ms = 100;
     let mut capabilities = synthetic_motion_fixture::creature_capability_sources(&p);
     if mainhand {
         let CreatureCapabilityRows::Complete(sources) = &mut capabilities else {

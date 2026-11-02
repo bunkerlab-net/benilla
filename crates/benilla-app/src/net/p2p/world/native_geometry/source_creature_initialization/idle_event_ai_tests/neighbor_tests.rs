@@ -39,7 +39,12 @@ fn cluster_profile(binding: CreatureInitializationSnapshot) -> Profile {
             excluded_hooks: SourceVisitorRows::Complete(vec![]),
         })
         .collect();
-    p.initialize_combat_assistance(sources, 2000).unwrap();
+    p.initialize_combat_assistance(
+        sources,
+        2000,
+        benilla_sim::creature_ai::Real::new(5.0).unwrap(),
+    )
+    .unwrap();
     p
 }
 
@@ -366,7 +371,9 @@ fn seven_same_entry_dry_owners_initialize_independently_and_replay() {
             excluded_hooks: SourceVisitorRows::Complete(vec![]),
         })
         .collect();
-    assert!(p.initialize_combat_assistance(contradictory, 2000).is_err());
+    assert!(p
+        .initialize_combat_assistance(contradictory, 2000, ai::Real::new(5.0).unwrap())
+        .is_err());
     assert_eq!(serde_json::to_vec(&p).unwrap(), before);
     let provider = SourceCreatureInitializationProvider::bind([8; 16], &p, snapshot).unwrap();
     let mut authority = ClusterAuthority::new(provider);

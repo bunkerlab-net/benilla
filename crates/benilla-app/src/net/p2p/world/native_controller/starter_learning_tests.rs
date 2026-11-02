@@ -557,14 +557,13 @@ fn profile_with_bound_change(order_identity: u8, change: u8) -> n::Profile {
         npc.ai.corpse_decay_ms = 2000;
         npc.ai.respawn_delay_seconds = 1;
     }
-    profile
-        .initialize_quest_progression(&input, progression)
-        .unwrap();
     scene.player = profile.player;
     scene.abilities = profile.abilities;
     scene.npcs = profile.npcs;
     scene.combat = profile.combat;
-    scene.quest_progression = profile.quest_progression;
+    scene
+        .initialize_quest_progression(&input, progression)
+        .unwrap();
     let mut profile = scene;
     profile.validate().expect("learning scene composition");
     profile = n::synthetic_creature_model_fixture::with_complete_scene_generations_and_source_edit(

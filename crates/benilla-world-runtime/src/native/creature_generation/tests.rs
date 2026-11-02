@@ -174,8 +174,8 @@ fn every_level_must_prepare_before_catalog_can_supply_randomness() {
 }
 
 #[test]
-fn native83_rehashed_profiles_reject_previous_generation_and_initializer_policies() {
-    assert_eq!(NATIVE_FORMAT_VERSION, 83);
+fn native84_rehashed_profiles_reject_previous_generation_and_initializer_policies() {
+    assert_eq!(NATIVE_FORMAT_VERSION, 84);
     assert_eq!(
         CREATURE_GENERATION_POLICY,
         "cmangos-8ec338a1-native-creature-generation-v5"
@@ -265,9 +265,9 @@ fn native83_rehashed_profiles_reject_previous_generation_and_initializer_policie
             *value.pointer_mut(pointer).unwrap() = serde_json::to_value(digest).unwrap();
         }
         let mut forged: Checkpoint = serde_json::from_value(value).unwrap();
-        forged.digest = crate::digest(b"benilla-native-state-v83\0", &forged.state);
+        forged.digest = crate::digest(b"benilla-native-state-v84\0", &forged.state);
         forged.checksum = crate::digest(
-            b"benilla-native-checkpoint-v83\0",
+            b"benilla-native-checkpoint-v84\0",
             &(&forged.state, forged.digest, forged.history_tip),
         );
         let decoded = Checkpoint::decode(&forged.encode().unwrap()).unwrap();

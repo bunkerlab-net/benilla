@@ -33,12 +33,15 @@ creature generation or a new combat entry.
 
 ## Selected boundary
 
-The assistance v2 selection binds each spawn/entry to its generation source,
-positive raw CallForHelp, aggro delay and complete exclusions for unowned
-linking/group hooks. ExtraFlags is the existing bound source field, not a
-caller-supplied CanCallForAssistance boolean. Unsupported radius fallbacks,
-hooks and receiver closures reject rather than acquire defaults. The existing
-profile flag mask still excludes NO_CALL_ASSIST; its source-oracle/scalar controls
+The assistance v3 selection binds each spawn/entry to its generation source,
+raw CallForHelp, explicit family radius, aggro delay, and complete exclusions for
+unowned linking/group hooks. Positive CallForHelp overrides the family radius.
+Zero and negative CallForHelp use that radius, as `Creature.cpp:2171-2174,2186-2188`
+does. A zero family radius remains valid. ExtraFlags is the existing bound source
+field, not a caller-supplied CanCallForAssistance boolean. Unsupported hooks and
+receiver closures reject rather than acquire defaults. World-rules v2 binds the
+selected host configuration and rejects later mismatches.
+The existing profile flag mask still excludes NO_CALL_ASSIST; its source-oracle/scalar controls
 do not widen profile admission.
 
 A provider supplies explicitly authored complete ordered grid and world creature

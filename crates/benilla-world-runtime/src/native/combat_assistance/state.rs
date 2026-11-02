@@ -667,7 +667,7 @@ pub(in crate::native) fn validate_current(
                                 || r.source != catalog.digest()
                                 || r.generation_source != source.generation_source
                                 || r.enemy != state.player
-                                || r.radius != source.call_for_help
+                                || r.radius != catalog.radius(source)
                                 || r.rng_counter > state.rng_counter
                                 || r.now_ms
                                     != profile

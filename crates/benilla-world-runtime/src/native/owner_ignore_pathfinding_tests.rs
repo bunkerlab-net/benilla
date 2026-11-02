@@ -450,8 +450,8 @@ fn pre_receipt_native28_checkpoint_record_and_replay_are_rejected() {
     assert!(decode_records(&encode_records(&records).unwrap()).is_err());
     let mut replay = world(w.profile().clone());
     assert!(replay.replay(&records).is_err());
-    assert_eq!(NATIVE_FORMAT_VERSION, 83);
-    assert_eq!(NATIVE_POLICY, "benilla-native-solo-quest-loot-v83");
+    assert_eq!(NATIVE_FORMAT_VERSION, 84);
+    assert_eq!(NATIVE_POLICY, "benilla-native-solo-quest-loot-v84");
     assert_eq!(crate::FORMAT_VERSION, 2);
 }
 
@@ -471,8 +471,10 @@ fn consistent_earlier_ability_receipt_cannot_replace_current_frame_or_replay_rec
     rows.relations.finishers.clear();
     rows.npc_rows.clear();
     rows.kill.creatures.retain(|r| r.entry == p.npcs[0].entry);
-    p.initialize_quest_progression(&input, rows).unwrap();
     p.source_motion = Some(motion::genesis(&p, 2));
+    rows.world_rules.combat.respawn_aggro_delay_ms = 200;
+    rows.world_rules.combat.relocation_notify_delay_ms = 100;
+    p.initialize_quest_progression(&input, rows).unwrap();
     combat::install(&mut p);
     p.initialize_creature_capabilities(motion::creature_capability_sources(&p))
         .unwrap();

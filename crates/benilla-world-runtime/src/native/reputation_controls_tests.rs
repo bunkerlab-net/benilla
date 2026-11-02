@@ -369,9 +369,9 @@ fn controls_checkpoint_flags_and_call_history_cannot_be_reblessed() {
             _ => unreachable!(),
         }
         forged.state = serde_json::from_value(encoded).unwrap();
-        forged.digest = crate::digest(b"benilla-native-state-v83\0", &forged.state);
+        forged.digest = crate::digest(b"benilla-native-state-v84\0", &forged.state);
         forged.checksum = crate::digest(
-            b"benilla-native-checkpoint-v83\0",
+            b"benilla-native-checkpoint-v84\0",
             &(&forged.state, forged.digest, forged.history_tip),
         );
         assert!(
@@ -406,8 +406,10 @@ fn active_cast_at_war_control_reopens_without_reinterpreting_cast_origin() {
         )
         .unwrap(),
     );
-    p.initialize_quest_progression(&input, data).unwrap();
     p.source_motion = Some(synthetic_motion_fixture::genesis(&p, 3));
+    data.world_rules.combat.respawn_aggro_delay_ms = 200;
+    data.world_rules.combat.relocation_notify_delay_ms = 100;
+    p.initialize_quest_progression(&input, data).unwrap();
     let mut rows = synthetic_combat_fixture::source_rows(&p);
     rows.npcs[0].npc_flags = 2;
     rows.factions[1].faction = fixture::PRIMARY;

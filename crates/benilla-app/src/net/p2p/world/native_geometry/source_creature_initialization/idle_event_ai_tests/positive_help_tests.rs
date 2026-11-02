@@ -35,7 +35,12 @@ fn helper_profile(binding: CreatureInitializationSnapshot, notify_ms: u32) -> Pr
             excluded_hooks: SourceVisitorRows::Complete(vec![]),
         })
         .collect();
-    p.initialize_combat_assistance(sources, 2000).unwrap();
+    p.initialize_combat_assistance(
+        sources,
+        2000,
+        benilla_sim::creature_ai::Real::new(5.0).unwrap(),
+    )
+    .unwrap();
     p.initialize_peer_help_radius(f::real(5.0)).unwrap();
     p.source_motion
         .as_mut()

@@ -29,9 +29,9 @@ fn rehashed(w: &NativeWorld, edit: impl FnOnce(&mut serde_json::Value)) -> Check
     let mut value = serde_json::to_value(&c.state).unwrap();
     edit(&mut value);
     c.state = serde_json::from_value(value).unwrap();
-    c.digest = crate::digest(b"benilla-native-state-v83\0", &c.state);
+    c.digest = crate::digest(b"benilla-native-state-v84\0", &c.state);
     c.checksum = crate::digest(
-        b"benilla-native-checkpoint-v83\0",
+        b"benilla-native-checkpoint-v84\0",
         &(&c.state, c.digest, c.history_tip),
     );
     c
@@ -547,8 +547,10 @@ fn reputation_height_profile(modifier: bool) -> Profile {
         unit_flags: 0,
     }];
     rows.kill.creatures.truncate(1);
-    p.initialize_quest_progression(&input, rows).unwrap();
     p.source_motion = Some(motion::genesis(&p, 2));
+    rows.world_rules.combat.respawn_aggro_delay_ms = 200;
+    rows.world_rules.combat.relocation_notify_delay_ms = 100;
+    p.initialize_quest_progression(&input, rows).unwrap();
     p.initialize_creature_capabilities(motion::creature_capability_sources(&p))
         .unwrap();
     p.initialize_player_collision_height(&models::catalog(), &creatures::catalog())

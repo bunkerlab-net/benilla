@@ -1,18 +1,19 @@
-"""Explicit CMaNGOS start/progression policy, never an inferred realm default.
+"""Explicit CMaNGOS world policy, never an inferred realm default.
 SPDX-License-Identifier: GPL-3.0-or-later
-CMaNGOS 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f, World.cpp:411-427,456,548-553,653,686.
+CMaNGOS 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f,
+World.cpp:411-427,443,456,464-476,548-553,653,661-662,686,703-704,743.
 """
 import copy
 import math
 import struct
 from classic_export.core import check, digest
 
-PRESET = "cmangos-8ec338a1-stock-progression-v1"
+PRESET = "cmangos-8ec338a1-stock-world-v2"
 ONE = 0x3f800000
 
 
 def stock_preset():
-    return {"version": 1, "start_player_level": 1, "start_player_money": 0,
+    return {"version": 2, "start_player_level": 1, "start_player_money": 0,
             "progression": {"max_player_level": 60, "always_max_skill_for_level": False,
                             "global_skill_max": 300, "talent_rate_bits": ONE},
             "kill": {"kill_rate_bits": ONE}, "quest_xp_rate_bits": ONE,
@@ -21,14 +22,28 @@ def stock_preset():
             "loot": {"quality_rate_bits": [ONE] * 7,
                      "quest_drop_rate": {"multiplier_bits": ONE},
                      "referenced_rate_bits": ONE, "money_rate_bits": ONE,
-                     "corpse_empty_loot_show": True}}
+                     "corpse_empty_loot_show": True},
+            "combat": {"aggro_rate_bits": ONE,
+                       "family_assistance_radius_bits": 0x40a00000,
+                       "family_assistance_delay_ms": 1500,
+                       "family_flee_assistance_radius_bits": 0x41f00000,
+                       "family_flee_delay_ms": 10000,
+                       "check_for_help_radius_bits": 0x40a00000,
+                       "check_for_help_aggro_delay_ms": 2000,
+                       "linking_aggro_delay_ms": 2000,
+                       "respawn_aggro_delay_ms": 5000,
+                       "relocation_notify_delay_ms": 1000,
+                       "leash_radius_bits": 0x41f00000,
+                       "listen_say_range_bits": 0x41c80000,
+                       "listen_yell_range_bits": 0x43960000,
+                       "listen_text_emote_range_bits": 0x41c80000}}
 
 
 def validate(value):
     def fields(obj, expected):
         check(type(obj) is dict and set(obj) == set(expected), "world_rules.unsupported_or_missing_key")
     fields(value, stock_preset())
-    check(type(value["version"]) is int and value["version"] == 1, "world_rules.version")
+    check(type(value["version"]) is int and value["version"] == 2, "world_rules.version")
     check(type(value["start_player_level"]) is int and value["start_player_level"] == 1,
           "world_rules.StartPlayerLevel_other_than_one")
     check(type(value["start_player_money"]) is int and 0 <= value["start_player_money"] <= 0x7ffffffe,
@@ -54,6 +69,15 @@ def validate(value):
     for bits in rates:
         check(type(bits) is int and (bits == 0 or 0x00800000 <= bits <= 0x447a0000),
               "world_rules.rate_outside_bounded_binary32_domain")
+    combat = value["combat"]
+    fields(combat, stock_preset()["combat"])
+    for field, number in combat.items():
+        if field.endswith("_bits"):
+            check(type(number) is int and (number == 0 or 0x00800000 <= number <= 0x447a0000),
+                  "world_rules.combat_scalar_outside_bounded_binary32_domain")
+        else:
+            check(type(number) is int and 0 <= number <= 0xffffffff,
+                  "world_rules.combat_delay_outside_uint32_domain")
     return copy.deepcopy(value)
 
 

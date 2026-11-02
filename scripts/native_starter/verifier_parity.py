@@ -16,12 +16,19 @@ from .dbc import LAYOUTS, binary32_bits, load_extraction_manifest, parse_table
 ROOT = Path(__file__).resolve().parent
 
 
+def combat_corpus():
+    return core.decode_json((ROOT / "combat_world_rules_cases.json").read_bytes(), 1024 * 1024)
+
+
 def corpus():
-    return core.decode_json((ROOT / "production_verifier_cases.json").read_bytes(), 8 * 1024 * 1024)
+    value = core.decode_json((ROOT / "production_verifier_cases.json").read_bytes(), 8 * 1024 * 1024)
+    value["fixtures"].extend(combat_corpus()["fixtures"])
+    return value
 
 
 def mutations():
-    return core.decode_json((ROOT / "production_verifier_mutations.json").read_bytes(), 4 * 1024 * 1024)["cases"]
+    return (core.decode_json((ROOT / "production_verifier_mutations.json").read_bytes(), 4 * 1024 * 1024)["cases"]
+            + combat_corpus()["cases"])
 
 
 def pointer(value, path):

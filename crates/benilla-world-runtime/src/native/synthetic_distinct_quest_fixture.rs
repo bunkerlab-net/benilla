@@ -63,6 +63,8 @@ fn setup_inner(
 ) -> (Profile, init::StarterInput, QuestProgressionInput) {
     let mut profile = two::profile_with_spawns(hostile_spawn, giver_spawn, owner_order);
     let (_, mut initial, mut progression) = synthetic_loot_fixture::setup();
+    progression.world_rules.combat.respawn_aggro_delay_ms = 200;
+    progression.world_rules.combat.relocation_notify_delay_ms = 100;
     for npc in &mut profile.npcs {
         npc.ai.corpse_decay_ms = 60_000;
         if npc.ai.creature_id == hostile_spawn {

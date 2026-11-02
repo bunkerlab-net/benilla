@@ -668,7 +668,12 @@ fn selected_profile(defensive: bool, hostile_to_player: bool) -> Profile {
             }
         })
         .collect();
-    p.initialize_combat_assistance(rows, 2000).unwrap();
+    p.initialize_combat_assistance(
+        rows,
+        2000,
+        benilla_sim::creature_ai::Real::new(5.0).unwrap(),
+    )
+    .unwrap();
     p
 }
 fn selected_world(defensive: bool, hostile_to_player: bool) -> NativeWorld {

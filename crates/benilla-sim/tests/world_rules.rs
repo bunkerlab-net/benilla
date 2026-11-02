@@ -14,7 +14,7 @@ fn named_stock_preset_matches_world_loader_defaults() {
             rules.start_player_level,
             rules.start_player_money
         ),
-        (1, 1, 0)
+        (2, 1, 0)
     );
     assert_eq!(
         (
@@ -35,6 +35,21 @@ fn named_stock_preset_matches_world_loader_defaults() {
     assert_eq!(rules.loot.referenced_rate_bits, 0x3f800000);
     assert_eq!(rules.loot.money_rate_bits, 0x3f800000);
     assert!(rules.loot.corpse_empty_loot_show);
+    let combat = &rules.combat;
+    assert_eq!(combat.aggro_rate_bits, 1f32.to_bits());
+    assert_eq!(combat.family_assistance_radius_bits, 5f32.to_bits());
+    assert_eq!(combat.family_assistance_delay_ms, 1500);
+    assert_eq!(combat.family_flee_assistance_radius_bits, 30f32.to_bits());
+    assert_eq!(combat.family_flee_delay_ms, 10000);
+    assert_eq!(combat.check_for_help_radius_bits, 5f32.to_bits());
+    assert_eq!(combat.check_for_help_aggro_delay_ms, 2000);
+    assert_eq!(combat.linking_aggro_delay_ms, 2000);
+    assert_eq!(combat.respawn_aggro_delay_ms, 5000);
+    assert_eq!(combat.relocation_notify_delay_ms, 1000);
+    assert_eq!(combat.leash_radius_bits, 30f32.to_bits());
+    assert_eq!(combat.listen_say_range_bits, 25f32.to_bits());
+    assert_eq!(combat.listen_yell_range_bits, 300f32.to_bits());
+    assert_eq!(combat.listen_text_emote_range_bits, 25f32.to_bits());
 }
 
 #[test]
@@ -44,7 +59,7 @@ fn explicit_rules_refuse_unknown_keys_versions_starts_and_rate_domains() {
     json["Rate.XP.Explore"] = 1.into();
     assert!(serde_json::from_value::<NativeWorldRules>(json).is_err());
     for (field, value) in [
-        ("version", 2),
+        ("version", 1),
         ("start_player_level", 0),
         ("start_player_level", 2),
         ("start_player_money", u32::MAX),
@@ -71,6 +86,7 @@ fn explicit_rules_refuse_unknown_keys_versions_starts_and_rate_domains() {
             "reputation",
             "loot",
             "progression",
+            "combat",
         ] {
             let mut json = serde_json::to_value(&rules).unwrap();
             match field {
@@ -78,6 +94,7 @@ fn explicit_rules_refuse_unknown_keys_versions_starts_and_rate_domains() {
                 "reputation" => json[field]["gain_rate"] = bits.into(),
                 "loot" => json[field]["referenced_rate_bits"] = bits.into(),
                 "progression" => json[field]["talent_rate_bits"] = bits.into(),
+                "combat" => json[field]["aggro_rate_bits"] = bits.into(),
                 _ => json[field] = bits.into(),
             }
             assert!(

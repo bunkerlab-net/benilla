@@ -170,10 +170,8 @@ fn positive_template_radius_and_raw_no_call_bit_are_independent() {
     assert_eq!(r.traversal_radius().unwrap(), f::real(5.5));
     r.radius = f::real(900.0);
     assert_eq!(r.traversal_radius().unwrap().bits(), 0x4405_5555);
-    for radius in [0.0, -1.0] {
-        r.radius = f::real(radius);
-        assert!(r.validate(&facts(&r)).is_err());
-    }
+    r.radius = f::real(-1.0);
+    assert!(r.validate(&facts(&r)).is_err());
 }
 #[test]
 fn combat_stop_retains_queue_and_respawn_rebind_keeps_old_life_callbacks() {

@@ -21,6 +21,7 @@ pub use equipment_movement::{
     EquipmentAutoStoreReceipt, EquipmentDestroyReceipt, EquipmentMoveReceipt, EquipmentMoveRequest,
     EquipmentRelocationReceipt,
 };
+mod combat_rules;
 mod kills;
 mod reputation;
 mod scripts;
@@ -107,6 +108,7 @@ pub struct QuestProgressionGenesis {
     money_rate: arithmetic::Binary32Rate,
     kill: NativeKillPolicy,
     pub(in crate::native) script_rules: Option<QuestScriptRules>,
+    combat_rules: benilla_sim::world_rules::CombatRules,
     script_givers: BTreeMap<u64, u32>,
     dialog_rules: QuestDialogRules,
 }
@@ -149,6 +151,11 @@ impl QuestProgressionGenesis {
         rows: QuestProgressionInput,
     ) -> Result<Self, NativeError> {
         rows.world_rules.validate()?;
+        combat_rules::validate(
+            profile,
+            &rows.world_rules.combat,
+            rows.quest_script_rules.as_ref(),
+        )?;
         let stock = NativeWorldRules::cmangos_classic_stock();
         if rows.reputation.is_none() && rows.world_rules.reputation != stock.reputation {
             return Err(NativeError::UnsupportedMechanic(
@@ -276,14 +283,8 @@ impl QuestProgressionGenesis {
             Some(prepared) => init::LiveTraining::from_prepared(input, prepared)?,
             None => init::LiveTraining::from_initializer(input, &mage)?,
         };
-        let mut verified = profile.clone();
-        verified.quest_progression = None;
-        verified.reinitialize_player(input, initial_combat)?;
         let mut initial_combat = initial_combat.clone();
         initial_combat.death = None;
-        if verified.combat.as_ref() != Some(&initial_combat) {
-            return Err(NativeError::InvalidProfile);
-        }
         let expected_skills = &initial_combat.skills;
         let mut seen = BTreeSet::new();
         if rows.skills.len() != expected_skills.len()
@@ -423,6 +424,7 @@ impl QuestProgressionGenesis {
             kill: rows.kill,
             dialog_rules: rows.dialog_rules,
             script_rules: rows.quest_script_rules,
+            combat_rules: rows.world_rules.combat,
         };
         if out.resolve_abilities(&out.training, out.initial.view())? != profile.abilities {
             return Err(NativeError::InvalidProfile);
@@ -448,7 +450,7 @@ impl QuestProgressionGenesis {
         }
         capacity::validate(&out, &host, probe.view())?;
         out.identity = crate::digest(
-            b"benilla-native-quest-progression-genesis-v6\0",
+            b"benilla-native-quest-progression-genesis-v7\0",
             &(
                 (
                     QUEST_PROGRESSION_POLICY,
@@ -477,7 +479,7 @@ impl QuestProgressionGenesis {
                     ),
                     out.tick_ms,
                 ),
-                (&out.script_rules, &out.script_givers),
+                (&out.script_rules, &out.script_givers, &out.combat_rules),
                 out.levels.identity(),
                 out.initial.view(),
                 (out.training.identity(), out.training.preparation_identity()),
@@ -492,6 +494,21 @@ impl QuestProgressionGenesis {
                 &out.loot,
             ),
         );
+        // Reconstruct with the candidate genesis attached: retained reputation auras
+        // and combat hosts require their policy even during the initializer audit.
+        let mut verified = profile.clone();
+        verified.quest_progression = Some(out);
+        verified.reinitialize_player(
+            input,
+            profile.combat.as_ref().ok_or(NativeError::InvalidProfile)?,
+        )?;
+        let out = verified
+            .quest_progression
+            .take()
+            .ok_or(NativeError::InvalidProfile)?;
+        if verified.combat.as_ref() != Some(&out.initial_combat) {
+            return Err(NativeError::InvalidProfile);
+        }
         Ok(out)
     }
     #[cfg(any(test, feature = "synthetic-native-tests"))]
@@ -552,7 +569,12 @@ impl QuestProgressionGenesis {
         &self.training.input().items
     }
 
+    pub fn combat_rules(&self) -> &benilla_sim::world_rules::CombatRules {
+        &self.combat_rules
+    }
+
     pub(in crate::native) fn validate(&self, profile: &Profile) -> Result<(), NativeError> {
+        combat_rules::validate(profile, &self.combat_rules, self.script_rules.as_ref())?;
         let mut combat = profile.combat.clone().ok_or(NativeError::InvalidProfile)?;
         combat.death = None;
         if profile.tick_ms != self.tick_ms

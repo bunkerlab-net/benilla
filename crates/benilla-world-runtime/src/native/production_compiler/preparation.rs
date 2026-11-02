@@ -842,9 +842,10 @@ pub(super) fn validate_rules(value: &Value) -> Result<()> {
             "quest_xp_rate_bits",
             "reputation",
             "loot",
+            "combat",
         ],
     )?;
-    integer(&value["version"], 1, 1, "world_rules.version")?;
+    integer(&value["version"], 2, 2, "world_rules.version")?;
     integer(
         &value["start_player_level"],
         1,
@@ -927,6 +928,64 @@ pub(super) fn validate_rules(value: &Value) -> Result<()> {
         check(
             n == 0 || n >= 0x00800000,
             "world_rules.rate_outside_bounded_binary32_domain",
+        )?;
+    }
+    let combat = &value["combat"];
+    let scalar_fields = [
+        "aggro_rate_bits",
+        "family_assistance_radius_bits",
+        "family_flee_assistance_radius_bits",
+        "check_for_help_radius_bits",
+        "leash_radius_bits",
+        "listen_say_range_bits",
+        "listen_yell_range_bits",
+        "listen_text_emote_range_bits",
+    ];
+    let delay_fields = [
+        "family_assistance_delay_ms",
+        "family_flee_delay_ms",
+        "check_for_help_aggro_delay_ms",
+        "linking_aggro_delay_ms",
+        "respawn_aggro_delay_ms",
+        "relocation_notify_delay_ms",
+    ];
+    fields_exact(
+        combat,
+        &[
+            "aggro_rate_bits",
+            "family_assistance_radius_bits",
+            "family_assistance_delay_ms",
+            "family_flee_assistance_radius_bits",
+            "family_flee_delay_ms",
+            "check_for_help_radius_bits",
+            "check_for_help_aggro_delay_ms",
+            "linking_aggro_delay_ms",
+            "respawn_aggro_delay_ms",
+            "relocation_notify_delay_ms",
+            "leash_radius_bits",
+            "listen_say_range_bits",
+            "listen_yell_range_bits",
+            "listen_text_emote_range_bits",
+        ],
+    )?;
+    for field in scalar_fields {
+        let bits = integer(
+            &combat[field],
+            0,
+            0x447a0000,
+            "world_rules.combat_scalar_outside_bounded_binary32_domain",
+        )?;
+        check(
+            bits == 0 || bits >= 0x00800000,
+            "world_rules.combat_scalar_outside_bounded_binary32_domain",
+        )?;
+    }
+    for field in delay_fields {
+        integer(
+            &combat[field],
+            0,
+            0xffffffff,
+            "world_rules.combat_delay_outside_uint32_domain",
         )?;
     }
     let rules: benilla_sim::world_rules::NativeWorldRules =

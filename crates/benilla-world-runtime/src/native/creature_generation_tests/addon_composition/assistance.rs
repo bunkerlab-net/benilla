@@ -14,8 +14,12 @@ fn source_row(p: &Profile) -> CombatAssistanceSource {
 }
 fn selected(delay: u32) -> Profile {
     let mut p = synthetic_event_ai_fixture::install(composed(authored_source(Some(1), None)), 100);
-    p.initialize_combat_assistance(vec![source_row(&p)], delay)
-        .unwrap();
+    p.initialize_combat_assistance(
+        vec![source_row(&p)],
+        delay,
+        benilla_sim::creature_ai::Real::new(5.0).unwrap(),
+    )
+    .unwrap();
     p
 }
 #[derive(Default)]
@@ -80,9 +84,9 @@ fn changed(w: &NativeWorld, mutate: impl FnOnce(&mut serde_json::Value)) -> Chec
         "mutation must change the checkpoint"
     );
     cp.state = serde_json::from_value(state).unwrap();
-    cp.digest = crate::digest(b"benilla-native-state-v83\0", &cp.state);
+    cp.digest = crate::digest(b"benilla-native-state-v84\0", &cp.state);
     cp.checksum = crate::digest(
-        b"benilla-native-checkpoint-v83\0",
+        b"benilla-native-checkpoint-v84\0",
         &(&cp.state, cp.digest, cp.history_tip),
     );
     cp
@@ -172,15 +176,10 @@ fn completed_callbacks_remain_semantically_checked_after_compaction() {
     assert!(NativeWorld::restore_synthetic_component_test(w.profile.clone(), forged).is_err());
 }
 #[test]
-fn selected_raw_source_requires_positive_radius_exact_generation_and_complete_no_hooks() {
+fn selected_raw_source_requires_exact_generation_and_complete_no_hooks() {
     let p = selected(2000);
     let good = source_row(&p);
     let mut rows = vec![];
-    for radius in [0.0, -1.0] {
-        let mut row = good.clone();
-        row.call_for_help = f::real(radius);
-        rows.push(row);
-    }
     let mut row = good.clone();
     row.generation_source[0] ^= 1;
     rows.push(row);
@@ -200,11 +199,36 @@ fn selected_raw_source_requires_positive_radius_exact_generation_and_complete_no
     for row in rows {
         let mut changed = p.clone();
         assert!(changed
-            .initialize_combat_assistance(vec![row], 2000)
+            .initialize_combat_assistance(vec![row], 2000, f::real(5.0))
             .is_err());
         assert_eq!(changed, p);
     }
 }
+
+#[test]
+fn family_radius_fallback_selects_nonpositive_templates_and_survives_restore() {
+    for (template, family, expected) in [
+        (0.0, 7.0, 7.0),
+        (-1.0, 7.0, 7.0),
+        (3.0, 7.0, 3.0),
+        (0.0, 0.0, 0.0),
+    ] {
+        let mut p = selected(2000);
+        let mut row = source_row(&p);
+        row.call_for_help = f::real(template);
+        p.initialize_combat_assistance(vec![row], 2000, f::real(family))
+            .unwrap();
+        let (w, _) = entered_profile(p);
+        let checkpoint = serde_json::to_value(w.checkpoint().unwrap()).unwrap();
+        assert_eq!(
+            checkpoint["state"]["npcs"]["2"]["events"]["assistance"]["history"][0]["Enter"]
+                ["request"]["radius"],
+            serde_json::to_value(f::real(expected)).unwrap(),
+        );
+        assert_eq!(restore(&w).checkpoint().unwrap(), w.checkpoint().unwrap());
+    }
+}
+
 #[test]
 fn selected_aggressive_own_notify_entry_owns_queue_event_ai_and_same_update_zero_delay() {
     for delay in [0, 2000] {
@@ -251,7 +275,11 @@ fn completed_history_cannot_be_erased_even_without_event_ai_after_combat_stop() 
     let mut profile = composed(authored_source(Some(1), None));
     assert!(profile.event_ai().is_none());
     profile
-        .initialize_combat_assistance(vec![source_row(&profile)], 0)
+        .initialize_combat_assistance(
+            vec![source_row(&profile)],
+            0,
+            benilla_sim::creature_ai::Real::new(5.0).unwrap(),
+        )
         .unwrap();
     let (mut w, mut authority) = entered_profile(profile);
     step(&mut w, &mut authority);

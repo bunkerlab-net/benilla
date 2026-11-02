@@ -323,14 +323,9 @@ mod tests {
     #[test]
     fn actual_post_death_owner_authority_failure_rolls_back_entire_frame() {
         use crate::native::{synthetic_fixture, synthetic_quest_fixture, Command, NativeWorld};
-        let mut profile = crate::native::synthetic_player_melee_fixture::fragile_profile();
+        let profile = crate::native::synthetic_player_melee_fixture::fragile_profile(0);
         // Authored source event schedule: both real owners visit on their first
         // update. Owner order [2, 3] makes the second visit observe NPC2's kill.
-        profile
-            .source_motion
-            .as_mut()
-            .unwrap()
-            .creature_initial_aggro_delay_ms = 0;
         let mut world = NativeWorld::synthetic_component_test(
             profile.clone(),
             [1; 16],

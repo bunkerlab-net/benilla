@@ -31,6 +31,7 @@ fn assisted_profile_with_chance(
                 excluded_hooks: SourceVisitorRows::Complete(vec![]),
             }],
             delay_ms,
+            benilla_sim::creature_ai::Real::new(5.0).unwrap(),
         )
         .unwrap();
     profile

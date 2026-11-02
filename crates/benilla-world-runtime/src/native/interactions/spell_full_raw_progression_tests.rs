@@ -123,7 +123,6 @@ fn progression_mainhand_profile() -> Profile {
             }),
         })
         .collect();
-    p.initialize_quest_progression(&initial, rows).unwrap();
     p.source_motion = Some(synthetic_motion_fixture::genesis(&p, 2));
     p.source_motion
         .as_mut()
@@ -133,6 +132,9 @@ fn progression_mainhand_profile() -> Profile {
         .unwrap()
         .attributes
         .copy_from_slice(&source.spells[0].words[6..11]);
+    rows.world_rules.combat.respawn_aggro_delay_ms = 200;
+    rows.world_rules.combat.relocation_notify_delay_ms = 100;
+    p.initialize_quest_progression(&initial, rows).unwrap();
     let mut relations = synthetic_combat_fixture::source_rows(&p);
     relations.npcs[0].npc_flags = 2;
     for (i, row) in relations.factions.iter_mut().enumerate() {

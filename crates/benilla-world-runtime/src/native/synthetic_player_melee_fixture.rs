@@ -17,8 +17,8 @@ pub(in crate::native) fn profile_with_health(health: u32) -> Profile {
 }
 
 #[cfg(test)]
-pub(in crate::native) fn fragile_profile() -> Profile {
-    profile_with_parameters(60, true)
+pub(in crate::native) fn fragile_profile(initial_aggro_delay_ms: u32) -> Profile {
+    build(60, true, None, false, false, false, initial_aggro_delay_ms).0
 }
 
 pub(in crate::native) fn profile_with_parameters(health: u32, fragile_player: bool) -> Profile {
@@ -48,7 +48,7 @@ pub fn source_fireball_profile(health: u32) -> Profile {
 
 /// Authored item/learning/faction projections with real semantic keys, not copied rows.
 pub fn captured_staff_setup(health: u32) -> (Profile, init::StarterInput) {
-    build(health, false, None, false, true, true)
+    build(health, false, None, false, true, true, 200)
 }
 
 pub(in crate::native) fn profile_with_options_and_spell(
@@ -65,6 +65,7 @@ pub(in crate::native) fn profile_with_options_and_spell(
         fragile_weapon,
         source_fireball,
         false,
+        200,
     )
     .0
 }
@@ -76,6 +77,7 @@ fn build(
     fragile_weapon: bool,
     source_fireball: bool,
     captured_staff: bool,
+    initial_aggro_delay_ms: u32,
 ) -> (Profile, init::StarterInput) {
     let (mut profile, mut input, mut rows) =
         synthetic_quest_fixture::setup_with_levels(3, 60, false, 0x3f800000);
@@ -280,7 +282,10 @@ fn build(
     // parry/block are reachable rather than silently restricted to rear dodge.
     motion.npcs.get_mut(&2).unwrap().npc_spawn_orientation =
         Orientation::new(std::f32::consts::PI).unwrap();
+    motion.creature_initial_aggro_delay_ms = initial_aggro_delay_ms;
     profile.source_motion = Some(motion);
+    rows.world_rules.combat.respawn_aggro_delay_ms = initial_aggro_delay_ms;
+    rows.world_rules.combat.relocation_notify_delay_ms = 100;
     let mut capabilities = synthetic_motion_fixture::creature_capability_sources(&profile);
     let CreatureCapabilityRows::Complete(capability_rows) = &mut capabilities else {
         unreachable!()

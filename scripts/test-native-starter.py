@@ -1994,11 +1994,33 @@ class WorldRulesPreparationTests(unittest.TestCase):
         with self.assertRaisesRegex(ExportError, "preparation_mismatch"):
             verify_preparation(report, bundle, dbcs, native_world_rules=changed)
 
+    def test_combat_stock_policy_matches_pinned_world_loader(self):
+        from native_starter.world_rules import stock_preset, validate
+        rules = stock_preset()
+        self.assertEqual(rules["version"], 2)
+        self.assertEqual(rules["combat"], {
+            "aggro_rate_bits": 0x3f800000,
+            "family_assistance_radius_bits": 0x40a00000,
+            "family_assistance_delay_ms": 1500,
+            "family_flee_assistance_radius_bits": 0x41f00000,
+            "family_flee_delay_ms": 10000,
+            "check_for_help_radius_bits": 0x40a00000,
+            "check_for_help_aggro_delay_ms": 2000,
+            "linking_aggro_delay_ms": 2000,
+            "respawn_aggro_delay_ms": 5000,
+            "relocation_notify_delay_ms": 1000,
+            "leash_radius_bits": 0x41f00000,
+            "listen_say_range_bits": 0x41c80000,
+            "listen_yell_range_bits": 0x43960000,
+            "listen_text_emote_range_bits": 0x41c80000,
+        })
+        self.assertEqual(validate(rules), rules)
+
     def test_policy_refuses_unsupported_keys_missing_fields_and_rate_boundaries(self):
         from native_starter.world_rules import stock_preset, validate
         rules = stock_preset()
         self.assertEqual(validate(rules), rules)
-        for key, value in [("version", 2), ("start_player_level", 2),
+        for key, value in [("version", 1), ("start_player_level", 2),
                            ("start_player_money", 0x7fffffff), ("Rate.XP.Explore", 1),
                            ("quest_xp_rate_bits", True)]:
             changed = copy.deepcopy(rules)

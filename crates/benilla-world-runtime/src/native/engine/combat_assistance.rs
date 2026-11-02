@@ -134,7 +134,7 @@ impl<A: Authority> Frame<'_, A> {
                 position: self.state.position,
                 orientation: ai::Real::from_bits(self.state.orientation.bits())?,
             },
-            radius: source.call_for_help,
+            radius: catalog.radius(source),
             owner_bounding_radius: projected.ai.bounding_radius,
             scene: witness.draft,
             scene_inventory: scene.npcs.values().map(|npc| npc.id).collect(),

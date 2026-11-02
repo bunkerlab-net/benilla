@@ -73,7 +73,8 @@ length of `extraction.json`. It never constructs `NativeCapability` or a runtime
 profile. See the [runtime verifier contract](../../crates/benilla-world-runtime/src/native/README.md).
 
 The shared `production_verifier_cases.json`, `production_verifier_mutations.json`,
-and `production_verifier_malformed.json` contain authored data only. Rust and
+`production_verifier_malformed.json`, and separate `combat_world_rules_cases.json`
+contain authored data only. Rust and
 Python consume the same cases for complete preparation equality, stale bindings,
 rehashed inconsistent artifacts, strict JSON, packed WDBC layouts, and numeric
 limits. Preparation uses sorted presentation field names so JSON object key

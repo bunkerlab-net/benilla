@@ -306,10 +306,10 @@ migration. Historical contexts bind their own validated journal prefix.
 ## Explicit world start and reward policy
 
 `QuestProgressionInput.world_rules` requires
-`benilla_sim::world_rules::NativeWorldRules` version 1. It replaces separate
+`benilla_sim::world_rules::NativeWorldRules` version 2. It replaces separate
 starting-money, quest-XP-rate and reward-money-rate inputs. There is no `Default`
 or missing-policy fallback. `cmangos_classic_stock()` is an explicit named preset,
-`cmangos-8ec338a1-stock-progression-v1`, not an observation of any realm.
+`cmangos-8ec338a1-stock-world-v2`, not an observation of any realm.
 Its source citations are in `benilla-sim/PROVENANCE.md`.
 
 The preset uses start level 1, start money 0, maximum level 60, skill maximum 300,
@@ -333,10 +333,49 @@ catalog identities already bind effective start money, maximum level, skill and
 talent rules, kill rate, quest rate, money rate and present reputation/loot rules.
 When a reputation or loot host is absent, that host's settings must equal the
 cited stock preset; custom settings refuse as configured without a host.
-Inactive stock values add no persisted state. The policy version fixes this
-interpretation, so this adapter changes neither native format nor replay.
+The genesis retains the combat block and validates it against the profile on every
+validation, including hosts installed after progression. The current native root
+format is `NATIVE_FORMAT_VERSION`. It rejects previous identities without migration.
 Changing an effective rate changes the profile identity and rejects reopening a
 saved world with that replacement profile.
+
+### Combat configuration
+
+The combat block uses uint32 binary32 bits for distances and rates, with the same
+positive-zero or normal-through-1000 domain. Delays use uint32 milliseconds.
+The stock values come from CMaNGOS Classic
+[`World::LoadConfigSettings` at `8ec338a1`](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/World/World.cpp#L443).
+
+| CMaNGOS key | Combat field | Stock value |
+| --- | --- | --- |
+| `Rate.Creature.Aggro` | `aggro_rate_bits` | 1 |
+| `CreatureFamilyAssistanceRadius` | `family_assistance_radius_bits` | 5 |
+| `CreatureFamilyAssistanceDelay` | `family_assistance_delay_ms` | 1500 ms |
+| `CreatureFamilyFleeAssistanceRadius` | `family_flee_assistance_radius_bits` | 30 |
+| `CreatureFamilyFleeDelay` | `family_flee_delay_ms` | 10000 ms |
+| `CreatureCheckForHelpRadius` | `check_for_help_radius_bits` | 5 |
+| `CreatureCheckForHelpAggroDelay` | `check_for_help_aggro_delay_ms` | 2000 ms |
+| `CreatureLinkingAggroDelay` | `linking_aggro_delay_ms` | 2000 ms |
+| `CreatureRespawnAggroDelay` | `respawn_aggro_delay_ms` | 5000 ms |
+| `Visibility.AIRelocationNotifyDelay` | `relocation_notify_delay_ms` | 1000 ms |
+| `LeashRadius` | `leash_radius_bits` | 30 |
+| `ListenRange.Say` | `listen_say_range_bits` | 25 |
+| `ListenRange.Yell` | `listen_yell_range_bits` | 300 |
+| `ListenRange.TextEmote` | `listen_text_emote_range_bits` | 25 |
+
+Every creature AI binds the aggro rate and leash radius. The motion host also
+binds the shared aggro rate and both notification delays. The assistance host binds
+the family fallback radius and check-for-help delay. Its separately selected peer
+help host binds the check-for-help radius. Quest-script and EventAI text hosts bind
+the say range. All present consumers must agree.
+
+An absent host accepts only its stock values. General delayed family assistance,
+flee assistance, linking, yell, and text-emote hosts remain unavailable and accept
+only stock values. The policy does not discharge traversal, callback, loader, or
+production-admission obligations. `CreatureFamilyFleeAssistanceDelay` is not a key
+at this pin. The source uses `CreatureFamilyFleeDelay`.
+
+### XP reducers
 
 The existing reducers own grants. `Quest::XPValue` derives 40, 170 and 250 base XP
 from level-1/2/3-shaped reward-money fields 24, 102 and 150 before configured

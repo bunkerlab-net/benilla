@@ -408,9 +408,9 @@ fn genuine_npc_defense_reactive_refresh_expiry_death_and_restore_are_bound() {
             .expect("exact serialized proof field");
         *field = serde_json::json!(field.as_u64().unwrap() + 1);
         let mut changed: Checkpoint = serde_json::from_value(value).unwrap();
-        changed.digest = crate::digest(b"benilla-native-state-v83\0", &changed.state);
+        changed.digest = crate::digest(b"benilla-native-state-v84\0", &changed.state);
         changed.checksum = crate::digest(
-            b"benilla-native-checkpoint-v83\0",
+            b"benilla-native-checkpoint-v84\0",
             &(&changed.state, changed.digest, changed.history_tip),
         );
         assert!(
@@ -508,7 +508,7 @@ fn previous_native_schema_is_not_accepted_as_player_melee_state() {
 
 #[test]
 fn actual_npc_lethal_callback_closes_player_attack_before_checkpoint() {
-    let profile = fragile_profile();
+    let profile = fragile_profile(200);
     let mut world =
         NativeWorld::synthetic_component_test(profile, [1; 16], fixture::player(), 42).unwrap();
     assert!(

@@ -286,3 +286,17 @@ Their tests contain authored rows only.
   invokes this traversal on grid activation. Selected SQL rows do not contain
   that activation history or the resulting live update and visitor order.
 
+## Explicit combat configuration
+
+`world_rules.py` and the independent Rust production verifier accept world-rules
+version 2. The stock combat values come from
+[`World::LoadConfigSettings`](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/World/World.cpp#L443-L476),
+including [family delays](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/World/World.cpp#L661-L662),
+[leash and respawn notification](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/World/World.cpp#L703-L704),
+and [relocation notification](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/World/World.cpp#L743).
+The bounded input rejects invalid values rather than applying loader repairs.
+The separate `combat_world_rules_cases.json` contains authored configuration,
+a complete preparation, and mutations shared by both verifiers. It contains no
+upstream database rows. Configuration does not establish combat execution or
+production admission.
+

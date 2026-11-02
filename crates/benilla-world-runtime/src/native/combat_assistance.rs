@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f:
-// Unit.cpp:559-582,6365-6385,7972-8013; Creature.cpp:140-142,463-464,2178-2197;
+// Unit.cpp:559-582,6365-6385,7972-8013; Creature.cpp:140-142,463-464,2159-2197;
 // GridNotifiers.cpp:265-281; CellImpl.h:37-193. Upstream GPL-2.0-or-later.
 //! Selected combat-entry assistance, with authored complete non-assistable traversal.
 //! This owns no map traversal implementation and grants no content admission.
@@ -14,7 +14,7 @@ pub use state::*;
 #[cfg(test)]
 mod tests;
 
-pub const COMBAT_ASSISTANCE_POLICY: &str = "cmangos-8ec338a1-combat-assistance-v2";
+pub const COMBAT_ASSISTANCE_POLICY: &str = "cmangos-8ec338a1-combat-assistance-v3";
 pub const MAX_ASSISTANCE_HISTORY: usize = MAX_RECORDS;
 pub(in crate::native) const NO_CALL_ASSIST: u32 = 0x800;
 
@@ -31,7 +31,7 @@ pub struct CombatAssistanceSource {
     pub spawn_id: u64,
     pub entry: u32,
     pub generation_source: crate::Digest,
-    /// Raw template CallForHelp. Nonpositive fallback selection is not admitted.
+    /// Raw template CallForHelp. Nonpositive values select the explicit family radius.
     pub call_for_help: ai::Real,
     pub excluded_hooks: SourceVisitorRows<CombatAssistanceHook>,
 }
@@ -41,13 +41,16 @@ pub(in crate::native) struct CombatAssistanceCatalog {
     sources: BTreeMap<u64, CombatAssistanceSource>,
     aggro_delay_ms: u32,
     peer_help_radius: Option<ai::Real>,
+    family_assistance_radius: ai::Real,
 }
 impl CombatAssistanceCatalog {
     pub(in crate::native) fn validate(&self, profile: &Profile) -> Result<(), NativeError> {
         if self.policy != COMBAT_ASSISTANCE_POLICY || self.sources.len() != profile.npcs.len() {
             return Err(NativeError::AuthorityBinding);
         }
-        if self.peer_help_radius.is_some_and(|r| r.as_f32() < 0.0) {
+        if self.family_assistance_radius.as_f32() < 0.0
+            || self.peer_help_radius.is_some_and(|r| r.as_f32() < 0.0)
+        {
             return Err(NativeError::InvalidProfile);
         }
         let visitors =
@@ -83,11 +86,9 @@ impl CombatAssistanceCatalog {
             {
                 return Err(NativeError::AuthorityBinding);
             }
-            if row.call_for_help.as_f32() <= 0.0
-                || npc.combat.as_ref().is_none_or(|c| c.creature_is_critter)
-            {
+            if npc.combat.as_ref().is_none_or(|c| c.creature_is_critter) {
                 return Err(NativeError::UnsupportedMechanic(
-                    "positive assistance CallForHelp and ordinary creature",
+                    "assistance ordinary creature",
                 ));
             }
             match &row.excluded_hooks {
@@ -115,13 +116,23 @@ impl CombatAssistanceCatalog {
             .ok_or(NativeError::AuthorityBinding)
     }
     pub(in crate::native) fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-combat-assistance-source-v51\0", self)
+        crate::digest(b"benilla-native-combat-assistance-source-v84\0", self)
     }
     pub(in crate::native) fn peer_help_radius(&self) -> Option<ai::Real> {
         self.peer_help_radius
     }
     pub(in crate::native) fn delay_ms(&self) -> u32 {
         self.aggro_delay_ms
+    }
+    pub(in crate::native) fn family_radius(&self) -> ai::Real {
+        self.family_assistance_radius
+    }
+    pub(in crate::native) fn radius(&self, source: &CombatAssistanceSource) -> ai::Real {
+        if source.call_for_help.as_f32() > 0.0 {
+            source.call_for_help
+        } else {
+            self.family_assistance_radius
+        }
     }
 }
 impl Profile {
@@ -130,6 +141,7 @@ impl Profile {
         &mut self,
         sources: Vec<CombatAssistanceSource>,
         aggro_delay_ms: u32,
+        family_assistance_radius: ai::Real,
     ) -> Result<(), NativeError> {
         if sources.len() > crate::MAX_NPCS {
             return Err(NativeError::TooLarge);
@@ -152,6 +164,7 @@ impl Profile {
             sources: rows,
             aggro_delay_ms,
             peer_help_radius: None,
+            family_assistance_radius,
         });
         next.validate()?;
         *self = next;
@@ -255,7 +268,7 @@ pub enum CombatAssistanceFacts {
 }
 impl CombatAssistanceRequest {
     pub fn traversal_radius(&self) -> Result<ai::Real, NativeError> {
-        if self.radius.as_f32() <= 0.0 || self.owner_bounding_radius.as_f32() < 0.0 {
+        if self.radius.as_f32() < 0.0 || self.owner_bounding_radius.as_f32() < 0.0 {
             return Err(NativeError::AuthorityBinding);
         }
         Ok(ai::Real::new(

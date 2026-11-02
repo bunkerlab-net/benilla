@@ -303,8 +303,10 @@ fn friendly_at_war_runtime_retaliates_without_becoming_an_on_sight_enemy() {
         .unwrap(),
     );
     data.world_rules.reputation = data.reputation.as_ref().unwrap().config();
-    p.initialize_quest_progression(&input, data).unwrap();
     p.source_motion = Some(synthetic_motion_fixture::genesis(&p, 3));
+    data.world_rules.combat.respawn_aggro_delay_ms = 200;
+    data.world_rules.combat.relocation_notify_delay_ms = 100;
+    p.initialize_quest_progression(&input, data).unwrap();
     let mut rows = fixture::source_rows(&p);
     rows.npcs[0].npc_flags = 2;
     rows.factions[1].faction = rep_fixture::PRIMARY;
@@ -736,6 +738,6 @@ fn native_ten_rejects_published_nine_checkpoint_and_records_without_migration() 
         NativeWorld::restore_synthetic_component_test(w.profile.clone(), initial.clone()).unwrap();
     assert!(replay.replay(&records).is_err());
     assert_eq!(replay.checkpoint().unwrap(), initial);
-    assert_eq!(NATIVE_FORMAT_VERSION, 83);
+    assert_eq!(NATIVE_FORMAT_VERSION, 84);
     assert_eq!(crate::FORMAT_VERSION, 2);
 }
