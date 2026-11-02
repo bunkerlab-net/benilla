@@ -828,7 +828,22 @@ class ExactProofTests(unittest.TestCase):
         self.assertIn('deterministic length-matched synthetic bytes, not captured payloads', source)
         self.assertNotIn('unsafe', source)
         original = (ROOT / "crates/benilla-native-vmap-source/src/source.rs").read_text()
-        self.assertIn('sha256: profile_value!(PayloadHash, format!("{:x}", Sha256::digest(&payload)))', original)
+        # Runtime replay can reuse a digest only after exact-byte equality.
+        # Both benchmark full paths above still hash every payload afresh.
+        self.assertIn(
+            'observe_lookup(chain, lookup_name, scope, work, cancel, None)?',
+            original,
+        )
+        self.assertIn(
+            'sha256: profile_value!(\n'
+            '                        PayloadHash,\n'
+            '                        match cached_digest {\n'
+            '                            Some((original, digest)) if payload == original => digest.to_owned(),\n'
+            '                            _ => format!("{:x}", Sha256::digest(&payload)),\n'
+            '                        }\n'
+            '                    ),',
+            original,
+        )
         self.assertNotIn('fixed_hex', original)
 
     def test_hash_hex_primitive_gate_is_exact_and_preserves_both_failures(self):
