@@ -104,6 +104,10 @@ class FakeSource:
         return [{"version": "original test schema " + (str(self.versions) if self.mutate_version else "1"), "creature_ai_version": "original"}]
     def finish_read(self):
         self.finished = True
+    def scan_loot(self, query):
+        from classic_export.loot_loader import FIELDS
+        self.queries.append(query.sql())
+        return ({name: r[name] for name in FIELDS} for r in self.rows[query.table])
     def fetch(self, query):
         sql, args = query.sql()
         self.queries.append((sql, args))
@@ -2142,6 +2146,7 @@ class BodyLootCaptureTests(unittest.TestCase):
         second_source = self.source()
         for rows in second_source.rows.values(): rows.reverse()
         second = self.captured(second_source)
+        self.assertNotEqual(first.pop("loot_loader_capture"), second.pop("loot_loader_capture"))
         self.assertEqual(canonical(first), canonical(second))
         self.assertEqual(first_source.queries, second_source.queries)
         for table in (self.BODY,self.REFERENCE):
@@ -2919,6 +2924,72 @@ class QuestGiverPresentationTests(unittest.TestCase):
         bundle["quest_giver_presentation_capture"]["rows"]["questgiver_greeting"] = None
         with self.assertRaisesRegex(ExportError, "row_shape_or_limit"):
             validate_bundle(bundle)
+
+class LootLoaderCaptureTests(unittest.TestCase):
+    def source(self):
+        source = starter_source()
+        source.rows["creature_template"][0].update(LootId=6, MinLootGold=2, MaxLootGold=5)
+        source.rows["creature_loot_template"] = [
+            row("creature_loot_template", entry=6, item=80002, ChanceOrQuestChance=Decimal("100"), mincountOrRef=1, maxcount=1),
+            row("creature_loot_template", entry=991001, item=80009, ChanceOrQuestChance=Decimal("100"), mincountOrRef=1, maxcount=1),
+            row("creature_loot_template", entry=6, item=60441, ChanceOrQuestChance=Decimal("0.66"), mincountOrRef=-60441, maxcount=1),
+            row("creature_loot_template", entry=6, item=60000, ChanceOrQuestChance=Decimal("9"), mincountOrRef=-60000, maxcount=1),
+            row("creature_loot_template", entry=6, item=80001, ChanceOrQuestChance=Decimal("100"), mincountOrRef=1, maxcount=1)]
+        source.rows["reference_loot_template"] = [
+            row("reference_loot_template", entry=60441, item=80004, groupid=1, mincountOrRef=1, maxcount=1),
+            row("reference_loot_template", entry=60000, item=80003, groupid=1, mincountOrRef=1, maxcount=1)]
+        source.rows["item_template"] += [row("item_template", entry=entry, displayid=entry + 100,
+            stackable=1, **{"class": 15}) for entry in range(80001, 80005)]
+        return source
+
+    def test_exact_unfiltered_query_and_selected_order_survive_canonical_sorting(self):
+        from classic_export import loot_loader
+        source = self.source()
+        bundle = capture(source, starter_selection(), capture_body_loot=True)
+        validate_bundle(bundle)
+        ordered = loot_loader.ordered_rows(bundle, "creature_loot_template")
+        self.assertEqual([position for position, _ in ordered], [0, 2, 3, 4])
+        self.assertEqual([row["item"] for _, row in ordered], [80002, 60441, 60000, 80001])
+        self.assertEqual([r["item"] for r in bundle["tables"]["creature_loot_template"]], [60000, 60441, 80001, 80002])
+        sql, params = loot_loader.Query("creature_loot_template").sql()
+        self.assertEqual(sql, "SELECT entry, item, ChanceOrQuestChance, groupid, mincountOrRef, maxcount, condition_id FROM creature_loot_template")
+        self.assertEqual(params, ())
+        self.assertIn((sql, params), source.queries)
+
+    def test_missing_legacy_order_and_tampered_projection_never_gain_evidence(self):
+        from classic_export import loot_loader
+        bundle = capture(self.source(), starter_selection(), capture_body_loot=True)
+        legacy = copy.deepcopy(bundle)
+        legacy.pop("loot_loader_capture")
+        validate_bundle(legacy)
+        self.assertIsNone(loot_loader.ordered_rows(legacy, "creature_loot_template"))
+        for mutation in range(5):
+            changed = copy.deepcopy(bundle)
+            record = changed["loot_loader_capture"]["tables"]["creature_loot_template"]
+            if mutation == 0: record["selected_rows"].reverse()
+            elif mutation == 1: record["selected_rows"][0]["key"] = [6, 88888]
+            elif mutation == 2: record["selected_projection_sha256"] = "a" * 64
+            elif mutation == 3: record["result_row_count"] = 2
+            else: record["ordered_result_sha256"] = "0" * 64
+            with self.assertRaisesRegex(ExportError, "loot.loader_"):
+                validate_bundle(changed)
+
+    def test_whole_scan_bounds_mismatch_and_snapshot_cleanup(self):
+        from classic_export import loot_loader
+        for kind in ("rows", "bytes", "mismatch"):
+            source = self.source()
+            if kind == "mismatch":
+                original = source.scan_loot
+                def wrong(query):
+                    for raw in original(query):
+                        yield {**raw, "maxcount": 4}
+                source.scan_loot = wrong
+                context = mock.patch.object(loot_loader, "MAX_SCAN_ROWS", 100)
+            else:
+                context = mock.patch.object(loot_loader, "MAX_SCAN_ROWS" if kind == "rows" else "MAX_SCAN_BYTES", 1)
+            with context, self.assertRaisesRegex(ExportError, "loot.loader_"):
+                capture(source, starter_selection(), capture_body_loot=True)
+            self.assertTrue(source.finished)
 
 if __name__ == "__main__":
     unittest.main()

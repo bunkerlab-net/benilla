@@ -11,6 +11,7 @@ from .columns import COLUMNS, STARTER_SCHEMA, INITIAL_HOOK_SCHEMA, EVENT_TEXT_AL
 from . import event_ai, event_text, starter, learning, native_spawn, spell_registry, initial_hooks, loot, quest_relationships, spawn_entries
 from . import spell_numeric
 from . import quest_presentation
+from . import loot_loader
 from .core import (CORE_REVISION, DATABASE_REVISION, FORMAT, STARTER_FORMAT, KEYS, MAX_BUNDLE_BYTES,
                    MAX_ITEMS, MAX_QUESTS, MAX_ROWS, MAX_SCHEMA_BYTES, MAX_SPELLS, Selection,
                    canonical, check, digest, integer, normalize_rows, normalize_version_notes,
@@ -167,6 +168,7 @@ class ReadSource(Protocol):
     def inspect(self) -> dict[str, Any]: ...
     def start_read(self, engines: set[str], quiescent: bool) -> str: ...
     def fetch(self, query: Query) -> list[dict[str, Any]]: ...
+    def scan_loot(self, query: loot_loader.Query): ...
     def version_notes(self) -> list[dict[str, str | None]]: ...
     def finish_read(self) -> None: ...
 
@@ -354,6 +356,7 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
         tables["creature_template_classlevelstats"] = stats
         if capture_body_loot:
             loot.capture_tables(tables, profiles, get)
+        loader_rows = loot_loader.capture(source, tables, profiles) if capture_body_loot else None
         item_ids = referenced_items(quests) | starter_items
         if capture_body_loot:
             item_ids.update(loot.leaf_ids(tables))
@@ -457,6 +460,7 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             bundle["spell_numeric_capture"] = spell_numeric.evidence(bundle, numeric_rows, facing_rows)
         if capture_body_loot:
             bundle["loot_capture"] = loot.evidence(bundle)
+            bundle["loot_loader_capture"] = loader_rows
         if capture_initial_hooks:
             bundle["initial_hook_capture"] = initial_hooks.evidence(bundle)
         if capture_spawn_entries:
@@ -496,6 +500,8 @@ def validate_bundle(bundle: Any) -> None:
             expected.add("initial_hook_capture")
         if "loot_capture" in bundle:
             expected.add("loot_capture")
+        if "loot_loader_capture" in bundle:
+            expected.add("loot_loader_capture")
         if "spell_numeric_capture" in bundle:
             expected.add("spell_numeric_capture")
         if "quest_giver_presentation_capture" in bundle:
@@ -577,6 +583,8 @@ def validate_bundle(bundle: Any) -> None:
     if "loot_capture" in bundle:
         check(selection.starter is not None, "loot.starter_selection_required")
         loot.validate(bundle, profiles)
+    check("loot_loader_capture" not in bundle or "loot_capture" in bundle, "loot.loader_requires_capture")
+    loot_loader.validate(bundle)
     check((spell_registry.TABLE in bundle["tables"]) == ("spell_script_capture" in bundle),
           "spell_registry.coverage_required_with_table")
     if "spell_script_capture" in bundle:

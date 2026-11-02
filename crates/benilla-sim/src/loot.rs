@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
+pub mod captured;
 pub const UPSTREAM_COMMIT: &str = "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f";
 pub const POLICY: &str = "cmangos-8ec338a1-solo-quest-loot-reconstruction-v3";
 pub const MAX_ITEMS: usize = 16;

@@ -57,7 +57,13 @@ fn explicit_rules_refuse_unknown_keys_versions_starts_and_rate_domains() {
             .is_err());
     }
     for bits in [
-        0x80000000u32, 0xbf800000, 1, 0x007fffff, 0x447a0001, 0x7f800000, 0x7fc00000,
+        0x80000000u32,
+        0xbf800000,
+        1,
+        0x007fffff,
+        0x447a0001,
+        0x7f800000,
+        0x7fc00000,
     ] {
         for field in [
             "quest_xp_rate_bits",

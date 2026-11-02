@@ -1826,5 +1826,77 @@ class WorldRulesPreparationTests(unittest.TestCase):
         self.assertEqual(plan["quest_xp_inputs"], [])
         self.assertEqual(plan["refusals"], [{"quest": 900001, "reason": "quest_xp_numeric_domain"}])
 
+
+class CorpseLootPreparationTests(unittest.TestCase):
+    def source(self):
+        source = export_tests.LootLoaderCaptureTests().source()
+        for name in FLOAT_SPELL_FIELDS:
+            column = next(c for c in source.inventory["tables"]["spell_template"]["columns"] if c["name"] == name)
+            column["type"] = "float"
+        return source
+
+    def test_supported_reference_shape_replaces_only_scoped_obligations(self):
+        from native_starter import loot_plan
+        from native_starter.world_rules import stock_preset
+        source = capture(self.source(), export_tests.starter_selection(), capture_body_loot=True)
+        result = compile_starter(source, parsed(dbcs_for(source)), Request.parse({"race": 1, "class": 1, "gender": 0}),
+                                 native_world_rules=stock_preset())
+        plan = result["corpse_loot_plan"]
+        self.assertEqual(plan["status"], "supported_shape", plan["refusals"])
+        self.assertFalse(plan["runtime_admitted"])
+        self.assertEqual([row["item"] for row in plan["ordered_rows"]["creature_loot_template"]],
+                         [80002, 60441, 60000, 80001])
+        self.assertEqual(plan["ordered_rows"]["creature_loot_template"][1]["chance_or_quest_chance_bits"], 0x3f28f5c3)
+        reasons = {r["reason"] for r in result["unsupported"]}
+        self.assertFalse(reasons & loot_plan.DISCHARGED)
+        self.assertIn("native.runtime_profile_not_implemented", reasons)
+        self.assertIn("loot.explicit_rates_inventory_audit_and_host_binding_required", reasons)
+        self.assertTrue(loot_plan.DISCHARGED <= {r["reason"] for r in source["report"]["unsupported"]})
+        self.assertEqual({r["entry"] for r in plan["leaf_items"]}, set(range(80001, 80005)))
+        self.assertTrue(all(not d["blocked_for_gameplay"] for d in result["source_field_dispositions"]
+                            if d["table"] in {"creature_loot_template", "reference_loot_template"}))
+        self.assertIsNone(result["runtime_export"])
+
+    def test_legacy_and_unsupported_items_keep_generation_obligations(self):
+        from native_starter import loot_plan
+        source = capture(self.source(), export_tests.starter_selection(), capture_body_loot=True)
+        source.pop("loot_loader_capture")
+        self.assertEqual(loot_plan.supported_plan(source)["status"], "blocked")
+        for field, value in [("startquest", 17), ("RandomProperty", 2), ("ScriptName", "authored_hook"),
+                             ("ContainerSlots", 4), ("spelltrigger_1", 1), ("spellid_1", -1)]:
+            raw = self.source()
+            item = next(r for r in raw.rows["item_template"] if r["entry"] == 80004)
+            item[field] = value
+            if field == "spelltrigger_1":
+                item["spellid_1"] = raw.rows["spell_template"][0]["Id"]
+            source = capture(raw, export_tests.starter_selection(), capture_body_loot=True)
+            plan = loot_plan.supported_plan(source)
+            self.assertEqual(plan["status"], "blocked", field)
+            self.assertTrue(any(r["table"] == "item_template" and r["key"] == "80004" for r in plan["refusals"]))
+        raw = self.source()
+        item = next(r for r in raw.rows["item_template"] if r["entry"] == 80004)
+        item.update(spellid_1=raw.rows["spell_template"][0]["Id"], spelltrigger_1=0,
+                    spellcooldown_2=-1, spellcategorycooldown_2=-1)
+        source = capture(raw, export_tests.starter_selection(), capture_body_loot=True)
+        self.assertEqual(loot_plan.supported_plan(source)["status"], "supported_shape")
+
+    def test_processing_budget_and_binary32_underflow_refuse_before_admission(self):
+        from decimal import Decimal
+        from native_starter import loot_plan
+        raw = self.source()
+        prototype = next(r for r in raw.rows["item_template"] if r["entry"] == 80003)
+        for entry in range(80010, 80026):
+            raw.rows["reference_loot_template"].append(export_tests.row("reference_loot_template",
+                entry=60000, item=entry, groupid=1, mincountOrRef=1, maxcount=1))
+            raw.rows["item_template"].append(dict(prototype, entry=entry))
+        next(r for r in raw.rows["creature_loot_template"] if r["item"] == 60000)["maxcount"] = 255
+        source = capture(raw, export_tests.starter_selection(), capture_body_loot=True)
+        self.assertIn("loot.processing_budget", {r["reason"] for r in loot_plan.supported_plan(source)["refusals"]})
+        raw = self.source()
+        next(r for r in raw.rows["creature_loot_template"] if r["item"] == 60000)["ChanceOrQuestChance"] = Decimal("1e-50")
+        source = capture(raw, export_tests.starter_selection(), capture_body_loot=True)
+        self.assertIn("loot.ungrouped_binary32_zero_chance",
+                      {r["reason"] for r in loot_plan.supported_plan(source)["refusals"]})
+
 if __name__ == "__main__":
     unittest.main()

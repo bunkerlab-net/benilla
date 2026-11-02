@@ -3,6 +3,8 @@
 // These prove algorithm ordering/results, not MT or std::shuffle word parity.
 use benilla_sim::loot::*;
 use std::collections::{BTreeMap, VecDeque};
+#[path = "loot/captured.rs"]
+mod captured;
 
 fn nums(text: &str, separator: char) -> Vec<u64> {
     if text.is_empty() {

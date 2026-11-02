@@ -11,7 +11,7 @@ import sys
 import tempfile
 
 from classic_export.capture import capture, validate_bundle
-from classic_export import learning, loot
+from classic_export import learning, loot, loot_loader
 from classic_export.columns import INITIAL_HOOK_SCHEMA
 from classic_export.core import (COLUMNS, CORE_REVISION, DATABASE_REVISION, ExportError,
                                  MAX_BUNDLE_BYTES, MAX_SCHEMA_BYTES, Selection,
@@ -106,6 +106,9 @@ def main() -> int:
                       "quiescent_required": any(p["engine"] == "MyISAM" for p in profiles.values()),
                       "body_loot_requested": args.body_loot,
                       "body_loot_missing_tables": sorted(set(loot.TABLES) - set(profiles)) if args.body_loot else [],
+                      "body_loot_loader_scans": [{"query": loot_loader.Query(table).sql()[0],
+                          "row_limit": loot_loader.MAX_SCAN_ROWS, "byte_limit": loot_loader.MAX_SCAN_BYTES}
+                          for table in loot.TABLES if table in profiles] if args.body_loot else [],
                       "runnable": False, "unreviewed_columns": {t: p["unreviewed_columns"] for t,p in profiles.items() if p["unreviewed_columns"]}}
         else:
             # Import/authentication occurs only in an explicit user's local read action.

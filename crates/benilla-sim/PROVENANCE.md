@@ -620,6 +620,18 @@ captures use separate table namespaces and retain whole-loader order witnesses;
 no source database loading order is inferred. See [LOOT.md](LOOT.md) for the
 admitted domain and checked work/draw accounting.
 
+`src/loot/captured.rs` translates the selected loader projection into those
+unchanged captures. Its ordering follows `LootStore::LoadLootTable`,
+`LootMgr.cpp:125-185`, and the vector append rules in `LootGroup::AddEntry`,
+`:2396-2402`, and `LootTemplate::AddEntry`, `:2606-2615`. The Python
+`classic_export/loot_loader.py` observer uses the exact unfiltered query at
+`:135`, not an assumed primary-key order. Normal item eligibility follows
+`LootItem::AllowedForPlayer`, `:463-496`; present StartQuest dependencies refuse.
+Every possible leaf separately passes the existing carried-inventory policy.
+No additional rate formula, RNG engine, or reference-amount rate is introduced.
+Authored 9% and 0.66% reference cases supply explicit distribution outcomes;
+their IDs and chance parameters are scenario inputs, not copied database rows.
+
 Solo quest-only body leaves additionally translate `LootStoreItem`'s absolute
 chance and `needs_quest` construction, `LootMgr.h:215-217`, the quest-drop-rate
 branch in `LootStoreItem::Roll`, `LootMgr.cpp:374-389`, and the quest item type

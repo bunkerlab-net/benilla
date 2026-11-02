@@ -10,7 +10,7 @@ from typing import Any
 
 from classic_export.capture import validate_bundle
 from classic_export import event_ai, native_spawn, spell_registry, initial_hooks, quest_relationships, loot
-from classic_export import spell_numeric
+from classic_export import spell_numeric, loot_loader
 from . import fireball_plan
 from classic_export.columns import COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA
 from classic_export.core import (CORE_REVISION, STARTER_FORMAT, KEYS, Selection,
@@ -23,6 +23,7 @@ from .outfit_plan import supported_plan as outfit_placement_plan
 from . import creature_plan
 from .learning_plan import supported_plan as starter_learning_plan
 from . import quest_plan, world_rules
+from . import loot_plan
 
 PROFILE = "cmangos-8ec338a1-native-starter-bindings-v1"
 FORMAT = "benilla-native-starter-preparation-v1"
@@ -724,6 +725,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
     relationships = quest_relationships.resolve(source)
     quests = quest_plan.supported_plan(source, dbcs)
     rules_plan = world_rules.supported_plan(source, native_world_rules)
+    corpse_loot = loot_plan.supported_plan(source)
     for refusal in relationships["refusals"]:
         c.issue("quest_template", [refusal["quest"]], "quest.chain", edge=refusal)
     observed_errors = {i["table"] for i in dbc_errors or []}
@@ -785,6 +787,16 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
     fireball = next((s["fireball_plan"] for s in spells if s["id"] == 133), None)
     discharged = [i for i in c.issues if fireball_plan.discharges(i, fireball)]
     c.issues = [i for i in c.issues if not fireball_plan.discharges(i, fireball)]
+    loot_discharged = [i for i in c.issues if loot_plan.discharges(i, corpse_loot)]
+    c.issues = [i for i in c.issues if not loot_plan.discharges(i, corpse_loot)]
+    if corpse_loot["status"] == "supported_shape":
+        c.issue("loot", [], "loot.explicit_rates_inventory_audit_and_host_binding_required")
+        for disposition in dispositions:
+            if disposition["table"] in loot.TABLES:
+                disposition["blocked_for_gameplay"].pop("loot.native_chance_condition_rng_required", None)
+                disposition["supported_catalog_plan"] = {"adapter": loot_plan.ADAPTER,
+                    "fields": list(loot_loader.FIELDS),
+                    "input_bindings": corpse_loot["input_bindings"]}
     if fireball and fireball["status"] == "supported_shape":
         for disposition in dispositions:
             if disposition["table"] == "spell_template" and disposition["key"] == [133]:
@@ -826,6 +838,9 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
         "world_rules_obligations": [{**i, "disposition": "supported_numeric_policy",
                                     "input_binding": rules_plan["input_binding"]} for i in rule_discharged],
         "quest_loot_inputs": loot.quest_inputs(c.tables),
+        "corpse_loot_plan": corpse_loot,
+        "corpse_loot_plan_obligations": [{**i, "disposition": "supported_shape",
+            "adapter": loot_plan.ADAPTER} for i in loot_discharged],
         "player": {"identity": identity, "level_inputs": c.progression(), "outfit": outfit,
                    "initial_sql_spells": source["tables"]["playercreateinfo_spell"],
                    "actions": source["tables"]["playercreateinfo_action"], "skills": skills,

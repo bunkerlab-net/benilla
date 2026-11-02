@@ -6,7 +6,7 @@ reader follows every already-selected creature template's positive `LootId`,
 including quest/objective/kill-credit templates. It does not select by creature
 entry, query entry zero, or special-case one creature. Old captures without this
 option retain their existing missing-loot blocker. This option changes no native
-runtime format and emits no profile or `WholeTableLoaderResult`.
+runtime format and emits no playable profile.
 
 ## Source and schema contract
 
@@ -96,8 +96,8 @@ hashes. No connection secret is recorded.
 `selected_rows_complete` describes query/dependency enumeration, independently
 of unsupported semantics. Even a fully enumerated cycle can have complete
 selected rows while remaining non-executable. `query_order` is always
-`entry_item_key_order`; `loader_order` is always `unproven`. No whole-table count,
-loader positions, result fingerprint or global completeness witness is emitted.
+`entry_item_key_order`; its legacy `loader_order` field remains `unproven`.
+The separate optional `loot_loader_capture` records the whole-query result.
 All selected leaf rows are required by offline readback.
 
 Readback reconstructs roots, frontiers, edges, leaves and cycles from the typed
@@ -108,6 +108,40 @@ snapshot hashes reject even after outer hashes are recalculated. Hashes are
 integrity checks, not signatures: a coherent rewrite of all source rows and all
 evidence cannot independently prove what a real SQL server returned. Actual
 source/final-installation validation remains a separate prerequisite.
+
+New `--body-loot` captures issue each available table's exact upstream seven-column
+SELECT without a filter, `ORDER BY`, or `LIMIT`, within the same snapshot.
+The streaming reader bounds each scan at 2,000,000 rows and 512 MiB of
+normalised bytes. It hashes each canonical row with its eight-byte little-endian
+length prefix and keeps selected keys and zero-based result positions only.
+It compares every selected row against the selected-query projection.
+`loot_loader_capture` version 1 retains query hash, ordered result hash, total
+row count, selected positions, and selected-projection hash for each table.
+Readback rejects duplicate, unordered, out-of-range, missing, or stale bindings.
+A missing legacy extension remains unknown, never key-sorted loader evidence.
+
+`LootStore` uses `std::unordered_map<uint32, LootTemplate>`, `LootMgr.h:257`.
+Its key lookup does not reorder the vectors inside each template.
+The separate `std::map` at `LootMgr.cpp:129` counts accepted rows per entry.
+`AddEntry`, `LootMgr.cpp:2396-2402,2606-2615`, appends in
+query-result order. Explicit groups shuffle before their chance draw; equal
+groups shuffle before duplicate checks. Order therefore affects deterministic
+outcomes even though those shuffles are unbiased.
+The observation describes this capture's query, not the memory of a previously
+started server. Hashes do not authenticate either observation.
+
+Preparation's `corpse_loot_plan` uses this observation to compile only supported
+ordinary or ungrouped quest body leaves and one-hop ordinary references.
+Every possible leaf needs its complete item row and bounded backpack acquisition
+semantics. Plain empty bags are supported as carried objects, not equipped
+capacity. Stored on-use metadata does not authorise using an item.
+Quest-starting items, conditional rows, nested or grouped references, random
+properties, unsupported item flags, locks, scripts, lifecycle effects, and
+equip spells retain precise refusals. The Rust adapter independently checks the
+existing inventory catalog before building the unchanged runtime captures.
+Explicit shared `loot::Rules`, independently absent inventory/corpse hooks,
+and client item-query metadata remain required before runtime binding.
+
 
 PickpocketLootId and SkinningLootId stay explicitly unknown/outside body scope;
 zero body LootId is an explicit no-template reference. Gold fields are retained,
@@ -129,8 +163,8 @@ The candidate has no nested references, gold 1–4 and a separate nonzero
 PickpocketLootId 6. All 32 expected leaf items have nonzero spell cooldown metadata,
 often unused-slot -1 sentinels. Capture retains it unchanged. Five bag candidates
 and food/water spell dependencies do not establish bag capacity, eating/drinking,
-equipment use, corpse storage readiness or item admission. Those and reference
-loot generation/source-loader ordering are independent runtime follow-ons.
+equipment use, corpse storage readiness or item admission. Preparation resolves
+only the bounded carried-item shape; independent runtime audits still apply.
 
 Authored fake-source tests prove reader behavior only. No live SQL connection,
 materialization, content redistribution, new compiler/native-profile producer,

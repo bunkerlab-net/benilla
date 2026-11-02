@@ -139,6 +139,20 @@ class LocalSqlSource:
         sql, params = query.sql()
         return self._select(sql, params, query.limit+1)
 
+    def scan_loot(self, query):
+        from .loot_loader import Query as LoaderQuery
+        check(type(query) is LoaderQuery, "loot.loader_query_type")
+        sql, params = query.sql()
+        try:
+            with self.connection.cursor() as cursor:
+                cursor.execute(sql, params)
+                while (row := cursor.fetchone()) is not None:
+                    yield row
+        except ExportError:
+            raise
+        except Exception:
+            raise ExportError("loot.loader_query_failed") from None
+
     def version_notes(self) -> list[dict[str, str | None]]:
         profile = getattr(self, "_version_profile", None)
         check(profile is not None and set(profile["columns"]) == set(COLUMNS["db_version"]),

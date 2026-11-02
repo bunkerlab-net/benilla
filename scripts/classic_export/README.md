@@ -160,8 +160,9 @@ unknown. No event or text action executes, and no production profile is issued.
 
 With `--body-loot`, v2 also captures bounded selected body/reference loot rows
 and leaf item/spell dependencies. The [loot capture contract](LOOT-CAPTURE.md)
-distinguishes selected-key completeness from unproven source-loader order; no
-generation, item admission or whole-table provenance is supplied.
+distinguishes selected-key completeness from a separate whole-loader query
+observation. Preparation can resolve bounded ordinary/reference loot shapes;
+source authenticity, explicit rates, inventory audits, and native admission remain separate.
 
 Not captured: other event override/group/linking state; gameobjects; non-body loot;
 conditions; other AI/script data; local starter outfits/DBC records; quest chains

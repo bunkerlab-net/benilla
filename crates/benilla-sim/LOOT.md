@@ -34,6 +34,51 @@ must have identical metadata. Policy v3 hashes both namespace labels/counts even
 when empty, plus the retained row, item and order inputs. The upstream pin and
 complete-capture flags are fixed admission invariants.
 
+## Captured loader and item adapter
+
+`loot::captured::CapturedLoot::compile` binds selected raw rows to their observed
+whole-query positions, then constructs the existing catalog. It requires both
+table observations, even when the selected reference projection is empty.
+Every possible leaf must pass `inventory::Catalog::corpse_carried_ready`.
+Normal items have no player-specific eligibility check unless they start a
+quest, `LootItem::AllowedForPlayer`, `LootMgr.cpp:463-496`. The adapter refuses
+quest-starting items rather than inventing quest status. Carried bags remain
+empty objects in the backpack and add no storage slots. Stored on-use spell
+metadata does not authorise use or equipment.
+
+`scripts/classic_export/loot_loader.py` issues the exact seven-column
+`LootStore::LoadLootTable` query without filters, `ORDER BY`, or `LIMIT`.
+It streams at most 2,000,000 rows and 512 MiB of normalised row bytes within
+the existing read-only snapshot. The capture hashes length-prefixed canonical
+rows in returned order and retains only selected keys and positions. It
+checks those projections against the independently captured selected rows.
+The optional `loot_loader_capture` extension binds the selected projection
+hash and exact query hash. Legacy absence remains unknown order.
+
+The template lookup is an unordered map, `LootMgr.h:257`, not a row sorter.
+The `std::map` at `LootMgr.cpp:129` only counts accepted rows per template.
+`LootStore::LoadLootTable`, `LootMgr.cpp:180-185`, appends in query-result order.
+`LootTemplate::AddEntry` and `LootGroup::AddEntry`, at lines 2606-2615 and
+2396-2402, preserve that order inside entry, explicit, and equal vectors.
+Canonical selected-key sorting is therefore not an equivalent loader witness.
+This capture observes its own query result, not an earlier running server's
+loaded memory. Fingerprints bind inputs but do not authenticate their source.
+
+Preparation emits `corpse_loot_plan` for the precise supported ordered shape.
+It replaces the three broad loader, reference-generation, and item-admission
+obligations only when every selected row and leaf passes that shape check.
+Explicit `loot::Rules`, independent inventory and corpse-host audits, and
+client item-query metadata remain required. Production native admission stays
+unavailable. `Rules` is also the shared native-world configuration rate type.
+The pin has no reference-amount multiplier: `LootTemplate::Process` repeats
+the child exactly `maxcount` times at `LootMgr.cpp:2654-2655`.
+
+Authored adapter tests cover reference chances of 9% and 0.66%, strict threshold
+misses, explicit groups followed by equal fallback, both money-roll bounds,
+and an order-sensitive equal group. Controller tests collect ordinary loot from
+adapter-built captures with both reference edges, save, and reopen without
+rerolling or repeating item notifications. No game-data rows are checked in.
+
 ## Admitted reference mechanics
 
 Only body rows with negative `min_count_or_reference` and `group == 0` may
