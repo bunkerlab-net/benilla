@@ -248,6 +248,24 @@ class PreparationVerifierParityTests(unittest.TestCase):
                                    "spell.server_overlay_and_learning_closure_required"
                                    for i in fixtures[name]["unsupported"]) for s in selected))
 
+    def test_frost_shapes_preserve_independent_participant_requirements(self):
+        fixtures = {f["name"]: f["preparation"] for f in corpus()["fixtures"]}
+        frost = fixtures["frost-armor-execution"]
+        spells = {s["id"]: s["execution_plan"] for s in frost["spells"]}
+        for entry in (168, 6136):
+            self.assertEqual(spells[entry]["status"], "supported_shape")
+            self.assertFalse(spells[entry]["effective_learning_proven"])
+        self.assertEqual(frost["participants_plan"]["status"], "unknown")
+        self.assertFalse(frost["participants_plan"]["empty_participant_obligation_discharged"])
+        self.assertIn("participants.capture_required",
+                      [refusal["reason"] for refusal in frost["unsupported"]])
+        for name in ("participants-empty", "participants-missing-table", "participants-door",
+                     "participants-event-pool", "participants-creation"):
+            preparation = fixtures[name]
+            self.assertFalse(preparation["participants_plan"]["production_admission"])
+            self.assertEqual(preparation["status"], "blocked")
+            self.assertIsNone(preparation["runtime_export"])
+
     def test_shared_non_source_mutations_have_exact_diagnostic_ids(self):
         fixtures = {f["name"]: f for f in corpus()["fixtures"]}
         for case in mutations():

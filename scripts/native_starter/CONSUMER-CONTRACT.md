@@ -343,6 +343,12 @@ candidate, including relay scripts. They do not prove selected dispatch.
 Selected EventAI, spell effects, script names, and initial hooks retain separate
 creation-path refusals. The compiler never executes scripts to infer absence.
 
+Frost Armor and Chilled execution support does not discharge participant
+requirements. A preparation without participant capture still reports
+`participants.capture_required`, even when both spells have `supported_shape`.
+Conversely, `proved_empty` participant evidence does not admit a spell or create
+a runtime export. Both plans bind the same recomputed preparation.
+
 `ProductionInputReport::participants()` returns privately constructed
 `CheckedParticipantRequirements`. The requirement binds the checked source SHA,
 map, capture SHA, and exact refusals. Its closed-controller policy cannot create
