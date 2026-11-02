@@ -211,3 +211,19 @@ fn player_mainhand_exact_source_eligibility_and_zero_range() {
     input.attacker.maximum_damage = sf(0.0);
     assert_eq!(prepare(input).unwrap().damage_range(), (0, 5));
 }
+
+#[test]
+fn captured_weapon_dps_uses_damage_and_delay_without_attack_power() {
+    assert_eq!(weapon_dps(sf(3.0), sf(7.0), 2000).unwrap(), sf(2.5));
+    assert_eq!(weapon_dps(sf(3.0), sf(7.0), 4000).unwrap(), sf(1.25));
+    assert_eq!(weapon_dps(sf(0.0), sf(0.0), 2000).unwrap(), sf(0.0));
+    for (minimum, maximum, delay) in [
+        (-1.0, 7.0, 2000),
+        (8.0, 7.0, 2000),
+        (3.0, 7.0, 0),
+        (3.0, 7.0, 1_000_001),
+    ] {
+        assert!(weapon_dps(sf(minimum), sf(maximum), delay).is_err());
+    }
+    assert!(SpellFloat::from_bits(1_000_001.0f32.to_bits()).is_err());
+}

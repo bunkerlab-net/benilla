@@ -38,6 +38,27 @@ fn clamp(v: Single) -> Result<Single, MeleeError> {
 fn die(v: Single) -> Result<u16, MeleeError> {
     combat_chance(output(v)?).map_err(|_| MeleeError::Domain("chance_u"))
 }
+
+/// Weapon-only mean damage per second, not the AP-adjusted unit damage fields.
+pub fn weapon_dps(
+    minimum: SpellFloat,
+    maximum: SpellFloat,
+    delay_ms: u32,
+) -> Result<SpellFloat, MeleeError> {
+    let (minimum, maximum) = (sf(minimum), sf(maximum));
+    if delay_ms == 0
+        || delay_ms > 1_000_000
+        || minimum < Single::ZERO
+        || minimum > maximum
+        || maximum > integer(1_000_000)?
+    {
+        return Err(MeleeError::Domain("weapon DPS operands"));
+    }
+    let mean = mul(add(minimum, maximum)?, Single::from_bits(0x3f00_0000))?;
+    output(checked(
+        mul(mean, integer(1000)?)?.div_r(integer(i64::from(delay_ms))?, R),
+    )?)
+}
 pub(super) fn roll_range(min: SpellFloat, max: SpellFloat) -> Result<(u32, u32), MeleeError> {
     let (mut min, mut max) = (sf(min), sf(max));
     if min < Single::ZERO || max < Single::ZERO {

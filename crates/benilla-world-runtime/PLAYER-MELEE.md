@@ -53,6 +53,62 @@ hits own durability callbacks. Attacker weapon skill callbacks run after damage,
 including lethal and glancing outcomes. Victim defense reactives are refreshed
 only by the source class/outcome/alive conditions and expire in NPC Unit update.
 
+## Captured starting staff
+
+`Profile::initialize_captured_player_melee(starter, weapon_skill_gain)` consumes the
+existing `StarterInput` after the captured learning and outfit adapters populate it.
+Run the ordinary player and quest-progression initializers first. The adapter binds
+the complete starter content identity to retained combat genesis, requires Human
+Mage identity, equipped item 35, staff subclass 10, two-hand inventory type 17,
+staff skill 136 and unarmed fallback skill 162. Both SkillLine rows and initialized
+skills must exist. All five damage rows remain checked. Only one physical line
+and a positive delay of at most 1,000,000 milliseconds are supported.
+
+The return value is weapon-only mean DPS, calculated with software binary32 as
+`((minimum + maximum) * 0.5 * 1000) / delay_ms`. DPS is derived, not an additional
+`item_template` column or an independent authority operand. The adapter never
+stores a level-one damage range. Existing progression callbacks derive live Mage
+AP from strength minus 10 and calculate each damage bound as weapon damage plus
+`AP / 14 * attack_seconds`. The existing executor rolls damage before outcome,
+then consumes a glancing draw only when required. Targets at levels one and two
+cannot receive glancing blows at this pin.
+
+FactionTemplate 25 remains neutral, not automatically hostile. Its captured
+FactionTemplate and Faction metadata must already resolve through the interaction
+and creature-generation catalogs. Existing source predicates deny friendly targets
+and refuse unknown relations or unsupported tracked-faction history. A permitted
+neutral target can retaliate through the existing melee callback, including a
+non-immune miss. The adapter supplies no forced hostility, retaliation flag,
+source-closure assertion, or new combat executor.
+
+This adapter constructs the unchanged `PlayerMeleePolicy`. Offhand, ranged,
+unsupported weapon types, missing skills, changed starter inputs, incomplete
+source dependencies and unsupported modifier/hook domains still refuse atomically.
+No native format, replay policy, production entry, or `NativeCapability` changes.
+The compound `creature.ai_selection_and_native_melee_required` preparation
+obligation remains for independent AI, creature melee and source context.
+
+Authored tests pass captured learning/outfit projections through the real
+initializer and existing runtime. They cover level-one and level-two damage
+against authored vermin armor, deterministic outcome boundaries, the low-level
+glancing exclusion, faction-25 retaliation and friendly denial. The controller
+test saves and reopens mid-countdown through `NativeStore` and compares the later
+event transcript, RNG cursor and state with uninterrupted execution. These
+authored rows use semantic keys, not copied Classic DB or DBC content.
+
+### Pinned source correspondence
+
+Upstream CMaNGOS Project contributors, GPL-2.0-or-later, revision
+`8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. The Rust translation and authored
+adapter/tests are GPL-3.0-or-later. The adapter reuses these existing ports:
+
+- [Player::UpdateAttackPowerAndDamage, CalculateMinMaxDamage and UpdateDamagePhysical, StatSystem.cpp:203-386](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/StatSystem.cpp#L203-L386).
+- [Player::_ApplyItemBonuses weapon damage and delay, Player.cpp:7118-7173](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Player.cpp#L7118-L7173).
+- [Unit::UpdateMeleeAttackingState, Unit.cpp:650-729](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Unit.cpp#L650-L729), [resetAttackTimer:782-785](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Unit.cpp#L782-L785) and [GetAPMultiplier:10525-10528](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Unit.cpp#L10525-L10528).
+- [Unit::CalculateMeleeDamage, Unit.cpp:1870-2156](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Unit.cpp#L1870-L2156), [RollMeleeOutcomeAgainst:2709-2759](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Unit.cpp#L2709-L2759), [CanGlanceInCombat:3133-3136](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Unit.cpp#L3133-L3136) and [CalcArmorReducedDamage:2337-2361](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Unit.cpp#L2337-L2361).
+- [Unit::CanAttack and CanAttackNow, Relations.cpp:351-447](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Relations.cpp#L351-L447) and [CanAttackInCombat:1172-1196](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Relations.cpp#L1172-L1196).
+- [Unit::DealMeleeDamage retaliation, Unit.cpp:2212-2224](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Unit.cpp#L2212-L2224) and [UnitAI::AttackedBy, UnitAI.cpp:137-140](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/AI/BaseAI/UnitAI.cpp#L137-L140).
+
 ## Persistence contract
 
 Native format `NATIVE_FORMAT_VERSION` rejects older envelopes; no migration is provided. Existing

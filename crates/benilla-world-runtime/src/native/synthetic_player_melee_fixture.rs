@@ -46,6 +46,11 @@ pub fn source_fireball_profile(health: u32) -> Profile {
     profile_with_options_and_spell(health, false, None, false, true)
 }
 
+/// Authored item/learning/faction projections with real semantic keys, not copied rows.
+pub fn captured_staff_setup(health: u32) -> (Profile, init::StarterInput) {
+    build(health, false, None, false, true, true)
+}
+
 pub(in crate::native) fn profile_with_options_and_spell(
     health: u32,
     fragile_player: bool,
@@ -53,6 +58,25 @@ pub(in crate::native) fn profile_with_options_and_spell(
     fragile_weapon: bool,
     source_fireball: bool,
 ) -> Profile {
+    build(
+        health,
+        fragile_player,
+        home_spawn,
+        fragile_weapon,
+        source_fireball,
+        false,
+    )
+    .0
+}
+
+fn build(
+    health: u32,
+    fragile_player: bool,
+    home_spawn: Option<f32>,
+    fragile_weapon: bool,
+    source_fireball: bool,
+    captured_staff: bool,
+) -> (Profile, init::StarterInput) {
     let (mut profile, mut input, mut rows) =
         synthetic_quest_fixture::setup_with_levels(3, 60, false, 0x3f800000);
     if source_fireball {
@@ -97,15 +121,26 @@ pub(in crate::native) fn profile_with_options_and_spell(
     weapon.delay_ms = 2500;
     weapon.max_durability = if fragile_weapon { 1 } else { 1000 };
     input.items.push(weapon);
+    if captured_staff {
+        let staff = input.items.last_mut().unwrap();
+        staff.id = 35;
+        staff.stats = [init::ItemStat { kind: 0, value: 0 }; 10];
+        staff.damage[0].min_bits = 3.0f32.to_bits();
+        staff.damage[0].max_bits = 7.0f32.to_bits();
+        staff.delay_ms = 2000;
+    }
     let init::Rows::Complete(grants) = &mut input.item_grants else {
         unreachable!()
     };
     grants.push(init::ItemGrant {
         source: init::GrantSource::Custom,
         source_order: 1,
-        item: 900002,
+        item: if captured_staff { 35 } else { 900002 },
         count: 1,
     });
+    if captured_staff {
+        input = captured::starter(input);
+    }
     profile
         .initialize_player(&input, crate::native::synthetic_fixture::float(100.0), 1)
         .unwrap();
@@ -175,6 +210,13 @@ pub(in crate::native) fn profile_with_options_and_spell(
             1
         };
         npc.ai.neutral_to_all = npc.ai.creature_id == 3;
+        if captured_staff {
+            npc.faction_template = if npc.ai.creature_id == 2 { 25 } else { 1 };
+            if npc.ai.creature_id == 2 {
+                npc.ai.reaction = ai::Reaction::Aggressive;
+                npc.ai.neutral_to_all = true;
+            }
+        }
         npc.ai.spawn = fixture::point(if npc.ai.creature_id == 2 { 2.0 } else { 4.0 });
     }
     if let Some(spawn) = home_spawn {
@@ -208,6 +250,19 @@ pub(in crate::native) fn profile_with_options_and_spell(
             enemies: [0; 4],
             friends: [0; 4],
             reputation_list_id: None,
+        });
+    }
+    if captured_staff {
+        relations.factions.push(InteractionFactionSource {
+            template_id: 25,
+            faction: 25,
+            template_flags: 0,
+            group_mask: 8,
+            friend_group_mask: 0,
+            enemy_group_mask: 0,
+            enemies: [0; 4],
+            friends: [25, 0, 0, 0],
+            reputation_list_id: Some(-1),
         });
     }
     for npc in &mut relations.npcs {
@@ -270,6 +325,15 @@ pub(in crate::native) fn profile_with_options_and_spell(
     // The capability capture above names these same rows, not a shared entry zero.
     for source in &mut sources {
         source.requested_spawn_template_entry = source.spawn_entry;
+        if captured_staff {
+            let benilla_sim::creature_init::Rows::Complete(levels) = &mut source.input.class_levels
+            else {
+                unreachable!()
+            };
+            for row in levels {
+                row.base_armor = 60;
+            }
+        }
         let benilla_sim::creature_init::Rows::Complete(spawns) = &mut source.input.spawn_template
         else {
             unreachable!()
@@ -283,6 +347,9 @@ pub(in crate::native) fn profile_with_options_and_spell(
         .iter_mut()
         .find(|source| source.spawn_id == 2)
         .unwrap();
+    if captured_staff {
+        target.input.template.legacy.armor = 60;
+    }
     let benilla_sim::creature_init::Rows::Complete(spawns) = &mut target.input.spawn_template
     else {
         unreachable!()
@@ -313,6 +380,19 @@ pub(in crate::native) fn profile_with_options_and_spell(
             )
             .unwrap();
     }
-    profile.initialize_player_melee(1).unwrap();
-    profile
+    if captured_staff {
+        assert_eq!(
+            profile
+                .initialize_captured_player_melee(&input, 1)
+                .unwrap()
+                .bits(),
+            2.5f32.to_bits()
+        );
+    } else {
+        profile.initialize_player_melee(1).unwrap();
+    }
+    (profile, input)
 }
+
+mod captured;
+pub use captured::CapturedStaffAuthority;

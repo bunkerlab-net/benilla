@@ -278,3 +278,131 @@ mod player_facial_hair_tests;
 
 #[path = "player_map_classification_tests.rs"]
 mod player_map_classification_tests;
+
+fn enter_captured_staff(root: &Path, h: &Harness, open: bool) -> NativeController {
+    NativeController::enter_component_test(
+        root,
+        &h.profile,
+        &h.character,
+        if open {
+            Entry::Open { world: [8; 16] }
+        } else {
+            Entry::Create {
+                world: [8; 16],
+                seed: 42,
+            }
+        },
+        melee_fixture::captured_staff_setup(60).0,
+        &MeleeCatalog,
+        melee_fixture::CapturedStaffAuthority::default(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn captured_staff_neutral_retaliation_mid_swing_save_reopen_matches_uninterrupted() {
+    let h = Harness::new();
+    let comparison = Harness::new();
+    let mut resumed = enter_captured_staff(&h.root, &h, false);
+    let mut uninterrupted = enter_captured_staff(&comparison.root, &h, false);
+    assert_eq!(
+        resumed.world.state_digest(),
+        uninterrupted.world.state_digest()
+    );
+    assert_eq!(resumed.world.profile().npcs[0].faction_template, 25);
+    for controller in [&mut resumed, &mut uninterrupted] {
+        controller
+            .receive(ClientCommand::AttackSwing {
+                guid: guid(controller, 2),
+            })
+            .unwrap();
+    }
+    let mut swings = 0;
+    for _ in 0..100 {
+        let actual = step(&mut resumed);
+        let expected = step(&mut uninterrupted);
+        assert_eq!(
+            format!("{:?}", actual.events),
+            format!("{:?}", expected.events)
+        );
+        assert_eq!(
+            resumed.world.state_digest(),
+            uninterrupted.world.state_digest()
+        );
+        swings += actual
+            .events
+            .iter()
+            .filter(|event| {
+                matches!(event,
+            SessionEvent::AttackerState(attack) if attack.attacker == resumed.player_guid())
+            })
+            .count();
+        if swings != 0 {
+            break;
+        }
+    }
+    assert_eq!(swings, 1);
+    assert_eq!(
+        resumed.world.state().npcs[&2].ai.phase(),
+        benilla_sim::creature_ai::Phase::Combat
+    );
+    assert_eq!(
+        format!("{:?}", step(&mut resumed).events),
+        format!("{:?}", step(&mut uninterrupted).events)
+    );
+    let remaining = resumed
+        .world
+        .state()
+        .combat
+        .as_ref()
+        .unwrap()
+        .melee_timers
+        .remaining_ms()[0];
+    assert!(remaining > resumed.world.profile().tick_ms && remaining < 2000);
+    let checkpoint = resumed.world.checkpoint().unwrap();
+    let rng = resumed.world.state().rng_counter;
+    drop(resumed);
+    let mut resumed = enter_captured_staff(&h.root, &h, true);
+    assert_eq!(resumed.world.checkpoint().unwrap(), checkpoint);
+    assert_eq!(resumed.world.state().rng_counter, rng);
+    assert_eq!(
+        resumed
+            .world
+            .state()
+            .combat
+            .as_ref()
+            .unwrap()
+            .melee_timers
+            .remaining_ms()[0],
+        remaining
+    );
+    let mut later_swings = 0;
+    for _ in 0..100 {
+        let actual = step(&mut resumed);
+        let expected = step(&mut uninterrupted);
+        assert_eq!(
+            format!("{:?}", actual.events),
+            format!("{:?}", expected.events)
+        );
+        assert_eq!(
+            resumed.world.state_digest(),
+            uninterrupted.world.state_digest()
+        );
+        assert_eq!(
+            resumed.world.state().rng_counter,
+            uninterrupted.world.state().rng_counter
+        );
+        later_swings += actual
+            .events
+            .iter()
+            .filter(|event| {
+                matches!(event,
+            SessionEvent::AttackerState(attack) if attack.attacker == resumed.player_guid())
+            })
+            .count();
+        if later_swings >= 2 {
+            break;
+        }
+    }
+    assert!(later_swings >= 2);
+}

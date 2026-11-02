@@ -4,6 +4,7 @@
 use super::*;
 use crate::NpcId;
 use serde::{Deserialize, Serialize};
+mod captured;
 pub(in crate::native) mod casting;
 mod context;
 pub(in crate::native) mod death;
