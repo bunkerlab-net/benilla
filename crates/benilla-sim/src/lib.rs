@@ -63,6 +63,9 @@ pub mod inventory;
 /// Source-native reputation initialization, flags, gains and ordered spillover.
 pub mod reputation;
 
+/// Explicit versioned start, progression and reward configuration.
+pub mod world_rules;
+
 /// Source-derived NPC chase/home spline motion with explicit spatial evidence.
 pub mod creature_motion;
 

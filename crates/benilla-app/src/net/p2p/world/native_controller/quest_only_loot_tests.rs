@@ -25,6 +25,7 @@ pub(super) fn profile(required: u32) -> n::Profile {
     for creature in &mut loot.creatures {
         creature.corpse_acceleration_decay_ms = 1000;
     }
+    rows.world_rules.loot = loot.rules.clone();
     let hostile = profile
         .npcs
         .iter_mut()

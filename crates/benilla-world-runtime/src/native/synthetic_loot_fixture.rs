@@ -107,6 +107,7 @@ pub fn setup() -> (Profile, init::StarterInput, QuestProgressionInput) {
         )]),
     };
     q.kill.audit.native_loot_or_money = Evidence::Present;
+    q.world_rules.loot.corpse_empty_loot_show = false;
     q.loot = Some(NativeLootInput {
         rules: l::Rules {
             quality_rate_bits: [1f32.to_bits(); 7],

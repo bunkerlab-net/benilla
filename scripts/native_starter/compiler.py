@@ -22,7 +22,7 @@ from .event_ai_plan import supported_plan
 from .outfit_plan import supported_plan as outfit_placement_plan
 from . import creature_plan
 from .learning_plan import supported_plan as starter_learning_plan
-from . import quest_plan
+from . import quest_plan, world_rules
 
 PROFILE = "cmangos-8ec338a1-native-starter-bindings-v1"
 FORMAT = "benilla-native-starter-preparation-v1"
@@ -709,7 +709,8 @@ class Compiler:
 
 def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
                     dbc_errors: list[dict[str, Any]] | None = None,
-                    extraction_manifest: dict[str, Any] | None = None) -> dict[str, Any]:
+                    extraction_manifest: dict[str, Any] | None = None,
+                    native_world_rules: dict[str, Any] | None = None) -> dict[str, Any]:
     validate_bundle(source)
     check(source["format"] == STARTER_FORMAT, "compiler.source_v2_required")
     s = Selection.parse(source["selection"]).starter
@@ -722,6 +723,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
     c.issues.extend(dbc_errors or [])
     relationships = quest_relationships.resolve(source)
     quests = quest_plan.supported_plan(source, dbcs)
+    rules_plan = world_rules.supported_plan(source, native_world_rules)
     for refusal in relationships["refusals"]:
         c.issue("quest_template", [refusal["quest"]], "quest.chain", edge=refusal)
     observed_errors = {i["table"] for i in dbc_errors or []}
@@ -757,6 +759,8 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
 
     c.issues = [issue for issue in c.issues
                 if not (issue.get("origin") == "source_capture" and replaced_creature_finding(issue))]
+    rule_discharged = [issue for issue in c.issues if world_rules.discharges(issue, rules_plan)]
+    c.issues = [issue for issue in c.issues if not world_rules.discharges(issue, rules_plan)]
     display_table = dbcs.get("CreatureDisplayInfo")
     display_ids = sorted({entry for creature in creatures for entry in creature["selected_display_ids"]})
     display_evidence = {"coverage": "complete_raw_table" if display_table else "not_captured",
@@ -768,6 +772,16 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
     c.issue("runtime", [], "native.runtime_profile_not_implemented")
     dispositions = c.dispositions(relationships["status"] == "resolved",
                                  skills["loader_plan"]["loaded_learning_maps_resolved"])
+    for disposition in dispositions:
+        if disposition["table"] == "quest_template" and any(
+                disposition["key"] == [row["quest"]] for row in rules_plan["quest_xp_inputs"]):
+            fields = ["QuestLevel", "RewMoneyMaxLevel"]
+            blocked = disposition["blocked_for_gameplay"].get(
+                "quest.native_eligibility_credit_reward_required", [])
+            disposition["blocked_for_gameplay"]["quest.native_eligibility_credit_reward_required"] = [
+                field for field in blocked if field not in fields]
+            disposition["supported_numeric_policy"] = {
+                "fields": fields, "input_binding": rules_plan["input_binding"]}
     fireball = next((s["fireball_plan"] for s in spells if s["id"] == 133), None)
     discharged = [i for i in c.issues if fireball_plan.discharges(i, fireball)]
     c.issues = [i for i in c.issues if not fireball_plan.discharges(i, fireball)]
@@ -808,6 +822,9 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
         "creature_display_inputs": display_evidence,
         "quest_relationships": relationships,
         "quest_giver_presentation_plan": quests,
+        "world_rules_plan": rules_plan,
+        "world_rules_obligations": [{**i, "disposition": "supported_numeric_policy",
+                                    "input_binding": rules_plan["input_binding"]} for i in rule_discharged],
         "quest_loot_inputs": loot.quest_inputs(c.tables),
         "player": {"identity": identity, "level_inputs": c.progression(), "outfit": outfit,
                    "initial_sql_spells": source["tables"]["playercreateinfo_spell"],
@@ -820,7 +837,8 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
         "source_field_dispositions": dispositions, "dbc_bindings": dbc_bindings,
         "source_capture_findings": [{**i, "disposition": "replaced_by_exact_dependency_report"
                                      if i["reason"] in replaced or replaced_creature_finding(i) else "supported_shape"
-                                     if fireball_plan.discharges(i, fireball) else "retained"}
+                                     if fireball_plan.discharges(i, fireball) else "supported_numeric_policy"
+                                     if world_rules.discharges(i, rules_plan) else "retained"}
                                     for i in source["report"]["unsupported"]],
         "unsupported": issues}
     output["preparation_sha256"] = digest(output)
@@ -830,9 +848,10 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
 
 def verify_preparation(preparation: Any, source: Any, dbcs: dict[str, DbcTable],
                        dbc_errors: list[dict[str, Any]] | None = None,
-                       extraction_manifest: dict[str, Any] | None = None) -> None:
+                       extraction_manifest: dict[str, Any] | None = None,
+                       native_world_rules: dict[str, Any] | None = None) -> None:
     """Recompile all decisions; a rewritten hash cannot remove an unsupported field."""
     check(type(preparation) is dict and "request" in preparation, "compiler.preparation_fields")
     expected = compile_starter(source, dbcs, Request.parse(preparation["request"]), dbc_errors,
-                               extraction_manifest)
+                               extraction_manifest, native_world_rules)
     check(canonical(expected) == canonical(preparation), "compiler.preparation_mismatch")

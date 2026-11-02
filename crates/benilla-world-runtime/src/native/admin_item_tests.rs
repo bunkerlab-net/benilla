@@ -385,6 +385,7 @@ fn item_ledger_byte_bound_composes_with_level_sixty_history_and_exact_retries() 
     let (mut p, input, mut rows) =
         super::synthetic_quest_fixture::setup_with_levels(60, 60, false, 1.0f32.to_bits());
     rows.loot = fixture::item_grant_setup().2.loot;
+    rows.world_rules.loot = rows.loot.as_ref().unwrap().rules.clone();
     p.initialize_quest_progression(&input, rows).unwrap();
     p.admin = profile().admin;
     let mut w = NativeWorld::synthetic_component_test(p.clone(), [1; 16], player(), 42).unwrap();

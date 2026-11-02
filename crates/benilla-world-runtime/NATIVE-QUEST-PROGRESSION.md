@@ -302,3 +302,46 @@ and real modifier callbacks before combat restore. Required recipe-v3 inactive
 membership is not accepted from snapshot flags alone. This bounded host exception
 uses carried-items-v12; it does not add generic equip, native admission or save
 migration. Historical contexts bind their own validated journal prefix.
+
+## Explicit world start and reward policy
+
+`QuestProgressionInput.world_rules` requires
+`benilla_sim::world_rules::NativeWorldRules` version 1. It replaces separate
+starting-money, quest-XP-rate and reward-money-rate inputs. There is no `Default`
+or missing-policy fallback. `cmangos_classic_stock()` is an explicit named preset,
+`cmangos-8ec338a1-stock-progression-v1`, not an observation of any realm.
+Its source citations are in `benilla-sim/PROVENANCE.md`.
+
+The preset uses start level 1, start money 0, maximum level 60, skill maximum 300,
+automatic maximum skill disabled, and talent, kill XP, quest XP, all seven item
+qualities, reference items, quest drops and money rates equal to 1. Reputation
+gain is 1 and both low-level reputation floors are binary32 0.2.
+`Corpse.EmptyLootShow` is true. The pinned loader has no referenced-amount rate.
+Unknown keys and versions, non-one start levels, caps outside 1 through 60,
+noncanonical global skill maxima, invalid starting money and rates outside
+positive zero or normal binary32 through 1000 refuse. The broader Core supports
+other starts and caps; this host does not pretend to initialise them.
+
+The runtime checks progression rules, kill rules, reputation configuration and
+loot rules against their consuming catalogs before mutation. Money rewards use
+the same `Rate.Drop.Money` as corpse money. SQL faction reward rates, spillover,
+Diplomacy and source kill/tap/rest audits remain independent mandatory inputs.
+Choosing the preset does not mark any of them absent.
+
+The policy is bound only through the hosts that consume it. Existing genesis and
+catalog identities already bind effective start money, maximum level, skill and
+talent rules, kill rate, quest rate, money rate and present reputation/loot rules.
+When a reputation or loot host is absent, that host's settings must equal the
+cited stock preset; custom settings refuse as configured without a host.
+Inactive stock values add no persisted state. The policy version fixes this
+interpretation, so this adapter changes neither native format nor replay.
+Changing an effective rate changes the profile identity and rejects reopening a
+saved world with that replacement profile.
+
+The existing reducers own grants. `Quest::XPValue` derives 40, 170 and 250 base XP
+from level-1/2/3-shaped reward-money fields 24, 102 and 150 before configured
+rates. The quest-XP product truncates to uint32; kills apply nearbyint after the
+source conversion/damage branch. `GiveXP` enforces the configured cap. At cap,
+quest reward money replaces quest XP, independently of the quest-XP rate.
+Elites, groups, unknown kill reputation, rest-area visits and offline-rest
+intervals retain their existing precise refusals.

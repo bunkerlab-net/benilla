@@ -302,6 +302,7 @@ fn friendly_at_war_runtime_retaliates_without_becoming_an_on_sight_enemy() {
         )
         .unwrap(),
     );
+    data.world_rules.reputation = data.reputation.as_ref().unwrap().config();
     p.initialize_quest_progression(&input, data).unwrap();
     p.source_motion = Some(synthetic_motion_fixture::genesis(&p, 3));
     let mut rows = fixture::source_rows(&p);

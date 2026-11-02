@@ -23,6 +23,7 @@ pub use equipment_movement::{
 };
 mod kills;
 mod reputation;
+pub use benilla_sim::world_rules::NativeWorldRules;
 pub use bindings::ExecutionBinding;
 pub(in crate::native) use bindings::MeleeExecutionBinding;
 pub use derived::DerivedCall;
@@ -73,9 +74,7 @@ pub struct QuestProgressionInput {
     pub derived_audit: DerivedAudit,
     pub skills: Vec<pg::SkillState>,
     pub initial_next_level_xp: u32,
-    pub start_player_money: u32,
-    pub quest_xp_rate: arithmetic::Binary32Rate,
-    pub money_rate: arithmetic::Binary32Rate,
+    pub world_rules: NativeWorldRules,
     pub npc_rows: Vec<QuestNpcRow>,
     pub abilities: Vec<AbilityRecipe>,
     pub kill: NativeKillPolicy,
@@ -142,6 +141,46 @@ impl QuestProgressionGenesis {
         input: &init::StarterInput,
         rows: QuestProgressionInput,
     ) -> Result<Self, NativeError> {
+        rows.world_rules.validate()?;
+        let stock = NativeWorldRules::cmangos_classic_stock();
+        if rows.reputation.is_none() && rows.world_rules.reputation != stock.reputation {
+            return Err(NativeError::UnsupportedMechanic(
+                "reputation rate configured but no reputation host",
+            ));
+        }
+        if rows.loot.is_none() && rows.world_rules.loot != stock.loot {
+            return Err(NativeError::UnsupportedMechanic(
+                "drop rate configured but no loot host",
+            ));
+        }
+        if rows.levels.rules() != rows.world_rules.progression {
+            return Err(NativeError::UnsupportedMechanic(
+                "world progression rules/catalog mismatch",
+            ));
+        }
+        if rows.kill.rules != rows.world_rules.kill {
+            return Err(NativeError::UnsupportedMechanic(
+                "world kill rate/policy mismatch",
+            ));
+        }
+        if rows
+            .reputation
+            .as_ref()
+            .is_some_and(|catalog| catalog.config() != rows.world_rules.reputation)
+        {
+            return Err(NativeError::UnsupportedMechanic(
+                "world reputation rates/catalog mismatch",
+            ));
+        }
+        if rows
+            .loot
+            .as_ref()
+            .is_some_and(|loot| loot.rules != rows.world_rules.loot)
+        {
+            return Err(NativeError::UnsupportedMechanic(
+                "world drop rates/loot host mismatch",
+            ));
+        }
         let initial_combat = profile
             .combat
             .as_ref()
@@ -151,7 +190,6 @@ impl QuestProgressionGenesis {
         if input.level != 1
             || rows.levels.race() != input.race
             || rows.levels.class() != input.class
-            || rows.start_player_money > q::MAX_MONEY
             || rows.quests.len() > 1024
             || rows.relations.starters.len() > 8192
             || rows.relations.finishers.len() > 8192
@@ -334,9 +372,9 @@ impl QuestProgressionGenesis {
             initial_derived_inputs,
             abilities,
             npc_rows,
-            start_money: rows.start_player_money,
-            quest_xp_rate: rows.quest_xp_rate,
-            money_rate: rows.money_rate,
+            start_money: rows.world_rules.start_player_money,
+            quest_xp_rate: rows.world_rules.quest_xp_rate().map_err(q::Error::from)?,
+            money_rate: rows.world_rules.money_rate().map_err(q::Error::from)?,
             kill: rows.kill,
             dialog_rules: rows.dialog_rules,
         };
@@ -1462,3 +1500,6 @@ mod level_sixty_tests;
 
 #[cfg(test)]
 mod level_sixty_capacity_tests;
+
+#[cfg(test)]
+mod world_rules_tests;

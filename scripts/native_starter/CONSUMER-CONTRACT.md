@@ -248,8 +248,35 @@ IDs stay unsupported context; no unreviewed alternative relation is followed.
 Nonfinite selected scales reject; nonpositive scales are retained and blocked.
 Model/extended-display IDs do not establish renderer assets or visual admission.
 
-New P2P worlds may use an explicit named native-consumer world-rule policy. This
-preparation does not require importing an existing server's config or assume its
-values. Legacy configuration import would need effective parsed values and
-provenance. Rates outside that named policy, aggro/lifecycle and executable
-callbacks remain separate native requirements.
+## Explicit start and progression policy
+
+Preparation accepts an independent `NativeWorldRules` version-1 JSON input.
+Use `--world-rules PATH` or explicitly select
+`--world-rules-preset cmangos-8ec338a1-stock-progression-v1` on `prepare`,
+`dependencies` and `verify`. Missing input remains `not_supplied`; it never
+selects the preset. Verification requires the same external policy and recompiles
+the complete report, so editing its bound policy and recomputing the report hash
+does not validate against a different policy.
+
+`world_rules_plan` retains the exact typed fields, their digest, bounded quest-XP
+inputs and numeric-domain refusals. Rates use uint32 binary32 bits, not decimal
+JSON floats. Unknown or missing keys, unsupported versions, non-one start levels,
+caps outside 1 through 60, noncanonical skill maximum, invalid money and
+negative, signed-zero, subnormal, nonfinite or greater-than-1000 rates refuse.
+The Rust type independently validates the same input. Neither producer is a
+mangosd.conf parser, and neither claims an observed realm configuration.
+
+An explicit accepted policy replaces only `player.start_configuration_not_captured`
+and the `quest.dynamic_xp` findings for bounded supported numeric rows. The report
+retains the original findings with their numeric-policy disposition.
+`QuestLevel` and `RewMoneyMaxLevel` receive a separate numeric-policy field
+disposition; the remaining quest fields retain their lifecycle obligations.
+Consecutive level/stat/XP rows, effective creation, kill source/tap/rest,
+reputation SQL reward/spillover/aura closure, loot/item/loader closure, world
+aggro/lifecycle, callbacks and production admission remain independent. The
+preparation still publishes blocked status and no runtime export.
+
+Runtime policy binding occurs through existing consuming hosts, as specified in
+`crates/benilla-world-runtime/NATIVE-QUEST-PROGRESSION.md`. Missing reputation or
+loot hosts admit only that host's inactive stock settings; they do not bind custom
+unconsumed rates. Present hosts must agree exactly with the explicit policy.

@@ -111,6 +111,7 @@ fn deliver_world(required: u32, with_reputation: bool) -> NativeWorld {
             )
             .unwrap(),
         );
+        data.world_rules.reputation = data.reputation.as_ref().unwrap().config();
     }
     p.initialize_quest_progression(&input, data).unwrap();
     p.admin = Some(AdminPolicy {

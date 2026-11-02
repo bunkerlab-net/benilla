@@ -461,6 +461,7 @@ fn admission_requires_inventory_templates_dense_rewards_and_supported_effects() 
     data.quests[0].excluded.reward_item = [FIXED, 0, 0, 0];
     data.quests[0].excluded.reward_item_count = [1, 0, 0, 0];
     data.loot = None;
+    data.world_rules.loot = NativeWorldRules::cmangos_classic_stock().loot;
     data.kill.audit.native_loot_or_money = pg::Evidence::Absent;
     assert_eq!(
         p.initialize_quest_progression(&i, data),

@@ -1156,3 +1156,33 @@ map edges/outside, signed zero, subnormal, infinities and NaN. Fixture
 This is a numeric source oracle, not installed-map or resident-loader testing.
 
 Creature template string identity additionally ports pinned `ObjectMgr::LoadCreatureTemplates` string-ID normalization and `ScriptMgr::LoadStringIds`/`ExistsStringId` membership. See [CREATURE-INIT.md](CREATURE-INIT.md) for source hashes, bounded signed domain and retention rules. This does not implement map string registration.
+
+## Explicit start and progression configuration
+
+`src/world_rules.rs` translates the bounded configuration domains and named stock
+preset from CMaNGOS Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`.
+Copyright CMaNGOS Project contributors. Upstream GPL-2.0-or-later;
+Rust translation GPL-3.0-or-later, without warranty.
+
+- `src/game/World/World.cpp:411-427,456,548-553,653,686` contains
+  `World::LoadConfigSettings` defaults for drop, XP, reputation, talent, level,
+  money, skill and empty-loot configuration.
+- `World.cpp:2420-2427` resets negative rates after a warning. This bounded input
+  refuses invalid values instead of repairing them. Its positive-zero and normal
+  binary32 rate domain ends at 1000, matching `quest::Binary32Rate`.
+- `src/game/Entities/Player.cpp:2668-2703` contains `GiveXP` cap/rest and level
+  transitions. `Player.cpp:12660-12669` applies the quest rate after `XPValue`,
+  passes XP to `GiveXP`, or converts to rated money at cap.
+- `src/game/Quests/QuestDef.cpp:171-208,211-216` contains `Quest::XPValue`
+  and positive-only `GetRewOrReqMoney` rate application.
+- `src/game/Tools/Formulas.h:240-272,306-388` contains trivial-level checks,
+  grey display levels, ZeroDifference, BaseGain and Gain. Gain uses the trivial
+  difference check, not the display grey-colour helper. Existing `kill_xp`
+  executes normal solo kills and refuses elites and unresolved rest context.
+- `Player.cpp:6304-6380,6432-6447` applies aura, level, SQL reward and global
+  reputation rates. `src/game/Reputation/ReputationMgr.cpp:266-300` applies
+  independently resolved spillover rates after those bonuses, before the primary
+  faction. Configuration does not prove SQL lookup or passive-aura closure.
+
+No realm configuration or game-content rows are bundled. Authored tests exercise
+the existing quest, kill and reputation reducers rather than a second executor.

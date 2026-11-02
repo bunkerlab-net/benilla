@@ -435,6 +435,7 @@ fn profile_with_bound_change(order_identity: u8, change: u8) -> n::Profile {
             .collect(),
     )
     .unwrap();
+    progression.world_rules.progression = progression.levels.rules();
     let diplomacy = input.spells.iter().find(|r| r.id == 20599).unwrap();
     progression.reputation = Some(
         rep::Catalog::new_with_general_reputation_auras(
@@ -494,6 +495,7 @@ fn profile_with_bound_change(order_identity: u8, change: u8) -> n::Profile {
         )
         .unwrap(),
     );
+    progression.world_rules.reputation = progression.reputation.as_ref().unwrap().config();
     let mut intro = progression.quests[0].clone();
     intro.id = 783;
     intro.special_flags = 0;

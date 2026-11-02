@@ -274,7 +274,7 @@ fn defense_sensitive_future_learning_is_not_hidden_by_level_only_probe() {
 #[test]
 fn multilevel_quest_xp_crosses_ten_and_cap_through_real_hosts() {
     let (mut p, input, mut rows) = fixture::setup_with_levels(60, 60, true, 0x3f800000);
-    rows.quest_xp_rate = arithmetic::Binary32Rate::from_bits(1000.0f32.to_bits()).unwrap();
+    rows.world_rules.quest_xp_rate_bits = 1000.0f32.to_bits();
     p.initialize_quest_progression(&input, rows).unwrap();
     let mut w = NativeWorld::synthetic_component_test(p, [1; 16], player(), 42).unwrap();
     let mut a = QuestAuthority::default();

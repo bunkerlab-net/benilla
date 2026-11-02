@@ -1748,5 +1748,83 @@ class QuestGiverPreparationTests(unittest.TestCase):
             with self.assertRaisesRegex(ExportError, "complete_valid_dbc_set"):
                 load_extraction_manifest(path, parsed(files))
 
+class WorldRulesPreparationTests(unittest.TestCase):
+    def test_explicit_policy_replaces_only_start_and_supported_quest_xp(self):
+        from native_starter.world_rules import stock_preset
+        source = source_input()
+        source.rows["quest_template"][0].update(QuestLevel=2, RewMoneyMaxLevel=102)
+        bundle = capture(source, export_tests.starter_selection())
+        dbcs = parsed(dbcs_for(bundle))
+        absent = compile_starter(bundle, dbcs, Request(1, 1, 0))
+        self.assertIn("player.start_configuration_not_captured", {i["reason"] for i in absent["unsupported"]})
+        self.assertIn("quest.dynamic_xp", {i["reason"] for i in absent["unsupported"]})
+        rules = stock_preset()
+        report = compile_starter(bundle, dbcs, Request(1, 1, 0), native_world_rules=rules)
+        remaining = {i["reason"] for i in report["unsupported"]}
+        self.assertNotIn("player.start_configuration_not_captured", remaining)
+        self.assertNotIn("quest.dynamic_xp", remaining)
+        self.assertIn("player.native_creation_progression_rules_required", remaining)
+        self.assertIn("quest.native_eligibility_credit_reward_required", remaining)
+        self.assertIn("native.runtime_profile_not_implemented", remaining)
+        self.assertIsNone(report["runtime_export"])
+        self.assertEqual(report["world_rules_plan"]["input_binding"], digest(rules))
+        disposition = next(r for r in report["source_field_dispositions"] if r["table"] == "quest_template")
+        self.assertEqual(disposition["supported_numeric_policy"]["fields"], ["QuestLevel", "RewMoneyMaxLevel"])
+        self.assertNotIn("RewMoneyMaxLevel", disposition["blocked_for_gameplay"]["quest.native_eligibility_credit_reward_required"])
+        findings = [i for i in report["source_capture_findings"] if i["reason"] == "quest.dynamic_xp"]
+        self.assertEqual({i["disposition"] for i in findings}, {"supported_numeric_policy"})
+        verify_preparation(report, bundle, dbcs, native_world_rules=rules)
+        with self.assertRaisesRegex(ExportError, "preparation_mismatch"):
+            verify_preparation(report, bundle, dbcs)
+        changed = copy.deepcopy(rules)
+        changed["kill"]["kill_rate_bits"] = 0
+        with self.assertRaisesRegex(ExportError, "preparation_mismatch"):
+            verify_preparation(report, bundle, dbcs, native_world_rules=changed)
+
+    def test_policy_refuses_unsupported_keys_missing_fields_and_rate_boundaries(self):
+        from native_starter.world_rules import stock_preset, validate
+        rules = stock_preset()
+        self.assertEqual(validate(rules), rules)
+        for key, value in [("version", 2), ("start_player_level", 2),
+                           ("start_player_money", 0x7fffffff), ("Rate.XP.Explore", 1),
+                           ("quest_xp_rate_bits", True)]:
+            changed = copy.deepcopy(rules)
+            changed[key] = value
+            with self.subTest(key=key), self.assertRaises(ExportError):
+                validate(changed)
+        for bits in [1, 0x80000000, 0xbf800000, 0x447a0001, 0x7f800000, 0x7fc00000]:
+            changed = copy.deepcopy(rules)
+            changed["quest_xp_rate_bits"] = bits
+            with self.subTest(bits=bits), self.assertRaises(ExportError):
+                validate(changed)
+        for bits in [0, 0x00800000, 0x447a0000]:
+            changed = copy.deepcopy(rules)
+            changed["kill"]["kill_rate_bits"] = bits
+            validate(changed)
+        del rules["reputation"]
+        with self.assertRaises(ExportError):
+            validate(rules)
+
+    def test_quest_xp_outside_numeric_shape_keeps_its_exact_blocker(self):
+        from native_starter.world_rules import stock_preset
+        source = source_input()
+        source.rows["quest_template"][0].update(QuestLevel=256, RewMoneyMaxLevel=102)
+        bundle = capture(source, export_tests.starter_selection())
+        report = compile_starter(bundle, parsed(dbcs_for(bundle)), Request(1, 1, 0),
+                                 native_world_rules=stock_preset())
+        self.assertIn("quest.dynamic_xp", {i["reason"] for i in report["unsupported"]})
+        self.assertTrue(report["world_rules_plan"]["refusals"])
+
+    def test_zero_rate_does_not_hide_an_overflow_before_rate_application(self):
+        from native_starter.world_rules import stock_preset, supported_plan
+        source = {"tables": {"quest_template": [
+            {"entry": 900001, "QuestLevel": 1, "RewMoneyMaxLevel": 0xffffffff}]}}
+        rules = stock_preset()
+        rules["quest_xp_rate_bits"] = 0
+        rules["loot"]["money_rate_bits"] = 0
+        plan = supported_plan(source, rules)
+        self.assertEqual(plan["quest_xp_inputs"], [])
+        self.assertEqual(plan["refusals"], [{"quest": 900001, "reason": "quest_xp_numeric_domain"}])
+
 if __name__ == "__main__":
     unittest.main()

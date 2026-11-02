@@ -364,3 +364,6 @@ mod starter_learning;
 
 #[path = "captured_quest_giver_tests.rs"]
 mod captured_givers;
+
+#[path = "progression_config_tests.rs"]
+mod progression_config;

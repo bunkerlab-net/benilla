@@ -153,6 +153,7 @@ fn profile() -> Profile {
         ],
     };
     data.reputation = Some(reputation());
+    data.world_rules.reputation = data.reputation.as_ref().unwrap().config();
     data.npc_rows = [6, 197, 823]
         .into_iter()
         .map(|entry| QuestNpcRow {
@@ -199,6 +200,7 @@ fn profile() -> Profile {
             ..creature.clone()
         })
         .collect();
+    data.world_rules.loot = loot.rules.clone();
     profile
         .initialize_quest_progression(&initial, data)
         .unwrap();

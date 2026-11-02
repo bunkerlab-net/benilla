@@ -78,6 +78,7 @@ fn catalog_with_auras(auras: Vec<rep::GeneralReputationAura>) -> rep::Catalog {
 pub fn setup() -> (Profile, init::StarterInput, QuestProgressionInput) {
     let (p, input, mut data) = synthetic_quest_fixture::setup();
     data.reputation = Some(catalog());
+    data.world_rules.reputation = data.reputation.as_ref().unwrap().config();
     let mut row = data.quests[0].clone();
     row.required_creature = [0; 4];
     row.required_creature_count = [0; 4];

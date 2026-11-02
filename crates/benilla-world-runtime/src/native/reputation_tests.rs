@@ -310,6 +310,7 @@ fn closure_is_explicit_and_bound_and_initial_ack_has_no_duplicate_packets() {
     let mut encoded = serde_json::to_value(rows.reputation.unwrap()).unwrap();
     encoded["config"]["gain_rate"] = serde_json::json!(0x40000000u32);
     rows.reputation = Some(serde_json::from_value(encoded).unwrap());
+    rows.world_rules.reputation = rows.reputation.as_ref().unwrap().config();
     changed.initialize_quest_progression(&input, rows).unwrap();
     assert_ne!(changed.digest(), w.profile_digest());
     assert!(
@@ -376,6 +377,7 @@ fn source_item_removal_overcount_keeps_incomplete_reputation_objective_reopenabl
     let (mut profile, input, mut data) = synthetic_loot_fixture::setup();
     let (_, _, reputation_rows) = fixture::setup();
     data.reputation = reputation_rows.reputation;
+    data.world_rules.reputation = reputation_rows.world_rules.reputation;
     let mut donor = data.quests[0].clone();
     donor.special_flags = q::DELIVER;
     donor.required_creature = [0; 4];

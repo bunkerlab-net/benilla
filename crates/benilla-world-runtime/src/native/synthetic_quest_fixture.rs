@@ -214,9 +214,11 @@ pub fn setup_with_levels(
         derived_audit: derived_audit(),
         skills,
         initial_next_level_xp: if cap == 1 { 0 } else { 40 },
-        start_player_money: 11,
-        quest_xp_rate: arithmetic::Binary32Rate::ONE,
-        money_rate: arithmetic::Binary32Rate::ONE,
+        world_rules: NativeWorldRules {
+            start_player_money: 11,
+            progression: pg::Rules::from_classic_config(cap, maximize, talent_rate_bits).unwrap(),
+            ..NativeWorldRules::cmangos_classic_stock()
+        },
         npc_rows: vec![QuestNpcRow {
             entry: 60003,
             npc_flags: 2,

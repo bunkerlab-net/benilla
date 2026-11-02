@@ -45,6 +45,7 @@ fn reference_setup() -> (
     bag.bonding = 1;
     items.extend([70003, 70004].map(synthetic_loot_fixture::item));
     loot.inventory = synthetic_loot_fixture::inventory_catalog(items);
+    data.world_rules.loot = loot.rules.clone();
     (p, input, data)
 }
 
@@ -444,6 +445,7 @@ fn reference_rate_captures_and_loader_order_are_immutable_restore_inputs() {
             }
             _ => loot.reference_captures[0].rows.swap(1, 2),
         }
+        data.world_rules.loot = loot.rules.clone();
         p.initialize_quest_progression(&input, data).unwrap();
         assert_ne!(
             p.quest_progression

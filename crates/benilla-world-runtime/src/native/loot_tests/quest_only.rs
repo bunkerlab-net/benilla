@@ -24,6 +24,7 @@ fn setup_quest() -> (
     item.class = 12;
     item.bonding = 4;
     loot.inventory = synthetic_loot_fixture::inventory_catalog(items);
+    rows.world_rules.loot = loot.rules.clone();
     (p, input, rows)
 }
 fn active(w: &mut NativeWorld, a: &mut impl Authority) {
