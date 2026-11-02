@@ -35,7 +35,9 @@ quest or training plan discharge those independent host obligations.
 On Unix and Windows, regular-file reads reject final symlinks, directories, pipes,
 and devices before reading. Unix opens use `O_NOFOLLOW` and `O_NONBLOCK`. Windows
 uses [`FILE_FLAG_OPEN_REPARSE_POINT` and `FILE_FLAG_BACKUP_SEMANTICS`](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)
-to inspect the opened object, requires [`GetFileType`](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfiletype)
+to inspect the opened object, requires the safe
+[`winapi_util::file::typ`](https://docs.rs/winapi-util/0.1.11/winapi_util/file/fn.typ.html)
+wrapper for [`GetFileType`](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfiletype)
 to report a disk file, and rejects every
 [`FILE_ATTRIBUTE_REPARSE_POINT`](https://learn.microsoft.com/en-us/windows/win32/fileio/file-attribute-constants)
 on the opened handle's metadata. This does not reject symlinks in parent paths.
@@ -44,6 +46,20 @@ same diagnostic IDs. JSON rejects duplicate keys, nonfinite numbers, invalid
 Unicode, nesting beyond 128 levels, and more than 4,000,000 values. Source, DBC,
 text, field, dependency, and report bounds remain enforced. Imported strings and
 archive labels never become executable instructions or input filenames.
+
+Windows `Metadata::is_file()` alone does not establish that a handle is a disk
+file. The [Rust Windows filesystem implementation](https://github.com/rust-lang/rust/blob/58cf8f9c3/library/std/src/sys/fs/windows.rs#L529-L561)
+gets handle metadata through `GetFileInformationByHandle`. Its
+[`FileType::is_file()`](https://github.com/rust-lang/rust/blob/58cf8f9c3/library/std/src/sys/fs/windows.rs#L1202-L1217)
+only excludes directories and name-surrogate reparse tags. There is no pipe,
+console, or NUL classification. If their metadata query succeeds without those
+attributes, `is_file()` returns true; if it fails, there is no metadata to classify.
+Microsoft says
+[`GetFileInformationByHandle` should not receive a pipe handle](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandle);
+metadata failure is not a file-type classification. `FILE_ATTRIBUTE_DEVICE`
+is reserved for system use, so it cannot replace the disk-handle check.
+The Windows tests use Tokio's safe named-pipe server API and retain the pipe,
+NUL, symlink, and directory refusal assertions.
 
 The returned `benilla-production-input-identity-v1` binds the canonical source,
 selection, request, exact binary32 rules, extraction, compiler policy, and complete

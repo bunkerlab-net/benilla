@@ -37,19 +37,12 @@ pub(super) fn read_regular(path: &Path, limit: usize) -> Result<Vec<u8>> {
         .map_err(|_| fail("input.file_unreadable"))?;
     #[cfg(windows)]
     {
-        use std::os::windows::io::AsRawHandle;
         // std's Windows FileType only distinguishes directories and symlinks.
+        // https://doc.rust-lang.org/src/std/sys/fs/windows.rs.html
         // https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfiletype
-        #[link(name = "kernel32")]
-        extern "system" {
-            fn GetFileType(handle: std::os::windows::io::RawHandle) -> u32;
-        }
-        const FILE_TYPE_DISK: u32 = 1;
-        // SAFETY: file owns a live handle throughout the call.
-        check(
-            unsafe { GetFileType(file.as_raw_handle()) } == FILE_TYPE_DISK,
-            "input.regular_file_required",
-        )?;
+        let file_type =
+            winapi_util::file::typ(&file).map_err(|_| fail("input.regular_file_required"))?;
+        check(file_type.is_disk(), "input.regular_file_required")?;
     }
     let metadata = file.metadata().map_err(|_| fail("input.file_unreadable"))?;
     check(metadata.is_file(), "input.regular_file_required")?;

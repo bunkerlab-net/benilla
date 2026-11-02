@@ -463,48 +463,32 @@ fn production_verifier_rejects_symlinks_fifos_and_devices_without_waiting() {
 }
 
 #[cfg(windows)]
-fn named_pipe(inputs: &Inputs) -> (PathBuf, std::os::windows::io::OwnedHandle) {
-    use std::os::windows::{
-        ffi::OsStrExt,
-        io::{FromRawHandle, OwnedHandle},
-    };
-    // https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-createnamedpipew
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn CreateNamedPipeW(
-            name: *const u16,
-            open_mode: u32,
-            pipe_mode: u32,
-            max_instances: u32,
-            out_buffer_size: u32,
-            in_buffer_size: u32,
-            default_timeout: u32,
-            security_attributes: *mut std::ffi::c_void,
-        ) -> std::os::windows::io::RawHandle;
-    }
+fn named_pipe(
+    inputs: &Inputs,
+) -> (
+    PathBuf,
+    (
+        tokio::net::windows::named_pipe::NamedPipeServer,
+        tokio::runtime::Runtime,
+    ),
+) {
+    use tokio::{net::windows::named_pipe::ServerOptions, runtime::Builder};
     let path = PathBuf::from(format!(
         r"\\.\pipe\{}",
         inputs.root.file_name().unwrap().to_str().unwrap()
     ));
-    let name: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
-    const PIPE_ACCESS_OUTBOUND: u32 = 2;
-    // SAFETY: name is NUL-terminated and the optional security attributes are null.
-    let handle = unsafe {
-        CreateNamedPipeW(
-            name.as_ptr(),
-            PIPE_ACCESS_OUTBOUND,
-            0,
-            1,
-            1024,
-            0,
-            0,
-            std::ptr::null_mut(),
-        )
+    let runtime = Builder::new_current_thread().enable_io().build().unwrap();
+    let server = {
+        let _entered = runtime.enter();
+        ServerOptions::new()
+            .access_inbound(false)
+            .access_outbound(true)
+            .max_instances(1)
+            .out_buffer_size(1024)
+            .create(&path)
+            .unwrap()
     };
-    assert_ne!(handle as isize, -1, "{}", std::io::Error::last_os_error());
-    // SAFETY: successful CreateNamedPipeW transfers a unique owned handle.
-    let server = unsafe { OwnedHandle::from_raw_handle(handle) };
-    (path, server)
+    (path, (server, runtime))
 }
 
 #[test]
