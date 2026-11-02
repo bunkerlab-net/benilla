@@ -2,7 +2,7 @@
 //! Scoped test-thread timings; observations never replace a source verification.
 //! Categories are inclusive wall times and may overlap; they must not be summed.
 use std::{
-    cell::Cell,
+    cell::RefCell,
     marker::PhantomData,
     rc::Rc,
     time::{Duration, Instant},
@@ -71,6 +71,7 @@ pub(in super::super::super) enum Phase {
     FifoDelivery,
 }
 impl Phase {
+    #[inline]
     fn detailed(self) -> bool {
         !matches!(
             self,
@@ -201,6 +202,7 @@ impl Counts {
         let mut counts = *self;
         counts.phase(phase).started
     }
+    #[inline]
     fn phase(&mut self, phase: Phase) -> &mut PhaseCounts {
         match phase {
             Phase::Total => &mut self.total,
@@ -240,7 +242,7 @@ struct Active {
     counts: Counts,
 }
 thread_local! {
-    static ACTIVE: Cell<Option<Active>> = const { Cell::new(None) };
+    static ACTIVE: RefCell<Option<Active>> = const { RefCell::new(None) };
 }
 
 /// Nested scopes report their own calls, then restore the outer counts. An outer
@@ -259,7 +261,7 @@ fn measure_scope<T>(mode: Mode, detailed: bool, run: impl FnOnce() -> T) -> (T, 
     struct Reset(Option<Active>);
     impl Drop for Reset {
         fn drop(&mut self) {
-            ACTIVE.with(|active| active.set(self.0));
+            ACTIVE.with(|active| *active.borrow_mut() = self.0);
         }
     }
     let current = (mode != Mode::Off).then_some(Active {
@@ -270,7 +272,12 @@ fn measure_scope<T>(mode: Mode, detailed: bool, run: impl FnOnce() -> T) -> (T, 
     let previous = ACTIVE.with(|active| active.replace(current));
     let reset = Reset(previous);
     let result = run();
-    let counts = ACTIVE.with(|active| active.get().map_or(Counts::default(), |v| v.counts));
+    let counts = ACTIVE.with(|active| {
+        active
+            .borrow()
+            .as_ref()
+            .map_or(Counts::default(), |v| v.counts)
+    });
     drop(reset);
     (result, counts)
 }
@@ -293,14 +300,15 @@ pub(in super::super::super) struct Timer {
     thread: PhantomData<Rc<()>>,
 }
 impl Timer {
+    #[inline]
     pub(in super::super::super) fn start(phase: Phase) -> Self {
         let mode = ACTIVE.with(|active| {
-            let mut current = active.get()?;
+            let mut state = active.borrow_mut();
+            let current = state.as_mut()?;
             if phase.detailed() && !current.detailed {
                 return None;
             }
             current.counts.phase(phase).started += 1;
-            active.set(Some(current));
             Some(current.mode)
         });
         let started = (mode == Some(Mode::Clocked)).then(Instant::now);
@@ -312,11 +320,13 @@ impl Timer {
             thread: PhantomData,
         }
     }
+    #[inline]
     pub(in super::super::super) fn finish(mut self, succeeded: bool) {
         self.succeeded = succeeded;
     }
 }
 impl Drop for Timer {
+    #[inline]
     fn drop(&mut self) {
         if !self.active {
             return;
@@ -325,7 +335,7 @@ impl Drop for Timer {
             .started
             .map_or(Duration::ZERO, |started| started.elapsed());
         ACTIVE.with(|active| {
-            if let Some(mut current) = active.get() {
+            if let Some(current) = active.borrow_mut().as_mut() {
                 let phase = current.counts.phase(self.phase);
                 phase.elapsed += elapsed;
                 if std::thread::panicking() {
@@ -335,7 +345,6 @@ impl Drop for Timer {
                 } else {
                     phase.refused += 1;
                 }
-                active.set(Some(current));
             }
         });
     }

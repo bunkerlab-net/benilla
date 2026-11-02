@@ -17,6 +17,7 @@ use benilla_mpq::{Archive, ClassicMemberProbe, PreparedClassicMemberName, ReadLi
 use sha2::{Digest, Sha256};
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 // The feature-off expansion is the original expression, not a shipping wrapper.
 #[cfg(feature = "synthetic-map-tests")]
@@ -159,7 +160,7 @@ pub(crate) struct SourceMember {
 /// No payload constructor, mutator, or deserializer exists outside acquisition.
 pub(crate) struct CapturedMember {
     member: SourceMember,
-    payload: Box<[u8]>,
+    payload: Arc<Vec<u8>>,
 }
 impl CapturedMember {
     pub(crate) fn bytes(&self) -> &[u8] {
@@ -247,6 +248,10 @@ pub(crate) struct CapturedSource {
     chain: Chain,
     receipts: Vec<LookupReceipt>,
     read_work: u64,
+    // Original bytes, indexed by receipt ordinal, never filesystem metadata.
+    // Together these retain at most one member limit across the entire source.
+    digest_payloads: Vec<(usize, Arc<Vec<u8>>)>,
+    digest_payload_bytes: usize,
 }
 impl fmt::Debug for CapturedSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -310,6 +315,8 @@ impl CapturedSource {
             chain,
             receipts: Vec::new(),
             read_work: 0,
+            digest_payloads: Vec::new(),
+            digest_payload_bytes: 0,
         })
     }
 
@@ -326,6 +333,7 @@ impl CapturedSource {
             &mut self.read_work,
             cancel,
         )?;
+        self.retain_digest_payload(&lookup);
         self.receipts
             .push(observation.into_receipt(name, LookupScope::Chain));
         Ok(lookup)
@@ -357,9 +365,20 @@ impl CapturedSource {
             &mut self.read_work,
             cancel,
         )?;
+        self.retain_digest_payload(&lookup);
         self.receipts
             .push(observation.into_receipt(name, LookupScope::Archive(index)));
         Ok(lookup)
+    }
+
+    fn retain_digest_payload(&mut self, lookup: &Lookup) {
+        if let Lookup::Present(member) = lookup {
+            if member.payload.len() <= MAX_MEMBER_BYTES - self.digest_payload_bytes {
+                self.digest_payload_bytes += member.payload.len();
+                self.digest_payloads
+                    .push((self.receipts.len(), Arc::clone(&member.payload)));
+            }
+        }
     }
 
     pub(crate) fn read_count(&self) -> usize {
@@ -428,14 +447,24 @@ impl CapturedSource {
             return Err(SourceError::Changed);
         }
         let mut work = 0;
-        for expected in &self.receipts {
+        let mut payloads = self.digest_payloads.iter().peekable();
+        for (ordinal, expected) in self.receipts.iter().enumerate() {
             check_cancel(cancel)?;
-            let (_, actual) = read_lookup_with_name(
+            let cached = payloads
+                .next_if(|(cached_ordinal, _)| *cached_ordinal == ordinal)
+                .map(|(_, payload)| {
+                    let Outcome::Present(member) = &expected.outcome else {
+                        unreachable!("only positive receipts retain digest payloads");
+                    };
+                    (payload.as_slice(), member.sha256.as_str())
+                });
+            let (_, actual) = observe_lookup(
                 &chain,
                 LookupName::Prepared(&expected.name),
                 expected.scope,
                 &mut work,
                 cancel,
+                cached,
             )?;
             if !profile_predicate!(ReceiptCompare, actual.matches(expected)) {
                 return Err(SourceError::Changed);
@@ -640,6 +669,26 @@ fn read_lookup_with_name(
     work: &mut u64,
     cancel: &dyn Fn() -> bool,
 ) -> Result<(Lookup, LookupObservation)> {
+    let (payload, observation) = observe_lookup(chain, lookup_name, scope, work, cancel, None)?;
+    let lookup = match &observation.outcome {
+        Outcome::Absent => Lookup::Absent,
+        Outcome::Dummy { .. } => Lookup::Dummy {},
+        Outcome::Present(member) => Lookup::Present(CapturedMember {
+            member: member.clone(),
+            payload: Arc::new(payload.expect("positive lookup payload")),
+        }),
+    };
+    Ok((lookup, observation))
+}
+
+fn observe_lookup(
+    chain: &Chain,
+    lookup_name: LookupName<'_>,
+    scope: LookupScope,
+    work: &mut u64,
+    cancel: &dyn Fn() -> bool,
+    cached_digest: Option<(&[u8], &str)>,
+) -> Result<(Option<Vec<u8>>, LookupObservation)> {
     let name = lookup_name.as_str();
     let range = match scope {
         LookupScope::Chain => 0..chain.archives.len(),
@@ -661,7 +710,7 @@ fn read_lookup_with_name(
                 let bytes = bytes as usize;
                 let winning_archive = archive_name.clone();
                 return Ok((
-                    Lookup::Dummy {},
+                    None,
                     LookupObservation {
                         probe_count: probed + 1,
                         outcome: Outcome::Dummy {
@@ -698,25 +747,28 @@ fn read_lookup_with_name(
                 let member = SourceMember {
                     name: name.to_owned(),
                     winning_archive: archive_name.clone(),
-                    sha256: profile_value!(PayloadHash, format!("{:x}", Sha256::digest(&payload))),
+                    // Equality covers the final fresh read, not its path, index,
+                    // profile read, size or timestamp. A different buffer still
+                    // takes the original SHA-256 path, including collisions.
+                    sha256: profile_value!(
+                        PayloadHash,
+                        match cached_digest {
+                            Some((original, digest)) if payload == original => digest.to_owned(),
+                            _ => format!("{:x}", Sha256::digest(&payload)),
+                        }
+                    ),
                     bytes,
                 };
                 let observation = LookupObservation {
                     probe_count: probed + 1,
-                    outcome: Outcome::Present(member.clone()),
+                    outcome: Outcome::Present(member),
                 };
-                return Ok((
-                    Lookup::Present(CapturedMember {
-                        member,
-                        payload: payload.into_boxed_slice(),
-                    }),
-                    observation,
-                ));
+                return Ok((Some(payload), observation));
             }
         }
     }
     Ok((
-        Lookup::Absent,
+        None,
         LookupObservation {
             probe_count,
             outcome: Outcome::Absent,

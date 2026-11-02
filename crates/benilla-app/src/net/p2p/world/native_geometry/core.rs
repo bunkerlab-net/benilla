@@ -1006,6 +1006,7 @@ impl JobLease {
     pub(super) fn same_job(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
+    #[inline]
     pub(super) fn is_active(&self) -> bool {
         self.0.owner_alive.load(Ordering::Acquire) && self.0.attachment.load(Ordering::Acquire) && {
             #[cfg(all(test, not(benilla_headless_geometry)))]

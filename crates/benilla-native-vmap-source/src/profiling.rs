@@ -2,7 +2,7 @@
 //! Authored-fixture runtime freshness diagnostics, never source authority.
 //! Fixed categories are inclusive wall durations: parent and child must not be summed.
 use std::{
-    cell::Cell,
+    cell::{Cell, RefCell},
     marker::PhantomData,
     rc::Rc,
     time::{Duration, Instant},
@@ -51,6 +51,7 @@ impl Counts {
         };
         normalized(self) == normalized(other)
     }
+    #[inline]
     fn phase(&mut self, phase: Phase) -> &mut OperationCounts {
         match phase {
             Phase::Verify => &mut self.verify,
@@ -99,7 +100,7 @@ struct Active {
     counts: Counts,
 }
 thread_local! {
-    static ACTIVE: Cell<Option<Active>> = const { Cell::new(None) };
+    static ACTIVE: RefCell<Option<Active>> = const { RefCell::new(None) };
     static RUNTIME: Cell<bool> = const { Cell::new(false) };
 }
 
@@ -109,7 +110,7 @@ pub fn measure<T>(mode: Mode, run: impl FnOnce() -> T) -> (T, Counts) {
     struct Reset(Option<Active>);
     impl Drop for Reset {
         fn drop(&mut self) {
-            ACTIVE.with(|active| active.set(self.0));
+            ACTIVE.with(|active| *active.borrow_mut() = self.0);
         }
     }
     let next = (mode != Mode::Off).then_some(Active {
@@ -118,7 +119,12 @@ pub fn measure<T>(mode: Mode, run: impl FnOnce() -> T) -> (T, Counts) {
     });
     let reset = Reset(ACTIVE.with(|active| active.replace(next)));
     let result = run();
-    let counts = ACTIVE.with(|active| active.get().map_or(Counts::default(), |a| a.counts));
+    let counts = ACTIVE.with(|active| {
+        active
+            .borrow()
+            .as_ref()
+            .map_or(Counts::default(), |a| a.counts)
+    });
     drop(reset);
     (result, counts)
 }
@@ -150,12 +156,13 @@ pub(crate) struct Timer {
     thread: PhantomData<Rc<()>>,
 }
 impl Timer {
+    #[inline]
     pub(crate) fn start(phase: Phase) -> Self {
         let mode = if RUNTIME.with(Cell::get) {
             ACTIVE.with(|active| {
-                let mut state = active.get()?;
+                let mut current = active.borrow_mut();
+                let state = current.as_mut()?;
                 state.counts.phase(phase).started += 1;
-                active.set(Some(state));
                 Some(state.mode)
             })
         } else {
@@ -169,11 +176,13 @@ impl Timer {
             thread: PhantomData,
         }
     }
+    #[inline]
     pub(crate) fn finish(mut self, succeeded: bool) {
         self.succeeded = succeeded;
     }
 }
 impl Drop for Timer {
+    #[inline]
     fn drop(&mut self) {
         if !self.active {
             return;
@@ -182,7 +191,7 @@ impl Drop for Timer {
             .started
             .map_or(Duration::ZERO, |started| started.elapsed());
         ACTIVE.with(|active| {
-            if let Some(mut state) = active.get() {
+            if let Some(state) = active.borrow_mut().as_mut() {
                 let phase = state.counts.phase(self.phase);
                 phase.elapsed += elapsed;
                 if std::thread::panicking() {
@@ -192,7 +201,6 @@ impl Drop for Timer {
                 } else {
                     phase.refused += 1;
                 }
-                active.set(Some(state));
             }
         });
     }
@@ -250,7 +258,7 @@ mod tests {
         assert_eq!(counts.verify.elapsed, Duration::ZERO);
         assert_eq!(counts.payload_read, OperationCounts::default());
         assert!(!RUNTIME.with(Cell::get));
-        assert!(ACTIVE.with(Cell::get).is_none());
+        assert!(ACTIVE.with(|active| active.borrow().is_none()));
         let (_, unwound) = measure(Mode::CountOnly, || {
             assert!(std::panic::catch_unwind(|| {
                 let _runtime = RuntimeScope::enter();

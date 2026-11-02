@@ -17,12 +17,22 @@ feed the existing raw writers; unsupported roots stop preparation without exposi
 partial products. See [source scope](PROVENANCE.md).
 
 The returned object owns immutable raw model outputs and ordered lookup receipts.
-Archive buffers are dropped after parsing; bounded final MODN Paths remain for
+It also shares up to 64 MiB of original positive payload buffers with acquisition
+callers, without copying their bytes. Bounded final MODN Paths remain for
 source-timed doodad lookups. `verify_unchanged` reopens the chain and checks consumed
 inputs, including missing members and blocking dummy winners. It detects changed
 inputs; it is not an atomic filesystem snapshot, a live lease, or protection
 against a file being changed and restored between reads. Diagnostic summaries
 cannot construct a preparation object.
+
+Freshness replay still probes every receipt against newly decoded archive indexes,
+validates positive member profiles, reads their payloads again, and charges the
+same read-work budget. When the final fresh payload equals its receipt's retained
+original bytes, replay reuses that receipt's SHA-256 digest. Equality checks every
+byte, not a filename, length, timestamp, earlier profile read, or filesystem
+identity. Different bytes and receipts beyond the retention bound use SHA-256 as
+before. The cache belongs to one captured source and cannot supply another source's
+digest. Every original cancellation checkpoint remains in its original order.
 
 `summary()` and `Error::diagnostic()` contain fixed categories, counts, numeric
 identifiers, source revision/policy labels and a digest, with no asset text or
@@ -33,6 +43,26 @@ The app also provides a separate [prepared collision view](PREPARED-COLLISION-VI
 for source-version-bound historical queries without terrain or navigation placeholders.
 The player’s [read-only collision diagnostics](COLLISION-DIAGNOSTICS.md) exercise
 that real capture and query path and report each reachable stage independently.
+
+## Runtime freshness profiling
+
+The `synthetic-map-tests` feature exposes scoped `profiling::measure` diagnostics
+for authored fixtures. Only runtime map freshness enables the operation counters.
+`Off` reads no observer clocks. `CountOnly` records operation outcomes without
+observer clocks. `Clocked` records the same outcomes and inclusive wall durations.
+The `payload_hash` interval includes exact-byte cache comparison and digest reuse,
+or SHA-256 and hexadecimal formatting on a cache miss.
+Parent and child durations overlap, so do not add them together.
+
+Counters use thread-local storage with short mutable borrows. Each timer updates
+only its selected category, rather than copying every category for each receipt
+probe. No borrow spans a source operation or callback. Nested scopes restore
+their parent counters, including after an unwind.
+
+The resident controller's ignored release comparison runs all three modes with
+the original 500 ms Route deadline. It checks equal source traces and equal
+operation counts for the enabled modes. Profiling does not remove source
+checks, defer their cancellation polls, or subtract overhead from the deadline.
 
 ## Supported boundary
 

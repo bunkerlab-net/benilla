@@ -100,6 +100,7 @@ impl FreshnessObservation {
         Ok(result)
     }
 
+    #[inline]
     fn check_active(&self) -> Result<(), CompositionError> {
         if self.cancelled.load(Ordering::Acquire)
             || self.stop.load(Ordering::Acquire)

@@ -768,6 +768,153 @@ fn unnamed_observations_preserve_receipts_work_digest_and_cancellation_order() {
 }
 
 #[test]
+fn digest_replay_matches_uncached_changed_source_and_every_cancellation() {
+    use std::cell::Cell;
+    let temp = Temp::new();
+    let data = temp.data();
+    let original = || {
+        store(
+            &data,
+            "model.MPQ",
+            &[
+                entry(MAP, 1),
+                raw_entry("dummy.wmo", vec![0]),
+                raw_entry("(listfile)", b"base.wmo\r\n\0".to_vec()),
+            ],
+        );
+        store(&data, "patch.MPQ", &[]);
+    };
+    original();
+    let mut source = CapturedSource::open(&data, &|| false).unwrap();
+    for name in ["missing.wmo", "dummy.wmo", MAP, MAP] {
+        source.read(name, &|| false).unwrap();
+    }
+    source
+        .read_from_archive(0, "(listfile)", &|| false)
+        .unwrap();
+    let epoch = source.binding_digest();
+    source.verify_unchanged(&|| false).unwrap();
+    verify_with_owned_receipts(&source, &|| false).unwrap();
+
+    for change in 0..4 {
+        original();
+        match change {
+            0 => store(
+                &data,
+                "model.MPQ",
+                &[
+                    entry(MAP, 2),
+                    raw_entry("dummy.wmo", vec![0]),
+                    raw_entry("(listfile)", b"base.wmo\r\n\0".to_vec()),
+                ],
+            ),
+            1 => store(&data, "patch.MPQ", &[entry("missing.wmo", 1)]),
+            2 => store(&data, "patch.MPQ", &[raw_entry("dummy.wmo", vec![])]),
+            3 => store(&data, "texture.MPQ", &[]),
+            _ => unreachable!(),
+        }
+        let run = |uncached: bool, cutoff| {
+            let calls = Cell::new(0);
+            let cancel = || {
+                calls.set(calls.get() + 1);
+                calls.get() == cutoff
+            };
+            let result = if uncached {
+                verify_with_owned_receipts(&source, &cancel)
+            } else {
+                source.verify_unchanged(&cancel)
+            };
+            (result, calls.get())
+        };
+        let reference = run(true, usize::MAX);
+        assert_eq!(reference.0, Err(SourceError::Changed));
+        assert_eq!(run(false, usize::MAX), reference);
+        for cutoff in 1..=reference.1 + 1 {
+            assert_eq!(run(false, cutoff), run(true, cutoff));
+        }
+        if change == 3 {
+            fs::remove_file(data.join("texture.MPQ")).unwrap();
+        }
+    }
+    original();
+    source.verify_unchanged(&|| false).unwrap();
+    assert_eq!(source.binding_digest(), epoch);
+}
+
+#[test]
+fn digest_replay_reads_changed_bytes_after_profile_and_between_repeated_receipts() {
+    use std::cell::Cell;
+    for replace_path in [false, true] {
+        let temp = Temp::new();
+        let data = temp.data();
+        store(&data, "model.MPQ", &[entry(MAP, 1)]);
+        let mut source = CapturedSource::open(&data, &|| false).unwrap();
+        source.read(MAP, &|| false).unwrap();
+        source.read(MAP, &|| false).unwrap();
+        // First replay is unchanged. On the second, change bytes after strict
+        // profile validation but before the final payload read and digest check.
+        let run = |uncached: bool| {
+            store(&data, "model.MPQ", &[entry(MAP, 1)]);
+            let calls = Cell::new(0);
+            let cancel = || {
+                calls.set(calls.get() + 1);
+                // Initial poll, chain poll, directory entry, 104 candidates,
+                // first receipt's five polls, then four through pre-payload.
+                if calls.get() == 116 {
+                    let updated = archive(&[entry(MAP, 2)]);
+                    if replace_path {
+                        let next = data.join("replacement");
+                        fs::write(&next, updated).unwrap();
+                        fs::rename(next, data.join("model.MPQ")).unwrap();
+                    } else {
+                        fs::write(data.join("model.MPQ"), updated).unwrap();
+                    }
+                }
+                false
+            };
+            let result = if uncached {
+                verify_with_owned_receipts(&source, &cancel)
+            } else {
+                source.verify_unchanged(&cancel)
+            };
+            (result, calls.get())
+        };
+        let reference = run(true);
+        assert_eq!(reference, (Err(SourceError::Changed), 117));
+        assert_eq!(run(false), reference);
+    }
+}
+
+#[test]
+fn digest_payload_retention_is_bounded_and_uncached_receipts_still_replay() {
+    let temp = Temp::new();
+    let data = temp.data();
+    store(
+        &data,
+        "model.MPQ",
+        &[
+            raw_entry("large", vec![7; MAX_MEMBER_BYTES - 8]),
+            entry(MAP, 1),
+        ],
+    );
+    let mut source = CapturedSource::open(&data, &|| false).unwrap();
+    for name in ["large", MAP, MAP] {
+        drop(source.read(name, &|| false).unwrap());
+    }
+    assert_eq!(source.digest_payload_bytes, MAX_MEMBER_BYTES);
+    assert_eq!(
+        source
+            .digest_payloads
+            .iter()
+            .map(|(ordinal, _)| *ordinal)
+            .collect::<Vec<_>>(),
+        [0, 1]
+    );
+    source.verify_unchanged(&|| false).unwrap();
+    verify_with_owned_receipts(&source, &|| false).unwrap();
+}
+
+#[test]
 fn prepared_and_unprepared_lookup_keeps_final_payload_read_after_intermediate_poll() {
     use std::cell::Cell;
     for (replace_path, use_prepared) in [(false, false), (true, false), (false, true), (true, true)]
