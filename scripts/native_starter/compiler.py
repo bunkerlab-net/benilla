@@ -24,6 +24,7 @@ from . import creature_plan
 from .learning_plan import supported_plan as starter_learning_plan
 from . import quest_plan, world_rules
 from . import loot_plan
+from . import spawn_plan
 
 PROFILE = "cmangos-8ec338a1-native-starter-bindings-v1"
 FORMAT = "benilla-native-starter-preparation-v1"
@@ -575,11 +576,19 @@ class Compiler:
     def creature_inputs(self) -> list[dict[str, Any]]:
         result = []
         self.creature_generation_plans = {}
+        self.spawn_plans = {}
         for creature in self.tables["creature_template"]:
             entry = creature["Entry"]
             event_scope = event_ai.scope(self.tables, entry)
             spawn_scope = native_spawn.scope(self.source, entry)
             event_plan = supported_plan(self.source, entry, event_scope) if event_scope else None
+            selected_spawn_plan = spawn_plan.supported_plan(self.source, entry)
+            self.spawn_plans[entry] = selected_spawn_plan
+            for refusal in selected_spawn_plan["refusals"]:
+                self.issue("creature", [refusal["guid"]], refusal["reason"])
+            if selected_spawn_plan["status"] == "supported_shape":
+                self.issue("creature_template", [entry], "creature.cold_loader_order_required")
+                self.issue("creature_template", [entry], "creature.assistance_runtime_traversal_required")
             model_ids = native_spawn.model_closure(self.tables, native_spawn.model_roots(self.tables, entry))
             display_inputs = []
             available_models = {row["modelid"]: row for row in self.tables["creature_model_info"]}
@@ -618,6 +627,7 @@ class Compiler:
                 "event_ai_plan": event_plan,
                 "generation_plan": generation_plan,
                 "native_spawn_dependencies": spawn_scope,
+                "spawn_context_plan": selected_spawn_plan,
                 "resolved_combat_stats": None, "ai_profile": None})
             self.issue("creature_template", [entry], "creature.ai_selection_and_native_melee_required",
                        ai_name=creature["AIName"], scripted=bool(creature["ScriptName"]),
@@ -686,6 +696,8 @@ class Compiler:
                 if table == "creature_template_classlevelstats" and any(
                         p["status"] == "complete_inputs" and row in p["class_level_rows"]
                         for p in self.creature_generation_plans.values()):
+                    consumed = set(row)
+                if spawn_plan.consumes(table, row, list(self.spawn_plans.values())):
                     consumed = set(row)
                 learning_table = table in {"playercreateinfo_skills", "playercreateinfo_spell", "spell_chain", "spell_learn_spell"}
                 if learning_table and not learning_resolved:
@@ -761,6 +773,9 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
 
     c.issues = [issue for issue in c.issues
                 if not (issue.get("origin") == "source_capture" and replaced_creature_finding(issue))]
+    spawn_plans = list(c.spawn_plans.values())
+    spawn_discharged = [issue for issue in c.issues if spawn_plan.discharges(issue, spawn_plans)]
+    c.issues = [issue for issue in c.issues if not spawn_plan.discharges(issue, spawn_plans)]
     rule_discharged = [issue for issue in c.issues if world_rules.discharges(issue, rules_plan)]
     c.issues = [issue for issue in c.issues if not world_rules.discharges(issue, rules_plan)]
     display_table = dbcs.get("CreatureDisplayInfo")
@@ -825,6 +840,9 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
         "ability_admission": admission,
         "dependency_request": c.learning["dependency_request"],
         "native_spawn_capture": source.get("native_spawn_capture"),
+        "spawn_context_capture": source.get("spawn_context_capture"),
+        "spawn_context_obligations": [{**issue, "disposition": "supported_shape",
+            "adapter": spawn_plan.FORMAT} for issue in spawn_discharged],
         "spell_script_capture": source.get("spell_script_capture"),
         "initial_hook_capture": source.get("initial_hook_capture"),
         "spell_numeric_capture": source.get("spell_numeric_capture"),
@@ -852,7 +870,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
         "source_field_dispositions": dispositions, "dbc_bindings": dbc_bindings,
         "source_capture_findings": [{**i, "disposition": "replaced_by_exact_dependency_report"
                                      if i["reason"] in replaced or replaced_creature_finding(i) else "supported_shape"
-                                     if fireball_plan.discharges(i, fireball) else "supported_numeric_policy"
+                                     if fireball_plan.discharges(i, fireball) or spawn_plan.discharges(i, spawn_plans) else "supported_numeric_policy"
                                      if world_rules.discharges(i, rules_plan) else "retained"}
                                     for i in source["report"]["unsupported"]],
         "unsupported": issues}

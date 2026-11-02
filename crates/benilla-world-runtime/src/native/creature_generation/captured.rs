@@ -176,7 +176,7 @@ const FLOAT_FIELDS: &[&str] = &[
 fn invalid() -> NativeError {
     NativeError::UnsupportedMechanic("captured creature field domain")
 }
-fn uint(row: &CreatureCapturedRow, field: &str) -> Result<u32, NativeError> {
+pub(super) fn uint(row: &CreatureCapturedRow, field: &str) -> Result<u32, NativeError> {
     row.get(field)
         .and_then(Value::as_u64)
         .and_then(|n| u32::try_from(n).ok())
@@ -188,7 +188,7 @@ fn text<'a>(row: &'a CreatureCapturedRow, field: &str) -> Result<&'a str, Native
         .filter(|s| s.len() <= 4096)
         .ok_or_else(invalid)
 }
-fn float(row: &CreatureCapturedRow, field: &str) -> Result<SpellFloat, NativeError> {
+pub(super) fn float(row: &CreatureCapturedRow, field: &str) -> Result<SpellFloat, NativeError> {
     let value = row.get(field).ok_or_else(invalid)?;
     let value = if let Some(n) = value.as_i64() {
         if n.unsigned_abs() > 1_000_000 {
@@ -215,7 +215,7 @@ fn float(row: &CreatureCapturedRow, field: &str) -> Result<SpellFloat, NativeErr
     };
     SpellFloat::from_bits(value.to_bits()).map_err(|_| invalid())
 }
-fn shape(row: &CreatureCapturedRow, fields: &[&str]) -> Result<(), NativeError> {
+pub(super) fn shape(row: &CreatureCapturedRow, fields: &[&str]) -> Result<(), NativeError> {
     if row.len() != fields.len() || fields.iter().any(|field| !row.contains_key(*field)) {
         return Err(NativeError::UnsupportedMechanic(
             "captured creature column coverage",

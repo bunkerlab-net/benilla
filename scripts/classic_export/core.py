@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .columns import (COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA, SPAWN_SCHEMA, REGISTRY_SCHEMA,
-                      INITIAL_HOOK_SCHEMA, EVENT_TEXT_SCHEMA, EVENT_TEXT_PRIMARY_KEYS, EVENT_TEXT_ALIASES, LOOT_SCHEMA, SPAWN_ENTRY_SCHEMA)
+                      INITIAL_HOOK_SCHEMA, EVENT_TEXT_SCHEMA, EVENT_TEXT_PRIMARY_KEYS, EVENT_TEXT_ALIASES, LOOT_SCHEMA, SPAWN_ENTRY_SCHEMA, SPAWN_CONTEXT_SCHEMA)
 
 FORMAT = "benilla-classic-source-slice-v1"
 STARTER_FORMAT = "benilla-classic-source-slice-v2"
@@ -30,6 +30,11 @@ MAX_TEXT_BYTES = 16384
 KEYS = {
     "spell_facing": ("entry",),
     "creature_spawn_entry": ("guid", "entry"),
+    "creature_conditional_spawn": ("Guid",),
+    "spawn_group_spawn": ("Id", "Guid"),
+    "creature_linking": ("guid",),
+    "creature_linking_template": ("entry", "map"),
+    "game_event_creature_data": ("guid", "event"),
     "spell_area": ("spell", "area", "quest_start", "quest_start_active", "aura_spell", "racemask", "gender"),
     "spell_proc_event": ("entry",),
     "spell_scripts": ("Id",),
@@ -63,6 +68,7 @@ from .quest_columns import KEYS as QUEST_PRESENTATION_KEYS, TEXT as QUEST_PRESEN
 KEYS.update(QUEST_PRESENTATION_KEYS)
 TEXT_COLUMNS = {
     "creature_ai_scripts": {"comment"},
+    "creature_conditional_spawn": {"Comments"},
     "broadcast_text": {"Text", "Text1"},
     "broadcast_text_locale": {"Locale", "Text_lang", "Text1_lang"},
     "spell_scripts": {"ScriptName"},
@@ -203,7 +209,7 @@ def schema_profile(inventory: Any, required: set[str]) -> dict[str, Any]:
     profiles = {}
     for table, meta in inventory["tables"].items():
         fields = {"engine", "table_type", "columns"}
-        if (table in (REGISTRY_SCHEMA | INITIAL_HOOK_SCHEMA | EVENT_TEXT_SCHEMA | LOOT_SCHEMA | SPAWN_ENTRY_SCHEMA) or table in {"spell_template", "spell_facing"} or table in QUEST_PRESENTATION_KEYS) and type(meta) is dict and "primary_key" in meta:
+        if (table in (REGISTRY_SCHEMA | INITIAL_HOOK_SCHEMA | EVENT_TEXT_SCHEMA | LOOT_SCHEMA | SPAWN_ENTRY_SCHEMA | SPAWN_CONTEXT_SCHEMA) or table in {"spell_template", "spell_facing"} or table in QUEST_PRESENTATION_KEYS) and type(meta) is dict and "primary_key" in meta:
             fields.add("primary_key")
         check(type(meta) is dict and set(meta) == fields, "schema.table_fields")
         if table in REGISTRY_SCHEMA and table in required:
@@ -214,6 +220,8 @@ def schema_profile(inventory: Any, required: set[str]) -> dict[str, Any]:
             check(meta.get("primary_key") == list(KEYS[table]), "schema.loot_primary_key")
         if table in SPAWN_ENTRY_SCHEMA and table in required:
             check(meta.get("primary_key") == list(KEYS[table]), "schema.spawn_entry_primary_key")
+        if table in SPAWN_CONTEXT_SCHEMA and table in required:
+            check(meta.get("primary_key") == list(KEYS[table]), "schema.spawn_context_primary_key")
         check(meta["table_type"] == "BASE TABLE", "schema.views_rejected")
         check(meta["engine"] in {"InnoDB", "MyISAM"}, "schema.engine")
         check(type(meta["columns"]) is list and len(meta["columns"]) <= 512, "schema.columns")
@@ -232,9 +240,9 @@ def schema_profile(inventory: Any, required: set[str]) -> dict[str, Any]:
         missing = wanted - set(by_name)
         if table in required:
             check(not missing, f"schema.missing_columns:{table}")
-        if table in (STARTER_SCHEMA | LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA | INITIAL_HOOK_SCHEMA | LOOT_SCHEMA | SPAWN_ENTRY_SCHEMA) and table in required:
+        if table in (STARTER_SCHEMA | LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA | INITIAL_HOOK_SCHEMA | LOOT_SCHEMA | SPAWN_ENTRY_SCHEMA | SPAWN_CONTEXT_SCHEMA) and table in required:
             check(wanted == set(by_name), f"schema.starter_columns:{table}")
-            for ordinal, (name, kind, nullable) in enumerate((STARTER_SCHEMA | LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA | INITIAL_HOOK_SCHEMA | LOOT_SCHEMA | SPAWN_ENTRY_SCHEMA)[table], 1):
+            for ordinal, (name, kind, nullable) in enumerate((STARTER_SCHEMA | LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA | INITIAL_HOOK_SCHEMA | LOOT_SCHEMA | SPAWN_ENTRY_SCHEMA | SPAWN_CONTEXT_SCHEMA)[table], 1):
                 actual = by_name[name.casefold()]
                 observed, expected = sql_type(actual["type"]), sql_type(kind)
                 # Ignore display width for integer types, never size/signedness/nullability/order.
@@ -366,6 +374,8 @@ def normalize_rows(table: str, rows: list[dict[str, Any]], profile: dict[str, An
         if table in QUEST_PRESENTATION_KEYS:
             check(profile.get("unreviewed_columns") == [], f"quest_presentation.unreviewed_columns:{table}")
         zero_keys = {"creature_spawn_entry": {"entry"},
+                     "creature_linking_template": {"map"},
+                     "game_event_creature_data": {"event"},
                      "playercreateinfo_action": {"button"},
                      "playercreateinfo_skills": {"raceMask", "classMask"},
                      "creature_spawn_data_template": {"Entry"},

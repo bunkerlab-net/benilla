@@ -626,6 +626,30 @@ SPAWN_SCHEMA = {
 COLUMNS.update({table: [column[0] for column in columns]
                 for table, columns in SPAWN_SCHEMA.items()})
 
+# Selected ordinary-spawn exclusion queries, pinned schema only, no content.
+SPAWN_CONTEXT_SCHEMA = {
+    "creature_conditional_spawn": [
+        ("Guid", "int unsigned", False), ("EntryAlliance", "mediumint unsigned", False),
+        ("EntryHorde", "mediumint unsigned", False), ("Comments", "varchar(255)", False)],
+    "spawn_group_spawn": [
+        ("Id", "int", False), ("Guid", "int", False), ("SlotId", "tinyint", False),
+        ("Chance", "int unsigned", False)],
+    "creature_linking": [
+        ("guid", "int unsigned", False), ("master_guid", "int unsigned", False),
+        ("flag", "mediumint unsigned", False)],
+    "creature_linking_template": [
+        ("entry", "mediumint unsigned", False), ("map", "smallint unsigned", False),
+        ("master_entry", "mediumint unsigned", False), ("flag", "mediumint unsigned", False),
+        ("search_range", "mediumint unsigned", False)],
+    "game_event_creature_data": [
+        ("guid", "int unsigned", False), ("entry_id", "mediumint unsigned", False),
+        ("modelid", "mediumint unsigned", False), ("equipment_id", "mediumint unsigned", False),
+        ("spell_start", "mediumint unsigned", False), ("spell_end", "mediumint unsigned", False),
+        ("event", "smallint unsigned", False)],
+}
+COLUMNS.update({table: [column[0] for column in columns]
+                for table, columns in SPAWN_CONTEXT_SCHEMA.items()})
+
 
 # Pinned sql/scriptdev2/spell.sql, not the historical command/delay table.
 REGISTRY_SCHEMA = {

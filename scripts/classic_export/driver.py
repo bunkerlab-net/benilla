@@ -14,6 +14,8 @@ from .core import (ExportError, MAX_ROW_BYTES, MAX_SCHEMA_BYTES, MAX_TABLE_BYTES
                    integer, normalize_version_notes, schema_profile)
 from .capture import Query
 from .quest_columns import KEYS as QUEST_PRESENTATION_KEYS
+from .columns import SPAWN_CONTEXT_SCHEMA
+from .core import KEYS
 
 class LocalSqlSource:
     def __init__(self, database: str, user: str, port: int = 3306):
@@ -105,7 +107,7 @@ class LocalSqlSource:
                   "schema.registry_key_metadata")
             result["tables"]["spell_scripts"]["primary_key"] = [row["name"] for row in keys]
         from .initial_hooks import PRIMARY_KEYS
-        for table, expected in (PRIMARY_KEYS | EVENT_TEXT_PRIMARY_KEYS | LOOT_PRIMARY_KEYS | SPAWN_ENTRY_PRIMARY_KEYS | QUEST_PRESENTATION_KEYS | {"spell_template": ("Id",), "spell_facing": ("entry",)}).items():
+        for table, expected in (PRIMARY_KEYS | EVENT_TEXT_PRIMARY_KEYS | LOOT_PRIMARY_KEYS | SPAWN_ENTRY_PRIMARY_KEYS | QUEST_PRESENTATION_KEYS | {table: KEYS[table] for table in SPAWN_CONTEXT_SCHEMA} | {"spell_template": ("Id",), "spell_facing": ("entry",)}).items():
             if table not in result["tables"]:
                 continue
             keys = self._select(

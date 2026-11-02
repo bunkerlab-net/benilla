@@ -12,6 +12,7 @@ from . import event_ai, event_text, starter, learning, native_spawn, spell_regis
 from . import spell_numeric
 from . import quest_presentation
 from . import loot_loader
+from . import spawn_context
 from .core import (CORE_REVISION, DATABASE_REVISION, FORMAT, STARTER_FORMAT, KEYS, MAX_BUNDLE_BYTES,
                    MAX_ITEMS, MAX_QUESTS, MAX_ROWS, MAX_SCHEMA_BYTES, MAX_SPELLS, Selection,
                    canonical, check, digest, integer, normalize_rows, normalize_version_notes,
@@ -45,6 +46,8 @@ class Query:
         check(not self.source_names or self.table in event_text.TABLES, "query.source_names")
         check(self.table != spawn_entries.TABLE or self.mode == spawn_entries.MODE,
               "query.spawn_entry_mode")
+        check(self.table not in spawn_context.TABLES or self.mode == spawn_context.MODE,
+              "query.spawn_context_mode")
         integer(self.limit, 1, MAX_ROWS, "query.limit")
         names = self.source_names or tuple(COLUMNS[self.table])
         check(len(names) == len(COLUMNS[self.table]), "query.source_names")
@@ -125,6 +128,16 @@ class Query:
                 integer(value, 1, 0xffffffff, "query.spawn_entry_domain")
             where = f"`guid` IN ({','.join(['%s']*len(self.ids))})"
             params = self.ids
+        elif self.mode == spawn_context.MODE:
+            check(self.table in spawn_context.TABLES and self.selection is None
+                  and 0 < len(self.ids) <= MAX_ROWS, "query.spawn_context_selectors")
+            check(tuple(sorted(set(self.ids))) == self.ids, "query.spawn_context_order")
+            for value in self.ids:
+                integer(value, 1, 0xffffffff, "query.spawn_context_domain")
+            fields = spawn_context.FIELDS[self.table]
+            where = " OR ".join(f"`{field}` IN ({','.join(['%s']*len(self.ids))})"
+                                for field in fields)
+            params = self.ids * len(fields)
         elif self.mode == quest_relationships.MODE:
             check(self.table == "quest_template" and self.selection is None
                   and 0 < len(self.ids) <= MAX_QUESTS, "query.quest_relationship_selectors")
@@ -179,7 +192,8 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             capture_quest_relationships: bool = False,
             capture_spawn_entries: bool = False,
             capture_spell_numeric: bool = False,
-            capture_quest_presentation: bool = False) -> dict[str, Any]:
+            capture_quest_presentation: bool = False,
+            capture_spawn_context: bool = False) -> dict[str, Any]:
     selection = Selection.parse(selection.json())
     if dependency_request is not None:
         learning.request(dependency_request, selection)
@@ -195,6 +209,9 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
     check(type(capture_quest_presentation) is bool, "quest_presentation.request_boolean")
     check(not capture_quest_presentation or selection.starter is not None, "quest_presentation.source_v2_required")
     capture_quest_relationships = capture_quest_relationships or capture_quest_presentation
+    check(type(capture_spawn_context) is bool, "spawn_context.request_boolean")
+    check(not capture_spawn_context or selection.starter is not None, "spawn_context.starter_required")
+    capture_spawn_entries = capture_spawn_entries or capture_spawn_context
     minimum = required_tables(selection)
     if capture_quest_presentation:
         minimum.update(quest_presentation.TABLES)
@@ -203,6 +220,8 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
         minimum.add("spell_facing")
     if capture_spawn_entries:
         minimum.add(spawn_entries.TABLE)
+    if capture_spawn_context:
+        minimum.update(spawn_context.TABLES)
     if (selection.starter is not None and type(inventory) is dict
             and type(inventory.get("tables")) is dict):
         minimum.update(set(event_text.TABLES) & set(inventory["tables"]))
@@ -258,6 +277,9 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
         if capture_spawn_entries:
             tables[spawn_entries.TABLE] = get(spawn_entries.TABLE,
                 set(spawn_entries.selected_guids(tables)), mode=spawn_entries.MODE)
+        if capture_spawn_context:
+            for table, ids in spawn_context.selectors(tables).items():
+                tables[table] = get(table, set(ids), mode=spawn_context.MODE)
         creature_ids = {r["id"] for r in spawns if r["id"] > 0}
         quest_ids = set(selection.quest_ids)
         for table in ["creature_questrelation", "creature_involvedrelation"]:
@@ -465,6 +487,8 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             bundle["initial_hook_capture"] = initial_hooks.evidence(bundle)
         if capture_spawn_entries:
             bundle["spawn_entry_capture"] = spawn_entries.evidence(bundle)
+        if capture_spawn_context:
+            bundle["spawn_context_capture"] = spawn_context.evidence(bundle)
         if capture_quest_relationships:
             bundle["quest_relationship_capture"] = quest_relationships.evidence(bundle, inbound_quests)
         if capture_quest_presentation:
@@ -510,6 +534,8 @@ def validate_bundle(bundle: Any) -> None:
         expected.add("quest_relationship_capture")
     if "spawn_entry_capture" in bundle:
         expected.add("spawn_entry_capture")
+    if "spawn_context_capture" in bundle:
+        expected.add("spawn_context_capture")
     check(set(bundle) == expected, "bundle.fields")
     check(bundle["format"] in {FORMAT, STARTER_FORMAT} and bundle["core_revision"] == CORE_REVISION
           and bundle["database_revision"] == DATABASE_REVISION and bundle["client_build"] == 5875,
@@ -573,6 +599,10 @@ def validate_bundle(bundle: Any) -> None:
     if "native_spawn_capture" in bundle:
         check(selection.starter is not None, "native_spawn.starter_selection_required")
         native_spawn.validate(bundle)
+    check(bool(set(spawn_context.TABLES) & set(bundle["tables"])) == ("spawn_context_capture" in bundle),
+          "spawn_context.coverage_required_with_tables")
+    if "spawn_context_capture" in bundle:
+        spawn_context.validate(bundle)
     check(bool(set(initial_hooks.TABLES) & set(bundle["tables"])) == ("initial_hook_capture" in bundle),
           "initial_hooks.coverage_required_with_tables")
     if "initial_hook_capture" in bundle:

@@ -163,3 +163,18 @@ live sets, implement string-map registration, or bypass event/inWorld ownership.
 Missing catalogs do not default to empty; authored fixture zeros are explicit
 synthetic inputs. Old initializer/generation policies and native80 checkpoints
 are rejected rather than migrated.
+
+## Captured static spawn loader
+
+`CapturedSpawnContext::compile` requires exact selected GUID coverage and complete
+alternative, conditional, group, linking, event and pool exclusions.
+`bind_generation` supplies captured respawn endpoints and the actual effective
+spawn-template row to this existing owner. `bind_motion` supplies DB respawn
+coordinates, orientation and Idle/Wander selection without replacing independent
+Home, capability, world-rule or geometry inputs.
+See the [capture and source contract](../../scripts/classic_export/SPAWN-ENTRY-CONTRACT.md#selected-ordinary-spawn-context)
+for normalization, supported overrides, refusal scope and pinned algorithms.
+Missing default template zero is not a synthetic default. Groups, linked respawns,
+pools, events and all alternative rows refuse. Ordinary assistance still needs
+its separate live source traversal. This adapter does not prove cold map order,
+enable arbitrary loaded-cache reopening, or inhabit `NativeCapability`.

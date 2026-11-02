@@ -1188,6 +1188,9 @@ pub(crate) mod resident_fixture;
 #[path = "player_melee_tests.rs"]
 mod player_melee_tests;
 
+#[path = "spawn_context_tests.rs"]
+mod spawn_context_tests;
+
 #[test]
 fn dead_body_liveness_blocks_stock_cast_and_move_and_release_stays_unavailable_after_reopen() {
     let h = Harness::new();

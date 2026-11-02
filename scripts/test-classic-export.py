@@ -18,8 +18,9 @@ import getpass
 from classic_export.capture import Query, capture, validate_bundle
 from classic_export.columns import (COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA, SPAWN_SCHEMA,
                                     REGISTRY_SCHEMA, EVENT_TEXT_SCHEMA, EVENT_TEXT_PRIMARY_KEYS,
-                                    LOOT_SCHEMA, LOOT_PRIMARY_KEYS, SPAWN_ENTRY_SCHEMA, SPAWN_ENTRY_PRIMARY_KEYS)
-from classic_export import starter, quest_relationships, spawn_entries
+                                    LOOT_SCHEMA, LOOT_PRIMARY_KEYS, SPAWN_ENTRY_SCHEMA, SPAWN_ENTRY_PRIMARY_KEYS,
+                                    SPAWN_CONTEXT_SCHEMA)
+from classic_export import starter, quest_relationships, spawn_entries, spawn_context
 from classic_export.core import (ExportError, MAX_ROWS, Selection, TEXT_COLUMNS,
                                  canonical, decode_json, digest, normalize_cell,
                                  normalize_rows, schema_profile)
@@ -37,9 +38,9 @@ def schema():
             if name in FLOAT_FIELDS:
                 kind = "decimal(40,20)"
             columns.append({"name": name, "type": kind, "nullable": False, "ordinal": ordinal})
-        if table in (LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA | EVENT_TEXT_SCHEMA | LOOT_SCHEMA | SPAWN_ENTRY_SCHEMA):
+        if table in (LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA | EVENT_TEXT_SCHEMA | LOOT_SCHEMA | SPAWN_ENTRY_SCHEMA | SPAWN_CONTEXT_SCHEMA):
             columns = [{"name": name, "type": kind, "nullable": nullable, "ordinal": ordinal}
-                       for ordinal, (name, kind, nullable) in enumerate((LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA | EVENT_TEXT_SCHEMA | LOOT_SCHEMA | SPAWN_ENTRY_SCHEMA)[table], 1)]
+                       for ordinal, (name, kind, nullable) in enumerate((LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA | EVENT_TEXT_SCHEMA | LOOT_SCHEMA | SPAWN_ENTRY_SCHEMA | SPAWN_CONTEXT_SCHEMA)[table], 1)]
         tables[table] = {"engine": "InnoDB", "table_type": "BASE TABLE", "columns": columns}
         if table in REGISTRY_SCHEMA:
             tables[table]["primary_key"] = ["Id"]
@@ -47,6 +48,9 @@ def schema():
             tables[table]["primary_key"] = EVENT_TEXT_PRIMARY_KEYS[table].copy()
         if table in (LOOT_PRIMARY_KEYS | SPAWN_ENTRY_PRIMARY_KEYS):
             tables[table]["primary_key"] = (LOOT_PRIMARY_KEYS | SPAWN_ENTRY_PRIMARY_KEYS)[table].copy()
+        if table in SPAWN_CONTEXT_SCHEMA:
+            from classic_export.core import KEYS
+            tables[table]["primary_key"] = list(KEYS[table])
     return {"format_version": 1, "tables": tables}
 
 def row(table, **changes):
@@ -137,10 +141,44 @@ class FakeSource:
             values = [r for r in values if r["quest"] in query.ids]
         elif query.mode == "event_ai_selectors":
             values = [r for r in values if r["creature_id"] in query.ids]
+        elif query.mode == spawn_context.MODE:
+            values = [r for r in values if any(r[field] in query.ids
+                                              for field in spawn_context.FIELDS[query.table])]
         else:
             from classic_export.core import KEYS
             values = [r for r in values if r[KEYS[query.table][0]] in query.ids]
         return copy.deepcopy(values[:query.limit+1])
+
+class SpawnContextCaptureTests(unittest.TestCase):
+    def test_complete_empty_and_bidirectional_link_queries(self):
+        source = starter_source()
+        source.rows["creature_linking"] = [row("creature_linking", guid=17, master_guid=1, flag=1)]
+        source.rows["creature_linking_template"] = [
+            row("creature_linking_template", entry=17, master_entry=900001, map=0, flag=1)]
+        bundle = capture(source, starter_selection(), capture_spawn_context=True)
+        validate_bundle(bundle)
+        self.assertEqual(bundle["tables"]["creature_linking"][0]["guid"], 17)
+        self.assertEqual(bundle["tables"]["creature_linking_template"][0]["entry"], 17)
+        scope = spawn_context.scope(bundle, 1, 900001)
+        self.assertEqual(scope["spawn_group_spawn"], [])
+        self.assertEqual(len(scope["creature_linking"]), 1)
+        self.assertFalse(bundle["spawn_context_capture"]["source_loader_order_proven"])
+        queries = [sql for sql, _ in source.queries if "FROM `creature_linking`" in sql]
+        self.assertIn("`guid` IN (%s) OR `master_guid` IN (%s)", queries[0])
+
+    def test_unknown_and_orphan_coverage_refuse(self):
+        bundle = capture(starter_source(), starter_selection())
+        self.assertIsNone(spawn_context.scope(bundle, 1, 900001))
+        bundle = capture(starter_source(), starter_selection(), capture_spawn_context=True)
+        bundle.pop("spawn_context_capture")
+        with self.assertRaisesRegex(ExportError, "spawn_context.coverage_required"):
+            validate_bundle(bundle)
+        for table in spawn_context.TABLES:
+            source = starter_source()
+            source.inventory["tables"][table]["primary_key"] = []
+            with self.subTest(table=table), self.assertRaises(ExportError):
+                capture(source, starter_selection(), capture_spawn_context=True)
+
 
 class ExportTests(unittest.TestCase):
     def test_original_capture_is_valid_and_explicitly_not_runnable(self):

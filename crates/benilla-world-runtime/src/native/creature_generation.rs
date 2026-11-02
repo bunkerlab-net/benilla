@@ -10,6 +10,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 mod captured;
 pub use captured::{CreatureCapturedFactionTemplate, CreatureCapturedInput, CreatureCapturedRow};
+mod spawn_context;
+pub use spawn_context::{CapturedSpawnContext, CompiledSpawnContext, SelectedSpawn};
+#[cfg(test)]
+mod spawn_context_tests;
 
 pub const CREATURE_GENERATION_POLICY: &str = "cmangos-8ec338a1-native-creature-generation-v5";
 pub const MAX_CREATURE_GENERATIONS: usize = 256;

@@ -959,6 +959,69 @@ class TalentInputTests(unittest.TestCase):
         with self.assertRaises(ExportError):
             verify_preparation(value, source, tables)
 
+class SelectedSpawnContextTests(unittest.TestCase):
+    def compile(self, mutate=None):
+        source = source_input()
+        source.rows["creature"][0].update(MovementType=1, spawndist=5,
+            spawntimesecsmin=7, spawntimesecsmax=9)
+        if mutate:
+            mutate(source)
+        bundle = capture(source, export_tests.starter_selection(), capture_spawn_context=True)
+        result = compile_starter(bundle, parsed(dbcs_for(bundle)), Request(1, 1, 0))
+        verify_preparation(result, bundle, parsed(dbcs_for(bundle)))
+        return result
+
+    def test_radius_five_respawn_and_narrow_obligation_replacement(self):
+        result = self.compile()
+        plan = result["creatures"][0]["spawn_context_plan"]
+        self.assertEqual(plan["status"], "supported_shape")
+        self.assertEqual(plan["spawns"][0]["radius_binary32"], 0x40a00000)
+        self.assertEqual(plan["spawns"][0]["respawn_seconds"], [7, 9])
+        reasons = {row["reason"] for row in result["unsupported"]}
+        self.assertNotIn("movement.native_rules_required", reasons)
+        self.assertNotIn("creature.deterministic_respawn_selection_required", reasons)
+        self.assertNotIn("creature.unexported_groups_assistance_context", reasons)
+        self.assertIn("creature.cold_loader_order_required", reasons)
+        self.assertIn("creature.assistance_runtime_traversal_required", reasons)
+        self.assertIsNone(result["runtime_export"])
+        self.assertFalse(plan["production_admission"])
+        disposition = next(row for row in result["source_field_dispositions"] if row["table"] == "creature")
+        self.assertEqual(disposition["blocked_for_gameplay"], {})
+        self.assertTrue(any(row["reason"] == "movement.native_rules_required"
+                            and row["disposition"] == "supported_shape"
+                            for row in result["source_capture_findings"]))
+
+    def test_supported_sheath_addon_is_not_reported_as_an_unowned_hook(self):
+        result = self.compile(lambda source: source.rows["creature_addon"].append(
+            export_tests.row("creature_addon", guid=1, sheath_state=1, auras=None)))
+        self.assertEqual(result["creatures"][0]["spawn_context_plan"]["status"], "supported_shape")
+        self.assertNotIn("creature.applicable_spawn_hooks_require_execution",
+                         {row["reason"] for row in result["unsupported"]})
+        disposition = next(row for row in result["source_field_dispositions"] if row["table"] == "creature_addon")
+        self.assertEqual(disposition["blocked_for_gameplay"], {})
+
+    def test_memberships_alternatives_and_unsupported_overrides_remain_blocking(self):
+        for table, values in [
+            ("spawn_group_spawn", {"Guid": 1, "Id": 13}),
+            ("creature_linking", {"guid": 17, "master_guid": 1}),
+            ("creature_linking_template", {"entry": 17, "master_entry": 900001}),
+            ("game_event_creature_data", {"guid": 1}),
+            ("game_event_creature", {"guid": 1, "event": -2}),
+            ("pool_creature", {"guid": 1}),
+            ("pool_creature_template", {"id": 900001}),
+            ("creature_spawn_entry", {"guid": 1, "entry": 8}),
+            ("creature_conditional_spawn", {"Guid": 1}),
+        ]:
+            with self.subTest(table=table):
+                result = self.compile(lambda source: source.rows[table].append(export_tests.row(table, **values)))
+                self.assertEqual(result["creatures"][0]["spawn_context_plan"]["status"], "blocked")
+                self.assertIn("creature.deterministic_respawn_selection_required",
+                              {row["reason"] for row in result["unsupported"]})
+        result = self.compile(lambda source: source.rows["creature_spawn_data_template"][0].update(RelayId=9))
+        self.assertIn("spawn.override_execution_required", {row["reason"] for row in result["unsupported"]})
+        result = self.compile(lambda source: source.rows["creature_spawn_data_template"].clear())
+        self.assertIn("creature.default_spawn_template_absent", {row["reason"] for row in result["unsupported"]})
+
 class NativeSpawnPreparationTests(unittest.TestCase):
     setUp = CompilerTests.setUp
     compile = CompilerTests.compile
