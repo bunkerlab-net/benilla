@@ -376,8 +376,9 @@ pub fn unix_seconds() -> i64 {
 /// run for the platform's own `localtime_r` too), and the drop puts the old `TZ` and zone back.
 /// The process reads its zone once (`0x414568`), so a test sets it here and never through `TZ`
 /// alone. On Windows the zone is the one the runtime reads from `TZ` (`put_tz`), with the
-/// `_dstbias` a system zone like it has, which unix derives the same way. Behind `test-support`
-/// for the tests of crates that read local time through [`local`].
+/// `_dstbias` a system zone like it has, which unix derives the same way. Restoring the saved
+/// Windows bias follows the zone read, whose `_tzset` can overwrite it when `TZ` is absent.
+/// Behind `test-support` for the tests of crates that read local time through [`local`].
 #[cfg(any(test, feature = "test-support"))]
 #[doc(hidden)]
 pub struct ZoneGuard {
@@ -400,6 +401,7 @@ impl ZoneGuard {
         #[cfg(windows)]
         let old_dstbias = platform::dstbias();
         put_tz(Some(tz.as_ref()));
+        // Set the fixture bias before caching it. UCRT's TZ path leaves it unchanged on reread.
         #[cfg(windows)]
         platform::hold_dstbias(None);
         reread_zone();
@@ -417,12 +419,12 @@ impl ZoneGuard {
     fn restore(&self) {
         put_tz(self.old.as_deref());
         #[cfg(windows)]
-        {
-            test_crt::set(self.old_crt.as_deref());
-            platform::hold_dstbias(Some(self.old_dstbias));
-        }
+        test_crt::set(self.old_crt.as_deref());
         reread_zone();
         drop(zone());
+        // With no TZ, UCRT's system-zone read overwrites even a previously saved bias.
+        #[cfg(windows)]
+        platform::hold_dstbias(Some(self.old_dstbias));
     }
 }
 
@@ -544,6 +546,8 @@ mod tests {
         } else {
             "EST5EDT,M3.2.0,M11.1.0"
         });
+        #[cfg(windows)]
+        assert_eq!(platform::dstbias(), -3600);
         // 2024-03-10 07:00 UTC, when 02:00 EST becomes 03:00 EDT.
         let at = 1_710_054_000;
         assert_eq!(local(at - 1).0.hour, 1);
