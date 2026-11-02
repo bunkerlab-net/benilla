@@ -80,6 +80,11 @@ limits. Preparation uses sorted presentation field names so JSON object key
 order cannot change its identity. JSON decoding has a 128-level nesting bound
 and a 4,000,000-value bound in addition to each input's byte limit.
 
+The combined corpus retains both initial spell execution fixtures and creature
+combat evidence fixtures. Every preparation is rebuilt from its authored source,
+DBC bytes, extraction metadata, request, and rules after either plan changes.
+Fixture JSON is compact to keep the combined corpus below the 8 MiB reader limit.
+
 The corpus includes same-snapshot quest completion scripts, source items and
 gossip lookup closure, exact SQL skill-training probes and profession repair,
 and selected spawn-context exclusions. Complete-empty exclusions retain cold

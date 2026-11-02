@@ -187,6 +187,19 @@ class PreparationVerifierParityTests(unittest.TestCase):
         self.assertFalse(plan["cold_loader"]["sql_order_is_runtime_order"])
         self.assertFalse(plan["production_admission"])
 
+    def test_combined_spell_and_combat_fixtures_retain_both_plans(self):
+        fixtures = {f["name"]: f["preparation"] for f in corpus()["fixtures"]}
+        for name in ("initial-spell-execution", "initial-spell-execution-refusals",
+                     "combat-defensive"):
+            with self.subTest(fixture=name):
+                preparation = fixtures[name]
+                self.assertTrue(preparation["spells"])
+                self.assertTrue(preparation["creatures"])
+                self.assertTrue(all("execution_plan" in spell
+                                    for spell in preparation["spells"]))
+                self.assertTrue(all("combat_evidence_plan" in creature
+                                    for creature in preparation["creatures"]))
+
     def test_extension_fixtures_retain_supported_shapes_and_unknown_host_proof(self):
         fixtures = {f["name"]: f for f in corpus()["fixtures"]}
         mechanics = fixtures["mechanics-spawn"]
