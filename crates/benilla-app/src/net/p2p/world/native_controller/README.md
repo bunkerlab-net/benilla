@@ -314,6 +314,17 @@ that boundary without reapplying grants. Restored inventory sends descriptors, n
 reward notifications. These authored tests do not establish real client rendering
 or production native-content admission.
 
+The starter-learning corridor uses a 500 ms authored fixed tick and two kills:
+one melee kill for weapon training and one spell kill for cast resume. Both paths
+still compare every tick's transcript, save before publication, and reopen at the
+same boundaries. The shared corpse generation still expires through the unchanged
+120-second loot inspection timer. Increasing pump debt would still execute every
+fixed tick; the test does not sleep or bypass checkpoints. The separate
+`captured_ten_kills_loot_rewards_and_followup_match_uninterrupted_checkpoint_and_transcript`
+test retains ten-kill quest completion, loot, follow-up, and resumed transcript
+coverage. The selected periodic spell's 500 ms amplitude bounds the fixture tick;
+the test does not change spell inputs to admit a coarser clock.
+
 ## Verification boundary
 
 `cargo test -p benilla-world-controller-tests` compiles these exact app modules without

@@ -4,6 +4,10 @@ use super::*;
 use benilla_sim::creature_init as creature;
 use benilla_sim::{player_progression as pg, reputation as rep, starter_init as init};
 
+// One melee kill trains the starting weapon; one later spell kill tests cast resume.
+// The captured quest-giver corridor separately proves the ten-kill quest threshold.
+const LEARNING_KILLS: u32 = 2;
+
 macro_rules! assert_events_eq {
     ($actual:expr, $expected:expr) => {
         assert_eq!(format!("{:?}", $actual), format!("{:?}", $expected))
@@ -361,6 +365,9 @@ fn profile_with_bound_change(order_identity: u8, change: u8) -> n::Profile {
     )
     .unwrap();
     let mut scene = profile;
+    // The selected periodic spell permits at most 500 ms per simulated tick.
+    // Keep all spell inputs and the 120-second corpse timer unchanged.
+    scene.tick_ms = 500;
     let mut profile = n::synthetic_fixture::profile();
     profile.content_digest = scene.content_digest;
     profile.authority_policy = scene.authority_policy;
@@ -513,7 +520,7 @@ fn profile_with_bound_change(order_identity: u8, change: u8) -> n::Profile {
     cleanup.next_in_chain = 15;
     cleanup.special_flags = q::KILL | q::SPEAK;
     cleanup.required_creature = [loop_fixture::HOSTILE_ENTRY as i32, 0, 0, 0];
-    cleanup.required_creature_count = [10, 0, 0, 0];
+    cleanup.required_creature_count = [LEARNING_KILLS, 0, 0, 0];
     let mut next = intro.clone();
     next.id = 15;
     next.previous_quest = 7;
@@ -817,6 +824,7 @@ fn collect_and_release(c: &mut NativeController) -> Pump {
 }
 #[test]
 fn captured_learning_controller_creation_cast_level_rewards_and_reopen_are_identical() {
+    let started = std::time::Instant::now();
     let profile = profile(88);
     let h = Harness::new();
     let baseline_h = Harness::new();
@@ -834,15 +842,22 @@ fn captured_learning_controller_creation_cast_level_rewards_and_reopen_are_ident
             quest_command(&mut baseline, quest, false).events
         );
         if quest == 7 {
-            for kill_index in 0..10 {
-                // Opening loot retains the source's 120-second inspection timer.
-                for _ in 0..1500 {
+            for kill_index in 0..LEARNING_KILLS {
+                // Keep the real 120-second inspection timer and compare every durable tick.
+                let wait_started = std::time::Instant::now();
+                let wait_tick = c.tick();
+                for _ in 0..300 {
                     if c.world.state().npcs[&loop_fixture::HOSTILE].health > 0 {
                         break;
                     }
                     assert_events_eq!(step(&mut c).events, step(&mut baseline).events);
                 }
                 assert!(c.world.state().npcs[&loop_fixture::HOSTILE].health > 0);
+                eprintln!(
+                    "starter_learning corpse wait {kill_index}: {} ticks, {:.3}s",
+                    c.tick() - wait_tick,
+                    wait_started.elapsed().as_secs_f64()
+                );
                 if kill_index == 0 {
                     c.receive(ClientCommand::AttackSwing {
                         guid: guid(&c, loop_fixture::HOSTILE),
@@ -853,7 +868,7 @@ fn captured_learning_controller_creation_cast_level_rewards_and_reopen_are_ident
                             guid: guid(&baseline, loop_fixture::HOSTILE),
                         })
                         .unwrap();
-                    for _ in 0..500 {
+                    for _ in 0..100 {
                         assert_events_eq!(step(&mut c).events, step(&mut baseline).events);
                         if c.world.state().npcs[&loop_fixture::HOSTILE].health == 0 {
                             break;
@@ -873,7 +888,7 @@ fn captured_learning_controller_creation_cast_level_rewards_and_reopen_are_ident
                         begin_cast(&mut baseline, loop_fixture::HOSTILE).events
                     );
                     c = reopen_learning(&h, c, &profile);
-                    for _ in 0..100 {
+                    for _ in 0..20 {
                         if c.world.state().npcs[&loop_fixture::HOSTILE].health == 0 {
                             break;
                         }
@@ -929,10 +944,15 @@ fn captured_learning_controller_creation_cast_level_rewards_and_reopen_are_ident
     assert!(enter_learning(&h, self::profile(90), true).is_err());
     assert!(enter_learning(&h, profile_with_bound_change(88, 1), true).is_err());
     assert!(enter_learning(&h, profile_with_bound_change(88, 2), true).is_err());
+    eprintln!(
+        "starter_learning creation/cast/rewards/reopen: {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
 }
 
 #[test]
 fn learning_reward_checkpoint_retry_publishes_once_without_replaying_learning() {
+    let started = std::time::Instant::now();
     let data = profile(88);
     let h = Harness::new();
     let baseline_h = Harness::new();
@@ -980,10 +1000,15 @@ fn learning_reward_checkpoint_retry_publishes_once_without_replaying_learning() 
     assert!(c.pump(Duration::ZERO).events.is_empty());
     let c = reopen_learning(&h, c, &data);
     assert_eq!(c.world.checkpoint().unwrap(), committed);
+    eprintln!(
+        "starter_learning checkpoint retry: {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
 }
 
 #[test]
 fn learning_hook_binder_refuses_unknown_registry_global_area_and_changed_hooks() {
+    let started = std::time::Instant::now();
     let (_, input, _) = loop_fixture::setup();
     let capture = captured(&input, [86; 32]);
     let plan = capture.compile(1, 8).unwrap();
@@ -1011,4 +1036,8 @@ fn learning_hook_binder_refuses_unknown_registry_global_area_and_changed_hooks()
         }
         assert!(changed.bind_learning_spell_rows(&plan, numeric).is_err());
     }
+    eprintln!(
+        "starter_learning hook binder: {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
 }
