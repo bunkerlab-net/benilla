@@ -8,8 +8,12 @@ pub(super) const MAX_DEPTH: usize = 128;
 const MAX_NODES: usize = 4_000_000;
 
 pub(super) fn read_regular(path: &Path, limit: usize) -> Result<Vec<u8>> {
-    let metadata = std::fs::symlink_metadata(path).map_err(|_| fail("input.file_unreadable"))?;
-    check(metadata.is_file(), "input.regular_file_required")?;
+    #[cfg(not(windows))]
+    {
+        let metadata =
+            std::fs::symlink_metadata(path).map_err(|_| fail("input.file_unreadable"))?;
+        check(metadata.is_file(), "input.regular_file_required")?;
+    }
     let mut options = OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
@@ -17,17 +21,49 @@ pub(super) fn read_regular(path: &Path, limit: usize) -> Result<Vec<u8>> {
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW | libc::O_CLOEXEC);
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // Open the final reparse point itself, including directory reparse points.
+        // https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x00200000;
+        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x02000000;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS);
+    }
+    #[cfg(not(any(unix, windows)))]
     return Err(fail("input.platform_not_supported"));
     let file = options
         .open(path)
         .map_err(|_| fail("input.file_unreadable"))?;
-    check(
-        file.metadata()
-            .map_err(|_| fail("input.file_unreadable"))?
-            .is_file(),
-        "input.regular_file_required",
-    )?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        // std's Windows FileType only distinguishes directories and symlinks.
+        // https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfiletype
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetFileType(handle: std::os::windows::io::RawHandle) -> u32;
+        }
+        const FILE_TYPE_DISK: u32 = 1;
+        // SAFETY: file owns a live handle throughout the call.
+        check(
+            unsafe { GetFileType(file.as_raw_handle()) } == FILE_TYPE_DISK,
+            "input.regular_file_required",
+        )?;
+    }
+    let metadata = file.metadata().map_err(|_| fail("input.file_unreadable"))?;
+    check(metadata.is_file(), "input.regular_file_required")?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        // Reject every reparse tag, not just the tags std recognizes as symlinks.
+        // https://learn.microsoft.com/en-us/windows/win32/fileio/file-attribute-constants
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x00000400;
+        check(
+            metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0,
+            "input.regular_file_required",
+        )?;
+    }
     let mut data = Vec::with_capacity((metadata.len() as usize).min(limit + 1));
     file.take(limit as u64 + 1)
         .read_to_end(&mut data)

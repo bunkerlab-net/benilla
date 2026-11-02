@@ -379,37 +379,111 @@ fn production_verifier_binds_whole_dbc_and_exact_extraction_bytes() {
         assert_eq!(inputs.run().unwrap_err().id, expected);
     }
 }
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn production_verifier_rejects_symlinks_fifos_and_devices_without_waiting() {
+    #[cfg(unix)]
     use std::os::unix::fs::symlink;
+    #[cfg(windows)]
+    use std::os::windows::fs::symlink_file as symlink;
     let data = corpus();
     let inputs = Inputs::new(&data["fixtures"][0]);
     let original = inputs.root.join("source.json");
     let link = inputs.root.join("link.json");
-    symlink(&original, &link).unwrap();
+    let linked = symlink(&original, &link);
+    #[cfg(unix)]
+    linked.unwrap();
+    #[cfg(windows)]
+    if let Err(error) = linked {
+        // ERROR_PRIVILEGE_NOT_HELD. Still exercise refusal without symlink privileges.
+        // https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-createsymboliclinkw
+        assert_eq!(error.raw_os_error(), Some(1314));
+        std::fs::create_dir(&link).unwrap();
+    }
     assert_eq!(
         json::read_regular(&link, 1024).unwrap_err().id,
         "input.regular_file_required"
     );
-    let fifo = inputs.root.join("fifo");
-    let result = std::process::Command::new("mkfifo")
-        .arg(&fifo)
-        .status()
-        .unwrap();
-    assert!(result.success());
-    assert_eq!(
-        json::read_regular(&fifo, 1024).unwrap_err().id,
-        "input.regular_file_required"
-    );
-    assert_eq!(
-        json::read_regular(Path::new("/dev/null"), 1024)
-            .unwrap_err()
-            .id,
-        "input.regular_file_required"
-    );
+    #[cfg(unix)]
+    {
+        let fifo = inputs.root.join("fifo");
+        let result = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap();
+        assert!(result.success());
+        assert_eq!(
+            json::read_regular(&fifo, 1024).unwrap_err().id,
+            "input.regular_file_required"
+        );
+        assert_eq!(
+            json::read_regular(Path::new("/dev/null"), 1024)
+                .unwrap_err()
+                .id,
+            "input.regular_file_required"
+        );
+    }
+    #[cfg(windows)]
+    {
+        let (pipe, _server) = named_pipe(&inputs);
+        assert_eq!(
+            json::read_regular(&pipe, 1024).unwrap_err().id,
+            "input.regular_file_required"
+        );
+        assert_eq!(
+            json::read_regular(Path::new(r"\\.\NUL"), 1024)
+                .unwrap_err()
+                .id,
+            "input.regular_file_required"
+        );
+    }
     assert_eq!(
         json::read_regular(&inputs.root, 1024).unwrap_err().id,
         "input.regular_file_required"
     );
+}
+
+#[cfg(windows)]
+fn named_pipe(inputs: &Inputs) -> (PathBuf, std::os::windows::io::OwnedHandle) {
+    use std::os::windows::{
+        ffi::OsStrExt,
+        io::{FromRawHandle, OwnedHandle},
+    };
+    // https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-createnamedpipew
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn CreateNamedPipeW(
+            name: *const u16,
+            open_mode: u32,
+            pipe_mode: u32,
+            max_instances: u32,
+            out_buffer_size: u32,
+            in_buffer_size: u32,
+            default_timeout: u32,
+            security_attributes: *mut std::ffi::c_void,
+        ) -> std::os::windows::io::RawHandle;
+    }
+    let path = PathBuf::from(format!(
+        r"\\.\pipe\{}",
+        inputs.root.file_name().unwrap().to_str().unwrap()
+    ));
+    let name: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    const PIPE_ACCESS_OUTBOUND: u32 = 2;
+    // SAFETY: name is NUL-terminated and the optional security attributes are null.
+    let handle = unsafe {
+        CreateNamedPipeW(
+            name.as_ptr(),
+            PIPE_ACCESS_OUTBOUND,
+            0,
+            1,
+            1024,
+            0,
+            0,
+            std::ptr::null_mut(),
+        )
+    };
+    assert_ne!(handle as isize, -1, "{}", std::io::Error::last_os_error());
+    // SAFETY: successful CreateNamedPipeW transfers a unique owned handle.
+    let server = unsafe { OwnedHandle::from_raw_handle(handle) };
+    (path, server)
 }

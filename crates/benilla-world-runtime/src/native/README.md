@@ -32,11 +32,18 @@ exclusion tables. Supported static spawn shapes still require actual cold
 loader order and assistance traversal. Neither source hashes nor a resolved
 quest or training plan discharge those independent host obligations.
 
-Regular-file reads reject symlink leaves, pipes, and devices before reading.
-JSON rejects duplicate keys, nonfinite numbers, invalid Unicode, nesting beyond
-128 levels, and more than 4,000,000 values. Source, DBC, text, field, dependency,
-and report bounds remain enforced. Imported strings and archive labels never
-become executable instructions or input filenames.
+On Unix and Windows, regular-file reads reject final symlinks, directories, pipes,
+and devices before reading. Unix opens use `O_NOFOLLOW` and `O_NONBLOCK`. Windows
+uses [`FILE_FLAG_OPEN_REPARSE_POINT` and `FILE_FLAG_BACKUP_SEMANTICS`](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)
+to inspect the opened object, requires [`GetFileType`](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfiletype)
+to report a disk file, and rejects every
+[`FILE_ATTRIBUTE_REPARSE_POINT`](https://learn.microsoft.com/en-us/windows/win32/fileio/file-attribute-constants)
+on the opened handle's metadata. This does not reject symlinks in parent paths.
+Both platforms read at most the input's byte limit plus one byte and retain the
+same diagnostic IDs. JSON rejects duplicate keys, nonfinite numbers, invalid
+Unicode, nesting beyond 128 levels, and more than 4,000,000 values. Source, DBC,
+text, field, dependency, and report bounds remain enforced. Imported strings and
+archive labels never become executable instructions or input filenames.
 
 The returned `benilla-production-input-identity-v1` binds the canonical source,
 selection, request, exact binary32 rules, extraction, compiler policy, and complete
