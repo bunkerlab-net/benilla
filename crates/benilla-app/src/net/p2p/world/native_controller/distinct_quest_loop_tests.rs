@@ -361,3 +361,6 @@ pub(crate) mod loaded;
 
 #[path = "starter_learning_tests.rs"]
 mod starter_learning;
+
+#[path = "captured_quest_giver_tests.rs"]
+mod captured_givers;

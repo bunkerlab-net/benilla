@@ -112,6 +112,8 @@ pub mod synthetic_distinct_quest_fixture;
 #[cfg(any(test, feature = "synthetic-native-tests"))]
 pub mod synthetic_event_ai_fixture;
 #[cfg(any(test, feature = "synthetic-native-tests"))]
+pub mod synthetic_quest_giver_fixture;
+#[cfg(any(test, feature = "synthetic-native-tests"))]
 pub mod synthetic_two_owner_fixture;
 pub use interactions::{
     CapturedFireballInput, CapturedSpellEffect, CapturedSpellFacing, CapturedSpellTemplate,

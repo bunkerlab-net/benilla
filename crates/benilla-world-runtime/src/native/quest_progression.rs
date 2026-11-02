@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 mod bindings;
 mod capacity;
+mod captured;
 mod derived;
 pub(in crate::native) mod equipment_movement;
 pub use equipment_movement::{

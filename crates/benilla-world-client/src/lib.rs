@@ -6,6 +6,7 @@ pub mod corpse_appearance;
 mod interactions;
 mod metadata;
 pub use metadata::QuestMetadata;
+pub mod captured_quests;
 
 use benilla_protocol::{messages as protocol, EntityKind, ObjectFields, SessionEvent};
 use benilla_world_data::QuestRelationKind;

@@ -5,6 +5,8 @@
 //! Bounded, solo ordinary quest lifecycle. See ../../QUEST-LIFECYCLE.md.
 //! All inventory, XP and currency changes occur on an isolated transaction host.
 //! The caller must durably commit host and State together before publishing events.
+mod captured;
+pub use captured::*;
 mod model;
 mod relationships;
 use crate::quest::{self, QuestPlayerIdentity, RewardContext};

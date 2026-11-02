@@ -89,3 +89,78 @@ fabrication of external rows/evidence cannot be detected by recomputed hashes.
 Removing this optional extension returns a legacy unknown capture, never an
 admitted world. No private SQL, dump execution, native admission, quests usable
 in normal gameplay, or Classic parity is established by these fake-source tests.
+
+## Captured ordinary givers and presentation
+
+For source-v2, `capture --quest-presentation` also captures incoming relationships.
+The optional `quest_giver_presentation_capture` extension preserves complete
+selected quest rows, including both request-emote delays, without changing legacy rows.
+It captures greeting rows, quest and greeting locales, spawn-keyed `npc_gossip`,
+both NPC-text sources, NPC-text locales, and reachable broadcast text and locales.
+All reads use the same snapshot and fixed, bounded, parameterised selectors.
+The extension binds the schema, base rows, selected keys, version notes, and text bytes.
+Legacy absence means unknown coverage.
+
+Canonical relation sorting does not establish loaded menu order.
+The SQL extension therefore records unknown loaded order, effective giver selection,
+callback registration, global SpellArea and item effects, session locale, and dialog policy.
+The preparation `quest_giver_presentation_plan` retains each independent refusal.
+It never turns zero script IDs or a blank template ScriptName into absent callbacks.
+
+`CapturedOrdinaryQuests` accepts independently resolved source projections.
+`QuestDependencySource::resolve` checks the actual selected giver identities and
+loaded script registration before it creates private `ResolvedQuestDependencies`.
+The bounded resolver refuses present callbacks, nonempty global SpellArea,
+item-deletion effects, and any present default gossip menu or options.
+This conservative gossip domain does not admit McBride's real gossip menu.
+The runtime binder checks actual profile spawns and effective flags.
+The existing progression constructor still owns rewards, rates, skills, XP, reputation, and loot.
+
+`CapturedQuestPresentation` derives the existing quest metadata and greeting values.
+The full client catalog delegates only its three quest methods to that immutable output.
+The caller combines its digest with the full client manifest.
+It supplies the explicit session database-locale mapping and complete Emotes lookup.
+Extraction v4 adds Emotes to the exact 21-table contract.
+Extraction v3 remains valid for its original 20 tables, but does not prove greeting-emote validity.
+The adapter preserves `$N` and `$B` and rejects differing same-entry spawn greetings.
+The existing projection independently checks gameplay metadata and selects single-quest
+details, request/offer panels, or the ordered menu.
+
+The eager closure is unchanged. Every quest attached to a selected giver remains selected.
+Quest 15's reference to 21 cannot disappear, and CompleteScript=21 refuses that closure.
+Source-item quest 3104 independently refuses with its exact quest, field, and target.
+There is no ignore switch, endpoint truncation, dormant-row admission, or production capability.
+Authored positive short-chain tests are not evidence that the real Northshire catalog is admitted.
+
+The GPL-derived algorithms use CMaNGOS Classic at the pin above:
+
+- [LoadQuests and locale loading, ObjectMgr.cpp:4231-4990](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Globals/ObjectMgr.cpp#L4231-L4990).
+- [LoadQuestRelationsHelper and creature relation loaders, ObjectMgr.cpp:7940-8035](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Globals/ObjectMgr.cpp#L7940-L8035).
+- [Greeting and locale loaders, ObjectMgr.cpp:5775-5909](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Globals/ObjectMgr.cpp#L5775-L5909).
+- [GetGossipTextId, Player.cpp:11963-11972](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Player.cpp#L11963-L11972).
+- [SendPreparedQuest, Player.cpp:12087-12181](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Player.cpp#L12087-L12181).
+- [Dialog status, QuestHandler.cpp:628-744](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Quests/QuestHandler.cpp#L628-L744).
+- [Gossip/dialog/accept/reward callback selection, ScriptDevAIMgr.cpp:164-328](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/AI/ScriptDevAI/ScriptDevAIMgr.cpp#L164-L328).
+- [Quest packet bindings, GossipDef.cpp:300-585](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/GossipDef.cpp#L300-L585).
+- [Quest query handling, QuestHandler.cpp:219-235](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Quests/QuestHandler.cpp#L219-L235).
+- [AddQuest and RewardQuest, Player.cpp:12460-12735](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Player.cpp#L12460-L12735).
+- [BroadcastText::GetText, ObjectMgr.h:113-128](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Globals/ObjectMgr.h#L113-L128).
+
+Copyright belongs to CMaNGOS Project contributors. Upstream permits GPL-2.0-or-later.
+The Rust and Python translations use GPL-3.0-or-later, without warranty.
+
+
+## Persisted presentation identity gap
+
+The compiled presentation digest changes when its text, greeting, locale, or raw
+presentation input changes. The full client catalog can use that digest in its
+manifest. `NativeProjection::new` validates the current catalog's map, display,
+spell, item, and quest bindings, but accepts any nonzero current manifest digest.
+It has no previous expected manifest to compare on reopen.
+`NativeStore::Identity` retains world, player, gameplay profile, and domain only.
+Therefore a text-only or locale-only change does not currently refuse `Entry::Open`.
+Persisted client-manifest binding remains an explicit gap.
+This adapter does not add saved fields or change native identity or restore policy.
+The controller tests assert digest changes and unchanged-catalog save/reopen,
+not rejection of a changed presentation catalog on reopen.
+

@@ -97,7 +97,7 @@ def parsed(files):
 
 
 def extraction_metadata(files):
-    return {"format": "benilla-native-dbc-extraction-v3",
+    return {"format": "benilla-native-dbc-extraction-v4",
             "chain_policy": "benilla-formats-vanilla-chain", "client_build_claim": 5875,
             "client_build_authenticity_verified": False,
             "files": [{**table.manifest(), "winning_archive": "dbc.MPQ"}
@@ -1269,7 +1269,7 @@ class RegistryAndDisplayPreparationTests(unittest.TestCase):
         with self.assertRaisesRegex(ExportError, "preparation_mismatch"):
             verify_preparation(original, self.source, parsed(self.files))
 
-    def test_v3_manifest_required_and_changed_bytes_are_bound(self):
+    def test_v4_manifest_required_for_expanded_set_and_changed_bytes_are_bound(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
             metadata = extraction_metadata(self.files)
@@ -1278,7 +1278,7 @@ class RegistryAndDisplayPreparationTests(unittest.TestCase):
                 (directory/"extraction.json").write_bytes(canonical(metadata))
                 with self.assertRaisesRegex(ExportError, "legacy_manifest_reextract_v3_required"):
                     load_extraction_manifest(directory, parsed(self.files))
-            metadata["format"] = "benilla-native-dbc-extraction-v3"
+            metadata["format"] = "benilla-native-dbc-extraction-v4"
             (directory/"extraction.json").write_bytes(canonical(metadata))
             self.assertTrue(load_extraction_manifest(directory, parsed(self.files))["integrity_verified"])
             self.files["CreatureDisplayInfo"] = dbc_bytes("CreatureDisplayInfo", [{0: 940001, 4: binary32_bits("3")}])
@@ -1705,6 +1705,48 @@ class CreatureGenerationPreparationTests(unittest.TestCase):
         rehash_source(self.source)
         self.assertEqual(self.compile()["creatures"][0]["generation_plan"]["status"], "complete_inputs")
 
+
+class QuestGiverPreparationTests(unittest.TestCase):
+    def test_scoped_plan_preserves_independent_holds_and_raw_text(self):
+        from native_starter.quest_plan import supported_plan as quest_plan
+        source = export_tests.authored_presentation_source()
+        bundle = capture(source, export_tests.starter_selection(), capture_quest_presentation=True)
+        dbcs = {"Emotes": parse_table("Emotes", dbc_bytes("Emotes", [{0: 1}]))}
+        plan = quest_plan(bundle, dbcs)
+        self.assertTrue(plan["raw_presentation_resolved"])
+        self.assertFalse(plan["ordinary_catalog_resolved"])
+        self.assertEqual(plan["status"], "blocked")
+        self.assertIsNone(plan["runtime_export"])
+        self.assertIn("registered_callbacks", {row["field"] for row in plan["refusals"]})
+        self.assertIn("loaded_relation_order", {row["field"] for row in plan["refusals"]})
+        self.assertIn("CompleteEmoteDelay", plan["field_dispositions"]["quest_template"]["consumed_by_ordinary_presentation"])
+        del dbcs["Emotes"]
+        self.assertIn("unknown_coverage_reextract_v4", {row["reason"] for row in quest_plan(bundle, dbcs)["refusals"]})
+
+    def test_legacy_capture_and_unsupported_request_delay_remain_refusals(self):
+        from native_starter.quest_plan import supported_plan as quest_plan
+        self.assertFalse(quest_plan(source_bundle(), parsed(dbcs_for(source_bundle())))["raw_presentation_resolved"])
+        source = export_tests.authored_presentation_source()
+        source.rows["quest_template"][0]["CompleteEmoteDelay"] = 20
+        bundle = capture(source, export_tests.starter_selection(), capture_quest_presentation=True)
+        refusals = quest_plan(bundle, {})["refusals"]
+        self.assertIn(("CompleteEmoteDelay", 20, "unsupported_packet_shape"),
+            {(row["field"], row["target"], row["reason"]) for row in refusals})
+
+    def test_extraction_v3_remains_legacy_without_claiming_emotes(self):
+        files = dbcs_for(source_bundle())
+        files.pop("Emotes")
+        value = extraction_metadata(files)
+        value["format"] = "benilla-native-dbc-extraction-v3"
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root)
+            (path / "extraction.json").write_bytes(canonical(value))
+            observed = load_extraction_manifest(path, parsed(files))
+            self.assertEqual(observed["metadata"]["format"], "benilla-native-dbc-extraction-v3")
+            value["format"] = "benilla-native-dbc-extraction-v4"
+            (path / "extraction.json").write_bytes(canonical(value))
+            with self.assertRaisesRegex(ExportError, "complete_valid_dbc_set"):
+                load_extraction_manifest(path, parsed(files))
 
 if __name__ == "__main__":
     unittest.main()

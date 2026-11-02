@@ -59,6 +59,17 @@ Facing absence is neutral only after a complete selected read.
 The extension grants no registry, hook, learning, initial-cast, global-area,
 NPC, geometry, or world-entry authority.
 
+## Optional ordinary quest presentation capture
+
+For source-v2, `capture --quest-presentation` captures quest text, both request-emote
+delays, greetings, NPC-text fallbacks, and locales in the same snapshot.
+It also captures incoming quest relationships.
+The [ordinary giver contract](QUEST-RELATIONSHIP-CONTRACT.md#captured-ordinary-givers-and-presentation)
+defines the exact scope and the independent runtime dependencies.
+All quests attached to a selected giver remain selected.
+Unsupported scripts, source items, gossip, and unknown loaded callback/order inputs
+remain precise refusals, not filtered quests or a runnable Northshire claim.
+
 
 ## Optional local read-only capture
 

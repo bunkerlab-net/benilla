@@ -2820,5 +2820,105 @@ class SpellNumericTests(unittest.TestCase):
                          [{"entry": 133, "facingcasterflag": 1}])
 
 
+def authored_presentation_source():
+    from classic_export import quest_presentation as qp
+    from classic_export.quest_columns import KEYS
+    source = starter_source()
+    for table, keys in KEYS.items():
+        source.inventory["tables"][table]["primary_key"] = list(keys)
+    columns = source.inventory["tables"]["quest_template"]["columns"]
+    for field in qp.DELAYS:
+        columns.append({"name": field, "type": "int unsigned", "nullable": False, "ordinal": len(columns)+1})
+    for quest in source.rows["quest_template"]:
+        quest.update({field: 0 for field in qp.DELAYS})
+        quest.update(CompleteEmote=1, Method=2)
+    source.rows["creature_template"][0]["NpcFlags"] = 2
+    source.rows["questgiver_greeting"] = [row("questgiver_greeting", Entry=900001, Type=0,
+        Text="Original greeting $N$B", EmoteId=1)]
+    original_fetch = source.fetch
+    def fetch(query):
+        result = original_fetch(query)
+        names = COLUMNS[query.table] + (list(qp.DELAYS) if query.mode == qp.MODE else [])
+        return [{name: value[name] for name in names} for value in result]
+    source.fetch = fetch
+    return source
+
+
+class QuestGiverPresentationTests(unittest.TestCase):
+    def test_same_snapshot_projection_preserves_text_delays_and_unknown_context(self):
+        from classic_export import quest_presentation as qp
+        source = authored_presentation_source()
+        bundle = capture(source, starter_selection(), capture_quest_presentation=True)
+        validate_bundle(bundle)
+        value = bundle["quest_giver_presentation_capture"]
+        self.assertEqual(value["rows"]["questgiver_greeting"][0]["Text"], "Original greeting $N$B")
+        self.assertEqual(value["rows"]["quest_template"][0]["CompleteEmoteDelay"], 0)
+        self.assertNotIn("CompleteEmoteDelay", bundle["tables"]["quest_template"][0])
+        self.assertIsNone(value["registered_callbacks"])
+        self.assertIsNone(value["loaded_relation_order"])
+        self.assertIn("quest_relationship_capture", bundle)
+        self.assertTrue(source.finished)
+        self.assertIsNone(capture(starter_source(), starter_selection()).get("quest_giver_presentation_capture"))
+        self.assertTrue(any("CompleteEmoteDelay" in sql for sql, _ in source.queries))
+
+    def test_unknown_delay_schema_snapshot_and_forged_binding_refuse(self):
+        from classic_export import quest_presentation as qp
+        source = authored_presentation_source()
+        source.inventory["tables"]["quest_template"]["columns"].pop()
+        with self.assertRaisesRegex(ExportError, "delay_schema"):
+            capture(source, starter_selection(), capture_quest_presentation=True)
+        source = authored_presentation_source()
+        source.inventory["tables"]["npc_gossip"]["engine"] = "MyISAM"
+        legacy = capture(source, starter_selection())
+        self.assertEqual(legacy["consistency"], "transactional_snapshot")
+        validate_bundle(legacy)
+        with self.assertRaisesRegex(ExportError, "quiescent_required"):
+            capture(source, starter_selection(), capture_quest_presentation=True)
+        bundle = capture(source, starter_selection(), quiescent=True, capture_quest_presentation=True)
+        for field in ("CompleteEmoteDelay", "Title"):
+            changed = copy.deepcopy(bundle)
+            changed["quest_giver_presentation_capture"]["rows"]["quest_template"][0][field] = 2 if "Delay" in field else "changed"
+            with self.assertRaises(ExportError):
+                validate_bundle(changed)
+        changed = copy.deepcopy(bundle)
+        changed["quest_giver_presentation_capture"]["registered_callbacks"] = []
+        with self.assertRaisesRegex(ExportError, "binding_mismatch"):
+            validate_bundle(changed)
+
+    def test_all_attached_quests_keep_individual_script_and_source_item_refusals(self):
+        source = authored_presentation_source()
+        original = source.rows["quest_template"][0]
+        source.rows["quest_template"] = [dict(original, entry=783, NextQuestInChain=7),
+            dict(original, entry=7, PrevQuestId=783, NextQuestInChain=15),
+            dict(original, entry=15, PrevQuestId=7, NextQuestInChain=21),
+            dict(original, entry=21, PrevQuestId=15, CompleteScript=21),
+            dict(original, entry=3104, PrevQuestId=7, SrcItemId=9571, SrcItemCount=1)]
+        source.rows["item_template"].append(row("item_template", entry=9571, name="Authored letter", stackable=1))
+        for table in ("creature_questrelation", "creature_involvedrelation"):
+            source.rows[table] = [row(table, id=900001, quest=id) for id in (783, 7, 15, 21, 3104)]
+        selected = starter_selection().json()
+        selected["quest_ids"] = [783]
+        bundle = capture(source, Selection.parse(selected), capture_quest_presentation=True)
+        result = quest_relationships.resolve(bundle)
+        self.assertEqual(result["status"], "blocked")
+        failures = {(row["quest"], row["field"], row["target"]) for row in result["refusals"]}
+        self.assertIn((21, "CompleteScript", 21), failures)
+        self.assertIn((3104, "SrcItemId", 9571), failures)
+        self.assertEqual(bundle["quest_relationship_capture"]["roots"], [7, 15, 21, 783, 3104])
+        self.assertEqual(bundle["tables"]["quest_template"][1]["NextQuestInChain"], 21)
+
+    def test_extension_row_byte_limits_and_malformed_collections_refuse(self):
+        from classic_export import quest_presentation as qp
+        source = authored_presentation_source()
+        quest = copy.deepcopy(source.rows["quest_template"][0])
+        for field in ("Title", "Details", "Objectives", "EndText", "RequestItemsText"):
+            quest[field] = "a" * 16000
+        with self.assertRaisesRegex(ExportError, "quest_byte_limit"):
+            qp.normalize_quests([quest], source.inventory)
+        bundle = capture(source, starter_selection(), capture_quest_presentation=True)
+        bundle["quest_giver_presentation_capture"]["rows"]["questgiver_greeting"] = None
+        with self.assertRaisesRegex(ExportError, "row_shape_or_limit"):
+            validate_bundle(bundle)
+
 if __name__ == "__main__":
     unittest.main()

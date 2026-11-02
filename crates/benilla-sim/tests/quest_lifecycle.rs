@@ -6,6 +6,8 @@ use benilla_sim::quest::{
 };
 use benilla_sim::quest_lifecycle::*;
 use std::collections::BTreeMap;
+#[path = "quest_lifecycle/captured.rs"]
+mod captured_givers;
 #[path = "quest_lifecycle/relationships.rs"]
 mod relationships;
 

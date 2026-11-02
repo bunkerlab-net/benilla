@@ -47,11 +47,13 @@ input archives, exact allowlists and non-overwrite private publication. No real
 installation or graphical gameplay has been tested here.
 
 
-The manifest contract is `benilla-native-dbc-extraction-v3`: exactly 20 tables.
-CreatureDisplayInfo is mandatory (12 fields, 48-byte records), alongside the v2
-Talent table. The Python verifier checks CreatureDisplayInfo string offsets only
-at words 6–8; word 9 is signed SizeClass, not a string. It binds every selected
-raw row and whole-file hash, preserving missing/invalid input without defaults.
+The manifest contract is `benilla-native-dbc-extraction-v4`, with exactly 21 tables.
+It includes Emotes, with seven fields and 28-byte records, for quest greeting validation.
+CreatureDisplayInfo and Talent remain mandatory. The Python verifier checks
+CreatureDisplayInfo string offsets only at words 6 through 8.
+Word 9 is signed SizeClass, not a string.
+The verifier binds every selected raw row and whole-file hash without defaults.
+The original v3 20-table set remains readable, but does not prove Emotes coverage.
 
 To migrate a v1/v2 extraction, run the current helper into a new private output
 directory and prepare again. Do not edit an old extraction manifest or copy in a

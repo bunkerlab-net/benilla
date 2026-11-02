@@ -160,8 +160,8 @@ fn actual_cli_uses_patch_winner_preserves_source_and_exports_fixed_allowlist() {
         .unwrap();
     assert_eq!(map["winning_archive"], "patch-2.MPQ");
     assert_eq!(manifest["client_build_authenticity_verified"], false);
-    assert_eq!(manifest["format"], "benilla-native-dbc-extraction-v3");
-    assert_eq!(TABLES.len(), 20);
+    assert_eq!(manifest["format"], "benilla-native-dbc-extraction-v4");
+    assert_eq!(TABLES.len(), 21);
     let display = manifest["files"]
         .as_array()
         .unwrap()
@@ -170,6 +170,14 @@ fn actual_cli_uses_patch_winner_preserves_source_and_exports_fixed_allowlist() {
         .unwrap();
     assert_eq!(display["fields"], 12);
     assert_eq!(display["record_bytes"], 48);
+    let emotes = manifest["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["file"] == "Emotes.dbc")
+        .unwrap();
+    assert_eq!(emotes["fields"], 7);
+    assert_eq!(emotes["record_bytes"], 28);
     assert!(extract(&data, &output).is_err());
 }
 

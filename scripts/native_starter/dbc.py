@@ -54,6 +54,7 @@ LAYOUTS = {
     "SkillLineAbility": Layout(15, 60),
     "Talent": Layout(21, 84),
     "CreatureDisplayInfo": Layout(12, 48, (6, 7, 8)),
+    "Emotes": Layout(7, 28, (1,)),
 }
 
 def signed(word: int) -> int:
@@ -232,12 +233,13 @@ def load_extraction_manifest(directory: Path, tables: dict[str, DbcTable]) -> di
           "client_build_authenticity_verified", "files"}, "extraction.manifest_fields")
     check(value["format"] not in {"benilla-native-dbc-extraction-v1", "benilla-native-dbc-extraction-v2"},
           "extraction.legacy_manifest_reextract_v3_required")
-    check(value["format"] == "benilla-native-dbc-extraction-v3"
+    check(value["format"] in {"benilla-native-dbc-extraction-v3", "benilla-native-dbc-extraction-v4"}
           and value["chain_policy"] == "benilla-formats-vanilla-chain"
           and type(value["client_build_claim"]) is int and value["client_build_claim"] == 5875
           and value["client_build_authenticity_verified"] is False, "extraction.manifest_profile")
-    check(set(tables) == set(LAYOUTS), "extraction.complete_valid_dbc_set_required")
-    check(type(value["files"]) is list and len(value["files"]) == len(LAYOUTS),
+    expected = set(LAYOUTS) - ({"Emotes"} if value["format"] == "benilla-native-dbc-extraction-v3" else set())
+    check(set(tables) == expected, "extraction.complete_valid_dbc_set_required")
+    check(type(value["files"]) is list and len(value["files"]) == len(expected),
           "extraction.manifest_file_set")
     by_file = {table.name + ".dbc": table.manifest() for table in tables.values()}
     seen = set()

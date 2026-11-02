@@ -705,3 +705,6 @@ SPAWN_ENTRY_SCHEMA = {"creature_spawn_entry": [
 SPAWN_ENTRY_PRIMARY_KEYS = {"creature_spawn_entry": ["guid", "entry"]}
 COLUMNS.update({table: [column[0] for column in columns]
                 for table, columns in SPAWN_ENTRY_SCHEMA.items()})
+
+from .quest_columns import COLUMNS as QUEST_PRESENTATION_COLUMNS
+COLUMNS.update(QUEST_PRESENTATION_COLUMNS)

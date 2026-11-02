@@ -23,9 +23,11 @@ not evidence. Imported strings remain data, never paths, scripts or SQL.
 `preparation_sha256` provide deterministic integrity/lineage. They are not
 signatures, build authenticity, legal-rights evidence or gameplay certification.
 Extraction v3 requires Talent and CreatureDisplayInfo in its exact 20-table set.
+Extraction v4 adds Emotes for the exact 21-table set and quest greeting validation.
 Legacy v1/v2 manifests require new local extraction, never a silently repaired
-coverage assertion. The diagnostic library may inspect missing tables, but null
-coverage never proves empty membership or a neutral display scale.
+coverage assertion. V3 does not establish Emotes coverage.
+The diagnostic library may inspect missing tables, but null coverage never proves
+empty membership or a neutral display scale.
 
 ### Captured Fireball numeric plan
 
@@ -60,6 +62,11 @@ evidence and seal its reached casts through `NativeInitialCastSourceInput`.
 The authored-order path remains synthetic. A nonempty global SpellArea table
 requires the independent entry-location source. The existing runtime entry
 validator still resolves actual location facts and refuses applicable rows before casting.
+
+The [ordinary giver contract](../classic_export/QUEST-RELATIONSHIP-CONTRACT.md#captured-ordinary-givers-and-presentation)
+defines the optional snapshot-bound quest/text extension, checked Rust giver
+dependencies, immutable presentation output, and unchanged eager closure refusals.
+Its scoped plan never removes independent rate, reward, hook, or loaded-order obligations.
 
 
 ## Initializer inputs

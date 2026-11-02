@@ -30,6 +30,14 @@ becoming playable quests or disappearing. The Python preparation validates
 the snapshot-bound sidecar and supplies this projection, its source digest,
 and normalised relationship lists. See the
 [capture contract](../../scripts/classic_export/QUEST-RELATIONSHIP-CONTRACT.md).
+`CapturedOrdinaryQuests` derives ordinary loader flags and binds complete selected
+giver relations in independently supplied loaded order.
+Its private dependency result checks selected giver identities, effective flags,
+actual loaded script registrations, global SpellArea, and item-deletion scope.
+Unknown evidence refuses. Present callbacks, gossip menus, and unsupported quest
+paths refuse without filtering attached quests. The runtime binder and client
+presentation adapter use the [ordinary giver contract](../../scripts/classic_export/QUEST-RELATIONSHIP-CONTRACT.md#captured-ordinary-givers-and-presentation).
+
 
 `QuestRow` includes the supported fields and `ExcludedFields` retains unsupported
 behavioral columns so nonzero values cannot silently disappear. Descriptive text,

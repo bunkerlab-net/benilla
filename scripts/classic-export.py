@@ -68,6 +68,8 @@ def main() -> int:
                              help="capture selected raw spell_area and spell_proc_event inputs for source-v2")
             cmd.add_argument("--spell-numeric", action="store_true",
                              help="capture complete selected effective spell SQL numeric rows and facing")
+            cmd.add_argument("--quest-presentation", action="store_true",
+                             help="capture same-snapshot ordinary quest text, greeting and locale inputs")
             cmd.add_argument("--quiescent-snapshot", action="store_true",
                              help="operator confirms no writer can change this already prepared local snapshot")
     cmd = sub.add_parser("plan")
@@ -116,7 +118,8 @@ def main() -> int:
             try:
                 output = source.inspect() if args.command == "inspect" else capture(source, selection, args.quiescent_snapshot,
                     dependency_request, capture_initial_hooks=args.initial_hooks, capture_body_loot=args.body_loot,
-                    capture_spell_numeric=args.spell_numeric)
+                    capture_spell_numeric=args.spell_numeric, capture_quest_presentation=args.quest_presentation,
+                    capture_quest_relationships=args.quest_presentation)
             finally:
                 source.close()
         write_new(args.output, output)

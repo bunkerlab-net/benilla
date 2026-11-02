@@ -17,6 +17,8 @@ mod runtime;
 pub use runtime::*;
 mod captured;
 pub use captured::*;
+mod broadcast;
+pub use broadcast::localized_broadcast_text;
 
 pub const EVENT_AI_POLICY: &str = "cmangos-8ec338a1-aggro-text-v2";
 const MAX_EVENTS: usize = 32;
@@ -406,27 +408,15 @@ impl EventAiCatalog {
             .get(&broadcast)
             .ok_or(NativeError::InvalidProfile)?;
         let male = base.text.as_deref().unwrap_or("");
-        let female = base.text1.as_deref().unwrap_or("");
-        let female_selected = gender != 0 && !female.is_empty() && male.is_empty();
-        let default = if female_selected { female } else { male };
-        // enUS is the default vector index, never a localized override. The
-        // loader observes but ignores an enUS row (storage locale index -1).
-        let translated = (locale != EventAiLocale::EnUs)
-            .then(|| {
-                self.locales
-                    .get(&broadcast)
-                    .and_then(|rows| rows.get(locale.source_name()))
-            })
-            .flatten()
-            .and_then(|row| {
-                if female_selected {
-                    row.text1.as_deref()
-                } else {
-                    row.text.as_deref()
-                }
-            })
-            .filter(|s| !s.is_empty())
-            .unwrap_or(default);
+        let selected_gender = if !male.is_empty() { 0 } else { gender };
+        let translated = localized_broadcast_text(
+            base,
+            self.locales
+                .get(&broadcast)
+                .and_then(|rows| rows.get(locale.source_name())),
+            locale,
+            selected_gender,
+        )?;
         let name = owner
             .name_locales
             .require(8)?

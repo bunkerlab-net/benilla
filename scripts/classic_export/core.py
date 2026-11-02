@@ -59,6 +59,8 @@ KEYS = {
     "player_classlevelstats": ("class", "level"),
     "player_levelstats": ("race", "class", "level"), "player_xp_for_level": ("lvl",),
 }
+from .quest_columns import KEYS as QUEST_PRESENTATION_KEYS, TEXT as QUEST_PRESENTATION_TEXT
+KEYS.update(QUEST_PRESENTATION_KEYS)
 TEXT_COLUMNS = {
     "creature_ai_scripts": {"comment"},
     "broadcast_text": {"Text", "Text1"},
@@ -75,6 +77,7 @@ TEXT_COLUMNS = {
     "item_template": {"name", "description", "ScriptName"},
     "creature_loot_template": {"comments"}, "reference_loot_template": {"comments"},
 }
+TEXT_COLUMNS.update(QUEST_PRESENTATION_TEXT)
 INTEGER_SQL = {"tinyint", "smallint", "mediumint", "int", "integer", "bigint", "bit"}
 DECIMAL_SQL = {"float", "double", "decimal", "numeric", "real"}
 TEXT_SQL = {"char", "varchar", "text", "tinytext", "mediumtext", "longtext"}
@@ -200,7 +203,7 @@ def schema_profile(inventory: Any, required: set[str]) -> dict[str, Any]:
     profiles = {}
     for table, meta in inventory["tables"].items():
         fields = {"engine", "table_type", "columns"}
-        if (table in (REGISTRY_SCHEMA | INITIAL_HOOK_SCHEMA | EVENT_TEXT_SCHEMA | LOOT_SCHEMA | SPAWN_ENTRY_SCHEMA) or table in {"spell_template", "spell_facing"}) and type(meta) is dict and "primary_key" in meta:
+        if (table in (REGISTRY_SCHEMA | INITIAL_HOOK_SCHEMA | EVENT_TEXT_SCHEMA | LOOT_SCHEMA | SPAWN_ENTRY_SCHEMA) or table in {"spell_template", "spell_facing"} or table in QUEST_PRESENTATION_KEYS) and type(meta) is dict and "primary_key" in meta:
             fields.add("primary_key")
         check(type(meta) is dict and set(meta) == fields, "schema.table_fields")
         if table in REGISTRY_SCHEMA and table in required:
@@ -360,6 +363,8 @@ def normalize_rows(table: str, rows: list[dict[str, Any]], profile: dict[str, An
         check(type(row) is dict and set(row) == set(columns), f"row.fields:{table}")
         converted = {name: normalize_cell(row[name], column) for name, column in columns.items()}
         key = tuple(converted[name] for name in KEYS[table])
+        if table in QUEST_PRESENTATION_KEYS:
+            check(profile.get("unreviewed_columns") == [], f"quest_presentation.unreviewed_columns:{table}")
         zero_keys = {"creature_spawn_entry": {"entry"},
                      "playercreateinfo_action": {"button"},
                      "playercreateinfo_skills": {"raceMask", "classMask"},
@@ -367,6 +372,7 @@ def normalize_rows(table: str, rows: list[dict[str, Any]], profile: dict[str, An
                      "creature_loot_template": {"item"},
                      "reference_loot_template": {"item"},
                      "spell_area": {"area", "quest_start", "quest_start_active", "racemask", "gender"}}.get(table, set())
+        zero_keys |= {"Type"} if table in {"questgiver_greeting", "locales_questgiver_greeting"} else set()
         check(all((type(row_value) is str and 0 < len(row_value) <= 10)
                   if table == "broadcast_text_locale" and name == "Locale" else
                   (type(row_value) is int and row_value >= (-32768 if table == "game_event_creature" and name == "event"

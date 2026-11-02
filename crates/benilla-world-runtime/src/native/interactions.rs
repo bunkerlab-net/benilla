@@ -242,6 +242,12 @@ impl Profile {
     }
 }
 impl InteractionCatalog {
+    pub(in crate::native) fn quest_giver_source(
+        &self,
+        entry: u32,
+    ) -> Option<&NpcInteractionSource> {
+        self.npcs.get(&entry)
+    }
     pub(super) fn has_combat_authority(&self) -> bool {
         self.combat_authority.is_some()
     }

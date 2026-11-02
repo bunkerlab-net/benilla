@@ -22,6 +22,7 @@ from .event_ai_plan import supported_plan
 from .outfit_plan import supported_plan as outfit_placement_plan
 from . import creature_plan
 from .learning_plan import supported_plan as starter_learning_plan
+from . import quest_plan
 
 PROFILE = "cmangos-8ec338a1-native-starter-bindings-v1"
 FORMAT = "benilla-native-starter-preparation-v1"
@@ -720,6 +721,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
     c = Compiler(source, dbcs, request)
     c.issues.extend(dbc_errors or [])
     relationships = quest_relationships.resolve(source)
+    quests = quest_plan.supported_plan(source, dbcs)
     for refusal in relationships["refusals"]:
         c.issue("quest_template", [refusal["quest"]], "quest.chain", edge=refusal)
     observed_errors = {i["table"] for i in dbc_errors or []}
@@ -805,6 +807,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
              "input_bindings": fireball["input_bindings"]} for i in discharged],
         "creature_display_inputs": display_evidence,
         "quest_relationships": relationships,
+        "quest_giver_presentation_plan": quests,
         "quest_loot_inputs": loot.quest_inputs(c.tables),
         "player": {"identity": identity, "level_inputs": c.progression(), "outfit": outfit,
                    "initial_sql_spells": source["tables"]["playercreateinfo_spell"],
