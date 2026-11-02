@@ -424,7 +424,7 @@ fn resign_identity_checkpoint(
     checkpoint
 }
 
-const PREVIOUS_NATIVE_IDENTITIES: [(u32, &str); 48] = [
+const PREVIOUS_NATIVE_IDENTITIES: [(u32, &str); 49] = [
     (34, "benilla-native-event-ai-aggro-text-v34"),
     (35, "benilla-native-corpse-carried-items-v35"),
     (36, "benilla-native-source-combat-timers-v36"),
@@ -473,10 +473,11 @@ const PREVIOUS_NATIVE_IDENTITIES: [(u32, &str); 48] = [
     (79, "benilla-native-backpack-exchange-v79"),
     (80, "benilla-native-creature-pose-cell-index-v80"),
     (81, "benilla-native-creature-string-identities-v81"),
+    (82, "benilla-native-solo-quest-loot-v82"),
 ];
 
 #[test]
-fn native82_profile_state_record_and_checkpoint_domains_are_exact() {
+fn native83_profile_state_record_and_checkpoint_domains_are_exact() {
     assert_eq!(NATIVE_FORMAT_VERSION, 83);
     assert_eq!(NATIVE_POLICY, "benilla-native-solo-quest-loot-v83");
     assert_eq!(
@@ -578,7 +579,7 @@ fn previous_native_checkpoint_headers_and_policies_reject_with_current_outer_has
 }
 
 #[test]
-fn previous_native_state_checkpoint_and_profile_context_cannot_reseal_as_native82() {
+fn previous_native_state_checkpoint_and_profile_context_cannot_reseal_as_native83() {
     let w = world();
     let initial = w.checkpoint().unwrap();
     for (old_format, old_policy) in PREVIOUS_NATIVE_IDENTITIES {

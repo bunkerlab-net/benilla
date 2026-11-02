@@ -174,7 +174,7 @@ fn every_level_must_prepare_before_catalog_can_supply_randomness() {
 }
 
 #[test]
-fn native82_rehashed_profiles_reject_previous_generation_and_initializer_policies() {
+fn native83_rehashed_profiles_reject_previous_generation_and_initializer_policies() {
     assert_eq!(NATIVE_FORMAT_VERSION, 83);
     assert_eq!(
         CREATURE_GENERATION_POLICY,

@@ -11,6 +11,9 @@ selected [player mainhand path](PLAYER-MELEE.md) retains that closed admission.
 Current native root envelopes are format`NATIVE_FORMAT_VERSION`; older linked format51 descriptions
 are historical schema, not accepted save versions. Existing callback subdomain
 hash versions are not implicitly changed by the root format.
+Format 83 rejects format 82 profiles, states and checkpoints even when their
+outer hashes are recomputed. Spawn-context and starter-learning fixtures use
+the current root identity; earlier identities remain rejection inputs only.
 
 A pure-Rust, GPL-3.0-or-later, solo-first runtime for the original world-data
 fixture. One selected owner/character starts and ticks immediately, without peer
