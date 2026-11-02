@@ -597,3 +597,59 @@ fn doodad_extraction_keeps_original_spelling_until_later_lookup() {
     assert!(doodad_model_dependency(b"World\\Chair.MdX").is_err());
     assert!(doodad_model_dependency(b"..\\Chair.mdx").is_err());
 }
+
+#[test]
+fn portable_ascii_punctuation_is_preserved_in_archive_directory_names() {
+    for punctuation in b"!#$%&'+,;=@[]^`{}~" {
+        let path = format!("World\\Tables{}Chairs\\Prop.mdx", char::from(*punctuation));
+        let expected = format!("World\\Tables{}Chairs\\Prop.m2", char::from(*punctuation));
+        let mut names = path.as_bytes().to_vec();
+        names.push(0);
+        let input = parse_adt(&file(&[(b"MMDX", names)])).unwrap();
+        assert_eq!(input.dependencies[0].member, expected);
+        let doodad = doodad_model_dependency(path.as_bytes()).unwrap().unwrap();
+        assert_eq!(doodad.member, expected);
+        assert_eq!(doodad_lookup_name(path.as_bytes()).unwrap(), "Prop.m2");
+    }
+}
+
+#[test]
+fn control_non_ascii_and_invalid_output_characters_remain_refused() {
+    for byte in (0..=31)
+        .chain(127..=255)
+        .chain(b"/:*?\"<>|".iter().copied())
+    {
+        let mut path = b"World\\Part".to_vec();
+        path.push(byte);
+        path.extend_from_slice(b"Name\\Prop.mdx");
+        assert_eq!(
+            doodad_model_dependency(&path).err().unwrap().code(),
+            "vmap.member_name_profile"
+        );
+    }
+    for path in [
+        "World\\\\Prop.mdx",
+        "World\\.\\Prop.mdx",
+        "World\\..\\Prop.mdx",
+        "World\\ Parts\\Prop.mdx",
+        "World\\Parts \\Prop.mdx",
+        "World\\Parts.\\Prop.mdx",
+    ] {
+        assert_eq!(
+            doodad_model_dependency(path.as_bytes())
+                .err()
+                .unwrap()
+                .code(),
+            "vmap.member_path"
+        );
+    }
+    let accepted = format!("{}.m2", "A".repeat(MAX_MEMBER_BYTES - 3));
+    assert!(doodad_model_dependency(accepted.as_bytes()).is_ok());
+    assert_eq!(
+        doodad_model_dependency(format!("A{accepted}").as_bytes())
+            .err()
+            .unwrap()
+            .code(),
+        "vmap.member_name_length"
+    );
+}

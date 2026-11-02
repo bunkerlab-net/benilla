@@ -45,7 +45,22 @@ the stem or extension case differs. Non-case mismatches, including spaces change
 to underscores, still fail with `vmap.doodad_name_identity`. Different source
 members sharing a case-insensitive output name still fail with
 `vmap.flat_name_collision`, including different bytes or collision dispositions.
-Existing missing-input, member-name-profile, and source-replacement refusals remain.
+Existing missing-input and source-replacement refusals remain.
+
+Member paths accept printable ASCII punctuation, including ampersands in directory
+components. `MPQFile` passes names directly to `libmpq__file_number`, whose hashes
+uppercase each byte without a punctuation whitelist:
+`mpq_libmpq.cpp:69-89`, `dep/libmpq/libmpq/mpq.c:483-495`, and
+`dep/libmpq/libmpq/common.c:53-56`. Backslashes remain the only directory separator.
+Spaces remain archive-name bytes; only the existing `fixname2` call sites rewrite
+basename spaces. The portable profile still rejects control/non-ASCII bytes and
+`/ : * ? " < > |`, which cannot safely name extracted flat outputs on Windows.
+The 511-byte limit, empty/dot/traversal-component restrictions, and leading or
+trailing component-space/dot restrictions are unchanged.
+
+A successfully opened M2 with zero `nBoundingTriangles` remains an explicit
+no-hull product. `Model::open` returns false for that normal disposition at
+`model.cpp:49-71`; it is not a missing member or unsupported name.
 
 In `vmapextract/wmo.cpp:89-103`, both retained Paths and the local extraction path
 precede the `fixnamen`/`fixname2` mutation of the MPQ buffer. In

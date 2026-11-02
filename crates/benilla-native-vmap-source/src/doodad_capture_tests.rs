@@ -588,6 +588,42 @@ fn non_case_extraction_lookup_mismatch_remains_an_explicit_refusal() {
 }
 
 #[test]
+fn ampersand_directory_models_keep_real_collision_or_no_hull_dispositions() {
+    for has_collision in [false, true] {
+        let temp = Temp::new();
+        let data = temp.data();
+        let (names, offsets) = dc_names(&["World\\PARTS & TOOLS\\PROP01.MDX"]);
+        let mut entries = wmo_entries(1);
+        dc_replace(&mut entries, ROOT, dc_root(1, &names, &[(0, 1)], &offsets));
+        dc_replace(
+            &mut entries,
+            "World\\Wmo\\Temple_000.wmo",
+            dc_group(false, true, &[0]),
+        );
+        entries.push(raw_entry(
+            "World\\PARTS & TOOLS\\PROP01.M2",
+            m2(has_collision),
+        ));
+        entries.push(raw_entry(ADT, dc_adt(0, 0, 123)));
+        save(&data, "wmo.MPQ", &entries);
+        let prepared = prepare(&data, 0, || false).unwrap();
+        assert_eq!(
+            prepared.summary().m2_raw_products,
+            usize::from(has_collision)
+        );
+        assert_eq!(
+            prepared.summary().m2_no_collision_products,
+            usize::from(!has_collision)
+        );
+        assert_eq!(
+            prepared.doodad_candidates().len(),
+            usize::from(has_collision)
+        );
+        prepared.verify_unchanged(|| false).unwrap();
+    }
+}
+
+#[test]
 fn case_variant_legacy_modn_names_retain_collision_in_either_extraction_order() {
     for (paths, member, lookup) in [
         (

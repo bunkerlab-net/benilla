@@ -661,9 +661,11 @@ fn safe_member(bytes: &[u8]) -> InternalResult<()> {
         !bytes.is_empty() && bytes.len() <= MAX_MEMBER_BYTES,
         DiscoveryError::new("vmap.member_name_length")
     );
+    // Accept portable ASCII punctuation because libmpq common.c:53-56 hashes it unchanged; exclude invalid flat-output characters.
     ensure!(
-        bytes.iter().all(|&b| b.is_ascii_alphanumeric()
-            || matches!(b, b'\\' | b'_' | b'-' | b'.' | b' ' | b'(' | b')')),
+        bytes
+            .iter()
+            .all(|byte| (32..=126).contains(byte) && !b"/:*?\"<>|".contains(byte)),
         DiscoveryError::new("vmap.member_name_profile")
     );
     ensure!(
