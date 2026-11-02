@@ -2928,7 +2928,7 @@ class QuestGiverPresentationTests(unittest.TestCase):
         with self.assertRaisesRegex(ExportError, "binding_mismatch"):
             validate_bundle(changed)
 
-    def test_all_attached_quests_keep_individual_script_and_source_item_refusals(self):
+    def test_all_attached_quests_keep_missing_script_refusal_and_supported_source_item(self):
         source = authored_presentation_source()
         original = source.rows["quest_template"][0]
         source.rows["quest_template"] = [dict(original, entry=783, NextQuestInChain=7),
@@ -2946,7 +2946,7 @@ class QuestGiverPresentationTests(unittest.TestCase):
         self.assertEqual(result["status"], "blocked")
         failures = {(row["quest"], row["field"], row["target"]) for row in result["refusals"]}
         self.assertIn((21, "CompleteScript", 21), failures)
-        self.assertIn((3104, "SrcItemId", 9571), failures)
+        self.assertNotIn((3104, "SrcItemId", 9571), failures)
         self.assertEqual(bundle["quest_relationship_capture"]["roots"], [7, 15, 21, 783, 3104])
         self.assertEqual(bundle["tables"]["quest_template"][1]["NextQuestInChain"], 21)
 
@@ -3028,6 +3028,101 @@ class LootLoaderCaptureTests(unittest.TestCase):
             with context, self.assertRaisesRegex(ExportError, "loot.loader_"):
                 capture(source, starter_selection(), capture_body_loot=True)
             self.assertTrue(source.finished)
+
+def authored_mechanics_source():
+    from classic_export.quest_mechanics_columns import SCHEMA, KEYS
+    from classic_export.quest_mechanics import MODE
+    source = authored_presentation_source()
+    for table, fields in SCHEMA.items():
+        source.inventory["tables"][table] = {"engine": "InnoDB", "table_type": "BASE TABLE",
+            "primary_key": list(KEYS[table]), "columns": [
+                {"name": name, "type": kind, "nullable": nullable, "ordinal": ordinal}
+                for ordinal, (name, kind, nullable) in enumerate(fields, 1)]}
+    source.rows["quest_template"][0].update(CompleteScript=71021, SrcItemId=920001, SrcItemCount=1)
+    source.rows["creature_template"][0].update(GossipMenuId=44001, NpcFlags=3)
+    def script(**changes):
+        value = row("dbscripts_on_quest_end", id=71021, delay=2000, **changes)
+        for name in ("datafloat", "x", "y", "z", "o", "speed"):
+            value[name] = Decimal(0)
+        return value
+    source.rows["dbscripts_on_quest_end"] = [script(command=0, dataint=72001), script(command=1, datalong=71)]
+    source.rows["gossip_menu"] = [row("gossip_menu", entry=44001, text_id=75001)]
+    source.rows["gossip_menu_option"] = [row("gossip_menu_option", menu_id=0, id=0,
+        option_id=2, npc_option_npcflag=2)]
+    source.rows["npc_text_broadcast_text"] = [row("npc_text_broadcast_text", Id=75001,
+        Prob0=1, BroadcastTextId0=72002)]
+    source.rows["broadcast_text"] = [row("broadcast_text", Id=72001, Text="Authored script text", Flags=1),
+                                    row("broadcast_text", Id=72002, Text="Authored gossip text", Flags=1)]
+    original = source.fetch
+    first = {"dbscripts_on_quest_end": "id", "gossip_menu": "entry",
+             "gossip_menu_option": "menu_id", "conditions": "condition_entry"}
+    def fetch(query):
+        if query.mode == MODE:
+            source.queries.append(query.sql())
+            return copy.deepcopy([r for r in source.rows[query.table] if r[first[query.table]] in query.ids])
+        return original(query)
+    source.fetch = fetch
+    return source
+
+
+class QuestMechanicsTests(unittest.TestCase):
+    def test_snapshot_bound_script_gossip_and_source_item_closure(self):
+        from classic_export import quest_mechanics
+        source = authored_mechanics_source()
+        bundle = capture(source, starter_selection(), capture_quest_mechanics=True)
+        validate_bundle(bundle)
+        value = bundle["quest_mechanics_capture"]
+        self.assertEqual(value["selectors"]["scripts"], [71021])
+        self.assertEqual(value["selectors"]["menus"], [0, 44001])
+        self.assertEqual(value["lookup_keys"]["broadcast_text"], [72001, 72002])
+        self.assertIsNone(value["loaded_script_order"])
+        self.assertEqual(quest_mechanics.supported(bundle)["status"], "resolved")
+        self.assertEqual(quest_relationships.resolve(bundle)["status"], "resolved")
+        self.assertTrue(any("ORDER BY `priority`" in sql for sql, _ in source.queries))
+        for field in ("rows_sha256", "snapshot", "selectors"):
+            changed = copy.deepcopy(bundle)
+            changed["quest_mechanics_capture"][field] = {} if field != "rows_sha256" else "0" * 64
+            with self.subTest(field=field), self.assertRaises(ExportError):
+                validate_bundle(changed)
+
+    def test_unknown_script_commands_conditions_and_gossip_services_refuse_precisely(self):
+        from classic_export import quest_mechanics
+        for kind in ("command", "condition", "direct_condition", "service"):
+            source = authored_mechanics_source()
+            if kind == "command":
+                source.rows["dbscripts_on_quest_end"][0]["command"] = 15
+                expected = ("quest_end_scripts.command", 15, "unsupported_command")
+            elif kind == "condition":
+                source.rows["gossip_menu"][0]["condition_id"] = 5
+                source.rows["conditions"] = [row("conditions", condition_entry=5, type=19, value1=910001)]
+                expected = ("conditions.type", 19, "unsupported_condition")
+            elif kind == "direct_condition":
+                source.rows["creature_template"][0].update(GossipMenuId=0, NpcFlags=2)
+                source.rows["gossip_menu_option"][0]["condition_id"] = 7
+                source.rows["conditions"] = [row("conditions", condition_entry=7, type=22, value1=910001)]
+                expected = ("gossip_menu_option.condition_id", 7, "conditional_direct_quest_menu_not_supported")
+            else:
+                source.rows["gossip_menu_option"][0].update(option_id=3, npc_option_npcflag=1)
+                expected = ("gossip_menu_option.option_id", 3, "unsupported_option")
+            bundle = capture(source, starter_selection(), capture_quest_mechanics=True)
+            result = quest_mechanics.supported(bundle)
+            self.assertEqual(result["status"], "blocked")
+            self.assertIn(expected, {(r["field"], r["target"], r["reason"]) for r in result["refusals"]})
+
+    def test_mechanics_capture_requires_its_own_snapshot_and_exact_schema(self):
+        source = authored_mechanics_source()
+        source.inventory["tables"]["dbscripts_on_quest_end"]["engine"] = "MyISAM"
+        capture(source, starter_selection(), capture_quest_presentation=True)
+        with self.assertRaisesRegex(ExportError, "quiescent_required"):
+            capture(source, starter_selection(), capture_quest_mechanics=True)
+        bundle = capture(source, starter_selection(), quiescent=True, capture_quest_mechanics=True)
+        validate_bundle(bundle)
+        source.inventory["tables"]["gossip_menu"]["columns"][0]["type"] = "int unsigned"
+        with self.assertRaisesRegex(ExportError, "quest_mechanics.column"):
+            capture(source, starter_selection(), quiescent=True, capture_quest_mechanics=True)
+        with self.assertRaisesRegex(ExportError, "quest_presentation.request_boolean"):
+            capture(authored_mechanics_source(), starter_selection(),
+                    capture_quest_presentation=0, capture_quest_mechanics=True)
 
 if __name__ == "__main__":
     unittest.main()

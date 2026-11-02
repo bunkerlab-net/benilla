@@ -7,13 +7,15 @@
 //! The caller must durably commit host and State together before publishing events.
 mod captured;
 pub use captured::*;
+mod mechanics;
 mod model;
+pub use mechanics::*;
 mod relationships;
 use crate::quest::{self, QuestPlayerIdentity, RewardContext};
 pub use model::*;
 pub use relationships::*;
 
-pub const POLICY_ID: &str = "cmangos-8ec338a1-ordinary-quest-lifecycle-v4";
+pub const POLICY_ID: &str = "cmangos-8ec338a1-ordinary-quest-lifecycle-v5";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
     Unsupported(&'static str),
@@ -133,6 +135,7 @@ pub trait Host: Clone {
 pub enum HostEffect {
     DestroyCarriedStack { item: u32, count: u32 },
     StoreRewardItem { item: u32, count: u32 },
+    StoreSourceItem { item: u32, count: u32 },
     GiveXp(u32),
     ModifyMoney(i32),
 }
@@ -395,14 +398,33 @@ fn can_take_identity(
     }
     Ok(())
 }
-pub fn can_add(catalog: &Catalog, state: &State, id: u32) -> Result<(), Error> {
+pub fn can_add(catalog: &Catalog, state: &State, host: &impl Host, id: u32) -> Result<(), Error> {
     check_catalog(catalog, state)?;
     catalog.row(id)?;
     if !state.snapshot.log.contains(&None) {
         return Err(Error::Rejected(Gate::LogFull));
     }
-    // Source items were rejected by admission, so CanGiveQuestSourceItemIfNeed is inert.
+    source_item_grant(catalog.row(id)?, host)?;
     Ok(())
+}
+
+fn source_item_grant(q: &QuestRow, host: &impl Host) -> Result<u32, Error> {
+    let item = q.excluded.source_item;
+    if item == 0 {
+        return Ok(0);
+    }
+    // Player.cpp:13236 includes bank storage when deciding how many to grant.
+    let count = q
+        .excluded
+        .source_item_count
+        .saturating_sub(host.item_count(item, true)?);
+    if count != 0 {
+        let result = host.can_store_reward(item, count, &mut Vec::new())?;
+        if result != crate::inventory::InventoryResult::Ok {
+            return Err(Error::Rejected(Gate::RewardStorage { item, result }));
+        }
+    }
+    Ok(count)
 }
 pub fn can_complete(
     catalog: &Catalog,
@@ -732,8 +754,19 @@ pub fn reduce<H: Host>(
             let slot = usize::from(slot);
             if slot < LOG_SIZE {
                 if let Some(id) = state.snapshot.log[slot] {
-                    // Source item/timer/script dependencies remain excluded by Catalog.
-                    catalog.row(id)?;
+                    let q = catalog.row(id)?;
+                    if q.excluded.source_item != 0 {
+                        let item = q.excluded.source_item;
+                        // Native inventory excludes bank/keyring and equipped bags.
+                        // Never pretend a host's bank-only source item was removed.
+                        if host.item_count(item, true)? != host.item_count(item, false)? {
+                            return Err(Error::Unsupported("source_item_bank_removal"));
+                        }
+                        let count = host
+                            .item_count(item, false)?
+                            .min(q.excluded.source_item_count);
+                        remove_items(catalog, &mut state, &mut host, item, count, &mut events)?;
+                    }
                     let progress = state
                         .snapshot
                         .records
@@ -759,7 +792,7 @@ pub fn reduce<H: Host>(
                 return Err(Error::Rejected(Gate::Giver));
             }
             can_take(catalog, &state, &host, id)?;
-            can_add(catalog, &state, id)?;
+            can_add(catalog, &state, &host, id)?;
             let q = catalog.row(id)?;
             let slot = state
                 .snapshot
@@ -787,6 +820,14 @@ pub fn reduce<H: Host>(
                 quest: Some(id),
             });
             events.push(Event::AcceptHook { quest: id, giver });
+            let count = source_item_grant(q, &host)?;
+            if count != 0 {
+                let item = q.excluded.source_item;
+                item_added(catalog, &mut state, &host, item, count, &mut events)?;
+                let effect = HostEffect::StoreSourceItem { item, count };
+                host.apply(&effect)?;
+                events.push(Event::Host(effect));
+            }
             for i in 0..OBJECTIVES {
                 if q.required_item_count[i] != 0 {
                     state.snapshot.records.get_mut(&id).expect("added").items[i] = host

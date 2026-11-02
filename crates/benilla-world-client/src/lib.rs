@@ -94,6 +94,13 @@ pub trait ClientCatalog {
     fn native_quest_presentation(&self, _quest: u32) -> Option<NativeQuestPresentation> {
         None
     }
+    /// Source-localized DoDisplayText for the checked ordinary SAY-only script port.
+    fn native_quest_script_text(&self, _broadcast: u32) -> Option<String> {
+        None
+    }
+    fn native_npc_text(&self, _text: u32) -> Option<Vec<protocol::NpcTextBlock>> {
+        None
+    }
 }
 /// Source item-query lookup after the selected server spell table is resolved.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

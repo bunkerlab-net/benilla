@@ -67,8 +67,13 @@ It also captures incoming quest relationships.
 The [ordinary giver contract](QUEST-RELATIONSHIP-CONTRACT.md#captured-ordinary-givers-and-presentation)
 defines the exact scope and the independent runtime dependencies.
 All quests attached to a selected giver remain selected.
-Unsupported scripts, source items, gossip, and unknown loaded callback/order inputs
-remain precise refusals, not filtered quests or a runnable Northshire claim.
+Unsupported script commands, gossip services, and unknown loaded callback/order
+inputs remain precise refusals, not filtered quests or a runnable Northshire claim.
+`capture --quest-mechanics` also captures checked completion scripts, source-item
+dependencies, ordinary gossip, direct conditions, and their text dependencies.
+It implies `--quest-presentation`. The
+[mechanics contract](QUEST-RELATIONSHIP-CONTRACT.md#completion-scripts-source-items-and-ordinary-gossip)
+defines its versioned evidence and remaining host requirements.
 
 
 ## Optional local read-only capture

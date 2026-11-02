@@ -77,11 +77,68 @@ fn presentation(gameplay: &q::CompiledOrdinaryQuests, map: u32) -> CapturedQuest
 }
 impl CapturedCatalog {
     fn new(profile: &n::Profile, gameplay: &q::CompiledOrdinaryQuests) -> Self {
+        let mut raw = presentation(gameplay, profile.map_id);
+        let texts = gameplay
+            .catalog()
+            .mechanics()
+            .gossip_text_ids()
+            .collect::<Vec<_>>();
+        for id in texts {
+            raw.npc_text_keys.push(id);
+            raw.npc_text.as_mut().unwrap().push(CapturedNpcText {
+                id,
+                options: std::array::from_fn(|index| CapturedNpcTextOption {
+                    probability_bits: if index == 0 { 1f32.to_bits() } else { 0 },
+                    text0: if index == 0 {
+                        "Authored ordinary gossip".into()
+                    } else {
+                        String::new()
+                    },
+                    text1: String::new(),
+                    language: 0,
+                    emotes: [(0, 0); 3],
+                    broadcast: 0,
+                }),
+            });
+        }
+        for id in gameplay.catalog().mechanics().script_broadcast_ids() {
+            raw.broadcasts
+                .as_mut()
+                .unwrap()
+                .push(n::EventAiBroadcastSource {
+                    id: id as i32,
+                    text: Some("Authored completion speech $N".into()),
+                    text1: Some(String::new()),
+                    chat_type: 0,
+                    language: 0,
+                    condition_id: 0,
+                    emotes_id: 0,
+                    flags: 1,
+                    sounds: [0; 2],
+                    emote_ids: [0; 3],
+                    emote_delays: [0; 3],
+                    verified_build: 0,
+                });
+        }
+        if gameplay
+            .quests()
+            .iter()
+            .any(|r| r.excluded.source_item == 9571)
+        {
+            raw.items.as_mut().unwrap().push(9571);
+        }
+        if gameplay
+            .catalog()
+            .mechanics()
+            .script_broadcast_ids()
+            .next()
+            .is_some()
+        {
+            raw.emotes.as_mut().unwrap().push(71);
+        }
         Self {
             base: LoopCatalog::new(&loop_fixture::profile()),
-            quests: presentation(gameplay, profile.map_id)
-                .compile(gameplay, -1)
-                .unwrap(),
+            quests: raw.compile(gameplay, -1).unwrap(),
         }
     }
 }
@@ -111,7 +168,8 @@ impl ClientCatalog for CapturedCatalog {
         self.base.player_bytes_2(id)
     }
     fn item_metadata(&self, id: u32) -> Option<benilla_protocol::messages::ItemInfo> {
-        self.base.item_metadata(id)
+        self.base
+            .item_metadata(if id == 9571 { loop_fixture::ITEM } else { id })
     }
     fn quest_metadata(&self, id: u32) -> Option<benilla_world_client::QuestMetadata> {
         self.quests.quest_metadata(id).cloned()
@@ -129,6 +187,12 @@ impl ClientCatalog for CapturedCatalog {
         id: u32,
     ) -> Option<benilla_world_client::NativeQuestPresentation> {
         self.quests.native_quest_presentation(id).cloned()
+    }
+    fn native_npc_text(&self, id: u32) -> Option<Vec<benilla_protocol::messages::NpcTextBlock>> {
+        self.quests.native_npc_text(id).map(<[_]>::to_vec)
+    }
+    fn native_quest_script_text(&self, id: u32) -> Option<String> {
+        self.quests.native_quest_script_text(id).map(str::to_owned)
     }
 }
 fn enter_captured(
@@ -368,4 +432,98 @@ fn captured_ten_kills_loot_rewards_and_followup_match_uninterrupted_checkpoint_a
     let resumed = run_short_route(&h, &data, &catalog, true);
     assert_eq!(uninterrupted.0, resumed.0);
     assert_eq!(format!("{:?}", uninterrupted.1), format!("{:?}", resumed.1));
+}
+
+#[test]
+fn full_authored_giver_closure_executes_scripts_source_items_and_gossip_across_reopen() {
+    let (data, gameplay) = captured_fixture::profile_with_mechanics();
+    assert_eq!(
+        gameplay.catalog().ids().collect::<Vec<_>>(),
+        [7, 15, 21, 783, 3104]
+    );
+    let catalog = CapturedCatalog::new(&data, &gameplay);
+    let h = Harness::new();
+    let mut c = enter_captured(&h, &data, &catalog, false);
+    let npc = guid(&c, 3);
+    assert!(
+        matches!(&c.receive(ClientCommand::QuestgiverHello { npc }).unwrap().events[..],
+        [SessionEvent::GossipMenu { text_id: 75001, options, quests, .. }] if options.is_empty() && quests.is_empty())
+    );
+    assert!(
+        matches!(&c.receive(ClientCommand::NpcTextQuery { text_id: 75001, guid: npc }).unwrap().events[..],
+        [SessionEvent::NpcGreeting { text_id: 75001, blocks }] if blocks[0].male == "Authored ordinary gossip")
+    );
+    assert!(accept_id(&mut c, 4, 783).pause.is_none());
+    assert!(reward_id(&mut c, 783).pause.is_none());
+    let mut kills = captured_fixture::MECHANIC_TARGETS.into_iter();
+    for (quest, count) in [(7, 10), (15, 10), (21, 12)] {
+        assert!(accept_id(&mut c, 3, quest).pause.is_none());
+        for index in 0..count {
+            kill(&mut c, kills.next().unwrap());
+            assert_eq!(
+                progress(&c).quests.progress(quest).unwrap().creatures[0],
+                index + 1
+            );
+            if index == count / 2 {
+                c = reopen_captured(&h, c, &data, &catalog);
+            }
+        }
+        let rewarded = reward_id(&mut c, quest);
+        assert!(rewarded.pause.is_none(), "{:?}", rewarded.pause);
+        assert!(progress(&c).quests.progress(quest).unwrap().rewarded);
+        if quest == 7 {
+            let accepted = accept_id(&mut c, 3, 3104);
+            assert!(accepted.pause.is_none());
+            assert!(accepted.events.iter().any(|event| matches!(event,
+                SessionEvent::ItemPushResult(push) if push.item_entry == 9571
+                    && push.from_npc && !push.created && push.show_in_chat && push.count == 1)));
+            assert_eq!(inventory(&c).item_count(9571).unwrap(), 1);
+            c = reopen_captured(&h, c, &data, &catalog);
+            let slot = progress(&c)
+                .quests
+                .view()
+                .log
+                .iter()
+                .position(|id| *id == Some(3104))
+                .unwrap();
+            c.receive(ClientCommand::QuestlogRemove { slot: slot as u8 })
+                .unwrap();
+            let abandoned = step(&mut c);
+            assert!(abandoned.pause.is_none());
+            assert_eq!(inventory(&c).item_count(9571).unwrap(), 0);
+            assert!(accept_id(&mut c, 3, 3104).pause.is_none());
+            assert_eq!(inventory(&c).item_count(9571).unwrap(), 1);
+            assert!(reward_id(&mut c, 3104).pause.is_none());
+            assert_eq!(inventory(&c).item_count(9571).unwrap(), 0);
+        } else if quest == 21 {
+            assert!(!rewarded.events.iter().any(|e| matches!(
+                e,
+                SessionEvent::Chat(_) | SessionEvent::Emote { emote_id: 71, .. }
+            )));
+            c = reopen_captured(&h, c, &data, &catalog);
+            let mut effects = vec![];
+            for _ in 0..25 {
+                let out = step(&mut c);
+                assert!(out.pause.is_none(), "{:?}", out.pause);
+                effects.extend(out.events.into_iter().filter(|e| {
+                    matches!(
+                        e,
+                        SessionEvent::Chat(_) | SessionEvent::Emote { emote_id: 71, .. }
+                    )
+                }));
+            }
+            assert!(
+                matches!(&effects[..], [SessionEvent::Chat(chat), SessionEvent::Emote { emote_id: 71, .. }]
+                if chat.text == "Authored completion speech $N")
+            );
+            c = reopen_captured(&h, c, &data, &catalog);
+            for _ in 0..3 {
+                assert!(!step(&mut c).events.iter().any(|e| matches!(
+                    e,
+                    SessionEvent::Chat(_) | SessionEvent::Emote { emote_id: 71, .. }
+                )));
+            }
+        }
+    }
+    assert!(kills.next().is_none());
 }

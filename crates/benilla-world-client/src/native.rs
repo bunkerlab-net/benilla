@@ -1081,9 +1081,10 @@ impl NativeProjection {
                     }
                 }
                 n::Event::QuestProgression(event) => {
-                    reward_refusal_presented |= matches!(event, n::QuestProgressionEvent::RewardRefused { .. });
+                    reward_refusal_presented |= matches!(event, n::QuestProgressionEvent::RewardRefused { .. } | n::QuestProgressionEvent::SourceItemRefused { .. });
                     events.extend(self.quest_progression_event(w, event, &mut quest_frame, &mut loot_frame)?);
                 },
+                n::Event::QuestScript(event) => events.extend(self.quest_script_event(w, event)?),
                 n::Event::Loot(event) => events.extend(self.loot_event(w, event, &mut loot_frame)?),
                 n::Event::InventoryStored(stored) => events.extend(self.inventory_stored(w, stored, &mut loot_frame)?),
                 n::Event::InventoryMoved(moved) => events.extend(self.inventory_moved(w, moved, &mut loot_frame)?),

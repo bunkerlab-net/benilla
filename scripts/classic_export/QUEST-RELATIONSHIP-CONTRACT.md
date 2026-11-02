@@ -40,8 +40,9 @@ Every referenced quest must have its full selected row and its own incoming scan
 Preparation never promotes an external incoming row into playable content.
 An external incoming row, dangling reference, conflict, missing scan, or closure
 above 1,024 quests refuses the closure. Refusals identify the quest, field, signed
-target, and reason. Nonzero exclusive groups, breadcrumbs, scripts, conditions,
-and source-item or source-spell paths remain unsupported.
+target, and reason. Nonzero exclusive groups, breadcrumbs, start scripts, quest
+conditions, and source-spell paths remain unsupported. Source items and completion
+scripts require the checked mechanics described below.
 
 The preparation output retains the exact source digest, raw capture projection,
 normalised signed prerequisites, and separate reverse-chain lists. Rust compares
@@ -110,14 +111,14 @@ It never turns zero script IDs or a blank template ScriptName into absent callba
 `CapturedOrdinaryQuests` accepts independently resolved source projections.
 `QuestDependencySource::resolve` checks the actual selected giver identities and
 loaded script registration before it creates private `ResolvedQuestDependencies`.
-The bounded resolver refuses present callbacks, nonempty global SpellArea,
-item-deletion effects, and any present default gossip menu or options.
-This conservative gossip domain does not admit McBride's real gossip menu.
+The bounded resolver refuses present callbacks, nonempty global SpellArea, and
+item-deletion effects. Checked ordinary menu/text/option/condition projections
+support the questgiver gossip branch without bypassing menu dispatch.
 The runtime binder checks actual profile spawns and effective flags.
 The existing progression constructor still owns rewards, rates, skills, XP, reputation, and loot.
 
 `CapturedQuestPresentation` derives the existing quest metadata and greeting values.
-The full client catalog delegates only its three quest methods to that immutable output.
+The full client catalog delegates quest, NPC-text, and script-text lookups to that immutable output.
 The caller combines its digest with the full client manifest.
 It supplies the explicit session database-locale mapping and complete Emotes lookup.
 Extraction v4 adds Emotes to the exact 21-table contract.
@@ -127,10 +128,50 @@ The existing projection independently checks gameplay metadata and selects singl
 details, request/offer panels, or the ordered menu.
 
 The eager closure is unchanged. Every quest attached to a selected giver remains selected.
-Quest 15's reference to 21 cannot disappear, and CompleteScript=21 refuses that closure.
-Source-item quest 3104 independently refuses with its exact quest, field, and target.
+Quest 15's reference to 21 cannot disappear. A captured completion script must
+compile its exact commands and dependencies. Source-item quest 3104 requires
+the ordinary inventory host for grant, storage refusal, and source-item removal.
 There is no ignore switch, endpoint truncation, dormant-row admission, or production capability.
 Authored positive short-chain tests are not evidence that the real Northshire catalog is admitted.
+
+### Completion scripts, source items, and ordinary gossip
+
+`capture --quest-mechanics` implies `--quest-presentation` and adds
+`quest_mechanics_capture`, format `benilla-classic-quest-mechanics-v1`.
+It captures selected completion-script IDs from `dbscripts_on_quest_end`,
+default gossip menus plus menu zero, options, direct conditions, NPC text and
+reachable broadcasts/locales in the same snapshot. Exact schemas and primary
+keys live in `quest_mechanics_columns.py`. Script rows have no upstream primary
+key, so canonicalisation retains duplicates instead of merging repeated commands.
+Hashes bind selectors, lookup coverage, rows, schema, source selection, base-table
+hashes and version notes. MyISAM requires the explicit quiescent-snapshot mode.
+
+The capture does not claim loaded equivalent-priority script order.
+`loaded_script_order` remains null, and preparation requests independent evidence.
+The Rust adapter consumes independent loader positions and preserves delay/tie
+order. Only ordinary TALK and single-choice EMOTE compile. Source strings, random
+alternatives, buddies, flags, conditional script execution and other command types
+retain precise refusals. The native runtime persists scheduled work and checks
+the explicit SAY configuration and source-owned camera traversal before delivery.
+
+Source items use `CanGiveQuestSourceItemIfNeed`, including existing bank counts
+for grant capacity. Abandon removes the source count before changing quest status.
+The current native inventory excludes bank/keyring and equipped containers.
+Turn-in removes required delivery items only; it does not blindly delete every
+`SrcItemId`. The captured loader normalises a zero source count to one when the
+item exists, as `ObjectMgr.cpp:4463-4482` does.
+
+Gossip preserves the menu-zero fallback, the hidden questgiver option, conditional
+quest-list suppression, and highest-satisfied-condition text selection.
+Conditions NONE, QUESTREWARDED, QUESTTAKEN and QUEST_NONE support ordinary player
+targets and the reverse-result flag. Other conditions and reached services refuse.
+Givers with the GOSSIP flag send `GossipMenu` with the available quest list.
+NPC text requests use the captured full eight-block source, not a quest-list text ID.
+Without that flag, nonempty quests use the original direct quest-dialog branch.
+
+These authored content ports don't establish production admission or the
+independent hook, order, geometry, and full-profile contracts.
+
 
 The GPL-derived algorithms use CMaNGOS Classic at the pin above:
 

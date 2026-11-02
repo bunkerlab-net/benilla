@@ -25,13 +25,14 @@ fn source(rows: Vec<QuestRow>) -> CapturedOrdinaryQuests {
 fn context(rows: &[QuestRow]) -> QuestDependencySource {
     let items = rows
         .iter()
-        .flat_map(|q| q.required_item)
+        .flat_map(|q| q.required_item.into_iter().chain([q.excluded.source_item]))
         .filter(|id| *id != 0)
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .collect();
     QuestDependencySource {
         source: [7; 32],
+        mechanics: None,
         scripts: Some(vec![]),
         allowed_areas: vec![9],
         global_spell_areas: Some(vec![]),
@@ -121,13 +122,14 @@ fn captured_real_shaped_tail_and_attached_source_item_are_not_filtered() {
     let capture = captured(&rows);
     let input = source(rows.clone());
     let deps = context(&rows).resolve(&input).unwrap();
-    assert!(matches!(
-        input.compile(&capture, &deps),
-        Err(Error::Relationship {
-            quest: 3104,
-            field: "SrcItemId",
-            target: 9571,
-            ..
-        })
-    ));
+    let compiled = input.compile(&capture, &deps).unwrap();
+    assert_eq!(
+        compiled.catalog().ids().collect::<Vec<_>>(),
+        [7, 15, 21, 783, 3104]
+    );
+    let source_item = &compiled.catalog().row(3104).unwrap().excluded;
+    assert_eq!(
+        (source_item.source_item, source_item.source_item_count),
+        (9571, 1)
+    );
 }

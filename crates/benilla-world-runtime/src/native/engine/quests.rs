@@ -179,6 +179,11 @@ impl<A: Authority> Frame<'_, A> {
         let (next, events) = match current.reduce(g, combat, command) {
             Ok(tx) => tx,
             Err(NativeError::Quest(q::Error::Rejected(gate))) => {
+                if let (false, q::Gate::RewardStorage { item, result }) = (reward, gate) {
+                    self.events.push(Event::QuestProgression(
+                        QuestProgressionEvent::SourceItemRefused { item, result },
+                    ));
+                }
                 let refusal = match gate {
                     q::Gate::RewardStorage { result, .. } => Some(Some(result)),
                     q::Gate::Items => {
@@ -215,6 +220,24 @@ impl<A: Authority> Frame<'_, A> {
             None
         };
         self.commit_quest_progression(next)?;
+        if reward && g.quest(quest)?.excluded.complete_script != 0 {
+            let progression = self
+                .state
+                .quest_progression
+                .as_mut()
+                .ok_or(NativeError::InvalidState)?;
+            if progression.completion_scripts.len() >= 1024 {
+                return Err(NativeError::TooLarge);
+            }
+            progression
+                .completion_scripts
+                .push(quest_progression::CompletionScript {
+                    quest,
+                    giver,
+                    started_ms: self.state.now_ms,
+                    completed: 0,
+                });
+        }
         self.events
             .extend(events.into_iter().map(Event::QuestProgression));
         if let Some(quest) = next_quest {

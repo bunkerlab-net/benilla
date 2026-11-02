@@ -113,7 +113,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v82\0",
+            b"benilla-native-profile-v83\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -652,6 +652,7 @@ pub enum Rejection {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Event {
+    QuestScript(QuestScriptEvent),
     PlayerAttackStart {
         target: NpcId,
     },

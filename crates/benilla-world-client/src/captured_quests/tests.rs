@@ -226,6 +226,7 @@ fn differing_same_entry_guid_fallbacks_refuse_entry_keyed_projection() {
     };
     let dependencies = q::QuestDependencySource {
         source: gameplay.source(),
+        mechanics: None,
         scripts: Some(vec![]),
         gossip: Some(
             [197, 823]

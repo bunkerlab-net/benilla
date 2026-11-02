@@ -51,6 +51,7 @@ pub struct QuestItemDeletionSource {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QuestDependencySource {
     pub source: [u8; 32],
+    pub mechanics: Option<Mechanics>,
     /// Complete applicable loaded registry, not a list selected by blank template names.
     pub scripts: Option<Vec<CapturedQuestScript>>,
     pub gossip: Option<Vec<CapturedGossipScope>>,
@@ -65,6 +66,7 @@ pub struct ResolvedQuestDependencies {
     source: [u8; 32],
     givers: Vec<CapturedQuestGiver>,
     item_keys: Vec<u32>,
+    mechanics: Mechanics,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CapturedOrdinaryQuests {
@@ -112,7 +114,7 @@ fn require<'a, T>(
 }
 fn item_keys(rows: &[QuestRow]) -> Vec<u32> {
     rows.iter()
-        .flat_map(|q| q.required_item)
+        .flat_map(|q| q.required_item.into_iter().chain([q.excluded.source_item]))
         .filter(|id| *id != 0)
         .collect::<BTreeSet<_>>()
         .into_iter()
@@ -185,7 +187,14 @@ impl QuestDependencySource {
                     "conflicting_rows",
                 ));
             }
-            if row.menu != 0 || !row.options.is_empty() {
+            if (row.menu != 0 || !row.options.is_empty())
+                && self
+                    .mechanics
+                    .as_ref()
+                    .and_then(|m| m.giver(row.entry))
+                    .map(|(menu, _)| menu)
+                    != Some(row.menu)
+            {
                 return Err(fail(
                     0,
                     "gossip_menu",
@@ -252,6 +261,45 @@ impl QuestDependencySource {
                 ));
             }
         }
+        let mechanics = self.mechanics.clone().unwrap_or_default();
+        for giver in givers {
+            if self.mechanics.is_some() && mechanics.giver(giver.entry).is_none() {
+                return Err(fail(
+                    0,
+                    "gossip_giver",
+                    i64::from(giver.entry),
+                    "unknown_lookup",
+                ));
+            }
+            if let Some((_, flags)) = mechanics.giver(giver.entry) {
+                if flags != giver.npc_flags {
+                    return Err(fail(
+                        0,
+                        "gossip_giver.NpcFlags",
+                        i64::from(giver.entry),
+                        "binding_mismatch",
+                    ));
+                }
+                let scope = menus.get(&giver.entry).ok_or(fail(
+                    0,
+                    "gossip_menu",
+                    i64::from(giver.entry),
+                    "unknown_lookup",
+                ))?;
+                let mut expected = mechanics.effective_option_ids(giver.entry);
+                let mut observed = scope.options.clone();
+                expected.sort_unstable();
+                observed.sort_unstable();
+                if expected != observed {
+                    return Err(fail(
+                        0,
+                        "gossip_menu_option",
+                        i64::from(giver.entry),
+                        "coverage_mismatch",
+                    ));
+                }
+            }
+        }
         if menus.keys().copied().collect::<BTreeSet<_>>()
             != givers.iter().map(|g| g.entry).collect()
         {
@@ -261,6 +309,7 @@ impl QuestDependencySource {
             source: self.source,
             givers: givers.to_vec(),
             item_keys: self.item_keys.clone(),
+            mechanics,
         })
     }
 }
@@ -324,6 +373,12 @@ impl CapturedOrdinaryQuests {
         let mut quests = rows.to_vec();
         for row in &mut quests {
             // ObjectMgr::LoadQuests:4513,4618 derives delivery and creature kill/speak bits.
+            // ObjectMgr.cpp:4463-4482 source-item count normalization.
+            if row.excluded.source_item == 0 {
+                row.excluded.source_item_count = 0;
+            } else if row.excluded.source_item_count == 0 {
+                row.excluded.source_item_count = 1;
+            }
             for slot in 0..OBJECTIVES {
                 if row.required_item[slot] != 0 {
                     row.special_flags |= DELIVER;
@@ -339,11 +394,12 @@ impl CapturedOrdinaryQuests {
             spell_area: Evidence::Absent,
             collection_item_effects: Evidence::Absent,
         };
-        let catalog = Catalog::from_relationship_capture(
+        let catalog = Catalog::from_relationship_capture_with_mechanics(
             quests.clone(),
             relations.clone(),
             audit.clone(),
             relationships,
+            context.mechanics.clone(),
         )?;
         Ok(CompiledOrdinaryQuests {
             source: self.source,

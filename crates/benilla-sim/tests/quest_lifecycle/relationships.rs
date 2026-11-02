@@ -119,9 +119,9 @@ fn unknown_external_dangling_conflicting_and_unsupported_edges_are_precise() {
         ("PrevQuestId", i32::MIN, "numeric_domain"),
         ("NextQuestInChain", i32::MIN, "numeric_domain"),
         ("StartScript", 9, "unsupported_path"),
-        ("CompleteScript", 9, "unsupported_path"),
+        ("CompleteScript", 9, "unknown_script_coverage"),
         ("RequiredCondition", 9, "unsupported_path"),
-        ("SrcItemId", 9, "unsupported_path"),
+        ("SrcSpell", 9, "unsupported_path"),
     ] {
         let mut rows = original.clone();
         match field {
@@ -133,7 +133,7 @@ fn unknown_external_dangling_conflicting_and_unsupported_edges_are_precise() {
             "StartScript" => rows[0].excluded.start_script = target as u32,
             "CompleteScript" => rows[0].excluded.complete_script = target as u32,
             "RequiredCondition" => rows[0].excluded.required_condition = target as u32,
-            _ => rows[0].excluded.source_item = target as u32,
+            _ => rows[0].excluded.source_spell = target as u32,
         }
         let capture = captured(&rows);
         let expected = if field == "NextQuestInChain" && target == i32::MIN {

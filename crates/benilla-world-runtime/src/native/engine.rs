@@ -20,6 +20,7 @@ mod inventory;
 mod loot;
 mod mainhand;
 mod motion;
+mod quest_scripts;
 mod quests;
 #[cfg(test)]
 mod update_phase_tests;
@@ -204,6 +205,7 @@ impl NativeWorld {
         ) {
             q.played_time(g, frame.state.now_ms)?;
         }
+        frame.quest_scripts()?;
         if frame
             .state
             .rng_counter
@@ -225,7 +227,7 @@ impl NativeWorld {
         let events = frame.events;
         let draws = frame.draws;
         SourceSplineIds::validate_events(&self.state, &next, &events)?;
-        let after = crate::digest(b"benilla-native-state-v82\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v83\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,

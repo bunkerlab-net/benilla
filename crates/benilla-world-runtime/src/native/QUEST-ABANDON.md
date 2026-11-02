@@ -13,12 +13,12 @@ slot-clear call. An occupied slot first takes the quest source item, then remove
 timed membership if applicable, sets quest statusNONE, and finally clears the slot.
 There is no alive, giver, distance or completion guard on this handler.
 
-The existing catalog rejects source-item/count, source-spell, timer, required-source
-and script dependencies. Those exclusions remain unchanged: this route never
-pretends to run inventory cleanup or timer callbacks. In particular, ordinary
-required deliver items are **not deleted** on abandonment. If source items are ever
-admitted, their entry-based CanUnequipItems/DestroyItemCount route needs its own
-source proof; selected user DestroyItem is not a substitute.
+The catalog admits inert source items through the existing audited inventory host.
+Abandonment removes up to the source count before status changes, with ordinary
+item-removal callbacks. The native inventory excludes bank/keyring and equipped
+containers. A host with bank copies refuses source-item removal explicitly.
+Ordinary required deliver items that aren't source items remain. Source-spell,
+timer, required-source, and unsupported script dependencies still refuse.
 
 StatusNONE is retained in the quest record, including prior objective counters;
 reward history is not deleted. SetQuestStatus's WorldObjects callback sees statusNONE
@@ -47,7 +47,7 @@ NPC-status packet in this no-gameobject slice: normal explicit status/menu queri
 show the reoffered quest. Checkpoint failure withholds slot-clear events until retry;
 reopen preservesNONE history and does not re-abandon or reward the quest.
 
-The current native format and quest-lifecycle-v4 reject prior checkpoint identities without migration.
+The current native format and quest-lifecycle-v5 reject prior checkpoint identities without migration.
 Tests use original authored fixtures, actual Lua/controller commands, real simulated
 death, checkpoint failure/retry/reopen, replay and rehashed malformed states. This
 is not graphical user verification, private content admission, a native capability,

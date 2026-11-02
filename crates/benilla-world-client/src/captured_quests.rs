@@ -167,6 +167,8 @@ pub struct CompiledQuestPresentation {
     quests: BTreeMap<u32, QuestMetadata>,
     presentation: BTreeMap<u32, NativeQuestPresentation>,
     greetings: BTreeMap<u32, NativeQuestGreeting>,
+    npc_text: BTreeMap<u32, Vec<p::NpcTextBlock>>,
+    script_text: BTreeMap<u32, String>,
     digest: [u8; 32],
 }
 impl CapturedQuestPresentation {
@@ -250,6 +252,8 @@ impl CapturedQuestPresentation {
             quests: BTreeMap::new(),
             presentation: BTreeMap::new(),
             greetings: BTreeMap::new(),
+            npc_text: BTreeMap::new(),
+            script_text: BTreeMap::new(),
             digest: [0; 32],
         };
         for raw in quests {
@@ -282,6 +286,7 @@ impl CapturedQuestPresentation {
                 .into_iter()
                 .chain(row.excluded.reward_item)
                 .chain(row.excluded.reward_choice_item)
+                .chain([row.excluded.source_item])
                 .filter(|id| *id != 0)
             {
                 if !items.contains(&id) {
@@ -431,6 +436,76 @@ impl CapturedQuestPresentation {
         let mut seen = BTreeSet::new();
         let mut text_keys = BTreeSet::new();
         let mut broadcast_keys = BTreeSet::new();
+        for id in gameplay.catalog().mechanics().script_broadcast_ids() {
+            let row =
+                broadcast_by_id
+                    .get(&id)
+                    .ok_or(error(id, "broadcast_text", "missing_lookup"))?;
+            if row.chat_type != 0
+                || row.language != 0
+                || row.sounds != [0; 2]
+                || row.emote_ids != [0; 3]
+                || row.emote_delays != [0; 3]
+                || (row.text.as_deref().unwrap_or("").is_empty()
+                    && !row.text1.as_deref().unwrap_or("").is_empty())
+            {
+                return Err(error(id, "broadcast_text", "unsupported_script_speech"));
+            }
+            let value = n::localized_broadcast_text(
+                row,
+                broadcast_translations.get(&(id, locale)).copied(),
+                locale,
+                0,
+            )
+            .map_err(|_| error(id, "broadcast_text", "invalid_locale"))?;
+            out.script_text.insert(id, value.to_owned());
+            broadcast_keys.insert(id);
+        }
+        for id in gameplay.catalog().mechanics().gossip_text_ids() {
+            text_keys.insert(id);
+            let row = npc_by_id
+                .get(&id)
+                .ok_or(error(id, "npc_text", "missing_lookup"))?;
+            let mut blocks = Vec::with_capacity(8);
+            for (index, option) in row.options.iter().enumerate() {
+                let (male, female) = if option.broadcast != 0 {
+                    broadcast_keys.insert(option.broadcast);
+                    let base = broadcast_by_id.get(&option.broadcast).ok_or(error(
+                        option.broadcast,
+                        "broadcast_text",
+                        "missing_lookup",
+                    ))?;
+                    let translation = broadcast_translations
+                        .get(&(option.broadcast, locale))
+                        .copied();
+                    let localize = |gender| {
+                        n::localized_broadcast_text(base, translation, locale, gender)
+                            .map(str::to_owned)
+                            .map_err(|_| {
+                                error(option.broadcast, "broadcast_text", "invalid_locale")
+                            })
+                    };
+                    (localize(0)?, localize(1)?)
+                } else {
+                    let local = npc_translations.get(&(id, locale)).map(|l| &l.text[index]);
+                    let a = local
+                        .map(|p| &p.0)
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or(&option.text0);
+                    let b = local
+                        .map(|p| &p.1)
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or(&option.text1);
+                    (a.clone(), b.clone())
+                };
+                blocks.push(p::NpcTextBlock {
+                    probability: f32::from_bits(option.probability_bits),
+                    male,
+                    female,
+                });
+            }
+            out.npc_text.insert(id, blocks);
+        }
         for spawn in spawns {
             if spawn.gender > 2
                 || !seen.insert(spawn.spawn)
@@ -554,6 +629,12 @@ impl CompiledQuestPresentation {
     }
     pub fn native_quest_greeting(&self, entry: u32) -> Option<&NativeQuestGreeting> {
         self.greetings.get(&entry)
+    }
+    pub fn native_npc_text(&self, id: u32) -> Option<&[p::NpcTextBlock]> {
+        self.npc_text.get(&id).map(Vec::as_slice)
+    }
+    pub fn native_quest_script_text(&self, id: u32) -> Option<&str> {
+        self.script_text.get(&id).map(String::as_str)
     }
 }
 

@@ -55,8 +55,23 @@ impl Catalog {
     pub fn from_relationship_capture(
         rows: Vec<QuestRow>,
         relations: QuestRelations,
+        audit: DependencyAudit,
+        capture: &RelationshipCapture,
+    ) -> Result<Self, Error> {
+        Self::from_relationship_capture_with_mechanics(
+            rows,
+            relations,
+            audit,
+            capture,
+            super::Mechanics::default(),
+        )
+    }
+    pub fn from_relationship_capture_with_mechanics(
+        rows: Vec<QuestRow>,
+        relations: QuestRelations,
         mut audit: DependencyAudit,
         capture: &RelationshipCapture,
+        mechanics: super::Mechanics,
     ) -> Result<Self, Error> {
         if rows.len() > MAX_RELATIONSHIP_QUESTS
             || capture.own.len() > MAX_RELATIONSHIP_QUESTS
@@ -100,9 +115,6 @@ impl Catalog {
             for (field, value) in [
                 ("RequiredCondition", row.excluded.required_condition),
                 ("StartScript", row.excluded.start_script),
-                ("CompleteScript", row.excluded.complete_script),
-                ("SrcItemId", row.excluded.source_item),
-                ("SrcItemCount", row.excluded.source_item_count),
                 ("SrcSpell", row.excluded.source_spell),
             ] {
                 if value != 0 {
@@ -237,6 +249,6 @@ impl Catalog {
         }
         // ObjectMgr.cpp:4804-4825 preserves signs; 4790-4800 builds a separate reverse-chain store.
         audit.complete_relation_scan = true;
-        Self::new(rows, relations, audit)
+        Self::new_with_mechanics(rows, relations, audit, mechanics)
     }
 }

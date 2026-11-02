@@ -954,6 +954,7 @@ impl Driven for NativeController {
         if matches!(
             &command,
             ClientCommand::QuestQuery { .. }
+                | ClientCommand::NpcTextQuery { .. }
                 | ClientCommand::QuestgiverStatusQuery { .. }
                 | ClientCommand::QuestgiverHello { .. }
                 | ClientCommand::QuestgiverQuery { .. }
@@ -1321,6 +1322,24 @@ impl Driven for NativeController {
                 let giver = self.projection.capture_npc(npc)?;
                 self.preview_quest(giver, 0, false)?;
                 events.extend(self.projection.quest_greeting_events(&self.world, giver)?);
+            }
+            ClientCommand::NpcTextQuery { text_id, guid }
+                if self
+                    .world
+                    .profile()
+                    .quest_progression
+                    .as_ref()
+                    .is_some_and(|g| {
+                        g.quest_catalog()
+                            .mechanics()
+                            .gossip_text_ids()
+                            .next()
+                            .is_some()
+                    }) =>
+            {
+                let giver = self.projection.capture_npc(guid)?;
+                self.preview_quest(giver, 0, false)?;
+                events.push(self.projection.npc_text(&self.world, giver, text_id)?);
             }
             ClientCommand::QuestgiverQuery { npc, quest } => {
                 let giver = self.projection.capture_npc(npc)?;

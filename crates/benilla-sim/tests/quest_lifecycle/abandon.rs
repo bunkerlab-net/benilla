@@ -193,7 +193,7 @@ fn none_history_restore_rejects_logged_or_rewarded_forgery_and_sequence_replay()
 }
 
 #[test]
-fn source_item_and_timer_dependencies_stay_unadmitted() {
+fn malformed_source_item_pairs_and_timer_dependencies_stay_unadmitted() {
     for fault in 0..5 {
         let mut r = row(1, 0, 0);
         match fault {
@@ -204,10 +204,12 @@ fn source_item_and_timer_dependencies_stay_unadmitted() {
             _ => r.special_flags |= 0x40, // QUEST_SPECIAL_FLAG_TIMED
         }
         let rel = relations(std::slice::from_ref(&r));
-        assert!(matches!(
-            Catalog::new(vec![r], rel, audit()),
-            Err(Error::Unsupported(_))
-        ));
+        let error = Catalog::new(vec![r], rel, audit()).unwrap_err();
+        if fault < 2 {
+            assert_eq!(error, Error::Invalid("source_item_pair"));
+        } else {
+            assert!(matches!(error, Error::Unsupported(_)));
+        }
     }
 }
 

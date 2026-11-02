@@ -18,7 +18,7 @@ spell target-death lifecycle causes in the bounded melee proof. Backpack stack-s
 commands and receipts retain consumed clone identities on legitimate storage
 refusal. Selected backpack destruction retains quest-removal callbacks before
 exact selected-slot mutation; the carried-items policy is v12. Bounded quest
-abandonment retains NONE-status history for reacceptance under quest-lifecycle-v4.
+abandonment retains NONE-status history for reacceptance under quest-lifecycle-v5.
 Format57 added source reputation-panel controls with replayed native reputation-v3
 call history; no immediate acknowledgement packet is invented. Format58 added the
 raw signed watched-faction descriptor and retained changed-write history, without
@@ -27,6 +27,11 @@ action-bar toggle byte and changed-write history; its player-field projection
 composes the existing death release-timer flag without overwriting that byte.
 Format60 added bounded backpack autostore with ordered detach/store receipts,
 unchanged allocation and no quest-count callbacks; carried-items policy is v12.
+The current `NATIVE_FORMAT_VERSION` also retains checked quest completion-script
+invocations and cursors. Format 83 rejects earlier native checkpoints instead of
+silently changing their script, source-item, or gossip semantics. The
+[quest lifecycle contract](../../../benilla-sim/QUEST-LIFECYCLE.md#checked-completion-scripts-and-quest-gossip)
+describes the supported command/condition subset and precise remaining refusals.
 Format61 retained immutable genesis-origin equipment identity under equipment-v2,
 with the exact existing projected GUIDs and strict unchanged-loadout validation.
 Format62 registers pre-existing equipped origins with reserved local handles after

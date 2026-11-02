@@ -365,11 +365,12 @@ impl Frame {
         // Player::DestroyItemCount sends destruction/partial-stack updates before reward packets.
         Ok(self.project(projection, w, &next))
     }
-    pub(super) fn reward_item(
+    pub(super) fn quest_item(
         &mut self,
         projection: &NativeProjection,
         w: &n::NativeWorld,
         stored: &inv::Stored,
+        show_in_chat: bool,
     ) -> Result<Vec<SessionEvent>, Error> {
         self.validate_complete()?;
         if self.slots != stored.before_slots || self.next_item != Some(stored.before_next_item) {
@@ -381,7 +382,7 @@ impl Frame {
             player_guid: projection.player_guid,
             from_npc: true,
             created: false,
-            show_in_chat: false,
+            show_in_chat,
             bag_slot: 255,
             item_slot: if stored.last_count == stored.count {
                 u32::from(stored.last_slot)

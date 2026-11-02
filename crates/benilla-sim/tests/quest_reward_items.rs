@@ -8,6 +8,8 @@ use benilla_sim::quest::{
 };
 use benilla_sim::quest_lifecycle::*;
 use std::collections::BTreeMap;
+#[path = "quest_lifecycle/mechanics.rs"]
+mod mechanics;
 fn excluded() -> ExcludedFields {
     ExcludedFields {
         required_skill: 0,
@@ -116,6 +118,9 @@ fn item(entry: u32, stackable: i32, maximum_count: i32) -> Item {
 fn event(e: &Event) -> String {
     match e {
         Event::Host(HostEffect::StoreRewardItem { item, count }) => format!("grant:{item}:{count}"),
+        Event::Host(HostEffect::StoreSourceItem { item, count }) => {
+            format!("source:{item}:{count}")
+        }
         Event::LogSet { slot, quest } => format!("log:{slot}:{}", quest.unwrap_or(0)),
         Event::AcceptHook { quest, giver } => format!("accept:{quest}:{giver}"),
         Event::WorldObjects { .. } => "world".into(),
@@ -197,7 +202,8 @@ impl Host for InventoryHost {
     }
     fn apply(&mut self, effect: &HostEffect) -> Result<(), Error> {
         match *effect {
-            HostEffect::StoreRewardItem { item, count } => {
+            HostEffect::StoreRewardItem { item, count }
+            | HostEffect::StoreSourceItem { item, count } => {
                 self.state
                     .store_new(&self.catalog, item, count, |_, _, _| Ok(()))
                     .map_err(|_| Error::Host("store"))?;
@@ -480,4 +486,122 @@ fn loader_normalized_objectives_and_dense_reward_items_are_required() {
         can_reward_choice(&catalog, &state, &host, 1, 6),
         Err(Error::Rejected(Gate::RewardChoice))
     );
+}
+
+#[test]
+fn source_item_accept_abandon_and_delivery_reward_are_transactional() {
+    let mut row = quest(71001);
+    row.excluded.source_item = 70001;
+    row.excluded.source_item_count = 2;
+    row.required_item[0] = 70001;
+    row.required_item_count[0] = 2;
+    row.special_flags = DELIVER;
+    let c = catalog(vec![row]);
+    let mut h = InventoryHost {
+        catalog: inventory::Catalog::new(vec![item(70001, 10, 0)], inventory_audit()).unwrap(),
+        state: inventory::State::new(BTreeMap::new(), 1000).unwrap(),
+        money: 0,
+    };
+    let s = State::new(&c);
+    let accepted = reduce(
+        &c,
+        &s,
+        &h,
+        s.next_sequence(),
+        Command::Accept {
+            quest: 71001,
+            giver: 900,
+        },
+    )
+    .unwrap();
+    assert_eq!(accepted.host.state.item_count(70001).unwrap(), 2);
+    assert_eq!(
+        accepted.state.progress(71001).unwrap().status,
+        Status::Complete
+    );
+    assert_eq!(h.state.item_count(70001).unwrap(), 0);
+    let reopened = State::restore(&c, accepted.state.snapshot()).unwrap();
+    let abandoned = reduce(
+        &c,
+        &reopened,
+        &accepted.host,
+        reopened.next_sequence(),
+        Command::Abandon { slot: 0 },
+    )
+    .unwrap();
+    assert_eq!(abandoned.host.state.item_count(70001).unwrap(), 0);
+    assert_eq!(
+        abandoned.state.progress(71001).unwrap().status,
+        Status::None
+    );
+    h = abandoned.host;
+    h.state
+        .store_new(&h.catalog, 70001, 1, |_, _, _| Ok(()))
+        .unwrap();
+    let accepted = reduce(
+        &c,
+        &abandoned.state,
+        &h,
+        abandoned.state.next_sequence(),
+        Command::Accept {
+            quest: 71001,
+            giver: 900,
+        },
+    )
+    .unwrap();
+    assert_eq!(accepted.host.state.item_count(70001).unwrap(), 2);
+    let rewarded = reduce(
+        &c,
+        &accepted.state,
+        &accepted.host,
+        accepted.state.next_sequence(),
+        Command::Reward {
+            quest: 71001,
+            giver: 900,
+            announce: true,
+            choice: 0,
+        },
+    )
+    .unwrap();
+    assert_eq!(rewarded.host.state.item_count(70001).unwrap(), 0);
+    assert!(rewarded.state.progress(71001).unwrap().rewarded);
+}
+
+#[test]
+fn source_item_full_inventory_refuses_before_acceptance() {
+    let mut row = quest(71002);
+    row.excluded.source_item = 70001;
+    row.excluded.source_item_count = 1;
+    let c = catalog(vec![row]);
+    let mut h = InventoryHost {
+        catalog: inventory::Catalog::new(
+            vec![item(70001, 1, 0), item(70002, 1, 0)],
+            inventory_audit(),
+        )
+        .unwrap(),
+        state: inventory::State::new(BTreeMap::new(), 1000).unwrap(),
+        money: 0,
+    };
+    h.state
+        .store_new(&h.catalog, 70002, 16, |_, _, _| Ok(()))
+        .unwrap();
+    let s = State::new(&c);
+    assert!(matches!(
+        reduce(
+            &c,
+            &s,
+            &h,
+            s.next_sequence(),
+            Command::Accept {
+                quest: 71002,
+                giver: 900
+            }
+        ),
+        Err(Error::Rejected(Gate::RewardStorage {
+            item: 70001,
+            result: inventory::InventoryResult::InventoryFull
+        }))
+    ));
+    assert!(s.progress(71002).is_none());
+    assert_eq!(h.state.item_count(70001).unwrap(), 0);
 }

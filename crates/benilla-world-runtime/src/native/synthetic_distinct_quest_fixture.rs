@@ -229,6 +229,17 @@ pub struct CompleteAuthority {
 impl Authority for CompleteAuthority {
     fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
         self.queries.push(request.clone());
+        if let Query::EventAiAudience(query) = &request.query {
+            return Ok(AuthorityReply {
+                request: request.clone(),
+                facts: Facts::EventAiAudience(EventAiAudienceFacts::Complete {
+                    request: query.clone(),
+                    loaded_membership: Check::Passed,
+                    world_camera: Some(Box::new(query.camera)),
+                    not_visited: None,
+                }),
+            });
+        }
         let facts = match &request.query {
             Query::QuestStatus { .. }
             | Query::QuestInteraction { .. }

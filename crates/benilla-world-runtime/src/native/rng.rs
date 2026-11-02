@@ -8,6 +8,11 @@ pub const RNG_POLICY: &str = "benilla-native-sha256-counter-le64-rejection-fract
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum DrawPurpose {
+    QuestScriptEmote {
+        quest: u32,
+        step: usize,
+        npc: crate::NpcId,
+    },
     PlayerMeleeDamage {
         action: u64,
         npc: crate::NpcId,

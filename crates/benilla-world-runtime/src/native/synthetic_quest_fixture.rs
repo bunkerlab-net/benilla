@@ -188,6 +188,8 @@ pub fn setup_with_levels(
     let data = QuestProgressionInput {
         reputation: None,
         loot: None,
+        quest_mechanics: q::Mechanics::default(),
+        quest_script_rules: None,
         dialog_rules: QuestDialogRules {
             always_show_quest_greeting: true,
             low_level_hide_diff: 5,

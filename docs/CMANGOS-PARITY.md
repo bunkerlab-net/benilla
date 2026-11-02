@@ -411,6 +411,14 @@ is meaningful without a bounded content/mechanics inventory.
   standing/rank/at-war state. Dynamic reputation auras, faction-specific190,
   native kill/spell reputation execution and raw-data admission remain closed.
   Actual Diplomacy DurationIndex21 and client asset closure are unresolved.
+  The checked content port grants missing source items on accept, removes their
+  source count on abandon, and removes delivery objectives once on turn-in.
+  It schedules ordinary completion TALK and one-shot EMOTE commands with retained
+  delay/cursor state. Questgiver gossip preserves menu-zero fallback, conditional
+  quest visibility, and source NPC-text queries. Other commands, services, state
+  emotes, and conditions outside the documented quest subset refuse. The
+  [quest mechanics contract](../crates/benilla-sim/QUEST-LIFECYCLE.md#checked-completion-scripts-and-quest-gossip)
+  records the exact source methods and independent capture/order obligations.
 - **Dependencies:** prerequisites/exclusive groups, reputation/race/class/level,
   timed/repeatable state, inventory, spells, exploration, escort/game-object
   scripts, group sharing/credit, condition evaluation and persistent quest log.

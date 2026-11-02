@@ -673,7 +673,10 @@ pub(super) fn record_objective_mutations(
                 counts.insert(*item, carried - count);
                 removal_before = view.clone();
             }
-            q::Event::Host(q::HostEffect::StoreRewardItem { item, count }) => {
+            q::Event::Host(
+                q::HostEffect::StoreRewardItem { item, count }
+                | q::HostEffect::StoreSourceItem { item, count },
+            ) => {
                 if let Some(carried) = counts.get_mut(item) {
                     *carried = carried
                         .checked_add(*count)

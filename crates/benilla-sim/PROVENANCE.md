@@ -1198,3 +1198,28 @@ Rust translation GPL-3.0-or-later, without warranty.
 
 No realm configuration or game-content rows are bundled. Authored tests exercise
 the existing quest, kill and reputation reducers rather than a second executor.
+
+## Bounded quest content mechanics
+
+`quest_lifecycle::Mechanics` and the native quest host translate delayed
+completion TALK/one-shot EMOTE, ordinary questgiver gossip, and source-item
+accept/abandon/delivery interactions from the same CMaNGOS pin. Copyright
+CMaNGOS Project contributors. Upstream GPL-2.0-or-later; Rust and Python
+translations GPL-3.0-or-later, without warranty.
+
+- `DBScripts/ScriptMgr.cpp:117-159,1774-1827`, SHA-256
+  `6880432f6e48590d7da5e6d3745f581df001a73ffee6329f565a3874e6460f88`.
+- `Maps/Map.cpp:2182-2276`, SHA-256
+  `b9ada3277b8f60dd93f6ceba7e85c1dffa129385fbb4d9043fd93771a9704d12`.
+- `Globals/Conditions.cpp:178-180,220-226,309-312`, SHA-256
+  `56374b2ccfa017749c92851652e4dad84309852938552aa3184891354deabe1e`.
+- `Entities/GossipDef.cpp:166-203`, SHA-256
+  `ed945fb77282b419af2be22117f55ed0bd8360deb3ee4d4eefa6fdcaa48d45d9`.
+
+Previously recorded `Player.cpp`, `Unit.cpp`, and `ObjectMgr.cpp` hashes cover
+`CanAddQuest`, `AddQuest`, `GiveQuestSourceItemIfNeed`, `TakeQuestSourceItem`,
+`RewardQuest`, `PrepareGossipMenu`, `SendPreparedGossip`, `GetGossipTextId`,
+`HandleEmote`, and source-item count normalisation. The
+[quest lifecycle contract](QUEST-LIFECYCLE.md#checked-completion-scripts-and-quest-gossip)
+lists the exact supported shapes and refusals. No database or DBC rows enter the
+repository; all checked-in mechanics fixtures are authored.

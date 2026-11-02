@@ -23,15 +23,18 @@ pub use equipment_movement::{
 };
 mod kills;
 mod reputation;
+mod scripts;
 pub use benilla_sim::world_rules::NativeWorldRules;
 pub use bindings::ExecutionBinding;
 pub(in crate::native) use bindings::MeleeExecutionBinding;
 pub use derived::DerivedCall;
 pub use kills::{creature_guid, KillCreatureRow, KillDependencyAudit, NativeKillPolicy};
 pub use reputation::NativeReputationState;
+pub(in crate::native) use scripts::CompletionScript;
+pub use scripts::{QuestScriptEvent, QuestScriptRules};
 
 pub const QUEST_PROGRESSION_POLICY: &str =
-    "benilla-native-ordinary-quest-reputation-reconstruction-v17";
+    "benilla-native-ordinary-quest-reputation-reconstruction-v18";
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct QuestNpcRow {
@@ -66,6 +69,8 @@ pub struct QuestProgressionInput {
     pub reputation: Option<benilla_sim::reputation::Catalog>,
     pub loot: Option<NativeLootInput>,
     pub quests: Vec<q::QuestRow>,
+    pub quest_mechanics: q::Mechanics,
+    pub quest_script_rules: Option<QuestScriptRules>,
     pub relations: q::QuestRelations,
     pub quest_audit: q::DependencyAudit,
     pub quest_relationships: q::RelationshipCapture,
@@ -101,6 +106,8 @@ pub struct QuestProgressionGenesis {
     quest_xp_rate: arithmetic::Binary32Rate,
     money_rate: arithmetic::Binary32Rate,
     kill: NativeKillPolicy,
+    pub(in crate::native) script_rules: Option<QuestScriptRules>,
+    script_givers: BTreeMap<u64, u32>,
     dialog_rules: QuestDialogRules,
 }
 impl PartialEq for QuestProgressionGenesis {
@@ -227,6 +234,7 @@ impl QuestProgressionGenesis {
                 .into_iter()
                 .chain(row.excluded.reward_choice_item)
                 .chain(row.excluded.reward_item)
+                .chain([row.excluded.source_item])
                 .filter(|i| *i != 0)
             {
                 let l = loot.as_ref().ok_or(NativeError::UnsupportedMechanic(
@@ -240,6 +248,7 @@ impl QuestProgressionGenesis {
                 .reward_choice_item
                 .into_iter()
                 .chain(row.excluded.reward_item)
+                .chain([row.excluded.source_item])
                 .filter(|i| *i != 0)
             {
                 loot.as_ref()
@@ -249,10 +258,15 @@ impl QuestProgressionGenesis {
                     .inventory
                     .ordinary_loot_ready(item)?;
             }
-            if row.required_item.iter().any(|item| {
-                loot.as_ref()
-                    .is_some_and(|l| l.initial_inventory.equipped.contains_key(item))
-            }) {
+            if row
+                .required_item
+                .iter()
+                .chain([&row.excluded.source_item])
+                .any(|item| {
+                    loot.as_ref()
+                        .is_some_and(|l| l.initial_inventory.equipped.contains_key(item))
+                })
+            {
                 return Err(NativeError::UnsupportedMechanic(
                     "quest removes equipped starter item",
                 ));
@@ -320,12 +334,33 @@ impl QuestProgressionGenesis {
         training.preflight(initial.view())?;
         // Source multimap preserves the captured query order among equivalent NPC keys.
         let presentation_relations = rows.relations.clone();
-        let quests = q::Catalog::from_relationship_capture(
+        let quests = q::Catalog::from_relationship_capture_with_mechanics(
             rows.quests,
             rows.relations,
             rows.quest_audit,
             &rows.quest_relationships,
+            rows.quest_mechanics,
         )?;
+        let has_scripts = quests.ids().any(|id| {
+            quests
+                .row(id)
+                .is_ok_and(|r| r.excluded.complete_script != 0)
+        });
+        if has_scripts && rows.quest_script_rules.is_none() {
+            return Err(NativeError::UnsupportedMechanic(
+                "quest script speech configuration",
+            ));
+        }
+        if has_scripts && profile.source_motion.is_none() {
+            return Err(NativeError::UnsupportedMechanic("quest script source pose"));
+        }
+        if let Some(rules) = &rows.quest_script_rules {
+            for range in [rules.say_range, rules.visibility_distance] {
+                if range.as_f32() < 0.0 || range.as_f32() > 1.0e9 {
+                    return Err(NativeError::InvalidProfile);
+                }
+            }
+        }
         let mut npc_rows = BTreeMap::new();
         for row in rows.npc_rows {
             if row.entry == 0
@@ -371,12 +406,23 @@ impl QuestProgressionGenesis {
             initial_combat,
             initial_derived_inputs,
             abilities,
+            script_givers: if has_scripts {
+                profile
+                    .npcs
+                    .iter()
+                    .filter(|n| npc_rows.contains_key(&n.entry))
+                    .map(|n| (n.ai.creature_id, n.entry))
+                    .collect()
+            } else {
+                BTreeMap::new()
+            },
             npc_rows,
             start_money: rows.world_rules.start_player_money,
             quest_xp_rate: rows.world_rules.quest_xp_rate().map_err(q::Error::from)?,
             money_rate: rows.world_rules.money_rate().map_err(q::Error::from)?,
             kill: rows.kill,
             dialog_rules: rows.dialog_rules,
+            script_rules: rows.quest_script_rules,
         };
         if out.resolve_abilities(&out.training, out.initial.view())? != profile.abilities {
             return Err(NativeError::InvalidProfile);
@@ -431,6 +477,7 @@ impl QuestProgressionGenesis {
                     ),
                     out.tick_ms,
                 ),
+                (&out.script_rules, &out.script_givers),
                 out.levels.identity(),
                 out.initial.view(),
                 (out.training.identity(), out.training.preparation_identity()),
@@ -511,6 +558,20 @@ impl QuestProgressionGenesis {
         if profile.tick_ms != self.tick_ms
             || combat != self.initial_combat
             || profile.abilities != self.resolve_abilities(&self.training, self.initial.view())?
+        {
+            return Err(NativeError::InvalidProfile);
+        }
+        if !self.script_givers.is_empty()
+            && (self
+                .script_givers
+                .iter()
+                .any(|(&spawn, &entry)| profile.npc(spawn).is_none_or(|n| n.entry != entry))
+                || profile
+                    .npcs
+                    .iter()
+                    .filter(|n| self.npc_rows.contains_key(&n.entry))
+                    .count()
+                    != self.script_givers.len())
         {
             return Err(NativeError::InvalidProfile);
         }
@@ -815,6 +876,11 @@ impl QuestProgressionGenesis {
 pub enum QuestProgressionEvent {
     Reputation(Box<benilla_sim::reputation::Event>),
     RewardItem(Box<inv::Stored>),
+    SourceItem(Box<inv::Stored>),
+    SourceItemRefused {
+        item: u32,
+        result: inv::InventoryResult,
+    },
     InventoryDestroyed(Box<inv::DestroyReceipt>),
     RewardRefused {
         quest: u32,
@@ -841,6 +907,7 @@ pub enum QuestProgressionEvent {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QuestProgressionState {
     pub xp_enabled: bool,
+    pub(in crate::native) completion_scripts: Vec<CompletionScript>,
     pub reputation: Option<NativeReputationState>,
     pub inventory: Option<inv::State>,
     pub inventory_receipts: BTreeMap<u64, ItemReceipt>,
@@ -863,6 +930,7 @@ pub struct QuestProgressionState {
 #[serde(deny_unknown_fields)]
 pub(in crate::native) struct QuestProgressionSnapshot {
     xp_enabled: bool,
+    completion_scripts: Vec<CompletionScript>,
     reputation: Option<NativeReputationState>,
     inventory: Option<inv::State>,
     inventory_receipts: BTreeMap<u64, ItemReceipt>,
@@ -1114,7 +1182,8 @@ impl q::Host for QuestHost<'_> {
                     vec![]
                 }
             }
-            q::HostEffect::StoreRewardItem { item, count } => {
+            q::HostEffect::StoreRewardItem { item, count }
+            | q::HostEffect::StoreSourceItem { item, count } => {
                 let catalog = &self
                     .genesis
                     .loot
@@ -1127,7 +1196,11 @@ impl q::Host for QuestHost<'_> {
                     .ok_or(q::Error::Unsupported("native inventory host"))?
                     .store_new(catalog, *item, *count, |_, _, _| Ok(()))
                     .map_err(|_| q::Error::Host("source reward store"))?;
-                vec![QuestProgressionEvent::RewardItem(Box::new(stored))]
+                vec![if matches!(effect, q::HostEffect::StoreSourceItem { .. }) {
+                    QuestProgressionEvent::SourceItem(Box::new(stored))
+                } else {
+                    QuestProgressionEvent::RewardItem(Box::new(stored))
+                }]
             }
         };
         self.calls.push_back((
@@ -1147,6 +1220,7 @@ impl QuestProgressionState {
     ) -> Result<Self, NativeError> {
         Ok(Self {
             xp_enabled: true,
+            completion_scripts: vec![],
             reputation: reputation::initialize(g)?,
             inventory: g.loot.as_ref().map(|l| l.initial_inventory.clone()),
             inventory_receipts: g.loot.as_ref().map_or_else(BTreeMap::new, |l| {
@@ -1171,6 +1245,7 @@ impl QuestProgressionState {
     pub(in crate::native) fn snapshot(&self) -> QuestProgressionSnapshot {
         QuestProgressionSnapshot {
             xp_enabled: self.xp_enabled,
+            completion_scripts: self.completion_scripts.clone(),
             reputation: self.reputation.clone(),
             inventory: self.inventory.clone(),
             inventory_receipts: self.inventory_receipts.clone(),
@@ -1219,6 +1294,7 @@ impl QuestProgressionState {
         }
         let out = Self {
             xp_enabled: s.xp_enabled,
+            completion_scripts: s.completion_scripts,
             reputation: s.reputation,
             inventory: s.inventory,
             inventory_receipts: s.inventory_receipts,
@@ -1258,6 +1334,7 @@ impl QuestProgressionState {
         }
         let progression_boundaries = out.validate_derived(g, c)?;
         reputation::validate_saved(g, &out, &progression_boundaries)?;
+        g.validate_scripts(&out, now_ms)?;
         let mut check = out.clone();
         check.synchronize(g, c, health, mana)?;
         if check != out {

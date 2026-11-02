@@ -11,6 +11,8 @@ pub(super) struct Metadata {
     greetings: BTreeMap<u32, crate::NativeQuestGreeting>,
     presentation: BTreeMap<u32, crate::NativeQuestPresentation>,
     player_bytes_2: Option<u32>,
+    script_text: BTreeMap<u32, String>,
+    npc_text: BTreeMap<u32, Vec<p::NpcTextBlock>>,
 }
 fn valid_text(value: &str) -> bool {
     value.len() <= 16384
@@ -25,6 +27,8 @@ impl Metadata {
             greetings: BTreeMap::new(),
             presentation: BTreeMap::new(),
             player_bytes_2: None,
+            script_text: BTreeMap::new(),
+            npc_text: BTreeMap::new(),
         };
         let Some(g) = &w.profile().quest_progression else {
             return Ok(out);
@@ -73,6 +77,31 @@ impl Metadata {
             }
             out.presentation.insert(id, presentation);
             out.quests.insert(id, metadata);
+        }
+        for id in g.quest_catalog().mechanics().script_broadcast_ids() {
+            let value = catalog
+                .native_quest_script_text(id)
+                .ok_or(Error::InvalidClientManifest)?;
+            if !valid_text(&value) {
+                return Err(Error::Unrepresentable);
+            }
+            out.script_text.insert(id, value);
+        }
+        for id in g.quest_catalog().mechanics().gossip_text_ids() {
+            let value = catalog
+                .native_npc_text(id)
+                .ok_or(Error::InvalidClientManifest)?;
+            if value.len() != 8
+                || value.iter().any(|block| {
+                    !block.probability.is_finite()
+                        || block.probability < 0.0
+                        || !valid_text(&block.male)
+                        || !valid_text(&block.female)
+                })
+            {
+                return Err(Error::Unrepresentable);
+            }
+            out.npc_text.insert(id, value);
         }
         for relation in g
             .quest_relations()
@@ -397,6 +426,30 @@ impl NativeProjection {
                 });
             }
         }
+        if let Some((text_id, show_quests)) = genesis(w)?
+            .quest_catalog()
+            .mechanics()
+            .gossip(entry, &view)
+            .map_err(|_| Error::UnavailableQuest)?
+        {
+            if !show_quests {
+                quests.clear();
+            }
+            let flags = genesis(w)?
+                .npc_flags(entry)
+                .ok_or(Error::UnavailableQuest)?;
+            if flags & 1 != 0 || quests.is_empty() {
+                return Ok(vec![SessionEvent::GossipMenu {
+                    npc: npc_guid(w, giver.id)?,
+                    text_id,
+                    options: vec![],
+                    quests: quests
+                        .into_iter()
+                        .map(|q| (q.quest_id, q.icon, q.level, q.title))
+                        .collect(),
+                }]);
+            }
+        }
         if quests.is_empty() {
             return Ok(vec![]);
         }
@@ -437,6 +490,68 @@ impl NativeProjection {
         self.quest_greeting_events(w, giver)?
             .pop()
             .ok_or(Error::UnavailableQuest)
+    }
+    pub fn npc_text(
+        &self,
+        w: &n::NativeWorld,
+        giver: NpcHandle,
+        text_id: u32,
+    ) -> Result<SessionEvent, Error> {
+        let entry = self.quest_giver(w, giver, true)?;
+        let expected = genesis(w)?
+            .quest_catalog()
+            .mechanics()
+            .gossip(entry, &state(w)?.quests.view())
+            .map_err(|_| Error::UnavailableQuest)?
+            .ok_or(Error::UnavailableQuest)?
+            .0;
+        if expected != text_id {
+            return Err(Error::UnavailableQuest);
+        }
+        let blocks = self
+            .quest_metadata
+            .npc_text
+            .get(&text_id)
+            .ok_or(Error::InvalidClientManifest)?
+            .clone();
+        Ok(SessionEvent::NpcGreeting { text_id, blocks })
+    }
+    pub(super) fn quest_script_event(
+        &self,
+        w: &n::NativeWorld,
+        event: &n::QuestScriptEvent,
+    ) -> Result<Vec<SessionEvent>, Error> {
+        if !event.delivered {
+            return Ok(vec![]);
+        }
+        let guid = npc_guid(w, event.giver)?;
+        Ok(vec![match event.effect {
+            q::ScriptEffect::Emote { emote } => SessionEvent::Emote {
+                guid,
+                emote_id: emote,
+            },
+            q::ScriptEffect::Talk { broadcast } => SessionEvent::Chat(p::ChatMessage {
+                chat_type: p::CHAT_MSG_MONSTER_SAY,
+                language: 0,
+                sender_guid: guid,
+                target_guid: self.player_guid,
+                sender_name: Some(
+                    w.profile()
+                        .npc(event.giver.spawn)
+                        .ok_or(Error::UnknownTarget)?
+                        .name
+                        .clone(),
+                ),
+                channel: None,
+                text: self
+                    .quest_metadata
+                    .script_text
+                    .get(&broadcast)
+                    .ok_or(Error::InvalidClientManifest)?
+                    .clone(),
+                chat_tag: 0,
+            }),
+        }])
     }
     pub fn quest_template(&self, w: &n::NativeWorld, quest: u32) -> Result<SessionEvent, Error> {
         self.query_world(w)?;
@@ -968,7 +1083,19 @@ impl NativeProjection {
                 events.extend(reputation_event(event)?);
             }
             n::QuestProgressionEvent::RewardItem(stored) => {
-                events.extend(inventory_frame.reward_item(self, w, stored)?);
+                events.extend(inventory_frame.quest_item(self, w, stored, false)?);
+            }
+            n::QuestProgressionEvent::SourceItem(stored) => {
+                events.extend(inventory_frame.quest_item(self, w, stored, true)?);
+            }
+            n::QuestProgressionEvent::SourceItemRefused { result, .. } => {
+                events.push(SessionEvent::InventoryFailure {
+                    reason: result.protocol(),
+                    required_level: None,
+                    item_guid: 0,
+                    item2_guid: 0,
+                    bag_slot: 0,
+                });
             }
             n::QuestProgressionEvent::RewardRefused {
                 quest,

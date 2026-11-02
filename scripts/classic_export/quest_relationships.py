@@ -110,6 +110,8 @@ def resolve(bundle: dict[str, Any]) -> dict[str, Any]:
         refuse(0, "inbound", 0, "unknown_coverage")
         return {"status": "blocked", "refusals": refusals, "capture": None}
     validate(bundle)
+    from . import quest_mechanics
+    mechanics = quest_mechanics.supported(bundle)
     own = {row["entry"]: row for row in value["own"]}
     if len(own) > 1024:
         refuse(0, "closure", len(own), "closure_limit")
@@ -130,10 +132,16 @@ def resolve(bundle: dict[str, Any]) -> dict[str, Any]:
             elif abs(target) not in own:
                 refuse(row["entry"], field, target, "uncaptured_reference")
     for row in bundle["tables"]["quest_template"]:
-        for field in ("RequiredCondition", "StartScript", "CompleteScript", "SrcItemId",
-                      "SrcItemCount", "SrcSpell"):
+        for field in ("RequiredCondition", "StartScript", "SrcSpell"):
             if row[field]:
                 refuse(row["entry"], field, row[field], "unsupported_path")
+        if row["CompleteScript"] and row["CompleteScript"] not in mechanics["scripts"]:
+            refuse(row["entry"], "CompleteScript", row["CompleteScript"], "unknown_or_unsupported_script")
+        if row["SrcItemId"]:
+            if row["SrcItemId"] not in {item["entry"] for item in bundle["tables"]["item_template"]}:
+                refuse(row["entry"], "SrcItemId", row["SrcItemId"], "unknown_lookup")
+            if row["SrcItemCount"] > 10000:
+                refuse(row["entry"], "SrcItemCount", row["SrcItemCount"], "count_domain")
         for slot in range(1, 5):
             for prefix in ("ReqSourceId", "ReqSourceCount", "ReqSpellCast"):
                 field = f"{prefix}{slot}"

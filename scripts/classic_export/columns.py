@@ -732,3 +732,5 @@ COLUMNS.update({table: [column[0] for column in columns]
 
 from .quest_columns import COLUMNS as QUEST_PRESENTATION_COLUMNS
 COLUMNS.update(QUEST_PRESENTATION_COLUMNS)
+from .quest_mechanics_columns import COLUMNS as QUEST_MECHANICS_COLUMNS
+COLUMNS.update(QUEST_MECHANICS_COLUMNS)

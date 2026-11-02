@@ -3,7 +3,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 CMaNGOS 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f,
 ObjectMgr.cpp:4231-4880,5775-5909,7940-8035; Player.cpp:12087-12181.
 """
-from classic_export import quest_presentation, quest_relationships
+from classic_export import quest_presentation, quest_relationships, quest_mechanics
 from classic_export.core import digest
 from classic_export.quest_columns import QUEST_TEXT
 
@@ -24,6 +24,15 @@ def supported_plan(source, dbcs):
                 "raw_presentation_resolved": False, "ordinary_catalog_resolved": False,
                 "source_sha256": digest(source), "input_bindings": None}
     quest_presentation.validate(source)
+    mechanics = quest_mechanics.supported(source)
+    for row in mechanics["refusals"]:
+        refuse(row["quest"], row["field"], row["target"], row["reason"])
+    if source.get("quest_mechanics_capture"):
+        for row in source["quest_mechanics_capture"]["rows"]["dbscripts_on_quest_end"]:
+            if row["command"] == 1 and (dbcs.get("Emotes") is None or row["datalong"] not in dbcs["Emotes"].by_id):
+                refuse(0, "Emotes", row["datalong"], "unknown_lookup")
+            elif row["command"] == 1 and dbcs["Emotes"].by_id[row["datalong"]].words[4] != 0:
+                refuse(0, "Emotes.EmoteType", row["datalong"], "state_emote_not_supported")
     raw = value["rows"]
     emotes = dbcs.get("Emotes")
     if emotes is None:
@@ -52,17 +61,20 @@ def supported_plan(source, dbcs):
                 refuse(0, "NpcFlags", row["Entry"], "missing_questgiver_flag")
             if row["ScriptName"]:
                 refuse(0, "ScriptName", row["Entry"], "registered_callbacks_unresolved")
-            if row["GossipMenuId"]:
+            if row["GossipMenuId"] and row["Entry"] not in mechanics["givers"]:
                 refuse(0, "GossipMenuId", row["GossipMenuId"], "gossip_applicability_unresolved")
     presentation_resolved = raw_resolved
     for field in ("loaded_relation_order", "effective_giver_selection", "registered_callbacks",
                   "global_spell_area_and_item_effects", "session_locale_and_dialog_policy"):
+        if field == "loaded_relation_order" and source.get("quest_mechanics_capture") and source["quest_mechanics_capture"]["selectors"]["scripts"]:
+            refuse(0, "loaded_script_order", 0, "independent_context_required")
         refuse(0, field, 0, "independent_context_required")
     return {"status": "blocked", "adapter": ADAPTER, "source_sha256": digest(source),
             "raw_presentation_resolved": presentation_resolved, "ordinary_catalog_resolved": False,
             "refusals": refusals, "selected_quest_ids": value["selectors"]["quests"],
             "input_bindings": {"capture_sha256": digest(value), "Emotes_sha256": emotes.sha256 if emotes else None},
+            **({"mechanics": mechanics} if source.get("quest_mechanics_capture") else {}),
             "field_dispositions": {"quest_template": {"consumed_by_ordinary_presentation": [*QUEST_TEXT, *quest_presentation.DELAYS,
-                *(name for name in raw["quest_template"][0] if "Emote" in name)] if raw["quest_template"] else []},
+                *sorted(name for name in raw["quest_template"][0] if "Emote" in name)] if raw["quest_template"] else []},
                 "remaining": "eligibility_credit_reward_rates_hooks_and_loaded_order"},
             "runtime_export": None}

@@ -207,11 +207,11 @@ fn mutate_resigned(
     let state: super::persistence::StateCheckpoint =
         serde_json::from_value(cp["state"].clone()).unwrap();
     cp["digest"] =
-        serde_json::to_value(crate::digest(b"benilla-native-state-v82\0", &state)).unwrap();
+        serde_json::to_value(crate::digest(b"benilla-native-state-v83\0", &state)).unwrap();
     let digest: crate::Digest = serde_json::from_value(cp["digest"].clone()).unwrap();
     let tip: crate::Digest = serde_json::from_value(cp["history_tip"].clone()).unwrap();
     cp["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v82\0",
+        b"benilla-native-checkpoint-v83\0",
         &(&state, digest, tip),
     ))
     .unwrap();
@@ -375,7 +375,7 @@ fn original_fixture_snapshot_has_no_native_decode_path() {
     let original = br#"{"version":2,"content_digest":[],"rules_digest":[],"state":{}}"#;
     assert!(Checkpoint::decode(original).is_err());
     assert_eq!(crate::FORMAT_VERSION, 2);
-    assert_eq!(NATIVE_FORMAT_VERSION, 82);
+    assert_eq!(NATIVE_FORMAT_VERSION, 83);
     // The compiler token is uninhabited even when the synthetic feature is unified.
     assert_eq!(std::mem::size_of::<NativeCapability>(), 0);
 }
@@ -477,8 +477,8 @@ const PREVIOUS_NATIVE_IDENTITIES: [(u32, &str); 48] = [
 
 #[test]
 fn native82_profile_state_record_and_checkpoint_domains_are_exact() {
-    assert_eq!(NATIVE_FORMAT_VERSION, 82);
-    assert_eq!(NATIVE_POLICY, "benilla-native-solo-quest-loot-v82");
+    assert_eq!(NATIVE_FORMAT_VERSION, 83);
+    assert_eq!(NATIVE_POLICY, "benilla-native-solo-quest-loot-v83");
     assert_eq!(
         RNG_POLICY,
         "benilla-native-sha256-counter-le64-rejection-fraction53-v2"
@@ -510,13 +510,13 @@ fn native82_profile_state_record_and_checkpoint_domains_are_exact() {
     assert_eq!(value["state"]["policy"], NATIVE_POLICY);
     assert_eq!(
         checkpoint.digest,
-        crate::digest(b"benilla-native-state-v82\0", &checkpoint.state)
+        crate::digest(b"benilla-native-state-v83\0", &checkpoint.state)
     );
     assert_eq!(checkpoint.digest, w.state_digest());
     assert_eq!(
         checkpoint.checksum,
         crate::digest(
-            b"benilla-native-checkpoint-v82\0",
+            b"benilla-native-checkpoint-v83\0",
             &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
         )
     );
@@ -525,7 +525,7 @@ fn native82_profile_state_record_and_checkpoint_domains_are_exact() {
         assert_eq!(record.profile, w.profile().digest());
         assert_eq!(
             record.digest(),
-            crate::digest(b"benilla-native-record-v82\0", record)
+            crate::digest(b"benilla-native-record-v83\0", record)
         );
         for (format, _) in PREVIOUS_NATIVE_IDENTITIES {
             assert_ne!(

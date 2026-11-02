@@ -84,18 +84,20 @@ impl ExcludedFields {
             limit_time,
             exclusive_group,
             breadcrumb_for_quest,
-            source_item,
-            source_item_count,
             source_spell,
             reward_spell,
             reward_spell_cast,
             reward_mail_template,
             reward_mail_delay,
             start_script,
-            complete_script
         );
         macro_rules! arrays { ($($field:ident),+ $(,)?) => {$(if self.$field.iter().any(|&v| v != 0) { return Err(Error::Unsupported(stringify!($field))); })+}; }
         arrays!(required_source, required_source_count, required_spell);
+        if (self.source_item == 0) != (self.source_item_count == 0)
+            || self.source_item_count > 10000
+        {
+            return Err(Error::Invalid("source_item_pair"));
+        }
         for (items, counts) in [
             (&self.reward_choice_item[..], &self.reward_choice_count[..]),
             (&self.reward_item[..], &self.reward_item_count[..]),
@@ -152,12 +154,21 @@ pub struct Catalog {
     pub(super) previous_chain: BTreeMap<u32, Vec<u32>>,
     pub(super) relations: QuestRelations,
     hash: [u8; 32],
+    pub(super) mechanics: super::Mechanics,
 }
 impl Catalog {
     pub fn new(
         rows: Vec<QuestRow>,
+        relations: QuestRelations,
+        audit: DependencyAudit,
+    ) -> Result<Self, Error> {
+        Self::new_with_mechanics(rows, relations, audit, super::Mechanics::default())
+    }
+    pub fn new_with_mechanics(
+        rows: Vec<QuestRow>,
         mut relations: QuestRelations,
         audit: DependencyAudit,
+        mechanics: super::Mechanics,
     ) -> Result<Self, Error> {
         if !audit.complete_relation_scan {
             return Err(Error::Unsupported("incomplete_relation_scan"));
@@ -172,6 +183,7 @@ impl Catalog {
             }
         }
         let mut map = BTreeMap::new();
+        let mut script_owners = BTreeSet::new();
         for q in rows {
             if q.id == 0 || q.id > i32::MAX as u32 {
                 return Err(Error::Invalid("quest_id"));
@@ -180,6 +192,25 @@ impl Catalog {
                 return Err(Error::Unsupported("quest_method"));
             }
             q.excluded.check()?;
+            if q.excluded.complete_script != 0
+                && mechanics.script(q.excluded.complete_script).is_none()
+            {
+                return Err(Error::Relationship {
+                    quest: q.id,
+                    field: "CompleteScript",
+                    target: i64::from(q.excluded.complete_script),
+                    reason: "unknown_script_coverage",
+                });
+            }
+            if q.excluded.complete_script != 0 && !script_owners.insert(q.excluded.complete_script)
+            {
+                return Err(Error::Relationship {
+                    quest: q.id,
+                    field: "CompleteScript",
+                    target: i64::from(q.excluded.complete_script),
+                    reason: "shared_script_source_uniqueness_not_supported",
+                });
+            }
             // Sharable is accepted only on this solo, creature-giver path. Sharing is unsupported.
             if q.reward.quest_flags & !(0x0008 | 0x0100 | 0x0200) != 0 {
                 return Err(Error::Unsupported("quest_flags"));
@@ -234,6 +265,7 @@ impl Catalog {
                 return Err(Error::Invalid("duplicate_quest"));
             }
         }
+        mechanics.validate_quests(&map.keys().copied().collect())?;
         let mut previous: BTreeMap<u32, Vec<i32>> = BTreeMap::new();
         let mut previous_chain: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
         for q in map.values() {
@@ -277,14 +309,16 @@ impl Catalog {
             }
         }
         // Versioned canonical Debug of sorted integer-only schema; no floats or hash-map ordering.
-        let hash =
-            Sha256::digest(format!("{POLICY_ID}:{map:?}:{relations:?}:{audit:?}").as_bytes())
-                .into();
+        let hash = Sha256::digest(
+            format!("{POLICY_ID}:{map:?}:{relations:?}:{audit:?}:{mechanics:?}").as_bytes(),
+        )
+        .into();
         Ok(Self {
             rows: map,
             previous,
             previous_chain,
             relations,
+            mechanics,
             hash,
         })
     }
@@ -299,6 +333,9 @@ impl Catalog {
     }
     pub fn hash(&self) -> [u8; 32] {
         self.hash
+    }
+    pub fn mechanics(&self) -> &super::Mechanics {
+        &self.mechanics
     }
 }
 

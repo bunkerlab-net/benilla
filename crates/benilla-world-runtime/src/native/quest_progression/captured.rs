@@ -42,6 +42,7 @@ impl Profile {
             npcs.insert(row.entry, row);
         }
         input.quests = captured.quests().to_vec();
+        input.quest_mechanics = captured.catalog().mechanics().clone();
         input.relations = captured.relations().clone();
         input.quest_audit = captured.audit().clone();
         input.quest_relationships = captured.relationships().clone();

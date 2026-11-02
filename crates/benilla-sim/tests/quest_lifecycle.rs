@@ -204,7 +204,7 @@ impl Host for Ledger {
     }
     fn apply(&mut self, effect: &HostEffect) -> Result<(), Error> {
         match *effect {
-            HostEffect::StoreRewardItem { .. } => {
+            HostEffect::StoreRewardItem { .. } | HostEffect::StoreSourceItem { .. } => {
                 return Err(Error::Unsupported("fixture reward items"));
             }
             HostEffect::DestroyCarriedStack { item, count } => {
@@ -248,6 +248,9 @@ fn event(e: &Event) -> String {
             format!("destroy:{item}:{count}")
         }
         Event::Host(HostEffect::StoreRewardItem { item, count }) => format!("item:{item}:{count}"),
+        Event::Host(HostEffect::StoreSourceItem { item, count }) => {
+            format!("source:{item}:{count}")
+        }
         Event::Host(HostEffect::GiveXp(xp)) => format!("xp:{xp}"),
         Event::Host(HostEffect::ModifyMoney(d)) => format!("money:{d}"),
         Event::RewardAnnouncement { quest, xp } => format!("announce:{quest}:{xp}"),
@@ -598,7 +601,7 @@ fn log_limit_first_free_slot_and_gate_order() {
     for id in 1..=20 {
         accept(&c, &mut s, &mut h, id);
     }
-    assert_eq!(can_add(&c, &s, 21), Err(Error::Rejected(Gate::LogFull)));
+    assert_eq!(can_add(&c, &s, &h, 21), Err(Error::Rejected(Gate::LogFull)));
     kill(&c, &mut s, &mut h);
     kill(&c, &mut s, &mut h);
     reward(&c, &mut s, &mut h, 3);

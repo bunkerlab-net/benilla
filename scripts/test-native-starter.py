@@ -1491,13 +1491,16 @@ class QuestRelationshipPreparationTests(unittest.TestCase):
             self.assertIn("quest.chain", {i["reason"] for i in self.compile(source)["unsupported"]})
         for field in ("PrevQuestId", "NextQuestId", "NextQuestInChain",
                       "ExclusiveGroup", "BreadcrumbForQuestId", "StartScript",
-                      "CompleteScript", "RequiredCondition", "SrcItemId"):
-            target = 920001 if field == "SrcItemId" else 999999
+                      "CompleteScript", "RequiredCondition"):
+            target = 999999
             source = self.bundle(lambda rows: next(row for row in rows if row["entry"] == 7).update({field: target}))
             graph = resolve(source)
             self.assertEqual(graph["status"], "blocked")
             self.assertTrue(any(r["quest"] == 7 and r["field"] == field and r["target"] == target
                                 for r in graph["refusals"]))
+        source = self.bundle(lambda rows: next(row for row in rows if row["entry"] == 7).update(
+            SrcItemId=920001, SrcItemCount=1))
+        self.assertEqual(resolve(source)["status"], "resolved")
         self.assertEqual(resolve(self.bundle(extension=False))["refusals"],
                          [{"quest": 0, "field": "inbound", "target": 0, "reason": "unknown_coverage"}])
 
@@ -1857,6 +1860,28 @@ class QuestGiverPreparationTests(unittest.TestCase):
         self.assertIn("CompleteEmoteDelay", plan["field_dispositions"]["quest_template"]["consumed_by_ordinary_presentation"])
         del dbcs["Emotes"]
         self.assertIn("unknown_coverage_reextract_v4", {row["reason"] for row in quest_plan(bundle, dbcs)["refusals"]})
+
+    def test_checked_content_mechanics_remove_only_their_raw_refusals(self):
+        from native_starter.quest_plan import supported_plan as quest_plan
+        source = export_tests.authored_mechanics_source()
+        bundle = capture(source, export_tests.starter_selection(), capture_quest_mechanics=True)
+        dbcs = {"Emotes": parse_table("Emotes", dbc_bytes("Emotes", [{0: 1}, {0: 71}]))}
+        plan = quest_plan(bundle, dbcs)
+        self.assertEqual(plan["mechanics"]["status"], "resolved")
+        self.assertTrue(plan["raw_presentation_resolved"])
+        fields = {row["field"] for row in plan["refusals"]}
+        self.assertNotIn("CompleteScript", fields)
+        self.assertNotIn("SrcItemId", fields)
+        self.assertNotIn("GossipMenuId", fields)
+        self.assertIn("loaded_script_order", fields)
+        self.assertIn("global_spell_area_and_item_effects", fields)
+        self.assertFalse(plan["ordinary_catalog_resolved"])
+        self.assertIsNone(plan["runtime_export"])
+        dbcs["Emotes"] = parse_table("Emotes", dbc_bytes("Emotes", [{0: 1}, {0: 71, 4: 1}]))
+        unsupported = quest_plan(bundle, dbcs)
+        self.assertIn(("Emotes.EmoteType", 71, "state_emote_not_supported"),
+                      {(row["field"], row["target"], row["reason"]) for row in unsupported["refusals"]})
+        self.assertFalse(unsupported["raw_presentation_resolved"])
 
     def test_legacy_capture_and_unsupported_request_delay_remain_refusals(self):
         from native_starter.quest_plan import supported_plan as quest_plan

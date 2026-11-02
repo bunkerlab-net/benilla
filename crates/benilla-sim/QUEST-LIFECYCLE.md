@@ -3,7 +3,7 @@
 `benilla_sim::quest_lifecycle` translates ordinary, solo quest acceptance,
 kill/talk/collection credit, completion and reward orchestration from CMaNGOS
 Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. The policy identity is
-`cmangos-8ec338a1-ordinary-quest-lifecycle-v4`. This is an independent simulation
+`cmangos-8ec338a1-ordinary-quest-lifecycle-v5`. This is an independent simulation
 reducer, not a native content compiler, complete inventory/level-up implementation,
 world-runtime integration, durable store, or claim that a real starter quest works.
 The authored world-runtime fixture is unrelated and is not evidence of Classic
@@ -34,7 +34,7 @@ and normalised relationship lists. See the
 giver relations in independently supplied loaded order.
 Its private dependency result checks selected giver identities, effective flags,
 actual loaded script registrations, global SpellArea, and item-deletion scope.
-Unknown evidence refuses. Present callbacks, gossip menus, and unsupported quest
+Unknown evidence refuses. Present callbacks and unsupported quest
 paths refuse without filtering attached quests. The runtime binder and client
 presentation adapter use the [ordinary giver contract](../../scripts/classic_export/QUEST-RELATIONSHIP-CONTRACT.md#captured-ordinary-givers-and-presentation).
 
@@ -80,8 +80,8 @@ unsupported, so their all-member/branch/recursive rules are never approximated.
 The following also remain excluded: required skills/conditions;
 timed, weekly, repeatable, auto-reward/auto-complete,
 exploration, escort, cast and GO objectives; group/raid/shared acceptance;
-source items/spells, source-drop rules, reward spells,
-mail and all scripts. `SHARABLE` may be present as a flag, but only solo acceptance
+source spells, source-drop rules, reward spells,
+mail and scripts other than checked completion TALK/EMOTE. `SHARABLE` may be present as a flag, but only solo acceptance
 is implemented. Hidden-reward and no-money-from-XP flags retain their existing
 source meanings. Other flags fail. Required collection items must have explicitly
 resolved, inert deletion effects. Global/zone/area SpellArea effects and all selected
@@ -103,7 +103,7 @@ fixed pairs must form dense prefixes with counts at most 10,000.
 
 A `Host` supplies explicit solo participation, native identity/configuration,
 carried/bank counts, actual source stack-removal steps, and audited staged
-`GiveXp`, `ModifyMoney`, `DestroyCarriedStack` and `StoreRewardItem` implementations.
+`GiveXp`, `ModifyMoney`, `DestroyCarriedStack`, `StoreRewardItem`, and `StoreSourceItem` implementations.
 `can_store_reward` preserves shared whole-position reservations across preflight. It must be a
 deep in-memory clone. Applying an effect must not publish packets, write storage,
 share mutable state with the original, or recursively run quest callbacks. The
@@ -150,11 +150,12 @@ reset path.
 Acceptance checks source status, class, race, level, reputation, prerequisite, forward/previous
 chain and active gates in `CanTakeQuest` order; other source gates are inert only
 because admission proved their prerequisites absent. `CanAddQuest` checks the
-first free slot. Source-item storage is absent by admission. Acceptance initializes
-progress, calls reputation `SetVisible` for a nonzero reputation objective faction
-before setting the first free log slot, records the inert acceptance hook, adjusts
-collection counts including bank inventory, and updates world objects. The
-operation composes `AddQuest` with a subsequent `CanCompleteQuest`/`CompleteQuest`
+first free slot and source-item storage before any mutation. Source-item counts include
+bank inventory when deciding the missing grant. Acceptance initializes progress,
+calls reputation `SetVisible` before the first free log slot, records the inert
+acceptance hook, grants missing source items with item callbacks, and adjusts
+collection counts before the final world-object refresh.
+The operation composes `AddQuest` with a subsequent `CanCompleteQuest`/`CompleteQuest`
 check; this composition is an explicit adapter operation, not a port of all
 QuestHandler UI/admission code.
 
@@ -339,8 +340,40 @@ The source QuestlogRemove handler preserves a status-NONE record and its objecti
 history. Its world-object callback runs while the slot is still occupied, before
 slot clearing; durable snapshots forbid that transient logged-NONE state. Invalid
 slots are silent and empty valid slots still clear. Reacceptance resets objectives
-and recounts retained deliver items without erasing reward history. Source-item,
-timer and script dependencies stay excluded; no ordinary deliver items are deleted.
+and recounts retained deliver items without erasing reward history. Abandonment removes
+up to `SrcItemCount` source items before changing quest status. The native inventory
+host excludes bank/keyring and equipped containers; a bank-bearing source-item removal
+refuses explicitly rather than silently leaving the bank copy. Ordinary deliver items
+that aren't source items remain. Reward removes delivery objectives, not arbitrary
+source items, matching `Player::RewardQuest`.
 
 The composed native route and its reputation-objective proof limitation are
 specified in [QUEST-ABANDON](../benilla-world-runtime/src/native/QUEST-ABANDON.md).
+
+## Checked completion scripts and quest gossip
+
+`Mechanics::compile` supports only completion-script command zero, TALK, and command
+one, EMOTE. It requires source loader positions, positive broadcast lookups and
+Emotes lookups. Alternate/random texts, negative script strings, buddies, command flags,
+conditions, extra parameters, sounds and broadcast emotes refuse with exact fields.
+The native host schedules the checked steps after the reward hook, preserves delay
+and tie order, and retains invocation/cursor state across save and reopen. EMOTE
+consumes its single-choice source RNG draw. Ordinary SAY uses the existing audited
+MonsterText camera traversal and explicit say/visibility configuration.
+The EMOTE lookup also checks Emotes word four. Only nonzero one-shot commands
+compile; state emotes and immediate script execution require separate handlers.
+
+Ordinary gossip preserves menu-zero fallback, highest satisfied menu condition, and
+the hidden questgiver option's ability to suppress quests. Conditions zero, quest
+rewarded, current quest with status, and quest-none support reverse-result flag one.
+Unsupported condition types, target swaps and reachable services refuse. Conditional
+questgiver options on the direct-quest-dialog branch refuse. Menu-zero GOSSIP-flag
+givers still require unsupported GUID-specific text lookup. BOT stays hidden in
+the closed no-playerbot domain. GOSSIP-flag givers send a gossip packet with quest
+entries even when there are no visible gossip options. Givers without that flag
+keep the source direct-quest-dialog branch.
+
+Sources at the pinned revision are `Player.cpp:11516-12003,12460-12713,13230-13302`,
+`ScriptMgr.cpp:117-159,1774-1827`, `GossipDef.cpp:166-203`, and
+`Conditions.cpp:178-180,220-226,309-312`. Unknown global hooks and loaded order remain
+independent admission requirements. These ports do not inhabit `NativeCapability`.
