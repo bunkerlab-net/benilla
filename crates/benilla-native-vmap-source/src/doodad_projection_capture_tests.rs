@@ -9,7 +9,7 @@ use super::*;
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::PathBuf};
 
-const DP_POLICY: &str = "g3d-portable-libm-0.2.16-v1";
+const DP_POLICY: &str = "g3d-portable-libm-0.2.16-euler1080-v2";
 const DP_ROOT: &str = "World\\Wmo\\Temple.wmo";
 const DP_GROUP: &str = "World\\Wmo\\Temple_000.wmo";
 const DP_SKIPPED_GROUP: &str = "World\\Wmo\\Temple_001.wmo";
@@ -265,7 +265,7 @@ fn captured_projection_rejects_invalid_indexes_and_incompatible_policy_claims() 
         "g3d-native-linux",
         "g3d-portable-libm-0.2.17-v1",
         "g3d-portable-libm-0.2.16-v2",
-        "g3d-portable-libm-0.2.16-v1 ",
+        "g3d-portable-libm-0.2.16-euler1080-v2 ",
     ] {
         assert_eq!(
             DoodadProjectionProfile::from_policy_id(other),
@@ -401,7 +401,7 @@ fn finite_source_mutations_fail_the_projection_numeric_envelope_without_writes()
             "parent_angle" => set_word(
                 &mut modf,
                 20,
-                f32::from_bits(360.0_f32.to_bits() + 1).to_bits(),
+                f32::from_bits(1080.0_f32.to_bits() + 1).to_bits(),
             ),
             "position_overflow" => {
                 for index in 0..3 {

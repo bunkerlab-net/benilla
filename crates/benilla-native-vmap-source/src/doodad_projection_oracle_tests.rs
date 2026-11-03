@@ -75,7 +75,7 @@ fn portable_profile_quantifies_original_native_record_coordinate_bits() {
                 expected[18] == "0"
                     || norm == 0.0
                     || !norm.is_finite()
-                    || vector::<3>(&input, 20).iter().any(|x| x.abs() > 360.0),
+                    || vector::<3>(&input, 20).iter().any(|x| x.abs() > 1080.0),
                 "unexpected rejection {} {result:?}",
                 input[0]
             );
@@ -103,8 +103,8 @@ fn portable_profile_quantifies_original_native_record_coordinate_bits() {
         }
     }
     eprintln!("Original-source admitted={admitted} rejected={rejected}; differing fields={} max_ulp={max_ulp} max_absolute_error={max_absolute_error:e}",mismatches.len());
-    assert_eq!(admitted, 72);
-    assert_eq!(rejected, 7);
+    assert_eq!(admitted, 73);
+    assert_eq!(rejected, 6);
     // Explicit exact corpus receipt, not a universal native-libm claim or epsilon.
     assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
 }
@@ -112,12 +112,13 @@ fn portable_profile_quantifies_original_native_record_coordinate_bits() {
 #[test]
 fn native_or_unknown_numeric_policy_cannot_silently_enter_portable_projection() {
     let profile = DoodadProjectionProfile::from_policy_id(math::POLICY).unwrap();
-    assert_eq!(profile.policy_id(), "g3d-portable-libm-0.2.16-v1");
+    assert_eq!(profile.policy_id(), "g3d-portable-libm-0.2.16-euler1080-v2");
     for other in [
         "",
         "native",
         "g3d-native-linux",
         "g3d-portable-libm-0.2.17-v1",
+        "g3d-portable-libm-0.2.16-v1",
     ] {
         assert_eq!(
             DoodadProjectionProfile::from_policy_id(other),

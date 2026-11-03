@@ -106,3 +106,29 @@ upper endpoint the source sine is `0xb2ccde2e`; subtracting binary32 TAU first
 produces a different angle and sine, so wrapping is observably incorrect for
 this selected raw-angle profile. These are bounded numeric observations, not
 an exhaustive proof or a complete near-point search.
+
+## Bounded raw Euler-angle profile
+
+`sin_cos_euler_radians_bits_native` uses the unchanged native adapter and source
+fast reducer for inclusive radians ±`0x4196cbe4`, exactly
+18.84955596923828125. Its policy is
+`glibc-2.41-euler1080-sincos-native-unfused-rne-v1`. Original ±TAU and asymmetric
+fallback APIs keep their existing domains and policies.
+
+The doodad caller uses G3D's float overload at `g3dmath.h:769-770`, multiplying
+raw binary32 degrees by `(float)pi()` and dividing by binary32 180.
+`pi()` at lines 125-126 is 3.1415926535898, which narrows to `0x40490fdb`.
+The measured maximum absolute angle across 106,502 real candidates is
+754.5 degrees. The caller's inclusive ±1080-degree bound leaves 325.5 degrees
+of margin. No angle is wrapped before conversion or source range reduction.
+
+The maximum radian input is below 19, and its `abstop12` is below the source
+120-radian fast-reduction boundary. Since the scaled coefficient is below
+`2^24`, truncation and the following `0x800000` addition fit signed int32.
+No new reduction branch or polynomial is needed.
+
+Private comparisons of all 847 previously out-of-domain candidates against
+Linux glibc 2.44 float sine/cosine produce zero differing bits in 5,082
+component comparisons. Authored endpoint, adjacent-float, negative-zero and
+out-of-domain tests preserve the new bound and the old API refusals.
+This is measured compatibility, not a universal host-libm parity guarantee.

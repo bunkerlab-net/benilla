@@ -501,7 +501,8 @@ fn same_basename_m2_members_keep_their_own_hulls_through_assembly() {
                 );
             }
             let profile =
-                DoodadProjectionProfile::from_policy_id("g3d-portable-libm-0.2.16-v1").unwrap();
+                DoodadProjectionProfile::from_policy_id("g3d-portable-libm-0.2.16-euler1080-v2")
+                    .unwrap();
             let count = hulls.into_iter().filter(|hull| *hull).count();
             assert_eq!(
                 prepared
@@ -965,7 +966,8 @@ fn m2_record_stream_preserves_source_coordinate_scale_name_and_duplicate_ids() {
     entries.push(raw_entry("Models\\Solid.m2", m2(true)));
     save(&data, "model.MPQ", &entries);
     let prepared = prepare(&data, 0, || false).unwrap();
-    let profile = DoodadProjectionProfile::from_policy_id("g3d-portable-libm-0.2.16-v1").unwrap();
+    let profile =
+        DoodadProjectionProfile::from_policy_id("g3d-portable-libm-0.2.16-euler1080-v2").unwrap();
     let records = prepared.placement_records(profile, || false).unwrap();
     let mut expected = Vec::new();
     for v in [0_u32, 0, 0, 1] {

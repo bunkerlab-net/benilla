@@ -9,10 +9,10 @@
 //! platform's upstream C++ libm. Callers must select the compatibility profile;
 //! this module grants no native-bit-parity or assembled-collision capability.
 
-use benilla_sim::source_trig::sin_cos_radians_bits_native;
+use benilla_sim::source_trig::sin_cos_euler_radians_bits_native;
 use std::fmt;
 
-pub(crate) const POLICY: &str = "g3d-portable-libm-0.2.16-v1";
+pub(crate) const POLICY: &str = "g3d-portable-libm-0.2.16-euler1080-v2";
 
 const PI: f32 = f32::from_bits(0x4049_0fdb);
 const HALF_PI: f32 = f32::from_bits(0x3fc9_0fdb);
@@ -33,7 +33,7 @@ impl fmt::Display for TransformMathError {
         f.write_str(match self {
             Self::NonFiniteInput => "doodad transform input is not finite",
             Self::ParentRotationOutsideDomain => {
-                "doodad parent rotation is outside inclusive -360..360 degrees"
+                "doodad parent rotation is outside inclusive -1080..1080 degrees"
             }
             Self::QuaternionNormZero => "doodad quaternion squared norm is zero or underflowed",
             Self::QuaternionNormNonFinite => "doodad quaternion squared norm overflowed",
@@ -50,7 +50,7 @@ impl std::error::Error for TransformMathError {}
 /// parent rotation and the returned rotation are the source xyz degree fields.
 /// Scale is deliberately absent: ExtractSet does not scale the local position.
 ///
-/// This safety envelope rejects nonfinite inputs, degrees outside ±360, a norm²
+/// This safety envelope rejects nonfinite inputs, degrees outside ±1080, a norm²
 /// that overflows or rounds to zero, and any nonfinite intermediate. A positive
 /// subnormal norm² and harmless component underflow retain source arithmetic.
 /// Signed zero is never canonicalized; there is no identity-quaternion fallback.
@@ -93,7 +93,7 @@ fn finite(value: f32) -> Result<f32, TransformMathError> {
 }
 
 fn radians(value: f32) -> f32 {
-    // G3D's float overload rounds BOTH operations, unlike the VMap f64 wrapper.
+    // G3D g3dmath.h:125-126,769-770 rounds float PI multiplication and division.
     let product = value * PI;
     product / 180.0_f32
 }
@@ -107,10 +107,11 @@ fn sin_cos_degrees(value: f32) -> Result<[f32; 2], TransformMathError> {
     if !value.is_finite() {
         return Err(TransformMathError::NonFiniteInput);
     }
-    if !(-360.0..=360.0).contains(&value) {
+    // Measured maximum 754.5 degrees plus the remaining margin to three full turns.
+    if !(-1080.0..=1080.0).contains(&value) {
         return Err(TransformMathError::ParentRotationOutsideDomain);
     }
-    sin_cos_radians_bits_native(radians(value).to_bits())
+    sin_cos_euler_radians_bits_native(radians(value).to_bits())
         .map(|values| values.map(f32::from_bits))
         .map_err(|_| TransformMathError::SourceTrigDomain)
 }
@@ -266,18 +267,39 @@ mod tests {
 
     #[test]
     fn angle_domain_is_inclusive_and_does_not_wrap() {
-        for angle in [-360.0, 360.0] {
+        for angle in [-1080.0, 1080.0] {
             assert!(project([0.0; 3], [angle; 3], [0.0; 3], IDENTITY).is_ok());
         }
         for angle in [
-            -f32::from_bits(360.0_f32.to_bits() + 1),
-            f32::from_bits(360.0_f32.to_bits() + 1),
+            -f32::from_bits(1080.0_f32.to_bits() + 1),
+            f32::from_bits(1080.0_f32.to_bits() + 1),
         ] {
             assert_eq!(
                 project([0.0; 3], [angle, 0.0, 0.0], [0.0; 3], IDENTITY),
                 Err(TransformMathError::ParentRotationOutsideDomain)
             );
         }
+    }
+
+    #[test]
+    fn expanded_raw_degrees_match_source_precision_without_wrapping() {
+        // Independent Linux glibc float sin/cos after G3D g3dmath.h:769-770.
+        for (angle, expected) in [
+            (539.0_f32, [0x3c8e_f817, 0xbf7f_f605]),
+            (754.5, [0x3f11_0004, 0x3f52_f9ec]),
+            (1080.0, [0x334c_de2e, 0x3f80_0000]),
+            (f32::from_bits(0x4486_ffff), [0xb5f9_990f, 0x3f80_0000]),
+        ] {
+            assert_eq!(sin_cos_degrees(angle).unwrap().map(f32::to_bits), expected);
+            assert_eq!(
+                sin_cos_degrees(-angle).unwrap().map(f32::to_bits),
+                [expected[0] ^ 0x8000_0000, expected[1]]
+            );
+        }
+        assert_ne!(
+            sin_cos_degrees(1080.0).unwrap(),
+            sin_cos_degrees(0.0).unwrap()
+        );
     }
 
     #[test]

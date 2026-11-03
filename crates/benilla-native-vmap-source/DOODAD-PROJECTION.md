@@ -9,15 +9,17 @@ separately by the [encounter ledger](ENCOUNTER-IDS.md).
 
 ## Deliberate numerical compatibility decision
 
-The explicit policy `g3d-portable-libm-0.2.16-v1` preserves G3D operation order,
+The explicit policy `g3d-portable-libm-0.2.16-euler1080-v2` preserves G3D operation order,
 but selects pinned portable `libm = 0.2.16` double asin/atan2 and float sqrt in
 place of the C++ platform's native library. This is a meaningful, versioned
 compatibility choice: it does **not** promise every native CMaNGOS installation
 would emit identical bits. No tolerance is used to hide differences.
 
-The policy reuses the separately pinned glibc sine/cosine radian evaluator from
-`benilla-sim`; it does not reuse the VMap consumer's different degree conversion
-or the float facing atan2 implementation. Cargo.lock pins the registry checksum.
+The policy uses the separately bounded Euler adapter to the pinned glibc
+sine/cosine radian evaluator in `benilla-sim`. Raw parent degrees multiply by
+binary32 PI and divide by binary32 180, exactly as `g3dmath.h:769-770` specifies.
+It does not reuse the VMap consumer's different degree conversion or the float
+facing atan2 implementation. Cargo.lock pins the registry checksum.
 The libm dependency retains its upstream MIT/Sun notices in the corresponding
 vendored source. Existing feature unification may select architecture-specific
 sqrt implementations; all supported platform jobs run the same exact-bit corpus.
@@ -60,8 +62,11 @@ Source pin: `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`, `WMOInstance`,
 - The 18-byte prefix contains map, tile, M2/worldspawn flags and zero nameSet.
   The suffix contains position, rotation, scale, encoded length, and name bytes
 
-All inputs/intermediates must be finite; parent angles are bounded to ±360
-because that is the existing pinned sine/cosine domain. Zero/underflowed and
+All inputs/intermediates must be finite; parent angles are bounded to ±1080.
+The measured maximum absolute parent angle across 106,502 real candidates is
+754.5 degrees. Three full turns allow 325.5 degrees of margin without admitting
+unbounded inputs. The source reducer receives the raw converted radians;
+degrees are never wrapped. Zero/underflowed and
 overflowed quaternion norms fail. Positive subnormal norms remain allowed if
 all subsequent arithmetic is finite. Overflow norm rejection is deliberately
 stricter than the source, which can normalize to zeros and produce identity.
@@ -75,12 +80,18 @@ identities. It records exact input/output bits, intermediate matrices, floating
 exceptions, name bytes and original source hashes. The Rust differential test
 reports exact field differences, ULP difference and absolute geometric error for
 its admitted corpus, separately counting explicit domain refusals. The current
-Linux receipt is 72 admitted cases, seven explicit refusals, and zero differing
+Linux receipt is 73 admitted cases, six explicit refusals, and zero differing
 coordinate fields (zero ULP and absolute geometric error); six source cases emit
 no child. This finite corpus is not a proof over every float input. Actual authored
 MPQ tests exercise the complete capture-to-projection path and changed-input
 rejection, adapting only the oracle's model name and length to the canonical
 writer policy. All-platform jobs run these same tests; results remain pending until CI.
+
+All 847 real candidates outside the old ±360-degree domain were checked privately
+against Linux glibc 2.44 float sine/cosine at G3D's exact float radian arguments.
+Their 5,082 component comparisons have zero differing bits and maximum zero ULP.
+Authored endpoint and adjacent-float tests cover the new inclusive bound and
+rejection beyond it. These observations do not claim universal host-libm parity.
 
 A complete map assembler still needs ordered placement closure, duplicate
 resolution, transformed bounds, primitive slots and full BIH construction.

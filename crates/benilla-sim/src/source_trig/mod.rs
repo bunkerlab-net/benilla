@@ -10,6 +10,10 @@ pub const NATIVE_POLICY: &str = "glibc-2.41-bounded-sincos-native-unfused-rne-v1
 pub const SOFT_POLICY: &str = "glibc-2.41-bounded-sincos-soft-unfused-rne-v1";
 pub const FALLBACK_SOFT_POLICY: &str = "glibc-2.41-near-point-fallback-sincos-soft-unfused-rne-v1";
 pub const TAU_BITS: u32 = 0x40c9_0fdb;
+/// Source Euler profile covering raw degrees within inclusive ±1080.
+pub const EULER_NATIVE_POLICY: &str = "glibc-2.41-euler1080-sincos-native-unfused-rne-v1";
+/// RNE32(RNE32(1080 * binary32 PI) / 180), with no degree wrapping.
+pub const EULER_MAX_RADIANS_BITS: u32 = 0x4196_cbe4;
 /// Inclusive raw fallback-angle lower bound: -binary32 PI.
 pub const FALLBACK_MIN_ANGLE_BITS: u32 = 0xc049_0fdb;
 /// Inclusive raw fallback-angle upper bound: RNE32(binary32 TAU + binary32 PI).
@@ -55,6 +59,19 @@ pub fn sin_cos_radians_bits_native(angle: u32) -> Result<[u32; 2], Error> {
     core::sin_cos::<native::Native>(angle)
 }
 
+/// Raw [sine, cosine] bits within the separately bounded Euler radian domain.
+/// Uses the unchanged source fast reducer after the caller's raw degree conversion.
+pub fn sin_cos_euler_radians_bits_native(angle: u32) -> Result<[u32; 2], Error> {
+    let magnitude = angle & 0x7fff_ffff;
+    if magnitude >= 0x7f80_0000 {
+        return Err(Error::NonFinite);
+    }
+    if magnitude > EULER_MAX_RADIANS_BITS {
+        return Err(Error::Angle);
+    }
+    core::sin_cos::<native::Native>(angle)
+}
+
 /// Raw [sine, cosine] bits with software IEEE RNE and gradual underflow throughout.
 /// Accepts finite radians within inclusive ±binary32 TAU; signed zero is preserved.
 /// The bounded source reducer truncates to integer toward zero, as C requires.
@@ -82,4 +99,34 @@ pub fn sin_cos_fallback_radians_bits_soft(angle: u32) -> Result<[u32; 2], Error>
         return Err(Error::Angle);
     }
     core::sin_cos::<software::Software>(angle)
+}
+
+#[cfg(test)]
+mod euler_tests {
+    use super::*;
+
+    #[test]
+    fn euler_endpoints_preserve_source_bits_and_original_domains() {
+        assert_eq!(
+            sin_cos_euler_radians_bits_native(0x4196_cbe4),
+            Ok([0x334c_de2e, 0x3f80_0000])
+        );
+        assert_eq!(
+            sin_cos_euler_radians_bits_native(0xc196_cbe4),
+            Ok([0xb34c_de2e, 0x3f80_0000])
+        );
+        assert_eq!(
+            sin_cos_euler_radians_bits_native(0x4196_cbe3),
+            Ok([0xb5f9_990f, 0x3f80_0000])
+        );
+        assert_eq!(
+            sin_cos_euler_radians_bits_native(0x8000_0000),
+            Ok([0x8000_0000, 0x3f80_0000])
+        );
+        for bits in [0x4196_cbe5, 0xc196_cbe5, 0x7f80_0000, 0x7fc0_0000] {
+            assert!(sin_cos_euler_radians_bits_native(bits).is_err());
+        }
+        assert_eq!(sin_cos_radians_bits_native(TAU_BITS + 1), Err(Error::Angle));
+        assert_eq!(sin_cos_radians_bits_soft(TAU_BITS + 1), Err(Error::Angle));
+    }
 }

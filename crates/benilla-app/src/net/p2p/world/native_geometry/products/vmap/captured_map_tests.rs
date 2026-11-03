@@ -135,7 +135,7 @@ fn entries() -> Vec<Entry> {
     ]
 }
 pub(super) fn profile() -> DoodadProjectionProfile {
-    DoodadProjectionProfile::from_policy_id("g3d-portable-libm-0.2.16-v1").unwrap()
+    DoodadProjectionProfile::from_policy_id("g3d-portable-libm-0.2.16-euler1080-v2").unwrap()
 }
 fn unhex(value: &str) -> Vec<u8> {
     assert_eq!(value.len() % 2, 0);

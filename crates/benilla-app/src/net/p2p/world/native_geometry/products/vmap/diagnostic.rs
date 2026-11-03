@@ -273,7 +273,7 @@ fn run_with_helper(
             None
         }
     };
-    let profile = DoodadProjectionProfile::from_policy_id("g3d-portable-libm-0.2.16-v1");
+    let profile = DoodadProjectionProfile::from_policy_id("g3d-portable-libm-0.2.16-euler1080-v2");
     let mut placed = false;
     if let (Some(capture), Ok(profile)) = (&capture, &profile) {
         match capture.placement_records(*profile, cancelled) {
