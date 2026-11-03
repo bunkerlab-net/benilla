@@ -102,12 +102,14 @@ C++17, `-O0`, no fast math, no contraction, round-to-nearest and generic
 `TOINT_INTRINSICS=0`. No platform trig function supplies these expectations.
 
 `trig-cases.tsv` covers both signs, signed zero, subnormals, tiny-input and `abstop12`
-branch thresholds, 13° and all quadrant boundaries through ±360°, with three neighboring
-binary32 angles on either side where admitted. It has 202 cases. `trig-grid.sha256`
-hashes 12-byte little-endian records `(angle bits, sine bits, cosine bits)`: first every
-4093rd nonnegative angle bit pattern through `360.0f32`, then every 1/1024-degree value
-from 0 through 360, each with positive then negative sign. All 1,292,314 records are
-recomputed by the Rust tests. Finite angles outside ±360 and nonfinite inputs are
+branch thresholds, 13°, quadrant boundaries through ±360°, and the extended
+assembler-angle boundaries. Three neighboring binary32 angles on either side
+are included where admitted. It has 244 cases. `trig-grid.sha256` hashes 12-byte
+little-endian records `(angle bits, sine bits, cosine bits)`: first every 4093rd
+nonnegative angle bit pattern through `1800.0f32`, then every 1/1024-degree value
+from 0 through 1800, with both signs. Rust recomputes all 4,251,072 records.
+The oracle uses the pinned G3D binary64 PI before narrowing radians.
+Finite angles outside ±1800 and nonfinite inputs are
 separately rejected. This bounded source profile preserves exact transformed containment;
 a regression also proves that a bound hiding one ULP of a vertex still rejects.
 

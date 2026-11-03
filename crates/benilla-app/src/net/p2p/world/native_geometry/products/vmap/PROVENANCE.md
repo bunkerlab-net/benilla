@@ -42,7 +42,7 @@ A miss concerns only this static closure. Missing/excluded content and runtime-c
 objects still need the independent production source/participant audit.
 
 The accepted profile is tiled exterior `VMAP_7.0`, dry models, explicit MOD_HAS_BOUND,
-MOD_M2 classification, finite source Euler angles within ±360 degrees and scales
+MOD_M2 classification, finite source Euler angles within ±1800 degrees and scales
 0.001..1000. Worldspawns, missing bounds, liquids and unknown spawn flags reject. Models
 shared by mixed M2/WMO classifications reject instead of preserving upstream shared-model
 flag mutation's load-order dependence. MOGP/root/group IDs are retained for selected
@@ -130,8 +130,8 @@ bound. Bounds remain strict; widening them or accepting an epsilon would hide ge
 [glibc 2.41 implementation](https://github.com/bminor/glibc/tree/74f59e9271cbb4071671e5a474e7d4f1622b186f/sysdeps/ieee754/flt-32)
 at commit `74f59e9271cbb4071671e5a474e7d4f1622b186f`, independently of the host libc.
 This is a source-derived port of `s_sinf.c`, `s_cosf.c`, `sincosf_poly.h`,
-`s_sincosf.h` and `s_sincosf_data.c`, restricted to finite Euler angles in [-360,360].
-The source degree conversion, binary32 radian cast, `abstop12` branch comparisons,
+`s_sincosf.h` and `s_sincosf_data.c`, restricted to finite Euler angles in [-1800,1800].
+The degree conversion uses the pinned G3D binary64 PI before the binary32 radian cast.
 `TOINT_INTRINSICS=0` reduction, coefficient bits, and unfused binary64 expression order
 are retained. The admitted radian range fits the source fast reducer; no general
 large-angle, nonfinite, floating-point exception or alternate rounding-mode API is
@@ -142,10 +142,12 @@ product bytes and all existing geometric oracle expectations remain unchanged.
 
 The degree wrapper delegates its radian evaluation to
 [benilla-sim's shared source core](../../../../../../../../benilla-sim/SOURCE-TRIG.md).
-That core has native and software adapters with one reducer/polynomial; this
-VMap caller retains the native adapter, its exact degree conversion, and its
-existing profile identity and oracle expectations. It does not switch VMap
-geometry to the near-point software consumer's policy.
+That core has native and software adapters with one reducer/polynomial. This
+VMap caller uses the existing assembler ±1800-degree native adapter, matching
+the source acquisition profile without wrapping raw angles.
+[ModelInstance.cpp:31](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/vmap/ModelInstance.cpp#L31)
+uses those raw angles directly. Navigation mesh transforms retain the source's
+negative-degree conversion with the same admitted range.
 
 The original [glibc notice](GLIBC-NOTICE.txt) and
 [LGPL-2.1-or-later license](GLIBC-LICENSE.txt) are retained. The bounded Rust translation
@@ -153,8 +155,8 @@ was made on 2026-10-14; original copyright is Free Software Foundation, Inc., 20
 [Full-file SHA-256 guards](../../../../../../../../benilla-native-geometry-tests/tools/vmap_glibc_source_hashes.sha256)
 pin all five originals. The independent offline C++ oracle compiles their original math
 bodies and coefficient arrays, with only include/declaration plumbing supplied, and with
-round-to-nearest, no fast math and no contraction. Tests compare 202 signed boundary
-cases plus a SHA-256 digest over 1,292,314 signed samples spanning the complete admitted
+round-to-nearest, no fast math and no contraction. Tests compare 244 signed boundary
+cases plus a SHA-256 digest over 4,251,072 signed samples spanning the complete admitted
 bit range and a 1/1024-degree grid. These are differential samples, not an exhaustive
 proof over all binary32 angles or a claim of universal native-libc equivalence.
 

@@ -11,7 +11,7 @@ use std::{
     time::Instant,
 };
 
-const POLICY: &[u8] = b"benilla-prepared-collision-historical-snapshot-v1";
+const POLICY: &[u8] = b"benilla-prepared-collision-historical-snapshot-euler1800-v2";
 const MAX_PRODUCTS: usize = 4096;
 
 #[derive(Debug)]

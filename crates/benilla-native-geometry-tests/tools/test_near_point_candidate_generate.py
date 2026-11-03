@@ -277,15 +277,15 @@ class NearPointOracleTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256((oracle.FIXTURES / name).read_bytes()).hexdigest(), expected)
         self.assertEqual(oracle.source_fragments(self.source)[3], oracle.PACKAGE.read_text(encoding='latin1'))
 
-    def test_existing_vmap_202_case_and_sample_digest_are_unchanged(self):
+    def test_vmap_assembler_case_and_sample_digest_are_pinned(self):
         for name, expected in (
-            ('trig-cases.tsv', 'dffff37c6f1685d7c8fa884bde910684add025bc1001eb7fb45eb9ffe1cd86de'),
-            ('trig-grid.sha256', 'd880b8cfe49ab912624bb06166ad34c3946d3d0aef758e2518317ece9704e7c1'),
+            ('trig-cases.tsv', '88482c536d437122fd88b3c3e3caab9ca0e69d082771dad41982221d15e364dc'),
+            ('trig-grid.sha256', 'b1d194b3a7c5c289cc6065fc9eed73752dc22692f21a122ae9e6cbe6bed7dd29'),
         ):
             data = (oracle.HERE / 'fixtures/vmap_source' / name).read_bytes()
             self.assertEqual(hashlib.sha256(data).hexdigest(), expected)
         cases = (oracle.HERE / 'fixtures/vmap_source/trig-cases.tsv').read_text().splitlines()
-        self.assertEqual(sum(not line.startswith('#') for line in cases), 202)
+        self.assertEqual(sum(not line.startswith('#') for line in cases), 244)
 
 
 if __name__ == '__main__':

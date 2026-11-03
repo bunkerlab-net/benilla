@@ -13,7 +13,7 @@ use std::{
     time::Instant,
 };
 
-const POLICY: &[u8] = b"benilla-prepared-tile-collision-historical-snapshot-v1";
+const POLICY: &[u8] = b"benilla-prepared-tile-collision-historical-snapshot-euler1800-v2";
 const MAX_SOURCE_MODELS: usize = 32_768;
 const MAX_SOURCE_TILES: usize = 4096;
 const MAX_SOURCE_BYTES: usize = 512 * 1024 * 1024;
@@ -475,6 +475,23 @@ mod tests {
             .map(|(id, b)| (id.clone(), b.as_slice()))
             .collect();
         decode_rows(0, [1; 32], &rows, &[], &|| false)
+    }
+    #[test]
+    fn complete_source_index_accepts_unwrapped_assembler_angles() {
+        let tile = ProductId::VmapTile(TileId { x: 31, y: 30 });
+        for angle in [464.52066_f32, -1758.5, 1800.0, -1800.0] {
+            let mut rows = rows();
+            rows.get_mut(&tile).unwrap()[38..42].copy_from_slice(&angle.to_le_bytes());
+            assert!(decode(&rows).is_ok(), "{angle}");
+        }
+        for angle in [1800.0f32.next_up(), (-1800.0f32).next_down()] {
+            let mut rows = rows();
+            rows.get_mut(&tile).unwrap()[38..42].copy_from_slice(&angle.to_le_bytes());
+            assert!(matches!(
+                decode(&rows),
+                Err(PrepareError::Validation(Error::Unsupported))
+            ));
+        }
     }
     #[test]
     fn resident_point_ignores_only_unvisited_unloaded_slots() {

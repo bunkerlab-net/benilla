@@ -8,11 +8,12 @@ use super::Error;
 /// Source-profile float trig only for admitted Euler degrees, not a general libm.
 /// Preserve the original VMap degree conversion and native unfused arithmetic.
 pub(super) fn sin_cos_degrees(angle: f32) -> Result<(f32, f32), Error> {
-    if !angle.is_finite() || angle.abs() > 360.0 {
+    if !angle.is_finite() || angle.abs() > 1800.0 {
         return Err(Error::Unsupported);
     }
-    let radians = (std::f64::consts::PI * f64::from(angle) / 180.0) as f32;
-    let [s, c] = benilla_sim::source_trig::sin_cos_radians_bits_native(radians.to_bits())
+    // ModelInstance.cpp:31 uses G3D::pi() in binary64 before the float cast.
+    let radians = (f64::from_bits(0x4009_21fb_5444_2d28) * f64::from(angle) / 180.0) as f32;
+    let [s, c] = benilla_sim::source_trig::sin_cos_assembler_radians_bits_native(radians.to_bits())
         .map_err(|_| Error::Unsupported)?;
     Ok((f32::from_bits(s), f32::from_bits(c)))
 }
@@ -37,15 +38,15 @@ mod tests {
             assert_eq!([s.to_bits(), c.to_bits()], values[1..], "{row}");
             count += 1;
         }
-        assert_eq!(count, 202);
+        assert_eq!(count, 244);
     }
 
     #[test]
     fn entire_angle_domain_samples_match_independent_source_digest() {
         let mut digest = Sha256::new();
         let mut count = 0;
-        let bit_grid = (0..=360.0f32.to_bits()).step_by(4093);
-        let linear_grid = (0..=360 * 1024).map(|step| (step as f32 / 1024.0).to_bits());
+        let bit_grid = (0..=1800.0f32.to_bits()).step_by(4093);
+        let linear_grid = (0..=1800 * 1024).map(|step| (step as f32 / 1024.0).to_bits());
         for magnitude in bit_grid.chain(linear_grid) {
             for sign in [0, 0x8000_0000] {
                 let bits = magnitude | sign;
@@ -56,7 +57,7 @@ mod tests {
                 count += 1;
             }
         }
-        assert_eq!(count, 1_292_314);
+        assert_eq!(count, 4_251_072);
         let expected = include_str!("../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/trig-grid.sha256").trim();
         assert_eq!(format!("{:x}", digest.finalize()), expected);
     }
@@ -67,8 +68,8 @@ mod tests {
             f32::NAN,
             f32::INFINITY,
             f32::NEG_INFINITY,
-            360.0f32.next_up(),
-            (-360.0f32).next_down(),
+            1800.0f32.next_up(),
+            (-1800.0f32).next_down(),
             f32::MAX,
             f32::MIN,
         ] {

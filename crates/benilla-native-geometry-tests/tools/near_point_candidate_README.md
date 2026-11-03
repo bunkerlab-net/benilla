@@ -96,9 +96,9 @@ python3 test_near_point_candidate_generate.py MANGOS_ROOT GLIBC_FLT32
 `--sanitize` adds `-fsanitize=undefined,float-cast-overflow
 -fno-sanitize-recover=all`. Both profiles must produce byte-identical checked
 fixtures and digests. `--receipt-dir PATH` optionally saves compiler versions,
-the compiled CMaNGOS harness, symbol lists and disassembly. The existing VMap
-202-case and 1,292,314-sample degree-trig fixtures and digest are untouched;
-the Python tests pin their original fixture-file hashes.
+the compiled CMaNGOS harness, symbol lists and disassembly. The separate VMap
+assembler-angle fixtures have 244 cases and 4,251,072 samples. The Python tests
+pin those fixture hashes independently of this radian candidate oracle.
 
 ## Separate raw fallback-angle numeric experiment
 

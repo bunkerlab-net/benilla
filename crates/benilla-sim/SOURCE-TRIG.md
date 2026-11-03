@@ -62,10 +62,10 @@ angles and other rounding modes are outside this interface.
 ## Existing Euler caller and evidence
 
 The app's [VMap wrapper](../benilla-app/src/net/p2p/world/native_geometry/products/vmap/trig.rs)
-retains its exact degree validation and `(PI * binary64(angle) / 180) as binary32`
-conversion, then calls the shared native adapter. Its existing 202 signed source
-boundary cases and 1,292,314-sample digest are unchanged, as are its selected
-profile identity and geometric oracle expectations. The [VMap provenance](../benilla-app/src/net/p2p/world/native_geometry/products/vmap/PROVENANCE.md)
+validates inclusive ±1800 degrees and retains the pinned G3D binary64 PI
+conversion before narrowing radians. It calls the existing assembler native
+adapter. Its independent oracle covers 244 signed boundary cases and a
+4,251,072-sample digest. The [VMap provenance](../benilla-app/src/net/p2p/world/native_geometry/products/vmap/PROVENANCE.md)
 and [five-file oracle manifest](../benilla-native-geometry-tests/tools/vmap_glibc_source_hashes.sha256)
 remain applicable.
 

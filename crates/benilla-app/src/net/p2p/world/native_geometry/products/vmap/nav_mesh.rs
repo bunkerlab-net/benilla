@@ -290,13 +290,13 @@ fn rotation(angles: [f32; 3]) -> Result<Matrix, Error> {
 }
 
 fn sin_cos_negative_degrees(angle: f32) -> Result<[f32; 2], Error> {
-    if !angle.is_finite() || angle.abs() > 360.0 {
+    if !angle.is_finite() || angle.abs() > 1800.0 {
         return Err(Error::Unsupported);
     }
     // G3D::pi() is 3.1415926535898, not the standard library's PI constant.
     // The original expression is binary64 until the float parameter conversion.
     let radians = (f64::from_bits(0x4009_21fb_5444_2d28) * f64::from(angle) / -180.0) as f32;
-    benilla_sim::source_trig::sin_cos_radians_bits_native(radians.to_bits())
+    benilla_sim::source_trig::sin_cos_assembler_radians_bits_native(radians.to_bits())
         .map(|values| values.map(f32::from_bits))
         .map_err(|_| Error::Unsupported)
 }
@@ -702,12 +702,12 @@ mod tests {
         for angle in [
             f32::NAN,
             f32::INFINITY,
-            360.0f32.next_up(),
-            (-360.0f32).next_down(),
+            1800.0f32.next_up(),
+            (-1800.0f32).next_down(),
         ] {
             assert_eq!(rotation([angle, 0.0, 0.0]), Err(Error::Unsupported));
         }
-        assert!(rotation([360.0, -360.0, -0.0]).is_ok());
+        assert!(rotation([1800.0, -1758.5, 464.52066]).is_ok());
         assert_eq!(
             dot([f32::MAX, -f32::MAX, 0.0], [2.0, 2.0, 0.0]),
             Err(Error::Unsupported)
@@ -716,6 +716,25 @@ mod tests {
         spawn.position = [32.0 * GRID_SIZE, 32.0 * GRID_SIZE, 0.0];
         let transformed = Transform::new(&spawn).unwrap().vertex([0.0; 3]).unwrap();
         assert_eq!(transformed.map(f32::to_bits), [0x8000_0000, 0, 0x8000_0000]);
+    }
+
+    #[test]
+    fn navigation_angles_match_independent_extended_source_oracle() {
+        let cases = include_str!(
+            "../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/trig-cases.tsv"
+        );
+        for row in cases.lines().filter(|line| !line.starts_with('#')) {
+            let values: Vec<_> = row
+                .split('\t')
+                .map(|word| u32::from_str_radix(word, 16).unwrap())
+                .collect();
+            let [s, c] = sin_cos_negative_degrees(f32::from_bits(values[0])).unwrap();
+            assert_eq!(
+                [s.to_bits(), c.to_bits()],
+                [values[1] ^ 0x8000_0000, values[2]],
+                "{row}"
+            );
+        }
     }
 
     #[test]

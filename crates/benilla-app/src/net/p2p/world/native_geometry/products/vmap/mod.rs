@@ -43,7 +43,7 @@ const MAX_ELEMENTS: usize = 262_144;
 const MAX_GROUPS: usize = 4096;
 const MAX_SPAWNS: usize = 16_384;
 pub(crate) const MAX_QUERY_WORK: usize = 32_768;
-const POLICY: &[u8] = b"benilla-dry-static-vmap-ray-v3-source-m2-zero-group-bounds";
+const POLICY: &[u8] = b"benilla-dry-static-vmap-ray-v4-source-euler1800";
 
 pub(super) fn dry_policy(inventory: Hash) -> Hash {
     let mut hash = Sha256::new();
@@ -716,7 +716,7 @@ impl Spawn {
         let id = c.word()?;
         let position = c.vector()?;
         let angles = c.vector()?;
-        if angles.iter().any(|a| a.abs() > 360.0) {
+        if angles.iter().any(|a| a.abs() > 1800.0) {
             return Err(Error::Unsupported);
         }
         let scale = c.float()?;

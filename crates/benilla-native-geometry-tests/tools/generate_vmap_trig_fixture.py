@@ -15,7 +15,7 @@ import tempfile
 
 HERE = pathlib.Path(__file__).resolve().parent
 PIN = '74f59e9271cbb4071671e5a474e7d4f1622b186f'
-MAX_DEGREES_BITS = 0x43B40000
+MAX_DEGREES_BITS = 0x44E10000
 GRID_STEP = 4093
 
 
@@ -66,8 +66,8 @@ static float __math_invalidf(float x) { return x - x; }
         uint32_t word = uint32_t(bytes[0]) | uint32_t(bytes[1]) << 8 |
                         uint32_t(bytes[2]) << 16 | uint32_t(bytes[3]) << 24;
         float angle; std::memcpy(&angle, &word, 4);
-        if (!std::isfinite(angle) || std::abs(angle) > 360.f) return 3;
-        const float radians = (0x1.921fb54442d18p1 * double(angle)) / 180.0;
+        if (!std::isfinite(angle) || std::abs(angle) > 1800.f) return 3;
+        const float radians = (0x1.921fb54442d28p1 * double(angle)) / 180.0;
         for (uint32_t output : {word, asuint(source_sin(radians)), asuint(source_cos(radians))}) {
             uint8_t out[4] = {uint8_t(output), uint8_t(output >> 8),
                              uint8_t(output >> 16), uint8_t(output >> 24)};
@@ -81,8 +81,8 @@ static float __math_invalidf(float x) { return x - x; }
     # Both signs around zero/subnormals, all admitted quadrant boundaries, the
     # abstop12 small-angle switches, and the concrete 13-degree platform seam.
     centers = [0, 1, 0x007FFFFF, 0x00800000]
-    centers += [bits(v) for v in [9, 13, 37, 45, 90, 135, 180, 225, 270, 315, 360]]
-    centers += [bits(v * 180.0 / float.fromhex('0x1.921fb54442d18p1'))
+    centers += [bits(v) for v in [9, 13, 37, 45, 90, 135, 180, 225, 270, 315, 360, 464.52066, 1758.5, 1800]]
+    centers += [bits(v * 180.0 / float.fromhex('0x1.921fb54442d28p1'))
                 for v in [float.fromhex('0x1p-12'),
                           struct.unpack('<f', struct.pack('<I', 0x3F400000))[0]]]
     edges = sorted({(center + delta) | sign for center in centers for delta in range(-3, 4)
@@ -90,7 +90,7 @@ static float __math_invalidf(float x) { return x - x; }
                     for sign in [0, 0x80000000]})
     grid = [word | sign for word in range(0, MAX_DEGREES_BITS + 1, GRID_STEP)
             for sign in [0, 0x80000000]]
-    grid += [bits(step / 1024.0) | sign for step in range(360 * 1024 + 1)
+    grid += [bits(step / 1024.0) | sign for step in range(1800 * 1024 + 1)
              for sign in [0, 0x80000000]]
     with tempfile.TemporaryDirectory(prefix='vmap-trig-oracle-') as tmp:
         work = pathlib.Path(tmp)
