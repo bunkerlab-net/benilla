@@ -84,7 +84,9 @@ and a 4,000,000-value bound in addition to each input's byte limit.
 The combined corpus retains both initial spell execution fixtures and creature
 combat evidence fixtures. Every preparation is rebuilt from its authored source,
 DBC bytes, extraction metadata, request, and rules after either plan changes.
-Fixture JSON is compact to keep the combined corpus below the 8 MiB reader limit.
+Fixture JSON is compact. The primary corpus has an 8 MiB reader limit; the
+secondary combat corpus has a 1 MiB limit and includes the Food/Drink fixture.
+Both readers combine their fixture lists without increasing either byte limit.
 
 The corpus includes same-snapshot quest completion scripts, source items and
 gossip lookup closure, exact SQL skill-training probes and profession repair,
