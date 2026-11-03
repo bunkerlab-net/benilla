@@ -23,6 +23,7 @@ from .event_ai_plan import discharges as event_ai_discharges
 from .outfit_plan import supported_plan as outfit_placement_plan
 from . import creature_plan
 from .learning_plan import supported_plan as starter_learning_plan
+from .learning_numeric import candidate as learning_numeric_candidate
 from . import quest_plan, world_rules
 from classic_export import quest_endpoints
 from . import loot_plan
@@ -790,6 +791,10 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
     corpse_loot = loot_plan.supported_plan(source, c.learning)
     c.issues.extend(dict(r) for r in corpse_loot.get("non_body_actions", {}).get("refusals", []))
     spells = c.spells()
+    skills["loader_plan"]["numeric_candidate"] = learning_numeric_candidate(
+        source, dbcs, c.learning, spells, skills["loader_plan"])
+    if skills["loader_plan"]["numeric_candidate"]["status"] == "checked":
+        skills["loader_plan"]["numeric_overlay"] = "checked_complete_effective_projection"
     talents = talent_inputs(dbcs.get("Talent"), set(c.learning["spell_ids"]))
     creatures = c.creature_inputs(rules_plan["rules"])
     resolved_creatures = {str(row["entry"]) for row in creatures

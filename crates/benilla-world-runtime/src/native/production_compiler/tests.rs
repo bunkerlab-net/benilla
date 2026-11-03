@@ -18,6 +18,17 @@ fn corpus() -> Value {
             .iter()
             .cloned(),
     );
+    value["fixtures"].as_array_mut().unwrap().extend(
+        json::decode(
+            include_bytes!("../../../../../scripts/native_starter/spell_execution_cases.json"),
+            8 * 1024 * 1024,
+        )
+        .unwrap()["fixtures"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .cloned(),
+    );
     value
 }
 fn combat_corpus() -> Value {
@@ -723,4 +734,45 @@ fn global_hook_source_and_applicability_preserve_present_paths() {
     );
     assert_eq!(plan["effective_learning_proven"], false);
     assert!(plan["runtime_export"].is_null());
+}
+
+#[test]
+fn checked_learning_numeric_candidate_is_not_effective_learning() {
+    let fixtures = corpus();
+    let fixture = fixtures["fixtures"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|fixture| fixture["name"] == "numeric")
+        .unwrap();
+    let report = Inputs::new(fixture).run().unwrap();
+    assert_eq!(
+        report.preparation["preparation_sha256"],
+        fixture["preparation"]["preparation_sha256"]
+    );
+    let plan = &fixture["preparation"]["player"]["skills"]["loader_plan"];
+    assert_eq!(plan["format"], "benilla-native-starter-learning-plan-v2");
+    assert_eq!(plan["numeric_candidate"]["status"], "checked");
+    assert_eq!(plan["numeric_candidate"]["checked_numeric_count"], 4);
+    assert_eq!(
+        plan["numeric_candidate"]["sub_obligations"]["complete_effective_projection"],
+        true
+    );
+    assert_eq!(plan["effective_learning_proven"], false);
+    assert_eq!(
+        plan["root_order"],
+        "unknown_canonical_capture_order_is_not_loaded_order"
+    );
+    assert!(fixture["preparation"]["player"]["skills"]["effective_skills"].is_null());
+    for obligation in [
+        "loaded_order",
+        "initial_hooks",
+        "initial_cast_dispatch",
+        "effective_learning",
+    ] {
+        assert_eq!(
+            plan["numeric_candidate"]["sub_obligations"][obligation],
+            false
+        );
+    }
 }

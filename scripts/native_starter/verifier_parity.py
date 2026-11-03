@@ -23,6 +23,8 @@ def combat_corpus():
 def corpus():
     value = core.decode_json((ROOT / "production_verifier_cases.json").read_bytes(), 8 * 1024 * 1024)
     value["fixtures"].extend(combat_corpus()["fixtures"])
+    value["fixtures"].extend(core.decode_json(
+        (ROOT / "spell_execution_cases.json").read_bytes(), 8 * 1024 * 1024)["fixtures"])
     return value
 
 
@@ -385,3 +387,54 @@ class PreparationVerifierParityTests(unittest.TestCase):
         for case in cases["binary32"]:
             with self.subTest(decimal=case["decimal"]):
                 self.assertEqual(binary32_bits(case["decimal"]), case["bits"])
+
+class LearningNumericCandidateTests(unittest.TestCase):
+    def inputs(self):
+        fixture = next(f for f in corpus()["fixtures"] if f["name"] == "numeric")
+        tables = {name: parse_table(name, bytes.fromhex(data))
+                  for name, data in fixture["dbc_hex"].items()}
+        preparation = fixture["preparation"]
+        return (fixture["source"], tables, preparation["player"]["skills"]["dependency_closure"],
+                preparation["spells"], preparation["player"]["skills"]["loader_plan"])
+
+    def test_checked_numeric_candidate_does_not_prove_learning(self):
+        from .learning_numeric import candidate
+        result = candidate(*self.inputs())
+        self.assertEqual(result["status"], "checked")
+        self.assertEqual(result["checked_numeric_count"], 4)
+        self.assertTrue(result["sub_obligations"]["complete_effective_projection"])
+        self.assertFalse(result["effective_learning_proven"])
+        for obligation in ("loaded_order", "initial_hooks", "initial_cast_dispatch", "effective_learning"):
+            self.assertFalse(result["sub_obligations"][obligation])
+        self.assertNotIn("effective_spellbook", result)
+
+    def test_missing_auxiliary_row_cannot_certify_projection(self):
+        from .learning_numeric import candidate
+        source, tables, closure, spells, loader = self.inputs()
+        del tables["SpellCastTimes"].by_id[16]
+        result = candidate(source, tables, closure, spells, loader)
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["checked_numeric_count"], 0)
+        self.assertIn("player.learning_numeric_auxiliary_lookup_required",
+                      [r["reason"] for r in result["refusals"]])
+        self.assertEqual(result["auxiliary_outcomes"]["unknown"], 0)
+        missing_hash = result["rows_sha256"]
+        del tables["SpellCastTimes"]
+        unknown = candidate(source, tables, closure, spells, loader)
+        self.assertGreater(unknown["auxiliary_outcomes"]["unknown"], 0)
+        self.assertNotEqual(unknown["rows_sha256"], missing_hash)
+
+    def test_conflicting_projection_and_foreign_identity_refuse(self):
+        from .learning_numeric import candidate
+        source, tables, closure, spells, loader = self.inputs()
+        spells[0]["server_numeric_words"][76] ^= 1
+        result = candidate(source, tables, closure, spells, loader)
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("player.learning_numeric_projection_conflict",
+                      [r["reason"] for r in result["refusals"]])
+        source, tables, closure, spells, loader = self.inputs()
+        closure["dependency_request"]["source_sha256"] = "0" * 64
+        result = candidate(source, tables, closure, spells, loader)
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("player.learning_numeric_input_binding",
+                      [r["reason"] for r in result["refusals"]])

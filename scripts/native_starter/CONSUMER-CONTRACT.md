@@ -158,6 +158,24 @@ all named semantic gaps below must still be resolved before initialization:
   106–108 and triggers 109–111. `source_row` retains server-side columns beyond
   those words. Check every reported server/client difference and every relevant
   uncaptured server overlay; the array name is not authority for omitted columns
+- Learning-plan v2 adds `numeric_candidate`, a seed-independent checked input
+  projection. The Rust verifier assembles `CapturedStarterLearning` and runs
+  its existing `compile` adapter. `rows_sha256` binds the original client words,
+  complete effective words, signed duration, exact server-only numeric fields
+  and auxiliary lookup outcomes. `dbc_binding_sha256` binds the closure's DBC
+  identities. Counts distinguish selected spells, checked numeric rows,
+  auxiliary queries and server-only fields. Uncaptured numeric inputs produce
+  a compact blocked diagnostic, not an empty checked collection.
+  `sub_obligations.complete_effective_projection` discharges only that input
+  projection. Loaded order, initial hooks, cast dispatch and effective learning
+  remain false. No shape check changes `effective_skills`, the root order,
+  `effective_learning_proven` or a compound learning refusal.
+  The helper returns the checked `CapturedStarterLearning` inputs separately
+  from this diagnostic. It preserves verified missing cast-time/duration
+  lookups, including index zero, separately from an unknown table.
+  Verified missing duration projects to `Some(0)`; unknown duration stays
+  `None`. Present duration uses `GetSpellDuration`'s signed sentinel/absolute
+  value rule, not a default inferred from a missing lookup.
 - `spells[].duration` retains signed base/per-level/maximum milliseconds at the
   actual duration index. Resolve the native duration rule for the initializer's
   level and role. Missing duration and duration-index zero are distinguishable

@@ -942,3 +942,66 @@ fn global_probes_retain_raw_rows_and_require_exact_selected_agreement() {
     c.chains = Rows::Complete(vec![chain]);
     assert!(c.compile(1, 8).is_ok());
 }
+
+#[test]
+fn numeric_candidate_keeps_sql_words_and_requires_independent_hooks() {
+    let mut capture = fixture();
+    let Rows::Complete(numeric) = &mut capture.numeric else {
+        unreachable!()
+    };
+    numeric[0].client_words[76] = 1;
+    numeric[0].effective_words[76] = (-7i32) as u32;
+    numeric[0].duration_ms = None;
+    let compiled = capture.compile(1, 8).unwrap();
+    let numeric = capture.numeric.require("numeric", 0).unwrap();
+    assert!(compiled.bind_spell_rows(numeric, &Rows::Missing).is_err());
+    let unknown = Rows::Complete(
+        numeric
+            .iter()
+            .map(|row| LearningInitialHooks {
+                spell: row.id,
+                source_identity: capture.source_identity,
+                external_hooks: None,
+            })
+            .collect(),
+    );
+    assert!(compiled.bind_spell_rows(numeric, &unknown).is_err());
+    let hooks = Rows::Complete(
+        numeric
+            .iter()
+            .map(|row| LearningInitialHooks {
+                spell: row.id,
+                source_identity: capture.source_identity,
+                external_hooks: Some(false),
+            })
+            .collect(),
+    );
+    let bound = compiled.bind_spell_rows(numeric, &hooks).unwrap();
+    assert_eq!(bound[0].words[76], (-7i32) as u32);
+    assert_eq!(bound[0].duration_ms, None);
+    let mut conflicting = numeric.to_vec();
+    conflicting[0].effective_words[76] = 1;
+    assert!(compiled.bind_spell_rows(&conflicting, &hooks).is_err());
+    conflicting = numeric.to_vec();
+    conflicting[0].source_identity[0] ^= 1;
+    assert!(compiled.bind_spell_rows(&conflicting, &hooks).is_err());
+}
+
+#[test]
+fn sparse_dbc_ids_define_loader_views_not_physical_record_order() {
+    let mut capture = fixture();
+    if let Rows::Complete(rows) = &mut capture.skill_abilities {
+        let mut excluded = ability(4_000_000, 8, 133);
+        excluded[3] = 2;
+        rows.push(excluded);
+    }
+    let expected = capture.compile(1, 8).unwrap();
+    let mut shuffled = capture;
+    if let Rows::Complete(rows) = &mut shuffled.skill_race_class {
+        rows.reverse();
+    }
+    if let Rows::Complete(rows) = &mut shuffled.skill_abilities {
+        rows.reverse();
+    }
+    assert_eq!(shuffled.compile(1, 8).unwrap(), expected);
+}

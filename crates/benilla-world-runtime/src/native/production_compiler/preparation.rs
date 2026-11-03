@@ -14,6 +14,7 @@ use std::{
     sync::LazyLock,
 };
 mod learning;
+mod learning_numeric;
 mod plans;
 mod reputation;
 static PLAN: LazyLock<Value> = LazyLock::new(|| {
@@ -1128,6 +1129,12 @@ pub(super) fn compile(
     );
     let mut skills = json!({"sql_candidates":source["tables"]["playercreateinfo_skills"],"race_class_candidates":learning["race_class_candidates"],"ability_candidates":learning["ability_candidates"],"dependency_closure":learning,"loader_plan":loader,"effective_skills":null});
     let spells = c.spells()?;
+    let (numeric_candidate, _) =
+        learning_numeric::candidate(&c, &learning, &spells, &skills["loader_plan"])?;
+    skills["loader_plan"]["numeric_candidate"] = numeric_candidate;
+    if skills["loader_plan"]["numeric_candidate"]["status"] == "checked" {
+        skills["loader_plan"]["numeric_overlay"] = json!("checked_complete_effective_projection");
+    }
     let talents = plans::talents(&dbcs["Talent"], &learning["spell_ids"]);
     let creatures = c.creatures(&rules_plan["rules"])?;
     let resolved: BTreeSet<_> = creatures

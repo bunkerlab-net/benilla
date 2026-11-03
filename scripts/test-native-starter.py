@@ -2386,7 +2386,7 @@ class CorpseLootPreparationTests(unittest.TestCase):
         self.assertIn("loot.ungrouped_binary32_zero_chance",
                       {r["reason"] for r in loot_plan.supported_plan(source)["refusals"]})
 
-from native_starter.verifier_parity import PreparationVerifierParityTests
+from native_starter.verifier_parity import PreparationVerifierParityTests, LearningNumericCandidateTests
 
 class CapturedItemAdmissionTests(unittest.TestCase):
     def item(self):

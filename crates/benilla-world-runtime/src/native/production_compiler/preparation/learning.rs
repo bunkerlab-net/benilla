@@ -694,7 +694,7 @@ pub(super) fn plan(source: &Value, dbcs: &Tables, closure: &Value) -> Value {
         );
     }
     if !refusals.is_empty() {
-        return json!({"format":"benilla-native-starter-learning-plan-v1","status":"blocked","loaded_learning_maps_resolved":false,"effective_learning_proven":false,"refusals":refusals});
+        return json!({"format":"benilla-native-starter-learning-plan-v2","status":"blocked","loaded_learning_maps_resolved":false,"effective_learning_proven":false,"refusals":refusals});
     }
     let coverage = coverage.unwrap();
     let lines = &dbcs["SkillLine"];
@@ -1053,5 +1053,5 @@ pub(super) fn plan(source: &Value, dbcs: &Tables, closure: &Value) -> Value {
             "player.learning_spell_cycle",
         );
     }
-    json!({"format":"benilla-native-starter-learning-plan-v1","status":if refusals.is_empty(){"supported"}else{"blocked"},"loaded_learning_maps_resolved":refusals.is_empty(),"effective_learning_proven":false,"source_identity":closure["dependency_request"]["source_sha256"],"selected_spell_ids":numbers(selected),"default_skill_candidates":defaults,"default_spell_candidates":rows(source,"playercreateinfo_spell").iter().map(|r|r["Spell"].clone()).collect::<Vec<_>>(),"root_order":"unknown_canonical_capture_order_is_not_loaded_order","skill_dispositions":dispositions,"ranks":ranks.values().collect::<Vec<_>>(),"talent_spell_ids":numbers(talents),"learned_spells":learned.iter().map(|(id,links)|json!({"entry":num(*id),"links":links})).collect::<Vec<_>>(),"numeric_overlay":"requires_independent_complete_effective_projection","initial_casts":"requires_independent_hooks_numeric_order_and_source_dispatch","refusals":refusals})
+    json!({"format":"benilla-native-starter-learning-plan-v2","status":if refusals.is_empty(){"supported"}else{"blocked"},"loaded_learning_maps_resolved":refusals.is_empty(),"effective_learning_proven":false,"source_identity":closure["dependency_request"]["source_sha256"],"selected_spell_ids":numbers(selected),"default_skill_candidates":defaults,"default_spell_candidates":rows(source,"playercreateinfo_spell").iter().map(|r|r["Spell"].clone()).collect::<Vec<_>>(),"root_order":"unknown_canonical_capture_order_is_not_loaded_order","skill_dispositions":dispositions,"ranks":ranks.values().collect::<Vec<_>>(),"talent_spell_ids":numbers(talents),"learned_spells":learned.iter().map(|(id,links)|json!({"entry":num(*id),"links":links})).collect::<Vec<_>>(),"numeric_overlay":"requires_independent_complete_effective_projection","initial_casts":"requires_independent_hooks_numeric_order_and_source_dispatch","refusals":refusals})
 }
