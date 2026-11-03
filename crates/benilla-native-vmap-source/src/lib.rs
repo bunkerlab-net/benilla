@@ -671,6 +671,7 @@ struct Builder {
     placements: Vec<Placement>,
     products: Vec<RawProduct>,
     names: HashMap<String, usize>,
+    empty_alias_members: HashMap<String, usize>,
     encounter_ids: encounter_ids::EncounterIds,
     doodad_candidates: Vec<DoodadCandidate>,
     stage: PreparationStage,
@@ -723,6 +724,7 @@ impl Builder {
             placements: Vec::new(),
             products: Vec::new(),
             names: HashMap::new(),
+            empty_alias_members: HashMap::new(),
             encounter_ids: encounter_ids::EncounterIds::default(),
             doodad_candidates: Vec::new(),
             stage: PreparationStage::OpenSource,
@@ -947,7 +949,8 @@ impl Builder {
         if let Some(index) = existing {
             let product = &self.products[index];
             if product.kind != dependency.kind
-                || !product.member.eq_ignore_ascii_case(&dependency.member)
+                || (!product.member.eq_ignore_ascii_case(&dependency.member)
+                    && !matches!(product.collision, Collision::M2EmptyHull))
             {
                 return Err(Error::NameCollision);
             }
@@ -980,11 +983,26 @@ impl Builder {
         };
         drop(captured);
         check_cancel(cancelled)?;
+        let mut empty_alias_key = None;
         if let Some(index) = existing {
-            if !matches!(collision, Collision::M2EmptyHull) {
-                return Err(Error::SourceChangedDuringPreparation);
+            if self.products[index]
+                .member
+                .eq_ignore_ascii_case(&dependency.member)
+            {
+                if !matches!(collision, Collision::M2EmptyHull) {
+                    return Err(Error::SourceChangedDuringPreparation);
+                }
+                return Ok(Some(index));
             }
-            return Ok(Some(index));
+            // CMaNGOS 8ec338a1 gameobject_extract.cpp:26-39 and model.cpp:49-73 emit no flat file for either genuine zero hull.
+            if !matches!(collision, Collision::M2EmptyHull) {
+                return Err(Error::NameCollision);
+            }
+            let member = dependency.member.to_ascii_lowercase();
+            if let Some(&index) = self.empty_alias_members.get(&member) {
+                return Ok(Some(index));
+            }
+            empty_alias_key = Some(member);
         }
         if self.products.len() == MAX_PRODUCTS {
             return Err(Error::ProductLimit);
@@ -1004,9 +1022,15 @@ impl Builder {
         self.products
             .try_reserve(1)
             .map_err(|_| Error::AllocationFailed)?;
-        self.names
-            .try_reserve(1)
-            .map_err(|_| Error::AllocationFailed)?;
+        if empty_alias_key.is_some() {
+            self.empty_alias_members
+                .try_reserve(1)
+                .map_err(|_| Error::AllocationFailed)?;
+        } else {
+            self.names
+                .try_reserve(1)
+                .map_err(|_| Error::AllocationFailed)?;
+        }
         match product.collision {
             Collision::M2EmptyHull => self.summary.m2_no_collision_products += 1,
             Collision::M2(_) => self.summary.m2_raw_products += 1,
@@ -1014,7 +1038,11 @@ impl Builder {
         }
         let index = self.products.len();
         self.products.push(product);
-        self.names.insert(key, index);
+        if let Some(member) = empty_alias_key {
+            self.empty_alias_members.insert(member, index);
+        } else {
+            self.names.insert(key, index);
+        }
         self.summary.retained_raw_bytes = total;
         Ok(Some(index))
     }

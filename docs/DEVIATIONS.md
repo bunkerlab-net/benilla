@@ -660,8 +660,8 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 
 #### (crate root)
 
-- Resolve captured doodad basenames with source fixnamen/fixname2 because CMaNGOS 8ec338a1 wmo.cpp:89-103 copies MODN before mutation, gameobject\_extract.cpp:14-39 emits the original basename, and model.cpp:242-260 looks up the normalized basename and skips missing files, making collision depend on earlier flat outputs. ([`src/lib.rs:940`](../crates/benilla-native-vmap-source/src/lib.rs#L940))
-- Key WMO geometry by full canonical path because CMaNGOS 8ec338a1 vmapexport.cpp:160-167 flattens basenames and FileExists returns first-wins, then src/game/vmap/TileAssembler.cpp:298-329 writes basename.vmo, giving the loser the winner's geometry and depending on leftover output. ([`src/lib.rs:943`](../crates/benilla-native-vmap-source/src/lib.rs#L943))
+- Resolve captured doodad basenames with source fixnamen/fixname2 because CMaNGOS 8ec338a1 wmo.cpp:89-103 copies MODN before mutation, gameobject\_extract.cpp:14-39 emits the original basename, and model.cpp:242-260 looks up the normalized basename and skips missing files, making collision depend on earlier flat outputs. ([`src/lib.rs:942`](../crates/benilla-native-vmap-source/src/lib.rs#L942))
+- Key WMO geometry by full canonical path because CMaNGOS 8ec338a1 vmapexport.cpp:160-167 flattens basenames and FileExists returns first-wins, then src/game/vmap/TileAssembler.cpp:298-329 writes basename.vmo, giving the loser the winner's geometry and depending on leftover output. ([`src/lib.rs:945`](../crates/benilla-native-vmap-source/src/lib.rs#L945))
 ### benilla-protocol
 
 #### (crate root)

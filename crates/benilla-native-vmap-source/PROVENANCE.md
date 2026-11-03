@@ -60,7 +60,10 @@ when a declared group cannot open. It does not emit an empty group.
 names. They do not emit an empty M2. These required-dependency errors remain
 atomic refusals in this bounded profile.
 Distinct canonical M2 members with the same normalized flat output name are
-rejected instead of treating equal names as proof of identical content.
+rejected whenever either has collision. Genuine zero-hull pairs retain separate
+products and receipts, with no collision for either member's placements.
+`gameobject_extract.cpp:26-39` and `model.cpp:49-73` emit no flat file for these
+models, so neither member supplies cached collision for the other.
 WMO products and references use the full ASCII-case-folded canonical member
 path. Each root retains its own complete groups and doodads, even when another
 root has the same basename. Placement and assembled-model names encode that

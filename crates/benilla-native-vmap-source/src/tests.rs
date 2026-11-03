@@ -392,6 +392,94 @@ fn no_collision_m2_is_receipted_and_reread_because_it_emits_no_cached_file() {
 }
 
 #[test]
+fn distinct_zero_hull_m2_aliases_keep_both_products_receipts_and_empty_placements() {
+    for (names, members) in [
+        (
+            ["Models\\Empty.mdx", "Other\\EMPTY.MDX"],
+            ["Models\\Empty.m2", "Other\\Empty.m2"],
+        ),
+        (
+            ["Models\\Space Name.mdx", "Other\\SPACE_NAME.MDX"],
+            ["Models\\Space_Name.m2", "Other\\Space_Name.m2"],
+        ),
+    ] {
+        for reverse in [false, true] {
+            let temp = Temp::new();
+            let data = temp.data();
+            let mut names = names;
+            let mut members = members;
+            if reverse {
+                names.reverse();
+                members.reverse();
+            }
+            let mut entries = prerequisites();
+            entries.push(raw_entry(
+                ADT,
+                adt(
+                    &[names[0], names[1], names[0], names[1]],
+                    &[(0, 1), (1, 2), (2, 3), (3, 4)],
+                ),
+            ));
+            for member in &members {
+                entries.push(raw_entry(member, m2(false)));
+            }
+            save(&data, "model.MPQ", &entries);
+            let prepared = prepare(&data, 0, || false).unwrap();
+            assert_eq!(prepared.products().len(), 2);
+            assert_eq!(prepared.summary().m2_no_collision_products, 2);
+            assert_eq!(prepared.summary().no_collision_placements, 4);
+            for (index, member) in members.iter().enumerate() {
+                let product = &prepared.products()[index];
+                assert_eq!(product.source_member(), *member);
+                assert!(!product.source_has_collision());
+                assert!(product.raw_vmap().is_none());
+                assert_eq!(
+                    prepared
+                        .source_receipts()
+                        .filter(|r| r.name() == *member)
+                        .count(),
+                    2
+                );
+            }
+            for (index, placement) in prepared.placements().iter().enumerate() {
+                assert_eq!(placement.product_index(), index % 2);
+                assert_eq!(placement.disposition(), PlacementDisposition::NoCollision);
+            }
+            prepared.verify_unchanged(|| false).unwrap();
+            let mut changed = m2(false);
+            changed[8] = 1;
+            save(&data, "patch.MPQ", &[raw_entry(members[1], changed)]);
+            assert!(prepared.verify_unchanged(|| false).is_err());
+        }
+    }
+}
+
+#[test]
+fn distinct_m2_aliases_refuse_when_either_member_has_a_hull() {
+    for hulls in [[true, false], [false, true], [true, true]] {
+        let temp = Temp::new();
+        let data = temp.data();
+        let mut entries = prerequisites();
+        entries.push(raw_entry(
+            ADT,
+            adt(
+                &["Models\\Empty.mdx", "Other\\EMPTY.MDX"],
+                &[(0, 1), (1, 2)],
+            ),
+        ));
+        entries.push(raw_entry("Models\\Empty.m2", m2(hulls[0])));
+        entries.push(raw_entry("Other\\EMPTY.M2", m2(hulls[1])));
+        save(&data, "model.MPQ", &entries);
+        let error = prepare(&data, 0, || false).unwrap_err();
+        assert_eq!(error.diagnostic().category, "vmap.flat_name_collision");
+        assert_eq!(
+            error.diagnostic().stage,
+            Some(PreparationStage::AdtTraversal)
+        );
+    }
+}
+
+#[test]
 fn wmo_zero_triangle_and_destructible_filter_order_match_source() {
     let temp = Temp::new();
     let data = temp.data();
