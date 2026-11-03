@@ -15,6 +15,12 @@ archive. Exact unsigned byte ordering and deduplication reproduce the source's
 `std::set<std::string>` order. A single terminal NUL remains part of identity.
 Empty names, embedded NULs and names longer than 500 bytes are rejected.
 
+WMO names use the owner-approved full canonical path identity rather than the
+pinned extractor's basename. ASCII case is folded, `%` is encoded as `%25`,
+and `\` as `%5c`. The raw product still retains the extractor basename
+separately. Placement records, model selection, and assembled model lookup
+use the encoded identity so two same-basename roots never share geometry.
+
 Raw lookup removes that optional terminal NUL. Effective source output naming
 is recorded separately: `Foo.m2` becomes `Foo.m2.vmo`, while `Foo.m2\0` becomes
 `Foo.m2`. The original writer and original consumer both truncate the latter

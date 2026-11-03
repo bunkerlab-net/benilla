@@ -308,7 +308,7 @@ fn projection_binding_names_the_pin_policy_and_full_capture_epoch_and_is_not_a_l
         digest.update([0]);
         digest.update(b"gcc14-libstdcxx-u16-identity-prime-load1-fresh-insert-v1");
         digest.update([0]);
-        digest.update(b"cmangos-vmaps05-encounter-ledger-normalized-doodad-v7");
+        digest.update(b"benilla-vmaps05-canonical-wmo-path-v8");
         digest.update([0]);
         digest.update(b"cmangos-client-u32-child-u16-first-encounter-v1");
         digest.update([0]);
@@ -457,7 +457,7 @@ fn nonfinite_source_mutations_never_produce_a_prepared_projection() {
 }
 
 #[test]
-fn complete_selected_record_stream_matches_original_parent_and_child_bytes() {
+fn complete_selected_record_stream_matches_original_bytes_except_wmo_path_identity() {
     for case in [
         "portable_mdx",
         "portable_mdl",
@@ -498,7 +498,14 @@ fn complete_selected_record_stream_matches_original_parent_and_child_bytes() {
         let before = dp_tree(&temp.0);
         let prepared = prepare(&data, 7, || false).unwrap();
         let records = prepared.placement_records(dp_profile(), || false).unwrap();
-        let parent = dp_fixture(case, "parent.dir");
+        let mut parent = dp_fixture(case, "parent.dir");
+        if !parent.is_empty() {
+            // Only the owner-approved WMO name differs from the pinned oracle.
+            assert_eq!(&parent[78..], b"Parent.wmo");
+            parent.truncate(74);
+            parent.extend_from_slice(&24u32.to_le_bytes());
+            parent.extend_from_slice(b"world%5cwmo%5cparent.wmo");
+        }
         let child = dp_fixture(case, "child.dir");
         let expected = [parent.as_slice(), child.as_slice()].concat();
         assert_eq!(records.bytes(), expected, "{case}");

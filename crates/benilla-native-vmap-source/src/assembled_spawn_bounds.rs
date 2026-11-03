@@ -129,7 +129,7 @@ impl PreparedDiscovery {
             .map_err(|_| SpawnBoundsError::Allocation)?;
         for product in &self.products {
             check(&cancelled)?;
-            products.insert(product.extracted_name.as_bytes(), product);
+            products.insert(product.model_name().as_bytes(), product);
         }
         let mut bounds = Vec::new();
         bounds

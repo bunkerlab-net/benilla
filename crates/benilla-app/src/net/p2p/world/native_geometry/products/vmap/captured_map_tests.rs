@@ -41,6 +41,8 @@ const CASE: &str = "captured_wmo";
 const TILE: TileId = TileId { x: 31, y: 30 };
 const ROOT: &str = "World\\Wmo\\Hull.wmo";
 const GROUP: &str = "World\\Wmo\\Hull_000.wmo";
+const MODEL_NAME: &[u8] = b"world%5cwmo%5chull.wmo";
+const MODEL_FILE: &str = "world%5cwmo%5chull.wmo.vmo";
 const ADT: &str = "World\\Maps\\Selected\\Selected_30_31.adt";
 const NEW_ADT: &str = "World\\Maps\\Selected\\Selected_63_63.adt";
 const PRODUCTS: &str = include_str!(
@@ -163,6 +165,27 @@ pub(super) fn expected_products() -> BTreeMap<String, Vec<u8>> {
         .map(|(name, bytes)| (name, unhex(&bytes)))
         .collect()
 }
+// The pinned oracle keeps all geometry/record fields except the approved WMO name.
+fn with_canonical_wmo_name(mut bytes: Vec<u8>) -> Vec<u8> {
+    assert_eq!(&bytes[74..78], &8u32.to_le_bytes());
+    assert_eq!(&bytes[78..86], b"Hull.wmo");
+    bytes.splice(
+        74..86,
+        22u32
+            .to_le_bytes()
+            .into_iter()
+            .chain(MODEL_NAME.iter().copied()),
+    );
+    bytes
+}
+fn expected_captured_products() -> BTreeMap<String, Vec<u8>> {
+    let mut products = expected_products();
+    let model = products.remove("Hull.wmo.vmo").unwrap();
+    products.insert(MODEL_FILE.to_owned(), model);
+    let tile = products.get_mut("000_30_31.vmtile").unwrap();
+    *tile = with_canonical_wmo_name(std::mem::take(tile));
+    products
+}
 fn assert_capture(prepared: &PreparedDiscovery) {
     assert_eq!(prepared.map_id(), 0);
     let summary = prepared.summary();
@@ -239,14 +262,14 @@ fn inventory(
     assert_eq!(bundle.map().tiles()[0].coordinates(), (30, 31));
     assert_eq!(
         bundle.map().spawn_model_names().collect::<Vec<_>>(),
-        [b"Hull.wmo"]
+        [MODEL_NAME]
     );
     assert_eq!(bundle.models().len(), 1);
     let model = &bundle.models()[0];
     let name = model.source_identity().unwrap();
-    assert_eq!(name, SourceModelName::new(b"Hull.wmo").unwrap());
-    assert_eq!(model.source_name(), b"Hull.wmo");
-    assert_eq!(model.effective_source_basename(), b"Hull.wmo.vmo");
+    assert_eq!(name, SourceModelName::new(MODEL_NAME).unwrap());
+    assert_eq!(model.source_name(), MODEL_NAME);
+    assert_eq!(model.effective_source_basename(), MODEL_FILE.as_bytes());
     assert_eq!(
         name.effective_source_basename().unwrap(),
         model.effective_source_basename()
@@ -257,9 +280,13 @@ fn inventory(
             "000_30_31.vmtile".to_owned(),
             bundle.map().tiles()[0].bytes().to_vec(),
         ),
-        ("Hull.wmo.vmo".to_owned(), model.bytes().to_vec()),
+        (MODEL_FILE.to_owned(), model.bytes().to_vec()),
     ]);
-    assert_eq!(actual, expected_products(), "complete original products");
+    assert_eq!(
+        actual,
+        expected_captured_products(),
+        "original geometry with canonical WMO identity"
+    );
     let (mut spec, mut files) = product_tests::fixture();
     spec.binding.source_epoch = unhex(source_epoch).try_into().unwrap();
     spec.tiles = vec![TILE];
@@ -294,8 +321,8 @@ fn inventory(
     }
     let mut digest = Sha256::new();
     digest.update(b"benilla-source-model-name-v1\0");
-    digest.update(8u32.to_le_bytes());
-    digest.update(b"Hull.wmo");
+    digest.update(22u32.to_le_bytes());
+    digest.update(MODEL_NAME);
     assert_eq!(
         model_id.filename(0).unwrap(),
         format!("vmaps/source-{:x}.vmo", digest.finalize())
@@ -319,7 +346,7 @@ fn captured_map_public_source_bundle_matches_original_bytes_and_queries() {
     prepared.verify_unchanged(|| false).unwrap();
     let records = prepared.placement_records(profile(), || false).unwrap();
     assert_eq!(records.record_count(), 1);
-    assert_eq!(records.bytes(), fixture("dir_bin"));
+    assert_eq!(records.bytes(), with_canonical_wmo_name(fixture("dir_bin")));
     let summary = prepared.summary();
     let mut digest = Sha256::new();
     for policy in [
@@ -483,7 +510,7 @@ fn captured_map_missing_model_and_exact_name_mismatch_fail_closed() {
     let (mut spec, mut files) = inventory(&bundle, &prepared.source_epoch());
     product_tests::mutate(&mut spec, &mut files, &ProductId::VmapTile(TILE), |bytes| {
         let length = u32::from_le_bytes(bytes[74..78].try_into().unwrap()) as usize;
-        assert_eq!(&bytes[78..78 + length], b"Hull.wmo");
+        assert_eq!(&bytes[78..78 + length], MODEL_NAME);
         bytes.insert(78 + length, 0);
         bytes[74..78].copy_from_slice(&((length + 1) as u32).to_le_bytes());
     });

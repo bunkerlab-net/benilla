@@ -104,18 +104,15 @@ fn tile_collision_public_capture_matches_all_original_queries_without_inventory(
             "000_30_31.vmtile".to_owned(),
             bundle.map().tiles()[0].bytes().to_vec(),
         ),
-        (
-            "Hull.wmo.vmo".to_owned(),
-            bundle.models()[0].bytes().to_vec(),
-        ),
+        (MODEL_FILE.to_owned(), bundle.models()[0].bytes().to_vec()),
     ]);
     assert_eq!(bundle.map().tiles().len(), 1);
     assert_eq!(bundle.map().tiles()[0].coordinates(), (30, 31));
     assert_eq!(bundle.models().len(), 1);
     assert_eq!(
         actual,
-        expected_products(),
-        "unchanged original collision products"
+        expected_captured_products(),
+        "original collision geometry with canonical WMO identity"
     );
 
     let view = PreparedTileCollision::from_source(&bundle, &[TILE], || false).unwrap();

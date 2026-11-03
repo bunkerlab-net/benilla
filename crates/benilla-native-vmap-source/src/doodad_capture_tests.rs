@@ -1163,7 +1163,7 @@ fn encounter_ids_replay_prior_physical_maps_and_reuse_duplicate_parent_children(
         let raw = prepared
             .products
             .iter()
-            .find(|p| p.extracted_name.as_bytes() == prefix)
+            .find(|p| p.model_name().as_bytes() == prefix)
             .unwrap()
             .raw_vmap()
             .unwrap();

@@ -105,7 +105,7 @@ verification cover the expanded dependency reads. No output is published on fail
 Public diagnostic summaries expose only counts/categories and policy labels; raw
 asset paths/set-name bytes are excluded from their serializers.
 
-The writer policy is `cmangos-vmaps05-encounter-ledger-normalized-doodad-v7`.
+The writer policy is `benilla-vmaps05-canonical-wmo-path-v8`.
 This revision captures dependencies and selected membership, not final placement.
 
 ## Remaining assembly obligations

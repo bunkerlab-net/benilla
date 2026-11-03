@@ -114,15 +114,12 @@ fn assert_original_collision(bundle: &AssembledSourceMap<'_>) {
             "000_30_31.vmtile".to_owned(),
             bundle.map().tiles()[0].bytes().to_vec(),
         ),
-        (
-            "Hull.wmo.vmo".to_owned(),
-            bundle.models()[0].bytes().to_vec(),
-        ),
+        (MODEL_FILE.to_owned(), bundle.models()[0].bytes().to_vec()),
     ]);
     assert_eq!(
         actual,
-        expected_products(),
-        "unchanged original WMO products"
+        expected_captured_products(),
+        "original WMO geometry with canonical identity"
     );
 }
 

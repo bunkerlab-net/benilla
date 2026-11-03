@@ -260,7 +260,7 @@ fn select_models(
     for (i, product) in products.iter().enumerate() {
         check(&cancelled)?;
         if raw_lookup
-            .insert(product.extracted_name.as_bytes(), i)
+            .insert(product.model_name().as_bytes(), i)
             .is_some()
         {
             return Err(MapBundleError::AmbiguousOutput);
@@ -388,6 +388,7 @@ mod tests {
             kind: crate::ModelKind::M2,
             member: name.to_owned(),
             extracted_name: name.to_owned(),
+            wmo_name: None,
             collision: crate::Collision::M2(vec![0xff]),
             doodads: None,
         }

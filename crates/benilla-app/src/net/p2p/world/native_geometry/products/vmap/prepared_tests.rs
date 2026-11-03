@@ -137,18 +137,15 @@ fn prepared_collision_public_capture_matches_all_original_queries_without_invent
             "000_30_31.vmtile".to_owned(),
             bundle.map().tiles()[0].bytes().to_vec(),
         ),
-        (
-            "Hull.wmo.vmo".to_owned(),
-            bundle.models()[0].bytes().to_vec(),
-        ),
+        (MODEL_FILE.to_owned(), bundle.models()[0].bytes().to_vec()),
     ]);
     assert_eq!(bundle.map().tiles().len(), 1);
     assert_eq!(bundle.map().tiles()[0].coordinates(), (30, 31));
     assert_eq!(bundle.models().len(), 1);
     assert_eq!(
         actual,
-        expected_products(),
-        "original collision products only"
+        expected_captured_products(),
+        "original geometry with canonical WMO identity"
     );
     let view = PreparedCollision::from_source(&bundle, || false).unwrap();
     let binding = view.binding();

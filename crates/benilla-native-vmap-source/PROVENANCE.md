@@ -59,14 +59,21 @@ when a declared group cannot open. It does not emit an empty group.
 `model.cpp:35-43` and `wmo.cpp:102-104` omit an unavailable M2 from valid doodad
 names. They do not emit an empty M2. These required-dependency errors remain
 atomic refusals in this bounded profile.
-Distinct canonical members with the same normalized flat output name are rejected
-instead of treating equal names as a proof of identical content.
+Distinct canonical M2 members with the same normalized flat output name are
+rejected instead of treating equal names as proof of identical content.
+WMO products and references use the full ASCII-case-folded canonical member
+path. Each root retains its own complete groups and doodads, even when another
+root has the same basename. Placement and assembled-model names encode that
+path reversibly, replacing `%` with `%25` and `\` with `%5c`. This keeps the
+existing flat-name consumer contract without merging directory identities.
+Name and metadata limits are unchanged. Ambiguous outputs still refuse, and
+fresh-source replay rejects changed bytes at the same canonical path.
 
 ## Bounds and identity
 
 The acquisition policy is
 `cmangos-vmap-numeric-1-through-99-reverse-first-hit-v1`; the raw writer profile is
-`cmangos-vmaps05-small-dry-doodad-dependencies-v2`. Both and the listfile policy are
+`benilla-vmaps05-canonical-wmo-path-v8`. Both and the listfile policy are
 reported separately from the input digest. No summary or serialized digest can
 mint a prepared object.
 

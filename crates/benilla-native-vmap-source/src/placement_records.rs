@@ -95,7 +95,7 @@ impl PreparedDiscovery {
                     .products
                     .get(parent.product)
                     .ok_or(PlacementRecordError::RetainedIdentity)?
-                    .extracted_name
+                    .model_name()
                     .as_bytes();
                 let (position, rotation, scale, bounds, name_set, flags) = match &parent.input {
                     PlacementInput::M2(v) => (

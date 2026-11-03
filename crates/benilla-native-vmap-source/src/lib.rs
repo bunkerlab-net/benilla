@@ -158,6 +158,7 @@ pub struct RawProduct {
     kind: ModelKind,
     member: String,
     extracted_name: String,
+    wmo_name: Option<String>,
     collision: Collision,
     doodads: Option<CapturedDoodads>,
 }
@@ -170,6 +171,9 @@ impl RawProduct {
     }
     pub fn extracted_name(&self) -> &str {
         &self.extracted_name
+    }
+    fn model_name(&self) -> &str {
+        self.wmo_name.as_deref().unwrap_or(&self.extracted_name)
     }
     pub fn raw_vmap(&self) -> Option<&[u8]> {
         match &self.collision {
@@ -680,7 +684,7 @@ impl Builder {
                 source_pin: SOURCE_PIN,
                 acquisition_policy: source::SOURCE_POLICY,
                 listfile_policy: discovery::LISTFILE_POLICY,
-                writer_policy: "cmangos-vmaps05-encounter-ledger-normalized-doodad-v7",
+                writer_policy: "benilla-vmaps05-canonical-wmo-path-v8",
                 liquid_header_policy: WMO_LIQUID_HEADER_ZERO_PADDING_V1,
                 doodad_reference_order_policy: doodad_reference_order::POLICY,
                 encounter_id_policy: encounter_ids::POLICY,
@@ -756,10 +760,8 @@ impl Builder {
                         DiscoveryEvent::ReferenceWmo(_) => {
                             let index = *self
                                 .names
-                                .get(&dependency.extracted_name.to_ascii_lowercase())
+                                .get(&dependency.member.to_ascii_lowercase())
                                 .ok_or(Error::UnresolvedWmoReference)?;
-                            // The source uses only the flat name; our narrower
-                            // identity envelope refuses a conflicting ADT path.
                             if self.products[index].kind != ModelKind::Wmo
                                 || !self.products[index]
                                     .member
@@ -938,7 +940,8 @@ impl Builder {
         // Deviation: Resolve captured doodad basenames with source fixnamen/fixname2 because CMaNGOS 8ec338a1 wmo.cpp:89-103 copies MODN before mutation, gameobject_extract.cpp:14-39 emits the original basename, and model.cpp:242-260 looks up the normalized basename and skips missing files, making collision depend on earlier flat outputs.
         let key = match dependency.kind {
             ModelKind::M2 => discovery::doodad_lookup_name(dependency.extracted_name.as_bytes())?,
-            ModelKind::Wmo => dependency.extracted_name.to_ascii_lowercase(),
+            // Deviation: Key WMO geometry by full canonical path because CMaNGOS 8ec338a1 vmapexport.cpp:160-167 flattens basenames and FileExists returns first-wins, then src/game/vmap/TileAssembler.cpp:298-329 writes basename.vmo, giving the loser the winner's geometry and depending on leftover output.
+            ModelKind::Wmo => dependency.member.to_ascii_lowercase(),
         };
         let existing = self.names.get(&key).copied();
         if let Some(index) = existing {
@@ -990,6 +993,7 @@ impl Builder {
             kind: dependency.kind,
             member: dependency.member.clone(),
             extracted_name: dependency.extracted_name.clone(),
+            wmo_name: (dependency.kind == ModelKind::Wmo).then(|| wmo_model_name(&key)),
             collision,
             doodads,
         };
@@ -1160,6 +1164,20 @@ impl Builder {
             doodad_candidates: self.doodad_candidates,
         })
     }
+}
+
+// Reversible flat representation of the full canonical key, not a filesystem path.
+fn wmo_model_name(key: &str) -> String {
+    let extra = key.bytes().filter(|b| matches!(b, b'\\' | b'%')).count() * 2;
+    let mut name = String::with_capacity(key.len() + extra);
+    for byte in key.bytes() {
+        match byte {
+            b'\\' => name.push_str("%5c"),
+            b'%' => name.push_str("%25"),
+            other => name.push(char::from(other)),
+        }
+    }
+    name
 }
 
 fn check_doodad_candidate_count(count: usize) -> Result<(), Error> {

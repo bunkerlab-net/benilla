@@ -461,29 +461,110 @@ fn dummy_adt_blocks_lower_archive_fallback_but_does_not_skip_attempt_receipt() {
 }
 
 #[test]
-fn distinct_global_and_m2_flat_name_collisions_fail_closed() {
-    for wmo in [false, true] {
+fn distinct_m2_flat_name_collisions_fail_closed() {
+    let temp = Temp::new();
+    let data = temp.data();
+    let mut entries = prerequisites();
+    entries.push(raw_entry(ADT, adt(&["A\\Same.mdx", "B\\Same.mdx"], &[])));
+    entries.push(raw_entry("A\\Same.m2", m2(true)));
+    entries.push(raw_entry("B\\Same.m2", m2(true)));
+    save(&data, "terrain.MPQ", &entries);
+    assert!(matches!(
+        prepare(&data, 0, || false).unwrap_err().category(),
+        Error::NameCollision
+    ));
+}
+
+#[test]
+fn same_basename_wmo_roots_keep_their_own_geometry_through_assembly() {
+    for reverse in [false, true] {
         let temp = Temp::new();
         let data = temp.data();
         let mut entries = prerequisites();
-        if wmo {
-            entries.push(raw_entry(
-                "(listfile)",
-                b"A\\Temple.wmo\r\nB\\Temple.wmo\r\n\0".to_vec(),
-            ));
-            entries.push(raw_entry("A\\Temple.wmo", wmo_root(0)));
-            entries.push(raw_entry("B\\Temple.wmo", wmo_root(0)));
+        let roots = ["A\\Temple.wmo", "B\\Temple.wmo"];
+        let list = if reverse {
+            b"B\\Temple.wmo\r\nA\\Temple.wmo\r\n\0".to_vec()
         } else {
-            entries.push(raw_entry(ADT, adt(&["A\\Same.mdx", "B\\Same.mdx"], &[])));
-            entries.push(raw_entry("A\\Same.m2", m2(true)));
-            entries.push(raw_entry("B\\Same.m2", m2(true)));
+            b"A\\Temple.wmo\r\nB\\Temple.wmo\r\n\0".to_vec()
+        };
+        entries.push(raw_entry("(listfile)", list));
+        let mut expected = Vec::new();
+        for (i, name) in roots.iter().enumerate() {
+            let mut root = wmo_root(1);
+            set_word(&mut root, 52, 100 + i as u32);
+            let mut group = wmo_group(false);
+            let movt = group.windows(4).position(|b| b == b"TVOM").unwrap() + 8;
+            group[movt + 12..movt + 16].copy_from_slice(&(1.0 + i as f32).to_le_bytes());
+            group[movt + 28..movt + 32].copy_from_slice(&1.0f32.to_le_bytes());
+            expected.push(
+                extract_wmo_collision_from_source(
+                    name,
+                    &root,
+                    &[WmoGroupInput {
+                        group_index: 0,
+                        bytes: &group,
+                    }],
+                )
+                .unwrap()
+                .raw_vmap,
+            );
+            entries.push(raw_entry(name, root));
+            entries.push(raw_entry(
+                &format!("{}_{:03}.wmo", &name[..name.len() - 4], 0),
+                group,
+            ));
+            entries.push(raw_entry(
+                &format!("World\\Maps\\Selected\\Selected_0_{i}.adt"),
+                wmo_adt(name, 0, 10 + i as u32),
+            ));
         }
-        save(&data, "terrain.MPQ", &entries);
-        assert!(matches!(
-            prepare(&data, 0, || false).unwrap_err().category(),
-            Error::NameCollision
-        ));
+        save(&data, "wmo.MPQ", &entries);
+        let prepared = prepare(&data, 0, || false).unwrap();
+        assert_eq!(prepared.products().len(), 2);
+        assert_ne!(expected[0], expected[1]);
+        for (i, placement) in prepared.placements().iter().enumerate() {
+            let product = &prepared.products()[placement.product_index()];
+            assert_eq!(product.source_member(), roots[i]);
+            assert_eq!(product.extracted_name(), "Temple.wmo");
+            assert_eq!(product.raw_vmap().unwrap(), expected[i]);
+        }
+        let profile =
+            DoodadProjectionProfile::from_policy_id(crate::doodad_transform_math::POLICY).unwrap();
+        let bundle = prepared
+            .assemble_map_bundle(profile, || false)
+            .unwrap()
+            .unwrap();
+        assert_eq!(bundle.models().len(), 2);
+        for (i, model) in bundle.models().iter().enumerate() {
+            assert_eq!(
+                model.source_name(),
+                [b"a%5ctemple.wmo".as_slice(), b"b%5ctemple.wmo"][i]
+            );
+            assert_eq!(
+                model.bytes(),
+                benilla_native_vmap::assemble_raw_model(&expected[i], || false).unwrap(),
+            );
+        }
     }
+}
+
+#[test]
+fn same_canonical_wmo_path_with_changed_bytes_refuses() {
+    let temp = Temp::new();
+    let data = temp.data();
+    let mut entries = wmo_entries(1);
+    save(&data, "wmo.MPQ", &entries);
+    let prepared = prepare(&data, 0, || false).unwrap();
+    let root = entries
+        .iter_mut()
+        .find(|e| e.name == "World\\Wmo\\Temple.wmo")
+        .unwrap();
+    set_word(&mut root.bytes, 52, 42);
+    save(&data, "wmo.MPQ", &entries);
+    assert!(matches!(
+        prepared.verify_unchanged(|| false),
+        Err(Error::Source(SourceError::Changed))
+    ));
 }
 
 #[test]
@@ -641,7 +722,7 @@ fn public_diagnostic_serialization_never_includes_inner_magic_or_chunk_bytes() {
 }
 
 #[test]
-fn wmo_reference_with_conflicting_directory_is_narrower_fail_closed_identity() {
+fn wmo_reference_cannot_use_another_directorys_captured_basename() {
     let temp = Temp::new();
     let data = temp.data();
     let mut entries = wmo_entries(0);
@@ -652,7 +733,7 @@ fn wmo_reference_with_conflicting_directory_is_narrower_fail_closed_identity() {
     save(&data, "wmo.MPQ", &entries);
     assert!(matches!(
         prepare(&data, 0, || false).unwrap_err().category(),
-        Error::NameCollision
+        Error::UnresolvedWmoReference
     ));
 }
 
