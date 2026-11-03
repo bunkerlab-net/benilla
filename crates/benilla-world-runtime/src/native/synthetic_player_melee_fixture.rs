@@ -141,6 +141,49 @@ fn build(
         count: 1,
     });
     if captured_staff {
+        let mut words = [0; 173];
+        for (i, value) in [
+            (0, 6603),
+            (6, 0x10),
+            (18, 1),
+            (25, 101),
+            (36, 1),
+            (58, u32::MAX),
+            (61, 78),
+            (117, 1),
+            (166, u32::MAX),
+            (167, 0x3f80_0000),
+            (168, 0x3f80_0000),
+            (169, 0x3f80_0000),
+        ] {
+            words[i] = value;
+        }
+        input.spells.push(init::SpellRow {
+            id: 6603,
+            words,
+            duration_ms: Some(0),
+            previous_rank: None,
+            talent: false,
+            learned_spells: init::Rows::Complete(vec![]),
+            external_initial_hooks: false,
+        });
+        let init::Rows::Complete(defaults) = &mut input.default_spells else {
+            unreachable!()
+        };
+        defaults.push(6603);
+        let ability = Ability {
+            id: 6603,
+            school: 0,
+            admission: AbilityAdmission::Unavailable {
+                reason: "active ability has no admitted executor".into(),
+            },
+        };
+        profile.abilities.push(ability.clone());
+        profile.abilities.sort_by_key(|ability| ability.id);
+        rows.abilities.push(quest_progression::AbilityRecipe {
+            ability,
+            cast_time: None,
+        });
         input = captured::starter(input);
     }
     profile

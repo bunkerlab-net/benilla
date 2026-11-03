@@ -355,3 +355,73 @@ fn captured_staff_refusals_do_not_install_or_replace_policy() {
         .is_err());
     assert_eq!(invalid_gain.digest(), before);
 }
+
+#[test]
+fn attack_marker_rejects_every_numeric_mutation_without_installing_policy() {
+    let (mut profile, original) = fixture::captured_staff_setup(60);
+    profile.player_melee = None;
+    for index in (0..173).filter(|i| !(120..=155).contains(i)) {
+        let mut input = original.clone();
+        input
+            .spells
+            .iter_mut()
+            .find(|row| row.id == 6603)
+            .unwrap()
+            .words[index] ^= 1;
+        let before = profile.digest();
+        assert!(
+            matches!(
+                profile.initialize_captured_player_melee(&input, 1),
+                Err(NativeError::UnsupportedMechanic(
+                    "captured melee exact Attack 6603 marker"
+                ))
+            ),
+            "word {index}"
+        );
+        assert_eq!(profile.digest(), before);
+    }
+    let mut missing = original.clone();
+    missing.spells.retain(|row| row.id != 6603);
+    assert!(matches!(
+        profile.initialize_captured_player_melee(&missing, 1),
+        Err(NativeError::UnsupportedMechanic(
+            "captured melee Attack 6603 marker"
+        ))
+    ));
+    profile.abilities.retain(|row| row.id != 6603);
+    let before = profile.digest();
+    assert!(matches!(
+        profile.initialize_captured_player_melee(&original, 1),
+        Err(NativeError::UnsupportedMechanic(
+            "captured melee learned Attack 6603"
+        ))
+    ));
+    assert_eq!(profile.digest(), before);
+}
+
+#[test]
+fn attack_marker_learning_hooks_and_links_are_not_inert() {
+    let (mut profile, original) = fixture::captured_staff_setup(60);
+    profile.player_melee = None;
+    let changes: [fn(&mut init::SpellRow); 6] = [
+        |row| row.duration_ms = Some(1),
+        |row| row.previous_rank = Some(6602),
+        |row| row.talent = true,
+        |row| row.external_initial_hooks = true,
+        |row| row.learned_spells = init::Rows::Missing,
+        |row| {
+            row.learned_spells = init::Rows::Complete(vec![init::LearnSpell {
+                spell_id: 133,
+                active: true,
+                auto_learned: false,
+            }])
+        },
+    ];
+    for change in changes {
+        let mut input = original.clone();
+        change(input.spells.iter_mut().find(|row| row.id == 6603).unwrap());
+        let before = profile.digest();
+        assert!(profile.initialize_captured_player_melee(&input, 1).is_err());
+        assert_eq!(profile.digest(), before);
+    }
+}

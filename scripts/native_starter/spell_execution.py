@@ -38,6 +38,9 @@ ONE = 0x3f800000
 
 def supported_plan(bundle, spell, spells):
     entry = spell["id"]
+    if entry == 6603:
+        from . import attack_execution
+        return attack_execution.supported_plan(bundle, spell)
     if entry in (430, 433):
         from . import consumable_execution
         return consumable_execution.supported_plan(bundle, spell)
@@ -151,5 +154,8 @@ def discharges(issue, spells):
                    "captured_food_drink_existing_item_spell_authority_v1" for s in spells)
     if issue["table"] != "spell_template" or issue["reason"] not in REASONS:
         return False
+    from . import attack_execution
     return any(issue["key"] in ([s["id"]], str(s["id"]))
-               and s["execution_plan"]["status"] == "supported_shape" for s in spells)
+               and s["execution_plan"]["status"] == "supported_shape"
+               and (s["id"] != 6603 or issue["reason"] in attack_execution.REASONS)
+               for s in spells)

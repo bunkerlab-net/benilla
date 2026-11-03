@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Mirrors starter_init::initial_cast_phases::classify, not its source-plan constructor.
 use super::*;
+#[path = "attack_execution.rs"]
+mod attack_execution;
 #[path = "consumable_execution.rs"]
 mod consumable_execution;
 #[path = "frost_execution.rs"]
@@ -34,6 +36,9 @@ pub(in super::super) fn supported_plan(
     spells: &[Value],
 ) -> Result<Value> {
     let id = int(&spell["id"]);
+    if id == 6603 {
+        return attack_execution::supported(bundle, spell);
+    }
     if matches!(id, 430 | 433) {
         return consumable_execution::supported(bundle, spell);
     }
@@ -256,11 +261,11 @@ pub(in super::super) fn discharges(issue: &Value, spells: &Value) -> bool {
         _ => None,
     };
     id.is_some()
-        && spells
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|s| s["id"].as_u64() == id && s["execution_plan"]["status"] == "supported_shape")
+        && spells.as_array().unwrap().iter().any(|s| {
+            s["id"].as_u64() == id
+                && s["execution_plan"]["status"] == "supported_shape"
+                && (id != Some(6603) || attack_execution::reason_supported(&issue["reason"]))
+        })
 }
 
 #[cfg(test)]

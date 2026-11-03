@@ -64,6 +64,18 @@ staff skill 136 and unarmed fallback skill 162. Both SkillLine rows and initiali
 skills must exist. All five damage rows remain checked. Only one physical line
 and a positive delay of at most 1,000,000 milliseconds are supported.
 
+The captured adapter also requires the exact effective Attack 6603 marker and
+an active learned Attack in the initialized ability catalogue. Numeric mutations,
+rank/talent links, unknown learning closure, and external hooks refuse before
+policy installation. Localized string offsets do not affect the marker.
+Attack retains unavailable cast admission. Its binding selects the existing
+`AttackStart`/`AttackStop` host rather than a spell executor.
+
+The Python preparation and independent Rust verifier remove only the attribute,
+effect, and target-scaling observations for this exact row. They retain its
+overlay/learning obligation and all creature AI and combat-policy obligations.
+Other rows with effect 78 remain refused. The adapter adds no retained state.
+
 The return value is weapon-only mean DPS, calculated with software binary32 as
 `((minimum + maximum) * 0.5 * 1000) / delay_ms`. DPS is derived, not an additional
 `item_template` column or an independent authority operand. The adapter never
@@ -108,6 +120,8 @@ adapter/tests are GPL-3.0-or-later. The adapter reuses these existing ports:
 - [Unit::CalculateMeleeDamage, Unit.cpp:1870-2156](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Unit.cpp#L1870-L2156), [RollMeleeOutcomeAgainst:2709-2759](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Unit.cpp#L2709-L2759), [CanGlanceInCombat:3133-3136](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Unit.cpp#L3133-L3136) and [CalcArmorReducedDamage:2337-2361](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Unit.cpp#L2337-L2361).
 - [Unit::CanAttack and CanAttackNow, Relations.cpp:351-447](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Relations.cpp#L351-L447) and [CanAttackInCombat:1172-1196](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Relations.cpp#L1172-L1196).
 - [Unit::DealMeleeDamage retaliation, Unit.cpp:2212-2224](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Unit.cpp#L2212-L2224) and [UnitAI::AttackedBy, UnitAI.cpp:137-140](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/AI/BaseAI/UnitAI.cpp#L137-L140).
+- [Combat packet handlers, CombatHandler.cpp:26-61](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Combat/CombatHandler.cpp#L26-L61) call `CanAttackNow`, `Attack`, and `AttackStop`.
+- [SpellEffects.cpp:136](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Spells/SpellEffects.cpp#L136) maps effect 78 to `EffectUnused`, not a damage handler.
 
 ## Persistence contract
 

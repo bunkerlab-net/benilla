@@ -4,6 +4,7 @@
 //! Bind captured starter operands to the existing mainhand host, never world admission.
 use super::*;
 use benilla_sim::{player_melee as melee, starter_init as init};
+mod attack;
 
 impl Profile {
     /// Assemble item 35 from the initializer populated by captured learning/outfit adapters.
@@ -73,6 +74,7 @@ impl Profile {
                 ));
             }
         }
+        attack::validate(self, starter)?;
         if combat.input_identity != starter.source_identity() {
             return Err(NativeError::UnsupportedMechanic(
                 "captured melee starter content binding",

@@ -2252,7 +2252,7 @@ class CapturedItemAdmissionTests(unittest.TestCase):
 
 class CapturedSpellExecutionTests(unittest.TestCase):
     @staticmethod
-    def authored(frost=False, consumables=False):
+    def authored(frost=False, consumables=False, attack=False):
         """Authored mechanism rows, never copies of installed DBC or SQL rows."""
         from decimal import Decimal
         from classic_export import spell_numeric
@@ -2307,6 +2307,23 @@ class CapturedSpellExecutionTests(unittest.TestCase):
             words[entry] = w
             source.rows['spell_template'].append({name: numeric[name]
                                                    for name in export_tests.COLUMNS['spell_template']})
+        if attack:
+            for entry in (6603, 966603):
+                # Effect 78 is unused; only the Attack ID binds the combat opcode host.
+                w = [0] * 173
+                for i, value in {0: entry, 6: 0x10, 18: 1, 25: 101, 36: 1,
+                                 58: 0xffffffff, 61: 78, 117: 1, 166: 0xffffffff,
+                                 167: 0x3f800000, 168: 0x3f800000, 169: 0x3f800000}.items():
+                    w[i] = value
+                numeric = {name: Decimal('0') if name in spell_numeric.FLOAT_FIELDS else 0
+                           for name in spell_numeric.COLUMNS}
+                for name, i in spell_numeric.WORD_FIELDS.items():
+                    numeric[name] = (Decimal(str(struct.unpack('<f', struct.pack('<I', w[i]))[0]))
+                        if name in spell_numeric.FLOAT_FIELDS else
+                        w[i]-0x100000000 if name in spell_numeric.SIGNED_FIELDS and w[i] > 0x7fffffff else w[i])
+                authored[entry], words[entry] = numeric, w
+                source.rows['spell_template'].append({name: numeric[name]
+                    for name in export_tests.COLUMNS['spell_template']})
         if frost:
             for entry in (168, 6136):
                 armor = entry == 168
@@ -2430,6 +2447,56 @@ class CapturedSpellExecutionTests(unittest.TestCase):
             changed['script_registry']['rows'] = [{'Id': entry, 'ScriptName': 'authored_handler'}]
             self.assertIn('spell_execution.selected_registry_absence_required',
                           execution.supported_plan(bundle, changed, report['spells'])['refusals'])
+
+    def test_attack_marker_discharges_only_three_observations_and_keeps_learning(self):
+        from native_starter import spell_execution as execution
+        bundle, files = self.authored(attack=True)
+        report = compile_starter(bundle, parsed(files), Request(1, 1, 0))
+        spell = next(s for s in report['spells'] if s['id'] == 6603)
+        self.assertEqual(spell['execution_plan']['status'], 'supported_shape')
+        self.assertEqual(spell['execution_plan']['classification'], 'existing_mainhand_operation_marker')
+        removed = {i['reason'] for i in report['spell_execution_obligations']
+                   if i['key'] in ([6603], '6603')}
+        self.assertEqual(removed, {'spell.attribute_bits_execution_required',
+            'spell.effect_execution_required', 'spell.native_effect_target_scaling_rules_required'})
+        self.assertTrue(any(i['key'] == [6603] and i['reason'] ==
+            'spell.server_overlay_and_learning_closure_required' for i in report['unsupported']))
+        self.assertEqual(next(s for s in report['spells'] if s['id'] == 966603)
+                         ['execution_plan']['status'], 'blocked')
+        for reason in execution.REASONS - removed:
+            self.assertFalse(execution.discharges(
+                {'table': 'spell_template', 'key': [6603], 'reason': reason}, report['spells']))
+        self.assertEqual(report['status'], 'blocked')
+        self.assertIsNone(report['runtime_export'])
+        verify_preparation(report, bundle, parsed(files))
+
+    def test_attack_marker_mutated_operands_and_missing_context_stay_refused(self):
+        from classic_export import spell_numeric
+        from native_starter import spell_execution as execution
+        bundle, files = self.authored(attack=True)
+        report = compile_starter(bundle, parsed(files), Request(1, 1, 0))
+        spell = next(s for s in report['spells'] if s['id'] == 6603)
+        for index in set(spell_numeric.WORD_FIELDS.values()) | {161, 162}:
+            changed = copy.deepcopy(spell)
+            changed['server_numeric_words'][index] ^= 1
+            with self.subTest(word=index):
+                self.assertEqual(execution.supported_plan(bundle, changed, report['spells'])['status'], 'blocked')
+        for field in ('IsServerSide', 'AttributesServerside',
+                      *[f'EffectBonusCoefficient{s}' for s in range(1, 4)],
+                      *[f'EffectBonusCoefficientFromAP{s}' for s in range(1, 4)]):
+            changed = copy.deepcopy(spell)
+            changed['numeric_capture']['row'][field] = {'decimal': '1'} if 'Coefficient' in field else 1
+            with self.subTest(field=field):
+                self.assertEqual(execution.supported_plan(bundle, changed, report['spells'])['status'], 'blocked')
+        for path, value in [
+                ('script_registry', None), ('initial_hooks', None), ('numeric_capture', None),
+                ('server_numeric_words', None), ('server_client_differences', [{'word': 6}]),
+                ('cast_time', None), ('range', None),
+                ('duration', {'id': 0, 'base_ms': 1, 'per_level_ms': 0, 'maximum_ms': 1})]:
+            changed = copy.deepcopy(spell)
+            changed[path] = value
+            with self.subTest(context=path):
+                self.assertEqual(execution.supported_plan(bundle, changed, report['spells'])['status'], 'blocked')
 
     def test_frost_armor_and_chilled_discharge_only_the_complete_pair(self):
         from native_starter import spell_execution as execution
