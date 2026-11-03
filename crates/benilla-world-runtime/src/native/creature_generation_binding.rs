@@ -50,7 +50,20 @@ pub(super) fn validate_prefix(
         {
             return Err(NativeError::AuthorityBinding);
         }
-        return Ok(player_end);
+        let mut cursor = player_end;
+        if let Some(events) = &state.event_ai {
+            for record in events.ooc.history.iter().filter(|record| record.tick == 0) {
+                for draw in &record.draws {
+                    if draw.first_counter != cursor || draw.consumed == 0 {
+                        return Err(NativeError::InvalidCheckpoint);
+                    }
+                    cursor = cursor
+                        .checked_add(u64::from(draw.consumed))
+                        .ok_or(NativeError::Limit)?;
+                }
+            }
+        }
+        return Ok(cursor);
     };
     if catalog.cold_entry_order().len() != state.npcs.len() {
         return Err(NativeError::AuthorityBinding);
@@ -120,6 +133,23 @@ pub(super) fn validate_prefix(
                 .checked_add(u64::from(draw.consumed))
                 .ok_or(NativeError::Limit)?;
         }
+        if let Some(events) = &state.event_ai {
+            for record in events
+                .ooc
+                .history
+                .iter()
+                .filter(|r| r.tick == 0 && r.npc.spawn == *spawn)
+            {
+                for draw in &record.draws {
+                    if draw.first_counter != cursor || draw.consumed == 0 {
+                        return Err(NativeError::InvalidCheckpoint);
+                    }
+                    cursor = cursor
+                        .checked_add(u64::from(draw.consumed))
+                        .ok_or(NativeError::Limit)?;
+                }
+            }
+        }
         for (tick, draw) in owner.all_draws() {
             let end = draw
                 .first_counter
@@ -164,6 +194,18 @@ pub(super) fn validate_prefix(
         }
     }
     if let Some(events) = &state.event_ai {
+        for record in &events.ooc.history {
+            for draw in &record.draws {
+                let end = draw
+                    .first_counter
+                    .checked_add(u64::from(draw.consumed))
+                    .ok_or(NativeError::Limit)?;
+                if draw.consumed == 0 || end > state.rng_counter || record.tick > state.tick {
+                    return Err(NativeError::InvalidCheckpoint);
+                }
+                spans.push((draw.first_counter, end, record.tick));
+            }
+        }
         for history in &events.history {
             if let EventAiHistory::EnterCombat(event) = history {
                 for action in &event.actions {

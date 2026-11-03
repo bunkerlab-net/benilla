@@ -30,12 +30,32 @@ pub(super) fn project(
     }
     let catalog = runtime.catalog();
     let broadcast = i32::try_from(speech.broadcast_id).map_err(|_| Error::StaleProjection)?;
-    let source = catalog
-        .events(callback.npc.spawn)
-        .map_err(|_| Error::StaleProjection)?
-        .into_iter()
-        .find(|event| event.event_id() == speech.event_id)
-        .ok_or(Error::StaleProjection)?;
+    let timer = matches!(callback.kind, n::EventAiCallbackKind::Timer { .. });
+    let source = if timer {
+        if !matches!(
+            callback.kind,
+            n::EventAiCallbackKind::Timer {
+                combat: false,
+                evade: false,
+                ..
+            }
+        ) {
+            return Err(Error::StaleProjection);
+        }
+        catalog
+            .ooc_events(callback.npc.spawn)
+            .map_err(|_| Error::StaleProjection)?
+            .iter()
+            .map(|event| *event.text())
+            .find(|event| event.event_id() == speech.event_id)
+    } else {
+        catalog
+            .events(callback.npc.spawn)
+            .map_err(|_| Error::StaleProjection)?
+            .into_iter()
+            .find(|event| event.event_id() == speech.event_id)
+    }
+    .ok_or(Error::StaleProjection)?;
     if source.text_ids().get(usize::from(speech.text_slot)) != Some(&broadcast) {
         return Err(Error::StaleProjection);
     }
@@ -65,13 +85,13 @@ pub(super) fn project(
     Ok(SessionEvent::Chat(message(
         speech,
         speaker_guid,
-        projection.player_guid,
+        if timer { 0 } else { projection.player_guid },
     )))
 }
 
 fn message(speech: &n::EventAiSpeech, speaker_guid: u64, target_guid: u64) -> p::ChatMessage {
-    // CMaNGOS ChatHandler::BuildChatPacket MONSTER_SAY: target is the
-    // player's macro/addressee GUID; Common (7) remains untranslated on wire.
+    // CreatureEventAI.cpp:704-727 uses no target for an idle OOC timer.
+    // AGGRO retains the player's addressee GUID. Common remains untranslated.
     p::ChatMessage {
         chat_type: p::CHAT_MSG_MONSTER_SAY,
         language: speech.language,

@@ -20,7 +20,7 @@ pub use captured::*;
 mod broadcast;
 pub use broadcast::localized_broadcast_text;
 
-pub const EVENT_AI_POLICY: &str = "cmangos-8ec338a1-aggro-text-v2";
+pub const EVENT_AI_POLICY: &str = "cmangos-8ec338a1-aggro-ooc-text-v3";
 const MAX_EVENTS: usize = 32;
 const MAX_TEXT_BYTES: usize = 16 * 1024;
 
@@ -57,16 +57,23 @@ pub struct EventAiEventSource {
     pub inverse_phase_mask: i32,
     pub chance: u32,
     pub flags: u32,
-    pub parameters: [i32; 6],
+    pub parameters: [i64; 6],
     pub actions: [EventAiActionSource; 3],
     pub comment: String,
 }
 impl EventAiEventSource {
     fn shape(&self) -> Result<AggroText, NativeError> {
-        if self.event_type != 4
+        let aggro = self.event_type == 4 && self.flags == 0 && self.parameters == [0; 6];
+        let ooc = self.event_type == 1
+            && self.flags & !1 == 0
+            && self.parameters[..4]
+                .iter()
+                .all(|p| (0..=i64::from(u32::MAX)).contains(p))
+            && self.parameters[0] <= self.parameters[1]
+            && self.parameters[2] <= self.parameters[3]
+            && self.parameters[4..] == [0; 2];
+        if !(aggro || ooc)
             || self.inverse_phase_mask != 0
-            || self.flags != 0
-            || self.parameters != [0; 6]
             || self.actions[0].action_type != 1
             || self.actions[1..]
                 .iter()
@@ -186,6 +193,8 @@ pub struct EventAiCatalog {
     owners: BTreeMap<u64, EventAiOwnerSource>,
     broadcasts: BTreeMap<i32, EventAiBroadcastSource>,
     locales: BTreeMap<i32, BTreeMap<String, EventAiBroadcastLocale>>,
+    #[serde(skip)]
+    ooc_events: BTreeMap<u64, Vec<benilla_sim::event_ai::OocText>>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EventAiLocalizedText {
@@ -345,11 +354,34 @@ impl EventAiCatalog {
                 return Err(NativeError::InvalidProfile);
             }
         }
+        let ooc_events = owners
+            .iter()
+            .map(|(spawn, owner)| {
+                let events = owner
+                    .entry_events
+                    .require(MAX_EVENTS)?
+                    .iter()
+                    .chain(owner.guid_events.require(MAX_EVENTS)?)
+                    .filter(|row| row.event_type == 1)
+                    .map(|row| {
+                        benilla_sim::event_ai::OocText::new(
+                            row.shape()?,
+                            [row.parameters[0] as u32, row.parameters[1] as u32],
+                            [row.parameters[2] as u32, row.parameters[3] as u32],
+                            row.flags == 1,
+                        )
+                        .map_err(NativeError::EventAi)
+                    })
+                    .collect::<Result<Vec<_>, NativeError>>()?;
+                Ok((*spawn, events))
+            })
+            .collect::<Result<_, NativeError>>()?;
         let catalog = Self {
             policy: EVENT_AI_POLICY,
             owners,
             broadcasts,
             locales,
+            ooc_events,
         };
         encoded_budget(&catalog)?;
         Ok(catalog)
@@ -367,8 +399,15 @@ impl EventAiCatalog {
             .require(MAX_EVENTS)?
             .iter()
             .chain(owner.guid_events.require(MAX_EVENTS)?)
+            .filter(|row| row.event_type == 4)
             .map(EventAiEventSource::shape)
             .collect()
+    }
+    pub fn ooc_events(&self, spawn: u64) -> Result<&[benilla_sim::event_ai::OocText], NativeError> {
+        self.ooc_events
+            .get(&spawn)
+            .map(Vec::as_slice)
+            .ok_or(NativeError::InvalidProfile)
     }
     /// DoDisplayText's male-default override happens BEFORE per-recipient locale
     /// fallback. It intentionally differs from BroadcastText::GetText.

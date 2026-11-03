@@ -4,13 +4,16 @@
 It is not a raw database reader, compiler, profile issuer, gameplay capability or
 proof of a runnable Classic scene. `NativeCapability` remains uninhabited.
 
-The executable component domain is AGGRO (4), zero inverse-phase mask/flags/event
-parameters, one TEXT action (1) with one to three contiguous positive signed text
-IDs, followed by two fully zero NONE actions. Chance is explicitly 1–100; raw
-loader narrowing/capping outside that range is not approximated. Every owner
-supplies complete entry and negative-database-GUID vectors in loader ID order;
-entry events precede GUID events. Missing/unknown closure and all other applicable
-shapes reject. Database GUID and stable runtime spawn identity are separate.
+The executable component domain is AGGRO (4) or TIMER_OOC (1), with a zero
+inverse-phase mask and one TEXT action (1), followed by two fully zero NONE
+actions. TEXT has one to three contiguous positive signed text IDs. AGGRO
+requires zero flags and event parameters. TIMER_OOC accepts only the repeat flag,
+ordered unsigned initial/repeat millisecond ranges, and zero trailing parameters.
+Chance is explicitly 1 through 100; raw loader narrowing/capping outside that
+range is not approximated. Every owner supplies complete entry and
+negative-database-GUID vectors in loader ID order; entry events precede GUID
+events. Missing/unknown closure and all other applicable shapes reject.
+Database GUID and stable runtime spawn identity are separate.
 
 Referenced broadcasts and every associated raw locale row are retained. The
 initial presentation domain is SAY, language Universal (0) or Common (7), with
@@ -36,6 +39,9 @@ Pinned CMaNGOS Classic commit: `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`.
 - [Text dependency validation](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/AI/EventAI/CreatureEventAIMgr.cpp#L594-L614)
 - [Holder initialization](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/AI/EventAI/CreatureEventAI.cpp#L102-L163)
 - [Chance and text selection](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/AI/EventAI/CreatureEventAI.cpp#L598-L730)
+- [OOC initial timers and lifecycle resets](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/AI/EventAI/CreatureEventAI.cpp#L1382-L1495)
+- [Combat-entry clock reset](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/AI/EventAI/CreatureEventAI.cpp#L1597-L1632)
+- [Shared timer update clock](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/AI/EventAI/CreatureEventAI.cpp#L1929-L1975)
 - [Broadcast loader](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Globals/ObjectMgr.cpp#L7782-L7880)
 - [Gender precedence](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Globals/ObjectMgr.cpp#L9978-L10066)
 - [Pinned locale names](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Globals/Locales.cpp#L1-L36)
@@ -80,6 +86,23 @@ the existing shared full-u32 counter stream (one word on failure, two on pass).
 Eligible periodic-aura value rolls precede hostile-spell entry; target health and
 aura installation still follow it.
 
+## Out-of-combat timers
+
+The shared 500 ms clock uses the source's strict boundary and retains update
+debt. Holders count down in combat and evade but cannot dispatch there.
+Combat entry resets only the shared clock. Death and home arrival reinitialise
+and enable OOC holders; respawn reconstructs them for the replacement generation.
+Equal timer endpoints consume no random word. Other timer ranges use the shared
+inclusive stream. Chance precedes action on success; repeat selection follows
+either chance outcome, before disabling a non-repeatable row.
+
+Each operation retains its generation, draws, deliveries, and a chained Unit
+anchor. The anchor lives only in the selected EventAI context, so unrelated NPC
+checkpoints pay no timer-field cost. Restore checks genesis and mid-timer debt
+against semantic replay. Unsupported timer types, phases, and actions still
+reject.
+
+
 ## Complete camera audience and protocol
 
 A fresh dedicated query asks only for complete loaded world-container camera
@@ -100,7 +123,8 @@ unchanged pinned C++ source outputs; 44 edge vectors test the actual Rust range,
 distance and audience validator. Its authored membership proves no loaded map.
 
 Typed speech projects through existing SessionEvent::Chat/ChatMessage monster
-SAY (0x0B), language 0/7, localized inline name/text, player target GUID and tag0.
+SAY (0x0B), language 0/7, localized inline name/text, and tag0. AGGRO addresses
+the player; idle TIMER_OOC has no invoker or victim and uses target GUID zero.
 Source-motion projection binds the callback generation in event order, including
 speech before same-tick lethal damage/destruction. No synthetic sound, emote or
 notification is sent; existing client chat/language/bubble handling is reused.
@@ -109,9 +133,8 @@ Graphical assets, font/language tables and client talk gestures remain unverifie
 ## Transaction, continuation and incompatible format
 
 Native format `NATIVE_FORMAT_VERSION` (`NATIVE_POLICY`) binds profile, state,
-record and checkpoint domains, with separate melee and callback domains. Native50 and earlier are rejected,
-even after outer checksums are recomputed. The periodic-roll reorder also changes
-callback witnesses and is an independent reason old journals cannot be replayed.
+record and checkpoint domains, with separate melee and callback domains. Every
+earlier native format rejects, even after outer checksums are recomputed.
 Required option fields never silently default missing EventAI continuation or
 NPC callback anchors to an empty state.
 
@@ -135,8 +158,9 @@ session/store publication boundary, not crash-proof exactly-once external displa
 
 ## Independent closed boundaries
 
-Authored component fixtures use IDs91001/71001/71002 and chance100 for deterministic
-coverage; they are not a captured Vermin profile. Actual ClassicDB601 (chance10,
+Authored component fixtures use IDs91001/71001/71002, an additional OOC text
+choice71003, and chance100 for deterministic coverage; they are not a captured
+Vermin profile. Actual ClassicDB601 (chance10,
 TEXT1868/1864, language0/7, zero effects) matches this retained catalog/reducer
 shape. Actual level1–2 selection, complete installed source capture and scene
 ownership, runtime producer, client/terrain dependencies, Fireball/loot closure

@@ -7,7 +7,7 @@ mod loot;
 mod non_body_loot;
 pub(in super::super) mod spawn;
 pub(in super::super) mod spell_execution;
-pub(super) use creature::creatures;
+pub(super) use creature::{creatures, event_discharges};
 pub(super) use loot::{loot, loot_discharges, quest_loot};
 const QUEST_ADAPTER: &str =
     "quest_lifecycle::CapturedOrdinaryQuests + captured_quests::CapturedQuestPresentation";

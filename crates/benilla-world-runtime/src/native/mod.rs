@@ -178,8 +178,8 @@ pub use persistence::{PendingWanderAndChaseReopen, PendingWanderReopen};
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 88;
-pub const NATIVE_POLICY: &str = "benilla-native-solo-body-loot-closure-v88";
+pub const NATIVE_FORMAT_VERSION: u32 = 89;
+pub const NATIVE_POLICY: &str = "benilla-native-solo-ooc-text-v89";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -384,6 +384,7 @@ impl NativeWorld {
         let initial_cast_genesis =
             InitialCastGenesis::realize(&profile, world, player, seed, entry_location.as_ref())?;
         let mut rng_counter = initial_cast_genesis.end_counter();
+        let mut event_ai = EventAiState::new(&profile)?;
         let order: Vec<u64> = match &profile.creature_generations {
             Some(catalog) => catalog.cold_entry_order().to_vec(),
             None => profile.npcs.iter().map(|p| p.ai.creature_id).collect(),
@@ -516,6 +517,17 @@ impl NativeWorld {
                     aura_bindings: BTreeMap::new(),
                 },
             );
+            if let (Some(events), Some(catalog)) = (&mut event_ai, profile.event_ai()) {
+                let npc = npcs.get_mut(&spawn).ok_or(NativeError::InvalidState)?;
+                npc.events
+                    .event_ai_anchor
+                    .as_mut()
+                    .ok_or(NativeError::InvalidState)?
+                    .timer_tip =
+                    events
+                        .ooc
+                        .initialize(catalog, world, seed, npc.id, &mut rng_counter)?;
+            }
         }
         let resources = mana::MageManaState::from_state(
             spell::CasterResources::new(profile.player.current_mana)?,
@@ -544,7 +556,7 @@ impl NativeWorld {
             rng_counter,
             initial_cast_genesis,
             source_location: None,
-            event_ai: EventAiState::new(&profile)?,
+            event_ai,
             source_player_environment: PlayerEnvironmentState::new(&profile, world, player)?,
             source_player_appearance: PlayerAppearanceState::new(&profile, world, player)?,
             source_player_collision_height: PlayerCollisionHeightState::new(
@@ -604,7 +616,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v88\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v89\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest
@@ -870,3 +882,9 @@ mod equipment_exchange_tests;
 
 #[cfg(test)]
 mod creature_pose_cell_tests;
+
+impl From<benilla_sim::event_ai::Error> for NativeError {
+    fn from(error: benilla_sim::event_ai::Error) -> Self {
+        Self::EventAi(error)
+    }
+}

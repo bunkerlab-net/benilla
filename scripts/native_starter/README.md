@@ -92,6 +92,11 @@ cases within these limits. The presentation fixture places that finisher inside
 the selection. Preserve numeric mutation tokens such as `1.0` exactly.
 Strict integer validation distinguishes `1.0` from `1`.
 
+The `carried-items` fixture also covers the bounded OOC timer TEXT shape.
+`loot-events` retains AGGRO coverage. OOC mutations add a fourth action,
+change the event type, or set a phase mask. Both planners retain the complete
+matching-row order and refuse every shape outside AGGRO/TEXT and OOC/TEXT.
+
 The corpus includes same-snapshot quest completion scripts, source items and
 gossip lookup closure, exact SQL skill-training probes and profession repair,
 and selected spawn-context exclusions. Complete-empty exclusions retain cold

@@ -207,11 +207,11 @@ fn mutate_resigned(
     let state: super::persistence::StateCheckpoint =
         serde_json::from_value(cp["state"].clone()).unwrap();
     cp["digest"] =
-        serde_json::to_value(crate::digest(b"benilla-native-state-v88\0", &state)).unwrap();
+        serde_json::to_value(crate::digest(b"benilla-native-state-v89\0", &state)).unwrap();
     let digest: crate::Digest = serde_json::from_value(cp["digest"].clone()).unwrap();
     let tip: crate::Digest = serde_json::from_value(cp["history_tip"].clone()).unwrap();
     cp["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v88\0",
+        b"benilla-native-checkpoint-v89\0",
         &(&state, digest, tip),
     ))
     .unwrap();
@@ -375,7 +375,7 @@ fn original_fixture_snapshot_has_no_native_decode_path() {
     let original = br#"{"version":2,"content_digest":[],"rules_digest":[],"state":{}}"#;
     assert!(Checkpoint::decode(original).is_err());
     assert_eq!(crate::FORMAT_VERSION, 2);
-    assert_eq!(NATIVE_FORMAT_VERSION, 88);
+    assert_eq!(NATIVE_FORMAT_VERSION, 89);
     // The compiler token is uninhabited even when the synthetic feature is unified.
     assert_eq!(std::mem::size_of::<NativeCapability>(), 0);
 }
@@ -424,7 +424,7 @@ fn resign_identity_checkpoint(
     checkpoint
 }
 
-const PREVIOUS_NATIVE_IDENTITIES: [(u32, &str); 54] = [
+const PREVIOUS_NATIVE_IDENTITIES: [(u32, &str); 55] = [
     (34, "benilla-native-event-ai-aggro-text-v34"),
     (35, "benilla-native-corpse-carried-items-v35"),
     (36, "benilla-native-source-combat-timers-v36"),
@@ -479,12 +479,13 @@ const PREVIOUS_NATIVE_IDENTITIES: [(u32, &str); 54] = [
     (85, "benilla-native-solo-spell-lifecycles-v85"),
     (86, "benilla-native-solo-food-drink-v86"),
     (87, "benilla-native-solo-playercast-storage-v87"),
+    (88, "benilla-native-solo-body-loot-closure-v88"),
 ];
 
 #[test]
-fn native88_profile_state_record_and_checkpoint_domains_are_exact() {
-    assert_eq!(NATIVE_FORMAT_VERSION, 88);
-    assert_eq!(NATIVE_POLICY, "benilla-native-solo-body-loot-closure-v88");
+fn native89_profile_state_record_and_checkpoint_domains_are_exact() {
+    assert_eq!(NATIVE_FORMAT_VERSION, 89);
+    assert_eq!(NATIVE_POLICY, "benilla-native-solo-ooc-text-v89");
     assert_eq!(
         RNG_POLICY,
         "benilla-native-sha256-counter-le64-rejection-fraction53-v2"
@@ -516,13 +517,13 @@ fn native88_profile_state_record_and_checkpoint_domains_are_exact() {
     assert_eq!(value["state"]["policy"], NATIVE_POLICY);
     assert_eq!(
         checkpoint.digest,
-        crate::digest(b"benilla-native-state-v88\0", &checkpoint.state)
+        crate::digest(b"benilla-native-state-v89\0", &checkpoint.state)
     );
     assert_eq!(checkpoint.digest, w.state_digest());
     assert_eq!(
         checkpoint.checksum,
         crate::digest(
-            b"benilla-native-checkpoint-v88\0",
+            b"benilla-native-checkpoint-v89\0",
             &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
         )
     );
@@ -531,7 +532,7 @@ fn native88_profile_state_record_and_checkpoint_domains_are_exact() {
         assert_eq!(record.profile, w.profile().digest());
         assert_eq!(
             record.digest(),
-            crate::digest(b"benilla-native-record-v88\0", record)
+            crate::digest(b"benilla-native-record-v89\0", record)
         );
         for (format, _) in PREVIOUS_NATIVE_IDENTITIES {
             assert_ne!(

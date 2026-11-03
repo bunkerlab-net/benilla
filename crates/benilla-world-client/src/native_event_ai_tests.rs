@@ -443,3 +443,51 @@ fn event_ai_evaluation_without_a_listener_never_becomes_system_or_monster_chat()
     assert!(evaluated);
     assert!(world.state().rng_counter >= 2);
 }
+
+#[test]
+fn ooc_timer_say_has_no_action_invoker_or_chat_addressee() {
+    let profile = fixture::profile_ooc([0, 0, 1000, 1000, 0, 0], false);
+    let mut world = n::NativeWorld::synthetic_component_test(
+        profile,
+        [8; 16],
+        n::synthetic_fixture::player(),
+        7,
+    )
+    .unwrap();
+    let mut projection = NativeProjection::new(&world, world.state().player, &Catalog).unwrap();
+    projection.initial_events(&world).unwrap();
+    let mut authority = fixture::Authority::default();
+    let mut count = 0;
+    for tick in 1..=12 {
+        world.step(tick, None, &mut authority).unwrap();
+        let packets = projection.advance(&world).unwrap();
+        let delivered = chats(&packets);
+        count += delivered.len();
+        if let Some(chat) = delivered.first() {
+            assert_eq!(tick, 6);
+            assert_eq!(chat.target_guid, 0);
+            let speech = world
+                .last_tick()
+                .unwrap()
+                .events
+                .iter()
+                .find_map(|event| {
+                    if let n::Event::EventAiSpeech(speech) = event {
+                        Some(speech)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap();
+            let speaker = projection.npc_guid(speech.callback.npc).unwrap();
+            let (packet, tail) = p::parse_server_with_tail(
+                p::opcode::SMSG_MESSAGECHAT,
+                &source_packet(speech, speaker, 0),
+            )
+            .unwrap();
+            assert_eq!(tail, 0);
+            assert_eq!(chats(&benilla_protocol::decode(packet)), delivered);
+        }
+    }
+    assert_eq!(count, 1);
+}

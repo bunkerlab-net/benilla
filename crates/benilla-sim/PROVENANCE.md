@@ -888,9 +888,32 @@ Compact reconstruction is limited to that immutable semantic shape. The outer
 host separately binds the catalog digest, owner generation, event order and
 occurrence identity; event ID alone does not establish that binding. The host
 must stage the reducer, RNG and outputs in one transaction and discard a partial
-callback on failure. There is no generic EventAI interpreter, timer execution,
-combat detection, target resolution, broadcast lookup, audience discovery, packet
-projection, real-world admission or seed/stream equivalence in this component.
+callback on failure. This AGGRO component does not execute timers, detect combat,
+resolve targets or broadcasts, discover an audience, or establish production
+admission or seed/stream equivalence.
+
+### Bounded out-of-combat TEXT timers
+
+`src/event_ai/ooc.rs` adds only TIMER_OOC with TEXT, NONE, NONE. It reuses
+the TEXT choice reducer above. The same pinned files and hashes apply.
+`CreatureEventAI.cpp:35-48` skips RNG for equal timer bounds and otherwise
+draws an inclusive initial or repeat timer. Lines 607-618 consume the full32
+chance word before the independent action word. Lines 575-586 and 658-659
+draw the repeat timer after success or failed chance, then disable a
+non-repeatable holder. Lines 676-691 select among the three text parameters.
+
+Lines 1929-1975 retain shared update debt and the strict update-clock boundary.
+The cadence is 500 ms, from `CreatureEventAI.h:32`. Holder subtraction continues
+in combat and evade; lines 293-295 prevent dispatch in either state.
+EnterCombat resets only shared update debt and cadence at lines 1630-1631.
+It does not reset OOC holder timers. Reset reinitialises and enables OOC
+holders at lines 1425-1452, called by JustReachedHome at line 1472 and
+JustDied at line 1495. Respawn initialises holders at lines 1382-1415.
+
+The native host persists holder timers, enabled flags, update debt, ordered RNG
+receipts, generation identity, audience receipts, and an independent Unit
+history anchor. Native format 89 rejects older saves without migration.
+Other event types, phase masks, flag bits, and actions remain refused.
 
 ## Ordinary corpse appearance assignments
 

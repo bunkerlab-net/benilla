@@ -68,6 +68,11 @@ pub enum DrawPurpose {
     CreatureDeathRespawnDelay {
         npc: crate::NpcId,
     },
+    EventAiTimer {
+        npc: crate::NpcId,
+        event_id: u32,
+        initial: bool,
+    },
     EventAiChance {
         npc: crate::NpcId,
         event_id: u32,

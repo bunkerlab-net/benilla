@@ -190,3 +190,126 @@ impl<A: Authority> Frame<'_, A> {
         Ok(())
     }
 }
+
+impl<A: Authority> Frame<'_, A> {
+    pub(super) fn event_ai_ooc(
+        &mut self,
+        npc: &mut Npc,
+        operation: event_ai::OocOperation,
+    ) -> Result<(), NativeError> {
+        let Some(catalog) = self.profile.event_ai() else {
+            return Ok(());
+        };
+        if catalog.catalog().ooc_events(npc.id.spawn)?.is_empty() {
+            return Ok(());
+        }
+        let mut continuation = self
+            .state
+            .event_ai
+            .take()
+            .ok_or(NativeError::InvalidState)?;
+        if continuation.ooc.history.len() >= MAX_EVENT_AI_HISTORY {
+            return Err(NativeError::TooLarge);
+        }
+        let start = self.draws.len();
+        let tick = self.state.tick;
+        let selections = continuation.ooc.apply(
+            catalog,
+            npc.id,
+            operation,
+            self.profile.tick_ms,
+            &mut |request| {
+                let (purpose, low, high) = event_ai::ooc_draw(request, npc.id, tick);
+                Ok(self
+                    .state
+                    .draw_range(0, purpose, low, high, &mut self.draws)? as u32)
+            },
+        )?;
+        let mut record = event_ai::OocRecord {
+            npc: npc.id,
+            tick,
+            operation,
+            draws: self.draws[start..].to_vec(),
+            callback: None,
+            deliveries: Vec::with_capacity(selections.len()),
+        };
+        if !selections.is_empty() {
+            let event_ai::OocOperation::Update { combat, evade } = operation else {
+                return Err(NativeError::InvalidState);
+            };
+            let mut scene = self.state.clone();
+            if scene.npcs.insert(npc.id.spawn, npc.clone()).is_some() {
+                return Err(NativeError::AuthorityBinding);
+            }
+            let witness =
+                interactions::witness(self.profile_digest, &scene, self.interaction_moment())?;
+            let callback = EventAiCallback {
+                world: self.state.world,
+                tick,
+                now_ms: self.state.now_ms,
+                moment: witness.moment,
+                catalog: catalog.digest(),
+                npc: npc.id,
+                invoker: self.state.player,
+                kind: EventAiCallbackKind::Timer {
+                    diff_ms: self.profile.tick_ms,
+                    combat,
+                    evade,
+                },
+                speaker_pose: npc
+                    .source_motion
+                    .as_ref()
+                    .ok_or(NativeError::InvalidState)?
+                    .motion
+                    .pose(),
+                player_pose: m::Pose {
+                    position: self.state.position,
+                    orientation: ai::Real::from_bits(self.state.orientation.bits())?,
+                },
+                draft: witness.draft,
+            };
+            let projected = npc.effective_profile(self.profile)?;
+            for selection in selections {
+                let request =
+                    EventAiAudienceRequest::from_callback(self.profile, &callback, &projected)?;
+                let Facts::EventAiAudience(facts) = self.ask(
+                    Some(npc.id),
+                    Query::EventAiAudience(Box::new(request.clone())),
+                )?
+                else {
+                    return Err(NativeError::AuthorityBinding);
+                };
+                let speech = if request.validate(&facts)? {
+                    let speech = EventAiState::speech(
+                        catalog,
+                        &callback,
+                        tick,
+                        selection,
+                        npc.initialized_creature()
+                            .map(|selected| selected.model.gender),
+                    )?;
+                    self.events
+                        .push(Event::EventAiSpeech(Box::new(speech.clone())));
+                    Some(speech)
+                } else {
+                    None
+                };
+                record.deliveries.push(event_ai::OocDelivery {
+                    selection,
+                    audience: EventAiAudienceReceipt { request, facts },
+                    speech,
+                });
+            }
+            record.callback = Some(callback);
+        }
+        let anchor = npc
+            .events
+            .event_ai_anchor
+            .as_mut()
+            .ok_or(NativeError::InvalidState)?;
+        anchor.timer_tip = record.tip(anchor.timer_tip);
+        continuation.ooc.history.push(record);
+        self.state.event_ai = Some(continuation);
+        Ok(())
+    }
+}

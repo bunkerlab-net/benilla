@@ -1593,6 +1593,50 @@ class EventAiPlanTests(unittest.TestCase):
         scope["matching_rows"][0]["action1_type"] = 4
         self.assertIsNone(supported_plan(source, 6, scope))
 
+    def test_ooc_timer_shape_and_refused_mutations(self):
+        import copy
+        source, scope = self.source()
+        row = scope["matching_rows"][0]
+        row.update(event_type=1, event_flags=1, event_param1=1000, event_param2=2000,
+                   event_param3=3000, event_param4=4000)
+        self.assertIsNotNone(supported_plan(source, 6, scope))
+        for field, value in (("event_flags", 0), ("event_param1", 2000)):
+            changed = copy.deepcopy(scope)
+            changed["matching_rows"][0][field] = value
+            self.assertIsNotNone(supported_plan(source, 6, changed))
+        for field, value in (("event_type", 0), ("event_type", 2),
+                             ("event_inverse_phase_mask", 1), ("event_flags", 2),
+                             ("event_param1", 2001), ("event_param3", 4001),
+                             ("event_param5", 1), ("action1_type", 4),
+                             ("action4_type", 1), ("action2_type", 1)):
+            changed = copy.deepcopy(scope)
+            changed["matching_rows"][0][field] = value
+            with self.subTest(field=field, value=value):
+                self.assertIsNone(supported_plan(source, 6, changed))
+
+    def test_ooc_discharge_preserves_other_ai_and_world_obligations(self):
+        from native_starter.event_ai_plan import discharges
+        source, scope = self.source()
+        scope["matching_rows"][0].update(event_type=1, event_flags=1)
+        creature = {"entry": 6, "event_ai_capture": scope,
+                    "event_ai_plan": supported_plan(source, 6, scope),
+                    "source_row": {"AIName": "EventAI", "ScriptName": "",
+                                   "SpellList": 0, "CharmedSpellList": 0}}
+        row_issue = {"table": "creature_ai_scripts", "key": "601",
+                     "reason": "creature.event_ai_matching_row_requires_execution"}
+        ai_issue = {"table": "creature_template", "key": "6",
+                    "reason": "creature.ai_or_spell_dependency"}
+        self.assertTrue(discharges(row_issue, [creature]))
+        self.assertTrue(discharges(ai_issue, [creature]))
+        for field, value in (("ScriptName", "authored_hook"), ("SpellList", 1),
+                             ("CharmedSpellList", 1), ("AIName", "GuardAI")):
+            changed = {**creature, "source_row": {**creature["source_row"], field: value}}
+            self.assertFalse(discharges(ai_issue, [changed]))
+        self.assertFalse(discharges({**ai_issue, "reason":
+            "creature.ai_selection_and_native_melee_required"}, [creature]))
+        self.assertFalse(discharges({**row_issue, "key": "602"}, [creature]))
+        self.assertFalse(discharges(row_issue, [{**creature, "event_ai_plan": None}]))
+
 
 class QuestLootPreparationTests(unittest.TestCase):
     def test_negative_body_leaf_plan_is_recomputed_and_keeps_remaining_admission_blockers(self):

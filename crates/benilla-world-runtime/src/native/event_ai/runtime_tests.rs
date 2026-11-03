@@ -52,11 +52,11 @@ fn event_draws(world: &NativeWorld) -> Vec<&Draw> {
 fn rehashed(mut value: serde_json::Value) -> Checkpoint {
     let state: persistence::StateCheckpoint =
         serde_json::from_value(value["state"].clone()).unwrap();
-    let digest = crate::digest(b"benilla-native-state-v88\0", &state);
+    let digest = crate::digest(b"benilla-native-state-v89\0", &state);
     let tip: crate::Digest = serde_json::from_value(value["history_tip"].clone()).unwrap();
     value["digest"] = serde_json::to_value(digest).unwrap();
     value["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v88\0",
+        b"benilla-native-checkpoint-v89\0",
         &(&state, digest, tip),
     ))
     .unwrap();
@@ -679,4 +679,197 @@ fn entry_then_guid_holders_are_contiguous_and_rehashed_counter_gaps_reject() {
         NativeWorld::restore_synthetic_component_test(world.profile.clone(), rehashed(value))
             .is_err()
     );
+}
+
+#[test]
+fn ooc_ticks_use_exact_shared_draw_sequence_and_reopen_mid_timer() {
+    let profile = fixture::profile_ooc([900, 1100, 1200, 1400, 0, 0], true);
+    let mut world =
+        NativeWorld::synthetic_component_test(profile.clone(), [8; 16], f::player(), 7).unwrap();
+    let ooc = &world.state.event_ai.as_ref().unwrap().ooc;
+    assert_eq!(ooc.owners[&2].1.holders[0].timer_ms, 1092);
+    assert_eq!(world.state.rng_counter, 1);
+    let genesis = world.checkpoint().unwrap();
+    let restored = NativeWorld::restore_synthetic_component_test(
+        profile.clone(),
+        Checkpoint::decode(&genesis.encode().unwrap()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(restored.checkpoint().unwrap(), genesis);
+    let mut changed = serde_json::to_value(genesis).unwrap();
+    changed["state"]["npcs"]["2"]["events"]["event_ai_anchor"]["timer_tip"][0] = (world.state.npcs
+        [&2]
+        .events
+        .event_ai_anchor
+        .as_ref()
+        .unwrap()
+        .timer_tip[0]
+        ^ 1)
+    .into();
+    assert!(
+        NativeWorld::restore_synthetic_component_test(profile.clone(), rehashed(changed)).is_err()
+    );
+    let mut authority = fixture::Authority::default();
+    for _ in 0..8 {
+        step(&mut world, &mut authority).unwrap();
+    }
+    let snapshot = &world.state.event_ai.as_ref().unwrap().ooc.owners[&2].1;
+    assert_eq!(snapshot.holders[0].timer_ms, 492);
+    assert_eq!(snapshot.debt_ms, 200);
+    let checkpoint = Checkpoint::decode(&world.checkpoint().unwrap().encode().unwrap()).unwrap();
+    let mut reopened = NativeWorld::restore_synthetic_component_test(profile, checkpoint).unwrap();
+    assert_eq!(world.state_digest(), reopened.state_digest());
+    let mut reopened_authority = fixture::Authority::default();
+    let mut speeches = Vec::new();
+    for _ in 8..24 {
+        step(&mut world, &mut authority).unwrap();
+        step(&mut reopened, &mut reopened_authority).unwrap();
+        assert_eq!(world.state_digest(), reopened.state_digest());
+        assert_eq!(world.last_tick(), reopened.last_tick());
+        for event in &world.last_tick().unwrap().events {
+            if let Event::EventAiSpeech(speech) = event {
+                speeches.push((world.state.tick, speech.broadcast_id));
+            }
+        }
+        if world.state.tick == 12 {
+            let draws = &world.last_tick().unwrap().draws;
+            assert_eq!(draws.len(), 3);
+            assert_eq!(
+                draws
+                    .iter()
+                    .map(|d| (d.first_counter, d.value))
+                    .collect::<Vec<_>>(),
+                vec![(1, 3448132509), (2, 2643027216), (3, 1287)]
+            );
+            assert!(matches!(
+                draws[0].purpose,
+                DrawPurpose::EventAiChance {
+                    event_id: fixture::EVENT,
+                    ..
+                }
+            ));
+            assert!(matches!(
+                draws[1].purpose,
+                DrawPurpose::EventAiAction {
+                    event_id: fixture::EVENT,
+                    ..
+                }
+            ));
+            assert!(matches!(
+                draws[2].purpose,
+                DrawPurpose::EventAiTimer { initial: false, .. }
+            ));
+        }
+    }
+    assert_eq!(speeches, vec![(12, fixture::TEXT_UNIVERSAL)]);
+}
+
+#[test]
+fn ooc_nonrepeatable_row_speaks_once_and_no_listener_does_not_change_rng() {
+    let profile = fixture::profile_ooc([0, 0, 100, 200, 0, 0], false);
+    let mut audible =
+        NativeWorld::synthetic_component_test(profile.clone(), [8; 16], f::player(), 7).unwrap();
+    let mut silent =
+        NativeWorld::synthetic_component_test(profile, [8; 16], f::player(), 7).unwrap();
+    let mut a = fixture::Authority::default();
+    let mut b = fixture::Authority {
+        outside: true,
+        ..Default::default()
+    };
+    let mut speech_count = 0;
+    for _ in 0..24 {
+        step(&mut audible, &mut a).unwrap();
+        step(&mut silent, &mut b).unwrap();
+        speech_count += audible
+            .last_tick()
+            .unwrap()
+            .events
+            .iter()
+            .filter(|e| matches!(e, Event::EventAiSpeech(_)))
+            .count();
+        assert!(!silent
+            .last_tick()
+            .unwrap()
+            .events
+            .iter()
+            .any(|e| matches!(e, Event::EventAiSpeech(_))));
+        assert_eq!(audible.state.rng_counter, silent.state.rng_counter);
+        assert_eq!(
+            audible.state.event_ai.as_ref().unwrap().ooc.owners,
+            silent.state.event_ai.as_ref().unwrap().ooc.owners
+        );
+    }
+    assert_eq!(speech_count, 1);
+    assert!(
+        !audible.state.event_ai.as_ref().unwrap().ooc.owners[&2]
+            .1
+            .holders[0]
+            .enabled
+    );
+}
+
+#[test]
+fn ooc_source_combat_death_reset_and_respawn_reconstruct_holders() {
+    let mut profile = fixture::profile_ooc([9000, 9000, 1200, 1400, 0, 0], false);
+    profile.npcs[0].max_health = 1;
+    profile.npcs[0].ai.corpse_decay_ms = 0;
+    let mut world =
+        NativeWorld::synthetic_component_test(profile, [8; 16], f::player(), 7).unwrap();
+    let mut authority = fixture::Authority::default();
+    authority.base.visibility = Some(ai::movement::Check::Failed);
+    authority.base.base.base.resist_chance = Some(0);
+    authority.base.base.base.critical_chance = Some(0);
+    let input = f::cast(&world, 60001);
+    world.step(1, Some(input), &mut authority).unwrap();
+    while world.state.npcs[&2].id.generation == 0 {
+        assert!(world.state.tick < 100);
+        step(&mut world, &mut authority).unwrap();
+    }
+    let ooc = &world.state.event_ai.as_ref().unwrap().ooc;
+    assert!(ooc
+        .history
+        .iter()
+        .any(|r| r.operation == OocOperation::EnterCombat));
+    assert!(ooc
+        .history
+        .iter()
+        .any(|r| r.operation == OocOperation::Reset));
+    assert_eq!(ooc.owners[&2].0.generation, 1);
+    assert_eq!(ooc.owners[&2].1.holders[0].timer_ms, 9000);
+    assert!(ooc.owners[&2].1.holders[0].enabled);
+    let checkpoint = world.checkpoint().unwrap();
+    let restored =
+        NativeWorld::restore_synthetic_component_test(world.profile.clone(), checkpoint.clone())
+            .unwrap();
+    assert_eq!(restored.checkpoint().unwrap(), checkpoint);
+}
+
+#[test]
+fn rehashed_ooc_timer_clock_draw_and_history_mutations_refuse_restore() {
+    let profile = fixture::profile_ooc([900, 1100, 1200, 1400, 0, 0], true);
+    let mut world =
+        NativeWorld::synthetic_component_test(profile, [8; 16], f::player(), 7).unwrap();
+    for _ in 0..8 {
+        step(&mut world, &mut fixture::Authority::default()).unwrap();
+    }
+    let checkpoint = serde_json::to_value(world.checkpoint().unwrap()).unwrap();
+    for mutation in 0..5 {
+        let mut changed = checkpoint.clone();
+        let ooc = &mut changed["state"]["event_ai"]["ooc"];
+        match mutation {
+            0 => ooc["owners"]["2"][1]["holders"][0]["timer_ms"] = 491.into(),
+            1 => ooc["owners"]["2"][1]["debt_ms"] = 201.into(),
+            2 => ooc["history"][0]["draws"][0]["value"] = 1091.into(),
+            3 => {
+                ooc["history"].as_array_mut().unwrap().remove(1);
+            }
+            4 => ooc["owners"]["2"][0]["generation"] = 1.into(),
+            _ => unreachable!(),
+        }
+        assert!(
+            NativeWorld::restore_synthetic_component_test(world.profile.clone(), rehashed(changed))
+                .is_err(),
+            "mutation {mutation}"
+        );
+    }
 }

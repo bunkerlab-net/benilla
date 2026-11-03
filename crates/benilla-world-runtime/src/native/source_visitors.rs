@@ -111,7 +111,9 @@ impl SourceVisitorOwner {
                 if owner.entry != self.entry || source.spell_list_id != self.spell_list_id {
                     return Err(NativeError::AuthorityBinding);
                 }
-                if self.ai_name != "EventAI" && !runtime.catalog().events(self.spawn_id)?.is_empty()
+                if self.ai_name != "EventAI"
+                    && (!runtime.catalog().events(self.spawn_id)?.is_empty()
+                        || !runtime.catalog().ooc_events(self.spawn_id)?.is_empty())
                 {
                     return Err(NativeError::UnsupportedMechanic(
                         "nonempty events require explicit EventAI selection",
@@ -773,8 +775,8 @@ mod tests {
                 .unwrap();
         assert!(restored.replay(&records).is_err());
         assert_eq!(restored.checkpoint().unwrap(), initial);
-        assert_eq!(NATIVE_FORMAT_VERSION, 88);
-        assert_eq!(NATIVE_POLICY, "benilla-native-solo-body-loot-closure-v88");
+        assert_eq!(NATIVE_FORMAT_VERSION, 89);
+        assert_eq!(NATIVE_POLICY, "benilla-native-solo-ooc-text-v89");
         assert_eq!(crate::FORMAT_VERSION, 2);
     }
     #[test]

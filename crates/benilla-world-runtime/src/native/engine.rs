@@ -233,7 +233,7 @@ impl NativeWorld {
         let events = frame.events;
         let draws = frame.draws;
         SourceSplineIds::validate_events(&self.state, &next, &events)?;
-        let after = crate::digest(b"benilla-native-state-v88\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v89\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -1730,6 +1730,15 @@ impl<A: Authority> Frame<'_, A> {
         }
         if !melee_events.is_empty() {
             return Err(NativeError::InvalidState);
+        }
+        // UnitAI.cpp:1088-1090 selects the victim before EventAI timers.
+        // This TEXT-only branch cannot draw while combat/melee is active.
+        if npc.source_motion.is_some() && alive_update && npc.health > 0 {
+            let operation = OocOperation::Update {
+                combat: npc.ai.phase() == ai::Phase::Combat,
+                evade: npc.ai.is_evading(),
+            };
+            self.event_ai_ooc(&mut npc, operation)?;
         }
         // Creature::RegenerateAll follows Unit::Update, including motion, AI and
         // CombatManager. In particular newly entered combat blocks this pulse.

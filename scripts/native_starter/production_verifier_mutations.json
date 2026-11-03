@@ -2665,6 +2665,45 @@
         }
       ],
       "target": "source"
+    },
+    {
+      "name": "ooc-fourth-action",
+      "fixture": "carried-items",
+      "target": "source",
+      "operations": [
+        {"op": "set", "path": "/tables/creature_ai_scripts/0/action4_type", "value": 1}
+      ],
+      "bindings": [
+        {"path": "/table_sha256/creature_ai_scripts", "of": "/tables/creature_ai_scripts"},
+        {"path": "/event_text_capture/snapshot/table_sha256/creature_ai_scripts", "of": "/tables/creature_ai_scripts"}
+      ],
+      "diagnostic": "row.fields:creature_ai_scripts"
+    },
+    {
+      "name": "ooc-different-event",
+      "fixture": "carried-items",
+      "target": "source",
+      "operations": [
+        {"op": "set", "path": "/tables/creature_ai_scripts/0/event_type", "value": 2}
+      ],
+      "bindings": [
+        {"path": "/table_sha256/creature_ai_scripts", "of": "/tables/creature_ai_scripts"},
+        {"path": "/event_text_capture/snapshot/table_sha256/creature_ai_scripts", "of": "/tables/creature_ai_scripts"}
+      ],
+      "diagnostic": "compiler.preparation_mismatch"
+    },
+    {
+      "name": "ooc-phase-mask",
+      "fixture": "carried-items",
+      "target": "source",
+      "operations": [
+        {"op": "set", "path": "/tables/creature_ai_scripts/0/event_inverse_phase_mask", "value": 1}
+      ],
+      "bindings": [
+        {"path": "/table_sha256/creature_ai_scripts", "of": "/tables/creature_ai_scripts"},
+        {"path": "/event_text_capture/snapshot/table_sha256/creature_ai_scripts", "of": "/tables/creature_ai_scripts"}
+      ],
+      "diagnostic": "compiler.preparation_mismatch"
     }
   ],
   "format": "benilla-production-verifier-mutations-v1"

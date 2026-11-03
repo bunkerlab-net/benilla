@@ -312,8 +312,18 @@ impl NpcEvents {
         }
         result.validate_assistance_queue()?;
         result.validate_spells(player, profile, tick)?;
-        if tick == 0 && result != Self::new(world, npc, profile)? {
-            return Err(invalid());
+        if tick == 0 {
+            let mut expected = Self::new(world, npc, profile)?;
+            // Seeded OOC genesis runs after Unit setup. EventAiState validates
+            // this tip independently against every initial timer draw.
+            if let (Some(expected), Some(actual)) =
+                (&mut expected.event_ai_anchor, &result.event_ai_anchor)
+            {
+                expected.timer_tip = actual.timer_tip;
+            }
+            if result != expected {
+                return Err(invalid());
+            }
         }
         Ok(result)
     }

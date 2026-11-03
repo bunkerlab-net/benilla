@@ -24,21 +24,60 @@ fn profile_rows(chance: u32, with_guid: bool) -> Profile {
 pub fn install(profile: Profile, chance: u32) -> Profile {
     install_rows(profile, chance, false)
 }
-fn install_rows(mut profile: Profile, chance: u32, with_guid: bool) -> Profile {
+pub fn profile_ooc(parameters: [i64; 6], repeatable: bool) -> Profile {
+    let mut profile = visitors::profile();
+    for npc in &mut profile.npcs {
+        npc.ai.reaction = ai::Reaction::Defensive;
+    }
+    profile
+        .initialize_combat_authority(
+            profile
+                .npcs
+                .iter()
+                .map(|npc| NpcCombatAuthoritySource {
+                    entry: npc.entry,
+                    extra_flags: 0x2,
+                    static_flags1: 0,
+                    static_flags2: 0,
+                    static_flags3: 0,
+                    static_flags4: 0,
+                })
+                .collect(),
+        )
+        .unwrap();
+    install_text_rows(profile, 100, false, Some((parameters, repeatable)))
+}
+fn install_rows(profile: Profile, chance: u32, with_guid: bool) -> Profile {
+    install_text_rows(profile, chance, with_guid, None)
+}
+fn install_text_rows(
+    mut profile: Profile,
+    chance: u32,
+    with_guid: bool,
+    timer: Option<([i64; 6], bool)>,
+) -> Profile {
     let speaker = profile.npcs[0].ai.creature_id;
     let speaker_entry = profile.npcs[0].entry;
     let event = EventAiEventSource {
         id: EVENT,
         creature_id: profile.npcs[0].entry as i32,
-        event_type: 4,
+        event_type: if timer.is_some() { 1 } else { 4 },
         inverse_phase_mask: 0,
         chance,
-        flags: 0,
-        parameters: [0; 6],
+        flags: u32::from(timer.is_some_and(|(_, repeatable)| repeatable)),
+        parameters: timer.map_or([0; 6], |(parameters, _)| parameters),
         actions: [
             EventAiActionSource {
                 action_type: 1,
-                parameters: [TEXT_UNIVERSAL as i32, TEXT_COMMON as i32, 0],
+                parameters: [
+                    TEXT_UNIVERSAL as i32,
+                    TEXT_COMMON as i32,
+                    if timer.is_some() {
+                        (TEXT_UNIVERSAL + 1) as i32
+                    } else {
+                        0
+                    },
+                ],
             },
             EventAiActionSource {
                 action_type: 0,
@@ -87,6 +126,7 @@ fn install_rows(mut profile: Profile, chance: u32, with_guid: bool) -> Profile {
         broadcasts: EventAiRows::Complete(
             [TEXT_COMMON, TEXT_UNIVERSAL]
                 .into_iter()
+                .chain(timer.map(|_| TEXT_UNIVERSAL + 1))
                 .map(|id| EventAiBroadcastSource {
                     id: id as i32,
                     text: Some(format!("Authored line {id}")),
@@ -163,10 +203,8 @@ fn install_rows(mut profile: Profile, chance: u32, with_guid: bool) -> Profile {
                         entry: n.entry,
                         civilian: 0,
                         extra_flags: profile
-                            .creature_generations
-                            .as_ref()
-                            .and_then(|catalog| catalog.source(n.ai.creature_id))
-                            .map_or(0, |source| source.input.template.extra_flags),
+                            .source_pathfinding_extra_flags(n.ai.creature_id)
+                            .unwrap(),
                         spell_list_id: 0,
                         resolved_spell_list_id: n.entry * 100,
                         resolved_spells: EventAiRows::Complete(vec![]),

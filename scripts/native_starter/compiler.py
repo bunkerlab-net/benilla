@@ -19,6 +19,7 @@ from .learning import discover
 from .talent import inputs as talent_inputs
 from .dbc import DbcRow, DbcTable, LAYOUTS, binary32_bits, finite_float, signed
 from .event_ai_plan import supported_plan
+from .event_ai_plan import discharges as event_ai_discharges
 from .outfit_plan import supported_plan as outfit_placement_plan
 from . import creature_plan
 from .learning_plan import supported_plan as starter_learning_plan
@@ -798,6 +799,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
 
     c.issues = [issue for issue in c.issues
                 if not (issue.get("origin") == "source_capture" and replaced_creature_finding(issue))]
+    c.issues = [issue for issue in c.issues if not event_ai_discharges(issue, creatures)]
     spawn_plans = list(c.spawn_plans.values())
     spawn_discharged = [issue for issue in c.issues if spawn_plan.discharges(issue, spawn_plans)]
     c.issues = [issue for issue in c.issues if not spawn_plan.discharges(issue, spawn_plans)]
@@ -931,7 +933,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
         "source_capture_findings": [{**i, "disposition": "replaced_by_exact_dependency_report"
                                      if i["reason"] in replaced or replaced_creature_finding(i) else "outside_selection_deferred"
                                      if quest_endpoints.discharges(source, i) else "supported_shape"
-                                     if fireball_plan.discharges(i, fireball) or spell_execution.discharges(i, spells) or spawn_plan.discharges(i, spawn_plans) or item_plan.discharges(i, captured_items) else "supported_numeric_policy"
+                                     if event_ai_discharges(i, creatures) or fireball_plan.discharges(i, fireball) or spell_execution.discharges(i, spells) or spawn_plan.discharges(i, spawn_plans) or item_plan.discharges(i, captured_items) else "supported_numeric_policy"
                                      if world_rules.discharges(i, rules_plan) else "retained"}
                                     for i in source["report"]["unsupported"]],
         "unsupported": issues}

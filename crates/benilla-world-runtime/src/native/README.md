@@ -498,7 +498,7 @@ creation-hook coverage. `SourceVisitorOwner.addon_closure` separately binds
 empty rows. Ground capability, initialized player, faction/control and combat
 closure reuse the retained catalogs.
 The original constructor requires empty EventAI vectors. The explicit
-`validate_sources_with_event_ai` path retains the bounded synchronous AGGRO/TEXT
+`validate_sources_with_event_ai` path retains the bounded AGGRO/TEXT and OOC/TEXT
 catalog described in [EVENT-AI.md](EVENT-AI.md), requiring explicit EventAI AIName
 for each nonempty owner and complete-empty companion vectors. This explicit-name
 restriction is conservative: pinned source can also choose EventAI by Permit for

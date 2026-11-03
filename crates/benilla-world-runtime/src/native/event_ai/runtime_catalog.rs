@@ -5,7 +5,8 @@
 //! Explicit runtime selection of the bounded text catalog and source exclusions.
 use super::*;
 
-pub const EVENT_AI_RUNTIME_CATALOG_POLICY: &str = "cmangos-8ec338a1-native-aggro-text-catalog-v2";
+pub const EVENT_AI_RUNTIME_CATALOG_POLICY: &str =
+    "cmangos-8ec338a1-native-aggro-ooc-text-catalog-v3";
 const GUARD: u32 = 0x0000_0400;
 
 /// The only supported session has one player with its own body as its camera.

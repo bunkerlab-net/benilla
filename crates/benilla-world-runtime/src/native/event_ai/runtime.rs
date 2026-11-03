@@ -6,12 +6,19 @@ use benilla_sim::{
     creature_motion as m, event_ai as source, event_processor::EventCallbackSnapshot,
 };
 
-pub const EVENT_AI_RUNTIME_POLICY: &str = "cmangos-8ec338a1-native-aggro-text-v1";
+pub const EVENT_AI_RUNTIME_POLICY: &str = "cmangos-8ec338a1-native-aggro-ooc-text-v2";
+mod ooc;
+pub(in crate::native) use ooc::*;
 pub const MAX_EVENT_AI_HISTORY: usize = MAX_RECORDS;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum EventAiCallbackKind {
+    Timer {
+        diff_ms: u32,
+        combat: bool,
+        evade: bool,
+    },
     CombatReceipt {
         receipt: ai::Receipt,
     },
@@ -36,13 +43,13 @@ impl EventAiCallbackKind {
             Self::PeerHelp { request, .. } => {
                 Some((&request.notification_owner, &request.callback))
             }
-            Self::CombatReceipt { .. } => None,
+            Self::CombatReceipt { .. } | Self::Timer { .. } => None,
         }
     }
     pub(in crate::native) fn callback_work(&self) -> usize {
         let count = |c: &EventCallbackSnapshot| c.queue.queued.len() + c.queue.detached.len();
         match self {
-            Self::CombatReceipt { .. } => 0,
+            Self::CombatReceipt { .. } | Self::Timer { .. } => 0,
             Self::Sight { callback, .. } => count(callback),
             Self::PeerHelp { request, receipt } => {
                 let c = &receipt.continuation;
@@ -68,6 +75,11 @@ impl EventAiCallbackKind {
         tick: u64,
     ) -> Result<(), NativeError> {
         match self {
+            Self::Timer { diff_ms, .. } => {
+                if *diff_ms != profile.tick_ms {
+                    return Err(NativeError::InvalidCheckpoint);
+                }
+            }
             Self::CombatReceipt { receipt } => {
                 if receipt.id == 0
                     || receipt.id
@@ -309,6 +321,7 @@ pub struct EventAiEvaluation {
 pub(in crate::native) struct EventAiCallbackAnchor {
     count: u64,
     tip: crate::Digest,
+    pub(in crate::native) timer_tip: crate::Digest,
 }
 impl EventAiCallbackAnchor {
     pub(in crate::native) fn append(
@@ -347,6 +360,7 @@ pub struct EventAiState {
     pub(in crate::native) catalog: crate::Digest,
     pub(in crate::native) owners: BTreeMap<u64, EventAiOwnerState>,
     pub(in crate::native) history: Vec<EventAiHistory>,
+    pub(in crate::native) ooc: OocState,
 }
 impl Profile {
     pub fn event_ai(&self) -> Option<&EventAiRuntimeCatalog> {
@@ -376,6 +390,7 @@ impl EventAiState {
             catalog: catalog.digest(),
             owners,
             history: Vec::new(),
+            ooc: OocState::default(),
         }))
     }
     fn owner(
@@ -425,35 +440,37 @@ impl EventAiState {
         if self.history.len() > MAX_EVENT_AI_HISTORY {
             return Err(NativeError::TooLarge);
         }
-        self.history.iter().try_fold(0u64, |total, history| {
-            let work = match history {
-                EventAiHistory::Respawn { .. } => 1,
-                EventAiHistory::EnterCombat(e) => {
-                    if e.actions.len() > MAX_EVENTS {
-                        return Err(NativeError::TooLarge);
+        self.history
+            .iter()
+            .try_fold(self.ooc.replay_work()?, |total, history| {
+                let work = match history {
+                    EventAiHistory::Respawn { .. } => 1,
+                    EventAiHistory::EnterCombat(e) => {
+                        if e.actions.len() > MAX_EVENTS {
+                            return Err(NativeError::TooLarge);
+                        }
+                        let queue = e.callback.kind.callback_work();
+                        // Callback validation/anchor hashing and each action's
+                        // request hashing, speech clone and comparison traverse the
+                        // callback queue. Count nested recorded speech copies too;
+                        // malformed copies must not evade typed-restore work bounds.
+                        let action_work = 4 + 4 * e.actions.len() as u64;
+                        let speech_queues = e.actions.iter().try_fold(0u64, |sum, action| {
+                            let count = action
+                                .speech
+                                .as_ref()
+                                .map_or(0, |s| s.callback.kind.callback_work());
+                            sum.checked_add(count as u64).ok_or(NativeError::TooLarge)
+                        })?;
+                        (queue as u64)
+                            .checked_mul(action_work)
+                            .and_then(|n| n.checked_add(speech_queues.checked_mul(2)?))
+                            .and_then(|n| n.checked_add(1 + e.actions.len() as u64))
+                            .ok_or(NativeError::TooLarge)?
                     }
-                    let queue = e.callback.kind.callback_work();
-                    // Callback validation/anchor hashing and each action's
-                    // request hashing, speech clone and comparison traverse the
-                    // callback queue. Count nested recorded speech copies too;
-                    // malformed copies must not evade typed-restore work bounds.
-                    let action_work = 4 + 4 * e.actions.len() as u64;
-                    let speech_queues = e.actions.iter().try_fold(0u64, |sum, action| {
-                        let count = action
-                            .speech
-                            .as_ref()
-                            .map_or(0, |s| s.callback.kind.callback_work());
-                        sum.checked_add(count as u64).ok_or(NativeError::TooLarge)
-                    })?;
-                    (queue as u64)
-                        .checked_mul(action_work)
-                        .and_then(|n| n.checked_add(speech_queues.checked_mul(2)?))
-                        .and_then(|n| n.checked_add(1 + e.actions.len() as u64))
-                        .ok_or(NativeError::TooLarge)?
-                }
-            };
-            total.checked_add(work).ok_or(NativeError::TooLarge)
-        })
+                };
+                total.checked_add(work).ok_or(NativeError::TooLarge)
+            })
     }
     pub(in crate::native) fn reserve_history(&self) -> Result<(), NativeError> {
         if self.history.len() >= MAX_EVENT_AI_HISTORY {
@@ -484,11 +501,23 @@ impl EventAiState {
         {
             return Err(NativeError::InvalidCheckpoint);
         }
+        let timer_tips = self.ooc.validate(catalog, profile, state)?;
         let mut expected = Self::new(profile)?.ok_or(NativeError::InvalidCheckpoint)?;
         let mut anchors: BTreeMap<_, _> = profile
             .npcs
             .iter()
-            .map(|n| (n.ai.creature_id, EventAiCallbackAnchor::default()))
+            .map(|n| {
+                (
+                    n.ai.creature_id,
+                    EventAiCallbackAnchor {
+                        timer_tip: timer_tips
+                            .get(&n.ai.creature_id)
+                            .copied()
+                            .unwrap_or([0; 32]),
+                        ..Default::default()
+                    },
+                )
+            })
             .collect();
         let mut previous_tick = 0;
         let mut next_counter = creature_generation_binding::validate_prefix(

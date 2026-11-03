@@ -5,7 +5,7 @@ This is a fresh GPL-3.0-or-later reconstruction from CMaNGOS Classic
 `NativeCapability` remains uninhabited. Authored source comparisons and controller
 integration tests do not admit real content or establish a playable starting zone.
 Native format is `NATIVE_FORMAT_VERSION` (`NATIVE_POLICY`). Loot generation policy
-is `cmangos-8ec338a1-solo-quest-loot-reconstruction-v3` and loot genesis is v5. Native format 88 rejects older saves without migration.
+is `cmangos-8ec338a1-solo-quest-loot-reconstruction-v3` and loot genesis is v5. Native format 89 rejects older saves without migration.
 
 ## Captured inputs and fail-closed scope
 

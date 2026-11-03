@@ -622,6 +622,7 @@ impl<A: Authority> Frame<'_, A> {
                 let source = npc.source_motion.as_mut().unwrap();
                 source.combat_start = Some(source.motion.pose());
                 npc.events.entered_combat()?;
+                self.event_ai_ooc(npc, OocOperation::EnterCombat)?;
                 self.event_ai_enter_combat(npc, *target, callback)?;
                 self.combat_entry_assistance(npc, *target, callback, transaction)?;
                 self.enter_player_combat();
@@ -700,6 +701,7 @@ impl<A: Authority> Frame<'_, A> {
                     .assistance_combat_stop(self.state.tick, AssistanceStopReason::Evade)?;
             }
             ai::Effect::Died => {
+                self.event_ai_ooc(npc, OocOperation::Reset)?;
                 // Unit::SetDeathState(JUST_DIED) clears all reactive states.
                 npc.defense_reactive = None;
                 // Unit::SetDeathState(JUST_DIED) calls CombatStop, Unit.cpp:8562.
@@ -731,7 +733,11 @@ impl<A: Authority> Frame<'_, A> {
                 npc.events
                     .schedule_notify(shared.relocation_aggro_delay_ms, false)?;
             }
+            ai::Effect::HomeReached => {
+                self.event_ai_ooc(npc, OocOperation::Reset)?;
+            }
             ai::Effect::Respawned { .. } => {
+                self.event_ai_ooc(npc, OocOperation::Initialize)?;
                 npc.defense_reactive = None;
                 let source = npc.source_motion.as_mut().unwrap();
                 source.active = g.npc_initial_active;

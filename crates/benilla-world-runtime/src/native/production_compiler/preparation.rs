@@ -1148,6 +1148,7 @@ pub(super) fn compile(
     };
     c.issues
         .retain(|i| !(i["origin"] == "source_capture" && replaced_creature(i)));
+    c.issues.retain(|i| !plans::event_discharges(i, &creatures));
     let spawn_discharged: Vec<_> = c
         .issues
         .iter()
@@ -1399,6 +1400,7 @@ pub(super) fn compile(
                 "outside_selection_deferred"
             } else if plans::fireball_discharges(i, fireball)
                 || plans::spawn::discharges(i, &creatures)
+                || plans::event_discharges(i, &creatures)
                 || plans::spell_execution::discharges(i, &spells)
                 || plans::item::discharges(i, &captured_items)
             {

@@ -452,6 +452,11 @@ is meaningful without a bounded content/mechanics inventory.
   gates and committed client health. Captured flags/control/power evidence is
   required; active mana/focus/energy regeneration and dynamic overrides are
   explicitly unsupported. This remains authored-fixture component coverage.
+  The selected [EventAI owner](../crates/benilla-world-runtime/src/native/EVENT-AI.md)
+  executes only AGGRO/TEXT and TIMER_OOC/TEXT. OOC tests cover the strict shared
+  500 ms clock, source draw/reset order, untargeted speech, checkpoint replay,
+  and actual store reopening. This does not admit a production scene or other
+  EventAI triggers, phases, or actions.
 - **Dependencies:** faction/reaction and detection, threat, motion/LOS,
   spell/quest hooks, spawn groups/events, script identity, timers and random
   decisions. A script name is a required dependency, not decorative metadata.

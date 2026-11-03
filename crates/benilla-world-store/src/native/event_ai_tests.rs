@@ -304,3 +304,53 @@ fn event_ai_reopen_in_combat_emits_only_the_new_respawn_generations_speech() {
     }
     assert_eq!(chat_count(&delivered), 1);
 }
+
+#[test]
+fn ooc_mid_timer_store_reopen_keeps_rng_debt_and_next_speech() {
+    let temp = Temp::new();
+    let profile = fixture::profile_ooc([900, 1100, 1200, 1400, 0, 0], true);
+    let mut world = NativeWorld::synthetic_component_test(
+        profile.clone(),
+        [8; 16],
+        n::synthetic_fixture::player(),
+        7,
+    )
+    .unwrap();
+    let identity = Identity::of(&world.checkpoint().unwrap());
+    let (mut store, receipt) = NativeStore::create(temp.path(), &world).unwrap();
+    receipt.acknowledge(&mut world).unwrap();
+    let mut authority = fixture::Authority::default();
+    for tick in 1..=8 {
+        world.step(tick, None, &mut authority).unwrap();
+    }
+    let expected = world.checkpoint().unwrap();
+    let receipt = store.commit(store.prepare(&world).unwrap()).unwrap();
+    receipt.acknowledge(&mut world).unwrap();
+    drop(store);
+    let (_store, mut restored) = NativeStore::open(temp.path(), identity, |checkpoint| {
+        NativeWorld::restore_synthetic_component_test(profile.clone(), checkpoint)
+    })
+    .unwrap();
+    assert_eq!(restored.checkpoint().unwrap(), expected);
+    assert_eq!(restored.state_digest(), world.state_digest());
+    let mut projection =
+        NativeProjection::new(&restored, restored.state().player, &Catalog).unwrap();
+    assert_eq!(
+        chat_count(&projection.initial_events(&restored).unwrap()),
+        0
+    );
+    let mut reopened_authority = fixture::Authority::default();
+    let mut count = 0;
+    for tick in 9..=24 {
+        world.step(tick, None, &mut authority).unwrap();
+        restored.step(tick, None, &mut reopened_authority).unwrap();
+        assert_eq!(world.state_digest(), restored.state_digest());
+        assert_eq!(world.last_tick(), restored.last_tick());
+        let packets = projection.advance(&restored).unwrap();
+        count += chat_count(&packets);
+        if chat_count(&packets) != 0 {
+            assert_eq!(tick, 12);
+        }
+    }
+    assert_eq!(count, 1);
+}

@@ -311,11 +311,22 @@ fn event_plan(source: &Value, entry: i128, scope: &Value) -> Value {
         .map(|r| (int(&r["Id"]), r))
         .collect();
     for r in rs {
-        if int(&r["event_type"]) != 4
+        let aggro = int(&r["event_type"]) == 4
+            && !nonzero(&r["event_flags"])
+            && (1..=6).all(|i| !nonzero(&r[format!("event_param{i}")]));
+        let ooc = int(&r["event_type"]) == 1
+            && [0, 1].contains(&int(&r["event_flags"]))
+            && (1..=4)
+                .all(|i| (0..=i128::from(u32::MAX)).contains(&int(&r[format!("event_param{i}")])))
+            && int(&r["event_param1"]) <= int(&r["event_param2"])
+            && int(&r["event_param3"]) <= int(&r["event_param4"])
+            && !nonzero(&r["event_param5"])
+            && !nonzero(&r["event_param6"]);
+        if !(aggro || ooc)
             || nonzero(&r["event_inverse_phase_mask"])
-            || nonzero(&r["event_flags"])
             || !(1..=100).contains(&int(&r["event_chance"]))
-            || (1..=6).any(|i| nonzero(&r[format!("event_param{i}")]))
+            || r.as_object()
+                .is_some_and(|row| row.keys().any(|key| key.starts_with("action4_")))
             || int(&r["action1_type"]) != 1
             || (2..=3).any(|i| {
                 nonzero(&r[format!("action{i}_type")])
@@ -371,7 +382,7 @@ fn event_plan(source: &Value, entry: i128, scope: &Value) -> Value {
             json!({"database_guid":spawn["guid"],"captured_entry":num(entry),"event_ids":event_ids})
         })
         .collect();
-    json!({"policy":"cmangos-8ec338a1-aggro-text-v2","status":"supported_catalog_plan","scope":"captured_current_entry_and_selected_spawn_guids","owners":owners,"runtime_configuration":"unknown","loaded_audience":"unknown","runtime_admission":false})
+    json!({"policy":"cmangos-8ec338a1-aggro-ooc-text-v3","status":"supported_catalog_plan","scope":"captured_current_entry_and_selected_spawn_guids","owners":owners,"runtime_configuration":"unknown","loaded_audience":"unknown","runtime_admission":false})
 }
 pub(in super::super) fn creatures(c: &mut Compiler<'_>, rules: &Value) -> Result<Value> {
     let b = c.source;
@@ -562,4 +573,48 @@ pub(in super::super) fn creatures(c: &mut Compiler<'_>, rules: &Value) -> Result
         );
     }
     Ok(json!(result))
+}
+
+pub(in super::super) fn event_discharges(issue: &Value, creatures: &Value) -> bool {
+    let raw_key = issue["key"]
+        .as_array()
+        .filter(|key| key.len() == 1)
+        .map_or(&issue["key"], |key| &key[0]);
+    let key = raw_key.as_u64().or_else(|| {
+        raw_key.as_str().and_then(|text| {
+            if text.is_empty()
+                || text.len() > 1 && text.starts_with('0')
+                || !text.bytes().all(|b| b.is_ascii_digit())
+            {
+                None
+            } else {
+                text.parse::<u64>().ok()
+            }
+        })
+    });
+    let Some(key) = key else {
+        return false;
+    };
+    creatures.as_array().unwrap().iter().any(|creature| {
+        let Some(rows) = creature["event_ai_capture"]["matching_rows"].as_array() else {
+            return false;
+        };
+        if creature["event_ai_plan"].is_null() || !rows.iter().any(|row| row["event_type"] == 1) {
+            return false;
+        }
+        if issue["table"] == "creature_ai_scripts"
+            && issue["reason"] == "creature.event_ai_matching_row_requires_execution"
+            && rows.iter().any(|row| row["id"].as_u64() == Some(key))
+        {
+            return true;
+        }
+        let source = &creature["source_row"];
+        issue["table"] == "creature_template"
+            && issue["reason"] == "creature.ai_or_spell_dependency"
+            && creature["entry"].as_u64() == Some(key)
+            && source["AIName"] == "EventAI"
+            && !nonzero(&source["ScriptName"])
+            && !nonzero(&source["SpellList"])
+            && !nonzero(&source["CharmedSpellList"])
+    })
 }

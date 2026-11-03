@@ -13,6 +13,9 @@
 
 use serde::{Deserialize, Serialize};
 
+mod ooc;
+pub use ooc::*;
+
 pub const AGGRO_TEXT_POLICY_ID: &str = "cmangos-8ec338a1-aggro-text-full32-v1";
 pub const AGGRO_TEXT_SNAPSHOT_VERSION: u32 = 1;
 
@@ -86,7 +89,8 @@ pub enum ChanceResult {
 }
 
 /// Selection occurs even when the host subsequently finds zero listeners.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TextSelection {
     pub event_id: u32,
     pub text_id: u32,
@@ -270,3 +274,6 @@ impl AggroTextHolder {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod ooc_tests;

@@ -69,3 +69,42 @@ fn captured_dependencies_and_runtime_context_fail_closed() {
     assert!(input.compile().is_err());
     assert!(captured().compile_runtime(EventAiRows::Unknown).is_err());
 }
+
+#[test]
+fn captured_ooc_text_accepts_only_exact_timer_flags_and_action_shape() {
+    let mut input = captured();
+    let EventAiRows::Complete(rows) = &mut input.events else {
+        panic!()
+    };
+    rows[0].event_type = 1;
+    rows[0].flags = 1;
+    rows[0].parameters = [1000, 2000, 3000, 4000, 0, 0];
+    rows[0].actions[0].parameters[2] = rows[0].actions[0].parameters[0];
+    let catalog = input.clone().compile().unwrap();
+    assert_eq!(catalog.ooc_events(2).unwrap().len(), 1);
+    assert!(catalog.events(2).unwrap().is_empty());
+    for mutation in 0..8 {
+        let mut changed = input.clone();
+        let EventAiRows::Complete(rows) = &mut changed.events else {
+            panic!()
+        };
+        match mutation {
+            0 => rows[0].event_type = 2,
+            1 => rows[0].inverse_phase_mask = 1,
+            2 => rows[0].flags = 2,
+            3 => rows[0].parameters[0] = 2001,
+            4 => rows[0].parameters[3] = 2999,
+            5 => rows[0].parameters[4] = 1,
+            6 => rows[0].actions[0].action_type = 4,
+            7 => rows[0].actions[1].action_type = 1,
+            _ => unreachable!(),
+        }
+        assert!(changed.compile().is_err(), "mutation {mutation}");
+    }
+    let EventAiRows::Complete(rows) = &mut input.events else {
+        panic!()
+    };
+    rows[0].flags = 0;
+    rows[0].parameters = [0, i64::from(u32::MAX), 0, i64::from(u32::MAX), 0, 0];
+    assert!(input.compile().is_ok());
+}
