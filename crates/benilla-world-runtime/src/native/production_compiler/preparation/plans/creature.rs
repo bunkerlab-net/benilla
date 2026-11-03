@@ -402,7 +402,7 @@ pub(in super::super) fn creatures(c: &mut Compiler<'_>, rules: &Value) -> Result
     for creature in rows(b, "creature_template") {
         let entry = int(&creature["Entry"]);
         let spawn = spawn_scope(b, entry);
-        let selected_spawn = super::spawn::plan(b, entry, &spawn)?;
+        let selected_spawn = super::spawn::plan(b, entry, &spawn, c.dbcs)?;
         for refusal in selected_spawn["refusals"].as_array().unwrap() {
             c.issue(
                 "creature",

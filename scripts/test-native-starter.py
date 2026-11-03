@@ -1070,6 +1070,56 @@ class TalentInputTests(unittest.TestCase):
         with self.assertRaises(ExportError):
             verify_preparation(value, source, tables)
 
+class AddonPrecedenceTests(unittest.TestCase):
+    def compile(self, *, emote=0, aura="18950", effective=False, invalid=False, movement=0):
+        source = source_input()
+        source.rows["creature"][0]["MovementType"] = movement
+        source.rows["creature_addon"] = [export_tests.row(
+            "creature_addon", guid=1, sheath_state=0, auras=aura if effective else None)]
+        source.rows["creature_template_addon"] = [export_tests.row(
+            "creature_template_addon", entry=900001, sheath_state=1, emote=emote, auras=aura)]
+        source.rows["spell_template"].append(export_tests.row(
+            "spell_template", Id=18950, Effect1=2 if invalid else 6, Effect2=0 if invalid else 6,
+            EffectImplicitTargetA1=1, EffectImplicitTargetA2=0 if invalid else 1))
+        bundle = capture(source, export_tests.starter_selection(),
+                         capture_spawn_context=True, capture_addon_loader=True)
+        files = dbcs_for(bundle)
+        files["Emotes"] = dbc_bytes("Emotes", [{0: 234}])
+        result = compile_starter(bundle, parsed(files), Request(1, 1, 0))
+        verify_preparation(result, bundle, parsed(files))
+        return bundle, files, result
+
+    def test_authored_peasant_and_guard_whole_rows_keep_zero_sheath(self):
+        for values in ({"emote": 234, "aura": None}, {}):
+            with self.subTest(values=values):
+                bundle, files, result = self.compile(**values)
+                self.assertEqual(result["creatures"][0]["spawn_context_plan"]["status"], "supported_shape")
+                self.assertFalse(any(r["reason"].startswith("spawn.addon_") for r in result["unsupported"]))
+                self.assertEqual(bundle["tables"]["creature_addon"][0]["sheath_state"], 0)
+                self.assertIsNone(result["runtime_export"])
+
+    def test_effective_unsupported_aura_and_loader_invalid_shadowed_aura_refuse(self):
+        for values, reason in (({"effective": True}, "spawn.addon_execution_required"),
+                               ({"invalid": True}, "spawn.addon_loader_invalid"),
+                               ({"aura": "18950 18950"}, "spawn.addon_loader_invalid")):
+            with self.subTest(values=values):
+                _, _, result = self.compile(**values)
+                self.assertIn(reason, {r["reason"] for r in result["unsupported"]})
+
+    def test_legacy_unknown_lookup_and_movement_remain_refusals(self):
+        bundle, files, result = self.compile(movement=2)
+        self.assertIn("spawn.movement_type_unimplemented", {r["reason"] for r in result["unsupported"]})
+        del bundle["addon_loader_capture"]
+        result = compile_starter(bundle, parsed(files), Request(1, 1, 0))
+        self.assertIn("spawn.addon_loader_lookup_required", {r["reason"] for r in result["unsupported"]})
+        self.assertNotIn("spawn.addon_execution_required", {r["reason"] for r in result["unsupported"]})
+
+    def test_missing_cast_table_is_unknown_even_for_zero_cast_index(self):
+        bundle, files, _ = self.compile()
+        files.pop("SpellCastTimes")
+        result = compile_starter(bundle, parsed(files), Request(1, 1, 0))
+        self.assertIn("spawn.addon_loader_lookup_required", {r["reason"] for r in result["unsupported"]})
+
 class SelectedSpawnContextTests(unittest.TestCase):
     def compile(self, mutate=None):
         source = source_input()

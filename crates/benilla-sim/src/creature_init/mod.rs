@@ -13,7 +13,7 @@ mod source_retention_tests;
 mod strings;
 use crate::classic_spell::SpellFloat;
 use crate::npc_melee::{CreatureStatClass, DamageRange};
-pub use addon::{Addon, SpawnAddonRow, TemplateAddonRow};
+pub use addon::{Addon, AddonLoaderInputs, AddonSpellLookup, SpawnAddonRow, TemplateAddonRow};
 pub use equipment::{
     EquipmentTemplateRow, InitialEquipment, InitialVirtualItem, ItemDamage, ItemTemplateRow,
 };
@@ -231,6 +231,10 @@ pub struct Input {
     pub spawn_addons: Rows<SpawnAddonRow>,
     /// Complete exact-entry query, retained even when a spawn row overrides it.
     pub template_addons: Rows<TemplateAddonRow>,
+    /// Exact loader lookups for nonneutral raw rows, including shadowed rows.
+    /// None proves no lookup; it is sufficient only for neutral payloads.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub addon_loader: Option<AddonLoaderInputs>,
     /// Requires positive completeness evidence at the private consumer boundary.
     pub external_features: Rows<ExternalFeature>,
     pub rates: Rates,
@@ -253,6 +257,15 @@ impl Input {
             self.spawn_addons.retained_len(),
             self.template_addons.retained_len(),
             self.external_features.retained_len(),
+            self.addon_loader
+                .as_ref()
+                .map_or(0, |inputs| inputs.mount_displays.len()),
+            self.addon_loader
+                .as_ref()
+                .map_or(0, |inputs| inputs.emotes.len()),
+            self.addon_loader
+                .as_ref()
+                .map_or(0, |inputs| inputs.spells.len()),
         ];
         let total = counts
             .into_iter()
@@ -279,6 +292,9 @@ impl Input {
             std::mem::size_of::<SpawnAddonRow>(),
             std::mem::size_of::<TemplateAddonRow>(),
             std::mem::size_of::<ExternalFeature>(),
+            std::mem::size_of::<u32>(),
+            std::mem::size_of::<u32>(),
+            std::mem::size_of::<AddonSpellLookup>(),
         ];
         let bytes = counts
             .into_iter()

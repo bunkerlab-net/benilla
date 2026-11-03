@@ -123,7 +123,7 @@ fn exact_addon_query_ownership_and_duplicate_keys_are_required() {
 }
 
 #[test]
-fn unsupported_addon_payloads_fail_even_in_overridden_template_rows() {
+fn unsupported_effective_payloads_and_unknown_shadowed_lookups_refuse() {
     let mut rejected = vec![];
     for value in [1, 256, u32::MAX] {
         rejected.push(Addon {
@@ -150,10 +150,15 @@ fn unsupported_addon_payloads_fail_even_in_overridden_template_rows() {
             let mut i = with_addons(Some(0), Some(2));
             if is_spawn {
                 spawn_addon(&mut i).addon = rejected.clone();
+                assert!(matches!(prepare(&i), Err(InitError::Unsupported(_))));
             } else {
                 template_addon(&mut i).addon = rejected.clone();
+                if rejected.stand_state != 0 {
+                    assert_eq!(initialize(&i).unit_bytes_2, 0x1000);
+                } else {
+                    assert!(matches!(prepare(&i), Err(InitError::Unsupported(_))));
+                }
             }
-            assert!(matches!(prepare(&i), Err(InitError::Unsupported(_))));
         }
     }
 }
@@ -179,4 +184,79 @@ fn ignored_move_flags_are_retained_without_movement_or_rng_effects() {
     template_addon(&mut i).addon.move_flags = 0xaabb_ccdd;
     assert_ne!(serde_json::to_vec(&i).unwrap(), before);
     assert_eq!(initialize(&i), expected);
+}
+
+#[test]
+fn authored_peasant_and_guard_whole_row_overrides_validate_before_selection() {
+    for (entry, guid, emote, auras) in [(11260, 80119, 234, vec![]), (1642, 79927, 0, vec![18950])]
+    {
+        let mut i = with_addons(Some(0), Some(2));
+        i.spawn_id = guid;
+        i.template.entry = entry;
+        spawn_addon(&mut i).guid = guid;
+        template_addon(&mut i).entry = entry;
+        template_addon(&mut i).addon.emote = emote;
+        template_addon(&mut i).addon.auras = auras;
+        i.addon_loader = Some(AddonLoaderInputs {
+            mount_displays: vec![],
+            emotes: vec![234],
+            spells: vec![AddonSpellLookup {
+                id: 18950,
+                effects: [6, 6, 0],
+                targets_a: [1, 1, 0],
+                targets_b: [0; 3],
+                cast_time_ms: Some(0),
+            }],
+        });
+        let result = initialize(&i);
+        assert_eq!(result.unit_bytes_2, 0x1000);
+        let mut effective = i.clone();
+        effective.spawn_addons = Rows::Complete(vec![]);
+        assert!(matches!(
+            prepare(&effective),
+            Err(InitError::Unsupported(_))
+        ));
+        let mut invalid = i.clone();
+        invalid.addon_loader.as_mut().unwrap().emotes.clear();
+        invalid.addon_loader.as_mut().unwrap().spells.clear();
+        assert!(prepare(&invalid).is_err());
+        assert_eq!(initialize(&i), result);
+    }
+}
+
+#[test]
+fn loader_invalid_shadowed_auras_and_unknown_strict_outcomes_refuse() {
+    let mut i = with_addons(Some(0), Some(2));
+    template_addon(&mut i).addon.auras = vec![18950];
+    i.addon_loader = Some(AddonLoaderInputs {
+        mount_displays: vec![],
+        emotes: vec![],
+        spells: vec![AddonSpellLookup {
+            id: 18950,
+            effects: [6, 0, 0],
+            targets_a: [1, 0, 0],
+            targets_b: [0; 3],
+            cast_time_ms: None,
+        }],
+    });
+    assert!(prepare(&i).is_ok());
+    for case in 0..6 {
+        let mut invalid = i.clone();
+        let spell = &mut invalid.addon_loader.as_mut().unwrap().spells[0];
+        match case {
+            0 => spell.effects = [2, 0, 0],
+            1 => spell.cast_time_ms = Some(1),
+            2 => spell.targets_a[0] = 6,
+            3 => spell.targets_b[0] = 6,
+            4 => template_addon(&mut invalid).addon.auras.push(18950),
+            _ => template_addon(&mut invalid).addon.auras = vec![0],
+        }
+        assert!(prepare(&invalid).is_err(), "case {case}");
+    }
+    let mut effective = i.clone();
+    spawn_addon(&mut effective).addon.auras = vec![18950];
+    assert!(matches!(
+        prepare(&effective),
+        Err(InitError::Unsupported("initial addon auras"))
+    ));
 }

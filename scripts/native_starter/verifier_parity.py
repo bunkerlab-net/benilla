@@ -182,6 +182,16 @@ class PreparationVerifierParityTests(unittest.TestCase):
             with self.subTest(fixture=fixture["name"]):
                 verify(fixture)
 
+    def test_addon_selection_validates_shadowed_rows_but_executes_only_effective_row(self):
+        fixtures = {f["name"]: f for f in corpus()["fixtures"]}
+        for name in ("mechanics-spawn", "presentation"):
+            reasons = {r["reason"] for r in fixtures[name]["preparation"]["unsupported"]}
+            self.assertFalse(any(r.startswith("spawn.addon_") for r in reasons))
+        self.assertIn("spawn.addon_execution_required",
+                      {r["reason"] for r in fixtures["quiescent"]["preparation"]["unsupported"]})
+        self.assertIn("spawn.addon_loader_invalid",
+                      {r["reason"] for r in fixtures["mechanics-refusals"]["preparation"]["unsupported"]})
+
     def test_non_body_ids_require_closed_commands_learning_and_hooks(self):
         from . import non_body_loot
         fixture = next(f for f in corpus()["fixtures"] if f["name"] == "loot-events")

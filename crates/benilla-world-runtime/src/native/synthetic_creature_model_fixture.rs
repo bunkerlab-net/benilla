@@ -14,6 +14,7 @@ pub fn input() -> benilla_sim::creature_init::Input {
         spawn_id: 2,
         spawn_addons: Rows::Complete(vec![]),
         template_addons: Rows::Complete(vec![]),
+        addon_loader: None,
         template: Template {
             entry: 60001,
             minimum_level: 1,

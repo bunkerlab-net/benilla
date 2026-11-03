@@ -30,6 +30,24 @@ pub struct TemplateAddonRow {
     pub addon: Addon,
 }
 
+/// Exact lookup results supplied by the capture owner, not execution support.
+/// Self-only spells pass independently of the source strict-log setting.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct AddonLoaderInputs {
+    pub mount_displays: Vec<u32>,
+    pub emotes: Vec<u32>,
+    pub spells: Vec<AddonSpellLookup>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct AddonSpellLookup {
+    pub id: u32,
+    pub effects: [u32; 3],
+    pub targets_a: [u32; 3],
+    pub targets_b: [u32; 3],
+    /// None is an absent row in a completely captured SpellCastTimes lookup.
+    pub cast_time_ms: Option<i32>,
+}
+
 /// Called only after aggregate outer row counts have passed the retention cap.
 /// Reading each vector length does not traverse any unbounded aura payload.
 pub(super) fn retained_aura_ids(input: &Input) -> Result<usize> {
@@ -67,22 +85,78 @@ pub(super) fn prepare(input: &Input) -> Result<Option<u8>> {
         if row.guid != input.spawn_id {
             return Err(InitError::Invalid("addon spawn row identity"));
         }
-        validate(&row.addon)?;
+        validate_loader(&row.addon, input.addon_loader.as_ref())?;
     }
     for row in template {
         if row.entry != input.template.entry {
             return Err(InitError::Invalid("addon template row identity"));
         }
         // ObjectMgr loads both tables before GetCreatureAddon selects a row.
-        validate(&row.addon)?;
+        validate_loader(&row.addon, input.addon_loader.as_ref())?;
     }
     // GetCreatureAddon gives an existing spawn row whole-row precedence, even
     // when all its payload fields are zero. There is no per-field fallback.
-    Ok(spawn
+    let effective = spawn
         .first()
         .map(|row| &row.addon)
-        .or_else(|| template.first().map(|row| &row.addon))
-        .map(|addon| addon.sheath_state as u8))
+        .or_else(|| template.first().map(|row| &row.addon));
+    if let Some(addon) = effective {
+        validate(addon)?;
+    }
+    Ok(effective.map(|addon| addon.sheath_state as u8))
+}
+fn validate_loader(addon: &Addon, inputs: Option<&AddonLoaderInputs>) -> Result<()> {
+    if addon.sheath_state > 2 {
+        return Err(InitError::Unsupported("initial addon sheath state"));
+    }
+    let Some(inputs) = inputs else {
+        if addon.mount != 0 || addon.emote != 0 || !addon.auras.is_empty() {
+            return Err(InitError::Unsupported("addon loader lookups required"));
+        }
+        return Ok(());
+    };
+    if inputs.mount_displays.len() > 4096
+        || inputs.emotes.len() > 4096
+        || inputs.spells.len() > 4096
+    {
+        return Err(InitError::Invalid("addon loader lookup bound"));
+    }
+    if addon.mount != 0 && !inputs.mount_displays.contains(&addon.mount)
+        || addon.emote != 0 && !inputs.emotes.contains(&addon.emote)
+    {
+        return Err(InitError::Invalid("addon loader display or emote lookup"));
+    }
+    for (index, id) in addon.auras.iter().enumerate() {
+        if *id == 0 || addon.auras[..index].contains(id) {
+            return Err(InitError::Invalid("addon loader duplicate or zero aura"));
+        }
+        let mut matches = inputs.spells.iter().filter(|spell| spell.id == *id);
+        let spell = matches
+            .next()
+            .ok_or(InitError::Unsupported("addon loader spell lookup required"))?;
+        if matches.next().is_some() {
+            return Err(InitError::Invalid("addon loader duplicate spell lookup"));
+        }
+        if !spell
+            .effects
+            .iter()
+            .any(|effect| [6, 27, 35, 119, 3, 77, 64].contains(effect))
+            || spell.cast_time_ms.is_some_and(|time| time > 0)
+        {
+            return Err(InitError::Invalid("addon loader aura effect or cast time"));
+        }
+        for slot in 0..3 {
+            if spell.effects[slot] == 0 {
+                break;
+            }
+            if spell.targets_a[slot] != 1 || ![0, 1].contains(&spell.targets_b[slot]) {
+                return Err(InitError::Unsupported(
+                    "addon loader strict setting required",
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 fn validate(addon: &Addon) -> Result<()> {
     if addon.mount != 0 {

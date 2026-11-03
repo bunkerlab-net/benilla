@@ -2,6 +2,7 @@
 use super::{check, fail, json::*, source::*, Result, COMPILER_CONTRACT};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
+mod addon_loader;
 mod loot;
 pub(super) mod participants;
 pub(super) mod quest_endpoints;
@@ -182,6 +183,9 @@ pub(super) fn validate(b: &Value, s: &Selection, p: &Profiles) -> Result<()> {
     }
     if present(b, "native_spawn_capture") {
         spawn(b)?;
+    }
+    if present(b, "addon_loader_capture") {
+        addon_loader::validate(b)?;
     }
     if present(b, "initial_hook_capture") {
         require_tables(

@@ -7,11 +7,12 @@ from typing import Any
 from classic_export import native_spawn, spawn_context
 from classic_export.core import digest
 from .dbc import binary32_bits
+from . import addon_plan
 
 FORMAT = "cmangos-8ec338a1-selected-static-spawn-plan-v1"
 
 
-def supported_plan(source: dict[str, Any], entry: int) -> dict[str, Any]:
+def supported_plan(source: dict[str, Any], entry: int, tables=None) -> dict[str, Any]:
     native = native_spawn.scope(source, entry)
     spawns = [row for row in source["tables"]["creature"] if row["id"] == entry]
     result = {"format": FORMAT, "entry": entry, "status": "blocked", "spawns": [], "refusals": [],
@@ -23,6 +24,8 @@ def supported_plan(source: dict[str, Any], entry: int) -> dict[str, Any]:
         refusals = []
         context = spawn_context.scope(source, guid, entry)
         dependency = next((value for value in native or [] if value["guid"] == guid), None)
+        if dependency is not None:
+            refusals.extend(addon_plan.resolve(source, tables or {}, dependency))
         if context is None or dependency is None:
             refusals.append("spawn.context_coverage_required")
         else:
@@ -39,11 +42,6 @@ def supported_plan(source: dict[str, Any], entry: int) -> dict[str, Any]:
                   or template["EquipmentId"] < -1 or template["UnitFlags"] < -1
                   or template["UnitFlags"] > 0xffffffff):
                 refusals.append("spawn.override_execution_required")
-            for table in ("creature_addon", "creature_template_addon"):
-                for addon in dependency["tables"][table]["rows"]:
-                    if (addon["mount"] or addon["stand_state"] or addon["emote"]
-                            or addon["sheath_state"] not in {0, 1, 2} or addon["auras"] not in {None, ""}):
-                        refusals.append("spawn.addon_execution_required")
         if row["spawnMask"] != 1 or not entry:
             refusals.append("spawn.static_identity_required")
         if max(row["spawntimesecsmin"], row["spawntimesecsmax"]) > 0xffffffff // 9:

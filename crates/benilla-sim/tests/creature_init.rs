@@ -126,6 +126,7 @@ fn input() -> Input {
         item_templates: Rows::Complete(vec![]),
         spawn_addons: Rows::Complete(vec![]),
         template_addons: Rows::Complete(vec![]),
+        addon_loader: None,
         external_features: Rows::Complete(vec![]),
         rates: Rates {
             normal_health: f(1.),

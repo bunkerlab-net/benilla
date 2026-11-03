@@ -13,6 +13,7 @@ from . import spell_numeric
 from . import quest_presentation
 from . import quest_endpoints
 from . import loot_loader
+from . import addon_loader
 from . import spawn_context
 from . import participants
 from . import skill_training
@@ -207,7 +208,8 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             capture_quest_presentation: bool = False,
             capture_spawn_context: bool = False,
             capture_participants: bool = False,
-            capture_quest_mechanics: bool = False) -> dict[str, Any]:
+            capture_quest_mechanics: bool = False,
+            capture_addon_loader: bool = False) -> dict[str, Any]:
     selection = Selection.parse(selection.json())
     if dependency_request is not None:
         learning.request(dependency_request, selection)
@@ -227,6 +229,8 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
     check(not capture_quest_presentation or selection.starter is not None, "quest_presentation.source_v2_required")
     capture_quest_relationships = capture_quest_relationships or capture_quest_presentation
     check(type(capture_spawn_context) is bool, "spawn_context.request_boolean")
+    check(type(capture_addon_loader) is bool, "addon_loader.request_boolean")
+    check(not capture_addon_loader or selection.starter is not None, "addon_loader.starter_required")
     check(not capture_spawn_context or selection.starter is not None, "spawn_context.starter_required")
     capture_spawn_entries = capture_spawn_entries or capture_spawn_context
     check(type(capture_participants) is bool, "participants.request_boolean")
@@ -494,6 +498,11 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
         quest_mechanics_rows = None
         if capture_quest_mechanics:
             quest_mechanics_rows = quest_mechanics.fetch(source, tables, inventory, profiles, account, get)
+        addon_loader_rows = None
+        if capture_addon_loader:
+            addon_ids = addon_loader.selectors({"tables": tables})
+            addon_loader_rows = [{field: row[field] for field in addon_loader.FIELDS}
+                                 for row in get("spell_template", set(addon_ids))]
         check(version_before == normalize_version_notes(source.version_notes(), profiles["db_version"]), "snapshot.version_changed")
         findings = full_report(tables, profiles, selection, body_loot=capture_body_loot)
         bundle = {
@@ -535,6 +544,8 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             bundle["quest_endpoint_capture"] = quest_endpoints.evidence(bundle, endpoint_rows)
         if capture_quest_mechanics:
             bundle["quest_mechanics_capture"] = quest_mechanics.evidence(bundle, quest_mechanics_rows)
+        if capture_addon_loader:
+            bundle["addon_loader_capture"] = addon_loader.evidence(bundle, addon_loader_rows)
         bundle["report"]["unsupported"] = sorted(
             findings + quest_relationships.blockers(bundle) + spawn_entries.blockers(bundle),
             key=lambda row: (row["table"], str(row["key"]), row["reason"]))
@@ -552,6 +563,8 @@ def validate_bundle(bundle: Any) -> None:
     check(type(bundle) is dict, "bundle.fields")
     if bundle.get("format") == STARTER_FORMAT:
         expected.add("starter_required_keys")
+        if "addon_loader_capture" in bundle:
+            expected.add("addon_loader_capture")
         if "event_ai_capture" in bundle:
             expected.add("event_ai_capture")
         if "event_text_capture" in bundle:
@@ -687,6 +700,8 @@ def validate_bundle(bundle: Any) -> None:
             integer(value, 1, 0xffffffff, "bundle.reference_id")
         require_ids(table, bundle["tables"][table], set(ids))
     check(normalize_version_notes(bundle["db_version"], profiles["db_version"]) == bundle["db_version"], "bundle.db_version")
+    if "addon_loader_capture" in bundle:
+        addon_loader.validate(bundle)
     creatures = {r["Entry"] for r in bundle["tables"]["creature_template"]}
     quests = {r["entry"] for r in bundle["tables"]["quest_template"]}
     items = {r["entry"] for r in bundle["tables"]["item_template"]}

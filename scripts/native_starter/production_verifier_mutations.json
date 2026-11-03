@@ -2704,6 +2704,72 @@
         {"path": "/event_text_capture/snapshot/table_sha256/creature_ai_scripts", "of": "/tables/creature_ai_scripts"}
       ],
       "diagnostic": "compiler.preparation_mismatch"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "addon_loader.coverage_mismatch",
+      "fixture": "mechanics-spawn",
+      "name": "addon-loader-stale-spell",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/addon_loader_capture/rows/0/Effect1",
+          "value": 2
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "addon_loader.coverage_mismatch",
+      "fixture": "mechanics-spawn",
+      "name": "addon-loader-unknown-strict-setting",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/addon_loader_capture/strict_log_filter",
+          "value": true
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [
+        {
+          "path": "/addon_loader_capture/rows_sha256",
+          "of": "/addon_loader_capture/rows"
+        }
+      ],
+      "diagnostic": "compiler.preparation_mismatch",
+      "fixture": "mechanics-spawn",
+      "name": "addon-loader-invalid-shadowed-cast",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/addon_loader_capture/rows/0/CastingTimeIndex",
+          "value": 700001
+        }
+      ],
+      "target": "source"
+    },
+    {
+      "bindings": [
+        {
+          "path": "/addon_loader_capture/rows_sha256",
+          "of": "/addon_loader_capture/rows"
+        }
+      ],
+      "diagnostic": "compiler.preparation_mismatch",
+      "fixture": "mechanics-spawn",
+      "name": "addon-loader-missing-shadowed-lookup",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/addon_loader_capture/rows",
+          "value": []
+        }
+      ],
+      "target": "source"
     }
   ],
   "format": "benilla-production-verifier-mutations-v1"

@@ -332,13 +332,20 @@ and the fresh `UNIT_BYTE2_FLAG_AURAS` flag. Neither query having a row preserves
 the fresh melee sheath. Admitted sheath states are 0, 1 and 2. Addon selection and
 application consume no randomness and do not affect equipment metadata or stats.
 
-Nonzero mount, stand state or emote, any nonempty aura vector and sheath states
-outside 0..2 are rejected before selection. Both source rows are checked, including
-an overridden template, rather than silently dropping unsupported dependencies or
-emulating native loader repairs. Pet GUID lookup, mounted/model changes, stand and
-emote projection, spell execution, dynamic addon replacement and later external
-writers remain unsupported. `ExternalFeature::Addon` continues to reject addon
-writers outside these retained initial rows.
+`ObjectMgr.cpp:622-694` validates both raw rows before selection.
+`Input.addon_loader` retains exact mount/emote lookups and spell effects, targets,
+and cast times for nonneutral payloads. Missing evidence remains unknown.
+Invalid lookups, duplicate/zero aura IDs, positive cast times, and unsupported
+sheath states refuse even in shadowed rows. Self-only spells pass independently
+of the strict-log setting; other targets require that unavailable setting and refuse.
+The retention budgets include these lookup rows.
+
+Only the effective row is checked for execution support. Nonzero mount, stand
+state or emote and nonempty aura vectors remain unsupported there. A neutral GUID
+row can override a loader-valid template emote or aura without executing it.
+`Creature.cpp:2296-2302,2308-2344` owns selection and application.
+Pet lookup, dynamic replacement, and external addon writers remain unsupported.
+`ExternalFeature::Addon` still rejects writers outside the retained initial rows.
 
 This initializer branch does not relax another source catalog's admission rules.
 In particular, the independent creature-capability source still excludes applicable

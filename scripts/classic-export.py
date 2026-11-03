@@ -78,6 +78,8 @@ def main() -> int:
                              help="capture same-snapshot ordinary quest text, greeting and locale inputs")
             cmd.add_argument("--quest-mechanics", action="store_true",
                              help="capture completion scripts, gossip menus, conditions and text dependencies")
+            cmd.add_argument("--addon-loader", action="store_true",
+                             help="capture selected raw addon spell loader lookups")
             cmd.add_argument("--participants", action="store_true",
                              help="capture conservative non-render participants and runtime creation candidates")
             cmd.add_argument("--quiescent-snapshot", action="store_true",
@@ -146,6 +148,7 @@ def main() -> int:
                         dependency_request, capture_initial_hooks=args.initial_hooks, capture_body_loot=args.body_loot,
                         capture_spell_numeric=args.spell_numeric, capture_quest_presentation=args.quest_presentation,
                         capture_quest_mechanics=args.quest_mechanics,
+                        capture_addon_loader=args.addon_loader,
                         capture_participants=args.participants,
                         capture_quest_relationships=args.quest_presentation)
             finally:

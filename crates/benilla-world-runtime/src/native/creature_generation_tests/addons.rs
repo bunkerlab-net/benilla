@@ -112,6 +112,40 @@ fn addon_precedence_overwrites_only_sheath_without_an_extra_creation_or_lifecycl
 }
 
 #[test]
+fn loader_valid_shadowed_payloads_preserve_generation_result_and_draws() {
+    let baseline = world(profile(addon_source(2, Some(0), Some(2))), 7);
+    for case in 0..3 {
+        let mut raw = addon_source(2, Some(0), Some(2));
+        match case {
+            0 => template_addons(&mut raw)[0].addon.stand_state = 8,
+            1 => template_addons(&mut raw)[0].addon.emote = 234,
+            _ => template_addons(&mut raw)[0].addon.auras = vec![18950],
+        }
+        raw.input.addon_loader = Some(init::AddonLoaderInputs {
+            mount_displays: vec![],
+            emotes: vec![234],
+            spells: vec![init::AddonSpellLookup {
+                id: 18950,
+                effects: [6, 6, 0],
+                targets_a: [1, 1, 0],
+                targets_b: [0; 3],
+                cast_time_ms: Some(0),
+            }],
+        });
+        let mut w = world(profile(raw), 7);
+        assert_eq!(owner(&w, 2).result(), owner(&baseline, 2).result());
+        assert_eq!(
+            owner(&w, 2).genesis_draws(),
+            owner(&baseline, 2).genesis_draws()
+        );
+        assert_eq!(w.state.rng_counter, baseline.state.rng_counter);
+        kill(&mut w, &mut f::KernelAuthority::default());
+        respawn(&mut w, &mut f::KernelAuthority::default());
+        assert_sheath(owner(&w, 2).result(), 0);
+    }
+}
+
+#[test]
 fn every_addon_sheath_survives_death_respawn_historical_replay_and_checkpoint_compaction() {
     for sheath in 0..=2 {
         let p = profile(addon_source(2, Some(sheath), Some((sheath + 1) % 3)));
@@ -338,7 +372,10 @@ fn incomplete_ambiguous_or_unsupported_addons_reject_catalog_replacement_atomica
             10 => spawn_addons(&mut changed)[0].addon.auras = vec![1],
             11 => spawn_addons(&mut changed)[0].addon.sheath_state = 3,
             12 => template_addons(&mut changed)[0].addon.mount = 1,
-            13 => template_addons(&mut changed)[0].addon.stand_state = 1,
+            13 => {
+                spawn_addons(&mut changed).clear();
+                template_addons(&mut changed)[0].addon.stand_state = 1;
+            }
             14 => template_addons(&mut changed)[0].addon.emote = 1,
             15 => template_addons(&mut changed)[0].addon.auras = vec![1],
             16 => template_addons(&mut changed)[0].addon.sheath_state = 3,

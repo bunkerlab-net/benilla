@@ -594,7 +594,7 @@ class Compiler:
             event_scope = event_ai.scope(self.tables, entry)
             spawn_scope = native_spawn.scope(self.source, entry)
             event_plan = supported_plan(self.source, entry, event_scope) if event_scope else None
-            selected_spawn_plan = spawn_plan.supported_plan(self.source, entry)
+            selected_spawn_plan = spawn_plan.supported_plan(self.source, entry, self.dbcs)
             self.spawn_plans[entry] = selected_spawn_plan
             for refusal in selected_spawn_plan["refusals"]:
                 self.issue("creature", [refusal["guid"]], refusal["reason"])

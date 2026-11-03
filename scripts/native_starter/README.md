@@ -102,6 +102,15 @@ gossip lookup closure, exact SQL skill-training probes and profession repair,
 and selected spawn-context exclusions. Complete-empty exclusions retain cold
 loader-order and assistance obligations. Inbound linking rows remain blockers.
 
+Addon plans validate both raw tables before selecting the complete GUID row,
+with template fallback only when the GUID query is empty. Execution refusals
+apply only to that effective row. The optional `--addon-loader` capture retains
+at most 512 selected SQL spell lookups in `addon_loader_capture` v1, bound to the
+same snapshot and raw addon tables. It does not expand spell execution closure.
+Legacy missing spell evidence stays unknown. Loader repairs remain refusals.
+Self-only spells pass either strict-log setting; other targets still refuse
+because the capture does not prove that setting. Movement refusals remain.
+
 The verifier also reproduces the captured item plan and its carried-storage
 dispositions. Supported item shapes replace only the per-item inventory-rule
 finding. Starter eligibility, inventory audits, and newly looted equipment or use

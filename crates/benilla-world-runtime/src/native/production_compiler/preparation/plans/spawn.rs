@@ -9,7 +9,113 @@ const CONTEXT_FIELDS: [(&str, &[&str]); 5] = [
     ("creature_linking_template", &["entry", "master_entry"]),
     ("game_event_creature_data", &["guid"]),
 ];
-pub(in super::super) fn plan(source: &Value, entry: i128, native: &Value) -> Result<Value> {
+// ObjectMgr.cpp:622-694 validates both tables; Creature.cpp:2296-2302
+// selects the whole GUID row before any execution support is considered.
+fn addon_refusals(
+    source: &Value,
+    dependency: &Value,
+    dbcs: &Tables,
+    reasons: &mut BTreeSet<String>,
+) {
+    let raw = ["creature_addon", "creature_template_addon"]
+        .map(|table| dependency["tables"][table]["rows"].as_array().unwrap());
+    let lookup = |table: &str, id: i128| {
+        u32::try_from(id)
+            .ok()
+            .and_then(|id| dbcs.get(table).and_then(|t| t.get(id)))
+    };
+    for addons in raw {
+        if addons.len() > 1 {
+            reasons.insert("spawn.addon_loader_invalid".into());
+        }
+        for addon in addons {
+            if int(&addon["sheath_state"]) > 2 {
+                reasons.insert("spawn.addon_loader_invalid".into());
+            }
+            for (field, table) in [("mount", "CreatureDisplayInfo"), ("emote", "Emotes")] {
+                if nonzero(&addon[field]) && lookup(table, int(&addon[field])).is_none() {
+                    reasons.insert("spawn.addon_loader_lookup_required".into());
+                }
+            }
+            let text = addon["auras"].as_str().unwrap_or("");
+            let parse = |part: &str| {
+                part.parse::<u32>().ok().filter(|id| {
+                    *id != 0 && part.len() <= 10 && part.bytes().all(|b| b.is_ascii_digit())
+                })
+            };
+            if !text.is_empty() && text.split(' ').any(|part| parse(part).is_none()) {
+                reasons.insert("spawn.addon_loader_invalid".into());
+                continue;
+            }
+            let mut ids = BTreeSet::new();
+            for part in text.split(' ').filter(|_| !text.is_empty()) {
+                let id = parse(part).unwrap();
+                if !ids.insert(id) {
+                    reasons.insert("spawn.addon_loader_invalid".into());
+                }
+                let capture = source.get("addon_loader_capture");
+                let spells = capture.map_or_else(
+                    || rows(source, "spell_template"),
+                    |c| c["rows"].as_array().unwrap().as_slice(),
+                );
+                let Some(spell) = spells.iter().find(|s| int(&s["Id"]) == i128::from(id)) else {
+                    reasons.insert(
+                        if capture.is_some() {
+                            "spawn.addon_loader_invalid"
+                        } else {
+                            "spawn.addon_loader_lookup_required"
+                        }
+                        .into(),
+                    );
+                    continue;
+                };
+                let effects = [1, 2, 3].map(|i| int(&spell[format!("Effect{i}")]));
+                if !effects
+                    .iter()
+                    .any(|e| [6, 27, 35, 119, 3, 77, 64].contains(e))
+                {
+                    reasons.insert("spawn.addon_loader_invalid".into());
+                }
+                if !dbcs.contains_key("SpellCastTimes") {
+                    reasons.insert("spawn.addon_loader_lookup_required".into());
+                }
+                if lookup("SpellCastTimes", int(&spell["CastingTimeIndex"]))
+                    .is_some_and(|r| (r.word(1) as i32) > 0)
+                {
+                    reasons.insert("spawn.addon_loader_invalid".into());
+                }
+                for (slot, effect) in effects.into_iter().enumerate() {
+                    if effect == 0 {
+                        break;
+                    }
+                    let slot = slot + 1;
+                    if int(&spell[format!("EffectImplicitTargetA{slot}")]) != 1
+                        || ![0, 1].contains(&int(&spell[format!("EffectImplicitTargetB{slot}")]))
+                    {
+                        reasons.insert("spawn.addon_loader_strict_setting_required".into());
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    if let Some(addon) = raw.into_iter().find_map(|rows| rows.first()) {
+        if nonzero(&addon["mount"])
+            || nonzero(&addon["stand_state"])
+            || nonzero(&addon["emote"])
+            || ![0, 1, 2].contains(&int(&addon["sheath_state"]))
+            || !(addon["auras"].is_null() || addon["auras"] == "")
+        {
+            reasons.insert("spawn.addon_execution_required".into());
+        }
+    }
+}
+pub(in super::super) fn plan(
+    source: &Value,
+    entry: i128,
+    native: &Value,
+    dbcs: &Tables,
+) -> Result<Value> {
     let templates: BTreeMap<_, _> = rows(source, "creature_template")
         .iter()
         .map(|r| (int(&r["Entry"]), r))
@@ -48,6 +154,9 @@ pub(in super::super) fn plan(source: &Value, entry: i128, native: &Value) -> Res
         let dependency = native
             .as_array()
             .and_then(|values| values.iter().find(|value| int(&value["guid"]) == guid));
+        if let Some(dependency) = dependency {
+            addon_refusals(source, dependency, dbcs, &mut reasons);
+        }
         if let Some(dependency) =
             dependency.filter(|_| source.get("spawn_context_capture").is_some())
         {
@@ -87,18 +196,6 @@ pub(in super::super) fn plan(source: &Value, entry: i128, native: &Value) -> Res
                 || int(&template["UnitFlags"]) > 0xffffffff
             {
                 reasons.insert("spawn.override_execution_required".into());
-            }
-            for table in ["creature_addon", "creature_template_addon"] {
-                for addon in dependency["tables"][table]["rows"].as_array().unwrap() {
-                    if nonzero(&addon["mount"])
-                        || nonzero(&addon["stand_state"])
-                        || nonzero(&addon["emote"])
-                        || ![0, 1, 2].contains(&int(&addon["sheath_state"]))
-                        || !(addon["auras"].is_null() || addon["auras"] == "")
-                    {
-                        reasons.insert("spawn.addon_execution_required".into());
-                    }
-                }
             }
         } else {
             reasons.insert("spawn.context_coverage_required".to_string());
