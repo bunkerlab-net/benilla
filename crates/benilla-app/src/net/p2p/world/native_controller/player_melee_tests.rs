@@ -55,7 +55,7 @@ impl ClientCatalog for MeleeCatalog {
         Catalog.item_metadata(id)
     }
     fn contains_spell(&self, id: u32) -> bool {
-        Catalog.contains_spell(id)
+        id == 6603 || Catalog.contains_spell(id)
     }
     fn player_power_type(&self, id: PlayerId) -> Option<u8> {
         Catalog.player_power_type(id)
@@ -405,4 +405,108 @@ fn captured_staff_neutral_retaliation_mid_swing_save_reopen_matches_uninterrupte
         }
     }
     assert!(later_swings >= 2);
+}
+
+#[test]
+fn learned_attack_6603_marker_routes_staff_start_swing_stop_not_cast() {
+    let h = Harness::new();
+    let mut c = enter_captured_staff(&h.root, &h, false);
+    assert!(matches!(
+        c.world
+            .profile()
+            .abilities
+            .iter()
+            .find(|a| a.id == 6603)
+            .unwrap()
+            .admission,
+        n::AbilityAdmission::Unavailable { .. }
+    ));
+    c.receive(ClientCommand::AttackSwing { guid: guid(&c, 2) })
+        .unwrap();
+    let start = step(&mut c);
+    assert!(start.events.iter().any(|event| matches!(event,
+        SessionEvent::AttackStart { attacker, victim } if *attacker == c.player_guid()
+            && *victim == guid(&c, 2))));
+    let mut swung = false;
+    for _ in 0..100 {
+        let out = step(&mut c);
+        swung |= out.events.iter().any(|event| {
+            matches!(event,
+            SessionEvent::AttackerState(attack) if attack.attacker == c.player_guid())
+        });
+        if swung {
+            break;
+        }
+    }
+    assert!(swung);
+    c.receive(ClientCommand::AttackStop).unwrap();
+    let stop = step(&mut c);
+    assert!(stop.events.iter().any(|event| matches!(event,
+        SessionEvent::AttackStop { attacker, .. } if *attacker == c.player_guid())));
+    for _ in 0..100 {
+        assert!(!step(&mut c).events.iter().any(|event| matches!(event,
+            SessionEvent::AttackerState(attack) if attack.attacker == c.player_guid())));
+    }
+    let mana = c.world.state().resources.caster.mana;
+    c.receive(ClientCommand::CastSpell {
+        spell_id: 6603,
+        target: Some(guid(&c, 2)),
+    })
+    .unwrap();
+    let refused = step(&mut c);
+    assert!(refused.events.iter().any(|event| matches!(
+        event,
+        SessionEvent::CastResult {
+            spell_id: 6603,
+            success: false,
+            ..
+        }
+    )));
+    assert!(!refused.events.iter().any(|event| matches!(
+        event,
+        SessionEvent::SpellStart { .. }
+            | SessionEvent::SpellGo { .. }
+            | SessionEvent::AttackStart { .. }
+    )));
+    assert!(c.world.state().casts.is_empty());
+    assert_eq!(c.world.state().resources.caster.mana, mana);
+}
+
+#[test]
+fn mutated_attack_6603_does_not_enable_controller_melee() {
+    let h = Harness::new();
+    let (mut profile, mut input) = melee_fixture::captured_staff_setup(60);
+    profile.player_melee = None;
+    input
+        .spells
+        .iter_mut()
+        .find(|row| row.id == 6603)
+        .unwrap()
+        .words[61] = 2;
+    let before = profile.digest();
+    assert!(profile.initialize_captured_player_melee(&input, 1).is_err());
+    assert_eq!(profile.digest(), before);
+    let mut c = NativeController::enter_component_test(
+        &h.root,
+        &h.profile,
+        &h.character,
+        Entry::Create {
+            world: [8; 16],
+            seed: 42,
+        },
+        profile,
+        &MeleeCatalog,
+        melee_fixture::CapturedStaffAuthority::default(),
+    )
+    .unwrap();
+    let before = c.world.state_digest();
+    assert!(matches!(
+        c.receive(ClientCommand::AttackSwing { guid: guid(&c, 2) }),
+        Err(Error::UnsupportedCommand)
+    ));
+    assert!(matches!(
+        c.receive(ClientCommand::AttackStop),
+        Err(Error::UnsupportedCommand)
+    ));
+    assert_eq!(c.world.state_digest(), before);
 }
