@@ -28,7 +28,10 @@ original assembler accepts empty groups and can produce a translated zero box;
 that behavior is not needed for this narrower captured-product input.
 
 Finite inputs and finite intermediate vertex arithmetic are required. Rotation
-is limited to inclusive -360 through 360 degrees by the named source-trig adapter.
+is limited to inclusive ±1800 degrees by the separate assembler source-trig
+adapter. The measured maximum across all unique M2 records is 1758.5 degrees;
+five full turns leave 41.5 degrees of margin. Raw degrees are not wrapped.
+The policy is `cmangos-vertex-bounds-source-pi-euler1800-v2`.
 Finite zero/negative scale and harmless underflow are retained. These are explicit
 stricter validation rules; the original C++ routine has no equivalent validation.
 A global 16,777,216 vertex-visit budget bounds repeated large-model instances.
@@ -43,6 +46,12 @@ half-scale signed-zero geometry, and a rotated/scaled instance. Two original WMO
 fixtures verify ordinary endpoint preservation. A separate source-derived global
 shift case checks the +0 z signed-zero behavior. These authored fixtures do not
 establish arbitrary native C++ libm or real-installation map parity.
+
+All 3,245 real unique M2 records outside the older ±360-degree domain were
+checked privately against Linux glibc 2.44 float sine/cosine after the exact
+double-PI conversion from `TileAssembler.h:48`. Their 19,470 component
+comparisons have zero differing bits and maximum zero ULP. Signed endpoint and
+adjacent-float tests cover the new bound without expanding other trig profiles.
 
 An authored MPQ integration carries a parent, multiple doodads, a separate M2 and
 duplicate cross-tile IDs through capture, record generation, indexing and bounds.

@@ -3,7 +3,7 @@
 use crate::{DoodadProjectionProfile, PlacementRecords, PreparedDiscovery};
 use std::{collections::HashMap, fmt};
 
-pub const ASSEMBLED_BOUNDS_POLICY: &str = "cmangos-vertex-bounds-source-pi-v1";
+pub const ASSEMBLED_BOUNDS_POLICY: &str = "cmangos-vertex-bounds-source-pi-euler1800-v2";
 pub const MAX_BOUND_VERTEX_VISITS: usize = 16_777_216;
 #[derive(Debug)]
 pub enum SpawnBoundsError {
@@ -231,11 +231,12 @@ fn multiply(a: Matrix, b: Matrix) -> Matrix {
 }
 fn rotation(angles: [f32; 3]) -> Result<Matrix, SpawnBoundsError> {
     let trig = |angle: f32| -> Result<[f32; 2], SpawnBoundsError> {
-        if !angle.is_finite() || !(-360.0..=360.0).contains(&angle) {
+        if !angle.is_finite() || !(-1800.0..=1800.0).contains(&angle) {
             return Err(SpawnBoundsError::Numeric);
         };
+        // TileAssembler.h:48 converts raw degrees with double G3D PI before narrowing.
         let radians = (f64::from_bits(0x4009_21fb_5444_2d28) * f64::from(angle) / 180.0) as f32;
-        benilla_sim::source_trig::sin_cos_radians_bits_native(radians.to_bits())
+        benilla_sim::source_trig::sin_cos_assembler_radians_bits_native(radians.to_bits())
             .map(|v| v.map(f32::from_bits))
             .map_err(|_| SpawnBoundsError::Numeric)
     };
@@ -343,6 +344,26 @@ fn m2_bounds(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn measured_raw_m2_angles_are_supported_without_degree_wrapping() {
+        for angle in [-1800.0, -1758.5, 458.42255, 1758.5, 1800.0] {
+            assert!(rotation([0.0, angle, -1.5]).is_ok());
+        }
+        for angle in [
+            -f32::from_bits(1800.0_f32.to_bits() + 1),
+            f32::from_bits(1800.0_f32.to_bits() + 1),
+        ] {
+            assert!(matches!(
+                rotation([angle, 0.0, 0.0]),
+                Err(SpawnBoundsError::Numeric)
+            ));
+        }
+        let matrix = rotation([0.0, 1800.0, 0.0]).unwrap();
+        assert_eq!(matrix[1][0].to_bits(), 0xb515_5386);
+        assert_eq!(matrix[0][0].to_bits(), 0x3f80_0000);
+        assert_ne!(matrix, rotation([0.0; 3]).unwrap());
+    }
     fn fixture(name: &str) -> Vec<u8> {
         std::fs::read(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -402,7 +423,7 @@ mod tests {
         ));
         for (position, angles, scale) in [
             ([f32::MAX; 3], [0.0; 3], f32::MAX),
-            ([0.0; 3], [361.0, 0.0, 0.0], 1.0),
+            ([0.0; 3], [1801.0, 0.0, 0.0], 1.0),
             ([0.0; 3], [0.0; 3], f32::NAN),
         ] {
             assert!(matches!(

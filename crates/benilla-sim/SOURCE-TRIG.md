@@ -132,3 +132,19 @@ Linux glibc 2.44 float sine/cosine produce zero differing bits in 5,082
 component comparisons. Authored endpoint, adjacent-float, negative-zero and
 out-of-domain tests preserve the new bound and the old API refusals.
 This is measured compatibility, not a universal host-libm parity guarantee.
+
+## Bounded raw assembler-angle profile
+
+`sin_cos_assembler_radians_bits_native` keeps the source assembler's separate
+precision and admission contract. Its policy is
+`glibc-2.41-assembler1800-sincos-native-unfused-rne-v1`; inclusive radians
+±`0x41fb53d1` cover raw degrees ±1800 after the double-PI calculation in
+`TileAssembler.h:48`. The measured maximum across unique real M2 records is
+1758.5 degrees, leaving 41.5 degrees of margin. The caller never wraps degrees.
+
+The maximum radian magnitude is below 32 and the source fast-reduction boundary
+of 120. Scaled conversion and the following rounding addition fit signed int32.
+The unchanged reducer/polynomial matches Linux glibc 2.44 float sine/cosine
+exactly for 19,470 private component comparisons across all 3,245 previously
+out-of-domain unique M2 records. Endpoint tests also preserve the narrower
+Euler profile's refusals. This is measured compatibility, not a general libm.
