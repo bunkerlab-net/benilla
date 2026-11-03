@@ -53,7 +53,7 @@ jobs:
           version: latest
           backend: github
           github-cache-mode: target
-          cache-generation: ci-ubuntu26-v1
+          cache-generation: ci-ubuntu26-v2
           # Same-repository PR writes stay in that PR's cache scope; forks never save.
           save-on-pull-request: true
           save-on-workflow-dispatch: true
@@ -907,6 +907,18 @@ jobs:
           python3 crates/benilla-sim/tools/generate_initial_cast_phase_fixture.py --check
       - name: packaging-tests
         run: python3 scripts/test-package-player.py
+      - name: Bound workspace cache payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The action keeps old hashes for live crates and has no target size limit.
+          # Skip its post-job save above 24 GiB, after every target consumer finishes.
+          size_mib=$(du -scm --apparent-size target "${CARGO_HOME:-$HOME/.cargo}" "$RUNNER_TEMP/mbx-target-tool" | awk 'END {print $1}')
+          echo "Workspace cache payload: ${size_mib} MiB"
+          if (( size_mib > 24576 )); then
+            echo "Workspace cache payload is ${size_mib} MiB; removing target to skip the cache save."
+            rm -rf -- target
+          fi
       - name: Report unavailable data checks
         if: always()
         shell: bash

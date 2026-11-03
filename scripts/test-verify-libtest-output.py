@@ -1348,7 +1348,7 @@ class ExactProofTests(unittest.TestCase):
     def test_f05_diagnostic_cache_namespace_is_separate_from_canonical_jobs(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         expected = {
-            "workspace-gates": "ci-ubuntu26-v1",
+            "workspace-gates": "ci-ubuntu26-v2",
             "f05-private-diagnostic": "ci-f05-private-diagnostic-ubuntu26-v1",
             "workspace-tests": "ci-workspace-tests-ubuntu26-v1",
             "player-gates": "ci-player-ubuntu26-v1",
@@ -1368,6 +1368,40 @@ class ExactProofTests(unittest.TestCase):
             self.assertNotRegex(setup[0], r"(?m)^          (?:cache-key|cache-key-suffix|restore-keys):", job)
             actual[job] = values[0]
         self.assertEqual(len(set(actual.values())), len(actual))
+
+    def test_workspace_cache_budget_runs_after_all_target_consumers(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        job = workflow.split("  workspace-gates:\n", 1)[1].split("\n  f05-private-diagnostic:", 1)[0]
+        steps = re.split(r"(?=^      - )", job, flags=re.MULTILINE)
+        title = "Bound workspace cache payload"
+        budget = [i for i, step in enumerate(steps) if step.startswith(f"      - name: {title}\n")]
+        self.assertEqual(len(budget), 1)
+        self.assertNotRegex(steps[budget[0]], r"(?m)^        (?:if|continue-on-error):")
+        consumers = [
+            i for i, step in enumerate(steps)
+            if re.search(r"\b(?:mbx|cargo)\s+(?:build|check|clippy|test|rustc|doc)\b", step)
+            or step.startswith("      - name: packaging-tests\n")
+        ]
+        self.assertTrue(consumers)
+        self.assertGreater(budget[0], max(consumers))
+        shell = workflow_gate(title)
+        self.assertIn('du -scm --apparent-size target "${CARGO_HOME:-$HOME/.cargo}" "$RUNNER_TEMP/mbx-target-tool"', shell)
+        for size, removed in ((24576, False), (24577, True)):
+            with self.subTest(size_mib=size), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                du = root / "du"
+                du.write_text(f"#!/bin/sh\nprintf '{size}\\ttotal\\n'\n")
+                du.chmod(0o755)
+                rm = root / "rm"
+                rm.write_text("#!/bin/sh\nprintf 'removed %s\\n' \"$*\"\n")
+                rm.chmod(0o755)
+                result = subprocess.run(
+                    ["bash", "-c", shell], text=True, capture_output=True, timeout=10,
+                    env={**os.environ, "PATH": f"{root}:{os.environ['PATH']}", "RUNNER_TEMP": str(root)},
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn(f"Workspace cache payload: {size} MiB\n", result.stdout)
+                self.assertEqual("removed -rf -- target\n" in result.stdout, removed)
 
     def test_f05_release_gate_builds_matching_profile_navigation_helper(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
