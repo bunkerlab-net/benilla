@@ -59,6 +59,12 @@ PPM-rate bits, cooldowns and categories), item sets and StartQuest. None of thos
 executes an equip/use effect merely because an item is stored. Equip and use
 readiness remain explicit failures; they are not inferred from grant success.
 
+`store_starter_item` creates initializer-proven backpack stacks through the
+existing storage plan. It preserves binding and initial charges without the
+admin grant's self-unbinding callback. CMaNGOS `Player.cpp:952-978` uses
+`CanStoreNewItem` and `StoreNewItem` for starting backpack items. This route
+does not widen ordinary loot or quest reward readiness.
+
 Storage requires evidence that creation/loot scripts, equipped bags, bank/keyring
 items, trade/temporary loot and additional mutations are absent. The last audit
 means mutations beyond the policy's explicitly named storage, positive grant,

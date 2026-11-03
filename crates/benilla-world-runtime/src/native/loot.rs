@@ -288,7 +288,7 @@ impl NativeLootGenesis {
         // the already-created worn objects afterward; this is not CloneItem or
         // a claim about the source server's global low-GUID allocation order.
         for stack in &mage.inventory {
-            inventory.store_new(catalog, stack.item, stack.count, |_, _, _| Ok(()))?;
+            inventory.store_starter_item(catalog, stack.item, stack.count)?;
         }
         let mut registered = BTreeMap::new();
         for (&slot, item) in &mage.equipped {

@@ -534,7 +534,9 @@ impl PlayerCombatState {
         origin: u64,
         diff: u32,
     ) -> Result<Self, NativeError> {
-        Self::restore_inner(g, s, health, mana, now, tick, origin, diff, false, None)
+        Self::restore_inner(
+            g, s, health, mana, now, tick, origin, diff, false, false, None,
+        )
     }
     /// Provisional component reconstruction for an explicitly selected profile.
     /// The containing checkpoint must validate the complete player melee proof.
@@ -549,7 +551,9 @@ impl PlayerCombatState {
         origin: u64,
         diff: u32,
     ) -> Result<Self, NativeError> {
-        Self::restore_inner(g, s, health, mana, now, tick, origin, diff, true, None)
+        Self::restore_inner(
+            g, s, health, mana, now, tick, origin, diff, true, false, None,
+        )
     }
     /// The containing quest owner independently replays the complete source
     /// journal before calling this entry. Persisted membership is not authority.
@@ -565,6 +569,7 @@ impl PlayerCombatState {
         origin: u64,
         diff: u32,
         selected_melee: bool,
+        consumables: bool,
     ) -> Result<Self, NativeError> {
         Self::restore_inner(
             g,
@@ -576,6 +581,7 @@ impl PlayerCombatState {
             origin,
             diff,
             selected_melee,
+            consumables,
             Some(recipe),
         )
     }
@@ -590,6 +596,7 @@ impl PlayerCombatState {
         origin: u64,
         diff: u32,
         selected_melee: bool,
+        consumables: bool,
         replayed_recipe: Option<init::StatRecipe>,
     ) -> Result<Self, NativeError> {
         let death = match (&g.death, s.death) {
@@ -662,7 +669,7 @@ impl PlayerCombatState {
             || s.next_action == 0
             || s.next_action > tick.saturating_mul(4096).saturating_add(1)
             || (s.next_action == 1) != (s.action_tip == [0; 32])
-            || !s.standing
+            || (!s.standing && !consumables)
             || s.has_channeled_spell
             || s.has_auto_repeat_spell
             || s.combat_tick_ms > 1200

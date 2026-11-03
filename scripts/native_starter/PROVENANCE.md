@@ -339,3 +339,28 @@ exclude regardless of cubic overshoot, timing, model extent, or passenger offset
 Same-map paths retain separate interpolation-parameter and swept-model-bounds
 obligations. No transport lifecycle, gameplay authority, or native format changes.
 
+
+## Starting Food and Drink
+
+The Food 433 and Drink 430 planners bind the complete selected numeric rows,
+item-use spell slot, finite duration, registry rows, and initial hook closure.
+They do not establish effective learning or create a production capability.
+
+- [Player.cpp:7463-7502](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Player.cpp#L7463-L7502)
+  selects the on-use item spell.
+- [Spell.cpp:4314-4375](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Spells/Spell.cpp#L4314-L4375)
+  consumes one expendable stack member without decrementing the surviving
+  stack's spell charges.
+- [SpellAuras.cpp:3617-3646](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Spells/SpellAuras.cpp#L3617-L3646)
+  starts both periodic timers at 5000 ms. Food falls back to a 5000 ms period;
+  mana Drink falls back to 2000 ms.
+- [SpellAuras.cpp:4953-4990](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Spells/SpellAuras.cpp#L4953-L4990)
+  modifies Food health before calling healing assist. Drink's periodic callback
+  emits an eating emote. Its mana comes from the Player regeneration owner.
+- [HostileRefManager.cpp:39-67](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Combat/HostileRefManager.cpp#L39-L67)
+  filters existing hostile references by crowd control and current CanAttack,
+  divides healing threat among those references, then calls addThreat.
+  Food passes ignoreTimer=true, so it does not refresh the combat timer.
+- [spell_scripts.cpp:154-173](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/AI/ScriptDevAI/scripts/world/spell_scripts.cpp#L154-L173)
+  defines separate Food visual 406 and Drink visual 438 scripts. Food's selected
+  named registry binding does not prove a Drink script binding.

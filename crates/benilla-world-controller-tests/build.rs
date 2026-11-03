@@ -134,6 +134,8 @@ fn main() {
         "ForceSpeedAck",
         "CancelCast",
         "CastSpell",
+        "UseItem",
+        "StandStateChange",
         "AttackSwing",
         "AttackStop",
         "QuestgiverAccept",

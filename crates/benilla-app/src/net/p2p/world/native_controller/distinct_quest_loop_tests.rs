@@ -79,7 +79,42 @@ impl ClientCatalog for LoopCatalog {
     fn player_bytes_2(&self, player: PlayerId) -> Option<u32> {
         Catalog.player_bytes_2(player)
     }
+    fn native_item_spell_query(
+        &self,
+        id: u32,
+    ) -> Option<benilla_world_client::NativeItemSpellQuery> {
+        matches!(id, 430 | 433).then_some(benilla_world_client::NativeItemSpellQuery::Present {
+            recovery_time: 0,
+            category: if id == 430 { 59 } else { 11 },
+            category_recovery_time: 60_000,
+        })
+    }
     fn item_metadata(&self, entry: u32) -> Option<benilla_protocol::messages::ItemInfo> {
+        if matches!(entry, 159 | 2070) {
+            let mut info = self.item_metadata(70001)?;
+            let (spell_id, category) = if entry == 159 { (430, 59) } else { (433, 11) };
+            info.class = 0;
+            info.name = format!("Authored starting item {entry}");
+            info.required_level = 1;
+            info.stackable = 20;
+            info.spell_charges_0 = -1;
+            info.spells = vec![benilla_protocol::messages::ItemSpellEntry {
+                index: 0,
+                spell_id,
+                trigger: 0,
+                charges: -1,
+                cooldown_ms: 0,
+                category,
+                category_cooldown_ms: 1000,
+            }];
+            info.use_spell = Some(benilla_protocol::messages::ItemUseSpell {
+                spell_id,
+                cooldown_ms: 0,
+                category,
+                category_cooldown_ms: 1000,
+            });
+            return Some(info);
+        }
         if !matches!(entry, 70001 | 900001) {
             return None;
         }

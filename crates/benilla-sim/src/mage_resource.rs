@@ -180,6 +180,14 @@ pub fn mage_spirit_regen(spirit: u32) -> Result<SpellFloat, SpellError> {
     let narrowed: Single = checked(wide.convert_r(R, &mut false))?;
     output(checked(narrowed.div_r(integer(2)?, R))?)
 }
+/// SpellAuras.cpp:4961 and HostileRefManager.cpp:60-64, neutral threat modifiers.
+pub fn healing_assist_threat(gain: u32, references: u32) -> Result<SpellFloat, SpellError> {
+    if references == 0 || references > 4096 {
+        return Err(SpellError::Domain("healing assist references"));
+    }
+    let half = checked(stat(gain)?.mul_r(Single::from_bits(0x3f00_0000), R))?;
+    output(checked(half.div_r(integer(i64::from(references))?, R))?)
+}
 /// Resolved source aura aggregates, with no inferred neutral defaults. Aggregation
 /// order, spell eligibility and passive/item application must be proven upstream.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

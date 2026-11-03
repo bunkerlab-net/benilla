@@ -89,9 +89,13 @@ mod source_splines;
 pub mod synthetic_source_spline_fixture;
 pub use source_splines::{PlayerSplineStop, SourceSplineIds, SplineAllocation};
 mod engine;
+mod food_drink;
 mod frost_armor;
+pub use food_drink::{ConsumableHolder, FoodDrinkEvent, FoodDrinkState};
 pub use frost_armor::{ChilledHolder, FrostArmorEvent, FrostArmorHolder};
 pub mod environment;
+#[cfg(test)]
+mod food_drink_tests;
 #[cfg(test)]
 mod frost_armor_tests;
 mod npc_events;
@@ -120,6 +124,8 @@ mod motion;
 pub mod synthetic_distinct_quest_fixture;
 #[cfg(any(test, feature = "synthetic-native-tests"))]
 pub mod synthetic_event_ai_fixture;
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub mod synthetic_food_drink_fixture;
 #[cfg(any(test, feature = "synthetic-native-tests"))]
 pub mod synthetic_frost_armor_fixture;
 #[cfg(any(test, feature = "synthetic-native-tests"))]
@@ -172,8 +178,8 @@ pub use persistence::{PendingWanderAndChaseReopen, PendingWanderReopen};
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 85;
-pub const NATIVE_POLICY: &str = "benilla-native-solo-spell-lifecycles-v85";
+pub const NATIVE_FORMAT_VERSION: u32 = 86;
+pub const NATIVE_POLICY: &str = "benilla-native-solo-food-drink-v86";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -524,6 +530,10 @@ impl NativeWorld {
         }
         let mut state = State {
             frost_armor: None,
+            food_drink: food_drink::selected(&profile).then(|| FoodDrinkState {
+                holders: BTreeMap::new(),
+                heartbeat_remaining_ms: 0,
+            }),
             creature_pose_cells: None,
             source_splines: SourceSplineIds::new(&profile),
             watched_faction: watched_faction::WatchedFactionState::default(),
@@ -594,7 +604,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v85\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v86\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest

@@ -707,6 +707,50 @@ pub(super) fn current_npc_flags(
     }
     Ok((if npc.health == 0 { 0 } else { flags }, unit_flags))
 }
+/// HostileRefManager.cpp:39-67. No admitted operation changes the default
+/// CanEnterCombat without the existing source-motion owner.
+pub(super) fn healing_assist_references(
+    profile: &Profile,
+    state: &State,
+) -> Result<Vec<NpcId>, NativeError> {
+    if profile
+        .source_motion
+        .as_ref()
+        .is_some_and(|s| !s.player_can_enter_combat)
+    {
+        return Ok(vec![]);
+    }
+    let catalog = profile
+        .interactions
+        .as_ref()
+        .ok_or(NativeError::InvalidState)?;
+    let mut references = Vec::new();
+    for npc in state.npcs.values() {
+        if npc.ai.hostile_reference().is_none() {
+            continue;
+        }
+        let (_, flags) = current_npc_flags(profile, state, npc)?;
+        if flags & 0x00c4_0000 != 0 {
+            continue;
+        }
+        let npc_profile = profile.npc(npc.id.spawn).ok_or(NativeError::InvalidState)?;
+        let source = catalog
+            .npcs
+            .get(&npc_profile.entry)
+            .ok_or(NativeError::InvalidState)?;
+        let view = CurrentView {
+            profile,
+            state,
+            catalog,
+            npc: npc.into(),
+            source,
+        };
+        if view.can_attack(relations::Side::Npc)? == ai::movement::Check::Passed {
+            references.push(npc.id);
+        }
+    }
+    Ok(references)
+}
 
 pub(super) fn resolve(
     profile: &Profile,

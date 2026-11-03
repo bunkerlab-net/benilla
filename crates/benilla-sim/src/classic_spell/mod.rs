@@ -7,7 +7,9 @@
 //! damage/AI engine. Native admission remains closed; see ../../SPELLS.md.
 //! Every supplied check, stat and modifier-exclusion assertion must be resolved
 //! from authoritative state. Never use a default 'true' to admit native content.
+mod consumable;
 mod lifecycle;
+pub use consumable::{ConsumableAura, ConsumableUpdate};
 mod numeric;
 pub use lifecycle::{AuraLifecycleSpec, AuraLifecycleUpdate, TimedAura};
 mod instant_aura;

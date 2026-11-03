@@ -9,6 +9,8 @@ use std::collections::BTreeSet;
 
 #[path = "spell_authority/captured.rs"]
 mod captured;
+#[path = "spell_authority/consumable.rs"]
+mod consumable;
 #[path = "spell_authority/frost.rs"]
 mod frost;
 pub use captured::{
@@ -35,7 +37,7 @@ mod full_raw_tests;
 #[path = "spell_interrupt_tests.rs"]
 mod interrupt_tests;
 
-pub const SPELL_AUTHORITY_POLICY: &str = "cmangos-8ec338a1-native-spell-authority-v7";
+pub const SPELL_AUTHORITY_POLICY: &str = "cmangos-8ec338a1-native-spell-authority-v8";
 const CANT_CRIT: u32 = 0x2000_0000;
 const NOT_SHAPESHIFT: u32 = 0x0001_0000;
 const FIREBALL_BONUS_COEFFICIENT: u32 = 0x3dfb_e76d;
@@ -106,8 +108,20 @@ pub struct SpellHookSources {
 impl SpellHookSources {
     fn validate(&self) -> Result<(), NativeError> {
         self.spell_area.complete()?;
-        self.spell_script_names
-            .empty("spell script source closure")?;
+        match &self.spell_script_names {
+            SpellSourceRows::Complete(rows)
+                if rows.is_empty() || rows.as_slice() == ["spell_food_animation"] => {}
+            SpellSourceRows::Unknown => {
+                return Err(NativeError::AuthorityUnavailable(
+                    "spell script source closure",
+                ))
+            }
+            _ => {
+                return Err(NativeError::UnsupportedMechanic(
+                    "spell script source closure",
+                ))
+            }
+        }
         self.conditions.empty("spell condition source closure")?;
         self.spell_proc_event
             .empty("spell_proc_event source closure")?;
@@ -627,11 +641,27 @@ impl SpellAuthorityCatalog {
                 "spell zero-resistance level domain",
             ));
         }
-        let frost = self.spells.keys().copied().eq([133, 168, 6136]);
-        if !frost && !self.spells.keys().copied().eq([133]) {
+        let consumables = self.spells.contains_key(&430) && self.spells.contains_key(&433);
+        let frost = self.spells.contains_key(&168) && self.spells.contains_key(&6136);
+        if !self.spells.keys().copied().eq([133]
+            .into_iter()
+            .chain(frost.then_some(168))
+            .chain(consumables.then_some(430))
+            .chain(consumables.then_some(433))
+            .chain(frost.then_some(6136)))
+        {
             return Err(NativeError::UnsupportedMechanic(
-                "audited Fireball and Frost Armor closure",
+                "audited Fireball, Frost Armor and item consumable closure",
             ));
+        }
+        if consumables {
+            for id in [430, 433] {
+                crate::native::food_drink::resources(profile, id)?;
+            }
+        } else {
+            self.modifier_hooks
+                .spell_script_names
+                .empty("modifier script source closure")?;
         }
         if frost {
             let companion = &self.spells[&133].words;
@@ -830,6 +860,9 @@ impl SpellAuthoritySource {
     }
     fn validate(&self) -> Result<(), NativeError> {
         let w = &self.words;
+        if w.len() == 173 && matches!(w[0], 430 | 433) {
+            return self.validate_consumable();
+        }
         if w.len() == 173 && matches!(w[0], 168 | 6136) {
             return self.validate_frost();
         }
@@ -837,6 +870,9 @@ impl SpellAuthoritySource {
             return Err(NativeError::InvalidProfile);
         }
         self.hooks.validate()?;
+        self.hooks
+            .spell_script_names
+            .empty("projectile script source closure")?;
         // Ordinary mage MAGIC, explicit enemy target. Unknown bits stay closed.
         // CANT_CRIT is admitted deliberately and overrides the player's crit stat.
         if !matches!(w[6], 0 | NOT_SHAPESHIFT)

@@ -1227,3 +1227,22 @@ Previously recorded `Player.cpp`, `Unit.cpp`, and `ObjectMgr.cpp` hashes cover
 [quest lifecycle contract](QUEST-LIFECYCLE.md#checked-completion-scripts-and-quest-gossip)
 lists the exact supported shapes and refusals. No database or DBC rows enter the
 repository; all checked-in mechanics fixtures are authored.
+
+## Starting Food and Drink counters
+
+`classic_spell::ConsumableAura`, cast-item stack removal, seated health
+regeneration and healing-assist arithmetic translate the bounded CMaNGOS
+Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f` paths. Copyright CMaNGOS
+Project contributors. Upstream GPL-2.0-or-later; Rust translation
+GPL-3.0-or-later, without warranty.
+
+`SpellAuras.cpp:395-407,3617-3646,4953-4990,5666-5683` supplies the initial
+timer, periodic debt, callback and expiry order. `Spell.cpp:4314-4375` owns
+stacked cast-item consumption. `Player.cpp:2377-2411` supplies the seated
+health multiplier. `HostileRefManager.cpp:39-67` and
+`ThreatManager.cpp:34-56,446-467` supply neutral healing-assist arithmetic
+and existing-reference updates without pursuit refresh.
+
+The [native spell contract](../benilla-world-runtime/SPELL-AUTHORITY.md#starting-food-and-drink)
+defines the selected runtime domain. These numeric reducers do not admit
+production gameplay or bundle upstream database or DBC rows.

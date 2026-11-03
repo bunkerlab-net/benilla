@@ -8,6 +8,9 @@ impl SpellAuthoritySource {
             return Err(NativeError::InvalidProfile);
         }
         self.hooks.validate()?;
+        self.hooks
+            .spell_script_names
+            .empty("Frost Armor script source closure")?;
         let armor = w[0] == 168;
         let expected = [
             (1, 4),

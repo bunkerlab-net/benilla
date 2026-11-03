@@ -86,15 +86,23 @@ pub fn aura_source(id: u32) -> SpellAuthoritySource {
     }
 }
 pub fn profile() -> Profile {
-    build(false)
+    build(false, false)
 }
 #[cfg(test)]
 pub(in crate::native) fn mainhand_profile() -> Profile {
-    build(true)
+    build(true, false)
 }
-fn build(mainhand: bool) -> Profile {
+pub(in crate::native) fn food_drink_profile() -> Profile {
+    build(false, true)
+}
+fn build(mainhand: bool, consumables: bool) -> Profile {
     let (mut profile, mut initial, mut progression) =
         synthetic_distinct_quest_fixture::setup_with_unbound_spells();
+    if consumables {
+        for npc in &mut profile.npcs {
+            npc.ai.spawn = synthetic_fixture::point(100.0 + npc.ai.creature_id as f32);
+        }
+    }
     if mainhand {
         let init::Rows::Complete(skills) = &mut initial.default_skills else {
             panic!("authored skills")
@@ -129,6 +137,9 @@ fn build(mainhand: bool) -> Profile {
     root.words = chilled.words.clone().try_into().unwrap();
     root.duration_ms = Some(1200);
     initial.spells.push(root);
+    if consumables {
+        synthetic_food_drink_fixture::augment(&mut initial, &mut progression);
+    }
     let init::Rows::Complete(roots) = &mut initial.default_spells else {
         panic!("authored roots")
     };
@@ -181,8 +192,14 @@ fn build(mainhand: bool) -> Profile {
         .initialize_quest_progression(&initial, progression)
         .unwrap();
     profile = synthetic_creature_model_fixture::with_complete_scene_generations(profile);
-    let mut source = synthetic_spell_fixture::context(&profile, vec![fireball, armor, chilled]);
-    source.modifier_spell_ids = SpellSourceRows::Complete(vec![133, 168, 6136]);
+    let mut spells = vec![fireball, armor, chilled];
+    if consumables {
+        spells.extend([430, 433].map(synthetic_food_drink_fixture::source));
+    }
+    spells.sort_by_key(|s| s.words[0]);
+    let ids = spells.iter().map(|s| s.words[0]).collect();
+    let mut source = synthetic_spell_fixture::context(&profile, spells);
+    source.modifier_spell_ids = SpellSourceRows::Complete(ids);
     profile
         .initialize_spell_authority(&initial, source)
         .unwrap();

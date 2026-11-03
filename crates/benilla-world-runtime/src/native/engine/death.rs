@@ -91,6 +91,18 @@ impl<A: Authority> Frame<'_, A> {
                 caster_aura_state: raw.words[16],
             });
         }
+        if let Some(food) = self.state.food_drink() {
+            for &id in food.holders.keys() {
+                let raw = crate::native::food_drink::source(self.profile, id)?;
+                holders.push(d::DeathAura {
+                    holder_id: u64::from(id),
+                    spell_id: id,
+                    attributes: raw.words[6],
+                    attributes_ex3: raw.words[9],
+                    caster_aura_state: raw.words[16],
+                });
+            }
+        }
         // Unit's holder multimap removes by spell-ID order, not insertion/allocator order.
         holders.sort_by_key(|h| (h.spell_id, h.holder_id));
         let (current, released) = self.death_spells();
@@ -199,6 +211,17 @@ impl<A: Authority> Frame<'_, A> {
                             .ok_or(NativeError::InvalidState)?;
                         self.events
                             .push(Event::FrostArmor(FrostArmorEvent::Removed));
+                    } else if matches!(spell_id, 430 | 433) && holder_id == u64::from(spell_id) {
+                        self.state
+                            .food_drink
+                            .as_mut()
+                            .ok_or(NativeError::InvalidState)?
+                            .holders
+                            .remove(&spell_id)
+                            .ok_or(NativeError::InvalidState)?;
+                        self.events.push(Event::FoodDrink(FoodDrinkEvent::Removed {
+                            spell: spell_id,
+                        }));
                     } else {
                         let slow = self.state.player_slow.as_mut().ok_or(
                             NativeError::UnsupportedMechanic("active player aura removal"),

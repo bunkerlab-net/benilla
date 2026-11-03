@@ -16,6 +16,7 @@ mod source_location;
 mod spell_authority;
 mod spell_range;
 use spell_authority::SpellHistory;
+mod food_drink;
 mod frost_armor;
 mod inventory;
 mod loot;
@@ -53,6 +54,7 @@ impl NativeWorld {
         initial_cast_genesis::validate_state(&self.profile, &self.state)?;
         player_melee::validate_weapon_history(&self.profile, &self.state)?;
         self.state.validate_frost_armor(&self.profile)?;
+        self.state.validate_food_drink(&self.profile)?;
         if tick != self.state.tick.checked_add(1).ok_or(NativeError::Limit)?
             || tick > crate::MAX_TICK
         {
@@ -169,6 +171,7 @@ impl NativeWorld {
         }
         frame.player_event_update()?;
         frame.player_frost_armor_update()?;
+        frame.player_food_drink_update()?;
         #[cfg(any(test, feature = "synthetic-native-tests"))]
         frame.synthetic_player_slow_effects(false)?;
         frame.player_slow_update()?;
@@ -230,7 +233,7 @@ impl NativeWorld {
         let events = frame.events;
         let draws = frame.draws;
         SourceSplineIds::validate_events(&self.state, &next, &events)?;
-        let after = crate::digest(b"benilla-native-state-v85\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v86\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -742,6 +745,8 @@ impl<A: Authority> Frame<'_, A> {
             Command::TurnInQuest { quest, giver } => self.quest_command(*quest, *giver, true, 0)?,
             Command::AbandonQuest { slot } => self.abandon_quest(*slot)?,
             Command::CastSelf { ability } => self.cast_frost_armor(*ability)?,
+            Command::UseItem { slot, spell_index } => self.use_consumable(*slot, *spell_index)?,
+            Command::SetStanding { standing } => self.set_standing(*standing, true)?,
             Command::ReleaseSpirit => Some(Rejection::SpiritReleaseUnavailable {
                 phase: self
                     .state
@@ -946,6 +951,14 @@ impl<A: Authority> Frame<'_, A> {
             }
             self.moved = true;
             self.movement_path.push(destination);
+        }
+        if self.state.food_drink.is_some()
+            && movement_flags.map_or(
+                destination != self.state.position || orientation != self.state.orientation,
+                |flags| flags.bits() & 0x3f != 0,
+            )
+        {
+            self.set_standing(true, false)?;
         }
         self.source_location(destination, orientation)?;
         // Pure turns do not fabricate travelled distance, interrupt movement-sensitive
@@ -1948,7 +1961,11 @@ impl<A: Authority> Frame<'_, A> {
             self.events.push(Event::Combat(CombatEvent::CriticalWound));
         }
         if callbacks.stand_up {
-            self.state.combat.as_mut().unwrap().standing = true;
+            if self.state.food_drink.is_some() {
+                self.set_standing(true, false)?;
+            } else {
+                self.state.combat.as_mut().unwrap().standing = true;
+            }
             self.events.push(Event::Combat(CombatEvent::StoodUp));
         }
         if callbacks.killed {
@@ -2138,7 +2155,7 @@ impl<A: Authority> Frame<'_, A> {
                 .combat
                 .as_ref()
                 .ok_or(NativeError::InvalidState)?;
-            if !combat.standing || !self.state.player_alive() {
+            if !self.state.player_alive() {
                 return Err(NativeError::InvalidState);
             }
             let spirit =
@@ -2151,6 +2168,7 @@ impl<A: Authority> Frame<'_, A> {
                     diff_ms,
                     health_rate: source.health_rate(),
                     in_combat: combat.in_combat,
+                    standing: combat.standing,
                 },
             )
             .map_err(|_| NativeError::UnsupportedMechanic("health regeneration numeric domain"))?;

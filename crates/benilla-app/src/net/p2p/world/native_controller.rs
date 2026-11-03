@@ -1030,6 +1030,27 @@ impl Driven for NativeController {
                 let input = self.projection.prepare_attack_stop(&self.world)?;
                 self.queue(input.input.command)?;
             }
+            ClientCommand::UseItem {
+                bag_index: 255,
+                slot,
+                spell_index,
+                target,
+            } if self.world.state().food_drink().is_some()
+                && matches!(
+                    target,
+                    benilla_protocol::messages::UseItemTarget::SelfImplicit
+                )
+                && (23..39).contains(&slot) =>
+            {
+                self.queue(n::Command::UseItem { slot, spell_index })?;
+            }
+            ClientCommand::StandStateChange { state }
+                if self.world.state().food_drink().is_some() && state <= 1 =>
+            {
+                self.queue(n::Command::SetStanding {
+                    standing: state == 0,
+                })?;
+            }
             ClientCommand::CastSpell {
                 spell_id: 168,
                 target,

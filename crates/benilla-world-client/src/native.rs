@@ -607,19 +607,40 @@ impl NativeProjection {
             .any(|a| a.admission == n::AbilityAdmission::FrostArmor)
         {
             let holder = w.state().frost_armor();
-            pairs.extend([
-                (47, if holder.is_some() { 168 } else { 0 }),
-                (95, if holder.is_some() { 5 } else { 0 }),
-                (
-                    101,
-                    holder.map_or(u32::from(w.player_level()), |h| u32::from(h.level)),
-                ),
-                (113, 0),
-            ]);
+            if w.state().food_drink().is_none() {
+                pairs.extend([
+                    (47, if holder.is_some() { 168 } else { 0 }),
+                    (95, if holder.is_some() { 5 } else { 0 }),
+                    (
+                        101,
+                        holder.map_or(u32::from(w.player_level()), |h| u32::from(h.level)),
+                    ),
+                    (113, 0),
+                ]);
+            }
             pairs.push((
                 1187,
                 (holder.map_or(0, |h| h.aura.armor()) as f32).to_bits(),
             ));
+        }
+        if let Some(food) = w.state().food_drink() {
+            let mut slots = [(0u32, 0u8); 3];
+            if let Some(frost) = w.state().frost_armor() {
+                slots[0] = (168, frost.level);
+            }
+            for holder in food.holders.values() {
+                slots[usize::from(holder.slot)] = (holder.spell, holder.level);
+            }
+            let mut flags = 0;
+            let mut levels = 0;
+            for (slot, (id, level)) in slots.into_iter().enumerate() {
+                pairs.push((47 + slot as u16, id));
+                if id != 0 {
+                    flags |= 5 << (slot * 4);
+                    levels |= u32::from(level) << (slot * 8);
+                }
+            }
+            pairs.extend([(95, flags), (101, levels), (113, 0)]);
         }
         SessionEvent::ObjectValues {
             guid: self.player_guid,
@@ -976,6 +997,14 @@ impl NativeProjection {
                 remaining_ms: holder.aura.remaining_ms() as i32,
             });
         }
+        if let Some(food) = w.state().food_drink() {
+            for holder in food.holders.values() {
+                events.push(SessionEvent::AuraDuration {
+                    slot: holder.slot,
+                    remaining_ms: holder.aura.remaining_ms() as i32,
+                });
+            }
+        }
         events.push(SessionEvent::ObjectMove {
             guid: self.player_guid,
             position: point(w.state().position),
@@ -1215,6 +1244,31 @@ impl NativeProjection {
                 n::Event::ItemAcquired(source) => events.push(self.item_acquired(*source, &mut loot_frame)?),
                 n::Event::NpcSpell(_) => {}, // Internal Unit lifetime, not a client cast bar.
                 n::Event::PlayerSlow(event) => events.extend(slow_frame.project(event, self.player_guid, orders)?),
+                n::Event::FoodDrink(event) => match event {
+                    n::FoodDrinkEvent::Cast {spell,failure,..} => {
+                        let reason = failure.map(|f| -> Result<u8, Error> {
+                            Ok(match f {
+                                spell::CastFailure::NotReady => 0x3c,
+                                spell::CastFailure::CasterDead => 0x13,
+                                spell::CastFailure::Rejected(reason) =>
+                                    u8::try_from(reason).map_err(|_| Error::Unrepresentable)?,
+                                _ => 0x23,
+                            })
+                        }).transpose()?;
+                        events.push(SessionEvent::CastResult {spell_id:*spell,success:failure.is_none(),reason,arg:None});
+                        if failure.is_none() { events.push(frost_spell_go(self.player_guid,self.player_guid,*spell,false)); }
+                    },
+                    n::FoodDrinkEvent::Applied {slot,duration_ms,..} => {
+                        events.push(SessionEvent::AuraDuration {slot:*slot,remaining_ms:*duration_ms as i32});
+                        events.push(self.player_values(w));
+                    },
+                    n::FoodDrinkEvent::Stand {standing,acknowledge} => {
+                        if !acknowledge { events.push(SessionEvent::StandStateUpdate {state:u8::from(!standing)}); }
+                    },
+                    n::FoodDrinkEvent::PlaySpellVisual {kit} => events.push(SessionEvent::PlaySpellVisual {unit:self.player_guid,kit_id:*kit}),
+                    n::FoodDrinkEvent::EatEmote => events.push(SessionEvent::Emote {guid:self.player_guid,emote_id:7}),
+                    n::FoodDrinkEvent::Removed {..} | n::FoodDrinkEvent::Health {..} => {},
+                },
                 n::Event::FrostArmor(event) => {
                     match event {
                         n::FrostArmorEvent::Cast { failure, .. } => {

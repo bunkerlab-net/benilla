@@ -159,6 +159,7 @@ pub struct Target {
 pub enum ThreatKind {
     DirectDamage,
     PeriodicDamage,
+    HealingAssist,
 }
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1178,7 +1179,8 @@ impl SoloCreatureAi {
             }
             CombatEvent::Threat { amount, kind, .. } => {
                 amount.nonnegative("resolved threat")?;
-                if self.profile.reaction == Reaction::Passive {
+                if *kind != ThreatKind::HealingAssist && self.profile.reaction == Reaction::Passive
+                {
                     return Err(AiError::Unsupported(
                         Unsupported::CrowdControlOrSpecialFlags,
                     ));
@@ -1188,7 +1190,13 @@ impl SoloCreatureAi {
                 if *kind == ThreatKind::PeriodicDamage && self.phase != Phase::Combat {
                     return Err(AiError::Invalid("periodic threat without combat"));
                 }
-                self.attack_start(t, effects)?;
+                if *kind == ThreatKind::HealingAssist {
+                    if self.hostile_reference().is_none() {
+                        return Err(AiError::Invalid("healing assist without hostile reference"));
+                    }
+                } else {
+                    self.attack_start(t, effects)?;
+                }
                 self.hostile_references
                     .add_threat(t.id, *amount, !t.online)?;
                 if *kind == ThreatKind::DirectDamage {

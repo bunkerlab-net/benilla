@@ -437,3 +437,63 @@ fn periodic_impact_roll_precedes_hostile_callback_without_early_health_or_aura_m
         );
     }
 }
+
+#[test]
+fn food_healing_assist_updates_existing_reference_after_actual_health_gain() {
+    let mut world = NativeWorld::synthetic_component_test(
+        synthetic_food_drink_fixture::profile(),
+        [8; 16],
+        f::player(),
+        42,
+    )
+    .unwrap();
+    let slot = *world
+        .state
+        .quest_progression
+        .as_ref()
+        .unwrap()
+        .inventory
+        .as_ref()
+        .unwrap()
+        .slots
+        .iter()
+        .find(|(_, item)| item.item == 2070)
+        .unwrap()
+        .0;
+    let mut authority = synthetic_food_drink_fixture::SpatialOnly::default();
+    let input = synthetic_distinct_quest_fixture::command(
+        &world,
+        Command::UseItem {
+            slot,
+            spell_index: 0,
+        },
+    );
+    world.step(1, Some(input), &mut authority).unwrap();
+    // The callback seam represents aggro before any melee hit. A hit would
+    // stand the player and remove Food before its next periodic callback.
+    let npc = world.state.npcs[&2].id;
+    let mut update = frame(&mut world, &mut authority);
+    update
+        .source_combat_receipt(npc, ai::CombatEvent::AttackedBy { target: SOLO_UNIT })
+        .unwrap();
+    assert!(update.state.npcs[&2].ai.hostile_reference().is_some());
+    assert_eq!(update.state.npcs[&2].ai.threat(), ai::Real::ZERO);
+    let pursuit = update.state.npcs[&2].ai.pursuit_timer_ms();
+    update.state.health = 1;
+    for _ in 0..50 {
+        update.player_food_drink_update().unwrap();
+    }
+    assert_eq!(update.state.health, 18);
+    assert_eq!(
+        update.state.npcs[&2].ai.threat(),
+        ai::Real::new(8.5).unwrap()
+    );
+    assert_eq!(update.state.npcs[&2].ai.pursuit_timer_ms(), pursuit);
+    assert!(update.events.iter().any(|event| matches!(
+        event,
+        Event::FoodDrink(FoodDrinkEvent::Health {
+            before: 1,
+            after: 18
+        })
+    )));
+}

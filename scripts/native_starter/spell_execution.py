@@ -32,14 +32,15 @@ REASONS = {"spell.native_effect_target_scaling_rules_required",
            "spell.multiple_or_missing_effects", "spell.aura_or_trigger_dependency",
            "spell.effect_execution_required", "spell.target_selector_execution_required",
            "spell.attribute_bits_execution_required"}
-EXTENSIONS = {430: "item_use_and_mana_regeneration_lifecycle",
-              433: "item_use_and_health_regeneration_lifecycle",
-              8690: "item_use_teleport_and_home_bind_lifecycle"}
+EXTENSIONS = {8690: "item_use_teleport_and_home_bind_lifecycle"}
 ONE = 0x3f800000
 
 
 def supported_plan(bundle, spell, spells):
     entry = spell["id"]
+    if entry in (430, 433):
+        from . import consumable_execution
+        return consumable_execution.supported_plan(bundle, spell)
     if entry in (168, 6136):
         from . import frost_execution
         return frost_execution.supported_plan(spell, spells)
@@ -140,6 +141,14 @@ def supported_plan(bundle, spell, spells):
 
 
 def discharges(issue, spells):
+    if issue["table"] == "spell_scripts":
+        if issue["reason"] not in {
+                "spell.registry_row_requires_named_handler_semantics", "runtime_script_required"}:
+            return False
+        return any(issue["key"] in ([433], "433") and s["id"] == 433
+                   and s["execution_plan"]["status"] == "supported_shape"
+                   and s["execution_plan"]["adapter"] ==
+                   "captured_food_drink_existing_item_spell_authority_v1" for s in spells)
     if issue["table"] != "spell_template" or issue["reason"] not in REASONS:
         return False
     return any(issue["key"] in ([s["id"]], str(s["id"]))

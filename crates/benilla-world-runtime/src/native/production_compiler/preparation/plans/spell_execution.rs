@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Mirrors starter_init::initial_cast_phases::classify, not its source-plan constructor.
 use super::*;
+#[path = "consumable_execution.rs"]
+mod consumable_execution;
 #[path = "frost_execution.rs"]
 mod frost_execution;
 pub(in super::super) const ADAPTER: &str = "captured_initial_spell_existing_phase_handlers_v1";
@@ -32,6 +34,9 @@ pub(in super::super) fn supported_plan(
     spells: &[Value],
 ) -> Result<Value> {
     let id = int(&spell["id"]);
+    if matches!(id, 430 | 433) {
+        return consumable_execution::supported(bundle, spell);
+    }
     if matches!(id, 168 | 6136) {
         return frost_execution::frost_plan(spell, spells);
     }
@@ -43,8 +48,6 @@ pub(in super::super) fn supported_plan(
     }
     let Some((effects, item_class, item_mask)) = shape(id) else {
         let extension = match id {
-            430 => Some("item_use_and_mana_regeneration_lifecycle"),
-            433 => Some("item_use_and_health_regeneration_lifecycle"),
             8690 => Some("item_use_teleport_and_home_bind_lifecycle"),
             _ => None,
         };
@@ -218,6 +221,18 @@ pub(in super::super) fn supported_plan(
     Ok(plan)
 }
 pub(in super::super) fn discharges(issue: &Value, spells: &Value) -> bool {
+    if issue["table"] == "spell_scripts" {
+        return matches!(
+            issue["reason"].as_str(),
+            Some("spell.registry_row_requires_named_handler_semantics" | "runtime_script_required")
+        ) && (issue["key"] == json!([433]) || issue["key"] == "433")
+            && spells.as_array().unwrap().iter().any(|s| {
+                s["id"] == 433
+                    && s["execution_plan"]["status"] == "supported_shape"
+                    && s["execution_plan"]["adapter"]
+                        == "captured_food_drink_existing_item_spell_authority_v1"
+            });
+    }
     if issue["table"] != "spell_template"
         || !matches!(
             issue["reason"].as_str().unwrap(),

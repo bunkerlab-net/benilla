@@ -604,3 +604,21 @@ mod destroy;
 
 #[path = "inventory/autostore.rs"]
 mod autostore;
+
+#[test]
+fn starting_stack_keeps_binding_and_charges_without_admitting_rewards() {
+    let mut row = item(2070, 20, 0);
+    row.class = 0;
+    row.bonding = 1;
+    row.spells[0].id = 433;
+    row.spells[0].charges = -1;
+    let catalog = Catalog::new(vec![row], audit()).unwrap();
+    assert!(catalog.ordinary_loot_ready(2070).is_err());
+    let mut state = State::new(BTreeMap::new(), 1).unwrap();
+    state.store_starter_item(&catalog, 2070, 4).unwrap();
+    let stack = &state.slots[&BACKPACK_START];
+    assert_eq!(stack.count, 4);
+    assert!(stack.bound);
+    assert_eq!(stack.charges, [-1, 0, 0, 0, 0]);
+    assert!(catalog.use_ready(2070).is_err());
+}

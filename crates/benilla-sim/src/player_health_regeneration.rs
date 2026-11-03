@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f, Project contributors.
 // Upstream GPL-2.0-or-later; Rust translation GPL-3.0-or-later.
-//! Stateless standing-mage RegenerateHealth subset, not a scheduler or rate owner.
-//! Caller must establish alive state, the shared source regeneration cadence,
-//! standing, mage identity and absence of health-regeneration auras (88/116/161).
+//! Stateless mage RegenerateHealth formula, not a scheduler or rate owner.
+//! Caller establishes alive state, shared cadence, mage identity and absence
+//! of health-regeneration modifiers (88/116/161).
 //! Inputs do not constitute evidence of those dependencies or native admission.
 use crate::classic_spell::SpellFloat;
 use rustc_apfloat::{
@@ -20,6 +20,7 @@ pub struct Input {
     /// Explicit authoritative rate supplied by the host; no default is inferred.
     pub health_rate: SpellFloat,
     pub in_combat: bool,
+    pub standing: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Outcome {
@@ -70,6 +71,11 @@ pub fn regenerate(input: Input) -> Result<Outcome, Error> {
     let base: Single = checked(wide.convert_r(R, &mut false))?;
     let rate = Single::from_bits(u128::from(input.health_rate.bits()));
     let mut addvalue = checked(base.mul_r(rate, R))?;
+    if !input.standing {
+        let wide: Double = checked(addvalue.convert_r(R, &mut false))?;
+        let wide = checked(wide.mul_r(Double::from_bits(0x3ff8_0000_0000_0000), R))?;
+        addvalue = checked(wide.convert_r(R, &mut false))?;
+    }
     // Source unconditional GetTotalAuraModifier(HEALTH_REGEN_IN_COMBAT)==0.
     addvalue = checked(addvalue.add_r(Single::ZERO, R))?;
     if addvalue < Single::ZERO {
@@ -106,6 +112,7 @@ mod tests {
             diff_ms: 2000,
             health_rate: SpellFloat::ONE,
             in_combat: false,
+            standing: true,
         }
     }
     #[test]
@@ -124,6 +131,7 @@ mod tests {
                 diff_ms: cells[3],
                 health_rate: SpellFloat::from_bits(cells[4]).unwrap(),
                 in_combat: cells[5] != 0,
+                standing: true,
             })
             .unwrap();
             assert_eq!(
@@ -145,6 +153,7 @@ mod tests {
                 diff_ms: u32::MAX,
                 health_rate: SpellFloat::from_bits(1_000_000_f32.to_bits()).unwrap(),
                 in_combat,
+                standing: true,
             };
             assert_eq!(regenerate(i).unwrap().after, u32::MAX);
         }

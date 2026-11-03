@@ -35,7 +35,18 @@ impl ClientCatalog for Catalog {
     fn contains_spell(&self, id: u32) -> bool {
         matches!(
             id,
-            81 | 133 | 168 | 3050 | 6136 | 60001 | 60002 | 60004 | 60005 | 61004 | 61005
+            81 | 133
+                | 168
+                | 430
+                | 433
+                | 3050
+                | 6136
+                | 60001
+                | 60002
+                | 60004
+                | 60005
+                | 61004
+                | 61005
         )
     }
     fn player_power_type(&self, _: PlayerId) -> Option<u8> {
@@ -328,13 +339,13 @@ fn previous_native_checkpoints_inside_fresh_store_checksum_cannot_reopen_or_repl
             hasher.finalize().into()
         };
         checkpoint["digest"] =
-            serde_json::to_value(hash(b"benilla-native-state-v85\0", state.as_bytes())).unwrap();
+            serde_json::to_value(hash(b"benilla-native-state-v86\0", state.as_bytes())).unwrap();
         let body = format!(
             "[{state},{},{}]",
             checkpoint["digest"], checkpoint["history_tip"]
         );
         checkpoint["checksum"] =
-            serde_json::to_value(hash(b"benilla-native-checkpoint-v85\0", body.as_bytes()))
+            serde_json::to_value(hash(b"benilla-native-checkpoint-v86\0", body.as_bytes()))
                 .unwrap();
         let typed: n::Checkpoint = serde_json::from_value(checkpoint).unwrap();
         let snapshot = typed.encode().unwrap();
@@ -1160,6 +1171,9 @@ mod spell_range_tests;
 
 #[path = "frost_armor_tests.rs"]
 mod frost_armor_tests;
+
+#[path = "food_drink_tests.rs"]
+mod food_drink_tests;
 
 #[path = "player_slow_tests.rs"]
 mod player_slow_tests;

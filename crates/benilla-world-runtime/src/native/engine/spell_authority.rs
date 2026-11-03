@@ -211,6 +211,12 @@ impl<A: Authority> Frame<'_, A> {
                     ),
                     _ => return Err(NativeError::AuthorityBinding),
                 };
+                // Spell.cpp:4697 precedes target and spatial checks. The admitted
+                // projectile's source attributes do not allow sitting casts.
+                if !early && self.state.combat.as_ref().is_some_and(|c| !c.standing) {
+                    facts.other_failure = Some(0x3e);
+                    return Ok(facts);
+                }
                 if !early {
                     // Spell.cpp:4849 precedes untargetable/creature constraints,
                     // TARGET_HARMFUL CanAttackSpell (5100), then CheckRange (5145).

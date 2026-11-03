@@ -2220,7 +2220,7 @@ class CapturedItemAdmissionTests(unittest.TestCase):
 
 class CapturedSpellExecutionTests(unittest.TestCase):
     @staticmethod
-    def authored(frost=False):
+    def authored(frost=False, consumables=False):
         """Authored mechanism rows, never copies of installed DBC or SQL rows."""
         from decimal import Decimal
         from classic_export import spell_numeric
@@ -2303,6 +2303,33 @@ class CapturedSpellExecutionTests(unittest.TestCase):
                 authored[entry], words[entry] = numeric, w
                 source.rows['spell_template'].append({name: numeric[name]
                                                        for name in export_tests.COLUMNS['spell_template']})
+        if consumables:
+            for entry, item, category in ((430, 159, 59), (433, 2070, 11)):
+                food = entry == 433
+                w = [0] * 173
+                for i, value in {0: entry, 2: category, 6: 0x18000100, 18: 1,
+                        20: 60000, 21: 1, 22: 0x40080, 25: 101, 28: 5,
+                        29: 0 if food else 5, 30: 85, 36: 1, 58: 0xffffffff,
+                        59: 0 if food else 0xffffffff, 61: 6, 64: 1, 67: 1,
+                        76: 16 if food else 41, 82: 1, 91: 84 if food else 85,
+                        97: execution.ONE if food else 0, 166: 0xffffffff,
+                        167: execution.ONE, 168: execution.ONE, 169: execution.ONE}.items():
+                    w[i] = value
+                numeric = {name: Decimal('0') if name in spell_numeric.FLOAT_FIELDS else 0
+                           for name in spell_numeric.COLUMNS}
+                for name, i in spell_numeric.WORD_FIELDS.items():
+                    numeric[name] = (Decimal(str(struct.unpack('<f', struct.pack('<I', w[i]))[0]))
+                        if name in spell_numeric.FLOAT_FIELDS else
+                        w[i]-0x100000000 if name in spell_numeric.SIGNED_FIELDS and w[i] > 0x7fffffff else w[i])
+                authored[entry], words[entry] = numeric, w
+                source.rows['spell_template'].append({name: numeric[name]
+                    for name in export_tests.COLUMNS['spell_template']})
+                source.rows['item_template'].append(export_tests.row('item_template',
+                    entry=item, name='Authored consumable', displayid=920002, stackable=20,
+                    AllowableClass=-1, AllowableRace=-1, RequiredLevel=1,
+                    spellid_1=entry, spellcharges_1=-1, spellcategory_1=category,
+                    spellcategorycooldown_1=1000))
+            source.rows['spell_scripts'].append({'Id': 433, 'ScriptName': 'spell_food_animation'})
         old_fetch = source.fetch
         def fetch(query):
             if query.mode == spell_numeric.MODE and query.table == 'spell_template':
@@ -2311,6 +2338,10 @@ class CapturedSpellExecutionTests(unittest.TestCase):
         source.fetch = fetch
         selection = selected.json()
         selection['spell_ids'] = sorted(set(selection['spell_ids']) | set(authored))
+        if consumables:
+            for entry in (159, 2070):
+                source.rows['playercreateinfo_item'].append(export_tests.row(
+                    'playercreateinfo_item', race=1, **{'class': 1}, itemid=entry, amount=4))
         bundle = capture(source, Selection.parse(selection), capture_spell_numeric=True, capture_initial_hooks=True)
         files = dbcs_for(bundle)
         numeric = {r['Id']: r for r in bundle['spell_numeric_capture']['rows']}
@@ -2331,6 +2362,11 @@ class CapturedSpellExecutionTests(unittest.TestCase):
                 {0: 21, 1: -1, 3: -1}, {0: 35, 1: 4000, 3: 4000},
                 {0: 900, 1: 4000, 3: 4000}, {0: 901, 1: 1200, 3: 1200}])
             files['SpellRange'] = dbc_bytes('SpellRange', [{0: 1}, {0: 4, 2: 0x41f00000}, {0: 35, 2: 0x420c0000}])
+        if consumables:
+            files['SpellDuration'] = dbc_bytes('SpellDuration', [
+                {0: 21, 1: -1, 3: -1}, {0: 35, 1: 4000, 3: 4000},
+                {0: 900, 1: 4000, 3: 4000}, {0: 901, 1: 1200, 3: 1200},
+                {0: 85, 1: 10000, 3: 10000}])
         return bundle, files
 
     def test_complete_initial_shapes_discharge_only_execution_obligations(self):
@@ -2380,6 +2416,37 @@ class CapturedSpellExecutionTests(unittest.TestCase):
             changed = copy.deepcopy(spell)
             changed['script_registry']['rows'] = [{'Id': entry, 'ScriptName': 'authored_unimplemented_hook'}]
             self.assertEqual(execution.supported_plan(bundle, changed, spells)['status'], 'blocked')
+        verify_preparation(report, bundle, parsed(files))
+
+    def test_food_drink_requires_complete_item_spell_and_named_script_execution(self):
+        from native_starter import spell_execution as execution
+        bundle, files = self.authored(consumables=True)
+        report = compile_starter(bundle, parsed(files), Request(1, 1, 0))
+        for entry in (430, 433):
+            spell = next(s for s in report['spells'] if s['id'] == entry)
+            self.assertEqual(spell['execution_plan']['status'], 'supported_shape', spell['execution_plan'])
+            self.assertFalse(spell['execution_plan']['effective_learning_proven'])
+            for index in (6, 8, 21, 22, 32, 61, 64, 67, 76, 79, 82, 91, 94, 106, 110, 157, 159, 163, 170):
+                changed = copy.deepcopy(spell)
+                changed['server_numeric_words'][index] ^= 1
+                self.assertEqual(execution.supported_plan(bundle, changed, report['spells'])['status'], 'blocked', (entry, index))
+            changed = copy.deepcopy(spell)
+            changed['script_registry']['rows'] = [{'Id': entry, 'ScriptName': 'authored_unknown_script'}]
+            self.assertEqual(execution.supported_plan(bundle, changed, report['spells'])['status'], 'blocked')
+            changed_bundle = copy.deepcopy(bundle)
+            changed_bundle['tables']['item_template'] = []
+            self.assertEqual(execution.supported_plan(changed_bundle, spell, report['spells'])['status'], 'blocked')
+        issue = {'table': 'spell_scripts', 'key': [433], 'reason': 'runtime_script_required'}
+        self.assertTrue(execution.discharges(issue, report['spells']))
+        self.assertFalse(execution.discharges({**issue, 'key': [430]}, report['spells']))
+        self.assertFalse(execution.discharges({**issue, 'reason': 'spell.server_overlay_learning_required'}, report['spells']))
+        blocked = copy.deepcopy(report['spells'])
+        next(s for s in blocked if s['id'] == 433)['execution_plan']['status'] = 'blocked'
+        self.assertFalse(execution.discharges(issue, blocked))
+        self.assertTrue(any(
+            refusal['table'] == 'spell_scripts' and refusal['key'] == [433]
+            and refusal['reason'] == 'participants.runtime_script_required'
+            for refusal in report['participants_plan']['refusals']))
         verify_preparation(report, bundle, parsed(files))
 
 

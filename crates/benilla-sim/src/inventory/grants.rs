@@ -135,6 +135,21 @@ impl Catalog {
     }
 }
 impl State {
+    /// Create an initializer-proven starting backpack stack without admitting rewards.
+    /// Player::StoreNewItem retains binding and initializes the item's charges.
+    pub fn store_starter_item(
+        &mut self,
+        catalog: &Catalog,
+        item: u32,
+        count: u32,
+    ) -> Result<Stored, Error> {
+        catalog.grant_ready(item)?;
+        let plan = self.can_store_plan(catalog, item, count, &mut Vec::new())?;
+        if plan.result != InventoryResult::Ok {
+            return Err(Error::Rejected(plan));
+        }
+        self.store_plan(catalog, item, count, plan, |_, _, _| Ok(()))
+    }
     /// Trusted host recomputes destinations. Partial capacity/unique results are receipts,
     /// never overflow mail or a unique-count bypass. The callback is staged, pre-store.
     pub fn grant_item(

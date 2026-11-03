@@ -127,7 +127,7 @@ queue ordering; a newer successful release replaces the witness in that order.
 Weapon-break/level callbacks change current attack times without retroactively
 changing an already-running countdown or its release-time equipment recipe.
 
-The immutable catalog policy is `cmangos-8ec338a1-native-spell-authority-v7`.
+The immutable catalog policy is `cmangos-8ec338a1-native-spell-authority-v8`.
 Native format `NATIVE_FORMAT_VERSION` uses `NATIVE_POLICY` across profile,
 state, record and checkpoint hashes, with separate melee-action, melee-chain and visitor-callback domains.
 The melee-release receipt integrity domain is also explicitly v51.
@@ -396,3 +396,43 @@ replies exactly. Moving the draw therefore changes persisted callback evidence
 even when the final RNG position and serialized member shapes are unchanged.
 The integration must reject format-33 records/checkpoints after recomputing outer
 hashes; unchanged hash domains cannot be used as an implicit migration.
+
+## Starting Food and Drink
+
+The selected item-use owner accepts starting items 2070 and 159 with exact
+Food 433 and Drink 430 source bindings. It consumes one selected backpack
+stack member through the quest-removal callback, preserves surviving charges,
+and sits the player. Standing or movement removes both standing-cancelled
+holders. Other item-use spells remain unavailable.
+
+Both holders start with a 5000 ms periodic timer and skip their creation tick.
+Food uses its bound health amount at each 5000 ms callback. Drink's 2000 ms
+callbacks start after 5000 ms and emit eating emotes. Drink adds its bound flat
+mana-per-five operand to the existing Player regeneration owner, not directly
+to the periodic callback. The final callback runs before duration expiry.
+The Unit heartbeat starts at zero and emits visual 406 only for the selected
+`spell_food_animation` binding. It does not infer the separate Drink script.
+
+Food applies actual health gain before healing-assist threat. The source
+`SpellAuras.cpp:4959-4961` passes half that gain through the neutral spell
+threat multiplier to `HostileRefManager::threatAssist`. That callback filters
+existing hostile references by current crowd control and CanAttack before
+dividing the amount. The bounded neutral modifier domain admits no caster
+threat modifier. `ignoreTimer=true` prevents combat-timer refresh, and this
+callback does not initiate an attack or create a previously absent reference.
+Starting consumption while in combat remains refused.
+
+Native format 86 and policy `benilla-native-solo-food-drink-v86` retain holder
+slots, caster level, periodic debt, creation tick, and the Unit heartbeat phase.
+Restoration derives counters from the bound duration and fixed update cadence.
+Older native envelopes are rejected without migration. `NativeCapability`
+remains uninhabited; these component paths do not admit production gameplay.
+
+The participants planner retains `participants.runtime_script_required` for
+Food's named registry row. That planner proves an empty participant domain and
+does not bind the spell execution adapter or its heartbeat owner. The exact
+Food adapter discharges only its spell-source/compiler findings. It does not
+prove that the participants capture is empty or authorize general named-script
+execution. The source registers FoodAnimation and DrinkAnimation separately
+in `src/game/AI/ScriptDevAI/scripts/world/spell_scripts.cpp:154-173,456-457`;
+Food's visual 406 is not evidence for another selected script.

@@ -309,6 +309,43 @@ fn defensive_retaliation_threat_periodic_and_direct_pursuit() {
 }
 
 #[test]
+fn healing_assist_requires_existing_reference_and_does_not_refresh_pursuit() {
+    let mut ai = SoloCreatureAi::new(profile(Reaction::Defensive)).unwrap();
+    let mut first = observation(1, 20, 2.);
+    first.receipts.push(Receipt {
+        id: 1,
+        event: CombatEvent::AttackedBy { target: 2 },
+    });
+    step(&mut ai, first).unwrap();
+    let mut next = observation(2, 1000, 2.);
+    next.receipts.push(Receipt {
+        id: 2,
+        event: CombatEvent::Threat {
+            target: 2,
+            amount: real(8.5),
+            kind: ThreatKind::HealingAssist,
+        },
+    });
+    let effects = step(&mut ai, next).unwrap();
+    assert_eq!(ai.threat(), real(8.5));
+    assert_eq!(ai.pursuit_timer_ms(), 13980);
+    assert!(!effects
+        .iter()
+        .any(|e| matches!(e, Effect::CombatStarted { .. })));
+    let mut idle = SoloCreatureAi::new(profile(Reaction::Defensive)).unwrap();
+    let mut first = observation(1, 20, 2.);
+    first.receipts.push(Receipt {
+        id: 1,
+        event: CombatEvent::Threat {
+            target: 2,
+            amount: real(8.5),
+            kind: ThreatKind::HealingAssist,
+        },
+    });
+    assert!(step(&mut idle, first).is_err());
+}
+
+#[test]
 fn actual_chase_progress_is_required_never_stationary_or_teleport() {
     let mut ai = SoloCreatureAi::new(profile(Reaction::Aggressive)).unwrap();
     let first = step(&mut ai, observation(1, 100, 10.)).unwrap();

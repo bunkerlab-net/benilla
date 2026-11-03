@@ -114,7 +114,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v85\0",
+            b"benilla-native-profile-v86\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -451,6 +451,7 @@ impl Npc {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct State {
     pub(super) frost_armor: Option<FrostArmorHolder>,
+    pub(super) food_drink: Option<FoodDrinkState>,
     pub(super) creature_pose_cells: Option<CreaturePoseCellIndex>,
     pub source_splines: Option<SourceSplineIds>,
     pub(super) action_bar_toggles: action_bar_toggles::ActionBarTogglesState,
@@ -489,6 +490,13 @@ pub struct State {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Command {
+    UseItem {
+        slot: u8,
+        spell_index: u8,
+    },
+    SetStanding {
+        standing: bool,
+    },
     CastSelf {
         ability: u32,
     },
@@ -663,6 +671,7 @@ pub enum Rejection {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Event {
+    FoodDrink(FoodDrinkEvent),
     FrostArmor(FrostArmorEvent),
     QuestScript(QuestScriptEvent),
     PlayerAttackStart {

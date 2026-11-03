@@ -7,6 +7,7 @@ pub const NO_USER_DESTROY: u32 = 0x20;
 #[serde(deny_unknown_fields)]
 pub enum DestroyPolicy {
     CmangosBackpackDestroyV1,
+    CmangosCastItemConsumeV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -79,17 +80,68 @@ impl State {
         receipt.after.validate(catalog)?;
         Ok(receipt)
     }
+    /// Spell.cpp:4314-4375. The bounded expendable branch leaves the surviving
+    /// stack's charges unchanged and does not apply NO_USER_DESTROY.
+    pub fn plan_take_cast_item(
+        &self,
+        catalog: &Catalog,
+        slot: u8,
+    ) -> Result<DestroyReceipt, Error> {
+        if !(BACKPACK_START..BACKPACK_END).contains(&slot) {
+            return Err(Error::Unsupported("cast_item_position"));
+        }
+        catalog.storage_dependencies_ready()?;
+        self.validate(catalog)?;
+        let item = self
+            .slots
+            .get(&slot)
+            .ok_or(Error::Invalid("cast_item_missing"))?;
+        let proto = catalog.grant_ready(item.item)?;
+        if item.kind.is_container()
+            || proto.class != 0
+            || proto.spells[0].charges != -1
+            || !matches!(proto.spells[0].id, 430 | 433)
+            || proto.spells[0].trigger != 0
+            || proto.spells[1..].iter().any(|s| s.id != 0)
+        {
+            return Err(Error::Unsupported("cast_item_expendable_source"));
+        }
+        let mut after = self.clone();
+        let outcome = if item.count == 1 {
+            after.slots.remove(&slot);
+            DestroyOutcome::Whole
+        } else {
+            after.slots.get_mut(&slot).unwrap().count -= 1;
+            DestroyOutcome::Partial
+        };
+        after.validate(catalog)?;
+        Ok(DestroyReceipt {
+            policy: DestroyPolicy::CmangosCastItemConsumeV1,
+            slot,
+            requested: 1,
+            removed: 1,
+            result: InventoryResult::Ok,
+            outcome,
+            before: self.clone(),
+            after,
+        })
+    }
 }
 impl DestroyReceipt {
     pub fn item(&self) -> Option<u32> {
         self.before.slots.get(&self.slot).map(|item| item.item)
     }
     pub fn validate(&self, catalog: &Catalog) -> Result<(), Error> {
-        if self
-            .before
-            .plan_destroy_backpack(catalog, self.slot, self.requested)?
-            != *self
-        {
+        let expected = match self.policy {
+            DestroyPolicy::CmangosBackpackDestroyV1 => {
+                self.before
+                    .plan_destroy_backpack(catalog, self.slot, self.requested)?
+            }
+            DestroyPolicy::CmangosCastItemConsumeV1 => {
+                self.before.plan_take_cast_item(catalog, self.slot)?
+            }
+        };
+        if expected != *self {
             return Err(Error::Invalid("backpack_destroy_receipt"));
         }
         Ok(())

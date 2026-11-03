@@ -41,7 +41,7 @@ pub struct TickRecord {
 }
 impl TickRecord {
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-record-v85\0", self)
+        crate::digest(b"benilla-native-record-v86\0", self)
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -86,6 +86,8 @@ struct NpcState {
 pub(super) struct StateCheckpoint {
     #[serde(deserialize_with = "creature_collision_width::required_option")]
     frost_armor: Option<FrostArmorHolder>,
+    #[serde(deserialize_with = "creature_collision_width::required_option")]
+    food_drink: Option<FoodDrinkState>,
     #[serde(deserialize_with = "creature_collision_width::required_option")]
     creature_pose_cells: Option<CreaturePoseCellIndex>,
     #[serde(deserialize_with = "creature_collision_width::required_option")]
@@ -387,10 +389,10 @@ impl Checkpoint {
             || s.state.version != NATIVE_FORMAT_VERSION
             || s.state.policy != NATIVE_POLICY
             || s.state.rng_policy != RNG_POLICY
-            || s.digest != crate::digest(b"benilla-native-state-v85\0", &s.state)
+            || s.digest != crate::digest(b"benilla-native-state-v86\0", &s.state)
             || s.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v85\0",
+                    b"benilla-native-checkpoint-v86\0",
                     &(&s.state, s.digest, s.history_tip),
                 )
             || s.encode()? != bytes
@@ -403,6 +405,7 @@ impl Checkpoint {
 pub(super) fn snapshot_state(profile_digest: crate::Digest, state: &State) -> StateCheckpoint {
     StateCheckpoint {
         frost_armor: state.frost_armor.clone(),
+        food_drink: state.food_drink.clone(),
         player_melee: state.player_melee.clone(),
         creature_pose_cells: state.creature_pose_cells.clone(),
         source_splines: state.source_splines.clone(),
@@ -578,7 +581,7 @@ impl NativeWorld {
         EventAiState::validate_optional(&self.profile, state)?;
         combat_assistance::validate_current(&self.profile, state)?;
         let state = snapshot;
-        let digest = crate::digest(b"benilla-native-state-v85\0", &state);
+        let digest = crate::digest(b"benilla-native-state-v86\0", &state);
         let s = Checkpoint {
             version: NATIVE_FORMAT_VERSION,
             state,
@@ -588,7 +591,7 @@ impl NativeWorld {
         };
         let mut s = s;
         s.checksum = crate::digest(
-            b"benilla-native-checkpoint-v85\0",
+            b"benilla-native-checkpoint-v86\0",
             &(&s.state, s.digest, s.history_tip),
         );
         s.encode()?;
@@ -626,10 +629,10 @@ impl NativeWorld {
         checkpoint.validate_encoded_budget()?;
         let profile_digest = profile.digest();
         if checkpoint.version != NATIVE_FORMAT_VERSION
-            || checkpoint.digest != crate::digest(b"benilla-native-state-v85\0", &checkpoint.state)
+            || checkpoint.digest != crate::digest(b"benilla-native-state-v86\0", &checkpoint.state)
             || checkpoint.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v85\0",
+                    b"benilla-native-checkpoint-v86\0",
                     &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
                 )
         {
@@ -690,11 +693,16 @@ impl NativeWorld {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        let instant = abilities
+        let mut instant = abilities
             .iter()
             .filter(|a| a.admission == AbilityAdmission::FrostArmor)
             .map(|_| frost_armor::source(&profile, 168).map(frost_armor::resources))
             .collect::<Result<Vec<_>, _>>()?;
+        if food_drink::selected(&profile) {
+            for id in [430, 433] {
+                instant.push(food_drink::resources(&profile, id)?);
+            }
+        }
         let caster = spell::CasterResources::restore(s.resources, s.now_ms, &specs, &instant)?;
         let restore_combat = if profile.player_melee.is_some() {
             PlayerCombatState::restore_selected_fields
@@ -714,6 +722,7 @@ impl NativeWorld {
                     profile.clock_origin_ms,
                     profile.tick_ms,
                     profile.player_melee.is_some(),
+                    food_drink::selected(&profile),
                 )?,
                 None => restore_combat(
                     g,
@@ -741,7 +750,7 @@ impl NativeWorld {
             (None, None, _) => None,
             _ => return Err(NativeError::InvalidCheckpoint),
         };
-        let resources = mana::MageManaState::from_state(
+        let mut resources = mana::MageManaState::from_state(
             caster,
             combat
                 .as_ref()
@@ -754,6 +763,22 @@ impl NativeWorld {
             s.regen_elapsed_ms,
             s.last_mana_use_timer_ms,
         )?;
+        if s.food_drink
+            .as_ref()
+            .is_some_and(|f| f.holders.contains_key(&430))
+        {
+            let combat = combat.as_ref().ok_or(NativeError::InvalidCheckpoint)?;
+            resources.set_regen(mana::update_mana_regen(
+                u32::try_from(combat.stats.attributes[4])
+                    .map_err(|_| NativeError::InvalidCheckpoint)?,
+                mana::ManaRegenModifiers {
+                    spirit_multiplier: spell::SpellFloat::ONE,
+                    flat_mana_per_five: i32::try_from(food_drink::amount(&profile, 430)?)
+                        .map_err(|_| NativeError::InvalidCheckpoint)?,
+                    interrupted_percent: 0,
+                },
+            )?)?;
+        }
         if resources.caster.last_mana_use_ms.is_some_and(|t| {
             t < profile.clock_origin_ms
                 || !(t - profile.clock_origin_ms).is_multiple_of(u64::from(profile.tick_ms))
@@ -1150,6 +1175,7 @@ impl NativeWorld {
         s.player_hide_flags.validate(&profile, s.next_sequence)?;
         let state = State {
             frost_armor: s.frost_armor,
+            food_drink: s.food_drink,
             creature_pose_cells: s.creature_pose_cells,
             source_splines: s.source_splines,
             watched_faction: s.watched_faction,
@@ -1199,6 +1225,7 @@ impl NativeWorld {
             combat,
         };
         state.validate_frost_armor(&profile)?;
+        state.validate_food_drink(&profile)?;
         CreaturePoseCellIndex::validate(&profile, &state)?;
         SourceSplineIds::validate(&profile, &state)?;
         quest_progression::equipment_movement::validate_state(&profile, &state)?;
@@ -1336,9 +1363,9 @@ mod history_budget_tests {
         }
         let cast: CastState = serde_json::from_value(cast).unwrap();
         cp.state.casts = (1..=9).map(|id| (id, cast.clone())).collect();
-        cp.digest = crate::digest(b"benilla-native-state-v85\0", &cp.state);
+        cp.digest = crate::digest(b"benilla-native-state-v86\0", &cp.state);
         cp.checksum = crate::digest(
-            b"benilla-native-checkpoint-v85\0",
+            b"benilla-native-checkpoint-v86\0",
             &(&cp.state, cp.digest, cp.history_tip),
         );
         assert_eq!(cp.encode().unwrap_err(), NativeError::TooLarge);
