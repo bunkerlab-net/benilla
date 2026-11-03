@@ -886,7 +886,7 @@ fn digest_replay_reads_changed_bytes_after_profile_and_between_repeated_receipts
 }
 
 #[test]
-fn digest_payload_retention_is_bounded_and_uncached_receipts_still_replay() {
+fn encoded_receipts_are_bounded_without_retaining_decoded_payloads() {
     let temp = Temp::new();
     let data = temp.data();
     store(
@@ -899,19 +899,53 @@ fn digest_payload_retention_is_bounded_and_uncached_receipts_still_replay() {
     );
     let mut source = CapturedSource::open(&data, &|| false).unwrap();
     for name in ["large", MAP, MAP] {
-        drop(source.read(name, &|| false).unwrap());
+        let member = present(source.read(name, &|| false).unwrap());
+        assert_eq!(Arc::strong_count(&member.payload), 1);
     }
-    assert_eq!(source.digest_payload_bytes, MAX_MEMBER_BYTES);
-    assert_eq!(
-        source
-            .digest_payloads
-            .iter()
-            .map(|(ordinal, _)| *ordinal)
-            .collect::<Vec<_>>(),
-        [0, 1]
-    );
+    assert_eq!(source.receipts.len(), 3);
+    assert!(source
+        .receipts
+        .iter()
+        .all(|receipt| receipt.encoded_identity.is_some()));
+    assert!(std::mem::size_of::<Option<[u8; 32]>>() <= 40);
     source.verify_unchanged(&|| false).unwrap();
     verify_with_owned_receipts(&source, &|| false).unwrap();
+}
+
+#[test]
+fn unchanged_probes_cannot_hide_mutated_unused_index_words() {
+    let temp = Temp::new();
+    let data = temp.data();
+    let bytes = archive(&[entry(MAP, 1)]);
+    fs::write(data.join("model.MPQ"), &bytes).unwrap();
+    let mut source = CapturedSource::open(&data, &|| false).unwrap();
+    source.read(MAP, &|| false).unwrap();
+    let mut changed = bytes.clone();
+    let mut words: Vec<u32> = changed[32..1056]
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|word| u32::from_le_bytes(*word))
+        .collect();
+    let key = crypto::hash_string("(hash table)", crypto::hash_type::FILE_KEY);
+    crypto::decrypt_block(&mut words, key);
+    let slot = (crypto::hash_string(MAP, crypto::hash_type::TABLE_OFFSET) & 63) as usize;
+    words[slot * 4 + 2] ^= 1;
+    crypto::encrypt_block(&mut words, key);
+    for (destination, word) in changed[32..1056]
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(words)
+    {
+        destination.copy_from_slice(&word.to_le_bytes());
+    }
+    fs::write(data.join("model.MPQ"), changed).unwrap();
+    assert_eq!(
+        source.verify_unchanged(&|| false),
+        Err(SourceError::Changed)
+    );
+    assert_eq!(present(source.read(MAP, &|| false).unwrap()).bytes()[0], 1);
 }
 
 #[test]

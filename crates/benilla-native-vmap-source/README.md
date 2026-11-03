@@ -17,22 +17,22 @@ feed the existing raw writers; unsupported roots stop preparation without exposi
 partial products. See [source scope](PROVENANCE.md).
 
 The returned object owns immutable raw model outputs and ordered lookup receipts.
-It also shares up to 64 MiB of original positive payload buffers with acquisition
-callers, without copying their bytes. Bounded final MODN Paths remain for
-source-timed doodad lookups. `verify_unchanged` reopens the chain and checks consumed
+Positive receipts retain a 32-byte encoded-member digest, not decoded payload
+buffers. Bounded final MODN Paths remain for source-timed doodad lookups.
+`verify_unchanged` reopens the chain and checks consumed
 inputs, including missing members and blocking dummy winners. It detects changed
 inputs; it is not an atomic filesystem snapshot, a live lease, or protection
 against a file being changed and restored between reads. Diagnostic summaries
 cannot construct a preparation object.
 
-Freshness replay still probes every receipt against newly decoded archive indexes,
-validates positive member profiles, reads their payloads again, and charges the
-same read-work budget. When the final fresh payload equals its receipt's retained
-original bytes, replay reuses that receipt's SHA-256 digest. Equality checks every
-byte, not a filename, length, timestamp, earlier profile read, or filesystem
-identity. Different bytes and receipts beyond the retention bound use SHA-256 as
-before. The cache belongs to one captured source and cannot supply another source's
-digest. Every original cancellation checkpoint remains in its original order.
+Freshness probes every receipt against newly decoded archive indexes and rereads
+the encoded sector tables and payload bytes without inflation. SHA-256 identities
+cover the exact bounded header and encoded index tables, plus every consumed
+member's encoded bytes. Initial acquisition strictly inflates each needed sector
+once. A same-size rewrite or path replacement still changes the final identity,
+even if timestamps are restored. Recompressed equivalent bytes conservatively
+count as a change. The read-work refusal allowance and every original source
+cancellation checkpoint remain unchanged.
 
 `summary()` and `Error::diagnostic()` contain fixed categories, counts, numeric
 identifiers, source revision/policy labels and a digest, with no asset text or
@@ -50,8 +50,8 @@ The `synthetic-map-tests` feature exposes scoped `profiling::measure` diagnostic
 for authored fixtures. Only runtime map freshness enables the operation counters.
 `Off` reads no observer clocks. `CountOnly` records operation outcomes without
 observer clocks. `Clocked` records the same outcomes and inclusive wall durations.
-The `payload_hash` interval includes exact-byte cache comparison and digest reuse,
-or SHA-256 and hexadecimal formatting on a cache miss.
+The `payload_read` interval hashes encoded member bytes during freshness.
+The `payload_hash` interval reuses the captured decoded digest for comparison.
 Parent and child durations overlap, so do not add them together.
 
 Counters use thread-local storage with short mutable borrows. Each timer updates

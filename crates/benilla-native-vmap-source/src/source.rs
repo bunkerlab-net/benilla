@@ -8,9 +8,9 @@
 //!
 //! Each successful lookup records a privately minted ordered receipt. Positive
 //! bytes are immutable owned buffers; callers can discard each after parsing.
-//! Fresh-chain verification replays every receipt, including absence and dummy
-//! results, and checks the exact mounted archive order. This is not an atomic
-//! filesystem snapshot, a live lease, or protection against hostile ABA changes.
+//! Fresh-chain verification rereads encoded identities for every receipt,
+//! including absence/dummy results, and checks the exact mounted archive order.
+//! This is not an atomic filesystem snapshot, live lease, or hostile ABA defense.
 //! No filesystem-wide integrity or client-build authenticity is claimed.
 
 use benilla_mpq::{Archive, ClassicMemberProbe, PreparedClassicMemberName, ReadLimits};
@@ -70,8 +70,8 @@ macro_rules! profile_predicate {
 pub(crate) const SOURCE_POLICY: &str = "cmangos-vmap-numeric-1-through-99-reverse-first-hit-v1";
 const SOURCE_PIN: &str = "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f";
 pub(crate) const MAX_MEMBER_BYTES: usize = 64 * 1024 * 1024;
-/// Conservative decoded-byte work charged twice per positive lookup: strict
-/// codec/profile verification and payload read. A recheck has its own same cap.
+/// Conservative decoded-byte work allowance charged twice per positive lookup.
+/// Retained as a refusal policy even though strict payloads now inflate once.
 pub(crate) const MAX_READ_WORK_BYTES: u64 = 32 * 1024 * 1024 * 1024;
 pub(crate) const MAX_LOOKUPS: usize = 32_768;
 const MAX_NAME_BYTES: usize = 512;
@@ -214,6 +214,7 @@ pub(crate) struct LookupReceipt {
     name: PreparedClassicMemberName,
     probe_count: usize,
     outcome: Outcome,
+    encoded_identity: Option<[u8; 32]>,
 }
 
 /// Fields observed by a lookup; its name and scope are already supplied by the
@@ -221,6 +222,7 @@ pub(crate) struct LookupReceipt {
 struct LookupObservation {
     probe_count: usize,
     outcome: Outcome,
+    encoded_identity: Option<[u8; 32]>,
 }
 
 impl LookupObservation {
@@ -230,11 +232,14 @@ impl LookupObservation {
             name: PreparedClassicMemberName::new(name),
             probe_count: self.probe_count,
             outcome: self.outcome,
+            encoded_identity: self.encoded_identity,
         }
     }
 
     fn matches(&self, expected: &LookupReceipt) -> bool {
-        self.probe_count == expected.probe_count && self.outcome == expected.outcome
+        self.probe_count == expected.probe_count
+            && self.outcome == expected.outcome
+            && self.encoded_identity == expected.encoded_identity
     }
 }
 
@@ -248,10 +253,6 @@ pub(crate) struct CapturedSource {
     chain: Chain,
     receipts: Vec<LookupReceipt>,
     read_work: u64,
-    // Original bytes, indexed by receipt ordinal, never filesystem metadata.
-    // Together these retain at most one member limit across the entire source.
-    digest_payloads: Vec<(usize, Arc<Vec<u8>>)>,
-    digest_payload_bytes: usize,
 }
 impl fmt::Debug for CapturedSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -315,8 +316,6 @@ impl CapturedSource {
             chain,
             receipts: Vec::new(),
             read_work: 0,
-            digest_payloads: Vec::new(),
-            digest_payload_bytes: 0,
         })
     }
 
@@ -333,7 +332,6 @@ impl CapturedSource {
             &mut self.read_work,
             cancel,
         )?;
-        self.retain_digest_payload(&lookup);
         self.receipts
             .push(observation.into_receipt(name, LookupScope::Chain));
         Ok(lookup)
@@ -365,20 +363,9 @@ impl CapturedSource {
             &mut self.read_work,
             cancel,
         )?;
-        self.retain_digest_payload(&lookup);
         self.receipts
             .push(observation.into_receipt(name, LookupScope::Archive(index)));
         Ok(lookup)
-    }
-
-    fn retain_digest_payload(&mut self, lookup: &Lookup) {
-        if let Lookup::Present(member) = lookup {
-            if member.payload.len() <= MAX_MEMBER_BYTES - self.digest_payload_bytes {
-                self.digest_payload_bytes += member.payload.len();
-                self.digest_payloads
-                    .push((self.receipts.len(), Arc::clone(&member.payload)));
-            }
-        }
     }
 
     pub(crate) fn read_count(&self) -> usize {
@@ -436,7 +423,7 @@ impl CapturedSource {
         format!("{:x}", digest.finalize())
     }
 
-    /// Reopen every index and replay receipts without retaining fresh payloads.
+    /// Reopen indexes and reread encoded receipts without inflating fresh payloads.
     /// Missing/new mounted archives are a change even if winners would coincide.
     pub(crate) fn verify_unchanged(&self, cancel: &dyn Fn() -> bool) -> Result<()> {
         #[cfg(feature = "synthetic-map-tests")]
@@ -447,28 +434,27 @@ impl CapturedSource {
             return Err(SourceError::Changed);
         }
         let mut work = 0;
-        let mut payloads = self.digest_payloads.iter().peekable();
-        for (ordinal, expected) in self.receipts.iter().enumerate() {
+        for expected in &self.receipts {
             check_cancel(cancel)?;
-            let cached = payloads
-                .next_if(|(cached_ordinal, _)| *cached_ordinal == ordinal)
-                .map(|(_, payload)| {
-                    let Outcome::Present(member) = &expected.outcome else {
-                        unreachable!("only positive receipts retain digest payloads");
-                    };
-                    (payload.as_slice(), member.sha256.as_str())
-                });
             let (_, actual) = observe_lookup(
                 &chain,
                 LookupName::Prepared(&expected.name),
                 expected.scope,
                 &mut work,
                 cancel,
-                cached,
+                Some(expected),
             )?;
             if !profile_predicate!(ReceiptCompare, actual.matches(expected)) {
                 return Err(SourceError::Changed);
             }
+        }
+        if chain
+            .archives
+            .iter()
+            .zip(&self.chain.archives)
+            .any(|(fresh, old)| fresh.bounded_index_identity() != old.bounded_index_identity())
+        {
+            return Err(SourceError::Changed);
         }
         #[cfg(feature = "synthetic-map-tests")]
         verify.finish(true);
@@ -687,7 +673,7 @@ fn observe_lookup(
     scope: LookupScope,
     work: &mut u64,
     cancel: &dyn Fn() -> bool,
-    cached_digest: Option<(&[u8], &str)>,
+    expected: Option<&LookupReceipt>,
 ) -> Result<(Option<Vec<u8>>, LookupObservation)> {
     let name = lookup_name.as_str();
     let range = match scope {
@@ -717,6 +703,7 @@ fn observe_lookup(
                             winning_archive,
                             bytes,
                         },
+                        encoded_identity: None,
                     },
                 ));
             }
@@ -735,26 +722,43 @@ fn observe_lookup(
                 // retried indefinitely without consuming the acquisition budget.
                 *work = next;
                 check_cancel(cancel)?;
-                profile_result!(MemberProfile, archive.verify_classic_ad_member(name))
+                profile_result!(MemberProfile, archive.verify_classic_ad_member_shape(name))
                     .map_err(|_| SourceError::MemberProfile)?;
                 check_cancel(cancel)?;
-                let payload = profile_result!(PayloadRead, archive.read_file(name))
-                    .map_err(|_| SourceError::MemberRead)?;
-                if payload.len() != bytes {
+                let (payload, encoded_identity) = profile_result!(
+                    PayloadRead,
+                    match expected {
+                        Some(_) => archive
+                            .classic_ad_member_identity(name)
+                            .map(|digest| (None, digest)),
+                        None => archive
+                            .read_classic_ad_member(name)
+                            .map(|(payload, digest)| (Some(payload), digest)),
+                    }
+                )
+                .map_err(|error| match error {
+                    benilla_mpq::Error::Io(_) => SourceError::MemberRead,
+                    _ => SourceError::MemberProfile,
+                })?;
+                if payload
+                    .as_ref()
+                    .is_some_and(|payload| payload.len() != bytes)
+                {
                     return Err(SourceError::MemberRead);
                 }
                 check_cancel(cancel)?;
                 let member = SourceMember {
                     name: name.to_owned(),
                     winning_archive: archive_name.clone(),
-                    // Equality covers the final fresh read, not its path, index,
-                    // profile read, size or timestamp. A different buffer still
-                    // takes the original SHA-256 path, including collisions.
                     sha256: profile_value!(
                         PayloadHash,
-                        match cached_digest {
-                            Some((original, digest)) if payload == original => digest.to_owned(),
-                            _ => format!("{:x}", Sha256::digest(&payload)),
+                        match &payload {
+                            Some(payload) => format!("{:x}", Sha256::digest(payload)),
+                            None => match expected.map(|receipt| &receipt.outcome) {
+                                // Compared together with the freshly read encoded identity.
+                                Some(Outcome::Present(member)) => member.sha256.clone(),
+                                _ => return Err(SourceError::Changed),
+                            },
                         }
                     ),
                     bytes,
@@ -762,8 +766,9 @@ fn observe_lookup(
                 let observation = LookupObservation {
                     probe_count: probed + 1,
                     outcome: Outcome::Present(member),
+                    encoded_identity: Some(encoded_identity),
                 };
-                return Ok((Some(payload), observation));
+                return Ok((payload, observation));
             }
         }
     }
@@ -772,6 +777,7 @@ fn observe_lookup(
         LookupObservation {
             probe_count,
             outcome: Outcome::Absent,
+            encoded_identity: None,
         },
     ))
 }
