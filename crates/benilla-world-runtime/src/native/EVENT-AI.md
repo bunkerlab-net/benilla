@@ -95,6 +95,9 @@ and enable OOC holders; respawn reconstructs them for the replacement generation
 Equal timer endpoints consume no random word. Other timer ranges use the shared
 inclusive stream. Chance precedes action on success; repeat selection follows
 either chance outcome, before disabling a non-repeatable row.
+Cold OOC timer construction is compiled only for crate tests and the
+`synthetic-native-tests` feature, matching its component-world constructor.
+Semantic replay validation remains available in ordinary library builds.
 
 Each operation retains its generation, draws, deliveries, and a chained Unit
 anchor. The anchor lives only in the selected EventAI context, so unrelated NPC

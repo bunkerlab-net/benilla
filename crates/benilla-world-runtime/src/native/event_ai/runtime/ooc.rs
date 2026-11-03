@@ -113,6 +113,7 @@ impl OocState {
                 .ok_or(NativeError::TooLarge)
         })
     }
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub fn initialize(
         &mut self,
         catalog: &EventAiRuntimeCatalog,
