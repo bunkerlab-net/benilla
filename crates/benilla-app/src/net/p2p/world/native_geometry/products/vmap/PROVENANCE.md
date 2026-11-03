@@ -89,7 +89,7 @@ encounter orders, malformed geometry/hierarchies, hidden instance bounds, liquid
 and truncation. This is a bounded reader compatibility correction, not
 real-asset validation or production content admission.
 
-Additional limits are 16 MiB total VMap input within the inventory's existing 64 MiB
+Additional limits are 32 MiB total VMap input within the inventory's existing 64 MiB
 limit; 262,144 elements per non-BIH encoded array; 4,096 total decoded groups; 16,384 serialized
 spawn records including cross-tile repeats; and 1,048,576 placement/group/vertex validation
 steps across unique placements. Model costs are cached once and include empty groups;
@@ -97,10 +97,13 @@ repeating a model cannot amplify either the cost scan or transform loop without 
 that bound. Unknown map slots are bounded by the map primitive count, not by the
 number of declared tiles. Fallible reservations precede large array allocations. Peak
 storage is bounded by these counts, including source bytes, decoded arrays, unresolved
-spawn slots and temporary validation arrays; this is not a streaming loader. The 16 MiB
-raw-input cap is explicitly not a 16 MiB resident-memory cap. Unresolved spawn
+spawn slots and temporary validation arrays; this is not a streaming loader. The 32 MiB
+raw-input cap is explicitly not a 32 MiB resident-memory cap. Unresolved spawn
 slots and temporary bounds vectors scale with the map's primitive count and
 remain additional to decoded arrays and the separately owned inventory.
+All 354 emitted map-0 single-tile closures measure at most 18,657,687 input
+bytes, including the complete map tree and deduplicated resident models.
+The next power of two, 33,554,432, leaves 14,896,745 bytes of margin.
 
 BIH tree arrays accept at most 16,777,216 words; object arrays accept at most
 1,048,576. Map 0 measures 534,990 tree words and 129,804 objects. A complete map-1

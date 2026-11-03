@@ -373,7 +373,7 @@ fn decode_rows(
         }
     }
     // Retain every existing loaded geometry/transform/enclosing-bound validator.
-    // This synchronous decode keeps the existing 16 MiB resident byte envelope.
+    // This synchronous decode keeps the shared measured resident byte envelope.
     check(cancelled)?;
     let geometry = VmapSnapshot::load_rows(binding, &resident, true)?;
     check(cancelled)?;

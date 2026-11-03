@@ -87,6 +87,33 @@ fn budget() -> QueryBudget {
 }
 
 #[test]
+fn resident_input_byte_budget_accepts_32_mib_and_refuses_its_next_byte() {
+    let binding = snapshot().binding();
+    let payload = vec![0; 32 * 1024 * 1024 + 1];
+    for (bytes, expected) in [
+        (32 * 1024 * 1024 - 1, Error::Missing),
+        (32 * 1024 * 1024, Error::Missing),
+        (32 * 1024 * 1024 + 1, Error::Budget),
+    ] {
+        let rows = BTreeMap::from([
+            (
+                ProductId::VmapModel("first.m2.vmo".into()),
+                &payload[..1024],
+            ),
+            (
+                ProductId::VmapModel("second.m2.vmo".into()),
+                &payload[1024..bytes],
+            ),
+        ]);
+        // Missing tree proves the byte guard admitted the total before decoding.
+        assert_eq!(
+            VmapSnapshot::load_rows(binding, &rows, true).map(|_| ()),
+            Err(expected)
+        );
+    }
+}
+
+#[test]
 fn static_and_map_height_then_ray_share_one_cumulative_work_allowance() {
     use super::super::super::core::NonRenderParticipants;
     use super::super::{ground_height, height};
