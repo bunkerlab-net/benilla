@@ -580,8 +580,8 @@ fn changed_used_unused_zero_hull_and_skipped_group_dependencies_invalidate_captu
 }
 
 #[test]
-fn non_case_extraction_lookup_mismatch_remains_an_explicit_refusal() {
-    let (path, member) = ("Models\\Space Name.mdl", "Models\\Space Name.m2");
+fn source_normalized_space_modn_name_resolves_to_its_captured_member() {
+    let (path, member) = ("Models\\SPACE NAME.MDX", "Models\\SPACE NAME.M2");
     let temp = Temp::new();
     let data = temp.data();
     let (paths, _) = dc_names(&[path]);
@@ -595,24 +595,32 @@ fn non_case_extraction_lookup_mismatch_remains_an_explicit_refusal() {
     entries.push(raw_entry(member, m2(true)));
     entries.push(raw_entry(ADT, dc_adt(0, 0, 123)));
     save(&data, "wmo.MPQ", &entries);
-    let error = prepare(&data, 0, || false).unwrap_err();
-    assert!(matches!(error.category(), Error::DoodadNameIdentity));
+    let prepared = prepare(&data, 0, || false).unwrap();
+    assert_eq!(prepared.summary().m2_raw_products, 1);
+    assert_eq!(prepared.doodad_candidates().len(), 1);
+    let product = &prepared.products()[prepared.doodad_candidates()[0].product_index];
+    assert_eq!(product.source_member(), member);
+    assert_eq!(product.extracted_name(), "SPACE NAME.M2");
+    assert!(product.source_has_collision());
+    let profile =
+        DoodadProjectionProfile::from_policy_id(crate::doodad_transform_math::POLICY).unwrap();
     assert_eq!(
-        error.diagnostic().stage,
-        Some(PreparationStage::GlobalWmoRoot)
+        prepared
+            .placement_records(profile, || false)
+            .unwrap()
+            .record_count(),
+        2
     );
-    let progress = error.diagnostic().progress.unwrap();
-    assert_eq!(progress.member_lookups, 4);
-    assert_eq!(progress.complete_raw_products, 1);
-    assert_eq!(progress.adt_attempts, 0);
-    let diagnostic = format!(
-        "{error:?} {error} {}",
-        serde_json::to_string(&error.diagnostic()).unwrap()
+    assert_eq!(
+        prepared
+            .assemble_map_bundle(profile, || false)
+            .unwrap()
+            .unwrap()
+            .models()
+            .len(),
+        2
     );
-    assert!(!diagnostic.contains(path));
-    assert!(!diagnostic.contains(member));
-    assert!(!diagnostic.contains("Temple"));
-    assert!(!diagnostic.contains(&data.display().to_string()));
+    prepared.verify_unchanged(|| false).unwrap();
 }
 
 #[test]
@@ -741,6 +749,37 @@ fn case_insensitive_flat_name_conflicts_keep_the_exact_refusal() {
             Some(PreparationStage::GlobalWmoRoot)
         );
         assert_eq!(error.diagnostic().progress.unwrap().adt_attempts, 0);
+    }
+}
+
+#[test]
+fn source_normalized_flat_name_conflicts_refuse_in_either_extraction_order() {
+    for other_shape in 0..3 {
+        for reverse in [false, true] {
+            let temp = Temp::new();
+            let data = temp.data();
+            let mut paths = ["Models\\Space Name.mdx", "Models\\SPACE_NAME.MDX"];
+            if reverse {
+                paths.reverse();
+            }
+            let (names, _) = dc_names(&paths);
+            let mut entries = wmo_entries(0);
+            dc_replace(&mut entries, ROOT, dc_root(0, &names, &[], &[]));
+            entries.push(raw_entry("Models\\Space Name.m2", m2(true)));
+            let mut other = m2(other_shape != 0);
+            if other_shape == 2 {
+                set_word(&mut other, 330, 2.0_f32.to_bits());
+            }
+            entries.push(raw_entry("Models\\Space_Name.m2", other));
+            save(&data, "wmo.MPQ", &entries);
+            let error = prepare(&data, 0, || false).unwrap_err();
+            assert_eq!(error.diagnostic().category, "vmap.flat_name_collision");
+            assert_eq!(
+                error.diagnostic().stage,
+                Some(PreparationStage::GlobalWmoRoot)
+            );
+            assert_eq!(error.diagnostic().progress.unwrap().adt_attempts, 0);
+        }
     }
 }
 

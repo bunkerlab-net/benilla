@@ -38,14 +38,15 @@ calls ExtractSet after those early-return constructors too.
 
 ## Portable and bounded profile
 
-MODN extraction and placement lookup basenames must match ignoring ASCII case.
-An owner-approved deviation resolves each lookup to its captured M2 product,
-without opening a case-dependent flat filename. It retains collision when only
-the stem or extension case differs. Non-case mismatches, including spaces changed
-to underscores, still fail with `vmap.doodad_name_identity`. Different source
-members sharing a case-insensitive output name still fail with
-`vmap.flat_name_collision`, including different bytes or collision dispositions.
-Existing missing-input and source-replacement refusals remain.
+An owner-approved deviation resolves each doodad lookup to the captured M2
+product whose basename matches after the source's `fixnamen` and `fixname2`
+normalisation. This includes ASCII case changes and stem spaces changed to
+underscores. The original captured member and emitted basename remain unchanged;
+no normalised archive member or filesystem alias is opened.
+Different canonical members sharing a normalised output name still fail with
+`vmap.flat_name_collision`, including equal bytes, different bytes, and different
+collision dispositions. Existing missing-input, identity, and source-replacement
+refusals remain.
 
 Member paths accept printable ASCII punctuation, including ampersands in directory
 components. `MPQFile` passes names directly to `libmpq__file_number`, whose hashes
@@ -73,8 +74,13 @@ doodad when `fopen` fails. ADT MMDX extraction can create the lookup spelling
 later because `adtfile.cpp:150-156` normalizes before ExtractSingleModel.
 Benilla differs because source collision membership otherwise depends on
 filesystem case rules and extraction order.
+For a basename with a stem space, extraction retains the space while lookup
+uses an underscore. Ordinary Windows filesystems also distinguish those names.
+Without another earlier flat-file producer, the pinned source skips that doodad
+on Windows too. The same captured-member rule resolves both shapes and refuses
+competing members instead of letting extraction order select the geometry.
 
-Case aliases retain the exact captured product and use its emitted basename in
+Normalised aliases retain the exact captured product and use its emitted basename in
 placement records and assembled models. Runtime never needs a filesystem alias:
 `MapTree.cpp:310,399` passes `spawn.name` to `VMapManager2.cpp:310-321`, which reads
 `basepath + filename + ".vmo"` without normalization.
@@ -91,7 +97,7 @@ verification cover the expanded dependency reads. No output is published on fail
 Public diagnostic summaries expose only counts/categories and policy labels; raw
 asset paths/set-name bytes are excluded from their serializers.
 
-The writer policy is `cmangos-vmaps05-encounter-ledger-ci-doodad-v6`.
+The writer policy is `cmangos-vmaps05-encounter-ledger-normalized-doodad-v7`.
 This revision captures dependencies and selected membership, not final placement.
 
 ## Remaining assembly obligations

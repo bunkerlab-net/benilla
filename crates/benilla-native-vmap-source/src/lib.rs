@@ -680,7 +680,7 @@ impl Builder {
                 source_pin: SOURCE_PIN,
                 acquisition_policy: source::SOURCE_POLICY,
                 listfile_policy: discovery::LISTFILE_POLICY,
-                writer_policy: "cmangos-vmaps05-encounter-ledger-ci-doodad-v6",
+                writer_policy: "cmangos-vmaps05-encounter-ledger-normalized-doodad-v7",
                 liquid_header_policy: WMO_LIQUID_HEADER_ZERO_PADDING_V1,
                 doodad_reference_order_policy: doodad_reference_order::POLICY,
                 encounter_id_policy: encounter_ids::POLICY,
@@ -882,14 +882,10 @@ impl Builder {
                 .map_err(Error::Doodad)?;
             let name = discovery::doodad_lookup_name(path)?;
             // ExtractSet checks flat output after global extraction; aliases here resolve captured M2 products.
-            let Some(&product_index) = self.names.get(&name.to_ascii_lowercase()) else {
+            let Some(&product_index) = self.names.get(&name) else {
                 continue;
             };
-            if !self.products[product_index]
-                .extracted_name
-                .eq_ignore_ascii_case(&name)
-                || self.products[product_index].kind != ModelKind::M2
-            {
+            if self.products[product_index].kind != ModelKind::M2 {
                 return Err(Error::DoodadNameIdentity);
             }
             if !self.products[product_index].source_has_collision() {
@@ -939,7 +935,11 @@ impl Builder {
         dependency: &ModelDependency,
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Option<usize>, Error> {
-        let key = dependency.extracted_name.to_ascii_lowercase();
+        // Deviation: Resolve captured doodad basenames with source fixnamen/fixname2 because CMaNGOS 8ec338a1 wmo.cpp:89-103 copies MODN before mutation, gameobject_extract.cpp:14-39 emits the original basename, and model.cpp:242-260 looks up the normalized basename and skips missing files, making collision depend on earlier flat outputs.
+        let key = match dependency.kind {
+            ModelKind::M2 => discovery::doodad_lookup_name(dependency.extracted_name.as_bytes())?,
+            ModelKind::Wmo => dependency.extracted_name.to_ascii_lowercase(),
+        };
         let existing = self.names.get(&key).copied();
         if let Some(index) = existing {
             let product = &self.products[index];
@@ -1038,13 +1038,6 @@ impl Builder {
                 .capture(&model, cancelled)?
                 .ok_or(Error::DependencyOrder)?;
             if self.products[index].source_has_collision() {
-                // Deviation: Resolve doodad basenames case-insensitively because CMaNGOS 8ec338a1 wmo.cpp:85-100 copies MODN before fixnamen and model.cpp:242-258 fopens the fixnamen spelling and skips missing files, making collision depend on filesystem and extraction order.
-                if !model
-                    .extracted_name
-                    .eq_ignore_ascii_case(&discovery::doodad_lookup_name(&event.path)?)
-                {
-                    return Err(Error::DoodadNameIdentity);
-                }
                 valid_names.insert(event.name_index);
             }
         }

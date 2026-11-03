@@ -308,7 +308,7 @@ fn projection_binding_names_the_pin_policy_and_full_capture_epoch_and_is_not_a_l
         digest.update([0]);
         digest.update(b"gcc14-libstdcxx-u16-identity-prime-load1-fresh-insert-v1");
         digest.update([0]);
-        digest.update(b"cmangos-vmaps05-encounter-ledger-ci-doodad-v6");
+        digest.update(b"cmangos-vmaps05-encounter-ledger-normalized-doodad-v7");
         digest.update([0]);
         digest.update(b"cmangos-client-u32-child-u16-first-encounter-v1");
         digest.update([0]);
