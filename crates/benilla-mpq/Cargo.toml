@@ -11,9 +11,13 @@ workspace = true
 [dependencies]
 # Bounds-checked byte readers and the allocation cap on the header, block table and sectors.
 benilla-bytes = { path = "../benilla-bytes" }
-# Inflate for the ZLIB (0x02) sector codec, on its pure-Rust miniz_oxide backend.
-flate2 = "1.1"
+# Unlike upstream benilla, use zlib-rs for bounded capture speed.
+flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
 
 [target.'cfg(unix)'.dependencies]
 # Only the opt-in bounded reader's nonblocking, no-symlink archive opens.
 libc = "0.2"
+
+[dev-dependencies]
+benilla-formats = { path = "../benilla-formats", default-features = false }
+miniz_oxide = "0.8"

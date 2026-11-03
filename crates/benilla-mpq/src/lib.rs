@@ -960,6 +960,79 @@ mod tests {
         ))
     }
 
+    #[test]
+    fn real_sector_inflate_matches_miniz_byte_for_byte() {
+        let data = benilla_formats::wow_data_or_skip!();
+        let mut sectors = 0u64;
+        let mut stored = 0u64;
+        for entry in std::fs::read_dir(data).unwrap() {
+            let path = entry.unwrap().path();
+            if !path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("mpq"))
+            {
+                continue;
+            }
+            let archive = Archive::open(&path).unwrap();
+            let idx = &archive.index;
+            let mut file = File::open(&path).unwrap();
+            for block in &idx.block_table {
+                if block.flags & FLAG_EXISTS == 0
+                    || block.flags & (FLAG_DELETE_MARKER | FLAG_ENCRYPTED | FLAG_SINGLE_UNIT) != 0
+                    || block.flags & FLAG_CODEC_MASK == 0
+                {
+                    continue;
+                }
+                let base = idx.archive_offset + u64::from(block.file_pos);
+                let count = (block.file_size as usize).div_ceil(idx.sector_size);
+                file.seek(SeekFrom::Start(base)).unwrap();
+                let mut table = vec![0; (count + 1) * 4];
+                file.read_exact(&mut table).unwrap();
+                let offsets: Vec<_> = table
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|word| u32::from_le_bytes(*word))
+                    .collect();
+                for (sector, pair) in offsets.windows(2).enumerate() {
+                    let want =
+                        (block.file_size as usize - sector * idx.sector_size).min(idx.sector_size);
+                    let len = pair[1].checked_sub(pair[0]).unwrap() as usize;
+                    file.seek(SeekFrom::Start(base + u64::from(pair[0])))
+                        .unwrap();
+                    let mut raw = vec![0; len];
+                    file.read_exact(&mut raw).unwrap();
+                    if len >= want {
+                        stored += 1;
+                        continue;
+                    }
+                    assert_eq!(block.flags & FLAG_CODEC_MASK, FLAG_COMPRESS);
+                    assert_eq!(raw[0], 2, "real compressed sector must use zlib");
+                    let reference = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(
+                        &raw[1..],
+                        want + 1,
+                    );
+                    let strict = decompress_classic_ad(2, &raw[1..], want, "real sector");
+                    let streaming = decompress(2, &raw[1..], want + 1, "real sector");
+                    match reference {
+                        Ok(bytes) => {
+                            assert_eq!(bytes.len(), want);
+                            assert_eq!(strict.unwrap(), bytes);
+                            assert_eq!(streaming.unwrap(), bytes);
+                        }
+                        Err(_) => {
+                            assert!(matches!(strict, Err(Error::Decompress(_))));
+                            assert!(matches!(streaming, Err(Error::Decompress(_))));
+                        }
+                    }
+                    sectors += 1;
+                }
+            }
+        }
+        assert!(sectors > 0, "the install must exercise compressed sectors");
+        eprintln!("real sector differential: {sectors} zlib, {stored} stored");
+    }
+
     /// A minimal 32-byte V1 MPQ header, unused fields zeroed.
     fn header(
         block_size_shift: u16,
