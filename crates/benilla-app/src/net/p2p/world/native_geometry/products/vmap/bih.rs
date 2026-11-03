@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Checked BIH serialization, point and nearest-hit traversal from pinned CMaNGOS
 //! `src/game/vmap/BIH.{h,cpp}`; see the products CMANGOS-NOTICE and PROVENANCE.
-use super::{Bounds, Cursor, Error, QueryBudget, Ray, Vector};
+use super::{Bounds, Cursor, Error, QueryBudget, Ray, Vector, MAX_OBJECT_WORDS, MAX_TREE_WORDS};
 
-// Map 0 needs 534,990 tree/129,804 object words; BIH.cpp:105-127,175-250 gives <=9N-5 nodes; existing producer caps 12,582,912 words and N<=1,048,576 round to these powers of two when map 1 is unavailable.
-const MAX_TREE_WORDS: usize = 16_777_216;
-const MAX_OBJECT_WORDS: usize = 1_048_576;
 const OFFSET_MASK: u32 = 0x1fff_ffff;
 const LEAF: u32 = 3 << 30;
 const BVH2: u32 = 1 << 29;

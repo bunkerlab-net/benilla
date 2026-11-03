@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Pinned native serialization framing only. No BIH traversal, native allocation,
 //! Detour polygon/reference validation or VMap collision semantics are performed.
-use super::{u32_at, Error, ProductId};
+use super::{
+    u32_at,
+    vmap::{MAX_OBJECT_WORDS, MAX_TREE_WORDS},
+    Error, ProductId,
+};
 use std::collections::BTreeSet;
 
 const MAX_ELEMENTS: usize = 262_144;
@@ -275,8 +279,11 @@ impl<'a> Cursor<'a> {
         u32_at(self.take(4)?, 0)
     }
     fn count(&mut self) -> Result<usize, Error> {
+        self.bounded_count(MAX_ELEMENTS)
+    }
+    fn bounded_count(&mut self, limit: usize) -> Result<usize, Error> {
         let count = self.word()? as usize;
-        if count > MAX_ELEMENTS {
+        if count > limit {
             return Err(Error::Budget);
         }
         Ok(count)
@@ -308,13 +315,71 @@ impl<'a> Cursor<'a> {
     }
     fn bih(&mut self) -> Result<(), Error> {
         self.bounds()?;
-        let tree_words = self.count()?;
+        let tree_words = self.bounded_count(MAX_TREE_WORDS)?;
         if tree_words % 3 != 0 {
             return Err(Error::Framing);
         }
         self.take(tree_words * 4)?;
-        let objects = self.count()?;
+        let objects = self.bounded_count(MAX_OBJECT_WORDS)?;
         self.take(objects * 4)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn map_tree(tree_words: usize, objects: usize) -> Vec<u8> {
+        let mut bytes = b"VMAP_7.0\x01NODE".to_vec();
+        bytes.resize(bytes.len() + 24, 0);
+        bytes.extend_from_slice(&(tree_words as u32).to_le_bytes());
+        bytes.resize(bytes.len() + tree_words * 4, 0);
+        bytes.extend_from_slice(&(objects as u32).to_le_bytes());
+        bytes.resize(bytes.len() + objects * 4, 0);
+        bytes.extend_from_slice(b"GOBJ");
+        bytes
+    }
+
+    #[test]
+    fn continent_bih_envelopes_accept_real_and_approved_boundary_counts() {
+        // Framing only; the loaded BIH reader separately checks node semantics.
+        for (tree_words, objects) in [(534_990, 129_804), (16_777_215, 1_048_575)] {
+            let bytes = map_tree(tree_words, objects);
+            assert!(validate_source_names(&ProductId::VmapTree, &bytes, true)
+                .unwrap()
+                .is_empty());
+            assert!(matches!(
+                validate_source_names(&ProductId::VmapTree, &bytes[..bytes.len() - 1], true),
+                Err(Error::Framing)
+            ));
+        }
+    }
+
+    #[test]
+    fn bih_envelopes_refuse_oversize_headers_without_payload() {
+        for (offset, count) in [(37, 16_777_217_u32), (41, 1_048_577)] {
+            let mut bytes = map_tree(0, 0);
+            bytes[offset..offset + 4].copy_from_slice(&count.to_le_bytes());
+            bytes.truncate(offset + 4);
+            assert!(matches!(
+                validate_source_names(&ProductId::VmapTree, &bytes, true),
+                Err(Error::Budget)
+            ));
+        }
+    }
+
+    #[test]
+    fn non_bih_envelopes_keep_the_existing_element_cap() {
+        let mut bytes = b"VMAP_7.0".to_vec();
+        bytes.extend_from_slice(&262_145_u32.to_le_bytes());
+        assert!(matches!(
+            validate_source_names(
+                &ProductId::VmapTile(super::super::TileId { x: 48, y: 31 }),
+                &bytes,
+                true
+            ),
+            Err(Error::Budget)
+        ));
     }
 }

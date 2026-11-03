@@ -12,6 +12,8 @@ The parallel-axis regression follows pinned CMaNGOS revision `8ec338a1704e7dcb1c
 
 The complete source envelope is bounded to 4,096 tile products, 32,768 models, 512 MiB of serialized bytes and 64 MiB of tree/tile bytes. At most 1,048,576 placement references are scanned. BIH arrays allow 16,777,216 tree words and 1,048,576 object words, sized from the producer's construction bound because map-1 capture is unavailable. Depth and structural validation are unchanged. At most 64 explicit tiles may be selected. The resident decoder retains its existing 16 MiB serialized-input budget, other placement/group/element limits and query-work budget. These are independent serialized and work limits, not a claim that process memory is 16 MiB.
 
+The source framing envelope and loaded BIH decoder share the same BIH word limits. Other encoded-array limits are unchanged.
+
 All source bytes contribute to the binding. Unresident model geometry is hashed but deliberately not decoded or certified valid. Loading it later invokes the ordinary complete model, transform and enclosing-bound checks. The complete placement index is validated even when its geometry is not resident.
 
 Cancellation is polled during source checks, row hashing, placement scans and metadata initialization. Existing envelope/BIH validation and the resident decoder are synchronous bounded operations; polling occurs around them. Metadata, the original assembled source bundle, raw capture and decoder allocations have separate bounded memory costs. This view does not eliminate the producer's full-map capture/assembly memory peak, and real continent sizing remains to be measured.

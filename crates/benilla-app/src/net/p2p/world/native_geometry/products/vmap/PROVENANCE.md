@@ -106,6 +106,8 @@ BIH tree arrays accept at most 16,777,216 words; object arrays accept at most
 1,048,576. Map 0 measures 534,990 tree words and 129,804 objects. A complete map-1
 capture refuses a missing required member, so sizing uses the producer's bounded
 construction rather than claiming a map-1 measurement.
+The framing envelope and loaded BIH decoder share these two constants. Non-BIH
+element counts retain their separate 262,144-element cap.
 For N positive objects, the binary core has at most 2N-1 nodes. Each core node
 can have at most three preceding BVH2 clips, one per tightened axis, and each
 binary split can add at most one empty-space clip. Thus there are at most

@@ -36,6 +36,9 @@ use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, time::Instant};
 
 const MAX_VMAP_BYTES: usize = 16 * 1024 * 1024;
+// Map 0 needs 534,990 tree/129,804 object words; BIH.cpp:105-127,175-250 gives <=9N-5 nodes; existing producer caps 12,582,912 words and N<=1,048,576 round to these powers of two when map 1 is unavailable.
+pub(super) const MAX_TREE_WORDS: usize = 16_777_216;
+pub(super) const MAX_OBJECT_WORDS: usize = 1_048_576;
 const MAX_ELEMENTS: usize = 262_144;
 const MAX_GROUPS: usize = 4096;
 const MAX_SPAWNS: usize = 16_384;
