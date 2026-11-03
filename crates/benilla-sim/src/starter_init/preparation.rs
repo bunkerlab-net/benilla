@@ -62,6 +62,8 @@ pub struct StarterInitialDependencies {
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum InitialCastOrderEvidence {
     Unknown,
+    /// Approved native policy, not a reference observation or equivalence proof.
+    CanonicalNative,
     /// Synthetic order contract only. Never promoted to a loaded observation.
     Authored {
         identity: [u8; 32],
@@ -81,6 +83,15 @@ pub struct StarterCastOrder {
     pub first_entry: InitialCastOrderEvidence,
     /// Must drive the actual traversal and be an exact normalized-skill permutation.
     pub entry_skill_order: Option<Vec<u16>>,
+}
+impl StarterCastOrder {
+    pub fn canonical() -> Self {
+        Self {
+            creation: InitialCastOrderEvidence::CanonicalNative,
+            first_entry: InitialCastOrderEvidence::CanonicalNative,
+            entry_skill_order: None,
+        }
+    }
 }
 
 /// No constructor or deserializer can replace the actual learning traversal.
@@ -159,9 +170,24 @@ pub fn prepare_starter(
     dependencies.validate(input)?;
     validate_order(&order.creation)?;
     validate_order(&order.first_entry)?;
-    let entry_order = order.entry_skill_order.as_ref().ok_or(InitError::Invalid(
-        "missing explicit first-entry skill order",
-    ))?;
+    let canonical = matches!(order.creation, InitialCastOrderEvidence::CanonicalNative)
+        && matches!(order.first_entry, InitialCastOrderEvidence::CanonicalNative);
+    if matches!(order.creation, InitialCastOrderEvidence::CanonicalNative)
+        != matches!(order.first_entry, InitialCastOrderEvidence::CanonicalNative)
+    {
+        return Err(InitError::Invalid("mixed canonical initial cast order"));
+    }
+    if canonical && input.default_spells.require("playercreateinfo_spell", 0)?
+        .windows(2).any(|pair| pair[0] > pair[1])
+    {
+        return Err(InitError::Invalid("noncanonical default spell order"));
+    }
+    if order.entry_skill_order.is_none() && !canonical {
+        return Err(InitError::Invalid("missing explicit first-entry skill order"));
+    }
+    if canonical && order.entry_skill_order.is_some() {
+        return Err(InitError::Invalid("canonical entry order must use normalized skills"));
+    }
     let context = |epoch: u8| {
         let mut h = Sha256::new();
         h.update(STARTER_PREPARATION_POLICY.as_bytes());
@@ -177,7 +203,7 @@ pub fn prepare_starter(
         input,
         &created,
         Some(CastCollector::new(dependencies, context(1))),
-        Some(entry_order),
+        order.entry_skill_order.as_deref(),
     )?;
     let creation_plan = creation
         .ok_or(InitError::Invalid("missing creation collector"))?
@@ -218,6 +244,7 @@ pub fn prepare_starter(
 }
 fn validate_order(order: &InitialCastOrderEvidence) -> Result<()> {
     match order {
+        InitialCastOrderEvidence::CanonicalNative => Ok(()),
         InitialCastOrderEvidence::Authored { identity } if *identity != [0; 32] => Ok(()),
         InitialCastOrderEvidence::ObservedLoadedOrder {
             capture_identity,
@@ -230,6 +257,10 @@ fn hash_order(h: &mut Sha256, order: &StarterCastOrder) {
     for evidence in [&order.creation, &order.first_entry] {
         match evidence {
             InitialCastOrderEvidence::Unknown => h.update([0]),
+            InitialCastOrderEvidence::CanonicalNative => {
+                h.update([4]);
+                h.update(crate::canonical_order::identity());
+            }
             InitialCastOrderEvidence::Authored { identity } => {
                 h.update([1]);
                 h.update(identity);

@@ -6,6 +6,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 """
 from collections import defaultdict
 from classic_export.learning import LOADER_FORMAT
+from . import canonical_order
 
 
 def supported_plan(source, dbcs, closure):
@@ -37,7 +38,7 @@ def supported_plan(source, dbcs, closure):
     race, cls = source["selection"]["starter"]["race"], source["selection"]["starter"]["class"]
     race_mask, class_mask = 1 << (race - 1), 1 << (cls - 1)
     defaults, dispositions, seen = [], [], set()
-    for row in tables["playercreateinfo_skills"]:
+    for row in canonical_order.collection(source, "playercreateinfo_skills"):
         skill, step = row["skill"], row["step"]
         if not 0 < skill <= 65535 or not 0 <= step <= 16:
             refuse("playercreateinfo_skills", skill, "player.learning_skill_step_domain")
@@ -157,7 +158,7 @@ def supported_plan(source, dbcs, closure):
                 refuse("spell_chain", spell, "player.learning_chain_integrity")
     learned = defaultdict(list)
     if coverage["global_learn_spell_probe"]["rows"]:
-        for row in tables["spell_learn_spell"]:
+        for row in canonical_order.collection(source, "spell_learn_spell"):
             if row["SpellID"] in talents:
                 refuse("spell_learn_spell", row["entry"], "player.learning_sql_talent_target")
             if existence(row["entry"]) and existence(row["SpellID"]):
@@ -186,13 +187,15 @@ def supported_plan(source, dbcs, closure):
                 ready.append(link["spell_id"])
     if visited != len(selected):
         refuse("spell_learn_spell", 0, "player.learning_spell_cycle")
+    order = canonical_order.learning(source, not refusals)
     return {"format": "benilla-native-starter-learning-plan-v2",
             "status": "blocked" if refusals else "supported",
             "loaded_learning_maps_resolved": not refusals, "effective_learning_proven": False,
             "source_identity": closure["dependency_request"]["source_sha256"],
             "selected_spell_ids": sorted(selected), "default_skill_candidates": defaults,
-            "default_spell_candidates": [r["Spell"] for r in tables["playercreateinfo_spell"]],
-            "root_order": "unknown_canonical_capture_order_is_not_loaded_order",
+            "default_spell_candidates": [r["Spell"] for r in canonical_order.collection(source, "playercreateinfo_spell")],
+            "root_order": "canonical_native_schedule" if not refusals else "unknown_incomplete_inputs",
+            "canonical_order": order,
             "skill_dispositions": dispositions, "ranks": [ranks[k] for k in sorted(ranks)],
             "talent_spell_ids": sorted(talents),
             "learned_spells": [{"entry": k, "links": learned[k]} for k in sorted(learned)],

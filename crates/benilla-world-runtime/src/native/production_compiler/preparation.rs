@@ -13,6 +13,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::LazyLock,
 };
+mod canonical_order;
 mod learning;
 mod learning_numeric;
 mod plans;
@@ -268,8 +269,8 @@ impl<'a> Compiler<'a> {
                 grants.push(json!({"source":"CharStartOutfit","source_slot":slot,"item_id":num(id),"count":count}));
             }
         }
-        for (slot, item) in rows(self.source, "playercreateinfo_item")
-            .iter()
+        for (slot, item) in canonical_order::collection(self.source, "playercreateinfo_item")
+            .into_iter()
             .enumerate()
         {
             grants.push(json!({"source":"playercreateinfo_item","source_slot":slot,"item_id":item["itemid"],"count":item["amount"]}));

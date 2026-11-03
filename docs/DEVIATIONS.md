@@ -36,6 +36,7 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 - [benilla-lua](#benilla-lua): 11
 - [benilla-native-vmap-source](#benilla-native-vmap-source): 2
 - [benilla-protocol](#benilla-protocol): 29
+- [benilla-sim](#benilla-sim): 1
 - [benilla-srp](#benilla-srp): 2
 - [benilla-ui](#benilla-ui): 135
 - [benilla-world](#benilla-world): 47
@@ -710,6 +711,11 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 - Zeros until one does, because the reference's words are never initialised (the session is allocated without zero-fill, `ui/billing` in benilla-re). ([`src/world/session.rs:69`](../crates/benilla-protocol/src/world/session.rs#L69))
 - Checked per queue packet where the reference checks each tick, so a cancel can lag one server update. ([`src/world/session.rs:106`](../crates/benilla-protocol/src/world/session.rs#L106))
 - Benilla runs no Warden module and answers nothing, because the answers come from native Win32 x86 code the server sends, which the client maps, links and runs in its own process (`0x7a79d0`), and benilla runs no such code on any platform (`crate::auth::AuthReject::reply` gives the rule). The reference hands `SMSG_WARDEN_DATA` to the module its connect loads (`0x6ca2f0`, `0x6ca5c0`) and sends that module's answer as `CMSG_WARDEN_DATA` (`0x6ca6a0`); here the message is read past like any stray and the login goes on. What follows is the server's policy (vmangos kicks after `Warden.ClientResponseDelay`, `Warden.cpp:686-691`). ([`src/world/session.rs:251`](../crates/benilla-protocol/src/world/session.rs#L251))
+### benilla-sim
+
+#### canonical_order
+
+- CMaNGOS 8ec338a1 ObjectMgr.cpp:3157,3228,3336,7946 and SpellMgr.cpp:1668 use unordered SQL; Player.cpp:15249,15271 uses unordered SQL/SkillStatusMap; ScriptMgr.cpp:118 orders priority only. Native uses a versioned canonical schedule because unspecified reference traversal cannot define portable deterministic preparation and cast occurrences. ([`src/canonical_order.rs:3`](../crates/benilla-sim/src/canonical_order.rs#L3))
 ### benilla-srp
 
 #### (crate root)

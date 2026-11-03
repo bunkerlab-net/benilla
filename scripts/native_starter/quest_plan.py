@@ -6,6 +6,7 @@ ObjectMgr.cpp:4231-4880,5775-5909,7940-8035; Player.cpp:12087-12181.
 from classic_export import quest_presentation, quest_relationships, quest_mechanics, quest_endpoints
 from classic_export.core import digest
 from classic_export.quest_columns import QUEST_TEXT
+from . import canonical_order
 
 ADAPTER = "quest_lifecycle::CapturedOrdinaryQuests + captured_quests::CapturedQuestPresentation"
 
@@ -68,14 +69,20 @@ def supported_plan(source, dbcs):
             if row["GossipMenuId"] and row["Entry"] not in mechanics["givers"]:
                 refuse(0, "GossipMenuId", row["GossipMenuId"], "gossip_applicability_unresolved")
     presentation_resolved = raw_resolved
+    order = canonical_order.relationships(source)
+    if source.get("quest_mechanics_capture"):
+        mechanics["loaded_script_order"] = order["scripts"]
     for field in ("loaded_relation_order", "effective_giver_selection", "registered_callbacks",
                   "global_spell_area_and_item_effects", "session_locale_and_dialog_policy"):
-        if field == "loaded_relation_order" and source.get("quest_mechanics_capture") and source["quest_mechanics_capture"]["selectors"]["scripts"]:
-            refuse(0, "loaded_script_order", 0, "independent_context_required")
+        if field == "loaded_relation_order" and order["status"] == "complete_inputs":
+            if source.get("quest_mechanics_capture") and order["scripts"] is None:
+                refuse(0, "loaded_script_order", 0, "independent_context_required")
+            continue
         refuse(0, field, 0, "independent_context_required")
     return {"status": "blocked", "adapter": ADAPTER, "source_sha256": digest(source),
             "raw_presentation_resolved": presentation_resolved, "ordinary_catalog_resolved": False,
             "refusals": refusals, "selected_quest_ids": value["selectors"]["quests"],
+            "canonical_order": order,
             "input_bindings": {"capture_sha256": digest(value), "Emotes_sha256": emotes.sha256 if emotes else None},
             **({"mechanics": mechanics} if source.get("quest_mechanics_capture") else {}),
             **({"endpoints": source["quest_endpoint_capture"]["endpoints"]} if source.get("quest_endpoint_capture") else {}),

@@ -184,10 +184,8 @@ pub fn setup_with_mechanics(
     let captured = q::CapturedOrdinaryQuests {
         source: [37; 32],
         quests: Some(rows.clone()),
-        starters: Some(starters.clone()),
-        finishers: Some(finishers.clone()),
-        loaded_starters: Some(starters),
-        loaded_finishers: Some(finishers),
+        starters: Some(starters),
+        finishers: Some(finishers),
         givers: Some(
             [(3, 197), (4, 823)]
                 .map(|(spawn, entry)| q::CapturedQuestGiver {
@@ -324,6 +322,7 @@ fn authored_mechanics() -> q::Mechanics {
             q::ScriptRow {
                 id: 71021,
                 delay: 2000,
+                priority: 0,
                 position: 0,
                 command: 0,
                 datalong: [0; 3],
@@ -337,6 +336,7 @@ fn authored_mechanics() -> q::Mechanics {
             q::ScriptRow {
                 id: 71021,
                 delay: 2000,
+                priority: 0,
                 position: 1,
                 command: 1,
                 datalong: [71, 0, 0],

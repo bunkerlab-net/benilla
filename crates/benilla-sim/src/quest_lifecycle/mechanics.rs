@@ -9,7 +9,8 @@ use std::collections::{BTreeMap, BTreeSet};
 pub struct ScriptRow {
     pub id: u32,
     pub delay: u32,
-    /// Independent loader position, not canonical SQL ordering.
+    pub priority: u32,
+    /// Distinguishes equal occurrences; never orders different script operands.
     pub position: u32,
     pub command: u32,
     pub datalong: [u32; 3],
@@ -159,7 +160,7 @@ impl Mechanics {
             }
         }
         let mut scripts = input.scripts;
-        scripts.sort_by_key(|r| (r.id, r.delay, r.position));
+        scripts.sort_by(crate::canonical_order::compare_script);
         let mut positions = BTreeSet::new();
         for row in scripts {
             if !positions.insert((row.id, row.position)) {

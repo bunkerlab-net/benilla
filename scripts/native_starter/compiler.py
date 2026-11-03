@@ -34,6 +34,7 @@ from . import creature_combat_plan
 from . import participants
 from . import reputation_plan
 from . import global_hooks_plan
+from . import canonical_order
 
 PROFILE = "cmangos-8ec338a1-native-starter-bindings-v1"
 FORMAT = "benilla-native-starter-preparation-v1"
@@ -370,7 +371,7 @@ class Compiler:
                     except ValueError:
                         self.issue("item_template", [entry], "item.outfit_quantity_outside_domain")
                 grants.append(asdict(OutfitGrant("CharStartOutfit", slot, entry, count)))
-        for slot, item in enumerate(self.tables["playercreateinfo_item"]):
+        for slot, item in enumerate(canonical_order.collection(self.source, "playercreateinfo_item")):
             grants.append(asdict(OutfitGrant("playercreateinfo_item", slot, item["itemid"], item["amount"])))
         plan, reasons = outfit_placement_plan(grants, items) if len(rows) == 1 else (None, [])
         for reason in reasons:

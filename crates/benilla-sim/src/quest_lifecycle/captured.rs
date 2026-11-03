@@ -76,9 +76,6 @@ pub struct CapturedOrdinaryQuests {
     /// Complete union of queries by selected entry and selected quest.
     pub starters: Option<Vec<CreatureQuestRelation>>,
     pub finishers: Option<Vec<CreatureQuestRelation>>,
-    /// Independent loaded equivalent-key order; canonical SQL capture is not this evidence.
-    pub loaded_starters: Option<Vec<CreatureQuestRelation>>,
-    pub loaded_finishers: Option<Vec<CreatureQuestRelation>>,
     pub givers: Option<Vec<CapturedQuestGiver>>,
 }
 #[derive(Clone, Debug)]
@@ -344,16 +341,11 @@ impl CapturedOrdinaryQuests {
             }
         }
         let ids: BTreeSet<_> = rows.iter().map(|q| q.id).collect();
-        let load = |raw: &Option<Vec<CreatureQuestRelation>>,
-                    loaded: &Option<Vec<CreatureQuestRelation>>,
-                    field| {
+        let load = |raw: &Option<Vec<CreatureQuestRelation>>, field| {
             let raw = require(raw, field, 8192)?;
-            let loaded = require(loaded, field, 8192)?;
             let mut canonical = raw.to_vec();
-            canonical.sort();
-            let mut observed = loaded.to_vec();
-            observed.sort();
-            if canonical != observed || canonical.windows(2).any(|pair| pair[0] == pair[1]) {
+            canonical.sort_by_key(crate::canonical_order::relation);
+            if canonical.windows(2).any(|pair| pair[0] == pair[1]) {
                 return Err(fail(0, field, 0, "order_coverage_mismatch"));
             }
             for relation in raw {
@@ -371,19 +363,11 @@ impl CapturedOrdinaryQuests {
                     return Err(fail(*id, field, 0, "missing_spawned_relation"));
                 }
             }
-            Ok(loaded.to_vec())
+            Ok(canonical)
         };
         let relations = QuestRelations {
-            starters: load(
-                &self.starters,
-                &self.loaded_starters,
-                "creature_questrelation",
-            )?,
-            finishers: load(
-                &self.finishers,
-                &self.loaded_finishers,
-                "creature_involvedrelation",
-            )?,
+            starters: load(&self.starters, "creature_questrelation")?,
+            finishers: load(&self.finishers, "creature_involvedrelation")?,
         };
         let mut quests = rows.to_vec();
         for row in &mut quests {

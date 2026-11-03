@@ -126,6 +126,28 @@ def rehash_source(bundle):
     bundle["report"]["unsupported"] = full_report(bundle["tables"], profiles, Selection.parse(bundle["selection"]))
 
 
+class CanonicalOrderTests(unittest.TestCase):
+    def test_numeric_order_preserves_occurrences_and_refuses_missing_key(self):
+        from native_starter.canonical_order import ordered
+        rows = [{"race": 1, "class": 8, "Spell": spell} for spell in (100, 20, 20)]
+        self.assertEqual([r["Spell"] for r in ordered("playercreateinfo_spell", rows)], [20, 20, 100])
+        self.assertEqual(ordered("playercreateinfo_spell", rows),
+                         ordered("playercreateinfo_spell", list(reversed(rows))))
+        del rows[0]["Spell"]
+        with self.assertRaisesRegex(ExportError, "canonical_order.missing_key"):
+            ordered("playercreateinfo_spell", rows)
+
+    def test_script_priority_precedes_tie_keys_and_keeps_duplicates(self):
+        from native_starter.canonical_order import CONTRACT, ordered
+        keys = CONTRACT["keys"]["dbscripts_on_quest_end"]
+        rows = [dict.fromkeys(keys, 0) | {"id": 90, "priority": priority, "delay": delay}
+                for priority, delay in ((2, 1), (1, 8), (1, 2), (1, 2))]
+        actual = ordered("dbscripts_on_quest_end", rows)
+        self.assertEqual([(r["priority"], r["delay"]) for r in actual],
+                         [(1, 2), (1, 2), (1, 8), (2, 1)])
+        self.assertEqual(actual, ordered("dbscripts_on_quest_end", list(reversed(rows))))
+
+
 class DbcTests(unittest.TestCase):
     def test_rust_extractor_allowlist_matches_compiler_layouts(self):
         source = (ROOT.parent/"crates"/"benilla-native-dbc"/"src"/"lib.rs").read_text()
@@ -961,7 +983,8 @@ class LearningClosureTests(unittest.TestCase):
         plan = result["player"]["skills"]["loader_plan"]
         self.assertTrue(plan["loaded_learning_maps_resolved"])
         self.assertFalse(plan["effective_learning_proven"])
-        self.assertIn("unknown", plan["root_order"])
+        self.assertEqual(plan["root_order"], "canonical_native_schedule")
+        self.assertEqual(plan["canonical_order"]["first_entry"], "requires_actual_normalized_skill_set")
         reasons = {row["reason"] for row in result["unsupported"]}
         self.assertTrue({"native.runtime_profile_not_implemented",
                          "player.native_skill_obtainability_and_learning_required",
@@ -2147,7 +2170,8 @@ class QuestGiverPreparationTests(unittest.TestCase):
         self.assertEqual(plan["status"], "blocked")
         self.assertIsNone(plan["runtime_export"])
         self.assertIn("registered_callbacks", {row["field"] for row in plan["refusals"]})
-        self.assertIn("loaded_relation_order", {row["field"] for row in plan["refusals"]})
+        self.assertNotIn("loaded_relation_order", {row["field"] for row in plan["refusals"]})
+        self.assertEqual(plan["canonical_order"]["status"], "complete_inputs")
         self.assertIn("CompleteEmoteDelay", plan["field_dispositions"]["quest_template"]["consumed_by_ordinary_presentation"])
         del dbcs["Emotes"]
         self.assertIn("unknown_coverage_reextract_v4", {row["reason"] for row in quest_plan(bundle, dbcs)["refusals"]})
@@ -2179,7 +2203,8 @@ class QuestGiverPreparationTests(unittest.TestCase):
         self.assertNotIn("CompleteScript", fields)
         self.assertNotIn("SrcItemId", fields)
         self.assertNotIn("GossipMenuId", fields)
-        self.assertIn("loaded_script_order", fields)
+        self.assertNotIn("loaded_script_order", fields)
+        self.assertEqual(plan["mechanics"]["loaded_script_order"], plan["canonical_order"]["scripts"])
         self.assertIn("global_spell_area_and_item_effects", fields)
         self.assertFalse(plan["ordinary_catalog_resolved"])
         self.assertIsNone(plan["runtime_export"])

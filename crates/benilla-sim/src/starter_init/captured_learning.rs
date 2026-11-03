@@ -130,10 +130,13 @@ impl CapturedStarterLearning {
         if race != 1 || class != 8 || self.source_identity == [0; 32] {
             return Err(InitError::Invalid("learning identity"));
         }
-        let skills = self.creation_skills.require("playercreateinfo_skills", 0)?;
-        let spells = self.creation_spells.require("playercreateinfo_spell", 0)?;
+        let mut skills = self.creation_skills.require("playercreateinfo_skills", 0)?.to_vec();
+        skills.sort_by_key(crate::canonical_order::creation_skill);
+        let mut spells = self.creation_spells.require("playercreateinfo_spell", 0)?.to_vec();
+        spells.sort_by_key(crate::canonical_order::creation_spell);
         let chain_rows = self.chains.require("spell_chain", 0)?;
-        let learn_rows = self.learn_spells.require("spell_learn_spell", 0)?;
+        let mut learn_rows = self.learn_spells.require("spell_learn_spell", 0)?.to_vec();
+        learn_rows.sort_by_key(|row| (row.entry, row.spell, row.active));
         let chain_probe = self
             .global_chain_probe
             .require("global spell_chain probe", 0)?;
@@ -323,7 +326,7 @@ impl CapturedStarterLearning {
             info_by_skill.entry(info.skill).or_default().push(info);
         }
         let mut loaded_skills = BTreeSet::new();
-        for row in skills {
+        for row in &skills {
             let skill = skill_id(row.skill)?;
             let step =
                 u16::try_from(row.step).map_err(|_| InitError::Invalid("learning step domain"))?;
@@ -376,7 +379,7 @@ impl CapturedStarterLearning {
                 .push(SkillLoaderDisposition::Loaded(default));
         }
         let mut root_ids = BTreeSet::new();
-        for row in spells {
+        for row in &spells {
             if row.race != race
                 || row.class != class
                 || !selected.contains(&row.spell)

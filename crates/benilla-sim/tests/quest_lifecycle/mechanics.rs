@@ -8,6 +8,7 @@ fn input() -> MechanicsInput {
             ScriptRow {
                 id: 71021,
                 delay: 2000,
+                priority: 0,
                 position: 0,
                 command: 0,
                 datalong: [0; 3],
@@ -21,6 +22,7 @@ fn input() -> MechanicsInput {
             ScriptRow {
                 id: 71021,
                 delay: 2000,
+                priority: 0,
                 position: 1,
                 command: 1,
                 datalong: [71, 0, 0],
@@ -48,7 +50,7 @@ fn input() -> MechanicsInput {
     }
 }
 #[test]
-fn completion_script_keeps_native_delay_and_loader_tie_order() {
+fn completion_script_keeps_native_delay_and_canonical_priority_tie_order() {
     let m = Mechanics::compile(input()).unwrap();
     assert_eq!(
         m.script(71021).unwrap(),
@@ -63,6 +65,13 @@ fn completion_script_keeps_native_delay_and_loader_tie_order() {
             },
         ]
     );
+    let mut permuted = input();
+    permuted.scripts.reverse();
+    assert_eq!(Mechanics::compile(permuted).unwrap().script(71021), m.script(71021));
+    let mut prioritized = input();
+    prioritized.scripts[0].priority = 2;
+    assert_eq!(Mechanics::compile(prioritized).unwrap().script(71021).unwrap()[0].effect,
+               ScriptEffect::Emote { emote: 71 });
     let mut row = quest(71001);
     row.excluded.complete_script = 71021;
     let c = Catalog::new_with_mechanics(vec![row.clone()], relations(&[row]), audit(), m).unwrap();

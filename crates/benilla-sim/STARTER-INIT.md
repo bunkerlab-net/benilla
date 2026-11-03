@@ -216,14 +216,19 @@ Missing duration21 never establishes racial permanence. Conflicting observations
 of one shared index reject even when both would resolve to zero. No numeric row
 or `Some(0)` is invented by the bridge.
 
-Creation retains input default-vector order. First entry requires an explicit
-exact permutation of normalized loaded-skill keys and uses that vector for the
-actual training traversal. Missing, duplicate or extra keys reject. Authored
-order is a synthetic contract, not observed SQL/DBC order. Observed order retains
-capture and loader identities, without authenticating them. Unknown and reserved
-projection-equivalence evidence reject; the legacy canonical deterministic
-projection proof does not certify stochastic occurrence order. Both epoch tags
-and order kinds bind identities, including when their final stats agree.
+The versioned `canonical_order` module defines the approved native schedule.
+Captured skill roots use `(raceMask,classMask,skill,step)`, spell roots use
+`(race,class,Spell)`, custom items use `(race,class,itemid,amount)`, and quest
+relations use `(id,quest)`. DBC row-ID and array/effect-slot order stay unchanged.
+Script execution retains script-ID/delay ordering and ascending priority, with
+source operands breaking priority ties. Equal occurrences remain occurrences.
+
+`StarterCastOrder::canonical()` trains the actual normalized first-entry skills
+by ascending skill ID. It rejects a caller-supplied traversal. The policy digest
+binds both epoch identities. Complete captured inputs remain independently
+required; this schedule is neither an observed reference order nor a stochastic
+equivalence proof. Authored tests retain their explicit order contract and exact
+permutation checks. Unknown and reserved projection-equivalence evidence reject.
 
 `LiveTraining::from_prepared` revalidates and binds the preparation identity in
 addition to the complete source input. `source_identity` and

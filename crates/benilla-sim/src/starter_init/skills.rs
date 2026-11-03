@@ -655,7 +655,7 @@ pub(super) fn first_entry_inner<'a>(
         can_block: false,
         budget: 4096,
     };
-    let loaded_ids: Vec<_> = replay.skills.keys().copied().collect();
+    let loaded_ids = crate::canonical_order::entry_skills(&replay.skills);
     let traversal = if let Some(order) = entry_skill_order {
         let ids: std::collections::BTreeSet<_> = order.iter().copied().collect();
         if order.len() != loaded_ids.len()

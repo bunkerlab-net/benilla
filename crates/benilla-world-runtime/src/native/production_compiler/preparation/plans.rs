@@ -246,7 +246,7 @@ pub(super) fn quests(
         );
         return json!({"status":"blocked","adapter":QUEST_ADAPTER,"refusals":refusals,"raw_presentation_resolved":false,"ordinary_catalog_resolved":false,"source_sha256":source_sha,"input_bindings":null});
     };
-    let mechanics = super::super::extensions::quest_mechanics::supported(source);
+    let mut mechanics = super::super::extensions::quest_mechanics::supported(source);
     for row in mechanics["refusals"].as_array().unwrap() {
         refuse(
             &row["quest"],
@@ -375,6 +375,10 @@ pub(super) fn quests(
         }
     }
     let presentation_resolved = raw_resolved;
+    let order = super::canonical_order::relationships(source);
+    if source.get("quest_mechanics_capture").is_some() {
+        mechanics["loaded_script_order"] = order["scripts"].clone();
+    }
     for field in [
         "loaded_relation_order",
         "effective_giver_selection",
@@ -382,12 +386,11 @@ pub(super) fn quests(
         "global_spell_area_and_item_effects",
         "session_locale_and_dialog_policy",
     ] {
-        if field == "loaded_relation_order"
-            && source
-                .get("quest_mechanics_capture")
-                .is_some_and(|v| !v["selectors"]["scripts"].as_array().unwrap().is_empty())
-        {
-            refusals.push(json!({"quest":0,"field":"loaded_script_order","target":0,"reason":"independent_context_required"}));
+        if field == "loaded_relation_order" && order["status"] == "complete_inputs" {
+            if source.get("quest_mechanics_capture").is_some() && order["scripts"].is_null() {
+                refusals.push(json!({"quest":0,"field":"loaded_script_order","target":0,"reason":"independent_context_required"}));
+            }
+            continue;
         }
         refusals.push(
             json!({"quest":0,"field":field,"target":0,"reason":"independent_context_required"}),
@@ -414,6 +417,7 @@ pub(super) fn quests(
                 .collect()
         });
     let mut plan = json!({"status":"blocked","adapter":QUEST_ADAPTER,"source_sha256":source_sha,"raw_presentation_resolved":presentation_resolved,"ordinary_catalog_resolved":false,"refusals":refusals,"selected_quest_ids":value["selectors"]["quests"],"input_bindings":{"capture_sha256":digest(value),"Emotes_sha256":emotes.sha256},"field_dispositions":{"quest_template":{"consumed_by_ordinary_presentation":disposition},"remaining":"eligibility_credit_reward_rates_hooks_and_loaded_order"},"runtime_export":null});
+    plan["canonical_order"] = order;
     if source.get("quest_mechanics_capture").is_some() {
         plan["mechanics"] = mechanics;
     }

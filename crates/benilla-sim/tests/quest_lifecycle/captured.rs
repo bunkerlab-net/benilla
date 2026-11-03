@@ -8,8 +8,6 @@ fn source(rows: Vec<QuestRow>) -> CapturedOrdinaryQuests {
         quests: Some(rows),
         starters: Some(relations.starters.clone()),
         finishers: Some(relations.finishers.clone()),
-        loaded_starters: Some(relations.starters),
-        loaded_finishers: Some(relations.finishers),
         givers: Some(vec![CapturedQuestGiver {
             spawn: 1,
             database_guid: 1,
@@ -55,11 +53,9 @@ fn outside_finisher_requires_complete_relation_rows() {
     });
     let mut input = source(rows.clone());
     input.finishers.as_mut().unwrap()[0].creature = 901;
-    input.loaded_finishers.as_mut().unwrap()[0].creature = 901;
     let deps = context(&rows).resolve(&input).unwrap();
     assert!(input.compile(&capture, &deps).is_ok());
     input.finishers.as_mut().unwrap().clear();
-    input.loaded_finishers.as_mut().unwrap().clear();
     assert!(matches!(
         input.compile(&capture, &deps),
         Err(Error::Relationship {
@@ -70,7 +66,7 @@ fn outside_finisher_requires_complete_relation_rows() {
 }
 
 #[test]
-fn captured_givers_compile_loader_flags_and_preserve_order() {
+fn captured_givers_compile_loader_flags_and_canonical_order() {
     let mut rows = vec![row(783, 0, 0), row(7, 0, 25)];
     rows[0].required_creature = [0; 4];
     rows[0].required_creature_count = [0; 4];
@@ -79,7 +75,7 @@ fn captured_givers_compile_loader_flags_and_preserve_order() {
     rows[1].special_flags = 0;
     let capture = captured(&rows);
     let mut input = source(rows.clone());
-    input.loaded_starters.as_mut().unwrap().reverse();
+    input.starters.as_mut().unwrap().reverse();
     let deps = context(&rows).resolve(&input).unwrap();
     let compiled = input.compile(&capture, &deps).unwrap();
     assert_eq!(compiled.quests()[1].special_flags, KILL | SPEAK);
@@ -102,7 +98,7 @@ fn captured_givers_refuse_unknown_hooks_flags_scope_and_order() {
     assert!(context(&rows).resolve(&bad).is_err());
     let deps = context(&rows).resolve(&input).unwrap();
     let mut bad = input.clone();
-    bad.loaded_finishers = None;
+    bad.finishers = None;
     assert!(bad.compile(&capture, &deps).is_err());
     let mut bad = input.clone();
     bad.givers.as_mut().unwrap()[0].generation = 2;

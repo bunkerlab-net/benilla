@@ -52,6 +52,7 @@ pub fn prepare(
         unreachable!()
     };
     defaults.extend([81, 3050]);
+    defaults.sort_unstable();
     input.spells.extend([row(81), row(3050)]);
     let dependencies: Vec<_> = [81, 3050]
         .into_iter()
@@ -113,11 +114,7 @@ pub fn prepare(
     let prepared = init::prepare_starter(
         &input,
         &numeric,
-        &init::StarterCastOrder {
-            creation: init::InitialCastOrderEvidence::Authored { identity: [72; 32] },
-            first_entry: init::InitialCastOrderEvidence::Authored { identity: [73; 32] },
-            entry_skill_order: Some(vec![95, 8]),
-        },
+        &init::StarterCastOrder::canonical(),
     )
     .unwrap();
     profile

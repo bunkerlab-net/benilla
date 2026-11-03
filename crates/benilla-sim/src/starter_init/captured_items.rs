@@ -30,7 +30,7 @@ pub struct CustomStartingItem {
 pub struct CapturedStarterItems {
     /// Complete selected CharStartOutfit lookup, including an empty result.
     pub outfits: Rows<CharStartOutfitRow>,
-    /// Loader order, not an invented sort by item ID.
+    /// Complete selected custom rows; canonical ordering is applied during compile.
     pub custom: Rows<CustomStartingItem>,
     pub items: Vec<StartingItemRow>,
 }
@@ -43,7 +43,8 @@ impl CapturedStarterItems {
             return Err(InitError::Invalid("starting item row limit"));
         }
         let outfits = self.outfits.require("CharStartOutfit", 0)?;
-        let custom = self.custom.require("playercreateinfo_item", 0)?;
+        let mut custom = self.custom.require("playercreateinfo_item", 0)?.to_vec();
+        custom.sort_by_key(crate::canonical_order::custom_item);
         if outfits.len() > 2 || custom.len() > 256 {
             return Err(InitError::Invalid("starting item source limit"));
         }

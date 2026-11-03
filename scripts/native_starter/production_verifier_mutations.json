@@ -1,6 +1,22 @@
 {
   "cases": [
     {
+      "bindings": [{"of":"","path":"/preparation_sha256"}],
+      "diagnostic": "compiler.preparation_mismatch",
+      "fixture": "starter",
+      "name": "canonical-policy-binding",
+      "operations": [{"op":"set","path":"/player/skills/loader_plan/canonical_order/policy_sha256","value":"0000000000000000000000000000000000000000000000000000000000000000"},{"op":"remove","path":"/preparation_sha256"}],
+      "target": "preparation"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "row.fields:playercreateinfo_spell",
+      "fixture": "starter",
+      "name": "canonical-missing-spell-key",
+      "operations": [{"op":"remove","path":"/tables/playercreateinfo_spell/0/Spell"}],
+      "target": "source"
+    },
+    {
       "bindings": [],
       "diagnostic": "bundle.table_hash_or_order",
       "fixture": "starter",

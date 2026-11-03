@@ -201,10 +201,10 @@ fn repair_and_reached_skill_steps_read_basepoints_not_mechanics() {
 }
 
 #[test]
-fn source_roots_preserve_sql_order_and_recursive_initializer_trace() {
+fn source_roots_use_canonical_order_and_recursive_initializer_trace() {
     let c = fixture();
     let plan = c.compile(1, 8).unwrap();
-    assert_eq!(plan.default_spells(), &[6603, 133]);
+    assert_eq!(plan.default_spells(), &[133, 6603]);
     assert_eq!(
         plan.default_skills(),
         &[
@@ -218,7 +218,7 @@ fn source_roots_preserve_sql_order_and_recursive_initializer_trace() {
         DefaultSkill { id: 8, step: 0 },
         DefaultSkill { id: 95, step: 0 },
     ]);
-    explicit.default_spells = Rows::Complete(vec![6603, 133]);
+    explicit.default_spells = Rows::Complete(vec![133, 6603]);
     explicit.skill_lines = vec![
         SkillLineRow { id: 8, category: 7 },
         SkillLineRow {
@@ -286,6 +286,21 @@ fn source_roots_preserve_sql_order_and_recursive_initializer_trace() {
         .position(|e| *e == InitEvent::DefaultSpells)
         .unwrap();
     assert!(learned < sql);
+}
+
+#[test]
+fn canonical_loader_permutations_preserve_initializer_and_missing_inputs_refuse() {
+    let original = fixture();
+    let expected = bind(&original).unwrap();
+    let mut permuted = original.clone();
+    if let Rows::Complete(rows) = &mut permuted.creation_skills { rows.reverse(); }
+    if let Rows::Complete(rows) = &mut permuted.creation_spells { rows.reverse(); }
+    if let Rows::Complete(rows) = &mut permuted.learn_spells { rows.reverse(); }
+    let actual = bind(&permuted).unwrap();
+    assert_eq!(expected, actual);
+    assert_eq!(initialize_mage(&expected).unwrap(), initialize_mage(&actual).unwrap());
+    permuted.creation_spells = Rows::Missing;
+    assert!(permuted.compile(1, 8).is_err());
 }
 
 #[test]

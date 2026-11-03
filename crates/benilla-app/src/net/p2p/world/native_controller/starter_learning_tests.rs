@@ -356,12 +356,16 @@ fn profile_with_bound_change(order_identity: u8, change: u8) -> n::Profile {
     let prepared = init::prepare_starter(
         &input,
         &deps,
-        &init::StarterCastOrder {
-            creation: init::InitialCastOrderEvidence::Authored {
-                identity: [order_identity; 32],
-            },
-            first_entry: init::InitialCastOrderEvidence::Authored { identity: [89; 32] },
-            entry_skill_order: Some(vec![95, 8, 136, 162]),
+        &if order_identity == 0 {
+            init::StarterCastOrder::canonical()
+        } else {
+            init::StarterCastOrder {
+                creation: init::InitialCastOrderEvidence::Authored {
+                    identity: [order_identity; 32],
+                },
+                first_entry: init::InitialCastOrderEvidence::Authored { identity: [89; 32] },
+                entry_skill_order: Some(vec![95, 8, 136, 162]),
+            }
         },
     )
     .unwrap();
@@ -948,6 +952,19 @@ fn captured_learning_controller_creation_cast_level_rewards_and_reopen_are_ident
         "starter_learning creation/cast/rewards/reopen: {:.3}s",
         started.elapsed().as_secs_f64()
     );
+}
+
+#[test]
+fn canonical_learning_controller_realizes_entry_once_and_reopens_unchanged() {
+    let data = profile(0);
+    let h = Harness::new();
+    let mut c = enter_learning(&h, data.clone(), false).unwrap();
+    let before = c.world.checkpoint().unwrap();
+    assert!(c.world.state().rng_counter > 0);
+    assert!(c.initial_events().is_ok());
+    c = reopen_learning(&h, c, &data);
+    assert_eq!(c.world.checkpoint().unwrap(), before);
+    assert!(c.pump(Duration::ZERO).events.is_empty());
 }
 
 #[test]

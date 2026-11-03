@@ -714,7 +714,7 @@ pub(super) fn plan(source: &Value, dbcs: &Tables, closure: &Value) -> Value {
     let mut defaults = Vec::new();
     let mut dispositions = Vec::new();
     let mut seen = BTreeSet::new();
-    for row in rows(source, "playercreateinfo_skills") {
+    for row in super::canonical_order::collection(source, "playercreateinfo_skills") {
         let skill = int(&row["skill"]);
         let step = int(&row["step"]);
         if !(1..=65535).contains(&skill) || !(0..=16).contains(&step) {
@@ -1004,7 +1004,7 @@ pub(super) fn plan(source: &Value, dbcs: &Tables, closure: &Value) -> Value {
         .unwrap()
         .is_empty()
     {
-        for row in rows(source, "spell_learn_spell") {
+        for row in super::canonical_order::collection(source, "spell_learn_spell") {
             let spell = int(&row["entry"]);
             let target = int(&row["SpellID"]);
             if talents.contains(&target) {
@@ -1053,5 +1053,6 @@ pub(super) fn plan(source: &Value, dbcs: &Tables, closure: &Value) -> Value {
             "player.learning_spell_cycle",
         );
     }
-    json!({"format":"benilla-native-starter-learning-plan-v2","status":if refusals.is_empty(){"supported"}else{"blocked"},"loaded_learning_maps_resolved":refusals.is_empty(),"effective_learning_proven":false,"source_identity":closure["dependency_request"]["source_sha256"],"selected_spell_ids":numbers(selected),"default_skill_candidates":defaults,"default_spell_candidates":rows(source,"playercreateinfo_spell").iter().map(|r|r["Spell"].clone()).collect::<Vec<_>>(),"root_order":"unknown_canonical_capture_order_is_not_loaded_order","skill_dispositions":dispositions,"ranks":ranks.values().collect::<Vec<_>>(),"talent_spell_ids":numbers(talents),"learned_spells":learned.iter().map(|(id,links)|json!({"entry":num(*id),"links":links})).collect::<Vec<_>>(),"numeric_overlay":"requires_independent_complete_effective_projection","initial_casts":"requires_independent_hooks_numeric_order_and_source_dispatch","refusals":refusals})
+    let order = super::canonical_order::learning(source, refusals.is_empty());
+    json!({"format":"benilla-native-starter-learning-plan-v2","status":if refusals.is_empty(){"supported"}else{"blocked"},"loaded_learning_maps_resolved":refusals.is_empty(),"effective_learning_proven":false,"source_identity":closure["dependency_request"]["source_sha256"],"selected_spell_ids":numbers(selected),"default_skill_candidates":defaults,"default_spell_candidates":super::canonical_order::collection(source,"playercreateinfo_spell").iter().map(|r|r["Spell"].clone()).collect::<Vec<_>>(),"root_order":if refusals.is_empty(){"canonical_native_schedule"}else{"unknown_incomplete_inputs"},"canonical_order":order,"skill_dispositions":dispositions,"ranks":ranks.values().collect::<Vec<_>>(),"talent_spell_ids":numbers(talents),"learned_spells":learned.iter().map(|(id,links)|json!({"entry":num(*id),"links":links})).collect::<Vec<_>>(),"numeric_overlay":"requires_independent_complete_effective_projection","initial_casts":"requires_independent_hooks_numeric_order_and_source_dispatch","refusals":refusals})
 }

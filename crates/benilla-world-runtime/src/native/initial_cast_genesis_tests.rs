@@ -22,6 +22,11 @@ fn pending_projection_requires_source_seal_without_optional_spell_catalog() {
     assert!(init::initialize_mage(&input).is_err());
     assert_eq!(prepared.creation_plan().draw_requests().len(), 1);
     assert_eq!(prepared.first_entry_plan().draw_requests().len(), 1);
+    assert!(matches!(prepared.order().first_entry, init::InitialCastOrderEvidence::CanonicalNative));
+    let creation: Vec<_> = prepared.creation_plan().occurrences().iter().map(|c| c.row().id).collect();
+    let entry: Vec<_> = prepared.first_entry_plan().occurrences().iter().map(|c| c.row().id).collect();
+    assert_eq!(creation, [81, 3050]);
+    assert_eq!(entry, [81, 3050]);
     assert_ne!(
         prepared.creation_plan().identity(),
         prepared.first_entry_plan().identity()
@@ -244,7 +249,13 @@ fn no_draw_cast_order_is_bound_and_empty_legacy_receipts_are_explicit() {
     defaults.reverse();
     let mut numeric = prepared.dependencies().clone();
     numeric.source_identity = reordered.source_identity();
-    let other = init::prepare_starter(&reordered, &numeric, prepared.order()).unwrap();
+    let order = init::StarterCastOrder {
+        creation: init::InitialCastOrderEvidence::Authored { identity: [72; 32] },
+        first_entry: init::InitialCastOrderEvidence::Authored { identity: [73; 32] },
+        entry_skill_order: Some(vec![95, 8]),
+    };
+    assert!(init::prepare_starter(&reordered, &numeric, prepared.order()).is_err());
+    let other = init::prepare_starter(&reordered, &numeric, &order).unwrap();
     assert_ne!(
         prepared.first_entry_plan().identity(),
         other.first_entry_plan().identity()

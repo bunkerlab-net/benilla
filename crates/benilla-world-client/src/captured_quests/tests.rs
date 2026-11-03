@@ -220,8 +220,6 @@ fn differing_same_entry_guid_fallbacks_refuse_entry_keyed_projection() {
         quests: Some(gameplay.quests().to_vec()),
         starters: Some(gameplay.relations().starters.clone()),
         finishers: Some(gameplay.relations().finishers.clone()),
-        loaded_starters: Some(gameplay.relations().starters.clone()),
-        loaded_finishers: Some(gameplay.relations().finishers.clone()),
         givers: Some(givers),
     };
     let dependencies = q::QuestDependencySource {
