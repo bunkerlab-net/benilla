@@ -162,6 +162,37 @@ fn every_modn_chunk_extracts_unused_models_before_any_required_group() {
 }
 
 #[test]
+fn short_unread_group_tail_preserves_real_collision_and_doodad_references() {
+    let temp = Temp::new();
+    let data = temp.data();
+    let mut entries = wmo_entries(1);
+    dc_replace(
+        &mut entries,
+        ROOT,
+        dc_root(1, b"Models\\Solid.mdx\0", &[(0, 1)], &[0]),
+    );
+    let mut group = dc_group(false, true, &[0]);
+    let mut color = chunk(b"MOCV", &[1, 2, 3, 4]);
+    color.pop();
+    group.extend(color);
+    let advertised = (group.len() - 20 + 1) as u32;
+    set_word(&mut group, 16, advertised);
+    dc_replace(&mut entries, "World\\Wmo\\Temple_000.wmo", group);
+    entries.push(raw_entry(SOLID, m2(true)));
+    entries.push(raw_entry(ADT, dc_adt(0, 0, 123)));
+    save(&data, "wmo.MPQ", &entries);
+    let prepared = prepare(&data, 0, || false).unwrap();
+    assert_eq!(prepared.summary().wmo_raw_products, 1);
+    assert_eq!(prepared.summary().m2_raw_products, 1);
+    assert_eq!(prepared.doodad_candidates().len(), 1);
+    assert!(prepared
+        .products()
+        .iter()
+        .all(RawProduct::source_has_collision));
+    prepared.verify_unchanged(|| false).unwrap();
+}
+
+#[test]
 fn unused_missing_modn_model_fails_before_an_also_missing_group() {
     let temp = Temp::new();
     let data = temp.data();

@@ -280,12 +280,63 @@ fn source_mogp_68_byte_boundary_supports_nested_and_header_only_forms() {
         convert(&root(1, b"room\0"), &[siblings])
     );
     for size in [0, 1, 64, 67, 69, 70, 75, 77, u32::MAX] {
-        let mut malformed = nested.clone();
-        set_word(&mut malformed, 16, size);
-        assert!(
-            convert(&root(1, b"room\0"), &[malformed]).is_err(),
+        let mut advertised = nested.clone();
+        set_word(&mut advertised, 16, size);
+        assert_eq!(
+            convert(&root(1, b"room\0"), &[advertised]),
+            convert(&root(1, b"room\0"), std::slice::from_ref(&nested)),
             "size {size}"
         );
+    }
+}
+
+#[test]
+fn short_trailing_source_unread_chunks_contribute_no_collision_data() {
+    let root = root(1, b"room\0");
+    let complete = ordinary_group();
+    let expected = convert(&root, std::slice::from_ref(&complete)).unwrap();
+    for tag in [b"MONR", b"MOTV", b"MOCV"] {
+        let mut input = complete.clone();
+        let mut unread = chunk(tag, &[1, 2, 3, 4]);
+        unread.pop();
+        input.extend(unread);
+        let advertised = (input.len() - 20 + 1) as u32;
+        set_word(&mut input, 16, advertised);
+        assert_eq!(convert(&root, &[input]).unwrap(), expected);
+    }
+}
+
+#[test]
+fn short_consumed_group_payload_and_nonfinal_mocv_still_refuse() {
+    let root = root(1, b"room\0");
+    let mut consumed = ordinary_group();
+    let mut vertices = chunk(b"MOVT", &[0; 12]);
+    vertices.pop();
+    consumed.extend(vertices);
+    assert!(matches!(
+        convert(&root, &[consumed]),
+        Err(WmoError::TruncatedChunk { chunk: tag, .. }) if tag == *b"MOVT"
+    ));
+    let mut nonfinal = ordinary_group();
+    let mut color = chunk(b"MOCV", &[1, 2, 3, 4]);
+    color.pop();
+    nonfinal.extend(color);
+    nonfinal.extend(chunk(b"MOVT", &[0; 12]));
+    assert!(convert(&root, &[nonfinal]).is_err());
+}
+
+#[test]
+fn short_unknown_and_unadmitted_unread_group_tails_refuse() {
+    let root = root(1, b"room\0");
+    for tag in [b"JUNK", b"MOLR", b"MOBN", b"MOBR"] {
+        let mut input = ordinary_group();
+        let mut tail = chunk(tag, &[1, 2, 3, 4]);
+        tail.pop();
+        input.extend(tail);
+        assert!(matches!(
+            convert(&root, &[input]),
+            Err(WmoError::TruncatedChunk { chunk: actual, .. }) if &actual == tag
+        ));
     }
 }
 
@@ -315,7 +366,7 @@ fn all_truncated_root_and_group_prefixes_reject() {
             "group prefix {length}"
         );
     }
-    for suffix in [vec![0], vec![0; 7], chunk(b"ZZZZ", &[1])[..8].to_vec()] {
+    for suffix in [vec![0], vec![0; 7], chunk(b"MOVT", &[1])[..8].to_vec()] {
         let mut malformed = group.clone();
         malformed.extend(suffix);
         assert!(convert(&root, &[malformed]).is_err());

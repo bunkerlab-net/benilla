@@ -32,12 +32,21 @@ counts returned by group conversion, despite the original variable/comment
 calling it a vertex count. Offset 12 is the number of groups left after source
 skip predicates. Output is explicitly little-endian `VMAPs05` serialization.
 
-The source treats the first 68 bytes of `MOGP` as its group header and walks
-its nested chunks afterward. It also resets liquid output state at every
-chunk. This dry adapter rejects any `MLIQ` chunk rather than guessing heights,
-relying on later chunk resets, or inferring a liquid from an unrelated header
-field. The separate source-member API now supports [validated liquid production](WMO-LIQUID.md)
-with its own source-order, ABI-padding and consumer proof.
+The source replaces every advertised `MOGP` size with 68 and walks subsequent
+chunks as a flat stream, at `wmo.cpp:188-191`. The short EOF-tail set is exactly
+`MONR`, `MOTV`, and `MOCV`. The first two have empty branches at
+`wmo.cpp:232-237`; `MOCV` reaches the generic no-read path. The seek ends the
+loop at `wmo.cpp:268` and `mpq_libmpq.cpp:116-120`. The adapter discards those
+tails without allocating, padding, or contributing geometry. Other unknown or
+misaligned short tags refuse. Consumed group payloads, including `MODR` and
+`MLIQ`, must remain complete.
+Root chunks and chunk headers must also remain complete.
+
+The source resets liquid output state at every chunk. This dry adapter rejects
+any `MLIQ` chunk rather than guessing heights, relying on later chunk resets,
+or inferring a liquid from an unrelated header field. The separate source-member
+API supports [validated liquid production](WMO-LIQUID.md) with its own
+source-order, ABI-padding and consumer proof.
 
 ## Scope of the result
 
@@ -58,11 +67,11 @@ become invented clear collision space. No game-install bytes are bundled.
 
 The original extractor performs unchecked reads and allocations; the following
 are adapter restrictions, not claims about upstream validation. A leading
-`MVER` version-17 chunk, complete chunk framing, singleton consumed chunks,
-a 64-byte `MOHD` and a
-68-byte `MOGP` header are required. Nested `MOGP` extents must fit the input.
-Header-only `MOGP` followed by sibling geometry preserves the source's flattened
-walk. Material/index/vertex/batch arrays must contain whole records, triangle
+`MVER` version-17 chunk, complete headers and consumed chunk framing, singleton
+consumed chunks, a 64-byte `MOHD`, and a complete fixed 68-byte `MOGP` header
+are required. Its advertised size does not bound child traversal. Only a final
+unread group payload can end short at EOF; a malformed intervening chunk still
+refuses. Material/index/vertex/batch arrays must contain whole records, triangle
 and index counts must match, indices must be in range, vertices must be finite,
 and root/group bounds must be finite and ordered. Skipped groups receive these
 same structural checks before source skip predicates run.

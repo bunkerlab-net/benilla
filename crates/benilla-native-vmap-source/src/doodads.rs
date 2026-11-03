@@ -123,7 +123,7 @@ impl std::error::Error for DoodadError {}
 pub(crate) fn parse_root_doodads(bytes: &[u8]) -> Result<RootDoodads, DoodadError> {
     file_limit(bytes.len())?;
     let mut result = RootDoodads::default();
-    let mut chunks = Chunks::new(bytes);
+    let mut chunks = Chunks::new(bytes, false);
     let mut chunk_count = 0;
     let mut version = false;
     let mut header = false;
@@ -174,7 +174,7 @@ pub(crate) fn parse_root_doodads(bytes: &[u8]) -> Result<RootDoodads, DoodadErro
 /// reference; malformed or missing spawn indices are not resolved in this layer.
 pub(crate) fn parse_group_doodad_references(bytes: &[u8]) -> Result<Vec<u16>, DoodadError> {
     file_limit(bytes.len())?;
-    let mut chunks = Chunks::new(bytes);
+    let mut chunks = Chunks::new(bytes, true);
     let mut chunk_count = 0;
     let mut version = false;
     let mut header = false;
@@ -188,14 +188,7 @@ pub(crate) fn parse_group_doodad_references(bytes: &[u8]) -> Result<Vec<u16>, Do
                 if header {
                     return Err(DoodadError("vmap.doodad_duplicate_header"));
                 }
-                if chunk.payload.len() < MOGP_HEADER_BYTES {
-                    return Err(DoodadError("vmap.doodad_group_header"));
-                }
                 header = true;
-                let mut children = Chunks::new(&chunk.payload[MOGP_HEADER_BYTES..]);
-                while let Some(child) = children.next(&mut chunk_count)? {
-                    consume_group_chunk(child, &mut references, &mut reference_records)?;
-                }
             }
             _ => consume_group_chunk(chunk, &mut references, &mut reference_records)?,
         }
@@ -325,11 +318,16 @@ struct Chunk<'a> {
 struct Chunks<'a> {
     bytes: &'a [u8],
     at: usize,
+    group: bool,
 }
 
 impl<'a> Chunks<'a> {
-    fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, at: 0 }
+    fn new(bytes: &'a [u8], group: bool) -> Self {
+        Self {
+            bytes,
+            at: 0,
+            group,
+        }
     }
 
     fn next(&mut self, count: &mut usize) -> Result<Option<Chunk<'a>>, DoodadError> {
@@ -346,13 +344,27 @@ impl<'a> Chunks<'a> {
         }
         let mut tag: [u8; 4] = rest[..4].try_into().expect("complete chunk header");
         tag.reverse();
+        let bytes = if self.group && tag == *b"MOGP" {
+            // Read exactly 68 MOGP bytes because wmo.cpp:188-191 replaces its advertised size.
+            if rest.len() - 8 < MOGP_HEADER_BYTES {
+                return Err(DoodadError("vmap.doodad_group_header"));
+            }
+            MOGP_HEADER_BYTES
+        } else {
+            word(rest, 4) as usize
+        };
         let end = self
             .at
             .checked_add(8)
-            .and_then(|start| start.checked_add(word(rest, 4) as usize))
-            .filter(|&end| end <= self.bytes.len())
-            .ok_or(DoodadError("vmap.doodad_chunk_payload"))?;
-        let payload = &self.bytes[self.at + 8..end];
+            .and_then(|start| start.checked_add(bytes));
+        let (end, payload) = match end {
+            Some(end) if end <= self.bytes.len() => (end, &self.bytes[self.at + 8..end]),
+            Some(_) if self.group && matches!(&tag, b"MONR" | b"MOTV" | b"MOCV") => {
+                // Skip MONR/MOTV and generic MOCV without reading because wmo.cpp:232-237,268 seeks past them and mpq_libmpq.cpp:116-120 marks EOF.
+                (self.bytes.len(), &[][..])
+            }
+            _ => return Err(DoodadError("vmap.doodad_chunk_payload")),
+        };
         self.at = end;
         Ok(Some(Chunk { tag, payload }))
     }

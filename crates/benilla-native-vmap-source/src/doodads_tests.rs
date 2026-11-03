@@ -333,6 +333,30 @@ fn nested_and_sibling_modr_follow_flat_source_traversal_and_final_replacement() 
 }
 
 #[test]
+fn fixed_group_header_and_short_unread_tail_preserve_complete_modr() {
+    let mut bytes = group(&[(b"MODR", refs(&[4, 2, 4]))]);
+    let mut color = chunk(b"MOCV", &[1, 2, 3, 4]);
+    color.pop();
+    bytes.extend(color);
+    for size in [0, 67, 68, u32::MAX] {
+        put_word(&mut bytes, 16, size);
+        assert_eq!(parse_group_doodad_references(&bytes).unwrap(), [4, 2, 4]);
+    }
+    let mut nonfinal = bytes;
+    nonfinal.extend(chunk(b"MODR", &refs(&[9])));
+    assert!(parse_group_doodad_references(&nonfinal).is_err());
+    for tag in [
+        b"MOVT", b"MODR", b"MLIQ", b"JUNK", b"MOLR", b"MOBN", b"MOBR",
+    ] {
+        let mut bytes = group(&[]);
+        let mut consumed = chunk(tag, &[0; 4]);
+        consumed.pop();
+        bytes.extend(consumed);
+        assert_eq!(group_error(&bytes), "vmap.doodad_chunk_payload");
+    }
+}
+
+#[test]
 fn group_liquid_framing_is_left_to_the_prior_raw_writer_but_root_liquid_is_rejected() {
     for liquid in [vec![], vec![0; 30]] {
         assert_eq!(
@@ -381,11 +405,11 @@ fn headers_version_and_container_boundaries_match_the_bounded_dry_profile() {
     );
     assert_eq!(
         group_error(&group(&[(b"MOGP", vec![0; 68])])),
-        "vmap.doodad_unexpected_chunk"
+        "vmap.doodad_duplicate_header"
     );
     assert_eq!(
         group_error(&group(&[(b"MVER", 17_u32.to_le_bytes().to_vec())])),
-        "vmap.doodad_unexpected_chunk"
+        "vmap.doodad_duplicate_version"
     );
     assert_eq!(
         root_error(&root(&[(b"MOGP", vec![0; 68])])),

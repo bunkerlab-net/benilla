@@ -398,14 +398,18 @@ fn source_profile_dry_output_and_limits_remain_identical() {
 }
 
 #[test]
-fn nested_liquid_chunk_and_container_boundaries_fail_closed_on_every_truncated_prefix() {
+fn consumed_liquid_prefixes_reject_except_the_complete_dry_group_boundary() {
     let original = liquid_group(0, 0, &ordinary_liquid(), true);
     let root = liquid_root(0, 1);
+    let dry = group(0, 0, &[], &[], &[], &[]);
+    let expected_dry = source_convert(MEMBER, &root, std::slice::from_ref(&dry)).unwrap();
     for end in 0..original.len() {
-        assert!(
-            source_convert(MEMBER, &root, &[original[..end].to_vec()]).is_err(),
-            "prefix {end}"
-        );
+        let result = source_convert(MEMBER, &root, &[original[..end].to_vec()]);
+        if end == dry.len() {
+            assert_eq!(result.unwrap(), expected_dry);
+        } else {
+            assert!(result.is_err(), "prefix {end}");
+        }
     }
     for size in [0, 29, 30, 31, 62, 64, u32::MAX] {
         let mut input = original.clone();

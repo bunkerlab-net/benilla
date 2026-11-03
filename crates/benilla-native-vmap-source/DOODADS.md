@@ -30,6 +30,14 @@ eligibility are resolved at each selected placement, after later global roots ma
 have populated the cache. Final name dereferences occur only after selected-set filtering and are checked
 against the last retained Paths, including source-used interior suffix offsets.
 
+Group framing follows the raw writer's fixed 68-byte `MOGP` header and flat
+chunk traversal. Only final `MONR`, `MOTV`, and `MOCV` payloads may end short at
+EOF. The first two have empty source branches at `wmo.cpp:232-237`; `MOCV`
+reaches the generic no-read path. The seek stops traversal without reading the
+payload at `wmo.cpp:268` and `mpq_libmpq.cpp:116-120`. Such a tail contributes
+no references or collision data. Consumed payloads, including `MODR`, and all
+root chunks remain fully bounded. Unknown or misaligned short tags refuse.
+
 For each selected-map WMO placement, the public read-only candidate list intersects
 that membership with exactly its selected MODS interval. An out-of-range set yields
 no candidates. There is no automatic union with a default set. The parent WMO's

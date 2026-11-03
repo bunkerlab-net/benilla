@@ -71,12 +71,11 @@ pub struct WmoCollision {
 /// MOPY/MOVI/MOVT/MOBA records,
 /// matching MOPY triangle/MOVI index counts, in-range indices, finite vertices,
 /// and finite ordered root/group bounds. These checks also apply to skipped
-/// groups. Unknown and doodad chunks are bounded but their payloads are not
-/// interpreted. No renderer parser or render-mesh fallback is used.
+/// groups. Unknown and doodad payloads are not interpreted; only final MONR,
+/// MOTV, or MOCV payloads may end short at EOF. No renderer fallback is used.
 ///
-/// MOGP children begin after exactly 68 bytes; advertised container boundaries
-/// must be complete. Header-only MOGP with subsequent sibling geometry is also
-/// accepted, as in the source's flattened traversal. Any MLIQ is rejected,
+/// MOGP always consumes exactly 68 header bytes, ignoring its advertised size.
+/// Subsequent geometry follows the source's flattened traversal. Any MLIQ is rejected,
 /// including empty chunks, skipped groups, and chunks followed by the source's
 /// liquid-state reset. A stale `liquidType` alone does not imply liquid data.
 ///
@@ -325,22 +324,7 @@ fn parse_group<'a>(
                         chunk: chunk.tag,
                     });
                 }
-                if chunk.payload.len() < MOGP_HEADER_BYTES {
-                    return Err(WmoError::InvalidChunkSize {
-                        file,
-                        chunk: chunk.tag,
-                        bytes: chunk.payload.len(),
-                    });
-                }
-                header = Some(&chunk.payload[..MOGP_HEADER_BYTES]);
-                let mut children = Chunks::new(
-                    &chunk.payload[MOGP_HEADER_BYTES..],
-                    file,
-                    chunk.offset + 8 + MOGP_HEADER_BYTES,
-                );
-                while let Some(child) = children.next(&mut count)? {
-                    fields.consume(child, index, profile)?;
-                }
+                header = Some(chunk.payload);
             }
             _ => fields.consume(chunk, index, profile)?,
         }
@@ -582,20 +566,34 @@ impl<'a> Chunks<'a> {
         }
         let mut tag: [u8; 4] = rest[..4].try_into().unwrap();
         tag.reverse(); // Source flipcc: WMO stores e.g. MVER as REVM.
-        let bytes = word(rest, 4);
+        let bytes = if matches!(self.file, WmoFile::Group(_)) && tag == *b"MOGP" {
+            // Read exactly 68 MOGP bytes because wmo.cpp:188-191 replaces its advertised size.
+            MOGP_HEADER_BYTES as u32
+        } else {
+            word(rest, 4)
+        };
         let end = self
             .cursor
             .checked_add(8)
             .and_then(|n| n.checked_add(bytes as usize));
-        let end = end
-            .filter(|&n| n <= self.bytes.len())
-            .ok_or(WmoError::TruncatedChunk {
-                file: self.file,
-                chunk: tag,
-                offset,
-                bytes,
-            })?;
-        let payload = &self.bytes[self.cursor + 8..end];
+        let (end, payload) = match end {
+            Some(end) if end <= self.bytes.len() => (end, &self.bytes[self.cursor + 8..end]),
+            Some(_)
+                if matches!(self.file, WmoFile::Group(_))
+                    && matches!(&tag, b"MONR" | b"MOTV" | b"MOCV") =>
+            {
+                // Skip MONR/MOTV and generic MOCV without reading because wmo.cpp:232-237,268 seeks past them and mpq_libmpq.cpp:116-120 marks EOF.
+                (self.bytes.len(), &[][..])
+            }
+            _ => {
+                return Err(WmoError::TruncatedChunk {
+                    file: self.file,
+                    chunk: tag,
+                    offset,
+                    bytes,
+                });
+            }
+        };
         self.cursor = end;
         Ok(Some(Chunk {
             tag,
