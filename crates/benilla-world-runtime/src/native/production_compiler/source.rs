@@ -795,6 +795,7 @@ pub(super) fn validate(bundle: &Value) -> Result<(Selection, Profiles)> {
             "spell_numeric_capture",
             "quest_giver_presentation_capture",
             "quest_mechanics_capture",
+            "quest_endpoint_capture",
         ] {
             if obj.contains_key(k) {
                 expected.push(k);

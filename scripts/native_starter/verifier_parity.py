@@ -146,6 +146,19 @@ class SourceVerifierParityTests(unittest.TestCase):
 
 
 class PreparationVerifierParityTests(unittest.TestCase):
+    def test_outside_endpoint_and_inside_transition_keep_distinct_plans(self):
+        fixtures = {f["name"]: f for f in corpus()["fixtures"]}
+        outside = fixtures["quest-outside-finisher"]
+        inside = fixtures["presentation"]
+        for fixture, placement in ((outside, "outside_selection"), (inside, "inside_selection")):
+            endpoint = fixture["preparation"]["quest_giver_presentation_plan"]["endpoints"][-1]
+            self.assertEqual(endpoint["placement"], placement)
+            self.assertEqual(endpoint["id"], 900002)
+            self.assertFalse(any(r["reason"] == "missing_spawned_relation" for r in
+                                 fixture["preparation"]["quest_giver_presentation_plan"]["refusals"]))
+        self.assertFalse(any(r["reason"] == "quest.relation_missing_or_outside_selection"
+                             for r in outside["preparation"]["unsupported"]))
+
     def test_reviewed_rust_compiler_metadata_matches_python(self):
         root = ROOT.parents[1] / "crates/benilla-world-runtime/src/native/production_compiler"
         expected = {"numeric_columns": spell_numeric.COLUMNS, "numeric_words": spell_numeric.WORD_FIELDS,

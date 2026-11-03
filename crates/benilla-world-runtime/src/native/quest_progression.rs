@@ -342,6 +342,13 @@ impl QuestProgressionGenesis {
             &rows.quest_relationships,
             rows.quest_mechanics,
         )?;
+        for endpoint in quests.outside_endpoints() {
+            if profile.npcs.iter().any(|n| {
+                n.entry == endpoint.creature || endpoint.spawn_guids.contains(&n.ai.creature_id)
+            }) {
+                return Err(NativeError::InvalidProfile);
+            }
+        }
         let has_scripts = quests.ids().any(|id| {
             quests
                 .row(id)
@@ -378,7 +385,12 @@ impl QuestProgressionGenesis {
             .iter()
             .chain(&quests.relations().finishers)
         {
-            if !npc_rows.contains_key(&r.creature) {
+            if !npc_rows.contains_key(&r.creature)
+                && !quests
+                    .outside_endpoints()
+                    .iter()
+                    .any(|e| e.creature == r.creature)
+            {
                 return Err(NativeError::InvalidProfile);
             }
         }

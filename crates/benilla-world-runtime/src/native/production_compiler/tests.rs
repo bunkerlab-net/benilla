@@ -135,6 +135,35 @@ fn difference(a: &Value, b: &Value, path: &str) -> Option<String> {
 }
 
 #[test]
+fn outside_finisher_and_inside_transition_recompile_with_python_parity() {
+    let fixtures = corpus();
+    for (name, placement) in [
+        ("quest-outside-finisher", "outside_selection"),
+        ("presentation", "inside_selection"),
+    ] {
+        let fixture = fixtures["fixtures"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["name"] == name)
+            .unwrap();
+        let input = Inputs::new(fixture);
+        let report = input.run().unwrap();
+        assert_eq!(report.preparation(), &fixture["preparation"]);
+        let plan = &report.preparation()["quest_giver_presentation_plan"];
+        assert_eq!(
+            plan["endpoints"].as_array().unwrap().last().unwrap()["placement"],
+            placement
+        );
+        assert!(!plan["refusals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["reason"] == "missing_spawned_relation"));
+    }
+}
+
+#[test]
 fn production_verifier_shared_mutations_have_exact_diagnostic_ids() {
     let fixtures = corpus();
     let mut cases = json::decode(

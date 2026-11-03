@@ -11,6 +11,7 @@ from .columns import COLUMNS, STARTER_SCHEMA, INITIAL_HOOK_SCHEMA, EVENT_TEXT_AL
 from . import event_ai, event_text, starter, learning, native_spawn, spell_registry, initial_hooks, loot, quest_relationships, spawn_entries
 from . import spell_numeric
 from . import quest_presentation
+from . import quest_endpoints
 from . import loot_loader
 from . import spawn_context
 from . import participants
@@ -152,6 +153,14 @@ class Query:
                      f"`NextQuestInChain` IN ({','.join(['%s']*len(self.ids))}) OR "
                      f"`BreadcrumbForQuestId` IN ({','.join(['%s']*len(self.ids))})")
             params = signed + self.ids + self.ids
+        elif self.mode == quest_endpoints.MODE:
+            check(self.table == "creature" and self.selection is None
+                  and 0 < len(self.ids) <= MAX_ROWS, "query.quest_endpoint_selectors")
+            check(tuple(sorted(set(self.ids))) == self.ids, "query.quest_endpoint_order")
+            for value in self.ids:
+                integer(value, 1, 0xffffffff, "query.quest_endpoint_domain")
+            where = f"`id` IN ({','.join(['%s']*len(self.ids))})"
+            params = self.ids
         elif self.mode == "learning_presence":
             check(self.table in learning.TABLES and self.selection is None and not self.ids
                   and self.limit == 1, "query.learning_presence")
@@ -325,6 +334,11 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             check(len(combined) <= MAX_ROWS, "closure.relations_limit")
             tables[table] = sorted(combined.values(), key=lambda r: tuple(r[k] for k in KEYS[table]))
             creature_ids.update(r["id"] for r in rows)
+        endpoint_rows = None
+        if capture_quest_presentation:
+            endpoint_rows = {table: [dict(row) for row in tables[table]] for table in quest_endpoints.TABLES}
+            endpoint_entries = {r["id"] for table in quest_endpoints.TABLES for r in tables[table]}
+            endpoint_rows["creature"] = get("creature", endpoint_entries, mode=quest_endpoints.MODE)
         for quest in quests:
             for i in range(1, 5):
                 entry = quest[f"ReqCreatureOrGOId{i}"]
@@ -518,6 +532,7 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             bundle["quest_relationship_capture"] = quest_relationships.evidence(bundle, inbound_quests)
         if capture_quest_presentation:
             bundle["quest_giver_presentation_capture"] = quest_presentation.evidence(bundle, quest_presentation_rows)
+            bundle["quest_endpoint_capture"] = quest_endpoints.evidence(bundle, endpoint_rows)
         if capture_quest_mechanics:
             bundle["quest_mechanics_capture"] = quest_mechanics.evidence(bundle, quest_mechanics_rows)
         bundle["report"]["unsupported"] = sorted(
@@ -559,6 +574,8 @@ def validate_bundle(bundle: Any) -> None:
             expected.add("quest_giver_presentation_capture")
         if "quest_mechanics_capture" in bundle:
             expected.add("quest_mechanics_capture")
+        if "quest_endpoint_capture" in bundle:
+            expected.add("quest_endpoint_capture")
     if "quest_relationship_capture" in bundle:
         expected.add("quest_relationship_capture")
     if "spawn_entry_capture" in bundle:
@@ -713,6 +730,8 @@ def validate_bundle(bundle: Any) -> None:
         spell_numeric.validate(bundle)
     if "quest_giver_presentation_capture" in bundle:
         quest_presentation.validate(bundle)
+    if "quest_endpoint_capture" in bundle:
+        quest_endpoints.validate(bundle)
     if "skill_training_capture" in bundle:
         check(selection.starter is not None, "skill_training.starter_required")
         skill_training.validate(bundle)

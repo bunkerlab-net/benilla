@@ -109,6 +109,14 @@ impl Metadata {
             .iter()
             .chain(&g.quest_relations().finishers)
         {
+            // Outside endpoints have no local actor and refuse at the interaction gate.
+            if g.quest_catalog()
+                .outside_endpoints()
+                .iter()
+                .any(|endpoint| endpoint.creature == relation.creature)
+            {
+                continue;
+            }
             if out.greetings.contains_key(&relation.creature) {
                 continue;
             }

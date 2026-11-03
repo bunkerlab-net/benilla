@@ -327,7 +327,22 @@ impl CapturedOrdinaryQuests {
         {
             return Err(fail(0, "dependencies", 0, "binding_mismatch"));
         }
-        let entries: BTreeSet<_> = givers.iter().map(|giver| giver.entry).collect();
+        let mut entries: BTreeSet<_> = givers.iter().map(|giver| giver.entry).collect();
+        for endpoint in &relationships.outside_endpoints {
+            if !entries.insert(endpoint.creature)
+                || endpoint
+                    .spawn_guids
+                    .iter()
+                    .any(|s| givers.iter().any(|g| g.spawn == *s))
+            {
+                return Err(fail(
+                    0,
+                    "outside_endpoints",
+                    i64::from(endpoint.creature),
+                    "selection_overlap",
+                ));
+            }
+        }
         let ids: BTreeSet<_> = rows.iter().map(|q| q.id).collect();
         let load = |raw: &Option<Vec<CreatureQuestRelation>>,
                     loaded: &Option<Vec<CreatureQuestRelation>>,

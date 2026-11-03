@@ -1103,7 +1103,9 @@ pub(super) fn compile(
         replaced.extend(["quest.chain", "quest.inbound_relationship"]);
     }
     for i in source["report"]["unsupported"].as_array().unwrap() {
-        if !replaced.contains(i["reason"].as_str().unwrap()) {
+        if !replaced.contains(i["reason"].as_str().unwrap())
+            && !super::extensions::quest_endpoints::discharges(source, i)
+        {
             c.issues.push(json!({"table":i["table"],"key":i["key"],"reason":i["reason"],"origin":"source_capture"}));
         }
     }
@@ -1393,6 +1395,8 @@ pub(super) fn compile(
                 || replaced_creature(i)
             {
                 "replaced_by_exact_dependency_report"
+            } else if super::extensions::quest_endpoints::discharges(source, i) {
+                "outside_selection_deferred"
             } else if plans::fireball_discharges(i, fireball)
                 || plans::spawn::discharges(i, &creatures)
                 || plans::spell_execution::discharges(i, &spells)

@@ -325,6 +325,7 @@ pub(super) fn quests(
             if !rows(source, table)
                 .iter()
                 .any(|r| r["quest"] == *quest && spawns.contains(&int(&r["id"])))
+                && !super::super::extensions::quest_endpoints::proved(source, table, int(quest))
             {
                 refuse(quest, table, &json!(0), "missing_spawned_relation");
             }
@@ -415,6 +416,9 @@ pub(super) fn quests(
     let mut plan = json!({"status":"blocked","adapter":QUEST_ADAPTER,"source_sha256":source_sha,"raw_presentation_resolved":presentation_resolved,"ordinary_catalog_resolved":false,"refusals":refusals,"selected_quest_ids":value["selectors"]["quests"],"input_bindings":{"capture_sha256":digest(value),"Emotes_sha256":emotes.sha256},"field_dispositions":{"quest_template":{"consumed_by_ordinary_presentation":disposition},"remaining":"eligibility_credit_reward_rates_hooks_and_loaded_order"},"runtime_export":null});
     if source.get("quest_mechanics_capture").is_some() {
         plan["mechanics"] = mechanics;
+    }
+    if let Some(endpoints) = source.get("quest_endpoint_capture") {
+        plan["endpoints"] = endpoints["endpoints"].clone();
     }
     plan
 }

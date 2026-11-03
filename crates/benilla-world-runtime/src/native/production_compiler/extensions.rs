@@ -4,6 +4,7 @@ use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 mod loot;
 pub(super) mod participants;
+pub(super) mod quest_endpoints;
 pub(super) mod quest_mechanics;
 pub(super) mod skill_training;
 mod transport_paths;
@@ -63,6 +64,9 @@ fn coverage(b: &Value, extension: &str, expected: Value, code: &str) -> Result<(
 }
 
 pub(super) fn validate(b: &Value, s: &Selection, p: &Profiles) -> Result<()> {
+    if present(b, "quest_endpoint_capture") {
+        quest_endpoints::validate(b, s, p)?;
+    }
     let mut guards = vec![
         (
             has(b, "creature_ai_scripts"),

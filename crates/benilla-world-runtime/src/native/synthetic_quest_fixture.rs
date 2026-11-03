@@ -215,6 +215,7 @@ pub fn setup_with_levels(
             roots: vec![row.id],
             own: vec![q::RelationshipRow::from(&row)],
             inbound: Some(vec![]),
+            outside_endpoints: vec![],
         },
         quests: vec![row],
         relations: q::QuestRelations {
@@ -311,6 +312,7 @@ pub fn relationship_capture(rows: &[q::QuestRow]) -> q::RelationshipCapture {
         roots,
         own,
         inbound: Some(inbound),
+        outside_endpoints: vec![],
     }
 }
 pub fn profile() -> Profile {

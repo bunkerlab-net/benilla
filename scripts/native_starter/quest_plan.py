@@ -3,7 +3,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 CMaNGOS 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f,
 ObjectMgr.cpp:4231-4880,5775-5909,7940-8035; Player.cpp:12087-12181.
 """
-from classic_export import quest_presentation, quest_relationships, quest_mechanics
+from classic_export import quest_presentation, quest_relationships, quest_mechanics, quest_endpoints
 from classic_export.core import digest
 from classic_export.quest_columns import QUEST_TEXT
 
@@ -54,7 +54,7 @@ def supported_plan(source, dbcs):
     spawns = {row["id"] for row in source["tables"]["creature"]}
     for quest in value["selectors"]["quests"]:
         for table in ("creature_questrelation", "creature_involvedrelation"):
-            if not any(row["quest"] == quest and row["id"] in spawns for row in source["tables"][table]):
+            if not any(row["quest"] == quest and row["id"] in spawns for row in source["tables"][table]) and not quest_endpoints.proved(source, table, quest):
                 refuse(quest, table, 0, "missing_spawned_relation")
     for row in raw["questgiver_greeting"]:
         if row["Type"] != 0 or (emotes is not None and row["EmoteId"] not in emotes.by_id):
@@ -78,6 +78,7 @@ def supported_plan(source, dbcs):
             "refusals": refusals, "selected_quest_ids": value["selectors"]["quests"],
             "input_bindings": {"capture_sha256": digest(value), "Emotes_sha256": emotes.sha256 if emotes else None},
             **({"mechanics": mechanics} if source.get("quest_mechanics_capture") else {}),
+            **({"endpoints": source["quest_endpoint_capture"]["endpoints"]} if source.get("quest_endpoint_capture") else {}),
             "field_dispositions": {"quest_template": {"consumed_by_ordinary_presentation": [*QUEST_TEXT, *quest_presentation.DELAYS,
                 *sorted(name for name in raw["quest_template"][0] if "Emote" in name)] if raw["quest_template"] else []},
                 "remaining": "eligibility_credit_reward_rates_hooks_and_loaded_order"},

@@ -46,6 +46,30 @@ fn context(rows: &[QuestRow]) -> QuestDependencySource {
     }
 }
 #[test]
+fn outside_finisher_requires_complete_relation_rows() {
+    let rows = vec![row(1, 0, 0)];
+    let mut capture = captured(&rows);
+    capture.outside_endpoints.push(OutsideQuestEndpoint {
+        creature: 901,
+        spawn_guids: vec![51],
+    });
+    let mut input = source(rows.clone());
+    input.finishers.as_mut().unwrap()[0].creature = 901;
+    input.loaded_finishers.as_mut().unwrap()[0].creature = 901;
+    let deps = context(&rows).resolve(&input).unwrap();
+    assert!(input.compile(&capture, &deps).is_ok());
+    input.finishers.as_mut().unwrap().clear();
+    input.loaded_finishers.as_mut().unwrap().clear();
+    assert!(matches!(
+        input.compile(&capture, &deps),
+        Err(Error::Relationship {
+            reason: "missing_spawned_relation",
+            ..
+        })
+    ));
+}
+
+#[test]
 fn captured_givers_compile_loader_flags_and_preserve_order() {
     let mut rows = vec![row(783, 0, 0), row(7, 0, 25)];
     rows[0].required_creature = [0; 4];

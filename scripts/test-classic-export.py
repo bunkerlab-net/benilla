@@ -139,6 +139,8 @@ class FakeSource:
             values = [r for r in values if quest_relationships.matches(r, list(query.ids))]
         elif query.mode == "quest_ids":
             values = [r for r in values if r["quest"] in query.ids]
+        elif query.mode == "quest_endpoint_spawns":
+            values = [r for r in values if r["id"] in query.ids]
         elif query.mode == "event_ai_selectors":
             values = [r for r in values if r["creature_id"] in query.ids]
         elif query.mode == spawn_context.MODE:
@@ -2885,6 +2887,52 @@ def authored_presentation_source():
         return [{name: value[name] for name in names} for value in result]
     source.fetch = fetch
     return source
+
+
+def authored_outside_endpoint_source(inside=False):
+    source = authored_presentation_source()
+    template = copy.deepcopy(source.rows["creature_template"][0])
+    template["Entry"] = 900002
+    source.rows["creature_template"].append(template)
+    spawn = copy.deepcopy(source.rows["creature"][0])
+    spawn.update(guid=2, id=900002, position_x=Decimal("0" if inside else "1000.125"))
+    source.rows["creature"].append(spawn)
+    source.rows["creature_involvedrelation"] = [row("creature_involvedrelation", id=900002, quest=910001)]
+    return source
+
+
+class QuestEndpointCaptureTests(unittest.TestCase):
+    def test_outside_finisher_preserves_relation_and_exact_spawn_and_inside_transition(self):
+        from classic_export import quest_endpoints as qe
+        for inside in (False, True):
+            bundle = capture(authored_outside_endpoint_source(inside), starter_selection(),
+                             capture_quest_presentation=True)
+            validate_bundle(bundle)
+            endpoint = bundle["quest_endpoint_capture"]["endpoints"][-1]
+            self.assertEqual(endpoint["id"], 900002)
+            self.assertEqual(endpoint["placement"], "inside_selection" if inside else "outside_selection")
+            self.assertEqual(endpoint["spawn_guids"], [2])
+            raw = bundle["quest_endpoint_capture"]["rows"]
+            self.assertEqual(raw["creature_involvedrelation"], bundle["tables"]["creature_involvedrelation"])
+            self.assertEqual(raw["creature"][-1]["position_x"]["decimal"], "0" if inside else "1000.125")
+            self.assertEqual(qe.proved(bundle, "creature_involvedrelation", 910001), not inside)
+
+    def test_dropped_relation_and_forged_outside_marker_refuse(self):
+        from classic_export import quest_endpoints as qe
+        original = capture(authored_outside_endpoint_source(), starter_selection(),
+                           capture_quest_presentation=True)
+        changed = copy.deepcopy(original)
+        changed["quest_endpoint_capture"]["rows"]["creature_involvedrelation"].clear()
+        with self.assertRaisesRegex(ExportError, "quest_endpoints.relation_coverage_mismatch"):
+            validate_bundle(changed)
+        changed = copy.deepcopy(original)
+        changed["quest_endpoint_capture"]["endpoints"][-1]["placement"] = "inside_selection"
+        with self.assertRaisesRegex(ExportError, "quest_endpoints.binding_mismatch"):
+            validate_bundle(changed)
+        source = authored_outside_endpoint_source()
+        source.rows["creature"] = source.rows["creature"][:1]
+        missing = capture(source, starter_selection(), capture_quest_presentation=True)
+        self.assertFalse(qe.proved(missing, "creature_involvedrelation", 910001))
 
 
 class QuestGiverPresentationTests(unittest.TestCase):

@@ -127,12 +127,28 @@ The adapter preserves `$N` and `$B` and rejects differing same-entry spawn greet
 The existing projection independently checks gameplay metadata and selects single-quest
 details, request/offer panels, or the ordered menu.
 
-The eager closure is unchanged. Every quest attached to a selected giver remains selected.
-Quest 15's reference to 21 cannot disappear. A captured completion script must
-compile its exact commands and dependencies. Source-item quest 3104 requires
-the ordinary inventory host for grant, storage refusal, and source-item removal.
-There is no ignore switch, endpoint truncation, dormant-row admission, or production capability.
-Authored positive short-chain tests are not evidence that the real Northshire catalog is admitted.
+Every quest attached to a selected giver remains selected, including quests with
+outside finishers or other givers. `quest_endpoint_capture`, format
+`benilla-classic-quest-endpoints-v1`, retains both complete relation row sets and
+all matching raw creature spawns. Exact decimal coordinates and map identity
+prove each endpoint inside or outside the selection. Missing spawns remain
+unproved, and a dropped relation row fails coverage validation.
+
+`RelationshipCapture::outside_endpoints` carries typed outside endpoint markers
+and exact spawn keys. The runtime rejects overlap with selected profile spawns.
+Accept, credit, abandon, and checkpoints do not need the finisher. Reaching an
+outside giver or finisher returns `Error::Relationship` with the quest, relation
+table, creature entry, and `outside_selection` reason. Local rewards still
+succeed when a follow-up needs another giver. No same-giver chain details are
+invented for that outside giver.
+The client does not require a local greeting for an outside endpoint.
+Selected local greetings remain mandatory.
+
+Preparation discharges `quest.relation_missing_or_outside_selection` only for
+complete, spawn-proved outside relations. Missing 343/5624 quest closure stays
+separate. Other script, source-item, callback, order, and production obligations
+remain. Existing all-inside catalogue hashes and persisted state schemas do not
+change. Authored tests do not establish real Northshire admission.
 
 ### Completion scripts, source items, and ordinary gossip
 

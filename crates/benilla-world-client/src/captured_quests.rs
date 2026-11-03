@@ -352,7 +352,18 @@ impl CapturedQuestPresentation {
         if out.quests.keys().copied().collect::<BTreeSet<_>>() != ids {
             return Err(error(0, "quest", "coverage_mismatch"));
         }
-        let entries: BTreeSet<_> = gameplay.givers().iter().map(|giver| giver.entry).collect();
+        let entries: BTreeSet<_> = gameplay
+            .givers()
+            .iter()
+            .map(|giver| giver.entry)
+            .chain(
+                gameplay
+                    .catalog()
+                    .outside_endpoints()
+                    .iter()
+                    .map(|e| e.creature),
+            )
+            .collect();
         let mut by_greeting = BTreeMap::new();
         for row in greetings {
             text(row.entry, &row.text, &mut bytes)?;

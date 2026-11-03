@@ -7,6 +7,164 @@ use benilla_sim::{
     quest_lifecycle as q,
 };
 #[test]
+fn outside_chain_giver_refuses_when_followup_is_reached_after_local_reward() {
+    let (mut profile, input, mut data) = setup();
+    let mut followup = data.quests[0].clone();
+    followup.id = 70002;
+    followup.previous_quest = 70001;
+    data.quests[0].next_in_chain = followup.id;
+    data.quests.push(followup);
+    data.relations.starters.push(q::CreatureQuestRelation {
+        creature: 99001,
+        quest: 70002,
+    });
+    data.relations.finishers.push(q::CreatureQuestRelation {
+        creature: data.relations.finishers[0].creature,
+        quest: 70002,
+    });
+    data.quest_relationships = relationship_capture(&data.quests);
+    data.quest_relationships
+        .outside_endpoints
+        .push(q::OutsideQuestEndpoint {
+            creature: 99001,
+            spawn_guids: vec![99002],
+        });
+    profile.initialize_quest_progression(&input, data).unwrap();
+    let mut w = NativeWorld::synthetic_component_test(profile, [1; 16], player(), 42).unwrap();
+    let mut authority = QuestAuthority::default();
+    accept(&mut w, &mut authority);
+    kill_target(&mut w, &mut authority);
+    let reward = command(
+        &w,
+        Command::TurnInQuest {
+            quest: 70001,
+            giver: w.state.npcs[&3].id,
+        },
+    );
+    w.step(w.state.tick + 1, Some(reward), &mut authority)
+        .unwrap();
+    assert!(
+        w.state
+            .quest_progression
+            .as_ref()
+            .unwrap()
+            .quests
+            .progress(70001)
+            .unwrap()
+            .rewarded
+    );
+    let before = w.state_digest();
+    assert!(matches!(
+        w.preview_quest_interaction(
+            crate::NpcId {
+                spawn: 99002,
+                generation: 0
+            },
+            70002,
+            false,
+            &mut authority
+        ),
+        Err(NativeError::Quest(q::Error::Relationship {
+            quest: 70002,
+            field: "creature_questrelation",
+            target: 99001,
+            reason: "outside_selection"
+        }))
+    ));
+    let offer = command(
+        &w,
+        Command::AcceptQuest {
+            quest: 70002,
+            giver: crate::NpcId {
+                spawn: 99002,
+                generation: 0,
+            },
+        },
+    );
+    assert!(matches!(
+        w.step(w.state.tick + 1, Some(offer), &mut authority),
+        Err(NativeError::Quest(q::Error::Relationship {
+            quest: 70002,
+            field: "creature_questrelation",
+            target: 99001,
+            reason: "outside_selection"
+        }))
+    ));
+    assert_eq!(w.state_digest(), before);
+}
+
+#[test]
+fn outside_finisher_accepts_progresses_reopens_and_refuses_only_turnin() {
+    let (mut profile, input, mut data) = setup();
+    data.relations.finishers[0].creature = 99001;
+    data.quest_relationships
+        .outside_endpoints
+        .push(q::OutsideQuestEndpoint {
+            creature: 99001,
+            spawn_guids: vec![99002],
+        });
+    profile.initialize_quest_progression(&input, data).unwrap();
+    let mut w =
+        NativeWorld::synthetic_component_test(profile.clone(), [1; 16], player(), 42).unwrap();
+    let mut authority = QuestAuthority::default();
+    accept(&mut w, &mut authority);
+    kill_target(&mut w, &mut authority);
+    assert_eq!(
+        w.state
+            .quest_progression
+            .as_ref()
+            .unwrap()
+            .quests
+            .progress(70001)
+            .unwrap()
+            .status,
+        q::Status::Complete
+    );
+    let bytes = w.checkpoint().unwrap().encode().unwrap();
+    let mut reopened =
+        NativeWorld::restore_synthetic_component_test(profile, Checkpoint::decode(&bytes).unwrap())
+            .unwrap();
+    assert_eq!(w.state_digest(), reopened.state_digest());
+    let before = reopened.state_digest();
+    let turn_in = command(
+        &reopened,
+        Command::TurnInQuest {
+            quest: 70001,
+            giver: crate::NpcId {
+                spawn: 99002,
+                generation: 0,
+            },
+        },
+    );
+    assert!(matches!(
+        reopened.step(reopened.state.tick + 1, Some(turn_in), &mut authority),
+        Err(NativeError::Quest(q::Error::Relationship {
+            quest: 70001,
+            field: "creature_involvedrelation",
+            target: 99001,
+            reason: "outside_selection"
+        }))
+    ));
+    assert_eq!(reopened.state_digest(), before);
+    let abandon = command(&reopened, Command::AbandonQuest { slot: 0 });
+    reopened
+        .step(reopened.state.tick + 1, Some(abandon), &mut authority)
+        .unwrap();
+    assert_eq!(
+        reopened
+            .state
+            .quest_progression
+            .as_ref()
+            .unwrap()
+            .quests
+            .progress(70001)
+            .unwrap()
+            .status,
+        q::Status::None
+    );
+}
+
+#[test]
 fn accept_authoritative_kill_turnin_levels_and_exactly_once_resume_replay() {
     let mut w = world();
     let genesis = w.checkpoint().unwrap();

@@ -155,6 +155,7 @@ pub struct Catalog {
     pub(super) relations: QuestRelations,
     hash: [u8; 32],
     pub(super) mechanics: super::Mechanics,
+    pub(super) outside_endpoints: Vec<super::OutsideQuestEndpoint>,
 }
 impl Catalog {
     pub fn new(
@@ -320,6 +321,7 @@ impl Catalog {
             relations,
             mechanics,
             hash,
+            outside_endpoints: Vec::new(),
         })
     }
     pub fn row(&self, id: u32) -> Result<&QuestRow, Error> {
@@ -336,6 +338,81 @@ impl Catalog {
     }
     pub fn mechanics(&self) -> &super::Mechanics {
         &self.mechanics
+    }
+    pub(super) fn bind_outside_endpoints(
+        mut self,
+        endpoints: &[super::OutsideQuestEndpoint],
+    ) -> Result<Self, Error> {
+        let mut entries = BTreeSet::new();
+        let mut spawns = BTreeSet::new();
+        for endpoint in endpoints {
+            if endpoint.creature == 0
+                || !entries.insert(endpoint.creature)
+                || endpoint.spawn_guids.is_empty()
+                || endpoint.spawn_guids.windows(2).any(|p| p[0] >= p[1])
+                || endpoint
+                    .spawn_guids
+                    .iter()
+                    .any(|&s| s == 0 || !spawns.insert(s))
+                || !self
+                    .relations
+                    .starters
+                    .iter()
+                    .chain(&self.relations.finishers)
+                    .any(|r| r.creature == endpoint.creature)
+            {
+                return Err(Error::Invalid("outside_endpoint_evidence"));
+            }
+        }
+        if !endpoints.is_empty() {
+            self.outside_endpoints = endpoints.to_vec();
+            self.outside_endpoints.sort_by_key(|e| e.creature);
+            self.hash = Sha256::digest(
+                format!(
+                    "quest-outside-endpoints-v1:{:?}:{:?}",
+                    self.hash, self.outside_endpoints
+                )
+                .as_bytes(),
+            )
+            .into();
+        }
+        Ok(self)
+    }
+    pub fn outside_endpoints(&self) -> &[super::OutsideQuestEndpoint] {
+        &self.outside_endpoints
+    }
+    /// Called only when an operation reaches a giver or finisher.
+    pub fn endpoint_gate(&self, quest: u32, creature: u32, reward: bool) -> Result<(), Error> {
+        let relations = if reward {
+            &self.relations.finishers
+        } else {
+            &self.relations.starters
+        };
+        let outside = |entry| self.outside_endpoints.iter().any(|e| e.creature == entry);
+        let endpoint = relations
+            .iter()
+            .find(|r| r.quest == quest && r.creature == creature && outside(r.creature))
+            .or_else(|| {
+                let mut matching = relations.iter().filter(|r| r.quest == quest).peekable();
+                if matching.peek().is_some() && matching.clone().all(|r| outside(r.creature)) {
+                    matching.next()
+                } else {
+                    None
+                }
+            });
+        if let Some(endpoint) = endpoint {
+            return Err(Error::Relationship {
+                quest,
+                field: if reward {
+                    "creature_involvedrelation"
+                } else {
+                    "creature_questrelation"
+                },
+                target: i64::from(endpoint.creature),
+                reason: "outside_selection",
+            });
+        }
+        Ok(())
     }
 }
 

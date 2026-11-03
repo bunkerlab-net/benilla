@@ -57,6 +57,21 @@ impl<A: Authority> Frame<'_, A> {
         if !self.state.player_alive() {
             return Ok(Some(Rejection::Dead));
         }
+        if quest != 0 {
+            let entry = self
+                .profile
+                .npc(giver.spawn)
+                .map(|n| n.entry)
+                .or_else(|| {
+                    g.quest_catalog()
+                        .outside_endpoints()
+                        .iter()
+                        .find(|e| e.spawn_guids.contains(&giver.spawn))
+                        .map(|e| e.creature)
+                })
+                .unwrap_or(0);
+            g.quest_catalog().endpoint_gate(quest, entry, reward)?;
+        }
         let Some(npc) = self.state.npcs.get(&giver.spawn).filter(|n| {
             n.id == giver
                 && n.health > 0

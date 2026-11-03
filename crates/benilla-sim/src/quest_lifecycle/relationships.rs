@@ -13,6 +13,17 @@ pub struct RelationshipCapture {
     pub own: Vec<RelationshipRow>,
     /// None means the full-table incoming query was not captured.
     pub inbound: Option<Vec<RelationshipRow>>,
+    /// Spawn-backed endpoints outside the selected world, not missing relation rows.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outside_endpoints: Vec<OutsideQuestEndpoint>,
+}
+
+/// Exact spawn keys bind the separately captured outside-selection evidence.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OutsideQuestEndpoint {
+    pub creature: u32,
+    pub spawn_guids: Vec<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -249,6 +260,7 @@ impl Catalog {
         }
         // ObjectMgr.cpp:4804-4825 preserves signs; 4790-4800 builds a separate reverse-chain store.
         audit.complete_relation_scan = true;
-        Self::new_with_mechanics(rows, relations, audit, mechanics)
+        Self::new_with_mechanics(rows, relations, audit, mechanics)?
+            .bind_outside_endpoints(&capture.outside_endpoints)
     }
 }

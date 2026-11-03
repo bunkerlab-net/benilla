@@ -11,6 +11,50 @@ mod captured_givers;
 #[path = "quest_lifecycle/relationships.rs"]
 mod relationships;
 
+#[test]
+fn all_inside_catalog_keeps_pre_outside_identity_bytes() {
+    use sha2::{Digest, Sha256};
+    let rows = vec![row(1, 0, 0)];
+    let relations = relations(&rows);
+    let map: BTreeMap<_, _> = rows.iter().map(|q| (q.id, q.clone())).collect();
+    // The exact pre-outside hash domain and canonical operands remain unchanged.
+    let before: [u8; 32] = Sha256::digest(
+        format!(
+            "{POLICY_ID}:{map:?}:{relations:?}:{:?}:{:?}",
+            audit(),
+            Mechanics::default()
+        )
+        .as_bytes(),
+    )
+    .into();
+    assert_eq!(catalog(rows).hash(), before);
+}
+
+#[test]
+fn outside_endpoint_is_path_sensitive_and_missing_rows_are_not_outside() {
+    let rows = vec![row(1, 0, 0)];
+    let mut relations = relations(&rows);
+    relations.finishers[0].creature = 901;
+    let mut capture = captured(&rows);
+    capture.outside_endpoints.push(OutsideQuestEndpoint {
+        creature: 901,
+        spawn_guids: vec![51],
+    });
+    let catalog =
+        Catalog::from_relationship_capture(rows.clone(), relations.clone(), audit(), &capture)
+            .unwrap();
+    assert_eq!(catalog.endpoint_gate(1, 900, false), Ok(()));
+    assert_eq!(
+        catalog.endpoint_gate(1, 901, true),
+        Err(Error::Relationship {
+            quest: 1,
+            field: "creature_involvedrelation",
+            target: 901,
+            reason: "outside_selection",
+        })
+    );
+}
+
 fn excluded() -> ExcludedFields {
     ExcludedFields {
         required_skill: 0,
@@ -120,6 +164,7 @@ fn captured(rows: &[QuestRow]) -> RelationshipCapture {
         roots,
         own,
         inbound: Some(inbound),
+        outside_endpoints: vec![],
     }
 }
 fn catalog(rows: Vec<QuestRow>) -> Catalog {

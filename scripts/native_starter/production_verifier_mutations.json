@@ -1316,7 +1316,7 @@
         {
           "op": "set",
           "path": "/tables/item_template/0/entry",
-          "value": 1.0
+          "value": 1
         }
       ],
       "target": "source"
@@ -2612,10 +2612,22 @@
       "fixture": "non-body-learning-refused",
       "target": "preparation",
       "operations": [
-        {"op": "set", "path": "/corpse_loot_plan/non_body_actions/status", "value": "unavailable_proven"},
-        {"op": "remove", "path": "/preparation_sha256"}
+        {
+          "op": "set",
+          "path": "/corpse_loot_plan/non_body_actions/status",
+          "value": "unavailable_proven"
+        },
+        {
+          "op": "remove",
+          "path": "/preparation_sha256"
+        }
       ],
-      "bindings": [{"of": "", "path": "/preparation_sha256"}],
+      "bindings": [
+        {
+          "of": "",
+          "path": "/preparation_sha256"
+        }
+      ],
       "diagnostic": "compiler.preparation_mismatch"
     },
     {
@@ -2623,11 +2635,36 @@
       "fixture": "loot-events",
       "target": "preparation",
       "operations": [
-        {"op": "set", "path": "/corpse_loot_plan/non_body_actions/creature_loot_ids/0/SkinningLootId", "value": 0},
-        {"op": "remove", "path": "/preparation_sha256"}
+        {
+          "op": "set",
+          "path": "/corpse_loot_plan/non_body_actions/creature_loot_ids/0/SkinningLootId",
+          "value": 0
+        },
+        {
+          "op": "remove",
+          "path": "/preparation_sha256"
+        }
       ],
-      "bindings": [{"of": "", "path": "/preparation_sha256"}],
+      "bindings": [
+        {
+          "of": "",
+          "path": "/preparation_sha256"
+        }
+      ],
       "diagnostic": "compiler.preparation_mismatch"
+    },
+    {
+      "bindings": [],
+      "diagnostic": "quest_endpoints.relation_coverage_mismatch",
+      "fixture": "quest-outside-finisher",
+      "name": "quest-endpoint-dropped-relation",
+      "operations": [
+        {
+          "op": "remove",
+          "path": "/quest_endpoint_capture/rows/creature_involvedrelation/0"
+        }
+      ],
+      "target": "source"
     }
   ],
   "format": "benilla-production-verifier-mutations-v1"

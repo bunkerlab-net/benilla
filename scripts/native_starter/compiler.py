@@ -23,6 +23,7 @@ from .outfit_plan import supported_plan as outfit_placement_plan
 from . import creature_plan
 from .learning_plan import supported_plan as starter_learning_plan
 from . import quest_plan, world_rules
+from classic_export import quest_endpoints
 from . import loot_plan
 from . import spawn_plan
 from . import item_plan
@@ -778,7 +779,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
         replaced.update({"quest.chain", "quest.inbound_relationship"})
     c.issues.extend({"table": i["table"], "key": i["key"], "reason": i["reason"],
                      "origin": "source_capture"} for i in source["report"]["unsupported"]
-                    if i["reason"] not in replaced)
+                    if i["reason"] not in replaced and not quest_endpoints.discharges(source, i))
     identity = c.identity()
     outfit = c.outfit()
     reputation = c.factions(identity)
@@ -928,7 +929,8 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
                                      for t, i, r in sorted(c.dependencies)],
         "source_field_dispositions": dispositions, "dbc_bindings": dbc_bindings,
         "source_capture_findings": [{**i, "disposition": "replaced_by_exact_dependency_report"
-                                     if i["reason"] in replaced or replaced_creature_finding(i) else "supported_shape"
+                                     if i["reason"] in replaced or replaced_creature_finding(i) else "outside_selection_deferred"
+                                     if quest_endpoints.discharges(source, i) else "supported_shape"
                                      if fireball_plan.discharges(i, fireball) or spell_execution.discharges(i, spells) or spawn_plan.discharges(i, spawn_plans) or item_plan.discharges(i, captured_items) else "supported_numeric_policy"
                                      if world_rules.discharges(i, rules_plan) else "retained"}
                                     for i in source["report"]["unsupported"]],

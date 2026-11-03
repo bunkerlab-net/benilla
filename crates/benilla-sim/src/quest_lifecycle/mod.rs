@@ -785,6 +785,7 @@ pub fn reduce<H: Host>(
             }
         }
         Command::Accept { quest: id, giver } => {
+            catalog.endpoint_gate(id, giver, false)?;
             if !catalog.relations.starters.contains(&CreatureQuestRelation {
                 creature: giver,
                 quest: id,
@@ -886,6 +887,7 @@ pub fn reduce<H: Host>(
             announce,
             choice,
         } => {
+            catalog.endpoint_gate(id, giver, true)?;
             if !catalog
                 .relations
                 .finishers

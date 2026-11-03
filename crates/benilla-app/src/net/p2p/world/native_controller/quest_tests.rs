@@ -96,6 +96,64 @@ fn progress(c: &NativeController) -> &n::QuestProgressionState {
 }
 
 #[test]
+fn outside_finisher_keeps_local_progress_across_store_reopen_and_refuses_offer() {
+    use benilla_sim::quest_lifecycle as q;
+    let (mut profile, input, mut data) = quests::setup();
+    data.relations.finishers[0].creature = 99001;
+    data.quest_relationships
+        .outside_endpoints
+        .push(q::OutsideQuestEndpoint {
+            creature: 99001,
+            spawn_guids: vec![99002],
+        });
+    profile.initialize_quest_progression(&input, data).unwrap();
+    let h = Harness::new();
+    let mut c = h
+        .enter(
+            Entry::Create {
+                world: [8; 16],
+                seed: 7,
+            },
+            profile.clone(),
+            quests::QuestAuthority::default(),
+        )
+        .unwrap();
+    let accepted = accept(&mut c);
+    assert!(accepted.pause.is_none());
+    assert_eq!(accepted.saved.unwrap().tick, c.tick());
+    kill(&mut c);
+    assert_eq!(
+        progress(&c).quests.progress(70001).unwrap().status,
+        q::Status::Complete
+    );
+    let before = c.world.state_digest();
+    drop(c);
+    let mut c = h
+        .enter(
+            Entry::Open { world: [8; 16] },
+            profile,
+            quests::QuestAuthority::default(),
+        )
+        .unwrap();
+    assert_eq!(c.world.state_digest(), before);
+    let npc = giver(&c);
+    assert!(matches!(
+        c.receive(ClientCommand::QuestgiverRequestReward { npc, quest: 70001 }),
+        Err(Error::NativeRuntime(n::NativeError::Quest(
+            q::Error::Relationship {
+                quest: 70001,
+                field: "creature_involvedrelation",
+                target: 99001,
+                reason: "outside_selection"
+            }
+        )))
+    ));
+    assert_eq!(c.world.state_digest(), before);
+    assert!(!progress(&c).quests.progress(70001).unwrap().rewarded);
+    assert!(c.actions.is_empty());
+}
+
+#[test]
 fn stock_quest_routes_are_read_only_until_accept_and_reward_are_committed() {
     let h = Harness::new();
     let mut c = enter(&h, false);
