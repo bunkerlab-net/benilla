@@ -86,7 +86,7 @@ operator's quiescence assertion, not a claim of reference-loader observation.
 and booleans as strictly greater than zero. `ObjectMgr.cpp:7480-7545` accepts
 selected kill rows only when their nonzero factions exist. The consumer retains
 present rows as unsupported native kill awards; proven absence is not a zero-rate
-row. Run `python3 scripts/test-reputation-policy.py` with the other Python suites.
+row. The reputation policy tests run in `python3 scripts/test-native-starter.py`.
 
 
 ## Optional ordinary quest presentation capture
