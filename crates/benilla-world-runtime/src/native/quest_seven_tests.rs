@@ -381,6 +381,8 @@ fn quest_seven_source_shaped_kills_reward_gates_and_checkpoint_replay() {
         let corpse = kill_generation(&mut world, &mut authority);
         assert!(generations.insert(corpse.generation));
         assert_eq!(quest(&world, QUEST).creatures, [count, 0, 0, 0]);
+        // The authored selected-entry lookup proves no on-kill row for Kobold 6.
+        assert_eq!(standing(&world), 75);
         assert_eq!(quest(&world, QUEST).items, [0; 4]);
         assert_eq!(
             quest(&world, QUEST).status,

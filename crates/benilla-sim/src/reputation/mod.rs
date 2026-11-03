@@ -3,6 +3,8 @@
 //! Source-native reputation primitives with explicit resolved inputs. See ../../REPUTATION.md.
 mod initial;
 pub use initial::{FactionRewardPolicy, InitialFactionCapture, MAX_INITIAL_FACTION_ROWS};
+mod policy;
+pub use policy::{compile_faction_policies, FactionPolicyLookup, RawSpillover};
 mod numeric;
 use crate::classic_spell::SpellFloat;
 use serde::{Deserialize, Serialize};

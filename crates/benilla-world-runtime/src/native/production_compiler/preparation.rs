@@ -15,6 +15,7 @@ use std::{
 };
 mod learning;
 mod plans;
+mod reputation;
 static PLAN: LazyLock<Value> = LazyLock::new(|| {
     serde_json::from_str(include_str!("preparation/plan_contract.json"))
         .expect("reviewed plan metadata")
@@ -294,7 +295,7 @@ impl<'a> Compiler<'a> {
             json!({"outfit_record_id":if selected.len()==1{Some(selected[0].word(0))}else{None},"grants_in_source_order":grants,"equipment_slots":null,"placement_plan":plan}),
         )
     }
-    fn factions(&mut self, identity: &Value) -> Result<Value> {
+    fn factions(&mut self, identity: &Value, rules: &Value) -> Result<Value> {
         let start = self.issues.len();
         let mut templates = ids(self.source, "creature_template", "Faction");
         if !identity["faction_template_id"].is_null() {
@@ -412,7 +413,7 @@ impl<'a> Compiler<'a> {
         }
         entries.sort_by_key(|r| int(&r["reputation_list_id"]));
         Ok(
-            json!({"status":if complete{"supported"}else{"blocked"},"coverage":"complete_raw_table","table_sha256":table.sha256,"initial_standings":if complete{json!(entries)}else{Value::Null},"aura156_affects_initial_standing":false,"reward_rates_and_spillover":"require_independent_sql_resolution"}),
+            json!({"status":if complete{"supported"}else{"blocked"},"coverage":"complete_raw_table","table_sha256":table.sha256,"initial_standings":if complete{json!(entries)}else{Value::Null},"aura156_affects_initial_standing":false,"reward_rates_and_spillover":reputation::supported(self.source, table, rules)?}),
         )
     }
     fn spells(&mut self) -> Result<Value> {
@@ -1111,7 +1112,7 @@ pub(super) fn compile(
     }
     let identity = c.identity()?;
     let outfit = c.outfit()?;
-    let reputation = c.factions(&identity)?;
+    let reputation = c.factions(&identity, rules)?;
     let learning = learning::discover(&mut c)?;
     let corpse_loot = plans::loot(source, &source_sha, &learning)?;
     if let Some(refusals) = corpse_loot["non_body_actions"]["refusals"].as_array() {

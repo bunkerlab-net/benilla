@@ -128,7 +128,13 @@ all named semantic gaps below must still be resolved before initialization:
   spillover policies to `Catalog::from_initial_factions`, then pass that catalog
   through `QuestProgressionInput.reputation`. Preserve zero stored deltas and
   source flags. Do not apply aura156 to base standing. The existing initializer
-  cross-check still requires the exact retained passive list for later awards
+  cross-check still requires the exact retained passive list for later awards.
+  With `reputation_policy_capture`, `reward_rates_and_spillover` uses the versioned
+  `cmangos-8ec338a1-reputation-policy-inputs-v1` diagnostic. Only `complete_inputs`
+  supplies policy entries for every compiled faction and explicit on-kill
+  lookup outcomes. Missing coverage, a foreign Faction DBC, unsupported accepted
+  ranks, or absent explicit rules cannot discharge the policy input requirement.
+  `consumer_certified` remains false until composition binds the actual aura list.
 - `player.skills.sql_candidates` maps in captured source order to
   default_skills `{id: skill, step}`; `player.initial_sql_spells` maps in captured
   order to default_spells `Spell`. No action-button row proves a learned spell

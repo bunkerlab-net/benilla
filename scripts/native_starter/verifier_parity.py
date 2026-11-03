@@ -177,6 +177,24 @@ class PreparationVerifierParityTests(unittest.TestCase):
             "numeric_word_order": list(spell_numeric.WORD_FIELDS), "spell_field_order": list(compiler.SPELL_FIELDS)}
         self.assertEqual(json.loads((root / "preparation/plan_contract.json").read_text()), expected)
 
+    def test_shared_reputation_policies_cover_absence_zero_spillover_and_kill_conversions(self):
+        fixtures = {f["name"]: f for f in corpus()["fixtures"]}
+        plan = fixtures["quiescent"]["preparation"]["player"]["initial_reputation"]["reward_rates_and_spillover"]
+        self.assertEqual(plan["status"], "complete_inputs")
+        self.assertEqual(plan["policies"][0]["reward_rates"]["Present"]["quest"], 0)
+        self.assertEqual(plan["policies"][0]["reward_rates"]["Present"]["creature"], 0x3dcccccd)
+        self.assertEqual(plan["policies"][1]["reward_rates"], "Absent")
+        self.assertEqual(plan["policies"][0]["spillover"]["Present"][0]["faction"], 901)
+        self.assertEqual(plan["kill_sources"][0]["admission"], "ProvenAbsentOnKillRow")
+        present = fixtures["request-control-items"]["preparation"]["player"]["initial_reputation"]["reward_rates_and_spillover"]
+        self.assertEqual(present["policies"][0]["reward_rates"], "Absent")
+        self.assertEqual(present["kill_sources"][0]["admission"], "PresentOnKillRow")
+        self.assertFalse(present["kill_sources"][0]["row"]["IsTeamAward1"])
+        self.assertEqual(present["kill_sources"][0]["row"]["MaxStanding1"], 0xffffffff)
+        for fixture in (plan, present):
+            self.assertFalse(fixture["consumer_certified"])
+            self.assertEqual(fixture["aura_binding"], "requires_actual_initialized_aura_list")
+
     def test_complete_shared_preparations_reproduce(self):
         for fixture in corpus()["fixtures"]:
             with self.subTest(fixture=fixture["name"]):

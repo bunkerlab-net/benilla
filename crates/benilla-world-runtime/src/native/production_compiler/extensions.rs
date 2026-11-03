@@ -7,6 +7,7 @@ mod loot;
 pub(super) mod participants;
 pub(super) mod quest_endpoints;
 pub(super) mod quest_mechanics;
+pub(super) mod reputation;
 pub(super) mod skill_training;
 mod transport_paths;
 const FILTER: &str = "all_matching_rows_no_loader_filters";
@@ -183,6 +184,9 @@ pub(super) fn validate(b: &Value, s: &Selection, p: &Profiles) -> Result<()> {
     }
     if present(b, "native_spawn_capture") {
         spawn(b)?;
+    }
+    if present(b, "reputation_policy_capture") {
+        reputation::validate(b)?;
     }
     if present(b, "addon_loader_capture") {
         addon_loader::validate(b)?;

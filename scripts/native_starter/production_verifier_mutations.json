@@ -2770,6 +2770,62 @@
         }
       ],
       "target": "source"
+    },
+    {
+      "name": "reputation-missing-spillover-lookup",
+      "fixture": "quiescent",
+      "target": "source",
+      "operations": [{"op": "remove", "path": "/reputation_policy_capture/lookups/reputation_spillover_template/0"}],
+      "bindings": [{"path": "/reputation_policy_capture/binding/lookups_sha256", "of": "/reputation_policy_capture/lookups"}],
+      "diagnostic": "reputation.lookup_coverage"
+    },
+    {
+      "name": "reputation-rate-outside-faction-closure",
+      "fixture": "quiescent",
+      "target": "source",
+      "operations": [{"op": "set", "path": "/reputation_policy_capture/lookups/reputation_reward_rate/0/row/faction", "value": 902}],
+      "bindings": [{"path": "/reputation_policy_capture/binding/lookups_sha256", "of": "/reputation_policy_capture/lookups"}],
+      "diagnostic": "reputation.row_selection"
+    },
+    {
+      "name": "reputation-accepted-invalid-spillover-rank",
+      "fixture": "quiescent",
+      "target": "source",
+      "operations": [{"op": "set", "path": "/reputation_policy_capture/lookups/reputation_spillover_template/0/row/rank_1", "value": 8}],
+      "bindings": [{"path": "/reputation_policy_capture/binding/lookups_sha256", "of": "/reputation_policy_capture/lookups"}],
+      "diagnostic": "compiler.preparation_mismatch"
+    },
+    {
+      "name": "reputation-foreign-faction-binding",
+      "fixture": "quiescent",
+      "target": "source",
+      "operations": [{"op": "set", "path": "/reputation_policy_capture/faction_sha256", "value": "0000000000000000000000000000000000000000000000000000000000000000"}],
+      "bindings": [],
+      "diagnostic": "compiler.preparation_mismatch"
+    },
+    {
+      "name": "reputation-missing-required-configuration-binding",
+      "fixture": "quiescent",
+      "target": "preparation",
+      "operations": [{"op": "set", "path": "/player/initial_reputation/reward_rates_and_spillover/configuration/gain_rate", "value": 0}],
+      "bindings": [{"path": "/preparation_sha256", "of": ""}],
+      "diagnostic": "compiler.preparation_mismatch"
+    },
+    {
+      "name": "reputation-foreign-float-schema",
+      "fixture": "quiescent",
+      "target": "source",
+      "operations": [{"op": "set", "path": "/reputation_policy_capture/policy_schema/reputation_reward_rate/columns/quest_rate/0", "value": "double"}],
+      "bindings": [],
+      "diagnostic": "reputation.schema"
+    },
+    {
+      "name": "reputation-integer-schema-boolean",
+      "fixture": "quiescent",
+      "target": "source",
+      "operations": [{"op": "set", "path": "/reputation_policy_capture/policy_schema/reputation_reward_rate/columns/quest_rate/1", "value": 0}],
+      "bindings": [],
+      "diagnostic": "reputation.schema"
     }
   ],
   "format": "benilla-production-verifier-mutations-v1"

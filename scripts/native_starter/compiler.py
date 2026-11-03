@@ -31,6 +31,7 @@ from . import item_plan
 from . import spell_execution
 from . import creature_combat_plan
 from . import participants
+from . import reputation_plan
 
 PROFILE = "cmangos-8ec338a1-native-starter-bindings-v1"
 FORMAT = "benilla-native-starter-preparation-v1"
@@ -379,7 +380,7 @@ class Compiler:
                 "grants_in_source_order": grants, "equipment_slots": None,
                 "placement_plan": plan}
 
-    def factions(self, identity: dict[str, Any]) -> dict[str, Any]:
+    def factions(self, identity: dict[str, Any], rules=None) -> dict[str, Any]:
         # ReputationMgr::Initialize uses the full Faction table, not encountered NPCs only.
         start = len(self.issues)
         ids = {r["Faction"] for r in self.tables["creature_template"]}
@@ -444,7 +445,7 @@ class Compiler:
                 "table_sha256": table.sha256 if table else None,
                 "initial_standings": sorted(entries, key=lambda row: row["reputation_list_id"]) if complete else None,
                 "aura156_affects_initial_standing": False,
-                "reward_rates_and_spillover": "require_independent_sql_resolution"}
+                "reward_rates_and_spillover": reputation_plan.supported_plan(self.source, table, rules)}
 
     def skills(self) -> dict[str, Any]:
         self.learning = discover(self)
@@ -783,7 +784,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
                     if i["reason"] not in replaced and not quest_endpoints.discharges(source, i))
     identity = c.identity()
     outfit = c.outfit()
-    reputation = c.factions(identity)
+    reputation = c.factions(identity, rules_plan["rules"])
     skills = c.skills()
     corpse_loot = loot_plan.supported_plan(source, c.learning)
     c.issues.extend(dict(r) for r in corpse_loot.get("non_body_actions", {}).get("refusals", []))

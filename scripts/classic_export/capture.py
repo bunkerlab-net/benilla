@@ -14,6 +14,7 @@ from . import quest_presentation
 from . import quest_endpoints
 from . import loot_loader
 from . import addon_loader
+from . import reputation
 from . import spawn_context
 from . import participants
 from . import skill_training
@@ -563,6 +564,8 @@ def validate_bundle(bundle: Any) -> None:
     check(type(bundle) is dict, "bundle.fields")
     if bundle.get("format") == STARTER_FORMAT:
         expected.add("starter_required_keys")
+        if "reputation_policy_capture" in bundle:
+            expected.add("reputation_policy_capture")
         if "addon_loader_capture" in bundle:
             expected.add("addon_loader_capture")
         if "event_ai_capture" in bundle:
@@ -700,6 +703,8 @@ def validate_bundle(bundle: Any) -> None:
             integer(value, 1, 0xffffffff, "bundle.reference_id")
         require_ids(table, bundle["tables"][table], set(ids))
     check(normalize_version_notes(bundle["db_version"], profiles["db_version"]) == bundle["db_version"], "bundle.db_version")
+    if "reputation_policy_capture" in bundle:
+        reputation.validate(bundle)
     if "addon_loader_capture" in bundle:
         addon_loader.validate(bundle)
     creatures = {r["Entry"] for r in bundle["tables"]["creature_template"]}

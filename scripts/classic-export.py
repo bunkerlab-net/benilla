@@ -53,13 +53,13 @@ def main() -> int:
         return 2
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ["inspect", "capture", "skill-training"]:
+    for name in ["inspect", "capture", "skill-training", "reputation-policy"]:
         cmd = sub.add_parser(name)
         cmd.add_argument("--database", required=True)
         cmd.add_argument("--user", required=True, help="existing SELECT-only account; never created here")
         cmd.add_argument("--port", type=int, default=3306, help="127.0.0.1 only")
         cmd.add_argument("--output", type=Path, required=True, help="new private local file, preferably under benilla-config")
-        if name == "skill-training":
+        if name in {"skill-training", "reputation-policy"}:
             cmd.add_argument("--source", type=Path, required=True)
             cmd.add_argument("--dbc-dir", type=Path, required=True)
             cmd.add_argument("--gender", type=int, required=True)
@@ -131,7 +131,7 @@ def main() -> int:
             from classic_export.driver import LocalSqlSource
             source = LocalSqlSource(args.database, args.user, args.port)
             try:
-                if args.command == "skill-training":
+                if args.command in {"skill-training", "reputation-policy"}:
                     from classic_export import skill_training
                     from native_starter.compiler import Request
                     from native_starter.dbc import load_directory, load_extraction_manifest, read_regular
@@ -142,7 +142,11 @@ def main() -> int:
                     starter = bundle["selection"]["starter"]
                     request = Request.parse({"race": starter["race"], "class": starter["class"],
                                              "gender": args.gender})
-                    output = skill_training.recapture(source, bundle, dbcs, request, args.quiescent_snapshot)
+                    if args.command == "reputation-policy":
+                        from classic_export import reputation
+                        output = reputation.recapture(source, bundle, dbcs, args.quiescent_snapshot)
+                    else:
+                        output = skill_training.recapture(source, bundle, dbcs, request, args.quiescent_snapshot)
                 else:
                     output = source.inspect() if args.command == "inspect" else capture(source, selection, args.quiescent_snapshot,
                         dependency_request, capture_initial_hooks=args.initial_hooks, capture_body_loot=args.body_loot,

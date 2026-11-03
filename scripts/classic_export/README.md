@@ -59,6 +59,36 @@ Facing absence is neutral only after a complete selected read.
 The extension grants no registry, hook, learning, initial-cast, global-area,
 NPC, geometry, or world-entry authority.
 
+## Optional reputation policy recapture
+
+`reputation-policy --source OLD --dbc-dir DBCS --gender 0
+--quiescent-snapshot` extends an unchanged operator-quiescent source-v2 epoch.
+Supply the usual database, reader, port, and new output path. Keep the old file.
+The command performs SELECT-only bounded reads of `reputation_reward_rate`,
+`reputation_spillover_template`, and `creature_onkill_reputation`. Each table
+query has a 4,096-row limit and retains every loader column. Float columns use
+the database's text representation and exact decimal-to-binary32 conversion.
+The capture also checks the three tables' SQL types, nullability, and primary
+keys against the pinned layouts. Their normalized metadata remains bound in the
+extension, so a decimal or double column cannot claim FLOAT conversion.
+
+`reputation_policy_capture` uses `benilla-classic-reputation-policy-v1`.
+It includes an explicit row-or-null lookup for every ID in the complete bound
+Faction DBC and every selected creature template. The full Faction domain closes
+all valid spillover, team, quest, and kill faction references without filtering
+policy targets to the immediate route. Missing lookup entries and rows outside
+their selected keys reject. Bindings cover the selection, original source tables,
+schema, DB version, consistency mode, Faction bytes, and all policy lookups.
+As with skill-training recapture, unchanged epoch provenance depends on the
+operator's quiescence assertion, not a claim of reference-loader observation.
+
+`Field.h:53-59` at CMaNGOS `8ec338a1` defines float conversion, unsigned wrapping,
+and booleans as strictly greater than zero. `ObjectMgr.cpp:7480-7545` accepts
+selected kill rows only when their nonzero factions exist. The consumer retains
+present rows as unsupported native kill awards; proven absence is not a zero-rate
+row. Run `python3 scripts/test-reputation-policy.py` with the other Python suites.
+
+
 ## Optional ordinary quest presentation capture
 
 For source-v2, `capture --quest-presentation` captures quest text, both request-emote

@@ -104,6 +104,31 @@ reads this modifier for awards. Neither `Initialize`, `GetBaseReputation`,
 Authored tests compare equal initial bases/deltas with and without the modifier,
 then compare a 250 award with a 275 award.
 
+## SQL policy adapter
+
+`compile_faction_policies` accepts one `FactionPolicyLookup` for every compiled
+Faction row, including unlisted factions. Missing, duplicate, or extra lookups
+refuse. `None` is a captured absent row, not an omitted lookup. The adapter returns
+the existing `FactionRewardPolicy` inputs without constructing an aura audit.
+
+At the pin above, `ObjectMgr.cpp:7437-7470` loads binary32 reward rates and skips
+the entire row for an unknown faction or any negative rate. Zero remains present
+and disables that award branch at `Player.cpp:6373-6375`. Missing rates retain
+the consumer's unit multiplier. `ObjectMgr.cpp:7596-7607,7635-7660` skips spillover
+rows with an unknown source, no source team, or any unknown target.
+Its inner loop at `:7610-7633` only logs unlisted targets and invalid ranks;
+it does not remove those slots. The adapter preserves unlisted targets and
+refuses accepted nonzero targets whose rank cannot fit the existing `Rank` type.
+Zero targets remain inert. Negative spillover rates remain signed.
+
+The versioned Python capture binds complete lookups for the full Faction DBC and
+each selected creature template. The independent Rust verifier reconstructs
+policy inputs and runs this adapter. Explicit `NativeWorldRules.reputation`
+supplies configuration. Actual initialized aura156 holders, aura190 absence,
+callbacks, and admission remain separate composition requirements. A retained
+on-kill row remains unavailable to native kill awards.
+
+
 ## Source mechanics preserved
 
 - `FactionEntry::GetIndexFitTo` selects the first matching slot. A zero race or
