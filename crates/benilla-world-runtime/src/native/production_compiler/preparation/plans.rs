@@ -34,20 +34,20 @@ pub(super) fn outfit(grants: &[Value], items: &BTreeMap<i128, &Value>) -> (Value
             .any(|n| nonzero(&item[*n]))
         {
             Some("item.placement_required_skill_spell_unsupported")
-        } else if [
-            "Flags",
-            "BagFamily",
-            "ContainerSlots",
-            "itemset",
-            "RandomProperty",
-            "Duration",
-            "ScriptName",
-            "block",
-            "requiredhonorrank",
-            "RequiredReputationFaction",
-        ]
-        .iter()
-        .any(|n| nonzero(&item[*n]))
+        } else if int(&item["Flags"]) & !0x40 != 0
+            || [
+                "BagFamily",
+                "ContainerSlots",
+                "itemset",
+                "RandomProperty",
+                "Duration",
+                "ScriptName",
+                "block",
+                "requiredhonorrank",
+                "RequiredReputationFaction",
+            ]
+            .iter()
+            .any(|n| nonzero(&item[*n]))
         {
             Some("item.placement_property_unsupported")
         } else if !slots.is_empty()

@@ -35,7 +35,31 @@ pub fn weapon_profile_with_type(inventory_type: u32) -> Profile {
 }
 /// Authored paired prototypes pass the captured adapter before any genesis seal.
 pub fn profile_with_item_admission() -> Profile {
-    build_with_items(false, false, None, false, false, None, true)
+    build_with_items(
+        false,
+        false,
+        None,
+        false,
+        false,
+        None,
+        ItemAdmission::Catalog,
+    )
+}
+pub fn profile_with_hearthstone() -> Profile {
+    build_with_items(
+        false,
+        false,
+        None,
+        false,
+        false,
+        None,
+        ItemAdmission::Hearthstone,
+    )
+}
+enum ItemAdmission {
+    None,
+    Catalog,
+    Hearthstone,
 }
 fn build(
     lethal: bool,
@@ -52,7 +76,7 @@ fn build(
         duplicate_armor,
         second_original,
         weapon_type,
-        false,
+        ItemAdmission::None,
     )
 }
 fn build_with_items(
@@ -62,7 +86,7 @@ fn build_with_items(
     duplicate_armor: bool,
     second_original: bool,
     weapon_type: Option<u32>,
-    admit_items: bool,
+    admit_items: ItemAdmission,
 ) -> Profile {
     let original_weapon = weapon_type.is_some();
     let (mut p, mut input, mut rows) = synthetic_loot_fixture::setup();
@@ -221,7 +245,11 @@ fn build_with_items(
         .unwrap();
         p.npcs[0].ai.spawn = f::point(2.0);
     }
-    p.npcs[0].max_health = if admit_items { 1 } else { 1000 };
+    p.npcs[0].max_health = if matches!(admit_items, ItemAdmission::Catalog) {
+        1
+    } else {
+        1000
+    };
     if lethal {
         p.npcs[0].combat.as_mut().unwrap().minimum_damage = f::float(10000.0);
         p.npcs[0].combat.as_mut().unwrap().maximum_damage = f::float(10000.0);
@@ -243,7 +271,46 @@ fn build_with_items(
         source.spells[0].words[21] |= 8;
     }
     input.spells[0].words = source.spells[0].words.clone().try_into().unwrap();
-    if admit_items {
+    if matches!(admit_items, ItemAdmission::Hearthstone) {
+        use benilla_sim::starter_init as init;
+        let mut hearthstone = input.items[0].clone();
+        hearthstone.id = 6948;
+        hearthstone.class = 15;
+        hearthstone.subclass = 0;
+        hearthstone.inventory_type = 0;
+        hearthstone.flags = 0x40;
+        hearthstone.stackable = 1;
+        hearthstone.unique_max_count = 1;
+        hearthstone.max_durability = 0;
+        hearthstone.armor = 0;
+        hearthstone.stats = [init::ItemStat { kind: 0, value: 0 }; 10];
+        hearthstone.spells = [init::ItemSpell { id: 0, trigger: 0 }; 5];
+        hearthstone.spells[0].id = 8690;
+        input.items.push(hearthstone);
+        let init::Rows::Complete(grants) = &mut input.item_grants else {
+            unreachable!()
+        };
+        grants.push(init::ItemGrant {
+            source: init::GrantSource::Custom,
+            source_order: 1,
+            item: 6948,
+            count: 1,
+        });
+        let loot = rows.loot.as_mut().unwrap();
+        let mut items: Vec<_> = loot.inventory.items().cloned().collect();
+        let mut prototype = synthetic_loot_fixture::item(6948);
+        prototype.class = 15;
+        prototype.flags = 0x40;
+        prototype.stackable = 1;
+        prototype.maximum_count = 1;
+        prototype.bonding = 1;
+        prototype.spells[0].cooldown = -1;
+        prototype.spells[0].category_cooldown = -1;
+        prototype.spells[0].id = 8690;
+        items.push(prototype);
+        loot.inventory = synthetic_loot_fixture::inventory_catalog(items);
+    }
+    if !matches!(admit_items, ItemAdmission::None) {
         let loot = rows.loot.as_mut().unwrap();
         let leaf = &mut loot.captures[0].rows[0];
         leaf.chance_or_quest_chance_bits = 100f32.to_bits();

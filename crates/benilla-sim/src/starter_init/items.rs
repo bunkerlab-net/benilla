@@ -180,7 +180,7 @@ pub(super) fn validate_grants(input: &super::StarterInput) -> Result<()> {
                 0,
             ));
         }
-        if item.flags != 0 {
+        if item.flags & !0x40 != 0 {
             return Err(unsupported("initial item flags", item.id, item.flags));
         }
         if item.required_reputation_faction != 0 || item.required_honor_rank != 0 {

@@ -50,7 +50,7 @@ def supported_plan(grants, items):
         if item["RequiredSkill"] or item["RequiredSkillRank"] or item["requiredspell"]:
             reasons.append({"item_id": entry, "reason": "item.placement_required_skill_spell_unsupported"})
             continue
-        if any(item[name] for name in ("Flags", "BagFamily", "ContainerSlots", "itemset",
+        if item["Flags"] & ~0x40 or any(item[name] for name in ("BagFamily", "ContainerSlots", "itemset",
                 "RandomProperty", "Duration", "ScriptName", "block", "requiredhonorrank",
                 "RequiredReputationFaction")):
             reasons.append({"item_id": entry, "reason": "item.placement_property_unsupported"})

@@ -61,7 +61,7 @@ def item_plan(item):
                   "BagFamily", "itemset", "lockid", "ExtraFlags"):
         if item[field]:
             refuse(field, "carried_dependency_unsupported")
-    if item["Flags"] & ~0x800:
+    if item["Flags"] & ~(0x800 | 0x40):
         refuse("Flags", "carried_dependency_unsupported")
     bag = cls == 1 and item["InventoryType"] == 18 and 1 <= item["ContainerSlots"] <= 36 and item["stackable"] == 1
     if cls == 11 or item["InventoryType"] == 27 or not bag and (
@@ -107,8 +107,9 @@ def item_plan(item):
         starting_refusals.append("item.outfit_quantity_domain")
     if equip_slots(item) is None:
         starting_refusals.append("item.starting_placement_unsupported")
-    if any(item[f] for f in ("Flags", "block", "requiredhonorrank", "RequiredReputationFaction",
-                             "RequiredReputationRank", "RequiredCityRank")):
+    if item["Flags"] & ~0x40 or any(item[f] for f in (
+            "block", "requiredhonorrank", "RequiredReputationFaction",
+            "RequiredReputationRank", "RequiredCityRank")):
         starting_refusals.append("item.starting_dependency_unsupported")
     # Skill/spell dependencies must be bound by the existing initializer, never inferred here.
     return {"entry": entry, "status": "blocked" if refusals else "supported_shape",

@@ -89,6 +89,10 @@ graph and loader plan do not prove effective learning or gameplay admission.
   native platform checkout line endings cannot silently skip numeric checks.
   `check-native-outfit-oracle.py` regenerates results in memory and compares them
   with the fixture, failing if the C++ compiler is unavailable
+- [ItemPrototype.h, item flags](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/ItemPrototype.h#L69-L80):
+  `0x40` is `PLAYERCAST`, not `NO_USER_DESTROY`. Starter and carried storage
+  preserve this flag. Storage does not authorise Hearthstone use or spell 8690's
+  teleport and home-bind lifecycle. Item 14646's startquest still refuses.
 - [Player.cpp, learning paths](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Player.cpp#L3397-L3448):
   passive-like auto-casting and skill-step handling require learning-sensitive
   initial spells to remain entry-critical. Classification is conservative;

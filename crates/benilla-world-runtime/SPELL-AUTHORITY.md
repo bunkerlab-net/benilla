@@ -422,8 +422,10 @@ threat modifier. `ignoreTimer=true` prevents combat-timer refresh, and this
 callback does not initiate an attack or create a previously absent reference.
 Starting consumption while in combat remains refused.
 
-Native format 86 and policy `benilla-native-solo-food-drink-v86` retain holder
-slots, caster level, periodic debt, creation tick, and the Unit heartbeat phase.
+Native format 87 and policy `benilla-native-solo-playercast-storage-v87` retain
+starter/catalog PLAYERCAST flags as well as holder slots, caster level, periodic
+debt, creation tick, and the Unit heartbeat phase. Hearthstone storage does not
+authorise item use, teleport spell 8690, or a home-bind lifecycle.
 Restoration derives counters from the bound duration and fixed update cadence.
 Older native envelopes are rejected without migration. `NativeCapability`
 remains uninhabited; these component paths do not admit production gameplay.

@@ -13,6 +13,72 @@ fn reopen(w: &NativeWorld) {
     .unwrap();
     assert_eq!(restored.checkpoint().unwrap(), w.checkpoint().unwrap());
 }
+
+#[test]
+fn starter_hearthstone_retains_playercast_after_reopen_and_use_refuses_atomically() {
+    let profile = synthetic_equipment_fixture::profile_with_hearthstone();
+    let mut world =
+        NativeWorld::synthetic_component_test(profile, [1; 16], synthetic_fixture::player(), 42)
+            .unwrap();
+    let genesis = world.profile.quest_progression.as_ref().unwrap();
+    let loot = genesis.loot.as_ref().unwrap();
+    assert_eq!(loot.inventory.item(6948).unwrap().flags, 0x40);
+    assert_eq!(loot.starter_items[&6948].flags, 0x40);
+    let inventory = world
+        .state
+        .quest_progression
+        .as_ref()
+        .unwrap()
+        .inventory
+        .as_ref()
+        .unwrap();
+    let slot = *inventory
+        .slots
+        .iter()
+        .find(|(_, item)| item.item == 6948)
+        .unwrap()
+        .0;
+    let before = world.checkpoint().unwrap();
+    let input = synthetic_distinct_quest_fixture::command(
+        &world,
+        Command::UseItem {
+            slot,
+            spell_index: 0,
+        },
+    );
+    assert!(matches!(
+        world.step(
+            1,
+            Some(input),
+            &mut synthetic_equipment_fixture::EquipmentAuthority::default()
+        ),
+        Err(NativeError::UnsupportedMechanic(
+            "Hearthstone item use requires spell 8690 teleport and home-bind lifecycle"
+        ))
+    ));
+    assert_eq!(world.checkpoint().unwrap(), before);
+    reopen(&world);
+    let restored = NativeWorld::restore_synthetic_component_test(
+        world.profile.clone(),
+        Checkpoint::decode(&before.encode().unwrap()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        restored
+            .profile
+            .quest_progression
+            .as_ref()
+            .unwrap()
+            .loot
+            .as_ref()
+            .unwrap()
+            .inventory
+            .item(6948)
+            .unwrap()
+            .flags,
+        0x40
+    );
+}
 fn twin_world() -> NativeWorld {
     use benilla_sim::starter_init as init;
     let mut input = synthetic_fixture::initialized_starter_input();
@@ -116,9 +182,9 @@ fn missing_forged_swapped_duplicate_origins_and_old_format_fail_closed() {
             continue;
         }
         forged.state = decoded.unwrap();
-        forged.digest = crate::digest(b"benilla-native-state-v86\0", &forged.state);
+        forged.digest = crate::digest(b"benilla-native-state-v87\0", &forged.state);
         forged.checksum = crate::digest(
-            b"benilla-native-checkpoint-v86\0",
+            b"benilla-native-checkpoint-v87\0",
             &(&forged.state, forged.digest, forged.history_tip),
         );
         assert!(

@@ -370,9 +370,9 @@ class Compiler:
         plan, reasons = outfit_placement_plan(grants, items) if len(rows) == 1 else (None, [])
         for reason in reasons:
             self.issue("item_template", [reason.get("item_id", 0)], reason["reason"])
-        if plan is None:
-            self.issue("playercreateinfo_item", [s.race, s.class_id],
-                       "player.native_equipment_placement_required")
+        # A shape plan does not execute learned eligibility or actual placement.
+        self.issue("playercreateinfo_item", [s.race, s.class_id],
+                   "player.native_equipment_placement_required")
         return {"outfit_record_id": rows[0].words[0] if len(rows) == 1 else None,
                 "grants_in_source_order": grants, "equipment_slots": None,
                 "placement_plan": plan}

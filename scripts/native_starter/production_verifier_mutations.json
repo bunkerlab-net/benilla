@@ -2514,6 +2514,98 @@
       ],
       "bindings": [],
       "diagnostic": "compiler.preparation_mismatch"
+    },
+    {
+      "name": "playercast-cleared-inventory-flag",
+      "fixture": "carried-items",
+      "target": "preparation",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/captured_item_plan/items/2/captured_input/inventory/flags",
+          "value": 0
+        },
+        {
+          "op": "remove",
+          "path": "/preparation_sha256"
+        }
+      ],
+      "bindings": [
+        {
+          "of": "",
+          "path": "/preparation_sha256"
+        }
+      ],
+      "diagnostic": "compiler.preparation_mismatch"
+    },
+    {
+      "name": "playercast-cleared-placement-flag",
+      "fixture": "carried-items",
+      "target": "preparation",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/captured_item_plan/items/2/captured_input/placement/flags",
+          "value": 0
+        },
+        {
+          "op": "remove",
+          "path": "/preparation_sha256"
+        }
+      ],
+      "bindings": [
+        {
+          "of": "",
+          "path": "/preparation_sha256"
+        }
+      ],
+      "diagnostic": "compiler.preparation_mismatch"
+    },
+    {
+      "name": "playercast-forged-unknown-flag",
+      "fixture": "carried-items",
+      "target": "preparation",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/captured_item_plan/items/2/captured_input/inventory/flags",
+          "value": 65
+        },
+        {
+          "op": "remove",
+          "path": "/preparation_sha256"
+        }
+      ],
+      "bindings": [
+        {
+          "of": "",
+          "path": "/preparation_sha256"
+        }
+      ],
+      "diagnostic": "compiler.preparation_mismatch"
+    },
+    {
+      "name": "playercast-use-authorized",
+      "fixture": "carried-items",
+      "target": "preparation",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/captured_item_plan/items/2/unavailable_operations/use",
+          "value": "supported"
+        },
+        {
+          "op": "remove",
+          "path": "/preparation_sha256"
+        }
+      ],
+      "bindings": [
+        {
+          "of": "",
+          "path": "/preparation_sha256"
+        }
+      ],
+      "diagnostic": "compiler.preparation_mismatch"
     }
   ],
   "format": "benilla-production-verifier-mutations-v1"

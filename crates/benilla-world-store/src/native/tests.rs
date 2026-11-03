@@ -40,6 +40,66 @@ fn open(p: &Path) -> Result<(NativeStore, NativeWorld), Error> {
     })
 }
 #[test]
+fn starter_hearthstone_storage_and_playercast_survive_save_and_reopen() {
+    use benilla_world_runtime::native::{
+        synthetic_equipment_fixture as fixture, Command, NativeError,
+    };
+    let t = Temp::new();
+    let profile = fixture::profile_with_hearthstone();
+    let mut world =
+        NativeWorld::synthetic_component_test(profile.clone(), [1; 16], f::player(), 42).unwrap();
+    let inventory = world
+        .state()
+        .quest_progression
+        .as_ref()
+        .unwrap()
+        .inventory
+        .as_ref()
+        .unwrap();
+    let slot = *inventory
+        .slots
+        .iter()
+        .find(|(_, item)| item.item == 6948)
+        .unwrap()
+        .0;
+    assert_eq!(inventory.slots[&slot].count, 1);
+    assert!(inventory.slots[&slot].bound);
+    let (mut store, receipt) = NativeStore::create(t.path(), &world).unwrap();
+    receipt.acknowledge(&mut world).unwrap();
+    store.checkpoint(&mut world).unwrap();
+    let expected = world.checkpoint().unwrap();
+    drop(store);
+    let (_, mut restored) = NativeStore::open(t.path(), Identity::of(&expected), |checkpoint| {
+        NativeWorld::restore_synthetic_component_test(profile.clone(), checkpoint)
+    })
+    .unwrap();
+    assert_eq!(restored.checkpoint().unwrap(), expected);
+    let loot = restored
+        .profile()
+        .quest_progression
+        .as_ref()
+        .unwrap()
+        .loot
+        .as_ref()
+        .unwrap();
+    assert_eq!(loot.inventory.item(6948).unwrap().flags, 0x40);
+    assert_eq!(loot.starter_items[&6948].flags, 0x40);
+    let input = benilla_world_runtime::native::synthetic_distinct_quest_fixture::command(
+        &restored,
+        Command::UseItem {
+            slot,
+            spell_index: 0,
+        },
+    );
+    assert!(matches!(
+        restored.step(1, Some(input), &mut fixture::EquipmentAuthority::default()),
+        Err(NativeError::UnsupportedMechanic(
+            "Hearthstone item use requires spell 8690 teleport and home-bind lifecycle"
+        ))
+    ));
+    assert_eq!(restored.checkpoint().unwrap(), expected);
+}
+#[test]
 fn native_roundtrip_replays_cast_rng_and_retains_prior_good() {
     let t = Temp::new();
     let mut w = f::world();

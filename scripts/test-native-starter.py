@@ -336,7 +336,7 @@ class CompilerTests(unittest.TestCase):
         self.assertEqual([g["item_id"] for g in plan["grants"]], [920001, 920101])
         self.assertEqual([g["count"] for g in plan["grants"]], [1, 2])
         self.assertFalse(plan["equipment_resolved"])
-        self.assertNotIn("player.native_equipment_placement_required",
+        self.assertIn("player.native_equipment_placement_required",
                          {r["reason"] for r in result["unsupported"]})
         self.assertIsNone(result["runtime_export"])
 
@@ -2153,6 +2153,38 @@ class CapturedItemAdmissionTests(unittest.TestCase):
         row = copy.deepcopy(source_bundle()["tables"]["item_template"][0])
         row.update(displayid=920002, stackable=1)
         return row
+
+    def test_playercast_hearthstone_storage_preserves_flag_and_refuses_other_dependencies(self):
+        from native_starter import item_plan, outfit_plan
+        row = self.item()
+        row.update(entry=6948, Flags=0x40, spellid_1=8690,
+                   spelltrigger_1=0, **{"class": 15, "subclass": 0, "InventoryType": 0})
+        plan = item_plan.item_plan(row)
+        self.assertEqual(plan["status"], "supported_shape")
+        self.assertEqual(plan["starter_placement"]["status"], "supported_shape")
+        self.assertEqual(plan["captured_input"]["inventory"]["flags"], 0x40)
+        self.assertEqual(plan["captured_input"]["placement"]["flags"], 0x40)
+        self.assertEqual(plan["unavailable_operations"]["use"], "item.carried_item_use_not_implemented")
+        grants = [{"item_id": 6948, "count": 1}]
+        placement, refusals = outfit_plan.supported_plan(grants, {6948: row})
+        self.assertEqual(refusals, [])
+        self.assertEqual(placement["grants"][0]["candidate_slots"], [])
+        for flag in (1, 0x20, 0x80, 0x80000000):
+            mutated = dict(row, Flags=0x40 | flag)
+            self.assertEqual(item_plan.item_plan(mutated)["starter_placement"]["status"], "blocked")
+            self.assertTrue(outfit_plan.supported_plan(grants, {6948: mutated})[1])
+        quest = dict(row, entry=14646, startquest=5805)
+        self.assertIn({"table": "item_template", "key": "14646", "field": "startquest",
+                       "reason": "item.carried_dependency_unsupported"},
+                      item_plan.item_plan(quest)["refusals"])
+
+    def test_shared_playercast_case_preserves_both_projections(self):
+        from native_starter.verifier_parity import corpus
+        fixture = next(f for f in corpus()["fixtures"] if f["name"] == "carried-items")
+        item = fixture["preparation"]["captured_item_plan"]["items"][2]
+        self.assertEqual(item["captured_input"]["inventory"]["flags"], 0x40)
+        self.assertEqual(item["captured_input"]["placement"]["flags"], 0x40)
+        self.assertEqual(item["starter_placement"]["status"], "supported_shape")
 
     def test_authored_selected_classes_and_unavailable_actions(self):
         from native_starter.item_plan import item_plan

@@ -41,8 +41,19 @@ fn protected_prototype_not_ordinary_bound_instance_controls_refusal() {
     let r = s.plan_destroy_backpack(&bound_catalog, 24, 0).unwrap();
     assert_eq!(r.result, InventoryResult::Ok);
     assert!(!r.after.slots.contains_key(&24));
+    let mut playercast = item(70001, 5, 0);
+    playercast.flags = 0x40;
+    let playercast_catalog = Catalog::new(vec![playercast], audit()).unwrap();
+    assert_eq!(playercast_catalog.grant_ready(70001).unwrap().flags, 0x40);
+    assert_eq!(
+        state()
+            .plan_destroy_backpack(&playercast_catalog, 24, 0)
+            .unwrap()
+            .result,
+        InventoryResult::Ok
+    );
     let mut unknown = item(70001, 5, 0);
-    unknown.flags = 0x40;
+    unknown.flags = 0x80;
     let c = Catalog::new(vec![unknown], audit()).unwrap();
     assert!(c.grant_ready(70001).is_err());
     assert!(state().plan_destroy_backpack(&c, 24, 0).is_err());

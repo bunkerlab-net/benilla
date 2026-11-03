@@ -284,13 +284,12 @@ impl<'a> Compiler<'a> {
                 reason["reason"].as_str().unwrap(),
             );
         }
-        if plan.is_null() {
-            self.issue(
-                "playercreateinfo_item",
-                json!([s.race, s.class]),
-                "player.native_equipment_placement_required",
-            );
-        }
+        // A shape plan does not execute learned eligibility or actual placement.
+        self.issue(
+            "playercreateinfo_item",
+            json!([s.race, s.class]),
+            "player.native_equipment_placement_required",
+        );
         Ok(
             json!({"outfit_record_id":if selected.len()==1{Some(selected[0].word(0))}else{None},"grants_in_source_order":grants,"equipment_slots":null,"placement_plan":plan}),
         )

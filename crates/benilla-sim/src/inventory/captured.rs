@@ -112,7 +112,8 @@ impl CapturedItem {
             ("itemset", i.item_set != 0),
             ("lockid", i.lock_id != 0),
             ("ExtraFlags", i.extra_flags != 0),
-            ("Flags", i.flags & !0x800 != 0),
+            // PLAYERCAST affects use, not carried storage (ItemPrototype.h:75).
+            ("Flags", i.flags & !(0x800 | 0x40) != 0),
         ] {
             if present {
                 return Err(self.refuse(field, "carried_dependency_unsupported"));
@@ -168,7 +169,7 @@ impl CapturedItem {
                 "starting_placement_unsupported",
             ));
         }
-        if p.flags != 0
+        if p.flags & !0x40 != 0
             || p.block != 0
             || p.required_honor_rank != 0
             || p.required_reputation_faction != 0

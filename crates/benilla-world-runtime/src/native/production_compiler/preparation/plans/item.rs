@@ -142,7 +142,7 @@ pub(in super::super) fn item_plan(item: &Value) -> Value {
             refuse(field, "carried_dependency_unsupported");
         }
     }
-    if int(&item["Flags"]) & !0x800 != 0 {
+    if int(&item["Flags"]) & !(0x800 | 0x40) != 0 {
         refuse("Flags", "carried_dependency_unsupported");
     }
     let bag = class == 1
@@ -249,16 +249,16 @@ pub(in super::super) fn item_plan(item: &Value) -> Value {
     if equip_slots(item).is_none() {
         starting.push("item.starting_placement_unsupported");
     }
-    if [
-        "Flags",
-        "block",
-        "requiredhonorrank",
-        "RequiredReputationFaction",
-        "RequiredReputationRank",
-        "RequiredCityRank",
-    ]
-    .iter()
-    .any(|f| nonzero(&item[*f]))
+    if int(&item["Flags"]) & !0x40 != 0
+        || [
+            "block",
+            "requiredhonorrank",
+            "RequiredReputationFaction",
+            "RequiredReputationRank",
+            "RequiredCityRank",
+        ]
+        .iter()
+        .any(|f| nonzero(&item[*f]))
     {
         starting.push("item.starting_dependency_unsupported");
     }

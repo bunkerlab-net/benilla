@@ -73,6 +73,18 @@ impl<A: Authority> Frame<'_, A> {
         slot: u8,
         spell_index: u8,
     ) -> Result<Option<Rejection>, NativeError> {
+        if self
+            .state
+            .quest_progression
+            .as_ref()
+            .and_then(|state| state.inventory.as_ref())
+            .and_then(|inventory| inventory.slots.get(&slot))
+            .is_some_and(|item| item.item == 6948)
+        {
+            return Err(NativeError::UnsupportedMechanic(
+                "Hearthstone item use requires spell 8690 teleport and home-bind lifecycle",
+            ));
+        }
         if !owner::selected(self.profile) {
             return Err(NativeError::UnsupportedMechanic("food/drink item use"));
         }

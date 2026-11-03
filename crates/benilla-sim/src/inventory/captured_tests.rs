@@ -213,6 +213,28 @@ fn starter_projection_retains_actual_eligibility_and_rejects_unsupported_classes
 }
 
 #[test]
+fn playercast_storage_preserves_flags_without_authorizing_use() {
+    let mut hearthstone = row(15, 0, 0);
+    hearthstone.inventory.entry = 6948;
+    hearthstone.placement.id = 6948;
+    hearthstone.inventory.flags = 0x40;
+    hearthstone.placement.flags = 0x40;
+    hearthstone.inventory.spells[0].id = 8690;
+    hearthstone.placement.spells[0].id = 8690;
+    let starter = hearthstone.clone().compile_starting().unwrap();
+    assert_eq!(starter.item.flags, 0x40);
+    let catalog = compile_catalog(vec![hearthstone.clone()], audit()).unwrap();
+    assert_eq!(catalog.grant_ready(6948).unwrap().flags, 0x40);
+    assert_eq!(
+        catalog.use_ready(6948),
+        Err(Error::Unsupported("carried_item_use_not_implemented"))
+    );
+    hearthstone.inventory.flags |= 1;
+    hearthstone.placement.flags |= 1;
+    assert_eq!(hearthstone.compile_starting().unwrap_err().field, "Flags");
+}
+
+#[test]
 fn captured_catalog_rejects_more_than_the_source_item_bound() {
     let rows = vec![row(15, 0, 0); 2049];
     assert_eq!(
