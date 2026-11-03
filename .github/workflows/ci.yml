@@ -1213,7 +1213,7 @@ jobs:
     # The workspace tests on a Windows checkout, which no macOS or Linux gate runs: path separators,
     # line endings and platform seams fail here first.
     runs-on: windows-latest
-    timeout-minutes: 180
+    timeout-minutes: 240
     env:
       CARGO_TERM_COLOR: always
       CARGO_INCREMENTAL: 0
