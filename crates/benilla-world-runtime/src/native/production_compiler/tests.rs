@@ -138,7 +138,7 @@ fn difference(a: &Value, b: &Value, path: &str) -> Option<String> {
 fn outside_finisher_and_inside_transition_recompile_with_python_parity() {
     let fixtures = corpus();
     for (name, placement) in [
-        ("quest-outside-finisher", "outside_selection"),
+        ("request-null-items", "outside_selection"),
         ("presentation", "inside_selection"),
     ] {
         let fixture = fixtures["fixtures"]

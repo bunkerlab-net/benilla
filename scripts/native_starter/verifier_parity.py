@@ -148,7 +148,9 @@ class SourceVerifierParityTests(unittest.TestCase):
 class PreparationVerifierParityTests(unittest.TestCase):
     def test_outside_endpoint_and_inside_transition_keep_distinct_plans(self):
         fixtures = {f["name"]: f for f in corpus()["fixtures"]}
-        outside = fixtures["quest-outside-finisher"]
+        # Share the NULL-text case to keep both slices within the primary corpus bound.
+        outside = fixtures["request-null-items"]
+        self.assertIsNone(outside["source"]["tables"]["quest_template"][0]["RequestItemsText"])
         inside = fixtures["presentation"]
         for fixture, placement in ((outside, "outside_selection"), (inside, "inside_selection")):
             endpoint = fixture["preparation"]["quest_giver_presentation_plan"]["endpoints"][-1]

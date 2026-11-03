@@ -87,6 +87,10 @@ DBC bytes, extraction metadata, request, and rules after either plan changes.
 Fixture JSON is compact. The primary corpus has an 8 MiB reader limit; the
 secondary combat corpus has a 1 MiB limit and includes the Food/Drink fixture.
 Both readers combine their fixture lists without increasing either byte limit.
+The NULL request-items fixture also covers an outside finisher to retain both
+cases within these limits. The presentation fixture places that finisher inside
+the selection. Preserve numeric mutation tokens such as `1.0` exactly.
+Strict integer validation distinguishes `1.0` from `1`.
 
 The corpus includes same-snapshot quest completion scripts, source items and
 gossip lookup closure, exact SQL skill-training probes and profession repair,

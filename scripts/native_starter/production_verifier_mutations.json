@@ -1316,7 +1316,7 @@
         {
           "op": "set",
           "path": "/tables/item_template/0/entry",
-          "value": 1
+          "value": 1.0
         }
       ],
       "target": "source"
@@ -2656,7 +2656,7 @@
     {
       "bindings": [],
       "diagnostic": "quest_endpoints.relation_coverage_mismatch",
-      "fixture": "quest-outside-finisher",
+      "fixture": "request-null-items",
       "name": "quest-endpoint-dropped-relation",
       "operations": [
         {
