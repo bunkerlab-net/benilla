@@ -4310,7 +4310,8 @@
               "table": "initial_hook_capture"
             }
           ],
-          "status": "unknown"
+          "status": "unknown",
+          "transport_paths": []
         },
         "player": {
           "actions": [
@@ -4834,7 +4835,7 @@
             ]
           }
         },
-        "preparation_sha256": "3df60bd676c43246f0070bdd6eee2ab35fa67b56afe4cbe539bf4e4aeb37ff4d",
+        "preparation_sha256": "4c8f1590f83cbaee79370b11b344aca34d2b6e25f0a385575318e502c6c7176e",
         "quest_giver_presentation_plan": {
           "adapter": "quest_lifecycle::CapturedOrdinaryQuests + captured_quests::CapturedQuestPresentation",
           "input_bindings": null,

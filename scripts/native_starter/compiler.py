@@ -756,7 +756,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
     quests = quest_plan.supported_plan(source, dbcs)
     rules_plan = world_rules.supported_plan(source, native_world_rules)
     corpse_loot = loot_plan.supported_plan(source)
-    participant_plan = participants.supported_plan(source)
+    participant_plan = participants.supported_plan(source, dbcs)
     c.issues.extend(participant_plan["refusals"])
     captured_items = item_plan.supported_plan(source)
     for refusal in captured_items["refusals"]:
@@ -764,7 +764,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
     for refusal in relationships["refusals"]:
         c.issue("quest_template", [refusal["quest"]], "quest.chain", edge=refusal)
     observed_errors = {i["table"] for i in dbc_errors or []}
-    for missing in sorted(set(LAYOUTS) - set(dbcs) - observed_errors):
+    for missing in sorted(set(LAYOUTS) - {"TaxiPath", "TaxiPathNode"} - set(dbcs) - observed_errors):
         c.issue(missing, [], "dbc.file_missing")
     # The capture knew no DBCs. Replace its coarse missing-input messages by the
     # exact resolver's missing records and remaining rule blockers; retain the

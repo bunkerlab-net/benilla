@@ -66,7 +66,7 @@ def dbc_bytes(name, rows):
 
 
 def dbcs_for(source):
-    rows = {name: [] for name in LAYOUTS}
+    rows = {name: [] for name in LAYOUTS if name not in {"TaxiPath", "TaxiPathNode"}}
     rows.update({
         "CreatureDisplayInfo": [{0: 940001, 1: 950001, 4: binary32_bits("1.25"), 9: -1}],
         "ChrRaces": [{0: 1, 2: 970001, 4: 940010, 5: 940011}],
@@ -97,7 +97,8 @@ def parsed(files):
 
 
 def extraction_metadata(files):
-    return {"format": "benilla-native-dbc-extraction-v4",
+    return {"format": ("benilla-native-dbc-extraction-v5" if "TaxiPathNode" in files
+                       else "benilla-native-dbc-extraction-v4"),
             "chain_policy": "benilla-formats-vanilla-chain", "client_build_claim": 5875,
             "client_build_authenticity_verified": False,
             "files": [{**table.manifest(), "winning_archive": "dbc.MPQ"}
@@ -204,11 +205,11 @@ class DbcTests(unittest.TestCase):
             with self.assertRaisesRegex(ExportError, "decoded_text_limit"):
                 parse_table("Map", data)
 
-    def test_missing_files_all_reported(self):
+    def test_missing_required_files_all_reported(self):
         with tempfile.TemporaryDirectory() as directory:
             tables, errors = load_directory(Path(directory))
         self.assertFalse(tables)
-        self.assertEqual({e["table"] for e in errors}, set(LAYOUTS))
+        self.assertEqual({e["table"] for e in errors}, set(LAYOUTS) - {"TaxiPath", "TaxiPathNode"})
 
     def test_manifest_requires_complete_exact_allowlist_and_hashes(self):
         files = dbcs_for(source_bundle())
@@ -2447,6 +2448,93 @@ class CreatureCombatEvidenceTests(unittest.TestCase):
                       self.plan()["ai_selection"]["refusals"])
         self.assertFalse(self.plan()["production_admission"])
         self.assertFalse(self.plan()["cold_loader"]["sql_order_is_runtime_order"])
+
+
+class TransportPathTests(unittest.TestCase):
+    def setUp(self):
+        self.source = {"selection": {"map_id": 0}}
+        self.template = {"entry": 52, "type": 15, "data0": 900, "data1": 30, "data2": 1}
+        self.nodes = [{0: 100 + i, 1: 900, 2: i, 3: 1,
+                       4: binary32_bits(str(i)), 7: 0} for i in range(6)]
+
+    def path(self, nodes=None, maps=(0, 1)):
+        from native_starter.transport_paths import coverage
+        files = {"TaxiPath": dbc_bytes("TaxiPath", [{0: 900}]),
+                 "TaxiPathNode": dbc_bytes("TaxiPathNode", self.nodes if nodes is None else nodes),
+                 "Map": dbc_bytes("Map", [{0: m} for m in maps])}
+        return coverage(self.source, self.template, parsed(files))
+
+    def test_other_map_path_excludes_without_any_spatial_margin(self):
+        path = self.path()
+        self.assertEqual(path["status"], "excluded_other_maps")
+        self.assertEqual(path["maps"], [1])
+        self.assertEqual(path["keyframe_node_indices"], [1, 2, 3, 4])
+        self.assertEqual(path["spline_legs"], [[1, 2, 3, 4]])
+        self.assertEqual(path["teleport_after_node_indices"], [4])
+        self.assertEqual(path["margin"], "not_applicable_map_identity")
+        self.assertEqual(self.path(list(reversed(self.nodes))), path)
+
+    def test_same_map_refuses_even_when_every_node_is_far_from_box(self):
+        for node in self.nodes:
+            node[3] = 0
+            node[4] = binary32_bits("100000")
+        self.assertEqual(self.path()["reason"], "interpolation_parameter_unproved")
+        self.assertNotIn("margin", self.path())
+
+    def test_teleport_pairs_and_endpoint_controls_are_not_visited(self):
+        self.nodes = [{0: 100 + i, 1: 900, 2: i, 3: 1} for i in range(10)]
+        self.nodes[3][7] = 1
+        self.nodes[4][3] = 0  # Discarded teleport partner.
+        self.nodes[0][3] = 0  # The first orientation/control endpoint is not visited.
+        path = self.path()
+        self.assertEqual(path["keyframe_node_indices"], [1, 2, 5, 6, 7, 8])
+        self.assertEqual(path["teleport_after_node_indices"], [2, 8])
+        self.assertEqual(path["spline_legs"], [[1, 2], [5, 6, 7, 8]])
+        self.assertEqual(path["status"], "excluded_other_maps")
+
+    def test_map_change_is_a_teleport_not_a_cross_map_spline(self):
+        self.nodes = [{0: 100 + i, 1: 900, 2: i, 3: 1 if i < 4 else 0} for i in range(10)]
+        path = self.path()
+        self.assertEqual(path["maps"], [0, 1])
+        self.assertEqual(path["spline_legs"], [[1, 2], [5, 6, 7, 8]])
+        self.assertEqual(path["reason"], "interpolation_parameter_unproved")
+
+    def test_holes_duplicate_indices_zero_ids_and_nonfinite_coordinates_refuse(self):
+        for change in ("hole", "duplicate", "zero", "nan", "infinity", "initial_teleport", "short_leg"):
+            nodes = copy.deepcopy(self.nodes)
+            if change == "hole":
+                nodes.pop(2)
+            elif change == "duplicate":
+                nodes[2][2] = 1
+            elif change == "zero":
+                nodes[0][0] = 0
+            elif change in ("nan", "infinity"):
+                nodes[2][4] = 0x7fc00000 if change == "nan" else 0x7f800000
+            elif change == "initial_teleport":
+                nodes[1][7] = 1
+            else:
+                nodes[2][7] = 1
+            with self.subTest(change=change):
+                self.assertEqual(self.path(nodes)["status"], "blocked")
+        self.assertEqual(self.path(maps=(0,))["reason"], "path_map_unknown")
+
+    def test_v4_has_no_transport_coverage_and_v5_requires_both_tables(self):
+        from native_starter.transport_paths import coverage
+        self.assertEqual(coverage(self.source, self.template, {})["reason"], "reextract_v5_required")
+        files = dbcs_for(source_bundle())
+        files.update({name: dbc_bytes(name, []) for name in ("TaxiPath", "TaxiPathNode")})
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for version in (4, 5):
+                selected = {k: v for k, v in files.items()
+                            if version == 5 or k not in {"TaxiPath", "TaxiPathNode"}}
+                metadata = extraction_metadata(selected)
+                (root / "extraction.json").write_bytes(canonical(metadata))
+                self.assertEqual(load_extraction_manifest(root, parsed(selected))["metadata"]["format"],
+                                 f"benilla-native-dbc-extraction-v{version}")
+            del selected["TaxiPath"]
+            with self.assertRaisesRegex(ExportError, "complete_valid_dbc_set_required"):
+                load_extraction_manifest(root, parsed(selected))
 
 
 if __name__ == "__main__":

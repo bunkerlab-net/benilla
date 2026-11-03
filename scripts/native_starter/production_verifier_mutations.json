@@ -2433,6 +2433,87 @@
       ],
       "bindings": [],
       "diagnostic": "compiler.preparation_mismatch"
+    },
+    {
+      "name": "transport-forged-other-map-exclusion",
+      "fixture": "transport-selector-map",
+      "target": "preparation",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/participants_plan/transport_paths/0/status",
+          "value": "excluded_other_maps"
+        },
+        {
+          "op": "set",
+          "path": "/participants_plan/transport_paths/0/maps",
+          "value": [
+            1
+          ]
+        },
+        {
+          "op": "set",
+          "path": "/participants_plan/refusals",
+          "value": []
+        }
+      ],
+      "bindings": [],
+      "diagnostic": "compiler.preparation_mismatch"
+    },
+    {
+      "name": "transport-erased-model-bounds-obligation",
+      "fixture": "transport-selector-map",
+      "target": "preparation",
+      "operations": [
+        {
+          "op": "remove",
+          "path": "/participants_plan/refusals/1"
+        }
+      ],
+      "bindings": [],
+      "diagnostic": "compiler.preparation_mismatch"
+    },
+    {
+      "name": "transport-reordered-keyframes",
+      "fixture": "transport-other-map",
+      "target": "preparation",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/participants_plan/transport_paths/0/keyframe_node_indices",
+          "value": [
+            4,
+            3,
+            2,
+            1
+          ]
+        }
+      ],
+      "bindings": [],
+      "diagnostic": "compiler.preparation_mismatch"
+    },
+    {
+      "name": "transport-teleport-as-spline",
+      "fixture": "transport-teleport-map",
+      "target": "preparation",
+      "operations": [
+        {
+          "op": "set",
+          "path": "/participants_plan/transport_paths/0/spline_legs",
+          "value": [
+            [
+              1,
+              2,
+              5,
+              6,
+              7,
+              8
+            ]
+          ]
+        }
+      ],
+      "bindings": [],
+      "diagnostic": "compiler.preparation_mismatch"
     }
   ],
   "format": "benilla-production-verifier-mutations-v1"

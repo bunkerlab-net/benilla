@@ -6,6 +6,7 @@ mod loot;
 pub(super) mod participants;
 pub(super) mod quest_mechanics;
 pub(super) mod skill_training;
+mod transport_paths;
 const FILTER: &str = "all_matching_rows_no_loader_filters";
 const REL_FIELDS: [&str; 6] = [
     "entry",

@@ -47,13 +47,17 @@ input archives, exact allowlists and non-overwrite private publication. No real
 installation or graphical gameplay has been tested here.
 
 
-The manifest contract is `benilla-native-dbc-extraction-v4`, with exactly 21 tables.
-It includes Emotes, with seven fields and 28-byte records, for quest greeting validation.
+The manifest contract is `benilla-native-dbc-extraction-v5`, with exactly 23 tables.
+It adds TaxiPath with four fields and 16-byte records, and TaxiPathNode with nine
+fields and 36-byte records. V4's 21-table set, including Emotes, remains readable.
 CreatureDisplayInfo and Talent remain mandatory. The Python verifier checks
 CreatureDisplayInfo string offsets only at words 6 through 8.
 Word 9 is signed SizeClass, not a string.
 The verifier binds every selected raw row and whole-file hash without defaults.
 The original v3 20-table set remains readable, but does not prove Emotes coverage.
+V5 transport coverage does not infer a spatial margin or admit transport behaviour.
+See the [transport source evidence](../../scripts/native_starter/PROVENANCE.md#transport-path-coverage).
+
 
 To migrate a v1/v2 extraction, run the current helper into a new private output
 directory and prepare again. Do not edit an old extraction manifest or copy in a

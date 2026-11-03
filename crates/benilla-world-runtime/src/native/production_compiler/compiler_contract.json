@@ -375,6 +375,16 @@
       "fields": 21,
       "size": 84,
       "strings": []
+    },
+    "TaxiPath": {
+      "fields": 4,
+      "size": 16,
+      "strings": []
+    },
+    "TaxiPathNode": {
+      "fields": 9,
+      "size": 36,
+      "strings": []
     }
   },
   "float_spell_fields": [

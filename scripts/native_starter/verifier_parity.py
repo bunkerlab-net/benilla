@@ -74,7 +74,8 @@ def verify(fixture):
         root = Path(directory)
         (root / "extraction.json").write_bytes(fixture["extraction_text"].encode("utf-8"))
         binding = load_extraction_manifest(root, tables)
-    core.check(binding["metadata"]["format"] == "benilla-native-dbc-extraction-v4", "extraction.complete_valid_dbc_set_required")
+    core.check(binding["metadata"]["format"] in {"benilla-native-dbc-extraction-v4", "benilla-native-dbc-extraction-v5"},
+               "extraction.complete_valid_dbc_set_required")
     compiler.verify_preparation(fixture["preparation"], source, tables,
                                 extraction_manifest=binding, native_world_rules=rules)
     # Production request is independent of the report's request.

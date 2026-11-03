@@ -272,10 +272,11 @@ pub(super) fn validate(b: &Value) -> Result<()> {
     )
 }
 
-pub(in super::super) fn supported(source: &Value) -> Value {
+pub(in super::super) fn supported(source: &Value, dbcs: &super::super::dbc::Tables) -> Value {
     let value = source.get("participants_capture");
     let mut refusals = Vec::new();
     let mut inventory = Vec::new();
+    let mut paths = Vec::new();
     let mut refuse = |table: &str, key: Value, reason: &str, extra: Value| {
         let mut v = json!({"table":table,"key":key,"reason":format!("participants.{reason}")});
         v.as_object_mut()
@@ -441,12 +442,31 @@ pub(in super::super) fn supported(source: &Value) -> Value {
                     json!({}),
                 );
             }
-            refuse(
-                "transports",
-                json!([row["entry"]]),
-                "transport_path_coverage_required",
-                json!({"taxi_path_id":template.map(|t| &t["data0"])}),
-            );
+            let mut path = super::transport_paths::coverage(source, template.copied(), dbcs);
+            path["entry"] = row["entry"].clone();
+            if path["status"] != "excluded_other_maps" {
+                let reason = if path["reason"] == "interpolation_parameter_unproved" {
+                    "transport_interpolation_parameter_required"
+                } else {
+                    "transport_path_coverage_required"
+                };
+                refuse(
+                    "transports",
+                    json!([row["entry"]]),
+                    reason,
+                    json!({"taxi_path_id":path["taxi_path_id"],"path_reason":path["reason"]}),
+                );
+                if path["reason"] == "interpolation_parameter_unproved" {
+                    refuse(
+                        "transports",
+                        json!([row["entry"]]),
+                        "transport_swept_model_bounds_required",
+                        json!({"display_id":template.unwrap()["displayId"],
+                        "evidence_required":"GameObjectDisplayInfo_model_bounds_scale_rotation_passengers_request_envelope"}),
+                    );
+                }
+            }
+            paths.push(path);
         }
         for table in CONTRACT["schema"]
             .as_object()
@@ -532,5 +552,5 @@ pub(in super::super) fn supported(source: &Value) -> Value {
     let empty = value.is_some() && refusals.is_empty();
     json!({"format":"cmangos-8ec338a1-empty-participants-plan-v1","status":if value.is_none() {"unknown"} else if empty {"proved_empty"} else {"blocked"},
         "capture_sha256":value.map(digest),"controller_binding":"closed_no_native_capability","empty_participant_obligation_discharged":empty,"production_admission":false,
-        "inventory":inventory,"refusals":refusals})
+        "inventory":inventory,"transport_paths":paths,"refusals":refusals})
 }

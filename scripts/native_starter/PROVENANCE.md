@@ -300,3 +300,42 @@ a complete preparation, and mutations shared by both verifiers. It contains no
 upstream database rows. Configuration does not establish combat execution or
 production admission.
 
+## Transport path coverage
+
+The extraction uses the client layouts in
+[benilla-re dbc_schemas.tsv:133-134](https://github.com/samwhosung/benilla-re/blob/fc85dad3cb85dec9330fb259a87f9d01eea5c68e/tables/dbc_schemas.tsv#L133-L134).
+TaxiPath has four words and 16 bytes. TaxiPathNode has nine words and 36 bytes.
+The client loaders are `0x551ab0` and `0x551880`.
+[Client ship-path evidence](https://github.com/samwhosung/benilla-re/blob/fc85dad3cb85dec9330fb259a87f9d01eea5c68e/systems/objectlayer/transports.md#the-ship-path)
+also identifies the node fields read by `0x5f4cc0`.
+
+The independent preparation implementations follow the server pin, not the
+client's separate ship timing.
+
+- [DBCStructure.h:994-1013](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Server/DBCStructure.h#L994-L1013)
+  defines path ID, node index, map, binary32 position, flags, and delay.
+  [DBCfmt.h:86-87](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Server/DBCfmt.h#L86-L87)
+  agrees with both record layouts.
+- [DBCStores.cpp:484-508](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Server/DBCStores.cpp#L484-L508)
+  loads TaxiPath first to size the path registry, then places nodes by node index.
+  Physical file order does not define path order. Ambiguous or incomplete
+  selected paths refuse rather than imitate overwritten entries or null nodes.
+- [TransportMgr.cpp:76-139](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Maps/TransportMgr.cpp#L76-L139)
+  removes endpoint/control nodes, skips each transition pair, and marks teleports.
+  The last-to-first transition always teleports.
+  [Lines 160-189](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Maps/TransportMgr.cpp#L160-L189)
+  build a separate non-cyclic Catmull-Rom spline for each leg.
+- [spline.cpp:63-67,99-105,241-272](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Movement/spline.cpp#L63-L272)
+  defines the cubic coefficients and evaluation. Non-cyclic initialisation
+  extrapolates the first virtual point and repeats the last control point.
+- [Transports.cpp:64-90,123-147,377-406](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Transports.cpp#L377-L406)
+  creates transports on their first retained map and teleports between retained
+  frames. The database period replaces the generated period.
+  [Lines 411-439](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Transports.cpp#L411-L439)
+  compute an unclamped spline parameter from rounded timing and segment distance.
+
+No finite spatial margin follows from a node hull alone. Map-disjoint paths
+exclude regardless of cubic overshoot, timing, model extent, or passenger offset.
+Same-map paths retain separate interpolation-parameter and swept-model-bounds
+obligations. No transport lifecycle, gameplay authority, or native format changes.
+

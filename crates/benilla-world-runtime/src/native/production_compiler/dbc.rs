@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// native_starter/dbc.py: packed records, complete v4 extraction and exact text bounds.
+// native_starter/dbc.py: packed records, versioned extraction and exact text bounds.
 use super::{check, fail, json::*, Result, COMPILER_CONTRACT};
 use serde_json::{json, Value};
 use std::{collections::BTreeMap, path::Path};
@@ -149,9 +149,16 @@ impl<'a> Row<'a> {
     }
 }
 pub(super) fn load(directory: &Path) -> Result<(Tables, Value)> {
+    let bytes = read_regular(&directory.join("extraction.json"), 65536)?;
+    let manifest = decode(&bytes, 65536)?;
     let mut tables = Tables::new();
     let mut aggregate = 0;
     for name in COMPILER_CONTRACT["dbc_layouts"].as_object().unwrap().keys() {
+        if manifest["format"] != "benilla-native-dbc-extraction-v5"
+            && matches!(name.as_str(), "TaxiPath" | "TaxiPathNode")
+        {
+            continue;
+        }
         let data = read_regular(&directory.join(format!("{name}.dbc")), MAX_FILE).map_err(|e| {
             if e.id == "json.byte_limit" {
                 fail("dbc.input_byte_limit")
@@ -163,8 +170,6 @@ pub(super) fn load(directory: &Path) -> Result<(Tables, Value)> {
         check(aggregate <= 192 * 1024 * 1024, "dbc.aggregate_byte_limit")?;
         tables.insert(name.clone(), Table::parse(name, data)?);
     }
-    let bytes = read_regular(&directory.join("extraction.json"), 65536)?;
-    let manifest = decode(&bytes, 65536)?;
     fields(
         &manifest,
         &[
@@ -183,7 +188,8 @@ pub(super) fn load(directory: &Path) -> Result<(Tables, Value)> {
     )?;
     check(
         (manifest["format"] == "benilla-native-dbc-extraction-v3"
-            || manifest["format"] == "benilla-native-dbc-extraction-v4")
+            || manifest["format"] == "benilla-native-dbc-extraction-v4"
+            || manifest["format"] == "benilla-native-dbc-extraction-v5")
             && manifest["chain_policy"] == "benilla-formats-vanilla-chain"
             && integer(
                 &manifest["client_build_claim"],
@@ -195,9 +201,10 @@ pub(super) fn load(directory: &Path) -> Result<(Tables, Value)> {
             && manifest["client_build_authenticity_verified"] == false,
         "extraction.manifest_profile",
     )?;
-    // The production target requires Emotes. v3 remains valid only for its older diagnostic CLI.
+    // Production requires Emotes; both completed v4 and v5 bundles remain readable.
     check(
-        manifest["format"] == "benilla-native-dbc-extraction-v4",
+        manifest["format"] == "benilla-native-dbc-extraction-v4"
+            || manifest["format"] == "benilla-native-dbc-extraction-v5",
         "extraction.complete_valid_dbc_set_required",
     )?;
     verify_manifest(&manifest, &tables)?;

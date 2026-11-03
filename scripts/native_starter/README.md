@@ -26,9 +26,9 @@ oversize or malformed winners instead of falling back to older archive copies.
 It writes into a new private directory and publishes extraction.json last.
 A crash may leave an incomplete directory without that manifest; retry to a new
 output path, never assume those partial files constitute a completed extraction.
-The Python CLI requires that manifest and verifies the completed v3 or v4
-allowlist, hashes, lengths, and layouts before preparing anything. The production
-Rust verifier requires v4 and all 21 tables, including Emotes. Manual or
+The Python CLI verifies completed v3, v4, or v5 allowlists, hashes, lengths, and
+layouts before preparation. The production Rust verifier accepts v4's 21 tables
+or v5's 23 tables. V5 adds TaxiPath and TaxiPathNode. Manual or
 unmanifested directories are not accepted by the CLI. The diagnostic Python
 library can still inspect synthetic or incomplete tables, recording no
 extraction claim.
@@ -66,7 +66,7 @@ atomic no-replace hard link; it cannot overwrite an earlier preparation or input
 The tool rejects output inside the DBC input directory.
 
 The runtime's `native::diagnose_production_inputs` independently reconstructs this
-complete report from source-v2, v4 DBC files, an explicit selected identity, and
+complete report from source-v2, v4 or v5 DBC files, an explicit selected identity, and
 explicit `NativeWorldRules`. It compares canonical reports, not just
 `preparation_sha256`. Its diagnostic identity also binds the exact bytes and
 length of `extraction.json`. It never constructs `NativeCapability` or a runtime

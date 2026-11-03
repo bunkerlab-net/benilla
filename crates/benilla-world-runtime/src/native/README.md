@@ -9,7 +9,7 @@ A complete compiler should issue a capability from each user's validated local d
 
 `diagnose_production_inputs` is the read-only Rust input verifier. Its implementation
 lives in the private `production_compiler` module. Supply fixed local paths for
-the source-v2 bundle, explicit selection, completed v4 DBC directory, preparation
+the source-v2 bundle, explicit selection, completed v4 or v5 DBC directory, preparation
 report, and explicit rules JSON or the named stock preset. The request adds
 race, class, and gender. The source selection, request, and rules level cap must
 agree.

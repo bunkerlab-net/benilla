@@ -55,6 +55,9 @@ LAYOUTS = {
     "Talent": Layout(21, 84),
     "CreatureDisplayInfo": Layout(12, 48, (6, 7, 8)),
     "Emotes": Layout(7, 28, (1,)),
+    # Client dbc_schemas.tsv, TaxiPathLoad 0x551ab0 and TaxiPathNodeLoad 0x551880.
+    "TaxiPath": Layout(4, 16),
+    "TaxiPathNode": Layout(9, 36),
 }
 
 def signed(word: int) -> int:
@@ -191,7 +194,8 @@ def load_directory(directory: Path) -> tuple[dict[str, DbcTable], list[dict[str,
             observed = {"file_sha256": hashlib.sha256(data).hexdigest(), "file_bytes": len(data)}
             tables[name] = parse_table(name, data)
         except FileNotFoundError:
-            errors.append({"table": name, "key": [], "reason": "dbc.file_missing"})
+            if name not in {"TaxiPath", "TaxiPathNode"}:
+                errors.append({"table": name, "key": [], "reason": "dbc.file_missing"})
         except OSError:
             errors.append({"table": name, "key": [], "reason": "dbc.file_unreadable"})
         except ExportError as error:
@@ -233,11 +237,16 @@ def load_extraction_manifest(directory: Path, tables: dict[str, DbcTable]) -> di
           "client_build_authenticity_verified", "files"}, "extraction.manifest_fields")
     check(value["format"] not in {"benilla-native-dbc-extraction-v1", "benilla-native-dbc-extraction-v2"},
           "extraction.legacy_manifest_reextract_v3_required")
-    check(value["format"] in {"benilla-native-dbc-extraction-v3", "benilla-native-dbc-extraction-v4"}
+    check(value["format"] in {"benilla-native-dbc-extraction-v3", "benilla-native-dbc-extraction-v4",
+                             "benilla-native-dbc-extraction-v5"}
           and value["chain_policy"] == "benilla-formats-vanilla-chain"
           and type(value["client_build_claim"]) is int and value["client_build_claim"] == 5875
           and value["client_build_authenticity_verified"] is False, "extraction.manifest_profile")
-    expected = set(LAYOUTS) - ({"Emotes"} if value["format"] == "benilla-native-dbc-extraction-v3" else set())
+    expected = set(LAYOUTS)
+    if value["format"] != "benilla-native-dbc-extraction-v5":
+        expected -= {"TaxiPath", "TaxiPathNode"}
+    if value["format"] == "benilla-native-dbc-extraction-v3":
+        expected -= {"Emotes"}
     check(set(tables) == expected, "extraction.complete_valid_dbc_set_required")
     check(type(value["files"]) is list and len(value["files"]) == len(expected),
           "extraction.manifest_file_set")

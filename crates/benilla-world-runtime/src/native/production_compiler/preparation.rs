@@ -1069,7 +1069,7 @@ pub(super) fn compile(
     let quests = plans::quests(source, dbcs, &relationships, &source_sha);
     let rules_plan = rules_plan(source, rules);
     let corpse_loot = plans::loot(source, &source_sha)?;
-    let mut participant_plan = super::extensions::participants::supported(source);
+    let mut participant_plan = super::extensions::participants::supported(source, dbcs);
     c.issues.extend(
         participant_plan["refusals"]
             .as_array()

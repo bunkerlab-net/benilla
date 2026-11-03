@@ -24,6 +24,10 @@ not evidence. Imported strings remain data, never paths, scripts or SQL.
 signatures, build authenticity, legal-rights evidence or gameplay certification.
 Extraction v3 requires Talent and CreatureDisplayInfo in its exact 20-table set.
 Extraction v4 adds Emotes for the exact 21-table set and quest greeting validation.
+Extraction v5 adds TaxiPath and TaxiPathNode for the exact 23-table set.
+V4 remains readable without transport path coverage. Existing skill-training
+captures bind their exact DBC hash set. A v5 migration requires fresh capture
+and training probes, not a rewritten source binding.
 Legacy v1/v2 manifests require new local extraction, never a silently repaired
 coverage assertion. V3 does not establish Emotes coverage.
 The diagnostic library may inspect missing tables, but null coverage never proves
@@ -357,8 +361,18 @@ Phase 6 must bind the final runtime content digest and closed controller
 capabilities before the app can construct `NonRenderParticipants`.
 The app's production token constructor remains closed.
 
-`transport_path_coverage_required` needs a `TaxiPathNode` extraction and the
-pinned transport path interpolation before exclusion is possible.
+`transport_path_coverage_required` retains missing v5 extraction and invalid-path
+refusals. Both verifiers reconstruct node-index order, dropped control nodes,
+map-change pairs, teleport frames, and non-cyclic Catmull-Rom legs.
+Only a path with no retained frames on the selector's map discharges coverage.
+This exclusion uses exact map identity, not a guessed distance margin.
+On the selector's map, `transport_interpolation_parameter_required` remains.
+The pinned runtime passes an unclamped interpolation parameter to the spline.
+Node bounds or a hull for parameters in [0,1] cannot prove exclusion.
+`transport_swept_model_bounds_required` remains separately. It requires
+GameObjectDisplayInfo, model bounds, scale, rotation, passenger bounds, and the
+admitted request envelope. Source details are in the
+[transport provenance](PROVENANCE.md#transport-path-coverage).
 `exterior_bounds_coverage_required` needs complete display/model bounds,
 transforms, motion, and the admitted request envelope from 5.3/5.5.
 Neither spawn origins outside the selector nor absent DBC data prove exclusion.

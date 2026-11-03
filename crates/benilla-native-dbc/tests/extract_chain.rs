@@ -160,8 +160,8 @@ fn actual_cli_uses_patch_winner_preserves_source_and_exports_fixed_allowlist() {
         .unwrap();
     assert_eq!(map["winning_archive"], "patch-2.MPQ");
     assert_eq!(manifest["client_build_authenticity_verified"], false);
-    assert_eq!(manifest["format"], "benilla-native-dbc-extraction-v4");
-    assert_eq!(TABLES.len(), 21);
+    assert_eq!(manifest["format"], "benilla-native-dbc-extraction-v5");
+    assert_eq!(TABLES.len(), 23);
     let display = manifest["files"]
         .as_array()
         .unwrap()

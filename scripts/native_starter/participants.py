@@ -4,6 +4,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 from collections import Counter
 from classic_export.core import digest
 from classic_export.participants_columns import SCHEMA
+from . import transport_paths
 
 FORMAT = "cmangos-8ec338a1-empty-participants-plan-v1"
 TYPES = ("door", "button", "questgiver", "chest", "binder", "generic", "trap", "chair",
@@ -13,9 +14,9 @@ TYPES = ("door", "button", "questgiver", "chest", "binder", "generic", "trap", "
          "mini_game", "unknown_28", "capture_point", "aura_generator")
 CREATION_EFFECTS = {3, 28, 41, 42, 50, 56, 61, 64, 72, 73, 74, 76, 77, 85, 87, 88, 89, 90, 97, 104, 105, 106, 107, 109, 112}
 
-def supported_plan(source):
+def supported_plan(source, dbcs=None):
     value = source.get("participants_capture")
-    refusals, inventory = [], []
+    refusals, inventory, paths = [], [], []
     def refuse(table, key, reason, **context):
         refusals.append({"table": table, "key": key, "reason": "participants." + reason, **context})
     if value is None:
@@ -58,8 +59,20 @@ def supported_plan(source):
             template = templates.get(row["entry"])
             if template is None:
                 refuse("gameobject_template", [row["entry"]], "template_unknown")
-            refuse("transports", [row["entry"]], "transport_path_coverage_required",
-                   taxi_path_id=template["data0"] if template else None)
+            path = transport_paths.coverage(source, template, dbcs or {})
+            path["entry"] = row["entry"]
+            paths.append(path)
+            if path["status"] == "excluded_other_maps":
+                continue
+            reason = ("transport_interpolation_parameter_required"
+                      if path["reason"] == "interpolation_parameter_unproved"
+                      else "transport_path_coverage_required")
+            refuse("transports", [row["entry"]], reason,
+                   taxi_path_id=path["taxi_path_id"], path_reason=path["reason"])
+            if path["reason"] == "interpolation_parameter_unproved":
+                refuse("transports", [row["entry"]], "transport_swept_model_bounds_required",
+                       display_id=template["displayId"],
+                       evidence_required="GameObjectDisplayInfo_model_bounds_scale_rotation_passengers_request_envelope")
         for table in sorted(t for t in SCHEMA if t.startswith("dbscripts_")):
             for command, count in sorted(Counter(r["command"] for r in raw.get(table, [])).items()):
                 refuse(table, [command], "runtime_db_script_command_required", count=count)
@@ -90,4 +103,4 @@ def supported_plan(source):
     return {"format": FORMAT, "status": "unknown" if value is None else "blocked" if refusals else "proved_empty",
             "capture_sha256": digest(value) if value else None, "controller_binding": "closed_no_native_capability",
             "empty_participant_obligation_discharged": value is not None and not refusals,
-            "production_admission": False, "inventory": inventory, "refusals": refusals}
+            "production_admission": False, "inventory": inventory, "transport_paths": paths, "refusals": refusals}
