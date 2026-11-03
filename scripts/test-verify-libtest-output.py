@@ -822,28 +822,53 @@ class ExactProofTests(unittest.TestCase):
         self.assertIn('const MAX_FULL_ROUNDS: usize = 128;', source)
         self.assertIn('const MAX_ENCODING_ROUNDS: usize = 4096;', source)
         self.assertIn('const MAX_BYTES_PER_SAMPLE: usize = 64 * 1024 * 1024;', source)
+        self.assertIn(
+            'let full_rounds = MAX_FULL_ROUNDS.min(MAX_BYTES_PER_SAMPLE / bytes_per_sweep);',
+            source,
+        )
+        self.assertIn(
+            'let encoding_rounds = MAX_ENCODING_ROUNDS.min(MAX_BYTES_PER_SAMPLE / encoding_bytes_per_sweep);',
+            source,
+        )
         self.assertIn('assert_eq!(source_counts.payload_hash.started, lengths.len())', source)
         self.assertIn('assert_eq!(source_counts.payload_hash.succeeded, lengths.len())', source)
         self.assertIn('histogram.values().sum::<usize>()', source)
         self.assertIn('deterministic length-matched synthetic bytes, not captured payloads', source)
         self.assertNotIn('unsafe', source)
+        # Both benchmark choices rehash their argument on every full-sample call,
+        # independently of the runtime's encoded-identity freshness optimization.
+        self.assertIn(
+            'fn original_full(payload: &[u8]) -> String {\n'
+            '    format!("{:x}", Sha256::digest(payload))\n'
+            '}',
+            source,
+        )
+        self.assertIn(
+            'fn fixed_full(payload: &[u8]) -> String {\n'
+            '    fixed_hex(&Sha256::digest(payload))\n'
+            '}',
+            source,
+        )
+        self.assertIn(
+            'let encode: fn(&[u8]) -> String = if candidate { fixed_full } else { original_full };',
+            source,
+        )
+        self.assertIn('full_sample(&payloads, full_rounds, encode)', source)
         original = (ROOT / "crates/benilla-native-vmap-source/src/source.rs").read_text()
-        # Runtime replay can reuse a digest only after exact-byte equality.
-        # Both benchmark full paths above still hash every payload afresh.
+        # Acquisition still hashes each decoded payload. Runtime replay rereads
+        # encoded bytes and must compare their identity before accepting reuse.
         self.assertIn(
             'observe_lookup(chain, lookup_name, scope, work, cancel, None)?',
             original,
         )
         self.assertIn(
-            'sha256: profile_value!(\n'
-            '                        PayloadHash,\n'
-            '                        match cached_digest {\n'
-            '                            Some((original, digest)) if payload == original => digest.to_owned(),\n'
-            '                            _ => format!("{:x}", Sha256::digest(&payload)),\n'
-            '                        }\n'
-            '                    ),',
+            'Some(payload) => format!("{:x}", Sha256::digest(payload)),',
             original,
         )
+        self.assertIn('.read_classic_ad_member(name)', original)
+        self.assertIn('.classic_ad_member_identity(name)', original)
+        self.assertIn('encoded_identity: Some(encoded_identity)', original)
+        self.assertIn('&& self.encoded_identity == expected.encoded_identity', original)
         self.assertNotIn('fixed_hex', original)
 
     def test_hash_hex_primitive_gate_is_exact_and_preserves_both_failures(self):
