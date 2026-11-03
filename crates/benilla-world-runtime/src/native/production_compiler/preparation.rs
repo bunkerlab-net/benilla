@@ -1067,7 +1067,6 @@ pub(super) fn compile(
     let relationships = plans::relationships(source, &source_sha);
     let quests = plans::quests(source, dbcs, &relationships, &source_sha);
     let rules_plan = rules_plan(source, rules);
-    let corpse_loot = plans::loot(source, &source_sha)?;
     let mut participant_plan = super::extensions::participants::supported(source, dbcs);
     c.issues.extend(
         participant_plan["refusals"]
@@ -1112,6 +1111,10 @@ pub(super) fn compile(
     let outfit = c.outfit()?;
     let reputation = c.factions(&identity)?;
     let learning = learning::discover(&mut c)?;
+    let corpse_loot = plans::loot(source, &source_sha, &learning)?;
+    if let Some(refusals) = corpse_loot["non_body_actions"]["refusals"].as_array() {
+        c.issues.extend(refusals.iter().cloned());
+    }
     let loader = learning::plan(source, dbcs, &learning);
     c.issues
         .extend(loader["refusals"].as_array().unwrap().iter().cloned());

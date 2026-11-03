@@ -7,20 +7,23 @@ from __future__ import annotations
 from classic_export import loot, loot_loader
 from classic_export.core import ExportError, digest
 from .dbc import binary32_bits
-from . import loot_budget, item_plan
+from . import loot_budget, item_plan, non_body_loot
 
 ADAPTER = "benilla_sim::loot::captured::CapturedLoot::compile"
 DISCHARGED = {"loot.source_loader_order_unproven", "loot.reference_generation_not_implemented",
               "loot.generation_and_item_admission_not_established"}
+NON_BODY = {"loot.PickpocketLootId_outside_body_scope", "loot.SkinningLootId_outside_body_scope"}
 
 
-def supported_plan(source):
+def supported_plan(source, closure=None):
     if "loot_capture" not in source:
         return {"status": "not_captured", "adapter": ADAPTER, "refusals": []}
     tables = source["tables"]
     graph = loot.derived(tables)
-    refusals = [r for r in loot.unsupported(tables, graph) if r["reason"] not in DISCHARGED]
+    non_body = non_body_loot.plan(source, closure)
+    refusals = [r for r in loot.unsupported(tables, graph) if r["reason"] not in DISCHARGED | NON_BODY]
     refusals.extend(loot_budget.refusals(tables))
+    refusals.extend(non_body["refusals"])
     ordered = {}
     for table in loot.TABLES:
         rows = loot_loader.ordered_rows(source, table)
@@ -57,6 +60,7 @@ def supported_plan(source):
         refusals.extend({"table": "item_template", "key": str(entry), "reason": "loot." + reason} for reason in reasons)
     return {"status": "blocked" if refusals else "supported_shape", "adapter": ADAPTER,
             "runtime_admitted": False, "ordered_rows": ordered, "leaf_items": admitted,
+            "non_body_actions": non_body,
             "input_bindings": {"source_sha256": digest(source), "loader": source.get("loot_loader_capture")},
             "remaining_dependencies": ["explicit_loot_Rules", "independent_inventory_audit",
                                        "ordinary_corpse_host_audit_and_creature_rows", "client_item_query_metadata"],
@@ -64,4 +68,4 @@ def supported_plan(source):
 
 
 def discharges(issue, plan):
-    return plan["status"] == "supported_shape" and issue["reason"] in DISCHARGED
+    return plan["status"] == "supported_shape" and issue["reason"] in DISCHARGED | NON_BODY

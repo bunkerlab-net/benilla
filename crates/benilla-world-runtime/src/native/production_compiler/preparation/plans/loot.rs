@@ -2,10 +2,12 @@
 use super::*;
 const ADAPTER: &str = "benilla_sim::loot::captured::CapturedLoot::compile";
 const TABLES: [&str; 2] = ["creature_loot_template", "reference_loot_template"];
-const DISCHARGED: [&str; 3] = [
+const DISCHARGED: [&str; 5] = [
     "loot.source_loader_order_unproven",
     "loot.reference_generation_not_implemented",
     "loot.generation_and_item_admission_not_established",
+    "loot.PickpocketLootId_outside_body_scope",
+    "loot.SkinningLootId_outside_body_scope",
 ];
 fn chance(row: &Value) -> &str {
     row["ChanceOrQuestChance"]["decimal"].as_str().unwrap()
@@ -89,10 +91,11 @@ fn budgets(source: &Value) -> Vec<Value> {
     }
     out
 }
-pub(in super::super) fn loot(source: &Value, source_sha: &str) -> Result<Value> {
+pub(in super::super) fn loot(source: &Value, source_sha: &str, closure: &Value) -> Result<Value> {
     let Some(capture) = source.get("loot_capture") else {
         return Ok(json!({"status":"not_captured","adapter":ADAPTER,"refusals":[]}));
     };
+    let non_body = super::non_body_loot::plan(source, closure, source_sha);
     let mut refusals: Vec<Value> = capture["unsupported"]
         .as_array()
         .unwrap()
@@ -101,6 +104,7 @@ pub(in super::super) fn loot(source: &Value, source_sha: &str) -> Result<Value> 
         .cloned()
         .collect();
     refusals.extend(budgets(source));
+    refusals.extend(non_body["refusals"].as_array().unwrap().iter().cloned());
     let mut ordered = Map::new();
     for t in TABLES {
         let loader = source
@@ -163,7 +167,7 @@ pub(in super::super) fn loot(source: &Value, source_sha: &str) -> Result<Value> 
         }
     }
     Ok(
-        json!({"status":if refusals.is_empty(){"supported_shape"}else{"blocked"},"adapter":ADAPTER,"runtime_admitted":false,"ordered_rows":ordered,"leaf_items":admitted,"input_bindings":{"source_sha256":source_sha,"loader":source.get("loot_loader_capture")},"remaining_dependencies":["explicit_loot_Rules","independent_inventory_audit","ordinary_corpse_host_audit_and_creature_rows","client_item_query_metadata"],"refusals":refusals}),
+        json!({"status":if refusals.is_empty(){"supported_shape"}else{"blocked"},"adapter":ADAPTER,"runtime_admitted":false,"ordered_rows":ordered,"leaf_items":admitted,"non_body_actions":non_body,"input_bindings":{"source_sha256":source_sha,"loader":source.get("loot_loader_capture")},"remaining_dependencies":["explicit_loot_Rules","independent_inventory_audit","ordinary_corpse_host_audit_and_creature_rows","client_item_query_metadata"],"refusals":refusals}),
     )
 }
 pub(in super::super) fn loot_discharges(issue: &Value, plan: &Value) -> bool {

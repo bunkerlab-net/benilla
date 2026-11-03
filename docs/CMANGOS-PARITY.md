@@ -364,6 +364,11 @@ is meaningful without a bounded content/mechanics inventory.
   cases and existing store outbox faults cover callbacks, duplicate refusal and
   reopen; conditions, grouped/referenced quest leaves and group loot still reject.
   See the [solo quest-only boundary](../crates/benilla-world-runtime/LOOT-INVENTORY.md#solo-quest-only-body-leaves).
+  Body-only applicability binds the command, learning and selected hook domains
+  without inferring from class. Source non-body loot IDs remain recorded.
+  Nonzero SkinningLootId sets the skinnable flag at LOOTED and prevents the
+  ordinary accelerated decay even when skinning is unavailable. Native format 88
+  preserves this through save/reopen. Non-body execution remains refused.
   Admin grants allow exact partial capacity/unique results,
   self-unbinding, retained spell/set/quest metadata and real empty carried Bags.
   Backpack-only positional move/swap/merge now has a source policy, transactional

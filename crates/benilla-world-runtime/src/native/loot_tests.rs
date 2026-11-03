@@ -65,6 +65,128 @@ fn inventory(w: &NativeWorld) -> &inv::State {
     progress(w).inventory.as_ref().unwrap()
 }
 #[test]
+fn skinnable_body_loot_preserves_full_decay_and_reopens() {
+    let (mut p, i, mut q) = fixed_setup();
+    p.npcs[0].ai.corpse_decay_ms = 20_000;
+    let r = &mut q.loot.as_mut().unwrap().creatures[0];
+    r.skinning_loot_id = 721;
+    r.pickpocket_loot_id = 6;
+    r.corpse_acceleration_decay_ms = 300;
+    let mut w = world_from(p, i, q);
+    let mut a = LootAuthority::default();
+    kill(&mut w, &mut a);
+    let id = w.state.npcs[&2].id;
+    let expiry = w.state.npcs[&2].ai.corpse_expiration_ms();
+    let mut forged = serde_json::to_value(Command::OpenLoot { corpse: id }).unwrap();
+    forged["OpenLoot"]["loot_type"] = serde_json::json!(6);
+    assert!(serde_json::from_value::<Command>(forged).is_err());
+    assert!(!w.npc_skinnable(id).unwrap());
+    step(&mut w, &mut a, Command::OpenLoot { corpse: id });
+    step(
+        &mut w,
+        &mut a,
+        Command::LootItem {
+            corpse: id,
+            slot: 0,
+        },
+    );
+    step(&mut w, &mut a, Command::LootMoney { corpse: id });
+    step(&mut w, &mut a, Command::ReleaseLoot { corpse: id });
+    assert_eq!(inventory(&w).item_count(70001).unwrap(), 1);
+    assert!(w.npc_skinnable(id).unwrap());
+    assert_eq!(w.state.npcs[&2].ai.corpse_expiration_ms(), expiry);
+    assert!(w.state.npcs[&2]
+        .ai
+        .corpse_timer_calls()
+        .iter()
+        .all(|c| c.inspecting));
+    let reopened = roundtrip(&w);
+    assert_eq!(reopened.state_digest(), w.state_digest());
+    assert!(reopened.npc_skinnable(id).unwrap());
+    assert_eq!(reopened.state.npcs[&2].ai.corpse_expiration_ms(), expiry);
+    for ability in [921, 8613, 13262] {
+        let counter = w.state.rng_counter;
+        step(
+            &mut w,
+            &mut a,
+            Command::Cast {
+                ability,
+                target: id,
+            },
+        );
+        assert!(w
+            .last_tick()
+            .unwrap()
+            .events
+            .iter()
+            .any(|e| matches!(e, Event::Rejected(Rejection::UnknownAbility))));
+        assert!(w.npc_skinnable(id).unwrap());
+        assert_eq!(w.state.npcs[&2].ai.corpse_expiration_ms(), expiry);
+        assert_eq!(w.state.rng_counter, counter);
+    }
+}
+#[test]
+fn non_body_spell_and_skill_in_supplied_learning_closure_refuse() {
+    for effect in [71, 95, 99] {
+        let (mut p, mut i, q) = fixed_setup();
+        let mage = p
+            .combat
+            .as_ref()
+            .unwrap()
+            .initialized_projection(&i)
+            .unwrap();
+        i.spells[0].words[61] = effect;
+        assert_eq!(
+            NativeLootGenesis::validate_non_body_closure(&i, &mage),
+            Err(NativeError::UnsupportedMechanic(
+                "non-body loot spell or skill in learning closure"
+            ))
+        );
+        assert!(p.initialize_quest_progression(&i, q).is_err());
+    }
+    let (mut p, mut i, q) = fixed_setup();
+    let mage = p
+        .combat
+        .as_ref()
+        .unwrap()
+        .initialized_projection(&i)
+        .unwrap();
+    i.skill_lines.push(benilla_sim::starter_init::SkillLineRow {
+        id: 393,
+        category: 11,
+    });
+    assert_eq!(
+        NativeLootGenesis::validate_non_body_closure(&i, &mage),
+        Err(NativeError::UnsupportedMechanic(
+            "non-body loot spell or skill in learning closure"
+        ))
+    );
+    assert!(p.initialize_quest_progression(&i, q).is_err());
+}
+
+#[test]
+fn empty_and_no_loot_corpses_are_skinnable_without_body_generation() {
+    for no_loot in [false, true] {
+        let (mut p, i, mut q) = fixed_setup();
+        p.npcs[0].ai.corpse_decay_ms = 20_000;
+        let r = &mut q.loot.as_mut().unwrap().creatures[0];
+        r.skinning_loot_id = 721;
+        r.no_loot = no_loot;
+        r.loot_id = 0;
+        r.minimum_money = 0;
+        r.maximum_money = 0;
+        let mut w = world_from(p, i, q);
+        kill(&mut w, &mut LootAuthority::default());
+        let id = w.state.npcs[&2].id;
+        assert!(w.npc_skinnable(id).unwrap());
+        assert_eq!(
+            w.state.npcs[&2].ai.corpse_expiration_ms(),
+            w.state.npcs[&2].ai.death_at_ms().unwrap() + 20_000
+        );
+        assert!(roundtrip(&w).npc_skinnable(id).unwrap());
+    }
+}
+#[test]
 fn corpse_items_are_not_kill_rewards_collect_once_checkpoint_and_replay() {
     let mut w = world();
     let start = w.checkpoint().unwrap();
@@ -468,9 +590,9 @@ fn current_item_receipts_reject_resigned_same_id_count_entry_and_slot_mutations(
             }
         }
         let mut forged: Checkpoint = serde_json::from_value(forged).unwrap();
-        forged.digest = crate::digest(b"benilla-native-state-v87\0", &forged.state);
+        forged.digest = crate::digest(b"benilla-native-state-v88\0", &forged.state);
         forged.checksum = crate::digest(
-            b"benilla-native-checkpoint-v87\0",
+            b"benilla-native-checkpoint-v88\0",
             &(&forged.state, forged.digest, forged.history_tip),
         );
         assert!(

@@ -167,6 +167,46 @@ class PreparationVerifierParityTests(unittest.TestCase):
             with self.subTest(fixture=fixture["name"]):
                 verify(fixture)
 
+    def test_non_body_ids_require_closed_commands_learning_and_hooks(self):
+        from . import non_body_loot
+        fixture = next(f for f in corpus()["fixtures"] if f["name"] == "loot-events")
+        report = fixture["preparation"]
+        proof = report["corpse_loot_plan"]["non_body_actions"]
+        self.assertEqual(proof["status"], "unavailable_proven")
+        self.assertFalse(proof["global_source_hooks_absent"])
+        self.assertEqual(proof["creature_loot_ids"][0]["SkinningLootId"], 721)
+        self.assertEqual(proof["creature_loot_ids"][0]["PickpocketLootId"], 6)
+        self.assertEqual(proof["item_loot_ids"][0]["DisenchantID"], 1)
+        closure = report["player"]["skills"]["dependency_closure"]
+        for effect, misc, reason in ((71, 0, "spell"), (95, 0, "spell"),
+                                     (99, 0, "spell"), (44, 393, "skill"), (118, 333, "skill")):
+            source = copy.deepcopy(fixture["source"])
+            source["tables"]["spell_template"][0].update(Effect1=effect, EffectMiscValue1=misc)
+            result = non_body_loot.plan(source, closure)
+            self.assertEqual(result["status"], "blocked")
+            self.assertIn("loot.non_body_" + reason + "_reachable",
+                          {r["reason"] for r in result["refusals"]})
+        for extension in ("learning_capture", "initial_hook_capture", "spell_script_capture", "event_ai_capture"):
+            source = copy.deepcopy(fixture["source"])
+            del source[extension]
+            self.assertEqual(non_body_loot.plan(source, closure)["status"], "blocked")
+        for table, reason in (("item_template", "item"), ("creature_template", "creature")):
+            source = copy.deepcopy(fixture["source"])
+            source["tables"][table][0]["ScriptName"] = "unreviewed_teaches_skinning"
+            result = non_body_loot.plan(source, closure)
+            self.assertIn("loot.non_body_" + reason + "_hook_unreviewed",
+                          {r["reason"] for r in result["refusals"]})
+        for table in ("spell_area", "spell_proc_event"):
+            source = copy.deepcopy(fixture["source"])
+            source["tables"][table].append({"unreviewed": True})
+            self.assertIn("loot.non_body_hook_execution_unproven",
+                          {r["reason"] for r in non_body_loot.plan(source, closure)["refusals"]})
+        refused = next(f["preparation"] for f in corpus()["fixtures"] if f["name"] == "non-body-learning-refused")
+        reasons = {r["reason"] for r in refused["unsupported"]}
+        self.assertIn("loot.non_body_spell_reachable", reasons)
+        self.assertIn("loot.non_body_skill_reachable", reasons)
+        self.assertEqual(refused["corpse_loot_plan"]["status"], "blocked")
+
     def test_route_and_item_plans_keep_exact_preparation_decisions(self):
         fixtures = {f["name"]: f["preparation"] for f in corpus()["fixtures"]}
         route = fixtures["route-zero-outfit"]

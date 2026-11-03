@@ -142,6 +142,17 @@ graph and loader plan do not prove effective learning or gameplay admission.
   Preparation reports only ungrouped, unconditional body leaves with valid positive
   counts as `quest_loot_inputs`. It retains whole-loader order and full item-admission
   blockers, and requires explicit owner quest state and quest-drop policy at runtime.
+  Non-body applicability retains raw IDs and binds the closed command/learning
+  domain rather than the selected class.
+  [Creature.cpp:1077-1095](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Creature.cpp#L1077-L1095)
+  handles no-loot corpses.
+  [Creature.cpp:2812-2856](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Creature.cpp#L2812-L2856)
+  sets SKINNABLE instead of reducing decay for nonzero SkinningLootId.
+  [LootMgr.cpp:1434-1450](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Loot/LootMgr.cpp#L1434-L1450)
+  drives LOOTED on body release.
+  [Creature.h:191-198](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Creature.h#L191-L198)
+  also selects herbalism/mining skin-loot skills. The closed proof rejects those
+  skills, skinning, enchanting and effects 71/95/99; it does not implement them.
 
 - [ReputationMgr.cpp, initialization and base queries](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Reputation/ReputationMgr.cpp#L74-L84)
   and `:140-150,197-229,243-263` define base/flag slot selection, zero stored

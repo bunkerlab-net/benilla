@@ -286,6 +286,16 @@ IDs stay unsupported context; no unreviewed alternative relation is followed.
 Nonfinite selected scales reject; nonpositive scales are retained and blocked.
 Model/extended-display IDs do not establish renderer assets or visual admission.
 
+`corpse_loot_plan.non_body_actions` binds the conservative learning closure,
+source IDs and the body-only command policy. Pickpocket, skinning and disenchant
+effects, reachable gathering/enchanting skills, incomplete learning inputs and
+unreviewed hooks refuse with `loot.non_body_*` reasons. Trainers have no command
+in this closed world. Unimplemented hook executors retain their independent
+entry refusals; selected captures never prove global hook absence. The plan
+records all body, pickpocket, skinning and item disenchant IDs without loading
+non-body tables as ordinary corpse loot.
+
+
 ## Explicit start and progression policy
 
 Preparation accepts an independent `NativeWorldRules` version-2 JSON input.

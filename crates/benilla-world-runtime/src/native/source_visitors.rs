@@ -773,8 +773,8 @@ mod tests {
                 .unwrap();
         assert!(restored.replay(&records).is_err());
         assert_eq!(restored.checkpoint().unwrap(), initial);
-        assert_eq!(NATIVE_FORMAT_VERSION, 87);
-        assert_eq!(NATIVE_POLICY, "benilla-native-solo-playercast-storage-v87");
+        assert_eq!(NATIVE_FORMAT_VERSION, 88);
+        assert_eq!(NATIVE_POLICY, "benilla-native-solo-body-loot-closure-v88");
         assert_eq!(crate::FORMAT_VERSION, 2);
     }
     #[test]

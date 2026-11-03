@@ -5,7 +5,7 @@ This is a fresh GPL-3.0-or-later reconstruction from CMaNGOS Classic
 `NativeCapability` remains uninhabited. Authored source comparisons and controller
 integration tests do not admit real content or establish a playable starting zone.
 Native format is `NATIVE_FORMAT_VERSION` (`NATIVE_POLICY`). Loot generation policy
-is `cmangos-8ec338a1-solo-quest-loot-reconstruction-v3` and loot genesis is v3. Older saves do not migrate implicitly.
+is `cmangos-8ec338a1-solo-quest-loot-reconstruction-v3` and loot genesis is v5. Native format 88 rejects older saves without migration.
 
 ## Captured inputs and fail-closed scope
 
@@ -16,7 +16,7 @@ and one resolved corpse row per selected creature entry. Capture identities bind
 the pinned source and the complete observed loader result/order. No canonical sort
 is substituted for the source query's observed order. Missing templates, unknown
 closure, nested or grouped references, conditional loot, grouped or referenced quest-only leaves, item-started quests,
-property or item-script hooks, bag contents/bank/keyring, trades, skinning/pickpocket, group or controlled
+property or item-script hooks, bag contents/bank/keyring, non-body actions, group or controlled
 units, wield-loot, multi-tap, special corpse timers and death callbacks reject.
 
 Items retain resolved source fields. Backpack slots are 23–38, normalized Stackable
@@ -25,6 +25,25 @@ arrays reject. Required items overlapping immutable starter equipment reject bec
 source equipment removal is not hosted. Carrying an ordinary gear-shaped item does
 not authorize equipping/using/selling/trading it. Starter identity is cross-checked
 against the actual initializer and the supplied client metadata.
+
+The body-only command domain has no loot-type operand or trainer/skill-learning
+command. Cast and item-use commands require existing bound executors, not arbitrary
+effect dispatch. The initializer's complete spell/skill inputs must contain no
+pickpocket, skinning or disenchant effect or reachable Skinning/Enchanting skill.
+Preparation binds the conservative learned/learnable dependency closure, selected
+hook captures and reviewed script gates. Missing closure or an unreviewed item,
+area/proc or script hook refuses precisely. Unimplemented source hooks still
+require their independent entry refusals; this is not global source-hook absence.
+Source body, pickpocket, skinning and item disenchant IDs remain recorded.
+
+`Creature.cpp:1077-1095,2839-2847` sets `UNIT_FLAG_SKINNABLE` for a nonzero
+SkinningLootId on the first LOOTED transition, including no-body-loot creatures.
+That branch does not accelerate decay. `LootMgr.cpp:1434-1450` drives the
+transition on body release. `Creature.cpp:2812-2827` still extends an inspected
+corpse's deadline. `Creature.cpp:2849-2856` would remove a skinned corpse on its
+next update or expose released skin loot, but no admitted command can reach those
+states. The flag derives from the retained source row and saved body-loot status.
+Save/reopen preserves the flag, timer calls, deadline, body loot and RNG.
 
 ## One-hop reference execution
 
@@ -137,9 +156,9 @@ stock protocol adapter. Solo money does not invent the group's money notificatio
 
 Repeated LOOTED transitions are source no-ops. Empty loot's early shortening is
 overwritten by JUST_DIED assigning the full corpse expiry; later release cannot
-apply that shortening again. Inspection extends and newly LOOTED release reduces
-expiry. Commands occur before the same-tick AI removal, and a last timer callback
-at the removal time is valid. Corpse removal/respawn cannot retarget stale handles.
+apply that shortening again. Inspection extends expiry. Newly LOOTED release reduces
+expiry only when SkinningLootId is zero. Commands occur before the same-tick AI
+removal, and a last timer callback at the removal time is valid.
 
 ## Persistence and publication
 

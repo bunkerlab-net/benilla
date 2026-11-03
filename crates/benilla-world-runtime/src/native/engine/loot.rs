@@ -261,14 +261,17 @@ impl<A: Authority> Frame<'_, A> {
                 .as_ref()
                 .unwrap()
                 .creatures[&entry];
-            let call = ai::CorpseTimerCall {
-                at_ms: self.state.now_ms,
-                delay_ms: row.corpse_acceleration_decay_ms,
-                inspecting: false,
-            };
-            npc.ai.adjust_loot_corpse_timer(call)?;
-            if let Some(owner) = &npc.source_generation {
-                npc.source_generation = Some(owner.record_corpse_timer_call(call)?);
+            // Creature.cpp:2839-2847: skinnable corpses retain the full deadline.
+            if row.skinning_loot_id == 0 {
+                let call = ai::CorpseTimerCall {
+                    at_ms: self.state.now_ms,
+                    delay_ms: row.corpse_acceleration_decay_ms,
+                    inspecting: false,
+                };
+                npc.ai.adjust_loot_corpse_timer(call)?;
+                if let Some(owner) = &npc.source_generation {
+                    npc.source_generation = Some(owner.record_corpse_timer_call(call)?);
+                }
             }
         }
         if self

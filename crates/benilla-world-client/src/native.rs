@@ -727,6 +727,14 @@ impl NativeProjection {
         } else {
             false
         };
+        let skinnable = if w
+            .npc_skinnable(npc.id)
+            .map_err(|_| Error::StaleProjection)?
+        {
+            0x0400_0000
+        } else {
+            0
+        };
         let mut pairs = vec![
             (16, target as u32),
             (17, (target >> 32) as u32),
@@ -735,6 +743,7 @@ impl NativeProjection {
             (28, profile.max_health),
             (34, u32::from(profile.ai.level)),
             (35, profile.faction_template),
+            (46, skinnable),
             (129, profile.ai.bounding_radius.bits()),
             (130, profile.ai.combat_reach.bits()),
             (131, profile.display_id),
@@ -783,7 +792,8 @@ impl NativeProjection {
                             0x80000
                         } else {
                             0
-                        },
+                        }
+                        | skinnable,
                 ),
                 (126, profile.ai.mainhand_interval_ms),
                 (127, profile.ai.mainhand_interval_ms),

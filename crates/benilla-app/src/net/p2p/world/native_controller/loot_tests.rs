@@ -978,6 +978,58 @@ fn queued_item_last_and_explicit_release_reduce_lifetime_then_exhausted_reopen_h
     assert_eq!(inventory(&c).item_count(70001).unwrap(), 7);
 }
 
+#[test]
+fn skinnable_corpse_flags_and_full_deadline_survive_store_reopen() {
+    let h = Harness::new();
+    let (mut p, input, mut q) = setup(0);
+    p.npcs[0].entry = 6;
+    p.npcs[0].name = "Authored Kobold Vermin".into();
+    q.kill.creatures[0].entry = 6;
+    q.kill.creatures[0].reputation =
+        benilla_sim::player_progression::kill_xp::ReputationAdmission::ProvenAbsentOnKillRow {
+            entry: 6,
+        };
+    let row = &mut q.loot.as_mut().unwrap().creatures[0];
+    row.entry = 6;
+    row.skinning_loot_id = 721;
+    row.pickpocket_loot_id = 6;
+    row.minimum_money = 0;
+    row.maximum_money = 0;
+    row.corpse_acceleration_decay_ms = 500;
+    p.initialize_quest_progression(&input, q).unwrap();
+    let mut c = enter(&h, p.clone(), false);
+    c.initial_events().unwrap();
+    kill(&mut c);
+    let id = c.world.state().npcs[&2].id;
+    let deadline = c.world.state().npcs[&2].ai.corpse_expiration_ms();
+    open(&mut c);
+    let guid = corpse(&c);
+    c.receive(ClientCommand::AutostoreLootItem { slot: 0 })
+        .unwrap();
+    c.receive(ClientCommand::LootRelease { guid }).unwrap();
+    let out = step(&mut c);
+    assert!(out.events.iter().any(|event| matches!(event,
+        SessionEvent::ObjectValues { guid: seen, fields }
+            if *seen == guid && fields.unit_flags() & 0x0400_0000 != 0)));
+    assert!(c.world.npc_skinnable(id).unwrap());
+    assert_eq!(c.world.state().npcs[&2].ai.corpse_expiration_ms(), deadline);
+    assert_eq!(inventory(&c).item_count(70001).unwrap(), 7);
+    c.shutdown().unwrap();
+    drop(c);
+    let mut reopened = enter(&h, p, true);
+    let events = reopened.initial_events().unwrap();
+    assert!(events.iter().any(|event| matches!(event,
+        SessionEvent::ObjectCreate { fields, .. }
+            if fields.object_entry() == Some(6)
+                && fields.unit_flags() & 0x0400_0000 != 0)));
+    assert!(reopened.world.npc_skinnable(id).unwrap());
+    assert_eq!(
+        reopened.world.state().npcs[&2].ai.corpse_expiration_ms(),
+        deadline
+    );
+    assert_eq!(inventory(&reopened).item_count(70001).unwrap(), 7);
+}
+
 struct GrantCatalog;
 impl ClientCatalog for GrantCatalog {
     fn build(&self) -> u32 {

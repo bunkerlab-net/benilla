@@ -422,7 +422,7 @@ threat modifier. `ignoreTimer=true` prevents combat-timer refresh, and this
 callback does not initiate an attack or create a previously absent reference.
 Starting consumption while in combat remains refused.
 
-Native format 87 and policy `benilla-native-solo-playercast-storage-v87` retain
+Native format 88 and policy `benilla-native-solo-body-loot-closure-v88` retain
 starter/catalog PLAYERCAST flags as well as holder slots, caster level, periodic
 debt, creation tick, and the Unit heartbeat phase. Hearthstone storage does not
 authorise item use, teleport spell 8690, or a home-bind lifecycle.

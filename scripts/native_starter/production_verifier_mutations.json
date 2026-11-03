@@ -2606,6 +2606,28 @@
         }
       ],
       "diagnostic": "compiler.preparation_mismatch"
+    },
+    {
+      "name": "non-body-refusal-forged-away",
+      "fixture": "non-body-learning-refused",
+      "target": "preparation",
+      "operations": [
+        {"op": "set", "path": "/corpse_loot_plan/non_body_actions/status", "value": "unavailable_proven"},
+        {"op": "remove", "path": "/preparation_sha256"}
+      ],
+      "bindings": [{"of": "", "path": "/preparation_sha256"}],
+      "diagnostic": "compiler.preparation_mismatch"
+    },
+    {
+      "name": "non-body-source-id-erased",
+      "fixture": "loot-events",
+      "target": "preparation",
+      "operations": [
+        {"op": "set", "path": "/corpse_loot_plan/non_body_actions/creature_loot_ids/0/SkinningLootId", "value": 0},
+        {"op": "remove", "path": "/preparation_sha256"}
+      ],
+      "bindings": [{"of": "", "path": "/preparation_sha256"}],
+      "diagnostic": "compiler.preparation_mismatch"
     }
   ],
   "format": "benilla-production-verifier-mutations-v1"

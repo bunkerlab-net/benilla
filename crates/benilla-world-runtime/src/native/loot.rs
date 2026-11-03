@@ -8,6 +8,7 @@ use benilla_sim::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
+pub(super) const BODY_ONLY_COMMAND_POLICY: &str = "benilla-native-body-only-command-domain-v1";
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LootCreatureRow {
@@ -17,6 +18,7 @@ pub struct LootCreatureRow {
     pub maximum_money: u32,
     pub no_loot: bool,
     pub skinning_loot_id: u32,
+    pub pickpocket_loot_id: u32,
     pub can_wield_loot: bool,
     pub can_be_multitapped: bool,
     pub is_pet: bool,
@@ -31,7 +33,6 @@ pub struct LootAudit {
     pub instance_battleground_outdoor_pvp_hooks: Evidence,
     pub death_scripts_linking_formation: Evidence,
     pub corpse_timer_overrides: Evidence,
-    pub skinning_and_pickpocket: Evidence,
     pub looting_stealth_aura_callbacks: Evidence,
     pub group_and_controlled_units: Evidence,
 }
@@ -136,12 +137,12 @@ impl NativeLootGenesis {
     ) -> Result<Self, NativeError> {
         rows.inventory.validate()?;
         rows.rules.validate()?;
+        Self::validate_non_body_closure(input, mage)?;
         if [
             &rows.audit.just_died_and_owner_hooks,
             &rows.audit.instance_battleground_outdoor_pvp_hooks,
             &rows.audit.death_scripts_linking_formation,
             &rows.audit.corpse_timer_overrides,
-            &rows.audit.skinning_and_pickpocket,
             &rows.audit.looting_stealth_aura_callbacks,
             &rows.audit.group_and_controlled_units,
         ]
@@ -156,7 +157,6 @@ impl NativeLootGenesis {
         let mut creatures = BTreeMap::new();
         for r in rows.creatures {
             if r.entry == 0
-                || r.skinning_loot_id != 0
                 || r.can_wield_loot
                 || r.can_be_multitapped
                 || r.is_pet
@@ -255,6 +255,34 @@ impl NativeLootGenesis {
         genesis.identity = genesis.reconstructed_identity();
         Ok(genesis)
     }
+    /// Command has no trainer, skill-learning or non-body loot verb. Cast and
+    /// UseItem dispatch only bound native executors, never arbitrary effect IDs.
+    pub(super) fn validate_non_body_closure(
+        input: &init::StarterInput,
+        mage: &init::InitializedMage,
+    ) -> Result<(), NativeError> {
+        if input
+            .skill_lines
+            .iter()
+            .any(|s| matches!(s.id, 182 | 186 | 333 | 393))
+            || mage
+                .skills
+                .keys()
+                .any(|s| matches!(*s, 182 | 186 | 333 | 393))
+            || input.spells.iter().any(|s| {
+                (0..3).any(|slot| {
+                    matches!(s.words[61 + slot], 71 | 95 | 99)
+                        || matches!(s.words[61 + slot], 44 | 118)
+                            && matches!(s.words[106 + slot], 182 | 186 | 333 | 393)
+                })
+            })
+        {
+            return Err(NativeError::UnsupportedMechanic(
+                "non-body loot spell or skill in learning closure",
+            ));
+        }
+        Ok(())
+    }
     pub fn identity(&self) -> crate::Digest {
         self.identity
     }
@@ -307,9 +335,10 @@ impl NativeLootGenesis {
     }
     fn reconstructed_identity(&self) -> crate::Digest {
         crate::digest(
-            b"benilla-native-loot-genesis-reconstruction-v4\0",
+            b"benilla-native-loot-genesis-reconstruction-v5\0",
             &(
                 inv::CORPSE_POLICY_ID,
+                BODY_ONLY_COMMAND_POLICY,
                 self.inventory.hash(),
                 self.catalog.identity(),
                 &self.rules,
@@ -333,6 +362,7 @@ impl NativeLootGenesis {
         {
             return Err(NativeError::InvalidProfile);
         }
+        Self::validate_non_body_closure(input, mage)?;
         self.inventory.validate()?;
         self.rules.validate()?;
         self.initial_inventory.validate(&self.inventory)?;
@@ -549,6 +579,30 @@ impl From<l::Error> for NativeError {
     }
 }
 impl NativeWorld {
+    /// Creature.cpp:1077-1095,2839-2847. No-loot corpses also become skinnable.
+    pub fn npc_skinnable(&self, id: crate::NpcId) -> Result<bool, NativeError> {
+        let npc = self
+            .state
+            .npcs
+            .get(&id.spawn)
+            .filter(|n| n.id == id)
+            .ok_or(NativeError::InvalidState)?;
+        let row = self
+            .profile
+            .quest_progression
+            .as_ref()
+            .and_then(|g| g.loot.as_ref())
+            .and_then(|g| {
+                self.profile
+                    .npc(id.spawn)
+                    .and_then(|p| g.creatures.get(&p.entry))
+            });
+        Ok(npc.ai.phase() == ai::Phase::Corpse
+            && row.is_some_and(|r| {
+                r.skinning_loot_id != 0
+                    && (r.no_loot || npc.corpse_loot.as_ref().is_some_and(|l| l.looted))
+            }))
+    }
     pub fn loot_quest_items(&self) -> Result<BTreeSet<u32>, NativeError> {
         self.profile
             .quest_progression
@@ -578,6 +632,15 @@ impl NativeWorld {
                 return Err(NativeError::InvalidCheckpoint);
             }
             let row = genesis.map(|g| &g.creatures[&self.profile.npc(npc.id.spawn).unwrap().entry]);
+            if row.is_some_and(|r| {
+                npc.ai.corpse_timer_calls().iter().any(|call| {
+                    r.no_loot
+                        || call.delay_ms != r.corpse_acceleration_decay_ms
+                        || r.skinning_loot_id != 0 && !call.inspecting
+                })
+            }) {
+                return Err(NativeError::InvalidCheckpoint);
+            }
             match (&npc.corpse_loot, genesis, row) {
                 (Some(c), Some(g), Some(row)) => {
                     if row.no_loot
@@ -601,11 +664,6 @@ impl NativeWorld {
                             .iter()
                             .any(|slot| !c.generated.items.iter().any(|item| item.slot == *slot))
                         || c.looted && !(c.empty() || c.generated.fake)
-                        || npc
-                            .ai
-                            .corpse_timer_calls()
-                            .iter()
-                            .any(|call| call.delay_ms != row.corpse_acceleration_decay_ms)
                     {
                         return Err(NativeError::InvalidCheckpoint);
                     }

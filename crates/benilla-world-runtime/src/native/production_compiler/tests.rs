@@ -617,3 +617,41 @@ fn production_participant_requirements_refuse_missing_positive_edges_and_creatio
         assert_eq!(report.identity()["runtime_admitted"], false);
     }
 }
+
+#[test]
+fn non_body_learning_mutation_refuses_without_erasing_source_ids() {
+    let fixtures = corpus();
+    for (name, status) in [
+        ("loot-events", "supported_shape"),
+        ("non-body-learning-refused", "blocked"),
+    ] {
+        let fixture = fixtures["fixtures"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["name"] == name)
+            .unwrap();
+        let report = Inputs::new(fixture).run().unwrap();
+        let plan = &report.preparation()["corpse_loot_plan"];
+        assert_eq!(plan["status"], status);
+        let proof = &plan["non_body_actions"];
+        assert_eq!(proof["creature_loot_ids"][0]["SkinningLootId"], 721);
+        assert_eq!(proof["creature_loot_ids"][0]["PickpocketLootId"], 6);
+        assert_eq!(proof["item_loot_ids"][0]["DisenchantID"], 1);
+        assert_eq!(proof["global_source_hooks_absent"], false);
+        if status == "blocked" {
+            for reason in [
+                "loot.non_body_spell_reachable",
+                "loot.non_body_skill_reachable",
+            ] {
+                assert!(proof["refusals"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|r| r["reason"] == reason));
+            }
+        } else {
+            assert_eq!(proof["status"], "unavailable_proven");
+        }
+    }
+}

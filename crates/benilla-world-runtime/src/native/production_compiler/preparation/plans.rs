@@ -4,6 +4,7 @@ mod creature;
 mod creature_combat;
 pub(in super::super) mod item;
 mod loot;
+mod non_body_loot;
 pub(in super::super) mod spawn;
 pub(in super::super) mod spell_execution;
 pub(super) use creature::creatures;
