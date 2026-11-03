@@ -2,6 +2,7 @@
 //! Raw input integrity and reproducible diagnostics. This module cannot mint NativeCapability.
 mod dbc;
 mod extensions;
+mod global_hooks;
 mod json;
 mod preparation;
 mod source;

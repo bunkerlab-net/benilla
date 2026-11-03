@@ -2,6 +2,7 @@
 SPDX-License-Identifier: GPL-3.0-or-later
 """
 from classic_export.core import digest
+from .global_hooks_plan import reviewed_creature
 
 POLICY = "benilla-native-body-only-command-domain-v1"
 # SpellEffectDefines.h:97,121,125; Creature.h:191-198; SharedDefines.h:1409,1416.
@@ -50,7 +51,8 @@ def plan(source, closure):
             refuse("item_template", row["entry"], "non_body_item_hook_unreviewed")
     for row in tables["creature_template"]:
         if row["ScriptName"]:
-            refuse("creature_template", row["Entry"], "non_body_creature_hook_unreviewed")
+            refuse("creature_template", row["Entry"], "non_body_creature_callback_present_unsupported"
+                   if reviewed_creature(source, row) else "non_body_creature_hook_unreviewed")
     hook_tables = ("creature_ai_scripts", "creature_template_addon", "creature_addon",
                    "spell_scripts", "spell_area", "spell_proc_event", "quest_template")
     hook_bindings = {name: digest(tables.get(name)) for name in hook_tables}

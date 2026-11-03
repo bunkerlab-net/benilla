@@ -83,6 +83,20 @@ def verify(fixture):
 
 
 class SourceVerifierParityTests(unittest.TestCase):
+    def test_global_hook_corpus_retains_raw_order_and_present_callbacks(self):
+        fixture = next(f for f in corpus()["fixtures"] if f["name"] == "combat-world-rules")
+        plan = fixture["preparation"]["global_hook_plan"]
+        self.assertEqual([r["ordinal"] for r in plan["spell_area"]], [0, 1])
+        self.assertEqual(plan["spell_area"][0]["condition_branch"], "condition")
+        self.assertFalse(plan["spell_area"][1]["area_indexed"])
+        spell = next(s for s in plan["spells"] if s["id"] == 930001)
+        self.assertEqual(spell["families"]["spell_proc_event"]["status"], "present_unsupported")
+        self.assertEqual(spell["families"]["spell_proc_event"]["rows"][0]["entry"], 17)
+        self.assertTrue(any(r["name"] == "world_map_eastern_kingdoms"
+                            and r["status"] == "present_unsupported" for r in plan["callbacks"]))
+        self.assertFalse(plan["effective_learning_proven"])
+        self.assertIsNone(plan["runtime_export"])
+
     def test_reviewed_rust_schema_metadata_matches_python(self):
         contract_path = ROOT.parents[1] / "crates/benilla-world-runtime/src/native/production_compiler/schema_contract.json"
         contract = json.loads(contract_path.read_text())

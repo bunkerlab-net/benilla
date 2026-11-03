@@ -790,6 +790,7 @@ pub(super) fn validate(bundle: &Value) -> Result<(Selection, Profiles)> {
             "native_spawn_capture",
             "addon_loader_capture",
             "reputation_policy_capture",
+            "global_hook_capture",
             "spell_script_capture",
             "initial_hook_capture",
             "loot_capture",

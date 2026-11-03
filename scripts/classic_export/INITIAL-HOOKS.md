@@ -33,6 +33,52 @@ The capture explicitly leaves rank and condition execution unresolved. Neither
 this evidence nor the `status: complete` selected-query label permits effects,
 scripts, rank behavior, or gameplay to be silently admitted.
 
+## Complete global evidence
+
+`global-hooks --source SOURCE --build-configuration CONFIG --quiescent-snapshot`
+extends an unchanged private source with `benilla-classic-global-hooks-v1`.
+Supply the existing SELECT-only connection arguments and a new `--output` path.
+The configuration file explicitly declares `BUILD_GAME_SERVER`, `BUILD_SCRIPTDEV`,
+`BUILD_PLAYERBOTS`, `BUILD_DEPRECATED_PLAYERBOT`, and `BUILD_AHBOT` as booleans.
+The reviewed configuration uses the pinned defaults from
+`cmake/options.cmake:5-16`. It is not an observed binary or a build receipt.
+Non-default configurations retain `nondefault_build_configuration_not_reviewed`.
+
+The extension retains complete raw cursors for SpellArea, proc, affect, threat,
+elixir, SQL ranks, spell groups, conditions, numeric script registrations, and
+world/instance script names. Each table has a 4,096-row bound. Numeric lookups
+cover all referenced SQL spell IDs and selected item effects. The explicit
+selector plus its complete matching cursor distinguishes missing lookups from
+omitted coverage. Overlapping original rows must agree, including selected-empty
+area, proc, rank, and script results. The cursor is the captured SELECT order,
+not an observation of a separate server's loader order. Accepted loader output
+remains unproven.
+
+`global_hooks_contract.json` binds exact pinned source hashes, AddSC registration
+paths, callback masks, schema projections, and declared build switches. The
+reviewed registrations include food/drink aura heartbeats, Opening callbacks,
+the garments quest AI, and the Eastern Kingdoms map script. Other names retain
+`registration_source_not_reviewed`. Source configuration and hashes bind the
+declaration; they do not authenticate a legacy realm. Bonus coefficients belong
+to `spell_template`; classic-db update `4613_spell_coefficient.sql` drops the old
+`spell_bonus_data` table.
+
+The independent planners retain a conservative connected rank candidate set
+from complete SQL ranks, Talent, and SkillLineAbility. A present candidate stays
+unsupported rather than becoming an invented effective rank result. The family
+absence result covers selected holder/rank lookups, not arbitrary future aura
+holders. Raw SpellArea keeps its condition-first branch and does not index
+area zero. Nonzero location rows remain unknown without the source location
+owner. Neither `playercreateinfo.zone` nor the starting position proves future
+quest, location, aura, or item transitions safe.
+
+Creature 12423's `npc_garments_of_quests` registration has `GetAI`, not quest
+dialog callbacks. Its constructor calls `Reset`, which changes health, stand
+state, and PvP flags. `SpellHit` and escort updates also have effects.
+The reviewed registration therefore produces a precise present/unsupported
+result, not a non-body-loot exemption. No compound learning, global quest,
+native admission, or runtime-export refusal is removed by this evidence alone.
+
 ## DurationIndex0 and the initializer
 
 The preparation producer retains an actual `SpellDuration` row zero when it

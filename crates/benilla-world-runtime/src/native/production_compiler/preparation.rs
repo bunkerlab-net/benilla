@@ -1475,6 +1475,9 @@ pub(super) fn compile(
         "source_capture_findings": source_findings,
         "unsupported": issues,
     });
+    if source.get("global_hook_capture").is_some() {
+        output["global_hook_plan"] = super::global_hooks::plan(source, dbcs);
+    }
     output["participants_plan"] = participant_plan;
     output["preparation_sha256"] = json!(digest(&output));
     bounded_len(&output, 128 * 1024 * 1024, "compiler.report_byte_limit")?;

@@ -101,7 +101,11 @@ pub(super) fn plan(source: &Value, closure: &Value, source_sha: &str) -> Value {
             refuse(
                 "creature_template",
                 int(&row["Entry"]).to_string(),
-                "non_body_creature_hook_unreviewed",
+                if super::super::super::global_hooks::reviewed_creature(source, row) {
+                    "non_body_creature_callback_present_unsupported"
+                } else {
+                    "non_body_creature_hook_unreviewed"
+                },
             );
         }
     }

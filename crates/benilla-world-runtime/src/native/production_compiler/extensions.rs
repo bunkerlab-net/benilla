@@ -188,6 +188,9 @@ pub(super) fn validate(b: &Value, s: &Selection, p: &Profiles) -> Result<()> {
     if present(b, "reputation_policy_capture") {
         reputation::validate(b)?;
     }
+    if present(b, "global_hook_capture") {
+        super::global_hooks::validate(b)?;
+    }
     if present(b, "addon_loader_capture") {
         addon_loader::validate(b)?;
     }

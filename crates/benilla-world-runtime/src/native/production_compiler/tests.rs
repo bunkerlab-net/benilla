@@ -684,3 +684,43 @@ fn non_body_learning_mutation_refuses_without_erasing_source_ids() {
         }
     }
 }
+
+#[test]
+fn global_hook_source_and_applicability_preserve_present_paths() {
+    let data = corpus();
+    let fixture = data["fixtures"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["name"] == "combat-world-rules")
+        .unwrap();
+    let report = Inputs::new(fixture).run().unwrap();
+    let plan = &report.preparation()["global_hook_plan"];
+    assert_eq!(plan["spell_area"][0]["ordinal"], 0);
+    assert_eq!(plan["spell_area"][0]["condition_branch"], "condition");
+    assert_eq!(plan["spell_area"][1]["area_indexed"], false);
+    let spell = plan["spells"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == 930001)
+        .unwrap();
+    assert_eq!(
+        spell["families"]["spell_proc_event"]["status"],
+        "present_unsupported"
+    );
+    assert_eq!(
+        spell["families"]["spell_proc_event"]["rows"][0]["entry"],
+        17
+    );
+    assert!(
+        plan["callbacks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["name"] == "world_map_eastern_kingdoms"
+                && r["status"] == "present_unsupported")
+    );
+    assert_eq!(plan["effective_learning_proven"], false);
+    assert!(plan["runtime_export"].is_null());
+}

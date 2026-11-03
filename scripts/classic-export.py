@@ -53,12 +53,17 @@ def main() -> int:
         return 2
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ["inspect", "capture", "skill-training", "reputation-policy"]:
+    for name in ["inspect", "capture", "skill-training", "reputation-policy", "global-hooks"]:
         cmd = sub.add_parser(name)
         cmd.add_argument("--database", required=True)
         cmd.add_argument("--user", required=True, help="existing SELECT-only account; never created here")
         cmd.add_argument("--port", type=int, default=3306, help="127.0.0.1 only")
         cmd.add_argument("--output", type=Path, required=True, help="new private local file, preferably under benilla-config")
+        if name == "global-hooks":
+            cmd.add_argument("--source", type=Path, required=True)
+            cmd.add_argument("--build-configuration", type=Path, required=True,
+                             help="explicit declared CMaNGOS build switches, not an observed binary")
+            cmd.add_argument("--quiescent-snapshot", action="store_true")
         if name in {"skill-training", "reputation-policy"}:
             cmd.add_argument("--source", type=Path, required=True)
             cmd.add_argument("--dbc-dir", type=Path, required=True)
@@ -131,7 +136,12 @@ def main() -> int:
             from classic_export.driver import LocalSqlSource
             source = LocalSqlSource(args.database, args.user, args.port)
             try:
-                if args.command in {"skill-training", "reputation-policy"}:
+                if args.command == "global-hooks":
+                    from classic_export import global_hooks
+                    bundle = read_json(args.source, MAX_BUNDLE_BYTES)
+                    output = global_hooks.recapture(source, bundle, read_json(args.build_configuration, 4096),
+                                                    args.quiescent_snapshot)
+                elif args.command in {"skill-training", "reputation-policy"}:
                     from classic_export import skill_training
                     from native_starter.compiler import Request
                     from native_starter.dbc import load_directory, load_extraction_manifest, read_regular

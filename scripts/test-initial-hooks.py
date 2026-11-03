@@ -39,6 +39,31 @@ def repair(b):
     b["spell_script_capture"] = spell_registry.evidence(b)
     b["native_spawn_capture"] = native_spawn.evidence(b)
     b["initial_hook_capture"] = initial_hooks.evidence(b)
+    from classic_export.capture import full_report
+    from classic_export.core import Selection, schema_profile
+    b["report"]["unsupported"] = full_report(b["tables"], schema_profile(b["schema"], set(b["tables"])),
+                                             Selection.parse(b["selection"]))
+
+
+def global_captured(bundle=None):
+    from classic_export import global_hooks as g
+    if bundle is None:
+        s = source()
+        floats = {n for n, c in g.TABLES["spell_template"]["columns"].items() if c["type"] == "float"}
+        for column in s.inventory["tables"]["spell_template"]["columns"]:
+            if column["name"] in floats:
+                column["type"] = "float"
+        b = captured(s)
+    else:
+        b = bundle
+    rows = {table: copy.deepcopy(b["tables"].get(table, [])) for table in g.TABLES}
+    rows["spell_template"] = [
+        {name: row.get(name, {"decimal": "0"} if column["type"] == "float" else 0)
+         for name, column in g.TABLES["spell_template"]["columns"].items()}
+        for row in b["tables"]["spell_template"]]
+    b["global_hook_capture"] = g.evidence(b, rows, g.expected_schema(),
+                                         copy.deepcopy(g.CONTRACT["manifest"]["configuration"]))
+    return b
 
 
 class InitialHooksTests(unittest.TestCase):
@@ -189,6 +214,115 @@ class InitialHooksTests(unittest.TestCase):
                 missing = any(row["table"] == "SpellDuration" and row["reason"] == "dbc.file_missing"
                               for row in result["unsupported"])
                 self.assertEqual(missing, missing_table)
+
+    def test_global_missing_is_not_complete_empty(self):
+        from native_starter import global_hooks_plan as p
+        from classic_export import global_hooks as g
+        self.assertIsNone(p.supported(captured(), {}))
+        b = global_captured()
+        validate_bundle(b)
+        self.assertEqual(p.supported(b, {})["spell_area"], [])
+        for name in ("spell_area", "conditions", "spell_affect", "spell_chain"):
+            bad = copy.deepcopy(b)
+            del bad["global_hook_capture"]["rows"][name]
+            with self.assertRaises(ExportError):
+                g.validate(bad)
+
+    def test_global_unrelated_area_preserves_cursor_condition_and_zero_index(self):
+        from native_starter import global_hooks_plan as p
+        from classic_export import global_hooks as g
+        b = global_captured()
+        c = b["global_hook_capture"]
+        c["rows"]["spell_area"] = [t.row("spell_area", spell=17, area=0, condition_id=1),
+                                     t.row("spell_area", spell=18, area=12, gender=2)]
+        c["rows"]["conditions"] = [dict(condition_entry=1, type=2, value1=117, value2=1,
+                                          value3=0, value4=0, flags=0)]
+        b["global_hook_capture"] = g.evidence(b, c["rows"], c["schema"], c["configuration"])
+        validate_bundle(b)
+        areas = p.supported(b, {})["spell_area"]
+        self.assertFalse(areas[0]["area_indexed"])
+        self.assertEqual(areas[0]["condition_branch"], "condition")
+        self.assertEqual(areas[0]["condition"]["value1"], 117)
+        self.assertEqual(areas[1]["status"], "unknown")
+        self.assertEqual([r["ordinal"] for r in areas], [0, 1])
+
+    def test_global_inherited_proc_and_opening_callback_are_not_absent(self):
+        from native_starter import global_hooks_plan as p
+        from classic_export import global_hooks as g
+        b = global_captured()
+        c = b["global_hook_capture"]
+        c["rows"]["spell_chain"] = [dict(spell_id=17, prev_spell=930001, first_spell=930001, rank=2, req_spell=0)]
+        c["rows"]["spell_proc_event"] = [t.row("spell_proc_event", entry=17, ppmRate={"decimal": "1"}, CustomChance={"decimal": "0"})]
+        c["rows"]["spell_scripts"] = [{"Id": 930001, "ScriptName": "spell_gameobject_call_for_help_on_usage"}]
+        b["tables"]["spell_scripts"] = copy.deepcopy(c["rows"]["spell_scripts"])
+        repair(b)
+        b["global_hook_capture"] = g.evidence(b, c["rows"], c["schema"], c["configuration"])
+        validate_bundle(b)
+        spell = p.supported(b, {})["spells"][0]
+        self.assertEqual(spell["families"]["spell_proc_event"]["status"], "present_unsupported")
+        self.assertEqual(spell["families"]["spell_proc_event"]["rows"][0]["entry"], 17)
+        self.assertEqual(spell["registry"][0]["registration"]["callbacks"], ["OnSuccessfulStart"])
+        self.assertFalse(p.supported(b, {})["effective_learning_proven"])
+
+    def test_global_wrong_manifest_schema_hash_and_duplicates_refuse(self):
+        from classic_export import global_hooks as g
+        for mutate in (lambda c: c.update(contract_sha256="0"*64),
+                       lambda c: c.update(registration_manifest_sha256="0"*64),
+                       lambda c: c["binding"].update(table_sha256="0"*64),
+                       lambda c: c["schema"]["conditions"]["columns"].update(type=["tinyint", True, False]),
+                       lambda c: c["rows"]["spell_template"].append(c["rows"]["spell_template"][0])):
+            b = global_captured()
+            mutate(b["global_hook_capture"])
+            with self.assertRaises(ExportError):
+                g.validate(b)
+
+    def test_global_declared_nondefault_and_unknown_registry_stay_unknown(self):
+        from native_starter import global_hooks_plan as p
+        from classic_export import global_hooks as g
+        b = global_captured()
+        row = {"Entry": 12423, "ScriptName": "npc_garments_of_quests"}
+        self.assertTrue(p.reviewed_creature(b, row))
+        callback = p.callback(b, "creature", 12423, row["ScriptName"])
+        self.assertEqual(callback["status"], "present_unsupported")
+        self.assertIn("Reset", callback["registration"]["ai_callbacks"])
+        self.assertEqual(p.callback(b, "spell", 17, "unknown_registered_name")["status"], "unknown")
+        c = b["global_hook_capture"]
+        c["configuration"]["BUILD_SCRIPTDEV"] = False
+        b["global_hook_capture"] = g.evidence(b, c["rows"], c["schema"], c["configuration"])
+        validate_bundle(b)
+        self.assertFalse(p.reviewed_creature(b, row))
+        self.assertEqual(p.callback(b, "creature", 12423, row["ScriptName"])["reason"],
+                         "nondefault_build_configuration_not_reviewed")
+
+    def test_global_selected_spell_aura_and_item_effects_remain_unsupported(self):
+        from native_starter import global_hooks_plan as p
+        from classic_export import global_hooks as g
+        b = global_captured()
+        c = b["global_hook_capture"]
+        c["rows"]["spell_area"] = [t.row("spell_area", spell=930001, area=0, gender=2),
+                                     t.row("spell_area", spell=17, aura_spell=-930001, gender=2)]
+        b["tables"]["spell_area"] = [copy.deepcopy(c["rows"]["spell_area"][0])]
+        repair(b)
+        b["global_hook_capture"] = g.evidence(b, c["rows"], c["schema"], c["configuration"])
+        validate_bundle(b)
+        plan = p.supported(b, {})
+        self.assertEqual([r["status"] for r in plan["spell_area"]], ["present_unsupported"]*2)
+        self.assertFalse(plan["global_quest_effects_resolved"])
+        self.assertEqual(plan["first_entry_location"], "requires_source_location_owner_not_playercreateinfo_zone")
+
+    def test_global_query_retains_source_cursor_and_is_bounded(self):
+        from classic_export import global_hooks as g
+        sql, args = g.Query("spell_area").sql()
+        self.assertNotIn("ORDER BY", sql)
+        self.assertNotIn("WHERE", sql)
+        self.assertEqual(args, (4097,))
+        sql, args = g.Query("spell_template", (17, 18)).sql()
+        self.assertIn("`Id` IN (%s,%s)", sql)
+        self.assertEqual(args, (17, 18, 4097))
+        for query in (g.Query("arbitrary"), g.Query("spell_area", (17,)),
+                      g.Query("spell_template", (18, 17)), g.Query("spell_area", limit=4097)):
+            with self.assertRaises(ExportError):
+                query.sql()
 
 
 if __name__ == "__main__": unittest.main()

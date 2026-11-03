@@ -32,6 +32,7 @@ from . import spell_execution
 from . import creature_combat_plan
 from . import participants
 from . import reputation_plan
+from . import global_hooks_plan
 
 PROFILE = "cmangos-8ec338a1-native-starter-bindings-v1"
 FORMAT = "benilla-native-starter-preparation-v1"
@@ -893,6 +894,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
         "extraction_manifest": extraction_manifest,
         "dbc_manifest": [t.manifest() for _, t in sorted(dbcs.items())],
         "status": "blocked", "runtime_export": None,
+        **({"global_hook_plan": global_hooks_plan.supported(source, dbcs)} if "global_hook_capture" in source else {}),
         "participants_plan": participant_plan,
         "ability_admission": admission,
         "dependency_request": c.learning["dependency_request"],

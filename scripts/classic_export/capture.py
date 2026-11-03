@@ -564,6 +564,8 @@ def validate_bundle(bundle: Any) -> None:
     check(type(bundle) is dict, "bundle.fields")
     if bundle.get("format") == STARTER_FORMAT:
         expected.add("starter_required_keys")
+        if "global_hook_capture" in bundle:
+            expected.add("global_hook_capture")
         if "reputation_policy_capture" in bundle:
             expected.add("reputation_policy_capture")
         if "addon_loader_capture" in bundle:
@@ -680,6 +682,9 @@ def validate_bundle(bundle: Any) -> None:
     if "initial_hook_capture" in bundle:
         check(selection.starter is not None, "initial_hooks.starter_selection_required")
         initial_hooks.validate(bundle)
+    if "global_hook_capture" in bundle:
+        from . import global_hooks
+        global_hooks.validate(bundle)
     check(not (set(loot.TABLES) & set(bundle["tables"])) or "loot_capture" in bundle,
           "loot.coverage_required_with_tables")
     if "loot_capture" in bundle:
