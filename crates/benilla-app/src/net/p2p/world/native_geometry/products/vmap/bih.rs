@@ -3,7 +3,9 @@
 //! `src/game/vmap/BIH.{h,cpp}`; see the products CMANGOS-NOTICE and PROVENANCE.
 use super::{Bounds, Cursor, Error, QueryBudget, Ray, Vector};
 
-const MAX_ELEMENTS: usize = 262_144;
+// Map 0 needs 534,990 tree/129,804 object words; BIH.cpp:105-127,175-250 gives <=9N-5 nodes; existing producer caps 12,582,912 words and N<=1,048,576 round to these powers of two when map 1 is unavailable.
+const MAX_TREE_WORDS: usize = 16_777_216;
+const MAX_OBJECT_WORDS: usize = 1_048_576;
 const OFFSET_MASK: u32 = 0x1fff_ffff;
 const LEAF: u32 = 3 << 30;
 const BVH2: u32 = 1 << 29;
@@ -26,11 +28,11 @@ struct Pending {
 impl Bih {
     pub(super) fn decode(c: &mut Cursor<'_>) -> Result<Self, Error> {
         let bounds = c.bounds()?;
-        let tree = read_words(c)?;
+        let tree = read_words(c, MAX_TREE_WORDS)?;
         if tree.len() < 3 || tree.len() % 3 != 0 {
             return Err(Error::Format);
         }
-        let objects = read_words(c)?;
+        let objects = read_words(c, MAX_OBJECT_WORDS)?;
         let result = Self {
             bounds,
             tree,
@@ -386,9 +388,9 @@ impl Bih {
     }
 }
 
-fn read_words(c: &mut Cursor<'_>) -> Result<Box<[u32]>, Error> {
+fn read_words(c: &mut Cursor<'_>, limit: usize) -> Result<Box<[u32]>, Error> {
     let count = c.word()? as usize;
-    if count > MAX_ELEMENTS {
+    if count > limit {
         return Err(Error::Budget);
     }
     let bytes = c.take(count.checked_mul(4).ok_or(Error::Budget)?)?;
@@ -484,7 +486,7 @@ mod tests {
             .is_err());
         }
         let mut excessive = data;
-        excessive[24..28].copy_from_slice(&((MAX_ELEMENTS + 1) as u32).to_le_bytes());
+        excessive[24..28].copy_from_slice(&((MAX_TREE_WORDS + 1) as u32).to_le_bytes());
         assert!(matches!(
             Bih::decode(&mut Cursor {
                 bytes: &excessive[..28],
@@ -492,8 +494,46 @@ mod tests {
             }),
             Err(Error::Budget)
         ));
+        let mut excessive_objects = bytes(&[LEAF, 0, 0], &[]);
+        excessive_objects[40..44].copy_from_slice(&((MAX_OBJECT_WORDS + 1) as u32).to_le_bytes());
+        assert!(matches!(
+            Bih::decode(&mut Cursor {
+                bytes: &excessive_objects,
+                at: 0
+            }),
+            Err(Error::Budget)
+        ));
         assert!(matches!(decode(&[], &[]), Err(Error::Format)));
         assert!(matches!(decode(&[LEAF, 0], &[]), Err(Error::Format)));
+    }
+
+    #[test]
+    fn continent_array_caps_accept_the_boundary_and_reject_one_word_over() {
+        for limit in [MAX_TREE_WORDS, MAX_OBJECT_WORDS] {
+            let count = limit - 1;
+            let mut data = vec![0; 4 + count * 4];
+            data[..4].copy_from_slice(&(count as u32).to_le_bytes());
+            let words = read_words(
+                &mut Cursor {
+                    bytes: &data,
+                    at: 0,
+                },
+                limit,
+            )
+            .unwrap();
+            assert_eq!(words.len(), count);
+            let excessive = ((limit + 1) as u32).to_le_bytes();
+            assert!(matches!(
+                read_words(
+                    &mut Cursor {
+                        bytes: &excessive,
+                        at: 0
+                    },
+                    limit
+                ),
+                Err(Error::Budget)
+            ));
+        }
     }
 
     #[test]

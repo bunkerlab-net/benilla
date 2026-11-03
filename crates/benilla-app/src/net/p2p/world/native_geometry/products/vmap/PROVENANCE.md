@@ -90,7 +90,7 @@ and truncation. This is a bounded reader compatibility correction, not
 real-asset validation or production content admission.
 
 Additional limits are 16 MiB total VMap input within the inventory's existing 64 MiB
-limit; 262,144 elements per encoded array; 4,096 total decoded groups; 16,384 serialized
+limit; 262,144 elements per non-BIH encoded array; 4,096 total decoded groups; 16,384 serialized
 spawn records including cross-tile repeats; and 1,048,576 placement/group/vertex validation
 steps across unique placements. Model costs are cached once and include empty groups;
 repeating a model cannot amplify either the cost scan or transform loop without hitting
@@ -98,10 +98,22 @@ that bound. Unknown map slots are bounded by the map primitive count, not by the
 number of declared tiles. Fallible reservations precede large array allocations. Peak
 storage is bounded by these counts, including source bytes, decoded arrays, unresolved
 spawn slots and temporary validation arrays; this is not a streaming loader. The 16 MiB
-raw-input cap is explicitly not a 16 MiB resident-memory cap. At the maximum map count,
-64-bit Rust's unresolved/loaded spawn-slot array alone occupies 30 MiB, and its temporary
-bounds vector occupies 7 MiB. These are additional to decoded arrays and the separately
-owned inventory (up to 64 MiB input plus its decoded terrain).
+raw-input cap is explicitly not a 16 MiB resident-memory cap. Unresolved spawn
+slots and temporary bounds vectors scale with the map's primitive count and
+remain additional to decoded arrays and the separately owned inventory.
+
+BIH tree arrays accept at most 16,777,216 words; object arrays accept at most
+1,048,576. Map 0 measures 534,990 tree words and 129,804 objects. A complete map-1
+capture refuses a missing required member, so sizing uses the producer's bounded
+construction rather than claiming a map-1 measurement.
+For N positive objects, the binary core has at most 2N-1 nodes. Each core node
+can have at most three preceding BVH2 clips, one per tightened axis, and each
+binary split can add at most one empty-space clip. Thus there are at most
+4(2N-1)+(N-1) = 9N-5 nodes and 27N-15 tree words. Empty trees retain one leaf.
+The source branches are `BIH.cpp:105-127,175-250`. The producer already limits
+N to 1,048,576 and tree words to 12,582,912; rounding those admitted maxima to
+the next powers of two gives the array caps above. The 64 MiB aggregate source
+index-byte bound and all resident-input, depth, structure and work limits remain.
 
 ## Portable Euler numeric profile
 
