@@ -1834,6 +1834,39 @@ fn captured_outfit() -> (StarterInput, CapturedStarterItems) {
 }
 
 #[test]
+fn custom_item_permutations_preserve_grants_and_equal_occurrences() {
+    let (input, mut capture) = captured_outfit();
+    let Rows::Complete(custom) = &mut capture.custom else {
+        unreachable!()
+    };
+    let mut smaller = custom[0];
+    smaller.amount = 1;
+    custom.push(smaller);
+    custom.push(smaller);
+    let expected = capture.clone().compile(input.clone()).unwrap();
+    if let Rows::Complete(custom) = &mut capture.custom {
+        custom.reverse();
+    }
+    let actual = capture.clone().compile(input.clone()).unwrap();
+    assert_eq!(actual, expected);
+    let Rows::Complete(grants) = &actual.item_grants else {
+        unreachable!()
+    };
+    let counts: Vec<_> = grants
+        .iter()
+        .filter(|g| g.source == GrantSource::Custom)
+        .map(|g| g.count)
+        .collect();
+    assert_eq!(counts, [1, 1, 2]);
+    assert_eq!(
+        initialize_mage(&actual).unwrap(),
+        initialize_mage(&expected).unwrap()
+    );
+    capture.custom = Rows::Missing;
+    assert!(capture.compile(input).is_err());
+}
+
+#[test]
 fn captured_outfit_preserves_equip_order_buy_count_and_custom_grants() {
     let (i, rows) = captured_outfit();
     let i = rows.compile(i).unwrap();

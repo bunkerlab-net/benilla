@@ -31,8 +31,8 @@ pub mod creature_ai;
 
 pub mod mage_resource;
 
-pub mod starter_init;
 pub mod canonical_order;
+pub mod starter_init;
 
 pub mod npc_melee;
 pub mod player_melee;

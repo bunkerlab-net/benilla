@@ -293,12 +293,21 @@ fn canonical_loader_permutations_preserve_initializer_and_missing_inputs_refuse(
     let original = fixture();
     let expected = bind(&original).unwrap();
     let mut permuted = original.clone();
-    if let Rows::Complete(rows) = &mut permuted.creation_skills { rows.reverse(); }
-    if let Rows::Complete(rows) = &mut permuted.creation_spells { rows.reverse(); }
-    if let Rows::Complete(rows) = &mut permuted.learn_spells { rows.reverse(); }
+    if let Rows::Complete(rows) = &mut permuted.creation_skills {
+        rows.reverse();
+    }
+    if let Rows::Complete(rows) = &mut permuted.creation_spells {
+        rows.reverse();
+    }
+    if let Rows::Complete(rows) = &mut permuted.learn_spells {
+        rows.reverse();
+    }
     let actual = bind(&permuted).unwrap();
     assert_eq!(expected, actual);
-    assert_eq!(initialize_mage(&expected).unwrap(), initialize_mage(&actual).unwrap());
+    assert_eq!(
+        initialize_mage(&expected).unwrap(),
+        initialize_mage(&actual).unwrap()
+    );
     permuted.creation_spells = Rows::Missing;
     assert!(permuted.compile(1, 8).is_err());
 }

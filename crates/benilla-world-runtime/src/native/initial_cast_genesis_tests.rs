@@ -22,9 +22,22 @@ fn pending_projection_requires_source_seal_without_optional_spell_catalog() {
     assert!(init::initialize_mage(&input).is_err());
     assert_eq!(prepared.creation_plan().draw_requests().len(), 1);
     assert_eq!(prepared.first_entry_plan().draw_requests().len(), 1);
-    assert!(matches!(prepared.order().first_entry, init::InitialCastOrderEvidence::CanonicalNative));
-    let creation: Vec<_> = prepared.creation_plan().occurrences().iter().map(|c| c.row().id).collect();
-    let entry: Vec<_> = prepared.first_entry_plan().occurrences().iter().map(|c| c.row().id).collect();
+    assert!(matches!(
+        prepared.order().first_entry,
+        init::InitialCastOrderEvidence::CanonicalNative
+    ));
+    let creation: Vec<_> = prepared
+        .creation_plan()
+        .occurrences()
+        .iter()
+        .map(|c| c.row().id)
+        .collect();
+    let entry: Vec<_> = prepared
+        .first_entry_plan()
+        .occurrences()
+        .iter()
+        .map(|c| c.row().id)
+        .collect();
     assert_eq!(creation, [81, 3050]);
     assert_eq!(entry, [81, 3050]);
     assert_ne!(

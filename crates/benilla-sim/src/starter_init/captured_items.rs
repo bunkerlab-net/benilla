@@ -43,11 +43,12 @@ impl CapturedStarterItems {
             return Err(InitError::Invalid("starting item row limit"));
         }
         let outfits = self.outfits.require("CharStartOutfit", 0)?;
-        let mut custom = self.custom.require("playercreateinfo_item", 0)?.to_vec();
-        custom.sort_by_key(crate::canonical_order::custom_item);
+        let custom = self.custom.require("playercreateinfo_item", 0)?;
         if outfits.len() > 2 || custom.len() > 256 {
             return Err(InitError::Invalid("starting item source limit"));
         }
+        let mut custom = custom.to_vec();
+        custom.sort_unstable_by_key(crate::canonical_order::custom_item);
         let packed =
             u32::from(input.race) | u32::from(input.class) << 8 | u32::from(input.gender) << 16;
         if outfits

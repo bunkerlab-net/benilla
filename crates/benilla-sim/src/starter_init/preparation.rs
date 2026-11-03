@@ -177,16 +177,24 @@ pub fn prepare_starter(
     {
         return Err(InitError::Invalid("mixed canonical initial cast order"));
     }
-    if canonical && input.default_spells.require("playercreateinfo_spell", 0)?
-        .windows(2).any(|pair| pair[0] > pair[1])
+    if canonical
+        && input
+            .default_spells
+            .require("playercreateinfo_spell", 0)?
+            .windows(2)
+            .any(|pair| pair[0] > pair[1])
     {
         return Err(InitError::Invalid("noncanonical default spell order"));
     }
     if order.entry_skill_order.is_none() && !canonical {
-        return Err(InitError::Invalid("missing explicit first-entry skill order"));
+        return Err(InitError::Invalid(
+            "missing explicit first-entry skill order",
+        ));
     }
     if canonical && order.entry_skill_order.is_some() {
-        return Err(InitError::Invalid("canonical entry order must use normalized skills"));
+        return Err(InitError::Invalid(
+            "canonical entry order must use normalized skills",
+        ));
     }
     let context = |epoch: u8| {
         let mut h = Sha256::new();

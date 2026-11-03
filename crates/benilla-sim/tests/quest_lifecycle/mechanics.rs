@@ -67,11 +67,29 @@ fn completion_script_keeps_native_delay_and_canonical_priority_tie_order() {
     );
     let mut permuted = input();
     permuted.scripts.reverse();
-    assert_eq!(Mechanics::compile(permuted).unwrap().script(71021), m.script(71021));
+    assert_eq!(
+        Mechanics::compile(permuted).unwrap().script(71021),
+        m.script(71021)
+    );
     let mut prioritized = input();
     prioritized.scripts[0].priority = 2;
-    assert_eq!(Mechanics::compile(prioritized).unwrap().script(71021).unwrap()[0].effect,
-               ScriptEffect::Emote { emote: 71 });
+    assert_eq!(
+        Mechanics::compile(prioritized)
+            .unwrap()
+            .script(71021)
+            .unwrap()[0]
+            .effect,
+        ScriptEffect::Emote { emote: 71 }
+    );
+    let mut delayed = input();
+    delayed.scripts[0].priority = 2;
+    delayed.scripts[0].delay = 1000;
+    let delayed = Mechanics::compile(delayed).unwrap();
+    assert_eq!(delayed.script(71021).unwrap()[0].delay_ms, 1000);
+    assert_eq!(
+        delayed.script(71021).unwrap()[0].effect,
+        ScriptEffect::Talk { broadcast: 72001 }
+    );
     let mut row = quest(71001);
     row.excluded.complete_script = 71021;
     let c = Catalog::new_with_mechanics(vec![row.clone()], relations(&[row]), audit(), m).unwrap();

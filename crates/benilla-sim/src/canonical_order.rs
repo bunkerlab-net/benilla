@@ -40,11 +40,20 @@ pub fn compare_script(
 ) -> std::cmp::Ordering {
     let key = |r: &crate::quest_lifecycle::ScriptRow| {
         (
-            r.id, r.delay, r.priority, r.command, r.datalong, r.buddy_entry,
-            r.search_radius, r.data_flags, r.dataint, r.condition,
+            r.id,
+            r.delay,
+            r.priority,
+            r.command,
+            r.datalong,
+            r.buddy_entry,
+            r.search_radius,
+            r.data_flags,
+            r.dataint,
+            r.condition,
         )
     };
-    key(a).cmp(&key(b))
+    key(a)
+        .cmp(&key(b))
         .then_with(|| a.float_bits.cmp(&b.float_bits))
         .then_with(|| a.position.cmp(&b.position))
 }

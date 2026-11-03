@@ -130,13 +130,10 @@ impl CapturedStarterLearning {
         if race != 1 || class != 8 || self.source_identity == [0; 32] {
             return Err(InitError::Invalid("learning identity"));
         }
-        let mut skills = self.creation_skills.require("playercreateinfo_skills", 0)?.to_vec();
-        skills.sort_by_key(crate::canonical_order::creation_skill);
-        let mut spells = self.creation_spells.require("playercreateinfo_spell", 0)?.to_vec();
-        spells.sort_by_key(crate::canonical_order::creation_spell);
+        let skills = self.creation_skills.require("playercreateinfo_skills", 0)?;
+        let spells = self.creation_spells.require("playercreateinfo_spell", 0)?;
         let chain_rows = self.chains.require("spell_chain", 0)?;
-        let mut learn_rows = self.learn_spells.require("spell_learn_spell", 0)?.to_vec();
-        learn_rows.sort_by_key(|row| (row.entry, row.spell, row.active));
+        let learn_rows = self.learn_spells.require("spell_learn_spell", 0)?;
         let chain_probe = self
             .global_chain_probe
             .require("global spell_chain probe", 0)?;
@@ -157,6 +154,12 @@ impl CapturedStarterLearning {
         {
             return Err(InitError::Invalid("learning root/edge limit"));
         }
+        let mut skills = skills.to_vec();
+        skills.sort_unstable_by_key(crate::canonical_order::creation_skill);
+        let mut spells = spells.to_vec();
+        spells.sort_unstable_by_key(crate::canonical_order::creation_spell);
+        let mut learn_rows = learn_rows.to_vec();
+        learn_rows.sort_unstable_by_key(|row| (row.entry, row.spell, row.active));
         let lines = keyed(
             self.skill_lines.require("SkillLine", 0)?,
             "SkillLine",

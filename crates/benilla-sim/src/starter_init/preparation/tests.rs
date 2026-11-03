@@ -133,9 +133,18 @@ fn canonical_entry_trains_normalized_skills_and_retains_cast_occurrences() {
     let prepared = prepare_starter(&input, &d, &StarterCastOrder::canonical()).unwrap();
     assert_eq!(casts(prepared.creation_plan()), [81, 3050, 20598]);
     assert_eq!(casts(prepared.first_entry_plan()), [3050, 81, 20598]);
-    let trained: Vec<_> = prepared.first_entry().trace.iter().filter_map(|event| {
-        if let InitEvent::TrainLoadedSkill { skill, .. } = event { Some(*skill) } else { None }
-    }).collect();
+    let trained: Vec<_> = prepared
+        .first_entry()
+        .trace
+        .iter()
+        .filter_map(|event| {
+            if let InitEvent::TrainLoadedSkill { skill, .. } = event {
+                Some(*skill)
+            } else {
+                None
+            }
+        })
+        .collect();
     assert_eq!(trained, [8, 95]);
     assert_eq!(prepared.creation_plan().draw_requests().len(), 1);
     assert_eq!(prepared.first_entry_plan().draw_requests().len(), 1);
@@ -145,8 +154,12 @@ fn canonical_entry_trains_normalized_skills_and_retains_cast_occurrences() {
     assert!(prepare_starter(&input, &d, &forged).is_err());
     let mut missing = input.clone();
     missing.skill_race_class = Rows::Missing;
-    assert!(prepare_starter(&missing, &dependencies(&missing, &[81, 3050, 20598]),
-                            &StarterCastOrder::canonical()).is_err());
+    assert!(prepare_starter(
+        &missing,
+        &dependencies(&missing, &[81, 3050, 20598]),
+        &StarterCastOrder::canonical()
+    )
+    .is_err());
 }
 
 #[test]

@@ -26,7 +26,7 @@ def supported_plan(source, dbcs, closure):
     if not closure["captured_inputs_complete"]:
         refuse("spell_template", 0, "player.learning_loader_closure_incomplete")
     if refusals:
-        return {"format": "benilla-native-starter-learning-plan-v2", "status": "blocked",
+        return {"format": "benilla-native-starter-learning-plan-v3", "status": "blocked",
                 "loaded_learning_maps_resolved": False, "effective_learning_proven": False,
                 "refusals": refusals}
     lines = dbcs["SkillLine"].by_id
@@ -188,7 +188,7 @@ def supported_plan(source, dbcs, closure):
     if visited != len(selected):
         refuse("spell_learn_spell", 0, "player.learning_spell_cycle")
     order = canonical_order.learning(source, not refusals)
-    return {"format": "benilla-native-starter-learning-plan-v2",
+    return {"format": "benilla-native-starter-learning-plan-v3",
             "status": "blocked" if refusals else "supported",
             "loaded_learning_maps_resolved": not refusals, "effective_learning_proven": False,
             "source_identity": closure["dependency_request"]["source_sha256"],

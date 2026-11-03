@@ -111,12 +111,8 @@ pub fn prepare(
                 .collect(),
         ),
     };
-    let prepared = init::prepare_starter(
-        &input,
-        &numeric,
-        &init::StarterCastOrder::canonical(),
-    )
-    .unwrap();
+    let prepared =
+        init::prepare_starter(&input, &numeric, &init::StarterCastOrder::canonical()).unwrap();
     profile
         .initialize_player_prepared(&input, &prepared, synthetic_fixture::float(100.0), 1)
         .unwrap();

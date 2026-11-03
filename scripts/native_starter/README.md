@@ -72,6 +72,18 @@ explicit `NativeWorldRules`. It compares canonical reports, not just
 length of `extraction.json`. It never constructs `NativeCapability` or a runtime
 profile. See the [runtime verifier contract](../../crates/benilla-world-runtime/src/native/README.md).
 
+The shared `benilla-sim/src/canonical_order.json` contract defines the approved
+native order for unspecified SQL and first-entry skill traversal. Learning-plan
+v3 and quest preparation bind its version, digest, and ordered captured rows.
+Defined DBC row-ID, effect-slot, phase, script-delay, and priority order remain
+unchanged. Missing coverage cannot discharge an order obligation. This schedule
+is not an observation of a reference server's loaded order.
+
+The real normalized first-entry skill set and reached initial-cast stream still
+require the existing initializer and source seal. Root order alone never proves
+effective learning, hook absence, or runtime admission. Creation remains an
+unsampled prerequisite; the runtime realizes first entry once.
+
 The shared `production_verifier_cases.json`, `production_verifier_mutations.json`,
 `production_verifier_malformed.json`, `spell_execution_cases.json`, and separate
 `combat_world_rules_cases.json` contain authored data only. Rust and
