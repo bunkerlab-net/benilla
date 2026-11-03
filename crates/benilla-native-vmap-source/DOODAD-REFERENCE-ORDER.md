@@ -40,7 +40,7 @@ cover duplicate references, retained zero-triangle groups, early extraction
 failures and late raw-file exclusions across a growth boundary.
 
 The summary names `doodad_reference_order_policy`; the writer policy is
-`benilla-vmaps05-canonical-wmo-path-v8`. Projection binding version 3
+`benilla-vmaps05-canonical-model-path-v9`. Projection binding version 3
 includes both identifiers and the encounter-ID policy, along with the numerical policy, source pin and capture
 epoch. A candidate index is still not its generated object ID. The separate
 [encounter ledger](ENCOUNTER-IDS.md) assigns source IDs and preserves uint16

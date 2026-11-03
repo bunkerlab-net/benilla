@@ -759,57 +759,87 @@ fn case_variant_legacy_modn_names_retain_collision_in_either_extraction_order() 
 }
 
 #[test]
-fn case_insensitive_flat_name_conflicts_keep_the_exact_refusal() {
-    for other_has_collision in [false, true] {
-        let temp = Temp::new();
-        let data = temp.data();
-        let (names, _) = dc_names(&["Models\\AUTHOREDXX01.MDX", "Other\\Authoredxx01.mdx"]);
-        let mut entries = wmo_entries(0);
-        dc_replace(&mut entries, ROOT, dc_root(0, &names, &[], &[]));
-        entries.push(raw_entry("Models\\AUTHOREDXX01.M2", m2(true)));
-        let mut other = m2(other_has_collision);
-        if other_has_collision {
-            set_word(&mut other, 330, 2.0_f32.to_bits());
-        }
-        entries.push(raw_entry("Other\\Authoredxx01.m2", other));
-        save(&data, "wmo.MPQ", &entries);
-        let error = prepare(&data, 0, || false).unwrap_err();
-        assert_eq!(error.diagnostic().category, "vmap.flat_name_collision");
-        assert_eq!(
-            error.diagnostic().stage,
-            Some(PreparationStage::GlobalWmoRoot)
-        );
-        assert_eq!(error.diagnostic().progress.unwrap().adt_attempts, 0);
-    }
-}
-
-#[test]
-fn source_normalized_flat_name_conflicts_refuse_in_either_extraction_order() {
-    for other_shape in 0..3 {
-        for reverse in [false, true] {
-            let temp = Temp::new();
-            let data = temp.data();
-            let mut paths = ["Models\\Space Name.mdx", "Models\\SPACE_NAME.MDX"];
-            if reverse {
-                paths.reverse();
+fn same_basename_doodads_keep_each_canonical_members_own_collision() {
+    for original_paths in [
+        ["Models\\AUTHOREDXX01.MDX", "Other\\Authoredxx01.mdx"],
+        ["Models\\Space Name.mdx", "Models\\SPACE_NAME.MDX"],
+    ] {
+        for hulls in [[false, false], [true, false], [false, true], [true, true]] {
+            for reverse in [false, true] {
+                let temp = Temp::new();
+                let data = temp.data();
+                let mut paths = original_paths;
+                let mut hulls = hulls;
+                if reverse {
+                    paths.reverse();
+                    hulls.reverse();
+                }
+                let (names, offsets) = dc_names(&paths);
+                let mut entries = wmo_entries(1);
+                dc_replace(&mut entries, ROOT, dc_root(1, &names, &[(0, 2)], &offsets));
+                dc_replace(
+                    &mut entries,
+                    "World\\Wmo\\Temple_000.wmo",
+                    dc_group(false, true, &[0, 1]),
+                );
+                for (index, path) in paths.iter().enumerate() {
+                    let member = discovery::doodad_model_dependency(path.as_bytes())
+                        .unwrap()
+                        .unwrap()
+                        .member;
+                    let mut bytes = m2(hulls[index]);
+                    if hulls[index] {
+                        set_word(&mut bytes, 330, (index as f32 + 1.0).to_bits());
+                    }
+                    entries.push(raw_entry(&member, bytes));
+                }
+                entries.push(raw_entry(ADT, dc_adt(0, 0, 123)));
+                save(&data, "wmo.MPQ", &entries);
+                let prepared = prepare(&data, 0, || false).unwrap();
+                assert_eq!(prepared.products().len(), 3);
+                assert_eq!(
+                    prepared.summary().m2_raw_products,
+                    hulls.iter().filter(|hull| **hull).count()
+                );
+                assert_eq!(
+                    prepared.summary().m2_no_collision_products,
+                    hulls.iter().filter(|hull| !**hull).count()
+                );
+                assert_eq!(
+                    prepared.doodad_candidates().len(),
+                    hulls.iter().filter(|hull| **hull).count()
+                );
+                for candidate in prepared.doodad_candidates() {
+                    let index = candidate.spawn_index as usize;
+                    assert!(hulls[index]);
+                    assert_eq!(candidate.product_index, index);
+                    assert_eq!(
+                        prepared.products()[candidate.product_index].source_member(),
+                        discovery::doodad_model_dependency(paths[index].as_bytes())
+                            .unwrap()
+                            .unwrap()
+                            .member
+                    );
+                }
+                let profile =
+                    DoodadProjectionProfile::from_policy_id(crate::doodad_transform_math::POLICY)
+                        .unwrap();
+                let bundle = prepared
+                    .assemble_map_bundle(profile, || false)
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(
+                    bundle.models().len(),
+                    1 + prepared.doodad_candidates().len()
+                );
+                if hulls == [true, true] {
+                    assert_ne!(
+                        prepared.products()[0].raw_vmap(),
+                        prepared.products()[1].raw_vmap()
+                    );
+                }
+                prepared.verify_unchanged(|| false).unwrap();
             }
-            let (names, _) = dc_names(&paths);
-            let mut entries = wmo_entries(0);
-            dc_replace(&mut entries, ROOT, dc_root(0, &names, &[], &[]));
-            entries.push(raw_entry("Models\\Space Name.m2", m2(true)));
-            let mut other = m2(other_shape != 0);
-            if other_shape == 2 {
-                set_word(&mut other, 330, 2.0_f32.to_bits());
-            }
-            entries.push(raw_entry("Models\\Space_Name.m2", other));
-            save(&data, "wmo.MPQ", &entries);
-            let error = prepare(&data, 0, || false).unwrap_err();
-            assert_eq!(error.diagnostic().category, "vmap.flat_name_collision");
-            assert_eq!(
-                error.diagnostic().stage,
-                Some(PreparationStage::GlobalWmoRoot)
-            );
-            assert_eq!(error.diagnostic().progress.unwrap().adt_attempts, 0);
         }
     }
 }

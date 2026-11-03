@@ -46,15 +46,13 @@ calls ExtractSet after those early-return constructors too.
 
 ## Portable and bounded profile
 
-An owner-approved deviation resolves each doodad lookup to the captured M2
-product whose basename matches after the source's `fixnamen` and `fixname2`
-normalisation. This includes ASCII case changes and stem spaces changed to
-underscores. The original captured member and emitted basename remain unchanged;
-no normalised archive member or filesystem alias is opened.
-Different canonical members sharing a normalised output name still fail with
-`vmap.flat_name_collision`, including equal bytes, different bytes, and different
-collision dispositions. Existing missing-input, identity, and source-replacement
-refusals remain.
+An owner-approved deviation resolves each doodad to its full canonical captured
+M2 member path, ignoring ASCII case and converting the four exact legacy
+extensions. Models with the same basename retain separate collision products.
+Each selected placement uses its own member's hull or genuine zero hull.
+Original archive member spelling and extracted basenames remain available;
+there is no normalized-basename alias cache. Missing required inputs, ambiguous
+identities, and changed bytes at the same canonical path still refuse.
 
 Member paths accept printable ASCII punctuation, including ampersands in directory
 components. `MPQFile` passes names directly to `libmpq__file_number`, whose hashes
@@ -72,26 +70,17 @@ no-hull product. `Model::open` returns false for that normal disposition at
 `model.cpp:49-71`; it is not a missing member or unsupported name.
 
 In `vmapextract/wmo.cpp:89-103`, both retained Paths and the local extraction path
-precede the `fixnamen`/`fixname2` mutation of the MPQ buffer. In
-`gameobject_extract.cpp:14-33`, `.MDX` becomes `.M2`, and `GetPlainName` preserves
-the original basename's case. In `model.cpp:241-260`, ExtractSet instead applies
-`fixnamen`, then `fixname2`, then the lowercase legacy-extension conversion.
-For an authored `AUTHOREDXX01.MDX`, extraction therefore emits `AUTHOREDXX01.M2`,
-but placement opens `Authoredxx01.m2`. A case-sensitive filesystem can skip that
-doodad when `fopen` fails. ADT MMDX extraction can create the lookup spelling
-later because `adtfile.cpp:150-156` normalizes before ExtractSingleModel.
-Benilla differs because source collision membership otherwise depends on
-filesystem case rules and extraction order.
-For a basename with a stem space, extraction retains the space while lookup
-uses an underscore. Ordinary Windows filesystems also distinguish those names.
-Without another earlier flat-file producer, the pinned source skips that doodad
-on Windows too. The same captured-member rule resolves both shapes and refuses
-competing members instead of letting extraction order select the geometry.
+precede the `fixnamen`/`fixname2` mutation of the MPQ buffer.
+`gameobject_extract.cpp:26-39` checks basename `FileExists` before opening a model,
+and `model.cpp:49-73` writes no flat file for a genuine zero hull. Thus a later
+zero-hull model can inherit an earlier different member's hull. Benilla keeps
+each model's own collision through canonical-path capture and placement lookup.
 
-Normalised aliases retain the exact captured product and use its emitted basename in
-placement records and assembled models. Runtime never needs a filesystem alias:
-`MapTree.cpp:310,399` passes `spawn.name` to `VMapManager2.cpp:310-321`, which reads
-`basepath + filename + ".vmo"` without normalization.
+Placement records and assembled models encode the full ASCII-case-folded member
+path, replacing `%` with `%25` and `\` with `%5c`. Doodad names use that exact
+encoded length without a legacy-extension trailing NUL. Runtime needs no
+filesystem alias: `MapTree.cpp:310,399` passes `spawn.name` to
+`VMapManager2.cpp:310-321`, which reads `basepath + filename + ".vmo"`.
 
 Missing required model/group inputs fail the complete preparation atomically.
 Malformed records, nonfinite values and overflowing set ranges are rejected rather
@@ -105,7 +94,7 @@ verification cover the expanded dependency reads. No output is published on fail
 Public diagnostic summaries expose only counts/categories and policy labels; raw
 asset paths/set-name bytes are excluded from their serializers.
 
-The writer policy is `benilla-vmaps05-canonical-wmo-path-v8`.
+The writer policy is `benilla-vmaps05-canonical-model-path-v9`.
 This revision captures dependencies and selected membership, not final placement.
 
 ## Remaining assembly obligations

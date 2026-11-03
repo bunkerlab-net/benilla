@@ -642,20 +642,6 @@ pub(crate) fn doodad_model_dependency(
     }))
 }
 
-/// Later ExtractSet normalizes its retained original basename independently.
-pub(crate) fn doodad_lookup_name(raw: &[u8]) -> Result<String, DiscoveryError> {
-    safe_member(raw).map_err(DiscoveryError::from_internal)?;
-    let plain = raw.iter().rposition(|&b| b == b'\\').map_or(0, |n| n + 1);
-    let mut name = raw[plain..].to_vec();
-    fix_name(&mut name);
-    fix_spaces(&mut name);
-    if name.ends_with(b".mdx") || name.ends_with(b".mdl") {
-        name.truncate(name.len() - 2);
-        name.push(b'2');
-    }
-    Ok(String::from_utf8(name).expect("ASCII basename"))
-}
-
 fn safe_member(bytes: &[u8]) -> InternalResult<()> {
     ensure!(
         !bytes.is_empty() && bytes.len() <= MAX_MEMBER_BYTES,

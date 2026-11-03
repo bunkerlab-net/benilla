@@ -574,24 +574,17 @@ fn empty_table_names_are_explicit_refusals_never_ordinal_collapsing() {
 }
 
 #[test]
-fn doodad_extraction_keeps_original_spelling_until_later_lookup() {
+fn doodad_extraction_keeps_original_spelling() {
     let dependency = doodad_model_dependency(b"World\\MODEL NAME.MDX")
         .unwrap()
         .unwrap();
     assert_eq!(dependency.member, "World\\MODEL NAME.M2");
     assert_eq!(dependency.extracted_name, "MODEL NAME.M2");
-    assert_eq!(
-        doodad_lookup_name(b"World\\MODEL NAME.MDX").unwrap(),
-        "Model_Name.m2"
-    );
     let dependency = doodad_model_dependency(b"World\\Chair.mdx")
         .unwrap()
         .unwrap();
     assert_eq!(dependency.member, "World\\Chair.m2");
-    assert_eq!(
-        dependency.extracted_name,
-        doodad_lookup_name(b"World\\Chair.mdx").unwrap()
-    );
+    assert_eq!(dependency.extracted_name, "Chair.m2");
     assert!(doodad_model_dependency(b"").unwrap().is_none());
     assert!(doodad_model_dependency(b"a").unwrap().is_none());
     assert!(doodad_model_dependency(b"World\\Chair.MdX").is_err());
@@ -609,7 +602,7 @@ fn portable_ascii_punctuation_is_preserved_in_archive_directory_names() {
         assert_eq!(input.dependencies[0].member, expected);
         let doodad = doodad_model_dependency(path.as_bytes()).unwrap().unwrap();
         assert_eq!(doodad.member, expected);
-        assert_eq!(doodad_lookup_name(path.as_bytes()).unwrap(), "Prop.m2");
+        assert_eq!(doodad.extracted_name, "Prop.m2");
     }
 }
 

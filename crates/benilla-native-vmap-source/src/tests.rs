@@ -455,27 +455,101 @@ fn distinct_zero_hull_m2_aliases_keep_both_products_receipts_and_empty_placement
 }
 
 #[test]
-fn distinct_m2_aliases_refuse_when_either_member_has_a_hull() {
-    for hulls in [[true, false], [false, true], [true, true]] {
+fn same_basename_m2_members_keep_their_own_hulls_through_assembly() {
+    for hulls in [[true, false], [false, true], [true, true], [false, false]] {
+        for reverse in [false, true] {
+            let temp = Temp::new();
+            let data = temp.data();
+            let mut names = ["Models\\Shared.mdx", "Other\\SHARED.MDX"];
+            let mut expected = [
+                ("Models\\Shared.m2", "models%5cshared.m2", m2(hulls[0])),
+                ("Other\\Shared.m2", "other%5cshared.m2", m2(hulls[1])),
+            ];
+            if hulls[1] {
+                set_word(&mut expected[1].2, 330, 2.0_f32.to_bits());
+            }
+            if reverse {
+                names.reverse();
+                expected.reverse();
+            }
+            let mut entries = prerequisites();
+            entries.push(raw_entry(ADT, adt(&names, &[(0, 1), (1, 2)])));
+            for (member, _, bytes) in &expected {
+                entries.push(raw_entry(member, bytes.clone()));
+            }
+            save(&data, "model.MPQ", &entries);
+            let prepared = prepare(&data, 0, || false).unwrap();
+            assert_eq!(prepared.products().len(), 2);
+            for (index, (member, name, bytes)) in expected.iter().enumerate() {
+                let product = &prepared.products()[index];
+                assert_eq!(product.source_member(), *member);
+                assert_eq!(product.model_name(), *name);
+                let raw = match extract_m2_collision(bytes).unwrap() {
+                    M2Collision::NoCollision => None,
+                    M2Collision::RawVmap(bytes) => Some(bytes),
+                };
+                assert_eq!(product.raw_vmap(), raw.as_deref());
+                let placement = &prepared.placements()[index];
+                assert_eq!(placement.product_index(), index);
+                assert_eq!(
+                    placement.disposition(),
+                    if raw.is_some() {
+                        PlacementDisposition::Emits
+                    } else {
+                        PlacementDisposition::NoCollision
+                    }
+                );
+            }
+            let profile =
+                DoodadProjectionProfile::from_policy_id("g3d-portable-libm-0.2.16-v1").unwrap();
+            let count = hulls.into_iter().filter(|hull| *hull).count();
+            assert_eq!(
+                prepared
+                    .placement_records(profile, || false)
+                    .unwrap()
+                    .record_count(),
+                count
+            );
+            if count != 0 {
+                let bundle = prepared
+                    .assemble_map_bundle(profile, || false)
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(bundle.models().len(), count);
+                for model in bundle.models() {
+                    assert!(expected
+                        .iter()
+                        .any(|(_, name, _)| model.source_name() == name.as_bytes()));
+                }
+                if count == 2 {
+                    assert_ne!(bundle.models()[0].bytes(), bundle.models()[1].bytes());
+                }
+            }
+            prepared.verify_unchanged(|| false).unwrap();
+        }
+    }
+}
+
+#[test]
+fn same_canonical_m2_path_with_changed_bytes_refuses() {
+    for hull in [false, true] {
         let temp = Temp::new();
         let data = temp.data();
         let mut entries = prerequisites();
-        entries.push(raw_entry(
-            ADT,
-            adt(
-                &["Models\\Empty.mdx", "Other\\EMPTY.MDX"],
-                &[(0, 1), (1, 2)],
-            ),
-        ));
-        entries.push(raw_entry("Models\\Empty.m2", m2(hulls[0])));
-        entries.push(raw_entry("Other\\EMPTY.M2", m2(hulls[1])));
+        entries.push(raw_entry(ADT, adt(&["Models\\Shared.mdx"], &[(0, 1)])));
+        entries.push(raw_entry("Models\\Shared.m2", m2(hull)));
         save(&data, "model.MPQ", &entries);
-        let error = prepare(&data, 0, || false).unwrap_err();
-        assert_eq!(error.diagnostic().category, "vmap.flat_name_collision");
-        assert_eq!(
-            error.diagnostic().stage,
-            Some(PreparationStage::AdtTraversal)
-        );
+        let prepared = prepare(&data, 0, || false).unwrap();
+        let model = entries
+            .iter_mut()
+            .find(|entry| entry.name == "Models\\Shared.m2")
+            .unwrap();
+        model.bytes[8] = 1;
+        save(&data, "model.MPQ", &entries);
+        assert!(matches!(
+            prepared.verify_unchanged(|| false),
+            Err(Error::Source(SourceError::Changed))
+        ));
     }
 }
 
@@ -549,7 +623,7 @@ fn dummy_adt_blocks_lower_archive_fallback_but_does_not_skip_attempt_receipt() {
 }
 
 #[test]
-fn distinct_m2_flat_name_collisions_fail_closed() {
+fn unplaced_same_basename_m2_members_with_equal_bytes_remain_distinct() {
     let temp = Temp::new();
     let data = temp.data();
     let mut entries = prerequisites();
@@ -557,10 +631,15 @@ fn distinct_m2_flat_name_collisions_fail_closed() {
     entries.push(raw_entry("A\\Same.m2", m2(true)));
     entries.push(raw_entry("B\\Same.m2", m2(true)));
     save(&data, "terrain.MPQ", &entries);
-    assert!(matches!(
-        prepare(&data, 0, || false).unwrap_err().category(),
-        Error::NameCollision
-    ));
+    let prepared = prepare(&data, 0, || false).unwrap();
+    assert_eq!(prepared.products().len(), 2);
+    assert_eq!(
+        prepared.products()[0].raw_vmap(),
+        prepared.products()[1].raw_vmap()
+    );
+    assert_eq!(prepared.products()[0].model_name(), "a%5csame.m2");
+    assert_eq!(prepared.products()[1].model_name(), "b%5csame.m2");
+    prepared.verify_unchanged(|| false).unwrap();
 }
 
 #[test]
@@ -897,8 +976,8 @@ fn m2_record_stream_preserves_source_coordinate_scale_name_and_duplicate_ids() {
     for v in [9.0_f32, 1.25, -0.0, -45.0, 180.0, 360.0, 65535.0 / 1024.0] {
         expected.extend_from_slice(&v.to_le_bytes());
     }
-    expected.extend_from_slice(&8_u32.to_le_bytes());
-    expected.extend_from_slice(b"Solid.m2");
+    expected.extend_from_slice(&17_u32.to_le_bytes());
+    expected.extend_from_slice(b"models%5csolid.m2");
     assert_eq!(
         records.bytes(),
         [expected.as_slice(), expected.as_slice()].concat()

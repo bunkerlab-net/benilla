@@ -155,9 +155,9 @@ impl PreparedDiscovery {
         if !candidate.spawn.scale.is_finite() {
             return Err(DoodadProjectionError::NumericDomain);
         }
-        let name = product.extracted_name.as_bytes();
+        let name = product.model_name().as_bytes();
         let recorded = candidate.serialized_name_len as usize;
-        if recorded != name.len() && recorded != name.len() + 1 {
+        if recorded != name.len() {
             return Err(DoodadProjectionError::RetainedIdentity);
         }
         let mut prefix = [0; 18];
@@ -190,9 +190,6 @@ impl PreparedDiscovery {
         }
         suffix.extend_from_slice(&candidate.serialized_name_len.to_le_bytes());
         suffix.extend_from_slice(name);
-        if recorded > name.len() {
-            suffix.push(0);
-        }
         let mut digest = Sha256::new();
         digest.update(b"benilla-wmo-doodad-projection-binding-v3\0");
         digest.update(crate::SOURCE_PIN.as_bytes());

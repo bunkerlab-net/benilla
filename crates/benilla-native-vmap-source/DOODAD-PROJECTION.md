@@ -53,10 +53,12 @@ Source pin: `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`, `WMOInstance`,
   degree conversion. Output fields are `[Y,Z,X]`
 - MODD scale is copied unchanged, including finite zero/negative values. It does
   not scale the local position. Later assembly must enforce its own profile
-- Source name length is measured before `.mdx`/`.mdl` shortening. Thus the shorter
-  `.m2` name includes one trailing NUL when serialized using the original length
+- Pinned source measures name length before `.mdx`/`.mdl` shortening and writes
+  a trailing NUL for those legacy extensions. The owner-approved
+  `benilla-vmaps05-canonical-model-path-v9` writer instead writes the encoded
+  canonical member path and its exact length without a trailing NUL
 - The 18-byte prefix contains map, tile, M2/worldspawn flags and zero nameSet.
-  The suffix contains position, rotation, scale, original length and name bytes
+  The suffix contains position, rotation, scale, encoded length, and name bytes
 
 All inputs/intermediates must be finite; parent angles are bounded to ±360
 because that is the existing pinned sine/cosine domain. Zero/underflowed and
@@ -77,7 +79,8 @@ Linux receipt is 72 admitted cases, seven explicit refusals, and zero differing
 coordinate fields (zero ULP and absolute geometric error); six source cases emit
 no child. This finite corpus is not a proof over every float input. Actual authored
 MPQ tests exercise the complete capture-to-projection path and changed-input
-rejection. All-platform jobs run these same tests; results remain pending until CI.
+rejection, adapting only the oracle's model name and length to the canonical
+writer policy. All-platform jobs run these same tests; results remain pending until CI.
 
 A complete map assembler still needs ordered placement closure, duplicate
 resolution, transformed bounds, primitive slots and full BIH construction.

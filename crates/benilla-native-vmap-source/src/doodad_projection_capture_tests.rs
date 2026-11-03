@@ -114,8 +114,19 @@ fn dp_tree(path: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     result
 }
 
+fn dp_canonical_child(case: &str) -> Vec<u8> {
+    let mut bytes = dp_fixture(case, "child.dir");
+    if !bytes.is_empty() {
+        assert!(matches!(&bytes[54..], b"Solid.m2" | b"Solid.m2\0"));
+        bytes.truncate(50);
+        bytes.extend_from_slice(&17u32.to_le_bytes());
+        bytes.extend_from_slice(b"models%5csolid.m2");
+    }
+    bytes
+}
+
 fn dp_assert_source_record(case: &str, projection: &DoodadProjection) {
-    let expected = dp_fixture(case, "child.dir");
+    let expected = dp_canonical_child(case);
     assert!(expected.len() > 54, "{case}");
     assert_eq!(
         projection.prefix_before_generated_id().as_slice(),
@@ -225,14 +236,7 @@ fn complete_authored_mpq_closures_project_original_records_without_generated_ids
         let suffix = projection.suffix_after_generated_id();
         assert_eq!(word(suffix, 28), original_candidate.serialized_name_len);
         assert_eq!(suffix.len(), 32 + word(suffix, 28) as usize);
-        assert_eq!(
-            &suffix[32..],
-            if case == "portable_m2" {
-                b"Solid.m2".as_slice()
-            } else {
-                b"Solid.m2\0".as_slice()
-            }
-        );
+        assert_eq!(&suffix[32..], b"models%5csolid.m2");
         assert!(!format!("{projection:?}").contains("Solid"));
         prepared.verify_unchanged(|| false).unwrap();
         assert_eq!(dp_tree(&temp.0), before, "{case} creates no output files");
@@ -308,7 +312,7 @@ fn projection_binding_names_the_pin_policy_and_full_capture_epoch_and_is_not_a_l
         digest.update([0]);
         digest.update(b"gcc14-libstdcxx-u16-identity-prime-load1-fresh-insert-v1");
         digest.update([0]);
-        digest.update(b"benilla-vmaps05-canonical-wmo-path-v8");
+        digest.update(b"benilla-vmaps05-canonical-model-path-v9");
         digest.update([0]);
         digest.update(b"cmangos-client-u32-child-u16-first-encounter-v1");
         digest.update([0]);
@@ -457,7 +461,7 @@ fn nonfinite_source_mutations_never_produce_a_prepared_projection() {
 }
 
 #[test]
-fn complete_selected_record_stream_matches_original_bytes_except_wmo_path_identity() {
+fn complete_selected_record_stream_matches_original_bytes_except_model_path_identity() {
     for case in [
         "portable_mdx",
         "portable_mdl",
@@ -500,13 +504,13 @@ fn complete_selected_record_stream_matches_original_bytes_except_wmo_path_identi
         let records = prepared.placement_records(dp_profile(), || false).unwrap();
         let mut parent = dp_fixture(case, "parent.dir");
         if !parent.is_empty() {
-            // Only the owner-approved WMO name differs from the pinned oracle.
+            // Only the owner-approved model name differs from the pinned oracle.
             assert_eq!(&parent[78..], b"Parent.wmo");
             parent.truncate(74);
             parent.extend_from_slice(&24u32.to_le_bytes());
             parent.extend_from_slice(b"world%5cwmo%5cparent.wmo");
         }
-        let child = dp_fixture(case, "child.dir");
+        let child = dp_canonical_child(case);
         let expected = [parent.as_slice(), child.as_slice()].concat();
         assert_eq!(records.bytes(), expected, "{case}");
         assert_eq!(

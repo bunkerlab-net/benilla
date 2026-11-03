@@ -136,7 +136,7 @@ pub struct DoodadCandidate {
     pub child_ordinal: u16,
     pub product_index: usize,
     pub spawn: DoodadSpawn,
-    /// Original basename length before .mdx/.mdl shortening; no asset text.
+    /// Encoded canonical model-name length; no asset text or trailing NUL.
     pub serialized_name_len: u32,
 }
 
@@ -158,7 +158,7 @@ pub struct RawProduct {
     kind: ModelKind,
     member: String,
     extracted_name: String,
-    wmo_name: Option<String>,
+    canonical_name: String,
     collision: Collision,
     doodads: Option<CapturedDoodads>,
 }
@@ -173,7 +173,7 @@ impl RawProduct {
         &self.extracted_name
     }
     fn model_name(&self) -> &str {
-        self.wmo_name.as_deref().unwrap_or(&self.extracted_name)
+        &self.canonical_name
     }
     pub fn raw_vmap(&self) -> Option<&[u8]> {
         match &self.collision {
@@ -671,7 +671,6 @@ struct Builder {
     placements: Vec<Placement>,
     products: Vec<RawProduct>,
     names: HashMap<String, usize>,
-    empty_alias_members: HashMap<String, usize>,
     encounter_ids: encounter_ids::EncounterIds,
     doodad_candidates: Vec<DoodadCandidate>,
     stage: PreparationStage,
@@ -685,7 +684,7 @@ impl Builder {
                 source_pin: SOURCE_PIN,
                 acquisition_policy: source::SOURCE_POLICY,
                 listfile_policy: discovery::LISTFILE_POLICY,
-                writer_policy: "benilla-vmaps05-canonical-wmo-path-v8",
+                writer_policy: "benilla-vmaps05-canonical-model-path-v9",
                 liquid_header_policy: WMO_LIQUID_HEADER_ZERO_PADDING_V1,
                 doodad_reference_order_policy: doodad_reference_order::POLICY,
                 encounter_id_policy: encounter_ids::POLICY,
@@ -724,7 +723,6 @@ impl Builder {
             placements: Vec::new(),
             products: Vec::new(),
             names: HashMap::new(),
-            empty_alias_members: HashMap::new(),
             encounter_ids: encounter_ids::EncounterIds::default(),
             doodad_candidates: Vec::new(),
             stage: PreparationStage::OpenSource,
@@ -884,9 +882,11 @@ impl Builder {
                 .root
                 .path_at(spawn.name_index)
                 .map_err(Error::Doodad)?;
-            let name = discovery::doodad_lookup_name(path)?;
-            // ExtractSet checks flat output after global extraction; aliases here resolve captured M2 products.
-            let Some(&product_index) = self.names.get(&name) else {
+            let Some(dependency) = discovery::doodad_model_dependency(path)? else {
+                continue;
+            };
+            let key = dependency.member.to_ascii_lowercase();
+            let Some(&product_index) = self.names.get(&key) else {
                 continue;
             };
             if self.products[product_index].kind != ModelKind::M2 {
@@ -917,11 +917,7 @@ impl Builder {
                 child_ordinal,
                 product_index,
                 spawn: spawn.clone(),
-                serialized_name_len: path
-                    .rsplit(|&b| b == b'\\')
-                    .next()
-                    .unwrap_or_default()
-                    .len() as u32,
+                serialized_name_len: self.products[product_index].model_name().len() as u32,
             });
         }
         self.summary.doodad_candidates = self.doodad_candidates.len();
@@ -939,18 +935,14 @@ impl Builder {
         dependency: &ModelDependency,
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Option<usize>, Error> {
-        // Deviation: Resolve captured doodad basenames with source fixnamen/fixname2 because CMaNGOS 8ec338a1 wmo.cpp:89-103 copies MODN before mutation, gameobject_extract.cpp:14-39 emits the original basename, and model.cpp:242-260 looks up the normalized basename and skips missing files, making collision depend on earlier flat outputs.
-        let key = match dependency.kind {
-            ModelKind::M2 => discovery::doodad_lookup_name(dependency.extracted_name.as_bytes())?,
-            // Deviation: Key WMO geometry by full canonical path because CMaNGOS 8ec338a1 vmapexport.cpp:160-167 flattens basenames and FileExists returns first-wins, then src/game/vmap/TileAssembler.cpp:298-329 writes basename.vmo, giving the loser the winner's geometry and depending on leftover output.
-            ModelKind::Wmo => dependency.member.to_ascii_lowercase(),
-        };
+        // Deviation: Key M2 collision by canonical path because CMaNGOS 8ec338a1 gameobject_extract.cpp:26-39 uses basename FileExists first-wins and model.cpp:49-73 writes no zero-hull file, giving a no-collision model the other model's hull; benilla keeps each model's own collision.
+        // Deviation: Key WMO geometry by full canonical path because CMaNGOS 8ec338a1 vmapexport.cpp:160-167 flattens basenames and FileExists returns first-wins, then src/game/vmap/TileAssembler.cpp:298-329 writes basename.vmo, giving the loser the winner's geometry and depending on leftover output.
+        let key = dependency.member.to_ascii_lowercase();
         let existing = self.names.get(&key).copied();
         if let Some(index) = existing {
             let product = &self.products[index];
             if product.kind != dependency.kind
-                || (!product.member.eq_ignore_ascii_case(&dependency.member)
-                    && !matches!(product.collision, Collision::M2EmptyHull))
+                || !product.member.eq_ignore_ascii_case(&dependency.member)
             {
                 return Err(Error::NameCollision);
             }
@@ -983,26 +975,11 @@ impl Builder {
         };
         drop(captured);
         check_cancel(cancelled)?;
-        let mut empty_alias_key = None;
         if let Some(index) = existing {
-            if self.products[index]
-                .member
-                .eq_ignore_ascii_case(&dependency.member)
-            {
-                if !matches!(collision, Collision::M2EmptyHull) {
-                    return Err(Error::SourceChangedDuringPreparation);
-                }
-                return Ok(Some(index));
-            }
-            // CMaNGOS 8ec338a1 gameobject_extract.cpp:26-39 and model.cpp:49-73 emit no flat file for either genuine zero hull.
             if !matches!(collision, Collision::M2EmptyHull) {
-                return Err(Error::NameCollision);
+                return Err(Error::SourceChangedDuringPreparation);
             }
-            let member = dependency.member.to_ascii_lowercase();
-            if let Some(&index) = self.empty_alias_members.get(&member) {
-                return Ok(Some(index));
-            }
-            empty_alias_key = Some(member);
+            return Ok(Some(index));
         }
         if self.products.len() == MAX_PRODUCTS {
             return Err(Error::ProductLimit);
@@ -1011,7 +988,7 @@ impl Builder {
             kind: dependency.kind,
             member: dependency.member.clone(),
             extracted_name: dependency.extracted_name.clone(),
-            wmo_name: (dependency.kind == ModelKind::Wmo).then(|| wmo_model_name(&key)),
+            canonical_name: canonical_model_name(&key),
             collision,
             doodads,
         };
@@ -1022,15 +999,9 @@ impl Builder {
         self.products
             .try_reserve(1)
             .map_err(|_| Error::AllocationFailed)?;
-        if empty_alias_key.is_some() {
-            self.empty_alias_members
-                .try_reserve(1)
-                .map_err(|_| Error::AllocationFailed)?;
-        } else {
-            self.names
-                .try_reserve(1)
-                .map_err(|_| Error::AllocationFailed)?;
-        }
+        self.names
+            .try_reserve(1)
+            .map_err(|_| Error::AllocationFailed)?;
         match product.collision {
             Collision::M2EmptyHull => self.summary.m2_no_collision_products += 1,
             Collision::M2(_) => self.summary.m2_raw_products += 1,
@@ -1038,11 +1009,7 @@ impl Builder {
         }
         let index = self.products.len();
         self.products.push(product);
-        if let Some(member) = empty_alias_key {
-            self.empty_alias_members.insert(member, index);
-        } else {
-            self.names.insert(key, index);
-        }
+        self.names.insert(key, index);
         self.summary.retained_raw_bytes = total;
         Ok(Some(index))
     }
@@ -1195,7 +1162,7 @@ impl Builder {
 }
 
 // Reversible flat representation of the full canonical key, not a filesystem path.
-fn wmo_model_name(key: &str) -> String {
+fn canonical_model_name(key: &str) -> String {
     let extra = key.bytes().filter(|b| matches!(b, b'\\' | b'%')).count() * 2;
     let mut name = String::with_capacity(key.len() + extra);
     for byte in key.bytes() {

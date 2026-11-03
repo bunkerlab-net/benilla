@@ -388,7 +388,7 @@ mod tests {
             kind: crate::ModelKind::M2,
             member: name.to_owned(),
             extracted_name: name.to_owned(),
-            wmo_name: None,
+            canonical_name: name.to_owned(),
             collision: crate::Collision::M2(vec![0xff]),
             doodads: None,
         }

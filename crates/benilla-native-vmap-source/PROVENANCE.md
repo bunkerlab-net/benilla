@@ -59,16 +59,17 @@ when a declared group cannot open. It does not emit an empty group.
 `model.cpp:35-43` and `wmo.cpp:102-104` omit an unavailable M2 from valid doodad
 names. They do not emit an empty M2. These required-dependency errors remain
 atomic refusals in this bounded profile.
-Distinct canonical M2 members with the same normalized flat output name are
-rejected whenever either has collision. Genuine zero-hull pairs retain separate
-products and receipts, with no collision for either member's placements.
-`gameobject_extract.cpp:26-39` and `model.cpp:49-73` emit no flat file for these
-models, so neither member supplies cached collision for the other.
-WMO products and references use the full ASCII-case-folded canonical member
-path. Each root retains its own complete groups and doodads, even when another
-root has the same basename. Placement and assembled-model names encode that
-path reversibly, replacing `%` with `%25` and `\` with `%5c`. This keeps the
-existing flat-name consumer contract without merging directory identities.
+M2 and WMO products and references use the full ASCII-case-folded canonical
+member path. Each model retains its own collision, even when another model
+has the same basename. Placement and assembled-model names encode that path
+reversibly, replacing `%` with `%25` and `\` with `%5c`. This keeps the flat-name
+consumer contract without merging directory identities. The original extracted
+basename remains separately available.
+For M2, this is an owner-approved deviation from
+`gameobject_extract.cpp:26-39` and `model.cpp:49-73`: an earlier basename output
+can give a later no-collision model another member's hull. Benilla instead keeps
+each model's own hull or genuine zero hull. The path key subsumes the earlier
+zero-hull alias exception; there is no separate alias cache.
 Name and metadata limits are unchanged. Ambiguous outputs still refuse, and
 fresh-source replay rejects changed bytes at the same canonical path.
 
@@ -76,7 +77,7 @@ fresh-source replay rejects changed bytes at the same canonical path.
 
 The acquisition policy is
 `cmangos-vmap-numeric-1-through-99-reverse-first-hit-v1`; the raw writer profile is
-`benilla-vmaps05-canonical-wmo-path-v8`. Both and the listfile policy are
+`benilla-vmaps05-canonical-model-path-v9`. Both and the listfile policy are
 reported separately from the input digest. No summary or serialized digest can
 mint a prepared object.
 
