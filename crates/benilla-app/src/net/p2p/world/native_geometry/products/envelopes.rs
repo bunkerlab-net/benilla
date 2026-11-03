@@ -9,6 +9,8 @@ use super::{
 use std::collections::BTreeSet;
 
 const MAX_ELEMENTS: usize = 262_144;
+// Map-0 full assembly: max 4,757 placements across 354 tiles; 8,192 is the next power of two, leaving 3,435 records of margin.
+const MAX_TILE_PLACEMENTS: usize = 8_192;
 
 pub(super) fn validate(id: &ProductId, bytes: &[u8]) -> Result<BTreeSet<ProductId>, Error> {
     validate_profile(id, bytes, false, false)
@@ -67,10 +69,7 @@ fn validate_profile(
         }
         ProductId::VmapTile(_) => {
             c.magic(b"VMAP_7.0")?;
-            let count = c.count()?;
-            if count > 4096 {
-                return Err(Error::Budget);
-            }
+            let count = c.bounded_count(MAX_TILE_PLACEMENTS)?;
             for _ in 0..count {
                 let flags = c.word()?;
                 // MOD_M2, MOD_HAS_BOUND. Worldspawns are outside the tiled exterior profile.
@@ -339,6 +338,44 @@ mod tests {
         bytes.resize(bytes.len() + objects * 4, 0);
         bytes.extend_from_slice(b"GOBJ");
         bytes
+    }
+
+    #[test]
+    fn tile_envelopes_accept_measured_and_power_of_two_boundary_counts() {
+        let id = ProductId::VmapTile(super::super::TileId { x: 48, y: 31 });
+        for count in [4_757_u32, 8_191, 8_192] {
+            let mut bytes = b"VMAP_7.0".to_vec();
+            bytes.extend_from_slice(&count.to_le_bytes());
+            for spawn in 0..count {
+                bytes.extend_from_slice(&1_u32.to_le_bytes());
+                bytes.extend_from_slice(&0_u16.to_le_bytes());
+                bytes.extend_from_slice(&spawn.to_le_bytes());
+                bytes.resize(bytes.len() + 24, 0);
+                bytes.extend_from_slice(&1_f32.to_le_bytes());
+                bytes.extend_from_slice(&11_u32.to_le_bytes());
+                bytes.extend_from_slice(b"authored.m2");
+                bytes.extend_from_slice(&spawn.to_le_bytes());
+            }
+            assert_eq!(validate_source_names(&id, &bytes, true).unwrap().len(), 1);
+            assert!(matches!(
+                validate_source_names(&id, &bytes[..bytes.len() - 1], true),
+                Err(Error::Framing)
+            ));
+        }
+    }
+
+    #[test]
+    fn tile_envelopes_refuse_above_boundary_before_payload() {
+        let mut bytes = b"VMAP_7.0".to_vec();
+        bytes.extend_from_slice(&8_193_u32.to_le_bytes());
+        assert!(matches!(
+            validate_source_names(
+                &ProductId::VmapTile(super::super::TileId { x: 48, y: 31 }),
+                &bytes,
+                true
+            ),
+            Err(Error::Budget)
+        ));
     }
 
     #[test]

@@ -14,6 +14,8 @@ The complete source envelope is bounded to 4,096 tile products, 32,768 models, 5
 
 The source framing envelope and loaded BIH decoder share the same BIH word limits. Other encoded-array limits are unchanged.
 
+Each VMap tile envelope accepts at most 8,192 placement records and refuses larger counts before scanning the payload. The full map-0 assembly measures a maximum of 4,757 across all 354 emitted tiles after 4,096 ADT attempts. The smallest enclosing power of two leaves 3,435 records of margin. Pinned `TileAssembler.cpp:155-168` and `MapTree.cpp:388-395` use a uint32 count without a smaller source cap. Aggregate index bytes, placement-reference work, selected residency, and loaded-decoder limits remain unchanged.
+
 All source bytes contribute to the binding. Unresident model geometry is hashed but deliberately not decoded or certified valid. Loading it later invokes the ordinary complete model, transform and enclosing-bound checks. The complete placement index is validated even when its geometry is not resident.
 
 Cancellation is polled during source checks, row hashing, placement scans and metadata initialization. Existing envelope/BIH validation and the resident decoder are synchronous bounded operations; polling occurs around them. Metadata, the original assembled source bundle, raw capture and decoder allocations have separate bounded memory costs. This view does not eliminate the producer's full-map capture/assembly memory peak, and real continent sizing remains to be measured.
