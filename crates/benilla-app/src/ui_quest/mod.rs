@@ -813,6 +813,7 @@ mod tests {
             rewards: vec![triple(3000)],
             money: 1234,
             reward_spell: 0,
+            emotes: Vec::new(),
         })
     }
 
@@ -881,6 +882,7 @@ mod tests {
             rewards: vec![triple(3000), triple(3001), triple(3002)],
             money: 0,
             reward_spell: 0,
+            emotes: Vec::new(),
         });
         giver.open(0x42, view);
         let qualities: Vec<i64> = cells(&giver, &items)
@@ -1203,6 +1205,7 @@ mod tests {
             money: 0,
             quest_flags: 0,
             reward_spell: 0,
+            emotes: Vec::new(),
         })
     }
 

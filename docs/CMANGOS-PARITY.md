@@ -424,6 +424,11 @@ is meaningful without a bounded content/mechanics inventory.
   emotes, and conditions outside the documented quest subset refuse. The
   [quest mechanics contract](../crates/benilla-sim/QUEST-LIFECYCLE.md#checked-completion-scripts-and-quest-gossip)
   records the exact source methods and independent capture/order obligations.
+  Quest DETAILS/OFFER packet DTOs retain counted emote pairs and delays. Raw
+  presentation validates Emotes lookups and binds every slot into its digest.
+  Native admission still refuses nonzero pairs. The client queue findings at
+  `0x60bbc0`/`0x60bce0` do not specify later-delay accumulation, due comparison,
+  replacement/empty-list behavior or filter position, so scheduling remains closed.
 - **Dependencies:** prerequisites/exclusive groups, reputation/race/class/level,
   timed/repeatable state, inventory, spells, exploration, escort/game-object
   scripts, group sharing/credit, condition evaluation and persistent quest log.

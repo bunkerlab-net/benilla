@@ -641,6 +641,7 @@ mod tests {
                 rewards: vec![],
                 money: 0,
                 reward_spell: 0,
+                emotes: Vec::new(),
             }),
         );
         giver
@@ -891,6 +892,7 @@ mod tests {
             rewards: Vec::new(),
             money: 0,
             reward_spell: 0,
+            emotes: Vec::new(),
         }
     }
 
@@ -991,6 +993,7 @@ mod tests {
             money: 0,
             quest_flags: 0,
             reward_spell: 0,
+            emotes: Vec::new(),
         }
     }
 }

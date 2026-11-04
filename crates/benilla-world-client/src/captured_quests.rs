@@ -265,15 +265,13 @@ impl CapturedQuestPresentation {
                 text(raw.quest, value, &mut bytes)?;
             }
             let present = &raw.presentation;
-            if present
-                .details_emotes
-                .iter()
-                .chain(&present.offer_emotes)
-                .any(|p| *p != (0, 0))
-                || present.complete_emote_delay != 0
-                || present.incomplete_emote_delay != 0
-            {
+            if present.complete_emote_delay != 0 || present.incomplete_emote_delay != 0 {
                 return Err(error(raw.quest, "emotes", "unsupported_packet_shape"));
+            }
+            for &(_, emote) in present.details_emotes.iter().chain(&present.offer_emotes) {
+                if emote != 0 && !emotes.contains(&emote) {
+                    return Err(error(raw.quest, "Emotes", "missing_lookup"));
+                }
             }
             if !maps.contains(&raw.point_map)
                 || !f32::from_bits(raw.point_x_bits).is_finite()
@@ -622,7 +620,7 @@ impl CapturedQuestPresentation {
         }
         // Exact raw text, locale/gender branches and source binding join the caller's full manifest.
         out.digest = Sha256::digest(format!(
-            "benilla-captured-quest-presentation-v1:{self:?}:{database_locale}"
+            "benilla-captured-quest-presentation-v2:{self:?}:{database_locale}"
         ))
         .into();
         Ok(out)

@@ -213,7 +213,7 @@ pub use quest::{
     quest_query, questgiver_accept_quest, questgiver_choose_reward, questgiver_complete_quest,
     questgiver_hello, questgiver_query_quest, questgiver_request_reward, questgiver_status_query,
     questlog_remove_quest, questlog_swap_quest, QuestComplete, QuestConfirmAccept, QuestDetails,
-    QuestGiverList, QuestListEntry, QuestObjective, QuestOfferReward, QuestPushResult,
+    QuestEmote, QuestGiverList, QuestListEntry, QuestObjective, QuestOfferReward, QuestPushResult,
     QuestRequestItems, QuestRequiredItem, QuestRewardItem, QuestShareMsg, QuestTemplate,
     QUEST_EMOTE_COUNT, QUEST_OBJECTIVES_COUNT, QUEST_REWARDS_COUNT, QUEST_REWARD_CHOICES_COUNT,
 };

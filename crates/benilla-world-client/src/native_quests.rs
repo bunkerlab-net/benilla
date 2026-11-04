@@ -65,6 +65,8 @@ impl Metadata {
             let presentation = catalog
                 .native_quest_presentation(id)
                 .ok_or(Error::InvalidQuestMetadata(id))?;
+            // Queue timing/replacement at 0x60bbc0/0x60bce0 is not fully documented.
+            // Retaining packet operands does not admit their client scheduling.
             if presentation
                 .details_emotes
                 .iter()
@@ -631,6 +633,7 @@ impl NativeProjection {
                 quote(w, quest, u32::from(level))?.reward_or_required_money
             },
             reward_spell: 0,
+            emotes: self.quest_metadata.presentation[&quest].details_packet_emotes(),
         }))
     }
     fn quest_progress_complete(
@@ -774,6 +777,7 @@ impl NativeProjection {
             // writes RewSpell here, followed by RewSpellCast. Both are admitted zero.
             quest_flags: 0,
             reward_spell: 0,
+            emotes: self.quest_metadata.presentation[&quest].offer_packet_emotes(),
         }))
     }
     /// Core status calculation after the caller's bound generic CanInteract check.

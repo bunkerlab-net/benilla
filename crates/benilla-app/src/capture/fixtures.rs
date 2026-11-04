@@ -635,21 +635,19 @@ pub(super) fn seed_ui_fixture(
                 };
                 quest.open(
                     NPC_GUID,
-                    crate::ui_quest::QuestView::Detail(benilla_protocol::messages::QuestDetails {
-                        npc: NPC_GUID,
-                        quest_id: 783,
-                        title: "A Threat Within".into(),
-                        details:
-                            "Kobolds have infested the Echo Ridge Mine to the northeast. Slay them \
-                                  and return to me."
-                                .into(),
-                        objectives: "Kill 8 Kobold Vermin.".into(),
-                        auto_finish: 1,
-                        choices: vec![choice(92_001, DISP_SWORD), choice(92_002, DISP_STONE)],
-                        rewards: vec![choice(92_003, DISP_SHIELD)],
-                        money: 1234, // 12s 34c
-                        reward_spell: 0,
-                    }),
+                    crate::ui_quest::QuestView::Detail(benilla_protocol::messages::QuestDetails { npc: NPC_GUID,
+                    quest_id: 783,
+                    title: "A Threat Within".into(),
+                    details:
+                        "Kobolds have infested the Echo Ridge Mine to the northeast. Slay them \
+                              and return to me."
+                            .into(),
+                    objectives: "Kill 8 Kobold Vermin.".into(),
+                    auto_finish: 1,
+                    choices: vec![choice(92_001, DISP_SWORD), choice(92_002, DISP_STONE)],
+                    rewards: vec![choice(92_003, DISP_SHIELD)],
+                    money: 1234, // 12s 34c
+                    reward_spell: 0, emotes: Vec::new() }),
                 );
             }
             UiFixture::QuestGreeting => {

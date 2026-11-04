@@ -435,6 +435,7 @@ impl Projection {
             rewards: self.reward_items(world, quest)?,
             money: t.money,
             reward_spell: 0,
+            emotes: Vec::new(),
         }))
     }
     pub fn quest_progress(
@@ -493,6 +494,7 @@ impl Projection {
             money: q.template.money,
             quest_flags: q.template.flags,
             reward_spell: 0,
+            emotes: Vec::new(),
         }))
     }
 }

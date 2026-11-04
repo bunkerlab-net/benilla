@@ -170,6 +170,7 @@ fn a_quest_detail_after_a_greeting_accepts_with_the_givers_guid() {
         rewards: Vec::new(),
         money: 0,
         reward_spell: 0,
+        emotes: Vec::new(),
     })]]);
     assert!(visible(&mut c, "QuestFrame"), "the detail panel is up");
     c.sent();

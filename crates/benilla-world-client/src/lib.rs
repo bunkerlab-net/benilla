@@ -124,12 +124,36 @@ pub struct NativeQuestGreeting {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NativeQuestPresentation {
+    /// Source pairs in (delay milliseconds, Emotes.dbc ID) order.
     pub details_emotes: [(u32, u32); 4],
     pub offer_emotes: [(u32, u32); 4],
     pub complete_emote: u32,
     pub complete_emote_delay: u32,
     pub incomplete_emote: u32,
     pub incomplete_emote_delay: u32,
+}
+impl NativeQuestPresentation {
+    /// QuestDef.cpp:114-120 includes zero slots before the last nonzero details emote.
+    pub fn details_packet_emotes(&self) -> Vec<protocol::QuestEmote> {
+        let count = self
+            .details_emotes
+            .iter()
+            .rposition(|&(_, emote)| emote != 0)
+            .map_or(0, |i| i + 1);
+        self.details_emotes[..count]
+            .iter()
+            .map(|&(delay, emote)| protocol::QuestEmote { delay, emote })
+            .collect()
+    }
+
+    /// GossipDef.cpp:458-470 stops the offer's wire count at the first zero emote.
+    pub fn offer_packet_emotes(&self) -> Vec<protocol::QuestEmote> {
+        self.offer_emotes
+            .iter()
+            .take_while(|&&(_, emote)| emote != 0)
+            .map(|&(delay, emote)| protocol::QuestEmote { delay, emote })
+            .collect()
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -196,6 +196,7 @@ mod tests {
                 rewards: Vec::new(),
                 money: 0,
                 reward_spell: 0,
+                emotes: Vec::new(),
             })
         }
 

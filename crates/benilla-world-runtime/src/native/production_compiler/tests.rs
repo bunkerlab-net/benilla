@@ -175,6 +175,45 @@ fn outside_finisher_and_inside_transition_recompile_with_python_parity() {
 }
 
 #[test]
+fn quest_packet_pairs_recompile_with_python_parity_without_scheduler_admission() {
+    let fixtures = corpus();
+    let fixture = fixtures["fixtures"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["name"] == "presentation")
+        .unwrap();
+    let report = Inputs::new(fixture).run().unwrap();
+    assert_eq!(report.preparation(), &fixture["preparation"]);
+    let raw = &fixture["source"]["quest_giver_presentation_capture"]["rows"]["quest_template"][0];
+    for (prefix, expected) in [
+        ("DetailsEmote", [1, 0, 1, 1]),
+        ("OfferRewardEmote", [1, 0, 1, 1]),
+        ("DetailsEmoteDelay", [7, 11, 19, 23]),
+        ("OfferRewardEmoteDelay", [29, 31, 37, 41]),
+    ] {
+        for (i, expected) in expected.into_iter().enumerate() {
+            assert_eq!(raw[format!("{prefix}{}", i + 1)], expected);
+        }
+    }
+    let plan = &report.preparation()["quest_giver_presentation_plan"];
+    let refusals: BTreeMap<_, _> = plan["refusals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["reason"] == "unsupported_packet_shape")
+        .map(|r| (r["field"].as_str().unwrap(), &r["target"]))
+        .collect();
+    assert_eq!(refusals.len(), 14);
+    for (field, target) in refusals {
+        assert_eq!(&raw[field], target);
+    }
+    assert_eq!(plan["raw_presentation_resolved"], false);
+    assert_eq!(plan["ordinary_catalog_resolved"], false);
+    assert!(plan["runtime_export"].is_null());
+}
+
+#[test]
 fn production_verifier_shared_mutations_have_exact_diagnostic_ids() {
     let fixtures = corpus();
     let mut cases = json::decode(

@@ -598,6 +598,7 @@ fn get_quest_item_info_asks_a_missed_record_inside_its_call() {
                 money: 0,
                 quest_flags: 0,
                 reward_spell: 0,
+                emotes: Vec::new(),
             }),
         );
     eval::<()>(

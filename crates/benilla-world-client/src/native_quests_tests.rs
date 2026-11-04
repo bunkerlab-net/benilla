@@ -852,6 +852,29 @@ fn greeting_single_autoopen_empty_suppression_and_unknown_emotes_fail_closed() {
         SessionEvent::QuestDetail(_)
     ));
 }
+
+#[test]
+fn retained_packet_emotes_do_not_admit_undocumented_client_scheduling() {
+    let w = fixture::world();
+    for offer in [false, true] {
+        for index in 0..4 {
+            for pair in [(0, 1), (1, 0), (50, 1)] {
+                let mut catalog = Catalog::new(&w);
+                let present = catalog.presentation.as_mut().unwrap();
+                let pairs = if offer {
+                    &mut present.offer_emotes
+                } else {
+                    &mut present.details_emotes
+                };
+                pairs[index] = pair;
+                assert!(matches!(
+                    NativeProjection::new(&w, w.state().player, &catalog),
+                    Err(Error::InvalidQuestMetadata(70001))
+                ));
+            }
+        }
+    }
+}
 #[test]
 fn empty_request_text_redirect_is_presentation_only_and_offer_words_are_source_spells() {
     let (profile, input, mut data) = fixture::setup();

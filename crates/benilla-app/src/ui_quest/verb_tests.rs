@@ -163,6 +163,7 @@ fn detail() -> QuestView {
         rewards: Vec::new(),
         money: 0,
         reward_spell: 0,
+        emotes: Vec::new(),
     })
 }
 
@@ -198,6 +199,7 @@ fn reward(choices: u32) -> QuestView {
         money: 0,
         quest_flags: 0,
         reward_spell: 0,
+        emotes: Vec::new(),
     })
 }
 

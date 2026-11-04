@@ -177,6 +177,24 @@ class PreparationVerifierParityTests(unittest.TestCase):
         self.assertFalse(any(r["reason"] == "quest.relation_missing_or_outside_selection"
                              for r in outside["preparation"]["unsupported"]))
 
+    def test_quest_packet_pairs_remain_bound_and_scheduler_refused(self):
+        fixture = next(f for f in corpus()["fixtures"] if f["name"] == "presentation")
+        raw = fixture["source"]["quest_giver_presentation_capture"]["rows"]["quest_template"][0]
+        self.assertEqual([raw[f"DetailsEmote{i}"] for i in range(1, 5)], [1, 0, 1, 1])
+        self.assertEqual([raw[f"OfferRewardEmote{i}"] for i in range(1, 5)], [1, 0, 1, 1])
+        self.assertEqual([raw[f"DetailsEmoteDelay{i}"] for i in range(1, 5)], [7, 11, 19, 23])
+        self.assertEqual([raw[f"OfferRewardEmoteDelay{i}"] for i in range(1, 5)], [29, 31, 37, 41])
+        plan = fixture["preparation"]["quest_giver_presentation_plan"]
+        refused = {(r["field"], r["target"]) for r in plan["refusals"]
+                   if r["reason"] == "unsupported_packet_shape"}
+        expected = {(name, raw[name]) for name in raw if
+                    name.startswith(("DetailsEmote", "OfferRewardEmote")) and raw[name]}
+        self.assertEqual(refused, expected)
+        self.assertEqual(len(refused), 14)
+        self.assertFalse(plan["raw_presentation_resolved"])
+        self.assertFalse(plan["ordinary_catalog_resolved"])
+        self.assertIsNone(plan["runtime_export"])
+
     def test_reviewed_rust_compiler_metadata_matches_python(self):
         root = ROOT.parents[1] / "crates/benilla-world-runtime/src/native/production_compiler"
         expected = {"numeric_columns": spell_numeric.COLUMNS, "numeric_words": spell_numeric.WORD_FIELDS,

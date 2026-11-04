@@ -127,6 +127,96 @@ fn captured_text_and_greetings_bind_exactly_and_empty_locale_falls_back() {
         raw.compile(&gameplay, -1).unwrap().manifest_digest()
     );
 }
+
+#[test]
+fn captured_packet_emotes_retain_delays_zero_slots_and_full_digest_binding() {
+    let (profile, gameplay) = n::synthetic_quest_giver_fixture::profile();
+    let mut raw = source(&gameplay, profile.map_id);
+    raw.emotes = Some(vec![0, 1, 2, 3, 4]);
+    let presentation = &mut raw.quests.as_mut().unwrap()[0].presentation;
+    presentation.details_emotes = [(10, 1), (20, 0), (30, 3), (40, 0)];
+    presentation.offer_emotes = [(50, 2), (60, 0), (70, 4), (80, 0)];
+    let quest = raw.quests.as_ref().unwrap()[0].quest;
+    let out = raw.compile(&gameplay, -1).unwrap();
+    let present = out.native_quest_presentation(quest).unwrap();
+    assert_eq!(
+        present.details_packet_emotes(),
+        vec![
+            p::QuestEmote {
+                delay: 10,
+                emote: 1
+            },
+            p::QuestEmote {
+                delay: 20,
+                emote: 0
+            },
+            p::QuestEmote {
+                delay: 30,
+                emote: 3
+            },
+        ]
+    );
+    assert_eq!(
+        present.offer_packet_emotes(),
+        vec![p::QuestEmote {
+            delay: 50,
+            emote: 2
+        }]
+    );
+    assert_eq!(present, &raw.quests.as_ref().unwrap()[0].presentation);
+    for offer in [false, true] {
+        for index in 0..4 {
+            for delay in [false, true] {
+                let mut changed = raw.clone();
+                let presentation = &mut changed.quests.as_mut().unwrap()[0].presentation;
+                let pairs = if offer {
+                    &mut presentation.offer_emotes
+                } else {
+                    &mut presentation.details_emotes
+                };
+                if delay {
+                    pairs[index].0 += 1;
+                } else {
+                    pairs[index].1 = if pairs[index].1 == 1 { 2 } else { 1 };
+                }
+                assert_ne!(
+                    out.manifest_digest(),
+                    changed.compile(&gameplay, -1).unwrap().manifest_digest()
+                );
+            }
+        }
+    }
+    // Even an unsent offer slot remains source-bound and needs a real lookup.
+    raw.quests.as_mut().unwrap()[0].presentation.offer_emotes[3].1 = 999;
+    assert_eq!(
+        raw.compile(&gameplay, -1).unwrap_err().reason,
+        "missing_lookup"
+    );
+}
+
+#[test]
+fn packet_emote_counts_cover_empty_and_all_four_slots() {
+    let mut present = NativeQuestPresentation {
+        details_emotes: [(0, 0); 4],
+        offer_emotes: [(0, 0); 4],
+        complete_emote: 0,
+        complete_emote_delay: 0,
+        incomplete_emote: 0,
+        incomplete_emote_delay: 0,
+    };
+    assert!(present.details_packet_emotes().is_empty());
+    assert!(present.offer_packet_emotes().is_empty());
+    present.details_emotes = [(1, 1), (2, 2), (3, 3), (4, 4)];
+    present.offer_emotes = present.details_emotes;
+    let expected = vec![
+        p::QuestEmote { delay: 1, emote: 1 },
+        p::QuestEmote { delay: 2, emote: 2 },
+        p::QuestEmote { delay: 3, emote: 3 },
+        p::QuestEmote { delay: 4, emote: 4 },
+    ];
+    assert_eq!(present.details_packet_emotes(), expected);
+    assert_eq!(present.offer_packet_emotes(), expected);
+}
 #[test]
 fn captured_fallback_uses_guid_text0_then_text1_and_broadcast_gender() {
     let (profile, gameplay) = n::synthetic_quest_giver_fixture::profile();
