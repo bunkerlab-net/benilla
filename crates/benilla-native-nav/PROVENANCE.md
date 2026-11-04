@@ -73,10 +73,12 @@ The app snapshot uses a non-reentrant RefCell in the existing NonSend service.
 
 ## Admitted data and explicit limits
 
-- At most 64 uniquely keyed layer-zero tiles, 4096 total polygons, 16 MiB native input
-  and 4096 allocated native tile slots; inventory separately caps total input at 64 MiB
-- At most 65,534 vertices per tile, 73,728 links per tile, 65,536 total extra detail
-  vertices plus detail triangles, and 2*polyCount BV slots per tile
+- At most 64 uniquely keyed layer-zero tiles, 16,384 polygons per tile and 32,768
+  total polygons, 16 MiB native input and 4096 allocated native tile slots;
+  inventory separately caps total input at 64 MiB
+- At most 65,534 vertices per tile, 73,728 links per tile, 65,536 per detail section
+  and 131,072 total extra detail vertices plus detail triangles, and
+  2*polyCount BV slots per tile
 - Exact framing, count/width arithmetic, map filename grid versus native origin-relative
   tile coordinates, bounded finite coordinates (absolute value <=100,000), source
   grid width 533.3333, bounded dimensions, and safe quantization ranges
@@ -101,6 +103,19 @@ The app snapshot uses a non-reentrant RefCell in the existing NonSend service.
 - A preflight upper bound of 1,048,576 native construction edge examinations, including
   each portal times every neighboring target edge, plus source-side scans. Cross-tile
   validation separately caps comparisons at 1,048,576. Oversized closures reject
+
+The complete eight-tile Northshire seed, including both selectors, peaks at 12,386
+polygons in tile 48,31. The smallest larger power of two is 16,384, with 32.3%
+headroom. The two selector tiles together contain 22,802 polygons and 80,718
+extra detail vertices plus triangles. Their aggregate bounds use the smallest
+larger powers of two, 32,768 and 131,072. These are seed resource envelopes, not
+whole-map measurements. Boundary tests distinguish exact-cap section decoding
+from cap-plus-one refusal before native allocation.
+
+Pinned `MapBuilder.cpp:917-925` fixes six vertices per polygon and refuses
+65,535 or more merged vertices. Its `maxPolys` bits remain `0x80000000`,
+from `MapBuilder.cpp:684-720` and Detour's 31-bit polygon-reference field.
+Neither this field nor Recast's 80-cell subtiles impose a 4096-polygon cap.
 
 This is intentionally a restricted source-compatible subset; it may reject lawful
 source-generated data with narrow/degenerate triangles, ambiguous portals or larger

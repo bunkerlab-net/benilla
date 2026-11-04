@@ -337,3 +337,45 @@ fn actual_native_node_exhaustion_and_path_truncation_are_errors() {
         assert!(mesh.route(from, from, until()).is_ok());
     }
 }
+
+#[test]
+fn polygon_resource_boundary_precedes_section_decoding() {
+    for (count, expected) in [
+        (validate::MAX_POLYS, Error::Framing),
+        (validate::MAX_POLYS + 1, Error::Budget),
+    ] {
+        let mut bytes = LEFT.to_vec();
+        for offset in [44, 56, 76] {
+            bytes[offset..offset + 4].copy_from_slice(&(count as u32).to_le_bytes());
+        }
+        // Exact-cap counts reach the missing sections; cap+1 refuses before allocation.
+        assert!(matches!(
+            Mesh::load(
+                PARAMS,
+                &[TileInput {
+                    grid: [32, 32],
+                    bytes: &bytes,
+                }]
+            ),
+            Err(error) if error == expected
+        ));
+    }
+}
+
+#[test]
+fn generated_vertex_boundary_matches_source_strict_ffff_refusal() {
+    for (count, expected) in [(65_534u32, Error::Framing), (65_535, Error::Budget)] {
+        let mut bytes = LEFT.to_vec();
+        bytes[48..52].copy_from_slice(&count.to_le_bytes());
+        assert!(matches!(
+            Mesh::load(
+                PARAMS,
+                &[TileInput {
+                    grid: [32, 32],
+                    bytes: &bytes,
+                }]
+            ),
+            Err(error) if error == expected
+        ));
+    }
+}

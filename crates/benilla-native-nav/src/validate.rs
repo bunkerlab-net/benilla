@@ -3,7 +3,12 @@
 use crate::{Error, TileInput};
 use std::collections::{BTreeMap, BTreeSet};
 pub(crate) const GRID: f32 = 533.3333;
-pub(crate) const MAX_POLYS: usize = 4096;
+// Eight-seed/selector maximum 12,386 polygons; next power of two leaves 32.3% headroom.
+pub(crate) const MAX_POLYS: usize = 1 << 14;
+// The two selector tiles total 22,802 polygons and 80,718 detail items; round each up.
+const MAX_TOTAL_POLYS: usize = 1 << 15;
+const MAX_TOTAL_DETAIL: usize = 1 << 17;
+// MapBuilder.cpp:922 and DetourNavMeshBuilder.cpp:284 refuse vertCount >= 0xffff.
 const MAX_VERTS: usize = 65_534;
 const MAX_LINKS: usize = 73_728;
 const MAX_DETAIL: usize = 65_536;
@@ -136,7 +141,7 @@ impl<'a> Validated<'a> {
             let n = count(b, 24, MAX_POLYS)?;
             let nv = count(b, 28, MAX_VERTS)?;
             total += n;
-            if n == 0 || total > MAX_POLYS || nv < 3 {
+            if n == 0 || total > MAX_TOTAL_POLYS || nv < 3 {
                 return Err(Error::Budget);
             }
             let nl = count(b, 32, MAX_LINKS)?;
@@ -145,7 +150,7 @@ impl<'a> Validated<'a> {
             let ndt = count(b, 44, MAX_DETAIL)?;
             let nb = count(b, 48, MAX_POLYS * 2)?;
             total_detail += ndv + ndt;
-            if total_detail > MAX_DETAIL {
+            if total_detail > MAX_TOTAL_DETAIL {
                 return Err(Error::Budget);
             }
             if nl == 0 || nd != n || word(b, 52)? != 0 || word(b, 56)? as usize != n {
