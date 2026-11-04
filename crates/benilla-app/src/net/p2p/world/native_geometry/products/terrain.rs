@@ -200,3 +200,12 @@ fn height_number(bytes: &[u8], at: usize) -> Result<f32, Error> {
     }
     Ok(value)
 }
+
+/// GridMap.cpp:252-255 retains finite liquid samples, including FLT_MAX boundary data.
+pub(super) fn liquid_height_number(bytes: &[u8], at: usize) -> Result<f32, Error> {
+    let value = f32::from_bits(u32_at(bytes, at)?);
+    if !value.is_finite() {
+        return Err(Error::Format);
+    }
+    Ok(value)
+}

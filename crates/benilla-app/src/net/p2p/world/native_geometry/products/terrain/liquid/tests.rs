@@ -196,6 +196,23 @@ fn mliq_optional_arrays_are_exact_and_writer_129_vertex_edges_are_valid() {
 }
 
 #[test]
+fn liquid_arrays_preserve_finite_source_extremes_without_changing_ground_height() {
+    // GridMap.cpp:252-255 retains raw floats, including MCLQ's FLT_MAX boundary values.
+    for height in [1_000_001.0, f32::MAX] {
+        let mut liquid = section(0, 22, 8, [0, 0, 2, 2], 10.0);
+        replace(&mut liquid, 784, height.to_bits());
+        let terrain = tile(0, &liquid);
+        assert_eq!(
+            terrain.point_height(world(0.5), world(0.5)).unwrap(),
+            PointHeight::Height(7.0)
+        );
+        let result = query(&terrain, 0.5, 0.5, 10.0, 0, &empty_types()).unwrap();
+        assert_eq!(result.status, GridLiquidStatus::UnderWater);
+        assert_eq!(result.data.unwrap().level, height.to_bits());
+    }
+}
+
+#[test]
 fn unknown_flags_bad_rectangles_and_nonfinite_levels_are_rejected() {
     let valid = section(0, 22, 8, [1, 2, 4, 5], 10.0);
     for (at, value) in [
@@ -214,12 +231,18 @@ fn unknown_flags_bad_rectangles_and_nonfinite_levels_are_rejected() {
         assert!(GridLiquid::decode(&bad).is_err(), "field {at}");
     }
     for at in [12, 784] {
-        for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 1_000_001.0] {
+        for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
             let mut bad = valid.clone();
             replace(&mut bad, at, value.to_bits());
             assert!(matches!(GridLiquid::decode(&bad), Err(Error::Format)));
         }
     }
+    let mut unbounded_level = valid.clone();
+    replace(&mut unbounded_level, 12, 1_000_001.0f32.to_bits());
+    assert!(matches!(
+        GridLiquid::decode(&unbounded_level),
+        Err(Error::Format)
+    ));
     let valid_map = map_bytes(0, &valid);
     for (at, value) in [
         (24, 0),

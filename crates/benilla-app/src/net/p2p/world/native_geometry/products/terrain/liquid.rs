@@ -2,7 +2,10 @@
 //! Pinned GridMap::loadGridMapLiquidData/getLiquidStatus, not TerrainInfo selection.
 //! Source: CMaNGOS 8ec338a1 GridMap.cpp and DBCStructure.h/DBCfmt.h (niii).
 use super::super::Hash;
-use super::{height_number, u16_at, AreaTable, Error, PointHeight, TerrainTile, MAX_HEIGHT};
+use super::{
+    height_number, liquid_height_number, u16_at, AreaTable, Error, PointHeight, TerrainTile,
+    MAX_HEIGHT,
+};
 use benilla_world_runtime::native::environment::{LiquidCatalog, LiquidCatalogError};
 
 const NO_TYPE: u8 = 1;
@@ -175,7 +178,7 @@ impl GridLiquid {
         let levels = if flags & NO_HEIGHT == 0 {
             Some(
                 (0..count)
-                    .map(|i| height_number(bytes, heights_at + i * 4))
+                    .map(|i| liquid_height_number(bytes, heights_at + i * 4))
                     .collect::<Result<Vec<_>, _>>()?
                     .into_boxed_slice(),
             )

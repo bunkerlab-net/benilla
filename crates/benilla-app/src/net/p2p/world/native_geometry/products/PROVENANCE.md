@@ -84,8 +84,10 @@ this list does not prove all polygons of any route have been covered.
 ## Exact implemented subset
 
 - `MAPS` / `z1.4`: exact 40-byte header and contiguous AREA/MHGT/optional MLIQ/hole sections from the
-  pinned `ad -f 0` writer; flat or float heights only; finite heights bounded to ±1,000,000;
-  unknown flags, packed heights, offset aliases, gaps and extra bytes rejected
+  pinned `ad -f 0` writer; flat or float ground heights bounded to ±1,000,000;
+  liquid arrays retain all finite source floats, including `FLT_MAX` boundary data
+  read unchanged by `GridMap.cpp:252-255`. Unknown flags, packed heights, offset
+  aliases, gaps, extra bytes and nonfinite liquid samples reject
 - Point height: pinned binary32 expression order, tile ownership and four center-fan
   triangles; float mode checks the source hole mask. Pinned flat dispatch bypasses holes
   and is deliberately preserved. `Height(-100000)` remains a raw height in flat mode,
