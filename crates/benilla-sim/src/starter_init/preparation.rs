@@ -4,14 +4,16 @@
 //! Native execution must independently verify its complete source/hook closure.
 use super::{
     initial_cast_phases::{
-        InitialAmountOperation, InitialCastPlan, InitialEffectPhase, InitialProficiencyMasks,
-        SourcePhaseFields, SourcePhaseResolutions, SourcePlanBuilder,
+        HookDisposition, InitialAmountOperation, InitialCastPlan, InitialEffectPhase,
+        InitialProficiencyMasks, SourcePhaseFields, SourcePhaseResolutions, SourcePlanBuilder,
     },
     FirstEntryState, Init, InitError, InitEvent, InitialAura, InitializedMage, Result, Rows,
     SpellRow, StarterInput,
 };
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
+mod draft;
+pub use draft::{draft_starter, UnsealedStarterDraft};
 
 pub const STARTER_PREPARATION_POLICY: &str = "cmangos-8ec338a1-source-starter-preparation-v1";
 
@@ -470,13 +472,18 @@ fn consistent<T: Clone + Eq>(
 pub(super) struct CastCollector<'a> {
     dependencies: &'a StarterInitialDependencies,
     builder: SourcePlanBuilder,
+    hooks: HookDisposition,
 }
 impl<'a> CastCollector<'a> {
     fn new(dependencies: &'a StarterInitialDependencies, context_identity: [u8; 32]) -> Self {
         Self {
             dependencies,
+            hooks: HookDisposition::Bound,
             builder: SourcePlanBuilder::new(context_identity),
         }
+    }
+    pub(super) fn pending_hooks(&self) -> bool {
+        self.hooks == HookDisposition::PendingReachedBinding
     }
     fn finish(self) -> InitialCastPlan {
         self.builder.finish()
@@ -506,6 +513,7 @@ impl Init<'_> {
             },
             dependency.resolutions(row)?,
             dependency.identity(),
+            collector.hooks,
         )?;
         self.trace.push(InitEvent::InitialCast { spell: row.id });
         for effect in effects

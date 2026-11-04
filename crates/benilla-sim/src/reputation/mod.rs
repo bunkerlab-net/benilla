@@ -402,18 +402,8 @@ impl Catalog {
         for row in self.rows.values() {
             if let Resolved::Present(row) = row {
                 let f = &row.faction;
-                if f.reputation_list_id >= 0 {
-                    factions.insert(
-                        f.reputation_list_id as u32,
-                        FactionState {
-                            id: f.id,
-                            reputation_list_id: f.reputation_list_id as u32,
-                            standing: 0,
-                            flags: f.default_flags(identity),
-                            need_send: true,
-                            need_save: true,
-                        },
-                    );
+                if let Some(initial) = f.initial_state(identity) {
+                    factions.insert(initial.reputation_list_id, initial);
                 }
             }
         }
@@ -459,6 +449,18 @@ pub struct FactionState {
     pub flags: u32,
     pub need_send: bool,
     pub need_save: bool,
+}
+impl Faction {
+    fn initial_state(&self, identity: Identity) -> Option<FactionState> {
+        (self.reputation_list_id >= 0).then(|| FactionState {
+            id: self.id,
+            reputation_list_id: self.reputation_list_id as u32,
+            standing: 0,
+            flags: self.default_flags(identity),
+            need_send: true,
+            need_save: true,
+        })
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

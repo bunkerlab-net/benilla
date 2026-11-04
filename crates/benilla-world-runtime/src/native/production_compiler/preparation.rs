@@ -18,6 +18,8 @@ mod learning;
 mod learning_numeric;
 mod plans;
 mod reputation;
+#[cfg(test)]
+mod starter_draft;
 static PLAN: LazyLock<Value> = LazyLock::new(|| {
     serde_json::from_str(include_str!("preparation/plan_contract.json"))
         .expect("reviewed plan metadata")

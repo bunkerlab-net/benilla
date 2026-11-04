@@ -72,6 +72,10 @@ fn masks_select_four_slots_and_wildcard_fallback_without_racial_gain() {
         input.class = class;
         let catalog = catalog(&input, vec![]).unwrap();
         let state = catalog.initialize(input.identity().unwrap()).unwrap();
+        assert_eq!(
+            input.initialize().unwrap(),
+            state.factions().values().cloned().collect::<Vec<_>>()
+        );
         assert_eq!(state.current(&catalog, 900).unwrap(), base);
         assert_eq!(state.factions()[&12].standing, 0);
         assert_eq!(state.factions()[&12].flags, flags);
@@ -143,6 +147,10 @@ fn missing_duplicate_invalid_and_conflicting_rows_refuse() {
     bad.factions = None;
     assert_eq!(
         bad.compile(),
+        Err(Error::Unsupported("initial_faction_table_missing"))
+    );
+    assert_eq!(
+        bad.initialize(),
         Err(Error::Unsupported("initial_faction_table_missing"))
     );
     let mut bad = good.clone();

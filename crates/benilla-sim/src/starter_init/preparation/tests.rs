@@ -417,3 +417,190 @@ fn prepared_training_is_cross_bound_and_no_rng_or_completion_is_hidden() {
 }
 
 mod numeric_source;
+
+#[test]
+fn draft_runs_actual_epochs_without_claiming_hook_absence_or_sampling() {
+    let mut input = input(&[81, 3050, 20597, 20598, 20599, 20864]);
+    skill(&mut input, 95, 81);
+    skill(&mut input, 8, 3050);
+    for row in &mut input.spells {
+        row.external_initial_hooks = true;
+    }
+    let dependencies = dependencies(&input, &[81, 3050, 20597, 20598, 20599, 20864]);
+    let Rows::Complete(numeric) = dependencies.rows.clone() else {
+        panic!("numeric")
+    };
+    let draft = draft_starter(&input, dependencies.store_identity, numeric.clone()).unwrap();
+    assert_eq!(
+        casts(draft.creation_plan()),
+        [81, 3050, 20597, 20598, 20599, 20864]
+    );
+    assert_eq!(
+        casts(draft.first_entry_plan()),
+        [3050, 81, 20597, 20598, 20599, 20864]
+    );
+    assert_eq!(
+        draft.pending_learning_hooks(),
+        [81, 3050, 20597, 20598, 20599, 20864]
+    );
+    assert_eq!(draft.reached_dependencies(), numeric);
+    assert_eq!(draft.creation_plan().draw_requests().len(), 1);
+    assert_eq!(draft.first_entry_plan().draw_requests().len(), 1);
+    let masks = InitialProficiencyMasks {
+        weapon: 0,
+        armor: 0,
+    };
+    assert_eq!(
+        draft.creation_plan().evaluate(&[0], masks).unwrap_err(),
+        InitError::Invalid("pending reached initial hook binding")
+    );
+    assert!(super::super::initialize_mage(&input).is_err());
+    assert!(prepare_starter(&input, &dependencies, &StarterCastOrder::canonical()).is_err());
+    assert_eq!(draft.projected_creation().initial_auras.len(), 6);
+    assert_eq!(
+        draft
+            .projected_first_entry()
+            .skills
+            .keys()
+            .copied()
+            .collect::<Vec<_>>(),
+        [8, 95]
+    );
+    let mut bound = input.clone();
+    for row in &mut bound.spells {
+        row.external_initial_hooks = false;
+    }
+    let mut bound_dependencies = dependencies.clone();
+    bound_dependencies.source_identity = bound.source_identity();
+    bound_dependencies.rows = Rows::Complete(dependencies_for_draft(&bound));
+    let prepared =
+        prepare_starter(&bound, &bound_dependencies, &StarterCastOrder::canonical()).unwrap();
+    assert_eq!(draft.projected_creation(), prepared.created());
+    assert_eq!(draft.projected_first_entry(), prepared.first_entry());
+    assert_ne!(
+        draft.creation_plan().identity(),
+        prepared.creation_plan().identity()
+    );
+    let mut unsupported = input.clone();
+    unsupported.spells[0].words[61] = 999;
+    let bad = dependencies_for_draft(&unsupported);
+    assert!(draft_starter(&unsupported, [12; 32], bad).is_err());
+    assert!(draft_starter(&input, [0; 32], numeric).is_err());
+}
+
+fn dependencies_for_draft(input: &StarterInput) -> Vec<StarterInitialDependency> {
+    let ids: Vec<_> = input.spells.iter().map(|row| row.id).collect();
+    let Rows::Complete(rows) = dependencies(input, &ids).rows else {
+        panic!("numeric")
+    };
+    rows
+}
+
+#[test]
+fn draft_queries_only_reached_numeric_dependencies_and_keeps_noncasts_guarded() {
+    let mut input = input(&[81]);
+    let mut active = input.spells[0].clone();
+    active.id = 900001;
+    active.words = [0; 173];
+    active.words[0] = active.id;
+    input.default_spells = Rows::Complete(vec![81, active.id]);
+    input.spells.push(active);
+    for row in &mut input.spells {
+        row.external_initial_hooks = true;
+    }
+    let Rows::Complete(numeric) = dependencies(&input, &[81]).rows else {
+        panic!("numeric")
+    };
+    let draft = draft_starter(&input, [12; 32], numeric).unwrap();
+    assert_eq!(draft.pending_learning_hooks(), [81, 900001]);
+    assert_eq!(casts(draft.creation_plan()), [81]);
+    assert_eq!(
+        draft
+            .reached_dependencies()
+            .iter()
+            .map(|row| row.spell_id)
+            .collect::<Vec<_>>(),
+        [81]
+    );
+    let missing = vec![];
+    assert!(matches!(
+        draft_starter(&input, [12; 32], missing),
+        Err(InitError::Missing {
+            table: "initial numeric dependency",
+            id: 81
+        })
+    ));
+}
+
+#[test]
+fn draft_skips_unusable_default_then_cloth_learning_adds_the_actual_skill() {
+    let mut input = input(&[9078]);
+    skill(&mut input, 415, 9078);
+    input.skill_lines[0].category = 7;
+    let Rows::Complete(infos) = &mut input.skill_race_class else {
+        panic!("info")
+    };
+    infos[0].flags = 0x80;
+    let Rows::Complete(abilities) = &mut input.skill_abilities else {
+        panic!("abilities")
+    };
+    abilities[0].learn_on_get_skill = 2;
+    input.spells[0].external_initial_hooks = true;
+    let project =
+        |input: &StarterInput| draft_starter(input, [12; 32], dependencies_for_draft(input));
+    let draft = project(&input).unwrap();
+    let created = draft.projected_creation();
+    assert_eq!(
+        (created.skills[&415].value, created.skills[&415].maximum),
+        (1, 1)
+    );
+    let learned = created
+        .trace
+        .iter()
+        .position(|event| matches!(event, InitEvent::SpellLearned { spell: 9078 }))
+        .unwrap();
+    let inserted = created
+        .trace
+        .iter()
+        .position(|event| matches!(event, InitEvent::SkillSet { skill: 415, .. }))
+        .unwrap();
+    assert!(learned < inserted);
+    assert!(draft.projected_first_entry().skills.contains_key(&415));
+    let mut no_cloth = input.clone();
+    no_cloth.default_spells = Rows::Complete(vec![]);
+    assert!(!project(&no_cloth)
+        .unwrap()
+        .projected_creation()
+        .skills
+        .contains_key(&415));
+    let mut missing = input.clone();
+    missing.skill_race_class = Rows::Missing;
+    assert!(matches!(
+        project(&missing),
+        Err(InitError::Missing {
+            table: "SkillRaceClassInfo",
+            ..
+        })
+    ));
+    let mut tier = input.clone();
+    let Rows::Complete(infos) = &mut tier.skill_race_class else {
+        panic!("info")
+    };
+    infos[0].tier = 999;
+    assert_eq!(
+        project(&tier),
+        Err(InitError::Missing {
+            table: "SkillTiers",
+            id: 999
+        })
+    );
+    let mut missing_cloth = input;
+    missing_cloth.skill_race_class = Rows::Complete(vec![]);
+    assert_eq!(
+        project(&missing_cloth),
+        Err(InitError::Missing {
+            table: "spell-trained SkillRaceClassInfo",
+            id: 415
+        })
+    );
+}

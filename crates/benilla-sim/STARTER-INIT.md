@@ -67,6 +67,9 @@ initializer still refuses reached talents, previous ranks, and spellbook
 successors. Numeric binding compares complete effective and original client
 words against the compiled source. Unused DBC words remain source data, not
 execution instructions. A source identity binds content; it does not authenticate it.
+A complete default-skill lookup with no usable tier or maximized row skips that
+grant, matching `Player.cpp:5872-5873`. Later spell learning can still add the
+skill. Missing query coverage or a referenced tier remains an error.
 
 `bind_spell_rows` requires independently resolved initial hooks. Runtime
 `NativeInitialCastSourceInput::bind_learning_spell_rows` validates its complete
@@ -244,6 +247,28 @@ source consistency. Actual Human capture/order/DBC gaps and native admission
 remain closed. The native `FirstWorldEntryOnly` stream boundary retains creation
 as an unsampled prerequisite projection and realizes only the selected entry
 plan once, before tick0; preparation itself never claims a completed RNG receipt.
+
+### Unsealed numeric draft
+
+`CompiledStarterLearning::pending_spell_rows` retains a hook guard on every
+selected row. `draft_starter` runs the same creation and canonical first-entry
+reducers with `PendingReachedBinding`, not an assertion that hooks are absent.
+It returns `UnsealedStarterDraft` with conditional stats, equipment, skills,
+passive holders, both ordered cast plans, and the exact reached dependency union.
+Unsupported reached effects and missing numeric lookups still refuse.
+
+Draft plans have distinct provenance and reject evaluation, even with supplied
+rolls. No conversion to `PreparedStarter`, runtime profile, or capability exists.
+Ordinary initialization and preparation still reject guarded hooks. Source hook
+binding must rebuild the input and preparation before the existing source seal
+can accept it. Creation stays unsampled, and this draft realises neither epoch.
+
+The runtime's test-only `preparation/starter_draft.rs` assembles actual checked
+learning candidates, outfit/custom grants, and initial faction state. Its private
+data test compares the complete Python and Rust preparation reports before
+writing evidence. Rust-only draft results never enter Python diagnostics or
+discharge learning findings. `InitialFactionCapture::initialize` shares the
+catalog's initial dirty-state constructor without inventing reward or aura audits.
 
 ## Supported semantics
 

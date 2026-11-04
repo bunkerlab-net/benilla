@@ -35,6 +35,18 @@ impl InitialFactionCapture {
             class_mask: 1 << (self.class - 1),
         })
     }
+    /// Initial dirty state needs DBC rows, not reward policy or aura assumptions.
+    /// The returned rows are not a catalog-bound runtime State.
+    pub fn initialize(&self) -> Result<Vec<FactionState>> {
+        let identity = self.identity()?;
+        let mut states: Vec<_> = self
+            .compile()?
+            .iter()
+            .filter_map(|faction| faction.initial_state(identity))
+            .collect();
+        states.sort_unstable_by_key(|state| state.reputation_list_id);
+        Ok(states)
+    }
 
     pub fn compile(&self) -> Result<Vec<Faction>> {
         let identity = self.identity()?;

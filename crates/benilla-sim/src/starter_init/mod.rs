@@ -27,9 +27,9 @@ pub use items::{
     EquippedItem, GrantSource, InventoryStack, ItemDamage, ItemGrant, ItemRow, ItemSpell, ItemStat,
 };
 pub use preparation::{
-    prepare_starter, InitialCastOrderEvidence, InitialSpellLookup, PreparedStarter,
+    draft_starter, prepare_starter, InitialCastOrderEvidence, InitialSpellLookup, PreparedStarter,
     SpellCastTimeSource, SpellDurationSource, StarterCastOrder, StarterInitialDependencies,
-    StarterInitialDependency, STARTER_PREPARATION_POLICY,
+    StarterInitialDependency, UnsealedStarterDraft, STARTER_PREPARATION_POLICY,
 };
 pub use skills::{
     first_entry, first_entry_skills, DefaultSkill, FirstEntryState, InitializedSkill,
@@ -495,7 +495,12 @@ impl Init<'_> {
                 link.forward_spell_id,
             ));
         }
-        if row.external_initial_hooks {
+        if row.external_initial_hooks
+            && !self
+                .initial_casts
+                .as_ref()
+                .is_some_and(|c| c.pending_hooks())
+        {
             return Err(unsupported("initial spell external hook", id, 0));
         }
         let passive = w[6] & 0x40 != 0;

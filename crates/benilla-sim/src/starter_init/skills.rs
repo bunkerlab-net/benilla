@@ -153,10 +153,11 @@ impl Init<'_> {
                         break;
                     }
                 }
-                selected.ok_or(missing(
-                    "usable default SkillRaceClassInfo/tier",
-                    row.id.into(),
-                ))?
+                // Player.cpp:5872-5873 skips a completely queried but unusable default.
+                let Some(selected) = selected else {
+                    return Ok(());
+                };
+                selected
             }
         };
         self.set_skill(row.id, value, max, step)

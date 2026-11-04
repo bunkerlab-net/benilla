@@ -792,6 +792,21 @@ impl CompiledStarterLearning {
     pub fn rank(&self, spell: u32) -> Option<&CapturedSpellChain> {
         self.ranks.get(&spell)
     }
+    /// Conservative rows for an unsealed draft. Every row retains its hook guard;
+    /// only draft_starter may defer that guard while discovering actual reachability.
+    pub fn pending_spell_rows(&self) -> Result<Vec<SpellRow>> {
+        let hooks = Rows::Complete(
+            self.numeric
+                .iter()
+                .map(|row| LearningInitialHooks {
+                    spell: row.id,
+                    source_identity: self.source_identity,
+                    external_hooks: Some(true),
+                })
+                .collect(),
+        );
+        self.bind_spell_rows(&self.numeric, &hooks)
+    }
     pub fn bind_spell_rows(
         &self,
         numeric: &[LearningSpellNumeric],

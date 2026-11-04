@@ -652,28 +652,16 @@ fn extracted_source_default_and_step_skill_vectors() {
                 id: 60001,
                 step: v[3] as u16,
             }]);
-            let result = initialize_mage(&i);
-            if matches!(v[0], 7 | 8 | 9 | 11) && v[1] == 0 && v[2] == 0 {
-                assert_eq!(v[4], 0);
-                assert!(matches!(
-                    result,
-                    Err(InitError::Missing {
-                        table: "usable default SkillRaceClassInfo/tier",
-                        ..
-                    })
-                ));
+            let out = initialize_mage(&i).unwrap();
+            if v[4] == 0 {
+                assert!(!out.skills.contains_key(&60001), "{line}");
             } else {
-                let out = result.unwrap();
-                if v[4] == 0 {
-                    assert!(!out.skills.contains_key(&60001));
-                } else {
-                    let s = out.skills[&60001];
-                    assert_eq!(
-                        (u32::from(s.value), u32::from(s.maximum), u32::from(s.step)),
-                        (v[4], v[5], v[6]),
-                        "{line}"
-                    );
-                }
+                let s = out.skills[&60001];
+                assert_eq!(
+                    (u32::from(s.value), u32::from(s.maximum), u32::from(s.step)),
+                    (v[4], v[5], v[6]),
+                    "{line}"
+                );
             }
         } else {
             i.skill_lines = vec![SkillLineRow {

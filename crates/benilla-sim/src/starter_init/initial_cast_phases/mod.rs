@@ -116,6 +116,14 @@ impl InitialCastOccurrencePlan {
 enum InitialCastProvenance {
     Authored(Box<AuthoredInitialCast>),
     SourceDerived { dependency_identity: [u8; 32] },
+    PendingReachedBinding { dependency_identity: [u8; 32] },
+}
+
+/// Pending evidence is permitted only in an unsealed starter draft.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum HookDisposition {
+    Bound,
+    PendingReachedBinding,
 }
 /// Only the preparation reducer may create this internal, resolved mechanism input.
 #[derive(Clone, Copy)]
@@ -154,11 +162,12 @@ impl SourcePlanBuilder {
         fields: SourcePhaseFields,
         resolutions: SourcePhaseResolutions,
         dependency_identity: [u8; 32],
+        hooks: HookDisposition,
     ) -> Result<Vec<InitialEffectOperation>> {
         if self.occurrences.len() == MAX_AUTHORED_INITIAL_CASTS {
             return Err(InitError::Invalid("source initial cast count"));
         }
-        let effects = classify(row, &fields, resolutions)?;
+        let effects = classify(row, &fields, resolutions, hooks)?;
         for effect in &effects {
             if effect.phase == InitialEffectPhase::SelfHolder
                 && !self.aura_keys.insert((effect.aura, effect.misc))
@@ -180,8 +189,15 @@ impl SourcePlanBuilder {
         self.occurrences.push(InitialCastOccurrencePlan {
             ordinal: self.occurrences.len() as u32,
             row: row.clone(),
-            provenance: InitialCastProvenance::SourceDerived {
-                dependency_identity,
+            provenance: match hooks {
+                HookDisposition::Bound => InitialCastProvenance::SourceDerived {
+                    dependency_identity,
+                },
+                HookDisposition::PendingReachedBinding => {
+                    InitialCastProvenance::PendingReachedBinding {
+                        dependency_identity,
+                    }
+                }
             },
             source_hash: row.source_hash(),
             effects: effects.clone(),
@@ -362,6 +378,14 @@ impl InitialCastPlan {
         rolls: &[i32],
         initial_masks: InitialProficiencyMasks,
     ) -> Result<InitialCastEvaluation> {
+        if self.occurrences.iter().any(|cast| {
+            matches!(
+                cast.provenance,
+                InitialCastProvenance::PendingReachedBinding { .. }
+            )
+        }) {
+            return Err(InitError::Invalid("pending reached initial hook binding"));
+        }
         let requests = self.draw_requests();
         if rolls.len() != requests.len() {
             return Err(InitError::Invalid("authored initial integer draw count"));
@@ -583,6 +607,12 @@ fn plan_identity(casts: &[InitialCastOccurrencePlan]) -> [u8; 32] {
                 h.update([1]);
                 h.update(dependency_identity);
             }
+            InitialCastProvenance::PendingReachedBinding {
+                dependency_identity,
+            } => {
+                h.update([2]);
+                h.update(dependency_identity);
+            }
         }
     }
     h.finalize().into()
@@ -659,12 +689,14 @@ fn classify_authored(cast: &AuthoredInitialCast) -> Result<Vec<InitialEffectOper
             duration_index: r.duration_index,
             duration_ms: r.duration_ms,
         },
+        HookDisposition::Bound,
     )
 }
 fn classify(
     row: &SpellRow,
     p: &SourcePhaseFields,
     r: SourcePhaseResolutions,
+    hooks: HookDisposition,
 ) -> Result<Vec<InitialEffectOperation>> {
     let w = &row.words;
     let reject = || InitError::Unsupported {
@@ -689,7 +721,7 @@ fn classify(
     if row.id != w[0]
         || row.previous_rank.is_some()
         || row.talent
-        || row.external_initial_hooks
+        || row.external_initial_hooks && hooks == HookDisposition::Bound
         || !matches!(&row.learned_spells, Rows::Complete(v) if v.is_empty())
     {
         return Err(reject());
