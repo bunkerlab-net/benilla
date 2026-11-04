@@ -2376,6 +2376,40 @@ class CorpseLootPreparationTests(unittest.TestCase):
                             if d["table"] in {"creature_loot_template", "reference_loot_template"}))
         self.assertIsNone(result["runtime_export"])
 
+    def test_raw_assembly_keeps_callback_refusal_and_complete_leaf_inputs(self):
+        from native_starter import loot_plan
+        raw = self.source()
+        raw.rows["creature_template"][0]["ScriptName"] = "npc_garments_of_quests"
+        source = capture(raw, export_tests.starter_selection(), capture_body_loot=True)
+        plan = loot_plan.supported_plan(source)
+        self.assertEqual(plan["status"], "blocked")
+        assembly = plan["raw_assembly"]
+        self.assertEqual(assembly["status"], "checked_projection", assembly["refusals"])
+        self.assertEqual((assembly["body_row_count"], assembly["reference_row_count"]), (4, 2))
+        self.assertEqual({i["inventory"]["entry"] for i in assembly["item_inputs"]}, set(range(80001, 80005)))
+        self.assertEqual([i["row"] for i in assembly["client_metadata_inputs"]],
+                         [i for i in source["tables"]["item_template"] if 80001 <= i["entry"] <= 80004])
+        self.assertFalse(loot_plan.discharges({"reason": "loot.reference_generation_not_implemented"}, plan))
+
+    def test_raw_assembly_refuses_missing_leaf_cycle_and_unsupported_flag(self):
+        from native_starter import loot_plan
+        source = capture(self.source(), export_tests.starter_selection(), capture_body_loot=True)
+        source["tables"]["item_template"] = [i for i in source["tables"]["item_template"] if i["entry"] != 80004]
+        assembly = loot_plan.supported_plan(source)["raw_assembly"]
+        self.assertEqual(assembly["status"], "blocked")
+        self.assertIn({"table": "item_template", "key": "80004", "reason": "loot.item_template_missing"},
+                      assembly["refusals"])
+        raw = self.source()
+        raw.rows["reference_loot_template"][0]["mincountOrRef"] = -60441
+        source = capture(raw, export_tests.starter_selection(), capture_body_loot=True)
+        self.assertIn("loot.reference_cycle_not_executable",
+                      {r["reason"] for r in loot_plan.supported_plan(source)["raw_assembly"]["refusals"]})
+        raw = self.source()
+        next(i for i in raw.rows["item_template"] if i["entry"] == 80004)["Flags"] = 4
+        source = capture(raw, export_tests.starter_selection(), capture_body_loot=True)
+        self.assertIn("loot.item.carried_dependency_unsupported",
+                      {r["reason"] for r in loot_plan.supported_plan(source)["raw_assembly"]["refusals"]})
+
     def test_legacy_and_unsupported_items_keep_generation_obligations(self):
         from native_starter import loot_plan
         source = capture(self.source(), export_tests.starter_selection(), capture_body_loot=True)

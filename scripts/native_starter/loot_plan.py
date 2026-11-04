@@ -7,7 +7,7 @@ from __future__ import annotations
 from classic_export import loot, loot_loader
 from classic_export.core import ExportError, digest
 from .dbc import binary32_bits
-from . import loot_budget, item_plan, non_body_loot
+from . import loot_budget, item_plan, non_body_loot, loot_assembly
 
 ADAPTER = "benilla_sim::loot::captured::CapturedLoot::compile"
 DISCHARGED = {"loot.source_loader_order_unproven", "loot.reference_generation_not_implemented",
@@ -23,7 +23,6 @@ def supported_plan(source, closure=None):
     non_body = non_body_loot.plan(source, closure)
     refusals = [r for r in loot.unsupported(tables, graph) if r["reason"] not in DISCHARGED | NON_BODY]
     refusals.extend(loot_budget.refusals(tables))
-    refusals.extend(non_body["refusals"])
     ordered = {}
     for table in loot.TABLES:
         rows = loot_loader.ordered_rows(source, table)
@@ -43,6 +42,8 @@ def supported_plan(source, closure=None):
                                      "reason": "loot.ungrouped_binary32_zero_chance"})
                 ordered[table].append({"source_position": position,
                     "chance_or_quest_chance_bits": bits, **row})
+    assembly = loot_assembly.plan(source, ordered, refusals)
+    refusals.extend(non_body["refusals"])
     items = {row["entry"]: row for row in tables.get("item_template", [])}
     admitted = []
     for entry in graph["leaf_item_ids"]:
@@ -61,6 +62,7 @@ def supported_plan(source, closure=None):
     return {"status": "blocked" if refusals else "supported_shape", "adapter": ADAPTER,
             "runtime_admitted": False, "ordered_rows": ordered, "leaf_items": admitted,
             "non_body_actions": non_body,
+            "raw_assembly": assembly,
             "input_bindings": {"source_sha256": digest(source), "loader": source.get("loot_loader_capture")},
             "remaining_dependencies": ["explicit_loot_Rules", "independent_inventory_audit",
                                        "ordinary_corpse_host_audit_and_creature_rows", "client_item_query_metadata"],

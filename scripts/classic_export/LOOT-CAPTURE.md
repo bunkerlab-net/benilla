@@ -137,10 +137,11 @@ semantics. Plain empty bags are supported as carried objects, not equipped
 capacity. Stored on-use metadata does not authorise using an item.
 Quest-starting items, conditional rows, nested or grouped references, random
 properties, unsupported item flags, locks, scripts, lifecycle effects, and
-equip spells retain precise refusals. The Rust adapter independently checks the
-existing inventory catalog before building the unchanged runtime captures.
-Explicit shared `loot::Rules`, independently absent inventory/corpse hooks,
-and client item-query metadata remain required before runtime binding.
+equip spells retain precise refusals. The Rust adapter checks every carried
+prototype before building the unchanged runtime captures. A checked raw draft
+does not assert inventory or corpse-hook absence. Explicit shared `loot::Rules`,
+independent host audits, and bound client item-query metadata remain required
+before runtime binding.
 
 
 PickpocketLootId and SkinningLootId stay explicitly unknown/outside body scope;

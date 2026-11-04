@@ -319,6 +319,18 @@ entry refusals; selected captures never prove global hook absence. The plan
 records all body, pickpocket, skinning and item disenchant IDs without loading
 non-body tables as ordinary corpse loot.
 
+`corpse_loot_plan.raw_assembly` independently records loader-positioned body
+and reference rows, every possible leaf's checked item inputs, and complete
+base-locale item-query operands. `checked_projection` describes those raw
+prerequisites only. The Rust verifier compiles `CheckedItems`, calls
+`CapturedLoot::compile_checked`, and retains `into_captures` in a
+`CheckedLootDraft`. This product has no inferred inventory audit or capability.
+The client adapter additionally requires exact spell-query and display evidence.
+The whole-selected host still refuses creature 12423's garment callback.
+Neither a checked raw draft nor a client metadata projection discharges a
+compound loot obligation while that callback remains.
+
+
 
 ## Explicit start and progression policy
 
