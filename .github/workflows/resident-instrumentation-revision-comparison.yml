@@ -51,6 +51,7 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
           python3 - <<'PY'
+          import os
           import pathlib
           import subprocess
           import tomllib
@@ -74,11 +75,13 @@ jobs:
               )]
               inventory = {p: (root / p).read_bytes() for p in selected}
               assert "Cargo.lock" in inventory and "Cargo.toml" in inventory
-              assert tomllib.loads(inventory["rust-toolchain.toml"].decode())["toolchain"]["channel"] == "1.98.1"
+              channel = tomllib.loads(inventory["rust-toolchain.toml"].decode())["toolchain"]["channel"]
               inventories.append(inventory)
               print(f"{root}: head={head} tree={tree} build-input-files={len(inventory)}")
           # Key equality detects additions/removals, including absent nested .cargo configs.
           assert inventories[0] == inventories[1], "manifests/locks/toolchain/Cargo config differ"
+          with open(os.environ["GITHUB_ENV"], "a") as output:
+              output.write(f"TOOLCHAIN_CHANNEL={channel}\n")
           PY
           echo 'Fixed baseline-then-current order: page caches, machine load and time remain confounders.'
           echo 'Whole-patch/fixture/codegen comparison, not source-hook causation or a zero-overhead baseline.'
@@ -95,9 +98,9 @@ jobs:
           pkg-config --exists wayland-client
       - name: Pinned toolchain
         run: |
-          rustup toolchain install 1.98.1 --profile minimal
-          rustc +1.98.1 -Vv
-          cargo +1.98.1 -V
+          rustup toolchain install "$TOOLCHAIN_CHANNEL" --profile minimal
+          rustc "+$TOOLCHAIN_CHANNEL" -Vv
+          cargo "+$TOOLCHAIN_CHANNEL" -V
       - name: Build both revisions before running either comparison
         shell: bash
         run: |
@@ -123,7 +126,7 @@ jobs:
                   ("app", "benilla-app", ["--lib"], "benilla_app", "lib"),
               ):
                   log = logs / f"{label}-{kind}-build.jsonl"
-                  command = ["cargo", "+1.98.1", "test", "--locked", "--release", "--no-run",
+                  command = ["cargo", "+" + os.environ["TOOLCHAIN_CHANNEL"], "test", "--locked", "--release", "--no-run",
                              "--message-format=json", "-p", package, *selector]
                   print(f"BUILD ONLY {label}/{kind}: {command}", flush=True)
                   with log.open("w") as output:
@@ -175,8 +178,9 @@ jobs:
           logs = pathlib.Path(os.environ["RUNNER_TEMP"]) / "resident-revision-comparison"
           records = json.loads((logs / "build-records.json").read_text())
           verifier = workspace / "scripts" / "verify-libtest-output.py"
-          rust_lib = subprocess.check_output(["rustc", "+1.98.1", "--print", "target-libdir"], text=True).strip()
-          cargo = subprocess.check_output(["rustup", "which", "--toolchain", "1.98.1", "cargo"], text=True).strip()
+          channel = os.environ["TOOLCHAIN_CHANNEL"]
+          rust_lib = subprocess.check_output(["rustc", "+" + channel, "--print", "target-libdir"], text=True).strip()
+          cargo = subprocess.check_output(["rustup", "which", "--toolchain", channel, "cargo"], text=True).strip()
           status = 0
 
           def run_exact(record, kind, name, ignored):

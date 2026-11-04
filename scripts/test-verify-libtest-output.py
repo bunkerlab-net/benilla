@@ -959,6 +959,10 @@ class ExactProofTests(unittest.TestCase):
         self.assertIn("c506058280ea97f266a07932909556da4243e467", workflow)
         self.assertIn("f725aad16265f70657e83784438f1f24a3311a19", workflow)
         self.assertIn('assert inventories[0] == inventories[1]', workflow)
+        self.assertNotIn("1.98.1", workflow)
+        self.assertIn('tomllib.loads(inventory["rust-toolchain.toml"].decode())["toolchain"]["channel"]', workflow)
+        self.assertIn('output.write(f"TOOLCHAIN_CHANNEL={channel}\\n")', workflow)
+        self.assertIn('rustc "+$TOOLCHAIN_CHANNEL" -Vv', workflow)
         self.assertIn('assert git("rev-parse", "HEAD") == head', workflow)
         self.assertIn('assert git("rev-parse", "HEAD^{tree}") == tree', workflow)
         self.assertEqual(workflow.split("    paths:\n", 1)[1].split("\n\n", 1)[0].strip(), "- " + path)
@@ -994,7 +998,7 @@ class ExactProofTests(unittest.TestCase):
                 cargo.write_text("#!" + sys.executable + "\n" + textwrap.dedent(r"""
                     import json, os, sys
                     from pathlib import Path
-                    assert all(flag in sys.argv for flag in ['+1.98.1', 'test', '--locked', '--release', '--no-run', '--message-format=json'])
+                    assert all(flag in sys.argv for flag in ['+' + os.environ['TOOLCHAIN_CHANNEL'], 'test', '--locked', '--release', '--no-run', '--message-format=json'])
                     package = sys.argv[sys.argv.index('-p') + 1]
                     app = package == 'benilla-app'
                     label = Path.cwd().name
@@ -1014,7 +1018,7 @@ class ExactProofTests(unittest.TestCase):
                 """))
                 cargo.chmod(0o755)
                 calls = root / "calls"
-                env = dict(os.environ, GITHUB_WORKSPACE=str(root), RUNNER_TEMP=str(root), CALLS=str(calls), FAULT=fault, PATH=str(tools) + os.pathsep + os.environ["PATH"])
+                env = dict(os.environ, TOOLCHAIN_CHANNEL="stable", GITHUB_WORKSPACE=str(root), RUNNER_TEMP=str(root), CALLS=str(calls), FAULT=fault, PATH=str(tools) + os.pathsep + os.environ["PATH"])
                 result = subprocess.run(["bash", "-c", shell], env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(calls.read_text().splitlines(), ["baseline:helper", "baseline:app", "current:helper", "current:app"])
@@ -1072,7 +1076,7 @@ class ExactProofTests(unittest.TestCase):
                     records.append(record)
                 (logs / "build-records.json").write_text(json.dumps(records))
                 calls = root / "calls"
-                env = dict(os.environ, GITHUB_WORKSPACE=str(root), RUNNER_TEMP=str(root), CALLS=str(calls), PATH=str(tools) + os.pathsep + os.environ["PATH"])
+                env = dict(os.environ, TOOLCHAIN_CHANNEL="stable", GITHUB_WORKSPACE=str(root), RUNNER_TEMP=str(root), CALLS=str(calls), PATH=str(tools) + os.pathsep + os.environ["PATH"])
                 result = subprocess.run(["bash", "-c", shell], env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode == 0, bad_label is None, result.stdout + result.stderr)
                 expected = ["baseline:helper", "current:helper", "baseline:app", "current:app"]
