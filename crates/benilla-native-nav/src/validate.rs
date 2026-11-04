@@ -353,10 +353,10 @@ impl<'a> Validated<'a> {
                     let a = poly.detail[t[0] as usize];
                     let b = poly.detail[t[1] as usize];
                     let c = poly.detail[t[2] as usize];
-                    // Match native binary32 degeneracy threshold. Rejection is not a
-                    // geometric tolerance granting support; these shapes are unsupported.
+                    // RecastMeshDetail.cpp:770-774 emits slivers; native height queries
+                    // skip small/zero determinants and fall back to indexed detail edges.
                     let area = (c[0] - a[0]) * (b[2] - a[2]) - (c[2] - a[2]) * (b[0] - a[0]);
-                    if cross(a, b, c) >= 0. || !area.is_finite() || area < 1e-6 {
+                    if cross(a, b, c) > 0. || !area.is_finite() || area < 0. {
                         return Err(Error::Unsupported);
                     }
                     for k in 0..3 {

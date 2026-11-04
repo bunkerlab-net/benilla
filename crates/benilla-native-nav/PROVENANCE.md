@@ -87,7 +87,7 @@ The app snapshot uses a non-reentrant RefCell in the existing NonSend service.
   The generator's usesLiquids boolean alone is not an actual liquid polygon;
   both boolean values are permitted. Default queries remain ground-only
 - Clockwise non-strictly convex 3–6-vertex polygons, with no reflex vertex;
-  finite nondegenerate detail triangles;
+  finite detail triangles with no inverted winding;
   exact reciprocal internal neighbors and reversed shared edges; one directed detail
   boundary cycle in coarse-vertex order, paired internal edges and no duplicate edges
 - Serialized link heads/cache bytes are ignored because source addTile rebuilds every
@@ -138,8 +138,18 @@ This does not make a zero-area polygon a positive body-support region.
 reproduces authored collinear-corner and line-triangle writer bytes plus
 unmodified Detour nearest, corridor, funnel and raycast observations.
 
+`RecastMeshDetail.cpp:559-624,770-774` triangulates slivers without an
+area gate. Detour's height helper returns false for determinants below
+`1e-6` before division (`DetourCommon.cpp:204-216`); its caller falls
+back to indexed detail edges (`DetourNavMesh.cpp:718-725`). Zero or small
+detail area therefore does not refuse the tile. The validator retains
+finite arithmetic, non-inverted winding, distinct valid indices and
+the flagged boundary-edge requirement that keeps this fallback non-null.
+The authored fully collinear triangle matches original Detour nearest
+edge interpolation and funnel results, without fabricating positive area.
+
 This is intentionally a restricted source-compatible subset; it may reject lawful
-source-generated data with narrow/degenerate triangles, ambiguous portals or larger
+source-generated data with unsupported detail topology, ambiguous portals or larger
 closures. It does not reinterpret rejection as empty or traversable geometry. Bounds
 cover CPU loops and allocation sizes, not hard operating-system scheduling. Peak memory
 includes the inventory, validation scratch, native copies and fixed query state; the

@@ -64,3 +64,17 @@ fn reflex_corner_still_refuses_before_native_loading() {
     bytes[132..136].copy_from_slice(&x.to_le_bytes());
     assert!(matches!(load(&bytes), Err(Error::Unsupported)));
 }
+#[test]
+fn fully_collinear_triangle_matches_original_edge_fallback_and_funnel() {
+    assert_original_queries(
+        include_bytes!("../tools/fixtures/collinear/flat.mmtile"),
+        include_str!("../tools/fixtures/collinear/flat.tsv"),
+    );
+}
+#[test]
+fn inverted_detail_triangle_still_refuses_before_native_loading() {
+    let mut bytes = CORNER.to_vec();
+    let triangles = 120 + 5 * 12 + 32 + 5 * 16 + 12;
+    bytes.swap(triangles, triangles + 1);
+    assert!(matches!(load(&bytes), Err(Error::Unsupported)));
+}
