@@ -341,23 +341,8 @@ impl<'a> Validated<'a> {
                     poly.detail.push(vertices[v]);
                 }
                 poly.detail.extend_from_slice(&dvertices[base..base + dn]);
-                for &v in &poly.detail {
-                    for i in 0..nv {
-                        if cross(
-                            vertices[poly.verts[i]],
-                            vertices[poly.verts[(i + 1) % nv]],
-                            v,
-                        ) > 0.
-                            && !adjacent_axis_detail(
-                                vertices[poly.verts[i]],
-                                vertices[poly.verts[(i + 1) % nv]],
-                                v,
-                            )
-                        {
-                            return Err(bad());
-                        }
-                    }
-                }
+                // RecastMeshDetail.cpp:702-709,1310-1315 emits sampled detail vertices;
+                // DetourNavMesh.cpp:621-758 indexes them without coarse-edge containment.
                 let mut boundary = false;
                 let mut edges = BTreeMap::new();
                 for t in tris[tb * 4..(tb + tn) * 4].as_chunks::<4>().0 {
@@ -617,17 +602,15 @@ fn validate_bv(b: &[u8], polys: &[Poly], origin: [f32; 3], q: f32) -> Result<(),
     Ok(())
 }
 
-// Directed detail triangles must form exactly the polygon boundary. Every interior
-// edge has one reverse; every boundary edge is genuinely on a polygon edge, covers
-// it without gaps/overlap, and carries the source boundary bit. This excludes null
-// native fallback pointers and malformed surfaces masquerading as a complete mesh.
+// Preserve the directed boundary topology without requiring sampled vertices to
+// lie on coarse polygon edges. Boundary flags keep Detour's fallback non-null.
 fn validate_detail_boundary(
     poly: &Poly,
     edges: &BTreeMap<(usize, usize), bool>,
 ) -> Result<(), Error> {
-    let n = poly.verts.len();
-    let mut coverage: Vec<Vec<(f64, f64)>> = reserve(n)?;
-    coverage.resize_with(n, Vec::new);
+    let mut next = reserve(poly.detail.len())?;
+    next.resize(poly.detail.len(), (usize::MAX, false));
+    let mut boundary_count = 0;
     for (&(a, b), &flag) in edges {
         if let Some(reverse) = edges.get(&(b, a)) {
             if flag || *reverse {
@@ -635,55 +618,33 @@ fn validate_detail_boundary(
             }
             continue;
         }
-        if !flag {
+        if !flag || next[a].0 != usize::MAX || next[b].1 {
             return Err(bad());
         }
-        let from = poly.detail[a];
-        let to = poly.detail[b];
-        let mut found = false;
-        for (i, intervals) in coverage.iter_mut().enumerate() {
-            let start = poly.detail[i];
-            let end = poly.detail[(i + 1) % n];
-            if (cross(start, end, from) != 0. && !adjacent_axis_detail(start, end, from))
-                || (cross(start, end, to) != 0. && !adjacent_axis_detail(start, end, to))
-            {
-                continue;
-            }
-            let axis = if (end[0] - start[0]).abs() >= (end[2] - start[2]).abs() {
-                0
-            } else {
-                2
-            };
-            let denom = end[axis] as f64 - start[axis] as f64;
-            if denom == 0. {
-                return Err(bad());
-            }
-            let a = (from[axis] as f64 - start[axis] as f64) / denom;
-            let b = (to[axis] as f64 - start[axis] as f64) / denom;
-            if !(0. ..=1.).contains(&a) || !(0. ..=1.).contains(&b) || a >= b {
-                continue;
-            }
-            intervals.try_reserve(1).map_err(|_| Error::Budget)?;
-            intervals.push((a, b));
-            found = true;
-            break;
-        }
-        if !found {
-            return Err(bad());
-        }
+        next[a].0 = b;
+        next[b].1 = true;
+        boundary_count += 1;
     }
-    for edges in &mut coverage {
-        edges.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let mut end = 0.;
-        for &(a, b) in edges.iter() {
-            if a != end {
-                return Err(bad());
-            }
-            end = b;
-        }
-        if end != 1. {
+    let mut at = 0;
+    let mut base = 0;
+    for step in 0..boundary_count {
+        if step != 0 && at == 0 {
             return Err(bad());
         }
+        if at < poly.verts.len() {
+            if at != base {
+                return Err(bad());
+            }
+            base += 1;
+        }
+        let target = next[at].0;
+        if target == usize::MAX {
+            return Err(bad());
+        }
+        at = target;
+    }
+    if at != 0 || base != poly.verts.len() {
+        return Err(bad());
     }
     Ok(())
 }
@@ -718,19 +679,6 @@ fn native_load_work(tiles: &[TileWork]) -> Result<usize, Error> {
         }
     }
     Ok(work)
-}
-// Original MeshDetail interpolates local edges then adds the subtile origin;
-// NavMeshBuilder reconstructs polygon coordinates from merged integer vertices.
-// Source captures prove a one-binary32-step disagreement on axis-aligned edges.
-// This narrow representation allowance is not a body/support tolerance.
-fn adjacent_axis_detail(a: [f32; 3], b: [f32; 3], p: [f32; 3]) -> bool {
-    [0, 2].into_iter().any(|axis| {
-        let along = 2 - axis;
-        a[axis] == b[axis]
-            && (p[axis] == a[axis].next_up() || p[axis] == a[axis].next_down())
-            && p[along] >= a[along].min(b[along])
-            && p[along] <= a[along].max(b[along])
-    })
 }
 
 #[cfg(test)]

@@ -87,8 +87,8 @@ The app snapshot uses a non-reentrant RefCell in the existing NonSend service.
   The generator's usesLiquids boolean alone is not an actual liquid polygon;
   both boolean values are permitted. Default queries remain ground-only
 - Clockwise strictly convex 3–6-vertex polygons; finite nondegenerate detail triangles;
-  exact reciprocal internal neighbors and reversed shared edges; genuine, complete
-  detail boundary edges with reversed internal edges and no duplicate directed edges
+  exact reciprocal internal neighbors and reversed shared edges; one directed detail
+  boundary cycle in coarse-vertex order, paired internal edges and no duplicate edges
 - Serialized link heads/cache bytes are ignored because source addTile rebuilds every
   reachable link and head before use; exact source link capacity, valid contiguous detail
   ranges, complete BV subtree structure/leaf coverage/enclosing quantized bounds, and
@@ -858,10 +858,24 @@ checks unchanged query results after reconstruction. Structural sections remain 
 
 Detail Y uses the source raster span rounding and the extra MeshDetail cell offset:
 its upper bound is (floor((maxY-minY)*q)+1)*(1/q) + (minY+1/q).
-Unset-height samples remain unsupported. On axis-aligned polygon edges, only a
-single adjacent binary32 normal-coordinate representation is accepted, and the
-along-edge coordinate must remain inside the closed segment. Stored coordinates
-are never snapped or changed.
+Unset-height samples remain unsupported. Detail samples need not lie inside coarse
+polygon edges. Pinned `RecastMeshDetail.cpp:702-709,1310-1315` interpolates and
+samples local edges before adding world coordinates. Binary32 rounding can place
+a genuine detail sample outside a diagonal coarse edge. Stored coordinates are
+never snapped or changed.
+
+Pinned `DetourNavMesh.cpp:908-970` checks tile magic/version, occupied location and
+allocation, not detail containment. `closestPointOnDetailEdges`, lines 621-674,
+and `getPolyHeight`/`closestPointOnPoly`, lines 677-758, use bounded detail indices
+and triangle edges directly. Benilla retains finite/bounded values, complete count
+and index checks, valid triangle ranges and winding, paired internal edges,
+boundary flags and one closed boundary cycle in coarse-vertex order. It does not
+require detail boundary coordinates to equal coarse edge coordinates.
+
+`tools/detail_generate.py --source /path/to/mangos-classic --check` regenerates an
+authored diagonal edge sample one binary32 step outside its polygon. The reader
+loads it and matches original Detour nearest references, point bits and over flags.
+Invalid detail indices/ranges, NaN and both infinities still refuse before native loading.
 
 The source BV builder sees full detail vertices, while serialization replaces its
 first polygon-vertex entries with merged polygon coordinates. Exact BV containment
@@ -889,13 +903,12 @@ maximum 13.25. The current base-vertex envelope rejects this quantized surface
 before the area whitelist. The integration preserves that precise refusal; it
 neither expands height bounds nor treats it as corrupted source data.
 
-The production reader continues to admit only exact ground `(flags=1, area=11)`
-and steep `(flags=2, area=10)` polygon pairs. Water `(4,9)` and magma/slime `(8,8)`
-remain unsupported. Merely extending that pair list would be insufficient:
-`SourceOwnerFilter` currently permits source habitat mask `13/0` only within an
-already dry loaded mesh, and that mask contains the liquid flags. Wet traversal
-therefore requires a separate capability/filter and ownership design. Neither the
-fixture nor helper generation grants swimming, magma traversal or world admission.
+The production reader admits exact ground `(flags=1, area=11)`, steep `(2,10)`
+and measured water `(4,9)` pairs. Magma/slime `(8,8)` remains unsupported.
+Explicit low-level filters can include water while the default non-swimming walker
+excludes it. The existing dry-owner habitat mask `13/0` contains liquid flags,
+but reader/query results do not establish wet owner support, swimming bodies,
+magma traversal or world admission.
 
 ## Two emitted tile seam evidence
 

@@ -193,7 +193,7 @@ fn serialized_link_cache_is_rebuilt_before_use() {
 }
 
 #[test]
-fn two_ulp_outward_axis_detail_displacement_is_rejected() {
+fn two_ulp_outward_axis_detail_displacement_loads_and_queries() {
     let (params, mut tile) = captured_ridge();
     let layout = Layout::read(&tile);
     let a = layout.base_vertex(&tile, 56, 0);
@@ -204,11 +204,26 @@ fn two_ulp_outward_axis_detail_displacement_is_rejected() {
     assert_eq!(p[2], a[2].next_up());
     assert!(p[0] > a[0] && p[0] < b[0]);
     set_real(&mut tile, extra + 8, a[2].next_up().next_up());
-    assert_format_rejection(&params, &tile);
+    let mut mesh = Mesh::load(
+        &params,
+        &[TileInput {
+            grid: [31, 30],
+            bytes: &tile,
+        }],
+    )
+    .unwrap();
+    let p = point(&tile, extra);
+    assert!(mesh
+        .nearest(
+            [p[2], p[0], p[1]].map(f32::to_bits),
+            5.0,
+            Instant::now() + std::time::Duration::from_secs(5),
+        )
+        .is_ok());
 }
 
 #[test]
-fn adjacent_axis_detail_cannot_extend_past_the_edge_endpoint() {
+fn detail_extension_past_edge_endpoint_still_rejects_inverted_triangles() {
     let (params, mut tile) = captured_ridge();
     let layout = Layout::read(&tile);
     let a = layout.base_vertex(&tile, 56, 0);
@@ -217,7 +232,16 @@ fn adjacent_axis_detail_cannot_extend_past_the_edge_endpoint() {
     assert_eq!(point(&tile, extra)[2], a[2].next_up());
     assert!(a[0] < b[0]);
     set_real(&mut tile, extra, b[0].next_up());
-    assert_format_rejection(&params, &tile);
+    assert!(matches!(
+        Mesh::load(
+            &params,
+            &[TileInput {
+                grid: [31, 30],
+                bytes: &tile,
+            }]
+        ),
+        Err(Error::Unsupported)
+    ));
 }
 
 #[test]

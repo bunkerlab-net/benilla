@@ -555,3 +555,6 @@ mod generated_tests;
 
 #[cfg(all(test, benilla_native_detour))]
 mod water_tests;
+
+#[cfg(all(test, benilla_native_detour))]
+mod detail_tests;
