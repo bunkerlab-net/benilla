@@ -225,3 +225,43 @@ pub fn item_grant_profile() -> Profile {
     p.initialize_quest_progression(&input, q).unwrap();
     p
 }
+
+/// Authored leaf operands with the selected Kobold reference shapes, not installed rows.
+pub fn checked_kobold_draft() -> CheckedLootDraft {
+    let corpus: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../scripts/native_starter/spell_execution_cases.json"
+    ))
+    .unwrap();
+    let fixture = corpus["fixtures"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["name"] == "loot-assembly-checked")
+        .unwrap();
+    production_compiler::preparation::loot_assembly::assemble(
+        &fixture["preparation"]["corpse_loot_plan"],
+    )
+    .unwrap()
+    .unwrap()
+}
+
+/// The synthetic host, not the raw draft, supplies the independently authored audit.
+pub fn checked_kobold_profile(draft: &CheckedLootDraft) -> Profile {
+    let (mut p, input, mut q) = setup();
+    let loot = q.loot.as_mut().unwrap();
+    let mut items: Vec<_> = loot.inventory.items().cloned().collect();
+    items.extend(draft.items().items().cloned());
+    loot.inventory = inventory_catalog(items);
+    loot.captures = draft.body().to_vec();
+    loot.reference_captures = draft.references().to_vec();
+    // Authored high reference rate exercises both real signed reference operands.
+    loot.rules.referenced_rate_bits = 1000f32.to_bits();
+    q.world_rules.loot = loot.rules.clone();
+    for row in &mut loot.creatures {
+        if row.loot_id != 0 {
+            row.loot_id = 6;
+        }
+    }
+    p.initialize_quest_progression(&input, q).unwrap();
+    p
+}

@@ -1667,3 +1667,44 @@ mod armor_relocation_tests;
 
 #[path = "native_player_sheath_tests.rs"]
 mod player_sheath_tests;
+
+#[test]
+fn checked_loot_item_queries_bind_every_leaf_and_require_spell_and_display_evidence() {
+    let draft = fixture::checked_kobold_draft();
+    let world = n::NativeWorld::synthetic_component_test(
+        fixture::checked_kobold_profile(&draft),
+        [1; 16],
+        n::synthetic_fixture::player(),
+        42,
+    )
+    .unwrap();
+    let mut catalog = Catalog::new(&world);
+    let metadata = crate::native::captured_loot_items::compile(&draft, &catalog).unwrap();
+    assert_eq!(metadata.len(), 4);
+    assert_eq!(metadata[&80004].name, "Authored loot leaf 80004");
+    assert_eq!(metadata[&80004].spells[0].charges, -3);
+    assert_eq!(metadata[&80004].spells[0].cooldown_ms, 9000);
+    assert_eq!(metadata[&80004].spells[0].category, 90);
+    catalog.items.extend(metadata);
+    let projection = NativeProjection::new(&world, world.state().player, &catalog).unwrap();
+    assert!(matches!(&projection.item_query(&world, 80004).unwrap(),
+        SessionEvent::ItemTemplate { info: Some(item), .. } if item.spell_charges_0 == -3));
+    catalog.display = false;
+    assert!(matches!(
+        crate::native::captured_loot_items::compile(&draft, &catalog),
+        Err(Error::UnboundItemDisplay(80001))
+    ));
+    catalog.display = true;
+    let spell = draft.items().item(80004).unwrap().spells[0].id;
+    catalog.spell_queries.remove(&spell);
+    assert!(matches!(
+        crate::native::captured_loot_items::compile(&draft, &catalog),
+        Err(Error::InvalidItemMetadata(80004))
+    ));
+    catalog
+        .spell_queries
+        .insert(spell, crate::NativeItemSpellQuery::Missing);
+    let metadata = crate::native::captured_loot_items::compile(&draft, &catalog).unwrap();
+    assert!(metadata[&80004].spells.is_empty());
+    assert_eq!(metadata[&80004].spell_charges_0, 0);
+}

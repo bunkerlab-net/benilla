@@ -773,3 +773,116 @@ fn checked_learning_numeric_candidate_is_not_effective_learning() {
         );
     }
 }
+
+#[test]
+fn checked_loot_assembly_binds_every_leaf_without_whole_host_admission() {
+    let fixtures = corpus();
+    for (name, supported, reason) in [
+        ("loot-assembly-checked", true, ""),
+        (
+            "loot-assembly-cycle",
+            false,
+            "loot.reference_cycle_not_executable",
+        ),
+        (
+            "loot-assembly-flag",
+            false,
+            "loot.item.carried_dependency_unsupported",
+        ),
+    ] {
+        let fixture = fixtures["fixtures"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["name"] == name)
+            .unwrap();
+        let report = Inputs::new(fixture).run().unwrap();
+        assert_eq!(report.loot_draft().is_some(), supported);
+        if let Some(draft) = report.loot_draft() {
+            assert_eq!(
+                draft.items().items().map(|i| i.entry).collect::<Vec<_>>(),
+                [80001, 80002, 80003, 80004]
+            );
+            assert_eq!(
+                draft.body()[0]
+                    .rows
+                    .iter()
+                    .map(|r| r.item)
+                    .collect::<Vec<_>>(),
+                [80002, 60441, 60000, 80001]
+            );
+            assert_eq!(
+                draft
+                    .references()
+                    .iter()
+                    .map(|r| r.loot_id)
+                    .collect::<Vec<_>>(),
+                [60000, 60441]
+            );
+            assert_eq!(draft.client_inputs().len(), 4);
+        } else {
+            assert!(
+                report.preparation()["corpse_loot_plan"]["raw_assembly"]["refusals"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|r| r["reason"] == reason)
+            );
+        }
+        assert_eq!(report.identity()["runtime_admitted"], false);
+    }
+}
+
+#[test]
+#[ignore = "requires explicit private source, selection, DBC and preparation paths"]
+fn private_loot_assembly_parity() {
+    let path = |key| {
+        std::env::var_os(key)
+            .map(PathBuf::from)
+            .expect("explicit private input")
+    };
+    let source = path("BENILLA_LOOT_SOURCE");
+    let selection = path("BENILLA_LOOT_SELECTION");
+    let dbc_directory = path("BENILLA_LOOT_DBC");
+    let preparation = path("BENILLA_LOOT_PREPARATION");
+    let report = diagnose_production_inputs(
+        ProductionInputPaths {
+            source: &source,
+            selection: &selection,
+            dbc_directory: &dbc_directory,
+            preparation: &preparation,
+            rules: ProductionRules::Preset(benilla_sim::world_rules::STOCK_PRESET),
+        },
+        ProductionRequest {
+            race: 1,
+            class: 8,
+            gender: 0,
+        },
+    )
+    .unwrap();
+    let plan = &report.preparation()["corpse_loot_plan"];
+    assert_eq!(plan["status"], "blocked");
+    assert!(plan["refusals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r["key"] == "12423"
+            && r["reason"] == "loot.non_body_creature_callback_present_unsupported"));
+    let draft = report.loot_draft().expect("complete checked raw inputs");
+    println!(
+        "SHA={} unsupported={} body={} references={} leaves={} metadata={}",
+        report.preparation()["preparation_sha256"],
+        report.preparation()["unsupported"]
+            .as_array()
+            .unwrap()
+            .len(),
+        draft.body().iter().map(|c| c.rows.len()).sum::<usize>(),
+        draft
+            .references()
+            .iter()
+            .map(|c| c.rows.len())
+            .sum::<usize>(),
+        draft.items().items().count(),
+        draft.client_inputs().len()
+    );
+}

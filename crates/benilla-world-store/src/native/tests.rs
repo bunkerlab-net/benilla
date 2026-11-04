@@ -99,6 +99,102 @@ fn starter_hearthstone_storage_and_playercast_survive_save_and_reopen() {
     ));
     assert_eq!(restored.checkpoint().unwrap(), expected);
 }
+
+#[test]
+fn checked_kobold_reference_roll_collection_and_save_reopen() {
+    use benilla_world_runtime::native::{
+        synthetic_loot_fixture as loot, synthetic_quest_fixture, Command,
+    };
+    let draft = loot::checked_kobold_draft();
+    let profile = loot::checked_kobold_profile(&draft);
+    let mut world =
+        NativeWorld::synthetic_component_test(profile.clone(), [1; 16], f::player(), 42).unwrap();
+    let t = Temp::new();
+    let (mut store, receipt) = NativeStore::create(t.path(), &world).unwrap();
+    receipt.acknowledge(&mut world).unwrap();
+    let mut authority = loot::LootAuthority::default();
+    let target = world.state().npcs[&2].id;
+    let cast = synthetic_quest_fixture::command(
+        &world,
+        Command::Cast {
+            ability: 60001,
+            target,
+        },
+    );
+    world.step(1, Some(cast), &mut authority).unwrap();
+    for _ in 0..30 {
+        if world.state().npcs[&2].health == 0 {
+            break;
+        }
+        world
+            .step(world.state().tick + 1, None, &mut authority)
+            .unwrap();
+    }
+    assert_eq!(world.state().npcs[&2].health, 0);
+    let generated = world.state().npcs[&2]
+        .corpse_loot
+        .as_ref()
+        .unwrap()
+        .generated
+        .clone();
+    assert_eq!(
+        generated.items.iter().map(|i| i.item).collect::<Vec<_>>(),
+        [80002, 80004, 80003, 80001]
+    );
+    for command in std::iter::once(Command::OpenLoot { corpse: target })
+        .chain(generated.items.iter().map(|i| Command::LootItem {
+            corpse: target,
+            slot: i.slot,
+        }))
+        .chain([
+            Command::LootMoney { corpse: target },
+            Command::ReleaseLoot { corpse: target },
+        ])
+    {
+        let input = synthetic_quest_fixture::command(&world, command);
+        world
+            .step(world.state().tick + 1, Some(input), &mut authority)
+            .unwrap();
+    }
+    for entry in 80001..=80004 {
+        assert_eq!(
+            world
+                .state()
+                .quest_progression
+                .as_ref()
+                .unwrap()
+                .inventory
+                .as_ref()
+                .unwrap()
+                .item_count(entry)
+                .unwrap(),
+            1
+        );
+    }
+    let draws = world.state().npcs[&2]
+        .corpse_loot
+        .as_ref()
+        .unwrap()
+        .draws
+        .clone();
+    let identity = Identity::of(&world.checkpoint().unwrap());
+    store.checkpoint(&mut world).unwrap();
+    let expected = world.checkpoint().unwrap();
+    drop(store);
+    let (_, restored) = NativeStore::open(t.path(), identity, |checkpoint| {
+        NativeWorld::restore_synthetic_component_test(profile.clone(), checkpoint)
+    })
+    .unwrap();
+    assert_eq!(restored.checkpoint().unwrap(), expected);
+    assert_eq!(
+        restored.state().npcs[&2]
+            .corpse_loot
+            .as_ref()
+            .unwrap()
+            .draws,
+        draws
+    );
+}
 #[test]
 fn native_roundtrip_replays_cast_rng_and_retains_prior_good() {
     let t = Temp::new();

@@ -53,6 +53,25 @@ impl std::error::Error for Refusal {}
 impl CapturedLoot {
     /// Compilation is not source authentication and cannot admit a native world.
     pub fn compile(self, inventory: &inventory::Catalog) -> Result<Catalog, Refusal> {
+        self.compile_with(|entry| {
+            inventory
+                .corpse_carried_ready(entry)
+                .map_err(|e| e.to_string())
+        })
+    }
+
+    /// Assemble checked leaves without asserting the independent inventory/host audit.
+    pub fn compile_checked(
+        self,
+        items: &inventory::captured::CheckedItems,
+    ) -> Result<Catalog, Refusal> {
+        self.compile_with(|entry| items.item(entry).map_err(|e| e.to_string()))
+    }
+
+    fn compile_with<'a>(
+        self,
+        item: impl Fn(u32) -> Result<&'a inventory::Item, String>,
+    ) -> Result<Catalog, Refusal> {
         if self
             .body
             .as_ref()
@@ -67,8 +86,8 @@ impl CapturedLoot {
                 reason: "retained_loot_closure_limit".into(),
             });
         }
-        let body = compile_table(self.body, "creature_loot_template", inventory)?;
-        let references = compile_table(self.references, "reference_loot_template", inventory)?;
+        let body = compile_table(self.body, "creature_loot_template", &item)?;
+        let references = compile_table(self.references, "reference_loot_template", &item)?;
         Catalog::new_with_references(body, references).map_err(|error| Refusal {
             table: "loot_closure",
             entry: 0,
@@ -86,10 +105,10 @@ impl Catalog {
         )
     }
 }
-fn compile_table(
+fn compile_table<'a>(
     table: Option<Table>,
     name: &'static str,
-    inventory: &inventory::Catalog,
+    item: &impl Fn(u32) -> Result<&'a inventory::Item, String>,
 ) -> Result<Vec<Capture>, Refusal> {
     let refuse = |entry, item, reason: &str| Refusal {
         table: name,
@@ -146,14 +165,12 @@ fn compile_table(
         });
         if row.min_count_or_reference > 0 {
             // AllowedForPlayer admits normal items unless StartQuest adds a status dependency.
-            let item = inventory
-                .corpse_carried_ready(row.item)
-                .map_err(|error| Refusal {
-                    table: name,
-                    entry: position.entry,
-                    item: row.item,
-                    reason: error.to_string(),
-                })?;
+            let item = item(row.item).map_err(|error| Refusal {
+                table: name,
+                entry: position.entry,
+                item: row.item,
+                reason: error.to_string(),
+            })?;
             capture.items.insert(
                 row.item,
                 ItemLookup::Present(Item {

@@ -242,3 +242,21 @@ fn captured_catalog_rejects_more_than_the_source_item_bound() {
         "item_row_limit"
     );
 }
+
+#[test]
+fn checked_prototypes_do_not_supply_the_independent_host_audit() {
+    let items = compile_items(vec![row(15, 0, 0)]).unwrap();
+    assert_eq!(items.item(800001).unwrap().display_id, 800002);
+    assert!(items.item(999999).is_err());
+    let mut unknown = audit();
+    unknown.item_creation_and_loot_scripts = Evidence::Unknown;
+    assert_eq!(
+        items.clone().into_catalog(unknown).unwrap_err(),
+        Error::Unsupported("inventory_dependency_not_absent")
+    );
+    items
+        .into_catalog(audit())
+        .unwrap()
+        .corpse_carried_ready(800001)
+        .unwrap();
+}

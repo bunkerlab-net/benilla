@@ -6,6 +6,8 @@ use benilla_protocol::{messages as p, EntityKind, ObjectFields, SessionEvent};
 use benilla_sim::{classic_spell as spell, creature_ai as ai};
 use benilla_world_runtime::{native as n, Digest, NpcId, PlayerId};
 use std::collections::{BTreeMap, BTreeSet};
+#[path = "captured_loot_items.rs"]
+pub mod captured_loot_items;
 #[path = "native_creature_equipment.rs"]
 mod creature_equipment;
 #[path = "native_event_ai.rs"]

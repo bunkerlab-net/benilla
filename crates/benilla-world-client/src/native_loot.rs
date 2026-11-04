@@ -8,7 +8,7 @@ use benilla_sim::{inventory as inv, starter_init as init};
 pub(super) struct Metadata {
     items: BTreeMap<u32, p::ItemInfo>,
 }
-fn valid_text(text: &str) -> bool {
+pub(super) fn valid_text(text: &str) -> bool {
     text.len() <= 16384
         && text
             .chars()
@@ -151,7 +151,7 @@ fn validate_starter(item: &init::ItemRow, info: &p::ItemInfo) -> Result<(), Erro
             school: d.school,
         })
         .collect::<Vec<_>>();
-    if info.subclass != item.subclass
+    if info.subclass != if item.class == 0 { 0 } else { item.subclass }
         || info.allowable_class != item.allowable_class as i32
         || info.allowable_race != item.allowable_race as i32
         || info.required_level != item.required_level

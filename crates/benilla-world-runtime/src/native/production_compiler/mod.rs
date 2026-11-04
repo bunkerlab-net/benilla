@@ -4,10 +4,11 @@ mod dbc;
 mod extensions;
 mod global_hooks;
 mod json;
-mod preparation;
+pub(super) mod preparation;
 mod source;
 #[cfg(test)]
 mod tests;
+pub use preparation::loot_assembly::CheckedLootDraft;
 use serde_json::{json, Value};
 use std::{path::Path, sync::LazyLock};
 static COMPILER_CONTRACT: LazyLock<Value> = LazyLock::new(|| {
@@ -74,6 +75,7 @@ pub enum ProductionRules<'a> {
 pub struct ProductionInputReport {
     identity: Value,
     preparation: Value,
+    loot: Option<CheckedLootDraft>,
 }
 /// Checked compiler requirements, not an app collision token or gameplay authority.
 /// Phase 6 must bind the final runtime content identity and closed controller
@@ -114,6 +116,10 @@ impl ProductionInputReport {
     }
     pub fn participants(&self) -> CheckedParticipantRequirements<'_> {
         CheckedParticipantRequirements { report: self }
+    }
+    /// Checked prototypes and loader-positioned captures, never whole-host admission.
+    pub fn loot_draft(&self) -> Option<&CheckedLootDraft> {
+        self.loot.as_ref()
     }
 }
 /// Independently recompiles diagnostics from bounded raw inputs and compares the complete report.
@@ -167,8 +173,10 @@ pub fn diagnose_production_inputs(
     check(provided == preparation, "compiler.preparation_mismatch")?;
     let mut identity = json!({"format":"benilla-production-input-identity-v1","compiler_policy":"benilla-production-diagnostics-v1","source_sha256":preparation["source_sha256"],"selection":selection.json(),"request":request.json(),"world_rules_sha256":json::digest(&rules),"extraction_manifest":preparation["extraction_manifest"],"dbc_manifest":preparation["dbc_manifest"],"preparation_sha256":preparation["preparation_sha256"],"client_build_authenticity_verified":false,"revision_claims_verified_against_installation":false,"consistency":source["consistency"],"runtime_admitted":false});
     identity["identity_sha256"] = json!(json::digest(&identity));
+    let loot = preparation::loot_assembly::assemble(&preparation["corpse_loot_plan"])?;
     Ok(ProductionInputReport {
         identity,
         preparation,
+        loot,
     })
 }

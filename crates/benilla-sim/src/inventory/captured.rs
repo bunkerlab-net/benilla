@@ -9,7 +9,8 @@ pub const ADAPTER: &str = "cmangos-8ec338a1-captured-item-admission-v1";
 
 /// Two projections of the same captured prototype. Shared fields must agree exactly.
 /// The producer retains the complete source row and its hash outside these runtime inputs.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CapturedItem {
     pub inventory: Item,
     pub placement: ItemRow,
@@ -188,9 +189,31 @@ impl CapturedItem {
         })
     }
 }
+/// Checked carried prototypes without host absence evidence or mutation authority.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CheckedItems {
+    rows: BTreeMap<u32, Item>,
+}
+impl CheckedItems {
+    pub fn item(&self, entry: u32) -> Result<&Item, Error> {
+        self.rows.get(&entry).ok_or(Error::Invalid("unknown_item"))
+    }
+    pub fn items(&self) -> impl Iterator<Item = &Item> {
+        self.rows.values()
+    }
+    /// Only the independent host audit can turn checked prototypes into a storage catalog.
+    pub fn into_catalog(self, audit: Audit) -> Result<Catalog, Error> {
+        let catalog = Catalog {
+            rows: self.rows,
+            audit,
+        };
+        catalog.validate()?;
+        catalog.storage_dependencies_ready()?;
+        Ok(catalog)
+    }
+}
 
-/// All rows must pass. No successful partial catalog or inferred audit is returned.
-pub fn compile_catalog(rows: Vec<CapturedItem>, audit: Audit) -> Result<Catalog, Vec<Refusal>> {
+pub fn compile_items(rows: Vec<CapturedItem>) -> Result<CheckedItems, Vec<Refusal>> {
     if rows.len() > 2048 {
         return Err(vec![Refusal {
             item: 0,
@@ -198,23 +221,36 @@ pub fn compile_catalog(rows: Vec<CapturedItem>, audit: Audit) -> Result<Catalog,
             reason: "item_row_limit",
         }]);
     }
-    let mut items = Vec::with_capacity(rows.len());
+    let mut items = BTreeMap::new();
     let mut refusals = Vec::new();
-    let mut ids = BTreeSet::new();
     for row in rows {
-        if !ids.insert(row.inventory.entry) {
-            refusals.push(row.refuse("entry", "duplicate_item"));
-        } else {
-            match row.compile_carried() {
-                Ok(item) => items.push(item),
-                Err(refusal) => refusals.push(refusal),
+        match items.entry(row.inventory.entry) {
+            std::collections::btree_map::Entry::Occupied(_) => {
+                refusals.push(row.refuse("entry", "duplicate_item"));
             }
+            std::collections::btree_map::Entry::Vacant(entry) => match row.compile_carried() {
+                Ok(item) => {
+                    entry.insert(item);
+                }
+                Err(refusal) => refusals.push(refusal),
+            },
         }
     }
-    if !refusals.is_empty() {
-        return Err(refusals);
+    if refusals.is_empty() {
+        Ok(CheckedItems { rows: items })
+    } else {
+        Err(refusals)
     }
-    let catalog = Catalog::new(items, audit).map_err(|_| {
+}
+
+/// All rows must pass. No successful partial catalog or inferred audit is returned.
+pub fn compile_catalog(rows: Vec<CapturedItem>, audit: Audit) -> Result<Catalog, Vec<Refusal>> {
+    let items = compile_items(rows)?;
+    let catalog = Catalog {
+        rows: items.rows,
+        audit,
+    };
+    catalog.validate().map_err(|_| {
         vec![Refusal {
             item: 0,
             field: "catalog",

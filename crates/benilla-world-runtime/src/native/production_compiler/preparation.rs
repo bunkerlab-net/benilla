@@ -16,6 +16,7 @@ use std::{
 mod canonical_order;
 mod learning;
 mod learning_numeric;
+pub(in crate::native) mod loot_assembly;
 mod plans;
 mod reputation;
 #[cfg(test)]

@@ -104,7 +104,6 @@ pub(in super::super) fn loot(source: &Value, source_sha: &str, closure: &Value) 
         .cloned()
         .collect();
     refusals.extend(budgets(source));
-    refusals.extend(non_body["refusals"].as_array().unwrap().iter().cloned());
     let mut ordered = Map::new();
     for t in TABLES {
         let loader = source
@@ -138,6 +137,8 @@ pub(in super::super) fn loot(source: &Value, source_sha: &str, closure: &Value) 
                 .push(json!({"table":t,"key":"scope","reason":"loot.whole_loader_order_unknown"}));
         }
     }
+    let assembly = super::super::loot_assembly::plan(source, &ordered, &refusals);
+    refusals.extend(non_body["refusals"].as_array().unwrap().iter().cloned());
     let items: BTreeMap<_, _> = rows(source, "item_template")
         .iter()
         .map(|r| (int(&r["entry"]), r))
@@ -167,7 +168,7 @@ pub(in super::super) fn loot(source: &Value, source_sha: &str, closure: &Value) 
         }
     }
     Ok(
-        json!({"status":if refusals.is_empty(){"supported_shape"}else{"blocked"},"adapter":ADAPTER,"runtime_admitted":false,"ordered_rows":ordered,"leaf_items":admitted,"non_body_actions":non_body,"input_bindings":{"source_sha256":source_sha,"loader":source.get("loot_loader_capture")},"remaining_dependencies":["explicit_loot_Rules","independent_inventory_audit","ordinary_corpse_host_audit_and_creature_rows","client_item_query_metadata"],"refusals":refusals}),
+        json!({"status":if refusals.is_empty(){"supported_shape"}else{"blocked"},"adapter":ADAPTER,"runtime_admitted":false,"ordered_rows":ordered,"leaf_items":admitted,"raw_assembly":assembly,"non_body_actions":non_body,"input_bindings":{"source_sha256":source_sha,"loader":source.get("loot_loader_capture")},"remaining_dependencies":["explicit_loot_Rules","independent_inventory_audit","ordinary_corpse_host_audit_and_creature_rows","client_item_query_metadata"],"refusals":refusals}),
     )
 }
 pub(in super::super) fn loot_discharges(issue: &Value, plan: &Value) -> bool {
