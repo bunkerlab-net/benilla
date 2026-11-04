@@ -7,6 +7,7 @@ fn compiler<'a>(source: &'a Value, source_sha: &'a str, dbcs: &'a Tables) -> Com
         source,
         source_sha,
         dbcs,
+        location: None,
         request: ProductionRequest {
             race: 1,
             class: 8,
@@ -113,11 +114,19 @@ fn private_human_mage_starter_draft_and_python_parity() {
     super::super::super::source::validate(&source).unwrap();
     let (dbcs, extraction) = dbc::load(&dbc_path).unwrap();
     let source_sha = digest(&source);
-    let c = compiler(&source, &source_sha, &dbcs);
+    let location_path = std::env::var_os("BENILLA_STARTER_LOCATION").map(PathBuf::from);
+    let location = location_path
+        .as_deref()
+        .map(|path| super::super::super::location_inputs::load(path, &source, &dbcs))
+        .transpose()
+        .unwrap();
+    let mut c = compiler(&source, &source_sha, &dbcs);
+    c.location = location.as_ref();
     let rules =
         serde_json::to_value(benilla_sim::world_rules::NativeWorldRules::cmangos_classic_stock())
             .unwrap();
-    let report = super::super::compile(&source, &dbcs, c.request, extraction, &rules).unwrap();
+    let report =
+        super::super::compile(&source, &dbcs, c.request, extraction, &rules, c.location).unwrap();
     let python = decode(&std::fs::read(preparation_path).unwrap(), 128 * 1024 * 1024).unwrap();
     assert_eq!(
         report, python,
@@ -125,6 +134,33 @@ fn private_human_mage_starter_draft_and_python_parity() {
     );
     let draft = build(&c, &candidate(&c, &report)).unwrap_or_else(|error| panic!("{error}"));
     let capture = candidate(&c, &report);
+    if c.location.is_some() {
+        let hooks = &report["player"]["skills"]["loader_plan"]["reached_hooks"];
+        assert!(hooks["roots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|root| root["refusals"].as_array().unwrap().is_empty()));
+        assert_eq!(
+            hooks["roots"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|root| root["status"] == "pending_source_seal")
+                .count(),
+            15
+        );
+        assert_eq!(hooks["discharged_root_count"], 0);
+        assert_ne!(
+            draft.context_identity,
+            context_identity(&compiler(&source, &source_sha, &dbcs))
+        );
+        let without_location = compiler(&source, &source_sha, &dbcs);
+        assert!(matches!(
+            reached::bind(&without_location, &capture, &draft),
+            Err(crate::native::NativeError::AuthorityBinding)
+        ));
+    }
     let (bound_input, prepared, bound_source) = reached::bind(&c, &capture, &draft).unwrap();
     assert_eq!(
         casts(prepared.creation_plan()),
@@ -135,49 +171,56 @@ fn private_human_mage_starter_draft_and_python_parity() {
         casts(draft.projection.first_entry_plan())
     );
     assert!(bound_input.spells.iter().all(|r| !r.external_initial_hooks));
-    let mut seal_probe = crate::native::synthetic_fixture::initialized_profile();
-    seal_probe.abilities = prepared
-        .created()
-        .abilities
-        .values()
-        .filter_map(|a| {
-            if !a.active {
-                return None;
-            }
-            match &a.availability {
-                init::AbilityAvailability::Unavailable(reason) => Some(crate::native::Ability {
-                    id: a.spell_id,
-                    school: bound_input
-                        .spells
-                        .iter()
-                        .find(|r| r.id == a.spell_id)
-                        .unwrap()
-                        .words[1] as u8,
-                    admission: crate::native::AbilityAdmission::Unavailable {
-                        reason: reason.clone(),
-                    },
-                }),
-                _ => None,
-            }
-        })
-        .collect();
-    seal_probe
-        .initialize_player_prepared(
-            &bound_input,
-            &prepared,
-            crate::native::synthetic_fixture::float(100.0),
-            1,
-        )
-        .unwrap();
-    let unsealed = seal_probe.clone();
-    let refusal = seal_probe
-        .initialize_initial_cast_source(&bound_input, bound_source)
-        .unwrap_err();
-    assert!(matches!(
-        refusal,
-        crate::native::NativeError::AuthorityUnavailable("initial entry location source")
-    ));
-    assert_eq!(seal_probe, unsealed);
+    let refusal = if c.location.is_some() {
+        "production_profile_constructor_required".to_owned()
+    } else {
+        let mut seal_probe = crate::native::synthetic_fixture::initialized_profile();
+        seal_probe.abilities = prepared
+            .created()
+            .abilities
+            .values()
+            .filter_map(|a| {
+                if !a.active {
+                    return None;
+                }
+                match &a.availability {
+                    init::AbilityAvailability::Unavailable(reason) => {
+                        Some(crate::native::Ability {
+                            id: a.spell_id,
+                            school: bound_input
+                                .spells
+                                .iter()
+                                .find(|r| r.id == a.spell_id)
+                                .unwrap()
+                                .words[1] as u8,
+                            admission: crate::native::AbilityAdmission::Unavailable {
+                                reason: reason.clone(),
+                            },
+                        })
+                    }
+                    _ => None,
+                }
+            })
+            .collect();
+        seal_probe
+            .initialize_player_prepared(
+                &bound_input,
+                &prepared,
+                crate::native::synthetic_fixture::float(100.0),
+                1,
+            )
+            .unwrap();
+        let unsealed = seal_probe.clone();
+        let refusal = seal_probe
+            .initialize_initial_cast_source(&bound_input, bound_source)
+            .unwrap_err();
+        assert!(matches!(
+            refusal,
+            crate::native::NativeError::AuthorityUnavailable("initial entry location source")
+        ));
+        assert_eq!(seal_probe, unsealed);
+        refusal.to_string()
+    };
     let p = &draft.projection;
     let created = p.projected_creation();
     let entry = p.projected_first_entry();
@@ -265,7 +308,7 @@ fn private_human_mage_starter_draft_and_python_parity() {
     let per_root: Vec<_> = roots.iter().map(|id| {
         let cast_count = |plan: &init::initial_cast_phases::InitialCastPlan| plan.occurrences().iter().filter(|cast| cast.row().id == *id).count();
         json!({"spell":id,"numeric_learning_composed":true,"fully_composed":false,
-            "pending":"prepared_source_seal_requires_first_entry_location","creation_occurrences":cast_count(p.creation_plan()),
+            "pending":if c.location.is_some(){"prepared_source_seal_requires_real_profile"}else{"prepared_source_seal_requires_first_entry_location"},"creation_occurrences":cast_count(p.creation_plan()),
             "hook_status":report["player"]["skills"]["loader_plan"]["reached_hooks"]["roots"].as_array().unwrap().iter().find(|r| r["id"] == *id).unwrap()["status"],
             "entry_occurrences":cast_count(p.first_entry_plan()),"availability":created.abilities[id].availability,
             "holders":created.initial_auras.iter().filter(|a| a.spell_id == *id).collect::<Vec<_>>()})
@@ -274,6 +317,7 @@ fn private_human_mage_starter_draft_and_python_parity() {
         "preparation_sha256":report["preparation_sha256"],"python_rust_complete_parity":true,
         "reached_hook_binding":"checked_actual_cast_and_holder_scope",
         "source_seal_refusal":refusal.to_string(),
+        "source_seal_attempted":c.location.is_none(),"draft_context_identity":draft.context_identity,
         "hook_plan":report["player"]["skills"]["loader_plan"]["reached_hooks"],
         "top_level_objects":report["unsupported"].as_array().unwrap().len(),"selected_numeric":draft.input.spells.len(),
         "fully_composed_learning_objects":0,"pending_learning_objects":35,"roots":per_root,

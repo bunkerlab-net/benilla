@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #[path = "limits_tests.rs"]
 mod limits_tests;
+#[path = "location_inputs/tests.rs"]
+mod location_inputs_tests;
 use super::*;
 use std::{
     collections::BTreeMap,
@@ -96,6 +98,7 @@ impl Inputs {
                 selection: &self.root.join("selection.json"),
                 dbc_directory: &self.root.join("dbc"),
                 preparation: &self.root.join("preparation.json"),
+                location: None,
                 rules: ProductionRules::Json(&self.root.join("rules.json")),
             },
             self.request,
@@ -299,6 +302,7 @@ fn production_verifier_matches_complete_python_preparation() {
             },
             fixture["preparation"]["extraction_manifest"].clone(),
             &fixture["rules"],
+            None,
         )
         .unwrap();
         assert_eq!(
@@ -884,12 +888,14 @@ fn private_loot_assembly_parity() {
     let selection = path("BENILLA_LOOT_SELECTION");
     let dbc_directory = path("BENILLA_LOOT_DBC");
     let preparation = path("BENILLA_LOOT_PREPARATION");
+    let location = std::env::var_os("BENILLA_LOOT_LOCATION").map(PathBuf::from);
     let report = diagnose_production_inputs(
         ProductionInputPaths {
             source: &source,
             selection: &selection,
             dbc_directory: &dbc_directory,
             preparation: &preparation,
+            location: location.as_deref(),
             rules: ProductionRules::Preset(benilla_sim::world_rules::STOCK_PRESET),
         },
         ProductionRequest {

@@ -6,6 +6,7 @@ See PROVENANCE.md for the bounded Player::Create outfit quantity translation.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
 from classic_export.capture import validate_bundle
@@ -24,7 +25,7 @@ from .outfit_plan import supported_plan as outfit_placement_plan
 from . import creature_plan
 from .learning_plan import supported_plan as starter_learning_plan
 from .learning_numeric import candidate as learning_numeric_candidate
-from . import reached_hooks
+from . import reached_hooks, location_inputs
 from . import quest_plan, world_rules
 from classic_export import quest_endpoints
 from . import loot_plan
@@ -748,7 +749,8 @@ class Compiler:
 def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
                     dbc_errors: list[dict[str, Any]] | None = None,
                     extraction_manifest: dict[str, Any] | None = None,
-                    native_world_rules: dict[str, Any] | None = None) -> dict[str, Any]:
+                    native_world_rules: dict[str, Any] | None = None,
+                    location_input: Path | None = None) -> dict[str, Any]:
     validate_bundle(source)
     check(source["format"] == STARTER_FORMAT, "compiler.source_v2_required")
     s = Selection.parse(source["selection"]).starter
@@ -758,6 +760,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
           "compiler.field_limit")
     check(set(dbcs) <= set(LAYOUTS), "compiler.unknown_dbc")
     c = Compiler(source, dbcs, request)
+    location = location_inputs.load(location_input, source, dbcs) if location_input is not None else None
     c.issues.extend(dbc_errors or [])
     relationships = quest_relationships.resolve(source)
     quests = quest_plan.supported_plan(source, dbcs)
@@ -798,7 +801,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
     if skills["loader_plan"]["numeric_candidate"]["status"] == "checked":
         skills["loader_plan"]["numeric_overlay"] = "checked_complete_effective_projection"
     skills["loader_plan"]["reached_hooks"] = reached_hooks.supported(
-        source, dbcs, spells, skills["loader_plan"], skills["loader_plan"]["numeric_candidate"])
+        source, dbcs, spells, skills["loader_plan"], skills["loader_plan"]["numeric_candidate"], location)
     talents = talent_inputs(dbcs.get("Talent"), set(c.learning["spell_ids"]))
     creatures = c.creature_inputs(rules_plan["rules"])
     resolved_creatures = {str(row["entry"]) for row in creatures
@@ -957,9 +960,10 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
 def verify_preparation(preparation: Any, source: Any, dbcs: dict[str, DbcTable],
                        dbc_errors: list[dict[str, Any]] | None = None,
                        extraction_manifest: dict[str, Any] | None = None,
-                       native_world_rules: dict[str, Any] | None = None) -> None:
+                       native_world_rules: dict[str, Any] | None = None,
+                       location_input: Path | None = None) -> None:
     """Recompile all decisions; a rewritten hash cannot remove an unsupported field."""
     check(type(preparation) is dict and "request" in preparation, "compiler.preparation_fields")
     expected = compile_starter(source, dbcs, Request.parse(preparation["request"]), dbc_errors,
-                               extraction_manifest, native_world_rules)
+                               extraction_manifest, native_world_rules, location_input)
     check(canonical(expected) == canonical(preparation), "compiler.preparation_mismatch")

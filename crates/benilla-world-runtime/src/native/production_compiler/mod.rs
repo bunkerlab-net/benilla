@@ -4,6 +4,7 @@ mod dbc;
 mod extensions;
 mod global_hooks;
 mod json;
+mod location_inputs;
 pub(super) mod preparation;
 mod source;
 #[cfg(test)]
@@ -63,6 +64,7 @@ pub struct ProductionInputPaths<'a> {
     pub selection: &'a Path,
     pub dbc_directory: &'a Path,
     pub preparation: &'a Path,
+    pub location: Option<&'a Path>,
     pub rules: ProductionRules<'a>,
 }
 pub enum ProductionRules<'a> {
@@ -165,7 +167,18 @@ pub fn diagnose_production_inputs(
         "compiler.rules_selection_mismatch",
     )?;
     let (dbcs, extraction) = dbc::load(paths.dbc_directory)?;
-    let preparation = preparation::compile(&source, &dbcs, request, extraction, &rules)?;
+    let location = paths
+        .location
+        .map(|path| location_inputs::load(path, &source, &dbcs))
+        .transpose()?;
+    let preparation = preparation::compile(
+        &source,
+        &dbcs,
+        request,
+        extraction,
+        &rules,
+        location.as_ref(),
+    )?;
     let provided = json::decode(
         &json::read_regular(paths.preparation, 128 * 1024 * 1024)?,
         128 * 1024 * 1024,

@@ -53,6 +53,7 @@ def main() -> int:
         cmd.add_argument("--source", type=Path, required=True)
         cmd.add_argument("--dbc-dir", type=Path, required=True,
                          help="completed benilla-native-dbc output directory, including extraction.json")
+        cmd.add_argument("--location-input", type=Path, help="versioned captured first-entry location input")
         rules = cmd.add_mutually_exclusive_group()
         rules.add_argument("--world-rules", type=Path, help="explicit NativeWorldRules v2 JSON")
         rules.add_argument("--world-rules-preset", choices=[PRESET])
@@ -72,13 +73,13 @@ def main() -> int:
             stock_preset() if args.world_rules_preset else None)
         if args.command == "verify":
             preparation = read_json(args.preparation, MAX_REPORT_BYTES+1)
-            verify_preparation(preparation, source, tables, errors, extraction, rules)
+            verify_preparation(preparation, source, tables, errors, extraction, rules, args.location_input)
             print("Verified exact preparation against source and local DBC bytes; native gameplay remains blocked")
             return 0
         check(not args.output.resolve().is_relative_to(args.dbc_dir.resolve()), "output.inside_dbc_input_directory")
         check(not args.output.exists(), "output.already_exists")
         request = Request.parse({"race": args.race, "class": args.class_id, "gender": args.gender})
-        preparation = compile_starter(source, tables, request, errors, extraction, rules)
+        preparation = compile_starter(source, tables, request, errors, extraction, rules, args.location_input)
         if args.command == "dependencies":
             write_new(args.output, preparation["dependency_request"])
             print("Wrote bounded SQL recapture request; no gameplay activated")

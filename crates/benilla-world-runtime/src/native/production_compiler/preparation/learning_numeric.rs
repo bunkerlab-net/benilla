@@ -383,6 +383,7 @@ mod tests {
             source,
             source_sha: &sha,
             dbcs: &tables,
+            location: None,
             request: ProductionRequest {
                 race: 1,
                 class: 8,

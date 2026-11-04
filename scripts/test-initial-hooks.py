@@ -369,5 +369,72 @@ class InitialHooksTests(unittest.TestCase):
         self.assertEqual(plan["roots"][0]["status"], "unknown")
         self.assertIn("registration_manifest_unknown", plan["roots"][0]["refusals"])
 
+    def test_location_reader_corpus_checks_raw_bytes_and_rebound_mutations(self):
+        from native_starter import location_cases, location_inputs
+        from native_starter.dbc import parse_table
+        from classic_export.core import decode_json
+        corpus = decode_json((Path(__file__).parent / "native_starter/source_location_cases.json").read_bytes(), 1024*1024)
+        self.assertEqual(corpus, location_cases.cases())
+        expected = {
+            "group-reached": "wmo_group_requires_owner",
+            "missing-slot": "complete_collision_slots",
+            "source-binding": "source_binding",
+            "source-epoch": "source_epoch_binding",
+            "position-outside-box": "position_outside_selection",
+            "boolean-position": "input_fields",
+            "non-yaw-transform": "wmo_transform_requires_owner",
+            "file-hash": "collision_file_binding",
+            "raw-area-binding": "raw_area_binding"}
+        for case in corpus["cases"]:
+            with self.subTest(case=case["name"]):
+                values = {name: bytes.fromhex(data) for name, data in case["files"].items()}
+                tables = {"Map": parse_table("Map", bytes.fromhex(case["map_dbc"]))}
+                if case["name"] in expected:
+                    self.assertEqual(case["diagnostic"], "source_location." + expected[case["name"]])
+                    with self.assertRaisesRegex(ExportError, "^" + case["diagnostic"] + "$"):
+                        location_inputs.prepare(location_inputs.Files(values=values), case["source"], tables)
+                else:
+                    result = location_inputs.prepare(location_inputs.Files(values=values), case["source"], tables)
+                    self.assertEqual(result, case["result"])
+                    self.assertEqual((result["area_id"], result["zone_id"]),
+                        (12, 12) if case["name"] == "narrowed-flags" else (9, 12))
+                    self.assertEqual(result["area_flag"], 1 if case["name"] == "narrowed-flags" else 125)
+                    self.assertEqual(result["wmo_exclusion"]["wmo_bounds_containing_position"], 1)
+                    self.assertIsNone(result["runtime_export"])
+
+    def test_checked_grid_context_resolves_only_unreached_area_rows_without_sealing(self):
+        from native_starter import location_cases, location_inputs
+        from native_starter.dbc import parse_table
+        from native_starter.reached_hooks import supported
+        b = global_captured()
+        b["tables"]["playercreateinfo"][0].update(map=0, zone=148,
+            position_x={"decimal": "0"}, position_y={"decimal": "0"}, position_z={"decimal": "0"})
+        b["selection"].update(map_id=0, min_milliunits=[-1000]*3, max_milliunits=[1000]*3)
+        b["global_hook_capture"]["rows"]["spell_scripts"] = []
+        b["global_hook_capture"]["rows"]["spell_area"] = [t.row("spell_area", spell=6298, area=148, gender=2)]
+        words = [0]*173
+        words[0], words[6] = 81, 0x40
+        loader = {"default_spell_candidates": [81], "loaded_learning_maps_resolved": True}
+        def run():
+            source, maps, values = location_cases.bundle(b)
+            location = location_inputs.prepare(location_inputs.Files(values=values), source,
+                {"Map": parse_table("Map", maps)})
+            return supported(b, {}, [{"id":81, "server_numeric_words":words}], loader, {"status":"checked"}, location)
+        plan = run()
+        self.assertEqual(plan["roots"][0]["status"], "pending_source_seal")
+        self.assertEqual(plan["roots"][0]["refusals"], [])
+        self.assertEqual(plan["discharged_root_count"], 0)
+        self.assertEqual(plan["source_seal_refusal"], "production_profile_constructor_required")
+        self.assertFalse(plan["roots"][0]["effective_learning_proven"])
+        self.assertEqual(b["global_hook_capture"]["rows"]["spell_area"][0]["area"], 148)
+        b["global_hook_capture"]["rows"]["spell_area"][0]["area"] = 9
+        self.assertIn("reached_spell_area_unsupported", run()["roots"][0]["refusals"])
+        b["global_hook_capture"]["rows"]["spell_area"][0]["area"] = 148
+        b["global_hook_capture"]["rows"]["spell_scripts"] = [
+            {"Id":81, "ScriptName":"spell_gameobject_call_for_help_on_usage"}]
+        self.assertIn("reached_callback_unsupported", run()["roots"][0]["refusals"])
+        b["global_hook_capture"].pop("registration_manifest_sha256")
+        self.assertEqual(run()["roots"][0]["status"], "unknown")
+
 
 if __name__ == "__main__": unittest.main()

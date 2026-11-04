@@ -150,9 +150,13 @@ pub(super) fn plan(c: &Compiler<'_>, spells: &Value, loader: &Value, numeric: &V
             for area in array(&raw["spell_area"]) {
                 if casts.contains(&int(&area["spell"]))
                     || casts.contains(&int(&area["aura_spell"]).abs())
+                    || c.location.is_some_and(|location| {
+                        [0, location.zone_id, location.area_id]
+                            .contains(&(int(&area["area"]) as u32))
+                    })
                 {
                     reasons.insert("reached_spell_area_unsupported");
-                } else if int(&area["area"]) != 0 {
+                } else if c.location.is_none() && int(&area["area"]) != 0 {
                     reasons.insert("first_entry_source_location_required");
                 }
             }
@@ -161,13 +165,18 @@ pub(super) fn plan(c: &Compiler<'_>, spells: &Value, loader: &Value, numeric: &V
             "status":if reasons.iter().any(|r|r.contains("unknown")){"unknown"}else if !reasons.is_empty(){"blocked"}else if !casts.is_empty(){"pending_source_seal"}else{"hooks_unreachable"},
             "effective_learning_proven":false,"refusals":reasons}));
     }
-    json!({"format":"cmangos-8ec338a1-reached-learning-hooks-v1","scope":"creation_and_first_entry_learning_not_active_use",
+    let mut result = json!({"format":"cmangos-8ec338a1-reached-learning-hooks-v1","scope":"creation_and_first_entry_learning_not_active_use",
         "source_identity":c.source_sha,"selection_sha256":digest(&c.source["selection"]),
-        "location_source_epoch":null,
-        "location":"source_grid_and_area_catalog_required_not_sql_zone",
+        "location_source_epoch":c.location.map(|location| &location.report["source_epoch"]),
+        "location":if c.location.is_some(){"checked_first_entry_source_grid_and_group_exclusion"}else{"source_grid_and_area_catalog_required_not_sql_zone"},
         "discharged_root_count":0,
         "unreachable_hook_root_count":results.iter().filter(|r|r["status"]=="hooks_unreachable").count(),
-        "roots":results,"effective_learning_proven":false,"runtime_export":null})
+        "roots":results,"effective_learning_proven":false,"runtime_export":null});
+    if let Some(location) = c.location {
+        result["location_input"] = location.report.clone();
+        result["source_seal_refusal"] = json!("production_profile_constructor_required");
+    }
+    result
 }
 
 #[cfg(test)]

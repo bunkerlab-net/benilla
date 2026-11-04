@@ -80,6 +80,9 @@ impl SourceLocationCatalog {
     pub fn digest(&self) -> crate::Digest {
         self.digest
     }
+    pub(in crate::native) fn area(&self, id: u32) -> Option<SourceLocationArea> {
+        self.areas.get(&id).copied()
+    }
     pub(in crate::native) fn resolve(&self, map: u32, flag: u16) -> Option<SourceLocationArea> {
         let mut last_wrong_map = None;
         for area in self.areas.values().copied() {

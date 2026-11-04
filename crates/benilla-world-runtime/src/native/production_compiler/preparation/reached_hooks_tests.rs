@@ -34,6 +34,7 @@ fn reached_active_callback_location_escape_and_missing_manifest_refuse_independe
             source,
             source_sha: &sha,
             dbcs: &dbcs,
+            location: None,
             request: ProductionRequest {
                 race: 1,
                 class: 8,

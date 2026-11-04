@@ -11,7 +11,7 @@ from .dbc import binary32_bits
 import struct
 
 
-def supported(source, dbcs, spells, loader, numeric):
+def supported(source, dbcs, spells, loader, numeric, location=None):
     indexed = {s["id"]: s for s in spells}
     capture = source.get("global_hook_capture")
     complete = (capture is not None and
@@ -81,7 +81,9 @@ def supported(source, dbcs, spells, loader, numeric):
             for area in rows["spell_area"]:
                 if area["spell"] in casts or abs(area["aura_spell"]) in casts:
                     reasons.append("reached_spell_area_unsupported")
-                elif area["area"]:
+                elif location is not None and area["area"] in (0, location["zone_id"], location["area_id"]):
+                    reasons.append("reached_spell_area_unsupported")
+                elif location is None and area["area"]:
                     reasons.append("first_entry_source_location_required")
         reasons = sorted(set(reasons))
         results.append({"id": root, "learning_closure": sorted(closure),
@@ -90,11 +92,16 @@ def supported(source, dbcs, spells, loader, numeric):
                                   "pending_source_seal" if casts else "hooks_unreachable",
                         "effective_learning_proven": False,
                         "refusals": reasons})
-    return {"format": "cmangos-8ec338a1-reached-learning-hooks-v1",
+    result = {"format": "cmangos-8ec338a1-reached-learning-hooks-v1",
             "scope": "creation_and_first_entry_learning_not_active_use",
             "source_identity": digest(source), "selection_sha256": digest(source["selection"]),
-            "location_source_epoch": None,
-            "location": "source_grid_and_area_catalog_required_not_sql_zone",
+            "location_source_epoch": location["source_epoch"] if location is not None else None,
+            "location": "checked_first_entry_source_grid_and_group_exclusion" if location is not None else
+                        "source_grid_and_area_catalog_required_not_sql_zone",
             "roots": results, "discharged_root_count": 0,
             "unreachable_hook_root_count": sum(r["status"] == "hooks_unreachable" for r in results),
             "effective_learning_proven": False, "runtime_export": None}
+    if location is not None:
+        result["location_input"] = location
+        result["source_seal_refusal"] = "production_profile_constructor_required"
+    return result

@@ -80,6 +80,7 @@ struct Compiler<'a> {
     source: &'a Value,
     source_sha: &'a str,
     dbcs: &'a Tables,
+    location: Option<&'a super::location_inputs::CheckedLocation>,
     request: ProductionRequest,
     issues: Vec<Value>,
     dependencies: BTreeSet<(String, i128, String)>,
@@ -1048,6 +1049,7 @@ pub(super) fn compile(
     request: ProductionRequest,
     extraction: Value,
     rules: &Value,
+    location: Option<&super::location_inputs::CheckedLocation>,
 ) -> Result<Value> {
     check(
         source["tables"]
@@ -1065,6 +1067,7 @@ pub(super) fn compile(
         source,
         source_sha: &source_sha,
         dbcs,
+        location,
         request,
         issues: Vec::new(),
         dependencies: BTreeSet::new(),

@@ -84,6 +84,16 @@ require the existing initializer and source seal. Root order alone never proves
 effective learning, hook absence, or runtime admission. Creation remains an
 unsampled prerequisite; the runtime realizes first entry once.
 
+An optional `--location-input benilla-config/starter-location-input.json` on
+`prepare`, `dependencies`, or `verify` supplies the versioned captured first-entry
+context. Supply the same path as `ProductionInputPaths.location` to Rust.
+Both readers derive the area from raw grid/catalog bytes and exclude candidate
+WMO groups without consuming an oracle's success flag. Missing coverage and
+reached unsupported groups refuse. See the [input contract](CONSUMER-CONTRACT.md).
+This resolves location-dependent hook proofs, not the missing production Profile
+constructor or prepared source seal.
+
+
 The shared `production_verifier_cases.json`, `production_verifier_mutations.json`,
 `production_verifier_malformed.json`, `spell_execution_cases.json`, and separate
 `combat_world_rules_cases.json` contain authored data only. Rust and

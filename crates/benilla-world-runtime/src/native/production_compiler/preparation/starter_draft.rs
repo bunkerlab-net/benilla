@@ -43,6 +43,7 @@ pub(super) struct StarterDraft {
     pub projection: init::UnsealedStarterDraft,
     pub initial_reputation: Vec<rep::FactionState>,
     pub refusals: Vec<StarterDraftRefusal>,
+    pub context_identity: crate::Digest,
 }
 
 fn words<const N: usize>(row: Row<'_>) -> [u32; N] {
@@ -55,6 +56,16 @@ fn require_table<'a>(c: &'a Compiler<'_>, name: &str) -> Result<&'a dbc::Table> 
 }
 fn sim<T>(result: init::Result<T>) -> DraftResult<T> {
     result.map_err(StarterDraftError::Reducer)
+}
+
+fn context_identity(c: &Compiler<'_>) -> crate::Digest {
+    crate::digest(
+        b"benilla-source-context-starter-draft-v1\0",
+        &json!({
+            "source":c.source_sha,"selection":c.source["selection"],"request":c.request.json(),
+            "location":c.location.map(|location| &location.report)
+        }),
+    )
 }
 
 pub(super) fn build(
@@ -149,6 +160,7 @@ pub(super) fn build(
         projection,
         initial_reputation,
         refusals,
+        context_identity: context_identity(c),
     })
 }
 

@@ -79,6 +79,25 @@ It rebuilds spell rows rather than relabelling pending plans. The existing
 prepared source seal still checks the full area table and independent location.
 Hook unreachability alone never discharges compound learning or admits a world.
 
+`--location-input` supplies `benilla-native-starter-location-input-v1`. Its
+header binds the canonical source and selection, exact binary32 start pose,
+capture/index file hashes, complete catalog and declared combined source epoch.
+Both compilers independently check raw MCIN/MCNK IDs, uint16 extractor flags,
+emitted AREA sections, DBC parent rows and complete collision slots. They exclude
+WMO groups only through the source yaw transform and group bounds. A candidate
+group, unsupported transform or missing product refuses rather than inferring
+an area from coordinates or trusting an oracle result.
+
+The collision epoch remains a declared historical source binding, not an MPQ
+certificate or live lease. The input admits at most 4,096 files, 32 MiB per
+binary file and 256 MiB of reads. JSON manifests have a 2 MiB bound, BIH word
+arrays have a 1,048,576-word bound, and the authored reader corpus has a 1 MiB
+bound. The guarded draft identity includes this context. Checked unreachable
+SpellArea rows do not supply a final Profile. Until a real production Profile
+constructor exists, `source_seal_refusal` remains
+`production_profile_constructor_required` and no learning root is discharged.
+
+
 ### Captured initial spell execution shapes
 
 `spells[].execution_plan` checks the complete effective numeric morphology

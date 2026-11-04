@@ -18,6 +18,9 @@ pub(super) fn bind(
     ),
     NativeError,
 > {
+    if draft.context_identity != super::context_identity(c) {
+        return Err(NativeError::AuthorityBinding);
+    }
     let capture = &c.source["global_hook_capture"];
     let contract = &super::super::super::global_hooks::CONTRACT;
     if capture.is_null()

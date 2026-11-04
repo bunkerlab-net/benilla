@@ -13,6 +13,13 @@ the source-v2 bundle, explicit selection, completed v4 or v5 DBC directory, prep
 report, and explicit rules JSON or the named stock preset. The request adds
 race, class, and gender. The source selection, request, and rules level cap must
 agree.
+`ProductionInputPaths.location` optionally names the versioned captured
+first-entry input used by Python's `--location-input`. Rust independently derives
+the same grid/catalog/WMO-group exclusions. Its declared epoch and input hashes
+bind the guarded draft, not a final Profile content digest or runtime receipt.
+Without a production Profile constructor, a checked context still cannot
+discharge effective learning or admit a world.
+
 
 The verifier checks the source schema, canonical rows, keys, references, source
 findings, and every supplied coverage extension. It parses all 21 WDBC files,

@@ -25,6 +25,10 @@ before any first-entry location fact is accepted.
 `tools/verify_location.py CAPTURE --position X Y Z` independently checks raw
 MCIN area IDs, complete DBC parent rows, emitted AREA sections and both capture
 epochs. Its result remains a grid observation until the source WMO query agrees.
+The diagnostic reuses the preparation reader's bounded grid/catalog/index
+validation. Its optional original-source oracle remains diagnostic only. The
+compiler independently proves group-bound exclusions or refuses the candidate;
+it never imports the oracle's success flag as a location receipt.
 
 
 ## Packaged inspection on Windows
