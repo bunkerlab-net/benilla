@@ -124,6 +124,60 @@ fn private_human_mage_starter_draft_and_python_parity() {
         "complete independent Python/Rust preparation parity"
     );
     let draft = build(&c, &candidate(&c, &report)).unwrap_or_else(|error| panic!("{error}"));
+    let capture = candidate(&c, &report);
+    let (bound_input, prepared, bound_source) = reached::bind(&c, &capture, &draft).unwrap();
+    assert_eq!(
+        casts(prepared.creation_plan()),
+        casts(draft.projection.creation_plan())
+    );
+    assert_eq!(
+        casts(prepared.first_entry_plan()),
+        casts(draft.projection.first_entry_plan())
+    );
+    assert!(bound_input.spells.iter().all(|r| !r.external_initial_hooks));
+    let mut seal_probe = crate::native::synthetic_fixture::initialized_profile();
+    seal_probe.abilities = prepared
+        .created()
+        .abilities
+        .values()
+        .filter_map(|a| {
+            if !a.active {
+                return None;
+            }
+            match &a.availability {
+                init::AbilityAvailability::Unavailable(reason) => Some(crate::native::Ability {
+                    id: a.spell_id,
+                    school: bound_input
+                        .spells
+                        .iter()
+                        .find(|r| r.id == a.spell_id)
+                        .unwrap()
+                        .words[1] as u8,
+                    admission: crate::native::AbilityAdmission::Unavailable {
+                        reason: reason.clone(),
+                    },
+                }),
+                _ => None,
+            }
+        })
+        .collect();
+    seal_probe
+        .initialize_player_prepared(
+            &bound_input,
+            &prepared,
+            crate::native::synthetic_fixture::float(100.0),
+            1,
+        )
+        .unwrap();
+    let unsealed = seal_probe.clone();
+    let refusal = seal_probe
+        .initialize_initial_cast_source(&bound_input, bound_source)
+        .unwrap_err();
+    assert!(matches!(
+        refusal,
+        crate::native::NativeError::AuthorityUnavailable("initial entry location source")
+    ));
+    assert_eq!(seal_probe, unsealed);
     let p = &draft.projection;
     let created = p.projected_creation();
     let entry = p.projected_first_entry();
@@ -211,12 +265,16 @@ fn private_human_mage_starter_draft_and_python_parity() {
     let per_root: Vec<_> = roots.iter().map(|id| {
         let cast_count = |plan: &init::initial_cast_phases::InitialCastPlan| plan.occurrences().iter().filter(|cast| cast.row().id == *id).count();
         json!({"spell":id,"numeric_learning_composed":true,"fully_composed":false,
-            "pending":"reached_hook_binding_and_source_seal","creation_occurrences":cast_count(p.creation_plan()),
+            "pending":"prepared_source_seal_requires_first_entry_location","creation_occurrences":cast_count(p.creation_plan()),
+            "hook_status":report["player"]["skills"]["loader_plan"]["reached_hooks"]["roots"].as_array().unwrap().iter().find(|r| r["id"] == *id).unwrap()["status"],
             "entry_occurrences":cast_count(p.first_entry_plan()),"availability":created.abilities[id].availability,
             "holders":created.initial_auras.iter().filter(|a| a.spell_id == *id).collect::<Vec<_>>()})
     }).collect();
     let evidence = json!({"format":"benilla-private-starter-draft-evidence-v1","source_sha256":source_sha,
         "preparation_sha256":report["preparation_sha256"],"python_rust_complete_parity":true,
+        "reached_hook_binding":"checked_actual_cast_and_holder_scope",
+        "source_seal_refusal":refusal.to_string(),
+        "hook_plan":report["player"]["skills"]["loader_plan"]["reached_hooks"],
         "top_level_objects":report["unsupported"].as_array().unwrap().len(),"selected_numeric":draft.input.spells.len(),
         "fully_composed_learning_objects":0,"pending_learning_objects":35,"roots":per_root,
         "creation_casts":casts(p.creation_plan()),"entry_casts":casts(p.first_entry_plan()),"entry_skill_order":trained,

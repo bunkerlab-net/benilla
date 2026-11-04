@@ -18,6 +18,7 @@ mod learning;
 mod learning_numeric;
 pub(in crate::native) mod loot_assembly;
 mod plans;
+mod reached_hooks;
 mod reputation;
 #[cfg(test)]
 mod starter_draft;
@@ -1139,6 +1140,12 @@ pub(super) fn compile(
     if skills["loader_plan"]["numeric_candidate"]["status"] == "checked" {
         skills["loader_plan"]["numeric_overlay"] = json!("checked_complete_effective_projection");
     }
+    skills["loader_plan"]["reached_hooks"] = reached_hooks::plan(
+        &c,
+        &spells,
+        &skills["loader_plan"],
+        &skills["loader_plan"]["numeric_candidate"],
+    );
     let talents = plans::talents(&dbcs["Talent"], &learning["spell_ids"]);
     let creatures = c.creatures(&rules_plan["rules"])?;
     let resolved: BTreeSet<_> = creatures

@@ -316,6 +316,8 @@ fn reputation(c: &Compiler<'_>) -> DraftResult<Vec<rep::FactionState>> {
     capture.initialize().map_err(StarterDraftError::Reputation)
 }
 
+#[path = "starter_draft_reached.rs"]
+mod reached;
 #[cfg(test)]
 #[path = "starter_draft_tests.rs"]
 mod tests;

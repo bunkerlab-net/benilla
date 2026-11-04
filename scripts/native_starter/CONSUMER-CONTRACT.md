@@ -67,6 +67,18 @@ The authored-order path remains synthetic. A nonempty global SpellArea table
 requires the independent entry-location source. The existing runtime entry
 validator still resolves actual location facts and refuses applicable rows before casting.
 
+`loader_plan.reached_hooks` proves learning-context unreachability separately
+from active use. It retains inactive Opening registrations and never treats a
+missing registration manifest as absence. Potential casts remain a conservative
+superset, not an occurrence stream. A missing grid-derived first-entry location
+keeps its exact refusal. The SQL start zone is not location evidence.
+
+`bind_reached_learning_spell_rows` consumes the actual guarded draft and an
+exact source query for its casts, holders, active abilities, and rank operands.
+It rebuilds spell rows rather than relabelling pending plans. The existing
+prepared source seal still checks the full area table and independent location.
+Hook unreachability alone never discharges compound learning or admits a world.
+
 ### Captured initial spell execution shapes
 
 `spells[].execution_plan` checks the complete effective numeric morphology

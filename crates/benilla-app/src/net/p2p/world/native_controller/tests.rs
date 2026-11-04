@@ -268,6 +268,44 @@ fn native51_controller_create_and_reopen_retain_genesis_without_initial_cast_pac
 }
 
 #[test]
+fn reached_active_hook_cannot_be_sealed_or_replace_controller_entry_genesis() {
+    use benilla_sim::starter_init as init;
+    let (mut profile, input, prepared, source) = n::synthetic_initial_cast_fixture::inputs();
+    let mut active = source.clone();
+    active.hooks.spell_script_names =
+        n::SpellSourceRows::Complete(vec!["spell_gameobject_call_for_help_on_usage".into()]);
+    let mut dependencies = prepared.dependencies().clone();
+    dependencies.hook_scope_identity = active.hook_scope_identity();
+    let reached =
+        init::prepare_starter(&input, &dependencies, &init::StarterCastOrder::canonical()).unwrap();
+    let mut refused = profile.clone();
+    refused
+        .initialize_player_prepared(&input, &reached, n::synthetic_fixture::float(100.0), 1)
+        .unwrap();
+    let before = refused.clone();
+    assert!(matches!(
+        refused.initialize_initial_cast_source(&input, active),
+        Err(n::NativeError::UnsupportedMechanic(
+            "spell script source closure"
+        ))
+    ));
+    assert_eq!(refused, before);
+    profile
+        .initialize_initial_cast_source(&input, source)
+        .unwrap();
+    let h = Harness::new();
+    let mut controller = h.start(profile.clone());
+    assert_eq!(controller.world.state().rng_counter, 1);
+    let genesis = controller.world.state().initial_cast_genesis.clone();
+    pump_to(&mut controller, 1);
+    controller.shutdown().unwrap();
+    drop(controller);
+    let reopened = h.reopen(profile);
+    assert_eq!(reopened.world.state().rng_counter, 1);
+    assert_eq!(reopened.world.state().initial_cast_genesis, genesis);
+}
+
+#[test]
 fn previous_native_checkpoints_inside_fresh_store_checksum_cannot_reopen_or_replace_controller_world(
 ) {
     for (version, policy) in [

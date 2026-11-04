@@ -324,5 +324,50 @@ class InitialHooksTests(unittest.TestCase):
             with self.assertRaises(ExportError):
                 query.sql()
 
+    def test_learning_context_retains_active_hooks_and_refuses_reached_callbacks(self):
+        from native_starter.reached_hooks import supported
+        b = global_captured()
+        b["tables"]["playercreateinfo"][0].update(map=b["selection"]["map_id"],
+            position_x={"decimal": "0"}, position_y={"decimal": "0"}, position_z={"decimal": "0"})
+        b["selection"].update(min_milliunits=[-1000]*3, max_milliunits=[1000]*3)
+        b["global_hook_capture"]["rows"]["spell_scripts"] = [
+            {"Id": 81, "ScriptName": "spell_gameobject_call_for_help_on_usage"}]
+        words = [0]*173
+        words[0] = 81
+        spells = [{"id": 81, "server_numeric_words": words}]
+        loader = {"default_spell_candidates": [81], "loaded_learning_maps_resolved": True}
+        plan = supported(b, {}, spells, loader, {"status": "checked"})
+        self.assertEqual(plan["roots"][0]["status"], "hooks_unreachable")
+        self.assertEqual(plan["discharged_root_count"], 0)
+        self.assertFalse(plan["roots"][0]["effective_learning_proven"])
+        self.assertEqual(len(b["global_hook_capture"]["rows"]["spell_scripts"]), 1)
+        words[6] = 0x40
+        plan = supported(b, {}, spells, loader, {"status": "checked"})
+        self.assertIn("reached_callback_unsupported", plan["roots"][0]["refusals"])
+        self.assertEqual(plan["roots"][0]["status"], "blocked")
+
+    def test_learning_context_requires_registration_and_captured_location(self):
+        from native_starter.reached_hooks import supported
+        b = global_captured()
+        b["selection"].update(min_milliunits=[-1000]*3, max_milliunits=[1000]*3)
+        b["tables"]["playercreateinfo"][0].update(map=b["selection"]["map_id"],
+            position_x={"decimal": "0"}, position_y={"decimal": "0"}, position_z={"decimal": "0"})
+        words = [0]*173
+        words[0], words[6] = 81, 0x40
+        spells = [{"id": 81, "server_numeric_words": words}]
+        loader = {"default_spell_candidates": [81], "loaded_learning_maps_resolved": True}
+        area = t.row("spell_area", spell=6298, area=148, gender=2)
+        b["global_hook_capture"]["rows"]["spell_area"] = [area]
+        plan = supported(b, {}, spells, loader, {"status": "checked"})
+        self.assertEqual(plan["roots"][0]["refusals"], ["first_entry_source_location_required"])
+        self.assertIsNone(plan["location_source_epoch"])
+        b["tables"]["playercreateinfo"][0]["position_x"] = {"decimal": "2"}
+        plan = supported(b, {}, spells, loader, {"status": "checked"})
+        self.assertIn("first_entry_location_outside_selection", plan["roots"][0]["refusals"])
+        b["global_hook_capture"].pop("registration_manifest_sha256")
+        plan = supported(b, {}, spells, loader, {"status": "checked"})
+        self.assertEqual(plan["roots"][0]["status"], "unknown")
+        self.assertIn("registration_manifest_unknown", plan["roots"][0]["refusals"])
+
 
 if __name__ == "__main__": unittest.main()

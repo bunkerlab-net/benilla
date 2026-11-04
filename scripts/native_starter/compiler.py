@@ -24,6 +24,7 @@ from .outfit_plan import supported_plan as outfit_placement_plan
 from . import creature_plan
 from .learning_plan import supported_plan as starter_learning_plan
 from .learning_numeric import candidate as learning_numeric_candidate
+from . import reached_hooks
 from . import quest_plan, world_rules
 from classic_export import quest_endpoints
 from . import loot_plan
@@ -796,6 +797,8 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
         source, dbcs, c.learning, spells, skills["loader_plan"])
     if skills["loader_plan"]["numeric_candidate"]["status"] == "checked":
         skills["loader_plan"]["numeric_overlay"] = "checked_complete_effective_projection"
+    skills["loader_plan"]["reached_hooks"] = reached_hooks.supported(
+        source, dbcs, spells, skills["loader_plan"], skills["loader_plan"]["numeric_candidate"])
     talents = talent_inputs(dbcs.get("Talent"), set(c.learning["spell_ids"]))
     creatures = c.creature_inputs(rules_plan["rules"])
     resolved_creatures = {str(row["entry"]) for row in creatures

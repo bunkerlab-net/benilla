@@ -604,3 +604,51 @@ fn draft_skips_unusable_default_then_cloth_learning_adds_the_actual_skill() {
         })
     );
 }
+
+#[test]
+fn checked_hook_rebuild_preserves_both_occurrence_streams_without_sampling_creation() {
+    let mut guarded = input(&[81, 3050]);
+    for row in &mut guarded.spells {
+        row.external_initial_hooks = true;
+    }
+    let draft = draft_starter(&guarded, [12; 32], dependencies_for_draft(&guarded)).unwrap();
+    assert_eq!(casts(draft.creation_plan()), [81, 3050]);
+    assert_eq!(casts(draft.first_entry_plan()), [81, 3050]);
+    assert_eq!(draft.creation_plan().draw_requests().len(), 1);
+    let mut checked = guarded.clone();
+    for row in &mut checked.spells {
+        row.external_initial_hooks = false; // Authored absent-hook fixture evidence.
+    }
+    assert_ne!(guarded.source_identity(), checked.source_identity());
+    let stale = dependencies(&guarded, &[81, 3050]);
+    assert!(prepare_starter(&checked, &stale, &StarterCastOrder::canonical()).is_err());
+    let prepared = prepare_starter(
+        &checked,
+        &dependencies(&checked, &[81, 3050]),
+        &StarterCastOrder::canonical(),
+    )
+    .unwrap();
+    assert_eq!(
+        casts(prepared.creation_plan()),
+        casts(draft.creation_plan())
+    );
+    assert_eq!(
+        casts(prepared.first_entry_plan()),
+        casts(draft.first_entry_plan())
+    );
+    assert_eq!(prepared.creation_plan().draw_requests().len(), 1);
+    assert_eq!(prepared.first_entry_plan().draw_requests().len(), 1);
+    assert_ne!(
+        prepared.creation_plan().identity(),
+        draft.creation_plan().identity()
+    );
+    assert_eq!(
+        prepared,
+        prepare_starter(
+            &checked,
+            &dependencies(&checked, &[81, 3050]),
+            &StarterCastOrder::canonical()
+        )
+        .unwrap()
+    );
+}

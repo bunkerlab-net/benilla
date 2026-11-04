@@ -566,6 +566,141 @@ mod tests {
         wrong.words[91] = 137;
         assert!(validate_cast(&wrong, &dependency).is_err());
     }
+
+    #[test]
+    fn actual_reached_binding_rebuilds_both_epochs_and_preserves_seal_guards() {
+        use crate::native::{synthetic_fixture as base, synthetic_initial_cast_fixture as casts};
+        let mut inactive = casts::row(81);
+        inactive.id = 3365;
+        inactive.words[0] = 3365;
+        inactive.words[6] = 0;
+        inactive.words[61] = 33;
+        let numeric: Vec<_> = [casts::row(81), inactive]
+            .iter()
+            .map(|r| init::LearningSpellNumeric {
+                source_identity: [19; 32],
+                id: r.id,
+                client_words: r.words,
+                effective_words: r.words,
+                duration_ms: r.duration_ms,
+            })
+            .collect();
+        let capture = init::CapturedStarterLearning {
+            source_identity: [19; 32],
+            selected_spell_ids: vec![81, 3365],
+            creation_skills: init::Rows::Complete(vec![]),
+            creation_spells: init::Rows::Complete(vec![init::CreationSpell {
+                race: 1,
+                class: 8,
+                spell: 81,
+            }]),
+            skill_lines: init::Rows::Complete(vec![]),
+            skill_race_class: init::Rows::Complete(vec![]),
+            skill_tiers: init::Rows::Complete(vec![]),
+            skill_training: init::Rows::Complete(vec![(81, None), (3365, None)]),
+            skill_abilities: init::Rows::Complete(vec![]),
+            talents: init::Rows::Complete(vec![]),
+            chains: init::Rows::Complete(vec![]),
+            learn_spells: init::Rows::Complete(vec![]),
+            global_chain_probe: init::Rows::Complete(vec![]),
+            global_learn_probe: init::Rows::Complete(vec![]),
+            spell_existence: init::Rows::Complete(vec![(81, true), (3365, true)]),
+            numeric: init::Rows::Complete(numeric.clone()),
+        };
+        let learning = capture.compile(1, 8).unwrap();
+        let mut blank = base::initialized_starter_input();
+        blank.active_support.clear();
+        blank.items.clear();
+        blank.item_grants = init::Rows::Complete(vec![]);
+        let guarded = learning
+            .populate(blank, learning.pending_spell_rows().unwrap())
+            .unwrap();
+        let (_, _, _, mut source) = casts::inputs();
+        let SpellSourceRows::Complete(dependencies) = &mut source.dependencies else {
+            unreachable!()
+        };
+        dependencies.retain(|r| r.spell_id == 81);
+        source.queried_spell_ids = SpellSourceRows::Complete(vec![81]);
+        let raw = &dependencies[0];
+        let pending = init::StarterInitialDependency {
+            spell_id: 81,
+            source_hash: guarded.spells[0].source_hash(),
+            cast_time: raw.cast_time.clone(),
+            duration: raw.duration.clone(),
+            server_side: raw.server_side,
+            server_attributes: raw.server_attributes,
+            bonus_coefficients: raw.bonus_coefficients,
+            attack_power_coefficients: raw.attack_power_coefficients,
+        };
+        let draft = init::draft_starter(&guarded, source.store_identity, vec![pending]).unwrap();
+        assert_eq!(draft.pending_learning_hooks(), [81]);
+        assert_eq!(
+            draft
+                .reached_dependencies()
+                .iter()
+                .map(|r| r.spell_id)
+                .collect::<Vec<_>>(),
+            [81]
+        );
+        assert!(source
+            .bind_learning_spell_rows(&learning, &numeric)
+            .is_err());
+        let rows = source
+            .bind_reached_learning_spell_rows(&learning, &numeric, &draft)
+            .unwrap();
+        let input = learning.populate(guarded, rows).unwrap();
+        source.source_identity = input.source_identity();
+        let mut dependency = draft.reached_dependencies()[0].clone();
+        dependency.source_hash = input.spells[0].source_hash();
+        let prepared = init::prepare_starter(
+            &input,
+            &init::StarterInitialDependencies {
+                source_identity: input.source_identity(),
+                store_identity: source.store_identity,
+                hook_scope_identity: source.hook_scope_identity(),
+                queried_spell_ids: vec![81],
+                rows: init::Rows::Complete(vec![dependency]),
+            },
+            &init::StarterCastOrder::canonical(),
+        )
+        .unwrap();
+        assert_eq!(prepared.creation_plan().draw_requests().len(), 1);
+        assert_eq!(prepared.first_entry_plan().draw_requests().len(), 1);
+        let mut profile = base::initialized_profile();
+        profile.abilities.clear();
+        profile
+            .initialize_player_prepared(&input, &prepared, base::float(100.0), 1)
+            .unwrap();
+        let before = profile.clone();
+        let mut active = source.clone();
+        active.hooks.spell_script_names =
+            SpellSourceRows::Complete(vec!["spell_gameobject_call_for_help_on_usage".into()]);
+        assert!(matches!(
+            profile.initialize_initial_cast_source(&input, active),
+            Err(NativeError::AuthorityBinding) | Err(NativeError::UnsupportedMechanic(_))
+        ));
+        assert_eq!(profile, before);
+        let mut unknown = source.clone();
+        unknown.hooks.spell_script_names = SpellSourceRows::Unknown;
+        assert!(profile
+            .initialize_initial_cast_source(&input, unknown)
+            .is_err());
+        assert_eq!(profile, before);
+        profile
+            .initialize_initial_cast_source(&input, source)
+            .unwrap();
+        let world =
+            NativeWorld::synthetic_component_test(profile, [8; 16], base::player(), 7).unwrap();
+        assert_eq!(world.state().rng_counter, 1);
+        let checkpoint = world.checkpoint().unwrap();
+        let reopened = NativeWorld::restore_synthetic_component_test(
+            world.profile().clone(),
+            crate::native::Checkpoint::decode(&checkpoint.encode().unwrap()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(world.state_digest(), reopened.state_digest());
+        assert_eq!(reopened.state().rng_counter, 1);
+    }
 }
 
 /// Explicit source envelope for a conditional starter projection. These records
@@ -627,6 +762,128 @@ impl NativeInitialCastSourceInput {
                         ) => {}
                 _ => return Err(NativeError::AuthorityBinding),
             }
+        }
+        let dispositions = init::Rows::Complete(
+            numeric
+                .iter()
+                .map(|row| init::LearningInitialHooks {
+                    spell: row.id,
+                    source_identity: row.source_identity,
+                    external_hooks: Some(false),
+                })
+                .collect(),
+        );
+        learning
+            .bind_spell_rows(numeric, &dispositions)
+            .map_err(NativeError::from)
+    }
+    /// Bind only the actual creation/entry cast and holder query. The source
+    /// adapter must retain inactive registrations outside this envelope. Location
+    /// remains an independent mandatory check at the prepared source seal.
+    pub fn bind_reached_learning_spell_rows(
+        &self,
+        learning: &init::CompiledStarterLearning,
+        numeric: &[init::LearningSpellNumeric],
+        draft: &init::UnsealedStarterDraft,
+    ) -> Result<Vec<init::SpellRow>, NativeError> {
+        self.hooks.validate()?;
+        self.dependencies.complete("reached initial dependencies")?;
+        self.queried_spell_ids
+            .complete("reached initial hook scope")?;
+        let pending = learning.pending_spell_rows()?;
+        let indexed: BTreeMap<_, _> = pending.iter().map(|row| (row.id, row)).collect();
+        let reached: BTreeSet<_> = draft
+            .creation_plan()
+            .occurrences()
+            .iter()
+            .chain(draft.first_entry_plan().occurrences())
+            .map(|cast| cast.row().id)
+            .collect();
+        for cast in draft
+            .creation_plan()
+            .occurrences()
+            .iter()
+            .chain(draft.first_entry_plan().occurrences())
+        {
+            if indexed.get(&cast.row().id).copied() != Some(cast.row()) {
+                return Err(NativeError::AuthorityBinding);
+            }
+        }
+        let SpellSourceRows::Complete(dependencies) = &self.dependencies else {
+            unreachable!()
+        };
+        if !dependencies
+            .iter()
+            .map(|row| row.spell_id)
+            .eq(reached.iter().copied())
+        {
+            return Err(NativeError::AuthorityBinding);
+        }
+        for dependency in dependencies {
+            dependency
+                .aura_script_names
+                .empty("reached initial aura script closure")?;
+        }
+        let holders: BTreeSet<_> = draft
+            .projected_creation()
+            .initial_auras
+            .iter()
+            .map(|a| a.spell_id)
+            .collect();
+        for area in self.hooks.spell_area.complete()? {
+            if reached.contains(&area.spell)
+                || (area.aura_spell != 0 && holders.contains(&area.aura_spell.unsigned_abs()))
+            {
+                return Err(NativeError::UnsupportedMechanic(
+                    "reached initial spell_area source row",
+                ));
+            }
+        }
+        let mut scope = reached;
+        scope.extend(
+            draft
+                .projected_creation()
+                .initial_auras
+                .iter()
+                .map(|a| a.spell_id),
+        );
+        scope.extend(
+            draft
+                .projected_creation()
+                .abilities
+                .values()
+                .filter(|a| {
+                    a.active
+                        && matches!(
+                            a.availability,
+                            init::AbilityAvailability::Available
+                                | init::AbilityAvailability::Unavailable(_)
+                        )
+                })
+                .map(|a| a.spell_id),
+        );
+        let SpellSourceRows::Complete(ranks) = &self.hooks.spell_rank_chain else {
+            return Err(NativeError::AuthorityUnavailable(
+                "reached initial rank scope",
+            ));
+        };
+        for rank in ranks {
+            scope.extend(
+                [
+                    rank.spell_id,
+                    rank.previous_spell,
+                    rank.first_spell,
+                    rank.required_spell,
+                ]
+                .into_iter()
+                .filter(|id| *id != 0),
+            );
+        }
+        let SpellSourceRows::Complete(queried) = &self.queried_spell_ids else {
+            unreachable!()
+        };
+        if !queried.iter().copied().eq(scope) {
+            return Err(NativeError::AuthorityBinding);
         }
         let dispositions = init::Rows::Complete(
             numeric

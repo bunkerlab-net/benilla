@@ -6,7 +6,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::LazyLock,
 };
-static CONTRACT: LazyLock<Value> = LazyLock::new(|| {
+pub(super) static CONTRACT: LazyLock<Value> = LazyLock::new(|| {
     serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../scripts/classic_export/global_hooks_contract.json"
@@ -179,7 +179,7 @@ pub(super) fn validate(b: &Value) -> Result<()> {
     let expected = json!({"format":"benilla-classic-global-hooks-v1","contract_sha256":digest(&*CONTRACT),"configuration":config,"registration_manifest_sha256":digest(&CONTRACT["manifest"]),"schema":v["schema"],"rows":r,"spell_ids":nums(selected),"cursor_semantics":"captured_select_cursor_not_observed_reference_loader","binding":{"selection_sha256":digest(&b["selection"]),"schema_sha256":b["schema_sha256"],"table_sha256":digest(&b["table_sha256"]),"db_version_sha256":digest(&b["db_version"]),"consistency":b["consistency"],"rows_sha256":digest(r)}});
     check(*v == expected, "global_hooks.coverage_mismatch")
 }
-fn rank_edges(r: &Value, dbcs: &dbc::Tables) -> Vec<(i128, i128)> {
+pub(super) fn rank_edges(r: &Value, dbcs: &dbc::Tables) -> Vec<(i128, i128)> {
     let mut edges = Vec::new();
     for row in raw(r, "spell_chain") {
         for key in ["prev_spell", "first_spell"] {
@@ -205,7 +205,10 @@ fn rank_edges(r: &Value, dbcs: &dbc::Tables) -> Vec<(i128, i128)> {
     }
     edges
 }
-fn domain(ids: impl IntoIterator<Item = i128>, edges: &[(i128, i128)]) -> BTreeSet<i128> {
+pub(super) fn domain(
+    ids: impl IntoIterator<Item = i128>,
+    edges: &[(i128, i128)],
+) -> BTreeSet<i128> {
     let mut result: BTreeSet<_> = ids.into_iter().collect();
     loop {
         let before = result.len();
