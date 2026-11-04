@@ -245,9 +245,9 @@ impl<'a> Validated<'a> {
                 if !(3..=6).contains(&nv) {
                     return Err(bad());
                 }
-                if !matches!((short(p, 28)?, p[31]), (1, 11) | (2, 10)) {
+                if !matches!((short(p, 28)?, p[31]), (1, 11) | (2, 10) | (4, 9)) {
                     return Err(Error::Unsupported);
-                } // Source ground and steep ground; query filters remain independent.
+                } // MapBuilder.cpp:863-869; only measured ground, steep ground and water.
                 let mut poly = Poly {
                     verts: reserve(nv)?,
                     neis: reserve(nv)?,

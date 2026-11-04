@@ -934,10 +934,10 @@ fn swimming_capable_dry_filter_remains_thirteen_through_smoothing_and_warm_seed(
 }
 
 #[test]
-fn supporting_filter_thirteen_does_not_admit_water_or_magma_polygons() {
+fn magma_and_mismatched_area_flags_remain_unsupported() {
     let vertex_count = u32::from_le_bytes(LEFT[48..52].try_into().unwrap()) as usize;
     let poly = 20 + 100 + vertex_count * 12;
-    for (flags, area) in [(4u16, 9u8), (8, 10), (13, 11), (1, 9)] {
+    for (flags, area) in [(8u16, 8u8), (8, 10), (13, 11), (1, 9)] {
         let mut wet = LEFT.to_vec();
         wet[poly + 28..poly + 30].copy_from_slice(&flags.to_le_bytes());
         wet[poly + 31] = area;

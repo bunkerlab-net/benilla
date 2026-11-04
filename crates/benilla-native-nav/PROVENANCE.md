@@ -1,4 +1,4 @@
-# Pinned dry MMap query and source-smoothing boundary
+# Pinned MMap queries and dry source-smoothing boundary
 
 This private crate loads actual serialized CMaNGOS MMap/Detour products and runs the
 pinned native nearest-poly, sliced corridor and straight-path primitives, plus a separate
@@ -82,9 +82,10 @@ The app snapshot uses a non-reentrant RefCell in the existing NonSend service.
 - Exact framing, count/width arithmetic, map filename grid versus native origin-relative
   tile coordinates, bounded finite coordinates (absolute value <=100,000), source
   grid width 533.3333, bounded dimensions, and safe quantization ranges
-- Ground area 11/flag 1 and source steep area 10/flag 2; no off-mesh links or water/magma polygons,
-  extra layers or unknown flags. The generator's usesLiquids boolean alone is not an
-  actual liquid polygon; both boolean values are permitted. Query filters remain ground-only
+- Ground area 11/flag 1, steep ground area 10/flag 2, and water area 9/flag 4;
+  no magma/slime, off-mesh links, extra layers, mismatched pairs or unknown areas.
+  The generator's usesLiquids boolean alone is not an actual liquid polygon;
+  both boolean values are permitted. Default queries remain ground-only
 - Clockwise strictly convex 3–6-vertex polygons; finite nondegenerate detail triangles;
   exact reciprocal internal neighbors and reversed shared edges; genuine, complete
   detail boundary edges with reversed internal edges and no duplicate directed edges
@@ -127,12 +128,31 @@ includes the inventory, validation scratch, native copies and fixed query state;
 ## Queries and provider semantics
 
 Inputs/outputs preserve binary32 bits and PathFinder's world-to-Detour permutation
-{y,z,x}. Ground-only nearest uses the source 5-unit box, with 10-unit fallback for
-fresh route lookup. Results do not implement owner path reuse, owner masks, liquid or
-swim/fly state, slope admission, near-point choice or complete PathFinder. The existing
-`Mesh::route` remains unsmoothed; the separate API below does not change its semantics.
+{y,z,x}. Default nearest uses include 1/exclude 0, with an explicit extent.
+Fresh route lookup uses the source 5-unit box and 10-unit fallback.
+`nearest_with_filter` and `route_with_filter` accept the source flag masks with
+unit area costs. Every query selects its filter anew, so explicit swimming/player
+queries do not change subsequent default walker queries. These primitives do not
+implement owner path reuse, owner createFilter/updateFilter, swim/fly body state,
+slope admission, near-point choice or complete PathFinder. `Mesh::route` remains
+unsmoothed; the separate source-smoothing API below retains its existing restrictions.
 Each nearest query has a maximum 16-cell search rectangle; safe finite grid casts and
 coordinates are checked independently of loaded tile count.
+
+Pinned `MoveMapSharedDefines.h:45-60` defines ground/steep/water/magma-slime
+flag/area pairs 1/11, 2/10, 4/9 and 8/8. `TerrainBuilder.cpp:344-349,645-650`
+selects liquid areas, and `MapBuilder.cpp:863-869` derives polygon flags.
+The complete eight-seed measurement emits only the first three pairs, so 8/8
+remains refused. Without PLAYERBOTS, `PathFinder.cpp:1064-1083` selects include
+1/exclude 0 for a non-swimming walking creature, include 13 for a swimming walker,
+and include 5 for a player. The source's separate forced-wet-start augmentation,
+`PathFinder.cpp:1088-1099`, and PLAYERBOTS area costs are outside this boundary.
+
+`tools/water_generate.py --source /path/to/mangos-classic --check` verifies the
+pinned source hashes and regenerates the authored mixed-ground/water fixture
+and original Detour observations. Tests cover wet endpoint refusal, water as an
+intermediate corridor polygon, swimming/player inclusion, exclude precedence,
+default-filter reset, mismatched pairs, magma/slime refusal and unknown bits.
 
 A route uses 512 native nodes, at most 4096 single-expansion sliced calls, and 256
 polygon/corner outputs. ANY_ANGLE and portal-crossing options stay zero. Partial,

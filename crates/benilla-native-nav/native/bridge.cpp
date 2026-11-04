@@ -51,7 +51,7 @@ struct BenillaNav {
     unsigned count;
     BenillaNav(): mesh(dtAllocNavMesh()), query(dtAllocNavMeshQuery()), allocations{}, count(0) {
         filter.setIncludeFlags(1); // CMaNGOS NAV_GROUND
-        filter.setExcludeFlags(0); // validated tiles contain only ground
+        filter.setExcludeFlags(0); // PathFinder.cpp:1064-1083 non-swimming walker
     }
     ~BenillaNav() {
         dtFreeNavMeshQuery(query);
@@ -99,6 +99,11 @@ unsigned benilla_nav_query_capacity(const void* raw) {
     return static_cast<unsigned>(pool->getMaxNodes());
 }
 void benilla_nav_free(void* raw) { delete static_cast<BenillaNav*>(raw); }
+void benilla_nav_filter(void* raw,unsigned short include,unsigned short exclude) {
+    auto* nav=static_cast<BenillaNav*>(raw);
+    nav->filter.setIncludeFlags(include);
+    nav->filter.setExcludeFlags(exclude);
+}
 unsigned benilla_nav_add(void* raw,const unsigned char* bytes,int size) {
     BenillaNav* nav=static_cast<BenillaNav*>(raw);
     if (nav->count>=64) return DT_FAILURE;

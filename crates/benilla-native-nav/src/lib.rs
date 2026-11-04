@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Private, bounded MMap/Detour reader. Queries describe only the loaded ground mesh;
+//! Private, bounded MMap/Detour reader. Queries describe only the loaded source mesh;
 //! they never authorize body movement, sloped support, source epochs or live sessions.
 mod cold_distance;
 mod smoothing;
@@ -98,6 +98,7 @@ mod ffi {
         pub fn benilla_nav_create_source1024(params: *const u8) -> *mut c_void;
         pub fn benilla_nav_query_capacity(mesh: *const c_void) -> u32;
         pub fn benilla_nav_free(mesh: *mut c_void);
+        pub fn benilla_nav_filter(mesh: *mut c_void, include: u16, exclude: u16);
         pub fn benilla_nav_add(mesh: *mut c_void, bytes: *const u8, size: i32) -> u32;
         pub fn benilla_nav_nearest(
             mesh: *mut c_void,
@@ -144,6 +145,7 @@ mod ffi {
         0
     }
     pub unsafe fn benilla_nav_free(mesh: *mut c_void) {}
+    pub unsafe fn benilla_nav_filter(mesh: *mut c_void, include: u16, exclude: u16) {}
     pub unsafe fn benilla_nav_add(mesh: *mut c_void, bytes: *const u8, size: i32) -> u32 {
         0
     }
@@ -274,6 +276,20 @@ impl Mesh {
     pub fn agent_dimensions(&self) -> [f32; 3] {
         self.agent
     }
+    fn set_filter(&mut self, filter: SourceOwnerFilter) -> Result<(), Error> {
+        if (filter.include_flags | filter.exclude_flags) & !0x0f != 0 {
+            return Err(Error::Unsupported);
+        }
+        // SAFETY: exclusive live mesh, no sliced search escapes a query call.
+        unsafe {
+            ffi::benilla_nav_filter(
+                self.raw.as_ptr(),
+                filter.include_flags,
+                filter.exclude_flags,
+            );
+        }
+        Ok(())
+    }
     fn nearest_native(
         &mut self,
         p: [f32; 3],
@@ -326,16 +342,27 @@ impl Mesh {
             over: over == 1,
         })
     }
-    /// Source nearest-poly primitive with explicit bounded search extent, not owner PathFinder.
+    /// Nearest-poly primitive with the source non-swimming walker filter, include 1/exclude 0.
     pub fn nearest(
         &mut self,
         point: [u32; 3],
         extent: f32,
         until: Instant,
     ) -> Result<Nearest, Error> {
+        self.nearest_with_filter(point, extent, SourceOwnerFilter::GROUND, until)
+    }
+    /// Explicit source flag masks and unit area costs, not owner createFilter/updateFilter.
+    pub fn nearest_with_filter(
+        &mut self,
+        point: [u32; 3],
+        extent: f32,
+        filter: SourceOwnerFilter,
+        until: Instant,
+    ) -> Result<Nearest, Error> {
         if !extent.is_finite() || extent <= 0. || extent > 10. {
             return Err(Error::Format);
         }
+        self.set_filter(filter)?;
         self.nearest_native(detour(point)?, extent, until)
     }
     /// Complete ground-only corridor plus source funnel. No partial/no-node/buffer-truncated
@@ -343,7 +370,28 @@ impl Mesh {
     pub fn route(&mut self, from: [u32; 3], to: [u32; 3], until: Instant) -> Result<Route, Error> {
         self.route_with_limit(from, to, until, 4096)
     }
+    /// Complete filtered corridor with unit area costs. This does not prove swimming body support.
+    pub fn route_with_filter(
+        &mut self,
+        from: [u32; 3],
+        to: [u32; 3],
+        filter: SourceOwnerFilter,
+        until: Instant,
+    ) -> Result<Route, Error> {
+        self.set_filter(filter)?;
+        self.route_search(from, to, until, 4096)
+    }
     fn route_with_limit(
+        &mut self,
+        from: [u32; 3],
+        to: [u32; 3],
+        until: Instant,
+        steps: usize,
+    ) -> Result<Route, Error> {
+        self.set_filter(SourceOwnerFilter::GROUND)?;
+        self.route_search(from, to, until, steps)
+    }
+    fn route_search(
         &mut self,
         from: [u32; 3],
         to: [u32; 3],
@@ -504,3 +552,6 @@ mod source_wander_and_chase_reconstruction_tests;
 
 #[cfg(all(test, benilla_native_detour))]
 mod generated_tests;
+
+#[cfg(all(test, benilla_native_detour))]
+mod water_tests;
