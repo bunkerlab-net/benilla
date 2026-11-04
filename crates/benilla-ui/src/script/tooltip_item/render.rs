@@ -444,7 +444,7 @@ pub(super) fn render_view_flagged(
         let slot = if v.class == 6 {
             v.item_type.clone()
         } else {
-            invtype_key(v.inventory_type).and_then(&get)
+            invtype_key(v.inventory_type).and_then(get)
         };
         // The type cell: `ItemSubClass.dbc`'s DisplayName, app-resolved (the builder's `0xc0db90`).
         let ty = if v.inventory_type == 16 || v.hide_subclass {

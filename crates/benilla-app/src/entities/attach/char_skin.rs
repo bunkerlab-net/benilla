@@ -389,7 +389,7 @@ pub(super) fn build_char_skin_materials(
             let tex =
                 asset_server.load::<Image>(benilla_assets::texture_url(path, CHAR_TEXTURE_WRAP));
             mats.char_variants(tex, hair_part.blend, hair_part.two_sided)
-                .map(&quint)
+                .map(quint)
         });
 
     // The cape: the cloak's ItemDisplayInfo `model_texture[0]`, a BLP under
@@ -406,7 +406,7 @@ pub(super) fn build_char_skin_materials(
                 tex_name.to_ascii_lowercase()
             ));
             mats.char_variants(tex, part.blend, part.two_sided)
-                .map(&quint)
+                .map(quint)
         });
 
     // The extra skin (tauren fur, M2 type 8): CharSections section 0 `TextureName[1]` by
@@ -423,7 +423,7 @@ pub(super) fn build_char_skin_materials(
                     p.char_slot == Some(CharSkinSlot::SkinExtra) && p.two_sided == two_sided
                 })?;
                 mats.char_variants(tex.clone(), part.blend, part.two_sided)
-                    .map(&quint)
+                    .map(quint)
             };
             (quint_for(false), quint_for(true))
         });

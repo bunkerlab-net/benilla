@@ -207,7 +207,7 @@ fn level_line(
     let type_slot = if u.is_player {
         get("PLAYER")
     } else {
-        rank_key(u.rank).and_then(&get)
+        rank_key(u.rank).and_then(get)
     };
     let (key, args): (&str, Vec<Arg<'_>>) = match (&class_slot, &type_slot) {
         (Some(c), Some(t)) => (

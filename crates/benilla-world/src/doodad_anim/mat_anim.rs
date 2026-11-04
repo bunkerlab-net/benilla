@@ -1248,7 +1248,7 @@ pub(super) fn matanim_probe(
             crate::model_render::lazy::with_material(&materials, id, |m| m.extension.anim_slots)
                 .unwrap_or_default();
         visited.insert(id);
-        let uv = uv_reg.0.get(&id).map(&uv_row);
+        let uv = uv_reg.0.get(&id).map(uv_row);
         let tint = tint_reg.0.get(&id).map(|e| {
             format!(
                 "tint slot {} row ({:+.4},{:+.4},{:+.4})",

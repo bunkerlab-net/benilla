@@ -575,7 +575,7 @@ pub(super) fn inspect_ui(
     // any masked upper-body overlay.
     let anim_line = net_entity.and_then(|p| drivers.get(p).ok()).map(|d| {
         let (base, overlay) = d.playing();
-        let base = base.map(&fmt).unwrap_or_else(|| "—".into());
+        let base = base.map(fmt).unwrap_or_else(|| "—".into());
         // The base slot's playback rate, `speed / (moveSpeed · modelScale)` on a locomotion clip;
         // hidden at 1x.
         let rate = d.rate();

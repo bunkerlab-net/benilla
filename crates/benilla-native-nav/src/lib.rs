@@ -228,7 +228,7 @@ impl Mesh {
         let valid = validate::Validated::decode(params, tiles)?;
         static NEXT_MESH_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let instance_id = NEXT_MESH_ID
-            .fetch_update(
+            .try_update(
                 std::sync::atomic::Ordering::Relaxed,
                 std::sync::atomic::Ordering::Relaxed,
                 |id| id.checked_add(1),
