@@ -890,9 +890,9 @@ name = "benilla-mpq"
 version = "0.3.0"
 dependencies = [
  "benilla-bytes",
+ "blake3",
  "flate2",
  "libc",
- "sha2 0.10.9",
 ]
 
 [[package]]

@@ -18,7 +18,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use benilla_bytes::{capped, ByteExt};
-use sha2::{Digest, Sha256};
 
 mod crypto;
 use crypto::{decrypt_block, hash_string, hash_type};
@@ -283,12 +282,12 @@ impl Archive {
         }
 
         let mut identity = limits.map(|_| {
-            let mut hash = Sha256::new();
-            hash.update(file_len.to_le_bytes());
-            hash.update(archive_offset.to_le_bytes());
-            hash.update(hdr);
+            let mut hash = blake3::Hasher::new();
+            hash.update(&file_len.to_le_bytes());
+            hash.update(&archive_offset.to_le_bytes());
+            hash.update(&hdr);
             if let Some(extension) = header_extension {
-                hash.update(extension);
+                hash.update(&extension);
             }
             hash
         });
@@ -646,7 +645,7 @@ pub struct ArchiveFile {
 
 impl ArchiveFile {
     fn read_classic_identity(mut self, decode: bool) -> Result<(Vec<u8>, [u8; 32])> {
-        let mut hash = Sha256::new();
+        let mut hash = blake3::Hasher::new();
         let mut output = if decode {
             Vec::with_capacity(self.size)
         } else {
@@ -654,14 +653,14 @@ impl ArchiveFile {
         };
         if let Some(offsets) = &self.offsets {
             for offset in offsets {
-                hash.update(offset.to_le_bytes());
+                hash.update(&offset.to_le_bytes());
             }
             if offsets.first().copied() == Some((offsets.len() as u32 + 1) * 4) {
                 self.file
                     .seek(SeekFrom::Start(self.base + offsets.len() as u64 * 4))?;
                 let mut crc_offset = [0; 4];
                 self.file.read_exact(&mut crc_offset)?;
-                hash.update(crc_offset);
+                hash.update(&crc_offset);
             }
             for index in 0..self.size.div_ceil(self.sector_size) {
                 let raw = self.encoded_sector(index)?;
@@ -941,7 +940,7 @@ fn read_hash_table(
     pos: u64,
     count: usize,
     file_len: u64,
-    identity: Option<&mut Sha256>,
+    identity: Option<&mut blake3::Hasher>,
 ) -> Result<Vec<HashEntry>> {
     // A `count` the file cannot hold is refused before the loop indexes past a short `words`.
     let avail = avail_from(file_len, pos);
@@ -977,7 +976,7 @@ fn read_block_table(
     pos: u64,
     count: usize,
     file_len: u64,
-    identity: Option<&mut Sha256>,
+    identity: Option<&mut blake3::Hasher>,
 ) -> Result<Vec<BlockEntry>> {
     // A `count` the file cannot hold is refused, as in `read_hash_table`.
     let avail = avail_from(file_len, pos);

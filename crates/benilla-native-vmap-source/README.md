@@ -26,13 +26,14 @@ against a file being changed and restored between reads. Diagnostic summaries
 cannot construct a preparation object.
 
 Freshness probes every receipt against newly decoded archive indexes and rereads
-the encoded sector tables and payload bytes without inflation. SHA-256 identities
+the encoded sector tables and payload bytes without inflation. BLAKE3 identities
 cover the exact bounded header and encoded index tables, plus every consumed
 member's encoded bytes. Initial acquisition strictly inflates each needed sector
 once. A same-size rewrite or path replacement still changes the final identity,
 even if timestamps are restored. Recompressed equivalent bytes conservatively
 count as a change. The read-work refusal allowance and every original source
 cancellation checkpoint remain unchanged.
+Decoded-member receipts and source/product bindings use SHA-256.
 
 `summary()` and `Error::diagnostic()` contain fixed categories, counts, numeric
 identifiers, source revision/policy labels and a digest, with no asset text or
