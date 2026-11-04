@@ -2,7 +2,7 @@
 //! Bounded port of pinned CMaNGOS TerrainBuilder's MAPSz1.4 triangle collection.
 //! Source: 8ec338a1 contrib/mmap/src/TerrainBuilder.{cpp,h}; see PROVENANCE.md.
 //! This transforms bytes only: no source, coverage, or gameplay admission is established.
-use super::super::{u16_at, u32_at, Error};
+use super::super::{terrain::liquid_height_number, u16_at, u32_at, Error};
 
 const V9: usize = 129 * 129;
 const V8: usize = 128 * 128;
@@ -447,7 +447,7 @@ impl<'a> LiquidView<'a> {
                 if i % 128 == 0 {
                     check_cancelled(cancelled)?;
                 }
-                number(values, i * 4)?;
+                liquid_height_number(values, i * 4)?;
             }
             Some(values)
         } else {
@@ -477,7 +477,7 @@ impl<'a> LiquidView<'a> {
         {
             return Ok(INVALID_LIQUID);
         }
-        number(
+        liquid_height_number(
             heights,
             ((row - self.offset_y) * self.width + col - self.offset_x) * 4,
         )
@@ -773,6 +773,52 @@ mod tests {
         bytes[28..32].copy_from_slice(&(liquid_len as u32).to_le_bytes());
         bytes[32..36].copy_from_slice(&((height_end + liquid_len) as u32).to_le_bytes());
         bytes
+    }
+
+    #[test]
+    fn finite_extreme_liquid_samples_reach_source_repair_and_all_invalid_skip() {
+        // TerrainBuilder.cpp:358-389 repairs >5000 from valid original neighbors.
+        for invalid in [1_000_001.0, f32::MAX] {
+            let bytes = authored_liquid(&[20.0, invalid, 20.0, invalid]);
+            let mut mesh = Mesh::default();
+            assert!(append_map(&mut mesh, 32, 32, &bytes, Portion::Entire, &|| false).unwrap());
+            // The second valid row also repairs the two triangles immediately south.
+            assert_eq!(
+                mesh.liquid_triangles,
+                [[130, 1, 0], [129, 130, 0], [259, 130, 129], [258, 259, 129]]
+            );
+            assert_eq!(mesh.liquid_areas, [9; 4]);
+            for index in [0, 1, 129, 130, 258, 259] {
+                assert_eq!(mesh.liquid_vertices[index][1], 20.0);
+            }
+            let mut empty = Mesh::default();
+            assert!(!append_map(
+                &mut empty,
+                32,
+                32,
+                &authored_liquid(&[invalid; 4]),
+                Portion::Entire,
+                &|| false
+            )
+            .unwrap());
+            assert!(empty.liquid_triangles.is_empty());
+            assert_eq!(empty.liquid_vertices[0][1].to_bits(), invalid.to_bits());
+        }
+        for nonfinite in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let mut mesh = Mesh::default();
+            assert_eq!(
+                append_map(
+                    &mut mesh,
+                    32,
+                    32,
+                    &authored_liquid(&[20.0, nonfinite, 20.0, 20.0]),
+                    Portion::Entire,
+                    &|| false
+                ),
+                Err(Error::Format)
+            );
+            assert!(mesh.liquid_vertices.is_empty());
+        }
     }
 
     #[test]

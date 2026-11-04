@@ -31,6 +31,13 @@ whole-install equality. Freshness is checked sequentially before and after work;
 it is observational, not an atomic filesystem lease. Terrain's existing freshness
 reread is synchronous and is not covered by the helper's process deadline.
 
+Liquid arrays preserve finite source samples before mesh collection, including
+`FLT_MAX` boundary values. `TerrainBuilder.cpp:358-389` excludes values at or
+above 5000 from the original valid-neighbor average, repairs values above 5000
+or equal to -500 when valid neighbors exist, and drops all-invalid triangles.
+The existing repair runs before unused-vertex cleanup. Ground-height bounds,
+nonfinite-sample refusals and the production navigation reader remain unchanged.
+
 ## Source configuration and limits
 
 The helper preserves the pinned Recast/Detour algorithms and source generation
