@@ -22,7 +22,7 @@ const CELLS: usize = 256;
 mod liquid;
 pub(crate) use liquid::{LiquidRectangle, MissingLiquidHeights};
 
-fn word(bytes: &[u8], at: usize) -> Result<u32> {
+pub(crate) fn word(bytes: &[u8], at: usize) -> Result<u32> {
     let end = at.checked_add(4).context("terrain.offset_overflow")?;
     Ok(u32::from_le_bytes(
         bytes
@@ -48,14 +48,14 @@ fn number(bytes: &[u8], at: usize) -> Result<f32> {
     Ok(value)
 }
 
-struct Dbc<'a> {
+pub(crate) struct Dbc<'a> {
     records: &'a [u8],
     strings: &'a [u8],
     stride: usize,
 }
 
 impl<'a> Dbc<'a> {
-    fn read(bytes: &'a [u8], fields: usize) -> Result<Self> {
+    pub(crate) fn read(bytes: &'a [u8], fields: usize) -> Result<Self> {
         ensure!((20..=MAX_MEMBER).contains(&bytes.len()), "terrain.dbc_size");
         ensure!(bytes.get(..4) == Some(b"WDBC"), "terrain.dbc_magic");
         let rows = word(bytes, 4)? as usize;
@@ -80,11 +80,11 @@ impl<'a> Dbc<'a> {
         })
     }
 
-    fn rows(&self) -> impl Iterator<Item = &[u8]> {
+    pub(crate) fn rows(&self) -> impl Iterator<Item = &[u8]> {
         self.records.chunks_exact(self.stride)
     }
 
-    fn string(&self, offset: u32) -> Result<&str> {
+    pub(crate) fn string(&self, offset: u32) -> Result<&str> {
         let tail = self
             .strings
             .get(offset as usize..)
@@ -502,6 +502,11 @@ fn read_cells(adt: &[u8]) -> Result<Vec<Cell<'_>>> {
         cells.push(read_cell(root)?);
     }
     Ok(cells)
+}
+
+/// MCIN-indexed raw area IDs, in the same x-major order as ConvertADT's area map.
+pub(crate) fn cell_area_ids(adt: &[u8]) -> Result<Vec<u32>> {
+    Ok(read_cells(adt)?.iter().map(|cell| cell.area).collect())
 }
 
 /// In-process projection of one selected ADT's missing serialized boundary.

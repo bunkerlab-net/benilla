@@ -16,6 +16,7 @@ use std::{ops::Deref, sync::Arc, time::Instant};
 
 mod stores;
 use stores::{MapTable, WmoAreaTable};
+mod source;
 
 const POLICY: &[u8] = b"cmangos-8ec338a1-terrain-area-complete-dbc-v1";
 const INVALID_HEIGHT_VALUE: f32 = -200_000.0;
@@ -110,10 +111,36 @@ impl Deref for WetProducts<'_> {
     }
 }
 
+#[expect(
+    clippy::large_enum_variant,
+    reason = "retain source captures inline without another allocation"
+)]
+#[derive(Debug)]
+enum AreaProducts<'a> {
+    Inventory(WetProducts<'a>),
+    Captured {
+        source: benilla_native_terrain::location::PreparedLocation,
+        tiles: std::collections::BTreeMap<super::TileId, super::TerrainTile>,
+    },
+}
+impl AreaProducts<'_> {
+    fn terrain(&self, map: u32, tile: super::TileId) -> Result<&super::TerrainTile, Error> {
+        match self {
+            Self::Inventory(products) => products.inventory.terrain(map, tile),
+            Self::Captured { source, tiles } => {
+                if source.terrain().map_id() != map {
+                    return Err(Error::Identity);
+                }
+                tiles.get(&tile).ok_or(Error::Missing)
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct TerrainAreaSnapshot<'a> {
     binding: SnapshotBinding,
-    products: WetProducts<'a>,
+    products: AreaProducts<'a>,
     // AreaSnapshot never exposes its wet geometry as a dry conservative reader.
     raw: AreaSnapshot,
     areas: AreaTable,
@@ -188,7 +215,7 @@ impl<'a> TerrainAreaSnapshot<'a> {
                 inventory: source.inventory,
                 policy: policy.finalize().into(),
             },
-            products,
+            products: AreaProducts::Inventory(products),
             raw,
             areas,
             wmo_areas,
@@ -300,7 +327,6 @@ impl TerrainAreaSnapshot<'_> {
         // invent GetAreaFlagByMapId fallback, even if a WMO could supply an area.
         let tile = self
             .products
-            .inventory
             .terrain(self.binding.map, world_tile(position[0], position[1])?)?;
         let area_info = if let AreaResult::Area { floor, .. } = raw_area {
             budget.take()?;

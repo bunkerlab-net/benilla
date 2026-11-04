@@ -38,6 +38,7 @@ const DBC_MEMBERS: &[&str] = &[
     "DBFilesClient\\Map.dbc",
     "DBFilesClient\\AreaTable.dbc",
     "DBFilesClient\\LiquidType.dbc",
+    "DBFilesClient\\WMOAreaTable.dbc",
 ];
 
 /// Only a checkpoint can mint cancellation. Anyhow contexts preserve the marker;
@@ -170,8 +171,8 @@ impl fmt::Debug for CapturedSource {
 }
 
 impl CapturedSource {
-    /// Capture an explicit subset of the three terrain DBCs, one WDT, and at most
-    /// nine ADTs, all from a single map. The coordinator must derive terrain names
+    /// Capture an explicit subset of terrain/location DBCs, one WDT and at most
+    /// nine ADTs within thirteen members. The coordinator must derive terrain names
     /// from validated Map/WDT data; this function only enforces the input envelope.
     /// Smaller subsets support discovery, but cannot themselves establish a complete
     /// terrain product. Names use canonical `DBFilesClient\\` / `World\\Maps\\` paths.

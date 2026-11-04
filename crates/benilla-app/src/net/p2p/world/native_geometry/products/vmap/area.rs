@@ -44,6 +44,7 @@ pub(crate) struct AreaSnapshot {
     binding: SnapshotBinding,
     // Wet and dry geometry stays private; never convert to a conservative reader.
     geometry: VmapSnapshot,
+    complete_inventory: bool,
 }
 
 impl VmapLiquidProducts {
@@ -64,11 +65,28 @@ impl VmapLiquidProducts {
                 ..geometry.binding
             },
             geometry,
+            complete_inventory: true,
         })
     }
 }
 
 impl AreaSnapshot {
+    /// Genuine full-map index with explicitly resident selected-tile models.
+    /// Missing geometry still refuses whenever the source traversal reaches it.
+    pub(super) fn from_resident(geometry: VmapSnapshot) -> Self {
+        let mut policy = Sha256::new();
+        policy.update(b"cmangos-8ec338a1-resident-source-vmap-area-v1");
+        policy.update(geometry.binding().policy);
+        policy.update(geometry.location_binding().policy);
+        Self {
+            binding: SnapshotBinding {
+                policy: policy.finalize().into(),
+                ..geometry.binding()
+            },
+            geometry,
+            complete_inventory: false,
+        }
+    }
     pub(crate) fn binding(&self) -> SnapshotBinding {
         self.binding
     }
@@ -101,11 +119,13 @@ impl AreaSnapshot {
             return Err(Error::Unsupported);
         }
         budget.take()?;
-        // Even an outside-map miss requires every declared static-tree slot loaded.
-        for spawn in &self.geometry.spawns {
-            budget.take()?;
-            if spawn.is_none() {
-                return Err(Error::Missing);
+        if self.complete_inventory {
+            // The existing complete-inventory profile still requires every slot.
+            for spawn in &self.geometry.spawns {
+                budget.take()?;
+                if spawn.is_none() {
+                    return Err(Error::Missing);
+                }
             }
         }
         let position = to_internal(position);

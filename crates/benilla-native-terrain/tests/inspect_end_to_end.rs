@@ -121,6 +121,65 @@ fn source_fixture(name: &str) -> Vec<u8> {
     .unwrap()
 }
 
+#[test]
+fn captured_location_preserves_raw_cells_extractor_narrowing_and_unknown_flags() {
+    let fixture = Fixture::new();
+    let mut adt = source_fixture("flat.adt.test-fixture");
+    for slot in 0..256 {
+        let at =
+            u32::from_le_bytes(adt[92 + slot * 16..96 + slot * 16].try_into().unwrap()) as usize;
+        let id = match slot {
+            0 => 0u32,
+            1 => 8,
+            2 => 999,
+            _ => 7,
+        };
+        adt[at + 8 + 0x34..at + 8 + 0x38].copy_from_slice(&id.to_le_bytes());
+    }
+    let mut area = b"WDBC".to_vec();
+    for n in [2u32, 25, 100, 1] {
+        area.extend(n.to_le_bytes());
+    }
+    for (id, flag) in [(7u32, 65553u32), (8, 65535)] {
+        let mut row = [0u32; 25];
+        row[0] = id;
+        row[1] = 1;
+        row[3] = flag;
+        for n in row {
+            area.extend(n.to_le_bytes());
+        }
+    }
+    area.push(0);
+    let mut entries = terrain_entries(adt).into_iter().collect::<Vec<_>>();
+    entries[1] = raw_entry("DBFilesClient\\AreaTable.dbc", area);
+    let mut wmo = b"WDBC".to_vec();
+    for n in [0u32, 20, 80, 1] {
+        wmo.extend(n.to_le_bytes());
+    }
+    wmo.push(0);
+    entries.push(raw_entry("DBFilesClient\\WMOAreaTable.dbc", wmo));
+    fs::write(fixture.data.join("terrain.MPQ"), archive(&entries)).unwrap();
+    let captured =
+        benilla_native_terrain::location::prepare(&fixture.data, 1, &[Tile { x: 31, y: 32 }])
+            .unwrap();
+    assert_eq!(&captured.grids()[0].area_ids[..4], &[0, 8, 999, 7]);
+    assert_eq!(
+        &captured.grids()[0].area_flags[..4],
+        &[65535, 65535, 65535, 17]
+    );
+    assert_eq!(captured.grid_area_flag(516.6667, -116.66667).unwrap(), 17);
+    assert!(captured.grid_area_flag(0., 0.).is_err());
+    let output = fixture.root.join("location");
+    captured.publish(&output).unwrap();
+    let result = Command::new("python3")
+        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tools/verify_location.py"))
+        .arg(output)
+        .args(["--position", "516.6667", "-116.66667", "0"])
+        .output()
+        .unwrap();
+    assert!(result.status.success(), "{}", output_text(&result));
+}
+
 const DIAGNOSTIC_STAGES: [&str; 8] = [
     "selection",
     "initial_capture",

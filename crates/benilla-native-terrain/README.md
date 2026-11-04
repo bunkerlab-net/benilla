@@ -7,6 +7,26 @@ It reads the player's own Data directory, owns exact raw input buffers, writes
 `TerrainTile` reader. It does not generate VMaps/MMaps, import world-content rows,
 construct gameplay capabilities, install providers, or activate NPC startup.
 
+`location::prepare` retains the same genuine terrain capture plus complete
+AreaTable, WMOAreaTable and Map catalogs. Its selected MCNK IDs and GridMap
+uint16 flags preserve extractor narrowing, unknown-area `0xffff` and packed
+`MAP_AREA_NO_AREA` handling. `grid_area_flag` refuses uncaptured tiles.
+`parent_chain` follows actual AreaTable parents and rejects missing rows or cycles.
+Its declared epoch binds both captures' archive winners and exact member bytes.
+It is a historical source version, not a live-install lease.
+
+`mbx +stable run --locked -p benilla-native-terrain --bin benilla-native-location --`
+accepts `--data`, `--map`, repeated `--tile X,Y` and a fresh `--output` directory.
+The private export contains complete catalogs, generated terrain and numeric grids.
+Never commit these files. A grid observation alone cannot bypass TerrainInfo's
+WMO override. The existing app area owner must consume genuine assembled VMaps
+before any first-entry location fact is accepted.
+
+`tools/verify_location.py CAPTURE --position X Y Z` independently checks raw
+MCIN area IDs, complete DBC parent rows, emitted AREA sections and both capture
+epochs. Its result remains a grid observation until the source WMO query agrees.
+
+
 ## Packaged inspection on Windows
 
 Matching player downloads include `benilla-native-terrain.exe` beside `benilla.exe`.

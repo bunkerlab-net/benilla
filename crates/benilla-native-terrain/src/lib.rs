@@ -4,6 +4,7 @@
 //! detects changed selected inputs; it is not a filesystem lock or a live source lease.
 mod diagnostic_id;
 mod diagnostics;
+pub mod location;
 mod receipts;
 mod source;
 // Shared authored fixtures are loaded once in the library test target.

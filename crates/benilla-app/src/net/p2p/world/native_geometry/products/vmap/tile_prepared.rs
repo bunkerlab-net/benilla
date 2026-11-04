@@ -112,6 +112,15 @@ impl<'bundle, 'source> PreparedTileCollision<'bundle, 'source> {
             ),
         })
     }
+    pub(in super::super) fn into_area(self) -> Result<super::area::AreaSnapshot, Error> {
+        match self.decoded {
+            CollisionStorage::Owned(decoded, _) => {
+                Ok(super::area::AreaSnapshot::from_resident(decoded.geometry))
+            }
+            #[cfg(test)]
+            CollisionStorage::Borrowed(_) => Err(Error::Unsupported),
+        }
+    }
     pub(in super::super) fn append_navigation_mesh(
         &self,
         mesh: &mut super::super::nav_generation::terrain_mesh::Mesh,
