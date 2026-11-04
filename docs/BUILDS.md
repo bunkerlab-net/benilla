@@ -13,6 +13,10 @@ source-retention checks. It runs focused MPQ and terrain tests, including the
 `--inspect` tests, from the prepared source. These checks do not establish
 full-workspace, player, or real-install acceptance.
 
+The location verifier disables Python bytecode writes so these tests leave the
+sealed source inventory unchanged. Packaging rejects added files as well as
+changed or missing source files.
+
 Each full player job also runs the local profile-storage and terrain-helper
 regression suites before packaging. This exercises save/reopen, corruption handling,
 file replacement, and authored terrain inputs on the actual target OS. Packaging

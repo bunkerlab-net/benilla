@@ -8,6 +8,9 @@ import struct
 import subprocess
 import sys
 
+# The helper's tests run this tool from the sealed distribution source tree.
+sys.dont_write_bytecode = True
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'scripts'))
 from native_starter.location_inputs import CollisionIndex, Files, verify_grid_capture
 

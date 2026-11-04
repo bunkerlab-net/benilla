@@ -787,6 +787,30 @@ class PackagingTests(unittest.TestCase):
                 self.assertEqual(run.call_count, 2)
                 self.assertEqual((source / packager.MANIFEST).read_bytes(), before)
 
+    def test_location_verifier_does_not_change_prepared_source(self):
+        repository = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, _, source = self.fixture(root)
+            verifier = "crates/benilla-native-terrain/tools/verify_location.py"
+            inputs = [repository / verifier,
+                      *(repository / "scripts/native_starter").rglob("*.py"),
+                      *(repository / "scripts/classic_export").rglob("*.py")]
+            for original in inputs:
+                staged = source / original.relative_to(repository)
+                staged.parent.mkdir(parents=True, exist_ok=True)
+                staged.write_bytes(original.read_bytes())
+            self.seal(source)
+            environment = os.environ.copy()
+            environment.pop("PYTHONDONTWRITEBYTECODE", None)
+            environment.pop("PYTHONPYCACHEPREFIX", None)
+            result = subprocess.run([sys.executable, str(source / verifier), "--help"],
+                                    cwd=source, env=environment, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            archive = packager.package_source(root, "windows-amd64", SHA)
+            with tarfile.open(archive) as output:
+                self.assertFalse(any("__pycache__" in name for name in output.getnames()))
+
     def test_prepare_snapshots_vendors_and_validates_offline(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
