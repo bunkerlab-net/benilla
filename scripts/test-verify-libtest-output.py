@@ -600,6 +600,36 @@ class ExactProofTests(unittest.TestCase):
                     with self.assertRaises(AssertionError):
                         assert_wired(bad)
 
+    def test_source_location_verifier_runs_unconditionally_in_ci_and_build(self):
+        command = "run: python3 crates/benilla-native-terrain/tools/test_verify_location.py"
+        for path, title in (
+            (".github/workflows/ci.yml", "source-location-verifier-tests"),
+            (".github/workflows/build.yml", "Test source-location verifier"),
+        ):
+            with self.subTest(workflow=path):
+                workflow = (ROOT / path).read_text()
+                if path.endswith("/ci.yml"):
+                    workflow = workflow.split("  workspace-gates:\n", 1)[1].split(
+                        "\n  f05-private-diagnostic:", 1
+                    )[0]
+                expected = f"- name: {title}\n        {command}"
+
+                def assert_wired(candidate):
+                    steps = re.split(r"(?=^      - )", candidate, flags=re.MULTILINE)
+                    self.assertEqual(candidate.count(command), 1)
+                    self.assertEqual(sum(step.strip() == expected for step in steps), 1)
+
+                assert_wired(workflow)
+                gate = "      " + expected + "\n"
+                for bad in (
+                    workflow.replace(gate, ""),
+                    workflow.replace(gate, gate + gate),
+                    workflow.replace(gate, gate + "        if: false\n"),
+                    workflow.replace(gate, gate + "        continue-on-error: true\n"),
+                ):
+                    with self.assertRaises(AssertionError):
+                        assert_wired(bad)
+
 
     def test_native_resident_proofs_require_navigation_helper_first(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()

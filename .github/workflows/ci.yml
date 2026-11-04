@@ -905,6 +905,8 @@ jobs:
         run: |
           python3 crates/benilla-sim/tools/test_initial_cast_phase_oracle.py
           python3 crates/benilla-sim/tools/generate_initial_cast_phase_fixture.py --check
+      - name: source-location-verifier-tests
+        run: python3 crates/benilla-native-terrain/tools/test_verify_location.py
       - name: packaging-tests
         run: python3 scripts/test-package-player.py
       - name: Bound workspace cache payload

@@ -94,6 +94,8 @@ jobs:
         run: |
           python3 crates/benilla-sim/tools/test_defense_skill_oracle.py
           python3 crates/benilla-sim/tools/generate_defense_skill_fixture.py --check
+      - name: Test source-location verifier
+        run: python3 crates/benilla-native-terrain/tools/test_verify_location.py
       - name: Test bounded CI diagnostic capture
         run: |
           export BENILLA_TEST_BASH="$BASH"
