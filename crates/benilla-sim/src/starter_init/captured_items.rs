@@ -38,16 +38,18 @@ pub struct CapturedStarterItems {
 impl CapturedStarterItems {
     /// Bind source rows into the existing initializer inputs without executing initial casts.
     /// initialize_mage/prepare_starter still prove skill eligibility and exact backpack capacity.
-    pub fn compile(self, mut input: StarterInput) -> Result<StarterInput> {
+    pub fn compile(mut self, mut input: StarterInput) -> Result<StarterInput> {
         if self.items.len() > 256 {
             return Err(InitError::Invalid("starting item row limit"));
         }
         let outfits = self.outfits.require("CharStartOutfit", 0)?;
-        let custom = self.custom.require("playercreateinfo_item", 0)?;
+        let custom = match &mut self.custom {
+            Rows::Missing => return Err(missing("playercreateinfo_item", 0)),
+            Rows::Complete(rows) => rows,
+        };
         if outfits.len() > 2 || custom.len() > 256 {
             return Err(InitError::Invalid("starting item source limit"));
         }
-        let mut custom = custom.to_vec();
         custom.sort_unstable_by_key(crate::canonical_order::custom_item);
         let packed =
             u32::from(input.race) | u32::from(input.class) << 8 | u32::from(input.gender) << 16;

@@ -2208,6 +2208,12 @@ class QuestGiverPreparationTests(unittest.TestCase):
         self.assertIn("global_spell_area_and_item_effects", fields)
         self.assertFalse(plan["ordinary_catalog_resolved"])
         self.assertIsNone(plan["runtime_export"])
+        missing = copy.deepcopy(bundle)
+        del missing["quest_mechanics_capture"]
+        missing = quest_plan(missing, dbcs)
+        self.assertIsNone(missing["canonical_order"]["scripts"])
+        self.assertIn("loaded_script_order", {row["field"] for row in missing["refusals"]})
+        self.assertNotIn("loaded_relation_order", {row["field"] for row in missing["refusals"]})
         dbcs["Emotes"] = parse_table("Emotes", dbc_bytes("Emotes", [{0: 1}, {0: 71, 4: 1}]))
         unsupported = quest_plan(bundle, dbcs)
         self.assertIn(("Emotes.EmoteType", 71, "state_emote_not_supported"),

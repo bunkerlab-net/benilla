@@ -72,8 +72,8 @@ explicit `NativeWorldRules`. It compares canonical reports, not just
 length of `extraction.json`. It never constructs `NativeCapability` or a runtime
 profile. See the [runtime verifier contract](../../crates/benilla-world-runtime/src/native/README.md).
 
-The shared `benilla-sim/src/canonical_order.json` contract defines the approved
-native order for unspecified SQL and first-entry skill traversal. Learning-plan
+The shared `crates/benilla-sim/src/canonical_order.json` contract defines the
+approved native order for unspecified SQL and first-entry skill traversal. Learning-plan
 v3 and quest preparation bind its version, digest, and ordered captured rows.
 Defined DBC row-ID, effect-slot, phase, script-delay, and priority order remain
 unchanged. Missing coverage cannot discharge an order obligation. This schedule

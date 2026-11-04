@@ -387,7 +387,11 @@ pub(super) fn quests(
         "session_locale_and_dialog_policy",
     ] {
         if field == "loaded_relation_order" && order["status"] == "complete_inputs" {
-            if source.get("quest_mechanics_capture").is_some() && order["scripts"].is_null() {
+            if rows(source, "quest_template")
+                .iter()
+                .any(|row| nonzero(&row["CompleteScript"]))
+                && order["scripts"].is_null()
+            {
                 refusals.push(json!({"quest":0,"field":"loaded_script_order","target":0,"reason":"independent_context_required"}));
             }
             continue;

@@ -75,7 +75,7 @@ def supported_plan(source, dbcs):
     for field in ("loaded_relation_order", "effective_giver_selection", "registered_callbacks",
                   "global_spell_area_and_item_effects", "session_locale_and_dialog_policy"):
         if field == "loaded_relation_order" and order["status"] == "complete_inputs":
-            if source.get("quest_mechanics_capture") and order["scripts"] is None:
+            if any(row["CompleteScript"] for row in source["tables"]["quest_template"]) and order["scripts"] is None:
                 refuse(0, "loaded_script_order", 0, "independent_context_required")
             continue
         refuse(0, field, 0, "independent_context_required")

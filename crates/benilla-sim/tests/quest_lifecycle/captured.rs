@@ -6,8 +6,8 @@ fn source(rows: Vec<QuestRow>) -> CapturedOrdinaryQuests {
     CapturedOrdinaryQuests {
         source: [7; 32],
         quests: Some(rows),
-        starters: Some(relations.starters.clone()),
-        finishers: Some(relations.finishers.clone()),
+        starters: Some(relations.starters),
+        finishers: Some(relations.finishers),
         givers: Some(vec![CapturedQuestGiver {
             spawn: 1,
             database_guid: 1,

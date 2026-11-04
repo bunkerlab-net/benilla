@@ -328,8 +328,11 @@ fn sql_wildcards_do_not_make_dbc_masks_wildcards_and_dispositions_are_retained()
         rows[0].race_mask = 2;
     }
     assert_eq!(
-        c.compile(1, 8).unwrap().skill_dispositions()[0],
-        SkillLoaderDisposition::UnmatchedMasks
+        c.compile(1, 8).unwrap().skill_dispositions(),
+        &[
+            SkillLoaderDisposition::Loaded(DefaultSkill { id: 95, step: 0 }),
+            SkillLoaderDisposition::UnmatchedMasks,
+        ]
     );
 }
 
