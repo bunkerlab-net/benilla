@@ -13,6 +13,9 @@ implementation files and line ranges, not similarly named code in another expans
 This ledger contains original analysis, no copied implementation, database rows,
 quest text or Blizzard assets.
 
+The full-server reference build disables PlayerBots and AHBot by owner decision.
+This exclusion is revisitable; it is not a claim that either module is ported.
+
 Local evidence was inspected on 2026-10-13. The saved-character/owner-authenticated
 peer bridge supports local race/class/appearance selection, durable profiles and
 position saves. Full app CI, native-platform tests and asset-backed visual checks
