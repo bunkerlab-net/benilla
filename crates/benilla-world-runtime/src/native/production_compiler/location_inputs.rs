@@ -8,6 +8,7 @@ use sha2::{Digest as _, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::Path,
+    sync::Arc,
 };
 mod binary;
 mod collision;
@@ -21,10 +22,12 @@ const MAX_TOTAL: usize = 256 * 1024 * 1024;
 const MAX_FILES: usize = 4096;
 const MAX_WORDS: usize = 1_048_576;
 
+#[derive(Debug)]
 pub(super) struct CheckedLocation {
     pub(super) report: Value,
     pub(super) area_id: u32,
     pub(super) zone_id: u32,
+    pub(super) raw_files: BTreeMap<String, Arc<Vec<u8>>>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -78,7 +81,7 @@ fn component(value: &str) -> bool {
 }
 struct Files<'a> {
     root: &'a Path,
-    names: BTreeSet<String>,
+    raw: BTreeMap<String, Arc<Vec<u8>>>,
     work: usize,
 }
 impl<'a> Files<'a> {
@@ -86,11 +89,11 @@ impl<'a> Files<'a> {
         require(root.is_dir() && !root.is_symlink(), "input_directory")?;
         Ok(Self {
             root,
-            names: BTreeSet::new(),
+            raw: BTreeMap::new(),
             work: 0,
         })
     }
-    fn read(&mut self, name: &str, maximum: usize) -> Result<Vec<u8>> {
+    fn read(&mut self, name: &str, maximum: usize) -> Result<Arc<Vec<u8>>> {
         require(
             !name.is_empty()
                 && name.len() <= 512
@@ -98,18 +101,20 @@ impl<'a> Files<'a> {
                 && name.split('/').all(component),
             "file_name",
         )?;
-        if !self.names.contains(name) {
-            self.names.insert(name.to_owned());
+        if let Some(data) = self.raw.get(name) {
+            require(data.len() <= maximum, "file_limit")?;
+            return Ok(Arc::clone(data));
         }
-        require(self.names.len() <= MAX_FILES, "file_count")?;
+        require(self.raw.len() < MAX_FILES, "file_count")?;
         let mut path = self.root.to_path_buf();
         for part in name.split('/') {
             path.push(part);
             require(!path.is_symlink(), "symlink")?;
         }
-        let data = json::read_regular(&path, maximum)?;
+        let data = Arc::new(json::read_regular(&path, maximum)?);
         self.work += data.len();
         require(self.work <= MAX_TOTAL, "aggregate_limit")?;
+        self.raw.insert(name.to_owned(), Arc::clone(&data));
         Ok(data)
     }
     fn json(&mut self, name: &str) -> Result<Value> {
@@ -190,10 +195,41 @@ pub(super) fn load(path: &Path, source: &Value, dbcs: &dbc::Tables) -> Result<Ch
     Ok(CheckedLocation {
         area_id: context.area_id,
         zone_id: context.zone_id,
+        raw_files: files.raw,
         report: json!({"format":FORMAT,"policy":POLICY,"status":"checked_first_entry_context",
             "source_sha256":source_sha,"selection_sha256":selection_sha,"input_sha256":input_sha,
             "source_epoch":combined,"catalog":header.catalog,"map":context.map,"position_bits":header.position_bits,
             "area_flag":context.area_flag,"area_id":context.area_id,"zone_id":context.zone_id,
             "tile":context.tile,"cell":context.cell,"wmo_exclusion":exclusion,"runtime_export":null}),
     })
+}
+
+#[cfg(test)]
+mod retained_tests {
+    use super::*;
+
+    #[test]
+    fn retained_file_is_read_once_and_keeps_each_read_bound() {
+        let root =
+            std::env::temp_dir().join(format!("benilla-location-retained-{}", std::process::id()));
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("member"), b"checked source").unwrap();
+        let mut files = Files::new(&root).unwrap();
+        let first = files.read("member", 32).unwrap();
+        std::fs::write(root.join("member"), b"replacement").unwrap();
+        let second = files.read("member", 32).unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(second.as_slice(), b"checked source");
+        assert_eq!(files.work, first.len());
+        assert_eq!(
+            files.read("member", 1).unwrap_err().id,
+            "source_location.file_limit"
+        );
+        assert_eq!(
+            files.read("../member", 32).unwrap_err().id,
+            "source_location.file_name"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+        assert_eq!(first.as_slice(), b"checked source");
+    }
 }

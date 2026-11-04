@@ -837,7 +837,7 @@ impl<'a> Compiler<'a> {
     }
 }
 
-pub(super) fn validate_rules(value: &Value) -> Result<()> {
+pub(super) fn validate_rules(value: &Value) -> Result<benilla_sim::world_rules::NativeWorldRules> {
     let fields_exact = |v: &Value, expected: &[&str]| {
         fields(v, expected, "world_rules.unsupported_or_missing_key")
     };
@@ -1002,7 +1002,7 @@ pub(super) fn validate_rules(value: &Value) -> Result<()> {
         serde_json::from_value(value.clone())
             .map_err(|_| fail("world_rules.unsupported_or_missing_key"))?;
     rules.validate().map_err(|_| fail("world_rules.invalid"))?;
-    Ok(())
+    Ok(rules)
 }
 fn rules_plan(source: &Value, rules: &Value) -> Value {
     let rate = f32::from_bits(int(&rules["quest_xp_rate_bits"]) as u32);

@@ -112,7 +112,7 @@ fn private_human_mage_starter_draft_and_python_parity() {
     )
     .unwrap();
     super::super::super::source::validate(&source).unwrap();
-    let (dbcs, extraction) = dbc::load(&dbc_path).unwrap();
+    let (dbcs, extraction, _extraction_bytes) = dbc::load(&dbc_path).unwrap();
     let source_sha = digest(&source);
     let location_path = std::env::var_os("BENILLA_STARTER_LOCATION").map(PathBuf::from);
     let location = location_path

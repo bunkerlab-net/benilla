@@ -72,6 +72,12 @@ explicit `NativeWorldRules`. It compares canonical reports, not just
 length of `extraction.json`. It never constructs `NativeCapability` or a runtime
 profile. See the [runtime verifier contract](../../crates/benilla-world-runtime/src/native/README.md).
 
+The report retains bounded raw source, selection, rules, extraction, DBC, preparation,
+and optional location files with their checked indexes. `requirements()` returns a
+non-admitting `benilla-production-requirements-v1` manifest over captured scope.
+Missing policy, entry, presentation, geometry, and selection approval remain explicit.
+The available-input identity is not the final production content digest.
+
 The shared `crates/benilla-sim/src/canonical_order.json` contract defines the
 approved native order for unspecified SQL and first-entry skill traversal. Learning-plan
 v3 and quest preparation bind its version, digest, and ordered captured rows.

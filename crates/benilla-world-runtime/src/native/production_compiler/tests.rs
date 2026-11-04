@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#[path = "inputs_tests.rs"]
+mod inputs_tests;
 #[path = "limits_tests.rs"]
 mod limits_tests;
 #[path = "location_inputs/tests.rs"]
@@ -790,7 +792,7 @@ fn checked_learning_numeric_candidate_is_not_effective_learning() {
         .unwrap();
     let report = Inputs::new(fixture).run().unwrap();
     assert_eq!(
-        report.preparation["preparation_sha256"],
+        report.preparation()["preparation_sha256"],
         fixture["preparation"]["preparation_sha256"]
     );
     let plan = &fixture["preparation"]["player"]["skills"]["loader_plan"];

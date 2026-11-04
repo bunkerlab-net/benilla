@@ -161,7 +161,10 @@ pub(super) fn prepare(
     let catalog = SourceLocationCatalog::decode(&catalogs[0], &catalogs[1], &catalogs[2])
         .map_err(|_| error("dbc_layout"))?;
     let maps = dbcs.get("Map").ok_or_else(|| error("catalog_binding"))?;
-    require(maps.data == catalogs[2], "catalog_binding")?;
+    require(
+        maps.data.as_slice() == catalogs[2].as_ref(),
+        "catalog_binding",
+    )?;
     let map = maps.get(capture.map).ok_or_else(|| error("map_required"))?;
     let directory = map.text(1);
     require(

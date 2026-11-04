@@ -3,6 +3,7 @@
 mod dbc;
 mod extensions;
 mod global_hooks;
+mod inputs;
 mod json;
 mod location_inputs;
 pub(super) mod preparation;
@@ -75,9 +76,7 @@ pub enum ProductionRules<'a> {
 /// The complete preparation retains its original findings and nested refusals.
 #[derive(Debug)]
 pub struct ProductionInputReport {
-    identity: Value,
-    preparation: Value,
-    loot: Option<CheckedLootDraft>,
+    inputs: inputs::VerifiedProductionInputs,
 }
 /// Checked compiler requirements, not an app collision token or gameplay authority.
 /// Phase 6 must bind the final runtime content identity and closed controller
@@ -87,41 +86,46 @@ pub struct CheckedParticipantRequirements<'a> {
 }
 impl CheckedParticipantRequirements<'_> {
     pub fn map(&self) -> u32 {
-        self.report.identity["selection"]["map_id"]
+        self.report.identity()["selection"]["map_id"]
             .as_u64()
             .expect("checked map") as u32
     }
     pub fn source_sha256(&self) -> &str {
-        self.report.identity["source_sha256"]
+        self.report.identity()["source_sha256"]
             .as_str()
             .expect("checked source identity")
     }
     pub fn capture_sha256(&self) -> Option<&str> {
-        self.report.preparation["participants_plan"]["capture_sha256"].as_str()
+        self.report.preparation()["participants_plan"]["capture_sha256"].as_str()
     }
     pub fn proved_empty(&self) -> bool {
-        self.report.preparation["participants_plan"]["empty_participant_obligation_discharged"]
+        self.report.preparation()["participants_plan"]["empty_participant_obligation_discharged"]
             == true
     }
     pub fn refusals(&self) -> &[Value] {
-        self.report.preparation["participants_plan"]["refusals"]
+        self.report.preparation()["participants_plan"]["refusals"]
             .as_array()
             .expect("checked participant plan")
     }
 }
 impl ProductionInputReport {
     pub fn identity(&self) -> &Value {
-        &self.identity
+        &self.inputs.identity
     }
     pub fn preparation(&self) -> &Value {
-        &self.preparation
+        &self.inputs.preparation
+    }
+    /// Owned acquisition manifest over checked captured scope, never admission readiness.
+    /// Missing constructor inputs remain explicit; no final production content digest is issued.
+    pub fn requirements(&self) -> Value {
+        inputs::discover_requirements(&self.inputs)
     }
     pub fn participants(&self) -> CheckedParticipantRequirements<'_> {
         CheckedParticipantRequirements { report: self }
     }
     /// Checked prototypes and loader-positioned captures, never whole-host admission.
     pub fn loot_draft(&self) -> Option<&CheckedLootDraft> {
-        self.loot.as_ref()
+        self.inputs.loot.as_ref()
     }
 }
 /// Independently recompiles diagnostics from bounded raw inputs and compares the complete report.
@@ -130,66 +134,7 @@ pub fn diagnose_production_inputs(
     paths: ProductionInputPaths<'_>,
     request: ProductionRequest,
 ) -> Result<ProductionInputReport> {
-    request.validate()?;
-    let source = json::decode(
-        &json::read_regular(paths.source, source::MAX_BUNDLE)?,
-        source::MAX_BUNDLE,
-    )?;
-    let (selection, _profiles) = source::validate(&source)?;
-    check(selection.starter.is_some(), "compiler.source_v2_required")?;
-    let selected = json::decode(&json::read_regular(paths.selection, 65536)?, 65536)?;
-    let selected = source::Selection::parse(&selected)?;
-    check(
-        selected.json() == selection.json(),
-        "compiler.selection_mismatch",
-    )?;
-    let (race, class, cap) = selection.starter.unwrap();
-    check(
-        race == request.race as i128 && class == request.class as i128,
-        "compiler.selection_mismatch",
-    )?;
-    let rules = match paths.rules {
-        ProductionRules::Json(path) => json::decode(&json::read_regular(path, 65536)?, 65536)?,
-        ProductionRules::Preset(name) => {
-            check(
-                name == benilla_sim::world_rules::STOCK_PRESET,
-                "world_rules.unknown_preset",
-            )?;
-            serde_json::to_value(
-                benilla_sim::world_rules::NativeWorldRules::cmangos_classic_stock(),
-            )
-            .expect("rules serialization")
-        }
-    };
-    preparation::validate_rules(&rules)?;
-    check(
-        json::int(&rules["progression"]["max_player_level"]) == cap,
-        "compiler.rules_selection_mismatch",
-    )?;
-    let (dbcs, extraction) = dbc::load(paths.dbc_directory)?;
-    let location = paths
-        .location
-        .map(|path| location_inputs::load(path, &source, &dbcs))
-        .transpose()?;
-    let preparation = preparation::compile(
-        &source,
-        &dbcs,
-        request,
-        extraction,
-        &rules,
-        location.as_ref(),
-    )?;
-    let provided = json::decode(
-        &json::read_regular(paths.preparation, 128 * 1024 * 1024)?,
-        128 * 1024 * 1024,
-    )?;
-    check(provided == preparation, "compiler.preparation_mismatch")?;
-    let mut identity = json!({"format":"benilla-production-input-identity-v1","compiler_policy":"benilla-production-diagnostics-v1","source_sha256":preparation["source_sha256"],"selection":selection.json(),"request":request.json(),"world_rules_sha256":json::digest(&rules),"extraction_manifest":preparation["extraction_manifest"],"dbc_manifest":preparation["dbc_manifest"],"preparation_sha256":preparation["preparation_sha256"],"client_build_authenticity_verified":false,"revision_claims_verified_against_installation":false,"consistency":source["consistency"],"runtime_admitted":false});
-    identity["identity_sha256"] = json!(json::digest(&identity));
-    let loot = preparation::loot_assembly::assemble(&preparation["corpse_loot_plan"])?;
     Ok(ProductionInputReport {
-        identity,
-        preparation,
-        loot,
+        inputs: inputs::verify_production_inputs(paths, request)?,
     })
 }

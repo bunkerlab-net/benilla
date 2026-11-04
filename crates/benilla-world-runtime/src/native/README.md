@@ -20,10 +20,22 @@ bind the guarded draft, not a final Profile content digest or runtime receipt.
 Without a production Profile constructor, a checked context still cannot
 discharge effective learning or admit a world.
 
+`ProductionInputReport` owns one private checked context with the raw source,
+selection, rules, extraction, DBC, preparation, and optional location bytes.
+The context retains checked source/schema values, typed rules, and DBC indexes.
+Location validation reads each bounded member once and shares its retained bytes.
+Later file replacement or deletion cannot change a returned report.
+
+`requirements()` returns the non-admitting `benilla-production-requirements-v1`
+manifest. It binds the available diagnostic identity and captured source/DBC keys.
+Missing selection approval, remaining native policy, entry binding, presentation,
+and geometry products remain explicit. Missing location products remain distinct
+from checked first-entry location. The manifest issues no final content digest,
+because the required constructor inputs are incomplete.
 
 The verifier checks the source schema, canonical rows, keys, references, source
-findings, and every supplied coverage extension. It parses all 21 WDBC files,
-including packed records, and binds their whole bytes plus the exact bytes of
+findings, and every supplied coverage extension. It parses all 21 v4 or 23 v5 WDBC
+files, including packed records, and binds their whole bytes plus the exact bytes of
 `extraction.json`. It independently recomputes the complete Python preparation,
 including nested plans and field dispositions. Updating an outer hash cannot
 remove an obligation. The authored JSON parity corpus is shared with the Python

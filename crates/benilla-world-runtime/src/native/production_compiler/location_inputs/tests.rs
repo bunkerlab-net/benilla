@@ -38,6 +38,18 @@ fn raw_location_bytes_match_python_and_refuse_rebound_mutations() {
         } else {
             let checked_location = result.unwrap_or_else(|e| panic!("{}: {e}", case["name"]));
             assert_eq!(checked_location.report, case["result"], "{}", case["name"]);
+            for (name, bytes) in &checked_location.raw_files {
+                assert_eq!(
+                    bytes.as_slice(),
+                    unhex(case["files"][name].as_str().unwrap())
+                );
+                std::fs::write(inputs.root.join(name), b"replaced after verification").unwrap();
+                assert_eq!(
+                    bytes.as_slice(),
+                    unhex(case["files"][name].as_str().unwrap())
+                );
+            }
+            assert!(!checked_location.raw_files.is_empty());
             let narrowed = case["name"] == "narrowed-flags";
             assert_eq!(
                 (checked_location.area_id, checked_location.zone_id),

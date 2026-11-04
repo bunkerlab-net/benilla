@@ -5,6 +5,7 @@ use serde_json::{json, Value};
 use std::{collections::BTreeMap, path::Path};
 pub(super) const MAX_FILE: usize = 64 * 1024 * 1024;
 pub(super) type Tables = BTreeMap<String, Table>;
+#[derive(Debug)]
 pub(super) struct Table {
     pub name: String,
     pub data: Vec<u8>,
@@ -148,7 +149,7 @@ impl<'a> Row<'a> {
         json!({"key":self.key(),"words":(0..self.len()).map(|i|self.word(i)).collect::<Vec<_>>(),"strings":strings,"record_sha256":hash_bytes(&self.table.data[start..start+self.table.size])})
     }
 }
-pub(super) fn load(directory: &Path) -> Result<(Tables, Value)> {
+pub(super) fn load(directory: &Path) -> Result<(Tables, Value, Vec<u8>)> {
     let bytes = read_regular(&directory.join("extraction.json"), 65536)?;
     let manifest = decode(&bytes, 65536)?;
     let mut tables = Tables::new();
@@ -209,7 +210,7 @@ pub(super) fn load(directory: &Path) -> Result<(Tables, Value)> {
     )?;
     verify_manifest(&manifest, &tables)?;
     let binding = json!({"file":"extraction.json","sha256":hash_bytes(&bytes),"bytes":bytes.len(),"integrity_verified":true,"authenticity_verified":false,"metadata":manifest});
-    Ok((tables, binding))
+    Ok((tables, binding, bytes))
 }
 pub(super) fn verify_manifest(v: &Value, tables: &Tables) -> Result<()> {
     let files = array(&v["files"], "extraction.manifest_file_set")?;

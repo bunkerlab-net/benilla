@@ -35,7 +35,7 @@ fn read(
     prefix: &str,
     name: &str,
     rows: &BTreeMap<&str, &FileRow>,
-) -> Result<Vec<u8>> {
+) -> Result<Arc<Vec<u8>>> {
     let row = rows
         .get(name)
         .ok_or_else(|| error("collision_file_required"))?;
