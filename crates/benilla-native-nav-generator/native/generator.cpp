@@ -168,7 +168,8 @@ struct Mesh {
 Mesh readMesh(Reader& input) {
     Mesh mesh;
     const unsigned nv = input.u32(), nt = input.u32();
-    require(nv <= 500000 && nt <= 1000000, "mesh count exceeds limit");
+    // Eight seed tiles, including both selectors: max 539,176 vertices; next power of two gives 94.5% headroom.
+    require(nv <= (1u << 20) && nt <= 1000000, "mesh count exceeds limit");
     require((nv == 0) == (nt == 0), "unclean mesh: vertices and triangles must both be present");
     const unsigned char* vertexData = input.take(static_cast<std::size_t>(nv) * 12);
     const unsigned char* triangleData = input.take(static_cast<std::size_t>(nt) * 12);

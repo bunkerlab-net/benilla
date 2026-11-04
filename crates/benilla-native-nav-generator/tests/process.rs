@@ -305,3 +305,35 @@ fn liquid_only_mesh_preserves_source_area_and_flags() {
         }
     }
 }
+
+#[test]
+fn input_vertex_limit_matches_encoder_and_native_parser_at_the_boundary() {
+    use benilla_native_nav_generator::MAX_VERTICES;
+    let mut input = request();
+    input.bmin[1] = 0.;
+    input.bmax[1] = 0.;
+    input.solid.vertices = vec![[0.; 3]; MAX_VERTICES];
+    input.solid.triangles = vec![[0, 1, 2]];
+    let mut bytes = input
+        .encode()
+        .expect("the exact input vertex cap is encodable");
+    // A nonfinite coordinate proves the native count check admitted the boundary,
+    // without rasterizing a million authored vertices or claiming valid geometry.
+    bytes[140..144].copy_from_slice(&f32::NAN.to_le_bytes());
+    let output = run(&bytes);
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("mesh coordinate outside bounds"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    input.solid.vertices.push([0.; 3]);
+    assert_eq!(input.encode().unwrap_err().0, "mesh count exceeds limit");
+    let mut oversized = request().encode().unwrap();
+    oversized[132..136].copy_from_slice(&((MAX_VERTICES + 1) as u32).to_le_bytes());
+    let output = run(&oversized);
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("mesh count exceeds limit"));
+}

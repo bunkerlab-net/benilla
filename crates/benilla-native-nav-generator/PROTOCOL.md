@@ -43,13 +43,26 @@ require successful exit, decode exact framing, independently validate both sourc
 files, and bind outputs to the exact source/config/off-mesh identity. A helper result
 does not establish game-session admission.
 
-Limits: request and response each at most 32 MiB; each mesh at most 500,000 vertices
+Limits: request and response each at most 32 MiB; each mesh at most 1,048,576 vertices
 and 1,000,000 triangles; selected tile in 0..63; map in 0..999; map tiles 1..4096;
 finite coordinates within ±100,000; vertical range at most 16,000 world units;
 fixed 25×25 subtiles with 80 cells and source config-dependent bounded border.
 For an empty mesh only, Y bounds may instead use the exact source sentinel
 FLT_MIN/FLT_MAX; these bounds never enter rasterization. Per-field config validation
 additionally constrains work to representable ranges.
+
+Input vertices are source triangle-soup vertices, not merged tile vertices.
+Pinned `contrib/mmap/src/MapBuilder.cpp:1015-1041` passes int-sized input counts.
+Its output checks at lines 917-925 permit at most 65,534 merged vertices and
+six vertices per polygon. `MapBuilder.h:53-55` fixes 25×25 subtiles of 80 cells.
+`MapBuilder.cpp:684-720` preserves `maxPolys` bits `0x80000000` from the
+31-bit Detour polygon-reference field. These source limits do not set the
+input resource cap above.
+The complete eight-tile Northshire seed includes both selector tiles and peaks at
+539,176 cleaned solid vertices in tile 48,32. The smallest larger power of two,
+1,048,576, leaves 94.5% headroom. Rust encoding and native parsing test the exact
+boundary and refuse boundary plus one. This is a measured seed envelope, not
+whole-map coverage. Triangle, byte, allocation, and deadline limits are unchanged.
 
 `native_peak_bytes` measures the live peak of Recast/Detour allocations including
 tracking headers, not RSS. Native mesh copies are bounded by the 32 MiB input cap;

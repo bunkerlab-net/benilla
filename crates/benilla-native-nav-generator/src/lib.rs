@@ -9,7 +9,8 @@ pub const GRID_SIZE: f32 = 533.333_3;
 pub const BASE_UNIT_DIM: f32 = 0.266_666_6;
 pub const MAX_REQUEST_BYTES: usize = 32 * 1024 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
-pub const MAX_VERTICES: usize = 500_000;
+// Eight seed tiles, including both selectors: max 539,176 input vertices; next power of two gives 94.5% headroom.
+pub const MAX_VERTICES: usize = 1 << 20;
 pub const MAX_TRIANGLES: usize = 1_000_000;
 pub const DEFAULT_ALLOCATION_BUDGET: u64 = 128 * 1024 * 1024;
 pub const MAX_ALLOCATION_BUDGET: u64 = 256 * 1024 * 1024;
