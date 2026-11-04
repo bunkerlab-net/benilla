@@ -278,12 +278,12 @@ impl<'a> Validated<'a> {
                     poly.neis.push(nei);
                     edge_count += 1;
                 }
-                // Strict convex projected polygons, with source clockwise winding.
+                // RecastMesh.cpp:443-447,887-904 retains collinear triangles; reject reflex crosses.
                 for i in 0..nv {
                     let a = vertices[poly.verts[i]];
                     let b = vertices[poly.verts[(i + 1) % nv]];
                     for j in 0..nv {
-                        if j != i && j != (i + 1) % nv && cross(a, b, vertices[poly.verts[j]]) >= 0.
+                        if j != i && j != (i + 1) % nv && cross(a, b, vertices[poly.verts[j]]) > 0.
                         {
                             return Err(Error::Unsupported);
                         }

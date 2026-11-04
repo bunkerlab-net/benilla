@@ -86,7 +86,8 @@ The app snapshot uses a non-reentrant RefCell in the existing NonSend service.
   no magma/slime, off-mesh links, extra layers, mismatched pairs or unknown areas.
   The generator's usesLiquids boolean alone is not an actual liquid polygon;
   both boolean values are permitted. Default queries remain ground-only
-- Clockwise strictly convex 3–6-vertex polygons; finite nondegenerate detail triangles;
+- Clockwise non-strictly convex 3–6-vertex polygons, with no reflex vertex;
+  finite nondegenerate detail triangles;
   exact reciprocal internal neighbors and reversed shared edges; one directed detail
   boundary cycle in coarse-vertex order, paired internal edges and no duplicate edges
 - Serialized link heads/cache bytes are ignored because source addTile rebuilds every
@@ -117,6 +118,25 @@ Pinned `MapBuilder.cpp:917-925` fixes six vertices per polygon and refuses
 65,535 or more merged vertices. Its `maxPolys` bits remain `0x80000000`,
 from `MapBuilder.cpp:684-720` and Detour's 31-bit polygon-reference field.
 Neither this field nor Recast's 80-cell subtiles impose a 4096-polygon cap.
+
+Recast's strict `uleft` merge tests check only the two new joints
+(`RecastMesh.cpp:460-519`), not every existing vertex. `triangulate`
+appends its final triangle without an area test (`443-447`), and
+`removeVertex` retains triangles with distinct indices (`887-904`).
+`buildMeshAdjacency` matches vertex indices without a geometric test
+(`56-115`). A zero coarse cross product is therefore not a source refusal.
+The validator rejects positive clockwise half-plane crosses, not zero.
+
+Detour's closest-point path uses point-in-polygon and indexed detail edges
+(`DetourNavMesh.cpp:677-757`). Its boundary-distance helper uses parity and
+segment distances (`DetourCommon.cpp:254-269`). Raycast clips against closed
+half-planes and explicitly handles parallel edges (`110-160`,
+`DetourNavMeshQuery.cpp:2525-2531`); the funnel includes zero-area comparisons
+(`1903-1905,1954-1956`). These paths require no strict corner inequality.
+This does not make a zero-area polygon a positive body-support region.
+`tools/collinear_generate.py --source /path/to/mangos-classic --check`
+reproduces authored collinear-corner and line-triangle writer bytes plus
+unmodified Detour nearest, corridor, funnel and raycast observations.
 
 This is intentionally a restricted source-compatible subset; it may reject lawful
 source-generated data with narrow/degenerate triangles, ambiguous portals or larger

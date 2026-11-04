@@ -558,3 +558,6 @@ mod water_tests;
 
 #[cfg(all(test, benilla_native_detour))]
 mod detail_tests;
+
+#[cfg(all(test, benilla_native_detour))]
+mod collinear_tests;
