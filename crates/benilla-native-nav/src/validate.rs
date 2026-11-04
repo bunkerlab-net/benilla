@@ -76,7 +76,8 @@ struct TileWork {
     edges: usize,
     portals: [usize; 8],
 }
-const MAX_LOAD_WORK: usize = 1_048_576;
+// DetourNavMesh.cpp:317-347,392-415: selector pair 5,505,666 scans; next power of two.
+const MAX_LOAD_WORK: usize = 1 << 23;
 struct Portal {
     tile: [i32; 2],
     side: u16,
@@ -678,12 +679,12 @@ mod work_tests {
         let a = TileWork {
             xy: [0, 0],
             edges: 10_000,
-            portals: [100, 0, 0, 0, 0, 0, 0, 0],
+            portals: [500, 0, 0, 0, 0, 0, 0, 0],
         };
         let b = TileWork {
             xy: [1, 0],
             edges: 10_000,
-            portals: [0, 0, 0, 0, 100, 0, 0, 0],
+            portals: [0, 0, 0, 0, 500, 0, 0, 0],
         };
         assert_eq!(native_load_work(&[a, b]), Err(Error::Budget));
         let a = TileWork {
@@ -697,6 +698,34 @@ mod work_tests {
             portals: [0, 0, 0, 0, 1, 0, 0, 0],
         };
         assert_eq!(native_load_work(&[a, b]), Ok(96));
+    }
+    #[test]
+    fn complete_selector_pair_has_the_measured_source_scan_bound() {
+        let a = TileWork {
+            xy: [1, 0],
+            edges: 48_273,
+            portals: [117, 0, 55, 0, 61, 0, 77, 0],
+        };
+        let b = TileWork {
+            xy: [0, 0],
+            edges: 40_651,
+            portals: [59, 0, 48, 0, 15, 0, 73, 0],
+        };
+        assert_eq!(native_load_work(&[a, b]), Ok(5_505_666));
+    }
+    #[test]
+    fn construction_work_cap_is_inclusive_and_cap_plus_one_refuses() {
+        for (edges, expected) in [
+            (MAX_LOAD_WORK, Ok(MAX_LOAD_WORK)),
+            (MAX_LOAD_WORK + 1, Err(Error::Budget)),
+        ] {
+            let tile = TileWork {
+                xy: [0, 0],
+                edges,
+                portals: [0; 8],
+            };
+            assert_eq!(native_load_work(&[tile]), expected);
+        }
     }
 }
 

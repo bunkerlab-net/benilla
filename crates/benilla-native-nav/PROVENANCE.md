@@ -102,7 +102,7 @@ The app snapshot uses a non-reentrant RefCell in the existing NonSend service.
   directed portal may match at most one target edge; split or ambiguous matches reject,
   avoiding the source's four-match truncation and dropped links. All intermediate
   arithmetic and compression ratios must remain finite; geometry is never snapped
-- A preflight upper bound of 1,048,576 native construction edge examinations, including
+- A preflight upper bound of 8,388,608 native construction edge examinations, including
   each portal times every neighboring target edge, plus source-side scans. Cross-tile
   validation separately caps comparisons at 1,048,576. Oversized closures reject
 
@@ -113,6 +113,13 @@ extra detail vertices plus triangles. Their aggregate bounds use the smallest
 larger powers of two, 32,768 and 131,072. These are seed resource envelopes, not
 whole-map measurements. Boundary tests distinguish exact-cap section decoding
 from cap-plus-one refusal before native allocation.
+
+The selector pair has 48,273 and 40,651 edges, with 61 and 59 facing
+portals. `DetourNavMesh.cpp:317-347,392-415` scans target edges for
+each source portal, plus both source edge scans. The conservative bound
+is `2*(48273+40651)+61*40651+59*48273 = 5,505,666`.
+Its smallest enclosing power of two is 8,388,608. This changes only the
+pre-allocation construction-work cap, not any query budget or deadline.
 
 Pinned `MapBuilder.cpp:917-925` fixes six vertices per polygon and refuses
 65,535 or more merged vertices. Its `maxPolys` bits remain `0x80000000`,
