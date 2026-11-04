@@ -34,7 +34,10 @@ int main(int argc,char** argv) {
                        (double(detail[8])-detail[5])*(double(detail[12])-detail[3]);
     assert(cross>0);
     const unsigned int meshes[]={0,5,0,3};
-    const unsigned char tris[]={0,1,4,5, 0,4,3,16, 4,2,3,5};
+    for(bool missing : {false,true}) {
+    unsigned char tris[]={0,1,4,5, 0,4,3,16, 4,2,3,5};
+    // Source getEdgeFlags may omit bits for rounded sampled boundary segments.
+    if(missing) {tris[3]=1;tris[11]=4;}
     dtNavMeshCreateParams cp={};cp.verts=verts;cp.vertCount=4;cp.polys=polys;
     cp.polyFlags=flags;cp.polyAreas=areas;cp.polyCount=1;cp.nvp=6;
     cp.detailMeshes=meshes;cp.detailVerts=detail;cp.detailVertsCount=5;
@@ -44,7 +47,7 @@ int main(int argc,char** argv) {
     unsigned char* raw=nullptr;int size=0;assert(dtCreateNavMeshData(&cp,&raw,&size));
     const uint32_t header[]={0x4d4d4150,7,8,uint32_t(size),1};
     std::vector<unsigned char> file(20+size);memcpy(file.data(),header,20);memcpy(file.data()+20,raw,size);
-    write(out+"/near-edge.mmtile",file.data(),file.size());
+    write(out+(missing?"/unflagged.mmtile":"/near-edge.mmtile"),file.data(),file.size());
     // The bridge's alignment adjustment, without changing any serialized bytes.
     std::vector<unsigned char> storage(size+8);
     auto* data=storage.data()+((100+4*12+32)%8?4:0);
@@ -55,7 +58,7 @@ int main(int argc,char** argv) {
     dtQueryFilter filter;filter.setIncludeFlags(1);filter.setExcludeFlags(0);
     const float inside[]={-grid+40*cs,0,-grid+40*cs};
     const float outside[]={detail[12],detail[13],detail[14]};
-    FILE* f=fopen((out+"/queries.tsv").c_str(),"w");assert(f);
+    FILE* f=fopen((out+(missing?"/unflagged.tsv":"/queries.tsv")).c_str(),"w");assert(f);
     fprintf(f,"# label world_bits status reference nearest_world_bits over\n");
     for(int i=0;i<2;++i) {
         const float* p=i?outside:inside;const float ext[]={5,5,5};
@@ -67,4 +70,5 @@ int main(int argc,char** argv) {
                 static_cast<unsigned long long>(ref),bits(nearest[2]),bits(nearest[0]),bits(nearest[1]),over?1:0);
     }
     assert(fclose(f)==0);
+    }
 }

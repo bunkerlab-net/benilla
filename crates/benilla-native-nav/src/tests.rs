@@ -221,6 +221,7 @@ fn malformed_detail_boundary_and_bv_escape_never_reach_native_code() {
     let mut cases = Vec::new();
     let mut b = LEFT.to_vec();
     b[tris + 3] = 0;
+    b[tris + 7] = 0;
     cases.push(b);
     let mut b = LEFT.to_vec();
     b[tris] = 200;

@@ -602,8 +602,8 @@ fn validate_bv(b: &[u8], polys: &[Poly], origin: [f32; 3], q: f32) -> Result<(),
     Ok(())
 }
 
-// Preserve the directed boundary topology without requiring sampled vertices to
-// lie on coarse polygon edges. Boundary flags keep Detour's fallback non-null.
+// Preserve directed boundary topology without coarse-edge containment.
+// RecastMeshDetail.cpp:1140-1162 permits unflagged exterior segments; one flagged edge keeps fallback non-null.
 fn validate_detail_boundary(
     poly: &Poly,
     edges: &BTreeMap<(usize, usize), bool>,
@@ -618,7 +618,7 @@ fn validate_detail_boundary(
             }
             continue;
         }
-        if !flag || next[a].0 != usize::MAX || next[b].1 {
+        if next[a].0 != usize::MAX || next[b].1 {
             return Err(bad());
         }
         next[a].0 = b;

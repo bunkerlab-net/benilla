@@ -27,7 +27,7 @@ with tempfile.TemporaryDirectory() as tmp:
     subprocess.run([str(temp / 'oracle'), str(temp)], check=True)
     dest = HERE / 'fixtures/detail'
     dest.mkdir(exist_ok=True)
-    for name in ['params.mmap', 'near-edge.mmtile', 'queries.tsv']:
+    for name in ['params.mmap', 'near-edge.mmtile', 'queries.tsv', 'unflagged.mmtile', 'unflagged.tsv']:
         data = (temp / name).read_bytes()
         if args.check:
             assert (dest / name).read_bytes() == data, name

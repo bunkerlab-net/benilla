@@ -877,6 +877,13 @@ authored diagonal edge sample one binary32 step outside its polygon. The reader
 loads it and matches original Detour nearest references, point bits and over flags.
 Invalid detail indices/ranges, NaN and both infinities still refuse before native loading.
 
+`RecastMeshDetail.cpp:1140-1162,1380` sets boundary bits by a 0.001 distance test,
+so a sampled exterior segment can remain unflagged after world-coordinate rounding.
+Detour follows the stored flags rather than requiring every exterior edge to have
+a bit. The reader retains the closed index boundary cycle independently of flags
+and requires at least one flagged edge, which keeps the native fallback non-null.
+The authored unflagged-segment variant matches original nearest query bits.
+
 The source BV builder sees full detail vertices, while serialization replaces its
 first polygon-vertex entries with merged polygon coordinates. Exact BV containment
 is required for every serialized extra detail vertex. For replaced base vertices,

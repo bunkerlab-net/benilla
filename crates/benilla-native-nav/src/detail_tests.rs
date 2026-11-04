@@ -21,14 +21,10 @@ fn sections() -> (usize, usize, usize) {
     let triangles = vertices + word(TILE, 60) * 12;
     (details, vertices, triangles)
 }
-#[test]
-fn near_edge_detail_outside_a_diagonal_polygon_matches_original_queries() {
-    let mut mesh = load(TILE).unwrap();
+fn assert_original_queries(tile: &[u8], expected: &str) {
+    let mut mesh = load(tile).unwrap();
     let mut count = 0;
-    for line in include_str!("../tools/fixtures/detail/queries.tsv")
-        .lines()
-        .skip(1)
-    {
+    for line in expected.lines().skip(1) {
         let row: Vec<_> = line.split_whitespace().collect();
         assert_eq!(row.len(), 10);
         let bits =
@@ -43,6 +39,26 @@ fn near_edge_detail_outside_a_diagonal_polygon_matches_original_queries() {
         count += 1;
     }
     assert_eq!(count, 2);
+}
+#[test]
+fn near_edge_detail_outside_a_diagonal_polygon_matches_original_queries() {
+    assert_original_queries(TILE, include_str!("../tools/fixtures/detail/queries.tsv"));
+}
+#[test]
+fn unflagged_sampled_boundary_segments_match_original_queries() {
+    assert_original_queries(
+        include_bytes!("../tools/fixtures/detail/unflagged.mmtile"),
+        include_str!("../tools/fixtures/detail/unflagged.tsv"),
+    );
+}
+#[test]
+fn absent_boundary_flags_still_refuse_the_null_native_fallback() {
+    let (_, _, triangles) = sections();
+    let mut bytes = TILE.to_vec();
+    for triangle in 0..3 {
+        bytes[triangles + triangle * 4 + 3] = 0;
+    }
+    assert!(matches!(load(&bytes), Err(Error::Format)));
 }
 #[test]
 fn detail_triangle_indices_and_ranges_still_refuse_before_native_loading() {
