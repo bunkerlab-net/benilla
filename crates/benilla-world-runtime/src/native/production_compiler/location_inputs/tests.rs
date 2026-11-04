@@ -30,7 +30,7 @@ fn raw_location_bytes_match_python_and_refuse_rebound_mutations() {
         );
         if let Some(expected) = case["diagnostic"].as_str() {
             assert_eq!(
-                result.err().expect("mutation must refuse").id,
+                result.expect_err("mutation must refuse").id,
                 expected,
                 "{}",
                 case["name"]
