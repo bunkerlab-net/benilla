@@ -19,24 +19,32 @@ int main(int argc,char** argv) {
     assert(argc==2);const std::string out=argv[1];const float grid=533.3333f;
     dtNavMeshParams params={{-grid,0,-grid},grid,grid,4,INT32_MIN};
     write(out+"/params.mmap",&params,sizeof params);
-    for(bool flat : {false,true}) {
-        const std::string name=flat?"flat":"corner";
+    for(int kind : {0,1,2}) {
+        const bool flat=kind==1,rounded=kind==2;
+        const std::string name=flat?"flat":rounded?"rounded":"corner";
         const unsigned short corner[]={10,0,10, 10,0,40, 10,0,70, 70,0,70, 70,0,10};
         const unsigned short line[]={10,2,10, 14,1,10, 15,0,10};
-        const auto* verts=flat?line:corner;const int nv=flat?3:5;
+        const unsigned short rounding[]={1134,0,100, 1134,0,200, 1200,0,200, 1200,0,100};
+        const auto* verts=flat?line:rounded?rounding:corner;const int nv=flat?3:rounded?4:5;
         unsigned short polys[12];for(auto& v:polys)v=0xffff;
         for(int i=0;i<nv;++i)polys[i]=i;
         const unsigned short flags[]={1};const unsigned char areas[]={11};
-        float detail[15];const float cs=grid/100;
+        float detail[15];const float cs=rounded?.2666666f:grid/100;
         for(int i=0;i<nv;++i)for(int j=0;j<3;++j)
             detail[i*3+j]=(j==1?0:-grid)+verts[i*3+j]*(j==1?1:cs);
+        if(rounded)for(int i=0;i<nv;++i) {
+            // Recast detail adds subtile origin before the merged writer's coarse reconstruction.
+            const int k=verts[i*3];
+            detail[i*3]=(-grid+(k/80)*(80*cs))+(k%80)*cs;
+        }
         const unsigned char cornerTris[]={0,1,4,17, 1,2,3,5, 1,3,4,4};
         const unsigned char lineTris[]={2,0,1,21};
-        const int nt=flat?1:3;const unsigned int meshes[]={0,unsigned(nv),0,unsigned(nt)};
+        const unsigned char roundingTris[]={0,1,2,5, 0,2,3,20};
+        const int nt=flat?1:rounded?2:3;const unsigned int meshes[]={0,unsigned(nv),0,unsigned(nt)};
         dtNavMeshCreateParams cp={};cp.verts=verts;cp.vertCount=nv;cp.polys=polys;
         cp.polyFlags=flags;cp.polyAreas=areas;cp.polyCount=1;cp.nvp=6;
         cp.detailMeshes=meshes;cp.detailVerts=detail;cp.detailVertsCount=nv;
-        cp.detailTris=flat?lineTris:cornerTris;cp.detailTriCount=nt;
+        cp.detailTris=flat?lineTris:rounded?roundingTris:cornerTris;cp.detailTriCount=nt;
         cp.walkableHeight=2;cp.walkableRadius=.5;cp.walkableClimb=.4;
         cp.bmin[0]=cp.bmin[2]=-grid;cp.bmax[1]=4;cp.cs=cs;cp.ch=1;cp.buildBvTree=true;
         unsigned char* raw=nullptr;int size=0;assert(dtCreateNavMeshData(&cp,&raw,&size));
@@ -54,6 +62,7 @@ int main(int argc,char** argv) {
         fprintf(f,"# world_bits status reference nearest_world_bits over\n");
         float points[2][3];
         if(flat) {memcpy(points[0],detail,12);memcpy(points[1],detail+6,12);}
+        else if(rounded) {const float p[2][3]={{-grid+1140*cs,0,-grid+120*cs},{-grid+1190*cs,0,-grid+180*cs}};memcpy(points,p,sizeof p);}
         else {const float p[2][3]={{-grid+20*cs,0,-grid+20*cs},{-grid+60*cs,0,-grid+60*cs}};memcpy(points,p,sizeof p);}
         dtPolyRef refs[2]{};
         for(int i=0;i<2;++i) {

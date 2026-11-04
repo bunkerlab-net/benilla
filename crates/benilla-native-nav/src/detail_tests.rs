@@ -93,3 +93,13 @@ fn nonfinite_base_and_detail_vertices_remain_refused() {
         }
     }
 }
+#[test]
+fn retained_detail_vertices_must_still_fit_their_bv_leaf() {
+    let (_, vertices, triangles) = sections();
+    let real = |at| f32::from_bits(word(TILE, at) as u32);
+    let quantized_x = ((real(vertices) - real(92)) * real(116)) as u16;
+    let bv = triangles + word(TILE, 64) * 4;
+    let mut bytes = TILE.to_vec();
+    bytes[bv + 6..bv + 8].copy_from_slice(&(quantized_x - 1).to_le_bytes());
+    assert!(matches!(load(&bytes), Err(Error::Format)));
+}

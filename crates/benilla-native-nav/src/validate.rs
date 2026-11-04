@@ -557,24 +557,13 @@ fn validate_bv(b: &[u8], polys: &[Poly], origin: [f32; 3], q: f32) -> Result<(),
                 return Err(bad());
             }
             seen[p] = true;
-            for (vertex_index, v) in polys[p].detail.iter().enumerate() {
+            // DetourNavMeshBuilder.cpp:180-205,570-590 bounds original detail
+            // vertices, then discards its first nv; only extras remain comparable.
+            for v in polys[p].detail.iter().skip(polys[p].verts.len()) {
                 for i in 0..3 {
                     let quant = ((v[i] - origin[i]) * q) as u16;
                     if quant < lo[i] || quant > hi[i] {
-                        // createBVTree sees the full original detail vertices. The
-                        // serialized first n vertices instead come from merged poly
-                        // quantization: this supported subset has +ch Y and adjacent-f32
-                        // coordinates. Recast can also merge vertices two Y cells apart;
-                        // those broader cases remain unsupported unless exact bounds hold.
-                        if vertex_index >= polys[p].verts.len() {
-                            return Err(bad());
-                        }
-                        let original = if i == 1 { v[i] + 1.0 / q } else { v[i] };
-                        let low = ((original.next_down() - origin[i]) * q) as u16;
-                        let high = ((original.next_up() - origin[i]) * q) as u16;
-                        if high < lo[i] || low > hi[i] {
-                            return Err(bad());
-                        }
+                        return Err(bad());
                     }
                 }
             }

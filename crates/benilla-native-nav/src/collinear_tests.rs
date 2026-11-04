@@ -78,3 +78,10 @@ fn inverted_detail_triangle_still_refuses_before_native_loading() {
     bytes.swap(triangles, triangles + 1);
     assert!(matches!(load(&bytes), Err(Error::Unsupported)));
 }
+#[test]
+fn original_detail_bv_rounding_matches_original_nearest_and_funnel() {
+    assert_original_queries(
+        include_bytes!("../tools/fixtures/collinear/rounded.mmtile"),
+        include_str!("../tools/fixtures/collinear/rounded.tsv"),
+    );
+}

@@ -92,7 +92,7 @@ The app snapshot uses a non-reentrant RefCell in the existing NonSend service.
   boundary cycle in coarse-vertex order, paired internal edges and no duplicate edges
 - Serialized link heads/cache bytes are ignored because source addTile rebuilds every
   reachable link and head before use; exact source link capacity, valid contiguous detail
-  ranges, complete BV subtree structure/leaf coverage/enclosing quantized bounds, and
+  ranges, complete BV subtree structure/leaf coverage/enclosing retained-detail bounds, and
   depth <=32. The source writer's final all-zero BV padding node is preserved; native
   queries consequently retain its polygon-zero callback behavior
 - External portals only on exact cardinal tile faces or the pinned positive quantized
@@ -147,6 +147,16 @@ finite arithmetic, non-inverted winding, distinct valid indices and
 the flagged boundary-edge requirement that keeps this fallback non-null.
 The authored fully collinear triangle matches original Detour nearest
 edge interpolation and funnel results, without fabricating positive area.
+
+The BV writer bounds original detail vertices before discarding their first
+`nv` entries (`DetourNavMeshBuilder.cpp:180-205,570-590`). Serialized coarse
+vertices instead come from independently reconstructed quantized positions
+(`490-496`). Local-origin rounding and source Y welding can make them differ.
+The validator checks BV enclosure only for retained extra-detail vertices,
+whose exact bytes remain available. Tree shape, leaf coverage, parent bounds,
+finite coordinates and quantization checks remain unchanged. An authored
+subtile-origin rounding fixture matches the original Detour queries without
+expanding or rewriting any serialized BV bounds.
 
 This is intentionally a restricted source-compatible subset; it may reject lawful
 source-generated data with unsupported detail topology, ambiguous portals or larger
