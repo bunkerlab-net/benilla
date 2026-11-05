@@ -542,3 +542,11 @@ and Rust `diagnose_catalog_content`. They retain reverse relations and GO
 endpoints without route pruning. Their exact field/lookup/plan streams are
 non-admitting catalog inputs, not replacements for the existing selected
 quest runtime plans or proof of source loader execution.
+
+The same catalog interface also retains complete item, loot, player/pet,
+reputation, service, and presentation inputs. Every input field and every
+derived lookup/plan record has an independent Python/Rust stream identity.
+All race/class masks and locale absence states remain available without
+changing the meaning or acceptance of the selected route plans. Loot cycles,
+source order gaps, unbound player configuration, and loaded-manager execution
+remain non-admitting.

@@ -4,6 +4,8 @@ use super::*;
 use std::collections::BTreeSet;
 use std::io::{BufWriter, Write};
 use std::sync::LazyLock;
+#[path = "content_globals.rs"]
+mod globals;
 #[path = "content_loot.rs"]
 mod loot;
 static POLICY: LazyLock<Value> = LazyLock::new(|| {
@@ -27,6 +29,13 @@ const RELATIONS: &[&str] = &[
 ];
 type Ids = BTreeMap<String, BTreeSet<u32>>;
 type Endpoints = BTreeMap<(String, u32), Vec<Value>>;
+type Words = BTreeMap<String, BTreeMap<u32, Vec<u32>>>;
+struct Dependencies {
+    ids: Ids,
+    reports: serde_json::Map<String, Value>,
+    words: Words,
+    outfit: BTreeMap<u32, Vec<[u32; 2]>>,
+}
 fn convert(raw: Option<&[u8]>, kind: &str) -> Result<Value> {
     Ok(match kind {
         "raw" => raw.map_or(Value::Null, |r| json!(hex(r))),
@@ -40,6 +49,8 @@ fn convert(raw: Option<&[u8]>, kind: &str) -> Result<Value> {
         "u32" => json!(spawns::uint(raw)?),
         "u16" => json!(spawns::uint(raw)? as u16),
         "u8" => json!(spawns::uint(raw)? as u8),
+        "bool" => json!(u32::from((spawns::uint(raw)? as i32) > 0)),
+        "bool8" => json!(u32::from(spawns::uint(raw)? as u8 != 0)),
         _ => return Err(fail("content.conversion")),
     })
 }
@@ -109,10 +120,7 @@ fn quest_edges(quest: i64, row: &Value) -> Vec<Value> {
     }
     result
 }
-fn dependency_ids(
-    catalog: &mut VerifiedCatalog,
-    spec: &Value,
-) -> Result<(Ids, serde_json::Map<String, Value>)> {
+fn dependency_ids(catalog: &mut VerifiedCatalog, spec: &Value) -> Result<Dependencies> {
     let mut targets = BTreeSet::new();
     for table in spec["tables"].as_object().unwrap().values() {
         for r in table["references"].as_array().unwrap() {
@@ -122,8 +130,15 @@ fn dependency_ids(
     for file in spec["dbc"].as_array().unwrap() {
         targets.insert(file.as_str().unwrap());
     }
+    if let Some(external) = spec["external_references"].as_array() {
+        for reference in external {
+            targets.insert(reference[2].as_str().unwrap());
+        }
+    }
     let mut reports = serde_json::Map::new();
     let mut ids = Ids::new();
+    let mut words = Words::new();
+    let mut outfit = BTreeMap::new();
     let mut retained = 0usize;
     for target in targets {
         let mut set = BTreeSet::new();
@@ -133,6 +148,33 @@ fn dependency_ids(
             for ordinal in 0..view.record_count() {
                 let record = view.record(ordinal)?;
                 set.insert(record["key"].as_u64().unwrap() as u32);
+                let key = record["key"].as_u64().unwrap() as u32;
+                if target == "SkillRaceClassInfo.dbc" || target == "SkillTiers.dbc" {
+                    let mut values = vec![0u32; if target == "SkillTiers.dbc" { 33 } else { 8 }];
+                    for field in record["values"].as_array().unwrap() {
+                        values[field[0].as_u64().unwrap() as usize] =
+                            field[2].as_u64().unwrap() as u32;
+                    }
+                    retained += 128 + values.len() * 4;
+                    words
+                        .entry(target.to_owned())
+                        .or_default()
+                        .insert(key, values);
+                } else if target == "CharStartOutfit.dbc"
+                    && key != 0
+                    && spec.get("external_references").is_some()
+                {
+                    let mut items = Vec::new();
+                    for field in record["values"].as_array().unwrap() {
+                        let column = field[0].as_u64().unwrap() as u32;
+                        let value = field[2].as_u64().unwrap() as u32;
+                        if (5..=16).contains(&column) && (value as i32) > 0 {
+                            items.push([column, value]);
+                        }
+                    }
+                    retained += 128 + items.len() * 8;
+                    outfit.insert(key, items);
+                }
             }
             retained += set.len() * 64;
             check(retained < DECODED - 8_388_608, "content.view_limit")?;
@@ -148,7 +190,12 @@ fn dependency_ids(
         }
         ids.insert(target.to_owned(), set);
     }
-    Ok((ids, reports))
+    Ok(Dependencies {
+        ids,
+        reports,
+        words,
+        outfit,
+    })
 }
 fn endpoint_plans(
     catalog: &mut VerifiedCatalog,
@@ -262,7 +309,12 @@ pub fn diagnose_catalog_content(root: &Path, family: &str, output: Option<&Path>
     }
     let mut plans = Stream::new(output, "plans")?;
     let mut lookups = Stream::new(output, "lookups")?;
-    let (ids, dbc_reports) = dependency_ids(&mut catalog, spec)?;
+    let Dependencies {
+        ids,
+        reports: dbc_reports,
+        words,
+        outfit,
+    } = dependency_ids(&mut catalog, spec)?;
     let mut families = serde_json::Map::new();
     let mut endpoints = Endpoints::new();
     let mut reference_edges = BTreeMap::<u32, Vec<u32>>::new();
@@ -272,6 +324,7 @@ pub fn diagnose_catalog_content(root: &Path, family: &str, output: Option<&Path>
         let mut stream = Stream::new(output, table)?;
         let fields = entry["fields"].as_array().unwrap();
         let mut slots = BTreeMap::<u32, u64>::new();
+        let mut service_rows = Vec::<[u64; 3]>::new();
         let mut counts = BTreeMap::<String, u64>::new();
         catalog.scan(table, 0, 256, |view| {
             raw.update(view.frame);
@@ -311,7 +364,7 @@ pub fn diagnose_catalog_content(root: &Path, family: &str, output: Option<&Path>
                     } else {
                         value
                     };
-                    let present = u32::try_from(key).is_ok_and(|k| ids[target].contains(&k));
+                    let present = ids[target].contains(&(key as u32));
                     lookups.add(&json!([table, view.ordinal, field, target, key, present]))?;
                     if RELATIONS.contains(&table.as_str()) && field == "quest" && !present {
                         status = "skip:missing_quest";
@@ -428,6 +481,104 @@ pub fn diagnose_catalog_content(root: &Path, family: &str, output: Option<&Path>
                     check(view.ordinal * 64 < 4_194_304, "content.view_limit")?;
                 }
             }
+            if family == "globals" && entry["status"] == "input" {
+                if table == "playercreateinfo_skills" {
+                    let pairs = globals::skill_pairs(
+                        &row,
+                        &words["SkillRaceClassInfo.dbc"],
+                        &words["SkillTiers.dbc"],
+                    );
+                    plans.add(&json!([
+                        "player_skill_input",
+                        view.ordinal,
+                        row["racemask"],
+                        row["classmask"],
+                        row["skill"],
+                        row["step"],
+                        pairs
+                    ]))?;
+                } else if table.starts_with("player")
+                    && row.get("race").is_some()
+                    && row.get("class").is_some()
+                {
+                    plans.add(&json!([
+                        "player_pair_input",
+                        table,
+                        view.ordinal,
+                        row["race"],
+                        row["class"]
+                    ]))?;
+                }
+                if table == "playercreateinfo_action"
+                    && matches!(number_field(&row, "type"), 0 | 128)
+                {
+                    let target = if number_field(&row, "type") == 0 {
+                        "spell_template"
+                    } else {
+                        "item_template"
+                    };
+                    let action = number_field(&row, "action") as u32;
+                    lookups.add(&json!([
+                        table,
+                        view.ordinal,
+                        "action",
+                        target,
+                        action,
+                        ids[target].contains(&action)
+                    ]))?;
+                }
+                if table == "petcreateinfo_spell" {
+                    for slot in 1..=4 {
+                        plans.add(&json!([
+                            "pet_spell_slot",
+                            row["entry"],
+                            slot,
+                            row[format!("spell{slot}")]
+                        ]))?;
+                    }
+                } else if table == "pet_name_generation" {
+                    plans.add(&json!([
+                        "pet_name_part",
+                        row["entry"],
+                        row["half"],
+                        view.ordinal,
+                        row["word"]
+                    ]))?;
+                }
+                if table.starts_with("locales_") || table == "broadcast_text_locale" {
+                    for (field, cell) in fields.iter().zip(&cells) {
+                        if field[1] == "text" && field[0] != "locale" {
+                            plans.add(&json!([
+                                "locale_field",
+                                table,
+                                view.ordinal,
+                                field[0],
+                                globals::locale_state(*cell)
+                            ]))?;
+                        }
+                    }
+                }
+                if table.starts_with("npc_vendor") {
+                    service_rows.push([
+                        row["entry"].as_u64().unwrap(),
+                        row["slot"].as_u64().unwrap(),
+                        view.ordinal,
+                    ]);
+                } else if table.starts_with("npc_trainer") {
+                    service_rows.push([
+                        row["entry"].as_u64().unwrap(),
+                        row["spell"].as_u64().unwrap(),
+                        view.ordinal,
+                    ]);
+                } else if table == "gossip_menu_option" {
+                    service_rows.push([
+                        row["menu_id"].as_u64().unwrap(),
+                        row["id"].as_u64().unwrap(),
+                        view.ordinal,
+                    ]);
+                }
+                check(service_rows.len() * 128 <= 8_388_608, "content.view_limit")?;
+            }
             *counts.entry(status.to_owned()).or_default() += 1;
             let nulls = cells
                 .iter()
@@ -439,6 +590,26 @@ pub fn diagnose_catalog_content(root: &Path, family: &str, output: Option<&Path>
             )?;
             Ok(())
         })?;
+        if table.starts_with("npc_vendor") {
+            let (ordered, ties) = globals::service_order(service_rows)?;
+            for [entry, slot, ordinal] in ordered {
+                plans.add(&json!(["service_slot_input", table, entry, slot, ordinal]))?;
+            }
+            for tie in ties {
+                plans.add(&json!([
+                    "service_slot_tie_unproven",
+                    table,
+                    tie[0],
+                    tie[1],
+                    tie[2]
+                ]))?;
+            }
+        } else if table.starts_with("npc_trainer") || table == "gossip_menu_option" {
+            service_rows.sort_unstable();
+            for [a, b, ordinal] in service_rows {
+                plans.add(&json!(["service_key_order", table, a, b, ordinal]))?;
+            }
+        }
         rows += catalog.relations[table].rows;
         families.insert(table.clone(),json!({"raw_sha256":hex(&raw.finalize()),"fields":fields,"source":entry["source"],
             "stream":stream.finish()?,"dispositions":counts,"whole_empty":catalog.relations[table].rows == 0}));
@@ -450,6 +621,44 @@ pub fn diagnose_catalog_content(root: &Path, family: &str, output: Option<&Path>
         loot::check_cycles(&reference_edges)?;
         for (entry, targets) in &reference_edges {
             plans.add(&json!(["loot_reference_edges", entry, targets]))?;
+        }
+    }
+    if family == "globals" {
+        for reference in spec["external_references"].as_array().unwrap() {
+            let table = reference[0].as_str().unwrap();
+            let field = reference[1].as_str().unwrap();
+            let target = reference[2].as_str().unwrap();
+            let columns = schema["tables"][table]["columns"].as_array().unwrap();
+            let index = columns
+                .iter()
+                .position(|c| c["COLUMN_NAME"].as_str().unwrap().to_lowercase() == field)
+                .ok_or_else(|| fail("content.schema"))?;
+            catalog.scan(table, 0, 256, |view| {
+                let key = spawns::uint(view.cells().nth(index).unwrap()?)?;
+                if key != 0 {
+                    lookups.add(&json!([
+                        table,
+                        view.ordinal,
+                        field,
+                        target,
+                        key,
+                        ids[target].contains(&key)
+                    ]))?;
+                }
+                Ok(())
+            })?;
+        }
+        for (key, items) in outfit {
+            for [column, item] in items {
+                lookups.add(&json!([
+                    "CharStartOutfit.dbc",
+                    key,
+                    column,
+                    "item_template",
+                    item,
+                    ids["item_template"].contains(&item)
+                ]))?;
+            }
         }
     }
     let mut result = json!({"format":"benilla-content-views-v1","family":family,"catalog_sha256":catalog.manifest["catalog_sha256"],

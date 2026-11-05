@@ -78,3 +78,13 @@ class ContentCatalogTests(unittest.TestCase):
         self.assertEqual(dict(spec["tables"]["item_template"]["fields"])["spellppmrate_5"],"f32")
         self.assertEqual(spec["tables"]["item_convert"]["status"],"archive-only")
         self.assertIn("Lock.dbc",spec["dbc"])
+
+    def test_item_target_getter_retains_all_uint32_bits(self):
+        fields = dict(c.POLICY["families"]["items"]["tables"]["item_required_target"]["fields"])
+        self.assertEqual(fields["type"],"u32")
+        self.assertEqual(c.convert(b"257",fields["type"]),257)
+
+    def test_gossip_byte_boolean_differs_from_positive_getbool(self):
+        self.assertEqual(c.convert(b"-1","bool8"),1)
+        self.assertEqual(c.convert(b"256","bool8"),0)
+        self.assertEqual(c.convert(b"-1","bool"),0)

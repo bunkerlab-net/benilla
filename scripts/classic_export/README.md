@@ -443,6 +443,24 @@ signed reference negation refuse rather than recurse or fabricate loot.
 F1 cursor order, loaded conditions, group shuffle, and random draws remain
 unverified. No raw store or archive row becomes a sampled loot outcome.
 
+The `globals` family retains all 19 player/pet/skill/reward tables, three
+reputation tables, and 25 service/presentation/locale tables. Every race/class
+pair and mask remains input. Skill obtainability checks all source race/class
+indices against SkillRaceClassInfo and SkillTiers, including zero wildcards.
+Locale records distinguish SQL NULL, empty strings, NUL prefixes, nonempty
+overrides, whole-empty tables, and absent indexed keys. Vendor inputs use
+numeric SQL slot order; equal slots remain explicitly unproven. Trainer and
+gossip input keys retain their own ordering. All external service-template,
+enchantment, and starter-outfit dependencies record complete lookup outcomes.
+
+Pinned owners are `ObjectMgr.cpp:2960-3723,5020-5154,5569-6039,7197-7348,
+7413-7638,7782-7880,8575-8615,8808-9122,9163-9471`. Every table also carries
+its exact loader callsite in `catalog_content_policy.json`. Archive-only pet,
+skill, and mail tables stay classified as archive evidence. Player level
+configuration, locale storage-index encounter order, effective loaded managers,
+and F1 service ties remain refusals. Catalog presence never proves a gameplay
+handler or a successful source validation branch.
+
 ## Global spell and condition catalog views
 
 `catalog-spell-verify ROOT --receipt NEW_FILE --records NEW_DIRECTORY` reads
