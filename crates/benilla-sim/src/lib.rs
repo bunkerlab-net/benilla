@@ -111,4 +111,5 @@ pub mod player_health_regeneration;
 /// Source cell arithmetic only, not loaded terrain or resident registration.
 pub mod resident_map;
 
+pub mod source_rng;
 pub mod source_time;

@@ -1295,3 +1295,70 @@ Reviewed upstream files and full-file SHA-256:
 The [source-time contract](SOURCE-TIME.md) defines widths, narrowing, signed
 overflow refusal and authored arithmetic tests. No wallclock, game data,
 native execution, persistence or reference-run equivalence is provided.
+
+## Source RNG engine families
+
+`src/source_rng/` translates CMaNGOS engine ownership and WSE helpers,
+GNU libstdc++ seed_seq/MT19937 and WSE integer downscaling, and glibc
+TYPE_3 process RNG arithmetic. Rust translations and authored oracle/tests
+are 2026 Benilla fork contributors, GPL-3.0-or-later, without warranty.
+CMaNGOS remains pinned to `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`,
+copyright CMaNGOS Project contributors, upstream GPL-2.0-or-later.
+Its preserved authorship and licence files above apply.
+
+CMaNGOS full-file SHA-256:
+
+- `src/shared/Util/Util.cpp:29-39`:
+  `f408c8a466a183cabdf96b0f7c18907b8cbb2144d73b0b2e8b81fdf421b43133`
+- `src/shared/Util/TSS.h:29-54`:
+  `4e5a6b2cf7aac96b575a4430ea5e7282d26985126ad3912a488d85db9659abad`
+- `src/game/World/WorldStateExpression.cpp:65-69,269-277`:
+  `7be8f95e3c8953e2d6d9e15a5ca3d77aa3f66f8187f7596dcd346e60a04dd9c9`
+- `src/game/World/World.cpp:845-849`:
+  `405e2a0def584dc2e4a9a9bc2861aac4aacefcecc8ec2fa08856324e32d866dd`
+
+The captured Debian GCC/libstdc++ `12.2.0-14+deb12u1` headers were read
+from the retained `benilla-cmangos-reference:bookworm` image. Full-file
+SHA-256 for `/usr/include/c++/12/`:
+
+- `bits/random.tcc:328-529,3241-3349`:
+  `183fcbfa16e8972eec3eef6427dac091c7a1d11ee28cd0f594214e26b57b143a`
+- `bits/random.h:1575-1581`:
+  `5d2f723d7bdcb6f21afbca5f64c321d5f1e7c2ea8772113b039aaa33d995d84e`
+- `bits/uniform_int_dist.h:241-270,300-321`:
+  `b7f6ff9cbb5021ad186180f3c19098dc30a1f8b8c0f5fe6bc146bd876cac6542`
+
+These GNU ISO C++ Library files are copyright 2009-2022 Free Software
+Foundation, Inc., GPL-3.0-or-later with GCC Runtime Library Exception 3.1.
+`licenses/SOURCE-RNG-NOTICES.txt` preserves their copyright/grant/disclaimer;
+`licenses/GCC-RUNTIME-EXCEPTION-3.1.txt` preserves the exception verbatim.
+The Rust translation remains GPL-3.0-or-later, not an assertion of
+Independent Module status under that exception.
+
+The reviewed Boost 1.74 `boost/thread/tss.hpp` cleanup contract has SHA-256
+`7171c71f5b04bb6ceaf65b9a639c21a32848b13c0c0b5c2689c354c9283815df`.
+It is inspected for ownership, not translated or vendored.
+
+The exact [Debian glibc `2.36-9+deb12u14` source package](https://sources.debian.org/src/glibc/2.36-9%2Bdeb12u14/stdlib/)
+files were read and byte-compared with the upstream `glibc-2.36` tag.
+The reviewed file bytes are identical. Full-file SHA-256:
+
+- `stdlib/random_r.c:162-207,298-340,357-395`:
+  `08be54b2a532d37ca9dee2ff7d26e29969ec0af820f68abb4ce21af4e0c29bd5`
+- `stdlib/random.c:138-193,210-219,292-305`:
+  `69df638898049afc216b61cbca3de5eb0610ed310c4661d6eebd59a3b461596c`
+- `stdlib/rand.c:23-28`:
+  `34cafdf68a9f52435b2c5d775573ee664bdf4383c204bceb1eab83c582eb2365`
+
+These glibc files are copyright Free Software Foundation, Inc.,
+1995-2022 for random.c/random_r.c and 1991-2022 for rand.c,
+LGPL-2.1-or-later. The random implementation also retains the 1983 Regents
+of the University of California BSD notice and disclaimer. The Rust
+translation elects GPL-3.0-or-later under LGPL-2.1 section 3.
+`licenses/SOURCE-RNG-NOTICES.txt`, `licenses/LGPL-2.1.txt`, and the existing
+`licenses/GPL-3.0.txt` preserve the source notices and licence texts.
+
+The [source RNG contract](SOURCE-RNG.md) defines the exact state widths,
+source-only input domains, lazy lifetime rules, independent C++ fixture
+generation, and optional hash-bound private F1 engine projection.
+It does not change native RNG, format 89, persistence, or admission.
