@@ -295,6 +295,56 @@ effective loaded set. `pool.objectmgr_loaded_spawn_validation_pending` retains
 that dependency. Reference execution and gameplay admission also refuse.
 Every report remains `complete=false`, with native format 89 unchanged.
 
+## Server DBC and transport catalog views
+
+`catalog-transport-capture --credentials-file FILE --output DIRECTORY` retains
+both transport SQL cursors, including the integrity join at `Transports.cpp:99`.
+`catalog-dbc-verify ROOT --occurrences DIRECTORY --receipt NEW_FILE
+--records NEW_DIRECTORY` checks all retained DBC blobs and writes each enabled
+loader's canonical record stream. Rust uses
+`benilla-catalog dbc ROOT DIRECTORY NEW_RECEIPT NEW_DIRECTORY`.
+Both readers independently hash every physical record, decoded source field,
+and sparse ID-to-ordinal index. Record bits and string bytes remain exact.
+The complete transport query multisets and cursor order have separate hashes.
+These SELECT-only captures are phase0 diagnostics, not F1 execution authority.
+Python uses `DbcViews.open`, `record`, and `lookup`. Rust exposes
+`VerifiedCatalog::dbc_view`, `CatalogDbcView::record`, and `lookup`.
+Each reader permits one active DBC view. Opening another closes the previous
+Python view; Rust enforces the same lifetime through its catalog borrow.
+Returned records own their values and remain valid after another file opens.
+
+`catalog_dbc_layouts.json` binds the 61 enabled calls to CMaNGOS `8ec338a1`,
+`src/game/Server/DBCfmt.h:22-92` and `DBCStores.cpp:251-555`.
+The source's `DBCFilesCount=52` is not the enabled file count. Playerbot,
+commented-out, and other extractor files remain archive inputs.
+The four zero-byte outputs are CharacterCreateCameras, SoundCharacterMacroLines,
+SpellAuraNames, and SpellEffectNames. None has an enabled loader. They are
+retained evidence, never valid empty WDBC tables.
+
+The sparse index preserves physical duplicates and uses the last occurrence,
+`src/shared/Database/DBCFileLoader.cpp:189-222`. Unindexed tables use physical
+ordinals. CharStartOutfit has 41 logical fields in 152 bytes. Its packed
+RaceClassGender word remains packed, `DBCStructure.h:108-119`.
+String overlays fill only empty slots in physical record order,
+`DBCFileLoader.cpp:272-298`. The catalog has no locale-overlay inputs, so the
+report refuses locale occurrence authority rather than inferring source absence.
+The locale selection view also recomputes the available-language mask, default,
+and requested-language fallback from Human race names with F0's `DBC.Locale=0`,
+`World.cpp:1462-1504`, `World.h:556-559`.
+Missing mandatory files and malformed headers, layouts, offsets, hashes,
+lengths, and changed chunks refuse.
+
+Transport inputs include all SQL transports, every MO-transport template,
+complete TaxiPath/TaxiPathNode paths, GO display lookups, and animation timelines.
+The existing independently implemented transport plans retain map transfers,
+control-node skips, and interpolation refusals. Source owners are
+`TransportMgr.cpp:28-32,44-55,76-139,305-311`, `Transports.cpp:35-95`, and
+`DBCStores.cpp:482-508`. No swept geometry or runtime transport is admitted.
+The client Spell.dbc identity is separate from the SQL spell_template store,
+`Globals/ObjectMgr.cpp:7721-7723`, `Server/SQLStorages.cpp:40,55`.
+Reference execution, locale occurrences, and gameplay remain explicit blockers.
+Native format 89 and capability admission do not change.
+
 
 ## Run the dependency-free checks
 

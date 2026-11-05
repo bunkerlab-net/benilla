@@ -502,6 +502,21 @@ class Catalog:
         check(state.hexdigest() == h,"catalog.hash")
         check(self._identity(os.fstat(fd)) == identity,"catalog.changed")
 
+    def blob_range(self, descriptor, offset, size):
+        """Read bounded ranges from the already verified immutable blob handle."""
+        h = self._descriptor(descriptor, LIMITS["dbc_file"])
+        check(type(size) is int and 0 <= size <= FRAME, "catalog.frame_limit")
+        check(plus(offset, size) <= descriptor["bytes"], "catalog.truncated")
+        fd, identity = self.handles[(self._objects, h)]
+        check(self._identity(os.fstat(fd)) == identity, "catalog.changed")
+        peak = ((len(self.cached[1]) if self.cached else 0) + len(self.pages)*PAGE
+                + PAGE*8 + FRAME*4)
+        check(peak <= self.cache_limit, "catalog.cache_limit")
+        self.cache_peak = max(self.cache_peak, peak)
+        data = self._read_fd(fd, offset, size)
+        check(self._identity(os.fstat(fd)) == identity, "catalog.changed")
+        return data
+
     def _root_descriptor(self,d,count):
         fields(d,["sha256","bytes","count","height"],"catalog.descriptor")
         self._descriptor({k:d[k] for k in ("sha256","bytes")},PAGE)

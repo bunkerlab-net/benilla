@@ -9,7 +9,7 @@ pub(super) mod quest_endpoints;
 pub(super) mod quest_mechanics;
 pub(super) mod reputation;
 pub(super) mod skill_training;
-mod transport_paths;
+pub(super) mod transport_paths;
 const FILTER: &str = "all_matching_rows_no_loader_filters";
 const REL_FIELDS: [&str; 6] = [
     "entry",

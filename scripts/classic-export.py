@@ -104,6 +104,14 @@ def main() -> int:
     cmd.add_argument("--environment", type=Path, required=True)
     cmd.add_argument("--records", type=Path, required=True)
     cmd.add_argument("--receipt", type=Path, required=True)
+    cmd = sub.add_parser("catalog-dbc-verify")
+    cmd.add_argument("root", type=Path)
+    cmd.add_argument("--receipt", type=Path, required=True)
+    cmd.add_argument("--records", type=Path, help="new directory for exact server DBC records")
+    cmd.add_argument("--occurrences", type=Path, required=True)
+    cmd = sub.add_parser("catalog-transport-capture")
+    cmd.add_argument("--credentials-file", type=Path, required=True)
+    cmd.add_argument("--output", type=Path, required=True)
     for name in ["inspect", "capture", "skill-training", "reputation-policy", "global-hooks"]:
         cmd = sub.add_parser(name)
         cmd.add_argument("--database", required=True)
@@ -170,10 +178,20 @@ def main() -> int:
             write_new(args.receipt, result)
             print(canonical(result).decode())
             return 0
-        if args.command in ("catalog-group-capture", "catalog-pool-capture"):
+        if args.command == "catalog-dbc-verify":
+            from classic_export.catalog_io import Catalog
+            from classic_export.catalog_dbc import DbcViews
+            with Catalog(args.root) as catalog:
+                result = DbcViews(catalog).report(args.occurrences, args.records)
+            write_new(args.receipt, result)
+            print(canonical(result).decode())
+            return 0
+        if args.command in ("catalog-group-capture", "catalog-pool-capture", "catalog-transport-capture"):
             from classic_export.catalog_schema import CatalogSource
             if args.command == "catalog-group-capture":
                 from classic_export.catalog_groups import capture_occurrences
+            elif args.command == "catalog-transport-capture":
+                from classic_export.catalog_transports import capture_occurrences
             else:
                 from classic_export.catalog_pools import capture_occurrences
             source = CatalogSource(args.credentials_file)

@@ -3702,6 +3702,7 @@ from native_starter.verifier_parity import SourceVerifierParityTests
 from test_catalog_groups import GroupCatalogTests
 from classic_export.pool_tests import CatalogPoolTests
 from test_catalog_events import EventCatalogTests
+from classic_export.dbc_tests import CatalogDbcTests
 
 
 if __name__ == "__main__":

@@ -19,6 +19,8 @@ mod pools;
 pub use pools::diagnose_catalog_pools;
 mod events;
 pub use events::diagnose_catalog_events;
+mod dbc;
+pub use dbc::{diagnose_catalog_dbc, DbcView as CatalogDbcView};
 #[cfg(test)]
 mod tests;
 use reader::Store;

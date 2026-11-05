@@ -7,7 +7,11 @@ fn blocked(mut result: Value, reason: &str) -> Value {
     result
 }
 
-pub(super) fn coverage(source: &Value, template: Option<&Value>, dbcs: &Tables) -> Value {
+pub(in crate::native::production_compiler) fn coverage(
+    source: &Value,
+    template: Option<&Value>,
+    dbcs: &Tables,
+) -> Value {
     let mut result = json!({"entry":template.map(|t| &t["entry"]),
         "taxi_path_id":template.map(|t| &t["data0"]),
         "selector_map":source["selection"]["map_id"],"status":"blocked"});

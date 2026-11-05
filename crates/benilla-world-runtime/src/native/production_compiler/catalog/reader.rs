@@ -112,7 +112,7 @@ impl Held {
         check(identity.size <= limit, "catalog.file")?;
         Ok(Self { file, identity })
     }
-    fn check(&self) -> Result<()> {
+    pub(super) fn check(&self) -> Result<()> {
         check(identity(&self.file)? == self.identity, "catalog.changed")
     }
     pub(super) fn read(
@@ -256,6 +256,25 @@ impl Store {
             "catalog.hash",
         )?;
         held.check()
+    }
+    pub(super) fn blob_range(
+        &self,
+        d: &Descriptor,
+        offset: u64,
+        size: usize,
+        m: &mut Metrics,
+        cache_limit: usize,
+    ) -> Result<Vec<u8>> {
+        check(size <= FRAME, "catalog.frame_limit")?;
+        check(
+            super::add(offset, size as u64)? <= d.bytes,
+            "catalog.truncated",
+        )?;
+        let held = self
+            .held
+            .get(&(0, d.sha256.clone()))
+            .ok_or_else(|| fail("catalog.file"))?;
+        held.read(offset, size, m, cache_limit)
     }
     pub(super) fn sizes(&self) -> (u64, u64, u64) {
         (

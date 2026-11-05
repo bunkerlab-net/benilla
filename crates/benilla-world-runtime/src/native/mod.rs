@@ -11,6 +11,7 @@ pub use production_compiler::{
     ProductionInputPaths, ProductionInputReport, ProductionRequest, ProductionRules, SpawnViews,
     VerifiedCatalog,
 };
+pub use production_compiler::{diagnose_catalog_dbc, CatalogDbcView};
 mod fresh_creature_cell;
 pub use creature_pose_cells::{
     CreaturePoseCell, CreaturePoseCellIndex, CreaturePoseCellSource, SourceStaticCreatureIdentity,

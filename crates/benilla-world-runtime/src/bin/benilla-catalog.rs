@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Offline non-admitting catalog diagnostics.
+use benilla_world_runtime::native::diagnose_catalog_dbc;
 use benilla_world_runtime::native::diagnose_catalog_events;
 use benilla_world_runtime::native::diagnose_catalog_groups;
 use benilla_world_runtime::native::{
@@ -9,7 +10,10 @@ use std::io::Write;
 use std::path::Path;
 fn main() {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    let valid_count = if args.first().is_some_and(|arg| arg == "pools") {
+    let valid_count = if args
+        .first()
+        .is_some_and(|arg| arg == "dbc" || arg == "pools")
+    {
         (3..=5).contains(&args.len())
     } else if args.first().is_some_and(|arg| arg == "events") {
         (6..=7).contains(&args.len())
@@ -23,7 +27,7 @@ fn main() {
     };
     if !valid_count {
         eprintln!(
-            "usage: benilla-catalog schema PILOT | verify ROOT | candidate ROOT [NEW_RECEIPT] | spawns ROOT OCCURRENCES [NEW_RECEIPT] | groups ROOT OCCURRENCES [NEW_RECEIPT] | pools ROOT OCCURRENCES [NEW_RECEIPT [NEW_RECORDS_DIRECTORY]] | events ROOT OCCURRENCES SNAPSHOT ENVIRONMENT RECORDS [NEW_RECEIPT]"
+            "usage: benilla-catalog schema PILOT | verify ROOT | candidate ROOT [NEW_RECEIPT] | spawns ROOT OCCURRENCES [NEW_RECEIPT] | groups ROOT OCCURRENCES [NEW_RECEIPT] | pools ROOT OCCURRENCES [NEW_RECEIPT [NEW_RECORDS_DIRECTORY]] | events ROOT OCCURRENCES SNAPSHOT ENVIRONMENT RECORDS [NEW_RECEIPT] | dbc ROOT OCCURRENCES [NEW_RECEIPT [NEW_RECORDS_DIRECTORY]]"
         );
         std::process::exit(2);
     }
@@ -31,6 +35,11 @@ fn main() {
         Some("schema") => diagnose_catalog_schema(Path::new(&args[1])),
         Some("verify") => diagnose_catalog(Path::new(&args[1]), false),
         Some("candidate") => diagnose_catalog(Path::new(&args[1]), true),
+        Some("dbc") => diagnose_catalog_dbc(
+            Path::new(&args[1]),
+            Path::new(&args[2]),
+            args.get(4).map(Path::new),
+        ),
         Some("spawns") if args.len() >= 3 => {
             diagnose_catalog_spawns(Path::new(&args[1]), Path::new(&args[2]))
         }
@@ -58,7 +67,11 @@ fn main() {
         Ok(report) => {
             if let Some(path) = args.get(if args[0] == "events" {
                 6
-            } else if args[0] == "spawns" || args[0] == "groups" || args[0] == "pools" {
+            } else if args[0] == "spawns"
+                || args[0] == "groups"
+                || args[0] == "pools"
+                || args[0] == "dbc"
+            {
                 3
             } else {
                 2

@@ -29,6 +29,15 @@ It binds all seven event tables, weather seasons and the exact immutable initial
 character-DB event-state reference. It never infers active events from an empty
 persisted table or relaxes the legacy selected event/weather exclusions.
 
+Complete server DBC and transport inputs use the separate
+[catalog DBC views](../classic_export/README.md#server-dbc-and-transport-catalog-views).
+They bind all 61 enabled server layouts and retain every extracted file.
+The catalog reuses this compiler's Map, TaxiPath, TaxiPathNode readers and
+transport path plans only where their layouts and unique IDs match the pin.
+Physical duplicates remain explicit in the source-layout catalog views.
+SQL spell_template remains the server spell identity, not client Spell.dbc.
+These views do not relax selected participant or transport interpolation refusals.
+
 ## Smallest concrete target
 
 A selected Human Mage (race 1, class 8), level one is a candidate, not bundled
