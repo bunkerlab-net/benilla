@@ -104,13 +104,18 @@ They retain glibc's signed-64-bit saturation and round decimal floats through
 binary64 before binary32. Optional POSIX-libc differential tests check these
 conversions, including whitespace, trailing bytes, signed zero and overflow.
 
-Both readers validate every referenced byte before use. They retain regular
-file and ancestor-directory handles, reject symlinks and path escape, and
-check inode identity, size, modification time and change time on later reads.
+Both readers validate every referenced byte before use. On Unix, they retain
+regular-file and ancestor-directory handles, refuse symlinks and path escape,
+and check inode identity, size, modification time, and change time on later reads.
+The Rust Windows reader opens each path component as a reparse point and
+refuses all reparse tags, including junctions. It retains ancestor handles and
+denies write/delete sharing to prevent replacement or concurrent writers.
+It checks volume serial, file index, size, creation time, and last-write time,
+and uses positional `seek_read` reads without unsafe code.
+[Windows sharing rules](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)
+also refuse existing writable mappings. Other Rust platforms fail closed.
 Every cache fill checks its complete digest. A missing chunk never means absent.
-Verified key order, membership and occurrence counts prove negative lookups.
-The Unix implementation refuses other platforms instead of using an unsafe
-pathname fallback.
+Verified key order, membership, and occurrence counts prove negative lookups.
 
 The shared limits are 1 MiB metadata or chunks, 64 KiB frames or key blobs,
 4096-byte pages, eight index levels, 256 requested batch rows, an 8 MiB shared

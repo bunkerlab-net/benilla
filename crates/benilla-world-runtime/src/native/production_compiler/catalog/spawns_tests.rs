@@ -64,6 +64,7 @@ fn run(raw: &[u8], expected: &[[u8; 32]], descriptor: &Value) -> Result<Value> {
     drop(file);
     let held = reader::Held::open(&path, MAX_RAW).unwrap();
     let result = verify_stream(&held, 2, expected, descriptor, &mut vec![0; FRAME]);
+    drop(held);
     std::fs::remove_file(&path).unwrap();
     result
 }

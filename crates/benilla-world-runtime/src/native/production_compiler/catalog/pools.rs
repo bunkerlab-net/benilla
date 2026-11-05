@@ -647,6 +647,7 @@ mod tests {
         let result = verify_stream(&held, columns, expected, &d, &mut vec![0; FRAME], |_, _| {
             Ok(())
         });
+        drop(held);
         std::fs::remove_file(path).unwrap();
         result
     }
