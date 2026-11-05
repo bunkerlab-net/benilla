@@ -3275,6 +3275,22 @@ class ParticipantCaptureTests(unittest.TestCase):
         validate_bundle(bundle)
 
 class CatalogSchemaTests(unittest.TestCase):
+    def test_every_table_has_source_backed_classification(self):
+        from classic_export.catalog_schema import policy
+        p = policy()
+        self.assertEqual(len(p["tables"]), 194)
+        self.assertEqual(sum(t["status"] == "archive-only" for t in p["tables"].values()), 21)
+        for name, table in p["tables"].items():
+            self.assertIn(table["status"], {"consumed", "archive-only"}, name)
+            if table["status"] == "archive-only":
+                self.assertFalse(table["loaders"], name)
+                self.assertTrue(table["evidence"]["search"], name)
+                self.assertTrue(table["evidence"]["result"], name)
+            else:
+                self.assertTrue(table["loaders"], name)
+                for loader in table["loaders"]:
+                    self.assertIn(loader, p["loaders"], name)
+
     def test_exact_schema_and_loader_refusals(self):
         from classic_export import catalog_schema as cat
         table = {"columns": [{"ordinal": 1, "name": "map", "type": "uint32",

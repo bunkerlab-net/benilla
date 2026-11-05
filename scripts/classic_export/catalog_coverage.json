@@ -1993,6 +1993,42 @@
         "script_texts"
       ],
       "source": "src/game/AI/ScriptDevAI/system/system.cpp:48"
+    },
+    "Chat/Chat:1028": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "runtime command table",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT name,security,help FROM command",
+      "relations": [
+        "command"
+      ],
+      "source": "src/game/Chat/Chat.cpp:1028",
+      "function": "ChatHandler::getCommandTable"
+    },
+    "Loot/LootMgr:239": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "startup reference loot validation",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, name FROM `reference_loot_template_names`",
+      "relations": [
+        "reference_loot_template_names"
+      ],
+      "source": "src/game/Loot/LootMgr.cpp:239",
+      "function": "LootStore::LoadAndCheckReferenceNames"
+    },
+    "Anticheat/module/Warden/wardenscanmgr:66": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "anticheat module; disabled in selected execution",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id,type,str,data,address,length,result,flags,comment FROM warden_scans",
+      "relations": [
+        "warden_scans"
+      ],
+      "source": "src/game/Anticheat/module/Warden/wardenscanmgr.cpp:66",
+      "function": "WardenScanMgr::loadFromDB"
     }
   },
   "review": "pending-owner-content-compiler-review",
@@ -2583,7 +2619,11 @@
     "auction": {
       "loaders": [],
       "schema_sha256": "7af623c27d2090b681ffd91e8beae00012252a9ebef732799e12aac8e7080d0b",
-      "status": "unresolved"
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bauction\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No world read. AuctionHouseMgr::LoadAuctions reads CharacterDatabase, src/game/AuctionHouse/AuctionHouseMgr.cpp:303-325; world.auction is not characters.auction."
+      }
     },
     "battleground_events": {
       "loaders": [
@@ -2623,7 +2663,11 @@
     "bugreport": {
       "loaders": [],
       "schema_sha256": "6c723295b3909f009a25923c7f774db01e0452d7a574a92d85695cc6bf4462d7",
-      "status": "unresolved"
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bbugreport\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No world read. WorldSession::HandleBugOpcode writes CharacterDatabase only, src/game/Entities/MiscHandler.cpp:599-600."
+      }
     },
     "combat_condition": {
       "loaders": [
@@ -2633,9 +2677,11 @@
       "status": "consumed"
     },
     "command": {
-      "loaders": [],
+      "loaders": [
+        "Chat/Chat:1028"
+      ],
       "schema_sha256": "7617f938b4f457fb98402139ecff4a8a27b36ac0caf0e0fa72a1e5249c89eada",
-      "status": "unresolved"
+      "status": "consumed"
     },
     "conditions": {
       "loaders": [
@@ -2682,7 +2728,11 @@
     "creature_ai_texts": {
       "loaders": [],
       "schema_sha256": "b739ae0addabfbcd77a7171bc7aee5521921bc68704ea0771614180bba1d0177",
-      "status": "unresolved"
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bcreature_ai_texts\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
     },
     "creature_battleground": {
       "loaders": [
@@ -2757,7 +2807,11 @@
     "creature_model_race": {
       "loaders": [],
       "schema_sha256": "a12e8cc7b5dcf7127c1b983acec1672ffe84d54e1936d6184a6a8a6ec000e68a",
-      "status": "unresolved"
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bcreature_model_race\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
     },
     "creature_movement": {
       "loaders": [
@@ -2849,7 +2903,11 @@
     "creature_template_armor": {
       "loaders": [],
       "schema_sha256": "0b8009a99a579eca763bb8305f7364eb0b17c24bfb76c496440827faa0018bef",
-      "status": "unresolved"
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bcreature_template_armor\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
     },
     "creature_template_classlevelstats": {
       "loaders": [
@@ -2868,7 +2926,11 @@
     "creature_zone": {
       "loaders": [],
       "schema_sha256": "5b90891a1e9fb690612efc6ed38e32e1f5681f6aa18b82a17d59fccb65e4b0a4",
-      "status": "unresolved"
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bcreature_zone\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "Write-only world diagnostic output, ObjectMgr::GenerateZoneAndAreaIds, src/game/Globals/ObjectMgr.cpp:6067-6072; no SELECT consumer."
+      }
     },
     "custom_texts": {
       "loaders": [
@@ -2894,7 +2956,11 @@
     "dbscript_string": {
       "loaders": [],
       "schema_sha256": "9e0b759a5845895004280c0aa7c2422ca37b54ea68deb45dfe374828cec1ea31",
-      "status": "unresolved"
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bdbscript_string\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
     },
     "dbscripts_on_creature_death": {
       "loaders": [
@@ -3125,12 +3191,20 @@
     "gameobject_template_addon": {
       "loaders": [],
       "schema_sha256": "ee3d52c242e76fff91fefcb4f7b8edbf162fc3fe3976f7e81c51c07f91f8dcb5",
-      "status": "unresolved"
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bgameobject_template_addon\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
     },
     "gameobject_zone": {
       "loaders": [],
       "schema_sha256": "5b90891a1e9fb690612efc6ed38e32e1f5681f6aa18b82a17d59fccb65e4b0a4",
-      "status": "unresolved"
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bgameobject_zone\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "Write-only world diagnostic output, ObjectMgr::GenerateZoneAndAreaIds, src/game/Globals/ObjectMgr.cpp:6067-6070,6103; no SELECT consumer."
+      }
     },
     "gossip_menu": {
       "loaders": [
@@ -3178,7 +3252,11 @@
     "item_convert": {
       "loaders": [],
       "schema_sha256": "bb3817953cd65dbde17ae32e9d176822898fd3d073419f1b594344cc5c9ac0d9",
-      "status": "unresolved"
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bitem_convert\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
     },
     "item_enchantment_template": {
       "loaders": [
@@ -3190,7 +3268,11 @@
     "item_expire_convert": {
       "loaders": [],
       "schema_sha256": "bb3817953cd65dbde17ae32e9d176822898fd3d073419f1b594344cc5c9ac0d9",
-      "status": "unresolved"
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bitem_expire_convert\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
     },
     "item_loot_template": {
       "loaders": [
@@ -3294,7 +3376,11 @@
     "mail_level_reward": {
       "loaders": [],
       "schema_sha256": "9297d0c18977f20ac3e9f204bde4fa14ebf18b8a2f1f3c106982750b11086d44",
-      "status": "unresolved"
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bmail_level_reward\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
     },
     "mail_loot_template": {
       "loaders": [
@@ -3320,7 +3406,11 @@
     "npc_spellclick_spells": {
       "loaders": [],
       "schema_sha256": "72655e28dcf2a664ce2075eb65ac0ba260356fb58496d266cc10686c0ce99628",
-      "status": "unresolved"
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bnpc_spellclick_spells\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "Only a comment in src/game/Globals/Conditions.cpp:44, explicitly unused for Classic. No SQL consumer."
+      }
     },
     "npc_text": {
       "loaders": [
@@ -3381,7 +3471,11 @@
     "pet_familystats": {
       "loaders": [],
       "schema_sha256": "04a796c9dcbac0eae2f544e7fb3f1b13c533fb7d90d4232d69ec6cfbb3d77c1c",
-      "status": "unresolved"
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bpet_familystats\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
     },
     "pet_levelstats": {
       "loaders": [
@@ -3393,7 +3487,11 @@
     "pet_levelstats_copy": {
       "loaders": [],
       "schema_sha256": "5b5c572aee52318014c270514c631329e1a061b71d7bc8ca5a770ff5e5294af5",
-      "status": "unresolved"
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bpet_levelstats_copy\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
     },
     "pet_name_generation": {
       "loaders": [
@@ -3529,12 +3627,20 @@
     "quest_poi": {
       "loaders": [],
       "schema_sha256": "7bdae0a257a820fe856ba2817c49adcece9c6933f3025697cc5881c4b1655e6b",
-      "status": "unresolved"
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bquest_poi\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
     },
     "quest_poi_points": {
       "loaders": [],
       "schema_sha256": "38c98767aae57db6e5e3534953469ba80c5f0fbfbda6c67fb00bebbb440f3efc",
-      "status": "unresolved"
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bquest_poi_points\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
     },
     "quest_template": {
       "loaders": [
@@ -3558,9 +3664,11 @@
       "status": "consumed"
     },
     "reference_loot_template_names": {
-      "loaders": [],
+      "loaders": [
+        "Loot/LootMgr:239"
+      ],
       "schema_sha256": "b0f38f09dc0abf7ebfa72534d4ecf8fe3f9874c95c98b8880ae1d88b069646b7",
-      "status": "unresolved"
+      "status": "consumed"
     },
     "reputation_reward_rate": {
       "loaders": [
@@ -3617,12 +3725,20 @@
     "skill_discovery_template": {
       "loaders": [],
       "schema_sha256": "88dedfc12e0fb01d7109951ebd9b0c4da6691069cf7f54a680a65b3e1b87d6d9",
-      "status": "unresolved"
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bskill_discovery_template\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
     },
     "skill_extra_item_template": {
       "loaders": [],
       "schema_sha256": "e68a4712bb09391c32fa3352f5db8736cebb8384f8211163f2e2c3a1571388d3",
-      "status": "unresolved"
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bskill_extra_item_template\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
     },
     "skill_fishing_base_level": {
       "loaders": [
@@ -3753,7 +3869,11 @@
     "spell_loot_template": {
       "loaders": [],
       "schema_sha256": "ed422fab20fa20eba9e6d091488782155773e5e4b5b0ef4efa99104e13740c36",
-      "status": "unresolved"
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bspell_loot_template\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
     },
     "spell_pet_auras": {
       "loaders": [
@@ -3849,12 +3969,18 @@
     "vehicle_accessory": {
       "loaders": [],
       "schema_sha256": "32f860541cdbc9f72149f435e0ef5b99440cac3ec537bc3e0b43d490460e83a8",
-      "status": "unresolved"
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bvehicle_accessory\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
     },
     "warden_scans": {
-      "loaders": [],
+      "loaders": [
+        "Anticheat/module/Warden/wardenscanmgr:66"
+      ],
       "schema_sha256": "fbe901ecd542333e8008564c8ae364a237e93d0598f68970c4ce7a3c6fe1cd29",
-      "status": "unresolved"
+      "status": "consumed"
     },
     "waypoint_path": {
       "loaders": [

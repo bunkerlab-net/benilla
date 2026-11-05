@@ -58,6 +58,14 @@ publishes checked manifest bytes with an atomic no-replace link. Failure leaves
 no published manifest. Existing directories, files and published manifests are
 never replaced. `catalog-verify ROOT` and Rust `verify ROOT` read published data.
 Both readers reject historical source-v1/v2 formats.
+The current coverage policy classifies all 194 tables, with 173 consumed and
+21 archive-only. Archive entries retain the exact case-insensitive source-name
+search and its result. Character-database auction and bug-report operations do
+not read the identically named world tables. Zone tables are write-only
+diagnostic outputs. Warden scans have a reader even though anticheat is disabled
+for the selected execution. Catalogs bound to older coverage policies refuse;
+their immutable files remain historical evidence.
+
 
 The canonical JSON manifest binds schema, coverage, relation, index and DBC
 roots. It has no per-row or per-page array. Each relation has ordinal and raw-key
