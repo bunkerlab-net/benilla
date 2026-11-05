@@ -192,20 +192,14 @@ pub(crate) fn glue_canvas() -> (GlueCanvas, FocusPolicy, Node) {
     )
 }
 
-/// Seat every [`GlueCanvas`] on the boxed scene's rect, writing only when the bars change.
+/// Keep every [`GlueCanvas`] full width, writing only when its insets change.
 ///
 /// Runs in `PostUpdate` before `UiSystems::Layout`, so a canvas spawned in `Update` is fitted
 /// before its first layout.
-pub(crate) fn fit_glue_canvas(
-    window: Query<&Window, With<bevy::window::PrimaryWindow>>,
-    mut canvases: Query<&mut Node, With<GlueCanvas>>,
-) {
+pub(crate) fn fit_glue_canvas(mut canvases: Query<&mut Node, With<GlueCanvas>>) {
     if canvases.is_empty() {
         return;
     }
-    // Off the window, not `CreateScene`: the box is one aspect for every scene, so the canvas
-    // never waits on the booth.
-    let _ = window;
     let (left, right) = (0.0, 0.0);
     let (left, right) = (Val::Px(left), Val::Px(right));
     for mut node in &mut canvases {

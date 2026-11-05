@@ -1469,29 +1469,40 @@ pub(crate) mod schedule_tests {
             actionable.len(),
         );
         if std::env::var_os("WOW_AMBIGUITY_DUMP").is_some() {
-            let mut rows: Vec<String> = actionable
+            let post_conflicts: Vec<_> = post
+                .conflicts
                 .iter()
-                .map(|(a, b, what)| {
-                    // Canonical order within the pair, so two dumps diff by text.
-                    let (x, y) = if update.name(*a) <= update.name(*b) {
-                        (*a, *b)
-                    } else {
-                        (*b, *a)
-                    };
-                    format!(
-                        "  {}  <->  {}\n      on {}",
-                        update.name(x),
-                        update.name(y),
-                        what.iter()
-                            .map(|id| update.component(*id))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    )
-                })
+                .map(|(a, b, what)| (*a, *b, what))
                 .collect();
-            rows.sort();
-            for r in rows {
-                eprintln!("{r}");
+            for (label, graph, pairs) in [
+                ("Update", &update, &actionable),
+                ("PostUpdate", &post, &post_conflicts),
+            ] {
+                eprintln!("{label} conflicts:");
+                let mut rows: Vec<String> = pairs
+                    .iter()
+                    .map(|(a, b, what)| {
+                        // Canonical order within the pair, so two dumps diff by text.
+                        let (x, y) = if graph.name(*a) <= graph.name(*b) {
+                            (*a, *b)
+                        } else {
+                            (*b, *a)
+                        };
+                        format!(
+                            "  {}  <->  {}\n      on {}",
+                            graph.name(x),
+                            graph.name(y),
+                            what.iter()
+                                .map(|id| graph.component(*id))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    })
+                    .collect();
+                rows.sort();
+                for r in rows {
+                    eprintln!("{r}");
+                }
             }
         }
         ratchet(
