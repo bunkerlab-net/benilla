@@ -470,3 +470,5 @@ fn retained_original_f1_rng_projection_or_clean_absence() {
     assert!(!report.whole_execution_accepted);
     println!("{}", serde_json::to_string(&report).unwrap());
 }
+
+include!("clock_projection_tests.rs");

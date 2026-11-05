@@ -306,3 +306,53 @@ Native format `NATIVE_FORMAT_VERSION` (`NATIVE_POLICY`) binds optional source-qu
 static creature identity and committed-pose cell observations. These are not source
 CurrentCell, loaded-grid, registration, lookup or selection authority.
 No old-save migration or native admission is added.
+
+## Source clock and scheduler components
+
+`native::source_execution` consumes recorded, owner-qualified clock samples.
+`RunnableClock` uses `benilla_sim::source_time`, not the native fixed-frame clock.
+World and map calendar observations have separate owners. Timezone and localtime
+conversion bindings remain `ClockSchedulerPending::CalendarTimezoneAndConversion`.
+No host clock or host timezone supplies a missing observation.
+
+At CMaNGOS Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`:
+
+- `World.cpp:1511-1702` orders the world phases. Conditional manager work belongs
+  to each `WorldWork` handler. Unsupported handlers must refuse.
+- `MapManager.cpp:194-227` accumulates the entire map diff, submits maps in
+  `MapManager.h:40-45,63` key order, waits, checks unloading, then clears time.
+  With no active workers it calls maps inline.
+- `MapUpdater.cpp:24-58,66-99` owns worker births, pending work, completion and
+  joins. `ProducerConsumerQueue.h:64-78` removes the FIFO front. A recipient choice
+  cannot select a later job. Completion order need not equal submission order.
+- `MapManager.cpp:92-110` launches continent initializers on separate async
+  threads before waiting for both. Their lifetimes are not map-worker lifetimes.
+- `Messager.h:30-45` swaps a batch before executing it. Nested enqueue waits for a
+  later batch. `GameEventMgr.cpp:828-864` forwards world work to map work.
+  `GameEventMgr.cpp:1024-1033` skips an absent current creature lookup, whereas
+  `GameEventMgr.cpp:843-845` asserts missing spawn data. A wrong map generation
+  is a refusal, not a general stale-message drop.
+
+The source components do not replace `engine.rs`, admit native execution, change
+persistence, or implement the F4 message/manager handlers. `MessageWork` receives
+the dispatching logical thread so callback draws use that thread's RNG owner.
+`CLOCK_SCHEDULER_PENDING` names missing sealed owners, calendar conversions,
+world inputs, generations, startup births, complete job/barrier causality and
+message captures/handlers.
+
+`BENILLA_F1_CLOCK_TRACE` enables the retained original-prefix test. Its versioned
+`OriginalUnsealedSchedulerV1` projection uses the F3.02 comparator's distinct
+diagnostic operation type. `TraceReader::open` remains F0-only. The first 62 job
+records match. At original record 15,310,184, dispatch of job 22 appears before
+job 21. The source logs dispatch outside the FIFO pop lock, so that observation
+cannot supply pop linearization. The report preserves the first difference,
+stops native comparison and continues only raw observation counts. It observes
+52 submissions, 52 dispatches, 51 completions and one outstanding job, never a
+fabricated completed barrier.
+
+The 52 map begin/end pairs lack world diff and generation bindings for independent
+map-update comparison. No `world_tick` records exist in this prefix. These remain
+typed pending obligations, not world/map matches. The adapter invents no F0
+envelopes or causal edges. A missing default private trace prints `SKIP`; an
+explicit missing or different trace fails. Run with
+`mbx test --locked -p benilla-world-runtime --lib source_execution -- --nocapture`.

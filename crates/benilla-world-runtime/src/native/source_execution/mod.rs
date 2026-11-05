@@ -1,13 +1,27 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Immutable source inputs and non-admitting differential diagnostics.
 //! Expected outcomes have no conversion to an admissible input.
+mod clock;
 mod compare;
 mod inputs;
+mod messages;
+mod scheduler;
+mod startup;
 mod trace;
+mod world;
+pub use startup::*;
+#[cfg(test)]
+mod clock_tests;
+pub use clock::*;
 pub use compare::*;
 pub use inputs::*;
+pub use messages::*;
+pub use scheduler::*;
 pub use trace::*;
+pub use world::*;
 mod original_rng;
+mod original_scheduler;
+pub use original_scheduler::{compare_original_unsealed_scheduler, OriginalSchedulerReport};
 #[cfg(test)]
 mod tests;
 pub use original_rng::{compare_original_unsealed_rng, OriginalRngReport};

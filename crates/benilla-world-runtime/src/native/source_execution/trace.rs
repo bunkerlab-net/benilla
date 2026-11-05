@@ -197,6 +197,7 @@ pub struct Boundary {
 pub enum Projection {
     F0StructuralV1,
     OriginalUnsealedRngV1,
+    OriginalUnsealedSchedulerV1,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

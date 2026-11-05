@@ -256,3 +256,44 @@ fn divergence(
         cursors: cursors.clone(),
     })
 }
+
+/// Diagnostic TSV observations cannot become F0 envelopes or admissible inputs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub enum SchedulerOperationKind {
+    Submit,
+    Dispatch,
+    Complete,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct SchedulerOperation {
+    pub kind: SchedulerOperationKind,
+    pub thread: u64,
+    pub observed_occurrence: u64,
+    pub job: u64,
+}
+#[derive(Debug, Serialize)]
+pub struct SchedulerDivergence {
+    pub reason: Refusal,
+    pub matched_records: u64,
+    pub expected: SchedulerOperation,
+    pub actual: SchedulerOperation,
+}
+impl DifferentialOracle {
+    /// Compare independently computed queue operations without inventing F0 causes.
+    pub fn compare_scheduler_operation(
+        expected: SchedulerOperation,
+        actual: SchedulerOperation,
+        matched_records: u64,
+    ) -> std::result::Result<(), SchedulerDivergence> {
+        if expected == actual {
+            Ok(())
+        } else {
+            Err(SchedulerDivergence {
+                reason: refuse("execution.scheduler_diagnostic_mismatch"),
+                matched_records,
+                expected,
+                actual,
+            })
+        }
+    }
+}
