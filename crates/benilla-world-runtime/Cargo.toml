@@ -17,6 +17,7 @@ benilla-native-nav = { path = "../benilla-native-nav", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["arbitrary_precision"] }
 sha2 = "0.10"
+rustc_apfloat = "=0.2.3"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

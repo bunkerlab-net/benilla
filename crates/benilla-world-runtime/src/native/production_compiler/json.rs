@@ -118,7 +118,7 @@ pub(super) fn decode(data: &[u8], limit: usize) -> Result<Value> {
     decode_with_limits(data, limit, MAX_DEPTH, MAX_NODES)
 }
 
-pub(super) fn decode_with_limits(
+pub(crate) fn decode_with_limits(
     data: &[u8],
     limit: usize,
     max_depth: usize,

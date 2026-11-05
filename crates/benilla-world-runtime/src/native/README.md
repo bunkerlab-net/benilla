@@ -653,3 +653,58 @@ No old-save migration or native admission is added.
 
 Source-qualified committed-frame creature pose-cell observations and their explicit
 non-registration boundary are documented in [CREATURE-POSE-CELLS.md](CREATURE-POSE-CELLS.md).
+
+## Source execution diagnostics
+
+`source_execution` binds the frozen catalog-04 and preparation
+`7132d11a566eaf5cdccddd02a6e77746b46769fe54ac2d2e44fd27065572654e`
+through a separate `benilla-source-execution-binding-v1` document. Supply its
+approved SHA-256 independently. Rehashing changed input, build, snapshot, or
+occurrence descriptors does not replace that approval. The handle retains the
+catalog reader and checked files. It never deserializes a capability.
+
+`VerifiedExecutionInputs` accepts typed clock observations, full initial MT
+states, and external session packets. Raw random words, semantic draw results,
+geometry answers, callback results, and update lists are comparison-only.
+Scheduler, container, SQL-causality, and other unsupported input owners remain
+pending. `compare_catalog_occurrence` checks raw cells at an exact F2 table
+ordinal. It does not establish the pending F1 snapshot/write-history join.
+Every binding retains typed F1 obligations, and `require_whole_prefix` refuses.
+A missing reference manifest stays `null`, never a fabricated digest.
+`verify_prefix` refuses until that reference identity exists.
+No `SourceExecution` startup or gameplay implementation is claimed here.
+
+The structural reader requires canonical JSON metadata containing the F0
+header, chained chunk descriptors, and footer. Each digest-named chunk contains
+canonical JSONL event envelopes. Integers and float bits use typed little-endian
+bytes. Missing context is explicit `null`. A prefix binds the input binding,
+reference manifest, schema, instrumentation, projection, and exact per-thread
+end boundary. Prefixes begin before startup; noninitial-prefix restoration
+remains unsupported.
+
+`DifferentialOracle` matches per-thread operations and causal predecessors
+without imposing recorder order on independent threads. It never skips a
+record or searches ahead within a consumer. Its first-divergence report retains
+both envelopes, typed bytes, generations, callsite, predecessor sets, and
+caller-supplied input and RNG cursors. Structural equality cannot discharge a
+semantic owner or grant whole-execution acceptance, even with `completeness=true`.
+
+The default limits are 64 KiB per record, 1 MiB per chunk, 256 buffered unmatched
+records, 64 threads, 1,024 chunk handles, and 100,000 retained causal event
+identities per trace.
+The reader refuses an insufficient causal-history budget before streaming.
+It retains identities rather than decoded records and never evicts source work.
+
+The separate `benilla-original-unsealed-tsv-rng-v1` adapter checks only the
+retained original prefix. It recomputes MT words and semantic helpers through
+`benilla-sim::source_rng`. It does not invent F0 envelopes, logical births,
+causes, shuffle calls, or gameplay execution. Set `BENILLA_F1_RNG_TRACE` for the
+data-dependent test, or run the read-only diagnostic:
+
+```text
+mbx run --locked -p benilla-world-runtime --example source_execution -- ORIGINAL_PREFIX.tsv
+```
+
+An absent default private prefix prints `SKIP`; an explicit missing or changed
+file refuses. Neither that skip nor matching RNG families seals F1.
+

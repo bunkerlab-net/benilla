@@ -7,6 +7,7 @@ pub use catalog::diagnose_catalog_groups;
 pub use catalog::diagnose_catalog_preparation;
 pub use catalog::diagnose_catalog_scripts;
 pub use catalog::diagnose_catalog_spells;
+pub(crate) use catalog::Held as ExecutionFile;
 pub use catalog::{
     diagnose_catalog, diagnose_catalog_pools, diagnose_catalog_spawns, RowView as CatalogRowView,
     SpawnViews, VerifiedCatalog,
@@ -18,7 +19,7 @@ mod dbc;
 mod extensions;
 mod global_hooks;
 mod inputs;
-mod json;
+pub(crate) mod json;
 mod location_inputs;
 pub(super) mod preparation;
 mod source;

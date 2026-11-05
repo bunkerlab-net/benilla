@@ -31,6 +31,7 @@ mod preparation;
 pub use preparation::diagnose_catalog_preparation;
 #[cfg(test)]
 mod tests;
+pub(crate) use reader::Held;
 use reader::Store;
 const PAGE: usize = 4096;
 const CHUNK: usize = 1_048_576;
@@ -164,6 +165,22 @@ pub struct VerifiedCatalog {
     cache_limit: usize,
 }
 impl VerifiedCatalog {
+    pub(crate) fn execution_identity(&self) -> &Value {
+        &self.manifest
+    }
+    pub(crate) fn execution_row(
+        &mut self,
+        name: &str,
+        ordinal: u64,
+        mut visit: impl FnMut(RowView<'_>) -> Result<()>,
+    ) -> Result<()> {
+        let relation = self
+            .relations
+            .get(name)
+            .ok_or_else(|| fail("catalog.table"))?
+            .clone();
+        self.with_row(&relation, ordinal, &mut visit)
+    }
     /// Candidate mode validates unpublished bytes with exactly the production reader.
     pub fn open(path: &Path, candidate: bool) -> Result<Self> {
         Self::open_with_cache(path, candidate, CACHE)

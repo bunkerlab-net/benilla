@@ -1187,6 +1187,7 @@ dependencies = [
  "benilla-sim",
  "benilla-world-data",
  "libc",
+ "rustc_apfloat",
  "rustix 1.1.4",
  "serde",
  "serde_json",

@@ -24,7 +24,7 @@ struct Identity {
     #[cfg(windows)]
     created: u64,
 }
-pub(super) struct Held {
+pub(crate) struct Held {
     file: File,
     identity: Identity,
     #[cfg(windows)]
@@ -116,7 +116,7 @@ fn read_at(_: &File, _: &mut [u8], _: u64) -> Result<usize> {
     Err(fail("catalog.platform"))
 }
 impl Held {
-    pub(super) fn open(path: &Path, limit: u64) -> Result<Self> {
+    pub(crate) fn open(path: &Path, limit: u64) -> Result<Self> {
         #[cfg(windows)]
         {
             let (directories, file) = windows::file(path)?;
@@ -147,10 +147,10 @@ impl Held {
             Self::new(parent, limit)
         }
     }
-    pub(super) fn len(&self) -> u64 {
+    pub(crate) fn len(&self) -> u64 {
         self.identity.size
     }
-    pub(super) fn read_into(&self, offset: u64, out: &mut [u8]) -> Result<()> {
+    pub(crate) fn read_into(&self, offset: u64, out: &mut [u8]) -> Result<()> {
         self.check()?;
         check(
             out.len() <= CHUNK && super::add(offset, out.len() as u64)? <= self.len(),
@@ -172,7 +172,7 @@ impl Held {
             _directories: Vec::new(),
         })
     }
-    pub(super) fn check(&self) -> Result<()> {
+    pub(crate) fn check(&self) -> Result<()> {
         check(identity(&self.file)? == self.identity, "catalog.changed")
     }
     pub(super) fn read(
