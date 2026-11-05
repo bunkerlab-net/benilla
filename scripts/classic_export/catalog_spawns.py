@@ -4,12 +4,12 @@ SPDX-License-Identifier: GPL-3.0-or-later
 from __future__ import annotations
 
 import bisect
-import ctypes
 import hashlib
 import itertools
 import math
 import os
 from pathlib import Path
+import re
 import struct
 import sys
 
@@ -46,18 +46,16 @@ PROJECTIONS = {
 }
 QUERY_IDS = {"creature": "Globals/ObjectMgr:1877", "gameobject": "Globals/ObjectMgr:2086"}
 INDEX = struct.Struct(">IIIIQ")  # map, grid, cell, GUID, source ordinal
-_LIBC = ctypes.CDLL("msvcrt") if os.name == "nt" else ctypes.CDLL(None)
-_LIBC.atof.argtypes = [ctypes.c_char_p]
-_LIBC.atof.restype = ctypes.c_double
-_ATOLL = _LIBC._atoi64 if os.name == "nt" else _LIBC.atoll
-_ATOLL.argtypes = [ctypes.c_char_p]
-_ATOLL.restype = ctypes.c_longlong
+_INTEGER_PREFIX = re.compile(rb"[\t\n\v\f\r ]*([+-]?[0-9]+)")
+_FLOAT_PREFIX = re.compile(rb"[\t\n\v\f\r ]*[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
 
 
 def uint(value):
     # Field::GetUInt32 wraps atoll, src/shared/Database/Field.h:59.
     check(value is None or len(value) < 128, "spawn.numeric_limit")
-    return 0 if value is None else _ATOLL(bytes(value)) & 0xffffffff
+    match = _INTEGER_PREFIX.match(b"" if value is None else bytes(value))
+    number = int(match[1]) if match else 0
+    return min(max(number, -(1 << 63)), (1 << 63)-1) & 0xffffffff
 
 
 def floating(value):
@@ -66,7 +64,8 @@ def floating(value):
     if value is not None:
         check(not bytes(value).lstrip().lstrip(b"+-").lower().startswith((b"0x", b"nan", b"inf")),
               "spawn.numeric_unsupported")
-    number = 0.0 if value is None else _LIBC.atof(bytes(value))
+    match = _FLOAT_PREFIX.match(b"" if value is None else bytes(value))
+    number = float(match[0]) if match else 0.0
     try:
         return struct.unpack("<f", struct.pack("<f", number))[0]
     except OverflowError:

@@ -99,6 +99,10 @@ as a multikey. Keys up to 64 bytes are inline. Longer keys use a checked blob
 and zero slot padding. All keys are at most 64 KiB. These indexes do not define
 numeric conversions, map/grid coordinates or source loader occurrence order.
 F2.2 owns the corresponding source-derived views.
+Python numeric views parse C decimal prefixes without loading a native library.
+They retain glibc's signed-64-bit saturation and round decimal floats through
+binary64 before binary32. Optional POSIX-libc differential tests check these
+conversions, including whitespace, trailing bytes, signed zero and overflow.
 
 Both readers validate every referenced byte before use. They retain regular
 file and ancestor-directory handles, reject symlinks and path escape, and

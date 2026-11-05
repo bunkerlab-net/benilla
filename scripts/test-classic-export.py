@@ -3705,6 +3705,7 @@ from test_catalog_events import EventCatalogTests
 from classic_export.dbc_tests import CatalogDbcTests
 from test_catalog_scripts import ScriptCatalogTests
 from test_catalog_spells import SpellCatalogTests
+from test_catalog_numerics import CatalogNumericTests
 
 
 if __name__ == "__main__":
