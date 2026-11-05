@@ -46,17 +46,18 @@ PROJECTIONS = {
 }
 QUERY_IDS = {"creature": "Globals/ObjectMgr:1877", "gameobject": "Globals/ObjectMgr:2086"}
 INDEX = struct.Struct(">IIIIQ")  # map, grid, cell, GUID, source ordinal
-_LIBC = ctypes.CDLL(None)
+_LIBC = ctypes.CDLL("msvcrt") if os.name == "nt" else ctypes.CDLL(None)
 _LIBC.atof.argtypes = [ctypes.c_char_p]
 _LIBC.atof.restype = ctypes.c_double
-_LIBC.atoll.argtypes = [ctypes.c_char_p]
-_LIBC.atoll.restype = ctypes.c_longlong
+_ATOLL = _LIBC._atoi64 if os.name == "nt" else _LIBC.atoll
+_ATOLL.argtypes = [ctypes.c_char_p]
+_ATOLL.restype = ctypes.c_longlong
 
 
 def uint(value):
     # Field::GetUInt32 wraps atoll, src/shared/Database/Field.h:59.
     check(value is None or len(value) < 128, "spawn.numeric_limit")
-    return 0 if value is None else _LIBC.atoll(bytes(value)) & 0xffffffff
+    return 0 if value is None else _ATOLL(bytes(value)) & 0xffffffff
 
 
 def floating(value):

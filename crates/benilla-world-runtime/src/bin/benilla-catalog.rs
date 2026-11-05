@@ -4,6 +4,7 @@ use benilla_world_runtime::native::diagnose_catalog_dbc;
 use benilla_world_runtime::native::diagnose_catalog_events;
 use benilla_world_runtime::native::diagnose_catalog_groups;
 use benilla_world_runtime::native::diagnose_catalog_scripts;
+use benilla_world_runtime::native::diagnose_catalog_spells;
 use benilla_world_runtime::native::{
     diagnose_catalog, diagnose_catalog_pools, diagnose_catalog_schema, diagnose_catalog_spawns,
 };
@@ -11,7 +12,9 @@ use std::io::Write;
 use std::path::Path;
 fn main() {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    let valid_count = if args
+    let valid_count = if args.first().is_some_and(|arg| arg == "spells") {
+        (2..=4).contains(&args.len())
+    } else if args
         .first()
         .is_some_and(|arg| arg == "dbc" || arg == "pools")
     {
@@ -30,11 +33,12 @@ fn main() {
     };
     if !valid_count {
         eprintln!(
-            "usage: benilla-catalog schema PILOT | verify ROOT | candidate ROOT [NEW_RECEIPT] | spawns ROOT OCCURRENCES [NEW_RECEIPT] | groups ROOT OCCURRENCES [NEW_RECEIPT] | pools ROOT OCCURRENCES [NEW_RECEIPT [NEW_RECORDS_DIRECTORY]] | events ROOT OCCURRENCES SNAPSHOT ENVIRONMENT RECORDS [NEW_RECEIPT] | dbc ROOT OCCURRENCES [NEW_RECEIPT [NEW_RECORDS_DIRECTORY]] | scripts ROOT OCCURRENCES REGISTRATION_INPUT [NEW_RECEIPT]"
+            "usage: benilla-catalog schema PILOT | verify ROOT | candidate ROOT [NEW_RECEIPT] | spawns ROOT OCCURRENCES [NEW_RECEIPT] | groups ROOT OCCURRENCES [NEW_RECEIPT] | pools ROOT OCCURRENCES [NEW_RECEIPT [NEW_RECORDS_DIRECTORY]] | events ROOT OCCURRENCES SNAPSHOT ENVIRONMENT RECORDS [NEW_RECEIPT] | dbc ROOT OCCURRENCES [NEW_RECEIPT [NEW_RECORDS_DIRECTORY]] | scripts ROOT OCCURRENCES REGISTRATION_INPUT [NEW_RECEIPT] | spells ROOT [NEW_RECEIPT [NEW_RECORDS_DIRECTORY]]"
         );
         std::process::exit(2);
     }
     let result = match args[0].to_str() {
+        Some("spells") => diagnose_catalog_spells(Path::new(&args[1]), args.get(3).map(Path::new)),
         Some("schema") => diagnose_catalog_schema(Path::new(&args[1])),
         Some("verify") => diagnose_catalog(Path::new(&args[1]), false),
         Some("candidate") => diagnose_catalog(Path::new(&args[1]), true),

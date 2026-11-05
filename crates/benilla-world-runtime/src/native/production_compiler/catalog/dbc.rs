@@ -247,7 +247,7 @@ impl<'a> DbcView<'a> {
             .map(|b| u32::from_le_bytes(*b))
             .collect())
     }
-    fn report(&mut self, mut output: Option<&mut std::fs::File>) -> Result<Value> {
+    pub(super) fn report(&mut self, mut output: Option<&mut std::fs::File>) -> Result<Value> {
         let (mut raw, mut decoded, mut index) = (Sha256::new(), Sha256::new(), Sha256::new());
         for ordinal in 0..self.count {
             raw.update(self.range(20 + ordinal as u64 * self.size as u64, self.size)?);
@@ -283,7 +283,7 @@ impl<'a> DbcView<'a> {
         )
     }
 }
-fn open<'a>(
+pub(super) fn open<'a>(
     catalog: &'a mut VerifiedCatalog,
     inventory: &Value,
     name: &str,

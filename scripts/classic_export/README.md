@@ -402,6 +402,51 @@ The client Spell.dbc identity is separate from the SQL spell_template store,
 Reference execution, locale occurrences, and gameplay remain explicit blockers.
 Native format 89 and capability admission do not change.
 
+## Global spell and condition catalog views
+
+`catalog-spell-verify ROOT --receipt NEW_FILE --records NEW_DIRECTORY` reads
+all 16 spell relations and all five condition/expression relations.
+Rust uses `benilla-catalog spells ROOT NEW_RECEIPT NEW_DIRECTORY`.
+Both commands require the current catalog and coverage policy. They produce
+matching canonical field-disposition streams and a separate dependency-plan
+stream without decoding SQL spell_template into a global JSON object.
+`catalog_spell_policy.json` binds every column ordinal and source conversion.
+Raw row hashes also retain ignored comments, SQL NULLs, and source-invalid rows.
+The complete client Spell.dbc blob stays separate from SQL spell_template.
+Sixteen enabled server DBC views bind complete physical, interpreted, and index
+hashes. The plan stream records each reached SQL-spell DBC lookup and absence.
+
+At CMaNGOS `8ec338a1`, `Server/SQLStorages.cpp:38-41,54-56,63` defines SQL
+spell/condition storage. `Spells/SpellMgr.cpp:1284-1623` builds talent and
+SkillLineAbility fallback ranks before applying SQL chains.
+Whole-empty spell_chain returns before building the next-rank cache.
+`SpellMgr.cpp:513-558,690-805,1049-1086` fills proc/threat/enchant higher ranks,
+and `:1625-1770` supplies learning inputs. Whole-empty spell_learn_spell
+returns before effect-derived learning. A missing selected key does not imply
+either whole-empty branch. Python `SpellViews.lookup_state` and Rust
+`VerifiedCatalog::spell_lookup_state` keep these facts separate.
+`Spells/SpellStacking.cpp:32-114` owns group rules, membership skips, and masks.
+`SpellMgr.cpp:434-507` validates target maps, signed-zero coordinates, and
+database targets. `:1929-2001` validates the first pet-aura row for a spell;
+later pet rows use the source's shorter AddAura branch.
+
+`Globals/ObjectMgr.cpp:5526-5543` and `Globals/Conditions.cpp:600-999` validate
+conditions. Unknown condition types are source skips. Config-, event-, and
+encounter-dependent validation stays unresolved without the corresponding
+loaded inputs. `Globals/UnitCondition.cpp:29-79` clamps invalid variables and
+operations but never assigns Flags. The view preserves that source gap and
+blocks evaluation rather than inventing a flag value.
+`Globals/CombatCondition.cpp:33-126` clears missing condition references and
+invalid operations. `World/WorldStateExpression.cpp:385-419` retains expression
+bytes without evaluating them. `Globals/ObjectMgr.cpp:5488-5517,7883-7888`
+owns worldstate names and condition/expression loader ordering.
+
+The reports are input diagnostics, not effective gameplay managers or F1 SQL
+occurrence evidence. Cross-loader validations remain explicit dispositions.
+Every effect/aura handler remains unverified, including unknown handlers.
+No old selected learning, numeric, addon, training, or hook compiler changes its
+route-scoped meaning. Native format 89 and capability admission do not change.
+
 
 ## Run the dependency-free checks
 

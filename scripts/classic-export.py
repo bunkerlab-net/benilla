@@ -120,6 +120,10 @@ def main() -> int:
     cmd.add_argument("--occurrences", type=Path, required=True)
     cmd.add_argument("--registration-input", type=Path, required=True)
     cmd.add_argument("--receipt", type=Path, required=True)
+    cmd = sub.add_parser("catalog-spell-verify")
+    cmd.add_argument("root", type=Path)
+    cmd.add_argument("--receipt", type=Path, required=True)
+    cmd.add_argument("--records", type=Path, help="new directory for exact field dispositions and plans")
     for name in ["inspect", "capture", "skill-training", "reputation-policy", "global-hooks"]:
         cmd = sub.add_parser(name)
         cmd.add_argument("--database", required=True)
@@ -166,6 +170,14 @@ def main() -> int:
     cmd.add_argument("bundle", type=Path)
     args = parser.parse_args()
     try:
+        if args.command == "catalog-spell-verify":
+            from classic_export.catalog_io import Catalog
+            from classic_export.catalog_spells import SpellViews
+            with Catalog(args.root) as catalog:
+                result = SpellViews(catalog).report(args.records)
+            write_new(args.receipt, result)
+            print(canonical(result).decode())
+            return 0
         if args.command == "catalog-script-capture":
             from classic_export.catalog_schema import CatalogSource
             from classic_export.catalog_scripts import capture_occurrences

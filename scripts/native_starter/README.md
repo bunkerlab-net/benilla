@@ -523,3 +523,16 @@ Missing AI, motion, spell, and aura registration streams remain separate refusal
 Selected legacy EventAI and global-hook plans keep their existing refusals.
 These complete input views do not implement script execution or admit gameplay.
 See the [catalog commands and pinned loaders](../classic_export/README.md#db-scripts-eventai-and-registration-inputs).
+
+## Complete spell and condition inputs
+
+The catalog spell diagnostic reads whole SQL spell_template and every spell
+auxiliary, condition, unit/combat condition, worldstate expression, and name
+relation. It binds complete server DBC dependencies without substituting client
+Spell.dbc for the SQL spell store. Independent Python/Rust streams retain each
+raw field, conversion bits, source skip, fallback rank, learning input, and stack
+membership. Whole-empty SQL branches differ from selected-empty lookups.
+Unknown handlers, missing F1 occurrences, external loaded dependencies, and
+expression execution remain blocked. These catalog views do not reinterpret
+the existing selected legacy learning or spell/hook plans.
+See the [commands and pinned loaders](../classic_export/README.md#global-spell-and-condition-catalog-views).
