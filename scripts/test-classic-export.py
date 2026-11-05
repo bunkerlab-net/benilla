@@ -3533,6 +3533,33 @@ class CatalogStorageTests(unittest.TestCase):
             with self.cat.Catalog(self.root,candidate=True):
                 pass
 
+    def test_unavailable_rss_preserves_verified_catalog_result(self):
+        original_read_text = Path.read_text
+        def report_with_status(status):
+            def read_text(path, *args, **kwargs):
+                if path == Path("/proc/self/status"):
+                    if isinstance(status, OSError):
+                        raise status
+                    return status
+                return original_read_text(path, *args, **kwargs)
+            with mock.patch.object(Path, "read_text", autospec=True, side_effect=read_text):
+                with self.cat.Catalog(self.root, candidate=True) as catalog:
+                    self.assertEqual([v.cells() for v in catalog.scan("world_template")],
+                                     [(b"0", b"Authored zero"), (b"1", b"Authored one")])
+                    self.assertEqual(list(catalog.lookup("world_template",
+                                     self.cat.key_for([b"1"], [0]))), [1])
+                    report = catalog.report()
+            report.pop("open_seconds")
+            return report
+        expected = report_with_status("VmHWM: 123 kB\n")
+        self.assertEqual(expected.pop("rss_kib"), 123)
+        for status in (FileNotFoundError(), PermissionError(), "Name: authored\n",
+                       "VmHWM:\n", "VmHWM: unavailable kB\n"):
+            with self.subTest(status=status):
+                actual = report_with_status(status)
+                self.assertIsNone(actual.pop("rss_kib"))
+                self.assertEqual(actual, expected)
+
     def test_pilot_scan_lookup_and_bounded_views(self):
         cat = self.cat
         with cat.Catalog(self.root,candidate=True) as catalog:

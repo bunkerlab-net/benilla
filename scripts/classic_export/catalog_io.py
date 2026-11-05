@@ -48,10 +48,13 @@ def sha(data):
 
 def rss_kib():
     # VmHWM measures this address space; getrusage can retain the launcher's pre-exec peak.
-    for line in Path("/proc/self/status").read_text().splitlines():
-        if line.startswith("VmHWM:"):
-            return int(line.split()[1])
-    check(False,"catalog.rss_unavailable")
+    try:
+        for line in Path("/proc/self/status").read_text().splitlines():
+            if line.startswith("VmHWM:"):
+                return int(line.split()[1])
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
 
 
 def json_budget(raw):

@@ -119,8 +119,9 @@ frame, a 397,373-byte maximum chunk and 75,800,576 index bytes. Its SQL/key/meta
 objects use 142,725,246 bytes, separate from 28,041,880 retained DBC bytes.
 These receipts establish the fixed caps without decoded world-row clones.
 Reader reports separate requested reads, row-view size, shared cache bytes,
-tree depth and process RSS. RSS uses `/proc/self/status` `VmHWM`, because
-`getrusage` can include the launcher's pre-exec peak.
+tree depth and process RSS. RSS uses `/proc/self/status` `VmHWM` when
+available, because `getrusage` can include the launcher's pre-exec peak.
+Otherwise `rss_kib` is `null`; missing RSS does not change catalog validation.
 
 Rust scan callbacks borrow one row view. Python scan views expire on the next
 iteration, and `cells()` explicitly copies fields. Readers do not keep decoded
