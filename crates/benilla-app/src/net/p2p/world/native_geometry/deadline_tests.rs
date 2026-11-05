@@ -14,6 +14,52 @@ fn facts() -> Facts {
 }
 
 #[test]
+fn combined_lease_and_callback_observation_preserves_both_expiries_and_revocation() {
+    let (_, service) = mailbox(session()).unwrap();
+    let future = Instant::now() + WAIT;
+    let expired = Instant::now() - WAIT;
+    for (original, callback, expected) in [
+        (future, future, true),
+        (future, expired, false),
+        (expired, future, false),
+        (expired, expired, false),
+    ] {
+        let (job, _) = work(&service, 1, original);
+        let lease = job.lease();
+        assert_eq!(lease.is_active() && Instant::now() < callback, expected);
+        assert_eq!(lease.is_active_until(callback), expected);
+    }
+    let (job, _) = work(&service, 1, future);
+    let lease = job.lease();
+    assert!(lease.is_active_until(future));
+    drop(job);
+    assert!(!lease.is_active_until(future));
+    let (job, _) = work(&service, 2, future);
+    let lease = job.lease();
+    service.active.store(false, Ordering::Release);
+    assert!(!lease.is_active_until(future));
+}
+
+#[cfg(not(benilla_headless_geometry))]
+#[test]
+fn combined_deadline_observation_keeps_injected_lease_time_separate() {
+    let (_, service) = mailbox(session()).unwrap();
+    let future = Instant::now() + WAIT;
+    let expired = Instant::now() - WAIT;
+    for (original, injected, callback, expected) in [
+        (future, future, future, false),
+        (expired, expired - WAIT, future, true),
+        (future, expired, expired, false),
+    ] {
+        let (job, _) = work(&service, 1, original);
+        let lease = job.lease();
+        lease.0.test_now.set(injected).unwrap();
+        assert_eq!(lease.is_active() && Instant::now() < callback, expected);
+        assert_eq!(lease.is_active_until(callback), expected);
+    }
+}
+
+#[test]
 fn expired_slice_retains_exact_ticket_request_reply_and_absolute_job_expiry() {
     let (mut authority, service) = mailbox(session()).unwrap();
     authority.ticket = 7;

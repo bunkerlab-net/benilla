@@ -1016,6 +1016,19 @@ impl JobLease {
             now < self.0.deadline
         }
     }
+    /// Observe both expiries at each poll, without reading the real clock twice.
+    #[cfg(test)]
+    #[inline]
+    pub(super) fn is_active_until(&self, deadline: Instant) -> bool {
+        self.0.owner_alive.load(Ordering::Acquire) && self.0.attachment.load(Ordering::Acquire) && {
+            #[cfg(not(benilla_headless_geometry))]
+            if let Some(now) = self.0.test_now.get() {
+                // Fault injection advances only lease time, not callback time.
+                return *now < self.0.deadline && Instant::now() < deadline;
+            }
+            Instant::now() < self.0.deadline.min(deadline)
+        }
+    }
     pub(super) fn request(&self) -> &AuthorityRequest {
         &self.0.request
     }

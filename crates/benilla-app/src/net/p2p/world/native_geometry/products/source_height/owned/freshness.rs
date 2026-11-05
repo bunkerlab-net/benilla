@@ -87,7 +87,7 @@ impl FreshnessObservation {
             return Err(E::from(super::super::super::Error::Identity.into()));
         }
         let deadline = invocation_deadline.min(self.lease.deadline());
-        let cancelled = || self.check_active().is_err() || Instant::now() >= deadline;
+        let cancelled = || !self.is_active_until(deadline);
         if cancelled() {
             return Err(E::from(CompositionError::Cancelled));
         }
@@ -110,6 +110,13 @@ impl FreshnessObservation {
         } else {
             Ok(())
         }
+    }
+
+    #[inline]
+    fn is_active_until(&self, deadline: Instant) -> bool {
+        !self.cancelled.load(Ordering::Acquire)
+            && !self.stop.load(Ordering::Acquire)
+            && self.lease.is_active_until(deadline)
     }
 }
 
@@ -163,7 +170,7 @@ impl F05Guard {
         &self.observation.lease
     }
     pub(in super::super::super::super) fn cancelled(&self) -> bool {
-        self.observation.check_active().is_err() || Instant::now() >= self.callback_deadline
+        !self.observation.is_active_until(self.callback_deadline)
     }
     pub(in super::super::super::super) fn cancel(&self) {
         self.observation.cancelled.store(true, Ordering::Release);
@@ -691,8 +698,7 @@ fn run_f05(
     let cancelled = || {
         let result = job.cancelled.load(Ordering::Acquire)
             || stop.load(Ordering::Acquire)
-            || !job.lease.is_active()
-            || Instant::now() >= job.callback_deadline;
+            || !job.lease.is_active_until(job.callback_deadline);
         let count = cancel_checks.get() + 1;
         cancel_checks.set(count);
         if result && first_cancelled_check.get().is_none() {

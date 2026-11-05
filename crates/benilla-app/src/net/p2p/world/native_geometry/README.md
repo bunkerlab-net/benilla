@@ -65,6 +65,11 @@ job, not a freshness capability or permission to certify. Native queries, scoped
 ECS state and ledgers never cross the thread boundary. All existing synchronous
 certification checks still run, so this is not a nonblocking gameplay integration.
 
+Every resumed-source cancellation poll checks retirement, stop, owner and attachment
+before observing the original lease and callback deadlines with one real clock read.
+The effective deadline never exceeds the original lease. Fault-injected lease time
+remains independent of real callback time. Source polls and verification counts are unchanged.
+
 Short-lived views never rebind or replace the resident native query. Read-only scopes
 and bounded cold/retained calculations cannot publish a ledger head. A failed operation
 may retain constructor work or an uncommitted candidate; it is not a transaction rollback.
