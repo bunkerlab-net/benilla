@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Raw input integrity and reproducible diagnostics. This module cannot mint NativeCapability.
+mod catalog;
+pub use catalog::{diagnose_catalog, RowView as CatalogRowView, VerifiedCatalog};
 mod catalog_schema;
 pub use catalog_schema::diagnose_catalog_schema;
 mod dbc;

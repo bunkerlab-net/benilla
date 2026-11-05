@@ -115,11 +115,22 @@ pub(super) fn bounded_len(
 }
 
 pub(super) fn decode(data: &[u8], limit: usize) -> Result<Value> {
+    decode_with_limits(data, limit, MAX_DEPTH, MAX_NODES)
+}
+
+pub(super) fn decode_with_limits(
+    data: &[u8],
+    limit: usize,
+    max_depth: usize,
+    max_nodes: usize,
+) -> Result<Value> {
     check(data.len() <= limit, "json.byte_limit")?;
     let mut parser = Parser {
         data,
         at: 0,
         nodes: 0,
+        max_depth,
+        max_nodes,
     };
     let value = parser.value(0)?;
     parser.space();
@@ -130,6 +141,8 @@ struct Parser<'a> {
     data: &'a [u8],
     at: usize,
     nodes: usize,
+    max_depth: usize,
+    max_nodes: usize,
 }
 impl Parser<'_> {
     fn space(&mut self) {
@@ -168,9 +181,9 @@ impl Parser<'_> {
         }
     }
     fn value(&mut self, depth: usize) -> Result<Value> {
-        check(depth <= MAX_DEPTH, "json.nesting_limit")?;
+        check(depth <= self.max_depth, "json.nesting_limit")?;
         self.nodes += 1;
-        check(self.nodes <= MAX_NODES, "json.node_limit")?;
+        check(self.nodes <= self.max_nodes, "json.node_limit")?;
         self.space();
         match self.data.get(self.at) {
             Some(b'"') => Ok(Value::String(self.string()?)),

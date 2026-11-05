@@ -60,6 +60,17 @@ def main() -> int:
     cmd.add_argument("--output", type=Path, required=True)
     cmd = sub.add_parser("catalog-schema-verify")
     cmd.add_argument("pilot", type=Path)
+    cmd = sub.add_parser("catalog-capture")
+    cmd.add_argument("--credentials-file", type=Path, required=True)
+    cmd.add_argument("--dbc-directory", type=Path, required=True)
+    cmd.add_argument("--output", type=Path, required=True)
+    for name in ("catalog-verify", "catalog-publish"):
+        cmd = sub.add_parser(name)
+        cmd.add_argument("root", type=Path)
+        cmd.add_argument("--candidate", action="store_true")
+        cmd.add_argument("--receipt", type=Path)
+        if name == "catalog-publish":
+            cmd.add_argument("--rust-receipt", type=Path, required=True)
     for name in ["inspect", "capture", "skill-training", "reputation-policy", "global-hooks"]:
         cmd = sub.add_parser(name)
         cmd.add_argument("--database", required=True)
@@ -106,6 +117,28 @@ def main() -> int:
     cmd.add_argument("bundle", type=Path)
     args = parser.parse_args()
     try:
+        if args.command == "catalog-capture":
+            from classic_export.catalog_schema import CatalogSource
+            from classic_export.catalog_io import capture as catalog_capture
+            check(not args.output.exists(), "output.already_exists")
+            source = CatalogSource(args.credentials_file)
+            try:
+                receipt = catalog_capture(source,args.output,args.dbc_directory)
+            finally:
+                source.close()
+            print(canonical({k:v for k,v in receipt.items() if k != "queries"}).decode())
+            return 0
+        if args.command in {"catalog-verify", "catalog-publish"}:
+            from classic_export.catalog_io import Catalog, publish
+            with Catalog(args.root,candidate=args.candidate or args.command == "catalog-publish") as catalog:
+                report = catalog.report()
+                if args.command == "catalog-publish":
+                    rust = read_json(args.rust_receipt,1048576)
+                    publish(catalog,rust)
+            if args.receipt is not None:
+                write_new(args.receipt,report)
+            print(canonical(report).decode())
+            return 0
         if args.command == "catalog-schema-verify":
             from classic_export.catalog_schema import verify_pilot
             print(canonical(verify_pilot(read_json(args.pilot, 1048576))).decode())

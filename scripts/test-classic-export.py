@@ -3313,6 +3313,210 @@ class CatalogSchemaTests(unittest.TestCase):
                 cat.verify_schema(schema, coverage)
 
 
+class CatalogStorageTests(unittest.TestCase):
+    def setUp(self):
+        from classic_export import catalog_io as cat
+        self.cat = cat
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)/"catalog"
+        table = {"columns": [{"COLUMN_NAME": "map"}, {"COLUMN_NAME": "ScriptName"}],
+                 "indexes": [{"INDEX_NAME": "PRIMARY", "SEQ_IN_INDEX": 1, "COLUMN_NAME": "map"}]}
+        self.schema = {"format": cat.schema_contract.FORMAT,
+                       "core_revision": cat.schema_contract.CORE_REVISION,
+                       "database_revision": cat.schema_contract.DATABASE_REVISION,
+                       "tables": {"world_template": table}}
+        policy = {"tables": {"world_template": {"schema_sha256": digest(table),
+                  "status": "consumed", "loaders": ["world"]}}, "loaders": {"world": {}}}
+        for patch in (mock.patch.object(cat.schema_contract,"policy",return_value=policy),
+                      mock.patch.object(cat.schema_contract,"inventory",return_value=self.schema)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        source = types.SimpleNamespace(queries=[],rows=lambda _: iter([(b"0",b"Authored zero"),(b"1",b"Authored one")]))
+        cat.capture(source,self.root)
+        self.manifest = self.load(self.root/"candidate.json")
+        self.relations = self.load(self.root/"objects"/self.manifest["relation_root"]["sha256"])
+        self.ordinal = (self.root/"indexes"/self.relations["world_template"]["ordinal"]["sha256"]).read_bytes()
+        self.keypage = (self.root/"indexes"/self.relations["world_template"]["key"]["sha256"]).read_bytes()
+        self.chunk_hash = cat.DESC.unpack_from(self.ordinal,cat.HEADER.size)[0].hex()
+        self.chunk = (self.root/"objects"/self.chunk_hash).read_bytes()
+
+    @staticmethod
+    def load(path):
+        return decode_json(path.read_bytes(),1048576)
+
+    def install(self,relations=None,manifest=None):
+        cat = self.cat
+        m = copy.deepcopy(manifest if manifest is not None else self.manifest)
+        if relations is not None:
+            raw = canonical(relations)
+            h = cat.sha(raw)
+            (self.root/"objects"/h).write_bytes(raw)
+            m["relation_root"] = {"sha256":h,"bytes":len(raw)}
+            m["index_root"] = digest({n:{k:r[k] for k in ("ordinal","key")} for n,r in relations.items()})
+        m["catalog_sha256"] = digest({k:v for k,v in m.items() if k != "catalog_sha256"})
+        (self.root/"candidate.json").write_bytes(canonical(m))
+
+    def page(self,member,data,relations=None):
+        cat = self.cat
+        r = copy.deepcopy(self.relations if relations is None else relations)
+        h = cat.sha(data)
+        (self.root/"indexes"/h).write_bytes(data)
+        r["world_template"][member]["sha256"] = h
+        self.install(r)
+
+    def chunk_bytes(self,data):
+        cat = self.cat
+        h = cat.sha(data)
+        (self.root/"objects"/h).write_bytes(data)
+        page = bytearray(self.ordinal)
+        old,start,count,size = cat.DESC.unpack_from(page,cat.HEADER.size)
+        cat.DESC.pack_into(page,cat.HEADER.size,bytes.fromhex(h),start,count,len(data))
+        self.page("ordinal",page)
+
+    def refused(self,diagnostic):
+        with self.assertRaisesRegex(ExportError,"^"+diagnostic.replace(".","\\.")+"$"):
+            with self.cat.Catalog(self.root,candidate=True):
+                pass
+
+    def test_pilot_scan_lookup_and_bounded_views(self):
+        cat = self.cat
+        with cat.Catalog(self.root,candidate=True) as catalog:
+            self.assertEqual([v.cells() for v in catalog.scan("world_template")],
+                             [(b"0",b"Authored zero"),(b"1",b"Authored one")])
+            self.assertEqual(list(catalog.lookup("world_template",cat.key_for([b"1"],[0]))),[1])
+            self.assertEqual(list(catalog.lookup("world_template",cat.key_for([b"9"],[0]))),[])
+            iterator = catalog.scan("world_template")
+            first = next(iterator)
+            next(iterator)
+            with self.assertRaisesRegex(ExportError,"catalog.expired_view"):
+                first.cells()
+            with self.assertRaisesRegex(ExportError,"catalog.batch_limit"):
+                list(catalog.scan("world_template",batch_rows=257))
+            with self.assertRaisesRegex(ExportError,"catalog.table"):
+                list(catalog.scan(""))
+            with self.assertRaisesRegex(ExportError,"catalog.long_key"):
+                list(catalog.lookup("world_template",b"x"*65537))
+            report = catalog.report()
+            self.assertEqual(report["rows"],2)
+            self.assertFalse(report["complete"])
+            self.assertLessEqual(report["max_read"],1048576)
+            self.assertLessEqual(report["cache_peak"],8388608)
+
+    def test_truncation_overflow_and_hash_refusals(self):
+        self.chunk_bytes(self.chunk[:-1])
+        self.refused("catalog.truncated")
+        bad = copy.deepcopy(self.manifest)
+        bad["schema_root"]["bytes"] = 1 << 64
+        self.install(manifest=bad)
+        self.refused("catalog.overflow")
+        self.install()
+        path = self.root/"objects"/self.chunk_hash
+        path.write_bytes(self.chunk[:-1]+bytes([self.chunk[-1]^1]))
+        self.refused("catalog.hash")
+
+    def test_forged_indexes_ranges_and_duplicate_occurrences_refuse(self):
+        cat = self.cat
+        bad = bytearray(self.keypage)
+        bad[cat.HEADER.size+16+4] = ord("2")
+        self.page("key",bad)
+        self.refused("catalog.index")
+        for start in (1,2):
+            bad = bytearray(self.ordinal)
+            old,s,n,b = cat.DESC.unpack_from(bad,cat.HEADER.size)
+            cat.DESC.pack_into(bad,cat.HEADER.size,old,start,n,b)
+            self.page("ordinal",bad)
+            self.refused("catalog.range")
+        bad = copy.deepcopy(self.relations)
+        bad["world_template"]["key"] = copy.deepcopy(bad["world_template"]["ordinal"])
+        self.install(bad)
+        self.refused("catalog.duplicate_descriptor")
+        bad = bytearray(self.chunk)
+        first_size, = __import__("struct").unpack_from("<I",bad,cat.HEADER.size)
+        __import__("struct").pack_into("<Q",bad,cat.HEADER.size+first_size+4,0)
+        self.chunk_bytes(bad)
+        self.refused("catalog.duplicate_row")
+        bad = bytearray(self.keypage)
+        __import__("struct").pack_into("<I",bad,cat.HEADER.size,65537)
+        self.page("key",bad)
+        self.refused("catalog.long_key")
+
+    def test_paths_symlinks_and_changed_files_refuse(self):
+        import os
+        bad = copy.deepcopy(self.manifest)
+        bad["schema_root"]["sha256"] = "../escape"
+        self.install(manifest=bad)
+        self.refused("catalog.path")
+        self.install()
+        link = Path(self.temporary.name)/"alias"
+        link.symlink_to(self.root,target_is_directory=True)
+        with self.assertRaisesRegex(ExportError,"catalog.path"):
+            self.cat.Catalog(link,candidate=True)
+        path = self.root/"objects"/self.chunk_hash
+        real = Path(self.temporary.name)/"chunk"
+        os.rename(path,real)
+        path.symlink_to(real)
+        self.refused("catalog.path")
+        path.unlink()
+        os.rename(real,path)
+        with self.cat.Catalog(self.root,candidate=True) as catalog:
+            path.write_bytes(self.chunk[:-1]+bytes([self.chunk[-1]^1]))
+            with self.assertRaisesRegex(ExportError,"catalog.changed"):
+                catalog.row("world_template",0)
+
+    def test_cache_ceiling_and_old_formats_refuse(self):
+        with self.assertRaisesRegex(ExportError,"catalog.cache_limit"):
+            self.cat.Catalog(self.root,candidate=True,cache_limit=32)
+        bad = copy.deepcopy(self.manifest)
+        bad["format"] = "benilla-classic-source-v2"
+        self.install(manifest=bad)
+        self.refused("catalog.version")
+
+    def test_long_keys_and_duplicate_values_survive(self):
+        cat = self.cat
+        root = Path(self.temporary.name)/"long"
+        source = types.SimpleNamespace(queries=[],rows=lambda _: iter([(b"x"*1000,None)]*120))
+        cat.capture(source,root)
+        with cat.Catalog(root,candidate=True) as catalog:
+            self.assertEqual(list(catalog.lookup("world_template",cat.key_for([b"x"*1000],[0]))),list(range(120)))
+            self.assertEqual(sum(1 for _ in catalog.scan("world_template")),120)
+            self.assertEqual(catalog.row("world_template",119)[1],None)
+
+    def test_publication_refuses_parity_forgery_and_never_replaces(self):
+        cat = self.cat
+        with cat.Catalog(self.root,candidate=True) as catalog:
+            report = catalog.report()
+            bad = dict(report,rows_sha256="0"*64)
+            with self.assertRaisesRegex(ExportError,"catalog.reader_parity"):
+                cat.publish(catalog,bad)
+            self.assertFalse((self.root/"manifest.json").exists())
+            cat.publish(catalog,report)
+            with self.assertRaises(FileExistsError):
+                cat.publish(catalog,report)
+        with cat.Catalog(self.root) as catalog:
+            self.assertEqual(catalog.report()["rows_sha256"],report["rows_sha256"])
+
+    def test_metadata_budgets_precede_decoding(self):
+        for raw in (b"["*34+b"0"+b"]"*34,b"["+b"0,"*100000+b"0]"):
+            (self.root/"candidate.json").write_bytes(raw)
+            self.refused("catalog.json_limit")
+        (self.root/"candidate.json").write_bytes(b'{"format":0,"format":1}')
+        self.refused("json.duplicate_field")
+
+    def test_unsigned_descriptors_do_not_accept_booleans(self):
+        bad = copy.deepcopy(self.manifest)
+        bad["scope"]["primary_maps"][0] = False
+        self.install(manifest=bad)
+        self.refused("catalog.scope")
+        for field,value,diagnostic in (("id",True,"catalog.overflow"),
+                                       ("rows",1 << 64,"catalog.overflow"),
+                                       ("key_columns",[False],"catalog.index")):
+            bad = copy.deepcopy(self.relations)
+            bad["world_template"][field] = value
+            self.install(bad)
+            self.refused(diagnostic)
+
+
 from native_starter.verifier_parity import SourceVerifierParityTests
 
 

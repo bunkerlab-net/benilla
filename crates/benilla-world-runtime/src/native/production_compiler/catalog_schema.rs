@@ -23,7 +23,11 @@ pub(super) fn verify_schema(schema: &Value, coverage: &Value) -> Result<Value> {
     verify_with_policy(schema, coverage, &POLICY)
 }
 
-fn verify_with_policy(schema: &Value, coverage: &Value, policy: &Value) -> Result<Value> {
+pub(super) fn verify_with_policy(
+    schema: &Value,
+    coverage: &Value,
+    policy: &Value,
+) -> Result<Value> {
     fields(
         schema,
         &["format", "core_revision", "database_revision", "tables"],

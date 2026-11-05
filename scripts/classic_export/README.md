@@ -5,13 +5,12 @@ from an existing local CMaNGOS Classic world database. It does not install a DB,
 execute SQL dumps, download content, run imported scripts, grant privileges,
 compile playable content, or activate/change the current world.
 
-The schema probe, planner, typed normalization, dependency checks, blocker report
-and optional PyMySQL driver are implemented. Tests use original fake rows only.
-**No actual MySQL/MariaDB connection or real Classic content has been tested.**
-The schema can reject a particular installation: the exact reviewed projected
-columns must exist, names/types must validate, and unsupported native mechanics
-remain blocked. This is a bounded projection, not exact whole-schema equivalence
-or a full dependency closure.
+Historical source-v1/v2 capture commands produce bounded projections. Their
+reviewed columns, dependency checks and unsupported-mechanic refusals remain
+separate from the complete catalog commands below. The catalog reader accepts
+only catalog-v3, never an adapted historical projection. Tests use original
+authored rows. Private whole-database receipts establish schema and storage
+coverage, not source execution, loaded managers or gameplay support.
 
 Requires Python 3.11 or later. Pure tests and offline commands need only the
 standard library. Live SQL support is optional.
@@ -34,6 +33,93 @@ tables, unknown loader IDs and forged completion claims refuse. A present empty
 relation is not a missing table. This sequential phase0 inventory is diagnostic,
 not an atomic multi-engine snapshot, F1 input identity or gameplay admission.
 Historical source-v1/v2 projections remain separate from catalog-v3.
+
+## Immutable catalog storage
+
+`catalog-capture --credentials-file FILE --dbc-directory DIRECTORY --output ROOT`
+retains every world table and all 158 extracted DBC files. It streams raw SQL
+protocol bytes without text or numeric conversion. SQL NULL, empty bytes,
+embedded NUL and signed zero remain distinct. Acquisition uses a disk-backed
+SQLite key sort with a 1 MiB page cache. SQLite is not runtime authority.
+
+The output starts with `candidate.json`, not a published manifest. Validate it
+with both independent readers before publication:
+
+```sh
+mbx run --locked -p benilla-world-runtime --bin benilla-catalog -- \
+  candidate ROOT NEW_RUST_RECEIPT
+python3 scripts/classic-export.py catalog-publish ROOT \
+  --rust-receipt NEW_RUST_RECEIPT --receipt NEW_PYTHON_RECEIPT
+```
+
+`catalog-publish` validates all bytes again in Python and compares the Rust
+identity, row hash and inventory counts. It fsyncs the object directories and
+publishes checked manifest bytes with an atomic no-replace link. Failure leaves
+no published manifest. Existing directories, files and published manifests are
+never replaced. `catalog-verify ROOT` and Rust `verify ROOT` read published data.
+Both readers reject historical source-v1/v2 formats.
+
+The canonical JSON manifest binds schema, coverage, relation, index and DBC
+roots. It has no per-row or per-page array. Each relation has ordinal and raw-key
+tree roots. Every descriptor contains a lowercase SHA-256 and exact byte length.
+The catalogue hash covers the manifest without its own hash field. The row hash
+starts with `benilla-catalog-rows-v3` and a NUL byte, then each schema ID, ordinal,
+frame length and complete frame in relation-name and occurrence order.
+
+The version-three binary layout uses little-endian integers:
+
+| Record | Layout and meaning |
+| --- | --- |
+| Data header, 32 bytes | `8s HH I Q II`: `BNCAT3` and two NUL bytes, version, kind, schema ID, chunk ordinal, row count, payload length. |
+| Row header, 16 bytes | `I Q HH`: complete frame length, physical ordinal, column count, bitmap length. |
+| Row payload | NULL bitmap, then a uint32 length and exact bytes for each non-NULL field. Unused bitmap bits are zero. |
+| Index header, 32 bytes | `8s HH I QQ`: `BNCIDX3` and one NUL byte, version, kind, schema ID, first ordinal, entry count. |
+| Ordinal entry, 48 bytes | `32s Q II`: digest, first row ordinal, row count, byte length. |
+| Key entry, 80 bytes | `II Q 64s`: key length, reserved zero, ordinal, inline key or external-key digest. |
+| Key internal entry, 120 bytes | Key entry, child digest and uint64 subtree row count. Its separator equals the child's last key and ordinal. |
+
+Index kinds one and two are ordinal leaves and internal pages. Kinds three and
+four are key leaves and internal pages. Every page is exactly 4096 bytes with
+zero padding. Internal ordinal entries describe child pages, not row chunks.
+Root heights decrease on every edge. Readers reject repeated descriptors,
+cycles, gaps, overlaps, wrong membership and duplicate physical occurrences.
+Duplicate values remain separate occurrences.
+
+Raw keys concatenate uint32 lengths and field bytes in declared primary-key
+order. NULL uses `0xffffffff`. A relation without a primary key uses all columns
+as a multikey. Keys up to 64 bytes are inline. Longer keys use a checked blob
+and zero slot padding. All keys are at most 64 KiB. These indexes do not define
+numeric conversions, map/grid coordinates or source loader occurrence order.
+F2.2 owns the corresponding source-derived views.
+
+Both readers validate every referenced byte before use. They retain regular
+file and ancestor-directory handles, reject symlinks and path escape, and
+check inode identity, size, modification time and change time on later reads.
+Every cache fill checks its complete digest. A missing chunk never means absent.
+Verified key order, membership and occurrence counts prove negative lookups.
+The Unix implementation refuses other platforms instead of using an unsafe
+pathname fallback.
+
+The shared limits are 1 MiB metadata or chunks, 64 KiB frames or key blobs,
+4096-byte pages, eight index levels, 256 requested batch rows, an 8 MiB shared
+raw cache and a 32 MiB decoded batch budget. SQL storage allows 2,000,000 rows
+and 1 GiB of objects. Index storage allows 128 MiB. DBC storage allows 128 MiB
+in total and 64 MiB per file. Limits refuse; they never clip a relation.
+
+The measured whole-database acquisition has 874,579 rows, a 3012-byte maximum
+frame, a 397,373-byte maximum chunk and 75,800,576 index bytes. Its SQL/key/metadata
+objects use 142,725,246 bytes, separate from 28,041,880 retained DBC bytes.
+These receipts establish the fixed caps without decoded world-row clones.
+Reader reports separate requested reads, row-view size, shared cache bytes,
+tree depth and process RSS. RSS uses `/proc/self/status` `VmHWM`, because
+`getrusage` can include the launcher's pre-exec peak.
+
+Rust scan callbacks borrow one row view. Python scan views expire on the next
+iteration, and `cells()` explicitly copies fields. Readers do not keep decoded
+row batches. DBC validation streams 64 KiB blocks without interpreting files.
+The four zero-byte extractor outputs remain inventory evidence, not valid WDBC
+tables. Loader conversions, registry and SQL occurrences, F1 binding and owner
+coverage review remain unresolved. Every report has `complete=false`.
 
 ## Run the dependency-free checks
 
