@@ -267,7 +267,11 @@ fn wmo_all_groups_and_inactive_hull_less_doodads_have_full_raw_receipts() {
         } else if name.ends_with(".m2") {
             bytes[0x140] = 1;
         } else if name.ends_with(".adt") {
-            bytes.extend(chunk(b"XETM", b"authored-unused-texture\0"));
+            super::super::native_coverage_tests::append_record(
+                bytes,
+                b"XETM",
+                b"authored-unused-texture\0",
+            );
         } else {
             bytes.extend(chunk(b"TEST", &[1]));
         }

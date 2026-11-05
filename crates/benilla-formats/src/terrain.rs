@@ -306,9 +306,83 @@ pub use native_inventory::{
     NativeInventoryReceipt, NativeInventorySource, NativeM2MapInventory, NativeWmoMapModel,
 };
 
+/// Prove that the indexed display reader and the raw native witness consume the same records.
+fn native_indexed_layout_safe(bytes: &[u8]) -> bool {
+    let word = |at: usize| {
+        bytes
+            .get(at..at.checked_add(4)?)
+            .map(|v| u32::from_le_bytes(v.try_into().unwrap()) as usize)
+    };
+    if bytes.get(..4) != Some(b"REVM")
+        || word(4) != Some(4)
+        || word(8) != Some(18)
+        || bytes.get(12..16) != Some(b"RDHM")
+        || word(16) != Some(64)
+    {
+        return false;
+    }
+    let tags = [
+        *b"NICM", *b"XETM", *b"XDMM", *b"DIMM", *b"OMWM", *b"DIWM", *b"FDDM", *b"FDOM",
+    ];
+    let mut tables = [0usize; 8];
+    let mut chunks = [0usize; 256];
+    let mut count = 0;
+    let mut cursor = 84usize;
+    while cursor < bytes.len() {
+        let Some(header) = bytes.get(cursor..cursor.saturating_add(8)) else {
+            return false;
+        };
+        let size = u32::from_le_bytes(header[4..8].try_into().unwrap()) as usize;
+        let Some(end) = cursor.checked_add(8).and_then(|at| at.checked_add(size)) else {
+            return false;
+        };
+        if end > bytes.len() {
+            return false;
+        }
+        if let Some(slot) = tags.iter().position(|tag| header[..4] == *tag) {
+            if tables[slot] != 0 || (slot == 0 && size != 4096) {
+                return false;
+            }
+            tables[slot] = cursor;
+        } else if &header[..4] == b"KNCM" {
+            if count == 256 {
+                return false;
+            }
+            chunks[count] = cursor;
+            count += 1;
+        } else if matches!(&header[..4], b"REVM" | b"RDHM") {
+            return false;
+        }
+        cursor = end;
+    }
+    if count != 256 || tables[0] == 0 {
+        return false;
+    }
+    for (slot, &record) in tables.iter().enumerate() {
+        let Some(offset) = word(24 + slot * 4) else {
+            return false;
+        };
+        if (offset == 0 && record != 0) || (offset != 0 && offset.checked_add(20) != Some(record)) {
+            return false;
+        }
+    }
+    let mut indexed = [0usize; 256];
+    for (slot, record) in indexed.iter_mut().enumerate() {
+        let Some(offset) = word(tables[0] + 8 + slot * 16) else {
+            return false;
+        };
+        *record = offset;
+    }
+    indexed.sort_unstable();
+    indexed == chunks
+}
+
 /// Rendering intentionally tolerates missing records. Native coverage cannot: inspect raw
 /// chunk framing and liquid offsets before any parser/filter can omit a placement or pool.
 fn native_raw_coverage_safe(bytes: &[u8]) -> bool {
+    if !native_indexed_layout_safe(bytes) {
+        return false;
+    }
     let mut cursor = 0usize;
     let mut terrain = 0usize;
     while cursor < bytes.len() {
@@ -1056,6 +1130,7 @@ mod tests {
 #[cfg(test)]
 mod native_coverage_tests {
     use super::*;
+    pub(super) const FIRST_DATA: usize = 84 + 8 + 4096 + 8;
     pub(super) fn chunk(magic: &[u8; 4], data: &[u8]) -> Vec<u8> {
         let mut b = magic.to_vec();
         b.extend_from_slice(&(data.len() as u32).to_le_bytes());
@@ -1063,7 +1138,11 @@ mod native_coverage_tests {
         b
     }
     pub(super) fn source() -> Vec<u8> {
-        let mut b = vec![];
+        let mut b = chunk(b"REVM", &18u32.to_le_bytes());
+        let mut mhdr = [0; 64];
+        mhdr[4..8].copy_from_slice(&64u32.to_le_bytes());
+        b.extend(chunk(b"RDHM", &mhdr));
+        b.extend(chunk(b"NICM", &[0; 4096]));
         for row in 0..16u32 {
             for col in 0..16u32 {
                 let mut h = vec![0u8; 128];
@@ -1074,10 +1153,30 @@ mod native_coverage_tests {
                 h[0x6c..0x70].copy_from_slice(&(-(col as f32) * CHUNK_SIZE).to_le_bytes());
                 h[0x70..0x74].copy_from_slice(&5.0f32.to_le_bytes());
                 h.extend(chunk(b"TVCM", &vec![0; 145 * 4]));
+                let entry = 92 + (row * 16 + col) as usize * 16;
+                let record = b.len() as u32;
+                b[entry..entry + 4].copy_from_slice(&record.to_le_bytes());
+                b[entry + 4..entry + 8].copy_from_slice(&((h.len() + 8) as u32).to_le_bytes());
                 b.extend(chunk(b"KNCM", &h));
             }
         }
         b
+    }
+
+    pub(super) fn append_record(bytes: &mut Vec<u8>, magic: &[u8; 4], data: &[u8]) {
+        let field = match magic {
+            b"XETM" => 0x08,
+            b"XDMM" => 0x0c,
+            b"DIMM" => 0x10,
+            b"OMWM" => 0x14,
+            b"DIWM" => 0x18,
+            b"FDDM" => 0x1c,
+            b"FDOM" => 0x20,
+            _ => unreachable!(),
+        };
+        let offset = bytes.len() as u32 - 20;
+        bytes[20 + field..24 + field].copy_from_slice(&offset.to_le_bytes());
+        bytes.extend(chunk(magic, data));
     }
     #[test]
     fn native_coverage_source_digest_and_positive_raw_tile() {
@@ -1090,23 +1189,23 @@ mod native_coverage_tests {
     #[test]
     fn native_coverage_never_confuses_filtered_placements_with_absence() {
         let mut b = source();
-        b.extend(chunk(b"FDDM", &[0; 36]));
+        append_record(&mut b, b"FDDM", &[0; 36]);
         let t = adt_to_tile_mesh(&b).unwrap();
         assert!(t.doodads.is_empty());
         assert!(!t.native_coverage_safe);
-        // A second empty record can overwrite the first in the render parser, not the witness.
-        b.extend(chunk(b"FDDM", &[]));
+        // MHDR can redirect the display reader to an empty record, not erase the raw witness.
+        append_record(&mut b, b"FDDM", &[]);
         assert!(!adt_to_tile_mesh(&b).unwrap().native_coverage_safe);
     }
     #[test]
     fn native_coverage_rejects_missing_liquid_payload_and_bad_framing() {
         let mut b = source();
-        b[8..12].copy_from_slice(&4u32.to_le_bytes());
+        b[FIRST_DATA..FIRST_DATA + 4].copy_from_slice(&4u32.to_le_bytes());
         let t = adt_to_tile_mesh(&b).unwrap();
         assert!(t.chunks[0].liquids.is_empty());
         assert!(!t.native_coverage_safe);
         b = source();
-        b[8 + 0x64..8 + 0x68].copy_from_slice(&9u32.to_le_bytes());
+        b[FIRST_DATA + 0x64..FIRST_DATA + 0x68].copy_from_slice(&9u32.to_le_bytes());
         assert!(!adt_to_tile_mesh(&b).unwrap().native_coverage_safe);
         b = source();
         b.push(0);
@@ -1114,10 +1213,24 @@ mod native_coverage_tests {
     }
 
     pub(super) fn append_first_chunk(bytes: &mut Vec<u8>, record: &[u8]) -> u32 {
-        let size = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
-        let end = 8 + size as usize;
+        let first = FIRST_DATA - 8;
+        let size = u32::from_le_bytes(bytes[first + 4..first + 8].try_into().unwrap());
+        let end = FIRST_DATA + size as usize;
         bytes.splice(end..end, record.iter().copied());
-        bytes[4..8].copy_from_slice(&(size + record.len() as u32).to_le_bytes());
+        bytes[first + 4..first + 8].copy_from_slice(&(size + record.len() as u32).to_le_bytes());
+        bytes[96..100].copy_from_slice(&(size + record.len() as u32 + 8).to_le_bytes());
+        for slot in 1..256 {
+            let entry = 92 + slot * 16;
+            let at = u32::from_le_bytes(bytes[entry..entry + 4].try_into().unwrap());
+            bytes[entry..entry + 4].copy_from_slice(&(at + record.len() as u32).to_le_bytes());
+        }
+        for field in (8..=32).step_by(4) {
+            let at = 20 + field;
+            let offset = u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+            if offset != 0 && offset as usize + 20 >= end {
+                bytes[at..at + 4].copy_from_slice(&(offset + record.len() as u32).to_le_bytes());
+            }
+        }
         size
     }
 
@@ -1125,7 +1238,7 @@ mod native_coverage_tests {
     fn native_coverage_rejects_clamped_nested_height_lengths() {
         for size in [0u32, 579, 581, u32::MAX] {
             let mut b = source();
-            b[8 + 128 + 4..8 + 128 + 8].copy_from_slice(&size.to_le_bytes());
+            b[FIRST_DATA + 128 + 4..FIRST_DATA + 128 + 8].copy_from_slice(&size.to_le_bytes());
             let tile = adt_to_tile_mesh(&b).unwrap();
             if size > 580 {
                 assert_eq!(tile.chunks.len(), 256, "render parser clamps the payload");
@@ -1138,14 +1251,14 @@ mod native_coverage_tests {
     fn native_coverage_rejects_dangling_or_hidden_placement_references() {
         for offset in [0x10, 0x38, 0x20] {
             let mut b = source();
-            b[8 + offset..8 + offset + 4].copy_from_slice(&1u32.to_le_bytes());
+            b[FIRST_DATA + offset..FIRST_DATA + offset + 4].copy_from_slice(&1u32.to_le_bytes());
             let tile = adt_to_tile_mesh(&b).unwrap();
             assert!(tile.doodads.is_empty() && tile.wmos.is_empty());
             assert!(!tile.native_coverage_safe, "MCNK field {offset:#x}");
         }
         let mut b = source();
         let offset = append_first_chunk(&mut b, &chunk(b"FRCM", &[0; 4]));
-        b[8 + 0x20..8 + 0x24].copy_from_slice(&offset.to_le_bytes());
+        b[FIRST_DATA + 0x20..FIRST_DATA + 0x24].copy_from_slice(&offset.to_le_bytes());
         let tile = adt_to_tile_mesh(&b).unwrap();
         assert!(tile.doodads.is_empty() && tile.wmos.is_empty());
         assert!(!tile.native_coverage_safe, "nonempty MCRF with zero counts");
@@ -1155,10 +1268,42 @@ mod native_coverage_tests {
     fn native_coverage_accepts_both_bounded_subchunk_offset_conventions() {
         for origin_adjustment in [0u32, 8] {
             let mut b = source();
-            b[8 + 0x14..8 + 0x18].copy_from_slice(&(128u32 + origin_adjustment).to_le_bytes());
+            b[FIRST_DATA + 0x14..FIRST_DATA + 0x18]
+                .copy_from_slice(&(128u32 + origin_adjustment).to_le_bytes());
             let offset = append_first_chunk(&mut b, &chunk(b"FRCM", &[]));
-            b[8 + 0x20..8 + 0x24].copy_from_slice(&(offset + origin_adjustment).to_le_bytes());
+            b[FIRST_DATA + 0x20..FIRST_DATA + 0x24]
+                .copy_from_slice(&(offset + origin_adjustment).to_le_bytes());
             assert!(adt_to_tile_mesh(&b).unwrap().native_coverage_safe);
+        }
+    }
+
+    #[test]
+    fn native_coverage_requires_complete_unique_indexed_records() {
+        for value in [0u32, 1, (FIRST_DATA - 8) as u32] {
+            let mut b = source();
+            b[108..112].copy_from_slice(&value.to_le_bytes());
+            assert!(!adt_to_tile_mesh(&b).unwrap().native_coverage_safe);
+            assert!(!native_static::complete(&b));
+        }
+        let mut b = source();
+        let first: [u8; 16] = b[92..108].try_into().unwrap();
+        let second: [u8; 16] = b[108..124].try_into().unwrap();
+        b[92..108].copy_from_slice(&second);
+        b[108..124].copy_from_slice(&first);
+        assert!(adt_to_tile_mesh(&b).unwrap().native_coverage_safe);
+        assert!(native_static::complete(&b));
+    }
+
+    #[test]
+    fn native_coverage_rejects_hidden_or_redirected_header_tables() {
+        let mut b = source();
+        append_record(&mut b, b"FDDM", &[]);
+        assert!(adt_to_tile_mesh(&b).unwrap().native_coverage_safe);
+        for value in [0u32, 1, 64] {
+            let mut bad = b.clone();
+            bad[48..52].copy_from_slice(&value.to_le_bytes());
+            assert!(!adt_to_tile_mesh(&bad).unwrap().native_coverage_safe);
+            assert!(!native_static::complete(&bad));
         }
     }
 

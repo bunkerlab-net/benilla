@@ -371,7 +371,7 @@ mod tests {
         assert_eq!(first.placements().count(), 0);
         assert!(first.tile_digest((32, 32)).is_some());
         let mut changed = terrain;
-        changed.extend(chunk(b"XETM", b"texture\0"));
+        super::super::native_coverage_tests::append_record(&mut changed, b"XETM", b"texture\0");
         assert_ne!(
             first.source_digest(),
             make(changed).unwrap().source_digest()
@@ -402,22 +402,23 @@ mod tests {
 
 #[cfg(test)]
 mod model_tests {
+    use super::super::native_coverage_tests::{append_record, FIRST_DATA};
     use super::tests::{chunk, wdt};
     use super::*;
     pub(super) fn placed() -> Vec<u8> {
         let mut b = super::super::native_coverage_tests::source();
-        b.extend(chunk(b"XDMM", b"World\\Tree.m2\0"));
-        b.extend(chunk(b"DIMM", &0u32.to_le_bytes()));
+        append_record(&mut b, b"XDMM", b"World\\Tree.m2\0");
+        append_record(&mut b, b"DIMM", &0u32.to_le_bytes());
         let mut p = [0; 36];
         p[4..8].copy_from_slice(&42u32.to_le_bytes());
         p[32..34].copy_from_slice(&1024u16.to_le_bytes());
-        b.extend(chunk(b"FDDM", &p));
+        append_record(&mut b, b"FDDM", &p);
         let offset = super::super::native_coverage_tests::append_first_chunk(
             &mut b,
             &chunk(b"FRCM", &0u32.to_le_bytes()),
         );
-        b[8 + 0x10..8 + 0x14].copy_from_slice(&1u32.to_le_bytes());
-        b[8 + 0x20..8 + 0x24].copy_from_slice(&offset.to_le_bytes());
+        b[FIRST_DATA + 0x10..FIRST_DATA + 0x14].copy_from_slice(&1u32.to_le_bytes());
+        b[FIRST_DATA + 0x20..FIRST_DATA + 0x24].copy_from_slice(&offset.to_le_bytes());
         b
     }
     pub(super) fn empty_model() -> Vec<u8> {
@@ -466,22 +467,23 @@ mod model_tests {
 
 #[cfg(test)]
 mod wmo_tests {
+    use super::super::native_coverage_tests::{append_record, FIRST_DATA};
     use super::tests::{chunk, wdt};
     use super::*;
     use crate::models::native_wmo::tests::{group, root};
     pub(super) fn tile() -> Vec<u8> {
         let mut b = super::super::native_coverage_tests::source();
-        b.extend(chunk(b"OMWM", b"World\\House.wmo\0"));
-        b.extend(chunk(b"DIWM", &0u32.to_le_bytes()));
+        append_record(&mut b, b"OMWM", b"World\\House.wmo\0");
+        append_record(&mut b, b"DIWM", &0u32.to_le_bytes());
         let mut p = vec![0; 64];
         p[4..8].copy_from_slice(&84u32.to_le_bytes());
-        b.extend(chunk(b"FDOM", &p));
+        append_record(&mut b, b"FDOM", &p);
         let offset = super::super::native_coverage_tests::append_first_chunk(
             &mut b,
             &chunk(b"FRCM", &0u32.to_le_bytes()),
         );
-        b[8 + 0x38..8 + 0x3c].copy_from_slice(&1u32.to_le_bytes());
-        b[8 + 0x20..8 + 0x24].copy_from_slice(&offset.to_le_bytes());
+        b[FIRST_DATA + 0x38..FIRST_DATA + 0x3c].copy_from_slice(&1u32.to_le_bytes());
+        b[FIRST_DATA + 0x20..FIRST_DATA + 0x24].copy_from_slice(&offset.to_le_bytes());
         b
     }
     fn m2() -> Vec<u8> {
@@ -582,7 +584,7 @@ mod wmo_tests {
             assert!(!native_static::complete(&bad));
         }
         let mut bad = b.clone();
-        bad[8 + 0x38..8 + 0x3c].fill(0);
+        bad[FIRST_DATA + 0x38..FIRST_DATA + 0x3c].fill(0);
         assert!(!native_static::complete(&bad));
         let mut bad = b;
         let pos = bad.windows(4).rposition(|v| v == b"DIWM").unwrap() + 8;

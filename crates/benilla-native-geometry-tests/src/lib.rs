@@ -25,7 +25,11 @@ fn parsed_authored_adt_drives_actual_movement_solver() {
         b.extend_from_slice(data);
         b
     }
-    let mut bytes = vec![];
+    let mut bytes = chunk(b"REVM", &18u32.to_le_bytes());
+    let mut mhdr = [0; 64];
+    mhdr[4..8].copy_from_slice(&64u32.to_le_bytes());
+    bytes.extend(chunk(b"RDHM", &mhdr));
+    bytes.extend(chunk(b"NICM", &[0; 4096]));
     for row in 0..16u32 {
         for col in 0..16u32 {
             let mut h = vec![0u8; 128];
@@ -38,6 +42,10 @@ fn parsed_authored_adt_drives_actual_movement_solver() {
                 .copy_from_slice(&(-(col as f32) * benilla_formats::CHUNK_SIZE).to_le_bytes());
             h[0x70..0x74].copy_from_slice(&5.0f32.to_le_bytes());
             h.extend(chunk(b"TVCM", &vec![0; 145 * 4]));
+            let entry = 92 + (row * 16 + col) as usize * 16;
+            let record = bytes.len() as u32;
+            bytes[entry..entry + 4].copy_from_slice(&record.to_le_bytes());
+            bytes[entry + 4..entry + 8].copy_from_slice(&((h.len() + 8) as u32).to_le_bytes());
             bytes.extend(chunk(b"KNCM", &h));
         }
     }

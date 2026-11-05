@@ -10,6 +10,9 @@ pub(super) fn complete_with_liquids(bytes: &[u8], allow_liquids: bool) -> bool {
     if bytes.len() > 64 * 1024 * 1024 {
         return false;
     }
+    if !super::native_indexed_layout_safe(bytes) {
+        return false;
+    }
     let mut cursor = 0usize;
     let mut terrain = 0usize;
     let mut seen = BTreeSet::new();
@@ -155,19 +158,19 @@ pub(super) fn complete_with_liquids(bytes: &[u8], allow_liquids: bool) -> bool {
 mod tests {
     use super::super::{
         adt_to_tile_mesh,
-        native_coverage_tests::{append_first_chunk, chunk, source},
+        native_coverage_tests::{append_first_chunk, append_record, chunk, source, FIRST_DATA},
     };
     fn placed() -> Vec<u8> {
         let mut b = source();
-        b.extend(chunk(b"XDMM", b"World\\Trees\\Tree.m2\0"));
-        b.extend(chunk(b"DIMM", &0u32.to_le_bytes()));
+        append_record(&mut b, b"XDMM", b"World\\Trees\\Tree.m2\0");
+        append_record(&mut b, b"DIMM", &0u32.to_le_bytes());
         let mut p = [0u8; 36];
         p[4..8].copy_from_slice(&42u32.to_le_bytes());
         p[32..34].copy_from_slice(&1024u16.to_le_bytes());
-        b.extend(chunk(b"FDDM", &p));
+        append_record(&mut b, b"FDDM", &p);
         let offset = append_first_chunk(&mut b, &chunk(b"FRCM", &0u32.to_le_bytes()));
-        b[8 + 0x10..8 + 0x14].copy_from_slice(&1u32.to_le_bytes());
-        b[8 + 0x20..8 + 0x24].copy_from_slice(&offset.to_le_bytes());
+        b[FIRST_DATA + 0x10..FIRST_DATA + 0x14].copy_from_slice(&1u32.to_le_bytes());
+        b[FIRST_DATA + 0x20..FIRST_DATA + 0x24].copy_from_slice(&offset.to_le_bytes());
         b
     }
     #[test]
@@ -206,7 +209,7 @@ mod tests {
     fn native_static_coverage_rejects_unsupported_or_malformed_inputs() {
         for (at, value) in [(0x10, 0u32), (0x38, 1), (0x60, 1)] {
             let mut bad = placed();
-            bad[8 + at..8 + at + 4].copy_from_slice(&value.to_le_bytes());
+            bad[FIRST_DATA + at..FIRST_DATA + at + 4].copy_from_slice(&value.to_le_bytes());
             assert!(!adt_to_tile_mesh(&bad).unwrap().native_static_coverage_safe);
         }
         for suffix in [chunk(b"FDOM", &[0; 64]), chunk(b"O2HM", &[])] {

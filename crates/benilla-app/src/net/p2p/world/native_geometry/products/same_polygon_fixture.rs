@@ -69,7 +69,11 @@ fn raw_wdt() -> Vec<u8> {
 /// Same raw MCNK/MCVT authoring as formats::terrain::native_coverage_tests.
 /// The parser snaps these bases onto its canonical rational XY lattice.
 fn raw_adt(tile: (i32, i32), kind: TerrainKind) -> Vec<u8> {
-    let mut bytes = vec![];
+    let mut bytes = chunk(b"REVM", &18_u32.to_le_bytes());
+    let mut mhdr = [0; 64];
+    mhdr[4..8].copy_from_slice(&64_u32.to_le_bytes());
+    bytes.extend(chunk(b"RDHM", &mhdr));
+    bytes.extend(chunk(b"NICM", &[0; 4096]));
     for row in 0..16_u32 {
         for col in 0..16_u32 {
             let mut header = vec![0; 128];
@@ -98,6 +102,10 @@ fn raw_adt(tile: (i32, i32), kind: TerrainKind) -> Vec<u8> {
                 }
             }
             header.extend(chunk(b"TVCM", &heights));
+            let entry = 92 + (row * 16 + col) as usize * 16;
+            let record = bytes.len() as u32;
+            bytes[entry..entry + 4].copy_from_slice(&record.to_le_bytes());
+            bytes[entry + 4..entry + 8].copy_from_slice(&((header.len() + 8) as u32).to_le_bytes());
             bytes.extend(chunk(b"KNCM", &header));
         }
     }
