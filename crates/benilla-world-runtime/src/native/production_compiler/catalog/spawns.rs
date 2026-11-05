@@ -171,7 +171,7 @@ fn coordinates(x: f32, y: f32) -> Result<(u32, u32)> {
     let cy = compute(y, cell_size, 512.0)?;
     Ok((gy * 64 + gx, cy * 1024 + cx))
 }
-fn columns(schema: &Value, name: &str) -> Result<Vec<String>> {
+pub(super) fn columns(schema: &Value, name: &str) -> Result<Vec<String>> {
     schema["tables"][name]["columns"]
         .as_array()
         .ok_or_else(|| fail("spawn.missing_relation"))?
@@ -184,19 +184,19 @@ fn columns(schema: &Value, name: &str) -> Result<Vec<String>> {
         })
         .collect()
 }
-fn position(cols: &[String], name: &str) -> Result<usize> {
+pub(super) fn position(cols: &[String], name: &str) -> Result<usize> {
     cols.iter()
         .position(|c| c.eq_ignore_ascii_case(name))
         .ok_or_else(|| fail("catalog.schema"))
 }
-fn fill<'a>(row: &RowView<'a>, cells: &mut [Option<&'a [u8]>; 256]) -> Result<()> {
+pub(super) fn fill<'a>(row: &RowView<'a>, cells: &mut [Option<&'a [u8]>; 256]) -> Result<()> {
     check(row.columns <= cells.len(), "spawn.column_limit")?;
     for (i, cell) in row.cells().enumerate() {
         cells[i] = cell?;
     }
     Ok(())
 }
-fn hash_cells(cells: &[Option<&[u8]>]) -> [u8; 32] {
+pub(super) fn hash_cells(cells: &[Option<&[u8]>]) -> [u8; 32] {
     let mut h = Sha256::new();
     for cell in cells {
         h.update(cell.map_or(u32::MAX, |v| v.len() as u32).to_le_bytes());
@@ -687,7 +687,7 @@ fn verify_stream(
         json!({"rows":seen.len(),"occurrence_sha256":occurrence_hash,"multiset_sha256":hex(&multiset.finalize())}),
     )
 }
-fn visit_key(
+pub(super) fn visit_key(
     catalog: &mut VerifiedCatalog,
     table: &str,
     value: u32,

@@ -86,6 +86,14 @@ def main() -> int:
     cmd.add_argument("root", type=Path)
     cmd.add_argument("--occurrences", type=Path, required=True)
     cmd.add_argument("--receipt", type=Path, required=True)
+    cmd = sub.add_parser("catalog-pool-capture")
+    cmd.add_argument("--credentials-file", type=Path, required=True)
+    cmd.add_argument("--output", type=Path, required=True)
+    cmd = sub.add_parser("catalog-pool-verify")
+    cmd.add_argument("root", type=Path)
+    cmd.add_argument("--occurrences", type=Path, required=True)
+    cmd.add_argument("--receipt", type=Path, required=True)
+    cmd.add_argument("--records", type=Path, help="new directory for exact dispositions and hierarchy")
     for name in ["inspect", "capture", "skill-training", "reputation-policy", "global-hooks"]:
         cmd = sub.add_parser(name)
         cmd.add_argument("--database", required=True)
@@ -132,9 +140,12 @@ def main() -> int:
     cmd.add_argument("bundle", type=Path)
     args = parser.parse_args()
     try:
-        if args.command == "catalog-group-capture":
+        if args.command in ("catalog-group-capture", "catalog-pool-capture"):
             from classic_export.catalog_schema import CatalogSource
-            from classic_export.catalog_groups import capture_occurrences
+            if args.command == "catalog-group-capture":
+                from classic_export.catalog_groups import capture_occurrences
+            else:
+                from classic_export.catalog_pools import capture_occurrences
             source = CatalogSource(args.credentials_file)
             try:
                 result = capture_occurrences(source, args.output)
@@ -148,6 +159,16 @@ def main() -> int:
             with Catalog(args.root) as catalog:
                 views = GroupViews(catalog)
                 result = views.report(views.verify_occurrences(args.occurrences))
+            write_new(args.receipt, result)
+            print(canonical(result).decode())
+            return 0
+        if args.command == "catalog-pool-verify":
+            from classic_export.catalog_io import Catalog
+            from classic_export.catalog_spawns import SpawnViews
+            from classic_export.catalog_pools import PoolViews
+            with Catalog(args.root) as catalog:
+                spawns = SpawnViews(catalog)
+                result = PoolViews(catalog, spawns).verify_occurrences(args.occurrences, args.records)
             write_new(args.receipt, result)
             print(canonical(result).decode())
             return 0

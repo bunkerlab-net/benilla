@@ -15,6 +15,14 @@ It binds all twelve tables and fifteen pinned query views independently in
 Python and Rust. It does not relax this legacy compiler's selected group,
 linking or waypoint refusals, or supply executable manager state.
 
+The separate catalog pool planner, `native_starter.catalog_pools`, consumes
+the complete catalog-v3 loader views, not a source-v2 projection.
+It records candidate validation, nested hierarchy removals, and chance integrity
+from pinned `PoolManager.cpp:139-159,604-1043`. It never selects random outcomes.
+The [catalog commands](../classic_export/README.md#complete-pool-catalog-views)
+compare Python and Rust records. ObjectMgr effective-spawn validation, F1
+binding, and gameplay admission remain explicit refusals.
+
 ## Smallest concrete target
 
 A selected Human Mage (race 1, class 8), level one is a candidate, not bundled

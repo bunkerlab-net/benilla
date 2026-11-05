@@ -3700,6 +3700,7 @@ class CatalogStorageTests(unittest.TestCase):
 
 from native_starter.verifier_parity import SourceVerifierParityTests
 from test_catalog_groups import GroupCatalogTests
+from classic_export.pool_tests import CatalogPoolTests
 
 
 if __name__ == "__main__":

@@ -216,6 +216,39 @@ winner or make a source skip into a catalog rejection. All reports have
 `groups.gameplay_not_admitted` remain refusals. No legacy selected spawn plan
 can use this diagnostic report to admit gameplay. Native format stays 89.
 
+## Complete pool catalog views
+
+`catalog-pool-capture --credentials-file FILE --output NEW_DIRECTORY` retains
+the MAX query and all six PoolManager loader cursors. The pin is CMaNGOS
+`8ec338a1`, `src/game/Pools/PoolManager.cpp:606,618,656,716,792,853,927`.
+The template joins retain every expansion occurrence, duplicate, and NULL
+extension. They join the physical spawn entry, not alternative spawn entries.
+A missing MAX occurrence differs from one SQL NULL result for an empty table.
+
+`catalog-pool-verify ROOT --occurrences DIRECTORY --receipt NEW_FILE` checks
+all six raw relations and independently reconstructs every joined multiset.
+Rust uses `benilla-catalog pools ROOT DIRECTORY [NEW_RECEIPT]`.
+The report binds raw frames, actual cursor order, validation dispositions,
+and the full candidate hierarchy. No random selection runs.
+
+Add `--records NEW_DIRECTORY` in Python, or a second optional output directory
+after the Rust receipt, to retain every disposition and the complete hierarchy.
+The files are `dispositions.jsonl` and `hierarchy.json`. Both readers hash the
+exact canonical bytes and can compare the files without a shared expected answer.
+
+Pool validation uses the source uint16 pool IDs and binary32 chance values.
+Zero chance and MaxLimit values other than one use equal-chance lists.
+The source checks explicit totals only when no equal-chance member exists,
+`PoolManager.cpp:139-159,1108-1113`. Negative or greater-than-100 chances skip.
+GUID duplicates, absent spawns, invalid maps, cross-map memberships, and
+hierarchy removals have separate dispositions. Hierarchy traversal follows
+the source's `i < max_pool_id` boundary, `PoolManager.cpp:988-1021`.
+
+Spawn existence is a candidate check over F2.2 raw views, not ObjectMgr's
+effective loaded set. `pool.objectmgr_loaded_spawn_validation_pending` retains
+that dependency. Reference execution and gameplay admission also refuse.
+Every report remains `complete=false`, with native format 89 unchanged.
+
 
 ## Run the dependency-free checks
 

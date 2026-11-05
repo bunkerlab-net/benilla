@@ -5,9 +5,10 @@ mod creature_pose_cells;
 mod production_compiler;
 pub use production_compiler::diagnose_catalog_groups;
 pub use production_compiler::{
-    diagnose_catalog, diagnose_catalog_schema, diagnose_catalog_spawns, diagnose_production_inputs,
-    CatalogRowView, CheckedLootDraft, ProductionDiagnostic, ProductionInputPaths,
-    ProductionInputReport, ProductionRequest, ProductionRules, SpawnViews, VerifiedCatalog,
+    diagnose_catalog, diagnose_catalog_pools, diagnose_catalog_schema, diagnose_catalog_spawns,
+    diagnose_production_inputs, CatalogRowView, CheckedLootDraft, ProductionDiagnostic,
+    ProductionInputPaths, ProductionInputReport, ProductionRequest, ProductionRules, SpawnViews,
+    VerifiedCatalog,
 };
 mod fresh_creature_cell;
 pub use creature_pose_cells::{

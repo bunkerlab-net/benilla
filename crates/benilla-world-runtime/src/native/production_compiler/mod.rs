@@ -3,8 +3,8 @@
 mod catalog;
 pub use catalog::diagnose_catalog_groups;
 pub use catalog::{
-    diagnose_catalog, diagnose_catalog_spawns, RowView as CatalogRowView, SpawnViews,
-    VerifiedCatalog,
+    diagnose_catalog, diagnose_catalog_pools, diagnose_catalog_spawns, RowView as CatalogRowView,
+    SpawnViews, VerifiedCatalog,
 };
 mod catalog_schema;
 pub use catalog_schema::diagnose_catalog_schema;

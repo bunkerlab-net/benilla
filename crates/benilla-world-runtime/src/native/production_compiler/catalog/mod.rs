@@ -15,6 +15,8 @@ mod spawns;
 pub use spawns::{diagnose_catalog_spawns, SpawnViews};
 mod groups;
 pub use groups::diagnose_catalog_groups;
+mod pools;
+pub use pools::diagnose_catalog_pools;
 #[cfg(test)]
 mod tests;
 use reader::Store;
