@@ -53,6 +53,13 @@ def main() -> int:
         return 2
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
+    cmd = sub.add_parser("catalog-schema")
+    cmd.add_argument("--credentials-file", type=Path, required=True)
+    cmd.add_argument("--maps", nargs=2, type=int, choices=[0, 1], required=True)
+    cmd.add_argument("--pilot", choices=["world_template"], required=True)
+    cmd.add_argument("--output", type=Path, required=True)
+    cmd = sub.add_parser("catalog-schema-verify")
+    cmd.add_argument("pilot", type=Path)
     for name in ["inspect", "capture", "skill-training", "reputation-policy", "global-hooks"]:
         cmd = sub.add_parser(name)
         cmd.add_argument("--database", required=True)
@@ -99,6 +106,24 @@ def main() -> int:
     cmd.add_argument("bundle", type=Path)
     args = parser.parse_args()
     try:
+        if args.command == "catalog-schema-verify":
+            from classic_export.catalog_schema import verify_pilot
+            print(canonical(verify_pilot(read_json(args.pilot, 1048576))).decode())
+            return 0
+        if args.command == "catalog-schema":
+            from classic_export.catalog_schema import CatalogSource, pilot, verify_pilot, policy
+            check(args.maps == [0, 1], "catalog.scope")
+            check(not args.output.exists(), "output.already_exists")
+            source = CatalogSource(args.credentials_file)
+            try:
+                output = pilot(source)
+            finally:
+                source.close()
+            args.output.mkdir()
+            write_new(args.output / "pilot.json", output)
+            write_new(args.output / "loader-ledger.json", policy())
+            print(canonical(verify_pilot(output)).decode())
+            return 0
         if args.command == "validate":
             bundle = read_json(args.bundle, MAX_BUNDLE_BYTES)
             validate_bundle(bundle)

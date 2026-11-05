@@ -16,6 +16,25 @@ or a full dependency closure.
 Requires Python 3.11 or later. Pure tests and offline commands need only the
 standard library. Live SQL support is optional.
 
+## Complete catalog schema inventory
+
+`catalog-schema --credentials-file FILE --maps 0 1 --pilot world_template
+--output NEW_DIRECTORY` records all 194 tables and 2287 columns, full column
+defaults, charset, collation, indexes, engine and allocator metadata.
+It uses only SELECT statements through the local port-33306 reader. The two-row
+pilot retains raw SQL bytes as hex, including both world-template maps.
+`catalog-schema-verify NEW_DIRECTORY/pilot.json` independently checks the frozen
+schema and loader-policy identities. The Rust `benilla-catalog schema FILE`
+command implements the same checks independently.
+
+The loader ledger records pinned source consumers and the startup call list.
+Unresolved tables and per-loader conversion or occurrence obligations remain
+explicit. Owner review is pending. Missing, extra, empty-name or schema-mismatched
+tables, unknown loader IDs and forged completion claims refuse. A present empty
+relation is not a missing table. This sequential phase0 inventory is diagnostic,
+not an atomic multi-engine snapshot, F1 input identity or gameplay admission.
+Historical source-v1/v2 projections remain separate from catalog-v3.
+
 ## Run the dependency-free checks
 
 ```sh

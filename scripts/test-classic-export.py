@@ -3274,6 +3274,45 @@ class ParticipantCaptureTests(unittest.TestCase):
         bundle = capture(source, starter_selection(), quiescent=True, capture_participants=True)
         validate_bundle(bundle)
 
+class CatalogSchemaTests(unittest.TestCase):
+    def test_exact_schema_and_loader_refusals(self):
+        from classic_export import catalog_schema as cat
+        table = {"columns": [{"ordinal": 1, "name": "map", "type": "uint32",
+                             "nullable": False, "default": "0", "charset": None}],
+                 "indexes": [{"columns": ["map"], "unique": True}]}
+        policy = {"tables": {"world_template": {"schema_sha256": digest(table),
+                  "status": "consumed", "loaders": ["world"]}}, "loaders": {"world": {}}}
+        schema = {"format": cat.FORMAT, "core_revision": cat.CORE_REVISION,
+                  "database_revision": cat.DATABASE_REVISION, "tables": {"world_template": table}}
+        with mock.patch.object(cat, "policy", return_value=policy):
+            coverage = cat.coverage_inventory()
+            self.assertEqual(cat.verify_schema(schema, coverage)["tables"], 1)
+            for field, value in [("ordinal", 2), ("type", "int32"), ("nullable", True),
+                                 ("default", "1"), ("charset", "latin1")]:
+                bad = copy.deepcopy(schema)
+                bad["tables"]["world_template"]["columns"][0][field] = value
+                with self.assertRaisesRegex(ExportError, "catalog.schema_mismatch"):
+                    cat.verify_schema(bad, coverage)
+            bad = copy.deepcopy(schema)
+            bad["tables"]["world_template"]["indexes"][0]["columns"] = []
+            with self.assertRaisesRegex(ExportError, "catalog.schema_mismatch"):
+                cat.verify_schema(bad, coverage)
+            for name in ["", "unknown", None]:
+                bad = copy.deepcopy(schema)
+                entry = bad["tables"].pop("world_template")
+                if name is not None:
+                    bad["tables"][name] = entry
+                with self.assertRaisesRegex(ExportError, "catalog.table"):
+                    cat.verify_schema(bad, coverage)
+            bad = copy.deepcopy(coverage)
+            bad["tables"]["world_template"]["loaders"] = ["unknown"]
+            with self.assertRaisesRegex(ExportError, "catalog.loader"):
+                cat.verify_schema(schema, bad)
+            coverage["complete"] = True
+            with self.assertRaisesRegex(ExportError, "catalog.incomplete"):
+                cat.verify_schema(schema, coverage)
+
+
 from native_starter.verifier_parity import SourceVerifierParityTests
 
 

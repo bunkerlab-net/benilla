@@ -4,8 +4,8 @@
 mod creature_pose_cells;
 mod production_compiler;
 pub use production_compiler::{
-    diagnose_production_inputs, CheckedLootDraft, ProductionDiagnostic, ProductionInputPaths,
-    ProductionInputReport, ProductionRequest, ProductionRules,
+    diagnose_catalog_schema, diagnose_production_inputs, CheckedLootDraft, ProductionDiagnostic,
+    ProductionInputPaths, ProductionInputReport, ProductionRequest, ProductionRules,
 };
 mod fresh_creature_cell;
 pub use creature_pose_cells::{
