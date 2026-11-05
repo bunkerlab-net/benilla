@@ -3,8 +3,9 @@
 `source_rng` implements seed-sequence mixing, MT19937, process C RNG state,
 and WSE random helpers from explicit inputs. It does not replace native RNG,
 read entropy or clocks, use host libc RNG, start threads, serialize saves, or
-admit a native world. General distributions, real-number conversions,
-shuffles, and gameplay draw chronology remain outside this engine contract.
+admit a native world. Distributions, conversions, wrappers, and shuffle have
+a separate [arithmetic and tracing contract](SOURCE-RNG-DISTRIBUTIONS.md).
+Gameplay draw chronology remains outside both contracts.
 
 ## Source identities
 
@@ -100,9 +101,9 @@ source-undefined modulo. No thread or process stream can advance here.
 `wse_random` implements only the ordinary WSE integer helper, using the
 calling `ThreadRng`. It orders the uint32 arguments before the pinned int32
 conversion. An inverted signed range refuses before initialization or a
-draw. Accepted ranges use GCC 12.2's uint32 Lemire downscale and rejection
-loop from `bits/uniform_int_dist.h:241-270,300-321`. Equal bounds still
-consume one raw word. This helper is not the F3.04 distribution family.
+draw. Accepted ranges use the shared distribution implementation described
+in [the distribution contract](SOURCE-RNG-DISTRIBUTIONS.md), with a continuing
+draw cursor and trace sink. Equal bounds still consume one raw word.
 
 ## Authored and private evidence
 

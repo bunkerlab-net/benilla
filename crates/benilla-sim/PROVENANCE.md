@@ -1362,3 +1362,50 @@ The [source RNG contract](SOURCE-RNG.md) defines the exact state widths,
 source-only input domains, lazy lifetime rules, independent C++ fixture
 generation, and optional hash-bound private F1 engine projection.
 It does not change native RNG, format 89, persistence, or admission.
+
+## Source RNG distributions and shuffle
+
+`src/source_rng/{distributions,shuffle,wrappers}.rs` translates the scalar
+GNU libstdc++ distribution/shuffle algorithms and CMaNGOS utility wrappers.
+The caller-owned trace records are authored Rust code. Rust translations,
+oracle, and tests are 2026 Benilla fork contributors, GPL-3.0-or-later,
+without warranty. No native RNG cutover, game data, or private tape is
+included.
+
+CMaNGOS `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f` source additions:
+
+- `src/shared/Util/Util.h:80-137`, full-file SHA-256
+  `1f53eafa77ab89935c905f331d9ee7e5e2fabf1fca7f812e2e913f19243c5878`
+- `src/shared/Util/Util.cpp:68-119`, full-file SHA-256
+  `f408c8a466a183cabdf96b0f7c18907b8cbb2144d73b0b2e8b81fdf421b43133`
+
+The existing CMaNGOS Project copyright, GPL-2.0-or-later grant, preserved
+authors/notices, and applicable GPLv3 licence cover these translations.
+
+The exact retained Debian GCC/libstdc++ `12.2.0-14+deb12u1` headers were
+read again for this arithmetic scope:
+
+- `bits/uniform_int_dist.h:241-362`, SHA-256
+  `b7f6ff9cbb5021ad186180f3c19098dc30a1f8b8c0f5fe6bc146bd876cac6542`
+- `bits/random.tcc:3354-3385`, SHA-256
+  `183fcbfa16e8972eec3eef6427dac091c7a1d11ee28cd0f594214e26b57b143a`
+- `bits/random.h:1864-1873`, SHA-256
+  `5d2f723d7bdcb6f21afbca5f64c321d5f1e7c2ea8772113b039aaa33d995d84e`
+- `bits/stl_algo.h:3673-3679,3695-3758`, SHA-256
+  `158de131d5588c1ab836c6e3c34f6a0836527d10bd20057d5d140b94cf9bb8f0`
+
+These library files retain their GPL-3.0-or-later grant with GCC Runtime
+Library Exception 3.1. Copyright is Free Software Foundation, Inc.,
+2009-2022 for the RNG headers and 2001-2022 for stl_algo.h. The latter also
+retains the Hewlett-Packard Company 1994 and Silicon Graphics Computer
+Systems, Inc. 1996 permission notices. `licenses/SOURCE-SHUFFLE-NOTICES.txt`
+preserves that full upstream header. The existing
+`licenses/SOURCE-RNG-NOTICES.txt`, GCC exception, and GPLv3 text remain
+applicable. The translated crate remains GPL-3.0-or-later.
+
+The locked APFloat dependency and its existing licence receipts above
+supply software IEEE rounding, not RNG algorithms or host entropy.
+The [distribution contract](SOURCE-RNG-DISTRIBUTIONS.md) defines the reached
+integer/real domains, explicitly refused non-power-of-two binary80-log
+case, exact source wrappers, raw/rejection/no-draw records, independent
+C++ vectors, and original-prefix private semantic comparison.

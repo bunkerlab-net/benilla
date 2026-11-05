@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1 contributors, upstream GPL-2.0-or-later;
 // GNU libstdc++ GCC 12.2 distribution translation; see SOURCE-RNG.md.
-use super::{Error, Mt19937, MtState};
+use super::{DrawCursor, Error, Mt19937, MtState, Operation, SourceRandom, TraceEvent};
 
 /// Supply captured LP64 time_t/clock_t observations, never sample clocks; Util.cpp:29-32.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -77,21 +77,19 @@ pub fn wse_random(
     arg1: u32,
     arg2: u32,
     seed: impl FnOnce() -> SeedObservations,
+    cursor: &mut DrawCursor,
+    sink: &mut impl FnMut(TraceEvent),
 ) -> Result<i32, Error> {
     let min = arg1.min(arg2) as i32;
     let max = arg1.max(arg2) as i32;
     if min > max {
         return Err(Error::InvalidWseBounds);
     }
-    let engine = thread.get_or_init(seed);
-    let width = (i64::from(max) - i64::from(min)) as u32;
-    // Use GCC's uint32 Lemire downscale, including equal-bound draws; uniform_int_dist.h:241-270,300-321.
-    let range = width + 1;
-    let threshold = range.wrapping_neg() % range;
-    loop {
-        let product = u64::from(engine.next_u32()) * u64::from(range);
-        if product as u32 >= threshold {
-            return Ok(((product >> 32) as u32).wrapping_add(min as u32) as i32);
-        }
-    }
+    let stream = thread.thread_birth();
+    let mut random = SourceRandom::new(stream, thread.get_or_init(seed), cursor, sink)?;
+    random.operation(
+        Operation::WseRandom,
+        [u64::from(arg1), u64::from(arg2), 0],
+        |random| random.uniform_i32(min, max),
+    )
 }

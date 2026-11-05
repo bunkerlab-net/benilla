@@ -379,9 +379,18 @@ fn ordinary_wse_random_uses_calling_mt_and_matches_cpp_outputs_and_full_state() 
         let arg2 = state[1] as u32;
         let mut thread =
             ThreadRng::from_state(1, Some(Mt19937::from_seed(1).into_state())).unwrap();
+        let mut cursor = DrawCursor::default();
+        let mut sink = |_| {};
         for row in rows("random").filter(|row| row[0] == state[0] && row[1] == state[1]) {
             assert_eq!(
-                wse_random(&mut thread, arg2, arg1, || panic!("must not reseed")),
+                wse_random(
+                    &mut thread,
+                    arg2,
+                    arg1,
+                    || panic!("must not reseed"),
+                    &mut cursor,
+                    &mut sink
+                ),
                 Ok(row[3] as i32)
             );
             cases += 1;
@@ -394,13 +403,21 @@ fn ordinary_wse_random_uses_calling_mt_and_matches_cpp_outputs_and_full_state() 
 #[test]
 fn ordinary_wse_invalid_signed_bounds_refuse_before_lazy_initialization() {
     let mut thread = ThreadRng::new(1);
+    let mut cursor = DrawCursor::default();
+    let mut sink = |_| {};
     assert_eq!(
-        wse_random(&mut thread, 0, u32::MAX, || panic!(
-            "must refuse before seeding"
-        )),
+        wse_random(
+            &mut thread,
+            0,
+            u32::MAX,
+            || panic!("must refuse before seeding"),
+            &mut cursor,
+            &mut sink
+        ),
         Err(Error::InvalidWseBounds)
     );
     assert!(!thread.initialized());
+    assert_eq!(cursor, DrawCursor::default());
 }
 
 #[test]
