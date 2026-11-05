@@ -17,6 +17,7 @@ mod mat_anim;
 mod native_collision;
 pub(crate) mod native_wmo;
 mod records;
+mod sort_order;
 mod tex_anim;
 mod types;
 mod wmo;
@@ -32,6 +33,7 @@ pub use native_collision::*;
 pub(crate) use native_wmo::native_model_name;
 pub use native_wmo::*;
 pub use records::*;
+pub use sort_order::*;
 pub use tex_anim::{rotation_2x2, uv_transform, UvAnim, UvRotAnim};
 pub use types::*;
 pub use wmo::*;
@@ -106,6 +108,7 @@ fn remap_submesh(
             stage1: None,
             combine: 1,
             section: None,
+            order: None,
         },
         globals,
     )

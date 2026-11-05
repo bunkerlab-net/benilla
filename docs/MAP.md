@@ -139,8 +139,8 @@
 - **benilla-mpq** (lib.rs): crypto
 - **benilla-native-corridor-tests** (lib.rs): core dual_reopen_component_tests home_component_tests home_mailbox_tests local_corridor products real_corridor_fixture reconstruction_component_tests route_commit source_cache_reconstruction source_creature_initialization source_ground_height source_location source_navigation source_near_point source_near_point_empty source_pathfinder_query source_player_environment source_route_chase_gate source_route_filter source_route_point_path source_route_resident_local source_route_same_polygon source_route_same_polygon_local source_route_smoothing source_route_straight_path source_route_warm_cache source_vmap staged_wander_tests suspended_owner_component_tests wander_component_tests wander_reopen_component_tests
 - **benilla-native-geometry-tests** (lib.rs): core installed_source_fixture_tests planar production_item_order products route_commit source_creature_initialization source_ground_height source_location source_navigation source_near_point source_near_point_empty source_pathfinder_query source_player_environment source_route_chase_gate source_route_filter source_route_point_path source_route_same_polygon source_route_smoothing source_route_straight_path source_route_warm_cache source_vmap static_mesh
-- **benilla-native-nav** (lib.rs): cold_distance cold_distance_tests direct_corridor_tests generated_tests smoothing smoothing_tests source_cold_same_polygon source_home_same_polygon source_query source_wander_and_chase_reconstruction_tests source_wander_same_polygon tests tile_presence validate warm_cache warm_cache_tests warm_point_path warm_point_path_tests warm_straight_path warm_straight_path_tests
-- **benilla-native-terrain** (lib.rs): diagnostic_id diagnostics map_fixture receipts source test_support writer
+- **benilla-native-nav** (lib.rs): cold_distance cold_distance_tests collinear_tests detail_tests direct_corridor_tests generated_tests smoothing smoothing_tests source_cold_same_polygon source_home_same_polygon source_query source_wander_and_chase_reconstruction_tests source_wander_same_polygon tests tile_presence validate warm_cache warm_cache_tests warm_point_path warm_point_path_tests warm_straight_path warm_straight_path_tests water_tests
+- **benilla-native-terrain** (lib.rs): diagnostic_id diagnostics location map_fixture receipts source test_support writer
 - **benilla-native-vmap-source** (lib.rs): assembled_spawn_bounds discovery doodad_projection doodad_reference_order doodads doodad_transform_math encounter_ids map_bundle map_products map_spawn_index placement_records profiling receipts selected_model_names source tests
 - **benilla-native-vmap** (lib.rs): bih error model_writer source_model_name tests wmo wmo_error
 - **benilla-p2p** (lib.rs): discovery identity internet rejection
@@ -160,7 +160,9 @@
 ## CLI binaries
 
 - `benilla-auth` (in benilla-protocol)
+- `benilla-catalog` (in benilla-world-runtime)
 - `benilla-extract` (in benilla-formats)
+- `benilla-native-location` (in benilla-native-terrain)
 - `benilla-world-data-check` (in benilla-world-data)
 - `benilla-world` (in benilla-protocol)
 - `blpx` (in benilla-blp)
@@ -583,6 +585,8 @@
 - `soundprobe.py` — Read back a `$WOW_SOUND_PROBE` capture and name the mechanism behind a speaker-breaking sound.
 - `sync-reference.py` — Vendor benilla-re's tables into `reference/` at the commit `reference/PIN` names.
 - `test-capture-ci-log.py` — CI diagnostic logging regressions; no Rust build or game data required.""" import importlib.util import os from pathlib import Path import shutil impo…
+- `test_catalog_events.py` — Authored event/weather input cases, imported by the CI exporter suite.""" import copy import hashlib import json from pathlib import Path import struc…
+- `test_catalog_groups.py` — Original authored group/link/waypoint cases, imported by the CI exporter suite.""" import copy import hashlib import json from pathlib import Path imp…
 - `test-classic-export.py` — No database/network or game content: original fake-source exporter tests.
 - `test-doc-links.py` — The doc-link gate must fail closed when rustdoc did not run successfully.""" import contextlib import importlib.util import io from pathlib import Pat…
 - `test-initial-hooks.py` — Authored area/proc capture cases only.
