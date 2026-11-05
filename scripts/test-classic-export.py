@@ -3703,6 +3703,7 @@ from test_catalog_groups import GroupCatalogTests
 from classic_export.pool_tests import CatalogPoolTests
 from test_catalog_events import EventCatalogTests
 from classic_export.dbc_tests import CatalogDbcTests
+from test_catalog_scripts import ScriptCatalogTests
 
 
 if __name__ == "__main__":

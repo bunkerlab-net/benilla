@@ -169,6 +169,63 @@ indexes and joins have a separate 32 MiB decoded budget. Limits refuse instead
 of clipping at 4,096 rows. Diagnostic cursors are not F1 occurrences. Reference-execution
 binding and gameplay admission still refuse, and native format stays 89.
 
+## DB scripts, EventAI, and registration inputs
+
+`catalog-script-capture --credentials-file FILE --output NEW_DIRECTORY` retains
+22 complete source SQL cursors. `catalog-script-verify ROOT --occurrences
+DIRECTORY --registration-input FILE --receipt NEW_FILE` checks them against
+catalog-04. Rust uses `benilla-catalog scripts ROOT OCCURRENCES REGISTRATION_INPUT
+[NEW_RECEIPT]`. Both readers hash every raw frame in all 27 script relations.
+They retain commands 0 and 1, comments, empty archives, locales, all three EventAI
+action slots, and signed template/GUID selectors. Float hashes use the existing
+pinned Field conversion. No selected-row limit applies to these views.
+
+CMaNGOS `8ec338a1` owns the ten DB-script queries at
+`src/game/DBScripts/ScriptMgr.cpp:118`, random templates at `:1230`, and string
+IDs at `:1164`. Its delay multimap receives rows in cursor order at `:989`.
+The verifier checks priority groups without choosing an order inside a tie.
+The diagnostic cursor cannot supply an unrecorded F1 tie order.
+`dbscript_string` and `creature_ai_texts` remain raw archive evidence.
+The EventAI loaders are `AI/EventAI/CreatureEventAIMgr.cpp:41,211-216`.
+Signed owner selection is at `:231-253`, and text correction is at `:594-614`.
+The existing selected `event_ai.py` validator cannot validate a whole catalog.
+`event_text.references` supplies its matching ACTION_T_TEXT dependency summary.
+Other action validation and executable loader corrections remain explicit refusals.
+
+The registration input has format `benilla-registration-input-v1`. Its manifest
+descriptor has `path`, `bytes`, and `sha256`. The `trace`, `build`, and `definitions`
+descriptors also have `relative`, the exact file key in that F1 manifest.
+The `linked` object supplies local `executable` and `observer` descriptors with
+`path`, `bytes`, and `sha256`. Their identities must match the recorded build.
+Recorded build paths are source metadata, never paths to reopen on another host.
+Readers bind the manifest bytes, verify each descriptor against its file inventory,
+verify the retained executable and observer bytes, and independently scan the
+whole original trace with reads of at most 64 KiB. The manifest has a separate
+2 MiB input limit. Trace records have a 64 KiB limit and the trace has an 8 GiB
+limit. These limits refuse instead of discarding evidence.
+
+The trace supplies registration attempts, observed instrumented source locations,
+all 22 callback slots, names, resolved IDs, and previous/new registry stores.
+Reports retain every attempt, absent catalog names, and accepted overrides.
+The observed hook has no explicit rejection record. A missing binding remains
+`unobserved_binding_outcome`, with `scripts.rejected_attempt_outcome_unobserved`.
+The 402 SQL-assigned names only cross-check IDs, not registry counts.
+`ScriptDevAIMgr.cpp:148-158,426-432,477-519` owns these rules.
+`ScriptDevAIMgr.h:80-118` defines the slots, including all factory callbacks.
+`framework/Dynamic/ObjectRegistry.h:45-57` rejects duplicate factories unless
+the caller requests replacement. `AI/CreatureAIRegistry.cpp:37-48` declares AI
+and motion factories, but declarations do not establish observed registrations.
+`Spells/Scripts/SpellScript.cpp:44-51,124-131` uses first-insert semantics for
+spell/aura names and IDs. These registries have no explicit replacement option.
+
+F1 semantic/callable receipts are input definitions, never expected gameplay
+answers. Their hash does not establish native callback execution. Missing actual
+AI, motion, spell, or aura streams refuse separately. Complete typed dispatch,
+linked-source proof, F1 SQL order, and executable loader validation remain refused.
+The old declared global-hook contract enters the identity only as a labelled
+component contract. It cannot substitute for the observed stream. Reports retain
+`complete=false`, native format 89, and unchanged capability admission.
+
 ## Event and weather catalog views
 
 `catalog-event-capture --credentials-file FILE --output NEW_DIRECTORY` retains

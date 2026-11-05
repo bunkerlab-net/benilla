@@ -3,6 +3,7 @@
 mod catalog;
 pub use catalog::diagnose_catalog_events;
 pub use catalog::diagnose_catalog_groups;
+pub use catalog::diagnose_catalog_scripts;
 pub use catalog::{
     diagnose_catalog, diagnose_catalog_pools, diagnose_catalog_spawns, RowView as CatalogRowView,
     SpawnViews, VerifiedCatalog,

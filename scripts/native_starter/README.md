@@ -509,3 +509,17 @@ empty names stay explicit rows, never a no-hook default. New local world rules
 can be explicit consumer policy; a new P2P world does not require an existing
 server configuration. Importing legacy effective configuration is a distinct,
 unimplemented evidence path.
+
+## Complete script inputs
+
+The catalog script diagnostic independently binds all ten DB-script tables,
+EventAI scripts and summons, text catalogs, and the observed F1 ScriptDevAI stream.
+Its input descriptor binds the F1 manifest by hash, not by expected outcomes.
+The report retains commands 0 and 1, priority ties, signed GUID selectors, all
+22 callback slots, absent catalog names, and accepted registration overrides.
+F1 does not explicitly record rejection outcomes, so missing bindings remain
+unknown and refuse as `scripts.rejected_attempt_outcome_unobserved`.
+Missing AI, motion, spell, and aura registration streams remain separate refusals.
+Selected legacy EventAI and global-hook plans keep their existing refusals.
+These complete input views do not implement script execution or admit gameplay.
+See the [catalog commands and pinned loaders](../classic_export/README.md#db-scripts-eventai-and-registration-inputs).
