@@ -433,6 +433,16 @@ checked server DBC dependencies. SQLStorage layouts are
 `Entities/ItemEnchantmentMgr.cpp:46-79`. Random-property selection and loaded
 manager mutation remain unexecuted, never guessed from raw existence.
 
+The `loot` family retains every row of all nine actual stores, reference names,
+and archive-only `spell_loot_template`. `Loot/LootMgr.cpp:49-57,125-197,310-365`
+owns the stores, conversion widths, and local source skips. Candidate insertion
+slots retain catalog ordinals, separate explicit/equal-chance group lanes, and
+preserve reference multiplicity. Active-ancestor reference cycles and undefined
+signed reference negation refuse rather than recurse or fabricate loot.
+`LootMgr.cpp:74-120,2396-2403,2606-2616,2764-2778` owns those inputs.
+F1 cursor order, loaded conditions, group shuffle, and random draws remain
+unverified. No raw store or archive row becomes a sampled loot outcome.
+
 ## Global spell and condition catalog views
 
 `catalog-spell-verify ROOT --receipt NEW_FILE --records NEW_DIRECTORY` reads

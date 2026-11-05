@@ -3707,6 +3707,7 @@ from test_catalog_scripts import ScriptCatalogTests
 from test_catalog_spells import SpellCatalogTests
 from test_catalog_numerics import CatalogNumericTests
 from test_catalog_content import ContentCatalogTests
+from test_catalog_content_loot import ContentLootTests
 
 
 if __name__ == "__main__":

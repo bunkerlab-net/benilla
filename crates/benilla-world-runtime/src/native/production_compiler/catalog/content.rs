@@ -4,6 +4,8 @@ use super::*;
 use std::collections::BTreeSet;
 use std::io::{BufWriter, Write};
 use std::sync::LazyLock;
+#[path = "content_loot.rs"]
+mod loot;
 static POLICY: LazyLock<Value> = LazyLock::new(|| {
     serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -263,11 +265,13 @@ pub fn diagnose_catalog_content(root: &Path, family: &str, output: Option<&Path>
     let (ids, dbc_reports) = dependency_ids(&mut catalog, spec)?;
     let mut families = serde_json::Map::new();
     let mut endpoints = Endpoints::new();
+    let mut reference_edges = BTreeMap::<u32, Vec<u32>>::new();
     let mut rows = 0u64;
     for (table, entry) in spec["tables"].as_object().unwrap() {
         let mut raw = Sha256::new();
         let mut stream = Stream::new(output, table)?;
         let fields = entry["fields"].as_array().unwrap();
+        let mut slots = BTreeMap::<u32, u64>::new();
         let mut counts = BTreeMap::<String, u64>::new();
         catalog.scan(table, 0, 256, |view| {
             raw.update(view.frame);
@@ -289,12 +293,20 @@ pub fn diagnose_catalog_content(root: &Path, family: &str, output: Option<&Path>
             } else {
                 "retained:loader_validation_pending"
             };
+            if loot::STORES.contains(&table.as_str()) {
+                status = loot::status(&row, &ids["item_template"], &ids["conditions"])?;
+            }
             for reference in entry["references"].as_array().unwrap() {
                 let field = reference[0].as_str().unwrap();
                 let target = reference[1].as_str().unwrap();
                 let value = number_field(&row, field);
+                if reference[2] == "negative" && value >= 0
+                    || reference[2] == "loot_item" && number_field(&row, "mincountorref") <= 0
+                {
+                    continue;
+                }
                 if value != 0 {
-                    let key = if reference[2] == "abs" {
+                    let key = if reference[2] == "abs" || reference[2] == "negative" {
                         value.abs()
                     } else {
                         value
@@ -383,6 +395,38 @@ pub fn diagnose_catalog_content(root: &Path, family: &str, output: Option<&Path>
                 }
             } else if table == "page_text" {
                 plans.add(&json!(["page_next_input", row["entry"], row["next_page"]]))?;
+            } else if loot::STORES.contains(&table.as_str()) && !status.starts_with("skip:") {
+                let entry = number_field(&row, "entry") as u32;
+                let count = slots.entry(entry).or_default();
+                *count += 1;
+                let slot = *count;
+                check(slots.len() * 128 < 4_194_304, "content.view_limit")?;
+                let group = number_field(&row, "groupid");
+                let lane = if group == 0 {
+                    "entries"
+                } else if number_field(&row, "chanceorquestchance") & 0x7fffffff != 0 {
+                    "explicit"
+                } else {
+                    "equal"
+                };
+                plans.add(&json!([
+                    "loot_slot_input",
+                    table,
+                    entry,
+                    view.ordinal,
+                    slot,
+                    group,
+                    lane,
+                    row["mincountorref"],
+                    row["maxcount"]
+                ]))?;
+                if table == "reference_loot_template" && number_field(&row, "mincountorref") < 0 {
+                    reference_edges
+                        .entry(entry)
+                        .or_default()
+                        .push((-number_field(&row, "mincountorref")) as u32);
+                    check(view.ordinal * 64 < 4_194_304, "content.view_limit")?;
+                }
             }
             *counts.entry(status.to_owned()).or_default() += 1;
             let nulls = cells
@@ -402,9 +446,21 @@ pub fn diagnose_catalog_content(root: &Path, family: &str, output: Option<&Path>
     if family == "quests" {
         endpoint_plans(&mut catalog, &schema, &endpoints, &mut plans)?;
     }
+    if family == "loot" {
+        loot::check_cycles(&reference_edges)?;
+        for (entry, targets) in &reference_edges {
+            plans.add(&json!(["loot_reference_edges", entry, targets]))?;
+        }
+    }
     let mut result = json!({"format":"benilla-content-views-v1","family":family,"catalog_sha256":catalog.manifest["catalog_sha256"],
         "policy_sha256":hex(&Sha256::digest(json::canonical(spec))),"families":families,"plans":plans.finish()?,
         "lookups":lookups.finish()?,"rows":rows,"order":"catalog_ordinal_not_F1_cursor","complete":false,"refusals":REFUSALS});
+    if let Some(extra) = spec["refusals"].as_array() {
+        result["refusals"]
+            .as_array_mut()
+            .unwrap()
+            .extend(extra.iter().cloned());
+    }
     if !spec["dbc"].as_array().unwrap().is_empty() {
         result["dbc_dependencies"] = Value::Object(dbc_reports);
     }

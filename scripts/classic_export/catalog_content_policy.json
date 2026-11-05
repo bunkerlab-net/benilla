@@ -1574,6 +1574,563 @@
         "SkillLine.dbc",
         "SpellItemEnchantment.dbc"
       ]
+    },
+    "loot": {
+      "tables": {
+        "creature_loot_template": {
+          "fields": [
+            [
+              "entry",
+              "u32"
+            ],
+            [
+              "item",
+              "u32"
+            ],
+            [
+              "chanceorquestchance",
+              "f32"
+            ],
+            [
+              "groupid",
+              "u8"
+            ],
+            [
+              "mincountorref",
+              "i32"
+            ],
+            [
+              "maxcount",
+              "u32"
+            ],
+            [
+              "condition_id",
+              "u16"
+            ],
+            [
+              "comments",
+              "text"
+            ]
+          ],
+          "source": "src/game/Loot/LootMgr.cpp:49-57,125-197,310-365,2396-2403,2606-2616,2764-2778",
+          "status": "input",
+          "references": [
+            [
+              "item",
+              "item_template",
+              "loot_item"
+            ],
+            [
+              "condition_id",
+              "conditions",
+              "positive"
+            ],
+            [
+              "mincountorref",
+              "reference_loot_template",
+              "negative"
+            ]
+          ]
+        },
+        "disenchant_loot_template": {
+          "fields": [
+            [
+              "entry",
+              "u32"
+            ],
+            [
+              "item",
+              "u32"
+            ],
+            [
+              "chanceorquestchance",
+              "f32"
+            ],
+            [
+              "groupid",
+              "u8"
+            ],
+            [
+              "mincountorref",
+              "i32"
+            ],
+            [
+              "maxcount",
+              "u32"
+            ],
+            [
+              "condition_id",
+              "u16"
+            ],
+            [
+              "comments",
+              "text"
+            ]
+          ],
+          "source": "src/game/Loot/LootMgr.cpp:49-57,125-197,310-365,2396-2403,2606-2616,2764-2778",
+          "status": "input",
+          "references": [
+            [
+              "item",
+              "item_template",
+              "loot_item"
+            ],
+            [
+              "condition_id",
+              "conditions",
+              "positive"
+            ],
+            [
+              "mincountorref",
+              "reference_loot_template",
+              "negative"
+            ]
+          ]
+        },
+        "fishing_loot_template": {
+          "fields": [
+            [
+              "entry",
+              "u32"
+            ],
+            [
+              "item",
+              "u32"
+            ],
+            [
+              "chanceorquestchance",
+              "f32"
+            ],
+            [
+              "groupid",
+              "u8"
+            ],
+            [
+              "mincountorref",
+              "i32"
+            ],
+            [
+              "maxcount",
+              "u32"
+            ],
+            [
+              "condition_id",
+              "u16"
+            ],
+            [
+              "comments",
+              "text"
+            ]
+          ],
+          "source": "src/game/Loot/LootMgr.cpp:49-57,125-197,310-365,2396-2403,2606-2616,2764-2778",
+          "status": "input",
+          "references": [
+            [
+              "item",
+              "item_template",
+              "loot_item"
+            ],
+            [
+              "condition_id",
+              "conditions",
+              "positive"
+            ],
+            [
+              "mincountorref",
+              "reference_loot_template",
+              "negative"
+            ]
+          ]
+        },
+        "gameobject_loot_template": {
+          "fields": [
+            [
+              "entry",
+              "u32"
+            ],
+            [
+              "item",
+              "u32"
+            ],
+            [
+              "chanceorquestchance",
+              "f32"
+            ],
+            [
+              "groupid",
+              "u8"
+            ],
+            [
+              "mincountorref",
+              "i32"
+            ],
+            [
+              "maxcount",
+              "u32"
+            ],
+            [
+              "condition_id",
+              "u16"
+            ],
+            [
+              "comments",
+              "text"
+            ]
+          ],
+          "source": "src/game/Loot/LootMgr.cpp:49-57,125-197,310-365,2396-2403,2606-2616,2764-2778",
+          "status": "input",
+          "references": [
+            [
+              "item",
+              "item_template",
+              "loot_item"
+            ],
+            [
+              "condition_id",
+              "conditions",
+              "positive"
+            ],
+            [
+              "mincountorref",
+              "reference_loot_template",
+              "negative"
+            ]
+          ]
+        },
+        "item_loot_template": {
+          "fields": [
+            [
+              "entry",
+              "u32"
+            ],
+            [
+              "item",
+              "u32"
+            ],
+            [
+              "chanceorquestchance",
+              "f32"
+            ],
+            [
+              "groupid",
+              "u8"
+            ],
+            [
+              "mincountorref",
+              "i32"
+            ],
+            [
+              "maxcount",
+              "u32"
+            ],
+            [
+              "condition_id",
+              "u16"
+            ],
+            [
+              "comments",
+              "text"
+            ]
+          ],
+          "source": "src/game/Loot/LootMgr.cpp:49-57,125-197,310-365,2396-2403,2606-2616,2764-2778",
+          "status": "input",
+          "references": [
+            [
+              "item",
+              "item_template",
+              "loot_item"
+            ],
+            [
+              "condition_id",
+              "conditions",
+              "positive"
+            ],
+            [
+              "mincountorref",
+              "reference_loot_template",
+              "negative"
+            ]
+          ]
+        },
+        "mail_loot_template": {
+          "fields": [
+            [
+              "entry",
+              "u32"
+            ],
+            [
+              "item",
+              "u32"
+            ],
+            [
+              "chanceorquestchance",
+              "f32"
+            ],
+            [
+              "groupid",
+              "u8"
+            ],
+            [
+              "mincountorref",
+              "i32"
+            ],
+            [
+              "maxcount",
+              "u32"
+            ],
+            [
+              "condition_id",
+              "u16"
+            ],
+            [
+              "comments",
+              "text"
+            ]
+          ],
+          "source": "src/game/Loot/LootMgr.cpp:49-57,125-197,310-365,2396-2403,2606-2616,2764-2778",
+          "status": "input",
+          "references": [
+            [
+              "item",
+              "item_template",
+              "loot_item"
+            ],
+            [
+              "condition_id",
+              "conditions",
+              "positive"
+            ],
+            [
+              "mincountorref",
+              "reference_loot_template",
+              "negative"
+            ]
+          ]
+        },
+        "pickpocketing_loot_template": {
+          "fields": [
+            [
+              "entry",
+              "u32"
+            ],
+            [
+              "item",
+              "u32"
+            ],
+            [
+              "chanceorquestchance",
+              "f32"
+            ],
+            [
+              "groupid",
+              "u8"
+            ],
+            [
+              "mincountorref",
+              "i32"
+            ],
+            [
+              "maxcount",
+              "u32"
+            ],
+            [
+              "condition_id",
+              "u16"
+            ],
+            [
+              "comments",
+              "text"
+            ]
+          ],
+          "source": "src/game/Loot/LootMgr.cpp:49-57,125-197,310-365,2396-2403,2606-2616,2764-2778",
+          "status": "input",
+          "references": [
+            [
+              "item",
+              "item_template",
+              "loot_item"
+            ],
+            [
+              "condition_id",
+              "conditions",
+              "positive"
+            ],
+            [
+              "mincountorref",
+              "reference_loot_template",
+              "negative"
+            ]
+          ]
+        },
+        "reference_loot_template": {
+          "fields": [
+            [
+              "entry",
+              "u32"
+            ],
+            [
+              "item",
+              "u32"
+            ],
+            [
+              "chanceorquestchance",
+              "f32"
+            ],
+            [
+              "groupid",
+              "u8"
+            ],
+            [
+              "mincountorref",
+              "i32"
+            ],
+            [
+              "maxcount",
+              "u32"
+            ],
+            [
+              "condition_id",
+              "u16"
+            ],
+            [
+              "comments",
+              "text"
+            ]
+          ],
+          "source": "src/game/Loot/LootMgr.cpp:49-57,125-197,310-365,2396-2403,2606-2616,2764-2778",
+          "status": "input",
+          "references": [
+            [
+              "item",
+              "item_template",
+              "loot_item"
+            ],
+            [
+              "condition_id",
+              "conditions",
+              "positive"
+            ],
+            [
+              "mincountorref",
+              "reference_loot_template",
+              "negative"
+            ]
+          ]
+        },
+        "skinning_loot_template": {
+          "fields": [
+            [
+              "entry",
+              "u32"
+            ],
+            [
+              "item",
+              "u32"
+            ],
+            [
+              "chanceorquestchance",
+              "f32"
+            ],
+            [
+              "groupid",
+              "u8"
+            ],
+            [
+              "mincountorref",
+              "i32"
+            ],
+            [
+              "maxcount",
+              "u32"
+            ],
+            [
+              "condition_id",
+              "u16"
+            ],
+            [
+              "comments",
+              "text"
+            ]
+          ],
+          "source": "src/game/Loot/LootMgr.cpp:49-57,125-197,310-365,2396-2403,2606-2616,2764-2778",
+          "status": "input",
+          "references": [
+            [
+              "item",
+              "item_template",
+              "loot_item"
+            ],
+            [
+              "condition_id",
+              "conditions",
+              "positive"
+            ],
+            [
+              "mincountorref",
+              "reference_loot_template",
+              "negative"
+            ]
+          ]
+        },
+        "spell_loot_template": {
+          "fields": [
+            [
+              "entry",
+              "raw"
+            ],
+            [
+              "item",
+              "raw"
+            ],
+            [
+              "chanceorquestchance",
+              "raw"
+            ],
+            [
+              "groupid",
+              "raw"
+            ],
+            [
+              "mincountorref",
+              "raw"
+            ],
+            [
+              "maxcount",
+              "raw"
+            ],
+            [
+              "condition_id",
+              "raw"
+            ]
+          ],
+          "source": "catalog_coverage.json:tables.spell_loot_template",
+          "status": "archive-only",
+          "references": []
+        },
+        "reference_loot_template_names": {
+          "fields": [
+            [
+              "entry",
+              "u32"
+            ],
+            [
+              "name",
+              "text"
+            ]
+          ],
+          "source": "src/game/Loot/LootMgr.cpp:237-268",
+          "status": "input",
+          "references": []
+        }
+      },
+      "dbc": [
+        "AreaTable.dbc",
+        "MailTemplate.dbc"
+      ],
+      "refusals": [
+        "content.loot_F1_order_missing",
+        "content.loot_condition_execution_unverified"
+      ]
     }
   }
 }

@@ -11,6 +11,7 @@ from .catalog_io import DECODED, encode_row
 from .catalog_spawns import uint
 from .catalog_spells import convert as spell_convert, resident, Stream
 from .catalog_dbc import DbcViews
+from .catalog_content_loot import STORES, loot_status, check_reference_cycles
 
 POLICY = decode_json(Path(__file__).with_name("catalog_content_policy.json").read_bytes(), 262144)
 REFUSALS = ["content.reference_execution_missing", "content.sql_occurrences_not_F1",
@@ -96,20 +97,25 @@ class ContentViews:
             output.mkdir()
         plans, lookups = Stream(output,"plans"), Stream(output,"lookups")
         (ids,dbc_reports), families = self.dependencies(), {}
-        endpoints = defaultdict(list)
+        endpoints, reference_edges = defaultdict(list), defaultdict(list)
         for table,spec in sorted(self.spec["tables"].items()):
             raw, stream = hashlib.sha256(), Stream(output,table)
             counts = Counter()
+            slots = Counter()
             for view in self.catalog.scan(table):
                 cells = view.cells()
                 raw.update(encode_row(view.ordinal,cells))
                 values = [convert(c,k) for c,(_,k) in zip(cells,spec["fields"])]
                 row = dict(zip((n for n,_ in spec["fields"]),values))
                 status = "archive-only" if spec["status"] == "archive-only" else "retained:loader_validation_pending"
+                if table in STORES:
+                    status = loot_status(row,ids["item_template"],ids["conditions"])
                 for field,target,mode in spec["references"]:
                     value = row[field]
+                    if mode == "negative" and value >= 0 or mode == "loot_item" and row["mincountorref"] <= 0:
+                        continue
                     if value:
-                        key = abs(value) if mode == "abs" else value
+                        key = abs(value) if mode in ("abs","negative") else value
                         present = key in ids[target]
                         lookups.add([table,view.ordinal,field,target,key,present])
                         if table in RELATIONS and field == "quest" and not present:
@@ -134,6 +140,15 @@ class ContentViews:
                         plans.add(record)
                 elif table == "page_text":
                     plans.add(["page_next_input",row["entry"],row["next_page"]])
+                elif table in STORES and not status.startswith("skip:"):
+                    slots[row["entry"]] += 1
+                    check(len(slots)*128 < 4194304,"content.view_limit")
+                    lane = "entries" if not row["groupid"] else "explicit" if row["chanceorquestchance"] & 0x7fffffff else "equal"
+                    plans.add(["loot_slot_input",table,row["entry"],view.ordinal,slots[row["entry"]],
+                        row["groupid"],lane,row["mincountorref"],row["maxcount"]])
+                    if table == "reference_loot_template" and row["mincountorref"] < 0:
+                        reference_edges[row["entry"]].append(-row["mincountorref"])
+                        check(view.ordinal*64 < 4194304,"content.view_limit")
                 counts[status] += 1
                 stream.add({"ordinal":view.ordinal,"values":values,
                     "nulls":[i for i,c in enumerate(cells) if c is None],"disposition":status})
@@ -142,11 +157,16 @@ class ContentViews:
                 "whole_empty":self.catalog.relations[table]["rows"] == 0}
         if self.family == "quests":
             self.endpoint_plans(endpoints,plans)
+        if self.family == "loot":
+            check_reference_cycles(reference_edges)
+            for entry,targets in sorted(reference_edges.items()):
+                plans.add(["loot_reference_edges",entry,targets])
         result = {"format":"benilla-content-views-v1","family":self.family,
             "catalog_sha256":self.catalog.manifest["catalog_sha256"],
             "policy_sha256":digest(self.spec),"families":families,"plans":plans.finish(),
             "lookups":lookups.finish(),"rows":sum(v["stream"]["rows"] for v in families.values()),
-            "order":"catalog_ordinal_not_F1_cursor","complete":False,"refusals":REFUSALS}
+            "order":"catalog_ordinal_not_F1_cursor","complete":False,
+            "refusals":REFUSALS+self.spec.get("refusals",[])}
         if self.spec["dbc"]:
             result["dbc_dependencies"] = dbc_reports
         result["view_sha256"] = digest(result)
