@@ -10,6 +10,7 @@ from .core import canonical, check, decode_json, digest, CORE_REVISION
 from .catalog_io import DECODED, encode_row
 from .catalog_spawns import uint
 from .catalog_spells import convert as spell_convert, resident, Stream
+from .catalog_dbc import DbcViews
 
 POLICY = decode_json(Path(__file__).with_name("catalog_content_policy.json").read_bytes(), 262144)
 REFUSALS = ["content.reference_execution_missing", "content.sql_occurrences_not_F1",
@@ -35,6 +36,13 @@ def quest_edges(quest, row):
             yield ["quest_reverse", abs(value), quest, field, value]
     if row["exclusivegroup"]:
         yield ["quest_exclusive", row["exclusivegroup"], quest]
+
+
+def item_plans(row):
+    yield ["item_masks",row["entry"],row["allowablerace"],row["allowableclass"]]
+    for slot in range(1,6):
+        yield ["item_spell_slot",row["entry"],slot,[row[f"{name}_{slot}"] for name in
+            ("spellid","spelltrigger","spellcharges","spellppmrate","spellcooldown","spellcategory","spellcategorycooldown")]]
 
 
 class ContentViews:
@@ -68,19 +76,26 @@ class ContentViews:
     def dependencies(self):
         targets = sorted({target for spec in self.spec["tables"].values()
                           for _,target,_ in spec["references"]})
-        ids = {}
-        for target in targets:
-            index = self.catalog.relations[target]["key_columns"][0]
-            ids[target] = {uint(view.cells()[index]) for view in self.catalog.scan(target)}
+        ids, reports = {}, {}
+        dbcs = DbcViews(self.catalog) if self.spec["dbc"] else None
+        for target in sorted(set(targets) | set(self.spec["dbc"])):
+            if target.endswith(".dbc"):
+                view = dbcs.open(target)
+                reports[target] = view.report()
+                ids[target] = set(view.by_id)
+                view.close()
+            else:
+                index = self.catalog.relations[target]["key_columns"][0]
+                ids[target] = {uint(view.cells()[index]) for view in self.catalog.scan(target)}
             check(resident(ids) < DECODED-8388608, "content.view_limit")
-        return ids
+        return ids,reports
 
     def report(self, output=None):
         output = Path(output) if output else None
         if output:
             output.mkdir()
         plans, lookups = Stream(output,"plans"), Stream(output,"lookups")
-        ids, families = self.dependencies(), {}
+        (ids,dbc_reports), families = self.dependencies(), {}
         endpoints = defaultdict(list)
         for table,spec in sorted(self.spec["tables"].items()):
             raw, stream = hashlib.sha256(), Stream(output,table)
@@ -114,6 +129,11 @@ class ContentViews:
                     plans.add(["quest_relation",table,view.ordinal,row["id"],row["quest"],status])
                     endpoints[("creature" if table.startswith("creature") else "gameobject",row["id"])].append([table,view.ordinal,row["quest"]])
                     check(view.ordinal*512 < DECODED-8388608, "content.view_limit")
+                elif table == "item_template":
+                    for record in item_plans(row):
+                        plans.add(record)
+                elif table == "page_text":
+                    plans.add(["page_next_input",row["entry"],row["next_page"]])
                 counts[status] += 1
                 stream.add({"ordinal":view.ordinal,"values":values,
                     "nulls":[i for i,c in enumerate(cells) if c is None],"disposition":status})
@@ -127,6 +147,8 @@ class ContentViews:
             "policy_sha256":digest(self.spec),"families":families,"plans":plans.finish(),
             "lookups":lookups.finish(),"rows":sum(v["stream"]["rows"] for v in families.values()),
             "order":"catalog_ordinal_not_F1_cursor","complete":False,"refusals":REFUSALS}
+        if self.spec["dbc"]:
+            result["dbc_dependencies"] = dbc_reports
         result["view_sha256"] = digest(result)
         check(len(canonical(result)) <= 1048576,"content.report_limit")
         return result

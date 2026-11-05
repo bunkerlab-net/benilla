@@ -61,3 +61,20 @@ class ContentCatalogTests(unittest.TestCase):
         self.assertEqual(len(spec["tables"]["quest_template"]["fields"]),131)
         self.assertEqual(spec["tables"]["quest_poi"]["status"],"archive-only")
         self.assertIn("content.sql_occurrences_not_F1",c.REFUSALS)
+
+    def test_item_slots_keep_all_five_slots_including_zero(self):
+        row = dict(entry=12,allowablerace=0xffffffff,allowableclass=0x400)
+        for slot in range(1,6):
+            for name in ("spellid","spelltrigger","spellcharges","spellppmrate","spellcooldown","spellcategory","spellcategorycooldown"):
+                row[f"{name}_{slot}"] = 100+slot if name == "spellid" else 0
+        plans = list(c.item_plans(row))
+        self.assertEqual(plans[0],["item_masks",12,0xffffffff,0x400])
+        self.assertEqual(plans[-1],["item_spell_slot",12,5,[105,0,0,0,0,0,0]])
+        self.assertEqual(len(plans),6)
+
+    def test_item_storage_format_and_archive_classifications_are_explicit(self):
+        spec = c.POLICY["families"]["items"]
+        self.assertEqual(len(spec["tables"]),6)
+        self.assertEqual(dict(spec["tables"]["item_template"]["fields"])["spellppmrate_5"],"f32")
+        self.assertEqual(spec["tables"]["item_convert"]["status"],"archive-only")
+        self.assertIn("Lock.dbc",spec["dbc"])

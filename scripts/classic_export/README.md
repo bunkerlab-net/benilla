@@ -424,6 +424,15 @@ Catalog ordinal is not source cursor order. Input plans do not claim validated
 loaded managers, F1 SQL occurrences, or gameplay admission. Existing route
 contracts and native format 89 are unchanged.
 
+The `items` family retains all six item/enchantment/target/page relations,
+including archive-only conversion tables. It records all five item spell slots,
+full race/class masks, page successors, complete SQL dependency outcomes, and
+checked server DBC dependencies. SQLStorage layouts are
+`Server/SQLStorages.cpp:31-33,50-51`; validation owners are
+`ObjectMgr.cpp:2557-2957,5191-5231` and
+`Entities/ItemEnchantmentMgr.cpp:46-79`. Random-property selection and loaded
+manager mutation remain unexecuted, never guessed from raw existence.
+
 ## Global spell and condition catalog views
 
 `catalog-spell-verify ROOT --receipt NEW_FILE --records NEW_DIRECTORY` reads

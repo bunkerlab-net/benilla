@@ -107,28 +107,46 @@ fn quest_edges(quest: i64, row: &Value) -> Vec<Value> {
     }
     result
 }
-fn dependency_ids(catalog: &mut VerifiedCatalog, spec: &Value) -> Result<Ids> {
+fn dependency_ids(
+    catalog: &mut VerifiedCatalog,
+    spec: &Value,
+) -> Result<(Ids, serde_json::Map<String, Value>)> {
     let mut targets = BTreeSet::new();
     for table in spec["tables"].as_object().unwrap().values() {
         for r in table["references"].as_array().unwrap() {
             targets.insert(r[1].as_str().unwrap());
         }
     }
+    for file in spec["dbc"].as_array().unwrap() {
+        targets.insert(file.as_str().unwrap());
+    }
+    let mut reports = serde_json::Map::new();
     let mut ids = Ids::new();
     let mut retained = 0usize;
     for target in targets {
-        let key = catalog.relations[target].key_columns[0];
         let mut set = BTreeSet::new();
-        catalog.scan(target, 0, 256, |row| {
-            if set.insert(spawns::uint(row.cells().nth(key).unwrap()?)?) {
-                retained += 64;
-                check(retained < DECODED - 8_388_608, "content.view_limit")?;
+        if target.ends_with(".dbc") {
+            let mut view = catalog.dbc_view(target)?;
+            reports.insert(target.to_owned(), view.report(None)?);
+            for ordinal in 0..view.record_count() {
+                let record = view.record(ordinal)?;
+                set.insert(record["key"].as_u64().unwrap() as u32);
             }
-            Ok(())
-        })?;
+            retained += set.len() * 64;
+            check(retained < DECODED - 8_388_608, "content.view_limit")?;
+        } else {
+            let key = catalog.relations[target].key_columns[0];
+            catalog.scan(target, 0, 256, |row| {
+                if set.insert(spawns::uint(row.cells().nth(key).unwrap()?)?) {
+                    retained += 64;
+                    check(retained < DECODED - 8_388_608, "content.view_limit")?;
+                }
+                Ok(())
+            })?;
+        }
         ids.insert(target.to_owned(), set);
     }
-    Ok(ids)
+    Ok((ids, reports))
 }
 fn endpoint_plans(
     catalog: &mut VerifiedCatalog,
@@ -242,7 +260,7 @@ pub fn diagnose_catalog_content(root: &Path, family: &str, output: Option<&Path>
     }
     let mut plans = Stream::new(output, "plans")?;
     let mut lookups = Stream::new(output, "lookups")?;
-    let ids = dependency_ids(&mut catalog, spec)?;
+    let (ids, dbc_reports) = dependency_ids(&mut catalog, spec)?;
     let mut families = serde_json::Map::new();
     let mut endpoints = Endpoints::new();
     let mut rows = 0u64;
@@ -341,6 +359,30 @@ pub fn diagnose_catalog_content(root: &Path, family: &str, output: Option<&Path>
                     view.ordinal * 512 < (DECODED - 8_388_608) as u64,
                     "content.view_limit",
                 )?;
+            } else if table == "item_template" {
+                plans.add(&json!([
+                    "item_masks",
+                    row["entry"],
+                    row["allowablerace"],
+                    row["allowableclass"]
+                ]))?;
+                for slot in 1..=5 {
+                    let values = [
+                        "spellid",
+                        "spelltrigger",
+                        "spellcharges",
+                        "spellppmrate",
+                        "spellcooldown",
+                        "spellcategory",
+                        "spellcategorycooldown",
+                    ]
+                    .iter()
+                    .map(|n| &row[format!("{n}_{slot}")])
+                    .collect::<Vec<_>>();
+                    plans.add(&json!(["item_spell_slot", row["entry"], slot, values]))?;
+                }
+            } else if table == "page_text" {
+                plans.add(&json!(["page_next_input", row["entry"], row["next_page"]]))?;
             }
             *counts.entry(status.to_owned()).or_default() += 1;
             let nulls = cells
@@ -363,6 +405,9 @@ pub fn diagnose_catalog_content(root: &Path, family: &str, output: Option<&Path>
     let mut result = json!({"format":"benilla-content-views-v1","family":family,"catalog_sha256":catalog.manifest["catalog_sha256"],
         "policy_sha256":hex(&Sha256::digest(json::canonical(spec))),"families":families,"plans":plans.finish()?,
         "lookups":lookups.finish()?,"rows":rows,"order":"catalog_ordinal_not_F1_cursor","complete":false,"refusals":REFUSALS});
+    if !spec["dbc"].as_array().unwrap().is_empty() {
+        result["dbc_dependencies"] = Value::Object(dbc_reports);
+    }
     result["view_sha256"] = json!(hex(&Sha256::digest(json::canonical(&result))));
     check(
         json::canonical(&result).len() <= CHUNK,
