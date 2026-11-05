@@ -536,3 +536,9 @@ Unknown handlers, missing F1 occurrences, external loaded dependencies, and
 expression execution remain blocked. These catalog views do not reinterpret
 the existing selected legacy learning or spell/hook plans.
 See the [commands and pinned loaders](../classic_export/README.md#global-spell-and-condition-catalog-views).
+
+Whole-world quest input plans use `classic_export.catalog_content.ContentViews`
+and Rust `diagnose_catalog_content`. They retain reverse relations and GO
+endpoints without route pruning. Their exact field/lookup/plan streams are
+non-admitting catalog inputs, not replacements for the existing selected
+quest runtime plans or proof of source loader execution.

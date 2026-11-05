@@ -124,6 +124,11 @@ def main() -> int:
     cmd.add_argument("root", type=Path)
     cmd.add_argument("--receipt", type=Path, required=True)
     cmd.add_argument("--records", type=Path, help="new directory for exact field dispositions and plans")
+    cmd = sub.add_parser("catalog-content-verify")
+    cmd.add_argument("root", type=Path)
+    cmd.add_argument("--family", choices=("quests", "items", "loot", "globals"), required=True)
+    cmd.add_argument("--receipt", type=Path, required=True)
+    cmd.add_argument("--records", type=Path, required=True)
     for name in ["inspect", "capture", "skill-training", "reputation-policy", "global-hooks"]:
         cmd = sub.add_parser(name)
         cmd.add_argument("--database", required=True)
@@ -170,6 +175,14 @@ def main() -> int:
     cmd.add_argument("bundle", type=Path)
     args = parser.parse_args()
     try:
+        if args.command == "catalog-content-verify":
+            from classic_export.catalog_io import Catalog
+            from classic_export.catalog_content import ContentViews
+            with Catalog(args.root) as catalog:
+                result = ContentViews(catalog,args.family).report(args.records)
+            write_new(args.receipt, result)
+            print(canonical(result).decode())
+            return 0
         if args.command == "catalog-spell-verify":
             from classic_export.catalog_io import Catalog
             from classic_export.catalog_spells import SpellViews

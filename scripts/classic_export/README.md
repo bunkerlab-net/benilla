@@ -406,6 +406,24 @@ The client Spell.dbc identity is separate from the SQL spell_template store,
 Reference execution, locale occurrences, and gameplay remain explicit blockers.
 Native format 89 and capability admission do not change.
 
+## Whole-world content catalog views
+
+`catalog-content-verify ROOT --family quests --receipt NEW_FILE --records
+NEW_DIRECTORY` and `benilla-catalog content ROOT quests NEW_RECEIPT
+NEW_DIRECTORY` independently retain all quest templates, four creature/GO
+relations, and archive-only quest POI tables. Exact JSONL streams include every
+field, SQL NULL markers, reverse chain/breadcrumb/exclusive inputs, signed GO
+objectives, and physical endpoints including alternative entries on every map.
+Every reached catalog dependency lookup records its positive or negative result.
+`ContentViews.lookup_state` and `VerifiedCatalog::content_lookup_state` prove
+arbitrary key absence against the complete catalog and distinguish empty fields.
+
+The pin is CMaNGOS Classic `8ec338a1`. `ObjectMgr.cpp:4231-4880,7940-8034`
+owns the quest loaders, and `Quests/QuestDef.cpp:23-140` owns conversions.
+Catalog ordinal is not source cursor order. Input plans do not claim validated
+loaded managers, F1 SQL occurrences, or gameplay admission. Existing route
+contracts and native format 89 are unchanged.
+
 ## Global spell and condition catalog views
 
 `catalog-spell-verify ROOT --receipt NEW_FILE --records NEW_DIRECTORY` reads

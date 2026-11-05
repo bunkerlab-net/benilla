@@ -3706,6 +3706,7 @@ from classic_export.dbc_tests import CatalogDbcTests
 from test_catalog_scripts import ScriptCatalogTests
 from test_catalog_spells import SpellCatalogTests
 from test_catalog_numerics import CatalogNumericTests
+from test_catalog_content import ContentCatalogTests
 
 
 if __name__ == "__main__":

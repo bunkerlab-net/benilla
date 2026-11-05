@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Offline non-admitting catalog diagnostics.
+use benilla_world_runtime::native::diagnose_catalog_content;
 use benilla_world_runtime::native::diagnose_catalog_dbc;
 use benilla_world_runtime::native::diagnose_catalog_events;
 use benilla_world_runtime::native::diagnose_catalog_groups;
@@ -12,7 +13,9 @@ use std::io::Write;
 use std::path::Path;
 fn main() {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    let valid_count = if args.first().is_some_and(|arg| arg == "spells") {
+    let valid_count = if args.first().is_some_and(|arg| arg == "content") {
+        args.len() == 5
+    } else if args.first().is_some_and(|arg| arg == "spells") {
         (2..=4).contains(&args.len())
     } else if args
         .first()
@@ -33,11 +36,16 @@ fn main() {
     };
     if !valid_count {
         eprintln!(
-            "usage: benilla-catalog schema PILOT | verify ROOT | candidate ROOT [NEW_RECEIPT] | spawns ROOT OCCURRENCES [NEW_RECEIPT] | groups ROOT OCCURRENCES [NEW_RECEIPT] | pools ROOT OCCURRENCES [NEW_RECEIPT [NEW_RECORDS_DIRECTORY]] | events ROOT OCCURRENCES SNAPSHOT ENVIRONMENT RECORDS [NEW_RECEIPT] | dbc ROOT OCCURRENCES [NEW_RECEIPT [NEW_RECORDS_DIRECTORY]] | scripts ROOT OCCURRENCES REGISTRATION_INPUT [NEW_RECEIPT] | spells ROOT [NEW_RECEIPT [NEW_RECORDS_DIRECTORY]]"
+            "usage: benilla-catalog content ROOT FAMILY NEW_RECEIPT NEW_RECORDS_DIRECTORY | schema PILOT | verify ROOT | candidate ROOT [NEW_RECEIPT] | spawns ROOT OCCURRENCES [NEW_RECEIPT] | groups ROOT OCCURRENCES [NEW_RECEIPT] | pools ROOT OCCURRENCES [NEW_RECEIPT [NEW_RECORDS_DIRECTORY]] | events ROOT OCCURRENCES SNAPSHOT ENVIRONMENT RECORDS [NEW_RECEIPT] | dbc ROOT OCCURRENCES [NEW_RECEIPT [NEW_RECORDS_DIRECTORY]] | scripts ROOT OCCURRENCES REGISTRATION_INPUT [NEW_RECEIPT] | spells ROOT [NEW_RECEIPT [NEW_RECORDS_DIRECTORY]]"
         );
         std::process::exit(2);
     }
     let result = match args[0].to_str() {
+        Some("content") => diagnose_catalog_content(
+            Path::new(&args[1]),
+            args[2].to_str().unwrap_or(""),
+            args.get(4).map(Path::new),
+        ),
         Some("spells") => diagnose_catalog_spells(Path::new(&args[1]), args.get(3).map(Path::new)),
         Some("schema") => diagnose_catalog_schema(Path::new(&args[1])),
         Some("verify") => diagnose_catalog(Path::new(&args[1]), false),
@@ -77,7 +85,9 @@ fn main() {
     };
     match result {
         Ok(report) => {
-            if let Some(path) = args.get(if args[0] == "events" {
+            if let Some(path) = args.get(if args[0] == "content" {
+                3
+            } else if args[0] == "events" {
                 6
             } else if args[0] == "scripts" {
                 4

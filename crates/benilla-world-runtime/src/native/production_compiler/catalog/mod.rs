@@ -25,6 +25,8 @@ mod scripts;
 pub use scripts::diagnose_catalog_scripts;
 mod spells;
 pub use spells::diagnose_catalog_spells;
+mod content;
+pub use content::diagnose_catalog_content;
 #[cfg(test)]
 mod tests;
 use reader::Store;
