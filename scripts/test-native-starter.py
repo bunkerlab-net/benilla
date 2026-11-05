@@ -3008,5 +3008,19 @@ class TransportPathTests(unittest.TestCase):
                 load_extraction_manifest(root, parsed(selected))
 
 
+class CatalogSpawnConversionTests(unittest.TestCase):
+    def test_source_atof_double_rounding_signed_zero_null_and_prefix(self):
+        from classic_export.catalog_spawns import floating, uint, coordinates
+        self.assertEqual(struct.pack("<f", floating(b"-0")), b"\0\0\0\x80")
+        self.assertEqual(struct.pack("<f", floating(None)), b"\0\0\0\0")
+        self.assertEqual(floating(b"1.0000000596046448"), 1.0)
+        self.assertEqual(floating(b" 1.25tail"), 1.25)
+        self.assertEqual(uint(b"-1"), 4294967295)
+        self.assertEqual(uint(None), 0)
+        self.assertEqual(coordinates(0.0, -0.0), (2080, 524800))
+        with self.assertRaisesRegex(ExportError, "spawn.invalid_coordinates"):
+            coordinates(100000.0, 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

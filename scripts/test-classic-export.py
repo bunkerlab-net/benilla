@@ -3329,6 +3329,144 @@ class CatalogSchemaTests(unittest.TestCase):
                 cat.verify_schema(schema, coverage)
 
 
+class CatalogSpawnTests(unittest.TestCase):
+    def setUp(self):
+        from classic_export import catalog_io as io, catalog_spawns as spawn
+        self.io, self.spawn = io, spawn
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name) / "catalog"
+        names = set(spawn.FAMILIES)
+        for specs in spawn.JOINS.values():
+            names.update(table for table, _, _ in specs)
+        layouts = {name: ["entry"] for name in names}
+        layouts.update({name: list(cols) for name, cols in spawn.PROJECTIONS.items()})
+        for specs in spawn.JOINS.values():
+            for table, key, value in specs:
+                layouts[table] = [key, value]
+        layouts["creature_spawn_data"] = ["Guid", "Id"]
+        layouts.update(creature_template=["Entry", "DisplayId1", "DisplayId2", "DisplayId3", "DisplayId4"],
+                       creature_model_info=["modelid", "modelid_other_gender", "modelid_alternative"],
+                       creature_spawn_entry=["guid", "entry"], gameobject_spawn_entry=["guid", "entry"])
+        tables = {name: {"columns": [{"COLUMN_NAME": col, "DATA_TYPE":
+                  "decimal" if col in {"position_x", "position_y", "position_z", "orientation",
+                  "spawndist", "rotation0", "rotation1", "rotation2", "rotation3"} else "int"}
+                  for col in cols], "indexes": [{"INDEX_NAME": "PRIMARY", "SEQ_IN_INDEX": 1,
+                  "COLUMN_NAME": cols[0]}]} for name, cols in layouts.items()}
+        self.schema = {"format": io.schema_contract.FORMAT,
+                       "core_revision": io.schema_contract.CORE_REVISION,
+                       "database_revision": io.schema_contract.DATABASE_REVISION, "tables": tables}
+        p = {"tables": {name: {"schema_sha256": digest(t), "status": "consumed", "loaders": ["test"]}
+                       for name, t in tables.items()}, "loaders": {"test": {}}}
+        self.rows = {name: [] for name in names}
+        self.rows.update(
+            creature=[(b"7", b"0", b"1", b"-0", b"0", b"0", b"0", b"30", b"30", b"0", b"0", b"1"),
+                      (b"3", b"11", b"0", b"1", b"2", b"3", b"0", b"30", b"30", b"0", b"0", b"1")],
+            gameobject=[(b"7", b"21", b"1", b"0", b"0", b"0", b"0", b"0", b"0", b"0", b"1", b"-30", b"-30", b"1")],
+            creature_spawn_entry=[(b"7", b"11"), (b"7", b"11")],
+            creature_spawn_data=[(b"7", b"0")],
+            creature_template=[(b"11", b"10", b"0", b"0", b"0")],
+            creature_model_info=[(b"10", b"12", b"0"), (b"12", b"10", b"13")],
+            game_event_creature=[(b"7", b"2"), (b"7", b"-2")])
+        self.sql_rows = {
+            "creature": [self.rows["creature"][0] + (b"2", None, None, b"0"),
+                         self.rows["creature"][0] + (b"-2", None, None, b"0"),
+                         self.rows["creature"][1] + (None, None, None, None)],
+            "gameobject": [self.rows["gameobject"][0] + (None, None, None)]}
+        for patch in (mock.patch.object(io.schema_contract, "policy", return_value=p),
+                      mock.patch.object(io.schema_contract, "inventory", return_value=self.schema)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.source = types.SimpleNamespace(queries=[], rows=lambda n: iter(self.rows[n]),
+            query_rows=lambda q: iter(self.sql_rows["creature" if "FROM creature " in q else "gameobject"]))
+        io.capture(self.source, self.root)
+        self.occurrences = Path(self.tmp.name) / "occurrences"
+        spawn.capture_occurrences(self.source, self.occurrences)
+
+    def test_all_maps_order_duplicates_nulls_closure_and_absence(self):
+        with self.io.Catalog(self.root, candidate=True) as catalog:
+            views = self.spawn.SpawnViews(catalog)
+            self.assertEqual([o for o, _ in views.map_rows("creature", 0)], [1])
+            self.assertEqual([o for o, _ in views.map_rows("creature", 1)], [0])
+            self.assertEqual(list(views.map_rows("creature", 2)), [])
+            self.assertEqual(list(views.alternatives("creature", 7)), [(0, 11), (1, 11)])
+            self.assertEqual(list(views.lookup("creature_template", b"999")), [])
+            self.assertEqual(views.model_closure(11), {"models": [10, 12, 13], "missing": [13]})
+            joined = views.verify_occurrences(self.occurrences)
+            self.assertEqual(joined["creature"]["rows"], 3)
+            self.assertEqual(joined["gameobject"]["rows"], 1)
+            with self.assertRaisesRegex(ExportError, "spawn.index_missing"):
+                views.report(joined)
+            views.materialize_indexes()
+            self.assertFalse(views.report(joined)["complete"])
+            self.assertEqual([r.ordinal for r in views.scan("creature")], [0, 1])
+
+    def test_joined_stream_truncation_trailing_and_membership_refuse(self):
+        path = self.occurrences / "creature.rows"
+        original = path.read_bytes()
+        with self.io.Catalog(self.root, candidate=True) as catalog:
+            views = self.spawn.SpawnViews(catalog)
+            for data, diagnostic in [(original[:-1], "catalog.truncated"),
+                                     (original + b"x", "spawn.trailing")]:
+                path.write_bytes(data)
+                with self.assertRaisesRegex(ExportError, diagnostic):
+                    views.verify_occurrences(self.occurrences)
+            path.write_bytes(original)
+            self.sql_rows["creature"][0] = self.sql_rows["creature"][1]
+            forged = Path(self.tmp.name) / "forged"
+            self.spawn.capture_occurrences(self.source, forged)
+            with self.assertRaisesRegex(ExportError, "spawn.join_mismatch"):
+                views.verify_occurrences(forged)
+
+    def test_reordered_cursor_keeps_distinct_occurrence_identity(self):
+        self.sql_rows["creature"].reverse()
+        other = Path(self.tmp.name) / "reordered"
+        self.spawn.capture_occurrences(self.source, other)
+        with self.io.Catalog(self.root, candidate=True) as catalog:
+            views = self.spawn.SpawnViews(catalog)
+            first = views.verify_occurrences(self.occurrences)["creature"]
+            second = views.verify_occurrences(other)["creature"]
+            self.assertEqual(first["multiset_sha256"], second["multiset_sha256"])
+            self.assertNotEqual(first["occurrence_sha256"], second["occurrence_sha256"])
+
+    def test_spawn_views_do_not_clip_at_historical_4096_rows(self):
+        self.rows["creature"] = [tuple([str(i+1).encode(), *self.rows["creature"][0][1:]])
+                                 for i in range(4101)]
+        root = Path(self.tmp.name) / "large"
+        self.io.capture(self.source, root)
+        with self.io.Catalog(root, candidate=True) as catalog:
+            views = self.spawn.SpawnViews(catalog)
+            self.assertEqual(views.counts["creature"], 4101)
+            self.assertEqual(sum(1 for _ in views.map_rows("creature", 1)), 4101)
+            views.materialize_indexes()
+            self.assertGreater(views.index_roots["creature"]["height"], 0)
+
+    def test_rehashed_forged_map_index_membership_refuses(self):
+        with self.io.Catalog(self.root, candidate=True) as catalog:
+            views = self.spawn.SpawnViews(catalog)
+            views.materialize_indexes()
+            metadata_path = self.root / "spawn-indexes.json"
+            metadata = decode_json(metadata_path.read_bytes(), 1048576)
+            root = metadata["indexes"]["creature"]
+            page = bytearray((self.root / "indexes" / root["sha256"]).read_bytes())
+            page[48] = 1
+            h = self.io.sha(page)
+            (self.root / "indexes" / h).write_bytes(page)
+            root["sha256"] = h
+            metadata_path.write_bytes(canonical(metadata))
+            with self.assertRaisesRegex(ExportError, "spawn.index"):
+                views.verify_indexes()
+
+
+    def test_capture_byte_quota_never_publishes_a_clipped_cursor(self):
+        root = Path(self.tmp.name) / "quota"
+        with mock.patch.object(self.spawn, "MAX_RAW", 16):
+            with self.assertRaisesRegex(ExportError, "spawn.byte_limit"):
+                self.spawn.capture_occurrences(self.source, root)
+        self.assertFalse((root / "occurrences.json").exists())
+        self.assertEqual((root / "creature.rows").read_bytes(), b"")
+
+
 class CatalogStorageTests(unittest.TestCase):
     def setUp(self):
         from classic_export import catalog_io as cat

@@ -1,13 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Offline non-admitting catalog diagnostics.
-use benilla_world_runtime::native::{diagnose_catalog, diagnose_catalog_schema};
+use benilla_world_runtime::native::{
+    diagnose_catalog, diagnose_catalog_schema, diagnose_catalog_spawns,
+};
 use std::io::Write;
 use std::path::Path;
 fn main() {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    if !(2..=3).contains(&args.len()) {
+    let valid_count = if args.first().is_some_and(|arg| arg == "spawns") {
+        (3..=4).contains(&args.len())
+    } else {
+        (2..=3).contains(&args.len())
+    };
+    if !valid_count {
         eprintln!(
-            "usage: benilla-catalog schema PILOT | verify ROOT | candidate ROOT [NEW_RECEIPT]"
+            "usage: benilla-catalog schema PILOT | verify ROOT | candidate ROOT [NEW_RECEIPT] | spawns ROOT OCCURRENCES [NEW_RECEIPT]"
         );
         std::process::exit(2);
     }
@@ -15,6 +22,9 @@ fn main() {
         Some("schema") => diagnose_catalog_schema(Path::new(&args[1])),
         Some("verify") => diagnose_catalog(Path::new(&args[1]), false),
         Some("candidate") => diagnose_catalog(Path::new(&args[1]), true),
+        Some("spawns") if args.len() >= 3 => {
+            diagnose_catalog_spawns(Path::new(&args[1]), Path::new(&args[2]))
+        }
         _ => {
             eprintln!("catalog.command");
             std::process::exit(2);
@@ -22,7 +32,7 @@ fn main() {
     };
     match result {
         Ok(report) => {
-            if let Some(path) = args.get(2) {
+            if let Some(path) = args.get(if args[0] == "spawns" { 3 } else { 2 }) {
                 let result = std::fs::OpenOptions::new()
                     .write(true)
                     .create_new(true)

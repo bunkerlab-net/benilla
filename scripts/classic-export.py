@@ -71,6 +71,14 @@ def main() -> int:
         cmd.add_argument("--receipt", type=Path)
         if name == "catalog-publish":
             cmd.add_argument("--rust-receipt", type=Path, required=True)
+    cmd = sub.add_parser("catalog-spawn-capture")
+    cmd.add_argument("--credentials-file", type=Path, required=True)
+    cmd.add_argument("--output", type=Path, required=True)
+    cmd = sub.add_parser("catalog-spawn-verify")
+    cmd.add_argument("root", type=Path)
+    cmd.add_argument("--occurrences", type=Path, required=True)
+    cmd.add_argument("--receipt", type=Path, required=True)
+    cmd.add_argument("--build-indexes", action="store_true")
     for name in ["inspect", "capture", "skill-training", "reputation-policy", "global-hooks"]:
         cmd = sub.add_parser(name)
         cmd.add_argument("--database", required=True)
@@ -117,6 +125,29 @@ def main() -> int:
     cmd.add_argument("bundle", type=Path)
     args = parser.parse_args()
     try:
+        if args.command == "catalog-spawn-capture":
+            from classic_export.catalog_schema import CatalogSource
+            from classic_export.catalog_spawns import capture_occurrences
+            source = CatalogSource(args.credentials_file)
+            try:
+                result = capture_occurrences(source, args.output)
+            finally:
+                source.close()
+            print(canonical(result).decode())
+            return 0
+        if args.command == "catalog-spawn-verify":
+            from classic_export.catalog_io import Catalog
+            from classic_export.catalog_spawns import SpawnViews
+            with Catalog(args.root) as catalog:
+                views = SpawnViews(catalog)
+                if args.build_indexes:
+                    views.materialize_indexes()
+                else:
+                    views.verify_indexes()
+                result = views.report(views.verify_occurrences(args.occurrences))
+            write_new(args.receipt, result)
+            print(canonical(result).decode())
+            return 0
         if args.command == "catalog-capture":
             from classic_export.catalog_schema import CatalogSource
             from classic_export.catalog_io import capture as catalog_capture

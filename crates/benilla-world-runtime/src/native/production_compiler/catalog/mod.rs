@@ -11,6 +11,8 @@ use std::{
     time::Instant,
 };
 mod reader;
+mod spawns;
+pub use spawns::{diagnose_catalog_spawns, SpawnViews};
 #[cfg(test)]
 mod tests;
 use reader::Store;

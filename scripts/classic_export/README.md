@@ -129,6 +129,45 @@ The four zero-byte extractor outputs remain inventory evidence, not valid WDBC
 tables. Loader conversions, registry and SQL occurrences, F1 binding and owner
 coverage review remain unresolved. Every report has `complete=false`.
 
+## Complete spawn catalog views
+
+`classic_export.catalog_spawns.SpawnViews` and Rust `SpawnViews` consume the
+verified catalog. They retain every map, all alternatives, global creature/GO
+templates, models, equipment, class stats, spawn data and addons. Raw scans
+retain source ordinals and duplicate values. Typed lookup absence comes from
+the complete catalog index. Model closure includes other-gender and alternative
+models and reports missing models instead of inventing them.
+
+The immutable `spawn-indexes.json` sidecar binds the catalog identity and
+4 KiB paged map/grid/cell indexes in the catalog's content-addressed index
+directory. Both readers recompute every index member before using it. Index
+keys are big-endian map, grid, cell and GUID uint32 values. Their values are
+source uint64 ordinals. Numeric index order never replaces occurrence order.
+Invalid coordinates remain in raw views and have an explicit unindexed count.
+
+Float conversion uses source `atof` to double followed by binary32 rounding,
+including signed zero, from `Field.h:53`. Rust independently parses the SQL
+decimal prefix. Hexadecimal and named nonfinite inputs refuse rather than
+claiming an unimplemented conversion. Float-bit hashes concatenate little-endian
+uint64 row ordinal, uint32 column ordinal and uint32 result bits. Raw family
+hashes cover complete original frames in occurrence order.
+
+`catalog-spawn-capture --credentials-file FILE --output NEW_DIRECTORY` retains
+the two complete joined loader cursors as bounded catalog row frames. Their
+queries are pinned at `ObjectMgr.cpp:1877-1890,2086-2094`. Both readers reproduce
+the full outer-join multiplicities and NULL extensions from catalog rows.
+They compare the resulting multisets and separately hash the recorded cursor
+order. Missing, exhausted, surplus, forged or changed streams refuse.
+
+`catalog-spawn-verify ROOT --occurrences DIRECTORY --receipt NEW_FILE` checks
+the family and emits its independently reproducible view hash. Add
+`--build-indexes` once to write new content-addressed pages and their sidecar.
+Rust uses `benilla-catalog spawns ROOT DIRECTORY [NEW_RECEIPT]`.
+Each joined cursor has a 1 GiB byte quota and a 2,000,000-row limit. Family
+indexes and joins have a separate 32 MiB decoded budget. Limits refuse instead
+of clipping at 4,096 rows. Diagnostic cursors are not F1 occurrences. Reference-execution
+binding and gameplay admission still refuse, and native format stays 89.
+
 ## Run the dependency-free checks
 
 ```sh

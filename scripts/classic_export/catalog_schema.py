@@ -48,9 +48,12 @@ class CatalogSource:
             return result
 
     def rows(self, table):
-        import pymysql
         check(bool(re.fullmatch(r"[A-Za-z0-9_]{1,64}", table)), "catalog.table")
-        sql = "SELECT * FROM `" + table + "`"
+        yield from self.query_rows("SELECT * FROM `" + table + "`")
+
+    def query_rows(self, sql):
+        import pymysql
+        check(sql.startswith("SELECT ") and ";" not in sql, "query.not_single_select")
         self.queries.append(sql)
         # Disabling both protocol conversion and text decoding preserves SQL bytes and NULL.
         old_decoders, old_unicode = self.connection.decoders, self.connection.use_unicode

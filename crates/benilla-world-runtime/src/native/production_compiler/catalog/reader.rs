@@ -71,6 +71,42 @@ fn read_at(_: &File, _: &mut [u8], _: u64) -> Result<usize> {
     Err(fail("catalog.platform"))
 }
 impl Held {
+    pub(super) fn open(path: &Path, limit: u64) -> Result<Self> {
+        let absolute = if path.is_absolute() {
+            path.to_owned()
+        } else {
+            std::env::current_dir()
+                .map_err(|_| fail("catalog.path"))?
+                .join(path)
+        };
+        let mut parent = File::open("/").map_err(|_| fail("catalog.platform"))?;
+        let mut parts = absolute.components().peekable();
+        while let Some(part) = parts.next() {
+            match part {
+                std::path::Component::RootDir => (),
+                std::path::Component::Normal(name) => {
+                    parent = open_at(&parent, name, parts.peek().is_some())?;
+                }
+                _ => return Err(fail("catalog.path")),
+            }
+        }
+        Self::new(parent, limit)
+    }
+    pub(super) fn len(&self) -> u64 {
+        self.identity.size
+    }
+    pub(super) fn read_into(&self, offset: u64, out: &mut [u8]) -> Result<()> {
+        self.check()?;
+        check(
+            out.len() <= CHUNK && super::add(offset, out.len() as u64)? <= self.len(),
+            "catalog.truncated",
+        )?;
+        check(
+            read_at(&self.file, out, offset)? == out.len(),
+            "catalog.truncated",
+        )?;
+        self.check()
+    }
     fn new(file: File, limit: u64) -> Result<Self> {
         let identity = identity(&file)?;
         check(identity.size <= limit, "catalog.file")?;
@@ -79,7 +115,7 @@ impl Held {
     fn check(&self) -> Result<()> {
         check(identity(&self.file)? == self.identity, "catalog.changed")
     }
-    fn read(
+    pub(super) fn read(
         &self,
         offset: u64,
         size: usize,

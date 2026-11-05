@@ -201,7 +201,31 @@ mod tests {
     #[test]
     fn catalog_policy_is_exhaustive_and_non_admitting() {
         assert_eq!(POLICY["tables"].as_object().unwrap().len(), 194);
-        assert_eq!(POLICY["loaders"].as_object().unwrap().len(), 179);
+        assert_eq!(POLICY["loaders"].as_object().unwrap().len(), 182);
+        let tables = POLICY["tables"].as_object().unwrap();
+        assert_eq!(
+            tables
+                .values()
+                .filter(|t| t["status"] == "consumed")
+                .count(),
+            173
+        );
+        assert_eq!(
+            tables
+                .values()
+                .filter(|t| t["status"] == "archive-only")
+                .count(),
+            21
+        );
+        for table in tables.values().filter(|t| t["status"] == "archive-only") {
+            assert_eq!(table["loaders"], json!([]));
+            assert!(table["evidence"]["search"]
+                .as_str()
+                .is_some_and(|s| !s.is_empty()));
+            assert!(table["evidence"]["result"]
+                .as_str()
+                .is_some_and(|s| !s.is_empty()));
+        }
         assert_eq!(POLICY["review"], "pending-owner-content-compiler-review");
     }
     #[test]
