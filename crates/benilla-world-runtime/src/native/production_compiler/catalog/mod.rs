@@ -17,6 +17,8 @@ mod groups;
 pub use groups::diagnose_catalog_groups;
 mod pools;
 pub use pools::diagnose_catalog_pools;
+mod events;
+pub use events::diagnose_catalog_events;
 #[cfg(test)]
 mod tests;
 use reader::Store;

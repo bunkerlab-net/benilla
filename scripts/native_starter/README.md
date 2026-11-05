@@ -23,6 +23,12 @@ The [catalog commands](../classic_export/README.md#complete-pool-catalog-views)
 compare Python and Rust records. ObjectMgr effective-spawn validation, F1
 binding, and gameplay admission remain explicit refusals.
 
+Complete event and weather inputs use the separate
+[event catalog diagnostic](../classic_export/README.md#event-and-weather-catalog-views).
+It binds all seven event tables, weather seasons and the exact immutable initial
+character-DB event-state reference. It never infers active events from an empty
+persisted table or relaxes the legacy selected event/weather exclusions.
+
 ## Smallest concrete target
 
 A selected Human Mage (race 1, class 8), level one is a candidate, not bundled

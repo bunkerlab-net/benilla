@@ -169,6 +169,52 @@ indexes and joins have a separate 32 MiB decoded budget. Limits refuse instead
 of clipping at 4,096 rows. Diagnostic cursors are not F1 occurrences. Reference-execution
 binding and gameplay admission still refuse, and native format stays 89.
 
+## Event and weather catalog views
+
+`catalog-event-capture --credentials-file FILE --output NEW_DIRECTORY` retains
+the nine pinned world-loader cursors. `catalog-event-verify ROOT --occurrences
+DIRECTORY --initial-snapshot FILE --environment FILE --records NEW_DIRECTORY
+--receipt NEW_FILE` independently checks every projection, joined duplicate,
+NULL extension and the scalar `MAX(entry)`, including its NULL empty-table row.
+Rust uses `benilla-catalog events ROOT OCCURRENCES SNAPSHOT ENVIRONMENT RECORDS
+[NEW_RECEIPT]`. Both readers emit byte-identical per-row JSONL dispositions and
+bind every output file by count, byte length and SHA-256. No real rows are committed.
+
+Pinned owners at CMaNGOS `8ec338a1` are `GameEvents/GameEventMgr.cpp:92,107,196`
+for definitions/calendars, `:237,319` for signed creature/GO membership joins,
+`:410` for substitutions, `:499,557` for quest/mail links, and `:640` for the
+separate CharacterDatabase initial-state query. `Weather/Weather.cpp:436,458-480`
+loads all four seasons and resets each chance above 100 to 25. Their sum is not
+clamped. The report retains the source's season for every day-of-year value,
+including leap day, using `Weather.cpp:110-112`.
+
+Membership signs remain distinct. Mail events use the source's unsigned
+`GetUInt16`, even for negative raw input, `GameEventMgr.cpp:576`.
+Missing event/spawn/quest/mail/sender references remain rejected dispositions.
+Missing substitution equipment, creature entries and spells become zero,
+`:464-485`, while the raw frame remains intact. Linked calendar targets, disabled
+occurrences and ignored calendar rows remain explicit. `MailTemplate.dbc` uses
+the pinned ID-only layout, `Server/DBCfmt.h:66`, loaded at `DBCStores.cpp:338`.
+No event model validation is invented where the source has none.
+
+Initial event state comes only from the supplied immutable pre-start character
+dump. The descriptor binds its exact bytes and the `game_event_status` rows.
+An empty table is not a missing table or an inferred active-event set.
+The supported dump grammar has one unsigned event column and its primary key;
+unknown statements, duplicate status IDs and missing schema/data delimiters refuse.
+The environment receipt must record UTC, C locale and the pinned UTC tzdata hash.
+Its exact bytes and tzdata descriptor enter the input identity. This read-only
+receipt does not prove hidden clock coverage inside the reference execution.
+
+The records describe row-local source validation, not duplicate-winner selection
+or executable manager state. Dates remain raw bytes pending the pinned
+`Field.cpp:24-30` calendar conversion and recorded clock samples. Pool event
+exclusions, linked-calendar evaluation, event start/stop actions and random
+weather transitions remain executable obligations. Reports retain `complete=false`
+and refuse reference execution, calendar execution, pool execution and gameplay
+admission. The diagnostic world cursors are not F1 occurrences. Native format
+stays 89 and legacy selected event/weather exclusions are unchanged.
+
 ## Group, linking and core waypoint views
 
 `catalog-group-capture --credentials-file FILE --output NEW_DIRECTORY` retains
