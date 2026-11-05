@@ -3,6 +3,7 @@
 //! OriginalFixture `World` v2 remains distinct. This module is not a full Classic server.
 mod creature_pose_cells;
 mod production_compiler;
+pub use production_compiler::diagnose_catalog_groups;
 pub use production_compiler::{
     diagnose_catalog, diagnose_catalog_schema, diagnose_catalog_spawns, diagnose_production_inputs,
     CatalogRowView, CheckedLootDraft, ProductionDiagnostic, ProductionInputPaths,

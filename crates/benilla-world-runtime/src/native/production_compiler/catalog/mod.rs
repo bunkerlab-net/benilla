@@ -13,6 +13,8 @@ use std::{
 mod reader;
 mod spawns;
 pub use spawns::{diagnose_catalog_spawns, SpawnViews};
+mod groups;
+pub use groups::diagnose_catalog_groups;
 #[cfg(test)]
 mod tests;
 use reader::Store;

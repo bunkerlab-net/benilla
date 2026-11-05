@@ -77,7 +77,7 @@ fn numeric(raw: Option<&[u8]>) -> Result<&[u8]> {
         .next()
         .unwrap_or(b""))
 }
-fn uint(raw: Option<&[u8]>) -> Result<u32> {
+pub(super) fn uint(raw: Option<&[u8]>) -> Result<u32> {
     // Field::GetUInt32 casts atoll, src/shared/Database/Field.h:59.
     let raw = numeric(raw)?;
     let negative = raw.first() == Some(&b'-');
@@ -103,7 +103,7 @@ fn uint(raw: Option<&[u8]>) -> Result<u32> {
         value as u32
     })
 }
-fn floating(raw: Option<&[u8]>) -> Result<f32> {
+pub(super) fn floating(raw: Option<&[u8]>) -> Result<f32> {
     // Parse SQL decimal text to double before casting, src/shared/Database/Field.h:53.
     let raw = numeric(raw)?;
     let mut end = usize::from(matches!(raw.first(), Some(b'+' | b'-')));

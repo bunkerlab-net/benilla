@@ -168,6 +168,54 @@ indexes and joins have a separate 32 MiB decoded budget. Limits refuse instead
 of clipping at 4,096 rows. Diagnostic cursors are not F1 occurrences. Reference-execution
 binding and gameplay admission still refuse, and native format stays 89.
 
+## Group, linking and core waypoint views
+
+`catalog-group-capture --credentials-file FILE --output NEW_DIRECTORY` retains
+all 15 pinned loader cursors, including the three grouped `COUNT(Point)` queries.
+`catalog-group-verify ROOT --occurrences DIRECTORY --receipt NEW_FILE` recomputes
+their complete projections and counts from the checked catalog. Rust independently
+does the same with `benilla-catalog groups ROOT DIRECTORY [NEW_RECEIPT]`.
+Both compare every projected occurrence, preserve duplicates and NULLs, and bind
+recorded cursor order separately from catalog index order. Rehashed forged,
+missing, exhausted, surplus and wrong-query streams refuse.
+
+Pinned loader owners at CMaNGOS `8ec338a1` are:
+
+| Table | Source under `src/game/` |
+| --- | --- |
+| `spawn_group` | `Globals/ObjectMgr.cpp:1125` |
+| `spawn_group_formation` | `Globals/ObjectMgr.cpp:1192` |
+| `spawn_group_spawn` | `Globals/ObjectMgr.cpp:1250` |
+| `spawn_group_entry` | `Globals/ObjectMgr.cpp:1355` |
+| `spawn_group_linked_group` | `Globals/ObjectMgr.cpp:1398` |
+| `spawn_group_squad` | `Globals/ObjectMgr.cpp:1426` |
+| `creature_linking_template` | `Entities/CreatureLinkingMgr.cpp:75` |
+| `creature_linking` | `Entities/CreatureLinkingMgr.cpp:120` |
+| `creature_movement` | `MotionGenerators/WaypointManager.cpp:173,198` |
+| `creature_movement_template` | `MotionGenerators/WaypointManager.cpp:302,329` |
+| `waypoint_path` | `MotionGenerators/WaypointManager.cpp:400,441` |
+| `waypoint_path_name` | `MotionGenerators/WaypointManager.cpp:427` |
+
+The family report binds all raw frames, float-conversion bits, loader projections,
+grouped counts and reference summaries. GUID membership uses the group's creature
+or GO namespace. Missing formation is valid. Linked groups and squad overrides
+remain explicit inputs, not empty exclusions. The summaries retain duplicate
+membership, missing endpoints, cross-map associations, invalid linking flags,
+self-despawn links, nonunique entry masters, point-zero paths and waypoint gaps.
+`COUNT(Point)` counts non-NULL rows across every PathId, not the maximum point.
+Template path keys use the source's wrapping `(Entry << 8) + PathId`.
+
+These are complete source input views, not effective executable managers.
+Reference-dependent condition/expression checks, pool/event exclusions, formation
+slot corrections, squad selection, script/terrain waypoint corrections and the
+dynamic unique-master query's reached occurrence still require the selected
+execution. Raw invalid rows remain evidence. Summaries do not choose a duplicate
+winner or make a source skip into a catalog rejection. All reports have
+`complete=false`; `groups.reference_execution_missing` and
+`groups.gameplay_not_admitted` remain refusals. No legacy selected spawn plan
+can use this diagnostic report to admit gameplay. Native format stays 89.
+
+
 ## Run the dependency-free checks
 
 ```sh

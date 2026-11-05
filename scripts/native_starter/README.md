@@ -9,6 +9,12 @@ executable world: the output is `benilla-native-starter-preparation-v1`, always
 trust flag, `WorldData` conversion, native mechanics token or inferred defaults.
 The existing `Rules::validate` rejection is unchanged.
 
+Complete catalog group, linking and waypoint inputs use the separate
+[catalog family diagnostic](../classic_export/README.md#group-linking-and-core-waypoint-views).
+It binds all twelve tables and fifteen pinned query views independently in
+Python and Rust. It does not relax this legacy compiler's selected group,
+linking or waypoint refusals, or supply executable manager state.
+
 ## Smallest concrete target
 
 A selected Human Mage (race 1, class 8), level one is a candidate, not bundled
