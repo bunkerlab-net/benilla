@@ -755,6 +755,9 @@ fn condition_inputs(
 /// Recomputes every field disposition and dependency from the current catalog.
 pub fn diagnose_catalog_spells(root: &Path, output: Option<&Path>) -> Result<Value> {
     let mut catalog = VerifiedCatalog::open(root, false)?;
+    prepare(&mut catalog, output)
+}
+pub(super) fn prepare(catalog: &mut VerifiedCatalog, output: Option<&Path>) -> Result<Value> {
     let schema = bounded_json(&catalog.object(&descriptor(&catalog.manifest["schema_root"])?, 0)?)?;
     check(
         catalog.manifest["core_revision"] == POLICY["core_revision"],
@@ -853,10 +856,7 @@ pub fn diagnose_catalog_spells(root: &Path, output: Option<&Path>) -> Result<Val
         .keys()
         .filter(|n| *n != "spell_template")
     {
-        aux.insert(
-            table.clone(),
-            read_table(&mut catalog, table, &mut retained)?,
-        );
+        aux.insert(table.clone(), read_table(catalog, table, &mut retained)?);
     }
     let chains = chains(&spells, &talents, &abilities, &aux["spell_chain"])?;
     let mut statuses = Statuses::from([("spell_chain".into(), chains.dispositions.clone())]);
@@ -996,13 +996,7 @@ pub fn diagnose_catalog_spells(root: &Path, output: Option<&Path>) -> Result<Val
         pet_inputs(&aux["spell_pet_auras"], &spells),
     );
     statuses.extend(condition_inputs(
-        &mut catalog,
-        &schema,
-        &aux,
-        &spells,
-        &ids,
-        &chains,
-        &mut plans,
+        catalog, &schema, &aux, &spells, &ids, &chains, &mut plans,
     )?);
     let lookup_fields = [
         ("SpellCastTimes.dbc", "castingtimeindex"),
@@ -1084,7 +1078,7 @@ pub fn diagnose_catalog_spells(root: &Path, output: Option<&Path>) -> Result<Val
         families.insert(name.clone(),json!({"raw_sha256":hex(&raw.finalize()),"fields":spec["fields"],"source":spec["source"],"stream":stream.finish()?,"dispositions":counts,"whole_empty":catalog.relations[name].rows==0}));
     }
     let inventory = bounded_json(&catalog.object(&descriptor(&catalog.manifest["dbc_root"])?, 0)?)?;
-    let client = dbc::open(&mut catalog, &inventory, "Spell.dbc", None)?;
+    let client = dbc::open(catalog, &inventory, "Spell.dbc", None)?;
     let client_count = client.record_count();
     drop(client);
     let mut result = json!({"format":"benilla-spell-views-v1","catalog_sha256":catalog.manifest["catalog_sha256"],"policy_sha256":json::digest(&*POLICY),"families":families,"dbc_dependencies":dependencies,"client_spell":{"sha256":inventory["Spell.dbc"]["sha256"],"bytes":inventory["Spell.dbc"]["bytes"],"records":client_count,"server_store":false},"plans":plans.finish()?,"fallback_chain_rows":chains.fallback.len(),"chain_rows":chains.nodes.len(),"learn_skills":skills,"sql_spell_rows":spells.len(),"condition_rows":CONDITIONS.iter().map(|t|catalog.relations[*t].rows).sum::<u64>(),"complete":false,"refusals":REFUSALS});

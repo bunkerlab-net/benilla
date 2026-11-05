@@ -423,7 +423,14 @@ pub fn diagnose_catalog_pools(
     records: Option<&Path>,
 ) -> Result<Value> {
     let mut catalog = VerifiedCatalog::open(root, false)?;
-    let _spawns = SpawnViews::build(&mut catalog)?;
+    prepare(&mut catalog, occurrences, records)
+}
+pub(super) fn prepare(
+    catalog: &mut VerifiedCatalog,
+    occurrences: &Path,
+    records: Option<&Path>,
+) -> Result<Value> {
+    let _spawns = SpawnViews::build(catalog)?;
     let d = descriptor(&catalog.manifest["schema_root"])?;
     let schema = bounded_json(&catalog.object(&d, 0)?)?;
     let mut counts = BTreeMap::new();
@@ -461,8 +468,8 @@ pub fn diagnose_catalog_pools(
     )?;
     catalog_schema::fields(&meta["streams"], &STREAMS, "pool.occurrences")?;
     let mut state = State {
-        maximum: maximum(&mut catalog, &schema)?.unwrap_or(0) & 65535,
-        maps: maps(&mut catalog)?,
+        maximum: maximum(catalog, &schema)?.unwrap_or(0) & 65535,
+        maps: maps(catalog)?,
         ..State::default()
     };
     let mut streams = BTreeMap::new();
@@ -473,7 +480,7 @@ pub fn diagnose_catalog_pools(
         let budget = DECODED
             .checked_sub(spawn_charge + state.records.len() * 640 + 2_097_152)
             .ok_or_else(|| fail("pool.decoded_limit"))?;
-        let expected = expected(&mut catalog, &schema, i, budget)?;
+        let expected = expected(catalog, &schema, i, budget)?;
         state.budget = Some(DECODED - spawn_charge - expected.len() * 256 - 2_097_152);
         let d = &meta["streams"][name];
         catalog_schema::fields(d, &["sha256", "bytes", "rows", "query"], "pool.query")?;
@@ -497,7 +504,7 @@ pub fn diagnose_catalog_pools(
             |ordinal, cells| {
                 let map = if (2..=5).contains(&i) {
                     spawn_map(
-                        &mut catalog,
+                        catalog,
                         &schema,
                         if i <= 3 { "creature" } else { "gameobject" },
                         uint(cells[0])?,

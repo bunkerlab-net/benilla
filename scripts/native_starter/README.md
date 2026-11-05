@@ -550,3 +550,9 @@ All race/class masks and locale absence states remain available without
 changing the meaning or acceptance of the selected route plans. Loot cycles,
 source order gaps, unbound player configuration, and loaded-manager execution
 remain non-admitting.
+
+Full catalog preparation-v2 aggregates those families and records every
+remaining execution obligation. Identity-v2 binds preparation forward.
+F1 remains a typed pending obligation, not an invented execution hash.
+Both formats remain diagnostic and cannot admit a Profile or capability.
+See the [full catalog commands and ledger](../classic_export/README.md#full-catalog-preparation-and-completion-ledger).

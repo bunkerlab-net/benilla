@@ -186,7 +186,7 @@ fn input_bytes(path: &Path) -> Result<Vec<u8>> {
     let held = reader::Held::open(path, CHUNK as u64)?;
     held.read(0, held.len() as usize, &mut Metrics::default(), CACHE)
 }
-fn initial_state(snapshot: &Path, environment: &Path) -> Result<Value> {
+pub(super) fn initial_state(snapshot: &Path, environment: &Path) -> Result<Value> {
     let raw = input_bytes(snapshot)?;
     let text = std::str::from_utf8(&raw).map_err(|_| fail("events.initial_state"))?;
     let marker = "LOCK TABLES `game_event_status` WRITE;\n";
@@ -546,6 +546,14 @@ pub fn diagnose_catalog_events(
 ) -> Result<Value> {
     let state = initial_state(snapshot, environment)?;
     let mut catalog = VerifiedCatalog::open(root, false)?;
+    prepare(&mut catalog, occurrences, state, records)
+}
+pub(super) fn prepare(
+    catalog: &mut VerifiedCatalog,
+    occurrences: &Path,
+    state: Value,
+    records: &Path,
+) -> Result<Value> {
     let schema = bounded_json(&catalog.object(&descriptor(&catalog.manifest["schema_root"])?, 0)?)?;
     let meta = bounded_json(&input_bytes(&occurrences.join("occurrences.json"))?)?;
     catalog_schema::fields(
@@ -577,7 +585,7 @@ pub fn diagnose_catalog_events(
                 && d["bytes"].as_u64().is_some_and(|n| n <= MAX_RAW),
             "events.hash",
         )?;
-        let (columns, wanted) = expected(&mut catalog, &schema, spec)?;
+        let (columns, wanted) = expected(catalog, &schema, spec)?;
         let mut report = verify_stream(
             &occurrences.join(format!("{key}.rows")),
             columns,
@@ -602,7 +610,7 @@ pub fn diagnose_catalog_events(
             json!({"rows":count,"raw_sha256":hex(&hash.finalize())}),
         );
     }
-    let plans = plans(&mut catalog, &schema, records)?;
+    let plans = plans(catalog, &schema, records)?;
     let mut report = json!({"format":"benilla-event-views-v1","catalog_sha256":catalog.manifest["catalog_sha256"],"families":families,"loaders":loaders,"initial_state":state,"plans":plans,"complete":false,"refusals":["events.reference_execution_missing","events.calendar_execution_missing","events.pool_execution_missing","events.gameplay_not_admitted"]});
     report["weather_calendar"] = json!({"source":"src/game/Weather/Weather.cpp:112",
         "season_by_yday":(0..366).map(|day|((day+365-78)/91)%4).collect::<Vec<u32>>()});

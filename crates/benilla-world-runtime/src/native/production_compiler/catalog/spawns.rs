@@ -726,9 +726,12 @@ pub(super) fn visit_key(
 }
 pub fn diagnose_catalog_spawns(root: &Path, occurrences: &Path) -> Result<Value> {
     let mut catalog = VerifiedCatalog::open(root, false)?;
-    let mut views = SpawnViews::build(&mut catalog)?;
-    views.verify_indexes(&mut catalog)?;
-    views.verify_occurrences(&mut catalog, occurrences)?;
+    prepare(&mut catalog, occurrences)
+}
+pub(super) fn prepare(catalog: &mut VerifiedCatalog, occurrences: &Path) -> Result<Value> {
+    let mut views = SpawnViews::build(catalog)?;
+    views.verify_indexes(catalog)?;
+    views.verify_occurrences(catalog, occurrences)?;
     views.report["view_sha256"] = json!(json::digest(&views.report));
     Ok(views.report)
 }

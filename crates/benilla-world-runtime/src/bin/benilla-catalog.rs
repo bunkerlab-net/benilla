@@ -4,6 +4,7 @@ use benilla_world_runtime::native::diagnose_catalog_content;
 use benilla_world_runtime::native::diagnose_catalog_dbc;
 use benilla_world_runtime::native::diagnose_catalog_events;
 use benilla_world_runtime::native::diagnose_catalog_groups;
+use benilla_world_runtime::native::diagnose_catalog_preparation;
 use benilla_world_runtime::native::diagnose_catalog_scripts;
 use benilla_world_runtime::native::diagnose_catalog_spells;
 use benilla_world_runtime::native::{
@@ -13,7 +14,9 @@ use std::io::Write;
 use std::path::Path;
 fn main() {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    let valid_count = if args.first().is_some_and(|arg| arg == "content") {
+    let valid_count = if args.first().is_some_and(|arg| arg == "prepare") {
+        (4..=5).contains(&args.len())
+    } else if args.first().is_some_and(|arg| arg == "content") {
         args.len() == 5
     } else if args.first().is_some_and(|arg| arg == "spells") {
         (2..=4).contains(&args.len())
@@ -36,11 +39,17 @@ fn main() {
     };
     if !valid_count {
         eprintln!(
-            "usage: benilla-catalog content ROOT FAMILY NEW_RECEIPT NEW_RECORDS_DIRECTORY | schema PILOT | verify ROOT | candidate ROOT [NEW_RECEIPT] | spawns ROOT OCCURRENCES [NEW_RECEIPT] | groups ROOT OCCURRENCES [NEW_RECEIPT] | pools ROOT OCCURRENCES [NEW_RECEIPT [NEW_RECORDS_DIRECTORY]] | events ROOT OCCURRENCES SNAPSHOT ENVIRONMENT RECORDS [NEW_RECEIPT] | dbc ROOT OCCURRENCES [NEW_RECEIPT [NEW_RECORDS_DIRECTORY]] | scripts ROOT OCCURRENCES REGISTRATION_INPUT [NEW_RECEIPT] | spells ROOT [NEW_RECEIPT [NEW_RECORDS_DIRECTORY]]"
+            "usage: benilla-catalog prepare ROOT INPUTS NEW_OUTPUT [EXPECTED_OUTPUT] | content ROOT FAMILY NEW_RECEIPT NEW_RECORDS_DIRECTORY | schema PILOT | verify ROOT | candidate ROOT [NEW_RECEIPT] | spawns ROOT OCCURRENCES [NEW_RECEIPT] | groups ROOT OCCURRENCES [NEW_RECEIPT] | pools ROOT OCCURRENCES [NEW_RECEIPT [NEW_RECORDS_DIRECTORY]] | events ROOT OCCURRENCES SNAPSHOT ENVIRONMENT RECORDS [NEW_RECEIPT] | dbc ROOT OCCURRENCES [NEW_RECEIPT [NEW_RECORDS_DIRECTORY]] | scripts ROOT OCCURRENCES REGISTRATION_INPUT [NEW_RECEIPT] | spells ROOT [NEW_RECEIPT [NEW_RECORDS_DIRECTORY]]"
         );
         std::process::exit(2);
     }
     let result = match args[0].to_str() {
+        Some("prepare") => diagnose_catalog_preparation(
+            Path::new(&args[1]),
+            Path::new(&args[2]),
+            Path::new(&args[3]),
+            args.get(4).map(Path::new),
+        ),
         Some("content") => diagnose_catalog_content(
             Path::new(&args[1]),
             args[2].to_str().unwrap_or(""),
@@ -85,7 +94,9 @@ fn main() {
     };
     match result {
         Ok(report) => {
-            if let Some(path) = args.get(if args[0] == "content" {
+            if let Some(path) = args.get(if args[0] == "prepare" {
+                args.len()
+            } else if args[0] == "content" {
                 3
             } else if args[0] == "events" {
                 6

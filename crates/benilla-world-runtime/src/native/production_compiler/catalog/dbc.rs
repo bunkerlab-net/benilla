@@ -453,6 +453,13 @@ pub fn diagnose_catalog_dbc(
     output: Option<&Path>,
 ) -> Result<Value> {
     let mut catalog = VerifiedCatalog::open(root, false)?;
+    prepare(&mut catalog, occurrence_root, output)
+}
+pub(super) fn prepare(
+    catalog: &mut VerifiedCatalog,
+    occurrence_root: &Path,
+    output: Option<&Path>,
+) -> Result<Value> {
     check(
         catalog.manifest["core_revision"] == POLICY["core_revision"],
         "dbc.source_pin",
@@ -484,7 +491,7 @@ pub fn diagnose_catalog_dbc(
         let mut view = if spec.is_some() {
             catalog.dbc_view(name)?
         } else {
-            open(&mut catalog, &inventory, name, None)?
+            open(catalog, &inventory, name, None)?
         };
         let mut handle = if let Some(path) = output.filter(|_| spec.is_some()) {
             Some(
@@ -513,8 +520,8 @@ pub fn diagnose_catalog_dbc(
         report["layout"] = spec.unwrap_or(Value::Null);
         files.insert(name.clone(), report);
     }
-    let mut transport = transports(&mut catalog, &inventory, &schema)?;
-    transport["occurrences"] = occurrences::verify(&mut catalog, &schema, occurrence_root)?;
+    let mut transport = transports(catalog, &inventory, &schema)?;
+    transport["occurrences"] = occurrences::verify(catalog, &schema, occurrence_root)?;
     let client = super::super::COMPILER_CONTRACT["dbc_layouts"]["Spell"].clone();
     let strings = client["strings"].as_array().unwrap();
     let fmt: String = (0..173)
@@ -529,21 +536,15 @@ pub fn diagnose_catalog_dbc(
         })
         .collect();
     let spell = open(
-        &mut catalog,
+        catalog,
         &inventory,
         "Spell.dbc",
         Some(json!({"format":fmt,"record_bytes":client["size"]})),
     )?
     .report(None)?;
-    let sql = raw_relation(&mut catalog, "spell_template")?;
+    let sql = raw_relation(catalog, "spell_template")?;
     let locale = locale_selection(
-        open(
-            &mut catalog,
-            &inventory,
-            "ChrRaces.dbc",
-            layout("ChrRaces.dbc"),
-        )?
-        .lookup(1)?,
+        open(catalog, &inventory, "ChrRaces.dbc", layout("ChrRaces.dbc"))?.lookup(1)?,
         0,
     )?;
     let mut result = json!({"format":"benilla-dbc-catalog-views-v1","catalog_sha256":catalog.manifest["catalog_sha256"],"layout_policy_sha256":json::digest(&*POLICY),"files":files,"transports":transport,

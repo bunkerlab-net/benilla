@@ -147,6 +147,9 @@ fn verify_stream(path: &Path, columns: usize, expected: &[[u8; 32]], d: &Value) 
 /// Recomputes every loader projection and grouped count from checked source rows.
 pub fn diagnose_catalog_groups(root: &Path, occurrences: &Path) -> Result<Value> {
     let mut catalog = VerifiedCatalog::open(root, false)?;
+    prepare(&mut catalog, occurrences)
+}
+pub(super) fn prepare(catalog: &mut VerifiedCatalog, occurrences: &Path) -> Result<Value> {
     let schema = bounded_json(&catalog.object(&descriptor(&catalog.manifest["schema_root"])?, 0)?)?;
     let held = reader::Held::open(&occurrences.join("occurrences.json"), CHUNK as u64)?;
     let meta = bounded_json(&held.read(0, held.len() as usize, &mut Metrics::default(), CACHE)?)?;
@@ -180,7 +183,7 @@ pub fn diagnose_catalog_groups(root: &Path, occurrences: &Path) -> Result<Value>
                 && d["bytes"].as_u64().is_some_and(|n| n <= MAX_RAW),
             "groups.hash",
         )?;
-        let (columns, wanted) = expected(&mut catalog, &schema, spec)?;
+        let (columns, wanted) = expected(catalog, &schema, spec)?;
         let mut report = verify_stream(
             &occurrences.join(format!("{key}.rows")),
             columns,
@@ -233,7 +236,7 @@ pub fn diagnose_catalog_groups(root: &Path, occurrences: &Path) -> Result<Value>
         *report = json!({"rows":count,"raw_sha256":hex(&raw.finalize()),"float_bits_sha256":hex(&bits.finalize())});
     }
     let mut report = json!({"format":"benilla-group-views-v1","catalog_sha256":catalog.manifest["catalog_sha256"],"families":families,"loaders":loaders,"complete":false,"refusals":["groups.reference_execution_missing","groups.gameplay_not_admitted"]});
-    report["plans"] = plan::plans(&mut catalog, &schema)?;
+    report["plans"] = plan::plans(catalog, &schema)?;
     report["view_sha256"] = Value::String(json::digest(&report));
     Ok(report)
 }

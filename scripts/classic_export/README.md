@@ -466,6 +466,60 @@ configuration, locale storage-index encounter order, effective loaded managers,
 and F1 service ties remain refusals. Catalog presence never proves a gameplay
 handler or a successful source validation branch.
 
+## Full catalog preparation and completion ledger
+
+`catalog-prepare ROOT --inputs INPUTS --output NEW_DIRECTORY` and
+`benilla-catalog prepare ROOT INPUTS NEW_DIRECTORY` independently aggregate
+every F2.2-F2.9 family over one checked catalog. Add `--expected DIRECTORY`
+to the Python command, or a final `EXPECTED_DIRECTORY` argument to Rust,
+to compare a submitted preparation against freshly recomputed inputs.
+Neither command trusts submitted counts, negative lookups, flags, or hashes.
+
+The input document has format `benilla-catalog-preparation-input-v1`.
+It names `catalog_sha256`, `source_snapshot`, `reference_execution`,
+`occurrences`, `registration`, `initial_snapshot`, and `environment`.
+Each file descriptor contains `path`, `bytes`, and `sha256`.
+`occurrences` requires exactly `spawn`, `group`, `pool`, `event`, `dbc`, and
+`script`, each naming its checked `occurrences.json`. The other descriptors
+name the F2.7 registration input, immutable character dump, and environment
+receipt. Observed family cursor hashes must match those bound descriptors.
+Host paths do not enter the deterministic preparation identity.
+
+F1 remains unsealed. `reference_execution` must equal the typed
+`pending_reference` object in `catalog_preparation_policy.json`. It lists
+the missing initial-snapshot, executable/build, SQL-occurrence,
+registration-occurrence, causal-coverage, and nonperturbation proofs.
+No execution hash substitutes for those proofs. Every report keeps
+`complete=false`, and identity-v2 keeps `runtime_admitted=false`.
+
+`preparation.json` contains preparation-v2, every family status, all
+remaining obligations grouped as `F1_binding`, `loader_execution`,
+`configuration`, or `handlers`, and complete raw-field dispositions for
+all classified SQL relations. Cross-family row counts and raw-frame hashes
+must agree. Tables without a specialised view retain raw input plus an
+explicit view obligation. Archive classifications never imply execution.
+`identity.json` binds the resulting preparation forward, without a hash
+cycle. Existing selected-route preparation formats remain separate.
+
+`families/` contains the complete canonical reports. `source/` retains
+every original SQL frame, including NULLs, empty fields, and row ordinals.
+All family record streams have contiguous page indexes bounded to 1 MiB
+and 4,096 records per page. SQL frames and JSONL records stay within 64 KiB.
+Verification compares every record byte and refuses missing, surplus,
+reordered, truncated, or rehashed forged outputs. It also refuses omitted
+families, unknown families, changed snapshot/build bindings, and forged
+completion flags.
+Both test suites consume the bounded authored record mutations in
+`catalog_preparation_cases.json`; production answers never come from that corpus.
+
+`resources.json` remains outside deterministic identity. Its catalog read
+counters cover the shared reader across the entire aggregation. Output
+bytes, pages, and stream counts describe all indexed records. Elapsed time
+and process RSS high-water mark cover the whole run. Unsupported RSS
+platforms return null. F1 file I/O is not part of the catalog read counters.
+No Profile, capability, or native save-format change follows from this
+diagnostic preparation.
+
 ## Global spell and condition catalog views
 
 `catalog-spell-verify ROOT --receipt NEW_FILE --records NEW_DIRECTORY` reads

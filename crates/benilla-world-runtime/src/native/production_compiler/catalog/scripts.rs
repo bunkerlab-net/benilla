@@ -581,7 +581,7 @@ impl Registry {
         Ok(Value::Object(result))
     }
 }
-fn registration_input(path: &Path) -> Result<Value> {
+pub(super) fn registration_input(path: &Path) -> Result<Value> {
     let value = input_json(path, CHUNK)?;
     catalog_schema::fields(
         &value,
@@ -743,8 +743,15 @@ pub fn diagnose_catalog_scripts(
     occurrences: &Path,
     registration: &Path,
 ) -> Result<Value> {
-    let mut registration = registration_input(registration)?;
+    let registration = registration_input(registration)?;
     let mut catalog = VerifiedCatalog::open(root, false)?;
+    prepare(&mut catalog, occurrences, registration)
+}
+pub(super) fn prepare(
+    catalog: &mut VerifiedCatalog,
+    occurrences: &Path,
+    mut registration: Value,
+) -> Result<Value> {
     let schema = bounded_json(&catalog.object(&descriptor(&catalog.manifest["schema_root"])?, 0)?)?;
     let meta = bounded_json(&input_bytes(&occurrences.join("occurrences.json"), CHUNK)?)?;
     catalog_schema::fields(
@@ -778,7 +785,7 @@ pub fn diagnose_catalog_scripts(
                 && d["bytes"].as_u64().is_some_and(|n| n <= MAX_RAW),
             "scripts.hash",
         )?;
-        let (cols, expected) = expected(&mut catalog, &schema, spec)?;
+        let (cols, expected) = expected(catalog, &schema, spec)?;
         let mut result =
             verify_stream(&occurrences.join(format!("{key}.rows")), cols, expected, d)?;
         result["query"] = spec["query"].clone();
@@ -819,7 +826,7 @@ pub fn diagnose_catalog_scripts(
         })?;
         families.insert(table.into(),json!({"rows":count,"raw_sha256":hex(&hash.finalize()),"float_bits_sha256":hex(&bits.finalize())}));
     }
-    let (db, event) = summaries(&mut catalog, &schema, &db_tables)?;
+    let (db, event) = summaries(catalog, &schema, &db_tables)?;
     let spec = &catalog_schema::POLICY["loaders"]["AI/ScriptDevAI/ScriptDevAIMgr:480"];
     let mut names = BTreeSet::new();
     for relation in spec["relations"]

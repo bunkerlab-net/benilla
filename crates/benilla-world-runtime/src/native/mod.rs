@@ -6,6 +6,7 @@ mod production_compiler;
 pub use production_compiler::diagnose_catalog_content;
 pub use production_compiler::diagnose_catalog_events;
 pub use production_compiler::diagnose_catalog_groups;
+pub use production_compiler::diagnose_catalog_preparation;
 pub use production_compiler::diagnose_catalog_scripts;
 pub use production_compiler::diagnose_catalog_spells;
 pub use production_compiler::{

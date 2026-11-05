@@ -3709,6 +3709,7 @@ from test_catalog_numerics import CatalogNumericTests
 from test_catalog_content import ContentCatalogTests
 from test_catalog_content_loot import ContentLootTests
 from test_catalog_content_globals import ContentGlobalTests
+from test_catalog_preparation import CatalogPreparationTests
 
 
 if __name__ == "__main__":

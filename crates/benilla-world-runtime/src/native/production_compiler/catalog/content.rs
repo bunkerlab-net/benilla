@@ -278,10 +278,21 @@ impl VerifiedCatalog {
 }
 /// Independently derives complete content report and exact bounded record streams.
 pub fn diagnose_catalog_content(root: &Path, family: &str, output: Option<&Path>) -> Result<Value> {
+    check(
+        POLICY["families"].get(family).is_some(),
+        "content.unknown_family",
+    )?;
+    let mut catalog = VerifiedCatalog::open(root, false)?;
+    prepare(&mut catalog, family, output)
+}
+pub(super) fn prepare(
+    catalog: &mut VerifiedCatalog,
+    family: &str,
+    output: Option<&Path>,
+) -> Result<Value> {
     let spec = POLICY["families"]
         .get(family)
         .ok_or_else(|| fail("content.unknown_family"))?;
-    let mut catalog = VerifiedCatalog::open(root, false)?;
     check(
         catalog.manifest["core_revision"] == POLICY["core_revision"],
         "content.source_pin",
@@ -314,7 +325,7 @@ pub fn diagnose_catalog_content(root: &Path, family: &str, output: Option<&Path>
         reports: dbc_reports,
         words,
         outfit,
-    } = dependency_ids(&mut catalog, spec)?;
+    } = dependency_ids(catalog, spec)?;
     let mut families = serde_json::Map::new();
     let mut endpoints = Endpoints::new();
     let mut reference_edges = BTreeMap::<u32, Vec<u32>>::new();
@@ -615,7 +626,7 @@ pub fn diagnose_catalog_content(root: &Path, family: &str, output: Option<&Path>
             "stream":stream.finish()?,"dispositions":counts,"whole_empty":catalog.relations[table].rows == 0}));
     }
     if family == "quests" {
-        endpoint_plans(&mut catalog, &schema, &endpoints, &mut plans)?;
+        endpoint_plans(catalog, &schema, &endpoints, &mut plans)?;
     }
     if family == "loot" {
         loot::check_cycles(&reference_edges)?;

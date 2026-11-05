@@ -129,6 +129,11 @@ def main() -> int:
     cmd.add_argument("--family", choices=("quests", "items", "loot", "globals"), required=True)
     cmd.add_argument("--receipt", type=Path, required=True)
     cmd.add_argument("--records", type=Path, required=True)
+    cmd = sub.add_parser("catalog-prepare")
+    cmd.add_argument("root", type=Path)
+    cmd.add_argument("--inputs", type=Path, required=True)
+    cmd.add_argument("--output", type=Path, required=True)
+    cmd.add_argument("--expected", type=Path)
     for name in ["inspect", "capture", "skill-training", "reputation-policy", "global-hooks"]:
         cmd = sub.add_parser(name)
         cmd.add_argument("--database", required=True)
@@ -175,6 +180,11 @@ def main() -> int:
     cmd.add_argument("bundle", type=Path)
     args = parser.parse_args()
     try:
+        if args.command == "catalog-prepare":
+            from classic_export.catalog_preparation import prepare
+            result = prepare(args.root,args.inputs,args.output,args.expected)
+            print(canonical(result).decode())
+            return 0
         if args.command == "catalog-content-verify":
             from classic_export.catalog_io import Catalog
             from classic_export.catalog_content import ContentViews

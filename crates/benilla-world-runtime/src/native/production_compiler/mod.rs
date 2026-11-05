@@ -4,6 +4,7 @@ mod catalog;
 pub use catalog::diagnose_catalog_content;
 pub use catalog::diagnose_catalog_events;
 pub use catalog::diagnose_catalog_groups;
+pub use catalog::diagnose_catalog_preparation;
 pub use catalog::diagnose_catalog_scripts;
 pub use catalog::diagnose_catalog_spells;
 pub use catalog::{
