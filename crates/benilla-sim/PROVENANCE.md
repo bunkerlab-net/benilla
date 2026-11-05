@@ -1269,3 +1269,29 @@ and existing-reference updates without pursuit refresh.
 The [native spell contract](../benilla-world-runtime/SPELL-AUTHORITY.md#starting-food-and-drink)
 defines the selected runtime domain. These numeric reducers do not admit
 production gameplay or bundle upstream database or DBC rows.
+
+## Source timer arithmetic
+
+`src/source_time.rs` translates WorldTimer integer differences and sample
+narrowing, LP64 IntervalTimer and TimeTracker arithmetic, unsigned
+ShortTimeTracker expiry, and MapManager's interval dispatch arithmetic from
+CMaNGOS Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`.
+Copyright CMaNGOS Project contributors. Upstream GPL-2.0-or-later;
+2026 Rust translation GPL-3.0-or-later, without warranty. The preserved
+`licenses/AUTHORS.md`, `licenses/COPYRIGHT.md`, upstream GPLv2 text and
+applicable GPLv3 text cover this translation.
+
+Reviewed upstream files and full-file SHA-256:
+
+- `src/shared/Util/Timer.h:25-162`:
+  `a7d38a64661a8c73943d2b28ae5773c29c7555fbdb83358cf7aa74784378c8ab`
+- `src/shared/Util/Util.cpp:42-64`:
+  `f408c8a466a183cabdf96b0f7c18907b8cbb2144d73b0b2e8b81fdf421b43133`
+- `src/game/Maps/MapManager.cpp:40,194-227`:
+  `8554f4523d331d4e4f236dcba39af303c5c114846794a2d2cb871b49dcfefa97`
+- `src/game/Maps/MapManager.h:180`:
+  `bb5ff0741f5c78a295a96d708a0875da5881547386aea63ecfda9d30f66f05ad`
+
+The [source-time contract](SOURCE-TIME.md) defines widths, narrowing, signed
+overflow refusal and authored arithmetic tests. No wallclock, game data,
+native execution, persistence or reference-run equivalence is provided.
