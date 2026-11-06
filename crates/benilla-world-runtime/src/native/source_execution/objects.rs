@@ -303,6 +303,9 @@ impl SourceObjects {
             "execution.object_cell_map",
         )?;
         let kind = object.kind;
+        cells.validate_cell(cell)?;
+        cells.grid_remove(object)?;
+        cells.grid_add(object, cell)?;
         cells.link(handle, kind, cell)?;
         if kind.tracks_current_cell() {
             self.get_mut(handle)?.current_cell = Some(cell);
@@ -312,7 +315,14 @@ impl SourceObjects {
     pub fn unlink_cell(&mut self, handle: ObjectHandle, cells: &mut SourceCells) -> Result<()> {
         let object = self.get(handle)?;
         require(object.map == Some(cells.map()), "execution.object_cell_map")?;
+        cells.grid_remove(object)?;
         cells.unlink(handle);
+        Ok(())
+    }
+    pub(super) fn reset_map(&mut self, handle: ObjectHandle) -> Result<()> {
+        let object = self.get_mut(handle)?;
+        require(!object.in_world, "execution.residency.reset_in_world")?;
+        object.map = None;
         Ok(())
     }
     fn lookup_key(
@@ -552,15 +562,34 @@ impl SourceObjects {
     ) -> Result<CellRelocation> {
         let object = self.get(handle)?;
         require(object.map == Some(cells.map()), "execution.object_cell_map")?;
-        let kind = object.kind;
-        let active = object.active;
-        let result = cells.relocate_creature(handle, kind, target, active, |cells, pair| {
-            load_at_enter(self, cells, pair)
-        })?;
-        if let CellRelocation::Moved { new, .. } = result {
-            self.get_mut(handle)?.current_cell = Some(new);
+        require(
+            matches!(
+                object.kind,
+                SourceObjectKind::Creature | SourceObjectKind::Pet
+            ),
+            "execution.creature_relocation_kind",
+        )?;
+        let old = cells
+            .registered_cell(handle)
+            .ok_or_else(|| refuse("execution.creature_not_registered"))?;
+        require(target.validate(), "execution.cell_coordinates")?;
+        if (old.grid.x, old.grid.y) != (target.grid_x(), target.grid_y()) {
+            if !object.active && !cells.object_data_loaded(target.grid_x(), target.grid_y()) {
+                return Ok(CellRelocation::RefusedUnloaded);
+            }
+            load_at_enter(self, cells, target)?;
+            require(
+                cells.object_data_loaded(target.grid_x(), target.grid_y()),
+                "execution.relocation_loader_not_complete",
+            )?;
         }
-        Ok(result)
+        let new = cells.cell(target)?;
+        if new == old {
+            return Ok(CellRelocation::SameCell);
+        }
+        // Re-read live flags and allocation after the reentrant entry loader.
+        self.link_cell(handle, new, cells)?;
+        Ok(CellRelocation::Moved { old, new })
     }
     // Object destruction asserts not in world, then GridReference destruction unlinks; Object.cpp:61-68, GridReference.h:58-61.
     pub fn destroy(

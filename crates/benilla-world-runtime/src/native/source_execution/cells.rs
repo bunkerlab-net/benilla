@@ -2,7 +2,7 @@
 //! Grid lifetime and intrusive source type lists, not a pose-derived index.
 use super::*;
 use benilla_sim::resident_map::CellPair;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct GridIdentity {
     pub map: MapIdentity,
@@ -49,6 +49,8 @@ pub struct SourceCells {
     cells: BTreeMap<(u16, u16), [Ends; 8]>,
     links: BTreeMap<ObjectHandle, Link>,
     update_marks: Box<[u64]>,
+    grid_active: BTreeMap<(u16, u16), BTreeSet<u64>>,
+    pub(super) removals: SourceRemovals,
 }
 impl SourceCells {
     pub fn new(map: MapIdentity) -> Result<Self> {
@@ -58,6 +60,8 @@ impl SourceCells {
             cells: BTreeMap::new(),
             links: BTreeMap::new(),
             update_marks: vec![0; 1024 * 1024 / 64].into_boxed_slice(),
+            grid_active: BTreeMap::new(),
+            removals: SourceRemovals::default(),
         })
     }
     pub fn map(&self) -> MapIdentity {
@@ -73,6 +77,108 @@ impl SourceCells {
         let fresh = *word & bit == 0;
         *word |= bit;
         fresh
+    }
+    // Grid::Add/RemoveGridObject capture the flag at those calls, not at query time; Grid.h:93-117.
+    pub(super) fn grid_add(&mut self, object: &SourceObject, cell: CellIdentity) -> Result<()> {
+        self.validate_cell(cell)?;
+        if object.active && object.kind.cell_slot().is_some_and(|slot| slot < 4) {
+            let pointer = object
+                .source_allocation
+                .ok_or_else(|| refuse("execution.residency.grid_activity_allocation"))?;
+            self.grid_active
+                .entry((cell.x, cell.y))
+                .or_default()
+                .insert(pointer);
+        }
+        Ok(())
+    }
+    pub(super) fn grid_remove(&mut self, object: &SourceObject) -> Result<()> {
+        if !object.active || object.kind.cell_slot().is_none_or(|slot| slot >= 4) {
+            return Ok(());
+        }
+        let Some(cell) = self.registered_cell(object.handle) else {
+            return Ok(());
+        };
+        let pointer = object
+            .source_allocation
+            .ok_or_else(|| refuse("execution.residency.grid_activity_allocation"))?;
+        if let Some(members) = self.grid_active.get_mut(&(cell.x, cell.y)) {
+            members.remove(&pointer);
+        }
+        Ok(())
+    }
+    pub fn active_objects_in_grid(&self, grid: GridIdentity) -> Result<u32> {
+        self.validate_grid(grid)?;
+        let mut count = 0_u32;
+        for x in grid.x * 16..grid.x * 16 + 16 {
+            for y in grid.y * 16..grid.y * 16 + 16 {
+                count = count.wrapping_add(
+                    self.cells
+                        .get(&(x, y))
+                        .map_or(0, |slots| slots[4].count as u32),
+                );
+                count = count.wrapping_add(
+                    self.grid_active
+                        .get(&(x, y))
+                        .map_or(0, |members| members.len() as u32),
+                );
+            }
+        }
+        Ok(count)
+    }
+    pub(super) fn first_in_slot(
+        &self,
+        cell: CellIdentity,
+        slot: usize,
+    ) -> Result<Option<ObjectHandle>> {
+        self.validate_cell(cell)?;
+        require(slot < 8, "execution.residency.cell_slot")?;
+        Ok(self
+            .cells
+            .get(&(cell.x, cell.y))
+            .and_then(|slots| slots[slot].first))
+    }
+    pub(super) fn next_in_slot(
+        &self,
+        object: ObjectHandle,
+        cell: CellIdentity,
+        slot: usize,
+    ) -> Result<Option<ObjectHandle>> {
+        self.validate_cell(cell)?;
+        let link = self
+            .links
+            .get(&object)
+            .ok_or_else(|| refuse("execution.residency.invalidated_cell_iterator"))?;
+        require(
+            link.cell == cell && link.slot == slot,
+            "execution.residency.changed_cell_iterator",
+        )?;
+        Ok(link.next)
+    }
+    pub(super) fn destroy_unloaded_grid(&mut self, grid: GridIdentity) -> Result<()> {
+        self.validate_grid(grid)?;
+        require(
+            !self
+                .links
+                .values()
+                .any(|link| link.cell.grid == grid && link.slot < 4),
+            "execution.residency.grid_objects_remain",
+        )?;
+        // Reverse member/array destruction invalidates world references; NGrid.h:195, TypeContainer.h:202-203, RefManager.h:35,49-55.
+        for x in (grid.x * 16..grid.x * 16 + 16).rev() {
+            for y in (grid.y * 16..grid.y * 16 + 16).rev() {
+                let cell = self.cell(
+                    CellPair::from_indices(x, y)
+                        .map_err(|_| refuse("execution.cell_coordinates"))?,
+                )?;
+                for slot in (4..8).rev() {
+                    while let Some(object) = self.first_in_slot(cell, slot)? {
+                        self.unlink(object);
+                    }
+                }
+            }
+        }
+        self.destroy_empty_grid(grid)
     }
     // Grid generations change only on reconstruction, not unload timer changes; Map.cpp:336-366.
     pub fn ensure_grid(&mut self, x: u16, y: u16) -> Result<GridIdentity> {
@@ -99,7 +205,7 @@ impl SourceCells {
             y: pair.y(),
         })
     }
-    fn validate_cell(&self, cell: CellIdentity) -> Result<()> {
+    pub(super) fn validate_cell(&self, cell: CellIdentity) -> Result<()> {
         self.validate_grid(cell.grid)?;
         require(
             cell.x < 1024
@@ -188,40 +294,6 @@ impl SourceCells {
         }
         Ok(Some(self.visit(self.cell(pair)?, container)?))
     }
-    // Reached cross-grid movement must execute its actual loader before relinking; Map.cpp:1219-1241.
-    pub(super) fn relocate_creature(
-        &mut self,
-        object: ObjectHandle,
-        kind: SourceObjectKind,
-        target: CellPair,
-        active: bool,
-        load_at_enter: impl FnOnce(&mut Self, CellPair) -> Result<()>,
-    ) -> Result<CellRelocation> {
-        require(
-            matches!(kind, SourceObjectKind::Creature | SourceObjectKind::Pet),
-            "execution.creature_relocation_kind",
-        )?;
-        let old = self
-            .registered_cell(object)
-            .ok_or_else(|| refuse("execution.creature_not_registered"))?;
-        require(target.validate(), "execution.cell_coordinates")?;
-        if (old.grid.x, old.grid.y) != (target.grid_x(), target.grid_y()) {
-            if !active && !self.object_data_loaded(target.grid_x(), target.grid_y()) {
-                return Ok(CellRelocation::RefusedUnloaded);
-            }
-            load_at_enter(self, target)?;
-            require(
-                self.object_data_loaded(target.grid_x(), target.grid_y()),
-                "execution.relocation_loader_not_complete",
-            )?;
-        }
-        let new = self.cell(target)?;
-        if new == old {
-            return Ok(CellRelocation::SameCell);
-        }
-        self.link(object, kind, new)?;
-        Ok(CellRelocation::Moved { old, new })
-    }
     // The unload owner must drain live registrations before deleting the grid; Map.cpp:1299-1313.
     pub fn destroy_empty_grid(&mut self, grid: GridIdentity) -> Result<()> {
         self.validate_grid(grid)?;
@@ -230,6 +302,8 @@ impl SourceCells {
             "execution.grid_has_registrations",
         )?;
         self.cells
+            .retain(|(x, y), _| (*x / 16, *y / 16) != (grid.x, grid.y));
+        self.grid_active
             .retain(|(x, y), _| (*x / 16, *y / 16) != (grid.x, grid.y));
         self.grids.destroy(grid)?;
         Ok(())

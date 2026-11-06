@@ -780,3 +780,67 @@ Their validators check structural identity. They are not a durable restore forma
 foreign-owner joins, legal unordered traversal history, prior SQL causality,
 sealed F1 acceptance, and F7 continuation remain required. No later F4 manager
 runs in this projection. Production admission and native format are unchanged.
+
+## Source grid expiry, teardown and terrain residency
+
+`SourceResidency` advances each linked NGrid once per map update, with the source
+map diff. It keeps ACTIVE, IDLE and REMOVAL as separate visits. Only REMOVAL
+freezes its timer under an unload lock. Failed nearby-activity checks reset the
+full expiry. It never lowers the configured cleanup delay, forces an unload,
+evicts by distance, or restores a saved object snapshot.
+
+The pinned CMaNGOS `8ec338a1` source contract is:
+
+- `GridStates.cpp:28-68`, `Map.h:177-179` update signed expiry, include equality,
+  promote the binary32 short factor before multiplying, and reset full expiry
+  after a refused natural unload. `Map.cpp:1011-1019` skips battlegrounds and
+  advances the linked iterator before each visit.
+- `Grid.h:93-117,124-125`, `NGrid.h:158-165` count linked world players and
+  the grid's active membership captured by registration/removal. Current flags
+  cannot reconstruct the set. Pointer identity, including address reuse, matters
+  for membership; pointer ordering is not needed to count.
+- `Map.cpp:1268-1317` checks nearby activity, stops grid creatures, drains,
+  relocates creatures to respawn grids, drains, unloads objects, drains again,
+  deletes the NGrid and only then releases its terrain reference.
+- `ObjectGridLoader.cpp:49-74,267-319`, `ObjectGridLoader.h:63-96` visit cells
+  x outside y. Stop advances after callbacks. The respawn mover advances first
+  and ignores a cold relocation's false result. Unload repeatedly takes each
+  grid type-list head, saving respawn time conditionally, then removing it
+  from world and deleting it. Surviving world references unlink on NGrid
+  destruction; world objects do not become ordinary grid objects.
+- `Map.cpp:1462-1508,1086-1125` cleans up before every remove-list insertion,
+  including duplicates, then erases the lowest source-pointer member before
+  removal callbacks. New removals participate in the same drain. Map::Remove
+  preserves visibility-before-unlink, removed-GUID recording, conditional
+  respawn saving and ResetMap-before-delete. Missing corpses and unsupported
+  removal types retain the source's separate logged outcomes.
+- `Creature.cpp:2285-2293,3011-3016`, `GameObject.cpp:1070-1073` distinguish fresh
+  `time(nullptr)` from the World clock snapshot. Pets and non-database creatures
+  do not write respawn state. The SaveRespawnTimeImmediately option suppresses
+  only this teardown-time save call, not earlier death/use saves.
+
+`ResidencyOwner` has mandatory reached entity and persistent-state owners.
+Missing cleanup, clock, state or persistence returns a named refusal, never a
+successful receipt. F4 owns the actual persistent map state and effects.
+The caller supplies its current runtime respawn fields, not a recorded deadline.
+The corpse TimePoint conversion checks milliseconds-to-nanoseconds overflow,
+then truncates seconds as Debian GCC 12.2 `bits/chrono.h:1127-1132` does.
+The header is from the same pinned Debian package documented above, SHA-256
+`067a90ae5b9ada21dc2e4ab1cd580ba33a54a78ce03baf7366d2658f0426b119`.
+
+`SourceTerrainResidency` owns separate shared TerrainInfo tile references and
+its minute timer. `GridMap.cpp:693-711` consumes one source `urand(20,40)` for
+the initial timer offset. `GridMap.cpp:726-759,805-825` references before load,
+keeps each map's successful-load bit separate, and only decrements on release.
+`GridMap.cpp:763-795` sweeps y outside x, deletes only present zero-reference
+tiles, unloads data before VMap/MMap, and resets the interval once.
+`GridMap.cpp:1222-1238` also permits unreferenced query-loaded tiles, negative
+load caching and later full loading of a map-only tile. That coordinate formula
+is not the NGrid's 63-coordinate conversion.
+
+The real loader uses `SourceTerrainProducts`. Actual query, terrain, VMap and
+MMap effects remain mandatory F6 owners. No geometry success fallback exists.
+`RESIDENCY_PENDING` names those F4/F5/F6 owners, sealed lifecycle inputs and
+the PR remote/unload/reload scenario. Authored factories are labelled fixtures.
+F1 PR has no retained recording here. PL forced shutdown cannot close that
+target. Production cutover, capability and native format remain unchanged.

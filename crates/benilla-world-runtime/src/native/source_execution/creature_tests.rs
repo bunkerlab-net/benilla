@@ -119,6 +119,8 @@ enum Observation {
     Save(u32, i64),
     Destroy(ObjectHandle),
     Complete(u32),
+    Residency(ResidencyEvent),
+    ResidencyPhase(ObjectHandle, ResidencyPhase),
 }
 struct Factory {
     guids: MapGuidAllocators,
@@ -788,10 +790,8 @@ fn second_grid_load_reconstructs_static_guid_with_new_construction_and_continuin
         .grids()
         .identity(cell(0.0).grid_x(), cell(0.0).grid_y())
         .unwrap();
-    world.objects.remove_from_world(old).unwrap();
-    world.objects.destroy(old, &mut world.cells).unwrap();
-    world.cells.destroy_empty_grid(grid).unwrap();
-    factory.states.clear();
+    natural_unload(&mut world, &mut factory, grid);
+    assert!(factory.states.is_empty());
     world.load(0.0, &mut factory).unwrap();
     let next = factory.states.keys().next().copied().unwrap();
     assert_ne!(old, next);
@@ -1041,5 +1041,189 @@ fn template_active_runs_in_world_set_then_map_add_and_keeps_both_spawn_lock_incr
             .active_lock_count(object.current_cell.unwrap().grid)
             .unwrap(),
         2
+    );
+}
+
+// These adapters remain inside this #[cfg(test)] module.
+impl ResidencyProductOwner for Products {
+    fn release_grid_products(&mut self, _: MapIdentity, _: ProductCoordinates) -> Result<()> {
+        assert!(self.0 > 0);
+        Ok(())
+    }
+}
+impl ActiveRelocationOwner<Definitions, Products> for Factory {}
+impl ResidencyOwner<Definitions, Products> for Factory {
+    fn residency_observe(&mut self, event: ResidencyEvent) -> Result<()> {
+        self.observations.push(Observation::Residency(event));
+        Ok(())
+    }
+    fn residency_phase(
+        &mut self,
+        object: ObjectHandle,
+        phase: ResidencyPhase,
+        _: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<()> {
+        self.observations
+            .push(Observation::ResidencyPhase(object, phase));
+        if phase == ResidencyPhase::Destructor {
+            self.states.remove(&object);
+            self.health.remove(&object);
+            self.initialized.remove(&object);
+        }
+        Ok(())
+    }
+}
+fn natural_unload(world: &mut World, factory: &mut Factory, grid: GridIdentity) {
+    let driver = SourceResidency::new(
+        map(),
+        ResidencyConfig {
+            visibility: 0.0,
+            save_respawn_immediately: true,
+            battleground: false,
+        },
+    )
+    .unwrap();
+    let draws = factory.random.cursor.raw;
+    driver.update(30000, &mut world.context(), factory).unwrap();
+    assert_eq!(world.cells.grids().phase(grid).unwrap(), NGridPhase::Idle);
+    driver.update(1, &mut world.context(), factory).unwrap();
+    assert_eq!(
+        world.cells.grids().phase(grid).unwrap(),
+        NGridPhase::Removal
+    );
+    driver
+        .update(300000, &mut world.context(), factory)
+        .unwrap();
+    assert!(world.cells.grids().identity(grid.x, grid.y).is_none());
+    assert_eq!(factory.random.cursor.raw, draws);
+}
+
+#[test]
+fn natural_reload_reconstructs_static_and_dynamic_creatures_without_resetting_rng_or_allocator() {
+    let mut dynamic = spawn(41, 0.0);
+    dynamic.entry = 8;
+    let mut world = World::new(vec![spawn(40, 0.0), dynamic]);
+    let mut factory = Factory::new();
+    factory.templates.get_mut(&8).unwrap().dynamic_guid = true;
+    world.load(0.0, &mut factory).unwrap();
+    let old: Vec<_> = factory.states.keys().copied().collect();
+    let static_guid = world.objects.get(old[0]).unwrap().guid.unwrap();
+    let dynamic_guid = world.objects.get(old[1]).unwrap().guid.unwrap();
+    assert_eq!(dynamic_guid.counter(), 110);
+    assert_eq!(factory.random.cursor.raw, 4);
+    let grid = world
+        .objects
+        .get(old[0])
+        .unwrap()
+        .current_cell
+        .unwrap()
+        .grid;
+    factory.observations.clear();
+    natural_unload(&mut world, &mut factory, grid);
+    assert!(factory.states.is_empty());
+    for object in &old {
+        assert!(world.objects.get(*object).is_err());
+    }
+    let phases: Vec<_> = factory
+        .observations
+        .iter()
+        .filter_map(|observation| {
+            if let Observation::ResidencyPhase(object, phase) = observation {
+                Some((*object, *phase))
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(
+        phases,
+        [
+            (old[1], ResidencyPhase::CombatStop),
+            (old[1], ResidencyPhase::RemoveDynamicObjects),
+            (old[0], ResidencyPhase::CombatStop),
+            (old[0], ResidencyPhase::RemoveDynamicObjects),
+            (old[1], ResidencyPhase::RemoveFromWorld),
+            (old[1], ResidencyPhase::CleanupBeforeDelete),
+            (old[1], ResidencyPhase::RemoveFromWorld),
+            (old[1], ResidencyPhase::Destructor),
+            (old[0], ResidencyPhase::RemoveFromWorld),
+            (old[0], ResidencyPhase::CleanupBeforeDelete),
+            (old[0], ResidencyPhase::RemoveFromWorld),
+            (old[0], ResidencyPhase::Destructor),
+        ]
+    );
+    let events: Vec<_> = factory
+        .observations
+        .iter()
+        .filter_map(|observation| {
+            if let Observation::Residency(event) = observation {
+                Some(*event)
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(
+        events,
+        [
+            ResidencyEvent::GridVisit(grid, NGridPhase::Active),
+            ResidencyEvent::GridVisit(grid, NGridPhase::Idle),
+            ResidencyEvent::GridVisit(grid, NGridPhase::Removal),
+            ResidencyEvent::Stop(grid),
+            ResidencyEvent::Drain(1),
+            ResidencyEvent::MoveToRespawn(grid),
+            ResidencyEvent::Drain(2),
+            ResidencyEvent::UnloadObjects(grid),
+            ResidencyEvent::Drain(3),
+            ResidencyEvent::DeleteGrid(grid),
+            ResidencyEvent::ReleaseProducts(grid),
+        ]
+    );
+    world.load(0.0, &mut factory).unwrap();
+    let new: Vec<_> = factory.states.keys().copied().collect();
+    assert_eq!(
+        new.iter()
+            .map(|object| object.construction)
+            .collect::<Vec<_>>(),
+        [3, 4]
+    );
+    assert_eq!(
+        world.objects.get(new[0]).unwrap().guid.unwrap(),
+        static_guid
+    );
+    assert_eq!(
+        world.objects.get(new[1]).unwrap().guid.unwrap().counter(),
+        111
+    );
+    assert_ne!(new[0], old[0]);
+    assert_ne!(new[1], old[1]);
+    assert_eq!(factory.random.cursor.raw, 8);
+    let raw: Vec<_> = factory
+        .random
+        .events
+        .iter()
+        .filter_map(|event| {
+            if let benilla_sim::source_rng::EventKind::Raw { word, .. } = event.kind {
+                Some(word)
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(
+        raw,
+        [
+            3499211612, 581869302, 3890346734, 3586334585, 545404204, 4161255391, 3922919429,
+            949333985
+        ]
+    );
+    assert!(
+        world
+            .cells
+            .grids()
+            .identity(grid.x, grid.y)
+            .unwrap()
+            .generation
+            > grid.generation
     );
 }

@@ -218,6 +218,7 @@ fn relocation_preserves_same_cell_order_and_requires_real_loaded_destination() {
         CellRelocation::RefusedUnloaded
     );
     let before = objects.get(a).unwrap().current_cell;
+    objects.bind_source_allocation(a, 4096, 128, 0).unwrap();
     objects.get_mut(a).unwrap().active = true;
     assert!(objects
         .relocate_creature(a, pair(600., 0.), &mut cells, |_, _, _| Err(Refusal {
@@ -246,6 +247,38 @@ fn relocation_preserves_same_cell_order_and_requires_real_loaded_destination() {
     assert_eq!(registered.len(), 2);
     assert_eq!(registered[0], a);
     assert_eq!(objects.get(registered[1]).unwrap().database_guid, 100);
+}
+
+#[test]
+fn active_grid_relocation_refuses_unbound_allocations() {
+    let (mut objects, mut cells, cell) = setup();
+    let object = spawn(
+        &mut objects,
+        &mut cells,
+        cell,
+        SourceObjectKind::Creature,
+        9,
+    );
+    objects.get_mut(object).unwrap().active = true;
+    let before = objects.get(object).unwrap().current_cell;
+    assert_eq!(
+        objects
+            .relocate_creature(object, pair(34., 0.), &mut cells, |_, _, _| {
+                panic!("same-grid relocation cannot load")
+            })
+            .unwrap_err()
+            .id,
+        "execution.residency.grid_activity_allocation"
+    );
+    assert_eq!(objects.get(object).unwrap().current_cell, before);
+    assert_eq!(cells.registered_cell(object), Some(cell));
+    assert_eq!(
+        cells
+            .visit(cell, CellContainer::Grid)
+            .unwrap()
+            .collect::<Vec<_>>(),
+        vec![object]
+    );
 }
 #[test]
 fn no_create_uses_object_data_and_grid_reconstruction_changes_cell_identity() {

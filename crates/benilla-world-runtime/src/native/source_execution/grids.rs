@@ -162,6 +162,12 @@ impl SourceGrids {
     pub fn unload_locked(&self, grid: GridIdentity) -> Result<bool> {
         Ok(self.active_lock_count(grid)? != 0 || self.explicit_lock(grid)?)
     }
+    // Map::SetUnloadLock binds the independent explicit bit; Map.h:172.
+    pub fn set_explicit_lock(&mut self, grid: GridIdentity, on: bool) -> Result<()> {
+        self.explicit_lock(grid)?;
+        self.node_mut(grid)?.explicit_lock = Some(on);
+        Ok(())
+    }
     // The uint16 bitfield wraps on increment and guards zero on decrement; NGrid.h:53-64.
     pub(super) fn change_active_lock(&mut self, grid: GridIdentity, add: bool) -> Result<u16> {
         let count = &mut self.node_mut(grid)?.active_lock_count;
@@ -177,6 +183,38 @@ impl SourceGrids {
             .expiry
             .map(|timer| timer.get_expiry())
             .ok_or_else(|| refuse("execution.pending_grid_configuration"))
+    }
+    pub(super) fn set_phase(&mut self, grid: GridIdentity, phase: NGridPhase) -> Result<()> {
+        self.node_mut(grid)?.phase = phase;
+        Ok(())
+    }
+    pub(super) fn advance_expiry(&mut self, grid: GridIdentity, diff: u32) -> Result<bool> {
+        let timer = self
+            .node_mut(grid)?
+            .expiry
+            .as_mut()
+            .ok_or_else(|| refuse("execution.pending_grid_configuration"))?;
+        timer
+            .update(i64::from(diff))
+            .map_err(|_| refuse("execution.residency.expiry_overflow"))?;
+        Ok(timer.passed())
+    }
+    pub(super) fn reset_expiry(&mut self, grid: GridIdentity, short: bool) -> Result<()> {
+        let (expiry, _) = self
+            .configuration
+            .ok_or_else(|| refuse("execution.pending_grid_configuration"))?;
+        // Promote binary32 factor before multiplication, then truncate time_t; Map.h:177-179.
+        let interval = if short {
+            (f64::from(expiry) * f64::from(0.1_f32)) as i64
+        } else {
+            i64::from(expiry)
+        };
+        self.node_mut(grid)?
+            .expiry
+            .as_mut()
+            .ok_or_else(|| refuse("execution.pending_grid_configuration"))?
+            .reset(interval);
+        Ok(())
     }
     pub(super) fn validate(&self, grid: GridIdentity) -> Result<()> {
         self.node(grid).map(|_| ())
@@ -298,12 +336,8 @@ impl SourceCells {
         let loaded = self.ensure_loaded(entry, owner)?;
         let grid = self.grids.identity(x, y).unwrap();
         if loaded && matches!(trigger, GridLoadTrigger::Enter | GridLoadTrigger::Force) {
-            let expiry = self.grids.configuration.unwrap().0;
-            // Reset uses double expiry times the binary32 factor, then truncates to time_t; Map.h:177-179.
-            let shortened = (f64::from(expiry) * f64::from(f32::from_bits(0x3dcc_cccd))) as i64;
-            let n = self.grids.node_mut(grid)?;
-            n.phase = NGridPhase::Active;
-            n.expiry.as_mut().unwrap().reset(shortened);
+            self.grids.set_phase(grid, NGridPhase::Active)?;
+            self.grids.reset_expiry(grid, true)?;
         }
         // ForceLoadGrid sets its explicit lock only in the initially-cold branch; Map.cpp:419-427.
         if trigger == GridLoadTrigger::Force && !was_loaded {
