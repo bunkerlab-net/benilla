@@ -180,6 +180,10 @@ pub trait GameObjectFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
         attempt: GridLoadAttempt,
         row: D::Row,
     ) -> Result<GameObjectSpawn>;
+    /// Object.cpp:2175-2180 lookup and spawnMask/Map::CanSpawn gate, before construction.
+    fn gameobject_dynamic_spawn_allowed(&mut self, _database: u32, _row: &D::Row) -> Result<bool> {
+        Err(refuse("execution.gameobject.dynamic_spawn_gate_owner"))
+    }
     fn gameobject_template(&mut self, entry: u32) -> Result<Option<GameObjectTemplate>>;
     fn gameobject_thread(&self) -> u64;
     fn gameobject_event_guid(&mut self, guid: u32) -> Result<bool>;
@@ -475,6 +479,43 @@ where
     P: GridProductOwner,
     F: GameObjectFactoryOwner<D, P>,
 {
+    load_source_gameobject_inner(factory, attempt, row, false, context)
+}
+
+/// Object.cpp:2173-2188 enters LoadFromDB with requested GUID zero.
+pub fn spawn_source_gameobject<D, P, F>(
+    factory: &mut F,
+    attempt: GridLoadAttempt,
+    row: D::Row,
+    context: &mut GridFactoryContext<'_, D, P>,
+) -> Result<Option<GridCandidateOutcome>>
+where
+    D: GridDefinitions,
+    P: GridProductOwner,
+    F: GameObjectFactoryOwner<D, P>,
+{
+    require(
+        attempt.kind == GridSpawnKind::GameObject,
+        "execution.gameobject_factory_kind",
+    )?;
+    if !factory.gameobject_dynamic_spawn_allowed(attempt.guid, &row)? {
+        return Ok(None);
+    }
+    load_source_gameobject_inner(factory, attempt, row, true, context).map(Some)
+}
+
+fn load_source_gameobject_inner<D, P, F>(
+    factory: &mut F,
+    attempt: GridLoadAttempt,
+    row: D::Row,
+    dynamic: bool,
+    context: &mut GridFactoryContext<'_, D, P>,
+) -> Result<GridCandidateOutcome>
+where
+    D: GridDefinitions,
+    P: GridProductOwner,
+    F: GameObjectFactoryOwner<D, P>,
+{
     require(
         attempt.kind == GridSpawnKind::GameObject,
         "execution.gameobject_factory_kind",
@@ -486,12 +527,17 @@ where
     )?;
     let initial = factory.gameobject_template(spawn.entry)?;
     if source_gameobject_factory(initial.as_ref()) == GameObjectFactoryKind::Elevator {
+        if dynamic {
+            return Err(refuse(
+                "execution.elevator_dynamic_constructor_owner_unavailable",
+            ));
+        }
         return factory.gameobject_elevator(attempt, spawn, context);
     }
     let handle = context
         .objects
         .construct(factory.gameobject_thread(), SourceObjectKind::GameObject)?;
-    let requested = if factory.gameobject_event_guid(spawn.database_guid)? {
+    let requested = if dynamic || factory.gameobject_event_guid(spawn.database_guid)? {
         0
     } else {
         spawn.database_guid

@@ -844,3 +844,58 @@ MMap effects remain mandatory F6 owners. No geometry success fallback exists.
 the PR remote/unload/reload scenario. Authored factories are labelled fixtures.
 F1 PR has no retained recording here. PL forced shutdown cannot close that
 target. Production cutover, capability and native format remain unchanged.
+
+## Source dynamic spawn manager
+
+`source_execution::SourceSpawnManager` owns the F4.02 map-local active and
+deferred vectors, typed event GUID sets, group handles and string aliases.
+It reads deadlines and writes overlays/respawn times through F4.01's real
+`SourceManagers`. `SpawnWork` must execute effective definition lookup, linking,
+group creation/update, clocks, constructors and observation output.
+There is no successful default implementation for a missing owner.
+
+The port derives from CMaNGOS Classic
+`8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`, under GPL-2.0-or-later;
+the Rust translation uses GPL-3.0-or-later:
+
+- `Maps/SpawnManager.cpp:50-109` initializes creature then GO entries using strict
+  `< now`, the creature linking gate, the GO spawn mask, and first-member group
+  map filtering. Initial eligible entries update persistent overlays.
+- `Maps/SpawnManager.cpp:112-180,260-284` preserves insertion order, deferred
+  additions during Update, inclusive due times, failed-constructor retries and
+  immediate found-zero versus scheduled missing-zero respawns.
+  Group updates run in map-key order after the update flag resets.
+- `Maps/SpawnManager.cpp:182-257` keeps first-only single removal, bulk typed
+  removal, distinct event GUID domains, and RespawnAll's unconditional attempts.
+- `Maps/SpawnManager.cpp:332-336` dispatches vicinity respawns to every group in
+  map-key order. Group owners receive unchanged position and range bits.
+- `Maps/SpawnManager.h:33-46` treats an in-use entry as used during recursive
+  respawn searches. A failed constructor that marks itself used remains until
+  the next Update, `SpawnManager.cpp:273-277`.
+- `Entities/Object.cpp:2173-2212` enters new creature/GO LoadFromDB with requested
+  GUID zero, after lookup and spawn-mask/CanSpawn gates. The new F3 entry points
+  share the existing constructors without changing grid-loader GUID selection.
+- `Maps/Map.cpp:702-729` orders calendar, collision-tree update, messages,
+  SpawnManager and transports. `update_source_map_prelude` executes this prefix,
+  not the later object visits or grid teardown.
+
+Immediate recursive Add can invalidate a held source-vector element,
+`SpawnManager.cpp:30-40,112-127,152-153,178-179`.
+It refuses `execution.spawn.active_vector_lifetime_unbound` unless independent
+source storage-history evidence binds sufficient capacity. Rust's own vector
+capacity is not that evidence. Recursive Update/RespawnAll refuse only at an
+erase that would invalidate a held reference, not merely because they recurse.
+A held-index/depth record only detects invalidation and nonquiescence.
+It never changes IsUsed, entry selection, constructor outcomes or m_updated.
+Nested constructor failure still clears m_inUse, so Respawn may reuse the
+held entry exactly as `SpawnManager.cpp:30-40,137-153` permits.
+Add chooses its active/deferred lane using the literal m_updated flag.
+
+The versioned diagnostic inventory includes vector order, used/in-use/update
+flags, held-reference depth, map/persistent-state lifetimes, capacity evidence,
+event sets and group references. It does not implement F7 restore or durable
+checkpoint success.
+Effective linking/group/callback composition and constructor gates retain typed
+missing-owner refusals until their owning rows land. Retained F1 captures remain
+unsealed; unobserved schedules and MR transitions are not zero-work proofs.
+Native format, NativeCapability and production admission are unchanged.

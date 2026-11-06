@@ -246,3 +246,37 @@ impl SourceWorld {
         Ok(())
     }
 }
+
+/// Map.cpp:702-729 prelude only. Object visits, grid teardown and later phases have other owners.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MapPreludePhase {
+    Calendar,
+    CollisionTree,
+    Messages,
+    Transports,
+}
+pub trait SourceMapPreludeWork: SpawnWork {
+    fn map_prelude_phase(
+        &mut self,
+        phase: MapPreludePhase,
+        manager: &mut SourceSpawnManager,
+        persistent: &mut SourceManagers,
+        diff: u32,
+    ) -> Result<()>;
+}
+pub fn update_source_map_prelude(
+    manager: &mut SourceSpawnManager,
+    persistent: &mut SourceManagers,
+    work: &mut impl SourceMapPreludeWork,
+    diff: u32,
+) -> Result<()> {
+    for phase in [
+        MapPreludePhase::Calendar,
+        MapPreludePhase::CollisionTree,
+        MapPreludePhase::Messages,
+    ] {
+        work.map_prelude_phase(phase, manager, persistent, diff)?;
+    }
+    manager.update(persistent, work)?;
+    work.map_prelude_phase(MapPreludePhase::Transports, manager, persistent, diff)
+}

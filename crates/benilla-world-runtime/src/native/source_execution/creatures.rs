@@ -157,6 +157,10 @@ pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
         attempt: GridLoadAttempt,
         row: D::Row,
     ) -> Result<Option<CreatureSpawn>>;
+    /// Object.cpp:2193-2203 lookup and spawnMask/Map::CanSpawn gate, before construction.
+    fn creature_dynamic_spawn_allowed(&mut self, _database: u32, _row: &D::Row) -> Result<bool> {
+        Err(refuse("execution.creature.dynamic_spawn_gate_owner"))
+    }
     fn creature_event_guid(&mut self, database: u32) -> Result<bool>;
     fn creature_force_dynamic(&mut self) -> Result<bool>;
     fn creature_force_load_map(&mut self) -> Result<bool>;
@@ -212,6 +216,43 @@ where
     P: GridProductOwner,
     F: CreatureFactoryOwner<D, P>,
 {
+    load_source_creature_inner(factory, attempt, row, false, context)
+}
+
+/// Object.cpp:2191-2212 enters LoadFromDB with requested GUID zero, not the grid-loader GUID.
+pub fn spawn_source_creature<D, P, F>(
+    factory: &mut F,
+    attempt: GridLoadAttempt,
+    row: D::Row,
+    context: &mut GridFactoryContext<'_, D, P>,
+) -> Result<Option<GridCandidateOutcome>>
+where
+    D: GridDefinitions,
+    P: GridProductOwner,
+    F: CreatureFactoryOwner<D, P>,
+{
+    require(
+        attempt.kind == GridSpawnKind::Creature,
+        "execution.creature.factory_kind",
+    )?;
+    if !factory.creature_dynamic_spawn_allowed(attempt.guid, &row)? {
+        return Ok(None);
+    }
+    load_source_creature_inner(factory, attempt, row, true, context).map(Some)
+}
+
+fn load_source_creature_inner<D, P, F>(
+    factory: &mut F,
+    attempt: GridLoadAttempt,
+    row: D::Row,
+    dynamic: bool,
+    context: &mut GridFactoryContext<'_, D, P>,
+) -> Result<GridCandidateOutcome>
+where
+    D: GridDefinitions,
+    P: GridProductOwner,
+    F: CreatureFactoryOwner<D, P>,
+{
     require(
         attempt.kind == GridSpawnKind::Creature,
         "execution.creature.factory_kind",
@@ -221,7 +262,7 @@ where
         .construct(factory.creature_thread(), SourceObjectKind::Creature)?;
     factory.creature_construct_candidate(object, context)?;
     // An unsupported owner is a stopped execution, not a source LoadFromDB false/delete.
-    let requested = if factory.creature_event_guid(attempt.guid)? {
+    let requested = if dynamic || factory.creature_event_guid(attempt.guid)? {
         0
     } else {
         attempt.guid

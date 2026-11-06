@@ -401,6 +401,13 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
         self.health.remove(&object);
         Ok(())
     }
+    fn creature_dynamic_spawn_allowed(
+        &mut self,
+        database: u32,
+        row: &CreatureSpawn,
+    ) -> Result<bool> {
+        Ok(row.database_guid == database && self.can_spawn)
+    }
 }
 struct World {
     definitions: Definitions,
@@ -1226,4 +1233,100 @@ fn natural_reload_reconstructs_static_and_dynamic_creatures_without_resetting_rn
             .generation
             > grid.generation
     );
+}
+
+#[test]
+fn dynamic_spawn_uses_zero_requested_guid_without_changing_grid_loads() {
+    // Object.cpp:2191-2212 versus ObjectGridLoader.cpp:120-140.
+    let mut world = World::new(vec![spawn(40, 0.0)]);
+    let mut factory = Factory::new();
+    world.load(0.0, &mut factory).unwrap();
+    let static_object = world
+        .objects
+        .lookup_database(map(), DatabaseLookupKind::Creature, 40)
+        .unwrap();
+    assert_eq!(
+        world
+            .objects
+            .get(static_object)
+            .unwrap()
+            .guid
+            .unwrap()
+            .counter(),
+        40
+    );
+    let mut world = World::new(vec![spawn(40, 0.0)]);
+    let mut factory = Factory::new();
+    let pair = cell(0.0);
+    let grid = world
+        .context()
+        .load_grid(pair, GridLoadTrigger::TerrainOnly, &mut factory)
+        .unwrap()
+        .unwrap();
+    let attempt = GridLoadAttempt {
+        grid,
+        cell: pair,
+        kind: GridSpawnKind::Creature,
+        origin: GridSpawnOrigin::Persistent,
+        guid: 40,
+        catalog_ordinal: 40,
+    };
+    let request = DynamicSpawnRequest {
+        map: map(),
+        thread: 2,
+        key: SpawnKey {
+            kind: GridSpawnKind::Creature,
+            guid: 40,
+        },
+    };
+    assert!(request
+        .spawn_creature(&mut factory, attempt, spawn(40, 0.0), &mut world.context())
+        .unwrap());
+    let dynamic_object = world
+        .objects
+        .lookup_database(map(), DatabaseLookupKind::Creature, 40)
+        .unwrap();
+    assert_eq!(
+        world
+            .objects
+            .get(dynamic_object)
+            .unwrap()
+            .guid
+            .unwrap()
+            .counter(),
+        110
+    );
+    assert!(!factory
+        .observations
+        .iter()
+        .any(|event| matches!(event, Observation::EventGuid(_))));
+    let mut world = World::new(vec![spawn(40, 0.0)]);
+    let mut factory = Factory::new();
+    factory.can_spawn = false;
+    assert!(!request
+        .spawn_creature(&mut factory, attempt, spawn(40, 0.0), &mut world.context())
+        .unwrap());
+    assert!(factory.observations.is_empty());
+    let wrong_thread = DynamicSpawnRequest {
+        thread: 99,
+        ..request
+    };
+    assert_eq!(
+        wrong_thread
+            .spawn_creature(&mut factory, attempt, spawn(40, 0.0), &mut world.context())
+            .unwrap_err()
+            .id,
+        "execution.spawn.constructor_binding"
+    );
+    let mut world = World::new(vec![spawn(40, 0.0)]);
+    let mut factory = Factory::new();
+    factory.templates.clear();
+    assert!(!request
+        .spawn_creature(&mut factory, attempt, spawn(40, 0.0), &mut world.context())
+        .unwrap());
+    assert!(factory.states.is_empty());
+    assert!(factory
+        .observations
+        .iter()
+        .any(|event| matches!(event, Observation::Destroy(_))));
 }

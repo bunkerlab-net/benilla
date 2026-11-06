@@ -35,8 +35,12 @@ mod objects;
 mod path_distance;
 mod persistent_state;
 mod scheduler;
+mod spawn_manager;
+pub use spawn_manager::*;
 mod seal8_distance;
 mod seal8_objects;
+#[cfg(test)]
+mod spawn_manager_tests;
 mod startup;
 mod trace;
 mod world;

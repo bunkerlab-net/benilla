@@ -298,6 +298,13 @@ impl GameObjectFactoryOwner<Definitions, Products> for Factory {
         }
         Ok(())
     }
+    fn gameobject_dynamic_spawn_allowed(
+        &mut self,
+        database: u32,
+        row: &GameObjectSpawn,
+    ) -> Result<bool> {
+        Ok(row.database_guid == database)
+    }
 }
 struct World {
     definitions: Definitions,
@@ -746,4 +753,94 @@ fn factory_selection_uses_original_entry_and_other_owners_refuse() {
     ] {
         assert_eq!(refuse_unavailable_object_constructor(kind).id, id);
     }
+}
+
+#[test]
+fn dynamic_gameobject_spawn_uses_zero_requested_guid_and_preserves_grid_path() {
+    // Object.cpp:2173-2188 versus ObjectGridLoader.cpp:120-140.
+    let mut world = World::new();
+    let mut factory = Factory::new();
+    world.load(&mut factory, spawn()).unwrap();
+    let object = world
+        .objects
+        .lookup_database(map(), DatabaseLookupKind::GameObject, 7)
+        .unwrap();
+    assert_eq!(
+        world.objects.get(object).unwrap().guid.unwrap().counter(),
+        7
+    );
+    let mut world = World::new();
+    let mut factory = Factory::new();
+    let cell = compute_cell_pair(0, 0).unwrap();
+    let grid = world
+        .context()
+        .load_grid(cell, GridLoadTrigger::TerrainOnly, &mut factory)
+        .unwrap()
+        .unwrap();
+    let attempt = GridLoadAttempt {
+        grid,
+        cell,
+        kind: GridSpawnKind::GameObject,
+        origin: GridSpawnOrigin::Persistent,
+        guid: 7,
+        catalog_ordinal: 0,
+    };
+    let request = DynamicSpawnRequest {
+        map: map(),
+        thread: factory.gameobject_thread(),
+        key: SpawnKey {
+            kind: GridSpawnKind::GameObject,
+            guid: 7,
+        },
+    };
+    assert!(request
+        .spawn_gameobject(&mut factory, attempt, spawn(), &mut world.context())
+        .unwrap());
+    let object = world
+        .objects
+        .lookup_database(map(), DatabaseLookupKind::GameObject, 7)
+        .unwrap();
+    assert_eq!(
+        world.objects.get(object).unwrap().guid.unwrap().counter(),
+        203
+    );
+    let mut world = World::new();
+    let mut factory = Factory::new();
+    factory.templates.insert(100, template(100, 11));
+    assert_eq!(
+        request
+            .spawn_gameobject(&mut factory, attempt, spawn(), &mut world.context())
+            .unwrap_err()
+            .id,
+        "execution.elevator_dynamic_constructor_owner_unavailable"
+    );
+    let wrong_map = DynamicSpawnRequest {
+        map: MapIdentity {
+            creation_generation: 2,
+            ..map()
+        },
+        ..request
+    };
+    assert_eq!(
+        wrong_map
+            .spawn_gameobject(&mut factory, attempt, spawn(), &mut world.context())
+            .unwrap_err()
+            .id,
+        "execution.spawn.constructor_binding"
+    );
+    let mut world = World::new();
+    let mut factory = Factory::new();
+    factory.templates.clear();
+    assert!(!request
+        .spawn_gameobject(&mut factory, attempt, spawn(), &mut world.context())
+        .unwrap());
+    assert!(world
+        .objects
+        .lookup_database(map(), DatabaseLookupKind::GameObject, 7)
+        .is_none());
+    let mut wrong_row = spawn();
+    wrong_row.database_guid = 99;
+    assert!(!request
+        .spawn_gameobject(&mut factory, attempt, wrong_row, &mut world.context())
+        .unwrap());
 }
