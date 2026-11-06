@@ -3,7 +3,7 @@
 `Profile::initialize_facing_authority()` explicitly selects a private immutable
 `FacingNumericPolicy` under the existing `InteractionCatalog`. Source motion and
 interaction initialization are prerequisites. The selected policy serializes the
-exact `benilla_sim::facing::POLICY` and its three normalized-source SHA-256 hashes
+exact `benilla_sim::facing::POLICY` and its four normalized-source SHA-256 hashes
 into the profile digest. Replacing interaction source rows preserves the selection
 and revalidates it; the policy has no deserializer or public constructor.
 
@@ -67,17 +67,20 @@ Source mechanisms: CMaNGOS Classic
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`, `Object.cpp` GetAngle/HasInArc/
 IsFacingTargetsFront, `MapManager.h` NormalizeOrientation, `Unit.cpp` melee dodge
 and spline update callsites, and `Spell.cpp` CheckRange. CMaNGOS is
-GPL-2.0-or-later, copyright CMaNGOS contributors. The pinned CORE-MATH-derived
-`e_atan2f.c` has its MIT notice retained in the simulation oracle material.
-CMaNGOS-derived Rust and this runtime integration are GPL-3.0-or-later. No game assets or
+GPL-2.0-or-later, copyright CMaNGOS contributors. The pinned glibc 2.36 float
+`e_atan2f.c` and `s_atanf.c` retain the Sun Microsystems 1993 permission notice
+in the simulation translation. CMaNGOS-derived Rust and this integration are
+GPL-3.0-or-later. No game assets or
 third-party database rows are included.
 
 ## Format boundary
 
 The experimental native simulation checkpoint/record contract is format `NATIVE_FORMAT_VERSION`,
 `NATIVE_POLICY`, with current native profile/state/record/checkpoint
-and separate v51 melee-action/melee-chain hash domains. Published native format 11 is rejected by
-decode, restore and replay, with no reinterpretation or implicit migration.
+and separate v51 melee-action/melee-chain hash domains. The glibc 2.36 facing
+correction changes persisted profile identity. `NATIVE_FORMAT_VERSION` advances
+to reject format 90 as well as all earlier formats, including published format
+11, without reinterpretation or implicit migration.
 Incompatible store current and previous files remain intact on refusal.
 OriginalFixture format 2, store envelope format 1, and the separate character and
 profile save formats are unchanged.

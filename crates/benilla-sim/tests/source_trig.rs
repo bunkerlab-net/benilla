@@ -132,3 +132,51 @@ fn both_adapters_match_independent_radian_sample_digest() {
     assert_eq!(format!("{:x}", native_digest.finalize()), expected[1]);
     assert_eq!(format!("{:x}", software_digest.finalize()), expected[1]);
 }
+
+#[test]
+fn reference_fma_libm_grid_or_explicit_absence() {
+    use benilla_sim::source_trig::{
+        sin_cos_assembler_radians_bits_native, sin_cos_fallback_radians_bits_soft,
+        FALLBACK_MAX_ANGLE_BITS, FALLBACK_MIN_ANGLE_BITS,
+    };
+    use std::io::{BufRead, BufReader};
+    let Ok(path) = std::env::var("BENILLA_F4_LIBM_TRIG_GRID") else {
+        println!("SKIP reference glibc 2.36 FMA grid: set BENILLA_F4_LIBM_TRIG_GRID");
+        return;
+    };
+    let reader = BufReader::new(std::fs::File::open(path).unwrap());
+    let mut rows = 0;
+    let mut native_differences = 0;
+    let mut software_differences = 0;
+    let mut fallback_differences = 0;
+    for line in reader.lines() {
+        let line = line.unwrap();
+        let words: Vec<u32> = line
+            .split_whitespace()
+            .map(|word| u32::from_str_radix(word, 16).unwrap())
+            .collect();
+        assert_eq!(words.len(), 3);
+        let angle = words[0];
+        let expected = [words[1], words[2]];
+        native_differences +=
+            usize::from(sin_cos_assembler_radians_bits_native(angle).unwrap() != expected);
+        if angle & 0x7fff_ffff <= TAU_BITS {
+            software_differences += usize::from(soft(angle).unwrap() != expected);
+        }
+        let limit = if angle >> 31 == 0 {
+            FALLBACK_MAX_ANGLE_BITS
+        } else {
+            FALLBACK_MIN_ANGLE_BITS & 0x7fff_ffff
+        };
+        if angle & 0x7fff_ffff <= limit {
+            fallback_differences +=
+                usize::from(sin_cos_fallback_radians_bits_soft(angle).unwrap() != expected);
+        }
+        rows += 1;
+    }
+    println!("Reference FMA grid: {rows} inputs, {native_differences} native, {software_differences} software and {fallback_differences} fallback differences");
+    assert_eq!(rows, 540_926);
+    assert_eq!(native_differences, 0);
+    assert_eq!(software_differences, 0);
+    assert_eq!(fallback_differences, 0);
+}

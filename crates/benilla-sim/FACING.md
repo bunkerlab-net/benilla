@@ -4,6 +4,10 @@ This is a bounded numeric service, not a map/visibility/LOS provider, complete
 combat implementation, content producer or gameplay admission. Runtime selection
 and receipt ownership are documented in
 [the runtime facing contract](../benilla-world-runtime/FACING-AUTHORITY.md).
+The corrected numeric policy changes persisted native profile identity.
+`NATIVE_FORMAT_VERSION` and `NATIVE_POLICY` in the runtime reject format-90 saves
+without migration.
+
 
 ## Source and licensing
 
@@ -34,18 +38,16 @@ translations, boundary and software-operation adapters are GPL-3.0-or-later,
 and [GPLv3 text](licenses/GPL-3.0.txt) apply. No game files or database rows are
 included.
 
-The selected transcendental implementation is
-[GNU libc 2.41 e_atan2f.c](https://github.com/bminor/glibc/blob/74f59e9271cbb4071671e5a474e7d4f1622b186f/sysdeps/ieee754/flt-32/e_atan2f.c),
-from CORE-MATH `src/binary32/atan2/atan2f.c` revision `7835c5d`.
-That file is **MIT**, Copyright (c) 2022–2024 Alexei Sibidanov and Paul Zimmermann;
-its complete [notice](src/facing/MIT-NOTICE.txt) is retained. `atan2.rs` preserves
-that grant. It is not covered by the VMap sinf/cosf port's separate LGPL notice.
+The selected implementation is GNU libc 2.36
+[`e_atan2f.c`](https://github.com/bminor/glibc/blob/glibc-2.36/sysdeps/ieee754/flt-32/e_atan2f.c)
+and [`s_atanf.c`](https://github.com/bminor/glibc/blob/glibc-2.36/sysdeps/ieee754/flt-32/s_atanf.c).
+Both retain the Sun Microsystems 1993 permission notice in `src/facing/atan2.rs`.
 The combined crate remains GPL-covered.
 
 Full-file hashes, normalized only from CRLF to LF, are retained in
 [the oracle manifest](tools/facing_source_hashes.sha256) and in
 `facing::SOURCE_SHA256`. The algorithm/profile identity is
-`cmangos-8ec338a1-facing-glibc-2.41-soft-rne-v1`.
+`cmangos-8ec338a1-facing-glibc-2.36-soft-rne-v2`.
 
 ## Numerical profile and boundary
 
@@ -53,8 +55,7 @@ The source names C++/libm operations, not a cross-platform bit identity. This
 service explicitly chooses the pinned glibc implementation and emulates every
 binary32/binary64 operation with the existing `rustc_apfloat` dependency.
 Round-to-nearest/ties-to-even, gradual subnormals, and exact source expression
-order are mandatory. Only the source's explicit FMA calls fuse; software
-`mul_add_r` performs their single rounding. No host atan2, fmod, trig, FMA,
+order are mandatory. No operation fuses. No host atan2, fmod, trig, FMA,
 floating-point environment, fast-math, implicit contraction or platform libm is
 used by the implementation. Floating-point status flags/errno are not gameplay
 outputs and are not reproduced. Nonfinite inputs reject before evaluation.
@@ -81,20 +82,20 @@ normalizing arbitrary input into the admitted domain.
 ## Evidence and limits
 
 The independent oracle extracts unchanged CMaNGOS bodies from hash-checked
-files and compiles the complete unchanged pinned glibc function behind a
-minimal compatibility header. `std::atan2(float,float)` alone is redirected to
-that source function. The oracle has no dependency on the Rust implementation.
-C++ is built with no fast math, contraction disabled, explicit RNE and
-sanitizers; source FMA remains explicit. Tests compare exact result bits and
-booleans, never epsilons. The 3,351 curated signed-zero, subnormal, axis, ratio-reduction,
-PI/TAU and inclusive-border cases include eight verified rare double-double
-fallback inputs and their neighbors. Another 155,648 deterministic sampled
-inputs are checked through exact result digests; these are not
-exhaustive proof of every binary32 pair or multiplayer/platform execution.
+files and runs them in the pinned F0 GCC 12.2/glibc 2.36 builder image
+`sha256:5397aff8205e0d96686d9a74bd0c9542830d170c167c8d242a3c13e9f269e9a8`.
+It records the image and compile command with private evidence. It has no Rust
+implementation dependency. Contraction and fast math are disabled, RNE is
+required, and FTZ/DAZ must be off. Tests compare exact result bits and booleans.
+The 3,351 curated signed-zero, subnormal, axis, ratio-reduction, PI/TAU and
+inclusive-border cases retain eight formerly hard inputs and their neighbors.
+Another 155,648 deterministic sampled inputs are checked through result digests.
+The previous 2.41 corpus differed in 147 cases against this builder, including
+131 atan2, two bearing and 14 arc cases. The correction retains the same inputs.
+These checks are not exhaustive proof of every binary32 pair or sealed F1
+reached-input acceptance.
 
-Regenerate/verify with
-`python3 tools/generate_facing_fixture.py /path/to/mangos-classic /path/to/e_atan2f.c --check`
-from this crate. The two source paths must match the pinned manifest. No upstream checkout or
-network access is required by normal Rust tests. Runtime tests separately
-exercise current source phase, selection, derived receipt replay, tampering,
-rollback and incompatible native format refusal.
+Regenerate or verify from this crate with
+`python3 tools/generate_facing_fixture.py /path/to/mangos-classic /path/to/glibc-float-sources --evidence-dir /main/benilla-config/path --check`.
+The source directory must contain the hash-pinned `e_atan2f.c` and `s_atanf.c`.
+Normal Rust tests require no checkout, Docker or network.

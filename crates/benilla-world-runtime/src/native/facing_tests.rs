@@ -378,7 +378,7 @@ fn published_native_format11_checkpoint_record_and_replay_are_refused() {
         NativeWorld::restore_synthetic_component_test(w.profile.clone(), initial.clone()).unwrap();
     assert!(replay.replay(&records).is_err());
     assert_eq!(replay.checkpoint().unwrap(), initial);
-    assert_eq!(NATIVE_FORMAT_VERSION, 90);
+    assert_eq!(NATIVE_FORMAT_VERSION, 91);
     assert_eq!(crate::FORMAT_VERSION, 2);
 }
 
@@ -471,4 +471,23 @@ fn source_spline_bearing_uses_old_map_origin_instead_of_new_spline_pose() {
     let mut replay = genesis;
     replay.replay(w.records()).unwrap();
     assert_eq!(replay.checkpoint().unwrap(), w.checkpoint().unwrap());
+}
+
+#[test]
+fn format90_save_with_valid_historical_hashes_is_refused() {
+    let w = world(selected(combat_fixture::profile()));
+    let checkpoint = w.checkpoint().unwrap();
+    let mut old = serde_json::to_value(&checkpoint).unwrap();
+    old["version"] = 90.into();
+    old["state"]["version"] = 90.into();
+    old["state"]["policy"] = "benilla-native-solo-path-distance-intent-v90".into();
+    let mut old: Checkpoint = serde_json::from_value(old).unwrap();
+    old.digest = crate::digest(b"benilla-native-state-v90\0", &old.state);
+    old.checksum = crate::digest(
+        b"benilla-native-checkpoint-v90\0",
+        &(&old.state, old.digest, old.history_tip),
+    );
+    assert!(Checkpoint::decode(&old.encode().unwrap()).is_err());
+    assert!(NativeWorld::restore_synthetic_component_test(w.profile.clone(), old).is_err());
+    assert_eq!(w.checkpoint().unwrap(), checkpoint);
 }

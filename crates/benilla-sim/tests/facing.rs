@@ -33,7 +33,7 @@ fn hex(word: &str) -> u32 {
 #[test]
 fn pinned_source_binary32_oracle() {
     let mut count = 0;
-    let mut rare_fallbacks = 0;
+    let mut hard_inputs = 0;
     for line in include_str!("../tools/fixtures/facing/oracle.tsv").lines() {
         if line.starts_with('#') {
             continue;
@@ -44,14 +44,14 @@ fn pinned_source_binary32_oracle() {
         let values: Vec<_> = words[2..words.len() - 2].iter().map(|s| hex(s)).collect();
         let expected = hex(words[words.len() - 2]);
         assert_eq!(evaluate(kind, &values), expected, "{name}: {values:x?}");
-        if name.starts_with("rare_fallback_") {
-            assert_eq!(words[words.len() - 1], "1", "source rare path: {name}");
-            rare_fallbacks += 1;
+        if name.starts_with("hard_input_") {
+            assert_eq!(words[words.len() - 1], "1", "retained hard input: {name}");
+            hard_inputs += 1;
         }
         count += 1;
     }
     assert_eq!(count, 3351);
-    assert_eq!(rare_fallbacks, 8);
+    assert_eq!(hard_inputs, 8);
 }
 
 struct XorShift32(u32);

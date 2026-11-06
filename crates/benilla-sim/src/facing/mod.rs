@@ -7,10 +7,11 @@ mod atan2;
 pub(crate) mod soft;
 use soft::S;
 
-pub const POLICY: &str = "cmangos-8ec338a1-facing-glibc-2.41-soft-rne-v1";
-/// LF-normalized pinned e_atan2f.c, Object.cpp, MapManager.h, respectively.
-pub const SOURCE_SHA256: [&str; 3] = [
-    "96f9c81b6e870c256cc0757f6d88f5290ed35db8d5b640b9e757d6feca96ae38",
+pub const POLICY: &str = "cmangos-8ec338a1-facing-glibc-2.36-soft-rne-v2";
+/// LF-normalized e_atan2f.c, s_atanf.c, Object.cpp and MapManager.h.
+pub const SOURCE_SHA256: [&str; 4] = [
+    "75fa11d1fb67e1a2c11af4e1aca80bc29e1db55d8e3e8dfa6ae5caa3af141f69",
+    "cc8a6b8845df93191e1ec3c4c95e8fc58daae14b52bfe795c2c81b0989ee4646",
     "410904520fe2847a855c396d9fe442065268fd4ff5bb510633c3aadb5c54665b",
     "bb5ff0741f5c78a295a96d708a0875da5881547386aea63ecfda9d30f66f05ad",
 ];
@@ -57,7 +58,7 @@ fn angle(bits: u32) -> Result<S, Error> {
     Ok(value)
 }
 
-/// Pinned glibc/CORE-MATH atan2f with software IEEE RNE, preserving signed zero
+/// Pinned glibc 2.36 atan2f/atanf with software IEEE RNE, preserving signed zero
 /// and subnormals. This raw helper accepts all finite binary32 inputs.
 pub fn atan2_bits(y: u32, x: u32) -> Result<u32, Error> {
     Ok(atan2::atan2(finite(y)?, finite(x)?).raw())

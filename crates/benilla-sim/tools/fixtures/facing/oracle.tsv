@@ -1,4 +1,4 @@
-# name operation raw_binary32_inputs expected_bits rare_atan2_branch
+# name operation raw_binary32_inputs expected_bits legacy_hard_input
 atan2_matrix_0_0 atan2 00000000 00000000 00000000 0
 atan2_matrix_0_1 atan2 00000000 00000001 00000000 0
 atan2_matrix_0_2 atan2 00000000 007fffff 00000000 0
@@ -23,8 +23,8 @@ atan2_matrix_1_0 atan2 00000001 00000000 3fc90fdb 0
 atan2_matrix_1_1 atan2 00000001 00000001 3f490fdb 0
 atan2_matrix_1_2 atan2 00000001 007fffff 34000001 0
 atan2_matrix_1_3 atan2 00000001 00800000 34000000 0
-atan2_matrix_1_4 atan2 00000001 3f000000 00000002 1
-atan2_matrix_1_5 atan2 00000001 3f800000 00000001 1
+atan2_matrix_1_4 atan2 00000001 3f000000 00000002 0
+atan2_matrix_1_5 atan2 00000001 3f800000 00000001 0
 atan2_matrix_1_6 atan2 00000001 40490fdb 00000000 0
 atan2_matrix_1_7 atan2 00000001 40c90fdb 00000000 0
 atan2_matrix_1_8 atan2 00000001 46fff000 00000000 0
@@ -43,14 +43,14 @@ atan2_matrix_2_0 atan2 007fffff 00000000 3fc90fdb 0
 atan2_matrix_2_1 atan2 007fffff 00000001 3fc90fda 0
 atan2_matrix_2_2 atan2 007fffff 007fffff 3f490fdb 0
 atan2_matrix_2_3 atan2 007fffff 00800000 3f490fda 0
-atan2_matrix_2_4 atan2 007fffff 3f000000 00fffffe 1
-atan2_matrix_2_5 atan2 007fffff 3f800000 007fffff 1
+atan2_matrix_2_4 atan2 007fffff 3f000000 00fffffe 0
+atan2_matrix_2_5 atan2 007fffff 3f800000 007fffff 0
 atan2_matrix_2_6 atan2 007fffff 40490fdb 0028be60 0
 atan2_matrix_2_7 atan2 007fffff 40c90fdb 00145f30 0
 atan2_matrix_2_8 atan2 007fffff 46fff000 00000100 0
 atan2_matrix_2_9 atan2 007fffff 7f7fffff 00000000 0
 atan2_matrix_2_10 atan2 007fffff 80000000 3fc90fdb 0
-atan2_matrix_2_11 atan2 007fffff 80000001 3fc90fdc 0
+atan2_matrix_2_11 atan2 007fffff 80000001 3fc90fdb 0
 atan2_matrix_2_12 atan2 007fffff 807fffff 4016cbe4 0
 atan2_matrix_2_13 atan2 007fffff 80800000 4016cbe4 0
 atan2_matrix_2_14 atan2 007fffff bf000000 40490fdb 0
@@ -63,14 +63,14 @@ atan2_matrix_3_0 atan2 00800000 00000000 3fc90fdb 0
 atan2_matrix_3_1 atan2 00800000 00000001 3fc90fda 0
 atan2_matrix_3_2 atan2 00800000 007fffff 3f490fdc 0
 atan2_matrix_3_3 atan2 00800000 00800000 3f490fdb 0
-atan2_matrix_3_4 atan2 00800000 3f000000 01000000 1
-atan2_matrix_3_5 atan2 00800000 3f800000 00800000 1
+atan2_matrix_3_4 atan2 00800000 3f000000 01000000 0
+atan2_matrix_3_5 atan2 00800000 3f800000 00800000 0
 atan2_matrix_3_6 atan2 00800000 40490fdb 0028be61 0
 atan2_matrix_3_7 atan2 00800000 40c90fdb 00145f30 0
 atan2_matrix_3_8 atan2 00800000 46fff000 00000100 0
 atan2_matrix_3_9 atan2 00800000 7f7fffff 00000000 0
 atan2_matrix_3_10 atan2 00800000 80000000 3fc90fdb 0
-atan2_matrix_3_11 atan2 00800000 80000001 3fc90fdc 0
+atan2_matrix_3_11 atan2 00800000 80000001 3fc90fdb 0
 atan2_matrix_3_12 atan2 00800000 807fffff 4016cbe4 0
 atan2_matrix_3_13 atan2 00800000 80800000 4016cbe4 0
 atan2_matrix_3_14 atan2 00800000 bf000000 40490fdb 0
@@ -85,14 +85,14 @@ atan2_matrix_4_2 atan2 3f000000 007fffff 3fc90fdb 0
 atan2_matrix_4_3 atan2 3f000000 00800000 3fc90fdb 0
 atan2_matrix_4_4 atan2 3f000000 3f000000 3f490fdb 0
 atan2_matrix_4_5 atan2 3f000000 3f800000 3eed6338 0
-atan2_matrix_4_6 atan2 3f000000 40490fdb 3e219e80 0
+atan2_matrix_4_6 atan2 3f000000 40490fdb 3e219e7f 0
 atan2_matrix_4_7 atan2 3f000000 40c90fdb 3da2a1c7 0
-atan2_matrix_4_8 atan2 3f000000 46fff000 37800800 0
+atan2_matrix_4_8 atan2 3f000000 46fff000 37800801 0
 atan2_matrix_4_9 atan2 3f000000 7f7fffff 00100000 0
 atan2_matrix_4_10 atan2 3f000000 80000000 3fc90fdb 0
-atan2_matrix_4_11 atan2 3f000000 80000001 3fc90fdb 0
-atan2_matrix_4_12 atan2 3f000000 807fffff 3fc90fdb 0
-atan2_matrix_4_13 atan2 3f000000 80800000 3fc90fdb 0
+atan2_matrix_4_11 atan2 3f000000 80000001 3fc90fda 0
+atan2_matrix_4_12 atan2 3f000000 807fffff 3fc90fda 0
+atan2_matrix_4_13 atan2 3f000000 80800000 3fc90fda 0
 atan2_matrix_4_14 atan2 3f000000 bf000000 4016cbe4 0
 atan2_matrix_4_15 atan2 3f000000 bf800000 402b6374 0
 atan2_matrix_4_16 atan2 3f000000 c0490fdb 403ef5f3 0
@@ -106,13 +106,13 @@ atan2_matrix_5_3 atan2 3f800000 00800000 3fc90fdb 0
 atan2_matrix_5_4 atan2 3f800000 3f000000 3f8db70d 0
 atan2_matrix_5_5 atan2 3f800000 3f800000 3f490fdb 0
 atan2_matrix_5_6 atan2 3f800000 40490fdb 3e9dc856 0
-atan2_matrix_5_7 atan2 3f800000 40c90fdb 3e219e80 0
-atan2_matrix_5_8 atan2 3f800000 46fff000 38000800 0
+atan2_matrix_5_7 atan2 3f800000 40c90fdb 3e219e7f 0
+atan2_matrix_5_8 atan2 3f800000 46fff000 38000801 0
 atan2_matrix_5_9 atan2 3f800000 7f7fffff 00200000 0
 atan2_matrix_5_10 atan2 3f800000 80000000 3fc90fdb 0
-atan2_matrix_5_11 atan2 3f800000 80000001 3fc90fdb 0
-atan2_matrix_5_12 atan2 3f800000 807fffff 3fc90fdb 0
-atan2_matrix_5_13 atan2 3f800000 80800000 3fc90fdb 0
+atan2_matrix_5_11 atan2 3f800000 80000001 3fc90fda 0
+atan2_matrix_5_12 atan2 3f800000 807fffff 3fc90fda 0
+atan2_matrix_5_13 atan2 3f800000 80800000 3fc90fda 0
 atan2_matrix_5_14 atan2 3f800000 bf000000 40023454 0
 atan2_matrix_5_15 atan2 3f800000 bf800000 4016cbe4 0
 atan2_matrix_5_16 atan2 3f800000 c0490fdb 403556d0 0
@@ -130,10 +130,10 @@ atan2_matrix_6_7 atan2 40490fdb 40c90fdb 3eed6338 0
 atan2_matrix_6_8 atan2 40490fdb 46fff000 38c91c6d 0
 atan2_matrix_6_9 atan2 40490fdb 7f7fffff 006487ee 0
 atan2_matrix_6_10 atan2 40490fdb 80000000 3fc90fdb 0
-atan2_matrix_6_11 atan2 40490fdb 80000001 3fc90fdb 0
-atan2_matrix_6_12 atan2 40490fdb 807fffff 3fc90fdb 0
-atan2_matrix_6_13 atan2 40490fdb 80800000 3fc90fdb 0
-atan2_matrix_6_14 atan2 40490fdb bf000000 3fdd43ab 0
+atan2_matrix_6_11 atan2 40490fdb 80000001 3fc90fda 0
+atan2_matrix_6_12 atan2 40490fdb 807fffff 3fc90fda 0
+atan2_matrix_6_13 atan2 40490fdb 80800000 3fc90fda 0
+atan2_matrix_6_14 atan2 40490fdb bf000000 3fdd43aa 0
 atan2_matrix_6_15 atan2 40490fdb bf800000 3ff081f0 0
 atan2_matrix_6_16 atan2 40490fdb c0490fdb 4016cbe4 0
 atan2_matrix_6_17 atan2 40490fdb c0c90fdb 402b6374 0
@@ -150,11 +150,11 @@ atan2_matrix_7_7 atan2 40c90fdb 40c90fdb 3f490fdb 0
 atan2_matrix_7_8 atan2 40c90fdb 46fff000 39491c6d 0
 atan2_matrix_7_9 atan2 40c90fdb 7f7fffff 00c90fdc 0
 atan2_matrix_7_10 atan2 40c90fdb 80000000 3fc90fdb 0
-atan2_matrix_7_11 atan2 40c90fdb 80000001 3fc90fdb 0
-atan2_matrix_7_12 atan2 40c90fdb 807fffff 3fc90fdb 0
-atan2_matrix_7_13 atan2 40c90fdb 80800000 3fc90fdb 0
+atan2_matrix_7_11 atan2 40c90fdb 80000001 3fc90fda 0
+atan2_matrix_7_12 atan2 40c90fdb 807fffff 3fc90fda 0
+atan2_matrix_7_13 atan2 40c90fdb 80800000 3fc90fda 0
 atan2_matrix_7_14 atan2 40c90fdb bf000000 3fd339f7 0
-atan2_matrix_7_15 atan2 40c90fdb bf800000 3fdd43ab 0
+atan2_matrix_7_15 atan2 40c90fdb bf800000 3fdd43aa 0
 atan2_matrix_7_16 atan2 40c90fdb c0490fdb 40023454 0
 atan2_matrix_7_17 atan2 40c90fdb c0c90fdb 4016cbe4 0
 atan2_matrix_7_18 atan2 40c90fdb c6fff000 40490cb6 0
@@ -170,13 +170,13 @@ atan2_matrix_8_7 atan2 46fff000 40c90fdb 3fc90992 0
 atan2_matrix_8_8 atan2 46fff000 46fff000 3f490fdb 0
 atan2_matrix_8_9 atan2 46fff000 7f7fffff 06fff001 0
 atan2_matrix_8_10 atan2 46fff000 80000000 3fc90fdb 0
-atan2_matrix_8_11 atan2 46fff000 80000001 3fc90fdb 0
-atan2_matrix_8_12 atan2 46fff000 807fffff 3fc90fdb 0
-atan2_matrix_8_13 atan2 46fff000 80800000 3fc90fdb 0
-atan2_matrix_8_14 atan2 46fff000 bf000000 3fc9105b 0
-atan2_matrix_8_15 atan2 46fff000 bf800000 3fc910db 0
+atan2_matrix_8_11 atan2 46fff000 80000001 3fc90fda 0
+atan2_matrix_8_12 atan2 46fff000 807fffff 3fc90fda 0
+atan2_matrix_8_13 atan2 46fff000 80800000 3fc90fda 0
+atan2_matrix_8_14 atan2 46fff000 bf000000 3fc9105a 0
+atan2_matrix_8_15 atan2 46fff000 bf800000 3fc910da 0
 atan2_matrix_8_16 atan2 46fff000 c0490fdb 3fc912ff 0
-atan2_matrix_8_17 atan2 46fff000 c0c90fdb 3fc91624 0
+atan2_matrix_8_17 atan2 46fff000 c0c90fdb 3fc91623 0
 atan2_matrix_8_18 atan2 46fff000 c6fff000 4016cbe4 0
 atan2_matrix_8_19 atan2 46fff000 ff7fffff 40490fdb 0
 atan2_matrix_9_0 atan2 7f7fffff 00000000 3fc90fdb 0
@@ -190,14 +190,14 @@ atan2_matrix_9_7 atan2 7f7fffff 40c90fdb 3fc90fdb 0
 atan2_matrix_9_8 atan2 7f7fffff 46fff000 3fc90fdb 0
 atan2_matrix_9_9 atan2 7f7fffff 7f7fffff 3f490fdb 0
 atan2_matrix_9_10 atan2 7f7fffff 80000000 3fc90fdb 0
-atan2_matrix_9_11 atan2 7f7fffff 80000001 3fc90fdb 0
-atan2_matrix_9_12 atan2 7f7fffff 807fffff 3fc90fdb 0
-atan2_matrix_9_13 atan2 7f7fffff 80800000 3fc90fdb 0
-atan2_matrix_9_14 atan2 7f7fffff bf000000 3fc90fdb 0
-atan2_matrix_9_15 atan2 7f7fffff bf800000 3fc90fdb 0
-atan2_matrix_9_16 atan2 7f7fffff c0490fdb 3fc90fdb 0
-atan2_matrix_9_17 atan2 7f7fffff c0c90fdb 3fc90fdb 0
-atan2_matrix_9_18 atan2 7f7fffff c6fff000 3fc90fdb 0
+atan2_matrix_9_11 atan2 7f7fffff 80000001 3fc90fda 0
+atan2_matrix_9_12 atan2 7f7fffff 807fffff 3fc90fda 0
+atan2_matrix_9_13 atan2 7f7fffff 80800000 3fc90fda 0
+atan2_matrix_9_14 atan2 7f7fffff bf000000 3fc90fda 0
+atan2_matrix_9_15 atan2 7f7fffff bf800000 3fc90fda 0
+atan2_matrix_9_16 atan2 7f7fffff c0490fdb 3fc90fda 0
+atan2_matrix_9_17 atan2 7f7fffff c0c90fdb 3fc90fda 0
+atan2_matrix_9_18 atan2 7f7fffff c6fff000 3fc90fda 0
 atan2_matrix_9_19 atan2 7f7fffff ff7fffff 4016cbe4 0
 atan2_matrix_10_0 atan2 80000000 00000000 80000000 0
 atan2_matrix_10_1 atan2 80000000 00000001 80000000 0
@@ -223,8 +223,8 @@ atan2_matrix_11_0 atan2 80000001 00000000 bfc90fdb 0
 atan2_matrix_11_1 atan2 80000001 00000001 bf490fdb 0
 atan2_matrix_11_2 atan2 80000001 007fffff b4000001 0
 atan2_matrix_11_3 atan2 80000001 00800000 b4000000 0
-atan2_matrix_11_4 atan2 80000001 3f000000 80000002 1
-atan2_matrix_11_5 atan2 80000001 3f800000 80000001 1
+atan2_matrix_11_4 atan2 80000001 3f000000 80000002 0
+atan2_matrix_11_5 atan2 80000001 3f800000 80000001 0
 atan2_matrix_11_6 atan2 80000001 40490fdb 80000000 0
 atan2_matrix_11_7 atan2 80000001 40c90fdb 80000000 0
 atan2_matrix_11_8 atan2 80000001 46fff000 80000000 0
@@ -243,14 +243,14 @@ atan2_matrix_12_0 atan2 807fffff 00000000 bfc90fdb 0
 atan2_matrix_12_1 atan2 807fffff 00000001 bfc90fda 0
 atan2_matrix_12_2 atan2 807fffff 007fffff bf490fdb 0
 atan2_matrix_12_3 atan2 807fffff 00800000 bf490fda 0
-atan2_matrix_12_4 atan2 807fffff 3f000000 80fffffe 1
-atan2_matrix_12_5 atan2 807fffff 3f800000 807fffff 1
+atan2_matrix_12_4 atan2 807fffff 3f000000 80fffffe 0
+atan2_matrix_12_5 atan2 807fffff 3f800000 807fffff 0
 atan2_matrix_12_6 atan2 807fffff 40490fdb 8028be60 0
 atan2_matrix_12_7 atan2 807fffff 40c90fdb 80145f30 0
 atan2_matrix_12_8 atan2 807fffff 46fff000 80000100 0
 atan2_matrix_12_9 atan2 807fffff 7f7fffff 80000000 0
 atan2_matrix_12_10 atan2 807fffff 80000000 bfc90fdb 0
-atan2_matrix_12_11 atan2 807fffff 80000001 bfc90fdc 0
+atan2_matrix_12_11 atan2 807fffff 80000001 bfc90fdb 0
 atan2_matrix_12_12 atan2 807fffff 807fffff c016cbe4 0
 atan2_matrix_12_13 atan2 807fffff 80800000 c016cbe4 0
 atan2_matrix_12_14 atan2 807fffff bf000000 c0490fdb 0
@@ -263,14 +263,14 @@ atan2_matrix_13_0 atan2 80800000 00000000 bfc90fdb 0
 atan2_matrix_13_1 atan2 80800000 00000001 bfc90fda 0
 atan2_matrix_13_2 atan2 80800000 007fffff bf490fdc 0
 atan2_matrix_13_3 atan2 80800000 00800000 bf490fdb 0
-atan2_matrix_13_4 atan2 80800000 3f000000 81000000 1
-atan2_matrix_13_5 atan2 80800000 3f800000 80800000 1
+atan2_matrix_13_4 atan2 80800000 3f000000 81000000 0
+atan2_matrix_13_5 atan2 80800000 3f800000 80800000 0
 atan2_matrix_13_6 atan2 80800000 40490fdb 8028be61 0
 atan2_matrix_13_7 atan2 80800000 40c90fdb 80145f30 0
 atan2_matrix_13_8 atan2 80800000 46fff000 80000100 0
 atan2_matrix_13_9 atan2 80800000 7f7fffff 80000000 0
 atan2_matrix_13_10 atan2 80800000 80000000 bfc90fdb 0
-atan2_matrix_13_11 atan2 80800000 80000001 bfc90fdc 0
+atan2_matrix_13_11 atan2 80800000 80000001 bfc90fdb 0
 atan2_matrix_13_12 atan2 80800000 807fffff c016cbe4 0
 atan2_matrix_13_13 atan2 80800000 80800000 c016cbe4 0
 atan2_matrix_13_14 atan2 80800000 bf000000 c0490fdb 0
@@ -285,14 +285,14 @@ atan2_matrix_14_2 atan2 bf000000 007fffff bfc90fdb 0
 atan2_matrix_14_3 atan2 bf000000 00800000 bfc90fdb 0
 atan2_matrix_14_4 atan2 bf000000 3f000000 bf490fdb 0
 atan2_matrix_14_5 atan2 bf000000 3f800000 beed6338 0
-atan2_matrix_14_6 atan2 bf000000 40490fdb be219e80 0
+atan2_matrix_14_6 atan2 bf000000 40490fdb be219e7f 0
 atan2_matrix_14_7 atan2 bf000000 40c90fdb bda2a1c7 0
-atan2_matrix_14_8 atan2 bf000000 46fff000 b7800800 0
+atan2_matrix_14_8 atan2 bf000000 46fff000 b7800801 0
 atan2_matrix_14_9 atan2 bf000000 7f7fffff 80100000 0
 atan2_matrix_14_10 atan2 bf000000 80000000 bfc90fdb 0
-atan2_matrix_14_11 atan2 bf000000 80000001 bfc90fdb 0
-atan2_matrix_14_12 atan2 bf000000 807fffff bfc90fdb 0
-atan2_matrix_14_13 atan2 bf000000 80800000 bfc90fdb 0
+atan2_matrix_14_11 atan2 bf000000 80000001 bfc90fda 0
+atan2_matrix_14_12 atan2 bf000000 807fffff bfc90fda 0
+atan2_matrix_14_13 atan2 bf000000 80800000 bfc90fda 0
 atan2_matrix_14_14 atan2 bf000000 bf000000 c016cbe4 0
 atan2_matrix_14_15 atan2 bf000000 bf800000 c02b6374 0
 atan2_matrix_14_16 atan2 bf000000 c0490fdb c03ef5f3 0
@@ -306,13 +306,13 @@ atan2_matrix_15_3 atan2 bf800000 00800000 bfc90fdb 0
 atan2_matrix_15_4 atan2 bf800000 3f000000 bf8db70d 0
 atan2_matrix_15_5 atan2 bf800000 3f800000 bf490fdb 0
 atan2_matrix_15_6 atan2 bf800000 40490fdb be9dc856 0
-atan2_matrix_15_7 atan2 bf800000 40c90fdb be219e80 0
-atan2_matrix_15_8 atan2 bf800000 46fff000 b8000800 0
+atan2_matrix_15_7 atan2 bf800000 40c90fdb be219e7f 0
+atan2_matrix_15_8 atan2 bf800000 46fff000 b8000801 0
 atan2_matrix_15_9 atan2 bf800000 7f7fffff 80200000 0
 atan2_matrix_15_10 atan2 bf800000 80000000 bfc90fdb 0
-atan2_matrix_15_11 atan2 bf800000 80000001 bfc90fdb 0
-atan2_matrix_15_12 atan2 bf800000 807fffff bfc90fdb 0
-atan2_matrix_15_13 atan2 bf800000 80800000 bfc90fdb 0
+atan2_matrix_15_11 atan2 bf800000 80000001 bfc90fda 0
+atan2_matrix_15_12 atan2 bf800000 807fffff bfc90fda 0
+atan2_matrix_15_13 atan2 bf800000 80800000 bfc90fda 0
 atan2_matrix_15_14 atan2 bf800000 bf000000 c0023454 0
 atan2_matrix_15_15 atan2 bf800000 bf800000 c016cbe4 0
 atan2_matrix_15_16 atan2 bf800000 c0490fdb c03556d0 0
@@ -330,10 +330,10 @@ atan2_matrix_16_7 atan2 c0490fdb 40c90fdb beed6338 0
 atan2_matrix_16_8 atan2 c0490fdb 46fff000 b8c91c6d 0
 atan2_matrix_16_9 atan2 c0490fdb 7f7fffff 806487ee 0
 atan2_matrix_16_10 atan2 c0490fdb 80000000 bfc90fdb 0
-atan2_matrix_16_11 atan2 c0490fdb 80000001 bfc90fdb 0
-atan2_matrix_16_12 atan2 c0490fdb 807fffff bfc90fdb 0
-atan2_matrix_16_13 atan2 c0490fdb 80800000 bfc90fdb 0
-atan2_matrix_16_14 atan2 c0490fdb bf000000 bfdd43ab 0
+atan2_matrix_16_11 atan2 c0490fdb 80000001 bfc90fda 0
+atan2_matrix_16_12 atan2 c0490fdb 807fffff bfc90fda 0
+atan2_matrix_16_13 atan2 c0490fdb 80800000 bfc90fda 0
+atan2_matrix_16_14 atan2 c0490fdb bf000000 bfdd43aa 0
 atan2_matrix_16_15 atan2 c0490fdb bf800000 bff081f0 0
 atan2_matrix_16_16 atan2 c0490fdb c0490fdb c016cbe4 0
 atan2_matrix_16_17 atan2 c0490fdb c0c90fdb c02b6374 0
@@ -350,11 +350,11 @@ atan2_matrix_17_7 atan2 c0c90fdb 40c90fdb bf490fdb 0
 atan2_matrix_17_8 atan2 c0c90fdb 46fff000 b9491c6d 0
 atan2_matrix_17_9 atan2 c0c90fdb 7f7fffff 80c90fdc 0
 atan2_matrix_17_10 atan2 c0c90fdb 80000000 bfc90fdb 0
-atan2_matrix_17_11 atan2 c0c90fdb 80000001 bfc90fdb 0
-atan2_matrix_17_12 atan2 c0c90fdb 807fffff bfc90fdb 0
-atan2_matrix_17_13 atan2 c0c90fdb 80800000 bfc90fdb 0
+atan2_matrix_17_11 atan2 c0c90fdb 80000001 bfc90fda 0
+atan2_matrix_17_12 atan2 c0c90fdb 807fffff bfc90fda 0
+atan2_matrix_17_13 atan2 c0c90fdb 80800000 bfc90fda 0
 atan2_matrix_17_14 atan2 c0c90fdb bf000000 bfd339f7 0
-atan2_matrix_17_15 atan2 c0c90fdb bf800000 bfdd43ab 0
+atan2_matrix_17_15 atan2 c0c90fdb bf800000 bfdd43aa 0
 atan2_matrix_17_16 atan2 c0c90fdb c0490fdb c0023454 0
 atan2_matrix_17_17 atan2 c0c90fdb c0c90fdb c016cbe4 0
 atan2_matrix_17_18 atan2 c0c90fdb c6fff000 c0490cb6 0
@@ -370,13 +370,13 @@ atan2_matrix_18_7 atan2 c6fff000 40c90fdb bfc90992 0
 atan2_matrix_18_8 atan2 c6fff000 46fff000 bf490fdb 0
 atan2_matrix_18_9 atan2 c6fff000 7f7fffff 86fff001 0
 atan2_matrix_18_10 atan2 c6fff000 80000000 bfc90fdb 0
-atan2_matrix_18_11 atan2 c6fff000 80000001 bfc90fdb 0
-atan2_matrix_18_12 atan2 c6fff000 807fffff bfc90fdb 0
-atan2_matrix_18_13 atan2 c6fff000 80800000 bfc90fdb 0
-atan2_matrix_18_14 atan2 c6fff000 bf000000 bfc9105b 0
-atan2_matrix_18_15 atan2 c6fff000 bf800000 bfc910db 0
+atan2_matrix_18_11 atan2 c6fff000 80000001 bfc90fda 0
+atan2_matrix_18_12 atan2 c6fff000 807fffff bfc90fda 0
+atan2_matrix_18_13 atan2 c6fff000 80800000 bfc90fda 0
+atan2_matrix_18_14 atan2 c6fff000 bf000000 bfc9105a 0
+atan2_matrix_18_15 atan2 c6fff000 bf800000 bfc910da 0
 atan2_matrix_18_16 atan2 c6fff000 c0490fdb bfc912ff 0
-atan2_matrix_18_17 atan2 c6fff000 c0c90fdb bfc91624 0
+atan2_matrix_18_17 atan2 c6fff000 c0c90fdb bfc91623 0
 atan2_matrix_18_18 atan2 c6fff000 c6fff000 c016cbe4 0
 atan2_matrix_18_19 atan2 c6fff000 ff7fffff c0490fdb 0
 atan2_matrix_19_0 atan2 ff7fffff 00000000 bfc90fdb 0
@@ -390,105 +390,105 @@ atan2_matrix_19_7 atan2 ff7fffff 40c90fdb bfc90fdb 0
 atan2_matrix_19_8 atan2 ff7fffff 46fff000 bfc90fdb 0
 atan2_matrix_19_9 atan2 ff7fffff 7f7fffff bf490fdb 0
 atan2_matrix_19_10 atan2 ff7fffff 80000000 bfc90fdb 0
-atan2_matrix_19_11 atan2 ff7fffff 80000001 bfc90fdb 0
-atan2_matrix_19_12 atan2 ff7fffff 807fffff bfc90fdb 0
-atan2_matrix_19_13 atan2 ff7fffff 80800000 bfc90fdb 0
-atan2_matrix_19_14 atan2 ff7fffff bf000000 bfc90fdb 0
-atan2_matrix_19_15 atan2 ff7fffff bf800000 bfc90fdb 0
-atan2_matrix_19_16 atan2 ff7fffff c0490fdb bfc90fdb 0
-atan2_matrix_19_17 atan2 ff7fffff c0c90fdb bfc90fdb 0
-atan2_matrix_19_18 atan2 ff7fffff c6fff000 bfc90fdb 0
+atan2_matrix_19_11 atan2 ff7fffff 80000001 bfc90fda 0
+atan2_matrix_19_12 atan2 ff7fffff 807fffff bfc90fda 0
+atan2_matrix_19_13 atan2 ff7fffff 80800000 bfc90fda 0
+atan2_matrix_19_14 atan2 ff7fffff bf000000 bfc90fda 0
+atan2_matrix_19_15 atan2 ff7fffff bf800000 bfc90fda 0
+atan2_matrix_19_16 atan2 ff7fffff c0490fdb bfc90fda 0
+atan2_matrix_19_17 atan2 ff7fffff c0c90fdb bfc90fda 0
+atan2_matrix_19_18 atan2 ff7fffff c6fff000 bfc90fda 0
 atan2_matrix_19_19 atan2 ff7fffff ff7fffff c016cbe4 0
-ratio_exponent_1_-1_0 atan2 007fffff 3f800000 007fffff 1
-ratio_exponent_1_-1_1 atan2 807fffff 3f800000 807fffff 1
-ratio_exponent_1_0_0 atan2 00800000 3f800000 00800000 1
-ratio_exponent_1_0_1 atan2 80800000 3f800000 80800000 1
-ratio_exponent_1_1_0 atan2 00800001 3f800000 00800001 1
-ratio_exponent_1_1_1 atan2 80800001 3f800000 80800001 1
-ratio_exponent_8_-1_0 atan2 03ffffff 3f800000 03ffffff 1
-ratio_exponent_8_-1_1 atan2 83ffffff 3f800000 83ffffff 1
-ratio_exponent_8_0_0 atan2 04000000 3f800000 04000000 1
-ratio_exponent_8_0_1 atan2 84000000 3f800000 84000000 1
-ratio_exponent_8_1_0 atan2 04000001 3f800000 04000001 1
-ratio_exponent_8_1_1 atan2 84000001 3f800000 84000001 1
-ratio_exponent_15_-1_0 atan2 077fffff 3f800000 077fffff 1
-ratio_exponent_15_-1_1 atan2 877fffff 3f800000 877fffff 1
-ratio_exponent_15_0_0 atan2 07800000 3f800000 07800000 1
-ratio_exponent_15_0_1 atan2 87800000 3f800000 87800000 1
-ratio_exponent_15_1_0 atan2 07800001 3f800000 07800001 1
-ratio_exponent_15_1_1 atan2 87800001 3f800000 87800001 1
-ratio_exponent_22_-1_0 atan2 0affffff 3f800000 0affffff 1
-ratio_exponent_22_-1_1 atan2 8affffff 3f800000 8affffff 1
-ratio_exponent_22_0_0 atan2 0b000000 3f800000 0b000000 1
-ratio_exponent_22_0_1 atan2 8b000000 3f800000 8b000000 1
-ratio_exponent_22_1_0 atan2 0b000001 3f800000 0b000001 1
-ratio_exponent_22_1_1 atan2 8b000001 3f800000 8b000001 1
-ratio_exponent_29_-1_0 atan2 0e7fffff 3f800000 0e7fffff 1
-ratio_exponent_29_-1_1 atan2 8e7fffff 3f800000 8e7fffff 1
-ratio_exponent_29_0_0 atan2 0e800000 3f800000 0e800000 1
-ratio_exponent_29_0_1 atan2 8e800000 3f800000 8e800000 1
-ratio_exponent_29_1_0 atan2 0e800001 3f800000 0e800001 1
-ratio_exponent_29_1_1 atan2 8e800001 3f800000 8e800001 1
-ratio_exponent_36_-1_0 atan2 11ffffff 3f800000 11ffffff 1
-ratio_exponent_36_-1_1 atan2 91ffffff 3f800000 91ffffff 1
-ratio_exponent_36_0_0 atan2 12000000 3f800000 12000000 1
-ratio_exponent_36_0_1 atan2 92000000 3f800000 92000000 1
-ratio_exponent_36_1_0 atan2 12000001 3f800000 12000001 1
-ratio_exponent_36_1_1 atan2 92000001 3f800000 92000001 1
-ratio_exponent_43_-1_0 atan2 157fffff 3f800000 157fffff 1
-ratio_exponent_43_-1_1 atan2 957fffff 3f800000 957fffff 1
-ratio_exponent_43_0_0 atan2 15800000 3f800000 15800000 1
-ratio_exponent_43_0_1 atan2 95800000 3f800000 95800000 1
-ratio_exponent_43_1_0 atan2 15800001 3f800000 15800001 1
-ratio_exponent_43_1_1 atan2 95800001 3f800000 95800001 1
-ratio_exponent_50_-1_0 atan2 18ffffff 3f800000 18ffffff 1
-ratio_exponent_50_-1_1 atan2 98ffffff 3f800000 98ffffff 1
-ratio_exponent_50_0_0 atan2 19000000 3f800000 19000000 1
-ratio_exponent_50_0_1 atan2 99000000 3f800000 99000000 1
-ratio_exponent_50_1_0 atan2 19000001 3f800000 19000001 1
-ratio_exponent_50_1_1 atan2 99000001 3f800000 99000001 1
-ratio_exponent_57_-1_0 atan2 1c7fffff 3f800000 1c7fffff 1
-ratio_exponent_57_-1_1 atan2 9c7fffff 3f800000 9c7fffff 1
-ratio_exponent_57_0_0 atan2 1c800000 3f800000 1c800000 1
-ratio_exponent_57_0_1 atan2 9c800000 3f800000 9c800000 1
-ratio_exponent_57_1_0 atan2 1c800001 3f800000 1c800001 1
-ratio_exponent_57_1_1 atan2 9c800001 3f800000 9c800001 1
-ratio_exponent_64_-1_0 atan2 1fffffff 3f800000 1fffffff 1
-ratio_exponent_64_-1_1 atan2 9fffffff 3f800000 9fffffff 1
-ratio_exponent_64_0_0 atan2 20000000 3f800000 20000000 1
-ratio_exponent_64_0_1 atan2 a0000000 3f800000 a0000000 1
-ratio_exponent_64_1_0 atan2 20000001 3f800000 20000001 1
-ratio_exponent_64_1_1 atan2 a0000001 3f800000 a0000001 1
-ratio_exponent_71_-1_0 atan2 237fffff 3f800000 237fffff 1
-ratio_exponent_71_-1_1 atan2 a37fffff 3f800000 a37fffff 1
-ratio_exponent_71_0_0 atan2 23800000 3f800000 23800000 1
-ratio_exponent_71_0_1 atan2 a3800000 3f800000 a3800000 1
-ratio_exponent_71_1_0 atan2 23800001 3f800000 23800001 1
-ratio_exponent_71_1_1 atan2 a3800001 3f800000 a3800001 1
-ratio_exponent_78_-1_0 atan2 26ffffff 3f800000 26ffffff 1
-ratio_exponent_78_-1_1 atan2 a6ffffff 3f800000 a6ffffff 1
-ratio_exponent_78_0_0 atan2 27000000 3f800000 27000000 1
-ratio_exponent_78_0_1 atan2 a7000000 3f800000 a7000000 1
-ratio_exponent_78_1_0 atan2 27000001 3f800000 27000001 1
-ratio_exponent_78_1_1 atan2 a7000001 3f800000 a7000001 1
-ratio_exponent_85_-1_0 atan2 2a7fffff 3f800000 2a7fffff 1
-ratio_exponent_85_-1_1 atan2 aa7fffff 3f800000 aa7fffff 1
-ratio_exponent_85_0_0 atan2 2a800000 3f800000 2a800000 1
-ratio_exponent_85_0_1 atan2 aa800000 3f800000 aa800000 1
-ratio_exponent_85_1_0 atan2 2a800001 3f800000 2a800001 1
-ratio_exponent_85_1_1 atan2 aa800001 3f800000 aa800001 1
-ratio_exponent_92_-1_0 atan2 2dffffff 3f800000 2dffffff 1
-ratio_exponent_92_-1_1 atan2 adffffff 3f800000 adffffff 1
-ratio_exponent_92_0_0 atan2 2e000000 3f800000 2e000000 1
-ratio_exponent_92_0_1 atan2 ae000000 3f800000 ae000000 1
-ratio_exponent_92_1_0 atan2 2e000001 3f800000 2e000001 1
-ratio_exponent_92_1_1 atan2 ae000001 3f800000 ae000001 1
-ratio_exponent_99_-1_0 atan2 317fffff 3f800000 317fffff 1
-ratio_exponent_99_-1_1 atan2 b17fffff 3f800000 b17fffff 1
-ratio_exponent_99_0_0 atan2 31800000 3f800000 31800000 1
-ratio_exponent_99_0_1 atan2 b1800000 3f800000 b1800000 1
-ratio_exponent_99_1_0 atan2 31800001 3f800000 31800001 1
-ratio_exponent_99_1_1 atan2 b1800001 3f800000 b1800001 1
+ratio_exponent_1_-1_0 atan2 007fffff 3f800000 007fffff 0
+ratio_exponent_1_-1_1 atan2 807fffff 3f800000 807fffff 0
+ratio_exponent_1_0_0 atan2 00800000 3f800000 00800000 0
+ratio_exponent_1_0_1 atan2 80800000 3f800000 80800000 0
+ratio_exponent_1_1_0 atan2 00800001 3f800000 00800001 0
+ratio_exponent_1_1_1 atan2 80800001 3f800000 80800001 0
+ratio_exponent_8_-1_0 atan2 03ffffff 3f800000 03ffffff 0
+ratio_exponent_8_-1_1 atan2 83ffffff 3f800000 83ffffff 0
+ratio_exponent_8_0_0 atan2 04000000 3f800000 04000000 0
+ratio_exponent_8_0_1 atan2 84000000 3f800000 84000000 0
+ratio_exponent_8_1_0 atan2 04000001 3f800000 04000001 0
+ratio_exponent_8_1_1 atan2 84000001 3f800000 84000001 0
+ratio_exponent_15_-1_0 atan2 077fffff 3f800000 077fffff 0
+ratio_exponent_15_-1_1 atan2 877fffff 3f800000 877fffff 0
+ratio_exponent_15_0_0 atan2 07800000 3f800000 07800000 0
+ratio_exponent_15_0_1 atan2 87800000 3f800000 87800000 0
+ratio_exponent_15_1_0 atan2 07800001 3f800000 07800001 0
+ratio_exponent_15_1_1 atan2 87800001 3f800000 87800001 0
+ratio_exponent_22_-1_0 atan2 0affffff 3f800000 0affffff 0
+ratio_exponent_22_-1_1 atan2 8affffff 3f800000 8affffff 0
+ratio_exponent_22_0_0 atan2 0b000000 3f800000 0b000000 0
+ratio_exponent_22_0_1 atan2 8b000000 3f800000 8b000000 0
+ratio_exponent_22_1_0 atan2 0b000001 3f800000 0b000001 0
+ratio_exponent_22_1_1 atan2 8b000001 3f800000 8b000001 0
+ratio_exponent_29_-1_0 atan2 0e7fffff 3f800000 0e7fffff 0
+ratio_exponent_29_-1_1 atan2 8e7fffff 3f800000 8e7fffff 0
+ratio_exponent_29_0_0 atan2 0e800000 3f800000 0e800000 0
+ratio_exponent_29_0_1 atan2 8e800000 3f800000 8e800000 0
+ratio_exponent_29_1_0 atan2 0e800001 3f800000 0e800001 0
+ratio_exponent_29_1_1 atan2 8e800001 3f800000 8e800001 0
+ratio_exponent_36_-1_0 atan2 11ffffff 3f800000 11ffffff 0
+ratio_exponent_36_-1_1 atan2 91ffffff 3f800000 91ffffff 0
+ratio_exponent_36_0_0 atan2 12000000 3f800000 12000000 0
+ratio_exponent_36_0_1 atan2 92000000 3f800000 92000000 0
+ratio_exponent_36_1_0 atan2 12000001 3f800000 12000001 0
+ratio_exponent_36_1_1 atan2 92000001 3f800000 92000001 0
+ratio_exponent_43_-1_0 atan2 157fffff 3f800000 157fffff 0
+ratio_exponent_43_-1_1 atan2 957fffff 3f800000 957fffff 0
+ratio_exponent_43_0_0 atan2 15800000 3f800000 15800000 0
+ratio_exponent_43_0_1 atan2 95800000 3f800000 95800000 0
+ratio_exponent_43_1_0 atan2 15800001 3f800000 15800001 0
+ratio_exponent_43_1_1 atan2 95800001 3f800000 95800001 0
+ratio_exponent_50_-1_0 atan2 18ffffff 3f800000 18ffffff 0
+ratio_exponent_50_-1_1 atan2 98ffffff 3f800000 98ffffff 0
+ratio_exponent_50_0_0 atan2 19000000 3f800000 19000000 0
+ratio_exponent_50_0_1 atan2 99000000 3f800000 99000000 0
+ratio_exponent_50_1_0 atan2 19000001 3f800000 19000001 0
+ratio_exponent_50_1_1 atan2 99000001 3f800000 99000001 0
+ratio_exponent_57_-1_0 atan2 1c7fffff 3f800000 1c7fffff 0
+ratio_exponent_57_-1_1 atan2 9c7fffff 3f800000 9c7fffff 0
+ratio_exponent_57_0_0 atan2 1c800000 3f800000 1c800000 0
+ratio_exponent_57_0_1 atan2 9c800000 3f800000 9c800000 0
+ratio_exponent_57_1_0 atan2 1c800001 3f800000 1c800001 0
+ratio_exponent_57_1_1 atan2 9c800001 3f800000 9c800001 0
+ratio_exponent_64_-1_0 atan2 1fffffff 3f800000 1fffffff 0
+ratio_exponent_64_-1_1 atan2 9fffffff 3f800000 9fffffff 0
+ratio_exponent_64_0_0 atan2 20000000 3f800000 20000000 0
+ratio_exponent_64_0_1 atan2 a0000000 3f800000 a0000000 0
+ratio_exponent_64_1_0 atan2 20000001 3f800000 20000001 0
+ratio_exponent_64_1_1 atan2 a0000001 3f800000 a0000001 0
+ratio_exponent_71_-1_0 atan2 237fffff 3f800000 237fffff 0
+ratio_exponent_71_-1_1 atan2 a37fffff 3f800000 a37fffff 0
+ratio_exponent_71_0_0 atan2 23800000 3f800000 23800000 0
+ratio_exponent_71_0_1 atan2 a3800000 3f800000 a3800000 0
+ratio_exponent_71_1_0 atan2 23800001 3f800000 23800001 0
+ratio_exponent_71_1_1 atan2 a3800001 3f800000 a3800001 0
+ratio_exponent_78_-1_0 atan2 26ffffff 3f800000 26ffffff 0
+ratio_exponent_78_-1_1 atan2 a6ffffff 3f800000 a6ffffff 0
+ratio_exponent_78_0_0 atan2 27000000 3f800000 27000000 0
+ratio_exponent_78_0_1 atan2 a7000000 3f800000 a7000000 0
+ratio_exponent_78_1_0 atan2 27000001 3f800000 27000001 0
+ratio_exponent_78_1_1 atan2 a7000001 3f800000 a7000001 0
+ratio_exponent_85_-1_0 atan2 2a7fffff 3f800000 2a7fffff 0
+ratio_exponent_85_-1_1 atan2 aa7fffff 3f800000 aa7fffff 0
+ratio_exponent_85_0_0 atan2 2a800000 3f800000 2a800000 0
+ratio_exponent_85_0_1 atan2 aa800000 3f800000 aa800000 0
+ratio_exponent_85_1_0 atan2 2a800001 3f800000 2a800001 0
+ratio_exponent_85_1_1 atan2 aa800001 3f800000 aa800001 0
+ratio_exponent_92_-1_0 atan2 2dffffff 3f800000 2dffffff 0
+ratio_exponent_92_-1_1 atan2 adffffff 3f800000 adffffff 0
+ratio_exponent_92_0_0 atan2 2e000000 3f800000 2e000000 0
+ratio_exponent_92_0_1 atan2 ae000000 3f800000 ae000000 0
+ratio_exponent_92_1_0 atan2 2e000001 3f800000 2e000001 0
+ratio_exponent_92_1_1 atan2 ae000001 3f800000 ae000001 0
+ratio_exponent_99_-1_0 atan2 317fffff 3f800000 317fffff 0
+ratio_exponent_99_-1_1 atan2 b17fffff 3f800000 b17fffff 0
+ratio_exponent_99_0_0 atan2 31800000 3f800000 31800000 0
+ratio_exponent_99_0_1 atan2 b1800000 3f800000 b1800000 0
+ratio_exponent_99_1_0 atan2 31800001 3f800000 31800001 0
+ratio_exponent_99_1_1 atan2 b1800001 3f800000 b1800001 0
 ratio_exponent_106_-1_0 atan2 34ffffff 3f800000 34ffffff 0
 ratio_exponent_106_-1_1 atan2 b4ffffff 3f800000 b4ffffff 0
 ratio_exponent_106_0_0 atan2 35000000 3f800000 35000000 0
@@ -621,78 +621,78 @@ ratio_exponent_253_0_0 atan2 7e800000 3f800000 3fc90fdb 0
 ratio_exponent_253_0_1 atan2 fe800000 3f800000 bfc90fdb 0
 ratio_exponent_253_1_0 atan2 7e800001 3f800000 3fc90fdb 0
 ratio_exponent_253_1_1 atan2 fe800001 3f800000 bfc90fdb 0
-ratio_branch_25_-1_-1_0_0 atan2 32ffffff 3f800000 32ffffff 1
+ratio_branch_25_-1_-1_0_0 atan2 32ffffff 3f800000 32ffffff 0
 ratio_branch_25_-1_-1_0_1 atan2 32ffffff bf800000 40490fdb 0
-ratio_branch_25_-1_-1_1_0 atan2 b2ffffff 3f800000 b2ffffff 1
+ratio_branch_25_-1_-1_1_0 atan2 b2ffffff 3f800000 b2ffffff 0
 ratio_branch_25_-1_-1_1_1 atan2 b2ffffff bf800000 c0490fdb 0
-ratio_branch_25_-1_0_0_0 atan2 33000000 3f800000 33000000 1
+ratio_branch_25_-1_0_0_0 atan2 33000000 3f800000 33000000 0
 ratio_branch_25_-1_0_0_1 atan2 33000000 bf800000 40490fdb 0
-ratio_branch_25_-1_0_1_0 atan2 b3000000 3f800000 b3000000 1
+ratio_branch_25_-1_0_1_0 atan2 b3000000 3f800000 b3000000 0
 ratio_branch_25_-1_0_1_1 atan2 b3000000 bf800000 c0490fdb 0
-ratio_branch_25_-1_1_0_0 atan2 33000001 3f800000 33000001 1
+ratio_branch_25_-1_1_0_0 atan2 33000001 3f800000 33000001 0
 ratio_branch_25_-1_1_0_1 atan2 33000001 bf800000 40490fdb 0
-ratio_branch_25_-1_1_1_0 atan2 b3000001 3f800000 b3000001 1
+ratio_branch_25_-1_1_1_0 atan2 b3000001 3f800000 b3000001 0
 ratio_branch_25_-1_1_1_1 atan2 b3000001 bf800000 c0490fdb 0
 ratio_branch_25_1_-1_0_0 atan2 4bffffff 3f800000 3fc90fda 0
 ratio_branch_25_1_-1_0_1 atan2 4bffffff bf800000 3fc90fdb 0
 ratio_branch_25_1_-1_1_0 atan2 cbffffff 3f800000 bfc90fda 0
 ratio_branch_25_1_-1_1_1 atan2 cbffffff bf800000 bfc90fdb 0
-ratio_branch_25_1_0_0_0 atan2 4c000000 3f800000 3fc90fda 0
-ratio_branch_25_1_0_0_1 atan2 4c000000 bf800000 3fc90fdb 0
-ratio_branch_25_1_0_1_0 atan2 cc000000 3f800000 bfc90fda 0
-ratio_branch_25_1_0_1_1 atan2 cc000000 bf800000 bfc90fdb 0
-ratio_branch_25_1_1_0_0 atan2 4c000001 3f800000 3fc90fda 0
-ratio_branch_25_1_1_0_1 atan2 4c000001 bf800000 3fc90fdb 0
-ratio_branch_25_1_1_1_0 atan2 cc000001 3f800000 bfc90fda 0
-ratio_branch_25_1_1_1_1 atan2 cc000001 bf800000 bfc90fdb 0
-ratio_branch_26_-1_-1_0_0 atan2 327fffff 3f800000 327fffff 1
+ratio_branch_25_1_0_0_0 atan2 4c000000 3f800000 3fc90fdb 0
+ratio_branch_25_1_0_0_1 atan2 4c000000 bf800000 3fc90fda 0
+ratio_branch_25_1_0_1_0 atan2 cc000000 3f800000 bfc90fdb 0
+ratio_branch_25_1_0_1_1 atan2 cc000000 bf800000 bfc90fda 0
+ratio_branch_25_1_1_0_0 atan2 4c000001 3f800000 3fc90fdb 0
+ratio_branch_25_1_1_0_1 atan2 4c000001 bf800000 3fc90fda 0
+ratio_branch_25_1_1_1_0 atan2 cc000001 3f800000 bfc90fdb 0
+ratio_branch_25_1_1_1_1 atan2 cc000001 bf800000 bfc90fda 0
+ratio_branch_26_-1_-1_0_0 atan2 327fffff 3f800000 327fffff 0
 ratio_branch_26_-1_-1_0_1 atan2 327fffff bf800000 40490fdb 0
-ratio_branch_26_-1_-1_1_0 atan2 b27fffff 3f800000 b27fffff 1
+ratio_branch_26_-1_-1_1_0 atan2 b27fffff 3f800000 b27fffff 0
 ratio_branch_26_-1_-1_1_1 atan2 b27fffff bf800000 c0490fdb 0
-ratio_branch_26_-1_0_0_0 atan2 32800000 3f800000 32800000 1
+ratio_branch_26_-1_0_0_0 atan2 32800000 3f800000 32800000 0
 ratio_branch_26_-1_0_0_1 atan2 32800000 bf800000 40490fdb 0
-ratio_branch_26_-1_0_1_0 atan2 b2800000 3f800000 b2800000 1
+ratio_branch_26_-1_0_1_0 atan2 b2800000 3f800000 b2800000 0
 ratio_branch_26_-1_0_1_1 atan2 b2800000 bf800000 c0490fdb 0
-ratio_branch_26_-1_1_0_0 atan2 32800001 3f800000 32800001 1
+ratio_branch_26_-1_1_0_0 atan2 32800001 3f800000 32800001 0
 ratio_branch_26_-1_1_0_1 atan2 32800001 bf800000 40490fdb 0
-ratio_branch_26_-1_1_1_0 atan2 b2800001 3f800000 b2800001 1
+ratio_branch_26_-1_1_1_0 atan2 b2800001 3f800000 b2800001 0
 ratio_branch_26_-1_1_1_1 atan2 b2800001 bf800000 c0490fdb 0
 ratio_branch_26_1_-1_0_0 atan2 4c7fffff 3f800000 3fc90fdb 0
-ratio_branch_26_1_-1_0_1 atan2 4c7fffff bf800000 3fc90fdb 0
+ratio_branch_26_1_-1_0_1 atan2 4c7fffff bf800000 3fc90fda 0
 ratio_branch_26_1_-1_1_0 atan2 cc7fffff 3f800000 bfc90fdb 0
-ratio_branch_26_1_-1_1_1 atan2 cc7fffff bf800000 bfc90fdb 0
+ratio_branch_26_1_-1_1_1 atan2 cc7fffff bf800000 bfc90fda 0
 ratio_branch_26_1_0_0_0 atan2 4c800000 3f800000 3fc90fdb 0
-ratio_branch_26_1_0_0_1 atan2 4c800000 bf800000 3fc90fdb 0
+ratio_branch_26_1_0_0_1 atan2 4c800000 bf800000 3fc90fda 0
 ratio_branch_26_1_0_1_0 atan2 cc800000 3f800000 bfc90fdb 0
-ratio_branch_26_1_0_1_1 atan2 cc800000 bf800000 bfc90fdb 0
+ratio_branch_26_1_0_1_1 atan2 cc800000 bf800000 bfc90fda 0
 ratio_branch_26_1_1_0_0 atan2 4c800001 3f800000 3fc90fdb 0
-ratio_branch_26_1_1_0_1 atan2 4c800001 bf800000 3fc90fdb 0
+ratio_branch_26_1_1_0_1 atan2 4c800001 bf800000 3fc90fda 0
 ratio_branch_26_1_1_1_0 atan2 cc800001 3f800000 bfc90fdb 0
-ratio_branch_26_1_1_1_1 atan2 cc800001 bf800000 bfc90fdb 0
-ratio_branch_27_-1_-1_0_0 atan2 31ffffff 3f800000 31ffffff 1
+ratio_branch_26_1_1_1_1 atan2 cc800001 bf800000 bfc90fda 0
+ratio_branch_27_-1_-1_0_0 atan2 31ffffff 3f800000 31ffffff 0
 ratio_branch_27_-1_-1_0_1 atan2 31ffffff bf800000 40490fdb 0
-ratio_branch_27_-1_-1_1_0 atan2 b1ffffff 3f800000 b1ffffff 1
+ratio_branch_27_-1_-1_1_0 atan2 b1ffffff 3f800000 b1ffffff 0
 ratio_branch_27_-1_-1_1_1 atan2 b1ffffff bf800000 c0490fdb 0
-ratio_branch_27_-1_0_0_0 atan2 32000000 3f800000 32000000 1
+ratio_branch_27_-1_0_0_0 atan2 32000000 3f800000 32000000 0
 ratio_branch_27_-1_0_0_1 atan2 32000000 bf800000 40490fdb 0
-ratio_branch_27_-1_0_1_0 atan2 b2000000 3f800000 b2000000 1
+ratio_branch_27_-1_0_1_0 atan2 b2000000 3f800000 b2000000 0
 ratio_branch_27_-1_0_1_1 atan2 b2000000 bf800000 c0490fdb 0
-ratio_branch_27_-1_1_0_0 atan2 32000001 3f800000 32000001 1
+ratio_branch_27_-1_1_0_0 atan2 32000001 3f800000 32000001 0
 ratio_branch_27_-1_1_0_1 atan2 32000001 bf800000 40490fdb 0
-ratio_branch_27_-1_1_1_0 atan2 b2000001 3f800000 b2000001 1
+ratio_branch_27_-1_1_1_0 atan2 b2000001 3f800000 b2000001 0
 ratio_branch_27_-1_1_1_1 atan2 b2000001 bf800000 c0490fdb 0
 ratio_branch_27_1_-1_0_0 atan2 4cffffff 3f800000 3fc90fdb 0
-ratio_branch_27_1_-1_0_1 atan2 4cffffff bf800000 3fc90fdb 0
+ratio_branch_27_1_-1_0_1 atan2 4cffffff bf800000 3fc90fda 0
 ratio_branch_27_1_-1_1_0 atan2 ccffffff 3f800000 bfc90fdb 0
-ratio_branch_27_1_-1_1_1 atan2 ccffffff bf800000 bfc90fdb 0
+ratio_branch_27_1_-1_1_1 atan2 ccffffff bf800000 bfc90fda 0
 ratio_branch_27_1_0_0_0 atan2 4d000000 3f800000 3fc90fdb 0
-ratio_branch_27_1_0_0_1 atan2 4d000000 bf800000 3fc90fdb 0
+ratio_branch_27_1_0_0_1 atan2 4d000000 bf800000 3fc90fda 0
 ratio_branch_27_1_0_1_0 atan2 cd000000 3f800000 bfc90fdb 0
-ratio_branch_27_1_0_1_1 atan2 cd000000 bf800000 bfc90fdb 0
+ratio_branch_27_1_0_1_1 atan2 cd000000 bf800000 bfc90fda 0
 ratio_branch_27_1_1_0_0 atan2 4d000001 3f800000 3fc90fdb 0
-ratio_branch_27_1_1_0_1 atan2 4d000001 bf800000 3fc90fdb 0
+ratio_branch_27_1_1_0_1 atan2 4d000001 bf800000 3fc90fda 0
 ratio_branch_27_1_1_1_0 atan2 cd000001 3f800000 bfc90fdb 0
-ratio_branch_27_1_1_1_1 atan2 cd000001 bf800000 bfc90fdb 0
+ratio_branch_27_1_1_1_1 atan2 cd000001 bf800000 bfc90fda 0
 normalize_00000000_0 normalize 00000000 00000000 0
 normalize_00000000_1 normalize 80000000 80000000 0
 normalize_00000001_0 normalize 00000001 00000001 0
@@ -811,7 +811,7 @@ bearing_4_8 bearing bf800000 00000000 bf800000 bf800000 4096cbe4 0
 bearing_4_9 bearing bf800000 00000000 3f800000 bf800000 40ba39a8 0
 bearing_4_10 bearing bf800000 00000000 46fff000 c6fff000 40afee00 0
 bearing_4_11 bearing bf800000 00000000 c6fff000 46fff000 4016cba4 0
-bearing_4_12 bearing bf800000 00000000 00000001 80000001 40c90fdb 1
+bearing_4_12 bearing bf800000 00000000 00000001 80000001 40c90fdb 0
 bearing_4_13 bearing bf800000 00000000 3f9e0652 c187e6b7 409afb52 0
 bearing_5_0 bearing 00000000 bf800000 00000000 00000000 3fc90fdb 0
 bearing_5_1 bearing 00000000 bf800000 80000000 80000000 3fc90fdb 0
@@ -913,8 +913,8 @@ bearing_11_12 bearing c6fff000 46fff000 00000001 80000001 40afede0 0
 bearing_11_13 bearing c6fff000 46fff000 3f9e0652 c187e6b7 40afebe8 0
 bearing_12_0 bearing 00000001 80000001 00000000 00000000 4016cbe4 0
 bearing_12_1 bearing 00000001 80000001 80000000 80000000 4016cbe4 0
-bearing_12_2 bearing 00000001 80000001 3f800000 00000000 00000001 1
-bearing_12_3 bearing 00000001 80000001 00000000 3f800000 3fc90fdb 0
+bearing_12_2 bearing 00000001 80000001 3f800000 00000000 00000001 0
+bearing_12_3 bearing 00000001 80000001 00000000 3f800000 3fc90fda 0
 bearing_12_4 bearing 00000001 80000001 bf800000 00000000 40490fdb 0
 bearing_12_5 bearing 00000001 80000001 00000000 bf800000 4096cbe4 0
 bearing_12_6 bearing 00000001 80000001 3f800000 3f800000 3f490fdb 0
@@ -930,7 +930,7 @@ bearing_13_1 bearing 3f9e0652 c187e6b7 80000000 80000000 3fd25912 0
 bearing_13_2 bearing 3f9e0652 c187e6b7 3f800000 00000000 3fcad44a 0
 bearing_13_3 bearing 3f9e0652 c187e6b7 00000000 3f800000 3fd1d556 0
 bearing_13_4 bearing 3f9e0652 c187e6b7 bf800000 00000000 3fd9cd93 0
-bearing_13_5 bearing 3f9e0652 c187e6b7 00000000 bf800000 3fd2ed31 0
+bearing_13_5 bearing 3f9e0652 c187e6b7 00000000 bf800000 3fd2ed30 0
 bearing_13_6 bearing 3f9e0652 c187e6b7 3f800000 3f800000 3fcabb24 0
 bearing_13_7 bearing 3f9e0652 c187e6b7 bf800000 3f800000 3fd8e1ce 0
 bearing_13_8 bearing 3f9e0652 c187e6b7 bf800000 bf800000 3fdad64e 0
@@ -2253,8 +2253,8 @@ arc_16_1_5 arc 00000000 00000000 40c90fdb b4000000 3f800000 80000000 00000000 00
 arc_16_1_6 arc 00000000 00000000 c0c90fdb b4000000 3f800000 80000000 00000000 00000000 0
 arc_16_1_7 arc 00000000 00000000 41c90fdb b4000000 3f800000 80000000 00000000 00000000 0
 arc_16_1_8 arc 00000000 00000000 c1c90fdb b4000000 3f800000 80000000 00000000 00000000 0
-arc_16_2_0 arc 00000000 00000000 00000000 b4000000 3f800000 40490fdb 00000000 00000000 0
-arc_16_2_1 arc 00000000 00000000 80000000 b4000000 3f800000 40490fdb 00000000 00000000 0
+arc_16_2_0 arc 00000000 00000000 00000000 b4000000 3f800000 40490fdb 00000000 00000001 0
+arc_16_2_1 arc 00000000 00000000 80000000 b4000000 3f800000 40490fdb 00000000 00000001 0
 arc_16_2_2 arc 00000000 00000000 40490fdb b4000000 3f800000 40490fdb 00000000 00000000 0
 arc_16_2_3 arc 00000000 00000000 c0490fdb b4000000 3f800000 40490fdb 00000000 00000000 0
 arc_16_2_4 arc 00000000 00000000 40c90fda b4000000 3f800000 40490fdb 00000000 00000000 0
@@ -2262,8 +2262,8 @@ arc_16_2_5 arc 00000000 00000000 40c90fdb b4000000 3f800000 40490fdb 00000000 00
 arc_16_2_6 arc 00000000 00000000 c0c90fdb b4000000 3f800000 40490fdb 00000000 00000000 0
 arc_16_2_7 arc 00000000 00000000 41c90fdb b4000000 3f800000 40490fdb 00000000 00000000 0
 arc_16_2_8 arc 00000000 00000000 c1c90fdb b4000000 3f800000 40490fdb 00000000 00000000 0
-arc_16_3_0 arc 00000000 00000000 00000000 b4000000 3f800000 c0490fdb 00000000 00000000 0
-arc_16_3_1 arc 00000000 00000000 80000000 b4000000 3f800000 c0490fdb 00000000 00000000 0
+arc_16_3_0 arc 00000000 00000000 00000000 b4000000 3f800000 c0490fdb 00000000 00000001 0
+arc_16_3_1 arc 00000000 00000000 80000000 b4000000 3f800000 c0490fdb 00000000 00000001 0
 arc_16_3_2 arc 00000000 00000000 40490fdb b4000000 3f800000 c0490fdb 00000000 00000000 0
 arc_16_3_3 arc 00000000 00000000 c0490fdb b4000000 3f800000 c0490fdb 00000000 00000000 0
 arc_16_3_4 arc 00000000 00000000 40c90fda b4000000 3f800000 c0490fdb 00000000 00000000 0
@@ -2579,8 +2579,8 @@ arc_20_1_7 arc 00000000 00000000 41c90fdb b4800000 3f800000 80000000 00000000 00
 arc_20_1_8 arc 00000000 00000000 c1c90fdb b4800000 3f800000 80000000 00000000 00000000 0
 arc_20_2_0 arc 00000000 00000000 00000000 b4800000 3f800000 40490fdb 00000000 00000000 0
 arc_20_2_1 arc 00000000 00000000 80000000 b4800000 3f800000 40490fdb 00000000 00000000 0
-arc_20_2_2 arc 00000000 00000000 40490fdb b4800000 3f800000 40490fdb 00000000 00000001 0
-arc_20_2_3 arc 00000000 00000000 c0490fdb b4800000 3f800000 40490fdb 00000000 00000001 0
+arc_20_2_2 arc 00000000 00000000 40490fdb b4800000 3f800000 40490fdb 00000000 00000000 0
+arc_20_2_3 arc 00000000 00000000 c0490fdb b4800000 3f800000 40490fdb 00000000 00000000 0
 arc_20_2_4 arc 00000000 00000000 40c90fda b4800000 3f800000 40490fdb 00000000 00000000 0
 arc_20_2_5 arc 00000000 00000000 40c90fdb b4800000 3f800000 40490fdb 00000000 00000000 0
 arc_20_2_6 arc 00000000 00000000 c0c90fdb b4800000 3f800000 40490fdb 00000000 00000000 0
@@ -2588,8 +2588,8 @@ arc_20_2_7 arc 00000000 00000000 41c90fdb b4800000 3f800000 40490fdb 00000000 00
 arc_20_2_8 arc 00000000 00000000 c1c90fdb b4800000 3f800000 40490fdb 00000000 00000000 0
 arc_20_3_0 arc 00000000 00000000 00000000 b4800000 3f800000 c0490fdb 00000000 00000000 0
 arc_20_3_1 arc 00000000 00000000 80000000 b4800000 3f800000 c0490fdb 00000000 00000000 0
-arc_20_3_2 arc 00000000 00000000 40490fdb b4800000 3f800000 c0490fdb 00000000 00000001 0
-arc_20_3_3 arc 00000000 00000000 c0490fdb b4800000 3f800000 c0490fdb 00000000 00000001 0
+arc_20_3_2 arc 00000000 00000000 40490fdb b4800000 3f800000 c0490fdb 00000000 00000000 0
+arc_20_3_3 arc 00000000 00000000 c0490fdb b4800000 3f800000 c0490fdb 00000000 00000000 0
 arc_20_3_4 arc 00000000 00000000 40c90fda b4800000 3f800000 c0490fdb 00000000 00000000 0
 arc_20_3_5 arc 00000000 00000000 40c90fdb b4800000 3f800000 c0490fdb 00000000 00000000 0
 arc_20_3_6 arc 00000000 00000000 c0c90fdb b4800000 3f800000 c0490fdb 00000000 00000000 0
@@ -2985,19 +2985,19 @@ arc_25_1_8 arc 00000000 00000000 c1c90fdb b5000000 bf800000 80000000 00000000 00
 arc_25_2_0 arc 00000000 00000000 00000000 b5000000 bf800000 40490fdb 00000000 00000000 0
 arc_25_2_1 arc 00000000 00000000 80000000 b5000000 bf800000 40490fdb 00000000 00000000 0
 arc_25_2_2 arc 00000000 00000000 40490fdb b5000000 bf800000 40490fdb 00000000 00000001 0
-arc_25_2_3 arc 00000000 00000000 c0490fdb b5000000 bf800000 40490fdb 00000000 00000001 0
-arc_25_2_4 arc 00000000 00000000 40c90fda b5000000 bf800000 40490fdb 00000000 00000000 0
+arc_25_2_3 arc 00000000 00000000 c0490fdb b5000000 bf800000 40490fdb 00000000 00000000 0
+arc_25_2_4 arc 00000000 00000000 40c90fda b5000000 bf800000 40490fdb 00000000 00000001 0
 arc_25_2_5 arc 00000000 00000000 40c90fdb b5000000 bf800000 40490fdb 00000000 00000000 0
-arc_25_2_6 arc 00000000 00000000 c0c90fdb b5000000 bf800000 40490fdb 00000000 00000000 0
+arc_25_2_6 arc 00000000 00000000 c0c90fdb b5000000 bf800000 40490fdb 00000000 00000001 0
 arc_25_2_7 arc 00000000 00000000 41c90fdb b5000000 bf800000 40490fdb 00000000 00000000 0
 arc_25_2_8 arc 00000000 00000000 c1c90fdb b5000000 bf800000 40490fdb 00000000 00000000 0
 arc_25_3_0 arc 00000000 00000000 00000000 b5000000 bf800000 c0490fdb 00000000 00000000 0
 arc_25_3_1 arc 00000000 00000000 80000000 b5000000 bf800000 c0490fdb 00000000 00000000 0
 arc_25_3_2 arc 00000000 00000000 40490fdb b5000000 bf800000 c0490fdb 00000000 00000001 0
-arc_25_3_3 arc 00000000 00000000 c0490fdb b5000000 bf800000 c0490fdb 00000000 00000001 0
-arc_25_3_4 arc 00000000 00000000 40c90fda b5000000 bf800000 c0490fdb 00000000 00000000 0
+arc_25_3_3 arc 00000000 00000000 c0490fdb b5000000 bf800000 c0490fdb 00000000 00000000 0
+arc_25_3_4 arc 00000000 00000000 40c90fda b5000000 bf800000 c0490fdb 00000000 00000001 0
 arc_25_3_5 arc 00000000 00000000 40c90fdb b5000000 bf800000 c0490fdb 00000000 00000000 0
-arc_25_3_6 arc 00000000 00000000 c0c90fdb b5000000 bf800000 c0490fdb 00000000 00000000 0
+arc_25_3_6 arc 00000000 00000000 c0c90fdb b5000000 bf800000 c0490fdb 00000000 00000001 0
 arc_25_3_7 arc 00000000 00000000 41c90fdb b5000000 bf800000 c0490fdb 00000000 00000000 0
 arc_25_3_8 arc 00000000 00000000 c1c90fdb b5000000 bf800000 c0490fdb 00000000 00000000 0
 arc_25_4_0 arc 00000000 00000000 00000000 b5000000 bf800000 40c90fda 00000000 00000001 0
@@ -3054,7 +3054,7 @@ arc_identity_5 arc 46fff000 c6fff000 c1c90fdb 00000000 00000000 40c90fdb 0000000
 arc_identity_6 arc 46fff000 c6fff000 c1c90fdb 00000000 00000000 c0c90fdb 00000001 00000001 0
 arc_identity_7 arc 46fff000 c6fff000 c1c90fdb 00000000 00000000 41c90fdb 00000001 00000001 0
 arc_identity_8 arc 46fff000 c6fff000 c1c90fdb 00000000 00000000 c1c90fdb 00000001 00000001 0
-rare_fallback_0 atan2 3f7d14f8 3fa6c629 3f262a3c 1
+hard_input_0 atan2 3f7d14f8 3fa6c629 3f262a3c 1
 fallback_neighbor_0_-1_-1_0_0 atan2 3f7d14f7 3fa6c628 3f262a3c 0
 fallback_neighbor_0_-1_-1_0_1 atan2 3f7d14f7 bfa6c628 401f854c 0
 fallback_neighbor_0_-1_-1_1_0 atan2 bf7d14f7 3fa6c628 bf262a3c 0
@@ -3068,30 +3068,30 @@ fallback_neighbor_0_-1_1_0_1 atan2 3f7d14f7 bfa6c62a 401f854c 0
 fallback_neighbor_0_-1_1_1_0 atan2 bf7d14f7 3fa6c62a bf262a3b 0
 fallback_neighbor_0_-1_1_1_1 atan2 bf7d14f7 bfa6c62a c01f854c 0
 fallback_neighbor_0_0_-1_0_0 atan2 3f7d14f8 3fa6c628 3f262a3d 0
-fallback_neighbor_0_0_-1_0_1 atan2 3f7d14f8 bfa6c628 401f854b 0
+fallback_neighbor_0_0_-1_0_1 atan2 3f7d14f8 bfa6c628 401f854c 0
 fallback_neighbor_0_0_-1_1_0 atan2 bf7d14f8 3fa6c628 bf262a3d 0
-fallback_neighbor_0_0_-1_1_1 atan2 bf7d14f8 bfa6c628 c01f854b 0
-fallback_neighbor_0_0_0_0_0 atan2 3f7d14f8 3fa6c629 3f262a3c 1
+fallback_neighbor_0_0_-1_1_1 atan2 bf7d14f8 bfa6c628 c01f854c 0
+fallback_neighbor_0_0_0_0_0 atan2 3f7d14f8 3fa6c629 3f262a3c 0
 fallback_neighbor_0_0_0_0_1 atan2 3f7d14f8 bfa6c629 401f854c 0
-fallback_neighbor_0_0_0_1_0 atan2 bf7d14f8 3fa6c629 bf262a3c 1
+fallback_neighbor_0_0_0_1_0 atan2 bf7d14f8 3fa6c629 bf262a3c 0
 fallback_neighbor_0_0_0_1_1 atan2 bf7d14f8 bfa6c629 c01f854c 0
-fallback_neighbor_0_0_1_0_0 atan2 3f7d14f8 3fa6c62a 3f262a3b 0
+fallback_neighbor_0_0_1_0_0 atan2 3f7d14f8 3fa6c62a 3f262a3c 0
 fallback_neighbor_0_0_1_0_1 atan2 3f7d14f8 bfa6c62a 401f854c 0
-fallback_neighbor_0_0_1_1_0 atan2 bf7d14f8 3fa6c62a bf262a3b 0
+fallback_neighbor_0_0_1_1_0 atan2 bf7d14f8 3fa6c62a bf262a3c 0
 fallback_neighbor_0_0_1_1_1 atan2 bf7d14f8 bfa6c62a c01f854c 0
 fallback_neighbor_0_1_-1_0_0 atan2 3f7d14f9 3fa6c628 3f262a3d 0
-fallback_neighbor_0_1_-1_0_1 atan2 3f7d14f9 bfa6c628 401f854b 0
+fallback_neighbor_0_1_-1_0_1 atan2 3f7d14f9 bfa6c628 401f854c 0
 fallback_neighbor_0_1_-1_1_0 atan2 bf7d14f9 3fa6c628 bf262a3d 0
-fallback_neighbor_0_1_-1_1_1 atan2 bf7d14f9 bfa6c628 c01f854b 0
-fallback_neighbor_0_1_0_0_0 atan2 3f7d14f9 3fa6c629 3f262a3c 0
+fallback_neighbor_0_1_-1_1_1 atan2 bf7d14f9 bfa6c628 c01f854c 0
+fallback_neighbor_0_1_0_0_0 atan2 3f7d14f9 3fa6c629 3f262a3d 0
 fallback_neighbor_0_1_0_0_1 atan2 3f7d14f9 bfa6c629 401f854c 0
-fallback_neighbor_0_1_0_1_0 atan2 bf7d14f9 3fa6c629 bf262a3c 0
+fallback_neighbor_0_1_0_1_0 atan2 bf7d14f9 3fa6c629 bf262a3d 0
 fallback_neighbor_0_1_0_1_1 atan2 bf7d14f9 bfa6c629 c01f854c 0
 fallback_neighbor_0_1_1_0_0 atan2 3f7d14f9 3fa6c62a 3f262a3c 0
 fallback_neighbor_0_1_1_0_1 atan2 3f7d14f9 bfa6c62a 401f854c 0
 fallback_neighbor_0_1_1_1_0 atan2 bf7d14f9 3fa6c62a bf262a3c 0
 fallback_neighbor_0_1_1_1_1 atan2 bf7d14f9 bfa6c62a c01f854c 0
-rare_fallback_1 atan2 3f6e9547 3f0baaa4 3f85456e 1
+hard_input_1 atan2 3f6e9547 3f0baaa4 3f85456e 1
 fallback_neighbor_1_-1_-1_0_0 atan2 3f6e9546 3f0baaa3 3f85456e 0
 fallback_neighbor_1_-1_-1_0_1 atan2 3f6e9546 bf0baaa3 40066d24 0
 fallback_neighbor_1_-1_-1_1_0 atan2 bf6e9546 3f0baaa3 bf85456e 0
@@ -3108,9 +3108,9 @@ fallback_neighbor_1_0_-1_0_0 atan2 3f6e9547 3f0baaa3 3f85456e 0
 fallback_neighbor_1_0_-1_0_1 atan2 3f6e9547 bf0baaa3 40066d24 0
 fallback_neighbor_1_0_-1_1_0 atan2 bf6e9547 3f0baaa3 bf85456e 0
 fallback_neighbor_1_0_-1_1_1 atan2 bf6e9547 bf0baaa3 c0066d24 0
-fallback_neighbor_1_0_0_0_0 atan2 3f6e9547 3f0baaa4 3f85456e 1
+fallback_neighbor_1_0_0_0_0 atan2 3f6e9547 3f0baaa4 3f85456e 0
 fallback_neighbor_1_0_0_0_1 atan2 3f6e9547 bf0baaa4 40066d24 0
-fallback_neighbor_1_0_0_1_0 atan2 bf6e9547 3f0baaa4 bf85456e 1
+fallback_neighbor_1_0_0_1_0 atan2 bf6e9547 3f0baaa4 bf85456e 0
 fallback_neighbor_1_0_0_1_1 atan2 bf6e9547 bf0baaa4 c0066d24 0
 fallback_neighbor_1_0_1_0_0 atan2 3f6e9547 3f0baaa5 3f85456d 0
 fallback_neighbor_1_0_1_0_1 atan2 3f6e9547 bf0baaa5 40066d24 0
@@ -3128,11 +3128,11 @@ fallback_neighbor_1_1_1_0_0 atan2 3f6e9548 3f0baaa5 3f85456d 0
 fallback_neighbor_1_1_1_0_1 atan2 3f6e9548 bf0baaa5 40066d24 0
 fallback_neighbor_1_1_1_1_0 atan2 bf6e9548 3f0baaa5 bf85456d 0
 fallback_neighbor_1_1_1_1_1 atan2 bf6e9548 bf0baaa5 c0066d24 0
-rare_fallback_2 atan2 3fb0d97e 3f790791 3f75146d 1
+hard_input_2 atan2 3fb0d97e 3f790791 3f75146d 1
 fallback_neighbor_2_-1_-1_0_0 atan2 3fb0d97d 3f790790 3f75146d 0
-fallback_neighbor_2_-1_-1_0_1 atan2 3fb0d97d bf790790 400bcabf 0
+fallback_neighbor_2_-1_-1_0_1 atan2 3fb0d97d bf790790 400bcac0 0
 fallback_neighbor_2_-1_-1_1_0 atan2 bfb0d97d 3f790790 bf75146d 0
-fallback_neighbor_2_-1_-1_1_1 atan2 bfb0d97d bf790790 c00bcabf 0
+fallback_neighbor_2_-1_-1_1_1 atan2 bfb0d97d bf790790 c00bcac0 0
 fallback_neighbor_2_-1_0_0_0 atan2 3fb0d97d 3f790791 3f75146c 0
 fallback_neighbor_2_-1_0_0_1 atan2 3fb0d97d bf790791 400bcac0 0
 fallback_neighbor_2_-1_0_1_0 atan2 bfb0d97d 3f790791 bf75146c 0
@@ -3142,13 +3142,13 @@ fallback_neighbor_2_-1_1_0_1 atan2 3fb0d97d bf790792 400bcac0 0
 fallback_neighbor_2_-1_1_1_0 atan2 bfb0d97d 3f790792 bf75146c 0
 fallback_neighbor_2_-1_1_1_1 atan2 bfb0d97d bf790792 c00bcac0 0
 fallback_neighbor_2_0_-1_0_0 atan2 3fb0d97e 3f790790 3f75146d 0
-fallback_neighbor_2_0_-1_0_1 atan2 3fb0d97e bf790790 400bcabf 0
+fallback_neighbor_2_0_-1_0_1 atan2 3fb0d97e bf790790 400bcac0 0
 fallback_neighbor_2_0_-1_1_0 atan2 bfb0d97e 3f790790 bf75146d 0
-fallback_neighbor_2_0_-1_1_1 atan2 bfb0d97e bf790790 c00bcabf 0
-fallback_neighbor_2_0_0_0_0 atan2 3fb0d97e 3f790791 3f75146d 1
-fallback_neighbor_2_0_0_0_1 atan2 3fb0d97e bf790791 400bcabf 0
-fallback_neighbor_2_0_0_1_0 atan2 bfb0d97e 3f790791 bf75146d 1
-fallback_neighbor_2_0_0_1_1 atan2 bfb0d97e bf790791 c00bcabf 0
+fallback_neighbor_2_0_-1_1_1 atan2 bfb0d97e bf790790 c00bcac0 0
+fallback_neighbor_2_0_0_0_0 atan2 3fb0d97e 3f790791 3f75146d 0
+fallback_neighbor_2_0_0_0_1 atan2 3fb0d97e bf790791 400bcac0 0
+fallback_neighbor_2_0_0_1_0 atan2 bfb0d97e 3f790791 bf75146d 0
+fallback_neighbor_2_0_0_1_1 atan2 bfb0d97e bf790791 c00bcac0 0
 fallback_neighbor_2_0_1_0_0 atan2 3fb0d97e 3f790792 3f75146d 0
 fallback_neighbor_2_0_1_0_1 atan2 3fb0d97e bf790792 400bcac0 0
 fallback_neighbor_2_0_1_1_0 atan2 bfb0d97e 3f790792 bf75146d 0
@@ -3157,15 +3157,15 @@ fallback_neighbor_2_1_-1_0_0 atan2 3fb0d97f 3f790790 3f75146e 0
 fallback_neighbor_2_1_-1_0_1 atan2 3fb0d97f bf790790 400bcabf 0
 fallback_neighbor_2_1_-1_1_0 atan2 bfb0d97f 3f790790 bf75146e 0
 fallback_neighbor_2_1_-1_1_1 atan2 bfb0d97f bf790790 c00bcabf 0
-fallback_neighbor_2_1_0_0_0 atan2 3fb0d97f 3f790791 3f75146e 0
-fallback_neighbor_2_1_0_0_1 atan2 3fb0d97f bf790791 400bcabf 0
-fallback_neighbor_2_1_0_1_0 atan2 bfb0d97f 3f790791 bf75146e 0
-fallback_neighbor_2_1_0_1_1 atan2 bfb0d97f bf790791 c00bcabf 0
+fallback_neighbor_2_1_0_0_0 atan2 3fb0d97f 3f790791 3f75146d 0
+fallback_neighbor_2_1_0_0_1 atan2 3fb0d97f bf790791 400bcac0 0
+fallback_neighbor_2_1_0_1_0 atan2 bfb0d97f 3f790791 bf75146d 0
+fallback_neighbor_2_1_0_1_1 atan2 bfb0d97f bf790791 c00bcac0 0
 fallback_neighbor_2_1_1_0_0 atan2 3fb0d97f 3f790792 3f75146d 0
-fallback_neighbor_2_1_1_0_1 atan2 3fb0d97f bf790792 400bcabf 0
+fallback_neighbor_2_1_1_0_1 atan2 3fb0d97f bf790792 400bcac0 0
 fallback_neighbor_2_1_1_1_0 atan2 bfb0d97f 3f790792 bf75146d 0
-fallback_neighbor_2_1_1_1_1 atan2 bfb0d97f bf790792 c00bcabf 0
-rare_fallback_3 atan2 3f050b7b 3f27960e 3f2bc6e7 1
+fallback_neighbor_2_1_1_1_1 atan2 bfb0d97f bf790792 c00bcac0 0
+hard_input_3 atan2 3f050b7b 3f27960e 3f2bc6e7 1
 fallback_neighbor_3_-1_-1_0_0 atan2 3f050b7a 3f27960d 3f2bc6e7 0
 fallback_neighbor_3_-1_-1_0_1 atan2 3f050b7a bf27960d 401e1e21 0
 fallback_neighbor_3_-1_-1_1_0 atan2 bf050b7a 3f27960d bf2bc6e7 0
@@ -3175,25 +3175,25 @@ fallback_neighbor_3_-1_0_0_1 atan2 3f050b7a bf27960e 401e1e21 0
 fallback_neighbor_3_-1_0_1_0 atan2 bf050b7a 3f27960e bf2bc6e6 0
 fallback_neighbor_3_-1_0_1_1 atan2 bf050b7a bf27960e c01e1e21 0
 fallback_neighbor_3_-1_1_0_0 atan2 3f050b7a 3f27960f 3f2bc6e5 0
-fallback_neighbor_3_-1_1_0_1 atan2 3f050b7a bf27960f 401e1e21 0
+fallback_neighbor_3_-1_1_0_1 atan2 3f050b7a bf27960f 401e1e22 0
 fallback_neighbor_3_-1_1_1_0 atan2 bf050b7a 3f27960f bf2bc6e5 0
-fallback_neighbor_3_-1_1_1_1 atan2 bf050b7a bf27960f c01e1e21 0
+fallback_neighbor_3_-1_1_1_1 atan2 bf050b7a bf27960f c01e1e22 0
 fallback_neighbor_3_0_-1_0_0 atan2 3f050b7b 3f27960d 3f2bc6e8 0
 fallback_neighbor_3_0_-1_0_1 atan2 3f050b7b bf27960d 401e1e21 0
 fallback_neighbor_3_0_-1_1_0 atan2 bf050b7b 3f27960d bf2bc6e8 0
 fallback_neighbor_3_0_-1_1_1 atan2 bf050b7b bf27960d c01e1e21 0
-fallback_neighbor_3_0_0_0_0 atan2 3f050b7b 3f27960e 3f2bc6e7 1
+fallback_neighbor_3_0_0_0_0 atan2 3f050b7b 3f27960e 3f2bc6e7 0
 fallback_neighbor_3_0_0_0_1 atan2 3f050b7b bf27960e 401e1e21 0
-fallback_neighbor_3_0_0_1_0 atan2 bf050b7b 3f27960e bf2bc6e7 1
+fallback_neighbor_3_0_0_1_0 atan2 bf050b7b 3f27960e bf2bc6e7 0
 fallback_neighbor_3_0_0_1_1 atan2 bf050b7b bf27960e c01e1e21 0
 fallback_neighbor_3_0_1_0_0 atan2 3f050b7b 3f27960f 3f2bc6e6 0
 fallback_neighbor_3_0_1_0_1 atan2 3f050b7b bf27960f 401e1e21 0
 fallback_neighbor_3_0_1_1_0 atan2 bf050b7b 3f27960f bf2bc6e6 0
 fallback_neighbor_3_0_1_1_1 atan2 bf050b7b bf27960f c01e1e21 0
-fallback_neighbor_3_1_-1_0_0 atan2 3f050b7c 3f27960d 3f2bc6e9 0
-fallback_neighbor_3_1_-1_0_1 atan2 3f050b7c bf27960d 401e1e20 0
-fallback_neighbor_3_1_-1_1_0 atan2 bf050b7c 3f27960d bf2bc6e9 0
-fallback_neighbor_3_1_-1_1_1 atan2 bf050b7c bf27960d c01e1e20 0
+fallback_neighbor_3_1_-1_0_0 atan2 3f050b7c 3f27960d 3f2bc6e8 0
+fallback_neighbor_3_1_-1_0_1 atan2 3f050b7c bf27960d 401e1e21 0
+fallback_neighbor_3_1_-1_1_0 atan2 bf050b7c 3f27960d bf2bc6e8 0
+fallback_neighbor_3_1_-1_1_1 atan2 bf050b7c bf27960d c01e1e21 0
 fallback_neighbor_3_1_0_0_0 atan2 3f050b7c 3f27960e 3f2bc6e8 0
 fallback_neighbor_3_1_0_0_1 atan2 3f050b7c bf27960e 401e1e21 0
 fallback_neighbor_3_1_0_1_0 atan2 bf050b7c 3f27960e bf2bc6e8 0
@@ -3202,7 +3202,7 @@ fallback_neighbor_3_1_1_0_0 atan2 3f050b7c 3f27960f 3f2bc6e7 0
 fallback_neighbor_3_1_1_0_1 atan2 3f050b7c bf27960f 401e1e21 0
 fallback_neighbor_3_1_1_1_0 atan2 bf050b7c 3f27960f bf2bc6e7 0
 fallback_neighbor_3_1_1_1_1 atan2 bf050b7c bf27960f c01e1e21 0
-rare_fallback_4 atan2 3f8ef599 3f8ff3e7 3f482cf3 1
+hard_input_4 atan2 3f8ef599 3f8ff3e7 3f482cf3 1
 fallback_neighbor_4_-1_-1_0_0 atan2 3f8ef598 3f8ff3e6 3f482cf3 0
 fallback_neighbor_4_-1_-1_0_1 atan2 3f8ef598 bf8ff3e6 4017049e 0
 fallback_neighbor_4_-1_-1_1_0 atan2 bf8ef598 3f8ff3e6 bf482cf3 0
@@ -3219,18 +3219,18 @@ fallback_neighbor_4_0_-1_0_0 atan2 3f8ef599 3f8ff3e6 3f482cf4 0
 fallback_neighbor_4_0_-1_0_1 atan2 3f8ef599 bf8ff3e6 4017049e 0
 fallback_neighbor_4_0_-1_1_0 atan2 bf8ef599 3f8ff3e6 bf482cf4 0
 fallback_neighbor_4_0_-1_1_1 atan2 bf8ef599 bf8ff3e6 c017049e 0
-fallback_neighbor_4_0_0_0_0 atan2 3f8ef599 3f8ff3e7 3f482cf3 1
+fallback_neighbor_4_0_0_0_0 atan2 3f8ef599 3f8ff3e7 3f482cf3 0
 fallback_neighbor_4_0_0_0_1 atan2 3f8ef599 bf8ff3e7 4017049e 0
-fallback_neighbor_4_0_0_1_0 atan2 bf8ef599 3f8ff3e7 bf482cf3 1
+fallback_neighbor_4_0_0_1_0 atan2 bf8ef599 3f8ff3e7 bf482cf3 0
 fallback_neighbor_4_0_0_1_1 atan2 bf8ef599 bf8ff3e7 c017049e 0
 fallback_neighbor_4_0_1_0_0 atan2 3f8ef599 3f8ff3e8 3f482cf2 0
 fallback_neighbor_4_0_1_0_1 atan2 3f8ef599 bf8ff3e8 4017049e 0
 fallback_neighbor_4_0_1_1_0 atan2 bf8ef599 3f8ff3e8 bf482cf2 0
 fallback_neighbor_4_0_1_1_1 atan2 bf8ef599 bf8ff3e8 c017049e 0
 fallback_neighbor_4_1_-1_0_0 atan2 3f8ef59a 3f8ff3e6 3f482cf5 0
-fallback_neighbor_4_1_-1_0_1 atan2 3f8ef59a bf8ff3e6 4017049d 0
+fallback_neighbor_4_1_-1_0_1 atan2 3f8ef59a bf8ff3e6 4017049e 0
 fallback_neighbor_4_1_-1_1_0 atan2 bf8ef59a 3f8ff3e6 bf482cf5 0
-fallback_neighbor_4_1_-1_1_1 atan2 bf8ef59a bf8ff3e6 c017049d 0
+fallback_neighbor_4_1_-1_1_1 atan2 bf8ef59a bf8ff3e6 c017049e 0
 fallback_neighbor_4_1_0_0_0 atan2 3f8ef59a 3f8ff3e7 3f482cf4 0
 fallback_neighbor_4_1_0_0_1 atan2 3f8ef59a bf8ff3e7 4017049e 0
 fallback_neighbor_4_1_0_1_0 atan2 bf8ef59a 3f8ff3e7 bf482cf4 0
@@ -3239,7 +3239,7 @@ fallback_neighbor_4_1_1_0_0 atan2 3f8ef59a 3f8ff3e8 3f482cf3 0
 fallback_neighbor_4_1_1_0_1 atan2 3f8ef59a bf8ff3e8 4017049e 0
 fallback_neighbor_4_1_1_1_0 atan2 bf8ef59a 3f8ff3e8 bf482cf3 0
 fallback_neighbor_4_1_1_1_1 atan2 bf8ef59a bf8ff3e8 c017049e 0
-rare_fallback_5 atan2 3f85d09b 3f4754d0 3f6e3dc3 1
+hard_input_5 atan2 3f85d09b 3f4754d0 3f6e3dc3 1
 fallback_neighbor_5_-1_-1_0_0 atan2 3f85d09a 3f4754cf 3f6e3dc3 0
 fallback_neighbor_5_-1_-1_0_1 atan2 3f85d09a bf4754cf 400d806a 0
 fallback_neighbor_5_-1_-1_1_0 atan2 bf85d09a 3f4754cf bf6e3dc3 0
@@ -3248,25 +3248,25 @@ fallback_neighbor_5_-1_0_0_0 atan2 3f85d09a 3f4754d0 3f6e3dc2 0
 fallback_neighbor_5_-1_0_0_1 atan2 3f85d09a bf4754d0 400d806a 0
 fallback_neighbor_5_-1_0_1_0 atan2 bf85d09a 3f4754d0 bf6e3dc2 0
 fallback_neighbor_5_-1_0_1_1 atan2 bf85d09a bf4754d0 c00d806a 0
-fallback_neighbor_5_-1_1_0_0 atan2 3f85d09a 3f4754d1 3f6e3dc1 0
+fallback_neighbor_5_-1_1_0_0 atan2 3f85d09a 3f4754d1 3f6e3dc2 0
 fallback_neighbor_5_-1_1_0_1 atan2 3f85d09a bf4754d1 400d806a 0
-fallback_neighbor_5_-1_1_1_0 atan2 bf85d09a 3f4754d1 bf6e3dc1 0
+fallback_neighbor_5_-1_1_1_0 atan2 bf85d09a 3f4754d1 bf6e3dc2 0
 fallback_neighbor_5_-1_1_1_1 atan2 bf85d09a bf4754d1 c00d806a 0
 fallback_neighbor_5_0_-1_0_0 atan2 3f85d09b 3f4754cf 3f6e3dc4 0
 fallback_neighbor_5_0_-1_0_1 atan2 3f85d09b bf4754cf 400d806a 0
 fallback_neighbor_5_0_-1_1_0 atan2 bf85d09b 3f4754cf bf6e3dc4 0
 fallback_neighbor_5_0_-1_1_1 atan2 bf85d09b bf4754cf c00d806a 0
-fallback_neighbor_5_0_0_0_0 atan2 3f85d09b 3f4754d0 3f6e3dc3 1
+fallback_neighbor_5_0_0_0_0 atan2 3f85d09b 3f4754d0 3f6e3dc3 0
 fallback_neighbor_5_0_0_0_1 atan2 3f85d09b bf4754d0 400d806a 0
-fallback_neighbor_5_0_0_1_0 atan2 bf85d09b 3f4754d0 bf6e3dc3 1
+fallback_neighbor_5_0_0_1_0 atan2 bf85d09b 3f4754d0 bf6e3dc3 0
 fallback_neighbor_5_0_0_1_1 atan2 bf85d09b bf4754d0 c00d806a 0
 fallback_neighbor_5_0_1_0_0 atan2 3f85d09b 3f4754d1 3f6e3dc2 0
 fallback_neighbor_5_0_1_0_1 atan2 3f85d09b bf4754d1 400d806a 0
 fallback_neighbor_5_0_1_1_0 atan2 bf85d09b 3f4754d1 bf6e3dc2 0
 fallback_neighbor_5_0_1_1_1 atan2 bf85d09b bf4754d1 c00d806a 0
-fallback_neighbor_5_1_-1_0_0 atan2 3f85d09c 3f4754cf 3f6e3dc5 0
+fallback_neighbor_5_1_-1_0_0 atan2 3f85d09c 3f4754cf 3f6e3dc4 0
 fallback_neighbor_5_1_-1_0_1 atan2 3f85d09c bf4754cf 400d806a 0
-fallback_neighbor_5_1_-1_1_0 atan2 bf85d09c 3f4754cf bf6e3dc5 0
+fallback_neighbor_5_1_-1_1_0 atan2 bf85d09c 3f4754cf bf6e3dc4 0
 fallback_neighbor_5_1_-1_1_1 atan2 bf85d09c bf4754cf c00d806a 0
 fallback_neighbor_5_1_0_0_0 atan2 3f85d09c 3f4754d0 3f6e3dc4 0
 fallback_neighbor_5_1_0_0_1 atan2 3f85d09c bf4754d0 400d806a 0
@@ -3276,34 +3276,34 @@ fallback_neighbor_5_1_1_0_0 atan2 3f85d09c 3f4754d1 3f6e3dc3 0
 fallback_neighbor_5_1_1_0_1 atan2 3f85d09c bf4754d1 400d806a 0
 fallback_neighbor_5_1_1_1_0 atan2 bf85d09c 3f4754d1 bf6e3dc3 0
 fallback_neighbor_5_1_1_1_1 atan2 bf85d09c bf4754d1 c00d806a 0
-rare_fallback_6 atan2 3f35eded 3f8bb809 3f13bdea 1
+hard_input_6 atan2 3f35eded 3f8bb809 3f13bdea 1
 fallback_neighbor_6_-1_-1_0_0 atan2 3f35edec 3f8bb808 3f13bdea 0
 fallback_neighbor_6_-1_-1_0_1 atan2 3f35edec bf8bb808 40242060 0
 fallback_neighbor_6_-1_-1_1_0 atan2 bf35edec 3f8bb808 bf13bdea 0
 fallback_neighbor_6_-1_-1_1_1 atan2 bf35edec bf8bb808 c0242060 0
-fallback_neighbor_6_-1_0_0_0 atan2 3f35edec 3f8bb809 3f13bde9 0
+fallback_neighbor_6_-1_0_0_0 atan2 3f35edec 3f8bb809 3f13bdea 0
 fallback_neighbor_6_-1_0_0_1 atan2 3f35edec bf8bb809 40242060 0
-fallback_neighbor_6_-1_0_1_0 atan2 bf35edec 3f8bb809 bf13bde9 0
+fallback_neighbor_6_-1_0_1_0 atan2 bf35edec 3f8bb809 bf13bdea 0
 fallback_neighbor_6_-1_0_1_1 atan2 bf35edec bf8bb809 c0242060 0
-fallback_neighbor_6_-1_1_0_0 atan2 3f35edec 3f8bb80a 3f13bde9 0
+fallback_neighbor_6_-1_1_0_0 atan2 3f35edec 3f8bb80a 3f13bde8 0
 fallback_neighbor_6_-1_1_0_1 atan2 3f35edec bf8bb80a 40242061 0
-fallback_neighbor_6_-1_1_1_0 atan2 bf35edec 3f8bb80a bf13bde9 0
+fallback_neighbor_6_-1_1_1_0 atan2 bf35edec 3f8bb80a bf13bde8 0
 fallback_neighbor_6_-1_1_1_1 atan2 bf35edec bf8bb80a c0242061 0
 fallback_neighbor_6_0_-1_0_0 atan2 3f35eded 3f8bb808 3f13bdeb 0
 fallback_neighbor_6_0_-1_0_1 atan2 3f35eded bf8bb808 40242060 0
 fallback_neighbor_6_0_-1_1_0 atan2 bf35eded 3f8bb808 bf13bdeb 0
 fallback_neighbor_6_0_-1_1_1 atan2 bf35eded bf8bb808 c0242060 0
-fallback_neighbor_6_0_0_0_0 atan2 3f35eded 3f8bb809 3f13bdea 1
+fallback_neighbor_6_0_0_0_0 atan2 3f35eded 3f8bb809 3f13bdea 0
 fallback_neighbor_6_0_0_0_1 atan2 3f35eded bf8bb809 40242060 0
-fallback_neighbor_6_0_0_1_0 atan2 bf35eded 3f8bb809 bf13bdea 1
+fallback_neighbor_6_0_0_1_0 atan2 bf35eded 3f8bb809 bf13bdea 0
 fallback_neighbor_6_0_0_1_1 atan2 bf35eded bf8bb809 c0242060 0
 fallback_neighbor_6_0_1_0_0 atan2 3f35eded 3f8bb80a 3f13bde9 0
 fallback_neighbor_6_0_1_0_1 atan2 3f35eded bf8bb80a 40242060 0
 fallback_neighbor_6_0_1_1_0 atan2 bf35eded 3f8bb80a bf13bde9 0
 fallback_neighbor_6_0_1_1_1 atan2 bf35eded bf8bb80a c0242060 0
-fallback_neighbor_6_1_-1_0_0 atan2 3f35edee 3f8bb808 3f13bdeb 0
+fallback_neighbor_6_1_-1_0_0 atan2 3f35edee 3f8bb808 3f13bdec 0
 fallback_neighbor_6_1_-1_0_1 atan2 3f35edee bf8bb808 40242060 0
-fallback_neighbor_6_1_-1_1_0 atan2 bf35edee 3f8bb808 bf13bdeb 0
+fallback_neighbor_6_1_-1_1_0 atan2 bf35edee 3f8bb808 bf13bdec 0
 fallback_neighbor_6_1_-1_1_1 atan2 bf35edee bf8bb808 c0242060 0
 fallback_neighbor_6_1_0_0_0 atan2 3f35edee 3f8bb809 3f13bdeb 0
 fallback_neighbor_6_1_0_0_1 atan2 3f35edee bf8bb809 40242060 0
@@ -3313,10 +3313,10 @@ fallback_neighbor_6_1_1_0_0 atan2 3f35edee 3f8bb80a 3f13bdea 0
 fallback_neighbor_6_1_1_0_1 atan2 3f35edee bf8bb80a 40242060 0
 fallback_neighbor_6_1_1_1_0 atan2 bf35edee 3f8bb80a bf13bdea 0
 fallback_neighbor_6_1_1_1_1 atan2 bf35edee bf8bb80a c0242060 0
-rare_fallback_7 atan2 3f1ce8e3 3f1d2203 3f48e149 1
-fallback_neighbor_7_-1_-1_0_0 atan2 3f1ce8e2 3f1d2202 3f48e149 0
+hard_input_7 atan2 3f1ce8e3 3f1d2203 3f48e14a 1
+fallback_neighbor_7_-1_-1_0_0 atan2 3f1ce8e2 3f1d2202 3f48e14a 0
 fallback_neighbor_7_-1_-1_0_1 atan2 3f1ce8e2 bf1d2202 4016d788 0
-fallback_neighbor_7_-1_-1_1_0 atan2 bf1ce8e2 3f1d2202 bf48e149 0
+fallback_neighbor_7_-1_-1_1_0 atan2 bf1ce8e2 3f1d2202 bf48e14a 0
 fallback_neighbor_7_-1_-1_1_1 atan2 bf1ce8e2 bf1d2202 c016d788 0
 fallback_neighbor_7_-1_0_0_0 atan2 3f1ce8e2 3f1d2203 3f48e149 0
 fallback_neighbor_7_-1_0_0_1 atan2 3f1ce8e2 bf1d2203 4016d788 0
@@ -3330,9 +3330,9 @@ fallback_neighbor_7_0_-1_0_0 atan2 3f1ce8e3 3f1d2202 3f48e14a 0
 fallback_neighbor_7_0_-1_0_1 atan2 3f1ce8e3 bf1d2202 4016d788 0
 fallback_neighbor_7_0_-1_1_0 atan2 bf1ce8e3 3f1d2202 bf48e14a 0
 fallback_neighbor_7_0_-1_1_1 atan2 bf1ce8e3 bf1d2202 c016d788 0
-fallback_neighbor_7_0_0_0_0 atan2 3f1ce8e3 3f1d2203 3f48e149 1
+fallback_neighbor_7_0_0_0_0 atan2 3f1ce8e3 3f1d2203 3f48e14a 0
 fallback_neighbor_7_0_0_0_1 atan2 3f1ce8e3 bf1d2203 4016d788 0
-fallback_neighbor_7_0_0_1_0 atan2 bf1ce8e3 3f1d2203 bf48e149 1
+fallback_neighbor_7_0_0_1_0 atan2 bf1ce8e3 3f1d2203 bf48e14a 0
 fallback_neighbor_7_0_0_1_1 atan2 bf1ce8e3 bf1d2203 c016d788 0
 fallback_neighbor_7_0_1_0_0 atan2 3f1ce8e3 3f1d2204 3f48e149 0
 fallback_neighbor_7_0_1_0_1 atan2 3f1ce8e3 bf1d2204 4016d788 0

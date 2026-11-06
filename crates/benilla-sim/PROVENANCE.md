@@ -771,10 +771,10 @@ source SpellEvent scheduler or establish runtime notification/spell integration.
 
 [`facing`](FACING.md) ports CMaNGOS `WorldObject::GetAngleAt`, `HasInArcAt`
 and `MapManager::NormalizeOrientation` from the same pinned Classic source.
-Its selected glibc 2.41/CORE-MATH atan2f algorithm has a separately preserved
-MIT grant, not the VMap trig port's LGPL grant. Arithmetic uses software
-IEEE RNE including explicit source FMA; raw signed zeros/subnormals and the
-stricter runtime storage domain are documented separately. Full pinned hashes,
+Its selected glibc 2.36 atan2f/atanf algorithms retain the Sun Microsystems
+1993 permission notice in the translation. Arithmetic uses software IEEE RNE
+without contraction. Raw signed zeros/subnormals and the stricter runtime
+storage domain are documented separately. Full pinned hashes,
 licenses and independent source-extracted boundary/digest evidence are linked
 from the contract. This adds no content or production admission.
 

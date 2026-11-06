@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// CMaNGOS Classic 8ec338a1 Object.cpp/MapManager.h and glibc 2.41 e_atan2f.c;
-// upstream GPL-2.0-or-later / MIT. See benilla-sim/FACING.md.
+// CMaNGOS Classic 8ec338a1 Object.cpp/MapManager.h and glibc 2.36 float atan2/atan;
+// upstream GPL-2.0-or-later / Sun 1993 permission notice. See benilla-sim/FACING.md.
 //! Explicit immutable selection of the pinned current-pose numeric mechanism.
 use super::*;
 use benilla_sim::facing;
@@ -14,7 +14,7 @@ use benilla_sim::facing;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct FacingNumericPolicy {
     algorithm: &'static str,
-    source_sha256: [&'static str; 3],
+    source_sha256: [&'static str; 4],
 }
 impl FacingNumericPolicy {
     pub(super) fn validate(&self, profile: &Profile) -> Result<(), NativeError> {
@@ -63,7 +63,7 @@ mod tests {
         let mut profile = crate::native::synthetic_combat_fixture::profile();
         profile.initialize_facing_authority().unwrap();
         let expected = profile.digest();
-        for field in 0..4 {
+        for field in 0..5 {
             let mut changed = profile.clone();
             let policy = changed
                 .interactions

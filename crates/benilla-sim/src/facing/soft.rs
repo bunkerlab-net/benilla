@@ -35,6 +35,7 @@ impl D {
     pub fn raw(self) -> u64 {
         self.0.to_bits() as u64
     }
+    #[cfg(test)]
     pub fn fma(self, other: Self, add: Self) -> Self {
         Self(self.0.mul_add_r(other.0, add.0, R).value)
     }
