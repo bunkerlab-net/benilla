@@ -171,6 +171,35 @@ impl<D: GridDefinitions, P: GridProductOwner> GridFactoryContext<'_, D, P> {
         load_source_gameobject(factory, attempt, row, self)
     }
 }
+impl<D: GridDefinitions, F: GridObjectFactory<D, P>, P: GridProductOwner>
+    SourceGridLoader<'_, D, F, P>
+{
+    pub(super) fn relocate_creature(
+        &mut self,
+        cells: &mut SourceCells,
+        object: ObjectHandle,
+        target: CellPair,
+    ) -> Result<CellRelocation> {
+        let Self {
+            definitions,
+            factory,
+            products,
+            sets,
+            objects,
+        } = self;
+        objects.relocate_creature(object, target, cells, |objects, cells, pair| {
+            let mut loader = SourceGridLoader {
+                definitions: &mut **definitions,
+                factory: &mut **factory,
+                products: &mut **products,
+                sets,
+                objects,
+            };
+            cells.trigger_grid_load(pair, GridLoadTrigger::Enter, &mut loader)?;
+            Ok(())
+        })
+    }
+}
 // Factories own real constructors, LoadFromDB, failure deletion and reached callbacks; ObjectGridLoader.cpp:119-159.
 pub trait GridObjectFactory<D: GridDefinitions, P: GridProductOwner>: Sized {
     fn load_from_db(
@@ -394,6 +423,7 @@ impl SourceObjects {
             self.get(player)?.kind == SourceObjectKind::Player,
             "execution.grid_entry_not_player",
         )?;
+        self.link_map_player(player)?;
         cells.trigger_grid_load(entry, GridLoadTrigger::Enter, owner)?;
         self.link_cell(player, cells.cell(entry)?, cells)
     }

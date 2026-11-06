@@ -86,8 +86,6 @@ pub enum GameObjectCallback {
     LargeVisibility,
     BindGroup(u32),
     GroupString(u32),
-    Active,
-    MapActive,
     MapViewpoint,
     MapVisibility,
     InitializeAi,
@@ -284,6 +282,9 @@ where
         spawn.database_guid,
         SourceGuid::with_entry(HighGuid::GameObject, template.entry, counter),
     )?;
+    context
+        .objects
+        .set_pose(handle, SourcePose(spawn.position_bits))?;
     if template.kind >= 31 {
         return Ok(false);
     }
@@ -391,9 +392,15 @@ where
     F: GameObjectFactoryOwner<D, P>,
 {
     let position = factory.gameobjects().get(handle)?.position_bits;
+    context.objects.set_pose(handle, SourcePose(position))?;
     let pair = benilla_sim::resident_map::compute_cell_pair(position[0], position[1])
         .map_err(|_| refuse("execution.cell_coordinates"))?;
-    context.load_grid(pair, GridLoadTrigger::TerrainOnly, factory)?;
+    let trigger = if context.objects.get(handle)?.active {
+        GridLoadTrigger::Enter
+    } else {
+        GridLoadTrigger::TerrainOnly
+    };
+    context.load_grid(pair, trigger, factory)?;
     let cell = context.cells.cell(pair)?;
     context.objects.link_cell(handle, cell, context.cells)?;
     context.objects.register_world_lookup(handle)?;
@@ -448,8 +455,10 @@ where
         }
     }
     if factory.gameobjects().get(handle)?.template.extra_flags & 0x1000 != 0 {
-        factory.gameobject_callback(handle, GameObjectCallback::Active, context)?;
-        factory.gameobject_callback(handle, GameObjectCallback::MapActive, context)?;
+        context.set_active_object_state(handle, true, factory)?;
+    }
+    if context.objects.get(handle)?.active {
+        context.add_to_active(handle, factory)?;
     }
     factory.gameobject_callback(handle, GameObjectCallback::MapViewpoint, context)?;
     factory.gameobject_callback(handle, GameObjectCallback::MapVisibility, context)

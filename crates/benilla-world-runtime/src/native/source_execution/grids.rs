@@ -38,6 +38,7 @@ struct NGrid {
     object_data_loaded: bool,
     blocked: Option<Refusal>,
     explicit_lock: Option<bool>,
+    active_lock_count: u16,
     expiry: Option<TimeTracker>,
 }
 pub struct SourceGrids {
@@ -113,6 +114,7 @@ impl SourceGrids {
                 object_data_loaded: false,
                 blocked: None,
                 explicit_lock: self.configuration.map(|(_, unload)| !unload),
+                active_lock_count: 0,
                 expiry: self
                     .configuration
                     .map(|(expiry, _)| TimeTracker::new(i64::from(expiry))),
@@ -153,6 +155,22 @@ impl SourceGrids {
         self.node(grid)?
             .explicit_lock
             .ok_or_else(|| refuse("execution.pending_grid_configuration"))
+    }
+    pub fn active_lock_count(&self, grid: GridIdentity) -> Result<u16> {
+        Ok(self.node(grid)?.active_lock_count)
+    }
+    pub fn unload_locked(&self, grid: GridIdentity) -> Result<bool> {
+        Ok(self.active_lock_count(grid)? != 0 || self.explicit_lock(grid)?)
+    }
+    // The uint16 bitfield wraps on increment and guards zero on decrement; NGrid.h:53-64.
+    pub(super) fn change_active_lock(&mut self, grid: GridIdentity, add: bool) -> Result<u16> {
+        let count = &mut self.node_mut(grid)?.active_lock_count;
+        *count = if add {
+            count.wrapping_add(1)
+        } else {
+            count.saturating_sub(1)
+        };
+        Ok(*count)
     }
     pub fn expiry(&self, grid: GridIdentity) -> Result<i64> {
         self.node(grid)?

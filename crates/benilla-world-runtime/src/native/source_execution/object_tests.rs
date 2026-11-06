@@ -184,7 +184,7 @@ fn relocation_preserves_same_cell_order_and_requires_real_loaded_destination() {
         2,
     );
     let unchanged = objects
-        .relocate_creature(a, pair(1., 1.), false, &mut cells, |_, _, _| {
+        .relocate_creature(a, pair(1., 1.), &mut cells, |_, _, _| {
             panic!("same-cell relocation cannot load")
         })
         .unwrap();
@@ -197,7 +197,7 @@ fn relocation_preserves_same_cell_order_and_requires_real_loaded_destination() {
         vec![b, a]
     );
     let moved = objects
-        .relocate_creature(a, pair(34., 0.), false, &mut cells, |_, _, _| {
+        .relocate_creature(a, pair(34., 0.), &mut cells, |_, _, _| {
             panic!("same-grid relocation cannot load")
         })
         .unwrap();
@@ -211,23 +211,22 @@ fn relocation_preserves_same_cell_order_and_requires_real_loaded_destination() {
     );
     assert_eq!(
         objects
-            .relocate_creature(a, pair(600., 0.), false, &mut cells, |_, _, _| panic!(
+            .relocate_creature(a, pair(600., 0.), &mut cells, |_, _, _| panic!(
                 "inactive unloaded destination must refuse first"
             ))
             .unwrap(),
         CellRelocation::RefusedUnloaded
     );
     let before = objects.get(a).unwrap().current_cell;
+    objects.get_mut(a).unwrap().active = true;
     assert!(objects
-        .relocate_creature(a, pair(600., 0.), true, &mut cells, |_, _, _| Err(
-            Refusal {
-                id: "execution.pending_actual_grid_loader".into()
-            }
-        ))
+        .relocate_creature(a, pair(600., 0.), &mut cells, |_, _, _| Err(Refusal {
+            id: "execution.pending_actual_grid_loader".into()
+        }))
         .is_err());
     assert_eq!(objects.get(a).unwrap().current_cell, before);
     let result = objects
-        .relocate_creature(a, pair(600., 0.), true, &mut cells, |objects, cells, p| {
+        .relocate_creature(a, pair(600., 0.), &mut cells, |objects, cells, p| {
             let grid = cells.ensure_grid(p.grid_x(), p.grid_y())?;
             cells.set_object_data_loaded(grid)?;
             let loaded = objects.construct(2, SourceObjectKind::Creature)?;
@@ -437,13 +436,7 @@ fn pose_observations_cannot_author_registration_or_loaded_state() {
         PoseObservation::Matched(object)
     );
     objects
-        .relocate_creature(
-            object,
-            pair(34., 0.),
-            false,
-            &mut cells,
-            |_, _, _| unreachable!(),
-        )
+        .relocate_creature(object, pair(34., 0.), &mut cells, |_, _, _| unreachable!())
         .unwrap();
     assert_eq!(
         objects.compare_pose_observation(map(), &observation, &cells),

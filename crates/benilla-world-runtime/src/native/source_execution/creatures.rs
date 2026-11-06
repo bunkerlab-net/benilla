@@ -25,6 +25,8 @@ pub struct CreatureEventData {
 pub struct CreatureTemplate {
     pub entry: u32,
     pub dynamic_guid: bool,
+    pub active: bool,
+    pub count_spawns: bool,
     pub displays: [DisplayChoice; 4],
     pub levels: [u32; 2],
     pub corpse_seconds: u32,
@@ -62,7 +64,7 @@ pub enum CreaturePhase {
     LoadAddon,
     AttachGroup,
     MapAddToWorld,
-    MapAddActive,
+    AddToSpawnCount,
     MapAddViewpoint,
     MapAddVisibility,
     MotionInitialize,
@@ -93,7 +95,7 @@ impl CreaturePhase {
                 "execution.creature.group_owner"
             }
             Self::MapAddToWorld => "execution.creature.add_to_world_owner",
-            Self::MapAddActive => "execution.creature.active_owner",
+            Self::AddToSpawnCount => "execution.creature.spawn_count_owner",
             Self::MapAddViewpoint => "execution.creature.viewpoint_owner",
             Self::MapAddVisibility => "execution.creature.visibility_owner",
             Self::MotionInitialize => "execution.creature.motion_owner",
@@ -122,7 +124,6 @@ pub struct CreatureConstruction {
     pub respawn_delay: u32,
     pub corpse_delay: u32,
     pub respawn_time: i64,
-    pub active: bool,
     pub linking_trigger: bool,
     pub spawning_linked: bool,
 }
@@ -158,6 +159,7 @@ pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     ) -> Result<Option<CreatureSpawn>>;
     fn creature_event_guid(&mut self, database: u32) -> Result<bool>;
     fn creature_force_dynamic(&mut self) -> Result<bool>;
+    fn creature_force_load_map(&mut self) -> Result<bool>;
     fn creature_group(&mut self, database: u32) -> Result<Option<CreatureGroup>>;
     fn creature_entry(&mut self, database: u32, owner: CreatureEntryOwner) -> Result<u32>;
     fn creature_event(&mut self, database: u32) -> Result<Option<CreatureEventData>>;
@@ -289,6 +291,14 @@ where
     context
         .objects
         .bind_map(object, attempt.grid.map, context.cells)?;
+    context
+        .objects
+        .set_pose(object, SourcePose(spawn.position.map(f32::to_bits)))?;
+    context.objects.set_respawn_definition(
+        object,
+        SourcePose(spawn.position.map(f32::to_bits)),
+        true,
+    )?;
     // GUID uses the original entry before event InitEntry override; Creature.cpp:1604-1610,322-324.
     context.objects.assign_guid(
         object,
@@ -329,7 +339,6 @@ where
             gender: None,
             level: None,
         },
-        active: false,
         linking_trigger: false,
         spawning_linked: false,
     };
@@ -410,6 +419,9 @@ where
     if !valid_position(state.position) {
         return failed(factory, object, context);
     }
+    context
+        .objects
+        .set_pose(object, SourcePose(state.position.map(f32::to_bits)))?;
     for phase in [
         CreaturePhase::PvpAndInstanceCreate,
         CreaturePhase::LinkingRegistration,
@@ -456,9 +468,10 @@ where
     {
         dead(factory, &mut state, context)?;
     }
+    state.position = context.objects.pose(object)?.0.map(f32::from_bits);
     let cell = compute_cell_pair(state.position[0].to_bits(), state.position[1].to_bits())
         .map_err(|_| refuse("execution.creature.map_add_coordinates"))?;
-    if state.active {
+    if context.objects.get(object)?.active {
         context.load_grid(cell, GridLoadTrigger::Enter, factory)?;
     } else {
         context.load_grid(cell, GridLoadTrigger::TerrainOnly, factory)?;
@@ -467,8 +480,14 @@ where
     context.objects.link_cell(object, cell, context.cells)?;
     context.objects.add_to_world(object)?;
     factory.creature_phase(CreaturePhase::MapAddToWorld, &mut state, context)?;
-    if state.active {
-        factory.creature_phase(CreaturePhase::MapAddActive, &mut state, context)?;
+    if factory.creature_force_load_map()? || state.template.active {
+        context.set_active_object_state(object, true, factory)?;
+    }
+    if state.template.count_spawns {
+        factory.creature_phase(CreaturePhase::AddToSpawnCount, &mut state, context)?;
+    }
+    if context.objects.get(object)?.active {
+        context.add_to_active(object, factory)?;
     }
     for phase in [
         CreaturePhase::MapAddViewpoint,
@@ -524,6 +543,9 @@ where
             state.position[2] = height;
         }
     }
+    context
+        .objects
+        .set_pose(state.object, SourcePose(state.position.map(f32::to_bits)))?;
     Ok(())
 }
 

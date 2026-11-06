@@ -30,6 +30,8 @@ fn template(entry: u32) -> CreatureTemplate {
     CreatureTemplate {
         entry,
         dynamic_guid: false,
+        active: false,
+        count_spawns: false,
         displays: [
             DisplayChoice {
                 id: 11,
@@ -241,10 +243,13 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
     fn creature_construct_candidate(
         &mut self,
         object: ObjectHandle,
-        _: &mut GridFactoryContext<'_, Definitions, Products>,
+        context: &mut GridFactoryContext<'_, Definitions, Products>,
     ) -> Result<()> {
         self.observations.push(Observation::Construct(object));
         self.health.insert(object, 0);
+        context
+            .objects
+            .bind_source_allocation(object, object.construction * 256, 128, 0)?;
         Ok(())
     }
     fn creature_spawn(
@@ -260,6 +265,9 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
     }
     fn creature_force_dynamic(&mut self) -> Result<bool> {
         Ok(self.dynamic)
+    }
+    fn creature_force_load_map(&mut self) -> Result<bool> {
+        Ok(false)
     }
     fn creature_group(&mut self, _: u32) -> Result<Option<CreatureGroup>> {
         Ok(self.group)
@@ -342,11 +350,30 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
                 state.linking_trigger = self.linking_trigger;
             }
             CreaturePhase::LoadAddon => {
-                state.active = self.active;
+                context.set_active_object_state(state.object, self.active, self)?;
+            }
+            CreaturePhase::AddToSpawnCount => {
+                let object = context.objects.get(state.object)?;
+                if object.active {
+                    assert_eq!(
+                        context
+                            .cells
+                            .grids()
+                            .active_lock_count(object.current_cell.unwrap().grid)?,
+                        1
+                    );
+                }
             }
             CreaturePhase::MapAddViewpoint => {
                 assert!(context.objects.get(state.object)?.in_world);
                 assert!(context.cells.registered_cell(state.object).is_some());
+                if context.objects.get(state.object)?.active {
+                    assert!(context
+                        .cells
+                        .active()
+                        .members()
+                        .any(|object| object == state.object));
+                }
             }
             CreaturePhase::Relay(_) => {
                 if let Some(nested) = self.nested.take() {
@@ -970,18 +997,49 @@ fn linking_denial_kills_before_add_and_active_add_does_not_recurse_into_loaded_g
         .iter()
         .position(|o| *o == Observation::Phase(40, CreaturePhase::SetDeadAndZeroHealth))
         .unwrap();
-    let active = factory
-        .observations
-        .iter()
-        .position(|o| *o == Observation::Phase(40, CreaturePhase::MapAddActive))
-        .unwrap();
     let view = factory
         .observations
         .iter()
         .position(|o| *o == Observation::Phase(40, CreaturePhase::MapAddViewpoint))
         .unwrap();
-    assert!(death < active && active < view);
+    assert!(death < view);
+    assert_eq!(
+        world.cells.active().members().collect::<Vec<_>>(),
+        [state.object]
+    );
+    let grid = world
+        .objects
+        .get(state.object)
+        .unwrap()
+        .current_cell
+        .unwrap()
+        .grid;
+    assert_eq!(world.cells.grids().active_lock_count(grid).unwrap(), 1);
     assert!(!factory
         .observations
         .contains(&Observation::Phase(40, CreaturePhase::LinkingRespawn)));
+}
+
+#[test]
+fn template_active_runs_in_world_set_then_map_add_and_keeps_both_spawn_lock_increments() {
+    let mut world = World::new(vec![spawn(40, 0.0)]);
+    let mut factory = Factory::new();
+    factory.templates.get_mut(&7).unwrap().active = true;
+    factory.templates.get_mut(&7).unwrap().count_spawns = true;
+    world.load(0.0, &mut factory).unwrap();
+    let state = factory.states.values().next().unwrap();
+    let object = world.objects.get(state.object).unwrap();
+    assert!(object.active);
+    assert_eq!(
+        world.cells.active().members().collect::<Vec<_>>(),
+        [state.object]
+    );
+    assert_eq!(
+        world
+            .cells
+            .grids()
+            .active_lock_count(object.current_cell.unwrap().grid)
+            .unwrap(),
+        2
+    );
 }

@@ -90,6 +90,13 @@ pub struct SourceObject {
     pub in_world: bool,
     pub alive: bool,
     pub life_generation: u64,
+    pub active: bool,
+    pub pose: Option<SourcePose>,
+    pub respawn_pose: Option<SourcePose>,
+    pub database_spawn_data: bool,
+    pub(super) source_allocation: Option<u64>,
+    allocation_base: Option<u64>,
+    player_map_linked: bool,
     global_player_registered: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -115,6 +122,8 @@ pub struct SourceObjects {
     objects: BTreeMap<ObjectHandle, SourceObject>,
     lookup: BTreeMap<(Option<MapIdentity>, LiveLookupKind, SourceGuid), ObjectHandle>,
     database: BTreeMap<(MapIdentity, DatabaseLookupKind, u32), Vec<ObjectHandle>>,
+    allocations: BTreeMap<u64, (u64, ObjectHandle)>,
+    players: BTreeMap<MapIdentity, std::collections::VecDeque<ObjectHandle>>,
 }
 impl SourceObjects {
     // A construction identity exists before _Create assigns any GUID; Object.cpp:48-59,115-125.
@@ -140,6 +149,13 @@ impl SourceObjects {
                 in_world: false,
                 alive: true,
                 life_generation: 1,
+                active: kind == SourceObjectKind::Player,
+                pose: None,
+                respawn_pose: None,
+                database_spawn_data: false,
+                source_allocation: None,
+                allocation_base: None,
+                player_map_linked: false,
                 global_player_registered: false,
             },
         );
@@ -150,10 +166,96 @@ impl SourceObjects {
             .get(&handle)
             .ok_or_else(|| refuse("execution.stale_object_handle"))
     }
-    fn get_mut(&mut self, handle: ObjectHandle) -> Result<&mut SourceObject> {
+    pub(super) fn get_mut(&mut self, handle: ObjectHandle) -> Result<&mut SourceObject> {
         self.objects
             .get_mut(&handle)
             .ok_or_else(|| refuse("execution.stale_object_handle"))
+    }
+    pub fn pose(&self, handle: ObjectHandle) -> Result<SourcePose> {
+        self.get(handle)?
+            .pose
+            .ok_or_else(|| refuse("execution.active.position_owner"))
+    }
+    pub fn set_pose(&mut self, handle: ObjectHandle, pose: SourcePose) -> Result<()> {
+        self.get_mut(handle)?.pose = Some(pose);
+        Ok(())
+    }
+    pub fn set_respawn_definition(
+        &mut self,
+        handle: ObjectHandle,
+        pose: SourcePose,
+        database_spawn_data: bool,
+    ) -> Result<()> {
+        let object = self.get_mut(handle)?;
+        object.respawn_pose = Some(pose);
+        object.database_spawn_data = database_spawn_data;
+        Ok(())
+    }
+    // Source pointer order uses a live allocation extent, never a GUID/handle sort; EntitiesMgr.h:43.
+    pub fn bind_source_allocation(
+        &mut self,
+        handle: ObjectHandle,
+        base: u64,
+        bytes: u64,
+        offset: u64,
+    ) -> Result<()> {
+        require(
+            self.get(handle)?.source_allocation.is_none()
+                && base != 0
+                && bytes != 0
+                && offset < bytes,
+            "execution.active.allocation_binding",
+        )?;
+        let end = base
+            .checked_add(bytes)
+            .ok_or_else(|| refuse("execution.active.allocation_extent"))?;
+        require(
+            self.allocations
+                .range(..=base)
+                .next_back()
+                .is_none_or(|(_, (end, _))| *end <= base)
+                && self
+                    .allocations
+                    .range(base..)
+                    .next()
+                    .is_none_or(|(&next, _)| end <= next),
+            "execution.active.allocation_overlap",
+        )?;
+        self.allocations.insert(base, (end, handle));
+        let object = self.get_mut(handle)?;
+        object.source_allocation = Some(base + offset);
+        object.allocation_base = Some(base);
+        Ok(())
+    }
+    // Map links the player before entry-grid callbacks, independently of world membership; Map.cpp:446-453.
+    pub fn link_map_player(&mut self, handle: ObjectHandle) -> Result<()> {
+        let object = self.get(handle)?;
+        require(
+            object.kind == SourceObjectKind::Player,
+            "execution.active.not_player",
+        )?;
+        let map = object
+            .map
+            .ok_or_else(|| refuse("execution.active.player_map"))?;
+        if !object.player_map_linked {
+            self.players.entry(map).or_default().push_front(handle);
+            self.get_mut(handle)?.player_map_linked = true;
+        }
+        Ok(())
+    }
+    pub fn unlink_map_player(&mut self, handle: ObjectHandle) -> Result<()> {
+        let map = self
+            .get(handle)?
+            .map
+            .ok_or_else(|| refuse("execution.active.player_map"))?;
+        if let Some(players) = self.players.get_mut(&map) {
+            players.retain(|value| *value != handle);
+        }
+        self.get_mut(handle)?.player_map_linked = false;
+        Ok(())
+    }
+    pub fn map_players(&self, map: MapIdentity) -> impl Iterator<Item = ObjectHandle> + '_ {
+        self.players.get(&map).into_iter().flatten().copied()
     }
     pub fn assign_guid(
         &mut self,
@@ -418,13 +520,13 @@ impl SourceObjects {
         &mut self,
         handle: ObjectHandle,
         target: CellPair,
-        active: bool,
         cells: &mut SourceCells,
         load_at_enter: impl FnOnce(&mut Self, &mut SourceCells, CellPair) -> Result<()>,
     ) -> Result<CellRelocation> {
         let object = self.get(handle)?;
         require(object.map == Some(cells.map()), "execution.object_cell_map")?;
         let kind = object.kind;
+        let active = object.active;
         let result = cells.relocate_creature(handle, kind, target, active, |cells, pair| {
             load_at_enter(self, cells, pair)
         })?;
@@ -441,13 +543,21 @@ impl SourceObjects {
     ) -> Result<SourceObject> {
         let object = self.get(handle)?;
         require(
-            !object.in_world && !object.global_player_registered,
+            !object.in_world
+                && !object.global_player_registered
+                && !object.player_map_linked
+                && !object
+                    .source_allocation
+                    .is_some_and(|pointer| cells.active().contains_source_pointer(pointer)),
             "execution.destroy_registered_object",
         )?;
         require(
             object.map.is_none_or(|map| map == cells.map()),
             "execution.object_cell_map",
         )?;
+        if let Some(base) = object.allocation_base {
+            self.allocations.remove(&base);
+        }
         cells.unlink(handle);
         Ok(self.objects.remove(&handle).unwrap())
     }

@@ -518,8 +518,9 @@ Constructor tests use explicitly authored model operations to check ordering;
 they don't establish F6 geometry or playable construction. Missing elevator,
 pet, corpse, dynamic-object, and transport attachment constructors refuse at
 their named owners. Transport movement is not ordinary GO update. Reached
-scripts, active-state work, geometry, bound catalog decoding, and owner-specific
-attachments remain mandatory dependencies. No native admission, persistence,
+scripts, geometry, bound catalog decoding, and owner-specific attachments remain
+mandatory dependencies. Active membership and lock changes use the real source
+owners described below. No native admission, persistence,
 or format change follows from these constructor mechanisms.
 
 `compare_seal8_unsealed_gameobjects` counts GO/other identity and destructor
@@ -576,5 +577,70 @@ first observed creature identity, not a fabricated `LoadFromDB` entry record.
 Set `BENILLA_F1_SEAL8_FRAMING` to exercise this diagnostic. Absent default data
 prints SKIP. Explicit missing or changed evidence fails.
 
-Active locks, full F4/F5 handlers, F6 geometry, sealed input occurrences and
-whole-startup acceptance remain required. Capability and format stay unchanged.
+Bound active-lock execution, full F4/F5 handlers, F6 geometry, sealed input
+occurrences and whole-startup acceptance remain required. Capability and format
+stay unchanged.
+
+## Source active objects and relocation
+
+`GridFactoryContext` owns executable active-state requests, map additions and
+removals, creature movement and respawn relocation, and GO movement. Its loaders
+and callbacks reenter the same object/cell/grid registries. The creature and GO
+constructors call these owners instead of accepting empty active callbacks.
+`SourceObjects` retains authoritative pose, respawn definition presence, active
+flag and source-allocation bindings. `SourceCells::active` stores the actual
+pointer-ordered membership and mutation-safe next iterator.
+
+The pinned `8ec338a1` source contract is:
+
+- `ObjectMgr.cpp:2040-2045,2233-2242,9132-9157` adds eligible ordinary active
+  spawns in loader occurrence order. Creatures precede GOs during preload.
+  A dynamic GO without a game event takes an earlier branch and cannot enter
+  ordinary preload. A dynamic creature has no corresponding exclusion.
+  `ObjectMgr.h:1351` uses a multimap, so equal-map keys retain insertion order.
+- `Map.cpp:419-427` sets an explicit lock only when ForceLoadGrid enters its
+  initially object-unloaded branch. `NGrid.h:40-64` keeps that lock separate
+  from the uint16 active count. Increment wraps at that width. Decrement at
+  zero stays zero. GridUnload=false starts with an explicit lock.
+- `Object.cpp:2566-2580` ignores repeated flag requests and never deactivates
+  players. In-world activation inserts before assigning the new flag.
+  `Creature.cpp:204-206`, `GameObject.cpp:139-141` and `Map.cpp:496-497` can
+  reach AddToActive twice during one addition. Duplicate set insertion does
+  not suppress the second spawn-lock increment.
+- `Map.cpp:1579-1639` loads the current grid but locks the respawn grid for a
+  non-pet creature with database spawn data. `Creature.cpp:2740-2744` checks
+  definition presence, not equality of database and runtime GUIDs. A missing
+  respawn grid produces a typed error-path outcome and does not create it.
+- `EntitiesMgr.h:43`, `Map.cpp:945-952,1609-1618` define pointer-set order and
+  advance the iterator before callbacks. Removing its next member advances
+  again. Inserting after the iterator reaches end does not restart the visit.
+- `Map.cpp:1546-1576` expands inclusive grid cell bounds by
+  `ceilf(visibility / cell_width) + 1`. The upper bound starts one cell beyond
+  the grid. Both linked map players and active objects prevent unloading.
+- `Map.cpp:1166-1183,1219-1265` refuses an inactive cross-grid move into cold
+  object data. An active move calls the real loader. Registration changes
+  before ViewPoint notification and before position changes. Failed moves
+  try respawn after combat-stop and motion-clear, then initialize motion and
+  notify relocation only when that move succeeds.
+- `Map.cpp:1186-1216` has separate GO absent/cold-grid branches and orders
+  registration, viewpoint, pose, collision-model movement and visibility.
+
+Source allocation bindings validate live, nonoverlapping extents and object
+offsets. Active order uses those private source pointers, never native host
+addresses, GUIDs or construction handles. Missing allocation identity refuses.
+These component bindings do not certify the still-unbound F1 allocation inputs.
+The forced-map preload branch requires the actual unordered CreatureDataMap
+traversal owner from `ObjectMgr.h:162`; it refuses that unavailable owner rather
+than sorting the catalog. Normal preload executes its registered occurrence
+order. Missing relocation, motion, viewpoint, collision or visibility handlers
+refuse at the reached source phase.
+
+`compare_seal8_unsealed_active` compares uint16 lock arithmetic from zero
+constructor fixtures keyed by observed GridInfo pointer. It does not bind
+pointer reuse to NGrid generations or derive membership from active_add records.
+The first count difference stops arithmetic comparison without resynchronising.
+Active additions, explicit locks and relocation-named records remain separate
+observations. Actual active-change acceptance stays zero while construction,
+allocation, definition, grid-lifetime and handler causes are unbound.
+`BENILLA_F1_SEAL8_FRAMING` selects the retained unsealed evidence. An absent
+default prints SKIP; an explicit invalid or changed capture fails.

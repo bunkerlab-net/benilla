@@ -45,6 +45,7 @@ struct Link {
 }
 pub struct SourceCells {
     pub(super) grids: SourceGrids,
+    pub(super) active: SourceActive,
     cells: BTreeMap<(u16, u16), [Ends; 8]>,
     links: BTreeMap<ObjectHandle, Link>,
 }
@@ -52,6 +53,7 @@ impl SourceCells {
     pub fn new(map: MapIdentity) -> Result<Self> {
         Ok(Self {
             grids: SourceGrids::new(map)?,
+            active: SourceActive::default(),
             cells: BTreeMap::new(),
             links: BTreeMap::new(),
         })

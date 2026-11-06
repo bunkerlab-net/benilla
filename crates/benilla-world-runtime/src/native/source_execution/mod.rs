@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Immutable source inputs and non-admitting differential diagnostics.
 //! Expected outcomes have no conversion to an admissible input.
+mod active;
+pub use active::*;
+mod seal8_active;
+pub use seal8_active::{compare_seal8_unsealed_active, Seal8ActiveDifference, Seal8ActiveReport};
+#[cfg(test)]
+mod active_tests;
 mod cells;
 mod clock;
 mod compare;
