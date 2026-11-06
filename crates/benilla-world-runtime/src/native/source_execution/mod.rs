@@ -28,15 +28,23 @@ pub use seal8_grids::{compare_seal8_unsealed_grids, Seal8GridReport};
 #[cfg(test)]
 mod grid_tests;
 mod inputs;
+mod manager_inputs;
+mod managers;
 mod messages;
 mod objects;
 mod path_distance;
+mod persistent_state;
 mod scheduler;
 mod seal8_distance;
 mod seal8_objects;
 mod startup;
 mod trace;
 mod world;
+pub use manager_inputs::*;
+pub use managers::*;
+pub use persistent_state::*;
+#[cfg(test)]
+mod manager_tests;
 pub use cells::*;
 pub use guids::*;
 pub use objects::*;

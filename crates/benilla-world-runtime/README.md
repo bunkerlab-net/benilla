@@ -729,3 +729,52 @@ The report keeps cell-membership acceptance at zero and F1 explicitly unsealed.
 default data prints SKIP. Explicit missing or changed evidence fails.
 Authored component fixtures remain labelled. `source_visitors.rs`, capability,
 native format and persistence stay unchanged until F3.13.
+
+## Source persistent map state
+
+`source_execution::SourceManagers` owns the F4.01 persistent-state projection.
+It creates world states in effective Map.dbc ID order, then loads creature and
+GO deadlines in independently bound SQL occurrence order. The character dump
+reader requires declared `creature_respawn`, `gameobject_respawn`, and `instance`
+relations. Missing relations, empty results, and SQL errors remain distinct.
+DB-time cleanup uses `<=`; storing a deadline uses `>` against the World snapshot.
+
+The GPL-3.0-or-later Rust translation derives from CMaNGOS Classic
+`8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`, originally GPL-2.0-or-later,
+modified by Benilla fork contributors in 2026. Upstream notices remain in
+`../benilla-sim/licenses/`. The focused source contracts are:
+
+- `Maps/MapPersistentStateMgr.h:43-51,75-137,186-190` defines typed cell GUID
+  sets, map binding, deadline maps, per-state pool data, and dungeon bind lists.
+- `Maps/MapPersistentStateMgr.cpp:73-155` mutates memory before beginning the
+  delete/conditional-insert transaction. Battleground saves do not issue SQL.
+- `Maps/MapPersistentStateMgr.cpp:166-216,246-249,338-342` defines the cell key,
+  retained empty cells, world-state retention, and dungeon/BG unload predicates.
+- `Maps/MapPersistentStateMgr.cpp:638-691,708-731,981-1118` defines state lookup,
+  lifetime, world creation, DB-time cleanup, LEFT JOIN validation, and loading.
+- `Pools/PoolManager.cpp:35-107` retains duplicate-insert count increments,
+  zero child entries, child-count overwrite, and guarded removal decrements.
+- `Grids/ObjectGridLoader.cpp:192-218` reads live persistent cell sets after
+  static sets. `PersistentGridDefinitions` supplies that live lane, not a copied
+  `GridSpawnSets` snapshot. An unwrapped catalog reader refuses the missing owner.
+
+`ManagerExecutionBinding` anchors the execution, snapshot, configuration,
+registry, environment, and source query occurrences. Retained handles reject
+changed files. Typed catalog access returns only raw loader operands, not
+ObjectMgr acceptance, pool selections, or callback results. Effective definitions,
+SQL effects, and a reached reset scheduler require executable owners.
+`PersistentEffects::query_respawns` computes Rows/Empty/Error. The binding cannot
+supply that result. Successful results must match the snapshot and complete
+source occurrence permutation; query errors remain distinct executable outputs.
+
+The source Save methods can continue after their Set method unloads and deletes
+the state at `MapPersistentStateMgr.cpp:75-78,100-103,136-155,63-70,708-731,847-854`.
+That undefined path refuses `execution.persistent.save_after_unload_undefined`;
+it does not reorder the source operations or dereference the deleted state.
+
+Versioned inventories retain map/state lifetimes, dungeon binds, deadlines,
+empty cells, typed pool membership/counts, initialization, and generation cursors.
+Their validators check structural identity. They are not a durable restore format;
+foreign-owner joins, legal unordered traversal history, prior SQL causality,
+sealed F1 acceptance, and F7 continuation remain required. No later F4 manager
+runs in this projection. Production admission and native format are unchanged.

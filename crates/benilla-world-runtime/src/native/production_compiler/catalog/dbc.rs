@@ -340,6 +340,24 @@ impl VerifiedCatalog {
         open(self, &inventory, filename, Some(spec))
     }
 }
+
+impl VerifiedCatalog {
+    /// Effective Map.dbc key order, including last-physical duplicate overwrite.
+    pub(crate) fn execution_map_entries(&mut self) -> Result<Vec<(u32, u32)>> {
+        self.dbc_view("Map.dbc")?.persistent_map_entries()
+    }
+}
+impl DbcView<'_> {
+    fn persistent_map_entries(mut self) -> Result<Vec<(u32, u32)>> {
+        let ids = std::mem::take(&mut self.by_id);
+        let mut entries = Vec::with_capacity(ids.len());
+        for (key, ordinal) in ids {
+            let raw = self.range(20 + u64::from(ordinal) * self.size as u64, 12)?;
+            entries.push((key, le(&raw, 8, 4)? as u32));
+        }
+        Ok(entries)
+    }
+}
 fn raw_relation(catalog: &mut VerifiedCatalog, table: &str) -> Result<Value> {
     let mut hash = Sha256::new();
     let mut count = 0;

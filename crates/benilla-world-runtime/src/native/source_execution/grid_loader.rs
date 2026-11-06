@@ -12,7 +12,7 @@ pub enum GridSpawnKind {
     Creature,
 }
 impl GridSpawnKind {
-    fn table(self) -> &'static str {
+    pub(super) fn table(self) -> &'static str {
         match self {
             Self::GameObject => "gameobject",
             Self::Creature => "creature",
@@ -101,6 +101,67 @@ impl GridSpawnSets {
 pub trait GridDefinitions {
     type Row;
     fn read(&mut self, attempt: GridLoadAttempt) -> Result<Self::Row>;
+    /// Existing explicit component sets are not an authoritative persistent owner.
+    fn persistent_next(
+        &mut self,
+        _map: MapIdentity,
+        _cell: CellPair,
+        _kind: GridSpawnKind,
+        _after: Option<u32>,
+    ) -> Result<PersistentGridLane> {
+        Ok(PersistentGridLane::UnboundComponent)
+    }
+}
+
+pub enum PersistentGridLane {
+    UnboundComponent,
+    Source(Option<(u32, u64)>),
+}
+pub trait PersistentGridLookup: GridDefinitions {
+    fn persistent_ordinal(&mut self, kind: GridSpawnKind, guid: u32) -> Result<u64>;
+}
+/// Live cell sets belong to persistent state, not a copied grid-load snapshot.
+pub struct PersistentGridDefinitions<'a, D> {
+    pub definitions: D,
+    pub managers: &'a mut SourceManagers,
+    pub state: PersistentStateIdentity,
+}
+impl<D: PersistentGridLookup> GridDefinitions for PersistentGridDefinitions<'_, D> {
+    type Row = D::Row;
+    fn read(&mut self, attempt: GridLoadAttempt) -> Result<Self::Row> {
+        self.definitions.read(attempt)
+    }
+    fn persistent_next(
+        &mut self,
+        map: MapIdentity,
+        cell: CellPair,
+        kind: GridSpawnKind,
+        after: Option<u32>,
+    ) -> Result<PersistentGridLane> {
+        let state = self.managers.state_mut(self.state)?;
+        require(
+            state.map_binding() == Some(map),
+            "execution.persistent.grid_map_binding",
+        )?;
+        let cell = state.cell_guids(cell);
+        let set = match kind {
+            GridSpawnKind::Creature => &cell.creatures,
+            GridSpawnKind::GameObject => &cell.gameobjects,
+        };
+        let next = if let Some(after) = after {
+            set.range((Excluded(after), Unbounded)).next().copied()
+        } else {
+            set.first().copied()
+        };
+        Ok(PersistentGridLane::Source(
+            next.map(|guid| {
+                self.definitions
+                    .persistent_ordinal(kind, guid)
+                    .map(|ordinal| (guid, ordinal))
+            })
+            .transpose()?,
+        ))
+    }
 }
 pub struct CatalogGridDefinitions<'a> {
     catalog: &'a mut VerifiedCatalog,
@@ -118,6 +179,20 @@ impl GridDefinitions for CatalogGridDefinitions<'_> {
             attempt.guid,
             attempt.catalog_ordinal,
         )?)
+    }
+    fn persistent_next(
+        &mut self,
+        _map: MapIdentity,
+        _cell: CellPair,
+        _kind: GridSpawnKind,
+        _after: Option<u32>,
+    ) -> Result<PersistentGridLane> {
+        Err(refuse("execution.persistent.grid_overlay_owner"))
+    }
+}
+impl PersistentGridLookup for CatalogGridDefinitions<'_> {
+    fn persistent_ordinal(&mut self, kind: GridSpawnKind, guid: u32) -> Result<u64> {
+        Ok(self.catalog.execution_spawn_ordinal(kind.table(), guid)?)
     }
 }
 pub trait GridProductOwner {
@@ -264,9 +339,23 @@ impl<D: GridDefinitions, F: GridObjectFactory<D, P>, P: GridProductOwner> GridLo
                 for kind in [GridSpawnKind::GameObject, GridSpawnKind::Creature] {
                     for origin in [GridSpawnOrigin::Static, GridSpawnOrigin::Persistent] {
                         let mut after = None;
-                        while let Some((guid, catalog_ordinal)) =
-                            context.sets.next(cell, kind, origin, after)
-                        {
+                        loop {
+                            let next = if origin == GridSpawnOrigin::Persistent {
+                                match context
+                                    .definitions
+                                    .persistent_next(grid.map, cell, kind, after)?
+                                {
+                                    PersistentGridLane::Source(next) => next,
+                                    PersistentGridLane::UnboundComponent => {
+                                        context.sets.next(cell, kind, origin, after)
+                                    }
+                                }
+                            } else {
+                                context.sets.next(cell, kind, origin, after)
+                            };
+                            let Some((guid, catalog_ordinal)) = next else {
+                                break;
+                            };
                             after = Some(guid);
                             let attempt = GridLoadAttempt {
                                 grid,

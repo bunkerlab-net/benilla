@@ -260,6 +260,32 @@ impl VerifiedExecutionInputs {
     pub fn identity(&self) -> &Sha256Id {
         &self.identity
     }
+    /// Retains the already hash-checked character snapshot, never reopens its path.
+    pub(super) fn manager_snapshot(&self) -> Result<&ExecutionFile> {
+        self.check_handles()?;
+        Ok(&self.initial_state)
+    }
+    pub fn persistent_map_entries(&mut self) -> Result<Vec<PersistentMapEntry>> {
+        self.check_handles()?;
+        Ok(self
+            .catalog
+            .execution_map_entries()?
+            .into_iter()
+            .map(|(id, map_type)| PersistentMapEntry { id, map_type })
+            .collect())
+    }
+    /// Raw F2 operand access, not an effective-spawn or manager-result input.
+    pub fn persistent_spawn_location(
+        &mut self,
+        kind: GridSpawnKind,
+        guid: u32,
+        ordinal: u64,
+    ) -> Result<(u32, f32, f32)> {
+        self.check_handles()?;
+        Ok(self
+            .catalog
+            .execution_spawn_location(kind.table(), guid, ordinal)?)
+    }
     pub fn verify_prefix(&self, prefix: &PrefixDescriptor) -> Result<()> {
         require(
             self.binding.reference_manifest_sha256.is_some(),

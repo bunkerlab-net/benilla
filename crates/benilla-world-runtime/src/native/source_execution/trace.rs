@@ -21,6 +21,59 @@ pub struct MapIdentity {
     pub instance: u32,
     pub creation_generation: u64,
 }
+
+/// Component operations, not fabricated F0 envelopes or admissible inputs.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub enum PersistentOperation {
+    Created {
+        state: PersistentStateIdentity,
+    },
+    Binding {
+        state: PersistentStateIdentity,
+        before: Option<MapIdentity>,
+        after: Option<MapIdentity>,
+    },
+    Deadline {
+        state: PersistentStateIdentity,
+        kind: GridSpawnKind,
+        guid: u32,
+        requested: i64,
+        world_seconds: i64,
+        before: i64,
+        after: i64,
+    },
+    Overlay {
+        state: PersistentStateIdentity,
+        cell_key: u32,
+        kind: GridSpawnKind,
+        guid: u32,
+        insert: bool,
+        changed: bool,
+    },
+    Unloaded {
+        state: PersistentStateIdentity,
+    },
+    DungeonBind {
+        state: PersistentStateIdentity,
+        kind: PersistentBindKind,
+        owner: u64,
+        add: bool,
+        before: usize,
+        after: usize,
+    },
+    InitialQuery {
+        kind: GridSpawnKind,
+        status: CharacterQueryStatus,
+        database_seconds: i64,
+        world_seconds: i64,
+        loaded: u64,
+    },
+    InitialRow {
+        kind: GridSpawnKind,
+        ordinal: u64,
+        disposition: RespawnDisposition,
+    },
+}
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ObjectIdentity {

@@ -225,3 +225,14 @@ fn global_locale_falls_back_to_available_human_race_names() {
         "dbc.locale_undetermined"
     );
 }
+
+#[test]
+fn persistent_maps_follow_effective_id_order_and_last_physical_duplicate() {
+    let v = table(
+        bytes(&[&[9, 0, 1], &[2, 0, 0], &[9, 0, 3]], 3, b"\0"),
+        "nxi",
+        12,
+    )
+    .unwrap();
+    assert_eq!(v.persistent_map_entries().unwrap(), [(2, 0), (9, 3)]);
+}

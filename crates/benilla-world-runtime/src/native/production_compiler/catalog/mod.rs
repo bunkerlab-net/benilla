@@ -202,6 +202,40 @@ impl VerifiedCatalog {
         })?;
         retained.ok_or_else(|| fail("catalog.spawn_occurrence_binding"))
     }
+    /// Narrow raw loader operands. This does not certify ObjectMgr acceptance.
+    pub(crate) fn execution_spawn_location(
+        &mut self,
+        name: &str,
+        guid: u32,
+        ordinal: u64,
+    ) -> Result<(u32, f32, f32)> {
+        let retained = self.execution_spawn_row(name, guid, ordinal)?;
+        let d = descriptor(&self.manifest["schema_root"])?;
+        let schema = bounded_json(&self.object(&d, 0)?)?;
+        let columns = spawns::columns(&schema, name)?;
+        let positions = [
+            spawns::position(&columns, "map")?,
+            spawns::position(&columns, "position_x")?,
+            spawns::position(&columns, "position_y")?,
+        ];
+        let mut cells = [None; 256];
+        spawns::fill(&retained.view(), &mut cells)?;
+        Ok((
+            spawns::uint(cells[positions[0]])?,
+            spawns::floating(cells[positions[1]])?,
+            spawns::floating(cells[positions[2]])?,
+        ))
+    }
+    pub(crate) fn execution_spawn_ordinal(&mut self, name: &str, guid: u32) -> Result<u64> {
+        check(matches!(name, "creature" | "gameobject"), "catalog.table")?;
+        let mut ordinal = None;
+        spawns::visit_key(self, name, guid, |row| {
+            check(ordinal.is_none(), "catalog.spawn_duplicate_guid")?;
+            ordinal = Some(row.ordinal);
+            Ok(())
+        })?;
+        ordinal.ok_or_else(|| fail("catalog.spawn_occurrence_binding"))
+    }
     /// Candidate mode validates unpublished bytes with exactly the production reader.
     pub fn open(path: &Path, candidate: bool) -> Result<Self> {
         Self::open_with_cache(path, candidate, CACHE)

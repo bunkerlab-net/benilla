@@ -559,3 +559,38 @@ fn grid_definitions_bind_guid_to_exact_catalog_ordinal_and_retain_one_checked_fr
         [Some(b"11".as_slice()), None]
     );
 }
+
+#[test]
+fn persistent_catalog_lookup_refuses_absent_duplicate_and_wrong_family_guids() {
+    let f = Fixture::named("creature", "guid", vec![(b"7".to_vec(), None)]);
+    let mut catalog = f.open().unwrap();
+    assert_eq!(catalog.execution_spawn_ordinal("creature", 7).unwrap(), 0);
+    assert_eq!(
+        catalog
+            .execution_spawn_ordinal("creature", 8)
+            .unwrap_err()
+            .id,
+        "catalog.spawn_occurrence_binding"
+    );
+    assert_eq!(
+        catalog
+            .execution_spawn_ordinal("world_template", 7)
+            .unwrap_err()
+            .id,
+        "catalog.table"
+    );
+    assert!(catalog.execution_spawn_location("creature", 7, 0).is_err());
+    let f = Fixture::named(
+        "creature",
+        "guid",
+        vec![(b"7".to_vec(), None), (b"7".to_vec(), None)],
+    );
+    assert_eq!(
+        f.open()
+            .unwrap()
+            .execution_spawn_ordinal("creature", 7)
+            .unwrap_err()
+            .id,
+        "catalog.spawn_duplicate_guid"
+    );
+}
