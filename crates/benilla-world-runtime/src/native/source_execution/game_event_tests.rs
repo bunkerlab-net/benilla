@@ -322,19 +322,30 @@ fn two_timer_resets_subtract_old_then_new_interval() {
     assert_eq!(timers, vec![(1000, 39_000), (31_000, 8_000)]);
 }
 #[test]
-fn uninitialized_source_schedule_and_uint16_scan_refuse() {
+fn never_assigned_positive_and_zero_slots_are_not_serverside() {
     let mut data = rows(3);
     data.definitions.remove(1);
+    data.definitions[0].linked = 2;
     let mut owner = Owner::default();
-    let mut manager = SourceGameEventManager::default();
-    assert_eq!(
-        manager
-            .load(&mut data, &mut pools(false), &mut owner)
-            .unwrap_err()
-            .id,
-        "execution.event.schedule_uninitialized"
-    );
-    assert!(manager.inventory().stopped);
+    let mut manager = manager(&mut data, &mut owner);
+    assert_eq!(manager.inventory().definitions[1].linked, 0);
+    for id in [0, 2] {
+        assert_eq!(manager.inventory().definitions[id].schedule, None);
+        assert!(!manager.is_valid(id as u32).unwrap());
+    }
+    owner.update_times(130, &[(1, 130), (3, 130)]);
+    manager.initialize(None, false, &mut owner).unwrap();
+    assert_eq!(manager.inventory().active, BTreeSet::from([1, 3]));
+    owner.update_times(130, &[(1, 130), (3, 130)]);
+    manager.update(false, &mut owner).unwrap();
+    manager.weekly_recalculate(&mut owner).unwrap();
+    assert!(owner.clocks.is_empty());
+    assert!(!manager.inventory().stopped);
+}
+
+#[test]
+fn uint16_scan_overflow_still_refuses() {
+    let mut owner = Owner::default();
     let mut data = rows(1);
     data.maximum = Some(u16::MAX);
     let mut manager = SourceGameEventManager::default();
@@ -533,7 +544,7 @@ fn unsigned_mail_ids_and_playable_race_checks_do_not_admit_goblins() {
 }
 
 #[test]
-fn overwrite_retains_source_seconds_and_weekly_recalculation_refuses_slot_zero() {
+fn overwrite_retains_source_seconds_and_weekly_skips_slot_zero() {
     let mut owner = Owner::default();
     let mut manager = manager(&mut rows(1), &mut owner);
     owner.wall(EventClockSite::OverwriteStart(1), 10_000);
@@ -556,10 +567,9 @@ fn overwrite_retains_source_seconds_and_weekly_recalculation_refuses_slot_zero()
         ),
         (19_940, 19_941)
     );
-    assert_eq!(
-        manager.weekly_recalculate(&mut owner).unwrap_err().id,
-        "execution.event.schedule_uninitialized"
-    );
+    manager.weekly_recalculate(&mut owner).unwrap();
+    assert_eq!(manager.inventory().definitions[0].schedule, None);
+    assert!(!manager.inventory().stopped);
     assert!(owner.clocks.is_empty());
 }
 
@@ -646,5 +656,5 @@ fn retained_raw_event_query_streams_or_explicit_absence() {
     let holes: Vec<_> = (1..=1024).filter(|id| !ids.contains(id)).collect();
     assert_eq!(holes.len(), 957);
     assert_eq!(holes[0], 3);
-    println!("Unsealed raw event query fixture: 15636 operands; 957 undefined positive schedule slots, first ID 3; zero effective-loader or F1 acceptance");
+    println!("Unsealed raw event query fixture: 15636 operands; 957 never-assigned positive schedule slots, first ID 3; zero effective-loader or F1 acceptance");
 }

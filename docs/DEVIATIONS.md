@@ -41,6 +41,7 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 - [benilla-srp](#benilla-srp): 2
 - [benilla-ui](#benilla-ui): 135
 - [benilla-world](#benilla-world): 47
+- [benilla-world-runtime](#benilla-world-runtime): 1
 
 ### benilla-app
 
@@ -997,4 +998,9 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 #### zfill
 
 - The reference twins every translucent command, authored-blend glass included; here twins exist only during an instance alpha episode, because that way every steady-state look is untouched. ([`src/zfill.rs:9`](../crates/benilla-world/src/zfill.rs#L9))
+### benilla-world-runtime
+
+#### native
+
+- Empty/never-assigned slots are never SERVERSIDE because native does not reproduce undefined scheduleType reads in CMaNGOS GameEventMgr.h:53-55,63-64 and GameEventMgr.cpp:184-186,1328-1330. ([`src/native/source_execution/game_events.rs:12`](../crates/benilla-world-runtime/src/native/source_execution/game_events.rs#L12))
 

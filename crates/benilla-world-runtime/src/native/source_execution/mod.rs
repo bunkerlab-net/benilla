@@ -112,9 +112,9 @@ mod seal8_transports;
 pub use seal8_transports::{inspect_seal8_unsealed_transports, Seal8TransportReport};
 mod spawn_groups;
 pub use spawn_groups::*;
+mod game_events;
 #[cfg(test)]
 mod spawn_group_tests;
-mod game_events;
 pub use game_events::*;
 #[cfg(test)]
 mod game_event_tests;

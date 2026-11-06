@@ -1080,9 +1080,9 @@ The event timer adapter resets before Update and again after its returned interv
 Its inventory records current definitions, memberships, active IDs and status.
 
 The pinned `GameEventData` constructor does not initialise `scheduleType`.
-A reached hole refuses instead of treating allocation bytes as a valid schedule.
-The raw catalog fixture reports 957 positive holes, first ID 3.
-Weekly recalculation also reaches the uninitialised slot zero.
+Native treats never-assigned slots as never SERVERSIDE, an owner-approved
+deviation recorded in `docs/DEVIATIONS.md`. This includes the raw catalog's
+957 positive holes and slot zero during weekly recalculation.
 Lunar execution requires the unresolved Moon licence and dispatch owners.
 No substituted calendar or successful default handler supplies that result.
 

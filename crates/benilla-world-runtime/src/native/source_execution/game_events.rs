@@ -9,6 +9,7 @@ const FAR_FUTURE: i64 = 4_102_444_800;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct GameEventDefinition {
+    // Deviation: Empty/never-assigned slots are never SERVERSIDE because native does not reproduce undefined scheduleType reads in CMaNGOS GameEventMgr.h:53-55,63-64 and GameEventMgr.cpp:184-186,1328-1330.
     pub schedule: Option<u32>,
     pub start: i64,
     pub end: i64,
@@ -25,12 +26,8 @@ impl GameEventDefinition {
             ..Self::default()
         }
     }
-    fn schedule(&self) -> Result<u32> {
-        self.schedule
-            .ok_or_else(|| refuse("execution.event.schedule_uninitialized"))
-    }
-    fn valid(&self) -> Result<bool> {
-        Ok(self.schedule()? == 0 || self.length > 0)
+    fn valid(&self) -> bool {
+        self.schedule == Some(0) || self.length > 0
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -411,17 +408,23 @@ impl SourceGameEventManager {
             .ok_or_else(|| refuse("execution.event.definition_index_undefined"))
     }
     pub fn is_valid(&self, id: u32) -> Result<bool> {
-        match self.state.definitions.get(id as usize) {
-            Some(v) => v.valid(),
-            None => Ok(false),
-        }
+        Ok(self
+            .state
+            .definitions
+            .get(id as usize)
+            .is_some_and(GameEventDefinition::valid))
     }
     pub fn active(&self, id: u32) -> bool {
         u16::try_from(id).is_ok_and(|id| self.state.active.contains(&id))
     }
-    fn compute(&mut self, id: u16, today: i64, owner: &mut impl GameEventOwner) -> Result<()> {
+    fn compute(
+        &mut self,
+        id: u16,
+        schedule: u32,
+        today: i64,
+        owner: &mut impl GameEventOwner,
+    ) -> Result<()> {
         let definition = self.definition(u32::from(id))?;
-        let schedule = definition.schedule()?;
         let (start, end) = if schedule == 12 {
             owner.lunar_schedule(definition.start, definition.end, today)?
         } else {
@@ -500,7 +503,7 @@ impl SourceGameEventManager {
                     }
                     2 | 3 | 5 | 6 | 8 | 9 | 12 | 13 => {
                         let today = wall(owner, EventClockSite::LoadSchedule(row.id))?;
-                        this.compute(row.id, today, owner)?;
+                        this.compute(row.id, row.schedule, today, owner)?;
                     }
                     _ => {}
                 }
@@ -527,7 +530,7 @@ impl SourceGameEventManager {
                 "execution.event.uint16_scan_unbounded",
             )?;
             for id in 1..this.state.definitions.len() {
-                if this.state.definitions[id].valid()? {
+                if this.state.definitions[id].valid() {
                     let linked = this.state.definitions[id].linked;
                     if linked != 0 && !this.is_valid(linked)? {
                         this.state.definitions[id].linked = 0;
@@ -536,7 +539,7 @@ impl SourceGameEventManager {
             }
             while let Some(row) = rows.date()? {
                 let slot = this.definition(u32::from(row.id))?;
-                if !matches!(slot.schedule()?, 1 | 11) {
+                if !matches!(slot.schedule, Some(1 | 11)) {
                     Self::decision(owner, 2, row.ordinal, row.id, "date_schedule_ignored")?;
                     continue;
                 }
@@ -558,7 +561,7 @@ impl SourceGameEventManager {
                 })?;
                 if slot.schedule == Some(11) {
                     let today = wall(owner, EventClockSite::LoadYearly(row.id))?;
-                    this.compute(row.id, today, owner)?;
+                    this.compute(row.id, 11, today, owner)?;
                 }
             }
             let count = this.state.definitions.len();
@@ -852,9 +855,8 @@ impl SourceGameEventManager {
         for id in 1..self.state.definitions.len() {
             let id = id as u16;
             let data = self.definition(u32::from(id))?;
-            let schedule = data.schedule()?;
-            if (data.occurrence == 0 && schedule != 0) || (schedule == 0 && self.state.initialized)
-            {
+            let serverside = data.schedule == Some(0);
+            if (data.occurrence == 0 && !serverside) || (serverside && self.state.initialized) {
                 continue;
             }
             if self.window(id, now)? {
@@ -931,12 +933,11 @@ impl SourceGameEventManager {
         self.run(|this| {
             this.ready()?;
             for id in 0..this.state.definitions.len() {
-                if matches!(
-                    this.state.definitions[id].schedule()?,
-                    2 | 3 | 5 | 6 | 8 | 9 | 11 | 12 | 13
-                ) {
+                if let Some(schedule @ (2 | 3 | 5 | 6 | 8 | 9 | 11 | 12 | 13)) =
+                    this.state.definitions[id].schedule
+                {
                     let today = wall(owner, EventClockSite::Weekly(id as u16))?;
-                    this.compute(id as u16, today, owner)?;
+                    this.compute(id as u16, schedule, today, owner)?;
                 }
             }
             Ok(())
