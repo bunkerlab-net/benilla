@@ -502,6 +502,9 @@ The pinned CMaNGOS Classic `8ec338a1` contract is:
 - `GameObject.cpp:178-302,880-969` owns entry/GUID selection, transform/state,
   permanent defaults, positive saved respawn, and negative no-draw respawn.
   `ObjectMgr.h:600-604` draws signed `irand` even for a singleton random list.
+- `GameObject.h:590-594` retains database `goState` as signed32.
+  `GameObject.cpp:926-927,2077-2079` preserves `-1` as the no-override sentinel
+  and writes the selected state byte only through `SetGoState`.
 - `GameObject.cpp:230,2083-2105` constructs and inserts the collision model during
   `SetDisplayId`, before initial state and create callbacks. A missing dynamic
   collision owner refuses there, not after a fabricated world addition.

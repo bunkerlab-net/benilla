@@ -504,6 +504,22 @@ fn expired_saved_respawn_writes_zero_before_world_add_future_stays_disabled() {
     }
 }
 #[test]
+fn signed32_database_state_preserves_sentinel_until_byte_state_assignment() {
+    for (source_state, expected) in [(-1_i32, 0_u8), (0, 0), (1, 1), (2, 2)] {
+        let (mut world, mut factory) = (World::new(), Factory::new());
+        let info = factory.templates.get_mut(&100).unwrap();
+        info.kind = 0;
+        info.data[0] = 1;
+        let mut row = spawn();
+        row.state = source_state;
+        assert_eq!(std::mem::size_of_val(&row.state), 4);
+        let handle = loaded(world.load(&mut factory, row).unwrap());
+        let object = factory.objects.get(handle).unwrap();
+        assert_eq!(object.state, expected);
+        assert_eq!(object.loot_state, 2);
+    }
+}
+#[test]
 fn transform_initial_state_and_model_registration_ai_order_are_source_ordered() {
     let (mut world, mut factory) = (World::new(), Factory::new());
     let info = factory.templates.get_mut(&100).unwrap();

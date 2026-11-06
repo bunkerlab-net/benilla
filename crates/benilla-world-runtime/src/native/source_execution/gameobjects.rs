@@ -55,7 +55,8 @@ pub struct GameObjectSpawn {
     pub position_bits: [u32; 4],
     pub rotation_bits: [u32; 4],
     pub animation: u32,
-    pub state: i8,
+    // Retain signed source storage until SetGoState writes the byte; GameObject.h:590-594, GameObject.cpp:926-927,2077-2079.
+    pub state: i32,
     pub respawn_min: i32,
     pub respawn_max: i32,
 }
