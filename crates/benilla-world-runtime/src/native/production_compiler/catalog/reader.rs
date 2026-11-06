@@ -60,6 +60,23 @@ fn identity(file: &File) -> Result<Identity> {
 fn identity(_: &File) -> Result<Identity> {
     Err(fail("catalog.platform"))
 }
+
+#[cfg(unix)]
+fn open_root(path: &Path) -> Result<File> {
+    use rustix::fs::{open, Mode, OFlags};
+    let root = path.canonicalize().map_err(|_| fail("catalog.path"))?;
+    let owned = open(
+        &root,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .map_err(|_| fail("catalog.path"))?;
+    Ok(File::from(owned))
+}
+#[cfg(not(any(unix, windows)))]
+fn open_root(_: &Path) -> Result<File> {
+    Err(fail("catalog.platform"))
+}
 #[cfg(unix)]
 fn open_at(parent: &File, name: &std::ffi::OsStr, directory: bool) -> Result<File> {
     use rustix::fs::{openat, Mode, OFlags};
@@ -126,25 +143,13 @@ impl Held {
         }
         #[cfg(not(windows))]
         {
-            let absolute = if path.is_absolute() {
-                path.to_owned()
-            } else {
-                std::env::current_dir()
-                    .map_err(|_| fail("catalog.path"))?
-                    .join(path)
-            };
-            let mut parent = File::open("/").map_err(|_| fail("catalog.platform"))?;
-            let mut parts = absolute.components().peekable();
-            while let Some(part) = parts.next() {
-                match part {
-                    std::path::Component::RootDir => (),
-                    std::path::Component::Normal(name) => {
-                        parent = open_at(&parent, name, parts.peek().is_some())?;
-                    }
-                    _ => return Err(fail("catalog.path")),
-                }
-            }
-            Self::new(parent, limit)
+            let name = path.file_name().ok_or_else(|| fail("catalog.path"))?;
+            let parent = path
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."));
+            let root = open_root(parent)?;
+            Self::new(open_child(&root, name)?, limit)
         }
     }
     pub(crate) fn len(&self) -> u64 {
@@ -203,27 +208,7 @@ impl Store {
         #[cfg(windows)]
         let mut directories = windows::directories(path)?;
         #[cfg(not(windows))]
-        let mut directories = {
-            let absolute = if path.is_absolute() {
-                path.to_owned()
-            } else {
-                std::env::current_dir()
-                    .map_err(|_| fail("catalog.path"))?
-                    .join(path)
-            };
-            let mut directories = vec![File::open("/").map_err(|_| fail("catalog.platform"))?];
-            for part in absolute.components() {
-                match part {
-                    std::path::Component::RootDir => (),
-                    std::path::Component::Normal(name) => {
-                        let next = open_directory(directories.last().expect("root handle"), name)?;
-                        directories.push(next);
-                    }
-                    _ => return Err(fail("catalog.path")),
-                }
-            }
-            directories
-        };
+        let mut directories = vec![open_root(path)?];
         let root = directories.len() - 1;
         let objects = directories.len();
         directories.push(open_directory(
@@ -482,5 +467,33 @@ mod tests {
         std::fs::create_dir(root.join("indexes")).unwrap();
         junction(&root.join("objects"), &real);
         refused(Store::open(&root), "catalog.path");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn selected_root_resolves_ancestors_but_descendants_refuse() {
+        use std::os::unix::fs::symlink;
+        let temp = Temp::new();
+        let actual = temp.0.join("actual");
+        let root = actual.join("catalog");
+        std::fs::create_dir_all(root.join("objects")).unwrap();
+        std::fs::create_dir(root.join("indexes")).unwrap();
+        std::fs::write(root.join("manifest.json"), b"root").unwrap();
+        let alias = temp.0.join("alias");
+        symlink(&actual, &alias).unwrap();
+        let selected = alias.join("catalog");
+        Store::open(&selected).unwrap();
+        assert_eq!(
+            Held::open(&selected.join("manifest.json"), 4)
+                .unwrap()
+                .read(0, 4, &mut Metrics::default(), 4)
+                .unwrap(),
+            b"root"
+        );
+        symlink(root.join("manifest.json"), root.join("linked")).unwrap();
+        refused(Held::open(&selected.join("linked"), 4), "catalog.path");
+        std::fs::rename(root.join("objects"), root.join("real-objects")).unwrap();
+        symlink(root.join("real-objects"), root.join("objects")).unwrap();
+        refused(Store::open(&selected), "catalog.path");
     }
 }

@@ -16,6 +16,7 @@ import time
 
 from .core import canonical, check, decode_json, digest
 from . import catalog_schema as schema_contract
+from .catalog_paths import Directory, read_at
 
 PAGE = 4096
 CHUNK = 1048576
@@ -323,6 +324,7 @@ class Catalog:
         started = time.monotonic()
         try:
             self._root = self._directory(self.root)
+            self.root = self._root.path
             self._objects = self._directory("objects",self._root)
             self._indexes = self._directory("indexes",self._root)
             manifest = self._file("candidate.json" if candidate else "manifest.json",self._root,CHUNK)
@@ -398,31 +400,12 @@ class Catalog:
             raise
 
     def _directory(self,path,parent=None):
-        if parent is None:
-            # Walk every ancestor, never follow an intermediate symlink.
-            p = Path(path).absolute()
-            fd = os.open("/",os.O_RDONLY|os.O_DIRECTORY)
-            self.directories.append(fd)
-            for part in p.parts[1:]:
-                check(part not in {".",".."}, "catalog.path")
-                try:
-                    fd = os.open(part,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=fd)
-                except OSError:
-                    check(False,"catalog.path")
-                self.directories.append(fd)
-            return fd
-        try:
-            fd = os.open(path,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=parent)
-        except OSError:
-            check(False,"catalog.path")
-        self.directories.append(fd)
-        return fd
+        directory = Directory(path) if parent is None else parent.child(path)
+        self.directories.append(directory)
+        return directory
 
     def _file(self,name,parent,limit):
-        try:
-            fd = os.open(name,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=parent)
-        except OSError:
-            check(False,"catalog.path")
+        fd = parent.open_file(name)
         meta = os.fstat(fd)
         if not stat.S_ISREG(meta.st_mode) or meta.st_size > limit:
             os.close(fd)
@@ -451,7 +434,7 @@ class Catalog:
         self.max_read = max(self.max_read,size)
         self.reads += 1
         self.read_bytes += size
-        data = os.pread(fd,size,offset)
+        data = read_at(fd,size,offset)
         check(len(data) == size,"catalog.truncated")
         return data
 
@@ -705,7 +688,7 @@ class Catalog:
             os.close(fd)
         self.handles.clear()
         for fd in reversed(self.directories):
-            os.close(fd)
+            fd.close()
         self.directories.clear()
 
     def __enter__(self):
@@ -720,22 +703,22 @@ def publish(catalog,rust_report):
     check(type(rust_report) is dict and all(rust_report.get(k) == catalog.report()[k] for k in identity_fields),
           "catalog.reader_parity")
     catalog._checked_identities()
-    os.fsync(catalog._objects)
-    os.fsync(catalog._indexes)
+    catalog._objects.sync()
+    catalog._indexes.sync()
     payload = canonical(catalog.manifest)
     # Publish the checked bytes, not a replaceable candidate pathname.
     import secrets
     name = ".publish-"+secrets.token_hex(16)
-    descriptor = os.open(name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=catalog._root)
+    descriptor = catalog._root.open_file(name,create=True)
     try:
         with os.fdopen(descriptor,"wb") as handle:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
-        os.link(name,"manifest.json",src_dir_fd=catalog._root,dst_dir_fd=catalog._root,follow_symlinks=False)
-        os.fsync(catalog._root)
+        catalog._root.link(name,"manifest.json")
+        catalog._root.sync()
     finally:
-        os.unlink(name,dir_fd=catalog._root)
+        catalog._root.unlink(name)
 
 
 class RowView:

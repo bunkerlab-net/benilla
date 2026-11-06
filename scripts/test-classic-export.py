@@ -3631,8 +3631,8 @@ class CatalogStorageTests(unittest.TestCase):
         self.install()
         link = Path(self.temporary.name)/"alias"
         link.symlink_to(self.root,target_is_directory=True)
-        with self.assertRaisesRegex(ExportError,"catalog.path"):
-            self.cat.Catalog(link,candidate=True)
+        with self.cat.Catalog(link,candidate=True) as catalog:
+            self.assertEqual(catalog.row("world_template",0)[0],b"0")
         path = self.root/"objects"/self.chunk_hash
         real = Path(self.temporary.name)/"chunk"
         os.rename(path,real)
@@ -3644,6 +3644,22 @@ class CatalogStorageTests(unittest.TestCase):
             path.write_bytes(self.chunk[:-1]+bytes([self.chunk[-1]^1]))
             with self.assertRaisesRegex(ExportError,"catalog.changed"):
                 catalog.row("world_template",0)
+
+    def test_portable_handles_read_scan_and_publish(self):
+        from classic_export import catalog_paths
+        import os
+        with mock.patch.object(catalog_paths,"DIR_FD",False), \
+             mock.patch.object(os,"pread",None,create=True), \
+             mock.patch.object(os,"open",wraps=os.open) as opened:
+            with self.cat.Catalog(self.root,candidate=True) as catalog:
+                self.assertEqual(catalog.row("world_template",1)[0],b"1")
+                self.assertEqual(catalog.row("world_template",0)[0],b"0")
+                self.assertEqual(len(list(catalog.scan("world_template"))),2)
+                self.cat.publish(catalog,catalog.report())
+            self.assertTrue(opened.call_args_list)
+            self.assertTrue(all("dir_fd" not in call.kwargs for call in opened.call_args_list))
+        with self.cat.Catalog(self.root) as catalog:
+            self.assertEqual(catalog.row("world_template",1)[0],b"1")
 
     def test_cache_ceiling_and_old_formats_refuse(self):
         with self.assertRaisesRegex(ExportError,"catalog.cache_limit"):
@@ -3710,6 +3726,7 @@ from test_catalog_content import ContentCatalogTests
 from test_catalog_content_loot import ContentLootTests
 from test_catalog_content_globals import ContentGlobalTests
 from test_catalog_preparation import CatalogPreparationTests
+from test_catalog_paths import CatalogPathTests
 
 
 if __name__ == "__main__":

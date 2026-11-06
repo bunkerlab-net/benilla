@@ -12,6 +12,7 @@ from .core import canonical, check, digest, decode_json
 from .catalog_io import Catalog, FRAME, MAX_RAW, MAX_ROWS, DECODED, encode_row, decode_row, key_for
 from .catalog_schema import policy
 from .catalog_spawns import uint, _open, _regular
+from .catalog_paths import Directory
 
 LOADERS = tuple("GameEvents/GameEventMgr:" + str(n) for n in (92,107,196,237,319,410,499,557)) + ("Weather/Weather:436",)
 FORMAT = "benilla-event-occurrences-v1"
@@ -124,7 +125,7 @@ class EventViews:
                 yield [row[col] for col in projection]
 
     def verify_occurrences(self, root):
-        root = Path(root)
+        root = Directory(root)
         meta = self.catalog._json(_regular(root / "occurrences.json", 1048576))
         check(type(meta) is dict and set(meta) == {"format", "streams", "complete", "source_snapshot"}
               and meta["format"] == FORMAT and meta["complete"] is False

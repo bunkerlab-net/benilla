@@ -13,6 +13,7 @@ from .core import canonical, check, decode_json, digest
 from .catalog_io import Catalog, CHUNK, FRAME, encode_row, decode_row, rss_kib
 from .catalog_spawns import SpawnViews, _open, _regular
 from .catalog_groups import GroupViews
+from .catalog_paths import Directory
 from .catalog_pools import PoolViews
 from .catalog_events import EventViews, initial_state
 from .catalog_dbc import DbcViews
@@ -166,7 +167,7 @@ def obligations(reports, coverage):
 
 def compare_output(expected, actual, manifest):
     """Rehashed supplied metadata never replaces freshly recomputed source outputs."""
-    expected,actual = Path(expected),Path(actual)
+    expected,actual = Directory(expected),Directory(actual)
     raw = _regular(expected/"preparation.json",CHUNK)
     supplied = decode_json(raw,CHUNK)
     check(canonical(supplied) == raw,"catalog.json")
@@ -192,8 +193,8 @@ def compare_output(expected, actual, manifest):
     check(_regular(expected/"identity.json",CHUNK) == _regular(actual/"identity.json",CHUNK),"preparation.identity_mismatch")
     allowed = expected_files | {"resources.json"}
     allowed |= {str(Path(f).parent) for f in expected_files if str(Path(f).parent) != "."}
-    for path in expected.rglob("*"):
-        check(path.relative_to(expected).as_posix() in allowed,"preparation.surplus")
+    for path in expected.path.rglob("*"):
+        check(path.relative_to(expected.path).as_posix() in allowed,"preparation.surplus")
 
 
 def prepare(root, inputs, output, expected=None):

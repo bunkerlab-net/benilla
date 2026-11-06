@@ -16,6 +16,7 @@ import sys
 from .core import canonical, check, digest, ExportError
 from .catalog_io import FRAME, MAX_ROWS, MAX_RAW, DECODED, MAX_INDEX, Catalog, StoreWriter, encode_row, decode_row, key_for
 from .catalog_schema import policy
+from .catalog_paths import Directory, open_regular
 
 FAMILIES = (
     "creature", "gameobject", "creature_spawn_entry", "gameobject_spawn_entry",
@@ -197,19 +198,17 @@ class SpawnViews:
         raw = canonical(value)
         import secrets
         name = ".spawn-indexes-" + secrets.token_hex(16)
-        fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                     0o600, dir_fd=self.catalog._root)
+        fd = self.catalog._root.open_file(name, create=True)
         try:
             with os.fdopen(fd, "wb") as handle:
                 handle.write(raw)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.fsync(self.catalog._indexes)
-            os.link(name, "spawn-indexes.json", src_dir_fd=self.catalog._root,
-                    dst_dir_fd=self.catalog._root, follow_symlinks=False)
-            os.fsync(self.catalog._root)
+            self.catalog._indexes.sync()
+            self.catalog._root.link(name, "spawn-indexes.json")
+            self.catalog._root.sync()
         finally:
-            os.unlink(name, dir_fd=self.catalog._root)
+            self.catalog._root.unlink(name)
         self.verify_indexes()
 
     def verify_indexes(self):
@@ -285,7 +284,7 @@ class SpawnViews:
 
 
     def verify_occurrences(self, root):
-        root = Path(root)
+        root = Directory(root)
         metadata = self.catalog._json(_regular(root / "occurrences.json", 1048576))
         check(type(metadata) is dict and set(metadata) == {"format", "streams", "source_snapshot", "complete"}
               and metadata["format"] == "benilla-spawn-occurrences-v3"
@@ -344,24 +343,7 @@ class SpawnViews:
 
 
 def _open(path):
-    import stat
-    parent = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        parts = path.absolute().parts[1:]
-        for part in parts[:-1]:
-            check(part not in {".", ".."}, "catalog.path")
-            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
-            os.close(parent)
-            parent = child
-        fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
-    except OSError:
-        check(False, "catalog.path")
-    finally:
-        os.close(parent)
-    if not stat.S_ISREG(os.fstat(fd).st_mode):
-        os.close(fd)
-        check(False, "catalog.file")
-    return os.fdopen(fd, "rb")
+    return open_regular(path)
 
 
 def _regular(path, limit):
@@ -383,8 +365,7 @@ class _IndexWriter(StoreWriter):
         descriptor = {"sha256": h, "bytes": len(data)}
         check(self.catalog.index_bytes + self.written + len(data) <= MAX_INDEX, "catalog.index_limit")
         try:
-            fd = os.open(h, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                         0o600, dir_fd=self.catalog._indexes)
+            fd = self.catalog._indexes.open_file(h, create=True)
         except FileExistsError:
             check(self.catalog.object(descriptor, "indexes") == data, "catalog.hash")
         else:

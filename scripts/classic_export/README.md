@@ -53,9 +53,9 @@ python3 scripts/classic-export.py catalog-publish ROOT \
 ```
 
 `catalog-publish` validates all bytes again in Python and compares the Rust
-identity, row hash and inventory counts. It fsyncs the object directories and
-publishes checked manifest bytes with an atomic no-replace link. Failure leaves
-no published manifest. Existing directories, files and published manifests are
+identity, row hash and inventory counts. It fsyncs files and, where supported,
+object directories, then publishes checked bytes with an atomic no-replace link.
+Existing directories, files and published manifests are
 never replaced. `catalog-verify ROOT` and Rust `verify ROOT` read published data.
 Both readers reject historical source-v1/v2 formats.
 The current coverage policy classifies all 194 tables, with 173 consumed and
@@ -104,9 +104,17 @@ They retain glibc's signed-64-bit saturation and round decimal floats through
 binary64 before binary32. Optional POSIX-libc differential tests check these
 conversions, including whitespace, trailing bytes, signed zero and overflow.
 
-Both readers validate every referenced byte before use. On Unix, they retain
-regular-file and ancestor-directory handles, refuse symlinks and path escape,
-and check inode identity, size, modification time, and change time on later reads.
+Both readers validate every referenced byte before use. On Unix, they resolve
+the selected root once, then retain directory and regular-file handles below it.
+They refuse descendant symlinks and path escape, and check inode identity, size,
+modification time, and change time on later reads. System aliases above the
+selected root, such as macOS `/var`, do not invalidate that root.
+Python retains POSIX directory handles where available. Otherwise it checks each
+descendant directory with `lstat`, rejects symlinks and Windows reparse points,
+and compares file identities before and after opening. Its cursor-based read
+fallback preserves positional reads without `os.pread`. Windows file writes are
+flushed before atomic hard-link publication; Python cannot fsync Windows
+directories through the standard library.
 The Rust Windows reader opens each path component as a reparse point and
 refuses all reparse tags, including junctions. It retains ancestor handles and
 denies write/delete sharing to prevent replacement or concurrent writers.

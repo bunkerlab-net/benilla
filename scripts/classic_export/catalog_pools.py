@@ -13,6 +13,7 @@ from .catalog_io import Catalog, FRAME, MAX_ROWS, MAX_RAW, DECODED, encode_row, 
 from .catalog_schema import policy
 from .catalog_spawns import uint, _open, _regular
 from native_starter import catalog_pools as plans
+from .catalog_paths import Directory
 
 TABLES = ("pool_template", "pool_creature", "pool_creature_template",
           "pool_gameobject", "pool_gameobject_template", "pool_pool")
@@ -125,7 +126,7 @@ class PoolViews:
         return {struct.unpack_from("<I", raw, 20 + i * width)[0] for i in range(count)}
 
     def verify_occurrences(self, root, records=None):
-        root = Path(root)
+        root = Directory(root)
         meta = self.catalog._json(_regular(root / "occurrences.json", 1048576))
         check(type(meta) is dict and set(meta) == {"format", "streams", "source_snapshot", "complete"}
               and meta["format"] == "benilla-pool-occurrences-v3" and meta["complete"] is False

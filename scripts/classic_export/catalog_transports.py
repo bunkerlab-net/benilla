@@ -8,6 +8,7 @@ import struct
 from .core import canonical, check
 from .catalog_io import FRAME, MAX_RAW, DECODED, Catalog, encode_row, decode_row, key_for
 from .catalog_spawns import _open, _regular, uint
+from .catalog_paths import Directory
 from .catalog_schema import policy
 
 FORMAT = "benilla-transport-occurrences-v1"
@@ -64,7 +65,7 @@ def expected(views):
 
 
 def verify_occurrences(views, root):
-    root = Path(root)
+    root = Directory(root)
     meta = views.catalog._json(_regular(root / "occurrences.json", 1048576))
     check(type(meta) is dict and set(meta) == {"format", "streams", "complete", "source_snapshot"}
           and meta["format"] == FORMAT and meta["complete"] is False

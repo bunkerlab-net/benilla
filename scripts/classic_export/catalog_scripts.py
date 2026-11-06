@@ -13,6 +13,7 @@ from .catalog_io import Catalog, FRAME, MAX_RAW, MAX_ROWS, DECODED, encode_row, 
 from .catalog_schema import policy
 from .catalog_spawns import uint, floating, _open, _regular
 from .event_text import references
+from .catalog_paths import Directory
 from .global_hooks import CONTRACT
 
 DB_TABLES = tuple(sorted(t for t in policy()["tables"] if t.startswith("dbscripts_on_")))
@@ -140,7 +141,7 @@ class ScriptViews:
                 yield tuple(uint(row[c]) for c in ordering), [row[c] for c in projection]
 
     def verify_occurrences(self, root):
-        root = Path(root)
+        root = Directory(root)
         meta = self.catalog._json(_regular(root/"occurrences.json",1048576))
         check(type(meta) is dict and set(meta)=={"format","streams","complete","source_snapshot"}
               and meta["format"]==FORMAT and meta["complete"] is False
