@@ -406,18 +406,25 @@ class Catalog:
 
     def _file(self,name,parent,limit):
         fd = parent.open_file(name)
-        meta = os.fstat(fd)
-        if not stat.S_ISREG(meta.st_mode) or meta.st_size > limit:
-            os.close(fd)
-            check(False,"catalog.file")
-        self.handles[(parent,name)] = (fd,self._identity(meta))
-        if parent in (self._objects,self._indexes):
+        try:
+            meta = os.fstat(fd)
+            check(stat.S_ISREG(meta.st_mode) and meta.st_size <= limit,"catalog.file")
+            identity = self._identity(meta)
             if parent == self._indexes:
-                self.index_bytes += meta.st_size
-                check(self.index_bytes <= MAX_INDEX,"catalog.index_limit")
-            else:
-                self.raw_bytes += meta.st_size
-                check(self.raw_bytes <= MAX_RAW,"catalog.raw_limit")
+                check(self.index_bytes + meta.st_size <= MAX_INDEX,"catalog.index_limit")
+            elif parent == self._objects:
+                check(self.raw_bytes + meta.st_size <= MAX_RAW,"catalog.raw_limit")
+            previous = self.handles.get((parent,name))
+            if previous is not None:
+                os.close(previous[0])
+            self.handles[(parent,name)] = (fd,identity)
+        except BaseException:
+            os.close(fd)
+            raise
+        if parent == self._indexes:
+            self.index_bytes += meta.st_size
+        elif parent == self._objects:
+            self.raw_bytes += meta.st_size
         return fd
 
     @staticmethod

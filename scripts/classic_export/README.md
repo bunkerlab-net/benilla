@@ -115,6 +115,8 @@ and compares file identities before and after opening. Its cursor-based read
 fallback preserves positional reads without `os.pread`. Windows file writes are
 flushed before atomic hard-link publication; Python cannot fsync Windows
 directories through the standard library.
+Python closes a previous retained file handle before replacing its registration.
+Failed file acquisition closes the new handle without changing storage budgets.
 The Rust Windows reader opens each path component as a reparse point and
 refuses all reparse tags, including junctions. It retains ancestor handles and
 denies write/delete sharing to prevent replacement or concurrent writers.

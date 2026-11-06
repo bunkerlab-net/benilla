@@ -3445,6 +3445,7 @@ class CatalogSpawnTests(unittest.TestCase):
         with self.io.Catalog(self.root, candidate=True) as catalog:
             views = self.spawn.SpawnViews(catalog)
             views.materialize_indexes()
+            metadata_fd = catalog.handles[(catalog._root, "spawn-indexes.json")][0]
             metadata_path = self.root / "spawn-indexes.json"
             metadata = decode_json(metadata_path.read_bytes(), 1048576)
             root = metadata["indexes"]["creature"]
@@ -3456,6 +3457,14 @@ class CatalogSpawnTests(unittest.TestCase):
             metadata_path.write_bytes(canonical(metadata))
             with self.assertRaisesRegex(ExportError, "spawn.index"):
                 views.verify_indexes()
+        try:
+            with self.assertRaises(OSError):
+                self.io.os.fstat(metadata_fd)
+        finally:
+            try:
+                self.io.os.close(metadata_fd)
+            except OSError:
+                pass
 
 
     def test_capture_byte_quota_never_publishes_a_clipped_cursor(self):
@@ -3532,6 +3541,38 @@ class CatalogStorageTests(unittest.TestCase):
         with self.assertRaisesRegex(ExportError,"^"+diagnostic.replace(".","\\.")+"$"):
             with self.cat.Catalog(self.root,candidate=True):
                 pass
+
+    def test_file_acquisition_refusals_close_unowned_handles(self):
+        for failure in ("stat", "size", "raw_limit", "index_limit"):
+            with self.subTest(failure=failure), \
+                 self.cat.Catalog(self.root, candidate=True) as catalog:
+                parent = (catalog._objects if failure == "raw_limit" else
+                          catalog._indexes if failure == "index_limit" else catalog._root)
+                (parent.path / "refused").write_bytes(b"x")
+                fd = parent.open_file("refused")
+                budgets = catalog.raw_bytes, catalog.index_bytes
+                try:
+                    with mock.patch.object(parent, "open_file", return_value=fd):
+                        if failure == "stat":
+                            with mock.patch.object(self.cat.os, "fstat", side_effect=OSError("stat refused")):
+                                with self.assertRaisesRegex(OSError, "stat refused"):
+                                    catalog._file("refused", parent, 1)
+                        else:
+                            budget = "MAX_RAW" if failure == "raw_limit" else "MAX_INDEX"
+                            with mock.patch.object(self.cat, budget, 0):
+                                with self.assertRaisesRegex(ExportError,
+                                        "catalog.file" if failure == "size" else "catalog." + failure):
+                                    catalog._file("refused", parent, 0 if failure == "size" else 1)
+                    with self.assertRaises(OSError):
+                        self.cat.os.fstat(fd)
+                    self.assertNotIn((parent, "refused"), catalog.handles)
+                    self.assertEqual((catalog.raw_bytes, catalog.index_bytes), budgets)
+                finally:
+                    catalog.handles.pop((parent, "refused"), None)
+                    try:
+                        self.cat.os.close(fd)
+                    except OSError:
+                        pass
 
     def test_unavailable_rss_preserves_verified_catalog_result(self):
         original_read_text = Path.read_text
