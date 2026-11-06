@@ -152,6 +152,15 @@ impl<D: GridDefinitions, P: GridProductOwner> GridFactoryContext<'_, D, P> {
         };
         self.cells.trigger_grid_load(entry, trigger, &mut loader)
     }
+    // GO construction reuses this context for linked objects and callbacks; GameObject.cpp:1244-1269.
+    pub fn load_gameobject<F: GameObjectFactoryOwner<D, P>>(
+        &mut self,
+        factory: &mut F,
+        attempt: GridLoadAttempt,
+        row: D::Row,
+    ) -> Result<GridCandidateOutcome> {
+        load_source_gameobject(factory, attempt, row, self)
+    }
 }
 // Factories own real constructors, LoadFromDB, failure deletion and reached callbacks; ObjectGridLoader.cpp:119-159.
 pub trait GridObjectFactory<D: GridDefinitions, P: GridProductOwner>: Sized {

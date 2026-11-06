@@ -50,6 +50,12 @@ pub use seal8_clock::{compare_seal8_unsealed_clocks, Seal8ClockReport};
 #[cfg(test)]
 mod tests;
 pub use original_rng::{compare_original_unsealed_rng, OriginalRngReport};
+mod gameobjects;
+pub use gameobjects::*;
+#[cfg(test)]
+mod gameobject_tests;
+mod seal8_gameobjects;
+pub use seal8_gameobjects::{compare_seal8_unsealed_gameobjects, Seal8GameObjectReport};
 
 use super::production_compiler::{json, ExecutionFile};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};

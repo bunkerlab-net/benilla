@@ -486,3 +486,43 @@ remains separately counted. Geometry execution, native generations, registration
 trigger causality, natural unload/reload and whole-world admission remain pending.
 Set `BENILLA_F1_SEAL8_FRAMING` to the retained framing directory to exercise that
 unsealed projection. An absent default path prints SKIP; an explicit bad path fails.
+
+## Source gameobject constructors
+
+`GridFactoryContext::load_gameobject` executes ordinary GO construction through
+the same reentrant factory and authoritative object/cell registries as grid
+loading. `GameObjectFactoryOwner` supplies bound source definitions, manager
+lookups, calling-thread RNG, persistent respawn storage, calendar observations,
+geometry, and executable callbacks. It has no production no-op implementation.
+
+The pinned CMaNGOS Classic `8ec338a1` contract is:
+
+- `ObjectGridLoader.cpp:123-141` chooses the factory from the database entry
+  before group/random overrides and destroys a failed candidate.
+- `GameObject.cpp:178-302,880-969` owns entry/GUID selection, transform/state,
+  permanent defaults, positive saved respawn, and negative no-draw respawn.
+  `ObjectMgr.h:600-604` draws signed `irand` even for a singleton random list.
+- `GameObject.cpp:230,2083-2105` constructs and inserts the collision model during
+  `SetDisplayId`, before initial state and create callbacks. A missing dynamic
+  collision owner refuses there, not after a fabricated world addition.
+- `Map.cpp:470-504` and `GameObject.cpp:115-141` register cells and lookup before
+  world membership, enable collision, construct linked objects, activate, and
+  issue viewpoint/visibility callbacks. `GameObject.cpp:1244-1271,2528-2536`
+  initializes linked-trap AI before parent AI and requires the instance callback.
+
+The repository has no production dynamic GO model/tree insertion owner.
+Constructor tests use explicitly authored model operations to check ordering;
+they don't establish F6 geometry or playable construction. Missing elevator,
+pet, corpse, dynamic-object, and transport attachment constructors refuse at
+their named owners. Transport movement is not ordinary GO update. Reached
+scripts, active-state work, geometry, bound catalog decoding, and owner-specific
+attachments remain mandatory dependencies. No native admission, persistence,
+or format change follows from these constructor mechanisms.
+
+`compare_seal8_unsealed_gameobjects` counts GO/other identity and destructor
+observations and compares only recomposed GO/transport GUIDs against add/update
+records. It reports independently executed constructors as zero and identifies
+the first unavailable constructor binding separately from a GUID difference.
+It never uses captured constructor outcomes as runtime inputs. Set
+`BENILLA_F1_SEAL8_FRAMING` to run the unsealed seal8-08 comparison. Absent default
+data prints `SKIP`; an explicit invalid path fails.
