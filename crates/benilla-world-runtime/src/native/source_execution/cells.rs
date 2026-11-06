@@ -48,6 +48,7 @@ pub struct SourceCells {
     pub(super) active: SourceActive,
     cells: BTreeMap<(u16, u16), [Ends; 8]>,
     links: BTreeMap<ObjectHandle, Link>,
+    update_marks: Box<[u64]>,
 }
 impl SourceCells {
     pub fn new(map: MapIdentity) -> Result<Self> {
@@ -56,10 +57,22 @@ impl SourceCells {
             active: SourceActive::default(),
             cells: BTreeMap::new(),
             links: BTreeMap::new(),
+            update_marks: vec![0; 1024 * 1024 / 64].into_boxed_slice(),
         })
     }
     pub fn map(&self) -> MapIdentity {
         self.grids.map()
+    }
+    pub(super) fn reset_update_marks(&mut self) {
+        self.update_marks.fill(0);
+    }
+    pub(super) fn mark_update_cell(&mut self, pair: CellPair) -> bool {
+        let id = usize::from(pair.y()) * 1024 + usize::from(pair.x());
+        let bit = 1_u64 << (id % 64);
+        let word = &mut self.update_marks[id / 64];
+        let fresh = *word & bit == 0;
+        *word |= bit;
+        fresh
     }
     // Grid generations change only on reconstruction, not unload timer changes; Map.cpp:336-366.
     pub fn ensure_grid(&mut self, x: u16, y: u16) -> Result<GridIdentity> {

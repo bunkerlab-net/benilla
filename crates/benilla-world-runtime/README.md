@@ -644,3 +644,88 @@ observations. Actual active-change acceptance stays zero while construction,
 allocation, definition, grid-lifetime and handler causes are unbound.
 `BENILLA_F1_SEAL8_FRAMING` selects the retained unsealed evidence. An absent
 default prints SKIP; an explicit invalid or changed capture fails.
+
+## Source update membership and pinned traversal
+
+`collect_source_updates` derives membership from the live object, cell and active
+registries. `SourceVisitInputs` supplies actual visibility data and PLAYER_FARSIGHT
+GUIDs. It cannot supply cells, member lists or a permutation. The collector starts
+after the earlier Map::Update message, spawn-manager, transport and player phases.
+Those phases and entity Update implementations remain separate mandatory owners.
+`SourceObjectUpdateOwner` executes each collected object's Update with the map diff.
+Dispatch returns the closed set. The Map owner must retain it through the later
+phases to scope end, as `Map.cpp:1006-1031` does. Further mutation/traversal refuses.
+There is no default successful handler or production engine cutover.
+
+Pinned CMaNGOS `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f` defines:
+
+- `Map.cpp:667-689,894-927` visits player and resolved farsight rectangles,
+  x outside y, with the object's visibility distance. `CellImpl.h:37-49`
+  computes whole-cell bounds without a bounding radius or visibility-circle test.
+  `Map.cpp:2382-2402` resolves registered creature, pet, GO and dynamic-object
+  targets before AddToWorld, but requires players and corpses to be in world.
+  `Map.cpp:670` uses the map radius for a target not yet in world.
+- `Map.cpp:678-686,978-988` marks cells before visiting grid then world lists.
+  Marked cold cells stay marked. `Map.h:594-605`, `Map.cpp:660-663` make NoCreate
+  depend on object-data-loaded state, not terrain or NGrid existence.
+- `GridDefines.h:68-83`, `TypeContainerVisitor.h:55-65` order the type lists.
+  `GridNotifiers.cpp:185-189`, `GridNotifiersImpl.h:43-46` insert through both
+  updater overloads. `GridNotifiers.h:119-122` excludes players, all corpses
+  including bones, and cameras. Pets use the world creature list.
+- `Map.cpp:945-992` advances the live active cursor before processing, skips
+  out-of-world or invalid-position actors, inserts each active actor directly,
+  then visits its neighbours using the map visibility distance.
+- `EntitiesMgr.h:44`, `Map.cpp:995-1000` iterate the pointer unordered set without
+  another visibility, world-membership or cell-membership filter.
+
+`SourceUpdateSet` translates GNU libstdc++ GCC 12.2's unique pointer set.
+Logical indices replace node addresses, preserving the before-begin sentinel,
+bucket predecessors and linked iteration. `hashtable.h:1985-2008,2059-2083,
+2144-2164,2231-2256,2560-2591` defines insertion, duplicates and rehash relinking.
+`functional_hash.h:107-112` hashes the source pointer as its integer value.
+`hashtable_policy.h:478-488,500-545` defines modulo buckets, default load one
+and growth factor two. `hashtable_c++0x.cc:46-87,101-122` and
+`hashtable-aux.cc:30-45` derive the default growth sequence. The supported
+100,000-member resource bound refuses larger sets before insertion.
+Map::Update never reserves, erases or changes this local set's load factor.
+Insert and emplace share the membership algorithm. A duplicate emplace's
+temporary allocation cannot change the existing chain.
+
+The node-to-index mapping preserves each next link and bucket predecessor.
+Empty-bucket insertion updates the head and its former bucket predecessor.
+Nonempty-bucket insertion changes only that bucket's first link. Rehash walks
+the old mapped chain and applies the same head-insertion transitions.
+These are all membership mutations in the local source set, so induction over
+the insertion history preserves its complete iteration order. Node allocation
+addresses cannot affect pointer hashing or those links. Empty sets allocate
+neither nodes nor buckets. The map retains and clears its cell-mark bitmap.
+
+The three headers were extracted from Debian
+[`libstdc++-12-dev_12.2.0-14+deb12u1_amd64.deb`](https://deb.debian.org/debian/pool/main/g/gcc-12/libstdc++-12-dev_12.2.0-14+deb12u1_amd64.deb),
+SHA-256 `d28def6c23630432b57cb38a4c2fd67a79d4e0484027386ca6e8d6005c3d7a73`.
+Their SHA-256 identities are:
+
+- `hashtable.h`: `d1cad098a5169c9bcb04ce63a58697b91f3f441b5f360e64a01e23ba3bed8a9c`.
+- `hashtable_policy.h`: `59d76541faeda87c8936f4b0455ed09d14cae3b39fda2141815e4f4091b86ac0`.
+- `functional_hash.h`: `7dc5a4e3677ab369da48909df74eaea00f516f3107303855258ac8c7560d79f6`.
+
+The two runtime policy sources are from the upstream
+[GCC 12.2.0 release](https://github.com/gcc-mirror/gcc/tree/releases/gcc-12.2.0/libstdc%2B%2B-v3/src),
+SHA-256 `e63690b5ef14c78d0414148e6cc1f6da982de3afed2d0adac7faecbaa649c7fb`
+and `68fe03dda8fe9d33ec38b535cd9a750119da0da461b6040117fc114674ce893e`.
+These translations retain GPL-3.0-or-later with GCC-exception-3.1 provenance,
+copyright Free Software Foundation 2007-2022. No GCC source bytes or private
+addresses are committed as fixtures.
+
+`compare_seal8_unsealed_update_sets` recomputes the chain from labelled observed
+insertion-history fixtures. It compares every represented insertion/duplicate,
+hash, bucket, rehash, yield and paired Update begin/end. Logical lifetime and
+node-token checks reject stale reuse, live overlap and changed duplicate nodes.
+Recorded yields never supply the iteration order. A failed proof refuses without
+resynchronisation. These represented token checks do not prove full allocation
+extents, native construction causes or independently derived cell membership.
+The report keeps cell-membership acceptance at zero and F1 explicitly unsealed.
+`BENILLA_F1_SEAL8_FRAMING` selects the retained hash-anchored capture. Absent
+default data prints SKIP. Explicit missing or changed evidence fails.
+Authored component fixtures remain labelled. `source_visitors.rs`, capability,
+native format and persistence stay unchanged until F3.13.

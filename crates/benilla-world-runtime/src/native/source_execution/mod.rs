@@ -70,6 +70,14 @@ pub use gameobjects::*;
 mod gameobject_tests;
 mod seal8_gameobjects;
 pub use seal8_gameobjects::{compare_seal8_unsealed_gameobjects, Seal8GameObjectReport};
+mod update_set;
+mod visitors;
+pub use update_set::*;
+pub use visitors::*;
+mod seal8_update_set;
+#[cfg(test)]
+mod update_set_tests;
+pub use seal8_update_set::*;
 
 use super::production_compiler::{json, ExecutionFile};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};

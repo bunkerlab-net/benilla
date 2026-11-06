@@ -467,6 +467,33 @@ impl SourceObjects {
                     .is_some_and(|object| object.map == Some(map) && object.in_world)
             })
     }
+    // Map::GetWorldObject filters world membership only for players/corpses; Map.cpp:2382-2402.
+    pub(super) fn lookup_world_object(
+        &self,
+        map: MapIdentity,
+        guid: SourceGuid,
+    ) -> Option<ObjectHandle> {
+        let kind = match guid.high() {
+            0x0000 => LiveLookupKind::Player,
+            0xf110 | 0xf120 => LiveLookupKind::GameObject,
+            0xf130 => LiveLookupKind::Creature,
+            0xf140 => LiveLookupKind::Pet,
+            0xf100 => LiveLookupKind::DynamicObject,
+            0xf101 => LiveLookupKind::Corpse,
+            _ => return None,
+        };
+        if matches!(kind, LiveLookupKind::Player | LiveLookupKind::Corpse) {
+            return self.lookup(map, kind, guid);
+        }
+        self.lookup
+            .get(&(Some(map), kind, guid))
+            .copied()
+            .filter(|handle| {
+                self.objects
+                    .get(handle)
+                    .is_some_and(|object| object.map == Some(map))
+            })
+    }
     // DB lookup preserves insertion order and prioritizes an alive creature; Map.cpp:2426-2452,2515-2523.
     pub fn lookup_database(
         &self,
