@@ -1072,7 +1072,7 @@ Native format, NativeCapability and production admission are unchanged.
 ## Source event calendar
 
 `source_execution::SourceGameEventManager` loads ordered event query operands,
-computes nonlunar schedules, and preserves signed memberships, top-pool
+computes event schedules, and preserves signed memberships, top-pool
 association, substitutions, initial status and ascending linked-event decisions.
 Its owner must execute reached clock, lookup, quest, SQL and gameplay operations.
 Final gameplay effects remain the separate F4.11 obligation.
@@ -1083,12 +1083,18 @@ The pinned `GameEventData` constructor does not initialise `scheduleType`.
 Native treats never-assigned slots as never SERVERSIDE, an owner-approved
 deviation recorded in `docs/DEVIATIONS.md`. This includes the raw catalog's
 957 positive holes and slot zero during weekly recalculation.
-Lunar execution requires the unresolved Moon licence and dispatch owners.
-No substituted calendar or successful default handler supplies that result.
+Lunar computation uses clean-room `benilla-sim::source_moon` mathematics through
+separately bound calendar, binary64 sine and observation owners. The default
+owner refuses the missing historical glibc 2.36 sine dispatch. Recorded fixtures
+are test-only conditional arithmetic evidence, never a production fallback.
 
 `benilla-sim::source_calendar` preserves UTC `std::get_time` partial parsing,
 DMF stages, yearly rollover and the source's fractional Easter formula.
 Authored C++-oracle cases and private raw date comparisons are component fixtures.
+The lunar comparison checks every ordered record in all 11,192 authored cases,
+including 204 complete events with four clock reads, ten local conversions and
+six epoch conversions. UTC conversion answers also match the existing sim
+calendar. These comparisons do not admit non-UTC calendars or historical sine.
 The seal8-08 calendar diagnostic is unsealed; absent private evidence prints SKIP.
 It does not establish definition-loader, manager-transition or F1 acceptance.
 Native format, production selection and NativeCapability remain unchanged.

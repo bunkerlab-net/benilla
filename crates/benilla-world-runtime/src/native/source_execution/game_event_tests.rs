@@ -42,7 +42,7 @@ impl GameEventRows for Rows {
     }
 }
 #[derive(Default)]
-struct Owner {
+struct Owner<'a> {
     clocks: VecDeque<(EventClockSite, ClockSample)>,
     effects: Vec<GameEventEffect>,
     observations: Vec<GameEventObservation>,
@@ -51,8 +51,9 @@ struct Owner {
     pool_checks: Vec<(u16, i16, usize, usize)>,
     references: Vec<(EventReference, u32)>,
     reject: Option<GameEventEffect>,
+    lunar: Option<LunarEventBindings<'a>>,
 }
-impl Owner {
+impl Owner<'_> {
     fn wall(&mut self, site: EventClockSite, seconds: i64) {
         self.clocks
             .push_back((site, ClockSample::authored(ClockKind::WallSeconds, seconds)));
@@ -64,14 +65,22 @@ impl Owner {
         }
     }
 }
-impl GameEventOwner for Owner {
+impl GameEventOwner for Owner<'_> {
     fn clock(&mut self, site: EventClockSite) -> Result<ClockSample> {
         let (expected, sample) = self.clocks.pop_front().expect("missing authored clock");
         assert_eq!(site, expected);
         Ok(sample)
     }
-    fn lunar_schedule(&mut self, _: i64, _: i64, _: i64) -> Result<(i64, i64)> {
-        Err(refuse("execution.event.lunar_reference_dispatch_unbound"))
+    fn lunar_bindings(&mut self) -> Result<LunarEventBindings<'_>> {
+        let bindings = self
+            .lunar
+            .as_mut()
+            .ok_or_else(|| refuse("execution.event.lunar_reference_dispatch_unbound"))?;
+        Ok(LunarEventBindings {
+            calendar: &mut *bindings.calendar,
+            sine: &mut *bindings.sine,
+            trace: &mut *bindings.trace,
+        })
     }
     fn reference(&mut self, kind: EventReference, id: u32) -> Result<bool> {
         self.references.push((kind, id));
@@ -196,7 +205,7 @@ fn rows(count: u16) -> Rows {
         ..Rows::default()
     }
 }
-fn manager(rows: &mut Rows, owner: &mut Owner) -> SourceGameEventManager {
+fn manager(rows: &mut Rows, owner: &mut Owner<'_>) -> SourceGameEventManager {
     let mut manager = SourceGameEventManager::default();
     manager.load(rows, &mut pools(false), owner).unwrap();
     manager
@@ -657,4 +666,251 @@ fn retained_raw_event_query_streams_or_explicit_absence() {
     assert_eq!(holes.len(), 957);
     assert_eq!(holes[0], 3);
     println!("Unsealed raw event query fixture: 15636 operands; 957 never-assigned positive schedule slots, first ID 3; zero effective-loader or F1 acceptance");
+}
+
+#[cfg(test)]
+mod lunar {
+    use super::*;
+    use benilla_sim::source_moon::{self as moon, Calendar};
+    use serde_json::{json, Value};
+
+    const OWNER: moon::CallOwner = moon::CallOwner { thread: 1, call: 1 };
+
+    fn lunar_rows() -> Rows {
+        let mut data = rows(1);
+        data.definitions[0].schedule = 12;
+        data
+    }
+
+    #[test]
+    fn missing_lunar_dispatch_refuses_without_publishing_boundaries() {
+        let mut owner = Owner::default();
+        owner.wall(EventClockSite::LoadSchedule(1), 0);
+        let mut manager = SourceGameEventManager::default();
+        assert_eq!(
+            manager
+                .load(&mut lunar_rows(), &mut pools(false), &mut owner)
+                .unwrap_err()
+                .id,
+            "execution.event.lunar_reference_dispatch_unbound",
+        );
+        assert!(manager.inventory().stopped);
+        assert!(!owner
+            .observations
+            .iter()
+            .any(|record| matches!(record, GameEventObservation::Calendar { .. })));
+
+        let mut calendar = moon::RecordedCalendar::new(OWNER, &[]);
+        let mut sine = moon::UnboundSine;
+        let mut trace = Vec::new();
+        let mut owner = Owner {
+            lunar: Some(LunarEventBindings {
+                calendar: &mut calendar,
+                sine: &mut sine,
+                trace: &mut trace,
+            }),
+            ..Owner::default()
+        };
+        owner.wall(EventClockSite::LoadSchedule(1), 0);
+        let mut manager = SourceGameEventManager::default();
+        assert_eq!(
+            manager
+                .load(&mut lunar_rows(), &mut pools(false), &mut owner)
+                .unwrap_err()
+                .id,
+            "execution.event.lunar_reference_dispatch_unbound",
+        );
+        assert!(manager.inventory().stopped);
+        assert!(trace.is_empty());
+    }
+
+    fn integer(value: &Value) -> i64 {
+        value.as_i64().unwrap()
+    }
+    fn int(value: &Value) -> i32 {
+        i32::try_from(integer(value)).unwrap()
+    }
+    fn tm(value: &Value) -> benilla_sim::source_calendar::Tm {
+        assert_eq!(value.as_array().unwrap().len(), 9);
+        benilla_sim::source_calendar::Tm {
+            sec: int(&value[0]),
+            min: int(&value[1]),
+            hour: int(&value[2]),
+            mday: int(&value[3]),
+            mon: int(&value[4]),
+            year: int(&value[5]),
+            isdst: int(&value[6]),
+            wday: int(&value[7]),
+            yday: int(&value[8]),
+        }
+    }
+
+    // Inject external libc answers while checking all manager-generated requests, per source_moon/FORMAT.md.
+    struct ExternalCalendar(VecDeque<Value>);
+    impl Calendar for ExternalCalendar {
+        fn owner(&self) -> moon::CallOwner {
+            OWNER
+        }
+        fn now(&mut self) -> moon::Result<i64> {
+            let record = self.0.pop_front().ok_or(moon::Error::MissingObservation)?;
+            assert_eq!(record[0], "time");
+            Ok(integer(&record[1]))
+        }
+        fn local(&mut self, seconds: i64) -> moon::Result<benilla_sim::source_calendar::Tm> {
+            let record = self.0.pop_front().ok_or(moon::Error::MissingObservation)?;
+            assert_eq!(record[0], "local");
+            assert_eq!(integer(&record[1]), seconds);
+            Ok(tm(&record[2]))
+        }
+        fn epoch(
+            &mut self,
+            input: moon::CalendarInput,
+        ) -> moon::Result<(i64, benilla_sim::source_calendar::Tm)> {
+            let record = self.0.pop_front().ok_or(moon::Error::MissingObservation)?;
+            assert_eq!(record[0], "make");
+            let fields = match input {
+                moon::CalendarInput::Retained(value) => json!([
+                    value.sec,
+                    value.min,
+                    value.hour,
+                    value.mday,
+                    value.mon,
+                    value.year,
+                    value.isdst
+                ]),
+                moon::CalendarInput::AnchorProbe(date) => json!([
+                    0,
+                    0,
+                    3,
+                    date.day,
+                    date.month.checked_sub(1).unwrap(),
+                    date.year.checked_sub(1900).unwrap(),
+                    -1
+                ]),
+            };
+            assert_eq!(record[1], fields);
+            Ok((integer(&record[2]), tm(&record[3])))
+        }
+        fn finish(&self) -> moon::Result<()> {
+            if self.0.is_empty() {
+                Ok(())
+            } else {
+                Err(moon::Error::SurplusObservation)
+            }
+        }
+    }
+
+    #[test]
+    fn manager_computes_all_authored_lunar_event_boundaries_conditionally() {
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../benilla-sim/tools/fixtures/source_moon");
+        let load = |name: &str| match std::fs::read_to_string(root.join(name)) {
+            Ok(value) => Some(value),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                println!("SKIP authored lunar component fixture absent: {name}");
+                None
+            }
+            Err(error) => panic!("lunar fixture {name}: {error}"),
+        };
+        let Some(cases) = load("cases.json") else {
+            return;
+        };
+        let Some(expected) = load("expected.jsonl") else {
+            return;
+        };
+        let cases: Value = serde_json::from_str(&cases).unwrap();
+        let mut count = 0;
+        for (case, line) in cases["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(expected.lines())
+        {
+            if case["kind"] != "event" {
+                continue;
+            }
+            count += 1;
+            let expected: Value = serde_json::from_str(line).unwrap();
+            assert_eq!(expected["case"], case["case"]);
+            let mut calendar = VecDeque::new();
+            let mut samples = Vec::new();
+            let mut clocks = Vec::new();
+            let mut cycle = 0;
+            let mut position = 0;
+            let mut boundaries = None;
+            for record in expected["records"].as_array().unwrap() {
+                match record[0].as_str().unwrap() {
+                    "time" | "local" | "make" => {
+                        if record[0] == "time" {
+                            clocks.push(integer(&record[1]));
+                        }
+                        calendar.push_back(record.clone());
+                    }
+                    "candidate_begin" => {
+                        cycle = int(&record[1]);
+                        position = 0;
+                    }
+                    "sine" => {
+                        samples.push(moon::SineSample {
+                            owner: OWNER,
+                            cycle,
+                            anomaly: if position == 0 {
+                                moon::Anomaly::Solar
+                            } else {
+                                moon::Anomaly::Lunar
+                            },
+                            operand: u64::from_str_radix(record[1].as_str().unwrap(), 16).unwrap(),
+                            result: u64::from_str_radix(record[2].as_str().unwrap(), 16).unwrap(),
+                        });
+                        position += 1;
+                    }
+                    "result" => boundaries = Some((integer(&record[2][0]), integer(&record[2][1]))),
+                    _ => {}
+                }
+            }
+            assert_eq!(json!(clocks), case["clocks"]);
+            let mut calendar = ExternalCalendar(calendar);
+            let mut sine =
+                moon::RecordedSine::new(OWNER, Some(moon::SineOrder::SolarFirst), &samples);
+            let mut trace = Vec::new();
+            let mut owner = Owner {
+                lunar: Some(LunarEventBindings {
+                    calendar: &mut calendar,
+                    sine: &mut sine,
+                    trace: &mut trace,
+                }),
+                ..Owner::default()
+            };
+            let today = integer(&case["epoch"]);
+            owner.wall(EventClockSite::LoadSchedule(1), today);
+            let manager = manager(&mut lunar_rows(), &mut owner);
+            let definition = &manager.inventory().definitions[1];
+            assert_eq!(
+                (definition.start, definition.end),
+                boundaries.unwrap(),
+                "case {}",
+                case["case"]
+            );
+            assert!(owner
+                .observations
+                .contains(&GameEventObservation::Calendar {
+                    event: 1,
+                    today,
+                    start: definition.start,
+                    end: definition.end,
+                }));
+            drop(owner);
+            let counts = trace.iter().fold([0; 3], |mut counts, record| {
+                match record {
+                    moon::Evidence::Calendar(moon::CalendarCall::Now { .. }) => counts[0] += 1,
+                    moon::Evidence::Calendar(moon::CalendarCall::Local { .. }) => counts[1] += 1,
+                    moon::Evidence::Calendar(moon::CalendarCall::Epoch { .. }) => counts[2] += 1,
+                    _ => {}
+                }
+                counts
+            });
+            assert_eq!(counts, [4, 10, 6]);
+        }
+        assert_eq!(count, 204);
+    }
 }

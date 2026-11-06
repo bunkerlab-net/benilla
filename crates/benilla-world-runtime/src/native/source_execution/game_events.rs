@@ -3,7 +3,7 @@
 // Final spawn, substitution, quest, mail and instance effects belong to F4.11.
 use super::super::production_compiler::{EventCatalogRows, VerifiedCatalog};
 use super::*;
-use benilla_sim::{source_calendar, source_time::IntervalTimer};
+use benilla_sim::{source_calendar, source_moon, source_time::IntervalTimer};
 use std::collections::{BTreeMap, BTreeSet};
 const FAR_FUTURE: i64 = 4_102_444_800;
 
@@ -186,10 +186,19 @@ pub enum GameEventObservation {
         current: i64,
     },
 }
+/// Independently bound external calls for the computation specified by GameEventMgr.cpp:1274-1302.
+pub struct LunarEventBindings<'a> {
+    pub calendar: &'a mut dyn source_moon::Calendar,
+    pub sine: &'a mut dyn source_moon::Sine64,
+    pub trace: &'a mut dyn source_moon::Observe,
+}
+
 /// Each reached lookup/effect executes its owner, never a recorded answer.
 pub trait GameEventOwner {
     fn clock(&mut self, site: EventClockSite) -> Result<ClockSample>;
-    fn lunar_schedule(&mut self, start: i64, end: i64, today: i64) -> Result<(i64, i64)>;
+    fn lunar_bindings(&mut self) -> Result<LunarEventBindings<'_>> {
+        Err(refuse("execution.event.lunar_reference_dispatch_unbound"))
+    }
     fn reference(&mut self, kind: EventReference, id: u32) -> Result<bool>;
     fn set_quest_active(&mut self, quest: u32, active: bool) -> Result<()>;
     fn check_pool_event(
@@ -220,6 +229,25 @@ fn numeric<T>(result: source_calendar::Result<T>) -> Result<T> {
             source_calendar::Error::Overflow => "execution.event.calendar_overflow",
             source_calendar::Error::YearRange => "execution.event.calendar_year_range",
             source_calendar::Error::LunarOwner => "execution.event.lunar_owner",
+        })
+    })
+}
+
+fn lunar_numeric<T>(result: source_moon::Result<T>) -> Result<T> {
+    result.map_err(|error| {
+        refuse(match error {
+            source_moon::Error::Overflow => "execution.event.lunar_integer_overflow",
+            source_moon::Error::FloatConversion => "execution.event.lunar_float_conversion",
+            source_moon::Error::UnprovedNarrowing => "execution.event.lunar_unproved_narrowing",
+            source_moon::Error::MissingSineBinding => {
+                "execution.event.lunar_reference_dispatch_unbound"
+            }
+            source_moon::Error::MissingSineOrder => "execution.event.lunar_sine_order_unbound",
+            source_moon::Error::MissingObservation => "execution.event.lunar_missing_observation",
+            source_moon::Error::SurplusObservation => "execution.event.lunar_surplus_observation",
+            source_moon::Error::ObservationMismatch => "execution.event.lunar_observation_mismatch",
+            source_moon::Error::OwnershipMismatch => "execution.event.lunar_ownership_mismatch",
+            source_moon::Error::CandidateHistory => "execution.event.lunar_candidate_history",
         })
     })
 }
@@ -426,7 +454,13 @@ impl SourceGameEventManager {
     ) -> Result<()> {
         let definition = self.definition(u32::from(id))?;
         let (start, end) = if schedule == 12 {
-            owner.lunar_schedule(definition.start, definition.end, today)?
+            let bindings = owner.lunar_bindings()?;
+            lunar_numeric(source_moon::compute_event(
+                today,
+                bindings.calendar,
+                bindings.sine,
+                bindings.trace,
+            ))?
         } else {
             numeric(source_calendar::compute_schedule(
                 schedule,

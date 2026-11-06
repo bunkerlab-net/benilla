@@ -1523,8 +1523,14 @@ read the excluded lunar implementation, headers or Numerical Recipes material.
 It preserves binary64 rounding groups, the hybrid civil calendar, candidate
 revisits, DST probes and the event wrapper's month mismatches and retained seconds.
 The wrapper behaviour is specified by the GPL-covered
-`GameEvents/GameEventMgr.cpp:1274-1302` at the pinned CMaNGOS revision above.
+`GameEvents/GameEventMgr.cpp:1213,1274-1302` at the pinned CMaNGOS revision above.
 Binary64 sine is separately injected. `UnboundSine` refuses production execution
 without a historical glibc 2.36 dispatch binding. Recorded fixture injection
 checks call ownership and ordered operands, not historical production dispatch.
-The runtime lunar owner refusal remains until independent fixture equality.
+The independently recorded corpus compares all 11,192 cases with equal ordered
+record counts and exact integer and binary64 words. The test injects external
+calendar answers, sine results and authored clocks. UTC cases also compare the
+calendar answers with the existing sim UTC implementation. Non-UTC observations
+are conditional arithmetic evidence, not an admitted timezone implementation.
+The event manager calls this computation through explicit external bindings;
+its default owner still refuses the missing historical sine dispatch.

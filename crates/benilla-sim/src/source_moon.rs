@@ -201,6 +201,23 @@ pub enum Evidence {
         residual: u64,
         full: u64,
     },
+    CandidateBegin {
+        cycle: i32,
+    },
+    CivilDay {
+        input: CivilDate,
+        day: i64,
+    },
+    DayCivil {
+        day: i64,
+        result: CivilDate,
+    },
+    NextBegin(MoonDate),
+    NextEnd(MoonDate),
+    SummerDayBegin(i64),
+    SummerDayEnd(bool),
+    SummerCivilBegin(CivilDate),
+    SummerCivilEnd(bool),
     Calendar(CalendarCall),
 }
 
@@ -213,7 +230,7 @@ impl Observe for Vec<Evidence> {
         Ok(())
     }
 }
-fn float(trace: &mut impl Observe, name: &'static str, value: f64) -> Result<f64> {
+fn float(trace: &mut (impl Observe + ?Sized), name: &'static str, value: f64) -> Result<f64> {
     if !value.is_finite() {
         return Err(Error::FloatConversion);
     }
@@ -223,9 +240,21 @@ fn float(trace: &mut impl Observe, name: &'static str, value: f64) -> Result<f64
     })?;
     Ok(value)
 }
-fn integer(trace: &mut impl Observe, name: &'static str, value: i64) -> Result<i64> {
+fn integer(trace: &mut (impl Observe + ?Sized), name: &'static str, value: i64) -> Result<i64> {
     trace.observe(Evidence::Integer { name, value })?;
     Ok(value)
+}
+
+pub fn observe_julian_day(input: CivilDate, trace: &mut (impl Observe + ?Sized)) -> Result<i64> {
+    let day = julian_day(input)?;
+    trace.observe(Evidence::CivilDay { input, day })?;
+    Ok(day)
+}
+
+pub fn observe_civil_date(day: i64, trace: &mut (impl Observe + ?Sized)) -> Result<CivilDate> {
+    let result = civil_date(day)?;
+    trace.observe(Evidence::DayCivil { day, result })?;
+    Ok(result)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -239,9 +268,10 @@ pub struct Candidate {
 /// Retain the split day and each rounded operation from §New-moon time model.
 pub fn candidate(
     cycle: i32,
-    sine: &mut impl Sine64,
-    trace: &mut impl Observe,
+    sine: &mut (impl Sine64 + ?Sized),
+    trace: &mut (impl Observe + ?Sized),
 ) -> Result<Candidate> {
+    trace.observe(Evidence::CandidateBegin { cycle })?;
     let order = sine.order()?;
     let phase = float(trace, "phase_quotient", 0.0 / 4.0)?;
     let x = float(trace, "cycle_quantity", f64::from(cycle) + phase)?;
@@ -325,10 +355,20 @@ pub fn candidate(
 /// Re-evaluate revisited indices using the specification's clarified two-direction recurrence.
 pub fn following_moon(
     anchor: CivilDate,
-    sine: &mut impl Sine64,
-    trace: &mut impl Observe,
+    sine: &mut (impl Sine64 + ?Sized),
+    trace: &mut (impl Observe + ?Sized),
 ) -> Result<Candidate> {
-    let target = integer(trace, "anchor_day", julian_day(anchor)?)?;
+    let target = observe_julian_day(anchor, trace)?;
+    select_from_day(anchor, target, sine, trace)
+}
+
+fn select_from_day(
+    anchor: CivilDate,
+    target: i64,
+    sine: &mut (impl Sine64 + ?Sized),
+    trace: &mut (impl Observe + ?Sized),
+) -> Result<Candidate> {
+    integer(trace, "anchor_day", target)?;
     let year_delta = sub32(anchor.year, 1900)?;
     let month_offset = float(
         trace,
@@ -527,7 +567,7 @@ impl Calendar for RecordedCalendar<'_> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct MoonDate {
     pub civil: CivilDate,
     pub hour: i32,
@@ -539,7 +579,7 @@ pub fn adjust_selected(
     selected: Candidate,
     current_dst: bool,
     anchor_dst: bool,
-    trace: &mut impl Observe,
+    trace: &mut (impl Observe + ?Sized),
 ) -> Result<MoonDate> {
     let value = begin_adjustment(selected, current_dst, trace)?;
     finish_adjustment(value, anchor_dst, trace)
@@ -548,7 +588,7 @@ pub fn adjust_selected(
 fn begin_adjustment(
     selected: Candidate,
     current_dst: bool,
-    trace: &mut impl Observe,
+    trace: &mut (impl Observe + ?Sized),
 ) -> Result<f64> {
     let mut value = float(trace, "noon_shift", selected.full + 0.5)?;
     if current_dst {
@@ -562,13 +602,14 @@ fn begin_adjustment(
 fn finish_adjustment(
     mut value: f64,
     anchor_dst: bool,
-    trace: &mut impl Observe,
+    trace: &mut (impl Observe + ?Sized),
 ) -> Result<MoonDate> {
     if anchor_dst {
         let adjustment = float(trace, "dst_add_fraction", 1.0 / 24.0)?;
         value = float(trace, "anchor_dst_addition", value + adjustment)?;
     }
     let day = integer(trace, "final_day", truncate_i64(value.floor())?)?;
+    let civil = observe_civil_date(day, trace)?;
     let fraction = float(trace, "day_fraction", value - value.floor())?;
     let hours = float(trace, "hours", fraction * 24.0)?;
     let hour = truncate_i32(whole_part(hours))?;
@@ -578,22 +619,25 @@ fn finish_adjustment(
     let minute = truncate_i32(minutes.floor())?;
     integer(trace, "minute", i64::from(minute))?;
     Ok(MoonDate {
-        civil: civil_date(day)?,
+        civil,
         hour,
         minute,
     })
 }
 
-fn observe_now(calendar: &mut impl Calendar, trace: &mut impl Observe) -> Result<i64> {
+fn observe_now(
+    calendar: &mut (impl Calendar + ?Sized),
+    trace: &mut (impl Observe + ?Sized),
+) -> Result<i64> {
     let seconds = calendar.now()?;
     trace.observe(Evidence::Calendar(CalendarCall::Now { seconds }))?;
     Ok(seconds)
 }
 
 fn observe_local(
-    calendar: &mut impl Calendar,
+    calendar: &mut (impl Calendar + ?Sized),
     seconds: i64,
-    trace: &mut impl Observe,
+    trace: &mut (impl Observe + ?Sized),
 ) -> Result<Tm> {
     let result = calendar.local(seconds)?;
     trace.observe(Evidence::Calendar(CalendarCall::Local { seconds, result }))?;
@@ -601,9 +645,9 @@ fn observe_local(
 }
 
 fn observe_epoch(
-    calendar: &mut impl Calendar,
+    calendar: &mut (impl Calendar + ?Sized),
     input: CalendarInput,
-    trace: &mut impl Observe,
+    trace: &mut (impl Observe + ?Sized),
 ) -> Result<(i64, Tm)> {
     let (seconds, result) = calendar.epoch(input)?;
     trace.observe(Evidence::Calendar(CalendarCall::Epoch {
@@ -614,27 +658,65 @@ fn observe_epoch(
     Ok((seconds, result))
 }
 
-fn lunar_date(
-    tm: &mut Tm,
-    calendar: &mut impl Calendar,
-    sine: &mut impl Sine64,
-    trace: &mut impl Observe,
-) -> Result<()> {
-    let anchor = CivilDate {
-        year: tm.year,
-        month: tm.mon,
-        day: tm.mday,
-    };
-    let selected = following_moon(anchor, sine, trace)?;
+/// Consume the independent current-time and anchor-date probes from §Clock-dependent civil date.
+pub fn next_date(
+    input: MoonDate,
+    calendar: &mut (impl Calendar + ?Sized),
+    sine: &mut (impl Sine64 + ?Sized),
+    trace: &mut (impl Observe + ?Sized),
+) -> Result<MoonDate> {
+    let date = next_date_inner(input, calendar, sine, trace)?;
+    calendar.finish()?;
+    sine.finish()?;
+    Ok(date)
+}
+
+fn next_date_inner(
+    input: MoonDate,
+    calendar: &mut (impl Calendar + ?Sized),
+    sine: &mut (impl Sine64 + ?Sized),
+    trace: &mut (impl Observe + ?Sized),
+) -> Result<MoonDate> {
+    sine.order()?;
+    if sine.owner()? != calendar.owner() {
+        return Err(Error::OwnershipMismatch);
+    }
+    trace.observe(Evidence::NextBegin(input))?;
+    let anchor_day = observe_julian_day(input.civil, trace)?;
+    let selected = select_from_day(input.civil, anchor_day, sine, trace)?;
     let now = observe_now(calendar, trace)?;
     let current_dst = observe_local(calendar, now, trace)?.isdst != 0;
     let value = begin_adjustment(selected, current_dst, trace)?;
+    trace.observe(Evidence::SummerDayBegin(anchor_day))?;
+    let probe = observe_civil_date(anchor_day, trace)?;
+    trace.observe(Evidence::SummerCivilBegin(probe))?;
     let unused_now = observe_now(calendar, trace)?;
     observe_local(calendar, unused_now, trace)?;
-    let probe = civil_date(julian_day(anchor)?)?;
     let (probe_seconds, _) = observe_epoch(calendar, CalendarInput::AnchorProbe(probe), trace)?;
     let anchor_dst = observe_local(calendar, probe_seconds, trace)?.isdst != 0;
+    trace.observe(Evidence::SummerCivilEnd(anchor_dst))?;
+    trace.observe(Evidence::SummerDayEnd(anchor_dst))?;
     let date = finish_adjustment(value, anchor_dst, trace)?;
+    trace.observe(Evidence::NextEnd(date))?;
+    Ok(date)
+}
+
+fn lunar_date(
+    tm: &mut Tm,
+    calendar: &mut (impl Calendar + ?Sized),
+    sine: &mut (impl Sine64 + ?Sized),
+    trace: &mut (impl Observe + ?Sized),
+) -> Result<()> {
+    let input = MoonDate {
+        civil: CivilDate {
+            year: tm.year,
+            month: tm.mon,
+            day: tm.mday,
+        },
+        hour: tm.hour,
+        minute: tm.min,
+    };
+    let date = next_date_inner(input, calendar, sine, trace)?;
     tm.year = date.civil.year;
     tm.mon = date.civil.month;
     tm.mday = date.civil.day;
@@ -646,14 +728,16 @@ fn lunar_date(
 /// Preserve month mismatches, retained seconds and calendar-day duration from §Final event calendar transformation.
 pub fn compute_event(
     event_seconds: i64,
-    calendar: &mut impl Calendar,
-    sine: &mut impl Sine64,
-    trace: &mut impl Observe,
+    calendar: &mut (impl Calendar + ?Sized),
+    sine: &mut (impl Sine64 + ?Sized),
+    trace: &mut (impl Observe + ?Sized),
 ) -> Result<(i64, i64)> {
     sine.order()?;
     if sine.owner()? != calendar.owner() {
         return Err(Error::OwnershipMismatch);
     }
+    // Retain the otherwise unused conversion before the lunar switch, per GameEventMgr.cpp:1213.
+    observe_local(calendar, event_seconds, trace)?;
     let mut date = observe_local(calendar, event_seconds, trace)?;
     date.year = add32(sub32(date.year, 1)?, 1900)?;
     date.mon = 12;
