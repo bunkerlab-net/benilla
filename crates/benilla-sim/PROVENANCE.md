@@ -1514,3 +1514,17 @@ This crate and the translated parser are GPL-3.0-or-later.
 The C++ oracle binds source hashes, compiler flags, input cases and complete
 output records. Public cases are authored components. Private raw date
 comparisons do not establish effective definitions or sealed F1 acceptance.
+
+## Clean-room lunar calendar
+
+`source_moon` is original Rust written only from the supplied lunar mathematics
+specification and independently recorded observations. The implementer did not
+read the excluded lunar implementation, headers or Numerical Recipes material.
+It preserves binary64 rounding groups, the hybrid civil calendar, candidate
+revisits, DST probes and the event wrapper's month mismatches and retained seconds.
+The wrapper behaviour is specified by the GPL-covered
+`GameEvents/GameEventMgr.cpp:1274-1302` at the pinned CMaNGOS revision above.
+Binary64 sine is separately injected. `UnboundSine` refuses production execution
+without a historical glibc 2.36 dispatch binding. Recorded fixture injection
+checks call ownership and ordered operands, not historical production dispatch.
+The runtime lunar owner refusal remains until independent fixture equality.
