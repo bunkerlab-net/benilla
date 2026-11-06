@@ -4,11 +4,7 @@
 //! Logical nodes implement the pinned pointer set, never a supplied permutation.
 use super::*;
 
-// Default load factor one, no reserve/erase: hashtable_c++0x.cc:102-122,
-// hashtable-aux.cc:30-45. Refuse beyond the supported resource domain.
-const GROWTH: &[usize] = &[
-    1, 13, 29, 59, 127, 257, 541, 1109, 2357, 5087, 10273, 20753, 42043, 85229, 172933,
-];
+use super::identity_table::IdentityTable;
 pub const UPDATE_SET_MEMBER_LIMIT: usize = 100_000;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum UpdateInsertion {
@@ -27,20 +23,9 @@ pub struct UpdateInsertReceipt {
     pub hash: u64,
 }
 #[derive(Debug)]
-struct Node {
-    object: ObjectHandle,
-    pointer: u64,
-    next: Option<usize>,
-}
-const BEFORE_BEGIN: usize = usize::MAX;
-#[derive(Debug)]
 pub struct SourceUpdateSet {
     map: MapIdentity,
-    // Bucket predecessors use BEFORE_BEGIN for the inline sentinel.
-    head: Option<usize>,
-    nodes: Vec<Node>,
-    buckets: Vec<Option<usize>>,
-    growth: usize,
+    table: IdentityTable<ObjectHandle>,
     completed: bool,
 }
 impl SourceUpdateSet {
@@ -51,64 +36,21 @@ impl SourceUpdateSet {
         )?;
         Ok(Self {
             map,
-            head: None,
-            nodes: Vec::new(),
-            buckets: Vec::new(),
-            growth: 0,
+            table: IdentityTable::default(),
             completed: false,
         })
     }
     pub fn len(&self) -> usize {
-        self.nodes.len()
+        self.table.len()
     }
     pub fn is_empty(&self) -> bool {
-        self.nodes.is_empty()
+        self.table.len() == 0
     }
     pub fn bucket_count(&self) -> usize {
-        self.buckets.len().max(1)
+        self.table.bucket_count()
     }
     fn bucket(&self, pointer: u64) -> usize {
-        // functional_hash.h:107-112; hashtable_policy.h:478-488.
-        (pointer % self.bucket_count() as u64) as usize
-    }
-    fn next(&self, previous: usize) -> Option<usize> {
-        if previous == BEFORE_BEGIN {
-            self.head
-        } else {
-            self.nodes[previous].next
-        }
-    }
-    fn set_next(&mut self, previous: usize, next: Option<usize>) {
-        if previous == BEFORE_BEGIN {
-            self.head = next;
-        } else {
-            self.nodes[previous].next = next;
-        }
-    }
-    fn insert_bucket_begin(&mut self, index: usize) {
-        let bucket = self.bucket(self.nodes[index].pointer);
-        if let Some(previous) = self.buckets[bucket] {
-            self.nodes[index].next = self.next(previous);
-            self.set_next(previous, Some(index));
-        } else {
-            self.nodes[index].next = self.head;
-            self.head = Some(index);
-            if let Some(next) = self.nodes[index].next {
-                let former = self.bucket(self.nodes[next].pointer);
-                self.buckets[former] = Some(index);
-            }
-            self.buckets[bucket] = Some(BEFORE_BEGIN);
-        }
-    }
-    // Consume the old chain, reinserting at bucket heads; hashtable.h:2560-2591.
-    fn rehash(&mut self) {
-        self.growth += 1;
-        self.buckets = vec![None; GROWTH[self.growth]];
-        let mut current = self.head.take();
-        while let Some(index) = current {
-            current = self.nodes[index].next;
-            self.insert_bucket_begin(index);
-        }
+        self.table.bucket(pointer)
     }
     pub fn insert(
         &mut self,
@@ -142,47 +84,19 @@ impl SourceUpdateSet {
             "execution.update_set.allocation_token",
         )?;
         let before = self.bucket_count();
-        let bucket = self.bucket(pointer);
-        let mut current = self
-            .buckets
-            .get(bucket)
-            .copied()
-            .flatten()
-            .and_then(|previous| self.next(previous));
-        let mut inserted = true;
-        while let Some(index) = current {
-            let node = &self.nodes[index];
-            if self.bucket(node.pointer) != bucket {
-                break;
-            }
-            if node.pointer == pointer {
-                require(
-                    node.object == object,
-                    "execution.update_set.stale_pointer_generation",
-                )?;
-                inserted = false;
-                break;
-            }
-            current = node.next;
-        }
-        // Duplicate detection precedes the growth decision for insert and emplace;
-        // hashtable.h:2059-2083,2144-2164,2231-2256.
-        if inserted {
+        if let Some(previous) = self.table.get(pointer) {
             require(
-                self.len() < UPDATE_SET_MEMBER_LIMIT,
-                "execution.update_set.member_limit",
+                *previous == object,
+                "execution.update_set.stale_pointer_generation",
             )?;
-            if self.growth == 0 || self.len() >= self.bucket_count() {
-                self.rehash();
-            }
-            let index = self.nodes.len();
-            self.nodes.push(Node {
-                object,
-                pointer,
-                next: None,
-            });
-            self.insert_bucket_begin(index);
         }
+        require(
+            self.table.get(pointer).is_some() || self.len() < UPDATE_SET_MEMBER_LIMIT,
+            "execution.update_set.member_limit",
+        )?;
+        let inserted = self
+            .table
+            .insert(pointer, object, UPDATE_SET_MEMBER_LIMIT)?;
         Ok(UpdateInsertReceipt {
             object,
             overload,
@@ -194,10 +108,7 @@ impl SourceUpdateSet {
         })
     }
     pub fn order(&self) -> impl Iterator<Item = ObjectHandle> + '_ {
-        self.indices().map(|index| self.nodes[index].object)
-    }
-    fn indices(&self) -> impl Iterator<Item = usize> + '_ {
-        std::iter::successors(self.head, |&index| self.nodes[index].next)
+        self.table.iter().map(|(_, object)| *object)
     }
     pub fn prove_order(&self, expected: &[ObjectHandle]) -> Result<()> {
         require(
@@ -227,20 +138,19 @@ impl SourceUpdateSet {
             members: self.len(),
             buckets: self.bucket_count(),
         })?;
-        for index in self.indices() {
-            let node = &self.nodes[index];
-            let object = objects.get(node.object)?;
+        for (pointer, &handle) in self.table.iter() {
+            let object = objects.get(handle)?;
             require(
-                object.map == Some(self.map) && object.source_allocation == Some(node.pointer),
+                object.map == Some(self.map) && object.source_allocation == Some(pointer),
                 "execution.update_set.stale_dispatch_generation",
             )?;
             observe(SourceUpdateEvent::Yield {
-                object: node.object,
-                bucket: self.bucket(node.pointer),
+                object: handle,
+                bucket: self.bucket(pointer),
             })?;
-            observe(SourceUpdateEvent::UpdateBegin(node.object))?;
-            owner.update(node.object, diff, objects, cells)?;
-            observe(SourceUpdateEvent::UpdateEnd(node.object))?;
+            observe(SourceUpdateEvent::UpdateBegin(handle))?;
+            owner.update(handle, diff, objects, cells)?;
+            observe(SourceUpdateEvent::UpdateEnd(handle))?;
         }
         observe(SourceUpdateEvent::TraversalEnd)?;
         Ok(self)

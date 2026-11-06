@@ -688,6 +688,10 @@ and growth factor two. `hashtable_c++0x.cc:46-87,101-122` and
 `hashtable-aux.cc:30-45` derive the default growth sequence. The supported
 100,000-member resource bound refuses larger sets before insertion.
 Map::Update never reserves, erases or changes this local set's load factor.
+The shared `identity_table` module also supports uint32 identity keys and
+erase without shrinking. Erase repairs bucket predecessors before unlinking,
+as specified by `hashtable.h:2016-2033,2311-2331`. `SourceUpdateSet` retains
+its existing pointer validation, receipts and lifetime checks.
 Insert and emplace share the membership algorithm. A duplicate emplace's
 temporary allocation cannot change the existing chain.
 

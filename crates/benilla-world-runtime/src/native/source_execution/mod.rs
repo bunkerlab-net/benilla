@@ -84,6 +84,7 @@ pub use gameobjects::*;
 mod gameobject_tests;
 mod seal8_gameobjects;
 pub use seal8_gameobjects::{compare_seal8_unsealed_gameobjects, Seal8GameObjectReport};
+mod identity_table;
 mod update_set;
 mod visitors;
 pub use update_set::*;
