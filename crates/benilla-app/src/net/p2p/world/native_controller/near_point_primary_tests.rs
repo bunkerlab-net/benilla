@@ -378,7 +378,9 @@ fn loaded_primary_candidate_advances_projects_persists_and_replays_exactly() {
     let h = Harness::new();
     let (data, authority) = setup(10.);
     let observed = Arc::clone(&authority.observed);
-    let mut c = create(&h, data.clone(), mailbox_authority(authority));
+    let failures = Arc::clone(&authority.failures);
+    let (authority, submissions) = mailbox_authority_with_expired_first_slice(authority, true);
+    let mut c = create(&h, data.clone(), authority);
     c.initial_events().unwrap();
     let genesis = c.world.clone();
     let events = pump_to(&mut c, 2);
@@ -425,7 +427,15 @@ fn loaded_primary_candidate_advances_projects_persists_and_replays_exactly() {
     let expected = [MID - 52.5, MID - 1., 7.].map(f32::to_bits);
     assert_eq!(point_bits(point), expected);
     assert_ne!(point.z, query.request.target.pose.position.z);
-    assert_eq!(*observed.lock().unwrap(), vec![reply.request.clone()]);
+    let attempts = observed.lock().unwrap().clone();
+    let failed_attempts = failures.lock().unwrap().clone();
+    assert_eq!(submissions.load(Ordering::SeqCst), 1);
+    assert_eq!(failed_attempts.first(), Some(&Failure::Deadline));
+    assert!(failed_attempts
+        .iter()
+        .all(|failure| *failure == Failure::Deadline));
+    assert_eq!(attempts.len(), failed_attempts.len() + 1);
+    assert!(attempts.iter().all(|attempt| attempt == &reply.request));
     assert_eq!(c.world.state().npcs[&2].ai.phase(), ai::Phase::Combat);
     assert!(c.world.state().npcs[&2].ai.position().x.as_f32() > data.npcs[0].ai.spawn.x.as_f32());
     assert!(c.world.state().npcs[&2].ai.position().z.as_f32() < 10.);
@@ -726,7 +736,8 @@ fn mailbox_primary_retry_saves_then_publishes_exact_staged_tick_once() {
     let fault = Arc::clone(&product.fault);
     let observed = Arc::clone(&product.observed);
     let failures = Arc::clone(&product.failures);
-    let mut c = create(&h, data.clone(), mailbox_authority(product));
+    let (authority, submissions) = mailbox_authority_with_expired_first_slice(product, true);
+    let mut c = create(&h, data.clone(), authority);
     c.initial_events().unwrap();
     pump_to(&mut c, 1);
     let before = c.world.checkpoint().unwrap();
@@ -744,10 +755,17 @@ fn mailbox_primary_retry_saves_then_publishes_exact_staged_tick_once() {
     assert_eq!(c.world.checkpoint().unwrap(), before);
     assert_eq!(c.store.generation(), generation);
     assert_eq!(durable_files(&h), persisted);
-    assert_eq!(*failures.lock().unwrap(), vec![Failure::MissingGeometry]);
-    assert_eq!(observed.lock().unwrap().len(), 1);
+    let failed_attempts = failures.lock().unwrap().clone();
+    assert_eq!(failed_attempts.first(), Some(&Failure::Deadline));
+    assert_eq!(failed_attempts.last(), Some(&Failure::MissingGeometry));
+    assert!(failed_attempts[..failed_attempts.len() - 1]
+        .iter()
+        .all(|failure| *failure == Failure::Deadline));
+    let failed_count = failed_attempts.len();
+    assert_eq!(submissions.load(Ordering::SeqCst), 1);
+    assert_eq!(observed.lock().unwrap().len(), failed_count);
     assert_eq!(c.pump(Duration::from_secs(60)).ticks, 0);
-    assert_eq!(observed.lock().unwrap().len(), 1);
+    assert_eq!(observed.lock().unwrap().len(), failed_count);
 
     fault.store(0, Ordering::SeqCst);
     fs::write(
@@ -779,9 +797,15 @@ fn mailbox_primary_retry_saves_then_publishes_exact_staged_tick_once() {
     );
     replay.replay(std::slice::from_ref(&record)).unwrap();
     assert_eq!(replay.checkpoint().unwrap(), c.world.checkpoint().unwrap());
+    let failed_attempts = failures.lock().unwrap().clone();
+    assert!(failed_attempts[failed_count..]
+        .iter()
+        .all(|failure| *failure == Failure::Deadline));
+    assert_eq!(submissions.load(Ordering::SeqCst), 2);
     let attempts = observed.lock().unwrap();
-    assert_eq!(attempts.len(), 2);
-    assert_eq!(attempts[0], attempts[1]);
+    let completed_count = attempts.len();
+    assert_eq!(completed_count, failed_attempts.len() + 1);
+    assert!(attempts.iter().all(|attempt| attempt == &attempts[0]));
     assert_eq!(
         near_reply(std::slice::from_ref(&record)).request,
         attempts[0]
@@ -804,7 +828,8 @@ fn mailbox_primary_retry_saves_then_publishes_exact_staged_tick_once() {
         1
     );
     assert!(c.pump(Duration::ZERO).events.is_empty());
-    assert_eq!(observed.lock().unwrap().len(), 2);
+    assert_eq!(observed.lock().unwrap().len(), completed_count);
+    assert_eq!(submissions.load(Ordering::SeqCst), 2);
     c.shutdown().unwrap();
     drop(c);
     let (_, product) = setup(10.);

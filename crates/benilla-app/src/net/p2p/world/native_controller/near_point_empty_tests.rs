@@ -193,7 +193,9 @@ fn empty_selector_vertical_exhaustion_commits_exact_final_point_replays_and_reop
     let (data, product) = empty_setup(11., false);
     let observed = Arc::clone(&product.observed);
     let failures = Arc::clone(&product.failures);
-    let mut c = create(&h, data.clone(), empty_mailbox(product));
+    let authority = empty_mailbox_with_expired_first_slice(product, true);
+    let submissions = Arc::clone(&authority.submissions);
+    let mut c = create(&h, data.clone(), authority);
     c.initial_events().unwrap();
     let genesis = c.world.clone();
     let events = pump_to(&mut c, 2);
@@ -244,8 +246,15 @@ fn empty_selector_vertical_exhaustion_commits_exact_final_point_replays_and_reop
         query.request.target.bounding_radius.bits(),
     )
     .unwrap());
-    assert_eq!(*observed.lock().unwrap(), vec![reply.request.clone()]);
-    assert!(failures.lock().unwrap().is_empty());
+    let attempts = observed.lock().unwrap().clone();
+    let failed_attempts = failures.lock().unwrap().clone();
+    assert_eq!(submissions.load(Ordering::SeqCst), 1);
+    assert_eq!(failed_attempts.first(), Some(&Failure::Deadline));
+    assert!(failed_attempts
+        .iter()
+        .all(|failure| *failure == Failure::Deadline));
+    assert_eq!(attempts.len(), failed_attempts.len() + 1);
+    assert!(attempts.iter().all(|attempt| attempt == &reply.request));
     assert_exact_spline(&c, &data, &events, expected);
     let mut replay = genesis.clone();
     replay.replay(&records).unwrap();
