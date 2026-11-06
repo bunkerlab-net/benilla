@@ -1,14 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Immutable source inputs and non-admitting differential diagnostics.
 //! Expected outcomes have no conversion to an admissible input.
+mod cells;
 mod clock;
 mod compare;
+mod guids;
 mod inputs;
 mod messages;
+mod objects;
 mod scheduler;
+mod seal8_objects;
 mod startup;
 mod trace;
 mod world;
+pub use cells::*;
+pub use guids::*;
+pub use objects::*;
+pub use seal8_objects::{compare_seal8_unsealed_objects, Seal8ObjectReport};
+#[cfg(test)]
+mod object_tests;
 pub use startup::*;
 #[cfg(test)]
 mod clock_tests;

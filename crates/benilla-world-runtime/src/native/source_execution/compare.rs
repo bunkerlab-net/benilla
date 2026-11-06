@@ -337,3 +337,38 @@ impl DifferentialOracle {
         }
     }
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub enum GuidProjectionKind {
+    AddCounter,
+    UpdateFullGuid,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct GuidProjectionOperation {
+    pub kind: GuidProjectionKind,
+    pub captured_generation: u64,
+    pub value: u64,
+}
+#[derive(Debug, Serialize)]
+pub struct GuidProjectionDivergence {
+    pub reason: Refusal,
+    pub expected: GuidProjectionOperation,
+    pub actual: GuidProjectionOperation,
+}
+impl DifferentialOracle {
+    /// Compare GUID composition, never admit observed _Create arguments as allocator inputs.
+    pub fn compare_guid_projection(
+        expected: GuidProjectionOperation,
+        actual: GuidProjectionOperation,
+    ) -> std::result::Result<(), GuidProjectionDivergence> {
+        if expected == actual {
+            Ok(())
+        } else {
+            Err(GuidProjectionDivergence {
+                reason: refuse("execution.guid_projection_mismatch"),
+                expected,
+                actual,
+            })
+        }
+    }
+}

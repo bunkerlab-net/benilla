@@ -366,3 +366,47 @@ against their actual begins. It compares those values through distinct F3.02
 diagnostic operations, not F0 envelopes. Map bodies, end live-object counts,
 calendar conversions, manager phases and in-lock FIFO pops remain unproved.
 Both captures remain unsealed; their hashes, inputs and reports stay separate.
+
+## Source GUIDs and registration
+
+`source_execution::{guids,objects,cells}` separates pre-GUID construction,
+GUID assignment, legacy life, cell linkage, in-world membership and live lookup.
+It does not derive registration from `CreaturePoseCellIndex`. Pose observations
+can compare against an independently populated registry but cannot mutate it.
+
+The pinned source contract is:
+
+- `ObjectGuid.h:59-88,103-119,168-185` defines high bits, both constructors,
+  zero-counter behaviour and entry-dependent counter masks. Entry/counter overlap
+  is not silently masked. `ObjectGuid.cpp:64-71` signals `StopNow` near overflow
+  and still returns the pre-increment counter.
+- `ObjectMgr.cpp:6781-6855` seeds player/item/corpse and static creature/GO
+  ranges from source queries. `ObjectMgr.h:814-819` owns global allocation.
+  `Map.cpp:172-173,2546-2563` owns map starts and the shared GO/transport counter.
+  Recreating a grid cannot recreate its map allocator.
+  Event spawn helpers request counter zero at `Object.cpp:2183,2207`;
+  `Creature.cpp:1662-1672` and `GameObject.cpp:910-921` apply dynamic/group rules.
+- `Object.cpp:48-59,115-125` constructs before GUID assignment. Its destructor
+  refuses an in-world object at `61-68`. Creature legacy revival at
+  `Creature.cpp:717-731` does not construct another object.
+- `GridDefines.h:68-70`, `Map.cpp:237-328` and
+  `TypeContainerVisitor.h:55-58` define the separate ordered type lists.
+  `GridReference.h:31-35,58-61` inserts at the front and unlinks on destruction.
+  A cell's lifetime follows its containing grid generation.
+- `Map.cpp:1219-1241` preserves same-cell order and rejects an inactive move
+  into an unloaded object grid. Active cross-grid movement invokes the loader
+  seam before relinking. Viewpoint callbacks remain a reached owner obligation.
+- `Creature.cpp:173-218`, `Pet.cpp:70-86`, `GameObject.cpp:115-120,144-168`
+  and `DynamicObject.cpp:38-56` own map lookup lifetimes. Player accessor
+  registration is separate at `CharacterHandler.cpp:832`; corpse accessor
+  membership follows `Corpse.cpp:47-62`. Database lookup preserves insertion
+  order and prioritises alive creatures, `Map.cpp:2426-2452,2515-2523`.
+
+The seal8-08 object diagnostic uses observed `_Create` arguments only as a
+GUID-composition fixture. It compares subsequent add counters and the full raw
+GUID observed in object-update envelopes through the F3.02 comparator. Constructor
+and destructor counts are observations, not an independently executed world
+construction history. Allocator input joins, registration/cell state, native
+generation associations and reached callbacks remain typed pending obligations.
+No expected construction list drives gameplay. Native admission and persistence
+remain unchanged.

@@ -1177,6 +1177,12 @@ NaN, infinity and undefined signed conversion domains are refused explicitly.
 No `IsValidMapCoord`, normalization, terrain loading, visibility or world-object
 registration is inferred: even a valid cell is only arithmetic evidence.
 
+`ComputeGridPair` uses the same ordered arithmetic with the source grid-size
+and half-grid-offset constants, `GridDefines.h:147-166`. Checked grid results
+use the source 64-grid domain; cell-local coordinates use remainder by 16.
+Authored grid tests cover centres, signed zero, edges and undefined conversion
+domains. The retained 6,200-row oracle below continues to test cell arithmetic.
+
 `tools/generate_resident_map_fixture.py` checks entire pinned GridDefines.h
 SHA256 `5f5413657f84c5f5964f2a69d342874d8d1f7f5ed2bab969e1d78b0650141d82`
 and Map.cpp SHA256 `b9ada3277b8f60dd93f6ceba7e85c1dffa129385fbb4d9043fd93771a9704d12`.

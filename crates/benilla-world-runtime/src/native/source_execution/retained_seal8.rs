@@ -23,6 +23,8 @@ pub(super) struct Seal8Context {
     pub map_generation: u64,
     pub map: u32,
     pub instance: u32,
+    pub object_generation: u64,
+    pub object_guid: u64,
 }
 // Decode only the retained binary envelope; finalize-seal8-framing.py:20,183,234-253.
 pub(super) fn scan_seal8(
@@ -108,6 +110,8 @@ pub(super) fn scan_seal8(
                     world: words[5],
                     map_update: words[6],
                     map_generation: words[7],
+                    object_generation: words[10],
+                    object_guid: words[11],
                     map: u32::try_from(words[8])
                         .map_err(|_| refuse("execution.seal8_map_width"))?,
                     instance: u32::try_from(words[9])
