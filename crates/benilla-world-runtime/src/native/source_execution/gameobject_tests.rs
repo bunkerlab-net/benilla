@@ -844,3 +844,55 @@ fn dynamic_gameobject_spawn_uses_zero_requested_guid_and_preserves_grid_path() {
         .spawn_gameobject(&mut factory, attempt, wrong_row, &mut world.context())
         .unwrap());
 }
+
+#[test]
+fn group_gameobject_constructor_forwards_forced_entry_and_zero_fallback() {
+    // Object.cpp:2175-2183 and GameObject.cpp:960-965.
+    for (forced, expected) in [(0, 100), (101, 101)] {
+        let mut world = World::new();
+        let mut factory = Factory::new();
+        factory.templates.insert(101, template(101, 5));
+        let cell = compute_cell_pair(0, 0).unwrap();
+        let grid = world
+            .context()
+            .load_grid(cell, GridLoadTrigger::TerrainOnly, &mut factory)
+            .unwrap()
+            .unwrap();
+        let attempt = GridLoadAttempt {
+            grid,
+            cell,
+            kind: GridSpawnKind::GameObject,
+            origin: GridSpawnOrigin::Persistent,
+            guid: 7,
+            catalog_ordinal: 0,
+        };
+        let request = GroupSpawnRequest {
+            map: map(),
+            thread: factory.gameobject_thread(),
+            key: SpawnKey {
+                kind: GridSpawnKind::GameObject,
+                guid: 7,
+            },
+            entry: forced,
+        };
+        assert!(request
+            .spawn_gameobject(&mut factory, attempt, spawn(), &mut world.context())
+            .unwrap());
+        let object = world
+            .objects
+            .lookup_database(map(), DatabaseLookupKind::GameObject, 7)
+            .unwrap();
+        assert_eq!(
+            factory.objects.get(object).unwrap().template.entry,
+            expected
+        );
+        assert_eq!(
+            world.objects.get(object).unwrap().guid.unwrap().entry(),
+            expected
+        );
+        assert_eq!(
+            world.objects.get(object).unwrap().guid.unwrap().counter(),
+            203
+        );
+    }
+}

@@ -77,7 +77,7 @@ impl DynamicSpawnRequest {
             "execution.spawn.constructor_binding",
         )?;
         Ok(matches!(
-            spawn_source_creature(factory, attempt, row, context)?,
+            spawn_source_creature(factory, attempt, row, 0, context)?,
             Some(GridCandidateOutcome::Loaded(_))
         ))
     }
@@ -105,7 +105,7 @@ impl DynamicSpawnRequest {
             "execution.spawn.constructor_binding",
         )?;
         Ok(matches!(
-            spawn_source_gameobject(factory, attempt, row, context)?,
+            spawn_source_gameobject(factory, attempt, row, 0, context)?,
             Some(GridCandidateOutcome::Loaded(_))
         ))
     }

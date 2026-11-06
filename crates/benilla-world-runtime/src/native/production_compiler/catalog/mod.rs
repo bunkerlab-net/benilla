@@ -15,7 +15,7 @@ mod spawns;
 pub use spawns::{diagnose_catalog_spawns, SpawnViews};
 mod groups;
 pub use groups::diagnose_catalog_groups;
-pub(crate) use groups::LinkingCatalogRows;
+pub(crate) use groups::{LinkingCatalogRows, SpawnGroupCatalogRows};
 mod pools;
 pub use pools::diagnose_catalog_pools;
 pub(crate) use pools::PoolCatalogRows;
@@ -178,6 +178,12 @@ impl VerifiedCatalog {
         occurrences: &Path,
     ) -> Result<LinkingCatalogRows> {
         LinkingCatalogRows::open(self, occurrences)
+    }
+    pub(crate) fn execution_spawn_group_rows(
+        &mut self,
+        occurrences: &Path,
+    ) -> Result<SpawnGroupCatalogRows> {
+        SpawnGroupCatalogRows::open(self, occurrences)
     }
     /// SQL-equivalent raw-world query. Only the sole GUID is read by the loader;
     /// two matches reject before Fetch, so their relative order is unconsumed.

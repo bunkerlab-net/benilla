@@ -1465,3 +1465,38 @@ unchanged and compiles the oracle in the pinned F0 GCC/glibc builder. Its
 receipt binds complete source hashes, compiler flags and expected output bits.
 Authored component fixtures are public. Retained stock inputs and evidence
 stay private and do not establish effective ObjectMgr or sealed F1 execution.
+
+## Source spawn-group selection
+
+`source_spawn_groups.rs` translates CMaNGOS Classic
+`8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`
+`src/game/Maps/SpawnGroup.cpp:116-154,219-275,439-471`,
+`src/game/Globals/ObjectMgr.cpp:1326-1352,1469-1484`, and
+`src/game/Entities/Object.cpp:3037-3046`.
+The runtime crate owns effective loading, map-local caches, callbacks and
+persistent-state mutations. No database rows or installation data are included.
+
+Full-file SHA-256:
+
+- `src/game/Maps/SpawnGroup.cpp`:
+  `314dc41311ead73d64f8bf009b1bff67b5f68f7d0110ba40cc8793c37023bbb5`
+- `src/game/Maps/SpawnGroup.h`:
+  `d4eeb572c8bdf64be3dfc3193332e20485a81105b463fa8490f7ed8db8ba286c`
+- `src/game/Maps/SpawnGroupDefines.h`:
+  `934bed6fee3355880efc711879a65746d9a0fc16d960b00ed2811f070cffa927`
+- `src/game/Globals/ObjectMgr.cpp`:
+  `dd27915ca363f81885d20783fc4f6c0392df20c4e3dfa031faa1a30df7a4b78b`
+- `src/game/Entities/Object.cpp`:
+  `410904520fe2847a855c396d9fe442065268fd4ff5bb510633c3aadb5c54665b`
+
+Slot ordering translates GNU libstdc++ 12.2
+[`bits/stl_algo.h:78-100,1780-1950`](https://github.com/gcc-mirror/gcc/blob/releases/gcc-12.2.0/libstdc%2B%2B-v3/include/bits/stl_algo.h#L78)
+and
+[`bits/stl_heap.h:135-147,224-250,340-360,418-426`](https://github.com/gcc-mirror/gcc/blob/releases/gcc-12.2.0/libstdc%2B%2B-v3/include/bits/stl_heap.h#L135).
+The existing `stl_algo.h` hash and notices above apply. The full-file
+`stl_heap.h` SHA-256 is
+`b9e3e7b71f1f3ff1c4443b5800798b5b83be8edda1601be674b93fca6d31e923`.
+The FSF GPL-3.0-or-later grant with GCC Runtime Library Exception 3.1
+and Hewlett-Packard 1994 and Silicon Graphics 1997 permission notices
+are retained in `licenses/SOURCE-SHUFFLE-NOTICES.txt`.
+The translated crate remains GPL-3.0-or-later.

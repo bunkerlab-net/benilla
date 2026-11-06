@@ -1330,3 +1330,96 @@ fn dynamic_spawn_uses_zero_requested_guid_without_changing_grid_loads() {
         .iter()
         .any(|event| matches!(event, Observation::Destroy(_))));
 }
+
+#[test]
+fn group_constructor_forwards_forced_entry_and_preserves_zero_fallback() {
+    // Object.cpp:2193-2207 and Creature.cpp:1630,1652-1653.
+    for (forced, expected) in [(0, 7), (8, 8)] {
+        let mut world = World::new(vec![spawn(40, 0.0)]);
+        let mut factory = Factory::new();
+        let pair = cell(0.0);
+        let grid = world
+            .context()
+            .load_grid(pair, GridLoadTrigger::TerrainOnly, &mut factory)
+            .unwrap()
+            .unwrap();
+        let attempt = GridLoadAttempt {
+            grid,
+            cell: pair,
+            kind: GridSpawnKind::Creature,
+            origin: GridSpawnOrigin::Persistent,
+            guid: 40,
+            catalog_ordinal: 40,
+        };
+        let request = GroupSpawnRequest {
+            map: map(),
+            thread: 2,
+            key: SpawnKey {
+                kind: GridSpawnKind::Creature,
+                guid: 40,
+            },
+            entry: forced,
+        };
+        assert!(request
+            .spawn_creature(&mut factory, attempt, spawn(40, 0.0), &mut world.context())
+            .unwrap());
+        for invalid in [
+            GroupSpawnRequest {
+                thread: 99,
+                ..request
+            },
+            GroupSpawnRequest {
+                map: MapIdentity {
+                    creation_generation: 2,
+                    ..map()
+                },
+                ..request
+            },
+            GroupSpawnRequest {
+                key: SpawnKey {
+                    kind: GridSpawnKind::GameObject,
+                    guid: 40,
+                },
+                ..request
+            },
+            GroupSpawnRequest {
+                key: SpawnKey {
+                    guid: 99,
+                    ..request.key
+                },
+                ..request
+            },
+        ] {
+            assert_eq!(
+                invalid
+                    .spawn_creature(&mut factory, attempt, spawn(40, 0.0), &mut world.context())
+                    .unwrap_err()
+                    .id,
+                "execution.group.constructor_binding"
+            );
+        }
+        let state = factory.states.values().next().unwrap();
+        assert_eq!(state.original_entry, expected);
+        assert_eq!(state.template.entry, expected);
+        assert_eq!(
+            world
+                .objects
+                .get(state.object)
+                .unwrap()
+                .guid
+                .unwrap()
+                .entry(),
+            expected
+        );
+        assert_eq!(
+            world
+                .objects
+                .get(state.object)
+                .unwrap()
+                .guid
+                .unwrap()
+                .counter(),
+            110
+        );
+    }
+}

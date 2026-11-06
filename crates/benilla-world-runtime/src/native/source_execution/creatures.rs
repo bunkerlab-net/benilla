@@ -216,7 +216,7 @@ where
     P: GridProductOwner,
     F: CreatureFactoryOwner<D, P>,
 {
-    load_source_creature_inner(factory, attempt, row, false, context)
+    load_source_creature_inner(factory, attempt, row, false, 0, context)
 }
 
 /// Object.cpp:2191-2212 enters LoadFromDB with requested GUID zero, not the grid-loader GUID.
@@ -224,6 +224,7 @@ pub fn spawn_source_creature<D, P, F>(
     factory: &mut F,
     attempt: GridLoadAttempt,
     row: D::Row,
+    forced_entry: u32,
     context: &mut GridFactoryContext<'_, D, P>,
 ) -> Result<Option<GridCandidateOutcome>>
 where
@@ -238,7 +239,7 @@ where
     if !factory.creature_dynamic_spawn_allowed(attempt.guid, &row)? {
         return Ok(None);
     }
-    load_source_creature_inner(factory, attempt, row, true, context).map(Some)
+    load_source_creature_inner(factory, attempt, row, true, forced_entry, context).map(Some)
 }
 
 fn load_source_creature_inner<D, P, F>(
@@ -246,6 +247,7 @@ fn load_source_creature_inner<D, P, F>(
     attempt: GridLoadAttempt,
     row: D::Row,
     dynamic: bool,
+    forced_entry: u32,
     context: &mut GridFactoryContext<'_, D, P>,
 ) -> Result<GridCandidateOutcome>
 where
@@ -282,7 +284,11 @@ where
         return failed(factory, object, context);
     }
     let group = factory.creature_group(attempt.guid)?;
-    let mut entry = spawn.entry;
+    let mut entry = if forced_entry != 0 {
+        forced_entry
+    } else {
+        spawn.entry
+    };
     // Group, conditional, random and event fallback are ordered; Creature.cpp:1630-1653.
     if entry == 0 {
         if let Some(group) = group {

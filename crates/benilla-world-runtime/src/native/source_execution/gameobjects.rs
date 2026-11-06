@@ -479,7 +479,7 @@ where
     P: GridProductOwner,
     F: GameObjectFactoryOwner<D, P>,
 {
-    load_source_gameobject_inner(factory, attempt, row, false, context)
+    load_source_gameobject_inner(factory, attempt, row, false, 0, context)
 }
 
 /// Object.cpp:2173-2188 enters LoadFromDB with requested GUID zero.
@@ -487,6 +487,7 @@ pub fn spawn_source_gameobject<D, P, F>(
     factory: &mut F,
     attempt: GridLoadAttempt,
     row: D::Row,
+    forced_entry: u32,
     context: &mut GridFactoryContext<'_, D, P>,
 ) -> Result<Option<GridCandidateOutcome>>
 where
@@ -501,7 +502,7 @@ where
     if !factory.gameobject_dynamic_spawn_allowed(attempt.guid, &row)? {
         return Ok(None);
     }
-    load_source_gameobject_inner(factory, attempt, row, true, context).map(Some)
+    load_source_gameobject_inner(factory, attempt, row, true, forced_entry, context).map(Some)
 }
 
 fn load_source_gameobject_inner<D, P, F>(
@@ -509,6 +510,7 @@ fn load_source_gameobject_inner<D, P, F>(
     attempt: GridLoadAttempt,
     row: D::Row,
     dynamic: bool,
+    forced_entry: u32,
     context: &mut GridFactoryContext<'_, D, P>,
 ) -> Result<GridCandidateOutcome>
 where
@@ -525,7 +527,11 @@ where
         spawn.database_guid == attempt.guid,
         "execution.gameobject_spawn_binding",
     )?;
-    let initial = factory.gameobject_template(spawn.entry)?;
+    let initial = factory.gameobject_template(if forced_entry != 0 {
+        forced_entry
+    } else {
+        spawn.entry
+    })?;
     if source_gameobject_factory(initial.as_ref()) == GameObjectFactoryKind::Elevator {
         if dynamic {
             return Err(refuse(
@@ -550,7 +556,7 @@ where
         return failed(factory, handle, context);
     }
     let group = factory.gameobject_group(spawn.database_guid)?;
-    let entry = effective_entry::<D, P, F>(factory, &spawn, group, 0)?;
+    let entry = effective_entry::<D, P, F>(factory, &spawn, group, forced_entry)?;
     let force_dynamic = factory.gameobject_force_dynamic()?;
     let extra_dynamic = if force_dynamic {
         false

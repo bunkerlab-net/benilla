@@ -110,6 +110,10 @@ mod transports;
 pub use transports::*;
 mod seal8_transports;
 pub use seal8_transports::{inspect_seal8_unsealed_transports, Seal8TransportReport};
+mod spawn_groups;
+pub use spawn_groups::*;
+#[cfg(test)]
+mod spawn_group_tests;
 
 use super::production_compiler::{json, ExecutionFile};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};

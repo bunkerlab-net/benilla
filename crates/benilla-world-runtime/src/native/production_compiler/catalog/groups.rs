@@ -3,6 +3,9 @@
 use super::*;
 #[path = "groups_plans.rs"]
 mod plan;
+#[path = "groups_spawn.rs"]
+mod spawn;
+pub(crate) use spawn::SpawnGroupCatalogRows;
 const LOADERS: &[&str] = &[
     "Globals/ObjectMgr:1125",
     "Globals/ObjectMgr:1192",

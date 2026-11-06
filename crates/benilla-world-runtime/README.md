@@ -1018,3 +1018,54 @@ P0/MT comparison prints SKIP and retains an explicit missing-binding refusal.
 continuation. This component does not select the production engine or grant
 NativeCapability. `NATIVE_FORMAT_VERSION` separately includes the corrected
 reference-facing policy and refuses format-90 saves without migration.
+
+## Source spawn groups
+
+`source_execution::SourceSpawnGroups` owns F4.05's effective loader and
+map-local group state. Its source is CMaNGOS Classic
+`8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`:
+
+- `Globals/ObjectMgr.cpp:1120-1552` loads all six raw occurrence cursors,
+  validates actual definitions, excludes pool/event members using spawn
+  metadata, corrects formation slots and removes accepted members from
+  static grids and dynamic spawn vectors. Duplicate typed GUIDs keep the
+  first accepted group. GO autoload intentionally tests creature templates
+  at `:1532-1544`. Zero spawn masks disable the complete group.
+  Names and formation comments stop at the first NUL without trimming or
+  UTF-8 replacement, `src/shared/Database/Field.h:49-51`.
+- `Maps/SpawnGroup.cpp:116-154,219-275` uses cumulative integer entry
+  chances, sorted-key minima, zero-as-unlimited entry capacity and
+  first-insert minima. `benilla-sim::source_spawn_groups` implements these
+  operations and GCC 12.2's unstable slot sort, not Rust's tie ordering.
+- `:157-423` preserves condition-before-count despawn, condition over
+  expression precedence, future-member blocking at MaxCount one,
+  shuffled eligibility, cached false member chances, dungeon entry/squad
+  caches and selection before construction. Failed live construction keeps
+  selected membership and the persistent overlay.
+- `:74-100,439-484,504-522,610-615,630-653,703-732` preserves cooldown,
+  live/unloaded despawn, removal, formation callbacks and vicinity resets.
+  Vicinity uses strict squared binary32 distance, `Entities/Object.cpp:3037-3046`.
+  A reset at the world snapshot's time erases its deadline and omits SQL
+  INSERT, `Maps/MapPersistentStateMgr.cpp:89,136-155`.
+
+`GroupLoadOwner` and `GroupWork` require executable definition, condition,
+RNG, constructor, callback, clock and SQL owners. Expected selections and
+captured answers are not inputs. Forced entries reach the existing F3
+constructors, including zero's original fallback,
+`Entities/Object.cpp:2173-2207`; F4.02 passes zero explicitly.
+`SpawnGroupsInventory` exports definitions, occurrence records, typed
+membership, map/persistent lifetimes, chosen caches, cooldown and callback
+frames. Quiescence cannot certify F7 restore or a durable checkpoint.
+
+Signed chance subtraction refuses
+`execution.group.chance_subtract_undefined` at reached overflow,
+`Maps/SpawnGroup.cpp:139`. An absent-minimum direct override call refuses
+`execution.group.respawn_override_absent_undefined`, `:481-484`.
+Both pinned callers guard the latter with `IsRespawnOverriden`,
+`Entities/Creature.cpp:1870-1871` and `Entities/GameObject.cpp:690-691`;
+`:474-476` requires the minimum. It is not a stock-reached failure.
+Other missing owners, stale identities and arithmetic overflow also refuse.
+
+Authored tests are component evidence. Retained observer metadata does
+not establish independently matched group selections or MP transitions.
+Native format, NativeCapability and production admission are unchanged.
