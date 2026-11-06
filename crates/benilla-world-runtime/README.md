@@ -526,3 +526,52 @@ the first unavailable constructor binding separately from a GUID difference.
 It never uses captured constructor outcomes as runtime inputs. Set
 `BENILLA_F1_SEAL8_FRAMING` to run the unsealed seal8-08 comparison. Absent default
 data prints `SKIP`; an explicit invalid path fails.
+
+## Source creature construction
+
+`GridFactoryContext::load_creature` calls `load_source_creature` from the real
+grid factory. `CreatureFactoryOwner` supplies raw definition and manager lookups,
+the map allocator, the calling source RNG, persistent respawn state, an
+owner-qualified wall-clock sample, and executable handlers. No default handler
+returns success. An unavailable handler returns its phase-specific refusal.
+
+The pinned `8ec338a1` source contract is:
+
+- `ObjectGridLoader.cpp:133-140` constructs before the event-GUID check and
+  deletes a candidate after a source `LoadFromDB` failure.
+- `Creature.cpp:1623-1677` skips living duplicates, resolves group, conditional,
+  random and event fallback entries, validates the template, and allocates the
+  GUID. The random fallback uses `GetDbGuid()`, still zero before `_Create`.
+- `Creature.cpp:1602-1610,322-324` assigns the GUID using the original entry
+  before `InitEntry` applies an event entry override.
+- `Creature.cpp:346-358,657-702,1273-1279` selects display, conditional gender,
+  and conditional level. Equal display bounds still draw. Equal levels do not.
+  `ObjectMgr.cpp:1615-1632` retains the original model when a selected alternate
+  gender model is absent. A missing model fails after earlier draws.
+- `Creature.cpp:1690-1718` draws respawn delay before persistent lookup and
+  wall-clock comparison. Future dynamic spawns without a group fail. Static or
+  grouped future spawns become dead. An expired nonzero time writes zero.
+  `Object.cpp:3076-3079` defines new spawning by unequal database/runtime counters.
+- `Map.cpp:470-504` registers the cell and world membership before active,
+  viewpoint and visibility work. `Creature.cpp:880-895,1738-1765` then orders
+  motion, AI, relay, linking, formation, group and rabbit-day handlers.
+- `Creature.cpp:158-170` runs formation and Unit cleanup before deletion.
+  A reached unsupported owner stops execution instead of inventing source failure.
+
+`resolve_supported_creature_kernel` reuses `creature_init` arithmetic at the
+SelectLevelStats boundary with the already consumed rolls and matching operands.
+It does not run callbacks, move objects, or apply addon effects early.
+The legacy `creature_generation` cold schedule is not a source loader.
+
+The seal8-08 constructor diagnostic scans the hash-bound framing with an explicit
+unsealed label. It counts observed creature `_Create` identities separately from
+generic constructions. These observations do not bind the loader's definition
+and manager input occurrences. The report therefore accepts no complete
+constructors and identifies the first unavailable owner without using expected
+entries, GUIDs or draws as gameplay inputs. The reported reference event is the
+first observed creature identity, not a fabricated `LoadFromDB` entry record.
+Set `BENILLA_F1_SEAL8_FRAMING` to exercise this diagnostic. Absent default data
+prints SKIP. Explicit missing or changed evidence fails.
+
+Active locks, full F4/F5 handlers, F6 geometry, sealed input occurrences and
+whole-startup acceptance remain required. Capability and format stay unchanged.

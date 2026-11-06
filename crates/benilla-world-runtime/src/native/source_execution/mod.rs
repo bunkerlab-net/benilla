@@ -4,6 +4,14 @@
 mod cells;
 mod clock;
 mod compare;
+mod creatures;
+pub use creatures::*;
+mod seal8_creatures;
+pub use seal8_creatures::{
+    compare_seal8_unsealed_creatures, CreatureConstructorDifference, Seal8CreatureReport,
+};
+#[cfg(test)]
+mod creature_tests;
 mod grid_loader;
 mod grids;
 mod guids;

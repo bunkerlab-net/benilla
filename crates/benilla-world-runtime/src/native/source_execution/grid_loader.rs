@@ -136,6 +136,15 @@ pub struct GridFactoryContext<'a, D, P> {
     pub cells: &'a mut SourceCells,
 }
 impl<D: GridDefinitions, P: GridProductOwner> GridFactoryContext<'_, D, P> {
+    // Creature factories run LoadFromDB before the loader's second viewpoint callback; ObjectGridLoader.cpp:138-154.
+    pub fn load_creature<F: CreatureFactoryOwner<D, P>>(
+        &mut self,
+        factory: &mut F,
+        attempt: GridLoadAttempt,
+        row: D::Row,
+    ) -> Result<GridCandidateOutcome> {
+        load_source_creature(factory, attempt, row, self)
+    }
     // Active construction and viewpoint callbacks may recursively load through the same owners; Map.cpp:392-399, Camera.cpp:147-151.
     pub fn load_grid<F: GridObjectFactory<D, P>>(
         &mut self,
