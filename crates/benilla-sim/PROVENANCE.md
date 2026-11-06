@@ -1500,3 +1500,17 @@ The FSF GPL-3.0-or-later grant with GCC Runtime Library Exception 3.1
 and Hewlett-Packard 1994 and Silicon Graphics 1997 permission notices
 are retained in `licenses/SOURCE-SHUFFLE-NOTICES.txt`.
 The translated crate remains GPL-3.0-or-later.
+## Source event calendar
+
+`source_calendar` translates CMaNGOS Classic
+`8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`,
+`GameEvents/GameEventMgr.cpp:1162-1345` and `Database/Field.cpp:24-30`.
+The UTC date parser preserves GCC 12.2 `std::get_time` partial writes and
+finalisation, not libc `strptime` behaviour. Its source is
+`bits/locale_facets_nonio.tcc:1048-1077,1330-1380,1460-1585`.
+The date-field finaliser follows `src/c++98/locale_facets.cc:140-220`.
+The complete original GNU notice is in `licenses/SOURCE-CALENDAR-NOTICES.txt`.
+This crate and the translated parser are GPL-3.0-or-later.
+The C++ oracle binds source hashes, compiler flags, input cases and complete
+output records. Public cases are authored components. Private raw date
+comparisons do not establish effective definitions or sealed F1 acceptance.

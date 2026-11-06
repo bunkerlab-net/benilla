@@ -1069,3 +1069,26 @@ Other missing owners, stale identities and arithmetic overflow also refuse.
 Authored tests are component evidence. Retained observer metadata does
 not establish independently matched group selections or MP transitions.
 Native format, NativeCapability and production admission are unchanged.
+## Source event calendar
+
+`source_execution::SourceGameEventManager` loads ordered event query operands,
+computes nonlunar schedules, and preserves signed memberships, top-pool
+association, substitutions, initial status and ascending linked-event decisions.
+Its owner must execute reached clock, lookup, quest, SQL and gameplay operations.
+Final gameplay effects remain the separate F4.11 obligation.
+The event timer adapter resets before Update and again after its returned interval.
+Its inventory records current definitions, memberships, active IDs and status.
+
+The pinned `GameEventData` constructor does not initialise `scheduleType`.
+A reached hole refuses instead of treating allocation bytes as a valid schedule.
+The raw catalog fixture reports 957 positive holes, first ID 3.
+Weekly recalculation also reaches the uninitialised slot zero.
+Lunar execution requires the unresolved Moon licence and dispatch owners.
+No substituted calendar or successful default handler supplies that result.
+
+`benilla-sim::source_calendar` preserves UTC `std::get_time` partial parsing,
+DMF stages, yearly rollover and the source's fractional Easter formula.
+Authored C++-oracle cases and private raw date comparisons are component fixtures.
+The seal8-08 calendar diagnostic is unsealed; absent private evidence prints SKIP.
+It does not establish definition-loader, manager-transition or F1 acceptance.
+Native format, production selection and NativeCapability remain unchanged.

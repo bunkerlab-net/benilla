@@ -7,6 +7,7 @@ pub use catalog::diagnose_catalog_groups;
 pub use catalog::diagnose_catalog_preparation;
 pub use catalog::diagnose_catalog_scripts;
 pub use catalog::diagnose_catalog_spells;
+pub(crate) use catalog::EventCatalogRows;
 pub(crate) use catalog::Held as ExecutionFile;
 pub(crate) use catalog::PoolCatalogRows;
 pub use catalog::{

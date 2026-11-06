@@ -114,6 +114,12 @@ mod spawn_groups;
 pub use spawn_groups::*;
 #[cfg(test)]
 mod spawn_group_tests;
+mod game_events;
+pub use game_events::*;
+#[cfg(test)]
+mod game_event_tests;
+mod seal8_game_events;
+pub use seal8_game_events::{compare_seal8_unsealed_event_calendar, Seal8EventCalendarReport};
 
 use super::production_compiler::{json, ExecutionFile};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};

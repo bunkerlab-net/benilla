@@ -2,6 +2,9 @@
 //! Pinned event/weather loader views, not an active-event or weather manager.
 use super::*;
 use std::{collections::BTreeSet, io::Write};
+#[path = "events_inputs.rs"]
+mod inputs;
+pub(crate) use inputs::EventCatalogRows;
 const LOADERS: &[&str] = &[
     "GameEvents/GameEventMgr:92",
     "GameEvents/GameEventMgr:107",
@@ -150,6 +153,14 @@ fn expected(
 }
 fn verify_stream(path: &Path, count: usize, expected: &[[u8; 32]], d: &Value) -> Result<Value> {
     let held = reader::Held::open(path, MAX_RAW)?;
+    verify_held_stream(&held, count, expected, d)
+}
+fn verify_held_stream(
+    held: &reader::Held,
+    count: usize,
+    expected: &[[u8; 32]],
+    d: &Value,
+) -> Result<Value> {
     let mut buffer = vec![0; FRAME];
     let mut at = 0;
     let mut hash = Sha256::new();

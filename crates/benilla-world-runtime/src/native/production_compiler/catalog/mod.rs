@@ -21,6 +21,7 @@ pub use pools::diagnose_catalog_pools;
 pub(crate) use pools::PoolCatalogRows;
 mod events;
 pub use events::diagnose_catalog_events;
+pub(crate) use events::EventCatalogRows;
 mod dbc;
 pub use dbc::transport_inputs::{
     TransportAnimationRecord, TransportGameObject, TransportIntegrityRow, TransportSqlRow,
