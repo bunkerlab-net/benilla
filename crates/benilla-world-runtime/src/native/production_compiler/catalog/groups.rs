@@ -106,7 +106,7 @@ fn expected(
     hashes.sort_unstable();
     Ok((names.len(), hashes))
 }
-fn read_stream_row<'a>(
+pub(super) fn read_stream_row<'a>(
     held: &reader::Held,
     buffer: &'a mut [u8],
     at: &mut u64,

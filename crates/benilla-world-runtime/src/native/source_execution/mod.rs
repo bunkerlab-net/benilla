@@ -106,6 +106,10 @@ pub use pools::*;
 mod pool_tests;
 mod seal8_pools;
 pub use seal8_pools::{compare_seal8_unsealed_pools, Seal8PoolReport};
+mod transports;
+pub use transports::*;
+mod seal8_transports;
+pub use seal8_transports::{inspect_seal8_unsealed_transports, Seal8TransportReport};
 
 use super::production_compiler::{json, ExecutionFile};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};

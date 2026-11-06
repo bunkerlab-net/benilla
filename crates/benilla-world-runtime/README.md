@@ -997,3 +997,24 @@ lists are not independently loaded definitions. It accepts no full pool
 selection or MP transition. Absent private evidence prints SKIP.
 Native format, NativeCapability and production admission are unchanged.
 
+## Source transport templates
+
+`source_execution::SourceTransportTemplates` loads animation effective IDs before
+time-key overwrite and builds complete MO templates from an executed ObjectMgr
+definition owner. Typed retained F2 DBC/SQL access checks its input bytes and
+preserves cursor order and sparse taxi-node holes. Raw SQL rows are not an
+effective-definition fallback.
+
+`benilla-sim::source_transports` retains source control-node/teleport skips,
+separate Catmull-Rom legs, three-sample lengths, float atan2/sqrt operations,
+stop/acceleration timing, ferry frame 12 and SQL period assignment. The oracle
+extracts the pinned CMaNGOS implementations and runs in the F0 builder image.
+Undefined source indexing and nonrepresentable time conversion refuse.
+
+The nine-template raw-definition fixture is labelled and does not certify
+ObjectMgr execution or F1 occurrences. Seal8-08 has no template observations;
+P0/MT comparison prints SKIP and retains an explicit missing-binding refusal.
+`TRANSPORT_PENDING` includes live transport lifecycle, collision and durable
+continuation. This component does not select the production engine or grant
+NativeCapability. `NATIVE_FORMAT_VERSION` separately includes the corrected
+reference-facing policy and refuses format-90 saves without migration.

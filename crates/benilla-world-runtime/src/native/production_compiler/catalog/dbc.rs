@@ -5,6 +5,8 @@ use serde_json::json;
 use std::{fs::OpenOptions, io::Write, sync::LazyLock};
 #[path = "dbc_occurrences.rs"]
 mod occurrences;
+#[path = "dbc_transports.rs"]
+pub(crate) mod transport_inputs;
 static POLICY: LazyLock<Value> = LazyLock::new(|| {
     serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),

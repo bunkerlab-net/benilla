@@ -1446,3 +1446,22 @@ The Rust translation is GPL-3.0-or-later. It reuses the existing
 `source_rng` distributions and GCC 12.2 shuffle translation, with their
 notices above. No database rows or installation data are included.
 
+## Source transport templates
+
+`source_transports` translates CMaNGOS Classic
+`8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`,
+`Maps/TransportMgr.cpp:76-302` and `Movement/spline.cpp`/`spline.impl.h`.
+The vector lerp, matrix dot products and float lengths derive from the same
+checkout's G3D `Vector3.h`, `Vector4.cpp` and `Matrix4.cpp`. The complete original
+Modified BSD notice is retained in `licenses/G3D-NOTICE.cpp.txt`, transcoded
+from its Latin-1 source to UTF-8 without changing the text. The CMaNGOS
+GPL-2.0-or-later grant and this crate's GPL-3.0-or-later translation apply.
+
+The transported global float atan2 call reuses the separately documented
+glibc 2.36 facing port and its retained Sun notice. Correctly rounded sqrtf
+uses exact integer squares. No host libm operation enters the Rust kernel.
+`tools/source_transports_generate.py` extracts the original implementations
+unchanged and compiles the oracle in the pinned F0 GCC/glibc builder. Its
+receipt binds complete source hashes, compiler flags and expected output bits.
+Authored component fixtures are public. Retained stock inputs and evidence
+stay private and do not establish effective ObjectMgr or sealed F1 execution.

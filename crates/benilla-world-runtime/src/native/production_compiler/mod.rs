@@ -15,6 +15,9 @@ pub use catalog::{
     RowView as CatalogRowView, SpawnViews, VerifiedCatalog,
 };
 pub use catalog::{diagnose_catalog_dbc, CatalogDbcView};
+pub use catalog::{
+    TransportAnimationRecord, TransportGameObject, TransportIntegrityRow, TransportSqlRow,
+};
 mod catalog_schema;
 pub use catalog_schema::diagnose_catalog_schema;
 mod dbc;
