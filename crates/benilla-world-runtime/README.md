@@ -356,3 +356,13 @@ typed pending obligations, not world/map matches. The adapter invents no F0
 envelopes or causal edges. A missing default private trace prints `SKIP`; an
 explicit missing or different trace fails. Run with
 `mbx test --locked -p benilla-world-runtime --lib source_execution -- --nocapture`.
+
+The separate seal8-08 capture contains 464 `world_tick` records and 468 map
+begin/end pairs with checked world and map-generation contexts.
+`BENILLA_F1_SEAL8_FRAMING` selects its retained `seal8-full-framing-08` directory.
+The diagnostic anchors the chunk manifest and every binary chunk, recomputes
+world timer arithmetic and map interval dispatches, and checks map-end owners
+against their actual begins. It compares those values through distinct F3.02
+diagnostic operations, not F0 envelopes. Map bodies, end live-object counts,
+calendar conversions, manager phases and in-lock FIFO pops remain unproved.
+Both captures remain unsealed; their hashes, inputs and reports stay separate.

@@ -297,3 +297,43 @@ impl DifferentialOracle {
         }
     }
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub enum ClockPhaseOperation {
+    WorldTick {
+        previous: u32,
+        current: u32,
+        diff: u32,
+    },
+    MapBegin {
+        world: u64,
+        map: MapIdentity,
+        diff: u32,
+    },
+    MapEndOwner {
+        world: u64,
+        map: MapIdentity,
+    },
+}
+#[derive(Debug, Serialize)]
+pub struct ClockPhaseDivergence {
+    pub reason: Refusal,
+    pub expected: ClockPhaseOperation,
+    pub actual: ClockPhaseOperation,
+}
+impl DifferentialOracle {
+    pub fn compare_clock_phase(
+        expected: ClockPhaseOperation,
+        actual: ClockPhaseOperation,
+    ) -> std::result::Result<(), ClockPhaseDivergence> {
+        if expected == actual {
+            Ok(())
+        } else {
+            Err(ClockPhaseDivergence {
+                reason: refuse("execution.clock_phase_diagnostic_mismatch"),
+                expected,
+                actual,
+            })
+        }
+    }
+}

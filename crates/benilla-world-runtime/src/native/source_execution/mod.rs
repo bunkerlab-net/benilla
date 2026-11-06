@@ -22,6 +22,9 @@ pub use world::*;
 mod original_rng;
 mod original_scheduler;
 pub use original_scheduler::{compare_original_unsealed_scheduler, OriginalSchedulerReport};
+mod retained_seal8;
+mod seal8_clock;
+pub use seal8_clock::{compare_seal8_unsealed_clocks, Seal8ClockReport};
 #[cfg(test)]
 mod tests;
 pub use original_rng::{compare_original_unsealed_rng, OriginalRngReport};
