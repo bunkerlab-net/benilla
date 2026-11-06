@@ -264,8 +264,8 @@ impl SourceObjects {
         self.get_mut(handle)?.global_player_registered = false;
         Ok(())
     }
-    // Entity AddToWorld registers typed lookup before Object sets in-world; Creature.cpp:173-202, Pet.cpp:70-76.
-    pub fn add_to_world(&mut self, handle: ObjectHandle) -> Result<()> {
+    // Typed/DB lookup precedes base world membership; Creature.cpp:173-202, GameObject.cpp:115-131.
+    pub fn register_world_lookup(&mut self, handle: ObjectHandle) -> Result<()> {
         let object = self.get(handle)?;
         if object.in_world {
             return Ok(());
@@ -286,11 +286,38 @@ impl SourceObjects {
         {
             self.insert_lookup(handle, lookup_kind)?;
         }
-        self.get_mut(handle)?.in_world = true;
         if let Some(key) = database_key {
-            self.database.entry(key).or_default().push(handle);
+            let values = self.database.entry(key).or_default();
+            if !values.contains(&handle) {
+                values.push(handle);
+            }
         }
         Ok(())
+    }
+    // Base Object::AddToWorld follows the entity-specific work; GameObject.cpp:125-131, Creature.cpp:200-202.
+    pub fn mark_in_world(&mut self, handle: ObjectHandle) -> Result<()> {
+        let object = self.get(handle)?;
+        require(
+            object.kind != SourceObjectKind::Camera,
+            "execution.camera_not_world_object",
+        )?;
+        if let Some(kind) = object
+            .kind
+            .lookup_kind()
+            .filter(|kind| *kind != LiveLookupKind::Player)
+        {
+            require(
+                self.lookup.get(&Self::lookup_key(object, kind)?) == Some(&handle),
+                "execution.lookup_before_world",
+            )?;
+        }
+        self.get_mut(handle)?.in_world = true;
+        Ok(())
+    }
+    // Contiguous callers use both phases without an intervening entity hook; Creature.cpp:173-202, Pet.cpp:70-76.
+    pub fn add_to_world(&mut self, handle: ObjectHandle) -> Result<()> {
+        self.register_world_lookup(handle)?;
+        self.mark_in_world(handle)
     }
     // Removing from world does not unlink a grid reference or destroy the C++ instance; Map.cpp:1107-1113.
     pub fn remove_from_world(&mut self, handle: ObjectHandle) -> Result<()> {
