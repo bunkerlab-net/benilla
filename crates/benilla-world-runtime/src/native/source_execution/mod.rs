@@ -92,8 +92,14 @@ mod update_set_tests;
 pub use seal8_update_set::*;
 mod residency;
 pub use residency::*;
+mod creature_linking;
 #[cfg(test)]
 mod residency_tests;
+pub use creature_linking::*;
+#[cfg(test)]
+mod creature_linking_tests;
+mod seal8_linking;
+pub use seal8_linking::{inspect_seal8_unsealed_linking, Seal8LinkingReport};
 
 use super::production_compiler::{json, ExecutionFile};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};

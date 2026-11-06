@@ -633,3 +633,49 @@ pub fn resolve_supported_creature_kernel(
     )?;
     Ok(value)
 }
+
+/// Read the current entry field, not the entry bits retained in a runtime GUID.
+pub fn lookup_source_creature_linking(
+    links: &SourceCreatureLinking,
+    objects: &SourceObjects,
+    object: ObjectHandle,
+    entry: u32,
+) -> Result<Option<LinkingInfo>> {
+    links.ensure_loaded()?;
+    let value = objects.get(object)?;
+    let map = value
+        .map
+        .ok_or_else(|| refuse("execution.linking.object_map_kind"))?;
+    require(
+        matches!(
+            value.kind,
+            SourceObjectKind::Creature | SourceObjectKind::Pet
+        ),
+        "execution.linking.object_map_kind",
+    )?;
+    Ok(links.lookup(entry, value.database_guid, map.map))
+}
+
+/// Creature.cpp:923-929. The phase owner sets its trigger flag on a true result.
+pub fn register_source_creature_linking(
+    links: &SourceCreatureLinking,
+    holder: &mut SourceCreatureLinkingHolder,
+    objects: &SourceObjects,
+    object: ObjectHandle,
+    entry: u32,
+) -> Result<bool> {
+    let info = lookup_source_creature_linking(links, objects, object, entry)?;
+    let value = objects.get(object)?;
+    require(
+        value.map == Some(holder.map()),
+        "execution.linking.object_map_kind",
+    )?;
+    if info.is_some() {
+        holder.add_slave(links, objects, object, entry)?;
+    }
+    let trigger = links.event_trigger(entry, value.database_guid, holder.map().map);
+    if trigger {
+        holder.add_master(links, objects, object, entry)?;
+    }
+    Ok(trigger)
+}

@@ -106,27 +106,45 @@ fn expected(
     hashes.sort_unstable();
     Ok((names.len(), hashes))
 }
+fn read_stream_row<'a>(
+    held: &reader::Held,
+    buffer: &'a mut [u8],
+    at: &mut u64,
+    ordinal: u64,
+    columns: usize,
+) -> Result<RowView<'a>> {
+    check(*at + 4 <= held.len(), "groups.exhausted")?;
+    held.read_into(*at, &mut buffer[..4])?;
+    let size = le(buffer, 0, 4)? as usize;
+    check((16..=FRAME).contains(&size), "catalog.frame_limit")?;
+    held.read_into(*at + 4, &mut buffer[4..size])?;
+    let row = RowView::new(&buffer[..size], ordinal, columns)?;
+    row.validate()?;
+    *at += size as u64;
+    Ok(row)
+}
 fn verify_stream(path: &Path, columns: usize, expected: &[[u8; 32]], d: &Value) -> Result<Value> {
     let held = reader::Held::open(path, MAX_RAW)?;
-    let mut buffer = vec![0; FRAME];
+    verify_held_stream(&held, columns, expected, d, &mut vec![0; FRAME])
+}
+fn verify_held_stream(
+    held: &reader::Held,
+    columns: usize,
+    expected: &[[u8; 32]],
+    d: &Value,
+    buffer: &mut [u8],
+) -> Result<Value> {
     let mut seen = Vec::with_capacity(expected.len());
     let mut hash = Sha256::new();
     let mut at = 0;
     for ordinal in 0..expected.len() {
-        check(at + 4 <= held.len(), "groups.exhausted")?;
-        held.read_into(at, &mut buffer[..4])?;
-        let size = le(&buffer, 0, 4)? as usize;
-        check((16..=FRAME).contains(&size), "catalog.frame_limit")?;
-        held.read_into(at + 4, &mut buffer[4..size])?;
-        let row = RowView::new(&buffer[..size], ordinal as u64, columns)?;
-        row.validate()?;
+        let row = read_stream_row(held, buffer, &mut at, ordinal as u64, columns)?;
         let mut cells = [None; 256];
         for (i, cell) in row.cells().enumerate() {
             cells[i] = cell?;
         }
         seen.push(hash_cells(cells[..columns].iter().copied()));
-        hash.update(&buffer[..size]);
-        at += size as u64;
+        hash.update(row.frame);
     }
     check(at == held.len(), "groups.trailing")?;
     let occurrence = hex(&hash.finalize());
@@ -140,17 +158,12 @@ fn verify_stream(path: &Path, columns: usize, expected: &[[u8; 32]], d: &Value) 
     for h in seen {
         multiset.update(h);
     }
+    held.check()?;
     Ok(
         json!({"rows":expected.len(), "occurrence_sha256":occurrence, "multiset_sha256":hex(&multiset.finalize())}),
     )
 }
-/// Recomputes every loader projection and grouped count from checked source rows.
-pub fn diagnose_catalog_groups(root: &Path, occurrences: &Path) -> Result<Value> {
-    let mut catalog = VerifiedCatalog::open(root, false)?;
-    prepare(&mut catalog, occurrences)
-}
-pub(super) fn prepare(catalog: &mut VerifiedCatalog, occurrences: &Path) -> Result<Value> {
-    let schema = bounded_json(&catalog.object(&descriptor(&catalog.manifest["schema_root"])?, 0)?)?;
+fn occurrence_manifest(occurrences: &Path) -> Result<(reader::Held, Value)> {
     let held = reader::Held::open(&occurrences.join("occurrences.json"), CHUNK as u64)?;
     let meta = bounded_json(&held.read(0, held.len() as usize, &mut Metrics::default(), CACHE)?)?;
     catalog_schema::fields(
@@ -170,6 +183,97 @@ pub(super) fn prepare(catalog: &mut VerifiedCatalog, occurrences: &Path) -> Resu
         &keys.iter().map(String::as_str).collect::<Vec<_>>(),
         "groups.occurrences",
     )?;
+    Ok((held, meta))
+}
+/// Checked source-query row order, not effective definitions or sealed F1 inputs.
+pub(crate) struct LinkingCatalogRows {
+    metadata: reader::Held,
+    streams: [reader::Held; 2],
+    rows: [u64; 2],
+    at: [u64; 2],
+    ordinal: [u64; 2],
+    buffer: Vec<u8>,
+}
+impl LinkingCatalogRows {
+    pub(super) fn open(catalog: &mut VerifiedCatalog, occurrences: &Path) -> Result<Self> {
+        let (metadata, meta) = occurrence_manifest(occurrences)?;
+        let schema =
+            bounded_json(&catalog.object(&descriptor(&catalog.manifest["schema_root"])?, 0)?)?;
+        let mut streams = [None, None];
+        let mut rows = [0; 2];
+        let mut buffer = vec![0; FRAME];
+        for (slot, loader) in [6, 7].into_iter().enumerate() {
+            let spec = &catalog_schema::POLICY["loaders"][LOADERS[loader]];
+            let d = &meta["streams"][loader.to_string()];
+            catalog_schema::fields(d, &["query", "rows", "bytes", "sha256"], "groups.query")?;
+            check(
+                d["query"] == spec["query"]
+                    && d["rows"].as_u64().is_some_and(|n| n <= 2_000_000)
+                    && d["bytes"].as_u64().is_some_and(|n| n <= MAX_RAW),
+                "groups.query",
+            )?;
+            let (columns, wanted) = expected(catalog, &schema, spec)?;
+            check(columns == if slot == 0 { 5 } else { 3 }, "groups.query")?;
+            let held = reader::Held::open(&occurrences.join(format!("{loader}.rows")), MAX_RAW)?;
+            verify_held_stream(&held, columns, &wanted, d, &mut buffer)?;
+            rows[slot] = wanted.len() as u64;
+            streams[slot] = Some(held);
+        }
+        metadata.check()?;
+        let [first, second] = streams;
+        let streams = [
+            first.ok_or_else(|| fail("groups.query"))?,
+            second.ok_or_else(|| fail("groups.query"))?,
+        ];
+        Ok(Self {
+            metadata,
+            streams,
+            rows,
+            at: [0; 2],
+            ordinal: [0; 2],
+            buffer,
+        })
+    }
+    fn next<const N: usize>(&mut self, slot: usize) -> Result<Option<(u64, [u32; N])>> {
+        self.metadata.check()?;
+        self.streams[slot].check()?;
+        if slot == 1 {
+            check(self.ordinal[0] == self.rows[0], "groups.loader_phase")?;
+        }
+        if self.ordinal[slot] == self.rows[slot] {
+            check(self.at[slot] == self.streams[slot].len(), "groups.trailing")?;
+            return Ok(None);
+        }
+        let ordinal = self.ordinal[slot];
+        let row = read_stream_row(
+            &self.streams[slot],
+            &mut self.buffer,
+            &mut self.at[slot],
+            ordinal,
+            N,
+        )?;
+        let mut values = [0; N];
+        for (value, cell) in values.iter_mut().zip(row.cells()) {
+            *value = spawns::uint(cell?)?;
+        }
+        self.ordinal[slot] += 1;
+        Ok(Some((ordinal, values)))
+    }
+    pub(crate) fn next_template(&mut self) -> Result<Option<(u64, [u32; 5])>> {
+        self.next(0)
+    }
+    pub(crate) fn next_guid(&mut self) -> Result<Option<(u64, [u32; 3])>> {
+        self.next(1)
+    }
+}
+/// Recomputes every loader projection and grouped count from checked source rows.
+pub fn diagnose_catalog_groups(root: &Path, occurrences: &Path) -> Result<Value> {
+    let mut catalog = VerifiedCatalog::open(root, false)?;
+    prepare(&mut catalog, occurrences)
+}
+pub(super) fn prepare(catalog: &mut VerifiedCatalog, occurrences: &Path) -> Result<Value> {
+    let schema = bounded_json(&catalog.object(&descriptor(&catalog.manifest["schema_root"])?, 0)?)?;
+    let (held, meta) = occurrence_manifest(occurrences)?;
     let mut loaders = serde_json::Map::new();
     let mut families = BTreeMap::new();
     for (i, id) in LOADERS.iter().enumerate() {
@@ -238,6 +342,7 @@ pub(super) fn prepare(catalog: &mut VerifiedCatalog, occurrences: &Path) -> Resu
     let mut report = json!({"format":"benilla-group-views-v1","catalog_sha256":catalog.manifest["catalog_sha256"],"families":families,"loaders":loaders,"complete":false,"refusals":["groups.reference_execution_missing","groups.gameplay_not_admitted"]});
     report["plans"] = plan::plans(catalog, &schema)?;
     report["view_sha256"] = Value::String(json::digest(&report));
+    held.check()?;
     Ok(report)
 }
 

@@ -15,6 +15,7 @@ mod spawns;
 pub use spawns::{diagnose_catalog_spawns, SpawnViews};
 mod groups;
 pub use groups::diagnose_catalog_groups;
+pub(crate) use groups::LinkingCatalogRows;
 mod pools;
 pub use pools::diagnose_catalog_pools;
 mod events;
@@ -167,6 +168,49 @@ pub struct VerifiedCatalog {
 impl VerifiedCatalog {
     pub(crate) fn execution_identity(&self) -> &Value {
         &self.manifest
+    }
+    pub(crate) fn execution_linking_rows(
+        &mut self,
+        occurrences: &Path,
+    ) -> Result<LinkingCatalogRows> {
+        LinkingCatalogRows::open(self, occurrences)
+    }
+    /// SQL-equivalent raw-world query. Only the sole GUID is read by the loader;
+    /// two matches reject before Fetch, so their relative order is unconsumed.
+    pub(crate) fn execution_linking_unique_master(
+        &mut self,
+        entry: u32,
+        map: u32,
+    ) -> Result<Vec<u32>> {
+        let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
+        let columns = spawns::columns(&schema, "creature")?;
+        let positions = [
+            spawns::position(&columns, "guid")?,
+            spawns::position(&columns, "id")?,
+            spawns::position(&columns, "map")?,
+        ];
+        let relation = self
+            .relations
+            .get("creature")
+            .ok_or_else(|| fail("catalog.table"))?
+            .clone();
+        let mut guids = Vec::new();
+        for ordinal in 0..relation.rows {
+            self.with_row(&relation, ordinal, &mut |row| {
+                let mut cells = [None; 256];
+                spawns::fill(&row, &mut cells)?;
+                if spawns::uint(cells[positions[1]])? == entry
+                    && spawns::uint(cells[positions[2]])? == map
+                {
+                    guids.push(spawns::uint(cells[positions[0]])?);
+                }
+                Ok(())
+            })?;
+            if guids.len() == 2 {
+                break;
+            }
+        }
+        Ok(guids)
     }
     pub(crate) fn execution_row(
         &mut self,

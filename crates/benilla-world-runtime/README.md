@@ -899,3 +899,50 @@ Effective linking/group/callback composition and constructor gates retain typed
 missing-owner refusals until their owning rows land. Retained F1 captures remain
 unsealed; unobserved schedules and MR transitions are not zero-work proofs.
 Native format, NativeCapability and production admission are unchanged.
+
+## Source creature linking
+
+`SourceCreatureLinking` executes template and GUID loading through actual
+effective-definition and SQL owners. `load_catalog` consumes checked F2 query
+occurrences in their retained order, not primary-key order. That phase0 input
+verification does not establish sealed startup acceptance.
+
+`query_catalog_linking_master` executes the raw creature-table entry/map filter
+and LIMIT 2 through the retained reader. The loader rejects two matches before
+reading either GUID, as `CreatureLinkingMgr.cpp:236-249` does. This does not bind
+a missing F1 SQL occurrence or substitute effective ObjectMgr rows for raw SQL.
+
+The pinned `CreatureLinkingMgr.cpp` contract is:
+
+- `:172-254` preserves validation order, map-zero validation bypass and the
+  reached `LIMIT 2` unique-master query, including FOLLOW-only links.
+- `:269-324` gives GUID links precedence without a caller-map filter. Entry
+  links use the first matching map. Masters are indexed by entry only.
+- `:328-398` preserves equal-key insertion order, duplicate slave appends and
+  full-GUID master deduplication. Destruction does not prune stale holders.
+- `:663-750` checks the real persistent deadline, fresh wall time only for a
+  nonzero deadline, recursive readiness and typed per-state pool selection.
+  Only the map-wide BOSS_DEAD branch calls the actual instance predicate.
+  Local checks use the first in-range master's respawn coordinates and alive
+  state. A missing local master permits spawn. Both passive flags prefer DEAD.
+
+`lookup_source_creature_linking` uses the current entry field, not GUID entry
+bits. `register_source_creature_linking` performs the slave/master operations
+from `Creature.cpp:923-929`; its true result sets the constructor's trigger flag.
+Linked respawn, combat and motion actions remain mandatory later owners.
+No missing query, clock or instance owner becomes an empty successful callback.
+
+The source's promoted signed range square at `CreatureLinkingMgr.cpp:659`
+overflows above 46340. Reached overflow refuses
+`execution.linking.range_square_undefined`. Reached recursive readiness cycles
+refuse `execution.linking.recursive_readiness_undefined`, without inventing a
+spawn result. Stock catalog-04 contains neither overflowing ranges nor passive
+readiness cycles. Its three non-passive self-links remain valid definitions.
+
+Definition and holder inventories preserve accepted/rejected rows, equal-key
+order, full-GUID stale records, master order and in-use state. They are diagnostic
+F7 contracts, not restore APIs. `LINKING_PENDING` retains effective-definition,
+SQL-occurrence, F5 action, sealed P0/MG/MR and durable-continuation obligations.
+The seal8-08 coverage diagnostic remains unsealed and accepts no linking records.
+Absent private inputs print SKIP. Native format, capability and production
+selection remain unchanged.
