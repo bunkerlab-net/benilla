@@ -18,6 +18,7 @@ pub use groups::diagnose_catalog_groups;
 pub(crate) use groups::LinkingCatalogRows;
 mod pools;
 pub use pools::diagnose_catalog_pools;
+pub(crate) use pools::PoolCatalogRows;
 mod events;
 pub use events::diagnose_catalog_events;
 mod dbc;

@@ -9,6 +9,7 @@ pub use catalog::diagnose_catalog_scripts;
 pub use catalog::diagnose_catalog_spells;
 pub(crate) use catalog::Held as ExecutionFile;
 pub(crate) use catalog::LinkingCatalogRows;
+pub(crate) use catalog::PoolCatalogRows;
 pub use catalog::{
     diagnose_catalog, diagnose_catalog_pools, diagnose_catalog_spawns, RetainedCatalogRow,
     RowView as CatalogRowView, SpawnViews, VerifiedCatalog,

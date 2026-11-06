@@ -370,6 +370,24 @@ fn spawn_map(
     })?;
     Ok(found)
 }
+fn read_pool_row<'a>(
+    held: &reader::Held,
+    buffer: &'a mut [u8],
+    at: &mut u64,
+    ordinal: u64,
+    columns: usize,
+) -> Result<RowView<'a>> {
+    check(*at + 4 <= held.len(), "pool.exhausted")?;
+    held.read_into(*at, &mut buffer[..4])?;
+    let size = le(buffer, 0, 4)? as usize;
+    check((16..=FRAME).contains(&size), "catalog.frame_limit")?;
+    held.read_into(*at + 4, &mut buffer[4..size])?;
+    let row = RowView::new(&buffer[..size], ordinal, columns)?;
+    row.validate()?;
+    *at += size as u64;
+    Ok(row)
+}
+
 fn verify_stream(
     held: &reader::Held,
     columns: usize,
@@ -382,19 +400,12 @@ fn verify_stream(
     let mut h = Sha256::new();
     let mut seen = Vec::with_capacity(expected.len());
     for ordinal in 0..expected.len() {
-        check(at + 4 <= held.len(), "pool.exhausted")?;
-        held.read_into(at, &mut buffer[..4])?;
-        let size = le(buffer, 0, 4)? as usize;
-        check((16..=FRAME).contains(&size), "catalog.frame_limit")?;
-        held.read_into(at + 4, &mut buffer[4..size])?;
-        let row = RowView::new(&buffer[..size], ordinal as u64, columns)?;
-        row.validate()?;
+        let row = read_pool_row(held, buffer, &mut at, ordinal as u64, columns)?;
         let mut cells = [None; 256];
         fill(&row, &mut cells)?;
         let cells = &cells[..columns];
         seen.push(hash_cells(cells));
-        h.update(&buffer[..size]);
-        at += size as u64;
+        h.update(row.frame);
         visit(ordinal as u64, cells)?;
     }
     check(at == held.len(), "pool.trailing")?;
@@ -415,6 +426,144 @@ fn verify_stream(
         json!({"rows":seen.len(),"occurrence_sha256":occurrence_hash,
         "multiset_sha256":hex(&multiset.finalize())}),
     )
+}
+
+pub(crate) struct PoolCatalogTemplate {
+    pub ordinal: u64,
+    pub id: u16,
+    pub limit: u32,
+    pub description: Vec<u8>,
+}
+pub(crate) struct PoolCatalogMember {
+    pub ordinal: u64,
+    pub guid: u32,
+    pub pool: u16,
+    pub chance: f32,
+}
+/// Retains checked raw SQL occurrences, never F2 candidate dispositions.
+pub(crate) struct PoolCatalogRows {
+    metadata: reader::Held,
+    streams: Vec<reader::Held>,
+    rows: [u64; 7],
+    at: [u64; 7],
+    ordinal: [u64; 7],
+    buffer: Vec<u8>,
+}
+impl VerifiedCatalog {
+    pub(crate) fn execution_pool_rows(&mut self, occurrences: &Path) -> Result<PoolCatalogRows> {
+        PoolCatalogRows::open(self, occurrences)
+    }
+}
+impl PoolCatalogRows {
+    fn open(catalog: &mut VerifiedCatalog, occurrences: &Path) -> Result<Self> {
+        let metadata = reader::Held::open(&occurrences.join("occurrences.json"), CHUNK as u64)?;
+        let meta = bounded_json(&metadata.read(
+            0,
+            metadata.len() as usize,
+            &mut Metrics::default(),
+            CACHE,
+        )?)?;
+        catalog_schema::fields(
+            &meta,
+            &["format", "streams", "source_snapshot", "complete"],
+            "pool.occurrences",
+        )?;
+        check(
+            meta["format"] == "benilla-pool-occurrences-v3"
+                && meta["source_snapshot"] == "phase0-sequential-diagnostic-not-F1"
+                && meta["complete"] == false,
+            "pool.occurrences",
+        )?;
+        catalog_schema::fields(&meta["streams"], &STREAMS, "pool.occurrences")?;
+        let schema =
+            bounded_json(&catalog.object(&descriptor(&catalog.manifest["schema_root"])?, 0)?)?;
+        let mut streams = Vec::with_capacity(7);
+        let mut rows = [0; 7];
+        let mut buffer = vec![0; FRAME];
+        for (slot, name) in STREAMS.iter().enumerate() {
+            let d = &meta["streams"][name];
+            catalog_schema::fields(d, &["sha256", "bytes", "rows", "query"], "pool.query")?;
+            let id = format!("Pools/PoolManager:{}", LINES[slot]);
+            check(
+                d["query"] == catalog_schema::POLICY["loaders"][&id]["query"]
+                    && d["bytes"].as_u64().is_some_and(|n| n <= MAX_RAW)
+                    && d["rows"].as_u64().is_some_and(|n| n <= MAX_ROWS),
+                "pool.query",
+            )?;
+            let wanted = expected(catalog, &schema, slot, DECODED)?;
+            let held = reader::Held::open(&occurrences.join(format!("{name}.rows")), MAX_RAW)?;
+            verify_stream(&held, COLS[slot].len(), &wanted, d, &mut buffer, |_, _| {
+                Ok(())
+            })?;
+            held.check()?;
+            rows[slot] = wanted.len() as u64;
+            streams.push(held);
+        }
+        metadata.check()?;
+        Ok(Self {
+            metadata,
+            streams,
+            rows,
+            at: [0; 7],
+            ordinal: [0; 7],
+            buffer,
+        })
+    }
+    fn next(&mut self, slot: usize) -> Result<Option<RowView<'_>>> {
+        check(
+            slot < 7 && self.ordinal[..slot] == self.rows[..slot],
+            "pool.loader_phase",
+        )?;
+        self.metadata.check()?;
+        self.streams[slot].check()?;
+        if self.ordinal[slot] == self.rows[slot] {
+            check(self.at[slot] == self.streams[slot].len(), "pool.trailing")?;
+            return Ok(None);
+        }
+        let row = read_pool_row(
+            &self.streams[slot],
+            &mut self.buffer,
+            &mut self.at[slot],
+            self.ordinal[slot],
+            COLS[slot].len(),
+        )?;
+        self.ordinal[slot] += 1;
+        Ok(Some(row))
+    }
+    pub(crate) fn maximum(&mut self) -> Result<Option<u16>> {
+        let Some(row) = self.next(0)? else {
+            return Ok(None);
+        };
+        let maximum = uint(row.cells().next().ok_or_else(|| fail("pool.maximum"))??)? as u16;
+        Ok(Some(maximum))
+    }
+    pub(crate) fn template(&mut self) -> Result<Option<PoolCatalogTemplate>> {
+        let Some(row) = self.next(1)? else {
+            return Ok(None);
+        };
+        let mut cells = [None; 256];
+        fill(&row, &mut cells)?;
+        Ok(Some(PoolCatalogTemplate {
+            ordinal: row.ordinal,
+            id: uint(cells[0])? as u16,
+            limit: uint(cells[1])?,
+            description: cells[2].unwrap_or_default().to_vec(),
+        }))
+    }
+    pub(crate) fn member(&mut self, slot: usize) -> Result<Option<PoolCatalogMember>> {
+        check((2..=6).contains(&slot), "pool.loader_phase")?;
+        let Some(row) = self.next(slot)? else {
+            return Ok(None);
+        };
+        let mut cells = [None; 256];
+        fill(&row, &mut cells)?;
+        Ok(Some(PoolCatalogMember {
+            ordinal: row.ordinal,
+            guid: uint(cells[0])?,
+            pool: uint(cells[1])? as u16,
+            chance: floating(cells[2])?,
+        }))
+    }
 }
 
 pub fn diagnose_catalog_pools(
@@ -817,5 +966,108 @@ mod tests {
         assert_eq!(h["parents"], json!([[2, 3]]));
         assert_eq!(h["autospawn_disabled"], json!([1]));
         assert!(s.records.iter().any(|r| r[2] == "cycle_removed"));
+    }
+    #[test]
+    fn typed_pool_cursor_preserves_nulls_bits_occurrences_and_source_query_phases() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "pool-cursor-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("metadata"), b"authored cursor fixture").unwrap();
+        let inputs = [
+            frame(0, &[None]),
+            frame(0, &[Some(b"1"), Some(b"2"), Some(b"\xff")]),
+            frame(0, &[Some(b"7"), Some(b"1"), Some(b"25")]),
+            frame(0, &[None, Some(b"1"), Some(b"0"), Some(b"99")]),
+            vec![],
+            frame(0, &[Some(b"7"), Some(b"1"), Some(b"-25"), Some(b"10")]),
+            frame(0, &[Some(b"65537"), Some(b"1"), Some(b"0")]),
+        ];
+        let mut streams = Vec::new();
+        for (slot, input) in inputs.iter().enumerate() {
+            let path = root.join(slot.to_string());
+            std::fs::write(&path, input).unwrap();
+            streams.push(reader::Held::open(&path, MAX_RAW).unwrap());
+        }
+        let mut cursor = PoolCatalogRows {
+            metadata: reader::Held::open(&root.join("metadata"), MAX_RAW).unwrap(),
+            streams,
+            rows: [1, 1, 1, 1, 0, 1, 1],
+            at: [0; 7],
+            ordinal: [0; 7],
+            buffer: vec![0; FRAME],
+        };
+        assert_eq!(cursor.member(6).err().unwrap().id, "pool.loader_phase");
+        assert_eq!(cursor.maximum().unwrap(), Some(0));
+        assert!(cursor.maximum().unwrap().is_none());
+        let template = cursor.template().unwrap().unwrap();
+        assert_eq!(
+            (
+                template.ordinal,
+                template.id,
+                template.limit,
+                template.description
+            ),
+            (0, 1, 2, vec![255])
+        );
+        assert!(cursor.template().unwrap().is_none());
+        let creature = cursor.member(2).unwrap().unwrap();
+        assert_eq!(
+            (
+                creature.ordinal,
+                creature.guid,
+                creature.pool,
+                creature.chance.to_bits()
+            ),
+            (0, 7, 1, 25.0f32.to_bits())
+        );
+        assert!(cursor.member(2).unwrap().is_none());
+        assert_eq!(cursor.member(3).unwrap().unwrap().guid, 0);
+        assert!(cursor.member(4).unwrap().is_none());
+        assert_eq!(
+            cursor.member(5).unwrap().unwrap().chance.to_bits(),
+            (-25.0f32).to_bits()
+        );
+        assert_eq!(cursor.member(6).unwrap().unwrap().guid, 65537);
+        assert!(cursor.member(6).unwrap().is_none());
+        assert_eq!(cursor.member(7).err().unwrap().id, "pool.loader_phase");
+        drop(cursor);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn retained_pool_raw_occurrences_are_inputs_not_effective_objectmgr_acceptance() {
+        let (Some(root), Some(occurrences)) = (
+            std::env::var_os("BENILLA_F2_CATALOG"),
+            std::env::var_os("BENILLA_F2_POOL_OCCURRENCES"),
+        ) else {
+            println!("SKIP retained raw pool cursors: set BENILLA_F2_CATALOG and BENILLA_F2_POOL_OCCURRENCES");
+            return;
+        };
+        let mut catalog = VerifiedCatalog::open(Path::new(&root), false).unwrap();
+        assert_eq!(
+            catalog.manifest["catalog_sha256"],
+            "757dcfb85e2b2a0de6571b0fe981c214fa57a4e2e546968ca61171113f379bd6"
+        );
+        let mut cursor = catalog
+            .execution_pool_rows(Path::new(&occurrences))
+            .unwrap();
+        assert_eq!(cursor.maximum().unwrap(), Some(50003));
+        let mut templates = 0;
+        while cursor.template().unwrap().is_some() {
+            templates += 1;
+        }
+        assert_eq!(templates, 4096);
+        for (slot, count) in [(2, 156), (3, 722), (4, 20081), (5, 824), (6, 2985)] {
+            let mut seen = 0;
+            while let Some(row) = cursor.member(slot).unwrap() {
+                assert_eq!(row.ordinal, seen);
+                seen += 1;
+            }
+            assert_eq!(seen, count);
+        }
     }
 }

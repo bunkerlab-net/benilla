@@ -946,3 +946,54 @@ SQL-occurrence, F5 action, sealed P0/MG/MR and durable-continuation obligations.
 The seal8-08 coverage diagnostic remains unsealed and accepts no linking records.
 Absent private inputs print SKIP. Native format, capability and production
 selection remain unchanged.
+
+## Source pool loading and selection
+
+`SourcePoolManager` executes F4.04's pool loader and selection methods.
+`PoolLoadOwner` must resolve the effective ObjectMgr spawn set and Map.dbc.
+The retained catalog adapter supplies raw query occurrences, including template
+expansions, not F2 preparation dispositions or effective spawn acceptance.
+
+The port derives from CMaNGOS Classic
+`8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`, under GPL-2.0-or-later.
+The Rust translation is GPL-3.0-or-later. Its source contract is:
+
+- `Pools/PoolManager.cpp:606-1043` loads all seven source cursors, keeps default
+  template holes and first-insert search maps, validates effective spawns/maps,
+  propagates map associations and removes hierarchy links. Removed child links
+  do not restore AutoSpawn. Different non-instanceable maps still reject under
+  the literal `PoolMapChecker`, `:578-600`.
+- `:139-265` uses explicit chances only at limit one, binary32 sums, a single
+  noncumulative roll, first-eligible fallback and lazy engine access before
+  checking either list. Only reached lists shuffle. `benilla-sim::source_pools`
+  reuses the pinned double distribution, float conversion and GCC 12.2 shuffle.
+- `:368-381` invokes a loaded map's creature CanSpawn but discards its boolean.
+  GO CanSpawn returns its boolean. A typed missing-owner refusal is not false
+  and is never discarded.
+- `:390-438` preserves count conversion, same-trigger respawn, lastDespawned
+  skips, and selection-before-effect ordering. `:1087-1104` spawns child pools,
+  GOs, then creatures; despawn reverses the type order. Counts and selected GUIDs
+  live in F4.01's actual per-state `PersistentPoolData`, not a shared global set.
+- `:556-560` does nothing for same-child respawn. Every reached leaf spawn,
+  despawn and respawn instead calls the mandatory `PoolWork::leaf_effect`.
+  F4.09 owns `:305-335,442-552`'s real grid, constructor, timer, SQL and live-map
+  effects, including their different cross-map routing. There is no production
+  no-op or successful default owner.
+
+The signed increment at `:404` refuses
+`execution.pool.count_increment_undefined` at INT32_MAX. The uint16 template
+loops at `:1029,1053` refuse `execution.pool.template_loop_unbounded` when
+65,536 template slots would make them nonterminating. Invalid reached template
+indexing at `:639` refuses `execution.pool.template_index_undefined`.
+Stock catalog-04 has maximum entry 50003, maximum limit 80 and at most 113 raw
+membership occurrences in one pool. These are guards, not recorded MP failures.
+
+Inventories retain effective lists and occurrence identities, mutable exclusion
+and AutoSpawn flags, hierarchy, per-state membership/counts, and transient
+replacement frames. Quiescence is not an F7 restore or checkpoint certificate.
+The unsealed seal8-08 diagnostic checks pool double rolls and shuffles from
+observed numeric operands and independent MT replay. Observed pre-shuffle GUID
+lists are not independently loaded definitions. It accepts no full pool
+selection or MP transition. Absent private evidence prints SKIP.
+Native format, NativeCapability and production admission are unchanged.
+

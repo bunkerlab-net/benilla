@@ -100,6 +100,12 @@ pub use creature_linking::*;
 mod creature_linking_tests;
 mod seal8_linking;
 pub use seal8_linking::{inspect_seal8_unsealed_linking, Seal8LinkingReport};
+mod pools;
+pub use pools::*;
+#[cfg(test)]
+mod pool_tests;
+mod seal8_pools;
+pub use seal8_pools::{compare_seal8_unsealed_pools, Seal8PoolReport};
 
 use super::production_compiler::{json, ExecutionFile};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};

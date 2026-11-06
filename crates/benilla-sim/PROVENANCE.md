@@ -1424,3 +1424,25 @@ The [distribution contract](SOURCE-RNG-DISTRIBUTIONS.md) defines the reached
 integer/real domains, explicitly refused non-power-of-two binary80-log
 case, exact source wrappers, raw/rejection/no-draw records, independent
 C++ vectors, and original-prefix private semantic comparison.
+
+## Source pool selection
+
+`source_pools.rs` translates CMaNGOS Classic
+`8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`
+`src/game/Pools/PoolManager.cpp:139-265,348-365,395-406,1029`.
+It preserves binary32 integrity sums, noncumulative explicit rolls,
+first-eligible fallback, lazy engine access and source count conversion.
+The runtime crate owns loading, per-state selections and mandatory leaf effects.
+
+Full-file SHA-256:
+
+- `src/game/Pools/PoolManager.cpp`:
+  `8930b7fcf19142dc5fb831079d037e1ae4ad5d6b7adf698d3878d775b8593f85`
+- `src/game/Pools/PoolManager.h`:
+  `9acb0c0114caf9a4a758bf39e72bf45048d5968ad90acd1ba7ece6c858eacbf1`
+
+The CMaNGOS Project's GPL-2.0-or-later grant covers the source.
+The Rust translation is GPL-3.0-or-later. It reuses the existing
+`source_rng` distributions and GCC 12.2 shuffle translation, with their
+notices above. No database rows or installation data are included.
+
