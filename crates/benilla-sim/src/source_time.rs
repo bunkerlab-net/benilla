@@ -105,6 +105,38 @@ impl IntervalTimer {
     }
 }
 
+/// Keep unsigned accumulation and subtract one interval per reset; Timer.h:105-130.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ShortIntervalTimer {
+    interval: u32,
+    current: u32,
+}
+impl ShortIntervalTimer {
+    pub fn update(&mut self, diff: u32) {
+        self.current = self.current.wrapping_add(diff);
+    }
+    pub fn passed(&self) -> bool {
+        self.current >= self.interval
+    }
+    pub fn reset(&mut self) {
+        if self.passed() {
+            self.current -= self.interval;
+        }
+    }
+    pub fn set_current(&mut self, current: u32) {
+        self.current = current;
+    }
+    pub fn set_interval(&mut self, interval: u32) {
+        self.interval = interval;
+    }
+    pub fn get_current(&self) -> u32 {
+        self.current
+    }
+    pub fn get_interval(&self) -> u32 {
+        self.interval
+    }
+}
+
 /// Keep signed LP64 expiry, including values below zero; Timer.h:132-143.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TimeTracker {
@@ -206,6 +238,25 @@ impl MapIntervalAccumulator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn short_interval_wraps_uint32_and_subtracts_only_one_interval() {
+        let mut timer = ShortIntervalTimer::default();
+        timer.set_interval(100);
+        timer.set_current(u32::MAX - 4);
+        timer.update(10);
+        assert_eq!(timer.get_current(), 5);
+        assert!(!timer.passed());
+        timer.reset();
+        assert_eq!(timer.get_current(), 5);
+        timer.update(345);
+        timer.reset();
+        assert_eq!(timer.get_current(), 250);
+        assert!(timer.passed());
+        timer.reset();
+        assert_eq!(timer.get_current(), 150);
+        assert_eq!(timer.get_interval(), 100);
+    }
 
     #[test]
     fn world_diff_uses_source_backward_and_wrap_formula() {

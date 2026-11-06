@@ -1102,3 +1102,34 @@ calendar. These comparisons do not admit non-UTC calendars or historical sine.
 The seal8-08 calendar diagnostic is unsealed; absent private evidence prints SKIP.
 It does not establish definition-loader, manager-transition or F1 acceptance.
 Native format, production selection and NativeCapability remain unchanged.
+
+## Map-owned source weather
+
+`SourceMapWeather` owns lazy fine/zero zones and their unsigned interval
+timers. It uses the shared pinned identity table for `unordered_map<uint32,
+Weather*>` traversal and erase, as in `Weather.h:119-120` and
+`Weather.cpp:358-385`. F2.5 query slot eight supplies all seasonal operands;
+each chance above 100 becomes 25 without changing the sum,
+`Weather.cpp:436,458-480`.
+
+`WeatherExecution` borrows the F3 worker stream and World game-time snapshot.
+It converts that snapshot with the bound UTC source calendar only after the
+initial change roll, as in `Weather.cpp:103-112`. Regeneration preserves
+early returns before normalization, permanent flags and exact binary32
+grades, `Weather.cpp:81-204,241-250,291-296`. Packet payloads retain the
+distinct rain sound threshold and smooth flag, `Weather.cpp:207-229,389-427`.
+
+Player-zone callbacks run the actual surrounding owners before sending
+weather and updating the cached zone, `Player.cpp:6833-6858`. Broadcasts walk
+the live map reference list and query terrain `GetZoneId`, not that cache,
+`Map.cpp:1527-1538`, `Object.cpp:1227-1229`. A changed zone with no recipient
+is deleted; unchanged and permanent empty zones remain,
+`Weather.cpp:61-77`. Map-end dispatch calls field, grid, script and instance
+owners before weather, `Map.cpp:1006-1030`. Unimplemented owners must refuse.
+
+The inventory retains map identity, source zone order, bucket count,
+definition ordinal and corrected chances, timer/current, permanent and
+grade bits. This is an F7 handoff, not serialized continuation. Native format
+and NativeCapability remain unchanged. The unsealed seal8-08 diagnostic
+compares only the first represented weather packet; absent projections
+print SKIP. Weather regeneration and long-window retention still require MW.

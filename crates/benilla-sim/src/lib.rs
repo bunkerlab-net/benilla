@@ -117,6 +117,7 @@ pub mod source_pools;
 pub mod source_rng;
 pub mod source_spawn_groups;
 pub mod source_time;
+pub mod source_weather;
 
 /// Pinned transport template generation and noncyclic spline numerics.
 pub mod source_transports;

@@ -213,4 +213,83 @@ impl VerifiedCatalog {
     pub(crate) fn execution_event_initial(snapshot: &Path, environment: &Path) -> Result<Value> {
         initial_state(snapshot, environment)
     }
+
+    /// Retain and validate F2.5 query slot eight without replaying unrelated event loaders.
+    pub(crate) fn execution_weather_rows(
+        &mut self,
+        occurrences: &Path,
+    ) -> Result<WeatherCatalogRows> {
+        let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
+        let metadata = reader::Held::open(&occurrences.join("occurrences.json"), CHUNK as u64)?;
+        let raw = metadata.read(0, metadata.len() as usize, &mut Metrics::default(), CACHE)?;
+        let manifest = bounded_json(&raw)?;
+        catalog_schema::fields(
+            &manifest,
+            &["format", "streams", "complete", "source_snapshot"],
+            "weather.occurrences",
+        )?;
+        let keys: Vec<_> = (0..LOADERS.len()).map(|slot| slot.to_string()).collect();
+        catalog_schema::fields(
+            &manifest["streams"],
+            &keys.iter().map(String::as_str).collect::<Vec<_>>(),
+            "weather.occurrences",
+        )?;
+        check(
+            manifest["format"] == "benilla-event-occurrences-v1"
+                && manifest["complete"] == false
+                && manifest["source_snapshot"] == "phase0-sequential-diagnostic-not-F1",
+            "weather.occurrence_format",
+        )?;
+        let spec = &catalog_schema::POLICY["loaders"][LOADERS[8]];
+        let descriptor = &manifest["streams"]["8"];
+        catalog_schema::fields(
+            descriptor,
+            &["query", "rows", "bytes", "sha256"],
+            "weather.query",
+        )?;
+        check(
+            descriptor["rows"].as_u64().is_some_and(|n| n <= 2_000_000)
+                && descriptor["bytes"].as_u64().is_some_and(|n| n <= MAX_RAW),
+            "weather.hash",
+        )?;
+        check(descriptor["query"] == spec["query"], "weather.query")?;
+        let (columns, expected) = expected(self, &schema, spec)?;
+        let held = reader::Held::open(&occurrences.join("8.rows"), MAX_RAW)?;
+        verify_held_stream(&held, columns, &expected, descriptor)?;
+        metadata.check()?;
+        Ok(WeatherCatalogRows(EventCatalogRows {
+            metadata,
+            streams: vec![Stream {
+                held,
+                rows: expected.len() as u64,
+                ordinal: 0,
+                at: 0,
+                columns,
+            }],
+            buffer: vec![0; FRAME],
+        }))
+    }
+}
+
+pub(crate) struct WeatherCatalogRows(EventCatalogRows);
+impl WeatherCatalogRows {
+    pub(crate) fn next_weather(
+        &mut self,
+    ) -> crate::native::source_execution::Result<
+        Option<crate::native::source_execution::WeatherChanceRow>,
+    > {
+        Ok(self.0.next(0, |ordinal, v| {
+            let mut seasons = [[0; 3]; 4];
+            for (season, values) in seasons.iter_mut().enumerate() {
+                for (kind, value) in values.iter_mut().enumerate() {
+                    *value = n(v[season * 3 + kind + 1])?;
+                }
+            }
+            Ok(crate::native::source_execution::WeatherChanceRow {
+                ordinal,
+                zone: n(v[0])?,
+                seasons,
+            })
+        })?)
+    }
 }

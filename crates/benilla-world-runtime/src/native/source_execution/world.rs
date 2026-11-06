@@ -280,3 +280,42 @@ pub fn update_source_map_prelude(
     manager.update(persistent, work)?;
     work.map_prelude_phase(MapPreludePhase::Transports, manager, persistent, diff)
 }
+
+/// Execute the real conditional owners before weather; Map.cpp:1006-1030.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MapEndPhase {
+    ObjectFields,
+    GridStates,
+    Scripts,
+    Instance,
+}
+pub trait SourceMapEndWork: WeatherPacketOwner {
+    fn map_end_phase(
+        &mut self,
+        phase: MapEndPhase,
+        map: MapIdentity,
+        diff: u32,
+        objects: &mut SourceObjects,
+    ) -> Result<()>;
+}
+pub fn update_source_map_end(
+    weather: &mut SourceMapWeather,
+    objects: &mut SourceObjects,
+    context: &mut impl benilla_sim::source_weather::Context<Error = Refusal>,
+    owner: &mut impl SourceMapEndWork,
+    diff: u32,
+) -> Result<()> {
+    require(!weather.stopped, "execution.weather.stopped")?;
+    for phase in [
+        MapEndPhase::ObjectFields,
+        MapEndPhase::GridStates,
+        MapEndPhase::Scripts,
+        MapEndPhase::Instance,
+    ] {
+        if let Err(error) = owner.map_end_phase(phase, weather.map(), diff, objects) {
+            weather.stopped = true;
+            return Err(error);
+        }
+    }
+    weather.update(diff, objects, context, owner)
+}

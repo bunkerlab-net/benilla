@@ -94,6 +94,8 @@ pub struct SourceObject {
     pub pose: Option<SourcePose>,
     pub respawn_pose: Option<SourcePose>,
     pub database_spawn_data: bool,
+    // Cache UpdateZone callbacks separately from terrain GetZoneId; Player.cpp:505,6854.
+    pub zone_update_id: u32,
     pub(super) source_allocation: Option<u64>,
     allocation_base: Option<u64>,
     player_map_linked: bool,
@@ -153,6 +155,7 @@ impl SourceObjects {
                 pose: None,
                 respawn_pose: None,
                 database_spawn_data: false,
+                zone_update_id: 0,
                 source_allocation: None,
                 allocation_base: None,
                 player_map_linked: false,

@@ -57,7 +57,9 @@ zero or negative. A negative diff increases expiry. `reset(i64)` assigns it.
 the signed tracker's cited range. Its default expiry is zero. `new`, `update`,
 `reset`, and `get_expiry` use `u32`. Update saturates at zero when diff reaches
 or exceeds expiry. It cannot represent negative expiry or accept a signed diff.
-The unrelated `ShortIntervalTimer` is not part of this module.
+`ShortIntervalTimer` preserves wrapping `u32` accumulation and subtracts one
+interval per reset, including after multiple elapsed intervals, as in
+`Timer.h:105-130`. Weather uses this timer, not either expiry tracker.
 
 ## Map interval accumulator
 

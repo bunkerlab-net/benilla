@@ -123,6 +123,12 @@ pub use game_events::*;
 mod game_event_tests;
 mod seal8_game_events;
 pub use seal8_game_events::{compare_seal8_unsealed_event_calendar, Seal8EventCalendarReport};
+mod weather;
+pub use weather::*;
+mod seal8_weather;
+#[cfg(test)]
+mod weather_tests;
+pub use seal8_weather::{compare_seal8_unsealed_weather, Seal8WeatherReport};
 
 use super::production_compiler::{json, ExecutionFile};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};

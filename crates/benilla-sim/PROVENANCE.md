@@ -1289,7 +1289,8 @@ production gameplay or bundle upstream database or DBC rows.
 
 `src/source_time.rs` translates WorldTimer integer differences and sample
 narrowing, LP64 IntervalTimer and TimeTracker arithmetic, unsigned
-ShortTimeTracker expiry, and MapManager's interval dispatch arithmetic from
+ShortIntervalTimer accumulation, ShortTimeTracker expiry, and MapManager's
+interval dispatch arithmetic from
 CMaNGOS Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`.
 Copyright CMaNGOS Project contributors. Upstream GPL-2.0-or-later;
 2026 Rust translation GPL-3.0-or-later, without warranty. The preserved
@@ -1534,3 +1535,14 @@ calendar answers with the existing sim UTC implementation. Non-UTC observations
 are conditional arithmetic evidence, not an admitted timezone implementation.
 The event manager calls this computation through explicit external bindings;
 its default owner still refuses the missing historical sine dispatch.
+
+## Source weather
+
+`source_weather.rs` translates CMaNGOS Classic
+`8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`,
+`src/game/Weather/Weather.cpp:81-250,254-296,389-427,458-480`.
+The CMaNGOS Project contributors' GPL-2.0-or-later grant applies.
+The 2026 Rust translation and authored tests are GPL-3.0-or-later.
+The runtime owns map membership, timers and packet delivery. The pure
+module borrows the existing source RNG and calendar owners. No database
+rows, reference execution inputs or game assets are included.

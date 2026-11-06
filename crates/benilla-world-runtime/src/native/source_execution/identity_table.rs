@@ -167,6 +167,14 @@ impl<V> IdentityTable<V> {
         self.free.push(index);
         self.nodes[index].value.take()
     }
+    pub fn first_key(&self) -> Option<u64> {
+        self.head.map(|index| self.nodes[index].key)
+    }
+    pub fn next_key(&self, key: u64) -> Option<u64> {
+        self.find(key)
+            .and_then(|index| self.nodes[index].next)
+            .map(|index| self.nodes[index].key)
+    }
     pub fn iter(&self) -> impl Iterator<Item = (u64, &V)> {
         std::iter::successors(self.head, |&index| self.nodes[index].next).map(|index| {
             (

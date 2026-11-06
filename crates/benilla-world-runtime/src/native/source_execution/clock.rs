@@ -104,6 +104,14 @@ impl Calendar {
     pub fn seconds(self) -> i64 {
         self.seconds
     }
+    // Weather reads World game time, never the map's separate wall sample; Weather.cpp:110.
+    pub fn world_seconds(self) -> Result<i64> {
+        require(
+            self.owner == CalendarOwner::World,
+            "execution.clock.world_snapshot_owner",
+        )?;
+        Ok(self.seconds)
+    }
     // World and each map own distinct time(nullptr) observations; World.cpp:2055-2057, Map.cpp:702.
     pub fn update(&mut self, owner: CalendarOwner, sample: ClockSample) -> Result<u32> {
         require(
@@ -121,6 +129,27 @@ impl Calendar {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn weather_world_snapshot_refuses_map_calendar_without_resampling() {
+        assert_eq!(
+            Calendar::new(CalendarOwner::World, 123)
+                .world_seconds()
+                .unwrap(),
+            123
+        );
+        let map = MapIdentity {
+            map: 0,
+            instance: 0,
+            creation_generation: 1,
+        };
+        assert_eq!(
+            Calendar::new(CalendarOwner::Map(map), 456)
+                .world_seconds()
+                .unwrap_err()
+                .id,
+            "execution.clock.world_snapshot_owner"
+        );
+    }
     #[test]
     fn independent_samples_never_advance_the_world_diff() {
         let mut clock = RunnableClock::default();
