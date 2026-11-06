@@ -219,6 +219,36 @@ fn first_raw_bit_difference_stops_without_resynchronization() {
     assert_eq!(report.actual.unwrap().thread_sequence, 2);
 }
 #[test]
+fn path_distance_deviation_does_not_filter_strict_or_later_events() {
+    let mut left = [record(1, 1, 1), record(2, 1, 2), record(3, 1, 3)];
+    left[1].callsite = Callsite {
+        core_revision: callsite().core_revision,
+        source_file: "src/game/MotionGenerators/PathFinder.cpp".into(),
+        line: 362,
+        function: "PathFinder::getPolyByLocation".into(),
+        inlined_caller_chain: Vec::new(),
+        site_ordinal: 1,
+    };
+    left[1].payload = BTreeMap::from([(
+        "cache_append".into(),
+        TypedBytes {
+            ty: ScalarType::U32,
+            bytes: 0_u32.to_le_bytes().into(),
+        },
+    )]);
+    let mut right = left.clone();
+    right[1].payload.get_mut("cache_append").unwrap().bytes = 1_u32.to_le_bytes().into();
+    let first = compare(&left, &right).unwrap_err();
+    assert_eq!(first.matched_records, 1);
+    assert_eq!(first.expected.unwrap().callsite.line, 362);
+    assert_eq!(first.actual.unwrap().thread_sequence, 2);
+    right[1] = left[1].clone();
+    right[2].payload.get_mut("bits").unwrap().bytes = 0_u32.to_le_bytes().into();
+    let later = compare(&left, &right).unwrap_err();
+    assert_eq!(later.matched_records, 2);
+    assert_eq!(later.expected.unwrap().thread_sequence, 3);
+}
+#[test]
 fn reversed_fifo_edge_refuses() {
     let mut left = [record(1, 1, 1), record(2, 2, 1)];
     left[1].cause_events = vec![1];

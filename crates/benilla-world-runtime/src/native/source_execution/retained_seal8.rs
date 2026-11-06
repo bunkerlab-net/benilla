@@ -17,6 +17,8 @@ struct Chunk {
 }
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Seal8Context {
+    pub event: u64,
+    pub operation: u64,
     pub thread: u64,
     pub world: u64,
     pub map_update: u64,
@@ -106,6 +108,8 @@ pub(super) fn scan_seal8(
             )?;
             visit(
                 Seal8Context {
+                    event: words[0],
+                    operation: words[3],
                     thread,
                     world: words[5],
                     map_update: words[6],

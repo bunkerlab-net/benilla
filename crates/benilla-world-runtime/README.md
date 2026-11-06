@@ -410,3 +410,36 @@ construction history. Allocator input joins, registration/cell state, native
 generation associations and reached callbacks remain typed pending obligations.
 No expected construction list drives gameplay. Native admission and persistence
 remain unchanged.
+
+## Reference PathFinder distance diagnostics
+
+`ReferenceDistanceStorage` reads only the owner-approved unwritten-distance
+family. Its independently supplied file receipt binds the bytes and record
+count. Each read must match caller, logical thread, live-object generation,
+thread occurrence, four-byte width and source event. Failed reads do not advance
+the cursor. `finish` refuses surplus inputs. Both scalars declared at
+`PathFinder.cpp:410` remain distinct, alongside declarations at 717, 830 and 1400.
+Signed zero and NaN object representations are not canonicalized.
+
+`DifferentialOracle::compare_path_distance_lookup` compares separately computed
+nearest-query inputs and results, then the reference byte-driven append against
+the native absent-distance predicate. Defined active/tail distances must match
+bit for bit. Different polygons, query inputs, distances or native predicates
+refuse. The ordinary strict trace comparator still stops at the first differing
+append and does not waive later differences.
+
+`compare_seal8_unsealed_distances` produces a two-part conditional predicate
+report from hash-anchored seal8-08 geometry observations and live logical births.
+The strict part counts equal predicates only before the first recorded
+difference. The intent part counts all conditional absent-distance differences.
+These observations are not native geometry executions. The report leaves
+strict P0/P1/P3 agreement, independently executed native nearest geometry and a
+reviewed post-deviation oracle identity typed pending. It never supplies
+captured geometry or storage bytes to native gameplay. No whole-prefix or
+post-deviation gameplay equality is claimed.
+
+Set `BENILLA_F1_DISTANCE_STORAGE` to round 5's `initial-storage-input.jsonl`
+and `BENILLA_F1_SEAL8_FRAMING` to `seal8-full-framing-08` to run the retained-data
+tests in `source_execution::path_distance`. Absent default private data skips
+with an explicit message. An explicit missing, changed or malformed capture
+fails. The two captures retain separate identities and counts.
