@@ -3,7 +3,7 @@
 use super::*;
 use benilla_native_nav::{
     LoadedSourceSamePolygon, LoadedSourceTilePresence, SourceOwnerFilter, SourceSamePolygonBudget,
-    SourceSamePolygonConfig, SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION,
+    SourceSamePolygonConfig, SOURCE_PATH_DISTANCE_INTENT_VERSION,
 };
 use benilla_world_runtime::native::OwnerIgnorePathfindingReceipt;
 
@@ -175,7 +175,7 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         check_time(deadline, &cancelled)?;
         let terminal = selected
             .loaded_cold_same_polygon_with_filter(
-                SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION,
+                SOURCE_PATH_DISTANCE_INTENT_VERSION,
                 filter,
                 config,
                 budget,

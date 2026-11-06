@@ -31,10 +31,9 @@ use benilla_native_nav::{
     LoadedSourceHomeSamePolygon, LoadedSourceSamePolygon, LoadedSourceTilePresence,
     LoadedSourceWanderTerminal, SourceOwnerFilter, SourceSamePolygonBudget,
     SourceSamePolygonConfig, SourceSamePolygonError, SourceWanderError,
-    SOURCE_COLD_DISTANCE_COMPATIBILITY_ID, SOURCE_COLD_DISTANCE_COMPATIBILITY_REVISION,
-    SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION, SOURCE_COLD_SAME_POLYGON_MAX_LOOKUP_PRIMITIVES,
-    SOURCE_RETAINED_SAME_POLYGON_MAX_LOOKUP_PRIMITIVES, SOURCE_WANDER_ENDPOINT_COMPATIBILITY_ID,
-    SOURCE_WANDER_ENDPOINT_COMPATIBILITY_REVISION, SOURCE_WANDER_ENDPOINT_COMPATIBILITY_VERSION,
+    SOURCE_COLD_SAME_POLYGON_MAX_LOOKUP_PRIMITIVES, SOURCE_PATH_DISTANCE_INTENT_ID,
+    SOURCE_PATH_DISTANCE_INTENT_REVISION, SOURCE_PATH_DISTANCE_INTENT_VERSION,
+    SOURCE_RETAINED_SAME_POLYGON_MAX_LOOKUP_PRIMITIVES,
 };
 use benilla_sim::{chase_gate, creature_ai::Point, creature_motion as motion};
 use benilla_world_runtime::{
@@ -185,11 +184,9 @@ impl SamePolygonBinding {
             PLAYER_COLLISION_HEIGHT_POLICY,
             PLAYER_ENVIRONMENT_POLICY,
             OWNER_IGNORE_PATHFINDING_POLICY,
-            SOURCE_COLD_DISTANCE_COMPATIBILITY_ID,
-            SOURCE_COLD_DISTANCE_COMPATIBILITY_REVISION,
+            SOURCE_PATH_DISTANCE_INTENT_ID,
+            SOURCE_PATH_DISTANCE_INTENT_REVISION,
             benilla_native_nav::SOURCE_HOME_SAME_POLYGON_POLICY,
-            SOURCE_WANDER_ENDPOINT_COMPATIBILITY_ID,
-            SOURCE_WANDER_ENDPOINT_COMPATIBILITY_REVISION,
             motion::WANDER_POLICY_ID,
             benilla_sim::source_trig::SOFT_POLICY,
         ] {
@@ -199,8 +196,7 @@ impl SamePolygonBinding {
         for source in chase_gate::SOURCE_SHA256 {
             hash.update(source.as_bytes());
         }
-        hash.update(SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION.to_le_bytes());
-        hash.update(SOURCE_WANDER_ENDPOINT_COMPATIBILITY_VERSION.to_le_bytes());
+        hash.update(SOURCE_PATH_DISTANCE_INTENT_VERSION.to_le_bytes());
         hash.update(wander::POLICY);
         for source in benilla_sim::source_trig::SOURCE_SHA256 {
             hash.update(source.as_bytes());
@@ -1579,7 +1575,7 @@ impl SourceSamePolygonRouteProvider {
         let config = self.binding.configuration;
         let terminal = if home {
             let terminal = selected.loaded_home_cold_same_polygon_with_filter(
-                SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION,
+                SOURCE_PATH_DISTANCE_INTENT_VERSION,
                 filter.filter(),
                 config.normalization,
                 config.cold_budget,
@@ -1599,7 +1595,7 @@ impl SourceSamePolygonRouteProvider {
                 )?
             } else {
                 selected.loaded_cold_same_polygon_with_filter(
-                    SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION,
+                    SOURCE_PATH_DISTANCE_INTENT_VERSION,
                     filter.filter(),
                     config.normalization,
                     config.cold_budget,

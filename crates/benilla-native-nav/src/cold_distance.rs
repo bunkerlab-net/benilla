@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Explicit BuildPolyPath zero-distance compatibility dependency, never owner/Route proof.
+//! Source-intent prior-distance policy for loaded PathFinder calculations, never Route proof.
 use crate::{
     Error, LoadedSourceWarmCache, Mesh, SourceOwnerFilter, SourceWarmCacheBudget,
     SourceWarmCacheError, SourceWarmLookup, SourceWarmPolyPhase, SourceWarmTrace, WarmCache,
 };
 use std::time::Instant;
 
-/// Deliberate deviation from the undefined original cold read, not historical parity.
-pub const SOURCE_COLD_DISTANCE_COMPATIBILITY_ID: &str = "cmangos-buildpolypath-zero-distance-v1";
-pub const SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION: u32 = 1;
-pub const SOURCE_COLD_DISTANCE_COMPATIBILITY_REVISION: &str =
-    "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f";
+/// Owner-approved absent-prior-distance intent, not undefined reference-byte parity.
+pub const SOURCE_PATH_DISTANCE_INTENT_ID: &str = "cmangos-pathfinder-distance-intent-v1";
+pub const SOURCE_PATH_DISTANCE_INTENT_VERSION: u32 = 1;
+pub const SOURCE_PATH_DISTANCE_INTENT_REVISION: &str = "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f";
 
 /// Opaque loaded calculation result retaining mesh identity, selected policy, and the
 /// actual constructor-equivalent empty storage. A private retained continuation keeps
@@ -18,19 +17,19 @@ pub const SOURCE_COLD_DISTANCE_COMPATIBILITY_REVISION: &str =
 /// owner receipt, point path, or Route. Public references are read-only observations.
 ///
 /// ```compile_fail
-/// use benilla_native_nav::{LoadedSourceColdDistanceCompatibility, WarmCache};
-/// fn erase_policy(result: LoadedSourceColdDistanceCompatibility) -> WarmCache {
+/// use benilla_native_nav::{LoadedSourcePathDistanceIntent, WarmCache};
+/// fn erase_policy(result: LoadedSourcePathDistanceIntent) -> WarmCache {
 ///     result.into_after()
 /// }
 /// ```
 #[derive(Debug, PartialEq, Eq)]
-pub struct LoadedSourceColdDistanceCompatibility {
+pub struct LoadedSourcePathDistanceIntent {
     version: u32,
     initial: WarmCache,
     previous: Option<WarmCache>,
     observed: LoadedSourceWarmCache,
 }
-impl LoadedSourceColdDistanceCompatibility {
+impl LoadedSourcePathDistanceIntent {
     /// Private loaded composition only; observations cannot recreate these handles.
     #[cfg(benilla_native_detour)]
     pub(crate) fn initial_cache(&self) -> &WarmCache {
@@ -40,8 +39,7 @@ impl LoadedSourceColdDistanceCompatibility {
     pub(crate) fn retained_cache(&self) -> &WarmCache {
         self.observed.after()
     }
-    /// Private same-query composition keeps the selected compatibility policy attached.
-    /// No direct replacement is invoked or public original-warm handle returned.
+    /// Retain the source-intent policy with the same-query composition (PathFinder.cpp:410-415).
     #[cfg(benilla_native_detour)]
     pub(crate) fn same_polygon(
         mesh: &mut Mesh,
@@ -52,7 +50,7 @@ impl LoadedSourceColdDistanceCompatibility {
         until: Instant,
     ) -> Result<Option<Self>, SourceWarmCacheError> {
         let initial = crate::warm_cache::cold_constructor_storage(mesh, filter, until)?;
-        let Some(observed) = crate::warm_cache::native::cold_same_polygon(
+        let Some(observed) = crate::warm_cache::native::same_polygon(
             mesh,
             &initial,
             from,
@@ -67,14 +65,13 @@ impl LoadedSourceColdDistanceCompatibility {
             return Ok(None);
         };
         Ok(Some(Self {
-            version: SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION,
+            version: SOURCE_PATH_DISTANCE_INTENT_VERSION,
             initial,
             previous: None,
             observed,
         }))
     }
-    /// Continue the real retained cache under original, defined warm lookup semantics.
-    /// The initial compatibility policy remains attached; no new repair is selected.
+    /// Continue the retained cache with defined warm predicates (PathFinder.cpp:342-349).
     #[cfg(benilla_native_detour)]
     pub(crate) fn retained_same_polygon(
         &self,
@@ -88,7 +85,7 @@ impl LoadedSourceColdDistanceCompatibility {
         if self.observed.after().active_len() != 1 {
             return Err(Error::Format.into());
         }
-        let Some(observed) = crate::warm_cache::native::retained_same_polygon(
+        let Some(observed) = crate::warm_cache::native::same_polygon(
             mesh,
             self.observed.after(),
             from,
@@ -127,13 +124,13 @@ impl LoadedSourceColdDistanceCompatibility {
         self.observed.after().check_mesh(mesh)
     }
     pub fn compatibility_id(&self) -> &'static str {
-        SOURCE_COLD_DISTANCE_COMPATIBILITY_ID
+        SOURCE_PATH_DISTANCE_INTENT_ID
     }
     pub fn compatibility_version(&self) -> u32 {
         self.version
     }
     pub fn source_revision(&self) -> &'static str {
-        SOURCE_COLD_DISTANCE_COMPATIBILITY_REVISION
+        SOURCE_PATH_DISTANCE_INTENT_REVISION
     }
     pub fn initial_storage(&self) -> &[u64] {
         self.initial.storage()
@@ -176,20 +173,20 @@ impl LoadedSourceColdDistanceCompatibility {
     }
 }
 impl Mesh {
-    /// Execute the selected +0.0f-local repair with real loaded Detour queries. Fixed
-    /// non-dungeon 74 slots, active=0, ground-only filter; budgets do not change that limit.
+    /// Execute the absent-prior-distance intent with real loaded Detour queries.
+    /// Fixed non-dungeon 74 slots, active=0, ground-only filter; budgets do not change that limit.
     /// Lookup uses the bounded loader's 512-node query, not a source manager allocation;
     /// direct replacement uses the existing separately bounded 1024-node calculation.
     /// No owner/filter/config admission, SetCurrentNavMesh, HaveTile, or BuildPointPath.
-    pub fn loaded_source_cold_distance_compatibility(
+    pub fn loaded_source_path_distance_intent(
         &mut self,
         compatibility_version: u32,
         from: [u32; 3],
         to: [u32; 3],
         budget: SourceWarmCacheBudget,
         until: Instant,
-    ) -> Result<LoadedSourceColdDistanceCompatibility, SourceWarmCacheError> {
-        if compatibility_version != SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION {
+    ) -> Result<LoadedSourcePathDistanceIntent, SourceWarmCacheError> {
+        if compatibility_version != SOURCE_PATH_DISTANCE_INTENT_VERSION {
             return Err(Error::Unsupported.into());
         }
         #[cfg(benilla_native_detour)]
@@ -199,16 +196,9 @@ impl Mesh {
                 SourceOwnerFilter::GROUND,
                 until,
             )?;
-            let observed = crate::warm_cache::native::query_with_initialization(
-                self,
-                &initial,
-                from,
-                to,
-                budget,
-                until,
-                crate::warm_cache::DistanceInitialization::CompatibilityZeroV1,
-            )?;
-            Ok(LoadedSourceColdDistanceCompatibility {
+            let observed =
+                crate::warm_cache::native::query(self, &initial, from, to, budget, until)?;
+            Ok(LoadedSourcePathDistanceIntent {
                 version: compatibility_version,
                 initial,
                 previous: None,

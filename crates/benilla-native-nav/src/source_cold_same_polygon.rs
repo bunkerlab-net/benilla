@@ -2,8 +2,8 @@
 //! Selected source1024 query and immutable same-polygon lineage from the approved cold origin.
 //! This dependency grants no owner constructor/configuration/dispatch or Route authority.
 use crate::{
-    Error, LoadedSourceColdDistanceCompatibility, SelectedSourceQuery, SourceMapQuery,
-    SourceMapQuerySlot, SourceOwnerFilter, SourceWarmCacheError,
+    Error, LoadedSourcePathDistanceIntent, SelectedSourceQuery, SourceMapQuery, SourceMapQuerySlot,
+    SourceOwnerFilter, SourceWarmCacheError,
 };
 use std::{rc::Rc, time::Instant};
 
@@ -98,9 +98,9 @@ impl From<SourceWarmCacheError> for SourceSamePolygonError {
 /// ```
 ///
 /// ```compile_fail
-/// use benilla_native_nav::{LoadedSourceSamePolygon, LoadedSourceColdSamePolygon};
-/// fn relabel(result: LoadedSourceSamePolygon) -> LoadedSourceColdSamePolygon {
-///     LoadedSourceColdSamePolygon::from_retained_storage(result.compatibility().storage())
+/// use benilla_native_nav::LoadedSourceSamePolygon;
+/// fn relabel(result: LoadedSourceSamePolygon) -> LoadedSourceSamePolygon {
+///     LoadedSourceSamePolygon::from_retained_storage(result.compatibility().storage())
 /// }
 /// ```
 ///
@@ -110,21 +110,25 @@ impl From<SourceWarmCacheError> for SourceSamePolygonError {
 ///     LoadedSourceSamePolygon::restore(query, refs)
 /// }
 /// ```
+///
+/// Retired cold-only aliases cannot select a compatibility production path.
+///
+/// ```compile_fail
+/// use benilla_native_nav::LoadedSourceColdSamePolygon;
+/// ```
+///
+/// ```compile_fail
+/// use benilla_native_nav::SOURCE_COLD_DISTANCE_COMPATIBILITY_ID;
+/// ```
 #[derive(Debug)]
 pub struct LoadedSourceSamePolygon {
     query: SourceMapQuery,
     identity: Rc<()>,
     predecessor: Option<Rc<()>>,
-    compatibility: LoadedSourceColdDistanceCompatibility,
+    compatibility: LoadedSourcePathDistanceIntent,
     config: SourceSamePolygonConfig,
     terminal: crate::warm_point_path::SamePolygonTerminal,
 }
-/// Compatibility names for callers of the original cold-only entry point; these are
-/// aliases of the shared lineage and configuration, never conversions or new proofs.
-pub type LoadedSourceColdSamePolygon = LoadedSourceSamePolygon;
-pub type SourceColdSamePolygonConfig = SourceSamePolygonConfig;
-pub type SourceColdSamePolygonBudget = SourceSamePolygonBudget;
-pub type SourceColdSamePolygonError = SourceSamePolygonError;
 
 impl LoadedSourceSamePolygon {
     /// Original allocation and calculate endpoints must both match; source slot or byte
@@ -143,7 +147,7 @@ impl LoadedSourceSamePolygon {
     pub fn query_capacity(&self) -> u32 {
         self.query.query_capacity()
     }
-    pub fn compatibility(&self) -> &LoadedSourceColdDistanceCompatibility {
+    pub fn compatibility(&self) -> &LoadedSourcePathDistanceIntent {
         &self.compatibility
     }
     pub fn config(&self) -> SourceSamePolygonConfig {
@@ -261,7 +265,7 @@ impl SelectedSourceQuery<'_> {
     ) -> Result<LoadedSourceSamePolygon, SourceSamePolygonError> {
         crate::deadline(until)?;
         if !filter.is_supported_dry()
-            || compatibility_version != crate::SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION
+            || compatibility_version != crate::SOURCE_PATH_DISTANCE_INTENT_VERSION
         {
             return Err(Error::Unsupported.into());
         }
@@ -281,7 +285,7 @@ impl SelectedSourceQuery<'_> {
             {
                 return Err(Error::Identity.into());
             }
-            let compatibility = LoadedSourceColdDistanceCompatibility::same_polygon(
+            let compatibility = LoadedSourcePathDistanceIntent::same_polygon(
                 &mut mesh,
                 self.from(),
                 self.to(),

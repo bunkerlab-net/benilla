@@ -28,9 +28,9 @@ the existing bounds. Different polygons, missing geometry, wet data, unsupported
 profiles or initialization, stale identity and exhausted budgets remain errors.
 Wander, Home, backpedal and retained-cache continuation are not this entry point.
 
-The existing cmangos-buildpolypath-zero-distance-v1 compatibility repair stays
-attached to the private terminal and checked diagnostic observations. Original cold
-distance locals are undefined; this is not a claim of unmodified cold-source parity.
+The `cmangos-pathfinder-distance-intent-v1` policy stays attached to the private
+terminal and checked diagnostic observations. An absent prior distance retains the
+nearest polygon. This is not undefined reference-storage parity.
 Ground habitat 1 has genuine initialization coverage. Habitat 3 remains the separate
 initialization limitation documented in RESIDENT-POINT-FILTER.md.
 

@@ -127,13 +127,13 @@ impl LoadedSourceRetainedStraight {
         crate::SOURCE_MAP_QUERY_POLICY
     }
     pub fn compatibility_id(&self) -> &'static str {
-        crate::SOURCE_COLD_DISTANCE_COMPATIBILITY_ID
+        crate::SOURCE_PATH_DISTANCE_INTENT_ID
     }
     pub fn compatibility_version(&self) -> u32 {
         self.compatibility_version
     }
     pub fn source_revision(&self) -> &'static str {
-        crate::SOURCE_COLD_DISTANCE_COMPATIBILITY_REVISION
+        crate::SOURCE_PATH_DISTANCE_INTENT_REVISION
     }
     pub fn initial_storage(&self) -> &[u64] {
         self.initial.storage()

@@ -585,7 +585,7 @@ fn original_cold_origin_sequences_match_retained_straight_storage_types_points_a
             assert!(initial[index].is_none());
             let result = selected
                 .loaded_cold_same_polygon_with_filter(
-                    crate::SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION,
+                    crate::SOURCE_PATH_DISTANCE_INTENT_VERSION,
                     row.filter(),
                     row.config().normalization,
                     SourceSamePolygonBudget::default(),

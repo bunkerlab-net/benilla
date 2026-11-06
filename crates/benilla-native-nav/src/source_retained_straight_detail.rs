@@ -145,7 +145,7 @@ impl LoadedSourceRetainedStraightDetail {
         self.triangle_tests
     }
     pub fn source_revision(&self) -> &'static str {
-        crate::SOURCE_COLD_DISTANCE_COMPATIBILITY_REVISION
+        crate::SOURCE_PATH_DISTANCE_INTENT_REVISION
     }
 }
 

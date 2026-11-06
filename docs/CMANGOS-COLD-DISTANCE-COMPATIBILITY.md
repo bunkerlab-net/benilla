@@ -1,9 +1,11 @@
 # Selected cold PathFinder distance compatibility
 
-This is a deliberate, narrowly selected compatibility repair, **not a claim of
-historical CMaNGOS cold-path parity**. Its stable policy name is
-`cmangos-buildpolypath-zero-distance-v1`, version `1`. It is implemented separately
-from the original warm-cache policy, and can be reviewed or reverted independently.
+This document retains the historical `cmangos-buildpolypath-zero-distance-v1`
+component policy and its fixture labels, not the current production path.
+Native now uses `cmangos-pathfinder-distance-intent-v1` for all five scalar
+identities at four declaration sites. See the current
+[navigation policy contract](../crates/benilla-native-nav/PROVENANCE.md#source-intent-distance-policy).
+The old API names and refusals below describe historical evidence only.
 
 ## Pinned evidence and exact decision
 

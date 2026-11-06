@@ -8,7 +8,7 @@
 //! reconstruct omitted before-observations, owner revisions, RNG, time or ACKs.
 use super::*;
 
-pub const SOURCE_WANDER_RECONSTRUCTION_VERSION: u32 = 1;
+pub const SOURCE_WANDER_RECONSTRUCTION_VERSION: u32 = 2;
 pub const SOURCE_WANDER_MAX_RECONSTRUCTION_OPERATIONS: usize =
     crate::SOURCE_WARM_CACHE_MAX_STORAGE - crate::SOURCE_WARM_CACHE_POINT_LIMIT + 3;
 const MAX_APPEND_OPERATIONS: usize =
@@ -210,7 +210,7 @@ impl SourceWanderWitness {
         operations.dedup_by_key(|operation| operation.ordinal);
         Ok(SourceWanderReconstructionRecipe {
             version: SOURCE_WANDER_RECONSTRUCTION_VERSION,
-            compatibility_version: SOURCE_WANDER_ENDPOINT_COMPATIBILITY_VERSION,
+            compatibility_version: SOURCE_PATH_DISTANCE_INTENT_VERSION,
             slot: semantic.slot,
             query_capacity: semantic.query_capacity,
             config: semantic.config,
@@ -227,7 +227,7 @@ impl SourceWanderReconstructionRecipe {
             return Err(Empty);
         }
         if self.version != SOURCE_WANDER_RECONSTRUCTION_VERSION
-            || self.compatibility_version != SOURCE_WANDER_ENDPOINT_COMPATIBILITY_VERSION
+            || self.compatibility_version != SOURCE_PATH_DISTANCE_INTENT_VERSION
             || self.query_capacity != 1024
             || self.config.normalize_z
             || self.config.ignore_normalization

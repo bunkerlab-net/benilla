@@ -9,7 +9,7 @@ fn until() -> Instant {
 fn point(x: f32, y: f32, z: f32) -> [u32; 3] {
     [x, y, z].map(f32::to_bits)
 }
-fn loaded_mesh(geometry: &str) -> Mesh {
+pub(crate) fn loaded_mesh(geometry: &str) -> Mesh {
     let params = if geometry == "existing" {
         include_bytes!("../tools/fixtures/authored.mmap").as_slice()
     } else {
@@ -113,9 +113,9 @@ fn query(
     mesh: &mut Mesh,
     from: [u32; 3],
     to: [u32; 3],
-) -> Result<LoadedSourceColdDistanceCompatibility, SourceWarmCacheError> {
-    mesh.loaded_source_cold_distance_compatibility(
-        SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION,
+) -> Result<LoadedSourcePathDistanceIntent, SourceWarmCacheError> {
+    mesh.loaded_source_path_distance_intent(
+        SOURCE_PATH_DISTANCE_INTENT_VERSION,
         from,
         to,
         SourceWarmCacheBudget::default(),
@@ -168,7 +168,7 @@ fn repaired_loaded_oracle_matches_bits_full_storage_order_and_retains_original_r
         assert_eq!(result.check_mesh(&mesh), Ok(()));
         assert_eq!(
             result.compatibility_id(),
-            "cmangos-buildpolypath-zero-distance-v1"
+            "cmangos-pathfinder-distance-intent-v1"
         );
         assert_eq!(result.compatibility_version(), 1);
         assert_eq!(
@@ -258,13 +258,31 @@ fn repaired_loaded_oracle_matches_bits_full_storage_order_and_retains_original_r
     assert_eq!(accepted, 6);
 }
 #[test]
-fn explicit_version_mesh_identity_constructor_shape_and_original_cold_refusal_are_bound() {
+fn native_absent_distance_uses_intent_without_selecting_zero_compatibility() {
+    let mut mesh = loaded_mesh("precision");
+    let before = WarmCache::authored_fixture(&mesh, &[0; 74], 0).unwrap();
+    let result = mesh
+        .loaded_source_warm_cache(
+            &before,
+            point(5., 5., 0.),
+            point(5., 6., 0.),
+            SourceWarmCacheBudget::default(),
+            until(),
+        )
+        .unwrap();
+    assert!(result.start().appended);
+    assert_eq!(result.end().origin, SourceWarmLookupOrigin::Tail);
+    assert!(!result.end().appended);
+    assert_eq!(result.after().storage().len(), 75);
+}
+#[test]
+fn explicit_version_mesh_identity_and_constructor_shape_are_bound() {
     let mut mesh = loaded_mesh("precision");
     let from = point(5., 5., 0.);
-    let to = point(5., 15., 0.);
+    let to = point(5., 6., 0.);
     for version in [0, 2, u32::MAX] {
         assert_eq!(
-            mesh.loaded_source_cold_distance_compatibility(
+            mesh.loaded_source_path_distance_intent(
                 version,
                 from,
                 to,
@@ -276,17 +294,17 @@ fn explicit_version_mesh_identity_constructor_shape_and_original_cold_refusal_ar
         );
     }
     let original = WarmCache::authored_fixture(&mesh, &[0; 74], 0).unwrap();
-    assert_eq!(
-        mesh.loaded_source_warm_cache(
+    let warm = mesh
+        .loaded_source_warm_cache(
             &original,
             from,
             to,
             SourceWarmCacheBudget::default(),
-            until()
+            until(),
         )
-        .unwrap_err(),
-        SourceWarmCacheError::ColdDistanceUndefined
-    );
+        .unwrap();
+    assert!(warm.start().appended);
+    assert_eq!(warm.end().origin, SourceWarmLookupOrigin::Tail);
     let result = query(&mut mesh, from, to).unwrap();
     assert_eq!(original.storage(), &[0; 74]);
     assert_eq!(original.active_len(), 0);
@@ -297,43 +315,15 @@ fn explicit_version_mesh_identity_constructor_shape_and_original_cold_refusal_ar
     assert_eq!(result.check_mesh(&replacement), Err(Error::Identity));
 }
 #[test]
-fn compatibility_zero_does_not_change_any_original_warm_observation_or_rejection() {
-    let mut covered = 0;
-    for row in rows(include_str!(
-        "../tools/fixtures/warm-cache/cases.test-fixture"
-    )) {
-        if row.count("limit") != 74
-            || (row.count("before_active") == 0 && row.refs("before_storage").len() <= 74)
-        {
-            continue;
-        }
-        let mut mesh = loaded_mesh(row.get("geometry"));
-        let before = WarmCache::authored_fixture(
-            &mesh,
-            &row.refs("before_storage"),
-            row.count("before_active"),
-        )
-        .unwrap();
-        let original = mesh.loaded_source_warm_cache(
-            &before,
-            row.point("from"),
-            row.point("to"),
-            SourceWarmCacheBudget::default(),
-            until(),
-        );
-        let repaired = warm_cache::native::query_with_initialization(
-            &mut mesh,
-            &before,
-            row.point("from"),
-            row.point("to"),
-            SourceWarmCacheBudget::default(),
-            until(),
-            warm_cache::DistanceInitialization::CompatibilityZeroV1,
-        );
-        assert_eq!(repaired, original, "warm behavior {}", row.get("label"));
-        covered += 1;
-    }
-    assert!(covered >= 20);
+fn production_source_contains_no_positive_zero_compatibility_selector() {
+    let implementation = include_str!("warm_cache.rs");
+    assert!(!implementation.contains("CompatibilityZeroV1"));
+    assert!(!implementation.contains("WanderEndpointZeroV1"));
+    assert!(!implementation.contains("distance.ok_or"));
+    assert_eq!(
+        SOURCE_PATH_DISTANCE_INTENT_ID,
+        "cmangos-pathfinder-distance-intent-v1"
+    );
 }
 #[test]
 fn invalid_input_deadline_and_operational_budgets_do_not_poison_loaded_mesh() {
@@ -349,7 +339,7 @@ fn invalid_input_deadline_and_operational_budgets_do_not_poison_loaded_mesh() {
         assert_eq!(query(&mut mesh, from, to).unwrap(), expected);
     }
     assert_eq!(
-        mesh.loaded_source_cold_distance_compatibility(
+        mesh.loaded_source_path_distance_intent(
             1,
             from,
             to,
@@ -378,7 +368,7 @@ fn invalid_input_deadline_and_operational_budgets_do_not_poison_loaded_mesh() {
         },
     ] {
         assert_eq!(
-            mesh.loaded_source_cold_distance_compatibility(1, from, to, budget, until())
+            mesh.loaded_source_path_distance_intent(1, from, to, budget, until())
                 .unwrap_err(),
             SourceWarmCacheError::Boundary(Error::Budget)
         );

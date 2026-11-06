@@ -188,8 +188,8 @@ pub use persistence::{PendingWanderAndChaseReopen, PendingWanderReopen};
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 89;
-pub const NATIVE_POLICY: &str = "benilla-native-solo-ooc-text-v89";
+pub const NATIVE_FORMAT_VERSION: u32 = 90;
+pub const NATIVE_POLICY: &str = "benilla-native-solo-path-distance-intent-v90";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -626,7 +626,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v89\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v90\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest

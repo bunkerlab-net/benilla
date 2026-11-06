@@ -10,7 +10,7 @@ const SLOT: SourceMapQuerySlot = SourceMapQuerySlot {
     map_id: 0,
     instance_id: 0,
 };
-const CONFIG: SourceColdSamePolygonConfig = SourceColdSamePolygonConfig {
+const CONFIG: SourceSamePolygonConfig = SourceSamePolygonConfig {
     normalize_z: false,
     ignore_normalization: false,
 };
@@ -31,12 +31,12 @@ fn point(x: f32, y: f32, z: f32) -> [u32; 3] {
 fn until() -> Instant {
     Instant::now() + Duration::from_secs(5)
 }
-fn run(selected: &SelectedSourceQuery<'_>) -> LoadedSourceColdSamePolygon {
+fn run(selected: &SelectedSourceQuery<'_>) -> LoadedSourceSamePolygon {
     selected
-        .loaded_cold_same_polygon(1, CONFIG, SourceColdSamePolygonBudget::default(), until())
+        .loaded_cold_same_polygon(1, CONFIG, SourceSamePolygonBudget::default(), until())
         .unwrap()
 }
-fn assert_same(a: &LoadedSourceColdSamePolygon, b: &LoadedSourceColdSamePolygon) {
+fn assert_same(a: &LoadedSourceSamePolygon, b: &LoadedSourceSamePolygon) {
     assert_eq!(a.compatibility(), b.compatibility());
     assert_eq!(a.config(), b.config());
     assert_eq!(a.points(), b.points());
@@ -162,7 +162,7 @@ fn selected_real_query_runs_zero_lookup_then_exact_same_polygon_terminal() {
     assert_eq!(terminal.terminal_primitives(), 1);
     assert_eq!(
         cold.compatibility_id(),
-        "cmangos-buildpolypath-zero-distance-v1"
+        "cmangos-pathfinder-distance-intent-v1"
     );
     assert_eq!(cold.compatibility_version(), 1);
     assert_eq!(cold.initial_storage(), &[0; 74]);
@@ -209,9 +209,9 @@ fn exact_source_allocation_and_endpoints_are_required_even_for_identical_bytes()
     let active = selected.borrow_mesh().unwrap();
     assert_eq!(
         selected
-            .loaded_cold_same_polygon(1, CONFIG, SourceColdSamePolygonBudget::default(), until())
+            .loaded_cold_same_polygon(1, CONFIG, SourceSamePolygonBudget::default(), until())
             .unwrap_err(),
-        SourceColdSamePolygonError::Boundary(Error::Unavailable)
+        SourceSamePolygonError::Boundary(Error::Unavailable)
     );
     drop(active);
     assert_same(&run(&selected), &result);
@@ -253,15 +253,15 @@ fn explicit_normalization_selection_is_required_and_never_defaulted_or_bypassed(
             selected
                 .loaded_cold_same_polygon(
                     1,
-                    SourceColdSamePolygonConfig {
+                    SourceSamePolygonConfig {
                         normalize_z,
                         ignore_normalization
                     },
-                    SourceColdSamePolygonBudget::default(),
+                    SourceSamePolygonBudget::default(),
                     until()
                 )
                 .unwrap_err(),
-            SourceColdSamePolygonError::NormalizationConfigurationUnsupported
+            SourceSamePolygonError::NormalizationConfigurationUnsupported
         );
         assert_same(&run(&selected), &expected);
     }
@@ -271,11 +271,11 @@ fn explicit_normalization_selection_is_required_and_never_defaulted_or_bypassed(
                 .loaded_cold_same_polygon(
                     version,
                     CONFIG,
-                    SourceColdSamePolygonBudget::default(),
+                    SourceSamePolygonBudget::default(),
                     until()
                 )
                 .unwrap_err(),
-            SourceColdSamePolygonError::Boundary(Error::Unsupported)
+            SourceSamePolygonError::Boundary(Error::Unsupported)
         );
     }
 }
@@ -294,11 +294,11 @@ fn different_polygons_reject_before_direct_work_and_never_publish_a_candidate() 
                     .loaded_cold_same_polygon(
                         1,
                         CONFIG,
-                        SourceColdSamePolygonBudget::default(),
+                        SourceSamePolygonBudget::default(),
                         until()
                     )
                     .unwrap_err(),
-                SourceColdSamePolygonError::NonSamePolygonUnsupported
+                SourceSamePolygonError::NonSamePolygonUnsupported
             );
         }
     }
@@ -323,18 +323,18 @@ fn work_budgets_deadline_missing_and_far_fail_without_poisoning_retry() {
             .loaded_cold_same_polygon(
                 1,
                 CONFIG,
-                SourceColdSamePolygonBudget::default(),
+                SourceSamePolygonBudget::default(),
                 Instant::now()
             )
             .unwrap_err(),
-        SourceColdSamePolygonError::Boundary(Error::Deadline)
+        SourceSamePolygonError::Boundary(Error::Deadline)
     );
     for lookup_primitives in [0, 1, SOURCE_COLD_SAME_POLYGON_MAX_LOOKUP_PRIMITIVES + 1] {
         let error = selected
             .loaded_cold_same_polygon(
                 1,
                 CONFIG,
-                SourceColdSamePolygonBudget {
+                SourceSamePolygonBudget {
                     lookup_primitives,
                     terminal_primitives: 1,
                 },
@@ -343,8 +343,8 @@ fn work_budgets_deadline_missing_and_far_fail_without_poisoning_retry() {
             .unwrap_err();
         assert!(matches!(
             error,
-            SourceColdSamePolygonError::Boundary(Error::Budget)
-                | SourceColdSamePolygonError::Lookup(SourceWarmCacheError::Boundary(Error::Budget))
+            SourceSamePolygonError::Boundary(Error::Budget)
+                | SourceSamePolygonError::Lookup(SourceWarmCacheError::Boundary(Error::Budget))
         ));
         assert_same(&run(&selected), &expected);
     }
@@ -354,14 +354,14 @@ fn work_budgets_deadline_missing_and_far_fail_without_poisoning_retry() {
                 .loaded_cold_same_polygon(
                     1,
                     CONFIG,
-                    SourceColdSamePolygonBudget {
+                    SourceSamePolygonBudget {
                         lookup_primitives: 2,
                         terminal_primitives
                     },
                     until()
                 )
                 .unwrap_err(),
-            SourceColdSamePolygonError::Boundary(Error::Budget)
+            SourceSamePolygonError::Boundary(Error::Budget)
         );
         assert_same(&run(&selected), &expected);
     }
@@ -370,7 +370,7 @@ fn work_budgets_deadline_missing_and_far_fail_without_poisoning_retry() {
         .loaded_cold_same_polygon(
             1,
             CONFIG,
-            SourceColdSamePolygonBudget {
+            SourceSamePolygonBudget {
                 lookup_primitives: 2,
                 terminal_primitives: 1,
             },
@@ -388,14 +388,9 @@ fn work_budgets_deadline_missing_and_far_fail_without_poisoning_retry() {
         let selected = retained.select_for_calculate(SLOT, from, to).unwrap();
         assert_eq!(
             selected
-                .loaded_cold_same_polygon(
-                    1,
-                    CONFIG,
-                    SourceColdSamePolygonBudget::default(),
-                    until()
-                )
+                .loaded_cold_same_polygon(1, CONFIG, SourceSamePolygonBudget::default(), until())
                 .unwrap_err(),
-            SourceColdSamePolygonError::Lookup(error)
+            SourceSamePolygonError::Lookup(error)
         );
     }
     let selected = retained.select_for_calculate(SLOT, from, to).unwrap();

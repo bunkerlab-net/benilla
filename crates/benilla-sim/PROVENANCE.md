@@ -912,7 +912,7 @@ JustDied at line 1495. Respawn initialises holders at lines 1382-1415.
 
 The native host persists holder timers, enabled flags, update debt, ordered RNG
 receipts, generation identity, audience receipts, and an independent Unit
-history anchor. Native format 89 rejects older saves without migration.
+history anchor. Native format `NATIVE_FORMAT_VERSION` rejects older saves without migration.
 Other event types, phase masks, flag bits, and actions remain refused.
 
 ## Ordinary corpse appearance assignments
@@ -1367,7 +1367,7 @@ translation elects GPL-3.0-or-later under LGPL-2.1 section 3.
 The [source RNG contract](SOURCE-RNG.md) defines the exact state widths,
 source-only input domains, lazy lifetime rules, independent C++ fixture
 generation, and optional hash-bound private F1 engine projection.
-It does not change native RNG, format 89, persistence, or admission.
+It does not change native RNG, format `NATIVE_FORMAT_VERSION`, persistence, or admission.
 
 ## Source RNG distributions and shuffle
 

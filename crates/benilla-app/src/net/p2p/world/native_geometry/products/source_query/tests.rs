@@ -9,8 +9,8 @@ use super::*;
 use benilla_native_nav::{
     SourceChaseFixedCacheWitness, SourceOwnerFilter, SourceSamePolygonBudget,
     SourceSamePolygonConfig, SourceWanderBudget, SourceWanderWitness,
-    SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION, SOURCE_WANDER_ENDPOINT_COMPATIBILITY_VERSION,
-    SOURCE_WANDER_MAX_BUILD_LOOKUP_PRIMITIVES, SOURCE_WANDER_MAX_ENDPOINT_LOOKUP_PRIMITIVES,
+    SOURCE_PATH_DISTANCE_INTENT_VERSION, SOURCE_WANDER_MAX_BUILD_LOOKUP_PRIMITIVES,
+    SOURCE_WANDER_MAX_ENDPOINT_LOOKUP_PRIMITIVES,
 };
 use std::{cell::Cell, sync::Arc, time::Duration};
 
@@ -45,7 +45,7 @@ fn recipes(
     let mut prefix = wander_owner
         .prepare_wander_same_polygon(
             None,
-            SOURCE_WANDER_ENDPOINT_COMPATIBILITY_VERSION,
+            SOURCE_PATH_DISTANCE_INTENT_VERSION,
             SourceOwnerFilter::GROUND,
             config,
             SourceWanderBudget {
@@ -73,7 +73,7 @@ fn recipes(
         .unwrap();
     let terminal = selected
         .loaded_cold_same_polygon_with_filter(
-            SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION,
+            SOURCE_PATH_DISTANCE_INTENT_VERSION,
             SourceOwnerFilter::GROUND,
             config,
             SourceSamePolygonBudget::default(),

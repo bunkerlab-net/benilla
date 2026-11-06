@@ -118,7 +118,7 @@ fn initial_then_repeated_retained_preserves_policy_full_tail_points_and_query() 
         .unwrap();
     let second = retained(&selected, &first);
     assert_continuation(&first, &second);
-    let compatibility_alias: &LoadedSourceColdSamePolygon = &second;
+    let compatibility_alias: &LoadedSourceSamePolygon = &second;
     assert!(compatibility_alias.compatibility().is_retained());
     assert_eq!(
         compatibility_alias.compatibility().compatibility_version(),

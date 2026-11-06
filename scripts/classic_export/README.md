@@ -233,7 +233,7 @@ AI, motion, spell, or aura streams refuse separately. Complete typed dispatch,
 linked-source proof, F1 SQL order, and executable loader validation remain refused.
 The old declared global-hook contract enters the identity only as a labelled
 component contract. It cannot substitute for the observed stream. Reports retain
-`complete=false`, native format 89, and unchanged capability admission.
+`complete=false`, native format `NATIVE_FORMAT_VERSION`, and unchanged capability admission.
 
 ## Event and weather catalog views
 
@@ -359,7 +359,7 @@ the source's `i < max_pool_id` boundary, `PoolManager.cpp:988-1021`.
 Spawn existence is a candidate check over F2.2 raw views, not ObjectMgr's
 effective loaded set. `pool.objectmgr_loaded_spawn_validation_pending` retains
 that dependency. Reference execution and gameplay admission also refuse.
-Every report remains `complete=false`, with native format 89 unchanged.
+Every report remains `complete=false`, with native format `NATIVE_FORMAT_VERSION` unchanged.
 
 ## Server DBC and transport catalog views
 
@@ -409,7 +409,7 @@ control-node skips, and interpolation refusals. Source owners are
 The client Spell.dbc identity is separate from the SQL spell_template store,
 `Globals/ObjectMgr.cpp:7721-7723`, `Server/SQLStorages.cpp:40,55`.
 Reference execution, locale occurrences, and gameplay remain explicit blockers.
-Native format 89 and capability admission do not change.
+Native format `NATIVE_FORMAT_VERSION` and capability admission do not change.
 
 ## Whole-world content catalog views
 
@@ -427,7 +427,7 @@ The pin is CMaNGOS Classic `8ec338a1`. `ObjectMgr.cpp:4231-4880,7940-8034`
 owns the quest loaders, and `Quests/QuestDef.cpp:23-140` owns conversions.
 Catalog ordinal is not source cursor order. Input plans do not claim validated
 loaded managers, F1 SQL occurrences, or gameplay admission. Existing route
-contracts and native format 89 are unchanged.
+contracts and native format `NATIVE_FORMAT_VERSION` are unchanged.
 
 The `items` family retains all six item/enchantment/target/page relations,
 including archive-only conversion tables. It records all five item spell slots,
@@ -563,7 +563,7 @@ The reports are input diagnostics, not effective gameplay managers or F1 SQL
 occurrence evidence. Cross-loader validations remain explicit dispositions.
 Every effect/aura handler remains unverified, including unknown handlers.
 No old selected learning, numeric, addon, training, or hook compiler changes its
-route-scoped meaning. Native format 89 and capability admission do not change.
+route-scoped meaning. Native format `NATIVE_FORMAT_VERSION` and capability admission do not change.
 
 
 ## Run the dependency-free checks

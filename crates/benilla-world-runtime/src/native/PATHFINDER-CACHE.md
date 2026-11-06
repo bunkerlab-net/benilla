@@ -9,6 +9,13 @@ optional retained cache to Chase snapshots, requests and completed calculation
 receipts. Older native checkpoints/records are incompatible; character/profile
 save formats are unchanged. An incompatible open preserves the existing files.
 
+The loaded query uses `SOURCE_PATH_DISTANCE_INTENT_ID`. An absent caller distance
+retains a successful nearest polygon without assigning zero. Defined active/tail
+distances keep their source predicates. The native format and root hash domains
+reject the earlier positive-zero policy without migration; synthetic recipe field
+names remain unchanged. This does not admit production gameplay or claim a
+post-deviation reference match.
+
 ## Runtime ownership and transactions
 
 `PathFinderCache` carries the complete polygon backing vector, active prefix,

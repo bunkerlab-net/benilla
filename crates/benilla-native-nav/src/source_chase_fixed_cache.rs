@@ -13,7 +13,7 @@ use crate::{LoadedSourceTilePresence, RetainedSourceQuery, SourceQuerySelectionE
 mod wander_and_chase_reconstruction;
 pub use wander_and_chase_reconstruction::*;
 
-pub const SOURCE_CHASE_FIXED_CACHE_VERSION: u32 = 1;
+pub const SOURCE_CHASE_FIXED_CACHE_VERSION: u32 = 2;
 pub const SOURCE_CHASE_FIXED_CACHE_MAX_OPERATIONS: usize = 2;
 pub const SOURCE_CHASE_FIXED_CACHE_MAX_BYTES: usize = 111;
 const HEADER_BYTES: usize = 47;
@@ -189,8 +189,7 @@ impl SourceChaseFixedCacheWitness {
         let valid = terminal.query_capacity() == 1024
             && !terminal.config().normalize_z
             && !terminal.config().ignore_normalization
-            && compatibility.compatibility_version()
-                == crate::SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION
+            && compatibility.compatibility_version() == crate::SOURCE_PATH_DISTANCE_INTENT_VERSION
             && compatibility.filter().is_supported_dry()
             && compatibility.point_limit() == limit
             && compatibility.initial_storage() == [0; crate::SOURCE_WARM_CACHE_POINT_LIMIT]
@@ -260,7 +259,7 @@ impl SourceChaseFixedCacheRecipe {
             return Err(Empty);
         };
         if self.version != SOURCE_CHASE_FIXED_CACHE_VERSION
-            || self.compatibility_version != crate::SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION
+            || self.compatibility_version != crate::SOURCE_PATH_DISTANCE_INTENT_VERSION
             || self.query_capacity != 1024
             || self.point_limit != crate::SOURCE_WARM_CACHE_POINT_LIMIT as u32
             || self.config.normalize_z

@@ -5,7 +5,7 @@
 //! endpoint rewrite. Only the common cold BuildPolyPath operations execute here;
 //! this grants no fallback, shortcut, retained Chase lineage or movement authority.
 use crate::{
-    Error, LoadedSourceColdDistanceCompatibility, LoadedSourceSamePolygon, SelectedSourceQuery,
+    Error, LoadedSourcePathDistanceIntent, LoadedSourceSamePolygon, SelectedSourceQuery,
     SourceMapQuerySlot, SourceOwnerFilter, SourceSamePolygonBudget, SourceSamePolygonConfig,
     SourceSamePolygonError,
 };
@@ -41,7 +41,7 @@ impl LoadedSourceHomeSamePolygon {
     pub fn check_query(&self, selected: &SelectedSourceQuery<'_>) -> Result<(), Error> {
         self.terminal.check_query(selected)
     }
-    pub fn compatibility(&self) -> &LoadedSourceColdDistanceCompatibility {
+    pub fn compatibility(&self) -> &LoadedSourcePathDistanceIntent {
         self.terminal.compatibility()
     }
     pub fn config(&self) -> SourceSamePolygonConfig {

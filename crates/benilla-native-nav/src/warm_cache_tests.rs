@@ -283,10 +283,11 @@ fn cold_distance_nonfinite_input_and_expiry_reject_without_mutation_or_query_poi
     let before = snapshot(&cache);
     let legacy = mesh.route(from, to, until()).unwrap();
     let cold = WarmCache::authored_fixture(&mesh, &[0; 74], 0).unwrap();
-    assert_eq!(
+    assert!(
         mesh.loaded_source_warm_cache(&cold, from, to, SourceWarmCacheBudget::default(), until())
-            .unwrap_err(),
-        SourceWarmCacheError::ColdDistanceUndefined
+            .unwrap()
+            .start()
+            .appended
     );
     assert_eq!(snapshot(&cold), (vec![0; 74], 0, 74, GROUND));
     for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 100_001.] {
@@ -395,6 +396,26 @@ fn original_loaded_warm_cases_match_selected_refs_distance_bits_and_entire_stora
             row.count("before_active"),
         )
         .unwrap();
+        // Original cold fixtures have no defined reference result; assert the declared intent.
+        if before.active_len() == 0 && before.storage().len() <= 74 {
+            let observed = mesh
+                .loaded_source_warm_cache(
+                    &before,
+                    row.point("from"),
+                    row.point("to"),
+                    SourceWarmCacheBudget::default(),
+                    until(),
+                )
+                .unwrap();
+            assert!(observed.start().appended, "{label}");
+            assert_eq!(observed.start().origin, SourceWarmLookupOrigin::Nearest5);
+            assert!(observed.end().appended, "{label}");
+            assert_eq!(observed.end().origin, SourceWarmLookupOrigin::Nearest5);
+            assert_eq!(observed.start().polygon, 4503599627370496);
+            assert_eq!(observed.end().polygon, 4503599627370497);
+            assert_eq!(observed.after().storage().len(), 76);
+            continue;
+        }
         let prior = snapshot(&before);
         let result = mesh.loaded_source_warm_cache(
             &before,
@@ -408,9 +429,7 @@ fn original_loaded_warm_cases_match_selected_refs_distance_bits_and_entire_stora
             prior,
             "source proposal changed input: {label}"
         );
-        let expected_error = if before.active_len() == 0 && before.storage().len() <= 74 {
-            Some(SourceWarmCacheError::ColdDistanceUndefined)
-        } else if row.get("start_ref") == "0" || row.get("end_ref") == "0" {
+        let expected_error = if row.get("start_ref") == "0" || row.get("end_ref") == "0" {
             Some(SourceWarmCacheError::MissingPolygon)
         } else if f32::from_bits(row.hex("start_distance")) > 7.
             || f32::from_bits(row.hex("end_distance")) > 7.
@@ -874,17 +893,18 @@ fn inactive_slots_do_not_initialize_cold_distance_but_failed_nonempty_scans_do()
     let point = point(-400., -400., 0.);
     let reference = mesh.nearest(point, 5., until()).unwrap().polygon;
     let inactive = WarmCache::authored_fixture(&mesh, &vec![reference; 74], 0).unwrap();
-    assert_eq!(
-        mesh.loaded_source_warm_cache(
+    let found = mesh
+        .loaded_source_warm_cache(
             &inactive,
             point,
             point,
             SourceWarmCacheBudget::default(),
-            until()
+            until(),
         )
-        .unwrap_err(),
-        SourceWarmCacheError::ColdDistanceUndefined
-    );
+        .unwrap();
+    assert!(found.start().appended);
+    assert_eq!(found.start().origin, SourceWarmLookupOrigin::Nearest5);
+    assert_eq!(found.after().storage().len(), 75);
     let failed_active = WarmCache::authored_fixture(&mesh, &[0; 74], 1).unwrap();
     let result = mesh
         .loaded_source_warm_cache(
@@ -975,11 +995,9 @@ fn full_source_lookup_thresholds_tail_overwrite_append_and_real_nearest_fallback
         );
         assert_eq!(snapshot(&before), saved, "lookup mutated input {label}");
         if before.active_len() == 0 && before.storage().len() == 74 {
-            assert_eq!(
-                result.unwrap_err(),
-                SourceWarmCacheError::ColdDistanceUndefined,
-                "{label}"
-            );
+            let found = result.unwrap();
+            assert!(found.start().appended, "{label}");
+            assert_eq!(found.start().origin, SourceWarmLookupOrigin::Nearest5);
             continue;
         }
         if row.get("selected") == "0" {

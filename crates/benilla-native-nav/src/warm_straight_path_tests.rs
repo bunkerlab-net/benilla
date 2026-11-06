@@ -231,19 +231,19 @@ fn identity_config_cold_and_budget_errors_discard_private_candidates() {
         );
     }
     let cold = seed(&mesh, &[]);
-    assert_eq!(
-        mesh.loaded_source_warm_straight_path(
+    let intent = mesh
+        .loaded_source_warm_straight_path(
             &cold,
             from,
             to,
             0f32.to_bits(),
             config(),
             Default::default(),
-            until()
+            until(),
         )
-        .unwrap_err(),
-        SourceStraightPathError::WarmCache(SourceWarmCacheError::ColdDistanceUndefined)
-    );
+        .unwrap();
+    assert!(intent.start_lookup().appended);
+    assert_eq!(intent.start_lookup().polygon, BASE);
     assert_eq!(before, snapshot);
 }
 
@@ -1070,7 +1070,7 @@ fn original_raw_straight_helper_rows_keep_threshold_rounding_and_equality_only_l
     assert_eq!(raw_counts, BTreeSet::from([73, 74, 75]));
 }
 #[test]
-fn original_excluded_domains_are_rejected_without_cold_repair_or_mutating_input() {
+fn historical_exclusions_keep_refusals_except_approved_absent_distance_intent() {
     let domains = oracle_rows(include_str!(
         "../tools/fixtures/straight-path/domains.test-fixture"
     ));
@@ -1085,7 +1085,7 @@ fn original_excluded_domains_are_rejected_without_cold_repair_or_mutating_input(
         );
         let mut storage = vec![0; 74];
         storage[0] = BASE;
-        let mut active = 1;
+        let active = 1;
         let mut from = p(5., 5., 0.);
         let mut to = p(5., 15., 0.);
         let mut width = 0f32.to_bits();
@@ -1109,12 +1109,22 @@ fn original_excluded_domains_are_rejected_without_cold_repair_or_mutating_input(
                 continue;
             }
             "cold_no_tail" => {
-                active = 0;
-                storage[0] = 0;
-                (
-                    "cold_uninitialized",
-                    SourceStraightPathError::WarmCache(SourceWarmCacheError::ColdDistanceUndefined),
-                )
+                assert_eq!(row.get("classification"), "cold_uninitialized");
+                let cold = seed(&mesh, &[]);
+                let found = mesh
+                    .loaded_source_warm_straight_path(
+                        &cold,
+                        from,
+                        to,
+                        width,
+                        config,
+                        Default::default(),
+                        until(),
+                    )
+                    .unwrap();
+                assert!(found.start_lookup().appended);
+                assert_eq!(found.start_lookup().polygon, BASE);
+                continue;
             }
             "active_zero_reference" => {
                 storage[0] = 0;

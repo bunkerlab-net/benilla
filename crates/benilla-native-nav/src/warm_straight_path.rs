@@ -149,10 +149,10 @@ impl LoadedSourceWarmStraightPath {
     }
 }
 impl Mesh {
-    /// Sequential source selection, optional raycast and straight sampling on one private
-    /// candidate. SamePolygon/Cut bypass raycast. No findPath, smoothing, normalization,
-    /// cold-distance repair, transport or gameplay admission occurs. Supported original
-    /// query length is <=4096; sample count <=1026 is a work bound, not a source clamp.
+    /// Select polygons, raycast and sample on one private candidate (PathFinder.cpp:410-837).
+    /// All locals use source-intent distance; SamePolygon/Cut bypass raycast.
+    /// No findPath, smoothing, normalization, transport or gameplay admission occurs.
+    /// Query length <=4096 and sample count <=1026 are work bounds, not source clamps.
     #[allow(clippy::too_many_arguments)]
     pub fn loaded_source_warm_straight_path(
         &mut self,
@@ -328,8 +328,9 @@ mod native {
         point: &[f32; 3],
         endpoint: u8,
         work: &mut warm::Work,
+        distance: &mut Option<f32>,
     ) -> Result<Option<SourceWarmLookup>, SourceStraightPathError> {
-        match warm::lookup(mesh, candidate, point, endpoint, work) {
+        match warm::lookup_with_distance(mesh, candidate, point, endpoint, work, distance) {
             Ok(found) => Ok(Some(found)),
             Err(SourceWarmCacheError::MissingPolygon) => Ok(None),
             Err(error) => Err(error.into()),
@@ -482,9 +483,15 @@ mod native {
                 build_points = false;
                 if proceed == 1 {
                     checked([hit[2], hit[0], hit[1]])?;
-                    if let Some(found) =
-                        optional_lookup(mesh, &mut selected.after, &hit, 3, &mut lookups)?
-                    {
+                    // This ray-hit local is fresh at each hit (PathFinder.cpp:717,734).
+                    if let Some(found) = optional_lookup(
+                        mesh,
+                        &mut selected.after,
+                        &hit,
+                        3,
+                        &mut lookups,
+                        &mut None,
+                    )? {
                         height(mesh, found.polygon, &mut hit, 3, &mut work)?;
                         work.primitive()?;
                         // SAFETY: finite initialized vectors, comparison is source double 0.01.
@@ -544,6 +551,8 @@ mod native {
                     points.try_reserve_exact(count).map_err(|_| Error::Budget)?;
                     points.push(from);
                     let mut previous = start;
+                    // The stepped local survives every iteration (PathFinder.cpp:830-837).
+                    let mut distance = None;
                     for _ in 0..steps {
                         work.primitive()?;
                         // SAFETY: three finite components, prior height is intentionally accumulated.
@@ -553,9 +562,14 @@ mod native {
                         deadline(until)?;
                         let bits = checked(previous)?;
                         let mut converted = detour(bits)?;
-                        if let Some(found) =
-                            optional_lookup(mesh, &mut selected.after, &converted, 4, &mut lookups)?
-                        {
+                        if let Some(found) = optional_lookup(
+                            mesh,
+                            &mut selected.after,
+                            &converted,
+                            4,
+                            &mut lookups,
+                            &mut distance,
+                        )? {
                             height(mesh, found.polygon, &mut converted, 4, &mut work)?;
                             previous[2] = converted[1];
                         }

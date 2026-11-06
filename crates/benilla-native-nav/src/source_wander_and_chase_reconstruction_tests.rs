@@ -79,7 +79,7 @@ fn wander_execute(
     let mut prefix = owner
         .prepare_wander_same_polygon(
             prior,
-            SOURCE_WANDER_ENDPOINT_COMPATIBILITY_VERSION,
+            SOURCE_PATH_DISTANCE_INTENT_VERSION,
             WANDER_FILTER,
             CONFIG,
             SourceWanderBudget {
@@ -123,7 +123,7 @@ fn chase_execute(
             until(),
         ),
         None => selected.loaded_cold_same_polygon_with_filter(
-            SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION,
+            SOURCE_PATH_DISTANCE_INTENT_VERSION,
             CHASE_FILTER,
             CONFIG,
             SourceSamePolygonBudget::default(),

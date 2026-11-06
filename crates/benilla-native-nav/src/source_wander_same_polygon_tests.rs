@@ -500,7 +500,7 @@ fn complete_source_observer_matches_same_loaded_precision_geometry_and_full_nati
     .unwrap();
     assert_eq!(
         fixture["compatibility_policy"],
-        SOURCE_WANDER_ENDPOINT_COMPATIBILITY_ID
+        "cmangos-computepathtorandompoint-zero-distance-v1"
     );
     let bits = |value: &serde_json::Value| -> [u32; 3] {
         value

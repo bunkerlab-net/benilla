@@ -411,13 +411,15 @@ appends. Appending retains the exact `!distance || newDistance < distance` predi
 duplicate refs. The zero-distance disjunct has no finite admitted warm-miss witness; the
 strictly-closer append branch is exercised. There is no deduplication, compaction or eviction.
 
-The source caller's uninitialized-distance cold domain is explicitly excluded. If active
-length is zero and no eligible nonempty tail scan exists, the boundary returns
-`ColdDistanceUndefined` before a nearest lookup can consume an unwritten distance. It does
-not initialize the distance to zero, reduce the semantic point limit or claim a source cold
-repair. This conservative rejection also excludes the no-nearest-hit cold subcase. Dungeon
-limit growth, playerbots, straight-line raycast, owner wet/swim/fly state and transport state
-are absent. Any selected endpoint distance greater than seven units returns
+Native represents an absent caller distance as `None`. A successful near or far
+nearest search with no prior distance appends its polygon. A defined scan distance
+still uses the exact zero-or-strictly-closer predicate. The owner-approved
+`cmangos-pathfinder-distance-intent-v1` policy covers both BuildPolyPath locals at
+PathFinder.cpp:410, the ray-hit local at :717, the stepped local at :830, and the
+random-point local at :1400. The stepped scalar survives loop iterations, including
+failed searches. Native accepts no recorded storage bytes or RNG input at this seam.
+Dungeon limit growth, playerbots, owner wet/swim/fly state and transport state
+remain absent. Any selected endpoint distance greater than seven units returns
 `FarFromPolygonUnsupported` before proposing a polygon transition: source water/flying
 classification and end projection must not be silently skipped.
 
@@ -703,14 +705,32 @@ mesh rows; 27 invalid-coordinate rows fail before querying, while empty/layer-on
 meshes and two out-of-native-domain heights remain explicitly rejected. This is
 platform-specific source evidence, not untested target or full-gameplay parity.
 
-## Selected cold-distance compatibility policy
+## Source-intent distance policy
 
-`Mesh::loaded_source_cold_distance_compatibility` is a separate, explicitly
-versioned loaded calculation dependency under
-`cmangos-buildpolypath-zero-distance-v1`. It initializes only the two
-`BuildPolyPath` endpoint-distance locals to positive binary32 zero. This is a
-selected repair of an undefined original cold read, not original cold parity.
-The existing warm APIs and their cold refusal remain unchanged.
+`Mesh::loaded_source_path_distance_intent` returns the opaque
+`LoadedSourcePathDistanceIntent` under `SOURCE_PATH_DISTANCE_INTENT_ID`.
+The shared warm, cold, ray-hit, stepped and random-point lookup implements absent
+prior distance directly, without assigning a numerical zero. Actual active and tail
+scans overwrite the scalar, including failed scans' `sqrt(FLT_MAX)`. Start appends
+remain visible to the independent end scalar. Existing defined warm predicates
+and first-equal polygon selection are unchanged.
+
+The [historical compatibility review](../../docs/CMANGOS-COLD-DISTANCE-COMPATIBILITY.md)
+describes the retired two-local positive-zero policy. Its fixture labels remain
+historical evidence, not all-caller or recorded-reference proof. Production exports
+no cold-only type aliases or positive-zero initialization selector.
+
+Strict reference comparison stops at the first approved absent-distance branch
+difference. Intent comparison must report the actual native and byte-driven
+reference calculations separately. Later mismatches are not automatically exempt:
+post-divergence gameplay comparison requires an independently bound intent oracle.
+F1 remains unsealed, and this component supplies no whole-prefix equivalence,
+reference storage-byte admission, owner dispatch, or native capability.
+
+Native `NATIVE_FORMAT_VERSION` and `NATIVE_POLICY` in benilla-world-runtime bind
+the changed persisted policy. Profile, state, record and checkpoint root domains
+reject all earlier identities without migration. Synthetic recipe field names
+remain unchanged.
 
 The opaque result retains actual mesh identity and constructor-equivalent
 74-zero-slot/active-zero storage. It exposes observations, never a warm seed,
@@ -719,11 +739,10 @@ bounded loader's 512-node lookup query is not source manager construction;
 replacement retains the separate 1024-node direct-corridor dependency.
 `m_defaultNavMeshQuery` and all unrelated source defects are unchanged.
 
-The [compatibility review](../../docs/CMANGOS-COLD-DISTANCE-COMPATIBILITY.md)
-records the exact source pin/lines, two-line initialization diff, policy binding,
-original-versus-repaired oracle labels, bounds, exclusions, and reproduction
-commands. The independent repaired observer uses real loaded Detour and checks
-only the declared caller prefix and existing selected storage fragments.
+The historical compatibility observer uses real loaded Detour and checks only its
+declared caller prefix and selected storage fragments. The authored intent tests
+cover all five fresh scalar identities, near/far success, defined zero and equality,
+active/tail overwrite, first-equal selection, stepped lifetime and random-point clear.
 
 ## Retained source map-instance query allocation
 
@@ -783,8 +802,8 @@ repair is part of this query-allocation change.
 
 ## Selected source-query same-polygon lineage
 
-`SelectedSourceQuery::loaded_cold_same_polygon` composes only the reviewed
-`cmangos-buildpolypath-zero-distance-v1` lookup with the same-polygon terminal
+`SelectedSourceQuery::loaded_cold_same_polygon` composes the shared
+`cmangos-pathfinder-distance-intent-v1` lookup with the same-polygon terminal
 at `PathFinder.cpp:508–519,988–1020`. It exclusively borrows the genuine retained
 source1024 query for each ordered native nearest/closest-point call. It never
 uses a legacy512 lookup, creates a separate direct query, or invokes raycast,
@@ -874,11 +893,13 @@ This primitive grants no application/runtime admission. Disabled-constructor
 
 `source_wander_same_polygon.rs` implements the distinct bounded
 ComputePathToRandomPoint dependency from pinned PathFinder.cpp:1351–1440.
-Its [separately approved endpoint-local initialization](../../docs/CMANGOS-WANDER-ENDPOINT-COMPATIBILITY.md)
-is `cmangos-computepathtorandompoint-zero-distance-v1`. It does not invoke the
-BuildPolyPath cold-distance repair. A private endpoint lookup mutates the cleared
-retained cache before the real loaded getPolyHeight and original warm
-BuildPolyPath lookups. This order makes the newly appended tail available to the
+Its endpoint and later BuildPolyPath lookups share
+`cmangos-pathfinder-distance-intent-v1`. The
+[historical endpoint-local initialization](../../docs/CMANGOS-WANDER-ENDPOINT-COMPATIBILITY.md)
+and its positive-zero fixture labels remain historical component evidence.
+A private endpoint lookup mutates the cleared retained cache before real loaded
+getPolyHeight and the subsequent BuildPolyPath lookups.
+This order makes the newly appended tail available to the
 latter source distance locals. The original same-polygon terminal is shared only
 after genuine same-polygon selection; no completed Chase result is relabeled.
 
@@ -982,8 +1003,8 @@ concerns generated geometry queries, not normal game-session movement admission.
 `SelectedSourceQuery::loaded_retained_straight_from_same_polygon` borrows an actual
 `LoadedSourceSamePolygon`; `loaded_retained_straight` borrows the actual preceding
 `LoadedSourceRetainedStraight`. Neither entry point accepts serialized polygon
-references or exports an original-warm cache. The new opaque proposal keeps the
-source1024 allocation, original zero-distance compatibility version and constructor
+references or exports a warm cache. The opaque proposal keeps the
+source1024 allocation, source-intent distance policy and constructor
 storage, complete immediate before-cache, and the unchanged loaded straight
 algorithm's terminal result. Immediate predecessor identity tokens do not retain
 prior result objects. Public observations are not owner, dispatch or Route evidence.
@@ -1017,10 +1038,10 @@ acceptance, persisted owner reopening or production gameplay admission.
 `tools/retained_straight_origin_generate.py` and its separate diagnostic harness
 execute two simultaneous original PathFinder/source1024 query objects from the
 pinned CMaNGOS revision above. Each starts with the original constructor's cache
-initializer projection and the existing selected positive-zero cold-distance
-compatibility policy. The following straight calls reuse that same object's real
-cache and previous path type. Original undefined cold lookup and the complete
-owner constructor/Calculate entry are not invoked or claimed.
+initializer projection and the historical positive-zero cold-distance
+compatibility policy. Following straight calls reuse that same object's real
+cache and previous path type. These historical fixture labels do not claim
+execution of the all-caller intent policy or undefined reference storage.
 
 The five source-executed rows and 32 primitive observations cover a genuine cold
 NORMAL result followed by a no-hit Replacement ray, and an independent cold result

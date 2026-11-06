@@ -1,5 +1,10 @@
 # Selected Wander endpoint distance compatibility
 
+This document preserves historical component evidence and positive-zero fixture
+labels. Native now uses the shared
+[source-intent distance policy](../crates/benilla-native-nav/PROVENANCE.md#source-intent-distance-policy)
+for all callers, not the endpoint-only amendment described below.
+
 The policy `cmangos-computepathtorandompoint-zero-distance-v1`, version 1, is a
 maintainer-approved compatibility amendment to CMaNGOS Classic
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. It is not historical undefined-behavior

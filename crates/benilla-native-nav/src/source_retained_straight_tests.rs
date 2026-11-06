@@ -91,12 +91,12 @@ fn assert_origin(result: &LoadedSourceRetainedStraight, filter: SourceOwnerFilte
     assert_eq!(result.query_policy(), crate::SOURCE_MAP_QUERY_POLICY);
     assert_eq!(
         result.compatibility_id(),
-        crate::SOURCE_COLD_DISTANCE_COMPATIBILITY_ID
+        crate::SOURCE_PATH_DISTANCE_INTENT_ID
     );
     assert_eq!(result.compatibility_version(), 1);
     assert_eq!(
         result.source_revision(),
-        crate::SOURCE_COLD_DISTANCE_COMPATIBILITY_REVISION
+        crate::SOURCE_PATH_DISTANCE_INTENT_REVISION
     );
     assert_eq!(result.initial_storage(), &[0; 74]);
     assert_eq!(result.initial_active_len(), 0);

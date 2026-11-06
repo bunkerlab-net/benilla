@@ -83,7 +83,7 @@ fn execute(
             until(),
         ),
         None => selected.loaded_cold_same_polygon_with_filter(
-            SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION,
+            SOURCE_PATH_DISTANCE_INTENT_VERSION,
             filter,
             CONFIG,
             SourceSamePolygonBudget::default(),
@@ -113,17 +113,14 @@ fn assert_normal(terminal: &LoadedSourceSamePolygon) {
     let state = terminal.compatibility();
     assert_eq!(terminal.query_capacity(), 1024);
     assert_eq!(terminal.config(), CONFIG);
-    assert_eq!(
-        state.compatibility_id(),
-        SOURCE_COLD_DISTANCE_COMPATIBILITY_ID
-    );
+    assert_eq!(state.compatibility_id(), SOURCE_PATH_DISTANCE_INTENT_ID);
     assert_eq!(
         state.compatibility_version(),
-        SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION
+        SOURCE_PATH_DISTANCE_INTENT_VERSION
     );
     assert_eq!(
         state.source_revision(),
-        SOURCE_COLD_DISTANCE_COMPATIBILITY_REVISION
+        SOURCE_PATH_DISTANCE_INTENT_REVISION
     );
     assert_eq!(state.initial_storage(), &[0; 74]);
     assert_eq!(state.initial_active_len(), 0);
@@ -702,7 +699,7 @@ fn equal_native_siblings_skips_duplicates_foreign_queries_and_stale_order_are_no
         let selected = lease.select_for_calculate(slot, a().0, a().1).unwrap();
         let foreign_cold = selected
             .loaded_cold_same_polygon_with_filter(
-                SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION,
+                SOURCE_PATH_DISTANCE_INTENT_VERSION,
                 filter(1),
                 CONFIG,
                 SourceSamePolygonBudget::default(),
@@ -968,7 +965,7 @@ fn malformed_recipe_metadata_ordinals_coordinates_and_bytes_fail_before_native_r
     // Mutate encoded bytes directly so decode cannot rely on encode validation.
     for (label, offset, value) in [
         ("magic", 0, 0),
-        ("version", 8, 2),
+        ("version", 8, 1),
         ("compatibility", 12, 2),
         ("query capacity", 25, 2),
         ("noncanonical normalize", 32, 2),

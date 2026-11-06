@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! ComputePathToRandomPoint endpoint lookup and same-polygon terminal on one real query.
-//! This is neither the calculate cold-distance policy nor owner/terrain/Route authority.
+//! All callers share source-intent distance policy, without owner/terrain/Route authority.
 use crate::{
     Error, LoadedSourceWarmCache, RetainedSourceQuery, SelectedSourceQuery, SourceMapQuery,
     SourceMapQuerySlot, SourceOwnerFilter, SourceSamePolygonConfig, SourceWarmCacheError,
-    SourceWarmLookup, SourceWarmTrace, WarmCache,
+    SourceWarmLookup, SourceWarmTrace, WarmCache, SOURCE_PATH_DISTANCE_INTENT_VERSION,
 };
 use std::{rc::Rc, time::Instant};
 
@@ -12,16 +12,10 @@ use std::{rc::Rc, time::Instant};
 mod reconstruction;
 pub use reconstruction::*;
 
-/// Approved local initialization, only at ComputePathToRandomPoint's endpoint lookup.
-pub const SOURCE_WANDER_ENDPOINT_COMPATIBILITY_ID: &str =
-    "cmangos-computepathtorandompoint-zero-distance-v1";
-pub const SOURCE_WANDER_ENDPOINT_COMPATIBILITY_VERSION: u32 = 1;
 pub const SOURCE_WANDER_ORIGINAL_METHOD_SHA256: &str =
     "4a151a1cab7cf8cd9444d2c7edc09f3c5252fefaf5d537ad1b374775929840da";
 pub const SOURCE_WANDER_PATCHED_METHOD_SHA256: &str =
     "1f553a9cdb97d3441b9f3108fcf69d8c1a7df6101a41fb5e0b849cb07fe9265a";
-pub const SOURCE_WANDER_ENDPOINT_COMPATIBILITY_REVISION: &str =
-    "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f";
 pub const SOURCE_WANDER_MAX_ENDPOINT_LOOKUP_PRIMITIVES: usize =
     crate::SOURCE_WARM_CACHE_MAX_STORAGE - crate::SOURCE_WARM_CACHE_POINT_LIMIT + 2;
 pub const SOURCE_WANDER_MAX_BUILD_LOOKUP_PRIMITIVES: usize =
@@ -276,7 +270,7 @@ impl RetainedSourceQuery {
         until: Instant,
     ) -> Result<LoadedSourceWanderPrefix, SourceWanderError> {
         crate::deadline(until)?;
-        if compatibility_version != SOURCE_WANDER_ENDPOINT_COMPATIBILITY_VERSION
+        if compatibility_version != SOURCE_PATH_DISTANCE_INTENT_VERSION
             || !filter.is_supported_dry()
         {
             return Err(Error::Unsupported.into());
@@ -511,9 +505,8 @@ impl SelectedSourceQuery<'_> {
                 return Ok(result);
             }
             crate::detour(end)?;
-            // Endpoint lookup already created/consulted the retained tail; no BuildPolyPath
-            // cold-distance repair is selected or needed here, including on the first leg.
-            let build = crate::warm_cache::native::retained_same_polygon(
+            // BuildPolyPath sees the endpoint's retained tail (PathFinder.cpp:1401-1412).
+            let build = crate::warm_cache::native::same_polygon(
                 &mut mesh,
                 &endpoint_cache,
                 self.from(),

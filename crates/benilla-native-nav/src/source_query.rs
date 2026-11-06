@@ -279,6 +279,10 @@ impl SelectedSourceQuery<'_> {
     pub fn query_capacity(&self) -> u32 {
         self.query.mesh.borrow().query_capacity()
     }
+    /// The selected query uses absent-prior-distance intent (PathFinder.cpp:337-380).
+    pub fn path_distance_policy(&self) -> &'static str {
+        crate::SOURCE_PATH_DISTANCE_INTENT_ID
+    }
     pub fn from(&self) -> [u32; 3] {
         self.from
     }

@@ -12,7 +12,7 @@ use super::super::{
 };
 use benilla_native_nav::{
     SourceOwnerFilter, SourceSamePolygonBudget, SourceSamePolygonConfig,
-    SOURCE_COLD_DISTANCE_COMPATIBILITY_ID, SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION,
+    SOURCE_PATH_DISTANCE_INTENT_ID, SOURCE_PATH_DISTANCE_INTENT_VERSION,
 };
 use benilla_sim::{creature_ai as ai, creature_motion as motion};
 use benilla_world_runtime::native::{
@@ -176,13 +176,10 @@ pub(crate) fn assert_resident_cold_terminal(
     assert_eq!(observed.filter, flags);
     assert_eq!(observed.query_capacity, 1024);
     assert!(observed.before_storage_zero);
-    assert_eq!(
-        observed.compatibility_id,
-        SOURCE_COLD_DISTANCE_COMPATIBILITY_ID
-    );
+    assert_eq!(observed.compatibility_id, SOURCE_PATH_DISTANCE_INTENT_ID);
     assert_eq!(
         observed.compatibility_version,
-        SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION
+        SOURCE_PATH_DISTANCE_INTENT_VERSION
     );
     assert_eq!(observed.liquid_tickets, [105, 106]);
     assert_eq!(observed.liquid_masks, [15, 10]);

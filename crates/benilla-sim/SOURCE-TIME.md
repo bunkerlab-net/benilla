@@ -90,7 +90,7 @@ threshold equality, one-interval reset, explicit current reset, negative expiry,
 unsigned saturation, undefined-overflow refusals without mutation, and map
 accumulation and dispatch narrowing. They require no installed game data.
 
-This module does not change Profile, native State, RNG, format 89, or saves.
+This module does not change Profile, native State, RNG, format `NATIVE_FORMAT_VERSION`, or saves.
 It adds no serialization or world/map phase scheduler. Authored arithmetic
 tests and source inspection are not a sealed F1 world/map timer projection,
 whole-prefix parity, or native-world admission.

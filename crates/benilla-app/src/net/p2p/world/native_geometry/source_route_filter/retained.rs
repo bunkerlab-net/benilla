@@ -184,7 +184,7 @@ impl RetainedObservationState {
         self,
         provider: &ResidentFilterProvider<'_, '_, '_, '_>,
         terminal: &LoadedSourceSamePolygon,
-        native: &benilla_native_nav::LoadedSourceColdDistanceCompatibility,
+        native: &benilla_native_nav::LoadedSourcePathDistanceIntent,
         context: &AuthorityRequest,
         cancelled: &impl Fn() -> bool,
     ) -> Result<ResidentJoinedRetainedObservation, ResidentFilterError> {

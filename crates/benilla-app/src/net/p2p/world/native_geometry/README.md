@@ -649,6 +649,9 @@ it restores the original requested goal rather than using the clipped straight
 endpoint. A bridge error or unsupported source domain is not a source path result
 and does not authorize a successful fallback. Neither attempt commits a runtime
 cache revision or publishes a Route fact.
+If the straight result cleared active storage without leaving a tail, the retry
+uses the shared absent-prior-distance intent. It can append the nearest polygon
+and complete the private fallback dependency without committing world state.
 
 This calculation dependency does not itself choose whether Chase may attempt
 straight movement. The separately selected loaded gate below supplies that choice.
@@ -798,7 +801,7 @@ owner filter and shared Chase gate observations without a warm seed. Its typed
 binding includes the raw Corridor revision, the actual shared liquid/navigation/
 VMap inventory and epoch, selected MMap configuration, explicit false/false
 NormalizePath configuration, operational budgets, and the approved
-`cmangos-buildpolypath-zero-distance-v1` source policy.
+`cmangos-pathfinder-distance-intent-v1` source policy.
 
 The provider must be loaded and bound before runtime execution and invoked inside
 the authority callback. First construction performs distinct `createFilter` water
@@ -806,8 +809,8 @@ and underwater observations before the gate. The gate uses the actual loaded VMa
 ray, fresh owner water, and runtime-owned target water. Destination/start validation
 and selected-query ownership then precede the owned ignore bit and actual HaveTile;
 only afterward does a fresh calculate `updateFilter` run. Cold lookup starts from
-74 zero slots and active length zero under the named two-local compatibility
-amendment. Same-polygon completion preserves the searchable tail, restores active
+74 zero slots and active length zero under the shared absent-prior-distance intent.
+Same-polygon completion preserves the searchable tail and restores active
 length one and NORMAL, and keeps exact `[origin, goal]` points. Retained calculation
 uses the exact private immutable prior on that same allocation with original
 warm lookup semantics. No raycast, findPath, smoothing, normal fallback or CutPath

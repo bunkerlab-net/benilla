@@ -136,4 +136,4 @@ not production logical identities. No private raw words enter the repository.
 That 69586-word comparison is an engine projection of an unsealed execution.
 It does not establish initialization causality, source consumer chronology,
 whole-server replay, or C/WSE branch coverage in F1. It does not change
-format 89, Profile, native State, production RNG selection, or capability.
+format `NATIVE_FORMAT_VERSION`, Profile, native State, production RNG selection, or capability.

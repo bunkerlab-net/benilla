@@ -4,7 +4,7 @@
 use super::*;
 use benilla_native_nav::{
     SourceMapQuery, SourceWanderReconstructionOperation, SourceWanderReconstructionRecipe,
-    TileInput, SOURCE_WANDER_ENDPOINT_COMPATIBILITY_VERSION, SOURCE_WANDER_RECONSTRUCTION_VERSION,
+    TileInput, SOURCE_PATH_DISTANCE_INTENT_VERSION, SOURCE_WANDER_RECONSTRUCTION_VERSION,
 };
 use std::time::{Duration, Instant};
 
@@ -37,7 +37,7 @@ fn certificate(
         .reconstruct_wander(
             &SourceWanderReconstructionRecipe {
                 version: SOURCE_WANDER_RECONSTRUCTION_VERSION,
-                compatibility_version: SOURCE_WANDER_ENDPOINT_COMPATIBILITY_VERSION,
+                compatibility_version: SOURCE_PATH_DISTANCE_INTENT_VERSION,
                 slot,
                 query_capacity: 1024,
                 config: SourceSamePolygonConfig {

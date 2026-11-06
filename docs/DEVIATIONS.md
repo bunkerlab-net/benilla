@@ -34,6 +34,7 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 - [benilla-blp](#benilla-blp): 1
 - [benilla-formats](#benilla-formats): 25
 - [benilla-lua](#benilla-lua): 11
+- [benilla-native-nav](#benilla-native-nav): 1
 - [benilla-native-vmap-source](#benilla-native-vmap-source): 2
 - [benilla-protocol](#benilla-protocol): 29
 - [benilla-sim](#benilla-sim): 1
@@ -658,6 +659,11 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 
 - These are benilla's own needs, past what the client's checks (`Vm::checkstack`) reserve: a frame's registers above `c_maxstack` (`Proto::maxstack`), and the host's and natives' pushes, which ask for no margin of `EXTRA_STACK` and one more. Where they pass what the client reserved, the stack grows where the client's would not. ([`src/vm.rs:975`](../crates/benilla-lua/src/vm.rs#L975))
 - benilla's scratch registers above a frame's `c_maxstack` (`Proto::maxstack`) stay on the stack; the client has none, and halves. ([`src/vm.rs:2322`](../crates/benilla-lua/src/vm.rs#L2322))
+### benilla-native-nav
+
+#### warm_cache
+
+- PathFinder.cpp:364 reads unwritten :412 storage in the observed build (:362/:410 at the pin); native keeps the nearest polygon because absent distance requires source intent, not undefined bytes. ([`src/warm_cache.rs:562`](../crates/benilla-native-nav/src/warm_cache.rs#L562))
 ### benilla-native-vmap-source
 
 #### (crate root)

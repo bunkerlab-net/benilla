@@ -209,7 +209,7 @@ fn execute(
 ) -> Result<LoadedSourceWanderTerminal, SourceWanderError> {
     let mut prefix = retained.prepare_wander_same_polygon(
         prior,
-        SOURCE_WANDER_ENDPOINT_COMPATIBILITY_VERSION,
+        SOURCE_PATH_DISTANCE_INTENT_VERSION,
         filter,
         CONFIG,
         // Use the existing per-operation ceilings without changing their policy.

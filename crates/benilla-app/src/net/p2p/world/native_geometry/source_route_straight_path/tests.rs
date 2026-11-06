@@ -583,8 +583,7 @@ fn typed_retry_rejects_clipped_goal_wrong_tickets_and_pre_straight_type() {
 }
 
 #[test]
-fn source_no_path_that_clears_active_without_tail_keeps_cold_retry_unavailable() {
-    use super::super::products::navigation::SourceWarmError;
+fn source_no_path_clear_retries_with_intent_and_keeps_world_uncommitted() {
     let products = products::authored_route_smoothing();
     let config = configuration();
     // The active scan stops when squared distance is <1. Across that strict
@@ -636,8 +635,9 @@ fn source_no_path_that_clears_active_without_tail_keeps_cold_retry_unavailable()
     assert_eq!(straight.result().path_type(), 8);
     assert_eq!(straight.result().after().active_len(), 0);
     assert_eq!(straight.result().after().storage().len(), 74);
-    assert_eq!(
-        provider.navigation.source_straight_warm(
+    let retried = provider
+        .navigation
+        .source_straight_warm(
             &straight,
             SourceWarmRequest {
                 snapshot: provider.binding().navigation,
@@ -646,19 +646,20 @@ fn source_no_path_that_clears_active_without_tail_keeps_cold_retry_unavailable()
                 to,
                 budget: config.warm.budget,
             },
-            deadline()
-        ),
-        Err(SourceWarmError::Native(
-            benilla_native_nav::SourceWarmCacheError::ColdDistanceUndefined
-        ))
-    );
-    assert_eq!(
-        provider
-            .begin(&session, &context)
-            .unwrap()
-            .query(request(&provider, &context), deadline()),
-        Err(Failure::MissingGeometry)
-    );
+            deadline(),
+        )
+        .unwrap();
+    assert!(retried.warm().result().start().appended);
+    let dependency = provider
+        .begin(&session, &context)
+        .unwrap()
+        .query(request(&provider, &context), deadline())
+        .unwrap();
+    assert_eq!(dependency.straight_dependency().result().path_type(), 8);
+    let fallback = dependency.fallback_dependency().unwrap();
+    assert!(fallback.polygon_dependency().result().start().appended);
+    assert_eq!(fallback.point_dependency().result().path_type(), 1);
+    assert_eq!(fallback.point_dependency().result().points(), [from, to]);
     assert_eq!(world.checkpoint().unwrap(), before);
 }
 

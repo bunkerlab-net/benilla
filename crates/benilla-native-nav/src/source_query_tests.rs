@@ -261,6 +261,10 @@ fn current_query_starts_unselected_and_first_valid_calculate_selects_it() {
         let selected = retained.select_for_calculate(SLOT, from, to).unwrap();
         assert_eq!(selected.slot(), SLOT);
         assert_eq!(selected.query_capacity(), 1024);
+        assert_eq!(
+            selected.path_distance_policy(),
+            "cmangos-pathfinder-distance-intent-v1"
+        );
         assert_eq!(selected.from(), from);
         assert_eq!(selected.to(), to);
         let presence = selected.tile_presence(until()).unwrap();

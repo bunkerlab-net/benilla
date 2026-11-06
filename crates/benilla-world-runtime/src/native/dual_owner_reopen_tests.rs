@@ -35,7 +35,7 @@ fn pair(
         }],
         &SourceWanderReconstructionRecipe {
             version: benilla_native_nav::SOURCE_WANDER_RECONSTRUCTION_VERSION,
-            compatibility_version: benilla_native_nav::SOURCE_WANDER_ENDPOINT_COMPATIBILITY_VERSION,
+            compatibility_version: benilla_native_nav::SOURCE_PATH_DISTANCE_INTENT_VERSION,
             slot,
             query_capacity: 1024,
             config,
@@ -50,7 +50,7 @@ fn pair(
         wander,
         &SourceChaseFixedCacheRecipe {
             version: benilla_native_nav::SOURCE_CHASE_FIXED_CACHE_VERSION,
-            compatibility_version: benilla_native_nav::SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION,
+            compatibility_version: benilla_native_nav::SOURCE_PATH_DISTANCE_INTENT_VERSION,
             slot,
             query_capacity: 1024,
             point_limit: 74,

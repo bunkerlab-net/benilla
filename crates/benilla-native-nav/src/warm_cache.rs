@@ -10,16 +10,6 @@ pub const SOURCE_WARM_CACHE_MAX_STORAGE: usize = 4096;
 pub const SOURCE_WARM_CACHE_MAX_LOOKUP_PRIMITIVES: usize = 16388;
 pub const SOURCE_WARM_CACHE_MAX_CORRIDOR_EXPANSIONS: usize = 4096;
 
-/// Selects the exact audited caller-local initialization; never owner admission.
-#[cfg(benilla_native_detour)]
-#[derive(Clone, Copy)]
-pub(crate) enum DistanceInitialization {
-    OriginalWarm,
-    CompatibilityZeroV1,
-    /// Separate approved ComputePathToRandomPoint endpoint local, never BuildPolyPath.
-    WanderEndpointZeroV1,
-}
-
 #[cfg(benilla_native_detour)]
 pub(crate) fn cold_constructor_storage(
     mesh: &Mesh,
@@ -191,8 +181,6 @@ impl Default for SourceWarmCacheBudget {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SourceWarmCacheError {
     Boundary(Error),
-    /// Neither a nonempty active scan nor an eligible tail can initialize source distance.
-    ColdDistanceUndefined,
     MissingPolygon,
     /// Source needs owner water/flying state and possible end projection above seven units.
     FarFromPolygonUnsupported,
@@ -488,30 +476,16 @@ pub(crate) mod native {
         endpoint: u8,
         work: &mut Work,
     ) -> Result<SourceWarmLookup, SourceWarmCacheError> {
-        lookup_with_initialization(
-            mesh,
-            candidate,
-            point,
-            endpoint,
-            work,
-            DistanceInitialization::OriginalWarm,
-        )
+        lookup_with_distance(mesh, candidate, point, endpoint, work, &mut None)
     }
-    fn lookup_with_initialization(
+    pub(crate) fn lookup_with_distance(
         mesh: &Mesh,
         candidate: &mut WarmCache,
         point: &[f32; 3],
         endpoint: u8,
         work: &mut Work,
-        initialization: DistanceInitialization,
+        distance: &mut Option<f32>,
     ) -> Result<SourceWarmLookup, SourceWarmCacheError> {
-        // Caller-specific compatibility initializes only its named local to +0.0f.
-        // Nonempty active/tail scans overwrite it exactly as in the original warm path.
-        let mut distance = match initialization {
-            DistanceInitialization::OriginalWarm => None,
-            DistanceInitialization::CompatibilityZeroV1
-            | DistanceInitialization::WanderEndpointZeroV1 => Some(0.0),
-        };
         if candidate.active_len != 0 {
             let found = scan(
                 mesh,
@@ -521,7 +495,7 @@ pub(crate) mod native {
                 SourceWarmPrimitive::Active,
                 work,
             )?;
-            distance = Some(found.distance);
+            *distance = Some(found.distance);
             if found.minimum_squared <= 3.0 && found.reference != 0 {
                 return Ok(SourceWarmLookup {
                     polygon: found.reference,
@@ -542,7 +516,7 @@ pub(crate) mod native {
                 SourceWarmPrimitive::Tail,
                 work,
             )?;
-            distance = Some(found.distance);
+            *distance = Some(found.distance);
             if found.minimum_squared <= 7.0 && found.reference != 0 {
                 return Ok(SourceWarmLookup {
                     polygon: found.reference,
@@ -552,9 +526,6 @@ pub(crate) mod native {
                 });
             }
         }
-        // Original policy still rejects the undefined cold read. Only the separately
-        // named compatibility entry point supplies the approved +0.0 initializer.
-        let distance = distance.ok_or(SourceWarmCacheError::ColdDistanceUndefined)?;
         for (extent, primitive, origin) in [
             (
                 5.0,
@@ -588,8 +559,8 @@ pub(crate) mod native {
                 if !new_distance.is_finite() || new_distance < 0.0 {
                     return Err(Error::Format.into());
                 }
-                // Original zero disjunct; newly reachable only under the explicit cold repair.
-                let appended = distance == 0.0 || new_distance < distance;
+                // Deviation: PathFinder.cpp:364 reads unwritten :412 storage in the observed build (:362/:410 at the pin); native keeps the nearest polygon because absent distance requires source intent, not undefined bytes.
+                let appended = distance.is_none_or(|prior| prior == 0.0 || new_distance < prior);
                 if appended {
                     if candidate.storage.len() >= SOURCE_WARM_CACHE_MAX_STORAGE {
                         return Err(Error::Budget.into());
@@ -600,6 +571,7 @@ pub(crate) mod native {
                         .map_err(|_| Error::Budget)?;
                     candidate.storage.push(polygon);
                 }
+                *distance = Some(new_distance);
                 return Ok(SourceWarmLookup {
                     polygon,
                     distance_bits: new_distance.to_bits(),
@@ -610,8 +582,7 @@ pub(crate) mod native {
         }
         Err(SourceWarmCacheError::MissingPolygon)
     }
-    /// Continue the already-cleared ComputePathToRandomPoint prefix. Its separately
-    /// approved distance local is initialized only for this endpoint lookup.
+    /// Continue the cleared random-point prefix with its fresh local (PathFinder.cpp:1400).
     pub(crate) fn wander_endpoint(
         mesh: &mut Mesh,
         before: &WarmCache,
@@ -636,14 +607,7 @@ pub(crate) mod native {
             expansions: 0,
             trace: Vec::new(),
         };
-        let endpoint = match lookup_with_initialization(
-            mesh,
-            &mut candidate,
-            &detour(point)?,
-            3,
-            &mut work,
-            DistanceInitialization::WanderEndpointZeroV1,
-        ) {
+        let endpoint = match lookup(mesh, &mut candidate, &detour(point)?, 3, &mut work) {
             Ok(found) => Some(found),
             // This catches only this endpoint caller's exhausted near/far lookup.
             // BuildPolyPath missing endpoints remain an unsupported, separate branch.
@@ -744,25 +708,6 @@ pub(crate) mod native {
         budget: SourceWarmCacheBudget,
         until: Instant,
     ) -> Result<(LoadedSourceWarmCache, Work), SourceWarmCacheError> {
-        prepare_with_initialization(
-            mesh,
-            before,
-            from,
-            to,
-            budget,
-            until,
-            DistanceInitialization::OriginalWarm,
-        )
-    }
-    fn prepare_with_initialization(
-        mesh: &mut Mesh,
-        before: &WarmCache,
-        from: [u32; 3],
-        to: [u32; 3],
-        budget: SourceWarmCacheBudget,
-        until: Instant,
-        initialization: DistanceInitialization,
-    ) -> Result<(LoadedSourceWarmCache, Work), SourceWarmCacheError> {
         deadline(until)?;
         if before.mesh_id != mesh.instance_id {
             return Err(Error::Identity.into());
@@ -790,11 +735,9 @@ pub(crate) mod native {
             expansions: 0,
             trace: Vec::new(),
         };
-        let start =
-            lookup_with_initialization(mesh, &mut candidate, &a, 0, &mut work, initialization)?;
-        // Start appends are visible here. Running these independently is not source-compatible.
-        let end =
-            lookup_with_initialization(mesh, &mut candidate, &b, 1, &mut work, initialization)?;
+        // Separate fresh start/end scalars share only cache writes (PathFinder.cpp:410-415).
+        let start = lookup(mesh, &mut candidate, &a, 0, &mut work)?;
+        let end = lookup(mesh, &mut candidate, &b, 1, &mut work)?;
         if f32::from_bits(start.distance_bits) > 7.0 || f32::from_bits(end.distance_bits) > 7.0 {
             return Err(SourceWarmCacheError::FarFromPolygonUnsupported);
         }
@@ -854,7 +797,7 @@ pub(crate) mod native {
             work,
         ))
     }
-    pub(super) fn query(
+    pub(crate) fn query(
         mesh: &mut Mesh,
         before: &WarmCache,
         from: [u32; 3],
@@ -862,27 +805,7 @@ pub(crate) mod native {
         budget: SourceWarmCacheBudget,
         until: Instant,
     ) -> Result<LoadedSourceWarmCache, SourceWarmCacheError> {
-        query_with_initialization(
-            mesh,
-            before,
-            from,
-            to,
-            budget,
-            until,
-            DistanceInitialization::OriginalWarm,
-        )
-    }
-    pub(crate) fn query_with_initialization(
-        mesh: &mut Mesh,
-        before: &WarmCache,
-        from: [u32; 3],
-        to: [u32; 3],
-        budget: SourceWarmCacheBudget,
-        until: Instant,
-        initialization: DistanceInitialization,
-    ) -> Result<LoadedSourceWarmCache, SourceWarmCacheError> {
-        let (mut selected, mut work) =
-            prepare_with_initialization(mesh, before, from, to, budget, until, initialization)?;
+        let (mut selected, mut work) = prepare(mesh, before, from, to, budget, until)?;
         if selected.phase == SourceWarmPolyPhase::Replacement {
             selected.direct_status = Some(replace(
                 mesh,
@@ -899,34 +822,8 @@ pub(crate) mod native {
         Ok(selected)
     }
     /// Lookup/selection only. Reject before a direct state or smoother can exist.
-    /// The caller must retain the compatibility policy around this private cache.
-    pub(crate) fn cold_same_polygon(
-        mesh: &mut Mesh,
-        before: &WarmCache,
-        from: [u32; 3],
-        to: [u32; 3],
-        budget: SourceWarmCacheBudget,
-        until: Instant,
-    ) -> Result<Option<LoadedSourceWarmCache>, SourceWarmCacheError> {
-        let (mut selected, work) = prepare_with_initialization(
-            mesh,
-            before,
-            from,
-            to,
-            budget,
-            until,
-            DistanceInitialization::CompatibilityZeroV1,
-        )?;
-        if selected.phase != SourceWarmPolyPhase::SamePolygon {
-            return Ok(None);
-        }
-        finish_trace(&mut selected, work);
-        deadline(until)?;
-        Ok(Some(selected))
-    }
-    /// Original defined warm lookup on a genuine retained same-polygon result only.
-    /// The caller keeps the cold-origin compatibility policy around this private cache.
-    pub(crate) fn retained_same_polygon(
+    /// The caller retains the source-intent identity around this private cache.
+    pub(crate) fn same_polygon(
         mesh: &mut Mesh,
         before: &WarmCache,
         from: [u32; 3],
@@ -944,5 +841,9 @@ pub(crate) mod native {
     }
     pub(crate) fn finish_trace(selected: &mut LoadedSourceWarmCache, work: Work) {
         selected.trace = work.trace;
+    }
+    #[cfg(test)]
+    mod intent_tests {
+        include!("path_distance_tests.rs");
     }
 }

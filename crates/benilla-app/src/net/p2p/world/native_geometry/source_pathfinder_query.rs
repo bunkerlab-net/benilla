@@ -1051,7 +1051,7 @@ impl SourceConstructorQuery<'_> {
     {
         self.entry.query.prepare_wander_same_polygon(
             prior,
-            benilla_native_nav::SOURCE_WANDER_ENDPOINT_COMPATIBILITY_VERSION,
+            benilla_native_nav::SOURCE_PATH_DISTANCE_INTENT_VERSION,
             filter,
             config,
             budget,
