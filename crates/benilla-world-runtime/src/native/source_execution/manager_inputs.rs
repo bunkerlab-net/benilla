@@ -574,11 +574,33 @@ pub(super) mod tests {
             Some(b"a\n'b,()".as_slice())
         );
         assert_eq!(rows.instances[&3].data, None);
-        std::fs::write(&path, b"changed").unwrap();
-        assert_eq!(
-            CharacterRelations::read(&held).err().unwrap().id,
-            "catalog.changed"
-        );
+        #[cfg(unix)]
+        {
+            std::fs::write(&path, b"changed").unwrap();
+            assert_eq!(
+                CharacterRelations::read(&held).err().unwrap().id,
+                "catalog.changed"
+            );
+        }
+        #[cfg(windows)]
+        {
+            assert_eq!(
+                std::fs::write(&path, b"changed")
+                    .unwrap_err()
+                    .raw_os_error(),
+                Some(32)
+            );
+            assert_eq!(
+                std::fs::rename(&path, dir.0.join("original"))
+                    .unwrap_err()
+                    .raw_os_error(),
+                Some(32)
+            );
+            let unchanged = CharacterRelations::read(&held).unwrap();
+            assert_eq!(unchanged.creatures, rows.creatures);
+            assert_eq!(unchanged.gameobjects, rows.gameobjects);
+            assert_eq!(unchanged.instances, rows.instances);
+        }
     }
     #[test]
     fn malformed_snapshot_rows_schema_strings_and_duplicate_keys_refuse() {
@@ -649,12 +671,41 @@ pub(super) mod tests {
         let (held, _) = manager_binding_file(&path, &anchor).unwrap();
         let mut forged = binding();
         forged.creature.database_seconds += 1;
+        #[cfg(unix)]
+        {
+            std::fs::write(&path, canonical(&forged)).unwrap();
+            assert_eq!(held.check().unwrap_err().id, "catalog.changed");
+        }
+        #[cfg(windows)]
+        {
+            assert_eq!(
+                std::fs::write(&path, canonical(&forged))
+                    .unwrap_err()
+                    .raw_os_error(),
+                Some(32)
+            );
+            assert_eq!(
+                std::fs::rename(&path, dir.0.join("original"))
+                    .unwrap_err()
+                    .raw_os_error(),
+                Some(32)
+            );
+            held.check().unwrap();
+            assert_eq!(
+                manager_binding_file(&path, &anchor)
+                    .unwrap()
+                    .1
+                    .creature
+                    .database_seconds,
+                binding().creature.database_seconds
+            );
+        }
+        drop(held);
         std::fs::write(&path, canonical(&forged)).unwrap();
         assert_eq!(
             manager_binding_file(&path, &anchor).err().unwrap().id,
             "execution.managers.binding_anchor"
         );
-        assert_eq!(held.check().unwrap_err().id, "catalog.changed");
     }
     #[test]
     fn multiline_dump_rows_match_extended_insert_rows_and_truncation_refuses() {

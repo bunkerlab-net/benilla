@@ -760,9 +760,11 @@ modified by Benilla fork contributors in 2026. Upstream notices remain in
 
 `ManagerExecutionBinding` anchors the execution, snapshot, configuration,
 registry, environment, and source query occurrences. Retained handles reject
-changed files. Typed catalog access returns only raw loader operands, not
-ObjectMgr acceptance, pool selections, or callback results. Effective definitions,
-SQL effects, and a reached reset scheduler require executable owners.
+changed files on Unix. On Windows, read-only sharing prevents overwrites and
+renames while the handles are held. Typed catalog access returns only raw loader
+operands, not ObjectMgr acceptance, pool selections, or callback results.
+Effective definitions, SQL effects, and a reached reset scheduler require
+executable owners.
 `PersistentEffects::query_respawns` computes Rows/Empty/Error. The binding cannot
 supply that result. Successful results must match the snapshot and complete
 source occurrence permutation; query errors remain distinct executable outputs.

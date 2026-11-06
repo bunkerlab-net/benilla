@@ -250,14 +250,34 @@ fn retained_handles_reject_mutation_and_never_reopen_replaced_paths() {
             value: clock(),
         }],
     );
-    std::fs::rename(dir.0.join("input"), dir.0.join("original")).unwrap();
-    std::fs::write(dir.0.join("input"), b"forged replacement").unwrap();
-    match tape.next(&owner()) {
-        Ok(value) => assert_eq!(value, clock()),
-        Err(e) => assert_eq!(e.id, "catalog.changed"),
+    #[cfg(unix)]
+    {
+        std::fs::rename(dir.0.join("input"), dir.0.join("original")).unwrap();
+        std::fs::write(dir.0.join("input"), b"forged replacement").unwrap();
+        match tape.next(&owner()) {
+            Ok(value) => assert_eq!(value, clock()),
+            Err(e) => assert_eq!(e.id, "catalog.changed"),
+        }
+        std::fs::write(dir.0.join("original"), b"mutated held inode").unwrap();
+        assert_eq!(tape.finish().unwrap_err().id, "catalog.changed");
     }
-    std::fs::write(dir.0.join("original"), b"mutated held inode").unwrap();
-    assert_eq!(tape.finish().unwrap_err().id, "catalog.changed");
+    #[cfg(windows)]
+    {
+        assert_eq!(
+            std::fs::rename(dir.0.join("input"), dir.0.join("original"))
+                .unwrap_err()
+                .raw_os_error(),
+            Some(32)
+        );
+        assert_eq!(
+            std::fs::write(dir.0.join("input"), b"forged replacement")
+                .unwrap_err()
+                .raw_os_error(),
+            Some(32)
+        );
+        assert_eq!(tape.next(&owner()).unwrap(), clock());
+        tape.finish().unwrap();
+    }
 }
 #[test]
 fn file_receipts_reject_byte_changes_even_at_the_same_length() {
