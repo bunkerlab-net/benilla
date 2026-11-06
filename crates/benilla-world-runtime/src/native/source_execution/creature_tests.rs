@@ -386,7 +386,11 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
         }
         Ok(())
     }
-    fn creature_created(&mut self, state: CreatureConstruction) -> Result<()> {
+    fn creature_created(
+        &mut self,
+        state: CreatureConstruction,
+        _: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<()> {
         self.observations
             .push(Observation::Complete(state.spawn.database_guid));
         self.states.insert(state.object, state);
@@ -1423,3 +1427,6 @@ fn group_constructor_forwards_forced_entry_and_preserves_zero_fallback() {
         );
     }
 }
+
+#[path = "creature_lifecycle_tests.rs"]
+mod creature_lifecycle_tests;

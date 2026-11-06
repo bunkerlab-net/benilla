@@ -5,6 +5,37 @@ It does not open production admission, import a creature database, authenticate
 captured rows, or resolve client assets. The raw arithmetic port and its
 exclusions remain in [CREATURE-INIT.md](../benilla-sim/CREATURE-INIT.md).
 
+## Source execution lifecycle
+
+`source_execution::SourceCreatureLifecycle` retains the F3 constructor result.
+`SourceCreatures` keys it by `ObjectHandle`, while `SourceObjects` owns the
+separate life generation. Legacy revival increments only the life generation.
+New-system spawning uses the existing `SourceSpawnManager` constructor path and
+a new construction identity. The source predicate compares nonzero database
+GUID with runtime low GUID, `Object.cpp:3076-3078`.
+
+Death redraws even equal delay endpoints, saves the finite deadline before the
+new-system local sentinel, and schedules only nonzero nongroup delays,
+`Creature.cpp:1864-1909`. Corpse expiry uses World snapshot milliseconds.
+Respawn and Save each consume their own wall observation. AI receives a mutable
+corpse-removal delay, `Creature.cpp:279-297,719,2285-2293,3011-3016`.
+
+`CreatureLifecycleDispatch` connects retained creature Update to F3's object
+dispatcher. Corpse relocation uses F3.10a's `move_creature`; deferred removal
+uses F3.11's `add_to_remove` and drain, `Creature.cpp:304-314`. Pool, linking
+and group callbacks have typed F4.09/F4.10/F4.12 pending refusals. F5 still owns
+reached Unit, AI, instance, entry/addon and motion effects. Authored hosts are
+not production substitutes.
+
+F7 must retain the construction result, death state, corpse TimePoint, local
+and persistent deadlines, override flags, loot state, settings and pending
+removals, plus the independent F3/F5 owner state. These fields are not connected
+to native serialization, so this component does not change format 91.
+The synthetic tick/history owner below remains separate from source execution.
+The unsealed seal8-08 site inventory has no death/corpse/respawn/loot projection.
+The lifecycle evidence test prints SKIP for MR/MG/MPR rather than claiming a
+comparison or continuation proof.
+
 ## Retained input and lifetime
 
 `CreatureGenerationCatalog` privately retains complete raw initialization input

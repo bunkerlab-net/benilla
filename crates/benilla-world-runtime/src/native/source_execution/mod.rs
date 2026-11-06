@@ -16,8 +16,10 @@ mod seal8_creatures;
 pub use seal8_creatures::{
     compare_seal8_unsealed_creatures, CreatureConstructorDifference, Seal8CreatureReport,
 };
+mod creature_lifecycle;
 #[cfg(test)]
 mod creature_tests;
+pub use creature_lifecycle::*;
 mod grid_loader;
 mod grids;
 mod guids;

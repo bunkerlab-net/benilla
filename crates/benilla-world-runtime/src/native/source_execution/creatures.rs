@@ -127,6 +127,16 @@ pub struct CreatureConstruction {
     pub linking_trigger: bool,
     pub spawning_linked: bool,
 }
+impl CreatureConstruction {
+    /// Retain the constructed object across lives; Creature.cpp:717-750,1912-1944.
+    pub fn into_lifecycle(
+        self,
+        settings: CreatureLifecycleSettings,
+        objects: &SourceObjects,
+    ) -> Result<SourceCreatureLifecycle> {
+        SourceCreatureLifecycle::new(self, settings, objects)
+    }
+}
 /// Borrow the calling engine without result inputs; Util.cpp:68-78.
 pub trait CreatureRandom {
     fn creature_irand(&mut self, min: i32, max: i32) -> Result<i32>;
@@ -183,7 +193,11 @@ pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
         state: &mut CreatureConstruction,
         context: &mut GridFactoryContext<'_, D, P>,
     ) -> Result<()>;
-    fn creature_created(&mut self, state: CreatureConstruction) -> Result<()>;
+    fn creature_created(
+        &mut self,
+        state: CreatureConstruction,
+        context: &mut GridFactoryContext<'_, D, P>,
+    ) -> Result<()>;
     fn creature_destroy_candidate(
         &mut self,
         object: ObjectHandle,
@@ -487,7 +501,7 @@ where
         .guid
         .ok_or_else(|| refuse("execution.creature.guid_absent"))?
         .counter();
-    let new_spawning = attempt.guid != 0 && attempt.guid != runtime_counter;
+    let new_spawning = source_creature_new_spawning(attempt.guid, runtime_counter);
     if !new_spawning {
         state.corpse_delay = state
             .corpse_delay
@@ -562,7 +576,7 @@ where
     if context.objects.get(object)?.alive {
         factory.creature_phase(CreaturePhase::RabbitDay, &mut state, context)?;
     }
-    factory.creature_created(state)?;
+    factory.creature_created(state, context)?;
     Ok(GridCandidateOutcome::Loaded(object))
 }
 fn valid_position(position: [f32; 4]) -> bool {
