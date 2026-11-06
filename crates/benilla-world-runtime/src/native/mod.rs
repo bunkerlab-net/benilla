@@ -13,8 +13,8 @@ pub use production_compiler::diagnose_catalog_spells;
 pub use production_compiler::{
     diagnose_catalog, diagnose_catalog_pools, diagnose_catalog_schema, diagnose_catalog_spawns,
     diagnose_production_inputs, CatalogRowView, CheckedLootDraft, ProductionDiagnostic,
-    ProductionInputPaths, ProductionInputReport, ProductionRequest, ProductionRules, SpawnViews,
-    VerifiedCatalog,
+    ProductionInputPaths, ProductionInputReport, ProductionRequest, ProductionRules,
+    RetainedCatalogRow, SpawnViews, VerifiedCatalog,
 };
 pub use production_compiler::{diagnose_catalog_dbc, CatalogDbcView};
 mod fresh_creature_cell;

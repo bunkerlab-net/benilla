@@ -51,6 +51,9 @@ fn digest_bytes(h: &str) -> Vec<u8> {
 }
 impl Fixture {
     fn new(rows: Vec<(Vec<u8>, Option<Vec<u8>>)>) -> Self {
+        Self::named("world_template", "map", rows)
+    }
+    fn named(name: &str, key: &str, rows: Vec<(Vec<u8>, Option<Vec<u8>>)>) -> Self {
         let path = std::env::temp_dir().join(format!(
             "benilla-catalog-authored-{}-{}",
             std::process::id(),
@@ -59,10 +62,10 @@ impl Fixture {
         std::fs::create_dir(&path).unwrap();
         std::fs::create_dir(path.join("objects")).unwrap();
         std::fs::create_dir(path.join("indexes")).unwrap();
-        let table = json!({"columns":[{"COLUMN_NAME":"map"},{"COLUMN_NAME":"ScriptName"}],"indexes":[{"INDEX_NAME":"PRIMARY","SEQ_IN_INDEX":1,"COLUMN_NAME":"map"}]});
-        let policy = json!({"core_revision":catalog_schema::POLICY["core_revision"],"database_revision":catalog_schema::POLICY["database_revision"],"tables":{"world_template":{"schema_sha256":json::digest(&table),"status":"consumed","loaders":["world"]}},"loaders":{"world":{}}});
-        let schema = json!({"format":"benilla-classic-catalog-schema-v3","core_revision":policy["core_revision"],"database_revision":policy["database_revision"],"tables":{"world_template":table}});
-        let coverage = json!({"policy_sha256":json::digest(&policy),"complete":false,"tables":{"world_template":{"status":"consumed","loaders":["world"]}}});
+        let table = json!({"columns":[{"COLUMN_NAME":key},{"COLUMN_NAME":"ScriptName"}],"indexes":[{"INDEX_NAME":"PRIMARY","SEQ_IN_INDEX":1,"COLUMN_NAME":key}]});
+        let policy = json!({"core_revision":catalog_schema::POLICY["core_revision"],"database_revision":catalog_schema::POLICY["database_revision"],"tables":{(name):{"schema_sha256":json::digest(&table),"status":"consumed","loaders":["world"]}},"loaders":{"world":{}}});
+        let schema = json!({"format":"benilla-classic-catalog-schema-v3","core_revision":policy["core_revision"],"database_revision":policy["database_revision"],"tables":{(name):table}});
+        let coverage = json!({"policy_sha256":json::digest(&policy),"complete":false,"tables":{(name):{"status":"consumed","loaders":["world"]}}});
         let mut f = Self {
             path,
             manifest: Value::Null,
@@ -201,7 +204,7 @@ impl Fixture {
         }
         let key =
             json!({"sha256":key_level[0].1,"bytes":4096,"height":key_height,"count":rows.len()});
-        f.relations = json!({"world_template":{"id":1,"columns":2,"key_columns":[0],"rows":rows.len(),"ordinal":ordinal,"key":key}});
+        f.relations = json!({(name):{"id":1,"columns":2,"key_columns":[0],"rows":rows.len(),"ordinal":ordinal,"key":key}});
         let schema_root = f.put(&json::canonical(&schema), false);
         let loader_root = f.put(&json::canonical(&coverage), false);
         let dbc_root = f.put(b"{}", false);
@@ -241,9 +244,19 @@ impl Fixture {
     }
     fn install(&mut self) {
         self.manifest["relation_root"] = self.put(&json::canonical(&self.relations), false);
-        self.manifest["index_root"] = json!(json::digest(
-            &json!({"world_template":{"ordinal":self.relations["world_template"]["ordinal"],"key":self.relations["world_template"]["key"]}})
-        ));
+        let indexes: serde_json::Map<String, Value> = self
+            .relations
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(name, relation)| {
+                (
+                    name.clone(),
+                    json!({"ordinal":relation["ordinal"],"key":relation["key"]}),
+                )
+            })
+            .collect();
+        self.manifest["index_root"] = json!(json::digest(&Value::Object(indexes)));
         self.save();
     }
     fn save(&mut self) {
@@ -482,4 +495,67 @@ fn catalog_authored_unsigned_descriptors_reject_booleans() {
         f.install();
         f.refuses(id);
     }
+}
+
+#[test]
+fn grid_definitions_bind_guid_to_exact_catalog_ordinal_and_retain_one_checked_frame() {
+    use crate::native::source_execution::{
+        CatalogGridDefinitions, GridDefinitions, GridIdentity, GridLoadAttempt, GridSpawnKind,
+        GridSpawnOrigin, MapIdentity,
+    };
+    let f = Fixture::named(
+        "creature",
+        "guid",
+        vec![
+            (b"7".to_vec(), Some(b"first".to_vec())),
+            (b"11".to_vec(), None),
+        ],
+    );
+    let mut catalog = f.open().unwrap();
+    let mut definitions = CatalogGridDefinitions::new(&mut catalog);
+    let attempt = GridLoadAttempt {
+        grid: GridIdentity {
+            map: MapIdentity {
+                map: 0,
+                instance: 0,
+                creation_generation: 1,
+            },
+            x: 32,
+            y: 32,
+            generation: 1,
+        },
+        cell: benilla_sim::resident_map::CellPair::from_indices(512, 512).unwrap(),
+        kind: GridSpawnKind::Creature,
+        origin: GridSpawnOrigin::Static,
+        guid: 7,
+        catalog_ordinal: 0,
+    };
+    let retained = definitions.read(attempt).unwrap();
+    let other = definitions
+        .read(GridLoadAttempt {
+            guid: 11,
+            catalog_ordinal: 1,
+            ..attempt
+        })
+        .unwrap();
+    assert!(definitions
+        .read(GridLoadAttempt {
+            guid: 11,
+            ..attempt
+        })
+        .is_err());
+    assert!(definitions
+        .read(GridLoadAttempt {
+            guid: 99,
+            ..attempt
+        })
+        .is_err());
+    assert_eq!(
+        retained.view().cells().collect::<Result<Vec<_>>>().unwrap(),
+        [Some(b"7".as_slice()), Some(b"first".as_slice())]
+    );
+    assert_eq!(
+        other.view().cells().collect::<Result<Vec<_>>>().unwrap(),
+        [Some(b"11".as_slice()), None]
+    );
 }

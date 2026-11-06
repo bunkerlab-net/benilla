@@ -372,3 +372,51 @@ impl DifferentialOracle {
         }
     }
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub enum GridProjectionOperation {
+    InitialState {
+        map: MapIdentity,
+        x: u16,
+        y: u16,
+        phase: u8,
+    },
+    ObjectData {
+        map: MapIdentity,
+        x: u16,
+        y: u16,
+        loaded_before: bool,
+    },
+    ProductRequest {
+        map: MapIdentity,
+        x: u16,
+        y: u16,
+    },
+    ForcedUnloadVisit {
+        map: MapIdentity,
+        x: u16,
+        y: u16,
+    },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct GridProjectionDivergence {
+    pub reason: Refusal,
+    pub expected: GridProjectionOperation,
+    pub actual: GridProjectionOperation,
+}
+impl DifferentialOracle {
+    pub fn compare_grid_projection(
+        expected: GridProjectionOperation,
+        actual: GridProjectionOperation,
+    ) -> std::result::Result<(), GridProjectionDivergence> {
+        if expected == actual {
+            Ok(())
+        } else {
+            Err(GridProjectionDivergence {
+                reason: refuse("execution.grid_projection_mismatch"),
+                expected,
+                actual,
+            })
+        }
+    }
+}

@@ -1183,6 +1183,15 @@ use the source 64-grid domain; cell-local coordinates use remainder by 16.
 Authored grid tests cover centres, signed zero, edges and undefined conversion
 domains. The retained 6,200-row oracle below continues to test cell arithmetic.
 
+`normalized_cell_pair` explicitly applies the source unsigned wrapping and
+`CoordPair::normalize`, `GridDefines.h:131-166`. It is separate from the checked
+cell/map-domain functions. `source_cell_visit` ports bounding-radius addition,
+the source visibility cap, standing-cell-first small traversal and central-strip
+plus symmetric-side octagon traversal, `Grids/CellImpl.h:37-169`.
+The cap is `SIZE_OF_GRIDS`, `Entities/ObjectDefines.h:32`; generated Cell grid
+fields preserve their six-bit truncation, `Grids/Cell.h:95-100`.
+These are coordinate visits, not successful loads or resident-object evidence.
+
 `tools/generate_resident_map_fixture.py` checks entire pinned GridDefines.h
 SHA256 `5f5413657f84c5f5964f2a69d342874d8d1f7f5ed2bab969e1d78b0650141d82`
 and Map.cpp SHA256 `b9ada3277b8f60dd93f6ceba7e85c1dffa129385fbb4d9043fd93771a9704d12`.

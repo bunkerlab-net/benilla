@@ -15,6 +15,13 @@ pub struct CellPair {
     y: u16,
 }
 impl CellPair {
+    pub fn from_indices(x: u16, y: u16) -> Result<Self, Error> {
+        if x < 1024 && y < 1024 {
+            Ok(Self { x, y })
+        } else {
+            Err(Error::OutsideMap)
+        }
+    }
     pub fn x(self) -> u16 {
         self.x
     }
@@ -66,7 +73,7 @@ fn checked<T>(value: StatusAnd<T>) -> Result<T, Error> {
 fn double(value: Single) -> Result<Double, Error> {
     checked(value.convert_r(R, &mut false))
 }
-fn coordinate(bits: u32, divisions: u32, center: u32, limit: u32) -> Result<u16, Error> {
+fn raw_coordinate(bits: u32, divisions: u32, center: u32) -> Result<u32, Error> {
     let input = Single::from_bits(u128::from(bits));
     if !input.is_finite() {
         return Err(Error::Numeric);
@@ -81,11 +88,15 @@ fn coordinate(bits: u32, divisions: u32, center: u32, limit: u32) -> Result<u16,
     let centered = checked(relative.add_r(Double::from_u128(u128::from(center)).value, R))?;
     let centered = checked(centered.add_r(Double::from_bits(0x3fe0_0000_0000_0000), R))?;
     let signed = checked(centered.to_i128_r(32, Round::TowardZero, &mut false))?;
-    // Source int-to-uint32 wrapping precedes the caller's coordinate limit check; GridDefines.h:154-166.
-    if !(0..i128::from(limit)).contains(&signed) {
+    // Source int-to-uint32 wrapping precedes normalization/bounds; GridDefines.h:154-166.
+    Ok(signed as u32)
+}
+fn coordinate(bits: u32, divisions: u32, center: u32, limit: u32) -> Result<u16, Error> {
+    let value = raw_coordinate(bits, divisions, center)?;
+    if value >= limit {
         return Err(Error::OutsideMap);
     }
-    u16::try_from(signed).map_err(|_| Error::Numeric)
+    Ok(value as u16)
 }
 /// Raw binary32 coordinates preserve exact signed zero/subnormal inputs.
 /// NaN/infinity or source undefined int conversion are refused, never clamped.
@@ -102,6 +113,83 @@ pub fn compute_grid_pair(x_bits: u32, y_bits: u32) -> Result<GridPair, Error> {
         x: coordinate(x_bits, 1, 32, 64)?,
         y: coordinate(y_bits, 1, 32, 64)?,
     })
+}
+
+// Normalize the unsigned source pair, including wrapped negative coordinates; GridDefines.h:131-135.
+pub fn normalized_cell_pair(x_bits: u32, y_bits: u32) -> Result<CellPair, Error> {
+    Ok(CellPair {
+        x: raw_coordinate(x_bits, 16, 512)?.min(1023) as u16,
+        y: raw_coordinate(y_bits, 16, 512)?.min(1023) as u16,
+    })
+}
+
+// Visit the standing cell first for small areas, or source octagon strips; CellImpl.h:54-169.
+pub fn source_cell_visit(
+    standing: CellPair,
+    x_bits: u32,
+    y_bits: u32,
+    radius_bits: u32,
+    bounding_bits: u32,
+) -> Result<impl Iterator<Item = CellPair>, Error> {
+    let (x, y, radius, bounding) = (
+        f32::from_bits(x_bits),
+        f32::from_bits(y_bits),
+        f32::from_bits(radius_bits),
+        f32::from_bits(bounding_bits),
+    );
+    if ![x, y, radius, bounding].into_iter().all(f32::is_finite) {
+        return Err(Error::Numeric);
+    }
+    let radius = (radius + bounding).min(f32::from_bits(0x4405_5555));
+    let (low, high) = if radius <= 0.0 || !standing.validate() {
+        (standing, standing)
+    } else {
+        (
+            normalized_cell_pair((x - radius).to_bits(), (y - radius).to_bits())?,
+            normalized_cell_pair((x + radius).to_bits(), (y + radius).to_bits())?,
+        )
+    };
+    let single = radius <= 0.0 || low == high;
+    let (lx, ly, hx, hy) = (
+        u32::from(low.x),
+        u32::from(low.y),
+        u32::from(high.x),
+        u32::from(high.y),
+    );
+    let large = !single && hx.wrapping_sub(lx) > 4 && hy.wrapping_sub(ly) > 4;
+    let small = !single && !large;
+    let shift = if large {
+        ((hx.wrapping_sub(lx) as f32 * 0.3f32) - 0.5f32).ceil() as u32
+    } else {
+        0
+    };
+    let (start, end) = (lx.wrapping_add(shift), hx.wrapping_sub(shift));
+    // Cell's six-bit grid fields retain coordinates modulo 1024; Cell.h:95-100, CellImpl.h:27-33.
+    let pair = |x: u32, y: u32| CellPair {
+        x: (x % 1024) as u16,
+        y: (y % 1024) as u16,
+    };
+    let first = Some(standing)
+        .into_iter()
+        .take(usize::from(standing.validate() && !large));
+    let rectangle = (lx..=hx)
+        .flat_map(move |x| (ly..=hy).map(move |y| pair(x, y)))
+        .filter(move |pair| *pair != standing)
+        .take(if small { usize::MAX } else { 0 });
+    let center = (start..=end)
+        .flat_map(move |x| (ly..=hy).map(move |y| pair(x, y)))
+        .take(if large { usize::MAX } else { 0 });
+    let sides = (1..=shift).flat_map(move |step| {
+        (ly.wrapping_add(step)..=hy.wrapping_sub(step))
+            .rev()
+            .flat_map(move |y| {
+                [
+                    pair(start.wrapping_sub(step), y),
+                    pair(end.wrapping_add(step), y),
+                ]
+            })
+    });
+    Ok(first.chain(rectangle).chain(center).chain(sides))
 }
 #[cfg(test)]
 mod tests {
@@ -184,6 +272,27 @@ mod grid_tests {
         assert_eq!(
             (cell.grid_x(), cell.grid_y(), cell.cell_x(), cell.cell_y()),
             (32, 31, 1, 14)
+        );
+    }
+    #[test]
+    fn normalized_pairs_wrap_before_clamping_and_keep_checked_domains_separate() {
+        assert_eq!(
+            compute_cell_pair((-20000f32).to_bits(), 0),
+            Err(Error::OutsideMap)
+        );
+        let pair = normalized_cell_pair((-20000f32).to_bits(), 20000f32.to_bits()).unwrap();
+        assert_eq!((pair.x(), pair.y()), (1023, 1023));
+        assert_eq!(
+            normalized_cell_pair(0, 0).unwrap(),
+            CellPair { x: 512, y: 512 }
+        );
+        assert_eq!(
+            normalized_cell_pair(f32::NAN.to_bits(), 0),
+            Err(Error::Numeric)
+        );
+        assert_eq!(
+            normalized_cell_pair(f32::MAX.to_bits(), 0),
+            Err(Error::Numeric)
         );
     }
 }

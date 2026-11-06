@@ -3,7 +3,7 @@
 use super::*;
 use benilla_sim::resident_map::CellPair;
 use std::collections::BTreeMap;
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct GridIdentity {
     pub map: MapIdentity,
     pub x: u16,
@@ -43,87 +43,43 @@ struct Link {
     previous: Option<ObjectHandle>,
     next: Option<ObjectHandle>,
 }
-struct GridState {
-    identity: GridIdentity,
-    object_data_loaded: bool,
-}
 pub struct SourceCells {
-    map: MapIdentity,
-    next_grid: u64,
-    grids: BTreeMap<(u16, u16), GridState>,
+    pub(super) grids: SourceGrids,
     cells: BTreeMap<(u16, u16), [Ends; 8]>,
     links: BTreeMap<ObjectHandle, Link>,
 }
 impl SourceCells {
     pub fn new(map: MapIdentity) -> Result<Self> {
-        require(map.creation_generation > 0, "execution.cell_map_generation")?;
         Ok(Self {
-            map,
-            next_grid: 1,
-            grids: BTreeMap::new(),
+            grids: SourceGrids::new(map)?,
             cells: BTreeMap::new(),
             links: BTreeMap::new(),
         })
     }
     pub fn map(&self) -> MapIdentity {
-        self.map
+        self.grids.map()
     }
     // Grid generations change only on reconstruction, not unload timer changes; Map.cpp:336-366.
     pub fn ensure_grid(&mut self, x: u16, y: u16) -> Result<GridIdentity> {
-        require(x < 64 && y < 64, "execution.grid_coordinates")?;
-        if let Some(grid) = self.grids.get(&(x, y)) {
-            return Ok(grid.identity);
-        }
-        let generation = self.next_grid;
-        self.next_grid = generation
-            .checked_add(1)
-            .ok_or_else(|| refuse("execution.grid_generation_exhausted"))?;
-        let identity = GridIdentity {
-            map: self.map,
-            x,
-            y,
-            generation,
-        };
-        self.grids.insert(
-            (x, y),
-            GridState {
-                identity,
-                object_data_loaded: false,
-            },
-        );
-        Ok(identity)
+        self.grids.create(x, y)
     }
     fn validate_grid(&self, grid: GridIdentity) -> Result<()> {
-        require(
-            grid.map == self.map
-                && self
-                    .grids
-                    .get(&(grid.x, grid.y))
-                    .is_some_and(|state| state.identity == grid),
-            "execution.stale_grid",
-        )
+        self.grids.validate(grid)
     }
     pub fn set_object_data_loaded(&mut self, grid: GridIdentity) -> Result<()> {
-        self.validate_grid(grid)?;
-        self.grids
-            .get_mut(&(grid.x, grid.y))
-            .unwrap()
-            .object_data_loaded = true;
-        Ok(())
+        self.grids.mark_objects(grid)
     }
     pub fn object_data_loaded(&self, x: u16, y: u16) -> bool {
-        self.grids
-            .get(&(x, y))
-            .is_some_and(|grid| grid.object_data_loaded)
+        self.grids.object_data_loaded(x, y)
     }
     pub fn cell(&self, pair: CellPair) -> Result<CellIdentity> {
         require(pair.validate(), "execution.cell_coordinates")?;
         let grid = self
             .grids
-            .get(&(pair.grid_x(), pair.grid_y()))
+            .identity(pair.grid_x(), pair.grid_y())
             .ok_or_else(|| refuse("execution.grid_absent"))?;
         Ok(CellIdentity {
-            grid: grid.identity,
+            grid,
             x: pair.x(),
             y: pair.y(),
         })
@@ -260,7 +216,7 @@ impl SourceCells {
         )?;
         self.cells
             .retain(|(x, y), _| (*x / 16, *y / 16) != (grid.x, grid.y));
-        self.grids.remove(&(grid.x, grid.y));
+        self.grids.destroy(grid)?;
         Ok(())
     }
 }

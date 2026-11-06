@@ -181,6 +181,27 @@ impl VerifiedCatalog {
             .clone();
         self.with_row(&relation, ordinal, &mut visit)
     }
+    pub(crate) fn execution_spawn_row(
+        &mut self,
+        name: &str,
+        guid: u32,
+        ordinal: u64,
+    ) -> Result<RetainedCatalogRow> {
+        check(matches!(name, "creature" | "gameobject"), "catalog.table")?;
+        let mut retained = None;
+        spawns::visit_key(self, name, guid, |row| {
+            if row.ordinal == ordinal {
+                retained = Some(RetainedCatalogRow {
+                    frame: row.frame.to_vec(),
+                    ordinal,
+                    columns: row.columns,
+                    bitmap: row.bitmap,
+                });
+            }
+            Ok(())
+        })?;
+        retained.ok_or_else(|| fail("catalog.spawn_occurrence_binding"))
+    }
     /// Candidate mode validates unpublished bytes with exactly the production reader.
     pub fn open(path: &Path, candidate: bool) -> Result<Self> {
         Self::open_with_cache(path, candidate, CACHE)
@@ -860,6 +881,24 @@ pub struct RowView<'a> {
     pub ordinal: u64,
     columns: usize,
     bitmap: usize,
+}
+
+/// One checked frame retained across recursive factory/catalog work.
+pub struct RetainedCatalogRow {
+    frame: Vec<u8>,
+    ordinal: u64,
+    columns: usize,
+    bitmap: usize,
+}
+impl RetainedCatalogRow {
+    pub fn view(&self) -> RowView<'_> {
+        RowView {
+            frame: &self.frame,
+            ordinal: self.ordinal,
+            columns: self.columns,
+            bitmap: self.bitmap,
+        }
+    }
 }
 impl<'a> RowView<'a> {
     fn new(frame: &'a [u8], ordinal: u64, columns: usize) -> Result<Self> {

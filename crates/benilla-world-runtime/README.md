@@ -443,3 +443,46 @@ and `BENILLA_F1_SEAL8_FRAMING` to `seal8-full-framing-08` to run the retained-da
 tests in `source_execution::path_distance`. Absent default private data skips
 with an explicit message. An explicit missing, changed or malformed capture
 fails. The two captures retain separate identities and counts.
+
+## Source grid loading and camera visits
+
+`source_execution::SourceGrids` owns NGrid generations and front-linked order.
+`SourceCells` uses that same registry for registration, product-load receipts and
+the object-data-loaded bit. Creation or terrain products alone do not make a grid
+object-loaded. Grid configuration must bind before a real load can begin.
+
+The CMaNGOS Classic `8ec338a1` contract is:
+
+- `Map.cpp:336-403` links a new IDLE grid, converts product coordinates with
+  `63 - internal`, and sets object-data-loaded before invoking factories.
+  `NGrid.h:40-64,89-121` owns initial expiry, explicit locks and the separate bit.
+  `GridReference.h:31-35` inserts at the front.
+- `Map.cpp:151-152` sets the product flag from the terrain owner's returned
+  GridMap pointer. `GridMap.cpp:726-742,1253-1306` retains that pointer even after
+  a map-file load failure. The flag does not prove successful geometry content.
+- `ObjectGridLoader.cpp:114-264` visits x outside y, grid types before world
+  types, GOs before creatures, and each static GUID set before its persistent
+  set. Each set sorts uint32 GUIDs. Duplicate static/persistent attempts remain.
+- `Map.cpp:357-381,419-427,1582-1583` supplies entry, forced and active-object
+  load triggers. Only a newly loaded entry grid gets the shortened expiry and
+  ACTIVE state. An already-loaded forced grid does not acquire an explicit lock.
+- `Camera.cpp:147-151` and `CellImpl.h:54-169,197-209` add bounding radius, cap
+  distance, visit the standing cell first for small ranges, and use octagon
+  strips for large ranges. Complete grid and world passes remain separate.
+  `Map.h:594-605` preserves NoCreate and skips cold object grids.
+
+`SourceGridLoader` consumes registered static/persistent sets and exact retained
+F2 GUID/ordinal rows. It does not instantiate every catalog definition. One owned,
+checked row frame survives recursive factory work. Product, constructor,
+LoadFromDB, failed-candidate deletion, corpse and viewpoint owners are mandatory.
+The module supplies no production no-op factories. Reached unavailable owners
+refuse, and a blocked load cannot silently resume as a successful one.
+
+The separate seal8-08 diagnostic labels member arguments as component fixtures.
+It compares initial grid state, object-load branch eligibility, converted VMap
+request associations and the actual forced UnloadAll visit order through F3.02.
+It does not treat an unload visit as completed deletion. The extra VMap request
+remains separately counted. Geometry execution, native generations, registration,
+trigger causality, natural unload/reload and whole-world admission remain pending.
+Set `BENILLA_F1_SEAL8_FRAMING` to the retained framing directory to exercise that
+unsealed projection. An absent default path prints SKIP; an explicit bad path fails.

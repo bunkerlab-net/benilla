@@ -4,7 +4,15 @@
 mod cells;
 mod clock;
 mod compare;
+mod grid_loader;
+mod grids;
 mod guids;
+pub use grid_loader::*;
+pub use grids::*;
+mod seal8_grids;
+pub use seal8_grids::{compare_seal8_unsealed_grids, Seal8GridReport};
+#[cfg(test)]
+mod grid_tests;
 mod inputs;
 mod messages;
 mod objects;
