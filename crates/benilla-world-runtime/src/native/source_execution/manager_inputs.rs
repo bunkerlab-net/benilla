@@ -1075,7 +1075,7 @@ impl SnapshotParser {
     }
 }
 type SqlValue<'a> = (Option<Cow<'a, [u8]>>, &'a [u8]);
-fn sql_value(bytes: &[u8]) -> Result<SqlValue<'_>> {
+pub(super) fn sql_value(bytes: &[u8]) -> Result<SqlValue<'_>> {
     if bytes.first() == Some(&b'\'') {
         let mut value = Vec::new();
         let mut at = 1;

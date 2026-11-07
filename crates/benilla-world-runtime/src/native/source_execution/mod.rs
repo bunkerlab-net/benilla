@@ -131,6 +131,14 @@ mod seal8_weather;
 #[cfg(test)]
 mod weather_tests;
 pub use seal8_weather::{compare_seal8_unsealed_weather, Seal8WeatherReport};
+mod corpse_inputs;
+pub use corpse_inputs::*;
+mod corpses;
+pub use corpses::*;
+#[cfg(test)]
+mod corpse_tests;
+mod seal8_corpses;
+pub use seal8_corpses::{compare_seal8_unsealed_corpses, Seal8CorpseReport};
 
 use super::production_compiler::{json, ExecutionFile};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};

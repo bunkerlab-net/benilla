@@ -96,6 +96,8 @@ pub struct SourceObject {
     pub database_spawn_data: bool,
     // Cache UpdateZone callbacks separately from terrain GetZoneId; Player.cpp:505,6854.
     pub zone_update_id: u32,
+    // Corpse GridReference can differ from SetMap; ObjectAccessor.cpp:203-221.
+    pub(super) corpse_grid_reference: Option<CellIdentity>,
     pub(super) source_allocation: Option<u64>,
     allocation_base: Option<u64>,
     player_map_linked: bool,
@@ -156,6 +158,7 @@ impl SourceObjects {
                 respawn_pose: None,
                 database_spawn_data: false,
                 zone_update_id: 0,
+                corpse_grid_reference: None,
                 source_allocation: None,
                 allocation_base: None,
                 player_map_linked: false,
@@ -310,6 +313,9 @@ impl SourceObjects {
         cells.grid_remove(object)?;
         cells.grid_add(object, cell)?;
         cells.link(handle, kind, cell)?;
+        if matches!(kind, SourceObjectKind::Corpse | SourceObjectKind::Bones) {
+            self.get_mut(handle)?.corpse_grid_reference = Some(cell);
+        }
         if kind.tracks_current_cell() {
             self.get_mut(handle)?.current_cell = Some(cell);
         }
@@ -318,8 +324,15 @@ impl SourceObjects {
     pub fn unlink_cell(&mut self, handle: ObjectHandle, cells: &mut SourceCells) -> Result<()> {
         let object = self.get(handle)?;
         require(object.map == Some(cells.map()), "execution.object_cell_map")?;
+        require(
+            object
+                .corpse_grid_reference
+                .is_none_or(|cell| cell.grid.map == cells.map()),
+            "execution.corpse.cross_map_cell_owner",
+        )?;
         cells.grid_remove(object)?;
         cells.unlink(handle);
+        self.get_mut(handle)?.corpse_grid_reference = None;
         Ok(())
     }
     pub(super) fn reset_map(&mut self, handle: ObjectHandle) -> Result<()> {
@@ -594,6 +607,24 @@ impl SourceObjects {
         self.link_cell(handle, new, cells)?;
         Ok(CellRelocation::Moved { old, new })
     }
+    // A failed startup constructor has no map or grid reference; Corpse.cpp:153-252, ObjectMgr.cpp:7396-7400.
+    pub(super) fn destroy_unbound(&mut self, handle: ObjectHandle) -> Result<()> {
+        let object = self.get(handle)?;
+        require(
+            object.map.is_none()
+                && !object.in_world
+                && !object.global_player_registered
+                && !object.player_map_linked
+                && object.current_cell.is_none()
+                && object.corpse_grid_reference.is_none(),
+            "execution.destroy_bound_object",
+        )?;
+        if let Some(base) = object.allocation_base {
+            self.allocations.remove(&base);
+        }
+        self.objects.remove(&handle);
+        Ok(())
+    }
     // Object destruction asserts not in world, then GridReference destruction unlinks; Object.cpp:61-68, GridReference.h:58-61.
     pub fn destroy(
         &mut self,
@@ -613,6 +644,12 @@ impl SourceObjects {
         require(
             object.map.is_none_or(|map| map == cells.map()),
             "execution.object_cell_map",
+        )?;
+        require(
+            object
+                .corpse_grid_reference
+                .is_none_or(|cell| cell.grid.map == cells.map()),
+            "execution.corpse.cross_map_cell_owner",
         )?;
         if let Some(base) = object.allocation_base {
             self.allocations.remove(&base);

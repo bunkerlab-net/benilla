@@ -294,16 +294,33 @@ pub trait GridObjectFactory<D: GridDefinitions, P: GridProductOwner>: Sized {
         object: ObjectHandle,
         context: &mut GridFactoryContext<'_, D, P>,
     ) -> Result<()>;
+    fn corpse_bindings(&mut self) -> Result<CorpseGridBindings<'_>> {
+        Err(refuse("execution.corpse.registry_owner"))
+    }
     fn cell_corpses(
         &mut self,
         cell: CellPair,
         context: &mut GridFactoryContext<'_, D, P>,
-    ) -> Result<()>;
+    ) -> Result<()> {
+        let bindings = self.corpse_bindings()?;
+        bindings
+            .registry
+            .load_cell(cell, context.objects, context.cells, bindings.other_maps)
+    }
     fn resurrectable_corpses(
         &mut self,
         entry: CellPair,
         context: &mut GridFactoryContext<'_, D, P>,
-    ) -> Result<()>;
+    ) -> Result<()> {
+        let bindings = self.corpse_bindings()?;
+        bindings.registry.add_corpses_to_grid(
+            entry,
+            bindings.instanceable,
+            context.objects,
+            context.cells,
+            bindings.other_maps,
+        )
+    }
 }
 pub struct SourceGridLoader<'a, D, F, P> {
     pub definitions: &'a mut D,

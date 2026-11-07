@@ -280,7 +280,7 @@ impl SourceResidency {
         self.drain(context, owner)?;
         let products = context.cells.grids().product_loaded(grid)?;
         owner.residency_observe(ResidencyEvent::DeleteGrid(grid))?;
-        context.cells.destroy_unloaded_grid(grid)?;
+        context.cells.destroy_unloaded_grid(grid, context.objects)?;
         if products {
             owner.residency_observe(ResidencyEvent::ReleaseProducts(grid))?;
             context

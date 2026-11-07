@@ -516,7 +516,7 @@ The pinned CMaNGOS Classic `8ec338a1` contract is:
 The repository has no production dynamic GO model/tree insertion owner.
 Constructor tests use explicitly authored model operations to check ordering;
 they don't establish F6 geometry or playable construction. Missing elevator,
-pet, corpse, dynamic-object, and transport attachment constructors refuse at
+pet, dynamic-object, and transport attachment constructors refuse at
 their named owners. Transport movement is not ordinary GO update. Reached
 scripts, geometry, bound catalog decoding, and owner-specific attachments remain
 mandatory dependencies. Active membership and lock changes use the real source
@@ -1163,3 +1163,50 @@ grade bits. This is an F7 handoff, not serialized continuation. Native format
 and NativeCapability remain unchanged. The unsealed seal8-08 diagnostic
 compares only the first represented weather packet; absent projections
 print SKIP. Weather regeneration and long-window retention still require MW.
+
+## Source player-corpse registry
+
+`SourceCorpseRegistry` loads the character/corpse/guild join from retained
+initial SQL storage. Missing relations refuse rather than become empty.
+The bound query order drives the shared GCC 12.2 identity table,
+`ObjectMgr.cpp:7371-7407`, `ObjectAccessor.h:79`.
+Construction consumes its fresh wall sample before loaded fields replace
+the creation time, `Corpse.cpp:27-40,153-169`.
+
+The registry stores the full 38-word corpse fields, location, type, rank,
+owner order and map/cell index. `CorpseCatalogAppearance` consumes retained
+F2 player-create, race/class/map DBC and item operands. It applies the
+display and inventory-type rules that those fields consume,
+`ObjectMgr.cpp:3106-3143,2604-2607`, `Corpse.cpp:177-250`.
+The separate corpse position fields remain zero after DB loading, while
+the WorldObject position changes, `Corpse.cpp:193-241`.
+
+Default grid-factory hooks execute both source paths. The per-cell path
+filters the map-keyed index and instance before SetMap/AddToWorld,
+`ObjectGridLoader.cpp:163-187`. The global path checks grid and optional
+instance only. It omits the map ID and links into the triggering entry cell
+without SetMap/AddToWorld, `ObjectAccessor.cpp:203-221`.
+Cross-map relinking requires the previous map's actual `SourceCells`.
+`CorpseOtherMaps` supplies that mutation. A missing owner produces
+`execution.corpse.cross_map_cell_owner` before unlinking or rebinding.
+
+Natural F3.11 grid destruction clears the GridReference but preserves the
+global resurrectable corpse, its world lookup and cell-index entry,
+`ObjectGridLoader.cpp:279-299`, `GridDefines.h:68-69`, `RefManager.h:49-55`.
+The authored test runs the real loader, expiry states, unloader and reload.
+Create/Add/Remove/Save methods are available to F5, but player release and
+reclaim handlers remain closed. F4.20 owns expiry and bones conversion.
+
+`characters.equipmentCache` supplies only even item-entry tokens to signed
+`atoi`, `Corpse.cpp:204-208`, `Util.cpp:142-147`. Overflow refuses rather than
+wraps. Packed enchantments occupy ignored odd tokens,
+`Player.cpp:15738-15752`. Duplicate owner insertion retains the source
+assertion as a typed refusal, `ObjectAccessor.cpp:192`.
+Raw corpse type 3 follows the ordinary failed-load branch. Values above 3
+refuse the preceding unfixed-enum conversion, `Corpse.h:27-33`,
+`Corpse.cpp:169-174`, under the
+[C++ conversion rule](https://timsong-cpp.github.io/cppwp/n4659/expr.static.cast#10).
+
+The inventory is an F7 contract, not serialized continuation. No native
+format or NativeCapability change occurs. The unsealed seal8 diagnostic
+compares the initial query only. Missing MC transition evidence prints SKIP.

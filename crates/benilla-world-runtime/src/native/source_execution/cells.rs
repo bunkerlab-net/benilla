@@ -155,7 +155,11 @@ impl SourceCells {
         )?;
         Ok(link.next)
     }
-    pub(super) fn destroy_unloaded_grid(&mut self, grid: GridIdentity) -> Result<()> {
+    pub(super) fn destroy_unloaded_grid(
+        &mut self,
+        grid: GridIdentity,
+        objects: &mut SourceObjects,
+    ) -> Result<()> {
         self.validate_grid(grid)?;
         require(
             !self
@@ -173,6 +177,12 @@ impl SourceCells {
                 )?;
                 for slot in (4..8).rev() {
                     while let Some(object) = self.first_in_slot(cell, slot)? {
+                        if matches!(
+                            objects.get(object)?.kind,
+                            SourceObjectKind::Corpse | SourceObjectKind::Bones
+                        ) {
+                            objects.get_mut(object)?.corpse_grid_reference = None;
+                        }
                         self.unlink(object);
                     }
                 }

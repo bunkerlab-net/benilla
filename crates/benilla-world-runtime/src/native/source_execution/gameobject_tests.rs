@@ -753,10 +753,6 @@ fn factory_selection_uses_original_entry_and_other_owners_refuse() {
             "execution.pet_constructor_owner_unavailable",
         ),
         (
-            SourceObjectKind::Corpse,
-            "execution.corpse_constructor_owner_unavailable",
-        ),
-        (
             SourceObjectKind::DynamicObject,
             "execution.dynamic_object_constructor_owner_unavailable",
         ),

@@ -673,13 +673,10 @@ where
     Ok(GridCandidateOutcome::Loaded(handle))
 }
 
-// Non-GO construction must enter its own owner; Pet.cpp:2108-2137, Corpse.cpp:65-99, DynamicObject.cpp:59-103, Transports.cpp:442-467.
+// These constructors retain separate unavailable owners; Pet.cpp:2108-2137, DynamicObject.cpp:59-103, Transports.cpp:442-467.
 pub fn refuse_unavailable_object_constructor(kind: SourceObjectKind) -> Refusal {
     refuse(match kind {
         SourceObjectKind::Pet => "execution.pet_constructor_owner_unavailable",
-        SourceObjectKind::Corpse | SourceObjectKind::Bones => {
-            "execution.corpse_constructor_owner_unavailable"
-        }
         SourceObjectKind::DynamicObject => "execution.dynamic_object_constructor_owner_unavailable",
         SourceObjectKind::Transport => "execution.transport_attachment_owner_unavailable",
         _ => "execution.object_constructor_owner_unavailable",
