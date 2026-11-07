@@ -1,0 +1,11 @@
+--- BuildPolyPath.original-prefix.inc
++++ BuildPolyPath.compatibility-prefix.inc
+@@ -22,7 +22,7 @@
+         if (m_pointPathLimit > m_pathPolyRefs.size())
+             m_pathPolyRefs.resize(m_pointPathLimit);
+     }
+-    float distToStartPoly, distToEndPoly;
++    float distToStartPoly = 0.0f, distToEndPoly = 0.0f;
+     float startPoint[VERTEX_SIZE] = {startPos.y, startPos.z, startPos.x};
+     float endPoint[VERTEX_SIZE] = {endPos.y, endPos.z, endPos.x};
+ 

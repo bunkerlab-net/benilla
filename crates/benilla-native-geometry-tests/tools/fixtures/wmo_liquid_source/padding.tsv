@@ -1,0 +1,2 @@
+# policy	padding_offset	zero_bytes	mutated_bytes	assembled_identical	declared_liqu	actual_liqu
+WMO_LIQUID_HEADER_ZERO_PADDING_V1	30	0000	a55a	1	108	72

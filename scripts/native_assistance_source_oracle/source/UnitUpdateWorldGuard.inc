@@ -1,0 +1,2 @@
+    if (!IsInWorld())
+        return;

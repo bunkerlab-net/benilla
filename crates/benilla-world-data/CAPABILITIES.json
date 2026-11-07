@@ -1,0 +1,42 @@
+{
+  "format_version": 1,
+  "profile": "benilla-world-slice-v1",
+  "status": "data-model-only",
+  "runtime_integrated": false,
+  "sql_importer_available": false,
+  "client_build": 5875,
+  "reviewed_core_revision": "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f",
+  "reviewed_database_revision": "ec4f596146be6467ea93c57397858e329e2db852",
+  "represented_models": [
+    "fixed-level-creature-stats",
+    "static-spawn-with-fixed-respawn-interval",
+    "passive-or-stationary-fixed-melee-creature",
+    "creature-started-and-finished-kill-only-quest",
+    "fixed-xp-money-and-plain-item-quest-rewards",
+    "plain-stackable-item",
+    "single-direct-damage-or-heal-mana-ability"
+  ],
+  "not_represented": [
+    "classic-combat-parity",
+    "pathfinding-or-roaming",
+    "faction-resolution",
+    "spawn-pools-events-groups-or-overrides",
+    "random-levels-damage-or-loot",
+    "equipment-stats-or-item-use",
+    "quest-chains-conditions-escort-items-exploration-or-spell-objectives",
+    "level-dependent-quest-xp",
+    "spell-schools-resists-crit-auras-procs-channels-or-scripts",
+    "player-creation-progression-or-persistence",
+    "world-identity-checkpoints-or-peer-join"
+  ],
+  "safety": {
+    "max_bytes": 8388608,
+    "max_top_level_rows": 100000,
+    "max_string_bytes": 16384,
+    "unknown_fields": "reject",
+    "unsupported_features": "reject-if-nonempty",
+    "dangling_references": "reject",
+    "automatic_downloads": false,
+    "execute_sql_or_scripts": false
+  }
+}

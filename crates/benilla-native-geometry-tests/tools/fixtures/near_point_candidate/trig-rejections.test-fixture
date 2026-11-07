@@ -1,0 +1,10 @@
+# angle_radians_bits; wrapper-domain rejections
+7f800000
+ff800000
+7fc00000
+7f800001
+ffc01234
+40c90fdc
+c0c90fdc
+7f7fffff
+ff7fffff

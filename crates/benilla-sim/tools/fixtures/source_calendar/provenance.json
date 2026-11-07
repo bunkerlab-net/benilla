@@ -1,0 +1,31 @@
+{
+  "image": "sha256:7f8acd0cd855b63046cfdf49f21ed319ae6b981758f5fafe2100aed8b4ef21e8",
+  "core_revision": "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f",
+  "compile_command": [
+    "g++",
+    "-std=c++17",
+    "-O3",
+    "-DNDEBUG",
+    "-ffp-contract=off",
+    "-fno-fast-math",
+    "-fno-omit-frame-pointer",
+    "-g",
+    "-I/source/src/game/GameEvents",
+    "/evidence/oracle.cpp",
+    "/source/src/game/GameEvents/moon.cpp",
+    "-o",
+    "/evidence/oracle"
+  ],
+  "cases": 1019,
+  "source_sha256": {
+    "src/game/GameEvents/GameEventMgr.cpp": "57c472a474a5feb2338060eae4858f8cb99987e983aecf9d655a61cb23d61d24",
+    "src/game/GameEvents/GameEventMgr.h": "0c67268cfac9b082da56d47003c06fef55fc2500f205b82e6d3755f8579f755a",
+    "src/shared/Database/Field.cpp": "b8f6fc538e1cdfe828cf48230779f571d2bba96f90b5cccbe10e679416dafb0a",
+    "src/shared/Database/Field.h": "7e82cbb1e1049fdf604179108c11ce6dc30eaff69743cdfc6d80e5448eff2ef9",
+    "src/game/GameEvents/moon.cpp": "f53f3f7b3a1c39b6c5eda609d03909861665973cf3434823757d15e25acfa24f",
+    "src/game/GameEvents/moon.h": "4fe2c44f279762977b5c980f20b7c79865284f39b5bec3fa338fdca51a1aff31"
+  },
+  "oracle_sha256": "333fac909697bc30991b98773564a55758121e80a5327ab63ba6baec06e214f7",
+  "output_sha256": "6910ad28c618481c404d3c05ca72c0799e3c69ec2a1e2c4ac5c129ecc2ebc4ac",
+  "scope": "Authored calendar component fixtures, not historical dispatch or sealed execution"
+}

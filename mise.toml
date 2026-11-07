@@ -1,0 +1,7 @@
+[tools]
+mr-boxington = "1"
+rust = { version = "stable", mr_boxington = true }
+
+[settings]
+minimum_release_age = "1d"
+minimum_release_age_excludes = ["rust"]

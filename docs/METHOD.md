@@ -1,5 +1,25 @@
 # METHOD — how benilla is built
 
+## Fork scope and licensing
+
+This fork additionally carries a PSK-authenticated P2P backend and a separate
+`benilla-sim` simulation crate, `benilla-session` lockstep adapter and an opt-in
+`benilla-encounter` chat controller for synthetic non-spatial test encounters.
+The GPL-covered `benilla-world-data`, `benilla-world-runtime`, `benilla-world-client`
+and `benilla-world-store` crates are the bounded solo-first world foundation;
+headless tests and named CMaNGOS formula ports do not establish playable Classic
+integration. Track exact coverage in [the parity ledger](CMANGOS-PARITY.md).
+The P2P exploration backend has no realm server; its current limits are listed in
+the root README. The CMaNGOS-derived simulation crate and its session adapter are
+GPL-3.0-or-later, with provenance and upstream notices in the simulation crate.
+The combined player links these crates and is GPL-covered in every startup mode;
+the permissive license statements below
+apply only to the original client code. Do not import original game assets or
+unreviewed third-party world databases. The reference-client rules below continue
+to govern the existing realm-client path.
+
+## Reference-client method
+
 benilla is a from-scratch World of Warcraft 1.12.1 client in Rust and Bevy. It reads the game's
 data from the player's own install, speaks the original protocol to any 1.12.1 server, and does
 not build a server or simulate the game. The reference client is the spec: benilla does what
@@ -17,8 +37,11 @@ crate of its own or a fork, and benilla opens a piece of itself to such a crate 
 ## The loop
 
 1. **The reference first.** For anything fidelity-defining, get the mechanism from the real
-   client before building: its behaviour, a DBC field, a FrameXML line, a packet capture. The
-   names and shapes under `reference/` are the surface benilla tracks.
+   client before building: its code as
+   [benilla-re](https://github.com/samwhosung/benilla-re) documents it by address, its
+   behaviour, a DBC field, a FrameXML line, a packet capture. The names and shapes under
+   `reference/` are the surface benilla tracks. A fact benilla-re lacks, or gets wrong, is
+   settled there, as an issue or a finding, and cited here by its client address.
 2. **Build it idiomatically.** Modern Bevy and Rust, performance woven in from the start.
    Implement the mechanism well; do not ape a quirk that is a bug.
 3. **Measure, never eyeball.** Timing, delay, ordering and feel are settled with instruments:
@@ -65,6 +88,8 @@ crate of its own or a fork, and benilla opens a piece of itself to such a crate 
 - `docs/METHOD.md`, this file: rules and method. Never state, never a log.
 - `docs/MAP.md`: what is built, generated from the code by `scripts/genmap.sh` at every land.
   Read it to orient; never edit or commit it by hand.
+- `docs/DEVIATIONS.md`: every place benilla differs from 1.12.1, its `Deviates` rows and `Deviation:`
+  comments, generated from the code by `scripts/genmap.sh` at every land; never edited by hand.
 - git: the history. No changelogs, no status docs, no "what we did" narratives.
 - The code: a comment says what the code does and the 1.12 fact behind it, in a line. No
   history, no stories.
@@ -72,8 +97,10 @@ crate of its own or a fork, and benilla opens a piece of itself to such a crate 
 ## Gates
 
 - **The land gates**: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets
-  -- -D warnings`, `cargo test --workspace`, the doc-link and render-pass lints, the player
-  build without the `dev` feature with its own tests, and the engine boot checks, as
+  -- -D warnings`, the workspace tests (`scripts/unit-tests.sh`: cargo-nextest where it is
+  installed, else `cargo test`) and their doctests, the doc-link lint (a full `cargo doc` of the
+  workspace) and the render-pass lint, the vendored-reference and message-catalog checks, the player
+  build without the `dev` feature, linted and with its own tests, and the engine boot checks, as
   `scripts/gates.sh`. It runs on the tree that lands, before it lands; it is memoized on the
   tree. The tests that read the install or the addon corpus skip where the data is absent, and
   the gate prints the count; where the data is, a skip is a failure (`BENILLA_REQUIRE_DATA=1`).

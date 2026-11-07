@@ -1,0 +1,40 @@
+# Copy beside the benilla executable as config.toml. Never commit or share the resulting file.
+# This fork's experimental P2P mode is selected by the presence of [p2p].
+[p2p]
+# Choose at least six independently random words privately. Share only with trusted players.
+# Any length, including empty, is accepted (maximum 1024 UTF-8 bytes).
+# Short/empty/public phrases provide little or no privacy; replace this public example.
+# Exact spelling, case and spaces matter.
+psk = "REPLACE_WITH_A_PRIVATE_RANDOM_PASSPHRASE"
+network = "friends-world"
+listen = "0.0.0.0:7474"
+# Reachable peer IP:port endpoints; a PSK authenticates peers but does not discover them.
+peers = []
+max_peers = 16
+timeout_ms = 5000
+# Optional IANA world timezone; defaults to UTC, never the host local timezone.
+# All exploration peers must use the exact same name.
+# timezone = "Africa/Johannesburg"
+# Optional private source-v2 captures, one file per race/class: <race>-<class>.json.
+# Relative to the executable. Example: 6-11.json for Tauren Druid.
+# Configured missing/invalid files refuse new creation; saved characters still enter normally.
+# Omit for built-in racial starting locations. See docs/CLASSIC-EXPLORATION-STARTS.md.
+# classic_start_captures = "benilla-config/classic-starts"
+
+# Optional Iroh mode: uncomment the table, choose compatible relay URLs, and privately
+# exchange endpoint tickets. Empty relays means direct QUIC only. Keep p2p.peers empty.
+# No public service is selected for you. See docs/P2P-CONFIG.md before enabling router changes.
+# [p2p.iroh]
+# relay_urls = []
+# peer_tickets = []
+# port_mapping = false
+
+[wow]
+# Relative to the executable's directory, not the terminal's current working directory.
+data = "WoW/Data"
+
+[ruleset]
+# Positive rates, 0.001..1000, up to three decimal places; 1.0 is unchanged.
+xp_rate = 1.0
+# Scales drop chance (capped at 100%), not quantity. Only implemented simulation uses this.
+drop_rate = 1.0

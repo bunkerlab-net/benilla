@@ -1,0 +1,3026 @@
+#!/usr/bin/env python3
+"""Original synthetic rows only. No native content, install, database, or network.
+SPDX-License-Identifier: GPL-3.0-or-later
+"""
+from __future__ import annotations
+
+import copy
+import hashlib
+import importlib.util
+import os
+import re
+import itertools
+from pathlib import Path
+import struct
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+from classic_export import reputation as rep
+from classic_export.capture import capture, validate_bundle
+from classic_export.core import CORE_REVISION, ExportError, canonical, decode_json, digest
+from native_starter.compiler import (Request, SPELL_FIELDS, FLOAT_SPELL_FIELDS, compile_starter,
+                                     outfit_quantity, verify_preparation)
+from native_starter.dbc import (LAYOUTS, MAX_RECORDS, binary32_bits,
+                                load_directory, load_extraction_manifest, parse_table)
+from native_starter.event_ai_plan import supported_plan
+from native_starter.outfit_plan import supported_plan as outfit_plan
+from native_starter.world_rules import stock_preset
+
+ROOT = Path(__file__).resolve().parent
+spec = importlib.util.spec_from_file_location("export_tests", ROOT / "test-classic-export.py")
+export_tests = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(export_tests)
+
+
+def source_input():
+    source = export_tests.starter_source()
+    for name in FLOAT_SPELL_FIELDS:
+        col = next(c for c in source.inventory["tables"]["spell_template"]["columns"] if c["name"] == name)
+        col["type"] = "float"
+    for spell in source.rows["spell_template"]:
+        spell.update(CastingTimeIndex=700001, rangeIndex=710001)
+    for item in source.rows["item_template"]:
+        item["BuyCount"] = 1
+    source.rows["creature_template"][0]["Faction"] = 970001
+    return source
+
+
+def source_bundle():
+    return capture(source_input(), export_tests.starter_selection())
+
+
+def dbc_bytes(name, rows):
+    layout = LAYOUTS[name]
+    records = b""
+    for values in rows:
+        if name == "CharBaseInfo":
+            records += bytes(values)
+        else:
+            words = [0] * (layout.size//4)
+            for key, value in values.items():
+                words[key] = value & 0xffffffff
+            records += struct.pack("<" + "I"*len(words), *words)
+    strings = b"\0"
+    return struct.pack("<4s4I", b"WDBC", len(rows), layout.fields, layout.size, len(strings)) + records + strings
+
+
+def dbcs_for(source):
+    rows = {name: [] for name in LAYOUTS if name not in {"TaxiPath", "TaxiPathNode"}}
+    rows.update({
+        "CreatureDisplayInfo": [{0: 940001, 1: 950001, 4: binary32_bits("1.25"), 9: -1}],
+        "ChrRaces": [{0: 1, 2: 970001, 4: 940010, 5: 940011}],
+        "ChrClasses": [{0: 1, 3: 1}],
+        "CharBaseInfo": [(1, 1)],
+        "CharStartOutfit": [{0: 960001, 1: 0x00000101, 2: 920001, 3: -1}],
+        "Map": [{0: 0}],
+        "Faction": [{0: 980001, 1: -1}],
+        "FactionTemplate": [{0: 970001, 1: 980001}],
+        "SpellCastTimes": [{0: 700001, 1: 1300, 2: -1, 3: 800}],
+        "SpellRange": [{0: 710001, 1: binary32_bits("1.5"), 2: binary32_bits("27.25"), 3: 2}],
+        "SkillLine": [{0: 60001}, {0: 60002}],
+        "SkillRaceClassInfo": [{0: 800001, 1: 60001, 6: 810001}, {0: 800002, 1: 60002}],
+        "SkillTiers": [{0: 810001}],
+        "SkillLineAbility": [{0: 820001, 1: 60001, 2: 930101}],
+    })
+    for spell in source["tables"]["spell_template"]:
+        row = {}
+        for name, field in SPELL_FIELDS.items():
+            value = spell[name]
+            row[field] = binary32_bits(value["decimal"]) if name in FLOAT_SPELL_FIELDS else value & 0xffffffff
+        rows["Spell"].append(row)
+    return {name: dbc_bytes(name, values) for name, values in rows.items()}
+
+
+def parsed(files):
+    return {name: parse_table(name, value) for name, value in files.items()}
+
+
+def extraction_metadata(files):
+    return {"format": ("benilla-native-dbc-extraction-v5" if "TaxiPathNode" in files
+                       else "benilla-native-dbc-extraction-v4"),
+            "chain_policy": "benilla-formats-vanilla-chain", "client_build_claim": 5875,
+            "client_build_authenticity_verified": False,
+            "files": [{**table.manifest(), "winning_archive": "dbc.MPQ"}
+                      for _, table in sorted(parsed(files).items())]}
+
+
+def rehash_source(bundle):
+    from classic_export.capture import full_report
+    from classic_export.core import Selection, schema_profile
+    from classic_export.starter import keys
+    bundle["table_sha256"] = {name: digest(rows) for name, rows in bundle["tables"].items()}
+    export_tests.refresh_event_text(bundle)
+    bundle["starter_required_keys"] = keys(bundle["tables"])
+    if "spell_script_capture" in bundle:
+        from classic_export.spell_registry import evidence
+        bundle["spell_script_capture"] = evidence(bundle)
+    if "native_spawn_capture" in bundle:
+        from classic_export.native_spawn import evidence
+        bundle["native_spawn_capture"] = evidence(bundle)
+    profiles = schema_profile(bundle["schema"], set(bundle["tables"]) | {"db_version"})
+    if bundle.get("learning_capture", {}).get("global_chain_probe") is not None and bundle["tables"]["spell_chain"]:
+        bundle["learning_capture"]["global_chain_probe"]["rows"] = bundle["tables"]["spell_chain"][:1]
+    bundle["report"]["unsupported"] = full_report(bundle["tables"], profiles, Selection.parse(bundle["selection"]))
+
+
+class CanonicalOrderTests(unittest.TestCase):
+    def test_numeric_order_preserves_occurrences_and_refuses_missing_key(self):
+        from native_starter.canonical_order import ordered
+        rows = [{"race": 1, "class": 8, "Spell": spell} for spell in (100, 20, 20)]
+        self.assertEqual([r["Spell"] for r in ordered("playercreateinfo_spell", rows)], [20, 20, 100])
+        self.assertEqual(ordered("playercreateinfo_spell", rows),
+                         ordered("playercreateinfo_spell", list(reversed(rows))))
+        del rows[0]["Spell"]
+        with self.assertRaisesRegex(ExportError, "canonical_order.missing_key"):
+            ordered("playercreateinfo_spell", rows)
+
+    def test_script_priority_precedes_tie_keys_and_keeps_duplicates(self):
+        from native_starter.canonical_order import CONTRACT, ordered
+        keys = CONTRACT["keys"]["dbscripts_on_quest_end"]
+        rows = [dict.fromkeys(keys, 0) | {"id": 90, "priority": priority, "delay": delay}
+                for priority, delay in ((2, 1), (1, 8), (1, 2), (1, 2))]
+        actual = ordered("dbscripts_on_quest_end", rows)
+        self.assertEqual([(r["priority"], r["delay"]) for r in actual],
+                         [(1, 2), (1, 2), (1, 8), (2, 1)])
+        self.assertEqual(actual, ordered("dbscripts_on_quest_end", list(reversed(rows))))
+
+
+class DbcTests(unittest.TestCase):
+    def test_rust_extractor_allowlist_matches_compiler_layouts(self):
+        source = (ROOT.parent/"crates"/"benilla-native-dbc"/"src"/"lib.rs").read_text()
+        actual = {name: (int(fields), int(size)) for name, fields, size in
+                  re.findall(r'\("([A-Za-z]+)", (\d+), (\d+)\)', source)}
+        self.assertEqual(actual, {name: (layout.fields, layout.size) for name, layout in LAYOUTS.items()})
+
+    def test_packed_outfit_and_base_info_are_not_dword_tables(self):
+        outfit = parse_table("CharStartOutfit", dbc_bytes("CharStartOutfit", [{0: 1000, 1: 0x010801, 2: -1}]))
+        self.assertEqual(len(outfit.rows[0].words), 38)
+        self.assertEqual(outfit.rows[0].words[1], 0x010801)
+        self.assertEqual(parse_table("CharBaseInfo", dbc_bytes("CharBaseInfo", [(1, 8)])).rows[0].key, (1, 8))
+
+    def test_map_zero_and_no_default_key(self):
+        self.assertIn(0, parse_table("Map", dbc_bytes("Map", [{0: 0}])).by_id)
+
+    def test_layout_truncation_trailing_and_duplicate_keys_fail(self):
+        original = dbc_bytes("Map", [{0: 0}])
+        bad_layout = bytearray(original)
+        struct.pack_into("<I", bad_layout, 8, 41)
+        for data in [b"", b"BAD!"+original[4:], original[:-1], original+b"\0", bad_layout,
+                     dbc_bytes("Map", [{0: 0}, {0: 0}])]:
+            with self.subTest(data=len(data)), self.assertRaises(ExportError):
+                parse_table("Map", bytes(data))
+        with self.assertRaises(ExportError):
+            parse_table("CharBaseInfo", dbc_bytes("CharBaseInfo", [(1, 8), (1, 8)]))
+
+    def test_counts_and_string_offsets_fail_closed(self):
+        data = bytearray(dbc_bytes("Map", [{0: 0}]))
+        struct.pack_into("<I", data, 4, MAX_RECORDS+1)
+        with self.assertRaisesRegex(ExportError, "record_limit"):
+            parse_table("Map", bytes(data))
+        with self.assertRaisesRegex(ExportError, "string_offset"):
+            parse_table("Map", dbc_bytes("Map", [{0: 0, 1: 40}]))
+        bad = bytearray(dbc_bytes("Map", [{0: 0}]))
+        bad[-1] = 65
+        with self.assertRaisesRegex(ExportError, "string_block"):
+            parse_table("Map", bytes(bad))
+
+    def test_invalid_utf8_and_string_limit(self):
+        data = dbc_bytes("Map", [{0: 0, 1: 1}])
+        invalid = data[:-1]+b"\0\xff\0"
+        invalid = invalid[:16]+struct.pack("<I", 3)+invalid[20:]
+        with self.assertRaisesRegex(ExportError, "encoding"):
+            parse_table("Map", invalid)
+
+    def test_exact_binary32_rounding(self):
+        for decimal, bits in [("0", 0), ("-2", 0xc0000000), ("1.5", 0x3fc00000),
+                              ("1.000000059604644775390625", 0x3f800000),
+                              ("1.000000059604644775390626", 0x3f800001),
+                              ("1.000000178813934326171875", 0x3f800002),
+                              ("1e-50", 0), ("1e-45", 1)]:
+            self.assertEqual(binary32_bits(decimal), bits)
+        with self.assertRaisesRegex(ExportError, "overflow"):
+            binary32_bits("1e100")
+
+    def test_repeated_string_offsets_share_one_decoded_value(self):
+        values = [{0: 900001+i, **{c: 1 for c in LAYOUTS["Spell"].strings}} for i in range(16)]
+        data = dbc_bytes("Spell", values)
+        strings = b"\0"+b"a"*16_384+b"\0"
+        data = data[:16]+struct.pack("<I", len(strings))+data[20:-1]+strings
+        table = parse_table("Spell", data)
+        self.assertEqual(len({id(value) for row in table.rows for value in row.text.values()}), 1)
+
+    def test_non_regular_input_is_reported_without_blocking(self):
+        if not hasattr(os, "mkfifo"):
+            self.skipTest("POSIX FIFO regression only")
+        with tempfile.TemporaryDirectory() as directory:
+            os.mkfifo(Path(directory)/"CharBaseInfo.dbc")
+            tables, errors = load_directory(Path(directory))
+        self.assertFalse(tables)
+        self.assertIn("input.regular_file_required", {e["reason"] for e in errors})
+
+    def test_unique_decoded_text_has_a_cumulative_limit(self):
+        data = dbc_bytes("Map", [{0: 0, 1: 1}])
+        strings = b"\0original\0"
+        data = data[:16]+struct.pack("<I", len(strings))+data[20:-1]+strings
+        with mock.patch("native_starter.dbc.MAX_DECODED_TEXT_BYTES", 4):
+            with self.assertRaisesRegex(ExportError, "decoded_text_limit"):
+                parse_table("Map", data)
+
+    def test_missing_required_files_all_reported(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tables, errors = load_directory(Path(directory))
+        self.assertFalse(tables)
+        self.assertEqual({e["table"] for e in errors}, set(LAYOUTS) - {"TaxiPath", "TaxiPathNode"})
+
+    def test_manifest_requires_complete_exact_allowlist_and_hashes(self):
+        files = dbcs_for(source_bundle())
+        tables = parsed(files)
+        valid = extraction_metadata(files)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaisesRegex(ExportError, "manifest_missing"):
+                load_extraction_manifest(root, tables)
+            for label, mutate in [
+                ("duplicate file", lambda v: v["files"].__setitem__(0, v["files"][1])),
+                ("missing file", lambda v: v["files"].pop()),
+                ("changed bytes", lambda v: v["files"][0].__setitem__("sha256", "0"*64)),
+                ("wrong numeric type", lambda v: v["files"][0].__setitem__("fields", True)),
+                ("imported path", lambda v: v["files"][0].__setitem__("file", "../CharBaseInfo.dbc")),
+                ("archive path", lambda v: v["files"][0].__setitem__("winning_archive", "../dbc.MPQ")),
+                ("extra field", lambda v: v.__setitem__("extra", 1)),
+                ("legacy extraction", lambda v: v.__setitem__("format", "benilla-native-dbc-extraction-v1")),
+                ("unsupported policy", lambda v: v.__setitem__("chain_policy", "other")),
+                ("authenticity claim", lambda v: v.__setitem__("client_build_authenticity_verified", True)),
+            ]:
+                value = copy.deepcopy(valid)
+                mutate(value)
+                (root/"extraction.json").write_bytes(canonical(value))
+                with self.subTest(label=label), self.assertRaises(ExportError):
+                    load_extraction_manifest(root, tables)
+            (root/"extraction.json").write_bytes(canonical(valid))
+            bound = load_extraction_manifest(root, tables)
+            self.assertTrue(bound["integrity_verified"])
+            self.assertFalse(bound["authenticity_verified"])
+            with self.assertRaisesRegex(ExportError, "complete_valid_dbc"):
+                load_extraction_manifest(root, {})
+            (root/"extraction.json").write_bytes(canonical(valid)+b"\n")
+            self.assertNotEqual(bound["sha256"], load_extraction_manifest(root, tables)["sha256"])
+            (root/"extraction.json").write_bytes(b'{"format":"one","format":"two"}')
+            with self.assertRaises(ExportError):
+                load_extraction_manifest(root, tables)
+
+
+class OutfitPlacementTests(unittest.TestCase):
+    def setUp(self):
+        base = source_bundle()["tables"]["item_template"][0]
+        self.item = {**base, "class": 4, "subclass": 0, "InventoryType": 20,
+                     "BuyCount": 1, "stackable": 1, "RequiredSkill": 0,
+                     "RequiredSkillRank": 0, "requiredspell": 0}
+        self.grant = {"source": "CharStartOutfit", "source_slot": 0,
+                      "item_id": self.item["entry"], "count": 1}
+
+    def plan(self, item=None, count=1):
+        row = self.item if item is None else item
+        return outfit_plan([{**self.grant, "count": count}], {row["entry"]: row})
+
+    def test_ordered_robe_pants_boots_staff_shirt_and_stored_items(self):
+        items, grants = {}, []
+        for n, kind in enumerate([20, 7, 8, 17, 4, 0, 0, 0]):
+            row = {**self.item, "entry": 990008 - n, "InventoryType": kind}
+            if n == 3:
+                row.update({"class": 2, "subclass": 10})
+            elif n >= 5:
+                row.update({"class": 15 if n == 7 else 0, "stackable": 20})
+            items[row["entry"]] = row
+            grants.append({**self.grant, "source_slot": n, "item_id": row["entry"],
+                           "count": 5 if n in {5, 6} else 1})
+        plan, reasons = outfit_plan(grants, items)
+        self.assertEqual(reasons, [])
+        self.assertEqual([g["candidate_slots"] for g in plan["grants"]],
+                         [[4], [6], [7], [15], [3], [], [], []])
+        self.assertEqual([g["count"] for g in plan["grants"]], [1, 1, 1, 1, 1, 5, 5, 1])
+        self.assertEqual(plan["second_pass"], "backpack_slot_order_equip_else_merge_then_first_empty")
+
+    def test_refuses_missing_item_unknown_types_stacks_capacity_and_requirements(self):
+        self.assertIsNone(outfit_plan([self.grant], {})[0])
+        for fields in [{"class": 99}, {"subclass": 99}, {"InventoryType": 28},
+                       {"stackable": 0}, {"stackable": 10001}, {"RequiredSkill": 1},
+                       {"requiredspell": 1}, {"ContainerSlots": 4},
+                       {"spellid_1": 999001, "spelltrigger_1": 1}]:
+            with self.subTest(fields=fields):
+                self.assertIsNone(self.plan({**self.item, **fields})[0])
+        for count in [0, None, 10001, 18]:
+            with self.subTest(count=count):
+                self.assertIsNone(self.plan(count=count)[0])
+        self.assertIsNotNone(self.plan()[0])
+
+
+class CompilerTests(unittest.TestCase):
+    def setUp(self):
+        self.source = source_bundle()
+        self.files = dbcs_for(self.source)
+        self.request = Request.parse({"race": 1, "class": 1, "gender": 0})
+
+    def compile(self):
+        return compile_starter(self.source, parsed(self.files), self.request)
+
+    def test_exact_ids_cast_range_progression_outfit_and_blocked_runtime(self):
+        result = self.compile()
+        self.assertEqual(result["status"], "blocked")
+        self.assertIsNone(result["runtime_export"])
+        self.assertNotIn("runnable", result)
+        identity = result["player"]["identity"]
+        self.assertEqual(identity["display_id"], 940010)
+        self.assertEqual(identity["power_type"], 1)
+        self.assertEqual(identity["start"]["map"], 0)
+        self.assertEqual(result["player"]["level_inputs"][0]["create_health"], 8)
+        self.assertEqual(result["player"]["level_inputs"][0]["create_mana"], 0)
+        self.assertIsNone(result["player"]["level_inputs"][-1]["xp_for_next_level"])
+        grants = result["player"]["outfit"]["grants_in_source_order"]
+        self.assertEqual([g["item_id"] for g in grants], [920001, 920101])
+        self.assertEqual([g["count"] for g in grants], [1, 2])
+        self.assertEqual(result["spells"][0]["cast_time"]["per_level_ms"], -1)
+        self.assertEqual(result["spells"][0]["range"]["minimum_binary32"], 0x3fc00000)
+        self.assertFalse(any(s["server_client_differences"] for s in result["spells"]))
+        self.assertEqual(result["source_sha256"], digest(self.source))
+        self.assertIn("native.runtime_profile_not_implemented", {i["reason"] for i in result["unsupported"]})
+
+    def test_complete_outfit_reports_guarded_placement_and_keeps_production_closed(self):
+        for row in self.source["tables"]["item_template"]:
+            row.update({"class": 15, "subclass": 0, "InventoryType": 0,
+                        "stackable": 20, "RequiredSkill": 0, "RequiredSkillRank": 0,
+                        "requiredspell": 0})
+        rehash_source(self.source)
+        result = self.compile()
+        plan = result["player"]["outfit"]["placement_plan"]
+        self.assertIsNotNone(plan)
+        self.assertEqual([g["item_id"] for g in plan["grants"]], [920001, 920101])
+        self.assertEqual([g["count"] for g in plan["grants"]], [1, 2])
+        self.assertFalse(plan["equipment_resolved"])
+        self.assertIn("player.native_equipment_placement_required",
+                         {r["reason"] for r in result["unsupported"]})
+        self.assertIsNone(result["runtime_export"])
+
+    def test_every_sql_and_selected_dbc_field_has_exactly_one_disposition(self):
+        result = self.compile()
+        expected = {(table, tuple(row[k] for k in export_tests.starter.KEYS[table])): set(row)
+                    for table, rows in self.source["tables"].items() for row in rows}
+        self.assertEqual(len(result["source_field_dispositions"]), len(expected))
+        for row in result["source_field_dispositions"]:
+            fields = row["consumed_by_preparation"] + row["inert_source_annotations"]
+            fields += [f for values in row["blocked_for_gameplay"].values() for f in values]
+            self.assertEqual(len(fields), len(set(fields)))
+            self.assertEqual(set(fields), expected[(row["table"], tuple(row["key"]))])
+        for row in result["dbc_bindings"]:
+            cols = row["consumed_by_preparation"]+row["blocked_for_gameplay"]
+            self.assertEqual(sorted(cols), list(range(len(row["words"]))))
+
+    def test_no_dbc_data_is_never_filled_with_defaults(self):
+        result = compile_starter(self.source, {}, self.request)
+        self.assertIsNone(result["player"]["identity"]["display_id"])
+        self.assertIsNone(result["player"]["identity"]["power_type"])
+        self.assertIsNone(result["player"]["outfit"]["outfit_record_id"])
+        self.assertTrue(all(s["cast_time"] is None and s["range"] is None for s in result["spells"]))
+        self.assertTrue(result["required_additional_rows"])
+
+    def test_missing_outfit_item_is_exact_dependency_not_fake_grant(self):
+        self.files["CharStartOutfit"] = dbc_bytes("CharStartOutfit", [{0: 960001, 1: 0x0101, 2: 999001}])
+        result = self.compile()
+        self.assertIn({"table": "item_template", "id": 999001, "reason": "player.outfit_item_not_captured"},
+                      result["required_additional_rows"])
+        self.assertIsNone(result["player"]["outfit"]["grants_in_source_order"][0]["count"])
+        self.assertIn(999001, result["dependency_request"]["item_ids"])
+        from native_starter.compiler import Compiler
+        from native_starter.learning import discover
+        # SQL recapture discovery must not depend on outfit() running first.
+        closure = discover(Compiler(self.source, parsed(self.files), self.request))
+        self.assertIn(999001, closure["dependency_request"]["item_ids"])
+        self.assertIn({"from_table": "CharStartOutfit", "from_id": 960001,
+                       "to_kind": "item", "to_id": 999001, "role": "outfit_item", "slot": 0},
+                      closure["edges"])
+        sql = source_input()
+        item = copy.deepcopy(sql.rows["item_template"][0])
+        item["entry"] = 999001
+        sql.rows["item_template"].append(item)
+        recaptured = capture(sql, export_tests.starter_selection(),
+                             dependency_request=result["dependency_request"])
+        self.assertIn(999001, {r["entry"] for r in recaptured["tables"]["item_template"]})
+        second = compile_starter(recaptured, parsed(self.files), self.request)
+        self.assertNotIn({"table": "item_template", "id": 999001,
+                          "reason": "player.outfit_item_not_captured"},
+                         second["required_additional_rows"])
+
+    def test_zero_cast_index_has_core_zero_time_without_record_zero(self):
+        for row in self.source["tables"]["spell_template"]:
+            row["CastingTimeIndex"] = 0
+        self.files["SpellCastTimes"] = dbc_bytes("SpellCastTimes", [])
+        words = [{i: word for i, word in enumerate(row.words)}
+                 for row in parsed(self.files)["Spell"].rows]
+        for row in words:
+            row[18] = 0
+        self.files["Spell"] = dbc_bytes("Spell", words)
+        rehash_source(self.source)
+        result = self.compile()
+        self.assertTrue(all(s["cast_time"] == {"id": 0, "base_ms": 0,
+                            "per_level_ms": 0, "minimum_ms": 0} for s in result["spells"]))
+        self.assertFalse(any(r["table"] == "SpellCastTimes" and r["id"] == 0
+                             for r in result["required_additional_rows"]))
+        self.assertNotIn({"table": "SpellCastTimes", "id": 0},
+                         result["player"]["skills"]["dependency_closure"]["dbc_references"])
+
+    def test_gender_and_high_outfit_byte_are_not_ignored(self):
+        for packed in [0x010101, 0x01000101]:
+            self.files["CharStartOutfit"] = dbc_bytes("CharStartOutfit", [{0: 960001, 1: packed, 2: 920001}])
+            result = self.compile()
+            self.assertIsNone(result["player"]["outfit"]["outfit_record_id"])
+            self.assertIn("player.outfit_missing", {i["reason"] for i in result["unsupported"]})
+
+    def test_duplicate_outfit_variants_fail_without_arbitrary_selection(self):
+        self.files["CharStartOutfit"] = dbc_bytes("CharStartOutfit", [{0: 960001, 1: 0x0101}, {0: 960002, 1: 0x0101}])
+        result = self.compile()
+        self.assertIn("player.outfit_ambiguous", {i["reason"] for i in result["unsupported"]})
+        self.assertIsNone(result["player"]["outfit"]["outfit_record_id"])
+
+    def test_multi_effect_aura_trigger_and_no_invented_heal(self):
+        spell = self.source["tables"]["spell_template"][0]
+        spell.update(Effect2=6, EffectApplyAuraName2=3, EffectAmplitude2=2000)
+        rehash_source(self.source)
+        self.files = dbcs_for(self.source)
+        result = self.compile()
+        effects = result["spells"][0]["effects"]
+        self.assertEqual([e["Effect"] for e in effects], [2, 6, 0])
+        self.assertEqual(effects[1]["EffectAmplitude"], 2000)
+        self.assertFalse(any(e["Effect"] == 10 for s in result["spells"] for e in s["effects"]))
+        reasons = {i["reason"] for i in result["unsupported"]}
+        self.assertIn("spell.multiple_or_missing_effects", reasons)
+        self.assertIn("spell.aura_or_trigger_dependency", reasons)
+
+    def test_native_server_client_discrepancy_is_specific(self):
+        data = bytearray(self.files["Spell"])
+        struct.pack_into("<I", data, 20+61*4, 10)
+        self.files["Spell"] = bytes(data)
+        result = self.compile()
+        self.assertIn("Effect1", result["spells"][0]["server_client_differences"])
+        self.assertEqual(result["spells"][0]["effects"][0]["Effect"], 2)
+
+    def test_signed_zero_range_is_equal_to_zero_but_bits_remain_exact(self):
+        for low, high in [(0x80000000, 0x3f800000), (0, 0x80000000)]:
+            self.files["SpellRange"] = dbc_bytes("SpellRange", [{0: 710001, 1: low, 2: high}])
+            result = self.compile()
+            self.assertNotIn("spell.range_domain", {i["reason"] for i in result["unsupported"]})
+            self.assertEqual(result["spells"][0]["range"]["minimum_binary32"], low)
+            self.assertEqual(result["spells"][0]["range"]["maximum_binary32"], high)
+
+    def test_dbc_only_reagent_fields_retained(self):
+        data = bytearray(self.files["Spell"])
+        struct.pack_into("<I", data, 20+42*4, 999001)
+        struct.pack_into("<I", data, 20+50*4, 2)
+        self.files["Spell"] = bytes(data)
+        result = self.compile()
+        self.assertEqual(result["spells"][0]["dbc_only_inputs"]["reagents"][0], 999001)
+        self.assertEqual(result["spells"][0]["dbc_only_inputs"]["reagent_counts"][0], 2)
+
+    def test_effect_item_type_modifier_mask_is_not_invented_item_dependency(self):
+        spell = self.source["tables"]["spell_template"][0]
+        spell.update(Effect1=6, EffectApplyAuraName1=107, EffectItemType1=0x10000000)
+        rehash_source(self.source)
+        self.files = dbcs_for(self.source)
+        result = self.compile()
+        self.assertFalse(any(row["table"] == "item_template" and row["id"] == 0x10000000
+                             for row in result["required_additional_rows"]))
+        self.assertIn("spell.effect_item_type_semantics_required", {i["reason"] for i in result["unsupported"]})
+
+    def test_selected_dbc_binding_budget_is_checked_before_large_report(self):
+        with mock.patch("native_starter.compiler.MAX_BINDING_BYTES", 1):
+            with self.assertRaisesRegex(ExportError, "dbc_binding_byte_limit"):
+                self.compile()
+
+    def test_unrelated_active_spell_is_visible_unavailable_without_its_own_entry_veto(self):
+        result = self.compile()
+        admission = result["ability_admission"]
+        self.assertEqual(admission["available_abilities"], [])
+        active = admission["unavailable_active_abilities"]
+        self.assertEqual([r["id"] for r in active], [930101])
+        self.assertEqual(active[0]["cast_admission"], "reject")
+        self.assertEqual(active[0]["presentation"], "visible_unavailable")
+        self.assertEqual(active[0]["trigger_dependency_ids"], [930102])
+        related = [i for i in result["unsupported"] if i["table"] == "spell_template"
+                   and i["key"] in ([930101], "930101") and i["reason"].startswith("spell.")]
+        self.assertTrue(related)
+        self.assertTrue(all(i["admission_scope"]["kind"] == "unavailable_active_ability" for i in related))
+        self.assertTrue(any(i["reason"] == "player.spell_learning_passive_dependencies_not_captured"
+                            and i["admission_scope"]["kind"] == "selection_entry" for i in result["unsupported"]))
+        self.assertEqual(result["status"], "blocked")
+
+    def test_initial_passive_and_trigger_dependencies_are_entry_critical(self):
+        next(r for r in self.source["tables"]["spell_template"] if r["Id"] == 930101)["Attributes"] = 0x40
+        rehash_source(self.source)
+        self.files = dbcs_for(self.source)
+        result = self.compile()
+        self.assertFalse(result["ability_admission"]["unavailable_active_abilities"])
+        self.assertEqual(result["ability_admission"]["entry_critical_spell_ids"], [930101, 930102])
+        self.assertTrue(all(i["admission_scope"]["kind"] == "selection_entry" for i in result["unsupported"]))
+
+    def test_nonpassive_learning_sensitive_roles_are_entry_critical(self):
+        for field, value in [("Attributes", 0x80), ("AttributesEx", 0x80000000),
+                             ("Effect2", 36), ("Effect3", 44)]:
+            self.source = source_bundle()
+            row = next(r for r in self.source["tables"]["spell_template"] if r["Id"] == 930101)
+            row[field] = value
+            rehash_source(self.source)
+            self.files = dbcs_for(self.source)
+            with self.subTest(field=field):
+                result = self.compile()
+                admission = result["ability_admission"]
+                self.assertFalse(admission["unavailable_active_abilities"])
+                self.assertEqual(admission["learning_sensitive_initial_spell_ids"], [930101])
+                self.assertEqual(admission["entry_critical_spell_ids"], [930101, 930102])
+                self.assertTrue(all(i["admission_scope"]["kind"] == "selection_entry"
+                                    for i in result["unsupported"]))
+
+    def test_learning_role_field_mismatches_remain_unresolved(self):
+        for field, value in [("AttributesEx", 0x80000000), ("Effect2", 36), ("Effect3", 44)]:
+            files = dbcs_for(self.source)
+            data = bytearray(files["Spell"])
+            index = next(i for i, r in enumerate(self.source["tables"]["spell_template"]) if r["Id"] == 930101)
+            struct.pack_into("<I", data, 20+index*692+SPELL_FIELDS[field]*4, value)
+            self.files["Spell"] = bytes(data)
+            with self.subTest(field=field):
+                result = self.compile()
+                self.assertFalse(result["ability_admission"]["unavailable_active_abilities"])
+                self.assertEqual(result["ability_admission"]["unresolved_initial_spell_roles"], [930101])
+
+    def test_item_effect_dependency_overrides_unavailable_active_classification(self):
+        next(r for r in self.source["tables"]["item_template"] if r["entry"] == 920101)["spellid_1"] = 930101
+        rehash_source(self.source)
+        result = self.compile()
+        self.assertFalse(result["ability_admission"]["unavailable_active_abilities"])
+        self.assertEqual(result["ability_admission"]["entry_critical_spell_ids"], [930101, 930102])
+        self.assertFalse(result["ability_admission"]["unresolved_initial_spell_roles"])
+
+    def test_passive_bit_disagreement_does_not_quarantine_unresolved_role(self):
+        data = bytearray(self.files["Spell"])
+        index = next(i for i, r in enumerate(self.source["tables"]["spell_template"]) if r["Id"] == 930101)
+        struct.pack_into("<I", data, 20+index*692+6*4, 0x40)
+        self.files["Spell"] = bytes(data)
+        result = self.compile()
+        self.assertFalse(result["ability_admission"]["unavailable_active_abilities"])
+        self.assertEqual(result["ability_admission"]["unresolved_initial_spell_roles"], [930101])
+
+    def test_candidates_reference_actual_captured_ids_only(self):
+        result = self.compile()
+        path = result["candidate_paths"][0]
+        self.assertEqual(path["quest_id"], 910001)
+        self.assertEqual(path["giver_spawn_guids"], [1])
+        self.assertEqual(path["target_spawn_guids"], [1])
+        self.assertEqual(path["initial_direct_effect_spell_ids"], [930101])
+        self.assertEqual(path["eligibility"], "not_evaluated")
+
+    def test_event_ai_empty_capture_is_narrow_and_does_not_enable_ai(self):
+        result = self.compile()
+        creature = result["creatures"][0]
+        self.assertEqual(creature["event_ai_capture"]["status"], "captured_selectors_empty")
+        self.assertEqual(creature["event_ai_capture"]["selectors"], [-1, 900001])
+        self.assertIsNone(creature["ai_profile"])
+        self.assertIn("creature.unexported_groups_assistance_context",
+                      {i["reason"] for i in result["unsupported"]})
+        self.source.pop("event_ai_capture")
+        self.source.pop("event_text_capture")
+        for table in ("broadcast_text", "broadcast_text_locale"):
+            self.source["tables"].pop(table)
+        self.source["tables"].pop("creature_ai_scripts")
+        rehash_source(self.source)
+        result = self.compile()
+        self.assertIsNone(result["creatures"][0]["event_ai_capture"])
+        self.assertIn("creature.event_ai_applicability_absence_not_proven",
+                      {i["reason"] for i in result["unsupported"]})
+
+    def test_event_ai_entry_and_spawn_rows_both_block(self):
+        self.source["tables"]["creature_ai_scripts"] = [
+            export_tests.row("creature_ai_scripts", id=950001, creature_id=900001),
+            export_tests.row("creature_ai_scripts", id=950002, creature_id=-1)]
+        rehash_source(self.source)
+        result = self.compile()
+        self.assertEqual(result["creatures"][0]["event_ai_capture"]["matching_rows"],
+                         self.source["tables"]["creature_ai_scripts"])
+        issue = next(i for i in result["unsupported"]
+                     if i["reason"] == "creature.event_ai_matching_rows_require_execution")
+        self.assertEqual(issue["event_ids"], [950001, 950002])
+        self.assertEqual(issue["admission_scope"]["kind"], "selection_entry")
+
+    def test_recompile_verification_prevents_forged_support_even_with_rehashed_output(self):
+        result = self.compile()
+        verify_preparation(result, self.source, parsed(self.files))
+        result["unsupported"] = []
+        del result["preparation_sha256"]
+        result["preparation_sha256"] = digest(result)
+        with self.assertRaisesRegex(ExportError, "preparation_mismatch"):
+            verify_preparation(result, self.source, parsed(self.files))
+
+    def test_changed_dbc_file_changes_identity_and_invalidates_old_preparation(self):
+        result = self.compile()
+        self.files["ChrRaces"] = dbc_bytes("ChrRaces", [{0: 1, 2: 970001, 4: 940099, 5: 940011}])
+        self.assertNotEqual(result["preparation_sha256"], self.compile()["preparation_sha256"])
+        with self.assertRaises(ExportError):
+            verify_preparation(result, self.source, parsed(self.files))
+
+    def test_class_mismatch_and_unverified_source_hash_fail(self):
+        with self.assertRaisesRegex(ExportError, "selection_mismatch"):
+            compile_starter(self.source, parsed(self.files), Request(1, 8, 0))
+        self.source["tables"]["player_classlevelstats"][0]["basehp"] += 1
+        with self.assertRaisesRegex(ExportError, "table_hash_or_order"):
+            self.compile()
+
+    def test_deterministic_independent_dictionary_order(self):
+        first = self.compile()
+        second = compile_starter(self.source, dict(reversed(list(parsed(self.files).items()))), self.request)
+        self.assertEqual(canonical(first), canonical(second))
+
+    def test_outfit_quantities_exact_strict_food_drink_boundaries(self):
+        base = {"BuyCount": 7, "class": 0, "subclass": 5, "spellcategory_1": 11, "stackable": 4}
+        self.assertEqual(outfit_quantity(base), 7)
+        self.assertEqual(outfit_quantity({**base, "stackable": 5}), 4)
+        self.assertEqual(outfit_quantity({**base, "spellcategory_1": 59, "stackable": 2}), 7)
+        self.assertEqual(outfit_quantity({**base, "spellcategory_1": 59, "stackable": 3}), 2)
+        self.assertEqual(outfit_quantity({**base, "class": 1, "stackable": 20}), 7)
+        with self.assertRaises(ExportError):
+            outfit_quantity({**base, "BuyCount": 0})
+
+    def test_invalid_readable_dbc_changes_are_still_hash_bound(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/"Map.dbc"
+            path.write_bytes(b"A"*20)
+            tables, errors = load_directory(Path(directory))
+            first = compile_starter(self.source, tables, self.request, errors)
+            path.write_bytes(b"B"*20)
+            tables, errors = load_directory(Path(directory))
+            second = compile_starter(self.source, tables, self.request, errors)
+            self.assertNotEqual(first["preparation_sha256"], second["preparation_sha256"])
+            with self.assertRaisesRegex(ExportError, "preparation_mismatch"):
+                verify_preparation(first, self.source, tables, errors)
+
+    def test_outfit_quantities_committed_oracle_on_every_platform(self):
+        cases = list(itertools.product((0, 1, 15), (4, 5), (0, 11, 59), (1, 2, 7), (-1, 0, 2, 3, 4, 5, 20)))
+        fixture = decode_json((ROOT/"native_starter"/"outfit_cases.json").read_bytes(), 65536)
+        self.assertEqual(set(fixture), {"format", "core_revision", "oracle_sha256", "cases"})
+        self.assertEqual(fixture["format"], "benilla-native-outfit-oracle-v1")
+        self.assertEqual(fixture["core_revision"], CORE_REVISION)
+        self.assertEqual(fixture["oracle_sha256"], hashlib.sha256(
+            (ROOT/"native_starter"/"outfit_oracle.cpp").read_text(encoding="utf-8").encode("utf-8")).hexdigest())
+        self.assertEqual([row["input"] for row in fixture["cases"]], [list(case) for case in cases])
+        self.assertTrue(all(set(row) == {"input", "quantity"} and type(row["quantity"]) is int
+                            for row in fixture["cases"]))
+        expected = [row["quantity"] for row in fixture["cases"]]
+        actual = [outfit_quantity({"class": cls, "subclass": sub, "spellcategory_1": category,
+                                  "BuyCount": buy, "stackable": stack}) for cls, sub, category, buy, stack in cases]
+        self.assertEqual(actual, expected)
+        self.assertEqual(len(actual), 378)
+
+    def test_cli_private_no_overwrite_verify_and_inputs_unchanged(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            dbc = root / "dbc"
+            dbc.mkdir()
+            for name, data in self.files.items():
+                (dbc / (name+".dbc")).write_bytes(data)
+            manifest = dbc/"extraction.json"
+            manifest.write_bytes(canonical(extraction_metadata(self.files)))
+            source = root / "source.json"
+            source.write_bytes(canonical(self.source))
+            output = root / "preparation.json"
+            command = [sys.executable, str(ROOT/"native-starter.py"), "prepare", "--source", str(source),
+                       "--dbc-dir", str(dbc), "--race", "1", "--class", "1", "--gender", "0", "--output", str(output)]
+            first = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(first.returncode, 3, first.stderr)
+            self.assertTrue(output.exists())
+            if os.name == "posix":
+                self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+            before = output.read_bytes()
+            self.assertEqual(subprocess.run(command, capture_output=True).returncode, 2)
+            self.assertEqual(output.read_bytes(), before)
+            verify = subprocess.run([sys.executable, str(ROOT/"native-starter.py"), "verify", "--source", str(source),
+                                     "--dbc-dir", str(dbc), str(output)], capture_output=True, text=True)
+            self.assertEqual(verify.returncode, 0, verify.stderr)
+            dependency_output = root/"dependencies.json"
+            dependency_command = list(command)
+            dependency_command[2] = "dependencies"
+            dependency_command[-1] = str(dependency_output)
+            dependencies = subprocess.run(dependency_command, capture_output=True, text=True)
+            self.assertEqual(dependencies.returncode, 0, dependencies.stderr)
+            request_data = decode_json(dependency_output.read_bytes(), 65536)
+            from classic_export.learning import request as validate_request
+            self.assertEqual(validate_request(request_data, export_tests.starter_selection()), request_data)
+            self.assertEqual(request_data, decode_json(output.read_bytes(), 128*1024*1024)["dependency_request"])
+            self.assertEqual(subprocess.run(dependency_command, capture_output=True).returncode, 2)
+            if os.name == "posix":
+                self.assertEqual(dependency_output.stat().st_mode & 0o777, 0o600)
+            manifest.write_bytes(manifest.read_bytes()+b"\n")
+            changed = subprocess.run([sys.executable, str(ROOT/"native-starter.py"), "verify", "--source", str(source),
+                                     "--dbc-dir", str(dbc), str(output)], capture_output=True, text=True)
+            self.assertEqual(changed.returncode, 2)
+            self.assertIn("preparation_mismatch", changed.stderr)
+            manifest.unlink()
+            command[-1] = str(root/"incomplete.json")
+            incomplete = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(incomplete.returncode, 2)
+            self.assertIn("manifest_missing", incomplete.stderr)
+            self.assertFalse((root/"incomplete.json").exists())
+            manifest.write_bytes(canonical(extraction_metadata(self.files)))
+            for name, data in self.files.items():
+                self.assertEqual((dbc/(name+".dbc")).read_bytes(), data)
+            self.assertEqual(source.read_bytes(), canonical(self.source))
+            command[-1] = str(dbc/"forbidden-output.json")
+            self.assertEqual(subprocess.run(command, capture_output=True).returncode, 2)
+            self.assertFalse((dbc/"forbidden-output.json").exists())
+
+
+class LearningClosureTests(unittest.TestCase):
+    setUp = CompilerTests.setUp
+    compile = CompilerTests.compile
+
+    def test_shared_python_rust_ability_filter_cases(self):
+        from native_starter.compiler import Compiler
+        from native_starter.learning import discover
+        from classic_export import skill_training
+        cases = decode_json((ROOT/"native_starter"/"ability_filter_cases.json").read_bytes(), 65536)["cases"]
+        for case in cases:
+            with self.subTest(case=case["name"]):
+                self.files["SkillLine"] = dbc_bytes("SkillLine", [{0: 8, 1: 8}])
+                self.files["SkillRaceClassInfo"] = dbc_bytes("SkillRaceClassInfo", [
+                    {0: 10, 1: 8, 2: 1, 3: 128, 4: 16}])
+                self.files["SkillLineAbility"] = dbc_bytes("SkillLineAbility", [{
+                    0: 31, 1: 8, 2: 90001, 3: case["race_mask"], 4: case["class_mask"],
+                    7: case["minimum"], 9: case["acquire"]}])
+                self.source["tables"]["playercreateinfo_skills"] = [
+                    {"skill": 8, "step": 0, "raceMask": 0, "classMask": 0}]
+                dbcs = parsed(self.files)
+                hashes = {name: table.sha256 for name, table in sorted(dbcs.items())}
+                self.source["skill_training_capture"] = skill_training.evidence(self.source, [90001], [], hashes)
+                closure = discover(Compiler(self.source, dbcs, Request(1, 8, 0)))
+                self.assertEqual(90001 in closure["spell_ids"], case["included"])
+                self.assertEqual(closure["ability_dispositions"], [
+                    {"row_id": 31, "disposition": case["disposition"]}])
+                self.source["skill_training_capture"] = skill_training.evidence(self.source, [90001, 90002], [], hashes)
+                compiler = Compiler(self.source, dbcs, Request(1, 8, 0))
+                discover(compiler)
+                self.assertIn("player.learning_training_probe_scope_mismatch",
+                              {issue["reason"] for issue in compiler.issues})
+
+    def test_training_capture_preserves_effective_sql_and_exact_hashes(self):
+        from classic_export import skill_training
+        row = {"Id": 90001, **{f"{field}{slot}": 0 for slot in range(1, 4)
+                                for field in ("Effect", "EffectMiscValue", "EffectBasePoints")}}
+        row.update(Effect1=44, EffectMiscValue1=8, EffectBasePoints1=7,
+                   Effect2=118, EffectMiscValue2=8, EffectBasePoints2=0,
+                   Effect3=118, EffectMiscValue3=9, EffectBasePoints3=2)
+        self.assertEqual(skill_training.training(row), (8, 1))
+        hashes = {name: table.sha256 for name, table in sorted(parsed(self.files).items())}
+        self.source["skill_training_capture"] = skill_training.evidence(self.source, [90001], [row], hashes)
+        validate_bundle(self.source)
+        self.source["skill_training_capture"]["rows"][0]["EffectMiscValue2"] = 9
+        with self.assertRaisesRegex(ExportError, "coverage_mismatch"):
+            validate_bundle(self.source)
+
+    def test_repair_uses_reached_client_basepoints_not_effect_mechanics(self):
+        from classic_export import skill_training
+        from native_starter.compiler import Compiler
+        from native_starter.learning import discover
+        self.source["tables"]["playercreateinfo_skills"] = [
+            {"skill": 8, "step": 0, "raceMask": 0, "classMask": 0}]
+        self.files["SkillLine"] = dbc_bytes("SkillLine", [{0: 8, 1: 8}])
+        self.files["SkillRaceClassInfo"] = dbc_bytes("SkillRaceClassInfo", [
+            {0: 10, 1: 8, 2: 1, 3: 128, 4: 16}])
+        self.files["SkillLineAbility"] = dbc_bytes("SkillLineAbility", [{0: 31, 1: 8, 2: 90001}])
+        spell_rows = [{i: word for i, word in enumerate(r.words)}
+                      for r in parsed(self.files)["Spell"].rows]
+        spell_rows[0].update({61: 44, 106: 8, 76: 7, 79: 0})
+        self.files["Spell"] = dbc_bytes("Spell", spell_rows)
+        row = {"Id": 90001, **{f"{field}{slot}": 0 for slot in range(1, 4)
+                                for field in ("Effect", "EffectMiscValue", "EffectBasePoints")}}
+        row.update(Effect1=118, EffectMiscValue1=8, EffectBasePoints1=4,
+                   Effect2=44, EffectMiscValue2=9, EffectBasePoints2=2)
+        dbcs = parsed(self.files)
+        hashes = {name: table.sha256 for name, table in sorted(dbcs.items())}
+        self.source["skill_training_capture"] = skill_training.evidence(self.source, [90001], [row], hashes)
+        closure = discover(Compiler(self.source, dbcs, Request(1, 8, 0)))
+        self.assertIn(90001, closure["spell_ids"])
+        self.assertIn(9, closure["skill_ids"])
+        self.assertEqual(closure["ability_dispositions"], [{"row_id": 31, "disposition": "profession_repair"}])
+
+    def test_recursive_missing_sql_spells_still_expand_local_skill_effects(self):
+        ability = []
+        skill_rows = [{0: 60001}, {0: 60002}]
+        spell_rows = [{i: word for i, word in enumerate(r.words)}
+                      for r in parsed(self.files)["Spell"].rows]
+        for index in range(24):
+            skill = 60001 if index == 0 else 61000 + index
+            next_skill = 61000 + index + 1 if index < 23 else 60001
+            ability.append({0: 830000+index, 1: skill, 2: 50001+index, 9: 2})
+            spell_rows.append({0: 50001+index, 63: 44, 108: next_skill})
+            if index:
+                skill_rows.append({0: skill})
+        self.files["SkillLine"] = dbc_bytes("SkillLine", skill_rows)
+        self.files["SkillLineAbility"] = dbc_bytes("SkillLineAbility", ability)
+        self.files["Spell"] = dbc_bytes("Spell", spell_rows)
+        result = self.compile()
+        closure = result["player"]["skills"]["dependency_closure"]
+        self.assertTrue(closure["fixed_point_reached"])
+        self.assertFalse(closure["captured_inputs_complete"])
+        self.assertEqual(len(closure["ability_candidates"]), 24)
+        self.assertTrue(set(range(50001, 50025)) <= set(closure["spell_ids"]))
+        self.assertIn(61023, closure["skill_ids"])
+        missing = {r["id"] for r in result["required_additional_rows"] if r["table"] == "spell_template"}
+        self.assertEqual(missing, set(range(50001, 50025)))
+        self.assertEqual(result["dependency_request"]["spell_ids"], closure["spell_ids"])
+        self.assertTrue(any(e["role"] == "skill_step" and e["slot"] == 3 for e in closure["edges"]))
+
+    def test_reverse_spell_metadata_does_not_train_zero_acquire_siblings(self):
+        self.files["SkillLineAbility"] = dbc_bytes("SkillLineAbility", [
+            {0: 830002, 1: 60003, 2: 930101, 9: 0},
+            {0: 830001, 1: 60003, 2: 50001, 3: 0xffffffff, 4: 0xffffffff, 9: 0, 8: 50002}])
+        result = self.compile()
+        closure = result["player"]["skills"]["dependency_closure"]
+        self.assertIn(60003, closure["skill_ids"])
+        self.assertFalse({50001, 50002} & set(closure["spell_ids"]))
+        self.assertEqual([r["key"][0] for r in closure["ability_candidates"]], [830002])
+        self.assertIn({"row_id": 830001, "disposition": "repair_source_unknown"},
+                      closure["ability_dispositions"])
+        self.assertTrue(any(r["table"] == "SkillLine" and r["id"] == 60003
+                            for r in result["required_additional_rows"]))
+
+    def test_raw_effect_roles_only_skill_and_skill_step_introduce_skills(self):
+        spell = self.source["tables"]["spell_template"][0]
+        spell.update(Effect1=118, EffectMiscValue1=60003, Effect2=6, EffectMiscValue2=60004)
+        rehash_source(self.source)
+        self.files = dbcs_for(self.source)
+        result = self.compile()
+        closure = result["player"]["skills"]["dependency_closure"]
+        self.assertIn(60003, closure["skill_ids"])
+        self.assertNotIn(60004, closure["skill_ids"])
+        effects = result["spells"][0]["effects"]
+        self.assertEqual(effects[0]["EffectMiscValue"], 60003)
+        self.assertEqual(effects[1]["EffectMiscValue"], 60004)
+
+    def test_client_server_role_disagreement_expands_both_and_stays_blocked(self):
+        rows = [{i: w for i, w in enumerate(r.words)} for r in parsed(self.files)["Spell"].rows]
+        rows[0].update({61: 44, 106: 60003})
+        self.files["Spell"] = dbc_bytes("Spell", rows)
+        result = self.compile()
+        self.assertIn(60003, result["player"]["skills"]["dependency_closure"]["skill_ids"])
+        spell = result["spells"][0]
+        self.assertIn("Effect1", spell["server_client_differences"])
+        self.assertEqual(spell["server_numeric_words"][61], self.source["tables"]["spell_template"][0]["Effect1"])
+        self.assertTrue(any(i["reason"] == "spell.server_client_field_mismatch" for i in result["unsupported"]))
+
+    def test_omitted_learning_coverage_is_not_captured_empty(self):
+        self.source.pop("learning_capture")
+        for name in ("spell_chain", "spell_learn_spell"):
+            self.source["tables"].pop(name)
+        rehash_source(self.source)
+        result = self.compile()
+        closure = result["player"]["skills"]["dependency_closure"]
+        self.assertIsNone(closure["sql_relationship_coverage"])
+        self.assertIsNone(closure["server_relationships"]["spell_learn_spell"])
+        self.assertFalse(closure["captured_inputs_complete"])
+        self.assertTrue(any(i["reason"] == "player.server_learning_relationships_not_captured"
+                            for i in result["unsupported"]))
+
+    def test_missing_skill_table_and_tier_are_not_complete(self):
+        for missing in ("SkillLineAbility", "SkillRaceClassInfo", "SkillTiers", "SpellCastTimes", "SpellRange"):
+            files = dict(self.files)
+            del files[missing]
+            result = compile_starter(self.source, parsed(files), self.request)
+            self.assertFalse(result["player"]["skills"]["dependency_closure"]["captured_inputs_complete"])
+        for missing in ("SkillTiers", "SpellCastTimes", "SpellRange"):
+            files = dict(self.files)
+            files[missing] = dbc_bytes(missing, [])
+            result = compile_starter(self.source, parsed(files), self.request)
+            self.assertFalse(result["player"]["skills"]["dependency_closure"]["captured_inputs_complete"])
+
+    def test_dependency_node_edge_and_ability_budgets_fail_closed(self):
+        from native_starter import learning
+        for name, limit, error in (("MAX_SKILLS", 1, "skill_limit"), ("MAX_SPELLS", 1, "spell_limit"),
+                                   ("MAX_ITEMS", 1, "item_limit"), ("MAX_EDGES", 0, "edge_limit"),
+                                   ("MAX_ABILITY_ROWS", 0, "ability_row_limit"),
+                                   ("MAX_DBC_REFERENCES", 0, "dbc_reference_limit")):
+            with self.subTest(name=name), mock.patch.object(learning, name, limit):
+                with self.assertRaisesRegex(ExportError, error):
+                    self.compile()
+
+    def test_learning_cycle_terminates_and_is_entry_blocker(self):
+        rows = [{i: w for i, w in enumerate(r.words)} for r in parsed(self.files)["Spell"].rows]
+        rows += [{0: 50001, 61: 36, 109: 50002}, {0: 50002, 62: 36, 110: 50001}]
+        self.files["Spell"] = dbc_bytes("Spell", rows)
+        self.files["SkillLineAbility"] = dbc_bytes("SkillLineAbility", [{0: 830001, 1: 60001, 2: 50001, 9: 2}])
+        result = self.compile()
+        issues = [i for i in result["unsupported"] if i["reason"] == "player.learning_spell_cycle"]
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0]["admission_scope"], {"kind": "selection_entry"})
+
+    def test_rank_passive_cannot_be_scoped_to_unavailable_active_cast(self):
+        spell = next(r for r in self.source["tables"]["spell_template"] if r["Id"] == 930102)
+        spell["Attributes"] = 0x40
+        self.source["tables"]["spell_chain"] = [
+            {"spell_id": 930101, "prev_spell": 930102, "first_spell": 930102, "rank": 2, "req_spell": 0},
+            {"spell_id": 930102, "prev_spell": 0, "first_spell": 930102, "rank": 1, "req_spell": 0}]
+        rehash_source(self.source)
+        self.files = dbcs_for(self.source)
+        result = self.compile()
+        self.assertIn(930102, result["ability_admission"]["entry_critical_spell_ids"])
+        for issue in result["unsupported"]:
+            if issue["table"] == "spell_template" and issue["key"] in ([930102], "930102"):
+                self.assertEqual(issue["admission_scope"], {"kind": "selection_entry"})
+
+    def test_zero_ability_row_id_and_reverse_forward_reference_are_preserved(self):
+        self.files["SkillLineAbility"] = dbc_bytes("SkillLineAbility", [
+            {0: 0, 1: 60003, 2: 50001, 8: 930101}])
+        result = self.compile()
+        closure = result["player"]["skills"]["dependency_closure"]
+        self.assertIn(50001, closure["spell_ids"])
+        self.assertIn(60003, closure["skill_ids"])
+        self.assertTrue(any(e["from_id"] == 0 and e["role"] == "ability_spell" for e in closure["edges"]))
+        self.assertIn(50001, result["ability_admission"]["entry_critical_spell_ids"])
+
+    def test_global_table_scan_state_is_not_inferred_from_selected_empty(self):
+        self.assertEqual(self.compile()["player"]["skills"]["dependency_closure"]["derived_learn_spell_scan"],
+                         "skipped_for_empty_table")
+        self.source["learning_capture"]["global_learn_spell_probe"]["rows"] = [
+            {"entry": 50001, "SpellID": 50002, "Active": 1}]
+        result = self.compile()
+        self.assertEqual(result["player"]["skills"]["dependency_closure"]["derived_learn_spell_scan"],
+                         "enabled_by_nonempty_table")
+        self.assertEqual(result["player"]["skills"]["dependency_closure"]["server_relationships"]["spell_learn_spell"], [])
+
+    def test_shared_authored_sql_dbc_obtainability_cases(self):
+        from native_starter.learning_plan import supported_plan
+        cases = decode_json((ROOT/"native_starter"/"learning_cases.json").read_bytes(), 65536)["cases"]
+        for case in cases:
+            step = case["step"]
+            source = {"selection": {"starter": {"race": 1, "class": 8}},
+                      "learning_capture": {"format": "benilla-classic-learning-selection-v2",
+                                           "global_learn_spell_probe": {"rows": []}},
+                      "tables": {"playercreateinfo_skills": [{
+                          "skill": 8, "step": step, "raceMask": case["sql_masks"][0],
+                          "classMask": case["sql_masks"][1]}], "playercreateinfo_spell": [],
+                          "spell_template": [], "spell_chain": [], "spell_learn_spell": []}}
+            rows = {"SkillLine": [{0: 8, 1: 7}], "SkillRaceClassInfo": [{
+                0: 1, 1: 8, 2: case["dbc_masks"][0], 3: case["dbc_masks"][1], 6: 9}],
+                "SkillLineAbility": [], "Talent": [], "SkillTiers": []}
+            if case["tier_max"] is not None:
+                rows["SkillTiers"] = [{0: 9, **({16+step: case["tier_max"]} if 1 <= step <= 16 else {})}]
+            tables = {name: parse_table(name, dbc_bytes(name, values)) for name, values in rows.items()}
+            closure = {"captured_inputs_complete": True, "spell_ids": [], "ability_candidates": [],
+                       "dependency_request": {"source_sha256": "a"*64}}
+            plan = supported_plan(source, tables, closure)
+            self.assertEqual(plan["status"] == "blocked", case["refused"], case)
+            self.assertEqual(bool(plan["default_skill_candidates"]), case["loaded"], case)
+
+    def test_loader_plan_keeps_effective_learning_and_unrelated_blockers_closed(self):
+        result = self.compile()
+        plan = result["player"]["skills"]["loader_plan"]
+        self.assertTrue(plan["loaded_learning_maps_resolved"])
+        self.assertFalse(plan["effective_learning_proven"])
+        self.assertEqual(plan["root_order"], "canonical_native_schedule")
+        self.assertEqual(plan["canonical_order"]["first_entry"], "requires_actual_normalized_skill_set")
+        reasons = {row["reason"] for row in result["unsupported"]}
+        self.assertTrue({"native.runtime_profile_not_implemented",
+                         "player.native_skill_obtainability_and_learning_required",
+                         "player.spell_learning_passive_dependencies_not_captured"} <= reasons)
+        fields = [r for r in result["source_field_dispositions"] if r["table"] == "playercreateinfo_skills"]
+        self.assertTrue(all(r["loaded_learning_maps_resolved"] for r in fields))
+
+    def test_legacy_chain_probe_and_missing_talent_remain_unknown(self):
+        self.source["learning_capture"].pop("global_chain_probe")
+        self.source["learning_capture"]["format"] = "benilla-classic-learning-selection-v1"
+        plan = self.compile()["player"]["skills"]["loader_plan"]
+        self.assertFalse(plan["loaded_learning_maps_resolved"])
+        self.assertIn("player.learning_global_chain_probe_not_captured",
+                      {r["reason"] for r in plan["refusals"]})
+        self.files.pop("Talent")
+        plan = self.compile()["player"]["skills"]["loader_plan"]
+        self.assertIn("Talent", {r["table"] for r in plan["refusals"]})
+
+    def test_loader_plan_sql_masks_and_dbc_nonwildcards(self):
+        self.files["SkillRaceClassInfo"] = dbc_bytes("SkillRaceClassInfo", [
+            {0: 800001, 1: 60001, 2: 1, 3: 1}, {0: 800002, 1: 60002, 2: 0, 3: 1}])
+        plan = self.compile()["player"]["skills"]["loader_plan"]
+        self.assertTrue(plan["loaded_learning_maps_resolved"])
+        self.assertEqual([r["skill"] for r in plan["default_skill_candidates"]], [60001])
+        self.assertEqual(plan["skill_dispositions"][-1]["disposition"], "unobtainable")
+
+    def test_rank_cycle_terminates_and_is_entry_blocker(self):
+        self.source["tables"]["spell_chain"] = [
+            {"spell_id": 930101, "prev_spell": 930102, "first_spell": 930101, "rank": 1, "req_spell": 0},
+            {"spell_id": 930102, "prev_spell": 930101, "first_spell": 930101, "rank": 2, "req_spell": 0}]
+        rehash_source(self.source)
+        result = self.compile()
+        issues = [i for i in result["unsupported"] if i["reason"] == "player.learning_rank_cycle"]
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0]["admission_scope"], {"kind": "selection_entry"})
+
+    def test_known_active_skill_effect_is_initialization_sensitive(self):
+        spell = next(r for r in self.source["tables"]["spell_template"] if r["Id"] == 930101)
+        spell.update(Effect3=118, EffectMiscValue3=60001)
+        rehash_source(self.source)
+        self.files = dbcs_for(self.source)
+        result = self.compile()
+        self.assertIn(930101, result["ability_admission"]["learning_sensitive_initial_spell_ids"])
+        self.assertFalse(any(r["id"] == 930101 for r in result["ability_admission"]["unavailable_active_abilities"]))
+
+    def test_recapture_can_close_local_dependencies_without_cloud_data(self):
+        source = export_tests.starter_source()
+        source.inventory = copy.deepcopy(self.source["schema"])
+        source.rows = {name: [] for name in source.rows}
+        for name, rows in self.source["tables"].items():
+            source.rows[name] = [{k: export_tests.Decimal(v["decimal"]) if type(v) is dict else v for k, v in row.items()}
+                                 for row in rows]
+        source.rows["spell_template"].append(export_tests.row("spell_template", Id=50001,
+            Effect1=118, EffectMiscValue1=60003, CastingTimeIndex=700001, rangeIndex=710001))
+        self.files["SkillLineAbility"] = dbc_bytes("SkillLineAbility", [{0: 830001, 1: 60001, 2: 50001, 9: 2}])
+        self.files["SkillLine"] = dbc_bytes("SkillLine", [{0: 60001}, {0: 60002}, {0: 60003}])
+        spell_rows = [{i: w for i, w in enumerate(r.words)} for r in parsed(self.files)["Spell"].rows]
+        spell_rows.append({0: 50001, 61: 118, 106: 60003, 18: 700001, 36: 710001})
+        self.files["Spell"] = dbc_bytes("Spell", spell_rows)
+        first = self.compile()
+        self.assertFalse(first["player"]["skills"]["dependency_closure"]["captured_inputs_complete"])
+        recaptured = capture(source, export_tests.starter_selection(), dependency_request=first["dependency_request"])
+        second = compile_starter(recaptured, parsed(self.files), self.request)
+        closure = second["player"]["skills"]["dependency_closure"]
+        self.assertTrue(closure["captured_inputs_complete"])
+        self.assertEqual(closure["skill_ids"], [60001, 60002, 60003])
+        self.assertEqual(closure["server_relationships"]["spell_learn_spell"], [])
+        self.assertFalse(second["required_additional_rows"])
+        self.assertEqual(second["status"], "blocked")
+        self.assertIsNone(second["runtime_export"])
+
+    def test_deterministic_bindings_and_no_mutation(self):
+        before = canonical(self.source), dict(self.files)
+        a, b = self.compile(), self.compile()
+        self.assertEqual(a, b)
+        self.assertEqual((canonical(self.source), self.files), before)
+        self.assertEqual(a["dependency_request"]["source_sha256"], digest(self.source))
+        self.assertTrue(all(len(spell["server_numeric_words"]) == 173 for spell in a["spells"]))
+        self.assertEqual(a["spells"][0]["server_numeric_words"][67],
+                         self.source["tables"]["spell_template"][0]["EffectBaseDice1"])
+        self.assertEqual(a["player"]["skills"]["dependency_closure"]["talent_membership"], "raw_table_captured_effective_loader_unproven")
+
+
+class TalentInputTests(unittest.TestCase):
+    def test_missing_empty_and_unrelated_talent_rows_are_distinct(self):
+        from native_starter.talent import inputs
+        self.assertIsNone(inputs(None, {900001})["matches"])
+        empty = inputs(parse_table("Talent", dbc_bytes("Talent", [])), {900001})
+        self.assertEqual(empty["coverage"], "complete_raw_table")
+        self.assertEqual(empty["matches"], [])
+        table = parse_table("Talent", dbc_bytes("Talent", [{0: 10, 4: 900002}]))
+        self.assertEqual(inputs(table, {900001})["matches"], [])
+        self.assertEqual(inputs(table, {900001})["row_count"], 1)
+
+    def test_every_real_rank_slot_and_duplicate_membership_is_preserved(self):
+        from native_starter.talent import inputs
+        rows = [{0: 20, 4: 900001, 8: 900005, 9: 900009}, {0: 10, 5: 900001}]
+        value = inputs(parse_table("Talent", dbc_bytes("Talent", rows)), {900001, 900005, 900009})
+        self.assertEqual([r["talent_id"] for r in value["matches"]], [10, 20])
+        self.assertEqual(value["matches"][1]["rank_slots"], [{"slot": 0, "spell": 900001}, {"slot": 4, "spell": 900005}])
+        self.assertEqual(len(value["matches"][1]["source"]["words"]), 21)
+
+    def test_compiler_talent_evidence_is_recomputed(self):
+        source = source_bundle(); tables = parsed(dbcs_for(source))
+        value = compile_starter(source, tables, Request(1, 1, 0))
+        self.assertEqual(value["talent_inputs"]["coverage"], "complete_raw_table")
+        value["talent_inputs"]["matches"] = [{"forged": True}]
+        with self.assertRaises(ExportError):
+            verify_preparation(value, source, tables)
+
+class AddonPrecedenceTests(unittest.TestCase):
+    def compile(self, *, emote=0, aura="18950", effective=False, invalid=False, movement=0):
+        source = source_input()
+        source.rows["creature"][0]["MovementType"] = movement
+        source.rows["creature_addon"] = [export_tests.row(
+            "creature_addon", guid=1, sheath_state=0, auras=aura if effective else None)]
+        source.rows["creature_template_addon"] = [export_tests.row(
+            "creature_template_addon", entry=900001, sheath_state=1, emote=emote, auras=aura)]
+        source.rows["spell_template"].append(export_tests.row(
+            "spell_template", Id=18950, Effect1=2 if invalid else 6, Effect2=0 if invalid else 6,
+            EffectImplicitTargetA1=1, EffectImplicitTargetA2=0 if invalid else 1))
+        bundle = capture(source, export_tests.starter_selection(),
+                         capture_spawn_context=True, capture_addon_loader=True)
+        files = dbcs_for(bundle)
+        files["Emotes"] = dbc_bytes("Emotes", [{0: 234}])
+        result = compile_starter(bundle, parsed(files), Request(1, 1, 0))
+        verify_preparation(result, bundle, parsed(files))
+        return bundle, files, result
+
+    def test_authored_peasant_and_guard_whole_rows_keep_zero_sheath(self):
+        for values in ({"emote": 234, "aura": None}, {}):
+            with self.subTest(values=values):
+                bundle, files, result = self.compile(**values)
+                self.assertEqual(result["creatures"][0]["spawn_context_plan"]["status"], "supported_shape")
+                self.assertFalse(any(r["reason"].startswith("spawn.addon_") for r in result["unsupported"]))
+                self.assertEqual(bundle["tables"]["creature_addon"][0]["sheath_state"], 0)
+                self.assertIsNone(result["runtime_export"])
+
+    def test_effective_unsupported_aura_and_loader_invalid_shadowed_aura_refuse(self):
+        for values, reason in (({"effective": True}, "spawn.addon_execution_required"),
+                               ({"invalid": True}, "spawn.addon_loader_invalid"),
+                               ({"aura": "18950 18950"}, "spawn.addon_loader_invalid")):
+            with self.subTest(values=values):
+                _, _, result = self.compile(**values)
+                self.assertIn(reason, {r["reason"] for r in result["unsupported"]})
+
+    def test_legacy_unknown_lookup_and_movement_remain_refusals(self):
+        bundle, files, result = self.compile(movement=2)
+        self.assertIn("spawn.movement_type_unimplemented", {r["reason"] for r in result["unsupported"]})
+        del bundle["addon_loader_capture"]
+        result = compile_starter(bundle, parsed(files), Request(1, 1, 0))
+        self.assertIn("spawn.addon_loader_lookup_required", {r["reason"] for r in result["unsupported"]})
+        self.assertNotIn("spawn.addon_execution_required", {r["reason"] for r in result["unsupported"]})
+
+    def test_missing_cast_table_is_unknown_even_for_zero_cast_index(self):
+        bundle, files, _ = self.compile()
+        files.pop("SpellCastTimes")
+        result = compile_starter(bundle, parsed(files), Request(1, 1, 0))
+        self.assertIn("spawn.addon_loader_lookup_required", {r["reason"] for r in result["unsupported"]})
+
+class SelectedSpawnContextTests(unittest.TestCase):
+    def compile(self, mutate=None):
+        source = source_input()
+        source.rows["creature"][0].update(MovementType=1, spawndist=5,
+            spawntimesecsmin=7, spawntimesecsmax=9)
+        if mutate:
+            mutate(source)
+        bundle = capture(source, export_tests.starter_selection(), capture_spawn_context=True)
+        result = compile_starter(bundle, parsed(dbcs_for(bundle)), Request(1, 1, 0))
+        verify_preparation(result, bundle, parsed(dbcs_for(bundle)))
+        return result
+
+    def test_radius_five_respawn_and_narrow_obligation_replacement(self):
+        result = self.compile()
+        plan = result["creatures"][0]["spawn_context_plan"]
+        self.assertEqual(plan["status"], "supported_shape")
+        self.assertEqual(plan["spawns"][0]["radius_binary32"], 0x40a00000)
+        self.assertEqual(plan["spawns"][0]["respawn_seconds"], [7, 9])
+        reasons = {row["reason"] for row in result["unsupported"]}
+        self.assertNotIn("movement.native_rules_required", reasons)
+        self.assertNotIn("creature.deterministic_respawn_selection_required", reasons)
+        self.assertNotIn("creature.unexported_groups_assistance_context", reasons)
+        self.assertIn("creature.cold_loader_order_required", reasons)
+        self.assertIn("creature.assistance_runtime_traversal_required", reasons)
+        self.assertIsNone(result["runtime_export"])
+        self.assertFalse(plan["production_admission"])
+        disposition = next(row for row in result["source_field_dispositions"] if row["table"] == "creature")
+        self.assertEqual(disposition["blocked_for_gameplay"], {})
+        self.assertTrue(any(row["reason"] == "movement.native_rules_required"
+                            and row["disposition"] == "supported_shape"
+                            for row in result["source_capture_findings"]))
+
+    def test_supported_sheath_addon_is_not_reported_as_an_unowned_hook(self):
+        result = self.compile(lambda source: source.rows["creature_addon"].append(
+            export_tests.row("creature_addon", guid=1, sheath_state=1, auras=None)))
+        self.assertEqual(result["creatures"][0]["spawn_context_plan"]["status"], "supported_shape")
+        self.assertNotIn("creature.applicable_spawn_hooks_require_execution",
+                         {row["reason"] for row in result["unsupported"]})
+        disposition = next(row for row in result["source_field_dispositions"] if row["table"] == "creature_addon")
+        self.assertEqual(disposition["blocked_for_gameplay"], {})
+
+    def test_memberships_alternatives_and_unsupported_overrides_remain_blocking(self):
+        for table, values in [
+            ("spawn_group_spawn", {"Guid": 1, "Id": 13}),
+            ("creature_linking", {"guid": 17, "master_guid": 1}),
+            ("creature_linking_template", {"entry": 17, "master_entry": 900001}),
+            ("game_event_creature_data", {"guid": 1}),
+            ("game_event_creature", {"guid": 1, "event": -2}),
+            ("pool_creature", {"guid": 1}),
+            ("pool_creature_template", {"id": 900001}),
+            ("creature_spawn_entry", {"guid": 1, "entry": 8}),
+            ("creature_conditional_spawn", {"Guid": 1}),
+        ]:
+            with self.subTest(table=table):
+                result = self.compile(lambda source: source.rows[table].append(export_tests.row(table, **values)))
+                self.assertEqual(result["creatures"][0]["spawn_context_plan"]["status"], "blocked")
+                self.assertIn("creature.deterministic_respawn_selection_required",
+                              {row["reason"] for row in result["unsupported"]})
+        result = self.compile(lambda source: source.rows["creature_spawn_data_template"][0].update(RelayId=9))
+        self.assertIn("spawn.override_execution_required", {row["reason"] for row in result["unsupported"]})
+        result = self.compile(lambda source: source.rows["creature_spawn_data_template"].clear())
+        self.assertIn("creature.default_spawn_template_absent", {row["reason"] for row in result["unsupported"]})
+
+class NativeSpawnPreparationTests(unittest.TestCase):
+    setUp = CompilerTests.setUp
+    compile = CompilerTests.compile
+
+    def test_complete_empty_is_usable_evidence_without_enabling_runtime(self):
+        result = self.compile()
+        creature = result["creatures"][0]
+        spawn = creature["native_spawn_dependencies"][0]
+        self.assertEqual((spawn["guid"], spawn["entry"]), (1, 900001))
+        self.assertEqual(spawn["tables"]["game_event_creature"], {"status": "complete", "rows": []})
+        self.assertEqual(spawn["tables"]["creature_spawn_data"], {"status": "complete", "rows": []})
+        self.assertEqual(spawn["addon"], {"status": "captured_absent", "table": None, "row": None})
+        self.assertEqual(spawn["spawn_template"]["selection"], "default_zero")
+        self.assertEqual(spawn["spawn_template"]["status"], "captured_row_present")
+        self.assertEqual(spawn["spawn_template"]["row"]["NpcFlags"], -1)
+        self.assertEqual(spawn["coverage_sha256"], digest(result["native_spawn_capture"]))
+        self.assertEqual(spawn["unimplemented_hook_tables"], [])
+        self.assertIsNone(creature["resolved_combat_stats"])
+        self.assertIsNone(result["runtime_export"])
+        reasons = {i["reason"] for i in result["unsupported"]}
+        self.assertNotIn("creature.spawn_dependency_coverage_not_proven", reasons)
+        self.assertNotIn("spawn.overrides_pools_events_not_captured", reasons)
+        self.assertIn("creature.unexported_groups_assistance_context", reasons)
+        verify_preparation(result, self.source, parsed(self.files))
+
+    def test_legacy_coverage_is_null_and_cannot_be_empty(self):
+        from classic_export.native_spawn import TABLES
+        self.source.pop("native_spawn_capture")
+        for table in TABLES:
+            self.source["tables"].pop(table)
+        rehash_source(self.source)
+        result = self.compile()
+        self.assertIsNone(result["native_spawn_capture"])
+        self.assertIsNone(result["creatures"][0]["native_spawn_dependencies"])
+        self.assertIn("creature.spawn_dependency_coverage_not_proven", {i["reason"] for i in result["unsupported"]})
+        self.assertIn("spawn.overrides_pools_events_not_captured", {i["reason"] for i in result["unsupported"]})
+
+    def test_missing_default_is_captured_absence_not_an_invented_default(self):
+        self.source["tables"]["creature_spawn_data_template"] = []
+        rehash_source(self.source)
+        result = self.compile()
+        template = result["creatures"][0]["native_spawn_dependencies"][0]["spawn_template"]
+        self.assertEqual(template, {"id": 0, "selection": "default_zero",
+                                    "status": "captured_row_absent", "row": None})
+        self.assertIn("creature.default_spawn_template_absent", {i["reason"] for i in result["unsupported"]})
+
+    def test_guid_addon_precedence_keeps_shadowed_template_and_neutral_hooks(self):
+        row = export_tests.row
+        self.source["tables"]["creature_addon"] = [row("creature_addon", guid=1, auras=None)]
+        self.source["tables"]["creature_template_addon"] = [row("creature_template_addon", entry=900001,
+                                                                    auras="original unparsed aura text")]
+        self.source["tables"]["game_event_creature"] = [row("game_event_creature", guid=1, event=-1),
+                                                         row("game_event_creature", guid=1, event=0)]
+        rehash_source(self.source)
+        result = self.compile()
+        spawn = result["creatures"][0]["native_spawn_dependencies"][0]
+        self.assertEqual(spawn["addon"]["table"], "creature_addon")
+        self.assertIsNone(spawn["addon"]["row"]["auras"])
+        self.assertEqual(len(spawn["tables"]["creature_template_addon"]["rows"]), 1)
+        self.assertEqual(spawn["unimplemented_hook_tables"], ["game_event_creature", "creature_addon"])
+        issue = next(i for i in result["unsupported"] if i["reason"] == "creature.applicable_spawn_hooks_require_execution")
+        self.assertEqual(issue["tables"], ["game_event_creature", "creature_addon"])
+        self.source["tables"]["creature_addon"] = []
+        rehash_source(self.source)
+        spawn = self.compile()["creatures"][0]["native_spawn_dependencies"][0]
+        self.assertEqual(spawn["addon"]["table"], "creature_template_addon")
+        self.assertEqual(spawn["addon"]["row"]["auras"], "original unparsed aura text")
+
+    def test_explicit_override_row_and_zero_binding_preserve_native_selection(self):
+        template = dict(self.source["tables"]["creature_spawn_data_template"][0], Entry=19, CurHealth=11,
+                        SpawnFlags=4, RelayId=77, StringId=88)
+        self.source["tables"]["creature_spawn_data_template"].append(template)
+        self.source["tables"]["creature_spawn_data"] = [export_tests.row("creature_spawn_data", Guid=1, Id=19)]
+        rehash_source(self.source)
+        spawn = self.compile()["creatures"][0]["native_spawn_dependencies"][0]
+        self.assertEqual(spawn["spawn_template"]["row"], template)
+        self.assertEqual(spawn["spawn_template"]["selection"], "guid_binding")
+        self.source["tables"]["creature_spawn_data"][0]["Id"] = 0
+        self.source["tables"]["creature_spawn_data_template"].pop()
+        rehash_source(self.source)
+        spawn = self.compile()["creatures"][0]["native_spawn_dependencies"][0]
+        self.assertEqual(spawn["spawn_template"]["id"], 0)
+        self.assertEqual(spawn["spawn_template"]["selection"], "default_zero")
+
+    def test_selected_override_model_row_reaches_native_preparation(self):
+        model = dict(self.source["tables"]["creature_model_info"][0], modelid=940099)
+        self.source["tables"]["creature_model_info"].append(model)
+        self.source["required_ids"]["creature_model_info"].append(940099)
+        self.source["tables"]["creature_spawn_data_template"][0]["ModelId"] = 940099
+        rehash_source(self.source)
+        creature = self.compile()["creatures"][0]
+        self.assertEqual([r["modelid"] for r in creature["model_inputs"]], [940001, 940099])
+        self.assertEqual(creature["native_spawn_dependencies"][0]["spawn_template"]["row"]["ModelId"], 940099)
+
+    def test_forged_absence_rejects_even_with_rehashed_preparation(self):
+        self.source["tables"]["creature_addon"] = [export_tests.row("creature_addon", guid=1)]
+        rehash_source(self.source)
+        result = self.compile()
+        result["creatures"][0]["native_spawn_dependencies"][0]["addon"] = {
+            "status": "captured_absent", "table": None, "row": None}
+        result.pop("preparation_sha256")
+        result["preparation_sha256"] = digest(result)
+        with self.assertRaises(ExportError):
+            verify_preparation(result, self.source, parsed(self.files))
+
+
+
+class RegistryAndDisplayPreparationTests(unittest.TestCase):
+    def setUp(self):
+        self.source = source_bundle()
+        self.files = dbcs_for(self.source)
+
+    def compile(self):
+        return compile_starter(self.source, parsed(self.files), Request(1, 1, 0))
+
+    def test_registry_rows_and_complete_empty_are_bound_without_hook_defaults(self):
+        self.source["tables"]["spell_scripts"] = [
+            export_tests.row("spell_scripts", Id=930001, ScriptName=""),
+            export_tests.row("spell_scripts", Id=930101, ScriptName="original_unknown_handler")]
+        rehash_source(self.source)
+        result = self.compile()
+        self.assertEqual(result["spell_script_capture"], self.source["spell_script_capture"])
+        spells = {row["id"]: row for row in result["spells"]}
+        for spell in (930001, 930101, 930102):
+            proof = spells[spell]["script_registry"]
+            self.assertEqual(proof["status"], "complete")
+            self.assertEqual(proof["coverage_sha256"], digest(result["spell_script_capture"]))
+            self.assertEqual(proof["rows"], [r for r in self.source["tables"]["spell_scripts"] if r["Id"] == spell])
+        self.assertTrue(any(i["reason"] == "spell.registry_row_requires_named_handler_semantics"
+                            for i in result["unsupported"]))
+        self.assertEqual(result["status"], "blocked")
+        result["spells"][0]["script_registry"]["rows"] = []
+        result.pop("preparation_sha256")
+        result["preparation_sha256"] = digest(result)
+        with self.assertRaisesRegex(ExportError, "preparation_mismatch"):
+            verify_preparation(result, self.source, parsed(self.files))
+
+    def test_legacy_registry_is_unknown_in_preparation(self):
+        self.source.pop("spell_script_capture")
+        self.source["tables"].pop("spell_scripts")
+        rehash_source(self.source)
+        result = self.compile()
+        self.assertIsNone(result["spell_script_capture"])
+        self.assertTrue(all(row["script_registry"] is None for row in result["spells"]))
+        self.assertTrue(any(i["reason"] == "spell.registry_coverage_not_proven" for i in result["unsupported"]))
+
+    def test_active_and_trigger_registry_findings_follow_unavailable_cast_ownership(self):
+        reason = "spell.registry_row_requires_named_handler_semantics"
+        for spell in (930101, 930102):
+            with self.subTest(spell=spell):
+                rows = [export_tests.row("spell_scripts", Id=spell, ScriptName="original_active_handler")]
+                self.source["tables"]["spell_scripts"] = rows
+                rehash_source(self.source)
+                result = self.compile()
+                issues = [i for i in result["unsupported"] if i["table"] == "spell_scripts"]
+                participant = [i for i in issues if i["reason"] == "participants.runtime_script_required"]
+                self.assertEqual(len(participant), 1)
+                self.assertEqual(participant[0]["admission_scope"], {"kind": "selection_entry"})
+                issues = [i for i in issues if i["reason"] != "participants.runtime_script_required"]
+                self.assertEqual(len(issues), 2)
+                self.assertTrue(any(i.get("origin") == "source_capture" for i in issues))
+                self.assertTrue(all(i["admission_scope"] == {
+                    "kind": "unavailable_active_ability", "spell_ids": [930101]} for i in issues))
+                active = result["ability_admission"]["unavailable_active_abilities"]
+                self.assertEqual([row["id"] for row in active], [930101])
+                self.assertEqual(active[0]["cast_admission"], "reject")
+                self.assertIn(reason, active[0]["reason_ids"])
+                self.assertEqual(result["spell_script_capture"], self.source["spell_script_capture"])
+                selected = next(row for row in result["spells"] if row["id"] == spell)
+                self.assertEqual(selected["script_registry"]["rows"], rows)
+                retained = [i for i in result["source_capture_findings"] if i["table"] == "spell_scripts"]
+                self.assertEqual(len(retained), 1)
+                self.assertEqual(retained[0]["disposition"], "retained")
+                verify_preparation(result, self.source, parsed(self.files))
+
+    def test_passive_learning_and_item_registry_dependencies_remain_entry_critical(self):
+        for role in ("passive", "learning", "item"):
+            with self.subTest(role=role):
+                self.source = source_bundle()
+                spell = next(row for row in self.source["tables"]["spell_template"] if row["Id"] == 930101)
+                if role == "passive":
+                    spell["Attributes"] = 0x40
+                elif role == "learning":
+                    spell["AttributesEx"] = 0x80000000
+                else:
+                    self.source["tables"]["item_template"][0]["spellid_1"] = 930101
+                self.source["tables"]["spell_scripts"] = [
+                    export_tests.row("spell_scripts", Id=930102, ScriptName="original_critical_handler")]
+                rehash_source(self.source)
+                self.files = dbcs_for(self.source)
+                result = self.compile()
+                self.assertIn(930102, result["ability_admission"]["entry_critical_spell_ids"])
+                self.assertFalse(result["ability_admission"]["unavailable_active_abilities"])
+                issues = [i for i in result["unsupported"] if i["table"] == "spell_scripts"]
+                participant = [i for i in issues if i["reason"] == "participants.runtime_script_required"]
+                self.assertEqual(len(participant), 1)
+                self.assertEqual(participant[0]["admission_scope"], {"kind": "selection_entry"})
+                issues = [i for i in issues if i["reason"] != "participants.runtime_script_required"]
+                self.assertEqual(len(issues), 2)
+                self.assertTrue(all(i["admission_scope"] == {"kind": "selection_entry"} for i in issues))
+
+    def test_registry_trigger_shared_with_passive_is_not_scoped_to_active_cast(self):
+        passive = next(row for row in self.source["tables"]["spell_template"] if row["Id"] == 930001)
+        passive.update(Attributes=0x40, EffectTriggerSpell1=930102)
+        self.source["tables"]["playercreateinfo_spell"].append(
+            export_tests.row("playercreateinfo_spell", race=1, **{"class": 1}, Spell=930001))
+        self.source["tables"]["playercreateinfo_spell"].sort(key=lambda row: row["Spell"])
+        self.source["tables"]["spell_scripts"] = [
+            export_tests.row("spell_scripts", Id=930102, ScriptName="original_shared_handler")]
+        rehash_source(self.source)
+        self.files = dbcs_for(self.source)
+        result = self.compile()
+        admission = result["ability_admission"]
+        self.assertEqual(admission["entry_critical_spell_ids"], [930001, 930102])
+        self.assertEqual([row["id"] for row in admission["unavailable_active_abilities"]], [930101])
+        issues = [i for i in result["unsupported"] if i["table"] == "spell_scripts"]
+        participant = [i for i in issues if i["reason"] == "participants.runtime_script_required"]
+        self.assertEqual(len(participant), 1)
+        self.assertEqual(participant[0]["admission_scope"], {"kind": "selection_entry"})
+        issues = [i for i in issues if i["reason"] != "participants.runtime_script_required"]
+        self.assertEqual(len(issues), 2)
+        self.assertTrue(all(i["admission_scope"] == {"kind": "selection_entry"} for i in issues))
+
+    def test_display_scale_signed_size_class_and_raw_row_are_preserved(self):
+        self.files["CreatureDisplayInfo"] = dbc_bytes("CreatureDisplayInfo", [
+            {0: 940001, 1: 950001, 2: 17, 3: 950002, 4: binary32_bits("1.25"),
+             5: 127, 9: -1, 10: 23, 11: 24}])
+        result = self.compile()
+        creature = result["creatures"][0]
+        display = creature["display_inputs"][0]
+        self.assertEqual(creature["selected_display_ids"], [940001])
+        self.assertEqual(display["id"], 940001)
+        self.assertEqual(display["model_id"], 950001)
+        self.assertEqual(display["extended_display_info_id"], 950002)
+        self.assertEqual(display["scale_binary32"], binary32_bits("1.25"))
+        self.assertEqual(display["size_class"], -1)
+        self.assertEqual(display["source"]["words"][9], 0xffffffff)
+        self.assertEqual(display["source"]["strings"], {"6": "", "7": "", "8": ""})
+        table = parse_table("CreatureDisplayInfo", self.files["CreatureDisplayInfo"])
+        self.assertEqual(display["source"], table.rows[0].raw())
+        self.assertEqual(result["creature_display_inputs"], {"coverage": "complete_raw_table",
+            "table_sha256": table.sha256, "row_count": 1, "selected_ids": [940001], "missing_ids": []})
+        bindings = [r for r in result["dbc_bindings"] if r["table"] == "CreatureDisplayInfo"]
+        self.assertEqual(len(bindings), 1)
+        self.assertIn(2, bindings[0]["blocked_for_gameplay"])
+        self.assertIn(10, bindings[0]["blocked_for_gameplay"])
+
+    def test_display_strings_are_only_words_six_through_eight_and_ids_unique(self):
+        for column in (6, 7, 8):
+            with self.subTest(column=column), self.assertRaisesRegex(ExportError, "string_offset"):
+                parse_table("CreatureDisplayInfo", dbc_bytes("CreatureDisplayInfo", [{0: 7, column: 123}]))
+        parsed_row = parse_table("CreatureDisplayInfo", dbc_bytes("CreatureDisplayInfo", [{0: 7, 9: -1}])).rows[0]
+        self.assertEqual(parsed_row.words[9], 0xffffffff)
+        with self.assertRaisesRegex(ExportError, "duplicate_key"):
+            parse_table("CreatureDisplayInfo", dbc_bytes("CreatureDisplayInfo", [{0: 7}, {0: 7}]))
+
+    def test_missing_display_row_and_missing_table_have_distinct_evidence(self):
+        self.files["CreatureDisplayInfo"] = dbc_bytes("CreatureDisplayInfo", [])
+        result = self.compile()
+        self.assertEqual(result["creature_display_inputs"]["coverage"], "complete_raw_table")
+        self.assertEqual(result["creature_display_inputs"]["missing_ids"], [940001])
+        self.assertEqual(result["creatures"][0]["display_inputs"], [])
+        self.assertTrue(any(r["table"] == "CreatureDisplayInfo" and r["id"] == 940001
+                            for r in result["required_additional_rows"]))
+        self.files.pop("CreatureDisplayInfo")
+        result = self.compile()
+        self.assertEqual(result["creature_display_inputs"]["coverage"], "not_captured")
+        self.assertIsNone(result["creature_display_inputs"]["missing_ids"])
+        self.assertIsNone(result["creature_display_inputs"]["table_sha256"])
+        self.assertEqual(result["creatures"][0]["display_inputs"], [])
+
+    def test_nonfinite_and_nonpositive_display_scale_never_gain_neutral_scale(self):
+        for scale in (0x7f800000, 0xff800000, 0x7fc00001):
+            self.files["CreatureDisplayInfo"] = dbc_bytes("CreatureDisplayInfo", [{0: 940001, 4: scale}])
+            with self.subTest(scale=scale), self.assertRaisesRegex(ExportError, "display_scale_nonfinite"):
+                self.compile()
+        for scale in (0, 0x80000000, 0xbf800000):
+            self.files["CreatureDisplayInfo"] = dbc_bytes("CreatureDisplayInfo", [{0: 940001, 4: scale}])
+            result = self.compile()
+            self.assertEqual(result["creatures"][0]["display_inputs"][0]["scale_binary32"], scale)
+            self.assertTrue(any(r["reason"] == "creature.display_scale_nonpositive" for r in result["unsupported"]))
+
+    def test_recursive_other_gender_override_and_alternative_context_stay_explicit(self):
+        model = self.source["tables"]["creature_model_info"][0]
+        model.update(modelid_other_gender=940002, modelid_alternative=949999)
+        self.source["tables"]["creature_model_info"] += [dict(model, modelid=940002, modelid_other_gender=940003),
+                                                        dict(model, modelid=940003, modelid_other_gender=940001)]
+        self.source["tables"]["creature_spawn_data_template"][0]["ModelId"] = 940003
+        self.source["required_ids"]["creature_model_info"] = [940001, 940002, 940003]
+        rehash_source(self.source)
+        self.files["CreatureDisplayInfo"] = dbc_bytes("CreatureDisplayInfo", [
+            {0: i, 4: binary32_bits("1.5"), 9: -1} for i in (940001, 940002, 940003)])
+        result = self.compile()
+        creature = result["creatures"][0]
+        self.assertEqual(creature["selected_display_ids"], [940001, 940002, 940003])
+        self.assertEqual([r["modelid"] for r in creature["model_inputs"]], [940001, 940002, 940003])
+        self.assertEqual([r["id"] for r in creature["display_inputs"]], [940001, 940002, 940003])
+        self.assertEqual(creature["model_inputs"][0]["modelid_alternative"], 949999)
+        self.assertTrue(any(r["reason"] == "creature.alternative_model_context_required"
+                            for r in result["unsupported"]))
+
+    def test_missing_legacy_gender_row_is_reported_without_fabrication(self):
+        self.source["tables"]["creature_model_info"][0]["modelid_other_gender"] = 940002
+        rehash_source(self.source)
+        result = self.compile()
+        self.assertEqual(result["creatures"][0]["selected_display_ids"], [940001, 940002])
+        self.assertEqual(result["creature_display_inputs"]["missing_ids"], [940002])
+        self.assertTrue(any(r["table"] == "creature_model_info" and r["id"] == 940002
+                            for r in result["required_additional_rows"]))
+
+    def test_changed_display_bytes_and_repaired_preparation_hash_do_not_verify(self):
+        result = self.compile()
+        result["creatures"][0]["display_inputs"][0]["scale_binary32"] = binary32_bits("2")
+        result.pop("preparation_sha256")
+        result["preparation_sha256"] = digest(result)
+        with self.assertRaisesRegex(ExportError, "preparation_mismatch"):
+            verify_preparation(result, self.source, parsed(self.files))
+        original = self.compile()
+        self.files["CreatureDisplayInfo"] = dbc_bytes("CreatureDisplayInfo", [{0: 940001, 4: binary32_bits("2")}])
+        with self.assertRaisesRegex(ExportError, "preparation_mismatch"):
+            verify_preparation(original, self.source, parsed(self.files))
+
+    def test_v4_manifest_required_for_expanded_set_and_changed_bytes_are_bound(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            metadata = extraction_metadata(self.files)
+            for version in (1, 2):
+                metadata["format"] = f"benilla-native-dbc-extraction-v{version}"
+                (directory/"extraction.json").write_bytes(canonical(metadata))
+                with self.assertRaisesRegex(ExportError, "legacy_manifest_reextract_v3_required"):
+                    load_extraction_manifest(directory, parsed(self.files))
+            metadata["format"] = "benilla-native-dbc-extraction-v4"
+            (directory/"extraction.json").write_bytes(canonical(metadata))
+            self.assertTrue(load_extraction_manifest(directory, parsed(self.files))["integrity_verified"])
+            self.files["CreatureDisplayInfo"] = dbc_bytes("CreatureDisplayInfo", [{0: 940001, 4: binary32_bits("3")}])
+            with self.assertRaisesRegex(ExportError, "dbc_manifest_mismatch"):
+                load_extraction_manifest(directory, parsed(self.files))
+
+
+class QuestRelationshipPreparationTests(unittest.TestCase):
+    def bundle(self, mutate=None, extension=True):
+        source = source_input()
+        source.rows["quest_template"] += [
+            export_tests.row("quest_template", entry=783, NextQuestInChain=7),
+            export_tests.row("quest_template", entry=7, PrevQuestId=783,
+                             NextQuestInChain=15, ReqCreatureOrGOId1=900001, ReqCreatureOrGOCount1=2),
+            export_tests.row("quest_template", entry=15, PrevQuestId=7),
+            export_tests.row("quest_template", entry=5261, PrevQuestId=783, NextQuestInChain=33),
+            export_tests.row("quest_template", entry=33, PrevQuestId=5261, ReqItemId1=920001, ReqItemCount1=2)]
+        if mutate:
+            mutate(source.rows["quest_template"])
+        value = export_tests.starter_selection().json()
+        value["quest_ids"] = [7, 15, 33, 783, 5261, 910001]
+        return capture(source, export_tests.Selection.parse(value), capture_quest_relationships=extension)
+
+    def compile(self, source):
+        return compile_starter(source, parsed(dbcs_for(source)),
+                               Request.parse({"race": 1, "class": 1, "gender": 0}))
+
+    def test_closed_graph_removes_only_relationship_obligations_and_retains_all_paths(self):
+        source = self.bundle()
+        result = self.compile(source)
+        graph = result["quest_relationships"]
+        self.assertEqual(graph["status"], "resolved")
+        self.assertEqual(graph["previous"]["7"], [783])
+        self.assertEqual(graph["previous"]["15"], [7])
+        self.assertEqual(graph["previous"]["5261"], [783])
+        self.assertEqual(graph["previous"]["33"], [5261])
+        self.assertEqual(graph["previous_chain"]["7"], [783])
+        self.assertNotIn("quest.chain", {i["reason"] for i in result["unsupported"]})
+        self.assertNotIn("quest.inbound_relationship", {i["reason"] for i in result["unsupported"]})
+        self.assertIn("quest.chain", {i["reason"] for i in source["report"]["unsupported"]})
+        disposition = next(d for d in result["source_field_dispositions"]
+                           if d["table"] == "quest_template" and d["key"] == [7])
+        self.assertIn("PrevQuestId", disposition["consumed_by_preparation"])
+        self.assertNotIn("PrevQuestId", disposition["blocked_for_gameplay"]
+                         ["quest.native_eligibility_credit_reward_required"])
+        paths = {p["quest_id"]: p for p in result["candidate_paths"]}
+        self.assertEqual(paths[783]["objectives"], [])
+        self.assertEqual(paths[33]["item_objectives"], [{"slot": 1, "item": 920001, "count": 2}])
+        self.assertEqual(paths[7]["previous_quest"], 783)
+        self.assertEqual(result["status"], "blocked")
+        self.assertIsNone(result["runtime_export"])
+        verify_preparation(result, source, parsed(dbcs_for(source)))
+
+    def test_signed_previous_and_inbound_next_preserve_signs(self):
+        from classic_export.quest_relationships import resolve
+        for sign in (-1, 1):
+            def mutate(rows):
+                next(row for row in rows if row["entry"] == 7)["PrevQuestId"] = sign * 783
+                next(row for row in rows if row["entry"] == 783)["NextQuestId"] = sign * 15
+            graph = resolve(self.bundle(mutate))
+            self.assertEqual(graph["previous"]["7"], [sign * 783])
+            self.assertEqual(graph["previous"]["15"], [7, sign * 783])
+
+    def test_unsupported_and_missing_edges_remain_exact_blockers(self):
+        from classic_export.quest_relationships import resolve
+        cases = [("NextQuestId", -7, "uncaptured_incoming_quest"),
+                 ("NextQuestInChain", 7, "uncaptured_incoming_quest"),
+                 ("BreadcrumbForQuestId", 7, "uncaptured_incoming_quest")]
+        for field, target, reason in cases:
+            source = self.bundle(lambda rows: rows.append(export_tests.row(
+                "quest_template", entry=999999, **{field: target})))
+            graph = resolve(source)
+            self.assertIn({"quest": 999999, "field": field, "target": target, "reason": reason},
+                          graph["refusals"])
+            self.assertIn("quest.chain", {i["reason"] for i in self.compile(source)["unsupported"]})
+        for field in ("PrevQuestId", "NextQuestId", "NextQuestInChain",
+                      "ExclusiveGroup", "BreadcrumbForQuestId", "StartScript",
+                      "CompleteScript", "RequiredCondition"):
+            target = 999999
+            source = self.bundle(lambda rows: next(row for row in rows if row["entry"] == 7).update({field: target}))
+            graph = resolve(source)
+            self.assertEqual(graph["status"], "blocked")
+            self.assertTrue(any(r["quest"] == 7 and r["field"] == field and r["target"] == target
+                                for r in graph["refusals"]))
+        source = self.bundle(lambda rows: next(row for row in rows if row["entry"] == 7).update(
+            SrcItemId=920001, SrcItemCount=1))
+        self.assertEqual(resolve(source)["status"], "resolved")
+        self.assertEqual(resolve(self.bundle(extension=False))["refusals"],
+                         [{"quest": 0, "field": "inbound", "target": 0, "reason": "unknown_coverage"}])
+
+
+class EventAiPlanTests(unittest.TestCase):
+    def source(self, chance=10):
+        row = {"id": 601, "creature_id": 6, "event_type": 4,
+               "event_inverse_phase_mask": 0, "event_flags": 0, "event_chance": chance}
+        row.update({f"event_param{i}": 0 for i in range(1, 7)})
+        for i in range(1, 4):
+            row[f"action{i}_type"] = 1 if i == 1 else 0
+            row.update({f"action{i}_param{j}": 0 for j in range(1, 4)})
+        row["action1_param1"], row["action1_param2"] = 1868, 1864
+        texts = [{"Id": key, "Text": "Authored speech", "ChatTypeID": 0, "LanguageID": 0,
+                  **{field: 0 for field in ("SoundEntriesID1", "SoundEntriesID2", "EmoteID1",
+                     "EmoteID2", "EmoteID3", "EmoteDelay1", "EmoteDelay2", "EmoteDelay3")}}
+                 for key in (1868, 1864)]
+        return {"event_text_capture": {"status": "complete"}, "tables": {
+            "creature": [{"id": 6, "guid": 99}], "broadcast_text": texts}}, {"matching_rows": [row]}
+
+    def test_supported_chances(self):
+        for chance in (10, 100):
+            source, scope = self.source(chance)
+            plan = supported_plan(source, 6, scope)
+            self.assertEqual(plan["owners"][0]["event_ids"], [601])
+            self.assertFalse(plan["runtime_admission"])
+        source, scope = self.source(0)
+        self.assertIsNone(supported_plan(source, 6, scope))
+
+    def test_unknown_missing_and_wolf_refused(self):
+        source, scope = self.source()
+        source["event_text_capture"]["status"] = "unknown"
+        self.assertIsNone(supported_plan(source, 6, scope))
+        source, scope = self.source()
+        source["tables"]["broadcast_text"].pop()
+        self.assertIsNone(supported_plan(source, 6, scope))
+        source, scope = self.source()
+        scope["matching_rows"][0]["event_type"] = 1
+        scope["matching_rows"][0]["action1_type"] = 4
+        self.assertIsNone(supported_plan(source, 6, scope))
+
+    def test_ooc_timer_shape_and_refused_mutations(self):
+        import copy
+        source, scope = self.source()
+        row = scope["matching_rows"][0]
+        row.update(event_type=1, event_flags=1, event_param1=1000, event_param2=2000,
+                   event_param3=3000, event_param4=4000)
+        self.assertIsNotNone(supported_plan(source, 6, scope))
+        for field, value in (("event_flags", 0), ("event_param1", 2000)):
+            changed = copy.deepcopy(scope)
+            changed["matching_rows"][0][field] = value
+            self.assertIsNotNone(supported_plan(source, 6, changed))
+        for field, value in (("event_type", 0), ("event_type", 2),
+                             ("event_inverse_phase_mask", 1), ("event_flags", 2),
+                             ("event_param1", 2001), ("event_param3", 4001),
+                             ("event_param5", 1), ("action1_type", 4),
+                             ("action4_type", 1), ("action2_type", 1)):
+            changed = copy.deepcopy(scope)
+            changed["matching_rows"][0][field] = value
+            with self.subTest(field=field, value=value):
+                self.assertIsNone(supported_plan(source, 6, changed))
+
+    def test_ooc_discharge_preserves_other_ai_and_world_obligations(self):
+        from native_starter.event_ai_plan import discharges
+        source, scope = self.source()
+        scope["matching_rows"][0].update(event_type=1, event_flags=1)
+        creature = {"entry": 6, "event_ai_capture": scope,
+                    "event_ai_plan": supported_plan(source, 6, scope),
+                    "source_row": {"AIName": "EventAI", "ScriptName": "",
+                                   "SpellList": 0, "CharmedSpellList": 0}}
+        row_issue = {"table": "creature_ai_scripts", "key": "601",
+                     "reason": "creature.event_ai_matching_row_requires_execution"}
+        ai_issue = {"table": "creature_template", "key": "6",
+                    "reason": "creature.ai_or_spell_dependency"}
+        self.assertTrue(discharges(row_issue, [creature]))
+        self.assertTrue(discharges(ai_issue, [creature]))
+        for field, value in (("ScriptName", "authored_hook"), ("SpellList", 1),
+                             ("CharmedSpellList", 1), ("AIName", "GuardAI")):
+            changed = {**creature, "source_row": {**creature["source_row"], field: value}}
+            self.assertFalse(discharges(ai_issue, [changed]))
+        self.assertFalse(discharges({**ai_issue, "reason":
+            "creature.ai_selection_and_native_melee_required"}, [creature]))
+        self.assertFalse(discharges({**row_issue, "key": "602"}, [creature]))
+        self.assertFalse(discharges(row_issue, [{**creature, "event_ai_plan": None}]))
+
+
+class QuestLootPreparationTests(unittest.TestCase):
+    def test_negative_body_leaf_plan_is_recomputed_and_keeps_remaining_admission_blockers(self):
+        from decimal import Decimal
+        source = source_input()
+        source.rows["creature_template"][0]["LootId"] = 970101
+        source.rows["creature_loot_template"] = [export_tests.row(
+            "creature_loot_template", entry=970101, item=920001,
+            ChanceOrQuestChance=Decimal("-37.5"), mincountOrRef=1, maxcount=1)]
+        bundle = capture(source, export_tests.starter_selection(), capture_body_loot=True)
+        dbcs = parsed(dbcs_for(bundle))
+        output = compile_starter(bundle, dbcs, Request(1, 1, 0))
+        plan = output["quest_loot_inputs"]
+        self.assertEqual(len(plan), 1)
+        self.assertEqual((plan[0]["item"], plan[0]["chance"]), (920001, "37.5"))
+        self.assertTrue(plan[0]["quest_only"])
+        self.assertFalse(plan[0]["runtime_admitted"])
+        reasons = {finding["reason"] for finding in output["unsupported"]}
+        self.assertNotIn("loot.quest_chance_not_interpreted", reasons)
+        self.assertIn("loot.source_loader_order_unproven", reasons)
+        self.assertIn("loot.generation_and_item_admission_not_established", reasons)
+        self.assertIn("native.runtime_profile_not_implemented", reasons)
+        self.assertEqual(output["status"], "blocked")
+        self.assertIsNone(output["runtime_export"])
+        verify_preparation(output, bundle, dbcs)
+        output["quest_loot_inputs"][0]["chance"] = "100"
+        output.pop("preparation_sha256")
+        output["preparation_sha256"] = digest(output)
+        with self.assertRaisesRegex(ExportError, "compiler.preparation_mismatch"):
+            verify_preparation(output, bundle, dbcs)
+
+
+class InitialReputationPreparationTests(unittest.TestCase):
+    def setUp(self):
+        self.source = source_bundle()
+        self.files = dbcs_for(self.source)
+        self.files["Faction"] = dbc_bytes("Faction", [
+            {0: 980001, 1: 3, 2: 1, 3: 2, 6: 1, 7: 1,
+             10: 1100, 11: -250, 14: 17, 15: 2},
+            {0: 980002, 1: 7, 10: -75, 14: 44}])
+        self.request = Request(1, 1, 0)
+
+    def compile(self):
+        return compile_starter(self.source, parsed(self.files), self.request)
+
+    def test_complete_plan_replaces_only_initialization_blocker_and_binds_all_slots(self):
+        output = self.compile()
+        plan = output["player"]["initial_reputation"]
+        self.assertEqual(plan["status"], "supported")
+        self.assertEqual([(r["faction"], r["base_standing"], r["stored_delta"], r["flags"])
+                          for r in plan["initial_standings"]],
+                         [(980001, 1100, 0, 17), (980002, -75, 0, 44)])
+        self.assertFalse(plan["aura156_affects_initial_standing"])
+        self.assertNotIn("player.native_reputation_initialization_required",
+                         {r["reason"] for r in output["unsupported"]})
+        for binding in output["dbc_bindings"]:
+            if binding["table"] == "Faction":
+                self.assertTrue(set(range(19)) <= set(binding["consumed_by_preparation"]))
+        self.assertEqual(output["status"], "blocked")
+        self.assertIsNone(output["runtime_export"])
+        verify_preparation(output, self.source, parsed(self.files))
+        output["player"]["initial_reputation"]["initial_standings"][0]["base_standing"] = 999
+        output.pop("preparation_sha256")
+        output["preparation_sha256"] = digest(output)
+        with self.assertRaisesRegex(ExportError, "compiler.preparation_mismatch"):
+            verify_preparation(output, self.source, parsed(self.files))
+
+    def test_race_class_masks_and_wildcard_fallback(self):
+        from native_starter.compiler import Compiler
+        for race, class_id, expected in [(1, 1, 1100), (2, 1, -250), (1, 8, 0)]:
+            compiler = Compiler(self.source, parsed(self.files), Request(race, class_id, 0))
+            plan = compiler.factions({"faction_template_id": 970001})
+            self.assertEqual(plan["status"], "supported")
+            self.assertEqual(plan["initial_standings"][0]["base_standing"], expected)
+
+    def test_missing_tables_and_template_references_keep_precise_blockers(self):
+        for name in ["Faction", "FactionTemplate"]:
+            with self.subTest(table=name):
+                files = dict(self.files)
+                files.pop(name)
+                output = compile_starter(self.source, parsed(files), self.request)
+                self.assertEqual(output["player"]["initial_reputation"]["status"], "blocked")
+                self.assertIsNone(output["player"]["initial_reputation"]["initial_standings"])
+                self.assertIn("player.native_reputation_initialization_required",
+                              {r["reason"] for r in output["unsupported"]})
+        self.files["FactionTemplate"] = dbc_bytes("FactionTemplate", [{0: 970001, 1: 999}])
+        output = self.compile()
+        self.assertIn({"table": "Faction", "id": 999, "reason": "dbc.required_record_missing"},
+                      output["required_additional_rows"])
+
+    def test_indices_flags_conflicts_and_duplicate_rows_fail_closed(self):
+        for fields, reason in [
+            ({1: 64}, "index_or_id"), ({1: -2}, "index_or_id"),
+            ({14: 128}, "flag_bits"), ({10: 100, 11: 200}, "conflicting_slots"),
+        ]:
+            with self.subTest(reason=reason):
+                self.files["Faction"] = dbc_bytes("Faction", [{0: 980001, 1: 3, **fields}])
+                output = self.compile()
+                self.assertIn("player.initial_reputation_" + reason,
+                              {r["reason"] for r in output["unsupported"]})
+                self.assertIsNone(output["player"]["initial_reputation"]["initial_standings"])
+        with self.assertRaisesRegex(ExportError, "duplicate_key"):
+            parse_table("Faction", dbc_bytes("Faction", [{0: 980001, 1: 3}, {0: 980001, 1: 4}]))
+
+
+def reputation_spillover_row(faction, target, rank=7):
+    row = {name: {"decimal": "0"} if rep.floating(name) else 0 for name in rep.FIELDS[rep.SPILL]}
+    row.update(faction=faction, faction1=target, rate_1={"decimal": "0.5"}, rank_1=rank)
+    return row
+
+
+class ReputationPolicySource:
+    def __init__(self, rows):
+        self.rows = rows
+        self.queries = []
+
+    def fetch(self, query):
+        if isinstance(query, rep.SchemaQuery):
+            if query.keys:
+                return [{"table_name": table, "name": columns[0], "ordinal": 1}
+                        for table, columns in rep.FIELDS.items()]
+            return [{"table_name": table, "name": name, "kind": kind + (" unsigned" if unsigned else ""),
+                     "nullable": "NO"} for table, columns in rep.FIELDS.items()
+                    for name in columns for kind, unsigned in [rep.domain(table, name)]]
+        sql, params = query.sql()
+        assert sql.startswith("SELECT ") and params[-1] == 4097
+        self.queries.append(query)
+        return copy.deepcopy(self.rows.get(query.table, []))
+
+
+class ReputationPolicyTests(unittest.TestCase):
+    def setUp(self):
+        self.bundle = source_bundle()
+        self.files = dbcs_for(self.bundle)
+        self.files["Faction"] = dbc_bytes("Faction", [
+            {0: 900, 1: 0, 10: 1000, 18: 901}, {0: 901, 1: 1}])
+        self.files["FactionTemplate"] = dbc_bytes("FactionTemplate", [{0: 970001, 1: 900}])
+        self.dbcs = parsed(self.files)
+        self.source = ReputationPolicySource({rep.SPILL: [reputation_spillover_row(900, 901)]})
+        self.bundle = rep.capture(self.source, self.bundle, self.dbcs["Faction"])
+
+    def compile(self, rules=True):
+        output = compile_starter(self.bundle, self.dbcs, Request(1, 1, 0),
+                                 native_world_rules=stock_preset() if rules else None)
+        return output, output["player"]["initial_reputation"]["reward_rates_and_spillover"]
+
+    def rebind(self):
+        value = self.bundle["reputation_policy_capture"]
+        value["binding"]["lookups_sha256"] = digest(value["lookups"])
+
+    def test_complete_lookup_closure_preserves_kobold_absence_and_spillover(self):
+        validate_bundle(self.bundle)
+        output, plan = self.compile()
+        self.assertEqual(plan["status"], "complete_inputs")
+        self.assertEqual(len(plan["policies"]), 2)
+        self.assertEqual(plan["kill_sources"], [{"entry": 900001, "row": None,
+                                                "admission": "ProvenAbsentOnKillRow"}])
+        self.assertEqual(plan["policies"][0]["spillover"]["Present"][0],
+                         {"faction": 901, "rate": 0x3f000000, "maximum_rank": "Exalted"})
+        self.assertFalse(plan["consumer_certified"])
+        self.assertEqual(plan["aura_binding"], "requires_actual_initialized_aura_list")
+        self.assertEqual(output["player"]["initial_reputation"]["initial_standings"][0]["base_standing"], 1000)
+        verify_preparation(output, self.bundle, self.dbcs, native_world_rules=stock_preset())
+
+    def test_absent_rate_is_not_zero_and_decimal_conversion_is_exact(self):
+        lookups = self.bundle["reputation_policy_capture"]["lookups"]
+        self.assertEqual(self.compile()[1]["policies"][0]["reward_rates"], "Absent")
+        row = {"faction": 900, "quest_rate": {"decimal": "0"},
+               "creature_rate": {"decimal": "0.1"}, "spell_rate": {"decimal": "1"}}
+        lookups[rep.RATE][0]["row"] = row
+        self.rebind()
+        validate_bundle(self.bundle)
+        self.assertEqual(self.compile()[1]["policies"][0]["reward_rates"],
+                         {"Present": {"quest": 0, "creature": 0x3dcccccd, "spell": 0x3f800000}})
+        row["quest_rate"] = {"decimal": "-1"}
+        self.rebind()
+        self.assertEqual(self.compile()[1]["policies"][0]["reward_rates"], "Absent")
+        self.assertEqual(self.compile()[1]["loader_dispositions"][0]["status"], "skipped_negative_rate")
+
+    def test_missing_spill_lookup_and_rate_outside_closure_refuse_even_rehashed(self):
+        original = copy.deepcopy(self.bundle)
+        del self.bundle["reputation_policy_capture"]["lookups"][rep.SPILL][0]
+        self.rebind()
+        with self.assertRaisesRegex(ExportError, "reputation.lookup_coverage"):
+            validate_bundle(self.bundle)
+        self.bundle = original
+        self.bundle["reputation_policy_capture"]["lookups"][rep.RATE][0]["row"] = {
+            "faction": 902, "quest_rate": {"decimal": "1"},
+            "creature_rate": {"decimal": "1"}, "spell_rate": {"decimal": "1"}}
+        self.rebind()
+        with self.assertRaisesRegex(ExportError, "reputation.row_selection"):
+            validate_bundle(self.bundle)
+
+    def test_loader_inner_continue_does_not_drop_unlisted_or_invalid_rank_row(self):
+        self.files["Faction"] = dbc_bytes("Faction", [
+            {0: 900, 1: 0, 18: 901}, {0: 901, 1: -1}])
+        self.dbcs = parsed(self.files)
+        self.bundle = rep.capture(self.source, self.bundle, self.dbcs["Faction"])
+        _, plan = self.compile()
+        self.assertEqual(plan["status"], "complete_inputs")
+        self.assertEqual(plan["loader_dispositions"][2]["status"], "accepted")
+        self.assertEqual(plan["loader_dispositions"][2]["warnings"], [{"slot": 0, "reason": "unlisted_faction"}])
+        self.bundle["reputation_policy_capture"]["lookups"][rep.SPILL][0]["row"]["rank_1"] = 8
+        self.rebind()
+        _, plan = self.compile()
+        self.assertEqual(plan["loader_dispositions"][2]["status"], "accepted")
+        self.assertEqual(plan["status"], "blocked")
+        self.assertIn("reputation.spillover_rank_unrepresentable", plan["refusals"])
+        self.assertIsNone(plan["policies"])
+
+    def test_missing_target_drops_whole_spill_row_and_wrong_dbc_cannot_certify(self):
+        self.bundle["reputation_policy_capture"]["lookups"][rep.SPILL][0]["row"]["faction1"] = 12345
+        self.rebind()
+        _, plan = self.compile()
+        self.assertEqual(plan["policies"][0]["spillover"], "Absent")
+        self.assertEqual(plan["loader_dispositions"][2]["status"], "skipped_missing_target")
+        self.bundle["reputation_policy_capture"]["faction_sha256"] = "0" * 64
+        self.assertEqual(self.compile()[1]["refusals"], ["reputation.complete_faction_binding_required"])
+
+    def test_explicit_configuration_and_actual_aura_binding_are_separate(self):
+        self.assertEqual(self.compile(False)[1]["refusals"], ["reputation.explicit_configuration_required"])
+        _, plan = self.compile()
+        self.assertEqual(plan["configuration"], stock_preset()["reputation"])
+        self.assertFalse(plan["consumer_certified"])
+
+    def test_kill_loader_bool_and_unsigned_conversions_and_invalid_faction_skip(self):
+        row = {name: 0 for name in rep.FIELDS[rep.KILL]}
+        row.update(creature_id=900001, RewOnKillRepFaction1=1, IsTeamAward1=-1, MaxStanding1=-1)
+        self.bundle["reputation_policy_capture"]["lookups"][rep.KILL][0]["row"] = row
+        self.rebind()
+        self.assertEqual(self.compile()[1]["kill_sources"][0]["admission"], "ProvenAbsentOnKillRow")
+        row["RewOnKillRepFaction1"] = 0
+        self.rebind()
+        actual = self.compile()[1]["kill_sources"][0]
+        self.assertEqual(actual["admission"], "PresentOnKillRow")
+        self.assertFalse(actual["row"]["IsTeamAward1"])
+        self.assertEqual(actual["row"]["MaxStanding1"], 0xffffffff)
+
+    def test_no_team_short_circuits_inner_warnings_and_foreign_schema_refuses(self):
+        record = self.bundle["reputation_policy_capture"]["lookups"][rep.SPILL][1]
+        record["row"] = reputation_spillover_row(901, 12345, 8)
+        self.rebind()
+        disposition = self.compile()[1]["loader_dispositions"][3]
+        self.assertEqual(disposition, {"table": rep.SPILL, "id": 901, "status": "skipped_no_team", "warnings": []})
+        self.bundle["reputation_policy_capture"]["policy_schema"][rep.RATE]["columns"]["quest_rate"][0] = "double"
+        with self.assertRaisesRegex(ExportError, "reputation.schema"):
+            validate_bundle(self.bundle)
+
+
+class FireballPlanTests(unittest.TestCase):
+    def authored(self):
+        import json
+        from native_starter import fireball_plan
+        source, selected = export_tests.authored_numeric_source()
+        bundle = capture(source, selected, capture_spell_numeric=True)
+        case = json.loads((ROOT / "native_starter/fireball-authored.json").read_text())
+        files = dbcs_for(bundle)
+        spell_rows = []
+        for row in bundle["tables"]["spell_template"]:
+            if row["Id"] == 133:
+                spell_rows.append(dict(enumerate(case["words"])))
+            else:
+                spell_rows.append({column: binary32_bits(row[name]["decimal"])
+                                   if name in FLOAT_SPELL_FIELDS else row[name] & 0xffffffff
+                                   for name, column in SPELL_FIELDS.items()})
+        files["Spell"] = dbc_bytes("Spell", spell_rows)
+        files["SpellCastTimes"] = dbc_bytes("SpellCastTimes", [{0: 16, 1: 1500, 3: 1500}])
+        files["SpellRange"] = dbc_bytes("SpellRange", [{0: 35, 2: 0x420c0000}])
+        files["SpellDuration"] = dbc_bytes("SpellDuration", [{0: 35, 1: 4000, 3: 4000}])
+        return bundle, parsed(files), case, fireball_plan
+
+    def test_only_the_audited_six_obligations_are_discharged_and_sources_are_unchanged(self):
+        bundle, dbcs, case, plan = self.authored()
+        before = copy.deepcopy(bundle)
+        report = compile_starter(bundle, dbcs, Request(1, 1, 0))
+        self.assertEqual(bundle, before)
+        bound = next(s for s in report["spells"] if s["id"] == 133)
+        self.assertEqual(bound["fireball_plan"]["status"], "supported_shape")
+        self.assertEqual(bound["server_client_differences"], [])
+        self.assertEqual(report["status"], "blocked")
+        self.assertIsNone(report["runtime_export"])
+        self.assertFalse(report["ability_admission"]["effective_learning_proven"])
+        self.assertEqual({i["reason"] for i in report["fireball_plan_obligations"]}, plan.REASONS)
+        remaining = report["unsupported"]
+        self.assertTrue(any(i["reason"] == "spell.server_overlay_and_learning_closure_required"
+                            and i["key"] == [133] for i in remaining))
+        self.assertTrue(any(i["reason"] == "native.runtime_profile_not_implemented" for i in remaining))
+        self.assertTrue(any(i["reason"] == "schema.unreviewed_columns" for i in remaining))
+        for issue in before["report"]["unsupported"]:
+            if issue["table"] != "spell_template" or issue["key"] != "133":
+                self.assertFalse(plan.discharges(issue, bound["fireball_plan"]))
+        for reason in plan.REASONS:
+            unrelated = {"table": "spell_template", "key": [168], "reason": reason, "slot": 2}
+            self.assertFalse(plan.discharges(unrelated, bound["fireball_plan"]))
+        self.assertTrue(all(case["numeric_projection"][name] == binary32_bits(value["decimal"])
+                            for name, value in case["row"].items() if isinstance(value, dict)))
+        verify_preparation(report, bundle, dbcs)
+
+    def test_shared_authored_refusals_and_missing_effective_numeric_coverage_do_not_plan_support(self):
+        bundle, dbcs, case, plan = self.authored()
+        bound = next(s for s in compile_starter(bundle, dbcs, Request(1, 1, 0))["spells"] if s["id"] == 133)
+        from classic_export import spell_numeric
+        for refusal in case["refusals"]:
+            changed = copy.deepcopy(bundle)
+            row = next(r for r in changed["spell_numeric_capture"]["rows"] if r["Id"] == 133)
+            row[refusal["field"]] = refusal["value"]
+            result = plan.supported_plan(changed, 133, case["words"],
+                                        bound["cast_time"], bound["range"], bound["duration"])
+            with self.subTest(field=refusal["field"]):
+                self.assertEqual(result["status"], "blocked")
+        legacy = copy.deepcopy(bundle)
+        legacy.pop("spell_numeric_capture")
+        report = compile_starter(legacy, dbcs, Request(1, 1, 0))
+        self.assertFalse(report["fireball_plan_obligations"])
+        bound = next(s for s in report["spells"] if s["id"] == 133)
+        self.assertEqual(bound["fireball_plan"]["refusals"], ["spell_numeric.complete_effective_overlay_unknown"])
+
+    def test_mismatch_diagnostics_and_registry_learning_hook_blockers_remain(self):
+        bundle, dbcs, case, plan = self.authored()
+        from classic_export import spell_numeric, spell_registry
+        for field in spell_numeric.WORD_FIELDS:
+            changed = copy.deepcopy(bundle)
+            row = next(r for r in changed["spell_numeric_capture"]["rows"] if r["Id"] == 133)
+            value = row[field]
+            row[field] = {"decimal": "2"} if isinstance(value, dict) else value + 1
+            # Shape checking remains independent of the producer's selected evidence.
+            bound = next(s for s in compile_starter(bundle, dbcs, Request(1, 1, 0))["spells"] if s["id"] == 133)
+            result = plan.supported_plan(changed, 133, case["words"],
+                                        bound["cast_time"], bound["range"], bound["duration"])
+            self.assertEqual(result["status"], "blocked", field)
+            if field != "Id":
+                self.assertIn(field, result["server_client_differences"])
+        for registry in ("unknown", "present"):
+            changed = copy.deepcopy(bundle)
+            if registry == "unknown":
+                changed.pop("spell_script_capture")
+                changed["tables"].pop("spell_scripts")
+                rehash_source(changed)
+            else:
+                changed["tables"]["spell_scripts"] = [{"Id": 133, "ScriptName": ""}]
+                rehash_source(changed)
+                extension = changed["spell_numeric_capture"]
+                changed["spell_numeric_capture"] = spell_numeric.evidence(changed, extension["rows"], extension["facing"])
+            report = compile_starter(changed, dbcs, Request(1, 1, 0))
+            reason = ("spell.registry_coverage_not_proven" if registry == "unknown"
+                      else "spell.registry_row_requires_named_handler_semantics")
+            self.assertTrue(any(i["reason"] == reason for i in report["unsupported"]))
+            self.assertEqual(report["status"], "blocked")
+
+
+class CreatureGenerationPreparationTests(unittest.TestCase):
+    def test_rust_adapter_columns_match_complete_capture_projection(self):
+        from classic_export.columns import COLUMNS
+        source = (ROOT.parent / "crates/benilla-world-runtime/src/native/creature_generation/captured.rs").read_text()
+        for table, constant in [("creature_template", "TEMPLATE_FIELDS"),
+                                ("creature_template_classlevelstats", "CLASS_FIELDS")]:
+            fields = re.search(r"const " + constant + r": &\[&str\] = &\[(.*?)\];", source, re.S)
+            self.assertIsNotNone(fields)
+            self.assertEqual(re.findall(r'"([^"]+)"', fields[1]), COLUMNS[table])
+
+    def setUp(self):
+        self.source = source_bundle()
+        creature = self.source["tables"]["creature_template"][0]
+        creature.update(MaxLevel=2, CreatureType=7, InhabitType=3,
+                        DisplayIdProbability1=1, MeleeBaseAttackTime=2500)
+        stats = self.source["tables"]["creature_template_classlevelstats"][0]
+        stats.update(BaseDamageExp0=4, BaseArmor=100, BaseMeleeAttackPower=14,
+                     Strength=10, Agility=10, Stamina=10, Intellect=10, Spirit=10)
+        self.source["tables"]["creature_template_classlevelstats"].append(
+            {**stats, "Level": 2, "BaseHealthExp0": 80, "BaseDamageExp0": 8})
+        self.source["tables"]["creature_model_info"][0].update(
+            bounding_radius={"decimal": "0.5"}, SpeedWalk={"decimal": "1"}, SpeedRun={"decimal": "1"})
+        rehash_source(self.source)
+        self.files = dbcs_for(self.source)
+
+    def compile(self):
+        return compile_starter(self.source, parsed(self.files), Request(1, 1, 0))
+
+    def test_complete_stats_plan_discharges_only_stats_and_level_findings(self):
+        output = self.compile()
+        plan = output["creatures"][0]["generation_plan"]
+        self.assertEqual(plan["status"], "complete_inputs")
+        self.assertEqual(plan["level_roll"], {"minimum": 1, "maximum": 2, "inclusive": True,
+            "draw_required": True, "rng_owner": "existing_world_counter"})
+        self.assertEqual([row["Level"] for row in plan["class_level_rows"]], [1, 2])
+        reasons = {issue["reason"] for issue in output["unsupported"]}
+        self.assertNotIn("creature.native_stats_combat_faction_required", reasons)
+        self.assertNotIn("creature.variable_level", reasons)
+        self.assertIn("creature.ai_selection_and_native_melee_required", reasons)
+        self.assertIn("native.runtime_profile_not_implemented", reasons)
+        self.assertEqual(output["status"], "blocked")
+        self.assertIsNone(output["runtime_export"])
+        for row in output["source_field_dispositions"]:
+            if row["table"] in {"creature_template", "creature_template_classlevelstats"}:
+                self.assertNotIn("creature.native_stats_combat_faction_required", row["blocked_for_gameplay"])
+        verify_preparation(output, self.source, parsed(self.files))
+
+    def test_missing_level_faction_display_and_unsupported_template_keep_blockers(self):
+        for mutation in [
+            lambda: self.source["tables"]["creature_template_classlevelstats"].pop(),
+            lambda: self.files.pop("FactionTemplate"),
+            lambda: self.files.pop("CreatureDisplayInfo"),
+            lambda: self.source["tables"]["creature_template"][0].update(ScriptName="script"),
+            lambda: self.source["tables"]["creature_template"][0].update(AIName="other"),
+            lambda: self.source["tables"]["creature_template"][0].update(Rank=1),
+            lambda: self.source["tables"]["creature_template"][0].update(UnitFlags=0x80000000),
+            lambda: self.source["tables"]["creature_template"][0].update(ExtraFlags=0x10002),
+            lambda: self.source["tables"]["creature_template"][0].update(Civilian=1),
+            lambda: self.source["tables"]["creature_template"][0].update(HealthMultiplier=1000001),
+            lambda: self.source["tables"]["creature_model_info"][0].update(bounding_radius={"decimal": "0"}),
+            lambda: self.source["tables"]["creature_model_info"][0].update(SpeedRun={"decimal": "0"}),
+        ]:
+            with self.subTest(mutation=mutation):
+                self.setUp()
+                mutation()
+                rehash_source(self.source)
+                output = self.compile()
+                self.assertEqual(output["creatures"][0]["generation_plan"]["status"], "refused")
+                self.assertIn("creature.native_stats_combat_faction_required",
+                              {issue["reason"] for issue in output["unsupported"]})
+                self.assertIn("creature.variable_level",
+                              {issue["reason"] for issue in output["unsupported"]})
+
+    def test_fixed_level_omits_draw_and_no_xp_giver_preserves_flag(self):
+        row = self.source["tables"]["creature_template"][0]
+        row.update(MaxLevel=1, StaticFlags1=2, UnitFlags=0x1300, ExtraFlags=0x10002,
+                   NpcFlags=19, Civilian=1)
+        rehash_source(self.source)
+        output = self.compile()
+        self.assertEqual(output["creatures"][0]["generation_plan"]["status"], "complete_inputs")
+        self.assertFalse(output["creatures"][0]["generation_plan"]["level_roll"]["draw_required"])
+        self.assertEqual(output["creatures"][0]["source_row"]["StaticFlags1"], 2)
+
+    def test_active_mana_regeneration_remains_outside_generation_host(self):
+        creature = self.source["tables"]["creature_template"][0]
+        creature.update(UnitClass=8, RegenerateStats=10)
+        for row in self.source["tables"]["creature_template_classlevelstats"]:
+            row.update(Class=8, BaseMana=100)
+        rehash_source(self.source)
+        plan = self.compile()["creatures"][0]["generation_plan"]
+        self.assertIn("active_power_regeneration", plan["refusals"])
+        creature["RegenerateStats"] = 2
+        rehash_source(self.source)
+        self.assertEqual(self.compile()["creatures"][0]["generation_plan"]["status"], "complete_inputs")
+
+
+class QuestGiverPreparationTests(unittest.TestCase):
+    def test_scoped_plan_preserves_independent_holds_and_raw_text(self):
+        from native_starter.quest_plan import supported_plan as quest_plan
+        source = export_tests.authored_presentation_source()
+        bundle = capture(source, export_tests.starter_selection(), capture_quest_presentation=True)
+        dbcs = {"Emotes": parse_table("Emotes", dbc_bytes("Emotes", [{0: 1}]))}
+        plan = quest_plan(bundle, dbcs)
+        self.assertTrue(plan["raw_presentation_resolved"])
+        self.assertFalse(plan["ordinary_catalog_resolved"])
+        self.assertEqual(plan["status"], "blocked")
+        self.assertIsNone(plan["runtime_export"])
+        self.assertIn("registered_callbacks", {row["field"] for row in plan["refusals"]})
+        self.assertNotIn("loaded_relation_order", {row["field"] for row in plan["refusals"]})
+        self.assertEqual(plan["canonical_order"]["status"], "complete_inputs")
+        self.assertIn("CompleteEmoteDelay", plan["field_dispositions"]["quest_template"]["consumed_by_ordinary_presentation"])
+        del dbcs["Emotes"]
+        self.assertIn("unknown_coverage_reextract_v4", {row["reason"] for row in quest_plan(bundle, dbcs)["refusals"]})
+
+    def test_null_request_items_text_keeps_source_and_skips_text_refusal(self):
+        from native_starter.quest_plan import supported_plan as quest_plan
+        source = export_tests.authored_presentation_source()
+        source.rows["quest_template"][0]["RequestItemsText"] = None
+        next(c for c in source.inventory["tables"]["quest_template"]["columns"]
+             if c["name"] == "RequestItemsText")["nullable"] = True
+        bundle = capture(source, export_tests.starter_selection(), capture_quest_presentation=True)
+        dbcs = {"Emotes": parse_table("Emotes", dbc_bytes("Emotes", [{0: 1}]))}
+        plan = quest_plan(bundle, dbcs)
+        self.assertTrue(plan["raw_presentation_resolved"])
+        self.assertIsNone(bundle["quest_giver_presentation_capture"]["rows"]["quest_template"][0]["RequestItemsText"])
+        source.rows["quest_template"][0]["RequestItemsText"] = "\x01"
+        bundle = capture(source, export_tests.starter_selection(), capture_quest_presentation=True)
+        self.assertIn("invalid_text", {r["reason"] for r in quest_plan(bundle, dbcs)["refusals"]})
+
+    def test_checked_content_mechanics_remove_only_their_raw_refusals(self):
+        from native_starter.quest_plan import supported_plan as quest_plan
+        source = export_tests.authored_mechanics_source()
+        bundle = capture(source, export_tests.starter_selection(), capture_quest_mechanics=True)
+        dbcs = {"Emotes": parse_table("Emotes", dbc_bytes("Emotes", [{0: 1}, {0: 71}]))}
+        plan = quest_plan(bundle, dbcs)
+        self.assertEqual(plan["mechanics"]["status"], "resolved")
+        self.assertTrue(plan["raw_presentation_resolved"])
+        fields = {row["field"] for row in plan["refusals"]}
+        self.assertNotIn("CompleteScript", fields)
+        self.assertNotIn("SrcItemId", fields)
+        self.assertNotIn("GossipMenuId", fields)
+        self.assertNotIn("loaded_script_order", fields)
+        self.assertEqual(plan["mechanics"]["loaded_script_order"], plan["canonical_order"]["scripts"])
+        self.assertIn("global_spell_area_and_item_effects", fields)
+        self.assertFalse(plan["ordinary_catalog_resolved"])
+        self.assertIsNone(plan["runtime_export"])
+        missing = copy.deepcopy(bundle)
+        del missing["quest_mechanics_capture"]
+        missing = quest_plan(missing, dbcs)
+        self.assertIsNone(missing["canonical_order"]["scripts"])
+        self.assertIn("loaded_script_order", {row["field"] for row in missing["refusals"]})
+        self.assertNotIn("loaded_relation_order", {row["field"] for row in missing["refusals"]})
+        dbcs["Emotes"] = parse_table("Emotes", dbc_bytes("Emotes", [{0: 1}, {0: 71, 4: 1}]))
+        unsupported = quest_plan(bundle, dbcs)
+        self.assertIn(("Emotes.EmoteType", 71, "state_emote_not_supported"),
+                      {(row["field"], row["target"], row["reason"]) for row in unsupported["refusals"]})
+        self.assertFalse(unsupported["raw_presentation_resolved"])
+
+    def test_legacy_capture_and_unsupported_request_delay_remain_refusals(self):
+        from native_starter.quest_plan import supported_plan as quest_plan
+        self.assertFalse(quest_plan(source_bundle(), parsed(dbcs_for(source_bundle())))["raw_presentation_resolved"])
+        source = export_tests.authored_presentation_source()
+        source.rows["quest_template"][0]["CompleteEmoteDelay"] = 20
+        bundle = capture(source, export_tests.starter_selection(), capture_quest_presentation=True)
+        refusals = quest_plan(bundle, {})["refusals"]
+        self.assertIn(("CompleteEmoteDelay", 20, "unsupported_packet_shape"),
+            {(row["field"], row["target"], row["reason"]) for row in refusals})
+
+    def test_extraction_v3_remains_legacy_without_claiming_emotes(self):
+        files = dbcs_for(source_bundle())
+        files.pop("Emotes")
+        value = extraction_metadata(files)
+        value["format"] = "benilla-native-dbc-extraction-v3"
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root)
+            (path / "extraction.json").write_bytes(canonical(value))
+            observed = load_extraction_manifest(path, parsed(files))
+            self.assertEqual(observed["metadata"]["format"], "benilla-native-dbc-extraction-v3")
+            value["format"] = "benilla-native-dbc-extraction-v4"
+            (path / "extraction.json").write_bytes(canonical(value))
+            with self.assertRaisesRegex(ExportError, "complete_valid_dbc_set"):
+                load_extraction_manifest(path, parsed(files))
+
+class WorldRulesPreparationTests(unittest.TestCase):
+    def test_explicit_policy_replaces_only_start_and_supported_quest_xp(self):
+        from native_starter.world_rules import stock_preset
+        source = source_input()
+        source.rows["quest_template"][0].update(QuestLevel=2, RewMoneyMaxLevel=102)
+        bundle = capture(source, export_tests.starter_selection())
+        dbcs = parsed(dbcs_for(bundle))
+        absent = compile_starter(bundle, dbcs, Request(1, 1, 0))
+        self.assertIn("player.start_configuration_not_captured", {i["reason"] for i in absent["unsupported"]})
+        self.assertIn("quest.dynamic_xp", {i["reason"] for i in absent["unsupported"]})
+        rules = stock_preset()
+        report = compile_starter(bundle, dbcs, Request(1, 1, 0), native_world_rules=rules)
+        remaining = {i["reason"] for i in report["unsupported"]}
+        self.assertNotIn("player.start_configuration_not_captured", remaining)
+        self.assertNotIn("quest.dynamic_xp", remaining)
+        self.assertIn("player.native_creation_progression_rules_required", remaining)
+        self.assertIn("quest.native_eligibility_credit_reward_required", remaining)
+        self.assertIn("native.runtime_profile_not_implemented", remaining)
+        self.assertIsNone(report["runtime_export"])
+        self.assertEqual(report["world_rules_plan"]["input_binding"], digest(rules))
+        disposition = next(r for r in report["source_field_dispositions"] if r["table"] == "quest_template")
+        self.assertEqual(disposition["supported_numeric_policy"]["fields"], ["QuestLevel", "RewMoneyMaxLevel"])
+        self.assertNotIn("RewMoneyMaxLevel", disposition["blocked_for_gameplay"]["quest.native_eligibility_credit_reward_required"])
+        findings = [i for i in report["source_capture_findings"] if i["reason"] == "quest.dynamic_xp"]
+        self.assertEqual({i["disposition"] for i in findings}, {"supported_numeric_policy"})
+        verify_preparation(report, bundle, dbcs, native_world_rules=rules)
+        with self.assertRaisesRegex(ExportError, "preparation_mismatch"):
+            verify_preparation(report, bundle, dbcs)
+        changed = copy.deepcopy(rules)
+        changed["kill"]["kill_rate_bits"] = 0
+        with self.assertRaisesRegex(ExportError, "preparation_mismatch"):
+            verify_preparation(report, bundle, dbcs, native_world_rules=changed)
+
+    def test_combat_stock_policy_matches_pinned_world_loader(self):
+        from native_starter.world_rules import stock_preset, validate
+        rules = stock_preset()
+        self.assertEqual(rules["version"], 2)
+        self.assertEqual(rules["combat"], {
+            "aggro_rate_bits": 0x3f800000,
+            "family_assistance_radius_bits": 0x40a00000,
+            "family_assistance_delay_ms": 1500,
+            "family_flee_assistance_radius_bits": 0x41f00000,
+            "family_flee_delay_ms": 10000,
+            "check_for_help_radius_bits": 0x40a00000,
+            "check_for_help_aggro_delay_ms": 2000,
+            "linking_aggro_delay_ms": 2000,
+            "respawn_aggro_delay_ms": 5000,
+            "relocation_notify_delay_ms": 1000,
+            "leash_radius_bits": 0x41f00000,
+            "listen_say_range_bits": 0x41c80000,
+            "listen_yell_range_bits": 0x43960000,
+            "listen_text_emote_range_bits": 0x41c80000,
+        })
+        self.assertEqual(validate(rules), rules)
+
+    def test_policy_refuses_unsupported_keys_missing_fields_and_rate_boundaries(self):
+        from native_starter.world_rules import stock_preset, validate
+        rules = stock_preset()
+        self.assertEqual(validate(rules), rules)
+        for key, value in [("version", 1), ("start_player_level", 2),
+                           ("start_player_money", 0x7fffffff), ("Rate.XP.Explore", 1),
+                           ("quest_xp_rate_bits", True)]:
+            changed = copy.deepcopy(rules)
+            changed[key] = value
+            with self.subTest(key=key), self.assertRaises(ExportError):
+                validate(changed)
+        for bits in [1, 0x80000000, 0xbf800000, 0x447a0001, 0x7f800000, 0x7fc00000]:
+            changed = copy.deepcopy(rules)
+            changed["quest_xp_rate_bits"] = bits
+            with self.subTest(bits=bits), self.assertRaises(ExportError):
+                validate(changed)
+        for bits in [0, 0x00800000, 0x447a0000]:
+            changed = copy.deepcopy(rules)
+            changed["kill"]["kill_rate_bits"] = bits
+            validate(changed)
+        del rules["reputation"]
+        with self.assertRaises(ExportError):
+            validate(rules)
+
+    def test_quest_xp_outside_numeric_shape_keeps_its_exact_blocker(self):
+        from native_starter.world_rules import stock_preset
+        source = source_input()
+        source.rows["quest_template"][0].update(QuestLevel=256, RewMoneyMaxLevel=102)
+        bundle = capture(source, export_tests.starter_selection())
+        report = compile_starter(bundle, parsed(dbcs_for(bundle)), Request(1, 1, 0),
+                                 native_world_rules=stock_preset())
+        self.assertIn("quest.dynamic_xp", {i["reason"] for i in report["unsupported"]})
+        self.assertTrue(report["world_rules_plan"]["refusals"])
+
+    def test_zero_rate_does_not_hide_an_overflow_before_rate_application(self):
+        from native_starter.world_rules import stock_preset, supported_plan
+        source = {"tables": {"quest_template": [
+            {"entry": 900001, "QuestLevel": 1, "RewMoneyMaxLevel": 0xffffffff}]}}
+        rules = stock_preset()
+        rules["quest_xp_rate_bits"] = 0
+        rules["loot"]["money_rate_bits"] = 0
+        plan = supported_plan(source, rules)
+        self.assertEqual(plan["quest_xp_inputs"], [])
+        self.assertEqual(plan["refusals"], [{"quest": 900001, "reason": "quest_xp_numeric_domain"}])
+
+
+class CorpseLootPreparationTests(unittest.TestCase):
+    def source(self):
+        source = export_tests.LootLoaderCaptureTests().source()
+        for name in FLOAT_SPELL_FIELDS:
+            column = next(c for c in source.inventory["tables"]["spell_template"]["columns"] if c["name"] == name)
+            column["type"] = "float"
+        return source
+
+    def test_supported_reference_shape_replaces_only_scoped_obligations(self):
+        from native_starter import loot_plan
+        from native_starter.world_rules import stock_preset
+        source = capture(self.source(), export_tests.starter_selection(), capture_body_loot=True)
+        result = compile_starter(source, parsed(dbcs_for(source)), Request.parse({"race": 1, "class": 1, "gender": 0}),
+                                 native_world_rules=stock_preset())
+        plan = result["corpse_loot_plan"]
+        self.assertEqual(plan["status"], "supported_shape", plan["refusals"])
+        self.assertFalse(plan["runtime_admitted"])
+        self.assertEqual([row["item"] for row in plan["ordered_rows"]["creature_loot_template"]],
+                         [80002, 60441, 60000, 80001])
+        self.assertEqual(plan["ordered_rows"]["creature_loot_template"][1]["chance_or_quest_chance_bits"], 0x3f28f5c3)
+        reasons = {r["reason"] for r in result["unsupported"]}
+        self.assertFalse(reasons & loot_plan.DISCHARGED)
+        self.assertIn("native.runtime_profile_not_implemented", reasons)
+        self.assertIn("loot.explicit_rates_inventory_audit_and_host_binding_required", reasons)
+        self.assertTrue(loot_plan.DISCHARGED <= {r["reason"] for r in source["report"]["unsupported"]})
+        self.assertEqual({r["entry"] for r in plan["leaf_items"]}, set(range(80001, 80005)))
+        self.assertTrue(all(not d["blocked_for_gameplay"] for d in result["source_field_dispositions"]
+                            if d["table"] in {"creature_loot_template", "reference_loot_template"}))
+        self.assertIsNone(result["runtime_export"])
+
+    def test_raw_assembly_keeps_callback_refusal_and_complete_leaf_inputs(self):
+        from native_starter import loot_plan
+        raw = self.source()
+        raw.rows["creature_template"][0]["ScriptName"] = "npc_garments_of_quests"
+        source = capture(raw, export_tests.starter_selection(), capture_body_loot=True)
+        plan = loot_plan.supported_plan(source)
+        self.assertEqual(plan["status"], "blocked")
+        assembly = plan["raw_assembly"]
+        self.assertEqual(assembly["status"], "checked_projection", assembly["refusals"])
+        self.assertEqual((assembly["body_row_count"], assembly["reference_row_count"]), (4, 2))
+        self.assertEqual({i["inventory"]["entry"] for i in assembly["item_inputs"]}, set(range(80001, 80005)))
+        self.assertEqual([i["row"] for i in assembly["client_metadata_inputs"]],
+                         [i for i in source["tables"]["item_template"] if 80001 <= i["entry"] <= 80004])
+        self.assertFalse(loot_plan.discharges({"reason": "loot.reference_generation_not_implemented"}, plan))
+
+    def test_raw_assembly_refuses_missing_leaf_cycle_and_unsupported_flag(self):
+        from native_starter import loot_plan
+        source = capture(self.source(), export_tests.starter_selection(), capture_body_loot=True)
+        source["tables"]["item_template"] = [i for i in source["tables"]["item_template"] if i["entry"] != 80004]
+        assembly = loot_plan.supported_plan(source)["raw_assembly"]
+        self.assertEqual(assembly["status"], "blocked")
+        self.assertIn({"table": "item_template", "key": "80004", "reason": "loot.item_template_missing"},
+                      assembly["refusals"])
+        raw = self.source()
+        raw.rows["reference_loot_template"][0]["mincountOrRef"] = -60441
+        source = capture(raw, export_tests.starter_selection(), capture_body_loot=True)
+        self.assertIn("loot.reference_cycle_not_executable",
+                      {r["reason"] for r in loot_plan.supported_plan(source)["raw_assembly"]["refusals"]})
+        raw = self.source()
+        next(i for i in raw.rows["item_template"] if i["entry"] == 80004)["Flags"] = 4
+        source = capture(raw, export_tests.starter_selection(), capture_body_loot=True)
+        self.assertIn("loot.item.carried_dependency_unsupported",
+                      {r["reason"] for r in loot_plan.supported_plan(source)["raw_assembly"]["refusals"]})
+
+    def test_legacy_and_unsupported_items_keep_generation_obligations(self):
+        from native_starter import loot_plan
+        source = capture(self.source(), export_tests.starter_selection(), capture_body_loot=True)
+        source.pop("loot_loader_capture")
+        self.assertEqual(loot_plan.supported_plan(source)["status"], "blocked")
+        for field, value in [("startquest", 17), ("RandomProperty", 2), ("ScriptName", "authored_hook"),
+                             ("ContainerSlots", 4), ("spelltrigger_1", 1), ("spellid_1", -1)]:
+            raw = self.source()
+            item = next(r for r in raw.rows["item_template"] if r["entry"] == 80004)
+            item[field] = value
+            if field == "spelltrigger_1":
+                item["spellid_1"] = raw.rows["spell_template"][0]["Id"]
+            source = capture(raw, export_tests.starter_selection(), capture_body_loot=True)
+            plan = loot_plan.supported_plan(source)
+            self.assertEqual(plan["status"], "blocked", field)
+            self.assertTrue(any(r["table"] == "item_template" and r["key"] == "80004" for r in plan["refusals"]))
+        raw = self.source()
+        item = next(r for r in raw.rows["item_template"] if r["entry"] == 80004)
+        item.update(spellid_1=raw.rows["spell_template"][0]["Id"], spelltrigger_1=0,
+                    spellcooldown_2=-1, spellcategorycooldown_2=-1)
+        source = capture(raw, export_tests.starter_selection(), capture_body_loot=True)
+        self.assertEqual(loot_plan.supported_plan(source)["status"], "supported_shape")
+
+    def test_processing_budget_and_binary32_underflow_refuse_before_admission(self):
+        from decimal import Decimal
+        from native_starter import loot_plan
+        raw = self.source()
+        prototype = next(r for r in raw.rows["item_template"] if r["entry"] == 80003)
+        for entry in range(80010, 80026):
+            raw.rows["reference_loot_template"].append(export_tests.row("reference_loot_template",
+                entry=60000, item=entry, groupid=1, mincountOrRef=1, maxcount=1))
+            raw.rows["item_template"].append(dict(prototype, entry=entry))
+        next(r for r in raw.rows["creature_loot_template"] if r["item"] == 60000)["maxcount"] = 255
+        source = capture(raw, export_tests.starter_selection(), capture_body_loot=True)
+        self.assertIn("loot.processing_budget", {r["reason"] for r in loot_plan.supported_plan(source)["refusals"]})
+        raw = self.source()
+        next(r for r in raw.rows["creature_loot_template"] if r["item"] == 60000)["ChanceOrQuestChance"] = Decimal("1e-50")
+        source = capture(raw, export_tests.starter_selection(), capture_body_loot=True)
+        self.assertIn("loot.ungrouped_binary32_zero_chance",
+                      {r["reason"] for r in loot_plan.supported_plan(source)["refusals"]})
+
+from native_starter.verifier_parity import PreparationVerifierParityTests, LearningNumericCandidateTests
+
+class CapturedItemAdmissionTests(unittest.TestCase):
+    def item(self):
+        row = copy.deepcopy(source_bundle()["tables"]["item_template"][0])
+        row.update(displayid=920002, stackable=1)
+        return row
+
+    def test_playercast_hearthstone_storage_preserves_flag_and_refuses_other_dependencies(self):
+        from native_starter import item_plan, outfit_plan
+        row = self.item()
+        row.update(entry=6948, Flags=0x40, spellid_1=8690,
+                   spelltrigger_1=0, **{"class": 15, "subclass": 0, "InventoryType": 0})
+        plan = item_plan.item_plan(row)
+        self.assertEqual(plan["status"], "supported_shape")
+        self.assertEqual(plan["starter_placement"]["status"], "supported_shape")
+        self.assertEqual(plan["captured_input"]["inventory"]["flags"], 0x40)
+        self.assertEqual(plan["captured_input"]["placement"]["flags"], 0x40)
+        self.assertEqual(plan["unavailable_operations"]["use"], "item.carried_item_use_not_implemented")
+        grants = [{"item_id": 6948, "count": 1}]
+        placement, refusals = outfit_plan.supported_plan(grants, {6948: row})
+        self.assertEqual(refusals, [])
+        self.assertEqual(placement["grants"][0]["candidate_slots"], [])
+        for flag in (1, 0x20, 0x80, 0x80000000):
+            mutated = dict(row, Flags=0x40 | flag)
+            self.assertEqual(item_plan.item_plan(mutated)["starter_placement"]["status"], "blocked")
+            self.assertTrue(outfit_plan.supported_plan(grants, {6948: mutated})[1])
+        quest = dict(row, entry=14646, startquest=5805)
+        self.assertIn({"table": "item_template", "key": "14646", "field": "startquest",
+                       "reason": "item.carried_dependency_unsupported"},
+                      item_plan.item_plan(quest)["refusals"])
+
+    def test_shared_playercast_case_preserves_both_projections(self):
+        from native_starter.verifier_parity import corpus
+        fixture = next(f for f in corpus()["fixtures"] if f["name"] == "carried-items")
+        item = fixture["preparation"]["captured_item_plan"]["items"][2]
+        self.assertEqual(item["captured_input"]["inventory"]["flags"], 0x40)
+        self.assertEqual(item["captured_input"]["placement"]["flags"], 0x40)
+        self.assertEqual(item["starter_placement"]["status"], "supported_shape")
+
+    def test_authored_selected_classes_and_unavailable_actions(self):
+        from native_starter.item_plan import item_plan
+        for cls, sub, kind in [(0, 0, 0), (1, 0, 18), (2, 10, 17), (4, 1, 5),
+                               (7, 0, 0), (12, 0, 0), (15, 0, 0), (2, 2, 15), (4, 6, 14)]:
+            with self.subTest(cls=cls, sub=sub, kind=kind):
+                row = self.item()
+                row.update({"class": cls, "subclass": sub, "InventoryType": kind,
+                            "ContainerSlots": 6 if cls == 1 else 0})
+                plan = item_plan(row)
+                self.assertEqual(plan["status"], "supported_shape", plan["refusals"])
+                self.assertEqual(plan["unavailable_operations"]["equip_newly_looted"],
+                                 "item.carried_item_equipment_not_implemented")
+                self.assertEqual(plan["captured_input"]["inventory"]["bonding"], row["bonding"])
+
+    def test_spell_sentinels_masks_requirements_and_all_slots_survive(self):
+        from native_starter.item_plan import item_plan
+        row = self.item()
+        row.update(AllowableClass=-1, AllowableRace=-1, RequiredLevel=53,
+                   RequiredSkill=415, RequiredSkillRank=200, requiredspell=800003,
+                   spellid_1=800004, spelltrigger_1=0, spellcharges_1=-2,
+                   spellcooldown_5=-1, spellcategorycooldown_5=-1)
+        plan = item_plan(row)
+        self.assertEqual(plan["status"], "supported_shape", plan["refusals"])
+        captured = plan["captured_input"]
+        self.assertEqual(captured["placement"]["allowable_class"], 0xffffffff)
+        self.assertEqual(captured["placement"]["required_skill_rank"], 200)
+        self.assertEqual(captured["inventory"]["spells"][0]["charges"], -2)
+        self.assertEqual(captured["inventory"]["spells"][4]["cooldown"], -1)
+        self.assertEqual(captured["inventory"]["spells"][4]["category_cooldown"], -1)
+
+    def test_precise_refusals_do_not_discharge_other_items(self):
+        from native_starter import item_plan
+        for field, value in [("startquest", 800003), ("Flags", 1), ("RandomProperty", 8),
+                             ("stackable", 0), ("spelltrigger_1", 6), ("subclass", 99)]:
+            row = self.item()
+            row[field] = value
+            plan = item_plan.supported_plan({"tables": {"item_template": [row]}})
+            self.assertTrue(plan["refusals"], field)
+            self.assertFalse(item_plan.discharges(
+                {"table": "item_template", "key": str(row["entry"]), "reason": item_plan.REASON}, plan))
+        row = self.item()
+        plan = item_plan.supported_plan({"tables": {"item_template": [row]}})
+        self.assertTrue(item_plan.discharges(
+            {"table": "item_template", "key": str(row["entry"]), "reason": item_plan.REASON}, plan))
+        self.assertFalse(item_plan.discharges(
+            {"table": "item_template", "key": "99999999", "reason": item_plan.REASON}, plan))
+
+    def test_preparation_recomputes_item_admission_and_preserves_source_findings(self):
+        from native_starter import item_plan
+        source = source_bundle()
+        for row in source["tables"]["item_template"]:
+            row["displayid"] = 920002
+        rehash_source(source)
+        dbcs = parsed(dbcs_for(source))
+        report = compile_starter(source, dbcs, Request(1, 1, 0))
+        self.assertTrue(report["captured_item_obligations"])
+        self.assertNotIn(item_plan.REASON, {i["reason"] for i in report["unsupported"]})
+        self.assertTrue(any(i["reason"] == item_plan.REASON for i in report["source_capture_findings"]))
+        verify_preparation(report, source, dbcs)
+        report["captured_item_plan"]["items"][0]["captured_input"]["inventory"]["bonding"] = 4
+        report["preparation_sha256"] = digest({k: v for k, v in report.items() if k != "preparation_sha256"})
+        with self.assertRaisesRegex(ExportError, "preparation_mismatch"):
+            verify_preparation(report, source, dbcs)
+
+class CapturedSpellExecutionTests(unittest.TestCase):
+    @staticmethod
+    def authored(frost=False, consumables=False, attack=False):
+        """Authored mechanism rows, never copies of installed DBC or SQL rows."""
+        from decimal import Decimal
+        from classic_export import spell_numeric
+        from classic_export.core import Selection
+        from native_starter import spell_execution as execution
+        from classic_export import initial_hooks
+        from classic_export.columns import INITIAL_HOOK_SCHEMA
+        source, selected = export_tests.authored_numeric_source()
+        for table, columns in INITIAL_HOOK_SCHEMA.items():
+            source.inventory["tables"][table] = {
+                "engine": "InnoDB", "table_type": "BASE TABLE",
+                "columns": [{"name": name, "type": kind, "nullable": nullable, "ordinal": i}
+                            for i, (name, kind, nullable) in enumerate(columns, 1)],
+                "primary_key": initial_hooks.PRIMARY_KEYS[table]}
+            source.rows[table] = []
+        authored = {}
+        words = {}
+        for entry, (effects, item_class, item_mask) in execution.SHAPES.items():
+            w = [0] * 173
+            holder = effects[0][0] == 6
+            weapon = entry in {81, 203, 204, 227, 522, 668, 2382, 5009}
+            for i, value in {0: entry, 6: 0x50 if holder or entry == 81 else 0xc0,
+                             7: 0x02000000 if entry == 3050 else 0, 18: int(entry != 81),
+                             25: 101, 28: int(entry == 81), 29: int(entry in {81, 668}),
+                             30: 21 if holder else 0, 36: 1, 58: item_class & 0xffffffff,
+                             59: item_mask, 164: int(weapon), 165: int(weapon),
+                             166: 0 if holder else 0xffffffff}.items():
+                w[i] = value
+            for slot in range(3):
+                w[167+slot] = execution.ONE if not holder or slot < len(effects) else 0
+            for slot, (effect, aura, misc) in enumerate(effects):
+                w[61+slot], w[91+slot], w[106+slot] = effect, aura, misc
+                w[82+slot] = int(holder)
+                if holder:
+                    w[64+slot] = w[67+slot] = 1
+                    w[76+slot] = 9 if entry == 20599 else 4
+            if entry == 81:
+                w[64], w[97] = 6, execution.ONE
+            if entry == 3050:
+                w[64], w[67], w[73], w[76] = 1, 1, 0x40a00000, 0xffffffff
+            numeric = {name: Decimal('0') if name in spell_numeric.FLOAT_FIELDS else 0
+                       for name in spell_numeric.COLUMNS}
+            for name, i in spell_numeric.WORD_FIELDS.items():
+                numeric[name] = (Decimal(str(struct.unpack('<f', struct.pack('<I', w[i]))[0]))
+                                 if name in spell_numeric.FLOAT_FIELDS else
+                                 w[i] - 0x100000000 if name in spell_numeric.SIGNED_FIELDS and w[i] > 0x7fffffff
+                                 else w[i])
+            for slot in range(3):
+                numeric[f'EffectBonusCoefficient{slot+1}'] = Decimal(int(
+                    (holder or entry == 81) and slot < len(effects)))
+            authored[entry] = numeric
+            words[entry] = w
+            source.rows['spell_template'].append({name: numeric[name]
+                                                   for name in export_tests.COLUMNS['spell_template']})
+        if attack:
+            for entry in (6603, 966603):
+                # Effect 78 is unused; only the Attack ID binds the combat opcode host.
+                w = [0] * 173
+                for i, value in {0: entry, 6: 0x10, 18: 1, 25: 101, 36: 1,
+                                 58: 0xffffffff, 61: 78, 117: 1, 166: 0xffffffff,
+                                 167: 0x3f800000, 168: 0x3f800000, 169: 0x3f800000}.items():
+                    w[i] = value
+                numeric = {name: Decimal('0') if name in spell_numeric.FLOAT_FIELDS else 0
+                           for name in spell_numeric.COLUMNS}
+                for name, i in spell_numeric.WORD_FIELDS.items():
+                    numeric[name] = (Decimal(str(struct.unpack('<f', struct.pack('<I', w[i]))[0]))
+                        if name in spell_numeric.FLOAT_FIELDS else
+                        w[i]-0x100000000 if name in spell_numeric.SIGNED_FIELDS and w[i] > 0x7fffffff else w[i])
+                authored[entry], words[entry] = numeric, w
+                source.rows['spell_template'].append({name: numeric[name]
+                    for name in export_tests.COLUMNS['spell_template']})
+        if frost:
+            for entry in (168, 6136):
+                armor = entry == 168
+                w = [0] * 173
+                for i, value in {0: entry, 1: 4, 4: 1, 5: 0 if armor else 11,
+                        6: 0x10000 if armor else 0, 7: 0 if armor else 0x488, 18: 1,
+                        21: 8 if armor else 0, 24: 40 if armor else 0, 25: 100 if armor else 101,
+                        28: 1, 29: 1, 30: 900 if armor else 901, 32: 7 if armor else 0,
+                        36: 1 if armor else 4, 58: 0xffffffff, 59: 0xffffffff, 61: 6, 62: 6,
+                        64: 1, 65: int(not armor), 67: 1, 68: int(not armor),
+                        76: 44 if armor else (-16 & 0xffffffff), 77: 0 if armor else (-41 & 0xffffffff),
+                        82: 1 if armor else 6, 83: 1 if armor else 6, 91: 22 if armor else 138,
+                        92: 42 if armor else 33, 106: int(armor), 110: 6136 if armor else 0,
+                        157: 133 if armor else 0, 158: 1500 if armor else 0,
+                        160: 3, 161: 0x2080000 if armor else 0x100000, 164: 1, 165: 1,
+                        166: 0xffffffff, 167: execution.ONE, 168: execution.ONE, 169: execution.ONE}.items():
+                    w[i] = value
+                numeric = {name: Decimal('0') if name in spell_numeric.FLOAT_FIELDS else 0
+                           for name in spell_numeric.COLUMNS}
+                for name, i in spell_numeric.WORD_FIELDS.items():
+                    numeric[name] = (Decimal(str(struct.unpack('<f', struct.pack('<I', w[i]))[0]))
+                                     if name in spell_numeric.FLOAT_FIELDS else
+                                     w[i] - 0x100000000 if name in spell_numeric.SIGNED_FIELDS and w[i] > 0x7fffffff
+                                     else w[i])
+                numeric['SpellFamilyFlags'] = w[161] | (w[162] << 32)
+                authored[entry], words[entry] = numeric, w
+                source.rows['spell_template'].append({name: numeric[name]
+                                                       for name in export_tests.COLUMNS['spell_template']})
+        if consumables:
+            for entry, item, category in ((430, 159, 59), (433, 2070, 11)):
+                food = entry == 433
+                w = [0] * 173
+                for i, value in {0: entry, 2: category, 6: 0x18000100, 18: 1,
+                        20: 60000, 21: 1, 22: 0x40080, 25: 101, 28: 5,
+                        29: 0 if food else 5, 30: 85, 36: 1, 58: 0xffffffff,
+                        59: 0 if food else 0xffffffff, 61: 6, 64: 1, 67: 1,
+                        76: 16 if food else 41, 82: 1, 91: 84 if food else 85,
+                        97: execution.ONE if food else 0, 166: 0xffffffff,
+                        167: execution.ONE, 168: execution.ONE, 169: execution.ONE}.items():
+                    w[i] = value
+                numeric = {name: Decimal('0') if name in spell_numeric.FLOAT_FIELDS else 0
+                           for name in spell_numeric.COLUMNS}
+                for name, i in spell_numeric.WORD_FIELDS.items():
+                    numeric[name] = (Decimal(str(struct.unpack('<f', struct.pack('<I', w[i]))[0]))
+                        if name in spell_numeric.FLOAT_FIELDS else
+                        w[i]-0x100000000 if name in spell_numeric.SIGNED_FIELDS and w[i] > 0x7fffffff else w[i])
+                authored[entry], words[entry] = numeric, w
+                source.rows['spell_template'].append({name: numeric[name]
+                    for name in export_tests.COLUMNS['spell_template']})
+                source.rows['item_template'].append(export_tests.row('item_template',
+                    entry=item, name='Authored consumable', displayid=920002, stackable=20,
+                    AllowableClass=-1, AllowableRace=-1, RequiredLevel=1,
+                    spellid_1=entry, spellcharges_1=-1, spellcategory_1=category,
+                    spellcategorycooldown_1=1000))
+            source.rows['spell_scripts'].append({'Id': 433, 'ScriptName': 'spell_food_animation'})
+        old_fetch = source.fetch
+        def fetch(query):
+            if query.mode == spell_numeric.MODE and query.table == 'spell_template':
+                return old_fetch(query) + [copy.deepcopy(row) for entry, row in authored.items() if entry in query.ids]
+            return old_fetch(query)
+        source.fetch = fetch
+        selection = selected.json()
+        selection['spell_ids'] = sorted(set(selection['spell_ids']) | set(authored))
+        if consumables:
+            for entry in (159, 2070):
+                source.rows['playercreateinfo_item'].append(export_tests.row(
+                    'playercreateinfo_item', race=1, **{'class': 1}, itemid=entry, amount=4))
+        bundle = capture(source, Selection.parse(selection), capture_spell_numeric=True, capture_initial_hooks=True)
+        files = dbcs_for(bundle)
+        numeric = {r['Id']: r for r in bundle['spell_numeric_capture']['rows']}
+        spell_words = []
+        for row in bundle['tables']['spell_template']:
+            if row['Id'] in words:
+                spell_words.append(dict(enumerate(words[row['Id']])))
+            else:
+                spell_words.append({i: binary32_bits(numeric[row['Id']][name]['decimal'])
+                                    if name in spell_numeric.FLOAT_FIELDS else numeric[row['Id']][name] & 0xffffffff
+                                    for name, i in spell_numeric.WORD_FIELDS.items()})
+        files['Spell'] = dbc_bytes('Spell', spell_words)
+        files['SpellCastTimes'] = dbc_bytes('SpellCastTimes', [{0: 1}, {0: 16, 1: 1500, 3: 1500}])
+        files['SpellDuration'] = dbc_bytes('SpellDuration', [{0: 21, 1: -1, 3: -1}, {0: 35, 1: 4000, 3: 4000}])
+        files['SpellRange'] = dbc_bytes('SpellRange', [{0: 1}, {0: 35, 2: 0x420c0000}])
+        if frost:
+            files['SpellDuration'] = dbc_bytes('SpellDuration', [
+                {0: 21, 1: -1, 3: -1}, {0: 35, 1: 4000, 3: 4000},
+                {0: 900, 1: 4000, 3: 4000}, {0: 901, 1: 1200, 3: 1200}])
+            files['SpellRange'] = dbc_bytes('SpellRange', [{0: 1}, {0: 4, 2: 0x41f00000}, {0: 35, 2: 0x420c0000}])
+        if consumables:
+            files['SpellDuration'] = dbc_bytes('SpellDuration', [
+                {0: 21, 1: -1, 3: -1}, {0: 35, 1: 4000, 3: 4000},
+                {0: 900, 1: 4000, 3: 4000}, {0: 901, 1: 1200, 3: 1200},
+                {0: 85, 1: 10000, 3: 10000}])
+        return bundle, files
+
+    def test_complete_initial_shapes_discharge_only_execution_obligations(self):
+        from native_starter import spell_execution as execution
+        bundle, files = self.authored()
+        report = compile_starter(bundle, parsed(files), Request(1, 1, 0))
+        plans = {s['id']: s['execution_plan'] for s in report['spells']}
+        self.assertTrue(all(plans[i]['status'] == 'supported_shape' for i in execution.SHAPES))
+        self.assertEqual({i['key'][0] if isinstance(i['key'], list) else int(i['key'])
+                          for i in report['spell_execution_obligations']}, set(execution.SHAPES))
+        self.assertTrue(all(any(i['key'] == [entry] and i['reason'] ==
+                               'spell.server_overlay_and_learning_closure_required'
+                               for i in report['unsupported']) for entry in execution.SHAPES))
+        self.assertFalse(report['ability_admission']['effective_learning_proven'])
+        verify_preparation(report, bundle, parsed(files))
+
+    def test_each_reached_numeric_cell_is_guarded_before_discharge(self):
+        from native_starter import spell_execution as execution
+        bundle, files = self.authored()
+        report = compile_starter(bundle, parsed(files), Request(1, 1, 0))
+        bound = {s['id']: s for s in report['spells']}
+        for entry in execution.SHAPES:
+            for index in (6, 7, 8, 9, 10, 12, 15, 37, 40, 61, 63, 79, 82, 85, 88, 91, 94, 100, 109, 112, 159, 163, 170):
+                changed = copy.deepcopy(bound[entry])
+                changed['server_numeric_words'][index] ^= 1
+                with self.subTest(spell=entry, word=index):
+                    self.assertEqual(execution.supported_plan(bundle, changed, report['spells'])['status'], 'blocked')
+            changed = copy.deepcopy(bound[entry])
+            changed['script_registry']['rows'] = [{'Id': entry, 'ScriptName': 'authored_handler'}]
+            self.assertIn('spell_execution.selected_registry_absence_required',
+                          execution.supported_plan(bundle, changed, report['spells'])['refusals'])
+
+    def test_attack_marker_discharges_only_three_observations_and_keeps_learning(self):
+        from native_starter import spell_execution as execution
+        bundle, files = self.authored(attack=True)
+        report = compile_starter(bundle, parsed(files), Request(1, 1, 0))
+        spell = next(s for s in report['spells'] if s['id'] == 6603)
+        self.assertEqual(spell['execution_plan']['status'], 'supported_shape')
+        self.assertEqual(spell['execution_plan']['classification'], 'existing_mainhand_operation_marker')
+        removed = {i['reason'] for i in report['spell_execution_obligations']
+                   if i['key'] in ([6603], '6603')}
+        self.assertEqual(removed, {'spell.attribute_bits_execution_required',
+            'spell.effect_execution_required', 'spell.native_effect_target_scaling_rules_required'})
+        self.assertTrue(any(i['key'] == [6603] and i['reason'] ==
+            'spell.server_overlay_and_learning_closure_required' for i in report['unsupported']))
+        self.assertEqual(next(s for s in report['spells'] if s['id'] == 966603)
+                         ['execution_plan']['status'], 'blocked')
+        for reason in execution.REASONS - removed:
+            self.assertFalse(execution.discharges(
+                {'table': 'spell_template', 'key': [6603], 'reason': reason}, report['spells']))
+        self.assertEqual(report['status'], 'blocked')
+        self.assertIsNone(report['runtime_export'])
+        verify_preparation(report, bundle, parsed(files))
+
+    def test_attack_marker_mutated_operands_and_missing_context_stay_refused(self):
+        from classic_export import spell_numeric
+        from native_starter import spell_execution as execution
+        bundle, files = self.authored(attack=True)
+        report = compile_starter(bundle, parsed(files), Request(1, 1, 0))
+        spell = next(s for s in report['spells'] if s['id'] == 6603)
+        for index in set(spell_numeric.WORD_FIELDS.values()) | {161, 162}:
+            changed = copy.deepcopy(spell)
+            changed['server_numeric_words'][index] ^= 1
+            with self.subTest(word=index):
+                self.assertEqual(execution.supported_plan(bundle, changed, report['spells'])['status'], 'blocked')
+        for field in ('IsServerSide', 'AttributesServerside',
+                      *[f'EffectBonusCoefficient{s}' for s in range(1, 4)],
+                      *[f'EffectBonusCoefficientFromAP{s}' for s in range(1, 4)]):
+            changed = copy.deepcopy(spell)
+            changed['numeric_capture']['row'][field] = {'decimal': '1'} if 'Coefficient' in field else 1
+            with self.subTest(field=field):
+                self.assertEqual(execution.supported_plan(bundle, changed, report['spells'])['status'], 'blocked')
+        for path, value in [
+                ('script_registry', None), ('initial_hooks', None), ('numeric_capture', None),
+                ('server_numeric_words', None), ('server_client_differences', [{'word': 6}]),
+                ('cast_time', None), ('range', None),
+                ('duration', {'id': 0, 'base_ms': 1, 'per_level_ms': 0, 'maximum_ms': 1})]:
+            changed = copy.deepcopy(spell)
+            changed[path] = value
+            with self.subTest(context=path):
+                self.assertEqual(execution.supported_plan(bundle, changed, report['spells'])['status'], 'blocked')
+
+    def test_frost_armor_and_chilled_discharge_only_the_complete_pair(self):
+        from native_starter import spell_execution as execution
+        bundle, files = self.authored(frost=True)
+        report = compile_starter(bundle, parsed(files), Request(1, 1, 0))
+        spells = report['spells']
+        for entry in (168, 6136):
+            spell = next(s for s in spells if s['id'] == entry)
+            self.assertEqual(spell['execution_plan']['status'], 'supported_shape')
+            self.assertFalse(spell['execution_plan']['effective_learning_proven'])
+            self.assertEqual(execution.supported_plan(bundle, spell, [])['status'], 'blocked')
+            for index in (5, 6, 7, 8, 21, 22, 24, 26, 33, 61, 63, 70, 73, 82, 84, 85, 91, 93, 94, 106, 108, 110, 112, 159, 161, 163):
+                changed = copy.deepcopy(spell)
+                changed['server_numeric_words'][index] ^= 1
+                self.assertEqual(execution.supported_plan(bundle, changed, spells)['status'], 'blocked', (entry, index))
+            changed = copy.deepcopy(spell)
+            changed['script_registry']['rows'] = [{'Id': entry, 'ScriptName': 'authored_unimplemented_hook'}]
+            self.assertEqual(execution.supported_plan(bundle, changed, spells)['status'], 'blocked')
+        verify_preparation(report, bundle, parsed(files))
+
+    def test_food_drink_requires_complete_item_spell_and_named_script_execution(self):
+        from native_starter import spell_execution as execution
+        bundle, files = self.authored(consumables=True)
+        report = compile_starter(bundle, parsed(files), Request(1, 1, 0))
+        for entry in (430, 433):
+            spell = next(s for s in report['spells'] if s['id'] == entry)
+            self.assertEqual(spell['execution_plan']['status'], 'supported_shape', spell['execution_plan'])
+            self.assertFalse(spell['execution_plan']['effective_learning_proven'])
+            for index in (6, 8, 21, 22, 32, 61, 64, 67, 76, 79, 82, 91, 94, 106, 110, 157, 159, 163, 170):
+                changed = copy.deepcopy(spell)
+                changed['server_numeric_words'][index] ^= 1
+                self.assertEqual(execution.supported_plan(bundle, changed, report['spells'])['status'], 'blocked', (entry, index))
+            changed = copy.deepcopy(spell)
+            changed['script_registry']['rows'] = [{'Id': entry, 'ScriptName': 'authored_unknown_script'}]
+            self.assertEqual(execution.supported_plan(bundle, changed, report['spells'])['status'], 'blocked')
+            changed_bundle = copy.deepcopy(bundle)
+            changed_bundle['tables']['item_template'] = []
+            self.assertEqual(execution.supported_plan(changed_bundle, spell, report['spells'])['status'], 'blocked')
+        issue = {'table': 'spell_scripts', 'key': [433], 'reason': 'runtime_script_required'}
+        self.assertTrue(execution.discharges(issue, report['spells']))
+        self.assertFalse(execution.discharges({**issue, 'key': [430]}, report['spells']))
+        self.assertFalse(execution.discharges({**issue, 'reason': 'spell.server_overlay_learning_required'}, report['spells']))
+        blocked = copy.deepcopy(report['spells'])
+        next(s for s in blocked if s['id'] == 433)['execution_plan']['status'] = 'blocked'
+        self.assertFalse(execution.discharges(issue, blocked))
+        self.assertTrue(any(
+            refusal['table'] == 'spell_scripts' and refusal['key'] == [433]
+            and refusal['reason'] == 'participants.runtime_script_required'
+            for refusal in report['participants_plan']['refusals']))
+        verify_preparation(report, bundle, parsed(files))
+
+
+class CreatureCombatEvidenceTests(unittest.TestCase):
+    def setUp(self):
+        self.source = source_bundle()
+        self.dbcs = parsed(dbcs_for(self.source))
+        self.creature = self.source["tables"]["creature_template"][0]
+        self.creature.update(AIName="", ScriptName="", ExtraFlags=0,
+                             StaticFlags1=0, StaticFlags2=0, StaticFlags3=0, StaticFlags4=0)
+
+    def plan(self, event_scope=None, event_plan=None, rules=None):
+        from native_starter.creature_combat_plan import plan
+        return plan(self.creature, {"status": "complete_inputs"},
+                    event_scope, event_plan, self.dbcs, rules)
+
+    def test_pinned_registry_uses_event_ai_for_ordinary_reactive_and_proactive(self):
+        selected = self.plan()["ai_selection"]
+        self.assertEqual(selected["factory"], "EventAI")
+        self.assertEqual(selected["branch"], "highest_permit")
+        self.creature["ExtraFlags"] = 2
+        selected = self.plan()["ai_selection"]
+        self.assertEqual(selected["initial_reaction"], "Defensive")
+        self.assertEqual(selected["event_ai_permit"], 100)
+        self.creature["AIName"] = "EventAI"
+        self.assertEqual(self.plan()["ai_selection"]["event_ai_permit"], 800)
+
+    def test_unknown_names_are_null_not_obsolete_aggressor_or_reactor(self):
+        for name in ("AggressorAI", "ReactorAI", "AuthoredUnknownAI"):
+            self.creature["AIName"] = name
+            selected = self.plan()["ai_selection"]
+            self.assertEqual(selected["factory"], "NullCreatureAI")
+            self.assertIn("selected_factory_not_supported", selected["refusals"])
+        self.creature.update(AIName="", ExtraFlags=0x400)
+        self.assertEqual(self.plan()["ai_selection"]["factory"], "GuardAI")
+        self.creature["AIName"] = "EventAI"
+        self.assertEqual(self.plan()["ai_selection"]["factory"], "EventAI")
+        self.creature["ScriptName"] = "authored_script"
+        self.assertIsNone(self.plan()["ai_selection"]["factory"])
+
+    def test_event_coverage_fallback_radius_and_static_guards_remain_independent(self):
+        self.assertFalse(self.plan()["ai_selection"]["event_rows_supported"])
+        self.assertTrue(self.plan({"matching_rows": []})["ai_selection"]["event_rows_supported"])
+        self.assertFalse(self.plan({"matching_rows": [{"id": 1}]})["ai_selection"]["event_rows_supported"])
+        self.creature["CallForHelp"] = 0
+        self.assertEqual(self.plan()["assistance"]["pull_radius_source"], "world_rules_family_radius")
+        self.assertFalse(self.plan()["assistance"]["pull_radius_supported"])
+        from native_starter.world_rules import stock_preset
+        rules = stock_preset()
+        rules["combat"]["family_assistance_radius_bits"] = 0x41200000
+        assistance = self.plan(rules=rules)["assistance"]
+        self.assertTrue(assistance["pull_radius_supported"])
+        self.assertEqual(assistance["family_assistance_radius_bits"], 0x41200000)
+        self.assertEqual(assistance["pull_radius_bits"], 0x41200000)
+        self.assertFalse(self.plan(rules=rules)["production_admission"])
+        self.assertFalse(assistance["runtime_traversal_proven"])
+        rules["combat"]["family_assistance_radius_bits"] = 0
+        self.assertEqual(self.plan(rules=rules)["assistance"]["pull_radius_bits"], 0)
+        self.assertTrue(self.plan(rules=rules)["assistance"]["pull_radius_supported"])
+        self.creature["CallForHelp"] = 5
+        self.assertTrue(self.plan()["assistance"]["pull_radius_supported"])
+        self.assertEqual(self.plan(rules=rules)["assistance"]["pull_radius_bits"], 0x40a00000)
+        self.creature["StaticFlags2"] = 0x4000000
+        self.assertEqual(self.plan()["ai_selection"]["initial_reaction"], "Defensive")
+        self.assertIn("combat_authority_static_flags_unsupported",
+                      self.plan()["ai_selection"]["refusals"])
+        self.assertFalse(self.plan()["production_admission"])
+        self.assertFalse(self.plan()["cold_loader"]["sql_order_is_runtime_order"])
+
+
+class TransportPathTests(unittest.TestCase):
+    def setUp(self):
+        self.source = {"selection": {"map_id": 0}}
+        self.template = {"entry": 52, "type": 15, "data0": 900, "data1": 30, "data2": 1}
+        self.nodes = [{0: 100 + i, 1: 900, 2: i, 3: 1,
+                       4: binary32_bits(str(i)), 7: 0} for i in range(6)]
+
+    def path(self, nodes=None, maps=(0, 1)):
+        from native_starter.transport_paths import coverage
+        files = {"TaxiPath": dbc_bytes("TaxiPath", [{0: 900}]),
+                 "TaxiPathNode": dbc_bytes("TaxiPathNode", self.nodes if nodes is None else nodes),
+                 "Map": dbc_bytes("Map", [{0: m} for m in maps])}
+        return coverage(self.source, self.template, parsed(files))
+
+    def test_other_map_path_excludes_without_any_spatial_margin(self):
+        path = self.path()
+        self.assertEqual(path["status"], "excluded_other_maps")
+        self.assertEqual(path["maps"], [1])
+        self.assertEqual(path["keyframe_node_indices"], [1, 2, 3, 4])
+        self.assertEqual(path["spline_legs"], [[1, 2, 3, 4]])
+        self.assertEqual(path["teleport_after_node_indices"], [4])
+        self.assertEqual(path["margin"], "not_applicable_map_identity")
+        self.assertEqual(self.path(list(reversed(self.nodes))), path)
+
+    def test_same_map_refuses_even_when_every_node_is_far_from_box(self):
+        for node in self.nodes:
+            node[3] = 0
+            node[4] = binary32_bits("100000")
+        self.assertEqual(self.path()["reason"], "interpolation_parameter_unproved")
+        self.assertNotIn("margin", self.path())
+
+    def test_teleport_pairs_and_endpoint_controls_are_not_visited(self):
+        self.nodes = [{0: 100 + i, 1: 900, 2: i, 3: 1} for i in range(10)]
+        self.nodes[3][7] = 1
+        self.nodes[4][3] = 0  # Discarded teleport partner.
+        self.nodes[0][3] = 0  # The first orientation/control endpoint is not visited.
+        path = self.path()
+        self.assertEqual(path["keyframe_node_indices"], [1, 2, 5, 6, 7, 8])
+        self.assertEqual(path["teleport_after_node_indices"], [2, 8])
+        self.assertEqual(path["spline_legs"], [[1, 2], [5, 6, 7, 8]])
+        self.assertEqual(path["status"], "excluded_other_maps")
+
+    def test_map_change_is_a_teleport_not_a_cross_map_spline(self):
+        self.nodes = [{0: 100 + i, 1: 900, 2: i, 3: 1 if i < 4 else 0} for i in range(10)]
+        path = self.path()
+        self.assertEqual(path["maps"], [0, 1])
+        self.assertEqual(path["spline_legs"], [[1, 2], [5, 6, 7, 8]])
+        self.assertEqual(path["reason"], "interpolation_parameter_unproved")
+
+    def test_holes_duplicate_indices_zero_ids_and_nonfinite_coordinates_refuse(self):
+        for change in ("hole", "duplicate", "zero", "nan", "infinity", "initial_teleport", "short_leg"):
+            nodes = copy.deepcopy(self.nodes)
+            if change == "hole":
+                nodes.pop(2)
+            elif change == "duplicate":
+                nodes[2][2] = 1
+            elif change == "zero":
+                nodes[0][0] = 0
+            elif change in ("nan", "infinity"):
+                nodes[2][4] = 0x7fc00000 if change == "nan" else 0x7f800000
+            elif change == "initial_teleport":
+                nodes[1][7] = 1
+            else:
+                nodes[2][7] = 1
+            with self.subTest(change=change):
+                self.assertEqual(self.path(nodes)["status"], "blocked")
+        self.assertEqual(self.path(maps=(0,))["reason"], "path_map_unknown")
+
+    def test_v4_has_no_transport_coverage_and_v5_requires_both_tables(self):
+        from native_starter.transport_paths import coverage
+        self.assertEqual(coverage(self.source, self.template, {})["reason"], "reextract_v5_required")
+        files = dbcs_for(source_bundle())
+        files.update({name: dbc_bytes(name, []) for name in ("TaxiPath", "TaxiPathNode")})
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for version in (4, 5):
+                selected = {k: v for k, v in files.items()
+                            if version == 5 or k not in {"TaxiPath", "TaxiPathNode"}}
+                metadata = extraction_metadata(selected)
+                (root / "extraction.json").write_bytes(canonical(metadata))
+                self.assertEqual(load_extraction_manifest(root, parsed(selected))["metadata"]["format"],
+                                 f"benilla-native-dbc-extraction-v{version}")
+            del selected["TaxiPath"]
+            with self.assertRaisesRegex(ExportError, "complete_valid_dbc_set_required"):
+                load_extraction_manifest(root, parsed(selected))
+
+
+class CatalogSpawnConversionTests(unittest.TestCase):
+    def test_source_atof_double_rounding_signed_zero_null_and_prefix(self):
+        from classic_export.catalog_spawns import floating, uint, coordinates
+        self.assertEqual(struct.pack("<f", floating(b"-0")), b"\0\0\0\x80")
+        self.assertEqual(struct.pack("<f", floating(None)), b"\0\0\0\0")
+        self.assertEqual(floating(b"1.0000000596046448"), 1.0)
+        self.assertEqual(floating(b" 1.25tail"), 1.25)
+        self.assertEqual(uint(b"-1"), 4294967295)
+        self.assertEqual(uint(None), 0)
+        self.assertEqual(coordinates(0.0, -0.0), (2080, 524800))
+        with self.assertRaisesRegex(ExportError, "spawn.invalid_coordinates"):
+            coordinates(100000.0, 0.0)
+
+
+if __name__ == "__main__":
+    unittest.main()

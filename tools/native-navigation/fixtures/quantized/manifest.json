@@ -1,0 +1,226 @@
+{
+  "int16": {
+    "adt_sha256": "dff147a7ec8e979f1687202cae8d5cfe157df297815513fc756f76ea9262efbc",
+    "expected": {
+      "bounds_max_bits": [
+        "44855555",
+        "42400000",
+        "44055555"
+      ],
+      "bounds_min_bits": [
+        "44055555",
+        "40800000",
+        "00000000"
+      ],
+      "combined_triangles": 65536,
+      "combined_vertices_before_clean": 33025,
+      "config": {
+        "borderSize": 5,
+        "detailSampleDist": 4.266665458679199,
+        "detailSampleMaxError": 0.26666659116744995,
+        "liquidFlagMergeThreshold": 0.0,
+        "maxEdgeLen": 81,
+        "maxSimplificationError": 1.7999999523162842,
+        "mergeRegionArea": 50,
+        "minRegionArea": 60,
+        "walkableClimb": 4,
+        "walkableHeight": 6,
+        "walkableRadius": 2,
+        "walkableSlopeAngle": 60.0
+      },
+      "liquid_triangles": 0,
+      "liquid_vertices": 0,
+      "solid_triangles": 65536,
+      "solid_vertices": 33025,
+      "terrain_file_events": [
+        {
+          "basename": "0003130.map",
+          "mode": "rb",
+          "opened": true
+        },
+        {
+          "basename": "0003131.map",
+          "mode": "rb",
+          "opened": false
+        },
+        {
+          "basename": "0003129.map",
+          "mode": "rb",
+          "opened": false
+        },
+        {
+          "basename": "0003230.map",
+          "mode": "rb",
+          "opened": false
+        },
+        {
+          "basename": "0003030.map",
+          "mode": "rb",
+          "opened": false
+        }
+      ],
+      "terrain_triangles": 65536,
+      "terrain_vertices_before_clean": 33025,
+      "tile_union": [
+        [
+          30,
+          31
+        ]
+      ],
+      "vmap_loaded": false
+    },
+    "height_flags": 2,
+    "map_sha256": "759c4efaef35c4eeda6c1657e36b7f600978a402219c9cee89b35c9d81614841",
+    "source-mesh.bin": {
+      "arrays": {
+        "liquid": {
+          "triangle_count": 0,
+          "triangles_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "types_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "vertex_count": 0,
+          "vertices_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "solid": {
+          "triangle_count": 65536,
+          "triangles_sha256": "ea6327916c9b1ac77ec74d09dad2a8834e83ee3604362d2cff49424ab63f26a6",
+          "vertex_count": 33025,
+          "vertices_sha256": "08d32def50a5e539391f5a0d7d701a9364cfbfbb574969d938705529c8f0c878"
+        }
+      },
+      "bytes": 1182748,
+      "sha256": "4caaafc57302f5d9379452feb633941b4aeb8b750197a577931d2e0f5ea7b82f"
+    },
+    "source-terrain.bin": {
+      "arrays": {
+        "liquid": {
+          "triangle_count": 0,
+          "triangles_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "types_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "vertex_count": 0,
+          "vertices_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "solid": {
+          "triangle_count": 65536,
+          "triangles_sha256": "ea6327916c9b1ac77ec74d09dad2a8834e83ee3604362d2cff49424ab63f26a6",
+          "vertex_count": 33025,
+          "vertices_sha256": "08d32def50a5e539391f5a0d7d701a9364cfbfbb574969d938705529c8f0c878"
+        }
+      },
+      "bytes": 1182748,
+      "sha256": "4caaafc57302f5d9379452feb633941b4aeb8b750197a577931d2e0f5ea7b82f"
+    },
+    "writer_profile": "Original ConvertADT -f1; source option enabled by driver"
+  },
+  "int8": {
+    "adt_sha256": "20816c200029778b54b5d9b9ce7f3bc49837f0143fb80b40c9a34250205654da",
+    "expected": {
+      "bounds_max_bits": [
+        "44855555",
+        "3f400000",
+        "44055555"
+      ],
+      "bounds_min_bits": [
+        "44055555",
+        "3d800000",
+        "00000000"
+      ],
+      "combined_triangles": 65536,
+      "combined_vertices_before_clean": 33025,
+      "config": {
+        "borderSize": 5,
+        "detailSampleDist": 4.266665458679199,
+        "detailSampleMaxError": 0.26666659116744995,
+        "liquidFlagMergeThreshold": 0.0,
+        "maxEdgeLen": 81,
+        "maxSimplificationError": 1.7999999523162842,
+        "mergeRegionArea": 50,
+        "minRegionArea": 60,
+        "walkableClimb": 4,
+        "walkableHeight": 6,
+        "walkableRadius": 2,
+        "walkableSlopeAngle": 60.0
+      },
+      "liquid_triangles": 0,
+      "liquid_vertices": 0,
+      "solid_triangles": 65536,
+      "solid_vertices": 33025,
+      "terrain_file_events": [
+        {
+          "basename": "0003130.map",
+          "mode": "rb",
+          "opened": true
+        },
+        {
+          "basename": "0003131.map",
+          "mode": "rb",
+          "opened": false
+        },
+        {
+          "basename": "0003129.map",
+          "mode": "rb",
+          "opened": false
+        },
+        {
+          "basename": "0003230.map",
+          "mode": "rb",
+          "opened": false
+        },
+        {
+          "basename": "0003030.map",
+          "mode": "rb",
+          "opened": false
+        }
+      ],
+      "terrain_triangles": 65536,
+      "terrain_vertices_before_clean": 33025,
+      "tile_union": [
+        [
+          30,
+          31
+        ]
+      ],
+      "vmap_loaded": false
+    },
+    "height_flags": 4,
+    "map_sha256": "ed469f6140b490e6dbe0feec02c26151b7d770b4ff178b2b5ff24f9b7ddd8035",
+    "source-mesh.bin": {
+      "arrays": {
+        "liquid": {
+          "triangle_count": 0,
+          "triangles_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "types_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "vertex_count": 0,
+          "vertices_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "solid": {
+          "triangle_count": 65536,
+          "triangles_sha256": "ea6327916c9b1ac77ec74d09dad2a8834e83ee3604362d2cff49424ab63f26a6",
+          "vertex_count": 33025,
+          "vertices_sha256": "c4ef17ea379da86c7926833ec2c05ea14d8b58ff4a71abb6cbee59a4612410c7"
+        }
+      },
+      "bytes": 1182748,
+      "sha256": "79cc7229daaed158a6cca034af4a6671e47c6bdf2dfbeb684ce04be811d5a079"
+    },
+    "source-terrain.bin": {
+      "arrays": {
+        "liquid": {
+          "triangle_count": 0,
+          "triangles_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "types_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "vertex_count": 0,
+          "vertices_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "solid": {
+          "triangle_count": 65536,
+          "triangles_sha256": "ea6327916c9b1ac77ec74d09dad2a8834e83ee3604362d2cff49424ab63f26a6",
+          "vertex_count": 33025,
+          "vertices_sha256": "c4ef17ea379da86c7926833ec2c05ea14d8b58ff4a71abb6cbee59a4612410c7"
+        }
+      },
+      "bytes": 1182748,
+      "sha256": "79cc7229daaed158a6cca034af4a6671e47c6bdf2dfbeb684ce04be811d5a079"
+    },
+    "writer_profile": "Original ConvertADT -f1; source option enabled by driver"
+  }
+}

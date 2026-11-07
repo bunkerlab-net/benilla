@@ -1,0 +1,330 @@
+{
+  "format": "benilla-catalog-preparation-policy-v1",
+  "families": {
+    "spawn": {
+      "format": "benilla-spawn-views-v3",
+      "tables": [
+        "creature",
+        "creature_addon",
+        "creature_conditional_spawn",
+        "creature_cooldowns",
+        "creature_equip_template",
+        "creature_immunities",
+        "creature_model_info",
+        "creature_spawn_data",
+        "creature_spawn_data_template",
+        "creature_spawn_entry",
+        "creature_spell_list",
+        "creature_spell_list_entry",
+        "creature_spell_targeting",
+        "creature_template",
+        "creature_template_addon",
+        "creature_template_classlevelstats",
+        "creature_template_spells",
+        "gameobject",
+        "gameobject_addon",
+        "gameobject_spawn_entry",
+        "gameobject_template",
+        "gameobject_template_addon"
+      ],
+      "refusals": {
+        "spawn.reference_execution_missing": "F1_binding",
+        "spawn.gameplay_not_admitted": "loader_execution"
+      }
+    },
+    "group": {
+      "format": "benilla-group-views-v1",
+      "tables": [
+        "creature_linking",
+        "creature_linking_template",
+        "creature_movement",
+        "creature_movement_template",
+        "spawn_group",
+        "spawn_group_entry",
+        "spawn_group_formation",
+        "spawn_group_linked_group",
+        "spawn_group_spawn",
+        "spawn_group_squad",
+        "waypoint_path",
+        "waypoint_path_name"
+      ],
+      "refusals": {
+        "groups.reference_execution_missing": "F1_binding",
+        "groups.gameplay_not_admitted": "loader_execution"
+      }
+    },
+    "pool": {
+      "format": "benilla-pool-views-v3",
+      "tables": [
+        "pool_creature",
+        "pool_creature_template",
+        "pool_gameobject",
+        "pool_gameobject_template",
+        "pool_pool",
+        "pool_template"
+      ],
+      "refusals": {
+        "pool.reference_execution_missing": "F1_binding",
+        "pool.gameplay_not_admitted": "loader_execution",
+        "pool.objectmgr_loaded_spawn_validation_pending": "loader_execution"
+      }
+    },
+    "event": {
+      "format": "benilla-event-views-v1",
+      "tables": [
+        "game_event",
+        "game_event_creature",
+        "game_event_creature_data",
+        "game_event_gameobject",
+        "game_event_mail",
+        "game_event_quest",
+        "game_event_time",
+        "game_weather"
+      ],
+      "refusals": {
+        "events.reference_execution_missing": "F1_binding",
+        "events.calendar_execution_missing": "configuration",
+        "events.pool_execution_missing": "loader_execution",
+        "events.gameplay_not_admitted": "loader_execution"
+      }
+    },
+    "dbc": {
+      "format": "benilla-dbc-catalog-views-v1",
+      "tables": [
+        "gameobject_template",
+        "transports"
+      ],
+      "refusals": {
+        "dbc.reference_execution_missing": "F1_binding",
+        "dbc.locale_occurrences_missing": "F1_binding",
+        "dbc.gameplay_not_admitted": "loader_execution"
+      }
+    },
+    "script": {
+      "format": "benilla-script-views-v1",
+      "tables": [
+        "broadcast_text",
+        "broadcast_text_locale",
+        "creature_ai_scripts",
+        "creature_ai_summons",
+        "creature_ai_texts",
+        "custom_texts",
+        "dbscript_random_templates",
+        "dbscript_string",
+        "dbscripts_on_creature_death",
+        "dbscripts_on_creature_movement",
+        "dbscripts_on_event",
+        "dbscripts_on_go_template_use",
+        "dbscripts_on_go_use",
+        "dbscripts_on_gossip",
+        "dbscripts_on_quest_end",
+        "dbscripts_on_quest_start",
+        "dbscripts_on_relay",
+        "dbscripts_on_spell",
+        "gossip_texts",
+        "instance_template",
+        "script_texts",
+        "script_waypoint",
+        "scripted_areatrigger",
+        "scripted_event_id",
+        "spell_scripts",
+        "string_id",
+        "world_template"
+      ],
+      "refusals": {
+        "scripts.reference_execution_unsealed": "F1_binding",
+        "scripts.sql_occurrences_not_F1": "F1_binding",
+        "scripts.equal_priority_F1_order_missing": "F1_binding",
+        "scripts.creature_ai_registry_missing": "handlers",
+        "scripts.motion_registry_missing": "handlers",
+        "scripts.spell_registry_missing": "handlers",
+        "scripts.aura_registry_missing": "handlers",
+        "scripts.callback_dispatch_coverage_incomplete": "handlers",
+        "scripts.rejected_attempt_outcome_unobserved": "F1_binding",
+        "scripts.linked_source_proof_incomplete": "F1_binding",
+        "scripts.loader_validation_execution_pending": "loader_execution",
+        "scripts.gameplay_not_admitted": "loader_execution"
+      }
+    },
+    "spell": {
+      "format": "benilla-spell-views-v1",
+      "tables": [
+        "combat_condition",
+        "conditions",
+        "spell_affect",
+        "spell_area",
+        "spell_chain",
+        "spell_cone",
+        "spell_elixir",
+        "spell_facing",
+        "spell_group",
+        "spell_group_spell",
+        "spell_learn_spell",
+        "spell_pet_auras",
+        "spell_proc_event",
+        "spell_proc_item_enchant",
+        "spell_script_target",
+        "spell_target_position",
+        "spell_template",
+        "spell_threat",
+        "unit_condition",
+        "worldstate_expression",
+        "worldstate_name"
+      ],
+      "refusals": {
+        "spells.reference_execution_missing": "F1_binding",
+        "spells.sql_occurrences_not_F1": "F1_binding",
+        "spells.registration_and_handlers_unverified": "handlers",
+        "spells.external_loaded_dependencies_unverified": "loader_execution",
+        "spells.unit_condition_flags_unassigned_at_pin": "loader_execution",
+        "spells.expression_execution_unimplemented": "loader_execution",
+        "spells.gameplay_not_admitted": "loader_execution"
+      }
+    },
+    "quests": {
+      "format": "benilla-content-views-v1",
+      "tables": [
+        "creature_involvedrelation",
+        "creature_questrelation",
+        "gameobject_involvedrelation",
+        "gameobject_questrelation",
+        "quest_poi",
+        "quest_poi_points",
+        "quest_template"
+      ],
+      "refusals": {
+        "content.reference_execution_missing": "F1_binding",
+        "content.sql_occurrences_not_F1": "F1_binding",
+        "content.loaded_manager_validation_pending": "loader_execution",
+        "content.gameplay_not_admitted": "loader_execution"
+      }
+    },
+    "items": {
+      "format": "benilla-content-views-v1",
+      "tables": [
+        "item_convert",
+        "item_enchantment_template",
+        "item_expire_convert",
+        "item_required_target",
+        "item_template",
+        "page_text"
+      ],
+      "refusals": {
+        "content.reference_execution_missing": "F1_binding",
+        "content.sql_occurrences_not_F1": "F1_binding",
+        "content.loaded_manager_validation_pending": "loader_execution",
+        "content.gameplay_not_admitted": "loader_execution"
+      }
+    },
+    "loot": {
+      "format": "benilla-content-views-v1",
+      "tables": [
+        "creature_loot_template",
+        "disenchant_loot_template",
+        "fishing_loot_template",
+        "gameobject_loot_template",
+        "item_loot_template",
+        "mail_loot_template",
+        "pickpocketing_loot_template",
+        "reference_loot_template",
+        "reference_loot_template_names",
+        "skinning_loot_template",
+        "spell_loot_template"
+      ],
+      "refusals": {
+        "content.reference_execution_missing": "F1_binding",
+        "content.sql_occurrences_not_F1": "F1_binding",
+        "content.loaded_manager_validation_pending": "loader_execution",
+        "content.gameplay_not_admitted": "loader_execution",
+        "content.loot_F1_order_missing": "F1_binding",
+        "content.loot_condition_execution_unverified": "loader_execution"
+      }
+    },
+    "globals": {
+      "format": "benilla-content-views-v1",
+      "tables": [
+        "broadcast_text",
+        "broadcast_text_locale",
+        "creature_onkill_reputation",
+        "exploration_basexp",
+        "gossip_menu",
+        "gossip_menu_option",
+        "locales_areatrigger_teleport",
+        "locales_creature",
+        "locales_gameobject",
+        "locales_gossip_menu_option",
+        "locales_item",
+        "locales_npc_text",
+        "locales_page_text",
+        "locales_points_of_interest",
+        "locales_quest",
+        "locales_questgiver_greeting",
+        "locales_trainer_greeting",
+        "mail_level_reward",
+        "npc_gossip",
+        "npc_text",
+        "npc_text_broadcast_text",
+        "npc_trainer",
+        "npc_trainer_template",
+        "npc_vendor",
+        "npc_vendor_template",
+        "pet_autocast_spell_list",
+        "pet_familystats",
+        "pet_levelstats",
+        "pet_levelstats_copy",
+        "pet_name_generation",
+        "petcreateinfo_spell",
+        "player_classlevelstats",
+        "player_levelstats",
+        "player_xp_for_level",
+        "playercreateinfo",
+        "playercreateinfo_action",
+        "playercreateinfo_item",
+        "playercreateinfo_skills",
+        "playercreateinfo_spell",
+        "points_of_interest",
+        "questgiver_greeting",
+        "reputation_reward_rate",
+        "reputation_spillover_template",
+        "skill_discovery_template",
+        "skill_extra_item_template",
+        "skill_fishing_base_level",
+        "trainer_greeting"
+      ],
+      "refusals": {
+        "content.reference_execution_missing": "F1_binding",
+        "content.sql_occurrences_not_F1": "F1_binding",
+        "content.loaded_manager_validation_pending": "loader_execution",
+        "content.gameplay_not_admitted": "loader_execution",
+        "content.player_level_configuration_missing": "configuration",
+        "content.service_equal_slot_F1_order_missing": "F1_binding",
+        "content.locale_storage_index_order_missing": "configuration"
+      }
+    }
+  },
+  "pending_reference": {
+    "status": "pending",
+    "kind": "F1_unsealed",
+    "required": [
+      "initial_snapshot",
+      "executable_build",
+      "sql_occurrences",
+      "registry_occurrences",
+      "causal_coverage",
+      "nonperturbation"
+    ]
+  },
+  "limits": {
+    "root_bytes": 1048576,
+    "page_bytes": 1048576,
+    "page_records": 4096,
+    "record_bytes": 65536,
+    "stream_bytes": 2147483648
+  },
+  "obligation_kinds": [
+    "F1_binding",
+    "configuration",
+    "handlers",
+    "loader_execution"
+  ]
+}

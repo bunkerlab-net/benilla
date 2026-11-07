@@ -1,0 +1,6 @@
+# label include exclude water_ref route_status route_count cross_status cross_count
+walker 1 0 0 0 0 1073741888 1
+swimmer 13 0 4503599627370497 1073741824 2 1073741824 3
+player 5 0 4503599627370497 1073741824 2 1073741824 3
+exclude_water 5 4 0 0 0 1073741888 1
+exclude_ground 5 1 4503599627370497 0 0 0 0

@@ -5,7 +5,7 @@ use std::io;
 
 use crate::wire::{capacity_hint, read_cstring, read_i32_le, read_u32_le, read_u64_le, read_u8};
 
-/// vmangos `QUEST_EMOTE_COUNT` (`QuestDef.h:43`): the emote pairs DETAILS always writes.
+/// The bounded quest presentation queue has four slots (`0x60bbc0`).
 pub const QUEST_EMOTE_COUNT: u32 = 4;
 
 /// vmangos `DIALOG_STATUS_*` (`QuestDef.h:120-129`): an NPC's `SMSG_QUESTGIVER_STATUS`, which
@@ -32,6 +32,13 @@ pub struct QuestRewardItem {
 
 /// A required item on the progress panel, the same triple (vmangos `Quest.cpp:376-381`).
 pub type QuestRequiredItem = QuestRewardItem;
+
+/// One quest presentation emote. DETAILS writes emote then delay; OFFER writes delay then emote.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct QuestEmote {
+    pub delay: u32,
+    pub emote: u32,
+}
 
 /// One greeting-panel quest row; `icon` is a [`dialog_status`] value, a `u32` (`Quest.h:270`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,6 +73,7 @@ pub struct QuestDetails {
     pub rewards: Vec<QuestRewardItem>,
     pub money: i32,
     pub reward_spell: u32,
+    pub emotes: Vec<QuestEmote>,
 }
 
 /// `SMSG_QUESTGIVER_OFFER_REWARD` (vmangos `Quest.cpp:275-339`): the reward panel.
@@ -81,6 +89,7 @@ pub struct QuestOfferReward {
     pub money: i32,
     pub quest_flags: u32,
     pub reward_spell: u32,
+    pub emotes: Vec<QuestEmote>,
 }
 
 /// `SMSG_QUESTGIVER_REQUEST_ITEMS` (vmangos `Quest.cpp:341-391`): the progress panel. The client
@@ -183,6 +192,22 @@ fn read_item_block(r: &mut &[u8]) -> io::Result<Vec<QuestRewardItem>> {
     Ok(items)
 }
 
+fn read_emotes(r: &mut &[u8], delay_first: bool) -> io::Result<Vec<QuestEmote>> {
+    let count = read_u32_le(r)?;
+    let mut emotes = Vec::with_capacity(capacity_hint(count, QUEST_EMOTE_COUNT as usize));
+    for _ in 0..count {
+        let first = read_u32_le(r)?;
+        let second = read_u32_le(r)?;
+        let (delay, emote) = if delay_first {
+            (first, second)
+        } else {
+            (second, first)
+        };
+        emotes.push(QuestEmote { delay, emote });
+    }
+    Ok(emotes)
+}
+
 /// Read `SMSG_QUESTGIVER_STATUS` (vmangos `Quest.cpp:153-157`): `u64 npcGuid, u32 status`.
 pub(in crate::messages) fn read_questgiver_status(r: &mut &[u8]) -> io::Result<(u64, u32)> {
     Ok((read_u64_le(r)?, read_u32_le(r)?))
@@ -217,7 +242,7 @@ pub(in crate::messages) fn read_questgiver_quest_list(r: &mut &[u8]) -> io::Resu
 }
 
 /// Read `SMSG_QUESTGIVER_QUEST_DETAILS` (vmangos `Quest.cpp:205-273`): npc, id, title, details,
-/// objectives, auto-finish, the choice and reward blocks, money, spell, then a count (always 4)
+/// objectives, auto-finish, the choice and reward blocks, money, spell, then a count
 /// of `{u32 emote, u32 delay}` pairs. A hidden-rewards quest writes three zeros for the blocks
 /// and money (`Quest.cpp:235-237`), which read as empty blocks.
 pub(in crate::messages) fn read_questgiver_quest_details(
@@ -233,11 +258,7 @@ pub(in crate::messages) fn read_questgiver_quest_details(
     let rewards = read_item_block(r)?;
     let money = read_i32_le(r)?;
     let reward_spell = read_u32_le(r)?;
-    let emote_count = read_u32_le(r)?;
-    for _ in 0..emote_count {
-        let _emote = read_u32_le(r)?;
-        let _delay = read_u32_le(r)?;
-    }
+    let emotes = read_emotes(r, false)?;
     Ok(QuestDetails {
         npc,
         quest_id,
@@ -249,6 +270,7 @@ pub(in crate::messages) fn read_questgiver_quest_details(
         rewards,
         money,
         reward_spell,
+        emotes,
     })
 }
 
@@ -263,11 +285,7 @@ pub(in crate::messages) fn read_questgiver_offer_reward(
     let title = read_cstring(r)?;
     let offer_text = read_cstring(r)?;
     let auto_finish = read_u32_le(r)?;
-    let emote_count = read_u32_le(r)?;
-    for _ in 0..emote_count {
-        let _delay = read_u32_le(r)?; // delay first here, unlike DETAILS
-        let _emote = read_u32_le(r)?;
-    }
+    let emotes = read_emotes(r, true)?;
     let choices = read_item_block(r)?;
     let rewards = read_item_block(r)?;
     let money = read_i32_le(r)?;
@@ -284,6 +302,7 @@ pub(in crate::messages) fn read_questgiver_offer_reward(
         money,
         quest_flags,
         reward_spell,
+        emotes,
     })
 }
 
@@ -490,6 +509,27 @@ mod tests {
             }]
         );
         assert_eq!(d.money, 1234);
+        assert_eq!(
+            d.emotes,
+            vec![
+                QuestEmote {
+                    delay: 100,
+                    emote: 10
+                },
+                QuestEmote {
+                    delay: 101,
+                    emote: 11
+                },
+                QuestEmote {
+                    delay: 102,
+                    emote: 12
+                },
+                QuestEmote {
+                    delay: 103,
+                    emote: 13
+                },
+            ]
+        );
     }
 
     #[test]
@@ -517,9 +557,9 @@ mod tests {
         assert_eq!(d.reward_spell, 42);
     }
 
-    /// The pairs are read and discarded, so the check is that the fields after the run align.
+    /// OFFER's delay-first order must not be confused with DETAILS' emote-first order.
     #[test]
-    fn offer_reward_skips_its_counted_emote_pairs() {
+    fn offer_reward_retains_its_counted_emote_pairs() {
         let mut b = Vec::new();
         push_u64(&mut b, 0x42);
         push_u32(&mut b, 100);
@@ -552,6 +592,99 @@ mod tests {
         assert_eq!(o.money, 500);
         assert_eq!(o.quest_flags, 0x200);
         assert_eq!(o.reward_spell, 7);
+        assert_eq!(
+            o.emotes,
+            vec![
+                QuestEmote {
+                    delay: 500,
+                    emote: 1
+                },
+                QuestEmote { delay: 0, emote: 2 },
+            ]
+        );
+    }
+
+    #[test]
+    fn packet_emote_round_trip_preserves_counts_and_opposite_wire_orders() {
+        let pairs = [
+            QuestEmote {
+                delay: 7,
+                emote: 101,
+            },
+            QuestEmote {
+                delay: 11,
+                emote: 0,
+            },
+            QuestEmote {
+                delay: 19,
+                emote: 103,
+            },
+            QuestEmote {
+                delay: u32::MAX,
+                emote: 104,
+            },
+        ];
+        for count in 0..=4 {
+            let mut details = Vec::new();
+            let mut offer = Vec::new();
+            for body in [&mut details, &mut offer] {
+                push_u64(body, 0x42);
+                push_u32(body, 100);
+                push_cstr(body, "Authored title");
+                push_cstr(body, "Authored text");
+            }
+            push_cstr(&mut details, "Authored objectives");
+            push_u32(&mut details, 1);
+            push_u32(&mut details, 0); // choices
+            push_u32(&mut details, 0); // rewards
+            push_i32(&mut details, -12);
+            push_u32(&mut details, 13); // reward spell
+            push_u32(&mut details, count);
+            push_u32(&mut offer, 1);
+            push_u32(&mut offer, count);
+            for pair in &pairs[..count as usize] {
+                push_u32(&mut details, pair.emote);
+                push_u32(&mut details, pair.delay);
+                push_u32(&mut offer, pair.delay);
+                push_u32(&mut offer, pair.emote);
+            }
+            push_u32(&mut offer, 0); // choices
+            push_u32(&mut offer, 0); // rewards
+            push_i32(&mut offer, -12);
+            push_u32(&mut offer, 14); // first spell word
+            push_u32(&mut offer, 13); // reward spell
+            let mut r = details.as_slice();
+            let decoded = read_questgiver_quest_details(&mut r).unwrap();
+            assert_eq!(decoded.emotes, pairs[..count as usize]);
+            assert_eq!(decoded.money, -12);
+            assert_eq!(decoded.reward_spell, 13);
+            assert!(r.is_empty());
+            let mut r = offer.as_slice();
+            let decoded = read_questgiver_offer_reward(&mut r).unwrap();
+            assert_eq!(decoded.emotes, pairs[..count as usize]);
+            assert_eq!(decoded.money, -12);
+            assert_eq!(decoded.quest_flags, 14);
+            assert_eq!(decoded.reward_spell, 13);
+            assert!(r.is_empty());
+            for end in 0..details.len() {
+                assert!(read_questgiver_quest_details(&mut &details[..end]).is_err());
+            }
+            for end in 0..offer.len() {
+                assert!(read_questgiver_offer_reward(&mut &offer[..end]).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn hostile_emote_count_fails_on_missing_bytes_without_count_sized_allocation() {
+        for delay_first in [false, true] {
+            assert_eq!(
+                read_emotes(&mut u32::MAX.to_le_bytes().as_slice(), delay_first)
+                    .unwrap_err()
+                    .kind(),
+                io::ErrorKind::UnexpectedEof
+            );
+        }
     }
 
     #[test]

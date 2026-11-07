@@ -25,6 +25,12 @@ use crate::terrain::{
 /// A loaded ADT tile; the app builds its meshes with [`chunk_to_mesh`].
 #[derive(Asset, TypePath)]
 pub struct AdtTile {
+    /// Complete raw dry ADT records with resolved M2/WMO placement references.
+    pub native_static_coverage_safe: bool,
+    /// Identity of the exact ADT source bytes; native queries bind this, not asset handles.
+    pub native_source_digest: [u8; 32],
+    /// Conservative raw-data coverage witness, retained before render-side filtering.
+    pub native_coverage_safe: bool,
     /// The array indices of each entry of `chunks`; a hole-emptied chunk carries the default.
     pub shading: Vec<ChunkShading>,
     /// `texture_2d_array` of the tile's ground textures, authored mips verbatim.
@@ -229,6 +235,9 @@ impl AssetLoader for AdtLoader {
         let shadow_array = shadow_array_image(SHADOW_MAP_SIZE, shadow_count, shadow_buf);
 
         Ok(AdtTile {
+            native_static_coverage_safe: tile.native_static_coverage_safe,
+            native_source_digest: tile.native_source_digest,
+            native_coverage_safe: tile.native_coverage_safe,
             shading,
             layer_array: ctx.add_labeled_asset("layer_array".to_string(), layer_array),
             alpha_array: ctx.add_labeled_asset("alpha_array".to_string(), alpha_array),

@@ -1,0 +1,567 @@
+// Verbatim pinned-source package: CMaNGOS Classic 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f.
+// InitialXY, ground and LOS replies are authored callbacks; fallback never executes.
+
+// BEGIN src/game/Entities/ObjectDefines.h
+/*
+ * This file is part of the CMaNGOS Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+static constexpr float const DEFAULT_WORLD_OBJECT_SIZE      = 0.388999998569489f;           // currently used (correctly?) for any non Unit world objects.
+// END src/game/Entities/ObjectDefines.h
+
+// BEGIN src/game/Maps/GridDefines.h
+/*
+ * This file is part of the CMaNGOS Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+#define INVALID_HEIGHT       -100000.0f                     // for check, must be equal to VMAP_INVALID_HEIGHT, real value for unknown height is VMAP_INVALID_HEIGHT_VALUE
+// END src/game/Maps/GridDefines.h
+
+// BEGIN src/game/Maps/ObjectPosSelector.cpp
+/*
+ * This file is part of the CMaNGOS Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+#define OCCUPY_POS_ANGLE_ATAN_FACTOR                      1.8f
+// END src/game/Maps/ObjectPosSelector.cpp
+
+// BEGIN src/game/Entities/Object.h
+/*
+ * This file is part of the CMaNGOS Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+        bool IsWithinLOS(float ox, float oy, float oz, bool ignoreM2Model = false) const;
+// END src/game/Entities/Object.h
+
+// BEGIN src/game/World/World.cpp
+/*
+ * This file is part of the CMaNGOS Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+    setConfig(CONFIG_BOOL_DETECT_POS_COLLISION, "DetectPosCollision", true);
+// END src/game/World/World.cpp
+
+// BEGIN src/game/Maps/ObjectPosSelector.cpp
+/*
+ * This file is part of the CMaNGOS Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+ObjectPosSelector::ObjectPosSelector(float x, float y, float dist, float searchedForSize, WorldObject const* searchPosFor) :
+    m_centerX(x), m_centerY(y), m_searcherDist(dist), m_searchPosFor(searchPosFor)
+{
+    // if size == 0, m_anglestep will become 0 -> freeze
+    if (searchedForSize == 0.0f)
+        searchedForSize = DEFAULT_WORLD_OBJECT_SIZE;
+
+    // undefined behaviour
+    if (m_searcherDist == 0.0f)
+        m_searcherDist = DEFAULT_WORLD_OBJECT_SIZE;
+
+    m_searchedForReqHAngle = atan(OCCUPY_POS_ANGLE_ATAN_FACTOR * searchedForSize / m_searcherDist);
+
+    // Really init in InitilizeAngle
+    m_nextUsedAreaItr[USED_POS_PLUS]  = m_UsedAreaLists[USED_POS_PLUS].begin();
+    m_nextUsedAreaItr[USED_POS_MINUS] = m_UsedAreaLists[USED_POS_MINUS].begin();
+    m_stepAngle[USED_POS_PLUS]  = 0.0f;
+    m_stepAngle[USED_POS_MINUS] = 0.0f;
+}
+// END src/game/Maps/ObjectPosSelector.cpp
+
+// BEGIN src/game/Maps/ObjectPosSelector.cpp
+/*
+ * This file is part of the CMaNGOS Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+bool ObjectPosSelector::CheckAngle(UsedArea const& usedArea, UsedAreaSide side, float angle) const
+{
+    float used_angle = usedArea.first * SignOf(side);
+    float used_offset = usedArea.second.angleOffset;
+
+    return fabs(used_angle - angle) > used_offset || (m_searchPosFor && usedArea.second.occupyingObj == m_searchPosFor);
+}
+// END src/game/Maps/ObjectPosSelector.cpp
+
+// BEGIN src/game/Maps/ObjectPosSelector.cpp
+/*
+ * This file is part of the CMaNGOS Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+bool ObjectPosSelector::CheckOriginalAngle() const
+{
+    // check first left/right used angles if exists
+    return (m_UsedAreaLists[USED_POS_PLUS].empty()  || CheckAngle(*m_UsedAreaLists[USED_POS_PLUS].begin(), USED_POS_PLUS, 0.0f)) &&
+           (m_UsedAreaLists[USED_POS_MINUS].empty() || CheckAngle(*m_UsedAreaLists[USED_POS_MINUS].begin(), USED_POS_MINUS, 0.0f));
+}
+// END src/game/Maps/ObjectPosSelector.cpp
+
+// BEGIN src/game/Maps/Map.cpp
+/*
+ * This file is part of the CMaNGOS Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+bool Map::IsInLineOfSight(float srcX, float srcY, float srcZ, float destX, float destY, float destZ, bool ignoreM2Model) const
+{
+    return VMAP::VMapFactory::createOrGetVMapManager()->isInLineOfSight(GetId(), srcX, srcY, srcZ, destX, destY, destZ, ignoreM2Model)
+           && m_dyn_tree.isInLineOfSight(srcX, srcY, srcZ, destX, destY, destZ, ignoreM2Model);
+}
+// END src/game/Maps/Map.cpp
+
+// BEGIN src/game/Entities/Unit.cpp
+/*
+ * This file is part of the CMaNGOS Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+void Unit::UpdateAllowedPositionZ(float x, float y, float& z, Map* atMap /*=nullptr*/) const
+{
+    if (!atMap)
+        atMap = GetMap();
+
+    // non fly unit don't must be in air
+    // non swim unit must be at ground (mostly speedup, because it don't must be in water and water level check less fast
+    if (!CanFly())
+    {
+        bool canSwim = CanSwim();
+        float groundZ = GetMap()->GetHeight(x, y, z, canSwim), maxZ;
+        if (canSwim)
+            maxZ = atMap->GetTerrain()->GetWaterOrGroundLevel(x, y, z, groundZ, !HasAuraType(SPELL_AURA_WATER_WALK), GetCollisionHeight());
+        else
+            maxZ = groundZ;
+        if (maxZ > INVALID_HEIGHT)
+        {
+            if (z > maxZ)
+                z = maxZ;
+            else if (z < groundZ)
+                z = groundZ;
+        }
+    }
+    else
+    {
+        float groundZ = atMap->GetHeight(x, y, z);
+        if (z < groundZ)
+            z = groundZ;
+    }
+}
+// END src/game/Entities/Unit.cpp
+
+// BEGIN src/game/Entities/Object.cpp
+/*
+ * This file is part of the CMaNGOS Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+bool WorldObject::IsWithinLOS(float ox, float oy, float oz, bool ignoreM2Model) const
+{
+    float x, y, z;
+    GetPosition(x, y, z);
+    return GetMap()->IsInLineOfSight(x, y, z + GetCollisionHeight(), ox, oy, oz, ignoreM2Model);
+}
+// END src/game/Entities/Object.cpp
+
+// BEGIN src/game/Entities/Object.cpp
+/*
+ * This file is part of the CMaNGOS Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+void WorldObject::GetNearPointAt(const float posX, const float posY, const float posZ, WorldObject const* searcher, float& x, float& y, float& z, float searcher_bounding_radius, float distance2d, float absAngle, bool isInWater) const
+{
+    GetNearPoint2dAt(posX, posY, x, y, distance2d, absAngle);
+    const float init_z = z = posZ;
+
+    // if detection disabled, return first point
+    if (!sWorld.getConfig(CONFIG_BOOL_DETECT_POS_COLLISION))
+    {
+        if (searcher)
+            searcher->UpdateAllowedPositionZ(x, y, z, GetMap()); // update to LOS height if available
+        else if (!isInWater)
+            UpdateGroundPositionZ(x, y, z);
+        return;
+    }
+
+    // or remember first point
+    float first_x = x;
+    float first_y = y;
+    bool first_los_conflict = false;                        // first point LOS problems
+
+    const float dist = distance2d + searcher_bounding_radius + GetObjectBoundingRadius();
+
+    // prepare selector for work
+    ObjectPosSelector selector(posX, posY, distance2d, searcher_bounding_radius, searcher);
+
+    // adding used positions around object - unused because its not blizzlike
+    //{
+    //    MaNGOS::NearUsedPosDo u_do(*this, searcher, absAngle, selector);
+    //    MaNGOS::WorldObjectWorker<MaNGOS::NearUsedPosDo> worker(u_do);
+
+    //    Cell::VisitAllObjects(this, worker, dist);
+    //}
+
+    // maybe can just place in primary position
+    if (selector.CheckOriginalAngle())
+    {
+        if (searcher)
+            searcher->UpdateAllowedPositionZ(x, y, z, GetMap()); // update to LOS height if available
+        else if (!isInWater)
+            UpdateGroundPositionZ(x, y, z);
+
+        if (std::abs(init_z - z) < dist && IsWithinLOS(x, y, z))
+            return;
+
+        first_los_conflict = true;                          // first point have LOS problems
+    }
+
+    // set first used pos in lists
+    selector.InitializeAngle();
+
+    float angle;                                            // candidate of angle for free pos
+
+    // select in positions after current nodes (selection one by one)
+    while (selector.NextAngle(angle))                       // angle for free pos
+    {
+        GetNearPoint2dAt(posX, posY, x, y, distance2d, absAngle + angle);
+        z = posZ;
+
+        if (searcher)
+            searcher->UpdateAllowedPositionZ(x, y, z, GetMap()); // update to LOS height if available
+        else if (!isInWater)
+            UpdateGroundPositionZ(x, y, z);
+
+        if (std::abs(init_z - z) < dist && IsWithinLOS(x, y, z))
+            return;
+    }
+
+    // BAD NEWS: not free pos (or used or have LOS problems)
+    // Attempt find _used_ pos without LOS problem
+    if (!first_los_conflict)
+    {
+        x = first_x;
+        y = first_y;
+
+        if (searcher)
+            searcher->UpdateAllowedPositionZ(x, y, z, GetMap()); // update to LOS height if available
+        else if (!isInWater)
+            UpdateGroundPositionZ(x, y, z);
+        return;
+    }
+
+    // set first used pos in lists
+    selector.InitializeAngle();
+
+    // select in positions after current nodes (selection one by one)
+    while (selector.NextUsedAngle(angle))                   // angle for used pos but maybe without LOS problem
+    {
+        GetNearPoint2dAt(posX, posY, x, y, distance2d, absAngle + angle);
+        z = posZ;
+
+        if (searcher)
+            searcher->UpdateAllowedPositionZ(x, y, z, GetMap()); // update to LOS height if available
+        else if (!isInWater)
+            UpdateGroundPositionZ(x, y, z);
+
+        if (std::abs(init_z - z) < dist && IsWithinLOS(x, y, z))
+            return;
+    }
+
+    // BAD BAD NEWS: all found pos (free and used) have LOS problem :(
+    x = first_x;
+    y = first_y;
+
+    if (searcher)
+        searcher->UpdateAllowedPositionZ(x, y, z, GetMap());// update to LOS height if available
+    else if (!isInWater)
+        UpdateGroundPositionZ(x, y, z);
+}
+// END src/game/Entities/Object.cpp
+
+// BEGIN src/game/Entities/Object.cpp
+/*
+ * This file is part of the CMaNGOS Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+void WorldObject::GetNearPoint2dAt(const float posX, const float posY, float& x, float& y, float distance2d, float absAngle)
+{
+    x = (posX + (distance2d * cosf(absAngle)));
+    y = (posY + (distance2d * sinf(absAngle)));
+
+    MaNGOS::NormalizeMapCoord(x);
+    MaNGOS::NormalizeMapCoord(y);
+}
+// END src/game/Entities/Object.cpp
+
+// BEGIN src/game/Entities/Object.cpp
+/*
+ * This file is part of the CMaNGOS Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+bool WorldObject::IsWithinLOSInMap(const WorldObject* obj, bool ignoreM2Model) const
+{
+    if (!IsInMap(obj)) return false;
+    float x, y, z;
+    obj->GetPosition(x, y, z);
+    return IsWithinLOS(x, y, z + obj->GetCollisionHeight(), ignoreM2Model);
+}
+// END src/game/Entities/Object.cpp
+
+// BEGIN COMPLETE src/game/Maps/ObjectPosSelector.h
+/*
+ * This file is part of the CMaNGOS Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+
+#ifndef _OBJECT_POS_SELECTOR_H
+#define _OBJECT_POS_SELECTOR_H
+
+#include<Common.h>
+
+#include<map>
+
+class WorldObject;
+
+enum UsedAreaSide { USED_POS_PLUS, USED_POS_MINUS };
+
+inline UsedAreaSide operator ~(UsedAreaSide side)
+{
+    return side == USED_POS_PLUS ? USED_POS_MINUS : USED_POS_PLUS;
+}
+
+inline float SignOf(UsedAreaSide side)
+{
+    return side == USED_POS_PLUS ? 1.0f : -1.0f;
+}
+
+struct ObjectPosSelector
+{
+    struct OccupiedArea
+    {
+        OccupiedArea(float _angleOffset, WorldObject const* obj) : angleOffset(_angleOffset), occupyingObj(obj) {}
+        float angleOffset;
+        WorldObject const* occupyingObj;
+    };
+    // angle pos -> OccupiedArea
+    typedef std::multimap<float, OccupiedArea> UsedAreaList;
+    typedef UsedAreaList::value_type UsedArea;
+
+    ObjectPosSelector(float x, float y, float dist, float searchedForSize, WorldObject const* searchPosFor);
+
+    void AddUsedArea(WorldObject const* obj, float angle, float dist);
+
+    bool CheckOriginalAngle() const;
+
+    void InitializeAngle();
+
+    bool NextAngle(float& angle);
+    bool NextUsedAngle(float& angle);
+
+    bool CheckAngle(UsedArea const& usedArea, UsedAreaSide side, float angle) const;
+    void InitializeAngle(UsedAreaSide side);
+    bool NextSideAngle(UsedAreaSide side, float& angle);
+
+    float m_centerX;
+    float m_centerY;
+    float m_searcherDist;                                   // distance for searching pos
+    float m_searchedForReqHAngle;                           // angle size/2 of searcher object (at dist distance)
+
+    UsedAreaList m_UsedAreaLists[2];                        // list left/right side used angles (with angle size)
+
+    UsedAreaList::const_iterator m_nextUsedAreaItr[2];      // next used used areas for check at left/right side, possible angles selected in range m_smallStepAngle..m_nextUsedAreaItr
+
+    float m_stepAngle[2];                                   // current checked angle position at sides (less m_nextUsedArea), positive value
+
+    WorldObject const* m_searchPosFor;                      // For whom a position is searched (can be nullptr)
+};
+#endif
+
+// END COMPLETE src/game/Maps/ObjectPosSelector.h
