@@ -80,6 +80,8 @@ mod tests;
 pub use original_rng::{compare_original_unsealed_rng, OriginalRngReport};
 mod gameobjects;
 pub use gameobjects::*;
+mod gameobject_lifecycle;
+pub use gameobject_lifecycle::*;
 #[cfg(test)]
 mod gameobject_tests;
 mod seal8_gameobjects;

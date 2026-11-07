@@ -531,6 +531,36 @@ It never uses captured constructor outcomes as runtime inputs. Set
 `BENILLA_F1_SEAL8_FRAMING` to run the unsealed seal8-08 comparison. Absent default
 data prints `SKIP`; an explicit invalid path fails.
 
+### Retained GO lifecycle and collision
+
+`GameObjectLifecycleDispatch` updates the constructor's `SourceGameObjects`.
+Legacy default expiry re-adds the same construction and initializes AI again,
+`GameObject.cpp:379-427`. Deactivation preserves zero-delay early returns,
+one-shot/group overrides, finite Save before the new-system local sentinel,
+nongroup scheduling, legacy pool routing, and forced-despawn flag lifetime,
+`GameObject.cpp:571-725,2712-2731`. F3.11 owns deferred removal and destruction.
+Linked traps retain a GUID and resolve current map lookup on every delete,
+`GameObject.cpp:575-579,800-804,2204-2206`. Even spell zero makes a linked trap
+nondefault, `GameObject.cpp:1259-1260`, `GameObject.h:739-743`.
+
+`SetLootState` requests collision before its AI callback, including equal-state
+calls, `GameObject.cpp:2067-2074`. The model owner must execute actual membership
+queries, remove/relocate/insert on movement, and remove/destroy/construct on
+display replacement, `GameObject.cpp:2097-2139`. F3.10a relocation calls those
+operations before visibility, `Map.cpp:1211-1216`. Model construction inserts
+before AddToWorld requests another insert, `GameObject.cpp:125-126,2103-2105`.
+Authored tests record both inserts and every later model operation. They do not
+provide an F6 model owner. A missing owner refuses at the reached operation.
+
+Pool/group live effects and F5 events, AI, loot, world-state and gameplay hooks
+retain typed refusals. F7 must retain these GO fields, linked GUIDs, clocks,
+overrides, pending events/removals and the F6 model/tree owner state. No fields
+enter native serialization here, so format 91 and NativeCapability are unchanged.
+seal8-08 supplies a GUID comparison and an AI-Update callsite, not independently
+bound expiry, collision, pool or reload transitions. Missing MR/MP/MPR lifecycle
+projections remain explicit `SKIP`, not successful lifecycle matching.
+
+
 ## Source creature construction
 
 `GridFactoryContext::load_creature` calls `load_source_creature` from the real

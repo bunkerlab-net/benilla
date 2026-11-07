@@ -94,6 +94,8 @@ pub enum GameObjectCallback {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GameObjectModelOperation {
     ConstructAndInsert,
+    Contains,
+    Relocate,
     Insert,
     Enable(bool),
     Remove,
@@ -103,6 +105,7 @@ pub enum GameObjectModelOperation {
 pub struct SourceGameObject {
     pub handle: ObjectHandle,
     pub template: GameObjectTemplate,
+    pub display: u32,
     pub position_bits: [u32; 4],
     pub rotation_bits: [u32; 4],
     pub animation: u8,
@@ -116,10 +119,27 @@ pub struct SourceGameObject {
     pub spawned_by_default: bool,
     pub respawn_delay: u32,
     pub respawn_time: i64,
-    pub linked_trap: Option<ObjectHandle>,
+    pub linked_trap: Option<SourceGuid>,
     pub spell: u32,
     pub owner: SourceGuid,
     pub has_model: bool,
+    pub spawn: Option<GameObjectSpawn>,
+    pub group: Option<GameObjectGroupEntry>,
+    pub respawn_overridden: bool,
+    pub respawn_override_once: bool,
+    pub forced_despawn: bool,
+    pub has_loot: bool,
+    pub corpse_despawn_ms: i64,
+    pub restock_time: i64,
+    pub cooldown_time: i64,
+    pub rearm_time: i64,
+    pub capture_timer: u32,
+    pub delayed_action_timer: u32,
+    pub use_times: u32,
+    pub first_user: SourceGuid,
+    pub unique_users: std::collections::BTreeSet<SourceGuid>,
+    pub skillup_users: std::collections::BTreeSet<SourceGuid>,
+    pub(super) lifecycle_stopped: bool,
 }
 impl SourceGameObject {
     // Spawn and collision predicates remain separate from world membership; GameObject.h:763-767, GameObject.cpp:1317-1334.
@@ -136,6 +156,16 @@ impl SourceGameObject {
                 6 => false,
                 _ => true,
             }
+    }
+    pub fn set_spell_id(&mut self, spell: u32) {
+        // Summoned spell state is nondefault even for spell zero; GameObject.h:739-743.
+        self.spawned_by_default = false;
+        self.spell = spell;
+    }
+    pub fn set_owner_guid(&mut self, owner: SourceGuid) {
+        // Owner assignment always switches to nondefault lifetime; GameObject.cpp:1002-1006.
+        self.spawned_by_default = false;
+        self.owner = owner;
     }
 }
 #[derive(Default)]
@@ -203,7 +233,7 @@ pub trait GameObjectFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
         _operation: GameObjectModelOperation,
         _context: &mut GridFactoryContext<'_, D, P>,
     ) -> Result<bool> {
-        Err(refuse("execution.dynamic_collision_owner_unavailable"))
+        Err(GameObjectLifecyclePending::DynamicModel.refusal())
     }
     fn gameobject_callback(
         &mut self,
@@ -297,11 +327,13 @@ where
         [rotation[2], rotation[3]] = factory.gameobject_rotation(spawn.position_bits[3])?;
     }
     let flags = template.flags;
+    let display = template.display;
     factory.gameobjects().objects.insert(
         handle,
         SourceGameObject {
             handle,
             template,
+            display,
             position_bits: spawn.position_bits,
             rotation_bits: rotation,
             animation: spawn.animation as u8,
@@ -318,6 +350,23 @@ where
             linked_trap: None,
             spell: 0,
             owner: SourceGuid::default(),
+            spawn: None,
+            group: None,
+            respawn_overridden: false,
+            respawn_override_once: false,
+            forced_despawn: false,
+            has_loot: false,
+            corpse_despawn_ms: i64::MAX,
+            restock_time: 0,
+            cooldown_time: 0,
+            rearm_time: 0,
+            capture_timer: 0,
+            delayed_action_timer: 0,
+            use_times: 0,
+            first_user: SourceGuid::default(),
+            unique_users: std::collections::BTreeSet::new(),
+            skillup_users: std::collections::BTreeSet::new(),
+            lifecycle_stopped: false,
             has_model: false,
         },
     );
@@ -385,7 +434,7 @@ where
     context.objects.destroy(handle, context.cells)?;
     Ok(GridCandidateOutcome::FailedAndDestroyed(handle))
 }
-fn add<D, P, F>(
+pub(super) fn add_source_gameobject<D, P, F>(
     factory: &mut F,
     handle: ObjectHandle,
     context: &mut GridFactoryContext<'_, D, P>,
@@ -446,14 +495,14 @@ where
             let (spell, owner, level) = (parent.spell, parent.owner, parent.level);
             let child = factory.gameobjects().get_mut(trap)?;
             child.respawn_delay = 0;
-            child.spell = spell;
+            child.set_spell_id(spell);
             if owner.raw() != 0 {
-                child.owner = owner;
+                child.set_owner_guid(owner);
                 child.level = level;
             }
-            add(factory, trap, context)?;
+            add_source_gameobject(factory, trap, context)?;
             factory.gameobject_callback(trap, GameObjectCallback::InitializeAi, context)?;
-            factory.gameobjects().get_mut(handle)?.linked_trap = Some(trap);
+            factory.gameobjects().get_mut(handle)?.linked_trap = context.objects.get(trap)?.guid;
         } else {
             failed(factory, trap, context)?;
         }
@@ -581,6 +630,7 @@ where
         factory.gameobjects().get_mut(handle)?.state = spawn.state as u8;
     }
     if let Some(group) = group {
+        factory.gameobjects().get_mut(handle)?.group = Some(group);
         factory.gameobject_callback(handle, GameObjectCallback::BindGroup(group.id), context)?;
         if group.string_id != 0 {
             factory.gameobject_callback(
@@ -614,7 +664,11 @@ where
         object.spawned_by_default = false;
         object.respawn_delay = delay as u32;
     }
-    add(factory, handle, context)?;
+    context
+        .objects
+        .set_respawn_definition(handle, SourcePose(spawn.position_bits), true)?;
+    factory.gameobjects().get_mut(handle)?.spawn = Some(spawn);
+    add_source_gameobject(factory, handle, context)?;
     factory.gameobject_callback(handle, GameObjectCallback::InitializeAi, context)?;
     Ok(GridCandidateOutcome::Loaded(handle))
 }

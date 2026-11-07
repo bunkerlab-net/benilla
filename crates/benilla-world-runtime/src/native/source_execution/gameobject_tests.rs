@@ -85,6 +85,7 @@ struct Factory {
     models: BTreeMap<ObjectHandle, bool>,
     collision_available: bool,
     recurse: Option<GameObjectSpawn>,
+    lifecycle: Option<gameobject_lifecycle_tests::HostState>,
 }
 impl Factory {
     fn new() -> Self {
@@ -113,6 +114,7 @@ impl Factory {
             models: BTreeMap::new(),
             collision_available: true,
             recurse: None,
+            lifecycle: None,
         }
     }
 }
@@ -242,6 +244,9 @@ impl GameObjectFactoryOwner<Definitions, Products> for Factory {
                 id: "execution.dynamic_collision_owner_unavailable".into(),
             });
         }
+        if self.lifecycle.is_some() {
+            return self.lifecycle_model(handle, op, context);
+        }
         self.actions.push(Action::Model(handle, op));
         match op {
             GameObjectModelOperation::ConstructAndInsert => {
@@ -268,6 +273,8 @@ impl GameObjectFactoryOwner<Definitions, Products> for Factory {
             GameObjectModelOperation::Remove | GameObjectModelOperation::Destroy => {
                 self.models.remove(&handle);
             }
+            GameObjectModelOperation::Contains => return Ok(self.models.contains_key(&handle)),
+            GameObjectModelOperation::Relocate => assert!(self.models.contains_key(&handle)),
         }
         Ok(true)
     }
@@ -278,6 +285,9 @@ impl GameObjectFactoryOwner<Definitions, Products> for Factory {
         context: &mut GridFactoryContext<'_, Definitions, Products>,
     ) -> Result<()> {
         self.actions.push(Action::Callback(handle, callback));
+        if self.lifecycle.is_some() {
+            self.lifecycle_callback(handle, callback);
+        }
         if callback == GameObjectCallback::InitializeAi {
             assert!(context.objects.get(handle)?.in_world);
             assert!(context.cells.registered_cell(handle).is_some());
@@ -569,7 +579,11 @@ fn linked_trap_is_constructed_and_initialized_before_parent_ai_without_respawn_d
     factory.templates.get_mut(&100).unwrap().data[7] = 101;
     factory.templates.insert(101, template(101, 6));
     let parent = loaded(world.load(&mut factory, spawn()).unwrap());
-    let child = factory.objects.get(parent).unwrap().linked_trap.unwrap();
+    let child_guid = factory.objects.get(parent).unwrap().linked_trap.unwrap();
+    let child = world
+        .objects
+        .lookup_world_object(map(), child_guid)
+        .unwrap();
     assert_eq!(
         child,
         ObjectHandle {
@@ -896,3 +910,6 @@ fn group_gameobject_constructor_forwards_forced_entry_and_zero_fallback() {
         );
     }
 }
+
+#[path = "gameobject_lifecycle_tests.rs"]
+mod gameobject_lifecycle_tests;

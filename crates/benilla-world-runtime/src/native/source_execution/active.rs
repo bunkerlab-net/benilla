@@ -93,7 +93,6 @@ pub enum RelocationPhase {
     MotionClear,
     MotionInitialize,
     CreatureOnRelocated,
-    GameObjectModelPosition,
     GameObjectVisibility,
 }
 impl RelocationPhase {
@@ -103,7 +102,6 @@ impl RelocationPhase {
             Self::CombatStopWithPets => "execution.relocation.combat_and_pets_owner",
             Self::MotionClear | Self::MotionInitialize => "execution.relocation.motion_owner",
             Self::CreatureOnRelocated => "execution.relocation.creature_notification_owner",
-            Self::GameObjectModelPosition => "execution.relocation.dynamic_collision_owner",
             Self::GameObjectVisibility => "execution.relocation.visibility_owner",
         })
     }
@@ -465,7 +463,7 @@ impl<D: GridDefinitions, P: GridProductOwner> GridFactoryContext<'_, D, P> {
         }
         self.objects.set_pose(object, pose)?;
         factory.gameobjects().get_mut(object)?.position_bits = pose.0;
-        factory.relocation_phase(object, RelocationPhase::GameObjectModelPosition, self)?;
+        update_source_gameobject_model_position(factory, object, self)?;
         factory.relocation_phase(object, RelocationPhase::GameObjectVisibility, self)?;
         Ok(GameObjectMoveOutcome::Moved)
     }
