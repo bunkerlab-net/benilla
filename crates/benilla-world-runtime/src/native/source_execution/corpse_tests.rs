@@ -621,11 +621,12 @@ impl ResidencyOwner<Definitions, Products> for Host {
     }
     fn residency_phase(
         &mut self,
-        _: ObjectHandle,
-        _: ResidencyPhase,
-        _: &mut GridFactoryContext<'_, Definitions, Products>,
+        object: ObjectHandle,
+        _phase: ResidencyPhase,
+        context: &mut GridFactoryContext<'_, Definitions, Products>,
     ) -> Result<()> {
-        panic!("world corpse must not be deleted by grid unloader")
+        assert_eq!(context.objects.get(object)?.kind, SourceObjectKind::Bones);
+        Ok(())
     }
 }
 #[test]
@@ -811,3 +812,6 @@ fn unavailable_sql_owner_stops_before_later_writes_or_a_retry() {
     );
     assert_eq!(work.sql, [CorpseSql::Begin]);
 }
+
+#[path = "corpse_expiry_tests.rs"]
+mod expiry;

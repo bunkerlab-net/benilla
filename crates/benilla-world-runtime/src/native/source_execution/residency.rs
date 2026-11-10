@@ -43,6 +43,9 @@ impl SourceCells {
     pub fn removals(&self) -> &SourceRemovals {
         &self.removals
     }
+    pub(super) fn record_removed_guid(&mut self, guid: SourceGuid) {
+        self.removals.removed_guids.insert(guid);
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ResidencyPhase {
@@ -460,6 +463,12 @@ fn destroy<D: GridDefinitions, P: ResidencyProductOwner, F: ResidencyOwner<D, P>
         cleanup(object, context, owner)?; // Creature::~Creature calls CleanupsBeforeDelete again.
     }
     owner.residency_phase(object, ResidencyPhase::Destructor, context)?;
+    if context.objects.get(object)?.kind == SourceObjectKind::Bones {
+        owner
+            .corpse_bindings()?
+            .registry
+            .retire_deleted_bones(object)?;
+    }
     context.objects.destroy(object, context.cells)?;
     Ok(())
 }

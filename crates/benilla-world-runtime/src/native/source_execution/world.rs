@@ -196,23 +196,33 @@ pub trait WorldWork {
         scheduler: &mut SourceScheduler,
     ) -> Result<()>;
     fn run_map_inline(&mut self, thread: u64, job: MapJob) -> Result<()>;
+    fn remove_old_corpses(&mut self, _thread: u64) -> Result<()> {
+        Err(refuse("execution.corpse.world_sweep_owner"))
+    }
     fn unload_maps(&mut self, diff: u32, maps: &mut SourceMapManager) -> Result<()>;
 }
 pub struct SourceWorld {
     pub maps: SourceMapManager,
     pub scheduler: SourceScheduler,
     thread: u64,
+    corpse_timer: IntervalTimer,
     stopped: bool,
 }
 impl SourceWorld {
     pub fn new(thread: u64, map_interval: u32) -> Result<Self> {
         require(thread > 0, "execution.world_thread")?;
+        let mut corpse_timer = IntervalTimer::default();
+        corpse_timer.set_interval(1_200_000);
         Ok(Self {
             maps: SourceMapManager::new(map_interval),
             scheduler: SourceScheduler::default(),
             thread,
+            corpse_timer,
             stopped: false,
         })
+    }
+    pub fn corpse_timer_current(&self) -> i64 {
+        self.corpse_timer.get_current()
     }
     // A failed owner ends the accepted prefix before later phases; World.cpp:1542-1702.
     pub fn update<W: WorldWork>(&mut self, diff: u32, work: &mut W) -> Result<()> {
@@ -224,6 +234,18 @@ impl SourceWorld {
     fn update_inner<W: WorldWork>(&mut self, diff: u32, work: &mut W) -> Result<()> {
         for phase in WORLD_PHASES {
             work.phase(phase, self.thread, diff)?;
+            // Advance all timers before the conditional sweep resets one interval; World.cpp:1543-1549,1655-1659.
+            if phase == WorldPhase::Timers {
+                self.corpse_timer
+                    .update(i64::from(diff))
+                    .map_err(|_| refuse("execution.corpse.world_timer_overflow"))?;
+            }
+            if phase == WorldPhase::Corpses && self.corpse_timer.passed() {
+                self.corpse_timer
+                    .reset()
+                    .map_err(|_| refuse("execution.corpse.world_timer_overflow"))?;
+                work.remove_old_corpses(self.thread)?;
+            }
             if phase == WorldPhase::Maps {
                 if let Some(jobs) = self.maps.begin(diff)? {
                     if self.scheduler.worker_count() == 0 {

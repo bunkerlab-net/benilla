@@ -1223,7 +1223,7 @@ global resurrectable corpse, its world lookup and cell-index entry,
 `ObjectGridLoader.cpp:279-299`, `GridDefines.h:68-69`, `RefManager.h:49-55`.
 The authored test runs the real loader, expiry states, unloader and reload.
 Create/Add/Remove/Save methods are available to F5, but player release and
-reclaim handlers remain closed. F4.20 owns expiry and bones conversion.
+reclaim handlers remain closed.
 
 `characters.equipmentCache` supplies only even item-entry tokens to signed
 `atoi`, `Corpse.cpp:204-208`, `Util.cpp:142-147`. Overflow refuses rather than
@@ -1234,6 +1234,30 @@ Raw corpse type 3 follows the ordinary failed-load branch. Values above 3
 refuse the preceding unfixed-enum conversion, `Corpse.h:27-33`,
 `Corpse.cpp:169-174`, under the
 [C++ conversion rule](https://timsong-cpp.github.io/cppwp/n4659/expr.static.cast#10).
+
+The world corpse timer advances at the timer phase and resets one 20-minute
+interval before the sweep, `World.cpp:1361,1543-1549,1655-1659`.
+The sweep samples its own wall clock once and preadvances the live GCC
+owner chain. Exactly three days retains a corpse, `ObjectAccessor.cpp:289-302`,
+`Corpse.cpp:270-274`. Signed threshold underflow refuses rather than wraps.
+
+Conversion deletes owner/cell membership, removes from a loaded map and
+executes the owner SQL deletion before optional bones construction,
+`ObjectAccessor.cpp:238-259`. A missing map, absent grid or REMOVAL grid
+suppresses bones. A created grid need not have object data loaded,
+`Map.h:159-162`. World/battleground options apply unless insignia overrides
+them. Bones reuse the low GUID, not construction identity or time. They copy
+fields 3 onward, clear equipment, set flags to 5 and keep the fresh rank
+snapshot, `ObjectAccessor.cpp:258-280`, `Corpse.cpp:27-40`.
+
+Explicit bones removal copies the source queue behavior, including its
+missing-lookup quirk after cleanup removes the world accessor entry,
+`Corpse.cpp:127-138,56-62`, `Map.cpp:1466,1488-1492`.
+Natural grid unload deletes bones from both object and corpse owners,
+`ObjectGridLoader.cpp:288-299`. No periodic bones-expiry caller is added.
+F4.21 must connect the sweep callback, real visibility/viewpoint handlers,
+map-kind/config inputs, SQL and the separate sweep/constructor clock owners.
+
 
 The inventory is an F7 contract, not serialized continuation. No native
 format or NativeCapability change occurs. The unsealed seal8 diagnostic

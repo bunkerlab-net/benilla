@@ -62,6 +62,18 @@ impl SourceCorpse {
         self.fields[34] = appearance.guild_id;
         self.fields[35] = appearance.flags;
     }
+    // Only the owner registry is swept; bones have no periodic caller; Corpse.cpp:270-274, ObjectAccessor.cpp:293-301.
+    pub fn is_expired(&self, now: i64) -> Result<bool> {
+        let age = if self.corpse_type == SourceCorpseType::Bones {
+            3600
+        } else {
+            259200
+        };
+        let threshold = now
+            .checked_sub(age)
+            .ok_or_else(|| refuse("execution.corpse.expiry_subtraction_undefined"))?;
+        Ok(self.created_seconds < threshold)
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct CorpseInventory {
@@ -101,6 +113,7 @@ pub enum CorpseEvent {
     Loaded(ObjectHandle),
     Add(ObjectHandle),
     Remove(ObjectHandle),
+    Destroy(ObjectHandle),
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CorpseSql {
@@ -179,6 +192,29 @@ impl CorpseGridOwner for CorpseOtherMaps<'_> {
         objects.get_mut(object)?.corpse_grid_reference = None;
         Ok(())
     }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CorpseMapPhase {
+    RemoveVisibility,
+    AddedViewpoint,
+    AddedVisibility,
+}
+pub trait CorpseConversionWork: CorpseWork {
+    fn sweep_clock(&mut self) -> Result<ClockSample>;
+    fn is_battleground(&mut self, map: MapIdentity) -> Result<bool>;
+    fn map_phase(
+        &mut self,
+        object: ObjectHandle,
+        phase: CorpseMapPhase,
+        objects: &mut SourceObjects,
+        cells: &mut SourceCells,
+    ) -> Result<()>;
+}
+pub struct CorpseConversion<'a> {
+    pub thread: u64,
+    pub bones_world: bool,
+    pub bones_battleground: bool,
+    pub maps: &'a mut BTreeMap<MapIdentity, SourceCells>,
 }
 #[derive(Default)]
 pub struct SourceCorpseRegistry {
@@ -472,6 +508,204 @@ impl SourceCorpseRegistry {
         })();
         self.stopped |= result.is_err();
         result
+    }
+    // Preadvance the live GCC chain before conversion erases its current node; ObjectAccessor.cpp:289-302.
+    pub fn remove_old_corpses(
+        &mut self,
+        objects: &mut SourceObjects,
+        context: &mut CorpseConversion<'_>,
+        work: &mut impl CorpseConversionWork,
+    ) -> Result<()> {
+        let result = (|| {
+            require(!self.stopped, "execution.corpse.stopped")?;
+            let now = work.sweep_clock()?;
+            require(
+                now.kind() == ClockKind::WallSeconds,
+                "execution.corpse.sweep_clock_kind",
+            )?;
+            let mut next = self.owners.first_key();
+            while let Some(owner) = next {
+                next = self.owners.next_key(owner);
+                let object = *self.owners.get(owner).unwrap();
+                if self.corpse(object)?.is_expired(now.value())? {
+                    self.convert_for_player(
+                        SourceGuid::from_raw(owner),
+                        false,
+                        objects,
+                        context,
+                        work,
+                    )?;
+                }
+            }
+            Ok(())
+        })();
+        self.stopped |= result.is_err();
+        result
+    }
+    // Remove owner/world/SQL before constructing optional fresh bones; ObjectAccessor.cpp:225-286.
+    pub fn convert_for_player(
+        &mut self,
+        player: SourceGuid,
+        insignia: bool,
+        objects: &mut SourceObjects,
+        context: &mut CorpseConversion<'_>,
+        work: &mut impl CorpseConversionWork,
+    ) -> Result<Option<ObjectHandle>> {
+        let result = (|| {
+            require(!self.stopped, "execution.corpse.stopped")?;
+            let Some(object) = self.for_player(player)? else {
+                return Ok(None);
+            };
+            self.remove(object, objects, work)?;
+            let corpse = self.corpse(object)?;
+            let (map_id, instance, position) = (corpse.map, corpse.instance, corpse.position);
+            let mut matches = context
+                .maps
+                .keys()
+                .filter(|m| m.map == map_id && m.instance == instance);
+            let map = matches.next().copied();
+            require(matches.next().is_none(), "execution.corpse.map_generation")?;
+            if let Some(map) = map {
+                let cells = context.maps.get_mut(&map).unwrap();
+                let pair = corpse_cell(position)?;
+                if cells.object_data_loaded(pair.grid_x(), pair.grid_y()) {
+                    require(
+                        !objects.get(object)?.active,
+                        "execution.corpse.active_owner",
+                    )?;
+                    work.map_phase(object, CorpseMapPhase::RemoveVisibility, objects, cells)?;
+                    if let Some(reference) = objects.get(object)?.corpse_grid_reference {
+                        if reference.grid.map != map {
+                            let previous = context
+                                .maps
+                                .get_mut(&reference.grid.map)
+                                .ok_or_else(|| refuse("execution.corpse.cross_map_cell_owner"))?;
+                            require(
+                                previous.registered_cell(object) == Some(reference),
+                                "execution.corpse.cross_map_reference",
+                            )?;
+                            previous.unlink(object);
+                            objects.get_mut(object)?.corpse_grid_reference = None;
+                        }
+                    }
+                    let cells = context.maps.get_mut(&map).unwrap();
+                    objects.unlink_cell(object, cells)?;
+                    cells.record_removed_guid(objects.get(object)?.guid.unwrap());
+                    objects.reset_map(object)?;
+                }
+            }
+            work.sql(CorpseSql::DeleteOwner(player.counter()))?;
+            let mut bones = None;
+            if let Some(map) = map {
+                let enabled = insignia
+                    || if work.is_battleground(map)? {
+                        context.bones_battleground
+                    } else {
+                        context.bones_world
+                    };
+                let grid_pair = compute_grid_pair(position[0], position[1])
+                    .map_err(|_| refuse("execution.corpse.grid_coordinates"))?;
+                let cells = context.maps.get_mut(&map).unwrap();
+                let grid = cells.grids().identity(grid_pair.x(), grid_pair.y());
+                let removal = match grid {
+                    Some(grid) => cells.grids().phase(grid)? == NGridPhase::Removal,
+                    None => true,
+                };
+                if enabled && !removal {
+                    let mut new =
+                        self.construct(context.thread, SourceCorpseType::Bones, objects, work)?;
+                    let guid = objects
+                        .get(object)?
+                        .guid
+                        .ok_or_else(|| refuse("execution.object_guid_absent"))?;
+                    initialize_fields(&mut new, guid.counter());
+                    objects.assign_guid(new.object, guid.counter(), guid)?;
+                    let old = self.corpse(object)?;
+                    new.fields[3..].copy_from_slice(&old.fields[3..]);
+                    new.grid = old.grid;
+                    new.position = old.position;
+                    new.fields[35] = 5;
+                    new.fields[6..8]
+                        .copy_from_slice(&[player.raw() as u32, (player.raw() >> 32) as u32]);
+                    new.fields[13..32].fill(0);
+                    new.map = map.map;
+                    new.instance = map.instance;
+                    objects.set_pose(new.object, SourcePose(new.position))?;
+                    objects.bind_map(new.object, map, cells)?;
+                    let pair = corpse_cell(new.position)?;
+                    let cell = cells.cell(pair)?;
+                    objects.link_cell(new.object, cell, cells)?;
+                    objects.add_to_world(new.object)?;
+                    let handle = new.object;
+                    self.corpses.insert(handle, new);
+                    work.map_phase(handle, CorpseMapPhase::AddedViewpoint, objects, cells)?;
+                    work.map_phase(handle, CorpseMapPhase::AddedVisibility, objects, cells)?;
+                    bones = Some(handle);
+                }
+            }
+            // The destructor unlinks even a reference left by a cold Map::Remove; GridReference.h:58-61.
+            if let Some(reference) = objects.get(object)?.corpse_grid_reference {
+                let cells = context
+                    .maps
+                    .get_mut(&reference.grid.map)
+                    .ok_or_else(|| refuse("execution.corpse.cross_map_cell_owner"))?;
+                require(
+                    cells.registered_cell(object) == Some(reference),
+                    "execution.corpse.cross_map_reference",
+                )?;
+                cells.unlink(object);
+                objects.get_mut(object)?.corpse_grid_reference = None;
+            }
+            objects.reset_map(object)?;
+            objects.destroy_unbound(object)?;
+            self.corpses.remove(&object);
+            work.observe(CorpseEvent::Destroy(object))?;
+            Ok(bones)
+        })();
+        self.stopped |= result.is_err();
+        result
+    }
+    // Queueing performs cleanup, so the later source lookup may miss; Corpse.cpp:127-138, Map.cpp:1466,1488.
+    pub fn delete_bones_from_world<D: GridDefinitions, P: ResidencyProductOwner>(
+        &mut self,
+        object: ObjectHandle,
+        context: &mut GridFactoryContext<'_, D, P>,
+        owner: &mut impl ResidencyOwner<D, P>,
+    ) -> Result<bool> {
+        let result = (|| {
+            require(!self.stopped, "execution.corpse.stopped")?;
+            require(
+                self.corpse(object)?.corpse_type == SourceCorpseType::Bones,
+                "execution.corpse.delete_bones_assertion",
+            )?;
+            let value = context.objects.get(object)?;
+            require(
+                value.map == Some(context.cells.map()),
+                "execution.corpse.bones_map_owner",
+            )?;
+            let guid = value
+                .guid
+                .ok_or_else(|| refuse("execution.object_guid_absent"))?;
+            if context
+                .objects
+                .lookup(context.cells.map(), LiveLookupKind::Corpse, guid)
+                .is_none()
+            {
+                return Ok(false);
+            }
+            context.add_to_remove(object, owner)?;
+            Ok(true)
+        })();
+        self.stopped |= result.is_err();
+        result
+    }
+    pub(super) fn retire_deleted_bones(&mut self, object: ObjectHandle) -> Result<()> {
+        require(
+            self.corpse(object)?.corpse_type == SourceCorpseType::Bones,
+            "execution.corpse.delete_bones_assertion",
+        )?;
+        self.corpses.remove(&object);
+        Ok(())
     }
     pub fn load_cell(
         &mut self,

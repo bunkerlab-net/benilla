@@ -112,7 +112,7 @@ mod tests {
         assert_eq!(report.joined_snapshot_rows, 0);
         assert!(!report.reference_execution_sealed && !report.whole_execution_accepted);
         println!(
-            "SKIP MC constructor/registry/unload transition comparison: no corpse-state projection"
+            "SKIP MC/MPR expiry/conversion/bones/unload comparison: no corpse-state projection"
         );
         println!("{}", serde_json::to_string(&report).unwrap());
     }
