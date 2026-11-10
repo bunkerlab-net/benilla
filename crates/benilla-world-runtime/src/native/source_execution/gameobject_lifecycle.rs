@@ -98,6 +98,23 @@ pub struct GameObjectLifecycleContext<'a, 'b, D: GridDefinitions, P: ResidencyPr
 pub trait GameObjectLifecycleOwner<D: GridDefinitions, P: ResidencyProductOwner>:
     GameObjectFactoryOwner<D, P> + ResidencyOwner<D, P> + SpawnWork
 {
+    fn elevator_map_millis(&mut self, _map: MapIdentity) -> Result<u32> {
+        Err(refuse("execution.elevator.map_snapshot_owner"))
+    }
+    // Elevators and MO transports share Unit attachment state; Transports.h:30-69.
+    fn elevator_passengers(&mut self) -> Result<&mut SourcePassengers> {
+        Err(refuse("execution.transport.passenger_registry_owner"))
+    }
+    fn elevator_passenger_effect(
+        &mut self,
+        effect: PassengerEffect,
+        grid: &mut GridFactoryContext<'_, D, P>,
+    ) -> Result<()>
+    where
+        Self: Sized,
+    {
+        effect.creature(grid, self)
+    }
     fn go_lifecycle_wall(
         &mut self,
         object: ObjectHandle,
@@ -874,7 +891,11 @@ pub fn update_source_gameobject<
     context: &mut GameObjectLifecycleContext<'_, '_, D, P>,
 ) -> Result<()> {
     run(owner, object, context, |o, c| {
-        update_inner(o, object, diff, c)
+        if o.gameobjects().get(object)?.elevator.is_some() {
+            update_source_elevator(o, object, c.grid)
+        } else {
+            update_inner(o, object, diff, c)
+        }
     })
 }
 pub fn respawn_source_gameobject<

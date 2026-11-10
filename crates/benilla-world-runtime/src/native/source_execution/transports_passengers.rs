@@ -333,6 +333,16 @@ impl SourcePassengers {
         objects: &mut SourceObjects,
         owner: &mut impl MoTransportOwner,
     ) -> Result<()> {
+        self.update_positions_with(transport, objects, &mut |effect, objects| {
+            owner.passenger_effect(effect, objects)
+        })
+    }
+    pub(super) fn update_positions_with(
+        &mut self,
+        transport: PassengerTransport,
+        objects: &mut SourceObjects,
+        effect: &mut impl FnMut(PassengerEffect, &mut SourceObjects) -> Result<()>,
+    ) -> Result<()> {
         let mut after = None;
         loop {
             let next = self
@@ -364,7 +374,7 @@ impl SourcePassengers {
                 continue;
             }
             if object.in_world {
-                owner.passenger_effect(
+                effect(
                     match object.kind {
                         SourceObjectKind::Player => {
                             PassengerEffect::PlayerRelocate { player: h, pose }

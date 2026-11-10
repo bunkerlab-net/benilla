@@ -139,6 +139,7 @@ pub struct SourceGameObject {
     pub first_user: SourceGuid,
     pub unique_users: std::collections::BTreeSet<SourceGuid>,
     pub skillup_users: std::collections::BTreeSet<SourceGuid>,
+    pub elevator: Option<SourceElevator>,
     pub(super) lifecycle_stopped: bool,
 }
 impl SourceGameObject {
@@ -241,14 +242,12 @@ pub trait GameObjectFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
         callback: GameObjectCallback,
         context: &mut GridFactoryContext<'_, D, P>,
     ) -> Result<()>;
-    // Elevator Create is virtual and initializes attachment state; Transports.cpp:442-467.
-    fn gameobject_elevator(
+    // The virtual Create looks up animation only after generic GO callbacks; Transports.cpp:444-449.
+    fn gameobject_transport_animation(
         &mut self,
-        _attempt: GridLoadAttempt,
-        _spawn: GameObjectSpawn,
-        _context: &mut GridFactoryContext<'_, D, P>,
-    ) -> Result<GridCandidateOutcome> {
-        Err(refuse("execution.elevator_constructor_owner_unavailable"))
+        _entry: u32,
+    ) -> Result<Option<Arc<SourceTransportAnimation>>> {
+        Err(refuse("execution.transport.animation_owner"))
     }
 }
 
@@ -290,6 +289,7 @@ fn create<D, P, F>(
     spawn: &GameObjectSpawn,
     entry: u32,
     counter: u32,
+    elevator: bool,
     context: &mut GridFactoryContext<'_, D, P>,
 ) -> Result<bool>
 where
@@ -326,7 +326,8 @@ where
     if f32::from_bits(rotation[2]) == 0.0 && f32::from_bits(rotation[3]) == 0.0 {
         [rotation[2], rotation[3]] = factory.gameobject_rotation(spawn.position_bits[3])?;
     }
-    let flags = template.flags;
+    // Transport flags precede the first model operation; GameObject.cpp:223-230.
+    let flags = template.flags | if template.kind == 11 { 0x28 } else { 0 };
     let display = template.display;
     factory.gameobjects().objects.insert(
         handle,
@@ -336,7 +337,7 @@ where
             display,
             position_bits: spawn.position_bits,
             rotation_bits: rotation,
-            animation: spawn.animation as u8,
+            animation: 0,
             state: 0,
             loot_state: 1,
             flags,
@@ -367,6 +368,7 @@ where
             unique_users: std::collections::BTreeSet::new(),
             skillup_users: std::collections::BTreeSet::new(),
             lifecycle_stopped: false,
+            elevator: None,
             has_model: false,
         },
     );
@@ -379,6 +381,8 @@ where
     factory.gameobjects().get_mut(handle)?.has_model = model;
     let object = factory.gameobjects().get_mut(handle)?;
     object.state = 1;
+    // Animation is assigned only after SetDisplayId's model call; GameObject.cpp:230-235.
+    object.animation = spawn.animation as u8;
     let data = &object.template.data;
     match object.template.kind {
         0 | 1 => {
@@ -394,7 +398,6 @@ where
         }
         17 => object.loot_state = 0,
         11 => {
-            object.flags |= 0x28;
             object.level = data[0];
             object.state = u8::from(data[1] == 0);
         }
@@ -414,6 +417,14 @@ where
     )?;
     factory.gameobject_callback(handle, GameObjectCallback::CreateInstance, context)?;
     factory.gameobject_callback(handle, GameObjectCallback::LargeVisibility, context)?;
+    if elevator {
+        let entry = factory.gameobjects().get(handle)?.template.entry;
+        let animation = factory.gameobject_transport_animation(entry)?;
+        factory.gameobjects().get_mut(handle)?.elevator = Some(SourceElevator::new(
+            animation,
+            SourcePose(spawn.position_bits),
+        ));
+    }
     Ok(true)
 }
 // A failed LoadFromDB candidate is deleted by LoadHelper, not made resident; ObjectGridLoader.cpp:138-141.
@@ -490,7 +501,15 @@ where
             respawn_min: 0,
             respawn_max: 0,
         };
-        if create(factory, trap, &spawn, linked, allocation.counter, context)? {
+        if create(
+            factory,
+            trap,
+            &spawn,
+            linked,
+            allocation.counter,
+            false,
+            context,
+        )? {
             let parent = factory.gameobjects().get(handle)?;
             let (spell, owner, level) = (parent.spell, parent.owner, parent.level);
             let child = factory.gameobjects().get_mut(trap)?;
@@ -596,14 +615,7 @@ where
     } else {
         spawn.entry
     })?;
-    if source_gameobject_factory(initial.as_ref()) == GameObjectFactoryKind::Elevator {
-        if requested_guid == Some(0) {
-            return Err(refuse(
-                "execution.elevator_dynamic_constructor_owner_unavailable",
-            ));
-        }
-        return factory.gameobject_elevator(attempt, spawn, context);
-    }
+    let elevator = source_gameobject_factory(initial.as_ref()) == GameObjectFactoryKind::Elevator;
     let handle = context
         .objects
         .construct(factory.gameobject_thread(), SourceObjectKind::GameObject)?;
@@ -640,7 +652,15 @@ where
         group: group.is_some(),
     })?;
     require(!allocation.stop_now, "execution.guid_stop_now")?;
-    if !create(factory, handle, &spawn, entry, allocation.counter, context)? {
+    if !create(
+        factory,
+        handle,
+        &spawn,
+        entry,
+        allocation.counter,
+        elevator,
+        context,
+    )? {
         return failed(factory, handle, context);
     }
     if spawn.state != -1 {

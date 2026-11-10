@@ -17,6 +17,8 @@ enum Event {
     Relocation(RelocationPhase),
     GroupDelay,
     ClearGroup,
+    ElevatorSnapshot(MapIdentity),
+    Passenger(PassengerEffect),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Tree {
@@ -288,6 +290,21 @@ impl SpawnWork for Factory {
     }
 }
 impl GameObjectLifecycleOwner<Definitions, Products> for Factory {
+    fn elevator_passengers(&mut self) -> Result<&mut SourcePassengers> {
+        Ok(&mut self.passengers)
+    }
+    fn elevator_map_millis(&mut self, map: MapIdentity) -> Result<u32> {
+        self.life().events.push(Event::ElevatorSnapshot(map));
+        Ok(self.life().clock_ms as u32)
+    }
+    fn elevator_passenger_effect(
+        &mut self,
+        effect: PassengerEffect,
+        grid: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<()> {
+        self.life().events.push(Event::Passenger(effect));
+        effect.creature(grid, self)
+    }
     fn go_lifecycle_wall(
         &mut self,
         _: ObjectHandle,
@@ -1590,3 +1607,6 @@ fn go_group_removal_calls_real_overlay_owner_without_instance_callback() {
         .gameobjects
         .is_empty());
 }
+
+#[path = "transports_elevator_tests.rs"]
+mod elevator_tests;

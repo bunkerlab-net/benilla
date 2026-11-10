@@ -14,6 +14,9 @@ pub use movement::*;
 #[path = "transports_passengers.rs"]
 mod passengers;
 pub use passengers::*;
+#[path = "transports_elevators.rs"]
+mod elevators;
+pub use elevators::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct SourceTransportAnimation {

@@ -1489,6 +1489,13 @@ The pinned-builder oracle covers the range and threshold neighbours.
 The generator checks the exact movement sample count, corpus order and
 consecutive sample indices separately from the `S` segment-numeric records.
 
+`source_transports/elevators.rs` translates `Entities/Transports.cpp:468-481`,
+G3D `Matrix3.cpp:117-136`, `Matrix3.h:349-356`, `Quat.h:158-159,318-319`
+and `g3dmath.h:354-355`. The existing Modified BSD G3D notice applies.
+Quaternion normalization reuses the exact integer-square sqrtf implementation;
+no new libm source or notice is added. The authored elevator fixture receipt
+binds the approved builder digest, compile command, source hashes and binary hash.
+
 ## Source spawn-group selection
 
 `source_spawn_groups.rs` translates CMaNGOS Classic

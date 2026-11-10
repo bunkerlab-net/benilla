@@ -68,6 +68,7 @@ enum Action {
     Irand(i32, i32),
     Urand(u32, u32),
     LoaderViewpoint(ObjectHandle),
+    Animation(u32),
 }
 struct Factory {
     objects: SourceGameObjects,
@@ -86,6 +87,8 @@ struct Factory {
     collision_available: bool,
     recurse: Option<GameObjectSpawn>,
     lifecycle: Option<gameobject_lifecycle_tests::HostState>,
+    animations: SourceTransportTemplates,
+    passengers: SourcePassengers,
 }
 impl Factory {
     fn new() -> Self {
@@ -98,6 +101,8 @@ impl Factory {
             creature_reserve: 2,
             gameobject_reserve: 3,
         });
+        let mut animations = SourceTransportTemplates::default();
+        animations.load_animations([], &mut |_| Ok(())).unwrap();
         Self {
             objects: SourceGameObjects::default(),
             guids: globals.map_allocators(map()).unwrap(),
@@ -115,6 +120,8 @@ impl Factory {
             collision_available: true,
             recurse: None,
             lifecycle: None,
+            animations,
+            passengers: SourcePassengers::default(),
         }
     }
 }
@@ -159,6 +166,13 @@ impl GridObjectFactory<Definitions, Products> for Factory {
     }
 }
 impl GameObjectFactoryOwner<Definitions, Products> for Factory {
+    fn gameobject_transport_animation(
+        &mut self,
+        entry: u32,
+    ) -> Result<Option<Arc<SourceTransportAnimation>>> {
+        self.actions.push(Action::Animation(entry));
+        Ok(self.animations.animation(entry)?.cloned().map(Arc::new))
+    }
     fn gameobjects(&mut self) -> &mut SourceGameObjects {
         &mut self.objects
     }
@@ -738,15 +752,16 @@ fn second_real_grid_load_reconstructs_new_object_and_grid_generations() {
 }
 #[test]
 fn factory_selection_uses_original_entry_and_other_owners_refuse() {
+    // Virtual class selection precedes random entry resolution; GameObject.cpp:107-112, Transports.cpp:444-449 at 8ec338a1.
     let (mut world, mut factory) = (World::new(), Factory::new());
     factory.templates.get_mut(&100).unwrap().kind = 11;
+    factory.templates.insert(101, template(101, 5));
     factory.entries = Some(Arc::from([101]));
-    assert_eq!(
-        world.load(&mut factory, spawn()).unwrap_err().id,
-        "execution.elevator_constructor_owner_unavailable"
-    );
-    assert!(factory.actions.is_empty());
-    assert_eq!(factory.cursor.raw, 0);
+    let object = loaded(world.load(&mut factory, spawn()).unwrap());
+    assert_eq!(factory.objects.get(object).unwrap().template.entry, 101);
+    assert!(factory.objects.get(object).unwrap().elevator.is_some());
+    assert!(factory.actions.contains(&Action::Animation(101)));
+    assert_eq!(factory.cursor.raw, 2);
     for (kind, id) in [
         (
             SourceObjectKind::Pet,
@@ -817,13 +832,18 @@ fn dynamic_gameobject_spawn_uses_zero_requested_guid_and_preserves_grid_path() {
     let mut world = World::new();
     let mut factory = Factory::new();
     factory.templates.insert(100, template(100, 11));
+    assert!(request
+        .spawn_gameobject(&mut factory, attempt, spawn(), &mut world.context())
+        .unwrap());
+    let object = world
+        .objects
+        .lookup_database(map(), DatabaseLookupKind::GameObject, 7)
+        .unwrap();
     assert_eq!(
-        request
-            .spawn_gameobject(&mut factory, attempt, spawn(), &mut world.context())
-            .unwrap_err()
-            .id,
-        "execution.elevator_dynamic_constructor_owner_unavailable"
+        world.objects.get(object).unwrap().guid.unwrap().counter(),
+        203
     );
+    assert!(factory.objects.get(object).unwrap().elevator.is_some());
     let wrong_map = DynamicSpawnRequest {
         map: MapIdentity {
             creation_generation: 2,

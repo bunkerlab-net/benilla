@@ -515,10 +515,10 @@ The pinned CMaNGOS Classic `8ec338a1` contract is:
 
 The repository has no production dynamic GO model/tree insertion owner.
 Constructor tests use explicitly authored model operations to check ordering;
-they don't establish F6 geometry or playable construction. Missing elevator,
-pet, dynamic-object, and transport attachment constructors refuse at
-their named owners. Transport movement is not ordinary GO update. Reached
-scripts, geometry, bound catalog decoding, and owner-specific attachments remain
+they don't establish F6 geometry or playable construction. Missing pet,
+dynamic-object, and transport attachment constructors refuse at
+their named owners. Elevators use the generic constructor and virtual animation Update.
+Reached scripts, geometry, bound catalog decoding, and owner-specific attachments remain
 mandatory dependencies. Active membership and lock changes use the real source
 owners described below. No native admission, persistence,
 or format change follows from these constructor mechanisms.
@@ -1388,3 +1388,29 @@ map-kind/config inputs, SQL and the separate sweep/constructor clock owners.
 The inventory is an F7 contract, not serialized continuation. No native
 format or NativeCapability change occurs. The unsealed seal8 diagnostic
 compares the initial query only. Missing MC transition evidence prints SKIP.
+
+## Source elevators
+
+Elevators retain the generic GO GUID, constructor callbacks, model operations
+and grid registration. Animation lookup follows generic Create,
+`Transports.cpp:442-451` at CMaNGOS Classic `8ec338a1`.
+`GameObjectLifecycleDispatch` calls virtual elevator Update from F3's actual
+object update set, not the separate MO-transport map phase.
+
+`SourceElevator` retains the animation binding, original stationary position,
+unsigned progress, movement origin and previous segment. Missing animation
+returns before a clock read. Inclusive next and strict previous node lookup
+doesn't wrap at zero, `TransportMgr.cpp:314-332`. Zero animation period refuses
+as `execution.elevator.period_modulo_zero_undefined` before modulo.
+Binary32 lerp, G3D quaternion normalization, left-vector matrix multiplication,
+Y flip and stationary offset follow `Transports.cpp:468-481`.
+Authored bits come from the pinned GCC/glibc builder, not host libm.
+
+Update executes F3 GameObjectRelocation, including reached F6 model work and
+visibility, before generic passenger positions, `Transports.cpp:483-486`.
+`GameObjectLifecycleOwner::elevator_passengers` supplies the shared F4.17
+attachment registry, pointer order, Unit movement state and map-mismatch guard.
+Missing registry ownership refuses rather than assuming an empty passenger set.
+Creature relocation enters the real F3 owner. Player relocation and visibility
+still require F5; missing dynamic models still refuse at F6's reached call.
+No persisted schema, native format or capability changes.

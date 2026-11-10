@@ -2,10 +2,12 @@
 // CMaNGOS Classic 8ec338a1, TransportMgr.cpp and Movement/spline.cpp.
 // Upstream GPL-2.0-or-later; Rust translation GPL-3.0-or-later.
 //! Source transport template numerics. Bits are IEEE RNE, with no contraction.
+mod elevators;
 mod movement;
 mod numeric;
 mod passengers;
 use crate::facing::soft::{D, S};
+pub use elevators::elevator_position;
 pub use movement::{segment_position, TransportMotion, TransportStep};
 pub use passengers::{passenger_offset, passenger_position, passenger_tangent};
 use serde::Serialize;
