@@ -310,3 +310,81 @@ fn only_explicit_deadline_provenance_is_retryable() {
         Failure::MissingGeometry
     );
 }
+
+#[test]
+fn nested_navigation_deadlines_preserve_provenance_and_real_failures() {
+    use super::super::super::{
+        products::navigation::{
+            SourcePointError, SourceSmoothError, SourceStraightError, SourceWarmError,
+        },
+        source_route_same_polygon::SamePolygonError,
+    };
+    use benilla_native_nav::{
+        Error, SourcePointPathError, SourceSamePolygonError, SourceStraightPathError,
+        SourceWanderError, SourceWarmCacheError,
+    };
+    for (error, expected) in [
+        (Error::Deadline, Failure::Deadline),
+        (Error::Budget, Failure::MissingGeometry),
+        (Error::Identity, Failure::MissingGeometry),
+        (Error::Unavailable, Failure::MissingGeometry),
+    ] {
+        let lookup = SourceWarmCacheError::Boundary(error);
+        for actual in [
+            SamePolygonError::Native(SourceSamePolygonError::Lookup(lookup)).failure(),
+            SamePolygonError::Wander(SourceWanderError::Lookup(lookup)).failure(),
+            SamePolygonError::Wander(SourceWanderError::Boundary(error)).failure(),
+            Failure::warm_navigation(SourceWarmError::Boundary(error)),
+            Failure::warm_navigation(SourceWarmError::Native(lookup)),
+            Failure::warm_navigation(SourceWarmError::Seed(error.into())),
+            Failure::point_navigation(SourcePointError::Native(SourcePointPathError::Boundary(
+                error,
+            ))),
+            Failure::point_navigation(SourcePointError::Native(SourcePointPathError::Smoothing(
+                error.into(),
+            ))),
+            Failure::straight_navigation(SourceStraightError::Native(
+                SourceStraightPathError::Boundary(error),
+            )),
+            Failure::straight_navigation(SourceStraightError::Native(
+                SourceStraightPathError::WarmCache(lookup),
+            )),
+            Failure::smooth_navigation(SourceSmoothError::Native(error.into())),
+        ] {
+            assert_eq!(actual, expected, "{error:?}");
+        }
+    }
+    for actual in [
+        SamePolygonError::Native(SourceSamePolygonError::Lookup(
+            SourceWarmCacheError::MissingPolygon,
+        ))
+        .failure(),
+        SamePolygonError::Wander(SourceWanderError::Lookup(
+            SourceWarmCacheError::MissingPolygon,
+        ))
+        .failure(),
+        Failure::warm_navigation(SourceWarmError::Native(
+            SourceWarmCacheError::MissingPolygon,
+        )),
+        Failure::warm_navigation(SourceWarmError::Identity),
+        Failure::point_navigation(SourcePointError::Native(
+            SourcePointPathError::ActiveNormalizationUnsupported,
+        )),
+        Failure::point_navigation(SourcePointError::Identity),
+        Failure::straight_navigation(SourceStraightError::Native(
+            SourceStraightPathError::WarmCache(SourceWarmCacheError::MissingPolygon),
+        )),
+        Failure::straight_navigation(SourceStraightError::Identity),
+        Failure::smooth_navigation(SourceSmoothError::Identity),
+    ] {
+        assert_eq!(actual, Failure::MissingGeometry);
+    }
+    for actual in [
+        Failure::warm_navigation(SourceWarmError::Deadline),
+        Failure::point_navigation(SourcePointError::Deadline),
+        Failure::straight_navigation(SourceStraightError::Deadline),
+        Failure::smooth_navigation(SourceSmoothError::Deadline),
+    ] {
+        assert_eq!(actual, Failure::Deadline);
+    }
+}

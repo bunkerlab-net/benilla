@@ -151,7 +151,7 @@ impl BoundPointPathQuery<'_> {
             .checked_add(3)
             .ok_or(Failure::Invalid)?;
         if Instant::now() >= deadline {
-            return Err(Failure::MissingGeometry);
+            return Err(Failure::Deadline);
         }
         let warm = self.warm.query(
             WarmCacheRequest {
@@ -187,12 +187,12 @@ impl BoundPointPathQuery<'_> {
             .warm
             .navigation()
             .source_point_path(warm.polygon_dependency(), query, deadline)
-            .map_err(|_| Failure::MissingGeometry)?;
+            .map_err(Failure::point_navigation)?;
         if points.request() != query {
             return Err(Failure::Binding);
         }
         if Instant::now() >= deadline {
-            return Err(Failure::MissingGeometry);
+            return Err(Failure::Deadline);
         }
         Ok(PointPathDependency {
             request,

@@ -270,6 +270,122 @@ fn expired_gate_attempt_retains_only_successful_prepare_and_original_job_expiry(
 }
 
 #[test]
+fn nested_lookup_slice_deadline_retries_gated_phase_without_renewing_request() {
+    use benilla_native_nav::{Error, SourceWarmCacheError};
+    let mut fixture = composed_setup();
+    let (session, request) = captured_route_request();
+    let (_authority, mailbox) = core::mailbox(session).unwrap();
+    let (lease, reply) = mailbox.enqueue_service_test_request(1, request).unwrap();
+    let original_expiry = lease.deadline();
+    for _ in 0..4 {
+        tick_stage(&mailbox, &mut fixture.routes, &mut vec![]);
+    }
+    assert!(matches!(
+        fixture.routes.pending[0].phase,
+        staged::Phase::Gated(..)
+    ));
+    let slice = Instant::now() + std::time::Duration::from_millis(10);
+    assert!(slice < original_expiry);
+    let error = SamePolygonError::Native(SourceSamePolygonError::Lookup(
+        SourceWarmCacheError::Boundary(Error::Deadline),
+    ));
+    assert_eq!(
+        mailbox.serve_service_test_slice(1, true, slice, |query, deadline| {
+            let ServiceQuery::Route(job) = query else {
+                panic!("Route job")
+            };
+            let result = fixture
+                .routes
+                .advance_job_inner(&job, 1, deadline, |_| {}, Some(error));
+            std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+            assert_eq!(result, Err(error));
+            assert_eq!(job.lease().deadline(), original_expiry);
+            result
+                .map(|_| ServiceStep::Pending)
+                .map_err(SamePolygonError::failure)
+        }),
+        1
+    );
+    assert!(lease.is_active());
+    assert!(matches!(reply.try_result(), Err(TryRecvError::Empty)));
+    assert_eq!(fixture.routes.pending_job_count(), 1);
+    assert!(matches!(
+        fixture.routes.pending[0].phase,
+        staged::Phase::Gated(..)
+    ));
+    assert!(fixture.routes.candidates[0].proposals.is_empty());
+    let mut observed = vec![];
+    tick_stage(&mailbox, &mut fixture.routes, &mut observed);
+    assert_eq!(observed.last(), Some(&Observation::Terminal));
+    assert!(matches!(
+        fixture.routes.pending[0].phase,
+        staged::Phase::Terminal(_)
+    ));
+    assert_eq!(fixture.routes.queries.constructor_count(), 1);
+    assert_eq!(fixture.routes.candidates[0].proposals.len(), 1);
+    assert_eq!(lease.deadline(), original_expiry);
+    assert!(matches!(reply.try_result(), Err(TryRecvError::Empty)));
+    std::thread::sleep(original_expiry.saturating_duration_since(Instant::now()));
+    fixture.routes.reap_jobs();
+    assert!(!lease.is_active());
+    assert!(fixture.routes.pending.is_empty());
+    assert_eq!(
+        mailbox
+            .serve_service_test_slice(1, true, until(), |_, _| panic!("expired request retried")),
+        1
+    );
+    assert!(matches!(
+        reply.try_result(),
+        Err(TryRecvError::Disconnected)
+    ));
+}
+
+#[test]
+fn non_deadline_lookup_failure_discards_gated_phase_and_is_terminal() {
+    use benilla_native_nav::{Error, SourceWarmCacheError};
+    for lookup in [
+        SourceWarmCacheError::MissingPolygon,
+        SourceWarmCacheError::Boundary(Error::Budget),
+        SourceWarmCacheError::Boundary(Error::Identity),
+    ] {
+        let mut fixture = composed_setup();
+        let (session, request) = captured_route_request();
+        let (_authority, mailbox) = core::mailbox(session).unwrap();
+        let (lease, reply) = mailbox.enqueue_service_test_request(1, request).unwrap();
+        for _ in 0..4 {
+            tick_stage(&mailbox, &mut fixture.routes, &mut vec![]);
+        }
+        let error = SamePolygonError::Native(SourceSamePolygonError::Lookup(lookup));
+        assert_eq!(
+            mailbox.serve_service_test_slice(1, true, until(), |query, deadline| {
+                let ServiceQuery::Route(job) = query else {
+                    panic!("Route job")
+                };
+                fixture
+                    .routes
+                    .advance_job_inner(&job, 1, deadline, |_| {}, Some(error))
+                    .map(|_| ServiceStep::Pending)
+                    .map_err(SamePolygonError::failure)
+            }),
+            1
+        );
+        assert!(matches!(
+            reply.try_result(),
+            Ok(Err(Failure::MissingGeometry))
+        ));
+        assert!(!lease.is_active());
+        assert!(fixture.routes.pending.is_empty());
+        assert!(fixture.routes.candidates[0].proposals.is_empty());
+        assert_eq!(
+            mailbox.serve_service_test_slice(1, true, until(), |_, _| panic!(
+                "terminal lookup retried"
+            )),
+            0
+        );
+    }
+}
+
+#[test]
 fn validated_context_yields_before_constructor_without_reserving_native_capacity() {
     let mut fixture = composed_setup();
     let (session, request) = captured_route_request();

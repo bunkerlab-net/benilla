@@ -315,13 +315,11 @@ impl SamePolygonError {
     pub(super) fn failure(self) -> Failure {
         match self {
             Self::Dependency(failure) => failure,
-            Self::Constructor(ConstructorQueryError::Native(
-                benilla_native_nav::Error::Deadline,
-            ))
-            | Self::Native(SourceSamePolygonError::Boundary(benilla_native_nav::Error::Deadline))
-            | Self::Wander(SourceWanderError::Boundary(benilla_native_nav::Error::Deadline)) => {
-                Failure::Deadline
-            }
+            Self::Constructor(ConstructorQueryError::Native(error))
+            | Self::Native(SourceSamePolygonError::Boundary(error))
+            | Self::Wander(SourceWanderError::Boundary(error)) => Failure::navigation(error),
+            Self::Native(SourceSamePolygonError::Lookup(error))
+            | Self::Wander(SourceWanderError::Lookup(error)) => Failure::navigation_lookup(error),
             _ => Failure::MissingGeometry,
         }
     }

@@ -466,9 +466,10 @@ fn missing_forged_generation_width_and_cache_or_context_edits_are_rejected() {
     let mut missing = session.clone();
     missing.participants = None;
     assert!(provider.begin(&missing, &context).is_err());
-    assert!(bound
-        .query(request(&provider, &context), Instant::now())
-        .is_err());
+    assert_eq!(
+        bound.query(request(&provider, &context), Instant::now()),
+        Err(Failure::Deadline)
+    );
     assert_eq!(world.checkpoint().unwrap(), before);
 }
 
@@ -818,7 +819,7 @@ fn expired_tile_prefix_never_reaches_its_filter_including_fresh_retry() {
                     );
                 }
             }),
-            Err(Failure::MissingGeometry)
+            Err(Failure::Deadline)
         );
         let expected = [
             ("owner-ignore-pathfinding", 41),
@@ -950,7 +951,7 @@ fn expiry_after_owned_bit_validation_stops_each_attempt_before_have_tile() {
                     );
                 }
             }),
-            Err(Failure::MissingGeometry)
+            Err(Failure::Deadline)
         );
         let expected = [
             ("owner-ignore-pathfinding", 41),

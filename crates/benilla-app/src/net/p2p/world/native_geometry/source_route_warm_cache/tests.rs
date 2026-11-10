@@ -297,7 +297,7 @@ fn deadline_budget_tickets_and_participant_guards_never_publish_a_partial_candid
         let p = provider(&products, &world, &session, navigation, lineage, config);
         let bound = p.begin(&session, &context).unwrap();
         let before = p.lineage.clone();
-        assert!(matches!(
+        assert_eq!(
             bound.query(
                 request(&p, &context),
                 if zero_budget {
@@ -306,8 +306,12 @@ fn deadline_budget_tickets_and_participant_guards_never_publish_a_partial_candid
                     Instant::now()
                 }
             ),
-            Err(Failure::MissingGeometry)
-        ));
+            Err(if zero_budget {
+                Failure::MissingGeometry
+            } else {
+                Failure::Deadline
+            })
+        );
         assert_eq!(p.lineage, before);
         let mut q = request(&p, &context);
         q.first_ticket = u64::MAX;

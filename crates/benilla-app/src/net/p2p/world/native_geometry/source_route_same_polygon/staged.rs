@@ -185,7 +185,25 @@ impl SourceSamePolygonRouteProvider {
         job: &RouteJob<'_>,
         first_ticket: u64,
         deadline: Instant,
+        observe: impl FnMut(Observation),
+    ) -> Result<bool, SamePolygonError> {
+        self.advance_job_inner(
+            job,
+            first_ticket,
+            deadline,
+            observe,
+            #[cfg(test)]
+            None,
+        )
+    }
+
+    pub(super) fn advance_job_inner(
+        &mut self,
+        job: &RouteJob<'_>,
+        first_ticket: u64,
+        deadline: Instant,
         mut observe: impl FnMut(Observation),
+        #[cfg(test)] terminal_error: Option<SamePolygonError>,
     ) -> Result<bool, SamePolygonError> {
         job.bind_provider(&self.identity)?;
         self.check_current_boundary(job.request())?;
@@ -301,7 +319,14 @@ impl SourceSamePolygonRouteProvider {
                 }
             }
             Phase::Gated(prepared, gate) => {
-                match self.calculate_terminal(prepared, gate, deadline, &mut observe) {
+                #[cfg(test)]
+                let result = match terminal_error {
+                    Some(error) => Err(error),
+                    None => self.calculate_terminal(prepared, gate, deadline, &mut observe),
+                };
+                #[cfg(not(test))]
+                let result = self.calculate_terminal(prepared, gate, deadline, &mut observe);
+                match result {
                     Ok(terminal) => {
                         let Phase::Gated(prepared, gate) = pending.phase else {
                             unreachable!()

@@ -307,7 +307,7 @@ impl BoundStraightPathQuery<'_> {
             .checked_add(8)
             .ok_or(Failure::Invalid)?;
         if Instant::now() >= deadline {
-            return Err(Failure::MissingGeometry);
+            return Err(Failure::Deadline);
         }
         let Query::SourceMotion(MotionQuery::Route(route)) = &request.context.query else {
             return Err(Failure::UnsupportedQuery);
@@ -366,7 +366,7 @@ impl BoundStraightPathQuery<'_> {
             .provider
             .navigation
             .source_straight_path(&self.provider.lineage, query, deadline)
-            .map_err(|_| Failure::MissingGeometry)?;
+            .map_err(Failure::straight_navigation)?;
         if straight.request() != query {
             return Err(Failure::Binding);
         }
@@ -413,7 +413,7 @@ impl BoundStraightPathQuery<'_> {
                 .provider
                 .navigation
                 .source_straight_warm(&straight, warm_query, deadline)
-                .map_err(|_| Failure::MissingGeometry)?;
+                .map_err(Failure::warm_navigation)?;
             if polygons.warm().request() != warm_query {
                 return Err(Failure::Binding);
             }
@@ -432,7 +432,7 @@ impl BoundStraightPathQuery<'_> {
                 .provider
                 .navigation
                 .source_straight_point_path(&polygons, point_query, deadline)
-                .map_err(|_| Failure::MissingGeometry)?;
+                .map_err(Failure::point_navigation)?;
             if points.request() != point_query {
                 return Err(Failure::Binding);
             }
@@ -448,7 +448,7 @@ impl BoundStraightPathQuery<'_> {
             None
         };
         if Instant::now() >= deadline {
-            return Err(Failure::MissingGeometry);
+            return Err(Failure::Deadline);
         }
         Ok(StraightPathDependency {
             request,
@@ -500,7 +500,7 @@ impl BoundStraightPathQuery<'_> {
             .provider
             .navigation
             .source_tile_presence(request, deadline)
-            .map_err(|_| Failure::MissingGeometry)?;
+            .map_err(Failure::navigation)?;
         if tiles.request() != request {
             return Err(Failure::Binding);
         }
@@ -516,7 +516,7 @@ impl BoundStraightPathQuery<'_> {
 }
 fn require_time(deadline: Instant) -> Result<(), Failure> {
     if Instant::now() >= deadline {
-        Err(Failure::MissingGeometry)
+        Err(Failure::Deadline)
     } else {
         Ok(())
     }

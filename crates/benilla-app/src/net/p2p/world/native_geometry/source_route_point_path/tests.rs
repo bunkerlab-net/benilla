@@ -321,7 +321,10 @@ fn terminal_budget_deadline_and_all_ticket_overflow_reject_without_publication()
         let provider = provider(&products, &world, &session, navigation, lineage, config);
         let bound = provider.begin(&session, &context).unwrap();
         let query = request(&provider, &context);
-        assert!(bound.query(query.clone(), Instant::now()).is_err());
+        assert_eq!(
+            bound.query(query.clone(), Instant::now()),
+            Err(Failure::Deadline)
+        );
         let mut overflow = query.clone();
         overflow.first_ticket = u64::MAX - 2;
         assert!(matches!(
@@ -329,7 +332,10 @@ fn terminal_budget_deadline_and_all_ticket_overflow_reject_without_publication()
             Err(Failure::Invalid)
         ));
         if empty {
-            assert!(bound.query(query, deadline()).is_err());
+            assert_eq!(
+                bound.query(query, deadline()),
+                Err(Failure::MissingGeometry)
+            );
         }
         assert_eq!(world.checkpoint().unwrap(), before);
     }

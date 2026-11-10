@@ -176,7 +176,7 @@ impl BoundRouteSmoothingQuery<'_> {
             .checked_add(2)
             .ok_or(Failure::Invalid)?;
         if Instant::now() >= deadline {
-            return Err(Failure::MissingGeometry);
+            return Err(Failure::Deadline);
         }
         let filter = self.filter.query(
             RouteFilterRequest {
@@ -188,7 +188,7 @@ impl BoundRouteSmoothingQuery<'_> {
         )?;
         observe(QueryObservation::Filter(&filter));
         if Instant::now() >= deadline {
-            return Err(Failure::MissingGeometry);
+            return Err(Failure::Deadline);
         }
         let Query::SourceMotion(MotionQuery::Route(route)) = &request.context.query else {
             return Err(Failure::UnsupportedQuery);
@@ -214,13 +214,13 @@ impl BoundRouteSmoothingQuery<'_> {
             .provider
             .navigation
             .source_smooth(navigation_request, deadline)
-            .map_err(|_| Failure::MissingGeometry)?;
+            .map_err(Failure::smooth_navigation)?;
         if smoothing.request != navigation_request {
             return Err(Failure::Binding);
         }
         observe(QueryObservation::Smoothing(&smoothing));
         if Instant::now() >= deadline {
-            return Err(Failure::MissingGeometry);
+            return Err(Failure::Deadline);
         }
         Ok(RouteSmoothingDependency {
             request,

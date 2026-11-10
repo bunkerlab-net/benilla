@@ -454,7 +454,7 @@ fn shared_absolute_deadline_never_leaks_a_partial_filter_or_smoothing_dependency
     let mut observations = 0;
     assert_eq!(
         bound.query_observed(query.clone(), Instant::now(), |_| observations += 1),
-        Err(Failure::MissingGeometry)
+        Err(Failure::Deadline)
     );
     assert_eq!(observations, 0);
     for expire_after in [1, 2] {
@@ -467,7 +467,7 @@ fn shared_absolute_deadline_never_leaks_a_partial_filter_or_smoothing_dependency
                     std::thread::sleep(until.saturating_duration_since(Instant::now()));
                 }
             }),
-            Err(Failure::MissingGeometry)
+            Err(Failure::Deadline)
         );
         assert_eq!(observations, expire_after);
     }

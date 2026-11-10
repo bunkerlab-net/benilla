@@ -195,7 +195,7 @@ impl BoundWarmCacheQuery<'_> {
             .checked_add(2)
             .ok_or(Failure::Invalid)?;
         if Instant::now() >= deadline {
-            return Err(Failure::MissingGeometry);
+            return Err(Failure::Deadline);
         }
         let filter = self.filter.query(
             RouteFilterRequest {
@@ -226,12 +226,12 @@ impl BoundWarmCacheQuery<'_> {
             .provider
             .navigation
             .source_warm(&self.provider.lineage, query, deadline)
-            .map_err(|_| Failure::MissingGeometry)?;
+            .map_err(Failure::warm_navigation)?;
         if polygons.request() != query {
             return Err(Failure::Binding);
         }
         if Instant::now() >= deadline {
-            return Err(Failure::MissingGeometry);
+            return Err(Failure::Deadline);
         }
         Ok(WarmCacheDependency {
             request,

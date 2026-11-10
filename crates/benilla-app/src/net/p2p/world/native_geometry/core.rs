@@ -939,6 +939,61 @@ impl Failure {
             _ => Self::MissingGeometry,
         }
     }
+    /// Preserve explicit native deadline provenance through loaded navigation wrappers.
+    pub(super) fn navigation_lookup(error: benilla_native_nav::SourceWarmCacheError) -> Self {
+        match error {
+            benilla_native_nav::SourceWarmCacheError::Boundary(error) => Self::navigation(error),
+            _ => Self::MissingGeometry,
+        }
+    }
+    pub(super) fn warm_navigation(error: super::products::navigation::SourceWarmError) -> Self {
+        use super::products::navigation::SourceWarmError;
+        match error {
+            SourceWarmError::Deadline => Self::Deadline,
+            SourceWarmError::Boundary(error) => Self::navigation(error),
+            SourceWarmError::Native(error) => Self::navigation_lookup(error),
+            SourceWarmError::Seed(error) => Self::navigation(error.error),
+            _ => Self::MissingGeometry,
+        }
+    }
+    pub(super) fn point_navigation(error: super::products::navigation::SourcePointError) -> Self {
+        use super::products::navigation::SourcePointError;
+        use benilla_native_nav::SourcePointPathError;
+        match error {
+            SourcePointError::Deadline => Self::Deadline,
+            SourcePointError::Native(SourcePointPathError::Boundary(error)) => {
+                Self::navigation(error)
+            }
+            SourcePointError::Native(SourcePointPathError::Smoothing(error)) => {
+                Self::navigation(error.error)
+            }
+            _ => Self::MissingGeometry,
+        }
+    }
+    pub(super) fn straight_navigation(
+        error: super::products::navigation::SourceStraightError,
+    ) -> Self {
+        use super::products::navigation::SourceStraightError;
+        use benilla_native_nav::SourceStraightPathError;
+        match error {
+            SourceStraightError::Deadline => Self::Deadline,
+            SourceStraightError::Native(SourceStraightPathError::Boundary(error)) => {
+                Self::navigation(error)
+            }
+            SourceStraightError::Native(SourceStraightPathError::WarmCache(error)) => {
+                Self::navigation_lookup(error)
+            }
+            _ => Self::MissingGeometry,
+        }
+    }
+    pub(super) fn smooth_navigation(error: super::products::navigation::SourceSmoothError) -> Self {
+        use super::products::navigation::SourceSmoothError;
+        match error {
+            SourceSmoothError::Deadline => Self::Deadline,
+            SourceSmoothError::Native(error) => Self::navigation(error.error),
+            _ => Self::MissingGeometry,
+        }
+    }
     fn native(self) -> NativeError {
         match self {
             Self::UnprovenParticipants => NativeError::AuthorityUnavailable(
