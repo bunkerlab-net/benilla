@@ -1554,16 +1554,54 @@ It preserves binary64 rounding groups, the hybrid civil calendar, candidate
 revisits, DST probes and the event wrapper's month mismatches and retained seconds.
 The wrapper behaviour is specified by the GPL-covered
 `GameEvents/GameEventMgr.cpp:1213,1274-1302` at the pinned CMaNGOS revision above.
-Binary64 sine is separately injected. `UnboundSine` refuses production execution
-without a historical glibc 2.36 dispatch binding. Recorded fixture injection
-checks call ownership and ordered operands, not historical production dispatch.
-The independently recorded corpus compares all 11,192 cases with equal ordered
-record counts and exact integer and binary64 words. The test injects external
-calendar answers, sine results and authored clocks. UTC cases also compare the
-calendar answers with the existing sim UTC implementation. Non-UTC observations
-are conditional arithmetic evidence, not an admitted timezone implementation.
-The event manager calls this computation through explicit external bindings;
-its default owner still refuses the missing historical sine dispatch.
+`source_sine` computes binary64 sine with software round-to-nearest arithmetic
+and fused multiply-add. `DispatchBinding` requires an acquisition-bound actual
+source-process receipt from round 14 or later, the pinned libm hash, and FMA
+IFUNC offset `0x702c0`. Earlier recordings and other declared dispatches refuse.
+The caller authenticates the complete receipt against its acquisition first.
+`UnboundSine` retains the typed refusal when no binding exists.
+The corpus compares all 11,192 cases both with injected sine and with computed
+sine, without changing ordered record counts, integers, or binary64 words.
+Calendar answers and clocks remain explicit component inputs. UTC cases also
+compare calendar answers with the sim UTC implementation.
+`ReferenceLunarEventOwner` supplies computed sine to the runtime manager.
+Non-UTC observations do not admit a timezone implementation or native gameplay.
+
+### glibc binary64 sine
+
+The Rust port follows glibc 2.36 `sysdeps/ieee754/dbl-64/s_sin.c:49-253`,
+`usncs.h:29-45`, `branred.c:53-143`, `branred.h:29-77`, and `sincostab.c:28-468`.
+The FMA wrapper is `sysdeps/x86_64/fpu/multiarch/s_sin-fma.c:1-12`.
+The multiarch Makefile selects `-mfma -mavx2`; the retained binary establishes
+the actual contractions. The shared `branred` reducer does not use FMA.
+The source has no separate iterative slow path. Large finite arguments use
+`branred`; tiny arguments preserve their bits, and exceptional inputs preserve
+the pinned result words without reproducing host errno or exception flags.
+
+All five translated files carry IBM Accurate Mathematical Library notices,
+Copyright 2001-2022 Free Software Foundation, Inc., LGPL-2.1-or-later.
+Their headers were checked at tag `glibc-2.36`. The full notice is
+`src/source_sine/GLIBC-NOTICE.txt`; the existing
+`src/source_atan/GLIBC-LICENSE.txt` supplies the complete licence.
+The combined crate remains GPL-3.0-or-later.
+The binary32 `source_trig` and bounded `source_atan` use different kernels and
+tables. This port reuses their software binary64 arithmetic, not their tables.
+
+Source SHA-256 values at https://github.com/bminor/glibc/tree/glibc-2.36:
+
+- `s_sin.c`: `9aa66cb2c44f976d41c3b14e6daa9708066a6d341fca6d1842b959e4f127905f`
+- `usncs.h`: `c78fb520931e863618a60dc28206d5393f884ede9cbaffa3758b8dbc11553ee3`
+- `branred.c`: `9d6ffd558a1155a5a42917ae0398c00a80482fbcbc752005fdb79761bf09cacc`
+- `branred.h`: `aecb3c4102bbe2d41b31f77dfd7ffbb6f7af41e5747964d7018ffc4d27a23975`
+- `sincostab.c`: `1da08546d74c8efd2524c39bd57d26d81fcb7c8f8a920b61ad116fa41bfde218`
+
+`tools/source_sine_oracle.cpp` calls the pinned image's resolved `sin`.
+`tools/source_sine_generate.py` records both default and FMA-masked dispatch,
+the compile command, image identity, binary hash, and disassembly.
+Only authored input words and their expected results belong in the fixture.
+The separate recorded moon corpus has 26,426 sine calls; 13 differ without FMA.
+No native format bump is required because this adds a refused execution binding,
+not a persisted numerical policy, capability, or native state representation.
 
 ## Source weather
 

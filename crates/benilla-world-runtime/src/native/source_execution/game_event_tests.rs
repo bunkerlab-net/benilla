@@ -59,6 +59,7 @@ struct Owner<'a> {
     references: Vec<(EventReference, u32)>,
     reject: Option<GameEventEffect>,
     lunar: Option<LunarEventBindings<'a>>,
+    reference_lunar: Option<ReferenceLunarEventOwner<'a>>,
     timeline: Vec<EventCall>,
 }
 impl Owner<'_> {
@@ -81,10 +82,14 @@ impl GameEventOwner for Owner<'_> {
         Ok(sample)
     }
     fn lunar_bindings(&mut self) -> Result<LunarEventBindings<'_>> {
-        let bindings = self
-            .lunar
-            .as_mut()
-            .ok_or_else(|| refuse("execution.event.lunar_reference_dispatch_unbound"))?;
+        if self.lunar.is_none() {
+            return self
+                .reference_lunar
+                .as_mut()
+                .map(ReferenceLunarEventOwner::bindings)
+                .ok_or_else(|| refuse("execution.event.lunar_reference_dispatch_unbound"));
+        }
+        let bindings = self.lunar.as_mut().unwrap();
         Ok(LunarEventBindings {
             calendar: &mut *bindings.calendar,
             sine: &mut *bindings.sine,
@@ -952,6 +957,15 @@ mod lunar {
 
     #[test]
     fn manager_computes_all_authored_lunar_event_boundaries_conditionally() {
+        compare_lunar_event_boundaries(false, None);
+    }
+
+    #[test]
+    fn manager_computes_all_authored_lunar_event_boundaries_with_real_sine() {
+        compare_lunar_event_boundaries(true, None);
+    }
+
+    fn compare_lunar_event_boundaries(real_sine: bool, stock: Option<&GameEventDefinitionRow>) {
         let root =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../benilla-sim/tools/fixtures/source_moon");
         let load = |name: &str| match std::fs::read_to_string(root.join(name)) {
@@ -1023,18 +1037,49 @@ mod lunar {
             let mut sine =
                 moon::RecordedSine::new(OWNER, Some(moon::SineOrder::SolarFirst), &samples);
             let mut trace = Vec::new();
-            let mut owner = Owner {
-                lunar: Some(LunarEventBindings {
-                    calendar: &mut calendar,
-                    sine: &mut sine,
-                    trace: &mut trace,
-                }),
-                ..Owner::default()
+            let mut owner = if real_sine {
+                let text = std::env::var("BENILLA_LUNAR_PROCESS_RECEIPT").map_or_else(
+                    |_| include_str!("../../../../benilla-sim/tools/fixtures/source_sine/process-environment.json").to_owned(),
+                    |path| std::fs::read_to_string(path).unwrap(),
+                );
+                let receipt: benilla_sim::source_sine::ProcessReceipt =
+                    serde_json::from_str(&text).unwrap();
+                let binding = benilla_sim::source_sine::DispatchBinding::from_process_receipt(
+                    14,
+                    &receipt.source_acquisition_bindings,
+                    &receipt,
+                )
+                .unwrap();
+                Owner {
+                    reference_lunar: Some(ReferenceLunarEventOwner::new(
+                        &mut calendar,
+                        &mut trace,
+                        moon::SineOrder::SolarFirst,
+                        binding,
+                    )),
+                    ..Owner::default()
+                }
+            } else {
+                Owner {
+                    lunar: Some(LunarEventBindings {
+                        calendar: &mut calendar,
+                        sine: &mut sine,
+                        trace: &mut trace,
+                    }),
+                    ..Owner::default()
+                }
             };
             let today = integer(&case["epoch"]);
-            owner.wall(EventClockSite::LoadSchedule(1), today);
-            let manager = manager(&mut lunar_rows(), &mut owner);
-            let definition = &manager.inventory().definitions[1];
+            let mut data = lunar_rows();
+            if let Some(row) = stock {
+                data.maximum = Some(row.id);
+                data.definitions = VecDeque::from([row.clone()]);
+                data.dates.clear();
+            }
+            let id = stock.map_or(1, |row| row.id);
+            owner.wall(EventClockSite::LoadSchedule(id), today);
+            let manager = manager(&mut data, &mut owner);
+            let definition = &manager.inventory().definitions[usize::from(id)];
             assert_eq!(
                 (definition.start, definition.end),
                 boundaries.unwrap(),
@@ -1044,7 +1089,7 @@ mod lunar {
             assert!(owner
                 .observations
                 .contains(&GameEventObservation::Calendar {
-                    event: 1,
+                    event: id,
                     today,
                     start: definition.start,
                     end: definition.end,
@@ -1062,5 +1107,41 @@ mod lunar {
             assert_eq!(counts, [4, 10, 6]);
         }
         assert_eq!(count, 204);
+    }
+
+    #[test]
+    fn retained_stock_lunar_rows_compute_with_bound_real_sine() {
+        let Some(catalog) = std::env::var_os("BENILLA_F2_CATALOG") else {
+            println!("SKIP unsealed stock lunar rows: BENILLA_F2_CATALOG absent");
+            return;
+        };
+        let Some(occurrences) = std::env::var_os("BENILLA_F2_EVENT_OCCURRENCES") else {
+            println!("SKIP unsealed stock lunar rows: BENILLA_F2_EVENT_OCCURRENCES absent");
+            return;
+        };
+        if std::env::var_os("BENILLA_LUNAR_PROCESS_RECEIPT").is_none() {
+            println!("SKIP unsealed stock lunar rows: actual process receipt absent");
+            return;
+        }
+        let mut catalog = super::super::super::production_compiler::VerifiedCatalog::open(
+            Path::new(&catalog),
+            false,
+        )
+        .unwrap();
+        let mut rows = catalog
+            .execution_event_rows(Path::new(&occurrences))
+            .unwrap();
+        assert_eq!(rows.maximum().unwrap(), Some(1024));
+        assert_eq!(rows.maximum().unwrap(), None);
+        let mut ids = Vec::new();
+        while let Some(row) = rows.definition().unwrap() {
+            if row.schedule != 12 {
+                continue;
+            }
+            compare_lunar_event_boundaries(true, Some(&row));
+            ids.push(row.id);
+        }
+        assert_eq!(ids, [7]);
+        println!("Unsealed catalog-04 lunar row 7 computes all 204 authored boundaries with real sine and bound process receipt; calendar responses and clocks remain authored component inputs, not production admission");
     }
 }

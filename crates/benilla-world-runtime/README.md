@@ -1287,18 +1287,24 @@ end=0 returns 86400 at positive wall time, `.cpp:42-48`. Later Update skips
 SERVERSIDE slots. Weekly recalculation scans slot zero but its zero schedule
 does no work, `.cpp:676,1328-1344`. Slot-zero and weekly execution were
 unreached in round 15; their authored tests are source-derived, not recorded.
-Lunar computation uses clean-room `benilla-sim::source_moon` mathematics through
-separately bound calendar, binary64 sine and observation owners. The default
-owner refuses the missing historical glibc 2.36 sine dispatch. Recorded fixtures
-are test-only conditional arithmetic evidence, never a production fallback.
+Lunar computation uses clean-room `benilla-sim::source_moon` mathematics.
+`ReferenceLunarEventOwner` binds software glibc 2.36 FMA sine to independently
+supplied calendar and observation owners. Its dispatch token requires an
+authenticated actual-process receipt from round 14 or later with matching
+acquisition, libm identity, CPU features, loader controls, and sine IFUNC offset.
+Missing receipts and other declared dispatches retain the typed refusal.
+Recorded calendar answers remain component evidence, never a production fallback.
 
 `benilla-sim::source_calendar` preserves UTC `std::get_time` partial parsing,
 DMF stages, yearly rollover and the source's fractional Easter formula.
 Authored C++-oracle cases and private raw date comparisons are component fixtures.
-The lunar comparison checks every ordered record in all 11,192 authored cases,
-including 204 complete events with four clock reads, ten local conversions and
-six epoch conversions. UTC conversion answers also match the existing sim
-calendar. These comparisons do not admit non-UTC calendars or historical sine.
+Both injected-sine and computed-sine comparisons check every ordered record in
+all 11,192 authored cases. The runtime checks all 204 complete event boundaries
+with both sine services, retaining four clock reads, ten local conversions,
+and six epoch conversions. UTC answers also match the sim calendar.
+The optional stock comparison uses catalog-04's lunar row with the same authored
+calendar observations and actual process receipt. It does not admit gameplay,
+non-UTC calendars, or recordings without their own dispatch receipts.
 The seal8-08 calendar diagnostic is unsealed; absent private evidence prints SKIP.
 It does not establish definition-loader, manager-transition or F1 acceptance.
 Native format, production selection and NativeCapability remain unchanged.

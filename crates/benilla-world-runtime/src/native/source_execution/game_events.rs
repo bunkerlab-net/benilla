@@ -197,6 +197,35 @@ pub struct LunarEventBindings<'a> {
     pub trace: &'a mut dyn source_moon::Observe,
 }
 
+/// Own the computed sine only after binding the actual source-process receipt.
+pub struct ReferenceLunarEventOwner<'a> {
+    calendar: &'a mut dyn source_moon::Calendar,
+    trace: &'a mut dyn source_moon::Observe,
+    sine: benilla_sim::source_sine::ReferenceSine,
+}
+impl<'a> ReferenceLunarEventOwner<'a> {
+    pub fn new(
+        calendar: &'a mut dyn source_moon::Calendar,
+        trace: &'a mut dyn source_moon::Observe,
+        order: source_moon::SineOrder,
+        binding: benilla_sim::source_sine::DispatchBinding,
+    ) -> Self {
+        let sine = benilla_sim::source_sine::ReferenceSine::new(calendar.owner(), order, binding);
+        Self {
+            calendar,
+            trace,
+            sine,
+        }
+    }
+    pub fn bindings(&mut self) -> LunarEventBindings<'_> {
+        LunarEventBindings {
+            calendar: &mut *self.calendar,
+            sine: &mut self.sine,
+            trace: &mut *self.trace,
+        }
+    }
+}
+
 /// Each reached lookup/effect executes its owner, never a recorded answer.
 pub trait GameEventOwner {
     fn clock(&mut self, site: EventClockSite) -> Result<ClockSample>;

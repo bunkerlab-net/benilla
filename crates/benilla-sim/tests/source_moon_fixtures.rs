@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Conditional component evidence: libc answers and sine results are injected, per source_moon/FORMAT.md.
+// Component evidence: libc answers are injected; sine is either injected or computed.
 use benilla_sim::{
     source_calendar::{self, Tm},
     source_moon::{self as moon, Calendar, Sine64},
@@ -187,7 +187,7 @@ impl moon::Observe for Trace {
         Ok(())
     }
 }
-struct Sine(Shared);
+struct Sine(Shared, bool);
 impl Sine64 for Sine {
     fn owner(&self) -> moon::Result<moon::CallOwner> {
         Ok(OWNER)
@@ -209,7 +209,11 @@ impl Sine64 for Sine {
         );
         assert!(position < 2);
         let expected = stream.peek("sine");
-        let result = word(&expected[2]);
+        let result = if self.1 {
+            benilla_sim::source_sine::sine_bits(operand)
+        } else {
+            word(&expected[2])
+        };
         word(&expected[1]);
         stream.compare(json!([
             "sine",
@@ -315,6 +319,15 @@ fn optional_fixture(path: &Path) -> Option<String> {
 
 #[test]
 fn every_registered_lunar_record_matches_in_order_without_tolerance() {
+    compare_registered_lunar_records(false);
+}
+
+#[test]
+fn every_registered_lunar_record_matches_with_real_sine() {
+    compare_registered_lunar_records(true);
+}
+
+fn compare_registered_lunar_records(real_sine: bool) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tools/fixtures/source_moon");
     let Some(manifest) = optional_fixture(&root.join("cases.json")) else {
         return;
@@ -350,7 +363,7 @@ fn every_registered_lunar_record_matches_in_order_without_tolerance() {
         }));
         let mut trace = Trace(shared.clone());
         let mut clock = Clock(shared.clone());
-        let mut sine = Sine(shared.clone());
+        let mut sine = Sine(shared.clone(), real_sine);
         shared.borrow_mut().compare(json!(["begin", kind]));
         let result = match kind {
             "event" => {

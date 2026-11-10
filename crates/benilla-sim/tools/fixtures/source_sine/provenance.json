@@ -1,0 +1,46 @@
+{
+  "format": "benilla-authored-source-sine-v1",
+  "scope": "Authored component oracle, not a historical process receipt or sealed F1 equivalence",
+  "process_environment_fixture": "process-environment.json is an authored receipt-shaped test input, not actual-source evidence. Its repeated hashes are deliberate test controls.",
+  "image": "sha256:7f8acd0cd855b63046cfdf49f21ed319ae6b981758f5fafe2100aed8b4ef21e8",
+  "libm_sha256": "7f2ca87f652f56b094462474b076749e90e689d0ecb9cb63c7679820b271b4e7",
+  "oracle_binary_sha256": "8b6a5b5a2b0d929108e63a30fe3b4b87686739743c95c1648a34dd00c41c58cb",
+  "compile": [
+    "g++",
+    "-std=c++17",
+    "-O3",
+    "-DNDEBUG",
+    "-ffp-contract=off",
+    "-fno-fast-math",
+    "-fno-omit-frame-pointer",
+    "-g",
+    "/source/crates/benilla-sim/tools/source_sine_oracle.cpp",
+    "-ldl",
+    "-o",
+    "/evidence/oracle"
+  ],
+  "variant": "__sin_fma",
+  "offset": "0x702c0",
+  "masked_variant": "__sin_avx",
+  "masked_offset": "0x79720",
+  "masked_environment": "GLIBC_TUNABLES=glibc.cpu.hwcaps=-FMA,-AVX2",
+  "helpers": {
+    "do_sincos": "inlined FMA sine/cosine kernels",
+    "branred": "shared non-FMA code at 0x66b80",
+    "sincostab": "shared 440-word constant table at 0xa9d40"
+  },
+  "authored_cases": 10236,
+  "authored_variant_differences": 10,
+  "source_moon_sine_calls": 26426,
+  "source_moon_variant_differences": 13,
+  "inputs_sha256": "3dc7492e620743b674b7bea69cd7f1cc1dd28dd52a946127d9c83193d10f4966",
+  "expected_sha256": "0a8add57108f9c0f1aa723c5c95846a785de5dd5ce429bfc912bff984cd70ba3",
+  "authored_input_design": "Both signs at every top-level threshold and the 0.126 Taylor threshold; zero, subnormal, infinity, quiet/signaling NaN, exponent-strided words, and 8192 deterministic LCG mantissas across reduction exponents. No Rust sine results supplied oracle expectations.",
+  "sources": {
+    "s_sin.c": "9aa66cb2c44f976d41c3b14e6daa9708066a6d341fca6d1842b959e4f127905f",
+    "usncs.h": "c78fb520931e863618a60dc28206d5393f884ede9cbaffa3758b8dbc11553ee3",
+    "branred.c": "9d6ffd558a1155a5a42917ae0398c00a80482fbcbc752005fdb79761bf09cacc",
+    "branred.h": "aecb3c4102bbe2d41b31f77dfd7ffbb6f7af41e5747964d7018ffc4d27a23975",
+    "sincostab.c": "1da08546d74c8efd2524c39bd57d26d81fcb7c8f8a920b61ad116fa41bfde218"
+  }
+}

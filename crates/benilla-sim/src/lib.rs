@@ -91,6 +91,9 @@ pub mod source_trig;
 /// Pinned binary64 atan of widened nonnegative binary32 source ratios.
 pub mod source_atan;
 
+/// Pinned glibc 2.36 FMA binary64 sine with software arithmetic.
+pub mod source_sine;
+
 /// Initial source near-point XY candidate only; no collision search or admission.
 pub mod near_point;
 
