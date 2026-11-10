@@ -1519,3 +1519,74 @@ fn event_unspawn_executes_real_go_delete_not_bare_remove() {
         .iter()
         .any(|event| matches!(event, Event::Phase(_, Phase::DespawnAnimation))));
 }
+
+#[test]
+fn group_forced_despawn_uses_real_go_loot_state_and_delayed_event_owner() {
+    // SpawnGroup.cpp:720-722 overrides before GameObject.cpp:2712-2731.
+    for delay_millis in [0, 25] {
+        let mut f = Fixture::new(false);
+        if delay_millis != 0 {
+            f.factory.life().refuse_phase = Some(Phase::ScheduleForcedDespawn(delay_millis));
+        }
+        let callback = GroupCallback::ForcedDespawn {
+            object: f.object,
+            delay_millis,
+            forced_seconds: 5,
+            only_alive: false,
+        };
+        let result =
+            f.apply(|factory, _, context| callback.gameobject_lifecycle(map(), context, factory));
+        assert_eq!(f.go().respawn_delay, 5);
+        assert!(f.go().respawn_overridden);
+        if delay_millis == 0 {
+            result.unwrap();
+            assert!(f.go().forced_despawn);
+            assert_eq!(f.go().loot_state, 3);
+        } else {
+            assert_eq!(
+                result.unwrap_err().id,
+                Phase::ScheduleForcedDespawn(delay_millis)
+                    .missing_owner()
+                    .id
+            );
+            assert!(!f.go().forced_despawn);
+            assert_eq!(f.go().loot_state, 1);
+        }
+    }
+}
+#[test]
+fn go_group_removal_calls_real_overlay_owner_without_instance_callback() {
+    // SpawnGroup.cpp:703-707 removes only GO membership and its persistent overlay.
+    let mut f = Fixture::new(false);
+    let (mut groups, mut states, group, mut work) = spawn_group_tests::fixture(
+        spawn_group_tests::template(1, 1, 1),
+        &[(7, 0)],
+        false,
+        |_, _| {},
+    );
+    groups
+        .spawn(group, &mut states, false, false, &mut work)
+        .unwrap();
+    work.removed.insert(
+        f.object,
+        GroupRemovedObject {
+            key: SpawnKey {
+                kind: GridSpawnKind::GameObject,
+                guid: 7,
+            },
+            respawn_delay: 5,
+        },
+    );
+    f.factory.objects.get_mut(f.object).unwrap().group = groups.gameobject_group(map(), 7).unwrap();
+    groups
+        .gameobject_clear_group(map(), &mut states, f.object, &mut work)
+        .unwrap();
+    assert!(groups.state(group).unwrap().objects.is_empty());
+    let persistent = groups.state(group).unwrap().persistent;
+    assert!(states
+        .state_mut(persistent)
+        .unwrap()
+        .cell_guids(spawn_group_tests::spawn(10).cell)
+        .gameobjects
+        .is_empty());
+}

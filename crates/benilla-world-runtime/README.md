@@ -1147,6 +1147,22 @@ map-local group state. Its source is CMaNGOS Classic
   Vicinity uses strict squared binary32 distance, `Entities/Object.cpp:3037-3046`.
   A reset at the world snapshot's time erases its deadline and omits SQL
   INSERT, `Maps/MapPersistentStateMgr.cpp:89,136-155`.
+- `:525-594,655-697` executes group aggro, evade, home, respawn and
+  member-death events. Actual target identities guard aggro recursion.
+  Local members precede linked groups in definition occurrence order.
+  HOME calls formation home only after the last living evader, then falls
+  through to respawn-together deadline clearing.
+
+`GroupEventOwner` supplies live Unit state. `GroupCallback` dispatches real
+retained creature/GO forced despawn, including one-shot delay overrides.
+Missing assistance, combat, AI, instance and formation owners refuse
+distinctly. Instance group-despawn runs before formation waypoint reset,
+`:517-522`. Live callback loops refuse only erasure of their held map
+element, `execution.group.callback_iterator_undefined`; other-key mutation
+and copied despawn traversal remain defined. Missing or non-creature live
+linked groups refuse `execution.group.linked_group_absent_undefined` or
+`execution.group.linked_group_type_undefined` before the unchecked source
+cast and dereference, `:555-557`.
 
 `GroupLoadOwner` and `GroupWork` require executable definition, condition,
 RNG, constructor, callback, clock and SQL owners. Expected selections and
@@ -1154,8 +1170,9 @@ captured answers are not inputs. Forced entries reach the existing F3
 constructors, including zero's original fallback,
 `Entities/Object.cpp:2173-2207`; F4.02 passes zero explicitly.
 `SpawnGroupsInventory` exports definitions, occurrence records, typed
-membership, map/persistent lifetimes, chosen caches, cooldown and callback
-frames. Quiescence cannot certify F7 restore or a durable checkpoint.
+membership, map/persistent lifetimes, chosen caches, cooldown, target guards,
+held member iterators and callback frames. Its diagnostic version is 2.
+Quiescence cannot certify F7 restore or a durable checkpoint.
 
 Signed chance subtraction refuses
 `execution.group.chance_subtract_undefined` at reached overflow,

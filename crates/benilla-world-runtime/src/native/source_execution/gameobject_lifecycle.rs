@@ -21,7 +21,7 @@ impl GameObjectLifecyclePending {
         refuse(match self {
             Self::DynamicModel => "execution.dynamic_collision_owner_unavailable",
             Self::PoolEffects => "execution.gameobject_lifecycle.f4_09_pool_effects_pending",
-            Self::GroupEffects => "execution.gameobject_lifecycle.f4_12_group_effects_pending",
+            Self::GroupEffects => "execution.gameobject_lifecycle.group_dispatch_owner",
             Self::Events => "execution.gameobject_lifecycle.f5_events_pending",
             Self::Ai => "execution.gameobject_lifecycle.f5_ai_pending",
             Self::Instance => "execution.gameobject_lifecycle.f5_instance_pending",

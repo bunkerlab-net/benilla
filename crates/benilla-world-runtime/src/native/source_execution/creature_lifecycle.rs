@@ -33,7 +33,7 @@ impl CreatureLifecyclePending {
         refuse(match self {
             Self::PoolEffects => "execution.creature_lifecycle.f4_09_pool_effects_pending",
             Self::LinkingEffects => "execution.creature_lifecycle.linking_dispatch_owner",
-            Self::GroupEffects => "execution.creature_lifecycle.f4_12_group_effects_pending",
+            Self::GroupEffects => "execution.creature_lifecycle.group_dispatch_owner",
             Self::UnitEffects => "execution.creature_lifecycle.f5_unit_effects_pending",
             Self::AiEffects => "execution.creature_lifecycle.f5_ai_effects_pending",
             Self::InstanceEffects => "execution.creature_lifecycle.f5_instance_effects_pending",
@@ -75,12 +75,16 @@ pub enum CreatureLifecyclePhase {
     MapAdd,
     PoolRespawn(u32),
     SetHealthZero,
+    ScheduleForcedDespawn { delay_millis: u32, only_alive: bool },
 }
 impl CreatureLifecyclePhase {
     pub fn missing_owner(self) -> Refusal {
         use CreatureLifecyclePending as P;
         match self {
             Self::ClearGroup | Self::GroupRespawn => P::GroupEffects,
+            Self::ScheduleForcedDespawn { .. } => {
+                return refuse("execution.group.f5_event_forced_despawn_owner");
+            }
             Self::LinkingDespawn | Self::LinkingRespawn => P::LinkingEffects,
             Self::PoolRespawn(_) => P::PoolEffects,
             Self::AiJustRespawned => P::AiEffects,

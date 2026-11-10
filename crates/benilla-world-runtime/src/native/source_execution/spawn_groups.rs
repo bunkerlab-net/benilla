@@ -11,6 +11,9 @@ use benilla_sim::source_spawn_groups::{
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+mod group_links;
+pub use group_links::*;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct GroupSpawnDefinition {
     pub map: u32,
@@ -119,6 +122,7 @@ pub struct SpawnGroupState {
     pub enabled: bool,
     pub cooldown_millis: i64,
     pub constructing: bool,
+    pub linkage_targets: BTreeSet<ObjectHandle>,
 }
 #[derive(Default)]
 pub struct SourceSpawnGroups {
@@ -132,6 +136,7 @@ pub struct SourceSpawnGroups {
     next_generation: u64,
     records: Vec<GroupLoadRecord>,
     frames: Vec<GroupIdentity>,
+    held_members: Vec<(GroupIdentity, u32)>,
 }
 impl SourceSpawnGroups {
     fn run<T>(&mut self, action: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
@@ -513,6 +518,24 @@ impl GroupSpawnRequest {
 pub enum GroupCallback {
     FormationCreate,
     FormationUpdate,
+    FormationHome,
+    FormationRemove {
+        object: ObjectHandle,
+    },
+    SetNoCallAssistance {
+        object: ObjectHandle,
+    },
+    EngageInCombat {
+        object: ObjectHandle,
+        target: ObjectHandle,
+    },
+    EnterEvadeMode {
+        object: ObjectHandle,
+    },
+    MemberDied {
+        object: ObjectHandle,
+        target: Option<ObjectHandle>,
+    },
     LastCreatureDespawn {
         object: ObjectHandle,
     },
@@ -523,6 +546,23 @@ pub enum GroupCallback {
         forced_seconds: u32,
         only_alive: bool,
     },
+}
+impl GroupCallback {
+    pub fn missing_owner(self) -> Refusal {
+        refuse(match self {
+            Self::FormationCreate
+            | Self::FormationUpdate
+            | Self::FormationHome
+            | Self::FormationRemove { .. }
+            | Self::ResetLastWaypoint => "execution.group.f4_13_formation_owner",
+            Self::LastCreatureDespawn { .. } => "execution.group.f5_instance_group_despawn_owner",
+            Self::SetNoCallAssistance { .. } => "execution.group.f5_assistance_owner",
+            Self::EngageInCombat { .. } => "execution.group.f5_combat_engage_owner",
+            Self::EnterEvadeMode { .. } => "execution.group.f5_ai_evade_owner",
+            Self::MemberDied { .. } => "execution.group.f5_ai_member_died_owner",
+            Self::ForcedDespawn { .. } => "execution.group.lifecycle_dispatch_owner",
+        })
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum GroupOperation {
@@ -595,11 +635,13 @@ pub trait GroupWork: GroupRandom<Error = Refusal> + PersistentEffects {
     fn has_instance(&mut self, object: ObjectHandle) -> Result<bool>;
     fn callback(
         &mut self,
-        groups: &mut SourceSpawnGroups,
-        states: &mut SourceManagers,
-        group: GroupIdentity,
+        _groups: &mut SourceSpawnGroups,
+        _states: &mut SourceManagers,
+        _group: GroupIdentity,
         callback: GroupCallback,
-    ) -> Result<()>;
+    ) -> Result<()> {
+        Err(callback.missing_owner())
+    }
     fn group_operation(&mut self, operation: GroupOperation) -> Result<()>;
 }
 #[derive(Clone, Debug, Serialize)]
@@ -613,10 +655,11 @@ pub struct SpawnGroupsInventory {
     pub states: Vec<SpawnGroupState>,
     pub records: Vec<GroupLoadRecord>,
     pub frames: Vec<GroupIdentity>,
+    pub held_members: Vec<(GroupIdentity, u32)>,
 }
 impl SpawnGroupsInventory {
     pub fn validate(&self) -> Result<()> {
-        require(self.version == 1, "execution.group.inventory_version")?;
+        require(self.version == 2, "execution.group.inventory_version")?;
         for state in &self.states {
             let definition = self
                 .definitions
@@ -654,7 +697,11 @@ impl SpawnGroupsInventory {
             self.loaded
                 && !self.stopped
                 && self.frames.is_empty()
-                && self.states.iter().all(|s| !s.constructing),
+                && self.held_members.is_empty()
+                && self
+                    .states
+                    .iter()
+                    .all(|s| !s.constructing && s.linkage_targets.is_empty()),
             "execution.group.nonquiescent",
         )
     }
@@ -666,7 +713,7 @@ impl SpawnGroupsInventory {
 impl SourceSpawnGroups {
     pub fn inventory(&self) -> SpawnGroupsInventory {
         SpawnGroupsInventory {
-            version: 1,
+            version: 2,
             loaded: self.loaded,
             stopped: self.stopped,
             next_generation: self.next_generation,
@@ -679,6 +726,7 @@ impl SourceSpawnGroups {
             states: self.states.values().cloned().collect(),
             records: self.records.clone(),
             frames: self.frames.clone(),
+            held_members: self.held_members.clone(),
         }
     }
     pub fn state(&self, group: GroupIdentity) -> Result<&SpawnGroupState> {
@@ -756,6 +804,7 @@ impl SourceSpawnGroups {
                     enabled,
                     cooldown_millis: 0,
                     constructing: true,
+                    linkage_targets: BTreeSet::new(),
                 },
             );
             if formation {
@@ -960,7 +1009,7 @@ impl SourceSpawnGroups {
             && !self.state(group)?.objects.is_empty()
             && !self.condition_inner(group, states, work)?
         {
-            self.despawn_inner(group, states, 0, 1, work)?;
+            self.despawn_inner(group, states, 0, 1, true, work)?;
             return Ok(());
         }
         if self.state(group)?.objects.len() >= maximum {
@@ -1152,7 +1201,35 @@ impl SourceSpawnGroups {
     ) -> Result<()> {
         self.run(|this| {
             this.frames.push(group);
-            this.despawn_inner(group, states, delay_millis, forced_seconds, work)?;
+            this.despawn_inner(group, states, delay_millis, forced_seconds, true, work)?;
+            this.frames.pop();
+            Ok(())
+        })
+    }
+    // Explicit creature overload preserves onlyAlive in delayed events; SpawnGroup.h:97-98.
+    pub fn despawn_creatures(
+        &mut self,
+        group: GroupIdentity,
+        states: &mut SourceManagers,
+        delay_millis: u32,
+        only_alive: bool,
+        forced_seconds: u32,
+        work: &mut impl GroupWork,
+    ) -> Result<()> {
+        self.run(|this| {
+            require(
+                this.definition(group.handle.id)?.kind() == GridSpawnKind::Creature,
+                "execution.group.creature_group_required",
+            )?;
+            this.frames.push(group);
+            this.despawn_inner(
+                group,
+                states,
+                delay_millis,
+                forced_seconds,
+                only_alive,
+                work,
+            )?;
             this.frames.pop();
             Ok(())
         })
@@ -1163,6 +1240,7 @@ impl SourceSpawnGroups {
         states: &mut SourceManagers,
         delay_millis: u32,
         forced_seconds: u32,
+        only_alive: bool,
         work: &mut impl GroupWork,
     ) -> Result<()> {
         let persistent = self.binding(group, states)?;
@@ -1182,7 +1260,7 @@ impl SourceSpawnGroups {
                         object,
                         delay_millis,
                         forced_seconds,
-                        only_alive: kind == GridSpawnKind::Creature,
+                        only_alive: kind == GridSpawnKind::Creature && only_alive,
                     },
                 )?;
             } else if delay_millis == 0 {
@@ -1195,6 +1273,7 @@ impl SourceSpawnGroups {
             }
         }
         if delay_millis == 0 {
+            self.require_member_erase(group, None)?;
             self.state_mut(group)?.objects.clear();
         }
         Ok(())
@@ -1316,6 +1395,7 @@ impl SourceSpawnGroups {
                 removed.key.kind == definition.kind(),
                 "execution.group.removed_object_kind",
             )?;
+            this.require_member_erase(group, Some(removed.key.guid))?;
             this.state_mut(group)?.objects.remove(&removed.key.guid);
             if !states.state(persistent)?.entry.dungeon() && this.state(group)?.objects.is_empty() {
                 let before = this.state(group)?.cooldown_millis;

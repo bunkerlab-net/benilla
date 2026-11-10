@@ -30,6 +30,7 @@ struct Host {
     gate: bool,
     die_in_unit: bool,
     construction_world: Option<World>,
+    groups: Option<(SourceSpawnGroups, spawn_group_tests::Work<'static>)>,
 }
 impl Host {
     fn new() -> Self {
@@ -45,6 +46,7 @@ impl Host {
             gate: true,
             die_in_unit: false,
             construction_world: None,
+            groups: None,
         }
     }
 }
@@ -250,6 +252,11 @@ impl CreatureLifecycleOwner<Definitions, Products> for Host {
         if self.refuse == Some(phase) {
             return Err(phase.missing_owner());
         }
+        if matches!(phase, Phase::ClearGroup | Phase::GroupRespawn) {
+            if let Some((groups, work)) = &mut self.groups {
+                return groups.creature_lifecycle_phase(phase, life, c, work);
+            }
+        }
         match phase {
             Phase::UnitUpdate(_) if self.die_in_unit => {
                 self.die_in_unit = false;
@@ -272,10 +279,20 @@ impl CreatureLifecycleOwner<Definitions, Products> for Host {
     }
     fn lifecycle_group_delay(
         &mut self,
-        _: &mut SourceCreatureLifecycle,
-        _: &mut CreatureLifecycleContext<'_, '_, Definitions, Products>,
+        life: &mut SourceCreatureLifecycle,
+        context: &mut CreatureLifecycleContext<'_, '_, Definitions, Products>,
     ) -> Result<Option<u32>> {
         self.calls.push(Call::GroupDelay);
+        if let Some((groups, work)) = &mut self.groups {
+            return groups.lifecycle_respawn_delay(
+                context.grid.cells.map(),
+                SpawnKey {
+                    kind: GridSpawnKind::Creature,
+                    guid: life.construction.spawn.database_guid,
+                },
+                work,
+            );
+        }
         Ok(self.group_delay)
     }
     fn lifecycle_corpse_removed(
@@ -1241,4 +1258,113 @@ fn event_unspawn_removes_only_alive_creatures_and_preserves_lootable_corpses() {
             assert_eq!(f.life.death_state, CreatureDeathState::Corpse);
         }
     }
+}
+
+#[test]
+fn group_death_dispatch_removes_real_membership_after_respawn_save() {
+    // Creature.cpp:1870-1903 saves before ClearCreatureGroup -> SpawnGroup.cpp:74-100,514-522.
+    let mut f = Fixture::new(true);
+    let mut input = spawn_group_tests::template(1, 0, 1);
+    input.respawn_min = Some(5);
+    let (mut groups, mut states, group, mut work) =
+        spawn_group_tests::fixture(input, &[(40, 0)], false, |_, _| {});
+    groups
+        .spawn(group, &mut states, false, false, &mut work)
+        .unwrap();
+    let object = f.life.object();
+    work.removed.insert(
+        object,
+        GroupRemovedObject {
+            key: SpawnKey {
+                kind: GridSpawnKind::Creature,
+                guid: 40,
+            },
+            respawn_delay: 5,
+        },
+    );
+    f.life.construction.group = groups.creature_group(map(), 40).unwrap();
+    f.persistent = states;
+    f.host.groups = Some((groups, work));
+    f.die();
+    assert_eq!(f.deadline(), 106);
+    assert!(f.life.construction.group.is_none());
+    let (groups, _) = f.host.groups.as_ref().unwrap();
+    assert!(groups.state(group).unwrap().objects.is_empty());
+    assert_eq!(groups.state(group).unwrap().cooldown_millis, 105_000);
+    assert!(!f
+        .host
+        .calls
+        .iter()
+        .any(|call| matches!(call, Call::Spawn(SpawnOperation::Add { .. }))));
+}
+#[test]
+fn group_forced_despawn_dispatches_real_death_corpse_health_and_delayed_event_refusal() {
+    // SpawnGroup.cpp:640-643 sets a one-shot delay before Creature.cpp:1964-1980.
+    for delay_millis in [0, 25] {
+        let mut f = Fixture::new(false);
+        if delay_millis != 0 {
+            f.host.refuse = Some(Phase::ScheduleForcedDespawn {
+                delay_millis,
+                only_alive: false,
+            });
+        }
+        let callback = GroupCallback::ForcedDespawn {
+            object: f.life.object(),
+            delay_millis,
+            forced_seconds: 5,
+            only_alive: false,
+        };
+        let result =
+            f.apply(|life, context, host| callback.creature_lifecycle(map(), life, context, host));
+        assert_eq!(f.life.construction.respawn_delay, 5);
+        if delay_millis == 0 {
+            result.unwrap();
+            assert_eq!(f.life.death_state, CreatureDeathState::Dead);
+            assert_eq!(f.host.factory.health[&f.life.object()], 0);
+            assert!(f.host.calls.contains(&Call::Phase(Phase::SetHealthZero)));
+        } else {
+            assert_eq!(
+                result.unwrap_err().id,
+                "execution.group.f5_event_forced_despawn_owner"
+            );
+            assert_eq!(f.life.death_state, CreatureDeathState::Alive);
+        }
+    }
+}
+
+#[test]
+fn creature_group_clear_refuses_formation_removal_before_mutating_group_membership() {
+    // Creature.cpp:1580-1582 removes formation membership before the group callback/reset sequence.
+    let mut f = Fixture::new(true);
+    let (mut groups, mut states, group, mut work) = spawn_group_tests::fixture(
+        spawn_group_tests::template(1, 0, 1),
+        &[(40, 0)],
+        false,
+        |rows, _| {
+            rows.push(
+                benilla_sim::source_spawn_groups::GroupPhase::Formations,
+                benilla_sim::source_spawn_groups::GroupInputData::Formation(
+                    spawn_group_tests::formation(1),
+                ),
+            );
+        },
+    );
+    groups
+        .spawn(group, &mut states, false, false, &mut work)
+        .unwrap();
+    f.life.construction.group = groups.creature_group(map(), 40).unwrap();
+    work.callback_hook = Some(|_, _, _, _, callback| Err(callback.missing_owner()));
+    f.persistent = states;
+    f.host.groups = Some((groups, work));
+    assert_eq!(
+        f.apply(|life, context, host| life.die(context, host))
+            .unwrap_err()
+            .id,
+        "execution.group.f4_13_formation_owner"
+    );
+    assert!(f.life.construction.group.is_some());
+    let (groups, _) = f.host.groups.as_ref().unwrap();
+    assert_eq!(groups.state(group).unwrap().objects.len(), 1);
+    assert!(!f.host.calls.contains(&Call::Phase(Phase::CreatorCooldown)));
+    assert_eq!(f.deadline(), 201);
 }

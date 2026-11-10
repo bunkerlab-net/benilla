@@ -179,6 +179,13 @@ fn effective_pool_event_exclusions_and_duplicate_domains_precede_final_membershi
 
 type Constructor<'a> =
     dyn FnMut(&mut SourceSpawnGroups, &mut SourceManagers, GroupSpawnRequest) -> Result<bool> + 'a;
+type CallbackHook = fn(
+    &mut Work<'_>,
+    &mut SourceSpawnGroups,
+    &mut SourceManagers,
+    GroupIdentity,
+    GroupCallback,
+) -> Result<()>;
 pub(super) struct Work<'a> {
     engine: benilla_sim::source_rng::Mt19937,
     pub(super) cursor: benilla_sim::source_rng::DrawCursor,
@@ -193,7 +200,7 @@ pub(super) struct Work<'a> {
     pub(super) world: i64,
     pub(super) loaded: bool,
     pub(super) constructor: Option<&'a mut Constructor<'a>>,
-    removed: BTreeMap<ObjectHandle, GroupRemovedObject>,
+    pub(super) removed: BTreeMap<ObjectHandle, GroupRemovedObject>,
     live: BTreeMap<SpawnKey, ObjectHandle>,
     pub(super) fail_sql: bool,
     pub(super) fail_observe: bool,
@@ -203,6 +210,8 @@ pub(super) struct Work<'a> {
     instance: bool,
     wall_calls: Vec<GroupClockCall>,
     loaded_calls: Vec<[u32; 3]>,
+    units: BTreeMap<ObjectHandle, GroupUnit>,
+    pub(super) callback_hook: Option<CallbackHook>,
 }
 impl Default for Work<'_> {
     fn default() -> Self {
@@ -230,6 +239,8 @@ impl Default for Work<'_> {
             instance: false,
             wall_calls: vec![],
             loaded_calls: vec![],
+            units: BTreeMap::new(),
+            callback_hook: None,
         }
     }
 }
@@ -360,18 +371,29 @@ impl GroupWork for Work<'_> {
     }
     fn callback(
         &mut self,
-        _: &mut SourceSpawnGroups,
-        _: &mut SourceManagers,
-        _: GroupIdentity,
+        groups: &mut SourceSpawnGroups,
+        states: &mut SourceManagers,
+        group: GroupIdentity,
         callback: GroupCallback,
     ) -> Result<()> {
         require(self.allow_callbacks, "execution.group.callback_owner")?;
         self.callbacks.push(callback);
+        if let Some(hook) = self.callback_hook {
+            return hook(self, groups, states, group, callback);
+        }
         Ok(())
     }
     fn group_operation(&mut self, operation: GroupOperation) -> Result<()> {
         self.operations.push(operation);
         require(!self.fail_observe, "authored.group_observer")
+    }
+}
+impl GroupEventOwner for Work<'_> {
+    fn group_unit(&mut self, _: MapIdentity, object: ObjectHandle) -> Result<GroupUnit> {
+        self.units
+            .get(&object)
+            .copied()
+            .ok_or_else(|| refuse("authored.group_unit_absent"))
     }
 }
 pub(super) fn fixture<'a>(
@@ -630,7 +652,7 @@ fn object() -> ObjectHandle {
         construction: 1,
     }
 }
-fn formation(group: u32) -> Formation {
+pub(super) fn formation(group: u32) -> Formation {
     Formation {
         group,
         kind: 0,
@@ -1604,7 +1626,7 @@ fn inventory_is_json_serializable_but_cannot_certify_restore_or_quiescence_durin
     serde_json::to_vec(&valid).unwrap();
     type Case = (fn(&mut SpawnGroupsInventory), &'static str);
     let cases: [Case; 5] = [
-        (|s| s.version = 2, "execution.group.inventory_version"),
+        (|s| s.version = 3, "execution.group.inventory_version"),
         (
             |s| s.definitions.clear(),
             "execution.group.inventory_definition",
@@ -1725,4 +1747,681 @@ fn loader_phase_repetition_final_definition_absence_and_budget_refuse_without_cl
     );
     assert!(groups.inventory().stopped);
     assert_eq!(groups.load_records().len(), 2_000_000);
+}
+
+fn unit(guid: u32) -> GroupUnit {
+    GroupUnit {
+        database_guid: guid,
+        has_charmer: false,
+        alive: true,
+        in_combat: false,
+        evading_home: false,
+    }
+}
+fn live_member(work: &mut Work<'_>, guid: u32) -> ObjectHandle {
+    let object = ObjectHandle {
+        thread: 1,
+        construction: u64::from(guid),
+    };
+    work.live.insert(key(guid), object);
+    work.units.insert(object, unit(guid));
+    work.removed.insert(
+        object,
+        GroupRemovedObject {
+            key: key(guid),
+            respawn_delay: 9,
+        },
+    );
+    object
+}
+fn event_fixture(
+    flags: u32,
+) -> (
+    SourceSpawnGroups,
+    SourceManagers,
+    GroupIdentity,
+    Work<'static>,
+) {
+    let mut input = template(1, 0, 2);
+    input.flags = flags;
+    let (mut groups, mut states, group, mut work) =
+        fixture(input, &[(7, 0), (8, 0)], false, |_, _| {});
+    groups
+        .spawn(group, &mut states, false, false, &mut work)
+        .unwrap();
+    live_member(&mut work, 7);
+    live_member(&mut work, 8);
+    work.units.insert(object(), unit(99));
+    (groups, states, group, work)
+}
+#[test]
+fn aggro_link_cycle_uses_actual_target_and_local_then_link_occurrence_order() {
+    // SpawnGroup.cpp:537-560 guards Unit pointers per group, not the event or database GUID.
+    let mut input = template(1, 0, 1);
+    input.flags = 1;
+    let (mut groups, mut states, first, mut work) =
+        fixture(input, &[(7, 0)], false, |rows, owner| {
+            let mut second = template(2, 0, 1);
+            second.flags = 1;
+            rows.push(GroupPhase::Templates, GroupInputData::Template(second));
+            rows.push(
+                GroupPhase::Members,
+                GroupInputData::Member {
+                    group: 2,
+                    guid: 8,
+                    slot: -1,
+                    chance: 0,
+                },
+            );
+            owner.spawns.insert(key(8), spawn(10));
+            for (group, linked) in [(1, 2), (1, 2), (2, 1)] {
+                rows.push(GroupPhase::Links, GroupInputData::Link { group, linked });
+            }
+        });
+    let second = groups
+        .create(
+            first.map,
+            groups.state(first).unwrap().persistent,
+            2,
+            &mut states,
+            &mut work,
+        )
+        .unwrap();
+    for group in [first, second] {
+        groups
+            .spawn(group, &mut states, false, false, &mut work)
+            .unwrap();
+    }
+    let a = live_member(&mut work, 7);
+    let b = live_member(&mut work, 8);
+    work.units.insert(object(), unit(99));
+    let other = ObjectHandle {
+        thread: 1,
+        construction: 100,
+    };
+    work.units.insert(other, unit(99));
+    work.callback_hook = Some(|work, groups, states, group, callback| {
+        if let GroupCallback::EngageInCombat { target, .. } = callback {
+            groups.event(group, states, GroupEvent::Aggro, Some(target), work)?;
+            if target == object() && work.clock == 100_000 {
+                work.clock = 0;
+                groups.event(
+                    group,
+                    states,
+                    GroupEvent::Aggro,
+                    Some(ObjectHandle {
+                        thread: 1,
+                        construction: 100,
+                    }),
+                    work,
+                )?;
+            }
+        }
+        Ok(())
+    });
+    groups
+        .event(
+            first,
+            &mut states,
+            GroupEvent::Aggro,
+            Some(object()),
+            &mut work,
+        )
+        .unwrap();
+    let engagements: Vec<_> = work
+        .callbacks
+        .iter()
+        .filter_map(|c| match c {
+            GroupCallback::EngageInCombat { object, target } => Some((*object, *target)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        engagements,
+        [
+            (a, object()),
+            (a, other),
+            (b, other),
+            (b, other),
+            (b, object()),
+            (b, object())
+        ]
+    );
+    assert!(groups.state(first).unwrap().linkage_targets.is_empty());
+    assert!(groups.state(second).unwrap().linkage_targets.is_empty());
+    groups.inventory().require_quiescent().unwrap();
+}
+#[test]
+fn own_group_target_is_excluded_unless_charmed_and_null_or_disabled_aggro_skips_lookup() {
+    // SpawnGroup.cpp:530-535 compares the target DB GUID even when a different live identity has it.
+    let (mut groups, mut states, group, mut work) = event_fixture(1);
+    work.units.insert(object(), unit(7));
+    groups
+        .event(group, &mut states, GroupEvent::Aggro, None, &mut work)
+        .unwrap();
+    groups
+        .event(
+            group,
+            &mut states,
+            GroupEvent::Aggro,
+            Some(object()),
+            &mut work,
+        )
+        .unwrap();
+    assert!(work.callbacks.is_empty());
+    work.units.get_mut(&object()).unwrap().has_charmer = true;
+    groups
+        .event(
+            group,
+            &mut states,
+            GroupEvent::Aggro,
+            Some(object()),
+            &mut work,
+        )
+        .unwrap();
+    assert_eq!(work.callbacks.len(), 4);
+    assert!(matches!(
+        work.callbacks[0],
+        GroupCallback::SetNoCallAssistance { .. }
+    ));
+    assert!(matches!(
+        work.callbacks[1],
+        GroupCallback::EngageInCombat { .. }
+    ));
+    let (mut groups, mut states, group, mut work) = event_fixture(0);
+    work.units.clear();
+    groups
+        .event(
+            group,
+            &mut states,
+            GroupEvent::Aggro,
+            Some(object()),
+            &mut work,
+        )
+        .unwrap();
+    assert!(work.callbacks.is_empty());
+}
+#[test]
+fn last_evade_home_callback_precedes_respawn_fallthrough_and_dead_members_do_not_block_home() {
+    // SpawnGroup.cpp:574-583,671-696 excludes dead evaders and saves every definition member.
+    let mut input = template(1, 0, 3);
+    input.flags = 2;
+    let (mut groups, mut states, group, mut work) =
+        fixture(input, &[(7, 0), (8, 0), (9, 0)], false, |rows, _| {
+            rows.push(
+                GroupPhase::Formations,
+                GroupInputData::Formation(formation(1)),
+            );
+        });
+    groups
+        .spawn(group, &mut states, false, false, &mut work)
+        .unwrap();
+    let a = live_member(&mut work, 7);
+    let b = live_member(&mut work, 8);
+    work.units.get_mut(&a).unwrap().evading_home = true;
+    work.callbacks.clear();
+    groups
+        .event(group, &mut states, GroupEvent::Home, Some(b), &mut work)
+        .unwrap();
+    assert!(work.callbacks.is_empty());
+    assert_eq!(work.wall_calls.last(), Some(&GroupClockCall::ClearRespawns));
+    work.units.get_mut(&a).unwrap().alive = false;
+    work.callback_hook = Some(|work, _, _, _, callback| {
+        if callback == GroupCallback::FormationHome {
+            assert_eq!(work.wall_calls.len(), 2);
+        }
+        Ok(())
+    });
+    groups
+        .event(group, &mut states, GroupEvent::Home, Some(b), &mut work)
+        .unwrap();
+    assert_eq!(work.callbacks, [GroupCallback::FormationHome]);
+    assert_eq!(
+        work.sql
+            .iter()
+            .filter(|s| matches!(s, PersistentSql::Delete { .. }))
+            .count(),
+        6
+    );
+    assert!(groups.is_out_of_combat(group, &mut work).unwrap());
+    work.units.get_mut(&b).unwrap().in_combat = true;
+    assert!(!groups.is_out_of_combat(group, &mut work).unwrap());
+}
+#[test]
+fn evade_calls_only_non_home_members_and_member_death_has_no_alive_filter() {
+    // SpawnGroup.cpp:565-570,585-590 does not filter alive in either callback loop.
+    let (mut groups, mut states, group, mut work) = event_fixture(4);
+    let a = work.live[&key(7)];
+    let b = work.live[&key(8)];
+    work.units.get_mut(&a).unwrap().evading_home = true;
+    work.units.get_mut(&b).unwrap().alive = false;
+    groups
+        .event(group, &mut states, GroupEvent::Evade, Some(a), &mut work)
+        .unwrap();
+    assert_eq!(
+        work.callbacks,
+        [GroupCallback::EnterEvadeMode { object: b }]
+    );
+    work.callbacks.clear();
+    groups
+        .event(
+            group,
+            &mut states,
+            GroupEvent::MemberDied,
+            Some(b),
+            &mut work,
+        )
+        .unwrap();
+    assert_eq!(
+        work.callbacks,
+        [
+            GroupCallback::MemberDied {
+                object: a,
+                target: Some(b)
+            },
+            GroupCallback::MemberDied {
+                object: b,
+                target: Some(b)
+            }
+        ]
+    );
+}
+#[test]
+fn full_wipe_constant_cooldown_still_draws_and_false_chances_clear_only_on_last_world_removal() {
+    // SpawnGroup.cpp:78-97 draws urand(5,5), keeps false cache until the last world removal.
+    for dungeon in [false, true] {
+        let mut input = template(1, 0, 3);
+        input.respawn_min = Some(5);
+        let (mut groups, mut states, group, mut work) =
+            fixture(input, &[(7, 100), (8, 100), (9, 1)], dungeon, |_, _| {});
+        groups
+            .spawn(group, &mut states, false, false, &mut work)
+            .unwrap();
+        assert_eq!(
+            groups.state(group).unwrap().chosen_spawns.get(&9),
+            Some(&false)
+        );
+        let a = live_member(&mut work, 7);
+        let b = live_member(&mut work, 8);
+        let before = work.cursor.raw;
+        groups
+            .remove_object(group, &mut states, a, &mut work)
+            .unwrap();
+        assert_eq!(
+            groups.state(group).unwrap().chosen_spawns.get(&9),
+            Some(&false)
+        );
+        groups
+            .event(group, &mut states, GroupEvent::Respawn, Some(b), &mut work)
+            .unwrap();
+        assert_eq!(
+            groups.state(group).unwrap().chosen_spawns.get(&9),
+            Some(&false)
+        );
+        groups
+            .remove_object(group, &mut states, b, &mut work)
+            .unwrap();
+        assert_eq!(work.cursor.raw, before + u64::from(!dungeon));
+        assert_eq!(
+            groups.state(group).unwrap().cooldown_millis,
+            if dungeon { 0 } else { 105_000 }
+        );
+        assert_eq!(
+            groups.state(group).unwrap().chosen_spawns.contains_key(&9),
+            dungeon
+        );
+    }
+}
+#[test]
+fn copied_despawn_iteration_permits_current_and_other_member_removal_for_both_types() {
+    // SpawnGroup.cpp:633-652,713-732 copies membership before callbacks mutate the original.
+    for kind in [0, 1] {
+        let (mut groups, mut states, group, mut work) =
+            fixture(template(1, kind, 2), &[(7, 0), (8, 0)], false, |_, _| {});
+        groups
+            .spawn(group, &mut states, false, false, &mut work)
+            .unwrap();
+        let spawn_kind = if kind == 0 {
+            GridSpawnKind::Creature
+        } else {
+            GridSpawnKind::GameObject
+        };
+        for guid in [7, 8] {
+            let object = ObjectHandle {
+                thread: 1,
+                construction: guid.into(),
+            };
+            let key = SpawnKey {
+                kind: spawn_kind,
+                guid,
+            };
+            work.live.insert(key, object);
+            work.removed.insert(
+                object,
+                GroupRemovedObject {
+                    key,
+                    respawn_delay: 1,
+                },
+            );
+        }
+        work.callback_hook = Some(|work, groups, states, group, callback| {
+            if let GroupCallback::ForcedDespawn { object, .. } = callback {
+                groups.remove_object(group, states, object, work)?;
+            }
+            Ok(())
+        });
+        groups.despawn(group, &mut states, 0, 0, &mut work).unwrap();
+        assert!(groups.state(group).unwrap().objects.is_empty());
+        assert_eq!(
+            work.callbacks
+                .iter()
+                .filter(|c| matches!(c, GroupCallback::ForcedDespawn { .. }))
+                .count(),
+            2
+        );
+    }
+}
+#[test]
+fn callback_other_key_erasure_is_defined_but_held_key_erasure_refuses_in_each_live_loop() {
+    // SpawnGroup.cpp:542,565,586 increments the current std::map iterator only after callbacks.
+    for event in [GroupEvent::Aggro, GroupEvent::Evade, GroupEvent::MemberDied] {
+        for held in [false, true] {
+            let (mut groups, mut states, group, mut work) = event_fixture(5);
+            work.callback_hook = Some(|work, groups, states, group, callback| {
+                let object = match callback {
+                    GroupCallback::EngageInCombat { object, .. }
+                    | GroupCallback::EnterEvadeMode { object }
+                    | GroupCallback::MemberDied { object, .. } => object,
+                    _ => return Ok(()),
+                };
+                let held = work.instance;
+                let removed = if held { object } else { work.live[&key(8)] };
+                groups.remove_object(group, states, removed, work)
+            });
+            work.instance = held;
+            let result = groups.event(group, &mut states, event, Some(object()), &mut work);
+            if held {
+                assert_eq!(
+                    result.unwrap_err().id,
+                    "execution.group.callback_iterator_undefined"
+                );
+                assert_eq!(groups.state(group).unwrap().objects.len(), 2);
+                assert!(groups.inventory().require_quiescent().is_err());
+            } else {
+                result.unwrap();
+                assert_eq!(
+                    groups
+                        .state(group)
+                        .unwrap()
+                        .objects
+                        .keys()
+                        .copied()
+                        .collect::<Vec<_>>(),
+                    [7]
+                );
+            }
+        }
+    }
+}
+#[test]
+fn callback_clear_of_held_map_refuses_but_delayed_despawn_does_not_clear() {
+    // SpawnGroup.cpp:651-652 clears only immediate despawn, which invalidates held range-for iterators.
+    for delay in [0, 1] {
+        let (mut groups, mut states, group, mut work) = event_fixture(0);
+        work.clock = delay;
+        work.callback_hook = Some(|work, groups, states, group, callback| {
+            if matches!(callback, GroupCallback::MemberDied { .. }) {
+                groups.despawn(group, states, work.clock as u32, 0, work)?;
+            }
+            Ok(())
+        });
+        let result = groups.event(group, &mut states, GroupEvent::MemberDied, None, &mut work);
+        if delay == 0 {
+            assert_eq!(
+                result.unwrap_err().id,
+                "execution.group.callback_iterator_undefined"
+            );
+        } else {
+            result.unwrap();
+        }
+        assert_eq!(groups.state(group).unwrap().objects.len(), 2);
+    }
+}
+#[test]
+fn instance_callback_runs_before_formation_reset_and_refusal_prevents_reset() {
+    // SpawnGroup.cpp:517-522 calls instance first, and only inside the instance-present branch resets WP.
+    for refuse_reset in [false, true] {
+        let (mut groups, mut states, group, mut work) =
+            fixture(template(1, 0, 1), &[(7, 0)], true, |rows, _| {
+                rows.push(
+                    GroupPhase::Formations,
+                    GroupInputData::Formation(formation(1)),
+                );
+            });
+        groups
+            .spawn(group, &mut states, false, false, &mut work)
+            .unwrap();
+        let object = live_member(&mut work, 7);
+        work.instance = true;
+        work.callbacks.clear();
+        work.callback_hook = Some(|_, _, _, _, callback| {
+            if callback == GroupCallback::ResetLastWaypoint {
+                return Err(callback.missing_owner());
+            }
+            Ok(())
+        });
+        if !refuse_reset {
+            work.callback_hook = Some(|_, _, _, _, callback| Err(callback.missing_owner()));
+        }
+        assert_eq!(
+            groups
+                .remove_object(group, &mut states, object, &mut work)
+                .unwrap_err()
+                .id,
+            if refuse_reset {
+                "execution.group.f4_13_formation_owner"
+            } else {
+                "execution.group.f5_instance_group_despawn_owner"
+            }
+        );
+        assert_eq!(
+            work.callbacks[0],
+            GroupCallback::LastCreatureDespawn { object }
+        );
+        assert_eq!(work.callbacks.len(), if refuse_reset { 2 } else { 1 });
+    }
+}
+#[test]
+fn missing_group_callback_owners_have_distinct_refusals() {
+    // SpawnGroup.cpp:548-550,570,590,519,575 delegates these effects rather than substituting successful no-ops.
+    for (callback, id) in [
+        (
+            GroupCallback::SetNoCallAssistance { object: object() },
+            "execution.group.f5_assistance_owner",
+        ),
+        (
+            GroupCallback::EngageInCombat {
+                object: object(),
+                target: object(),
+            },
+            "execution.group.f5_combat_engage_owner",
+        ),
+        (
+            GroupCallback::EnterEvadeMode { object: object() },
+            "execution.group.f5_ai_evade_owner",
+        ),
+        (
+            GroupCallback::MemberDied {
+                object: object(),
+                target: None,
+            },
+            "execution.group.f5_ai_member_died_owner",
+        ),
+        (
+            GroupCallback::FormationHome,
+            "execution.group.f4_13_formation_owner",
+        ),
+    ] {
+        assert_eq!(callback.missing_owner().id, id);
+    }
+}
+
+#[test]
+fn immediate_unloaded_despawn_writes_deadlines_for_both_types_and_delayed_does_not() {
+    // SpawnGroup.cpp:632,644-652,712,724-732 writes unloaded members using one fresh wall sample.
+    for kind in [0, 1] {
+        let (mut groups, mut states, group, mut work) =
+            fixture(template(1, kind, 2), &[(7, 0), (8, 0)], false, |_, _| {});
+        groups
+            .spawn(group, &mut states, false, false, &mut work)
+            .unwrap();
+        let persistent = groups.state(group).unwrap().persistent;
+        let kind = if kind == 0 {
+            GridSpawnKind::Creature
+        } else {
+            GridSpawnKind::GameObject
+        };
+        groups.despawn(group, &mut states, 1, 5, &mut work).unwrap();
+        assert!(work.sql.is_empty());
+        groups.despawn(group, &mut states, 0, 5, &mut work).unwrap();
+        assert_eq!(
+            work.wall_calls,
+            [
+                GroupClockCall::Spawn,
+                GroupClockCall::Despawn,
+                GroupClockCall::Despawn
+            ]
+        );
+        for guid in [7, 8] {
+            assert_eq!(states.state(persistent).unwrap().respawn(kind, guid), 105);
+        }
+        assert_eq!(
+            work.sql
+                .iter()
+                .filter(|s| matches!(s, PersistentSql::Insert { deadline: 105, .. }))
+                .count(),
+            2
+        );
+        assert!(groups.state(group).unwrap().objects.is_empty());
+    }
+}
+
+#[test]
+fn missing_live_linked_group_refuses_at_source_dereference_not_definition_loading() {
+    // SpawnGroup.cpp:555-557 dereferences a linked group's map-local pointer without a null guard.
+    let mut input = template(1, 0, 1);
+    input.flags = 1;
+    let (mut groups, mut states, group, mut work) = fixture(input, &[(7, 0)], false, |rows, _| {
+        rows.push(
+            GroupPhase::Templates,
+            GroupInputData::Template(template(2, 0, 1)),
+        );
+        rows.push(
+            GroupPhase::Links,
+            GroupInputData::Link {
+                group: 1,
+                linked: 2,
+            },
+        );
+    });
+    work.units.insert(object(), unit(99));
+    assert_eq!(
+        groups
+            .event(
+                group,
+                &mut states,
+                GroupEvent::Aggro,
+                Some(object()),
+                &mut work
+            )
+            .unwrap_err()
+            .id,
+        "execution.group.linked_group_absent_undefined"
+    );
+    assert_eq!(
+        groups
+            .state(group)
+            .unwrap()
+            .linkage_targets
+            .iter()
+            .copied()
+            .collect::<Vec<_>>(),
+        [object()]
+    );
+}
+#[test]
+fn explicit_creature_despawn_retains_only_alive_in_scheduled_callback() {
+    // SpawnGroup.h:97-98 keeps the explicit onlyAlive overload distinct from its default true.
+    let (mut groups, mut states, group, mut work) = event_fixture(0);
+    groups
+        .despawn_creatures(group, &mut states, 25, false, 5, &mut work)
+        .unwrap();
+    assert!(work.callbacks.iter().all(|callback| matches!(
+        callback,
+        GroupCallback::ForcedDespawn {
+            delay_millis: 25,
+            only_alive: false,
+            forced_seconds: 5,
+            ..
+        }
+    )));
+    assert_eq!(work.callbacks.len(), 2);
+}
+#[test]
+fn retained_group_callback_projection_is_explicitly_unsealed_or_skipped() {
+    let Ok(root) = std::env::var("BENILLA_F1_GROUP_LINKS_FRAMING") else {
+        eprintln!("SKIP unsealed MG/MR/MPR group callback comparison: BENILLA_F1_GROUP_LINKS_FRAMING absent");
+        return;
+    };
+    let path = Path::new(&root).join("source-sites.json");
+    let sites: serde_json::Value =
+        serde_json::from_reader(std::fs::File::open(path).unwrap()).unwrap();
+    let group_sites = sites
+        .as_object()
+        .unwrap()
+        .values()
+        .filter(|site| {
+            site["callsite"]["source_file"].as_str() == Some("src/game/Maps/SpawnGroup.cpp")
+        })
+        .count();
+    eprintln!("Unsealed group callback dictionary sites={group_sites}");
+    eprintln!("SKIP unsealed MG/MR/MPR group callback comparison: no independent callback-state projection owner");
+}
+
+#[test]
+fn linked_gameobject_group_refuses_before_invalid_creature_group_cast() {
+    // SpawnGroup.cpp:556 casts GetSpawnGroup to CreatureGroup without checking its dynamic type.
+    let mut input = template(1, 0, 1);
+    input.flags = 1;
+    let (mut groups, mut states, group, mut work) = fixture(input, &[(7, 0)], false, |rows, _| {
+        rows.push(
+            GroupPhase::Templates,
+            GroupInputData::Template(template(2, 1, 1)),
+        );
+        rows.push(
+            GroupPhase::Links,
+            GroupInputData::Link {
+                group: 1,
+                linked: 2,
+            },
+        );
+    });
+    let persistent = groups.state(group).unwrap().persistent;
+    groups
+        .create(group.map, persistent, 2, &mut states, &mut work)
+        .unwrap();
+    work.units.insert(object(), unit(99));
+    assert_eq!(
+        groups
+            .event(
+                group,
+                &mut states,
+                GroupEvent::Aggro,
+                Some(object()),
+                &mut work
+            )
+            .unwrap_err()
+            .id,
+        "execution.group.linked_group_type_undefined"
+    );
 }
