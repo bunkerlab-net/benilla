@@ -1113,10 +1113,15 @@ Final gameplay effects remain the separate F4.11 obligation.
 The event timer adapter resets before Update and again after its returned interval.
 Its inventory records current definitions, memberships, active IDs and status.
 
-The pinned `GameEventData` constructor does not initialise `scheduleType`.
-Native treats never-assigned slots as never SERVERSIDE, an owner-approved
-deviation recorded in `docs/DEVIATIONS.md`. This includes the raw catalog's
-957 positive holes and slot zero during weekly recalculation.
+The pinned `GameEventData` constructor leaves `scheduleType` indeterminate,
+`GameEventMgr.h:53-71`. Native pins never-assigned slots to the recorded
+round-15 zero, a deviation recorded in `docs/DEVIATIONS.md`. The 957 positive
+holes pass validity and take an initial negative spawn plus a separate
+NextCheck clock sample, `GameEventMgr.cpp:184-190,674-706`. Their default
+end=0 returns 86400 at positive wall time, `.cpp:42-48`. Later Update skips
+SERVERSIDE slots. Weekly recalculation scans slot zero but its zero schedule
+does no work, `.cpp:676,1328-1344`. Slot-zero and weekly execution were
+unreached in round 15; their authored tests are source-derived, not recorded.
 Lunar computation uses clean-room `benilla-sim::source_moon` mathematics through
 separately bound calendar, binary64 sine and observation owners. The default
 owner refuses the missing historical glibc 2.36 sine dispatch. Recorded fixtures

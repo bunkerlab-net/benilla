@@ -41,6 +41,11 @@ impl GameEventRows for Rows {
         Ok(self.mails.pop_front())
     }
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EventCall {
+    Clock(EventClockSite),
+    Effect(GameEventEffect),
+}
 #[derive(Default)]
 struct Owner<'a> {
     clocks: VecDeque<(EventClockSite, ClockSample)>,
@@ -52,6 +57,7 @@ struct Owner<'a> {
     references: Vec<(EventReference, u32)>,
     reject: Option<GameEventEffect>,
     lunar: Option<LunarEventBindings<'a>>,
+    timeline: Vec<EventCall>,
 }
 impl Owner<'_> {
     fn wall(&mut self, site: EventClockSite, seconds: i64) {
@@ -67,6 +73,7 @@ impl Owner<'_> {
 }
 impl GameEventOwner for Owner<'_> {
     fn clock(&mut self, site: EventClockSite) -> Result<ClockSample> {
+        self.timeline.push(EventCall::Clock(site));
         let (expected, sample) = self.clocks.pop_front().expect("missing authored clock");
         assert_eq!(site, expected);
         Ok(sample)
@@ -106,6 +113,7 @@ impl GameEventOwner for Owner<'_> {
         manager: &mut SourceGameEventManager,
         effect: GameEventEffect,
     ) -> Result<()> {
+        self.timeline.push(EventCall::Effect(effect));
         self.effects.push(effect);
         if self.reject == Some(effect) {
             return Err(refuse("execution.event.authored_effect_refusal"));
@@ -331,20 +339,32 @@ fn two_timer_resets_subtract_old_then_new_interval() {
     assert_eq!(timers, vec![(1000, 39_000), (31_000, 8_000)]);
 }
 #[test]
-fn never_assigned_positive_and_zero_slots_are_not_serverside() {
+fn never_assigned_slots_follow_recorded_zero_and_initial_clock_order() {
     let mut data = rows(3);
     data.definitions.remove(1);
     data.definitions[0].linked = 2;
     let mut owner = Owner::default();
     let mut manager = manager(&mut data, &mut owner);
-    assert_eq!(manager.inventory().definitions[1].linked, 0);
+    assert_eq!(manager.inventory().definitions[1].linked, 2);
     for id in [0, 2] {
-        assert_eq!(manager.inventory().definitions[id].schedule, None);
-        assert!(!manager.is_valid(id as u32).unwrap());
+        assert_eq!(manager.inventory().definitions[id].schedule, 0);
+        assert!(manager.is_valid(id as u32).unwrap());
+        assert_eq!(manager.inventory().definitions[id].start, 1);
+        assert_eq!(manager.inventory().definitions[id].end, 0);
+        assert!(!manager.check_one(id as u16, 130).unwrap());
     }
-    owner.update_times(130, &[(1, 130), (3, 130)]);
+    owner.update_times(130, &[(1, 131), (2, 132), (3, 133)]);
     manager.initialize(None, false, &mut owner).unwrap();
-    assert_eq!(manager.inventory().active, BTreeSet::from([1, 3]));
+    assert_eq!(manager.inventory().active, BTreeSet::from([3]));
+    assert!(owner.effects.contains(&GameEventEffect::Spawn(-2)));
+    assert!(owner.timeline.windows(2).any(|pair| pair
+        == [
+            EventCall::Effect(GameEventEffect::Spawn(-2)),
+            EventCall::Clock(EventClockSite::NextCheck(2)),
+        ]));
+    assert!(!owner.effects.contains(&GameEventEffect::Spawn(0)));
+    assert!(manager.inventory().creatures[1].is_empty());
+    assert!(manager.inventory().gameobjects[1].is_empty());
     owner.update_times(130, &[(1, 130), (3, 130)]);
     manager.update(false, &mut owner).unwrap();
     manager.weekly_recalculate(&mut owner).unwrap();
@@ -553,7 +573,7 @@ fn unsigned_mail_ids_and_playable_race_checks_do_not_admit_goblins() {
 }
 
 #[test]
-fn overwrite_retains_source_seconds_and_weekly_skips_slot_zero() {
+fn overwrite_retains_source_seconds_and_weekly_zero_is_inert() {
     let mut owner = Owner::default();
     let mut manager = manager(&mut rows(1), &mut owner);
     owner.wall(EventClockSite::OverwriteStart(1), 10_000);
@@ -577,11 +597,139 @@ fn overwrite_retains_source_seconds_and_weekly_skips_slot_zero() {
         (19_940, 19_941)
     );
     manager.weekly_recalculate(&mut owner).unwrap();
-    assert_eq!(manager.inventory().definitions[0].schedule, None);
+    assert_eq!(manager.inventory().definitions[0].schedule, 0);
     assert!(!manager.inventory().stopped);
     assert!(owner.clocks.is_empty());
 }
 
+#[test]
+fn slot_zero_manual_effects_and_next_check_keep_source_boundaries() {
+    let mut owner = Owner::default();
+    let mut manager = manager(&mut rows(1), &mut owner);
+    for (now, expected) in [(-1, 2), (0, 1), (1, 86400), (130, 86400)] {
+        owner.wall(EventClockSite::NextCheck(0), now);
+        assert_eq!(manager.next_check(0, &mut owner).unwrap(), expected);
+    }
+    manager
+        .start_event(0, false, false, false, &mut owner)
+        .unwrap();
+    assert!(manager.active(0));
+    assert_eq!(
+        &owner.effects[..3],
+        &[
+            GameEventEffect::InsertStatus(0),
+            GameEventEffect::Spawn(0),
+            GameEventEffect::Unspawn(0),
+        ]
+    );
+    owner.effects.clear();
+    manager.stop_event(0, false, &mut owner).unwrap();
+    assert!(!manager.active(0));
+    assert_eq!(
+        &owner.effects[..3],
+        &[
+            GameEventEffect::DeleteStatus(0),
+            GameEventEffect::Unspawn(0),
+            GameEventEffect::Spawn(0),
+        ]
+    );
+    assert!(owner.clocks.is_empty());
+}
+
+#[test]
+fn weekly_scan_includes_zero_but_only_calendar_schedules_sample_time() {
+    let mut data = rows(3);
+    data.definitions.remove(1);
+    data.definitions[0].schedule = 11;
+    let mut owner = Owner::default();
+    owner.wall(EventClockSite::LoadYearly(1), 130);
+    let mut manager = manager(&mut data, &mut owner);
+    let zero = manager.inventory().definitions[0].clone();
+    let hole = manager.inventory().definitions[2].clone();
+    // ResetWeeklyQuests reaches this scan after gameTime > reset; World.cpp:1560-1561,2337.
+    owner.wall(EventClockSite::Weekly(1), 31_536_130);
+    manager.weekly_recalculate(&mut owner).unwrap();
+    let scanned: Vec<_> = owner
+        .observations
+        .iter()
+        .filter_map(|observation| {
+            if let GameEventObservation::WeeklySchedule { event, schedule } = observation {
+                Some((*event, *schedule))
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(scanned, [(0, 0), (1, 11), (2, 0), (3, 1)]);
+    assert_eq!(manager.inventory().definitions[0], zero);
+    assert_eq!(manager.inventory().definitions[2], hole);
+    assert_eq!(manager.inventory().definitions[1].start, 31_536_100);
+    assert!(owner.clocks.is_empty());
+}
+
+#[test]
+fn recorded_empty_slot_projection_or_explicit_absence() {
+    let Ok(path) = std::env::var("BENILLA_F4_EVENT_ZERO") else {
+        println!("SKIP round-15 empty-slot projection: BENILLA_F4_EVENT_ZERO absent");
+        return;
+    };
+    let evidence: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(evidence["observed"]["all_raw_values_u32"], 0);
+    assert_eq!(evidence["observed"]["slot_count"], 1025);
+    assert_eq!(evidence["observed"]["reached_ID_holes"], 957);
+    assert_eq!(evidence["observed"]["schedule_reads"], 2871);
+    assert_eq!(evidence["observed"]["slot_zero_reads"], 0);
+    assert_eq!(evidence["observed"]["weekly_reads"], 0);
+    let projection_path = std::path::Path::new(&path)
+        .parent()
+        .unwrap()
+        .join("seal15-input-comparison-diagnostic.full.json");
+    if !projection_path.exists() {
+        println!("SKIP round-15 raw hole-ID projection: retained diagnostic absent");
+        return;
+    }
+    let projection: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(projection_path).unwrap()).unwrap();
+    assert_eq!(projection["value_counts_u32"]["0"], 2871);
+    assert_eq!(projection["read_site_counts"]["10064"], 957);
+    assert_eq!(projection["read_site_counts"]["206761"], 957);
+    assert_eq!(projection["read_site_counts"]["206762"], 957);
+    let holes: BTreeSet<u16> = projection["empty_slot_ids"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|id| u16::try_from(id.as_u64().unwrap()).unwrap())
+        .collect();
+    assert_eq!(holes.len(), 958);
+    assert!(holes.contains(&0) && holes.contains(&3));
+    let mut data = rows(1024);
+    data.definitions.retain(|row| !holes.contains(&row.id));
+    data.dates.clear();
+    let mut owner = Owner::default();
+    let mut manager = manager(&mut data, &mut owner);
+    let native_holes: BTreeSet<u16> = manager
+        .inventory()
+        .definitions
+        .iter()
+        .enumerate()
+        .filter_map(|(id, d)| (d.schedule == 0).then_some(id as u16))
+        .collect();
+    assert_eq!(native_holes, holes);
+    owner.update_times(130, &(1..=1024).map(|id| (id, 130)).collect::<Vec<_>>());
+    assert_eq!(
+        manager.initialize(None, false, &mut owner).unwrap(),
+        86_401_000
+    );
+    assert_eq!(owner.effects.len(), 1024);
+    assert!(owner
+        .effects
+        .iter()
+        .all(|effect| matches!(effect, GameEventEffect::Spawn(id) if *id < 0)));
+    assert!(owner.clocks.is_empty());
+    assert!(manager.inventory().active.is_empty());
+    println!("Unsealed round-15 projection: 957 holes, 2871 recorded zero reads; authored 957 hole NextCheck samples and empty negative spawns matched source consequences; no event-transition or whole-execution acceptance");
+}
 #[test]
 fn restart_event_only_activates_and_requests_shutdown() {
     let mut owner = Owner::default();

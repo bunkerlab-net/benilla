@@ -1002,5 +1002,5 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 
 #### native
 
-- Empty/never-assigned slots are never SERVERSIDE because native does not reproduce undefined scheduleType reads in CMaNGOS GameEventMgr.h:53-55,63-64 and GameEventMgr.cpp:184-186,1328-1330. ([`src/native/source_execution/game_events.rs:12`](../crates/benilla-world-runtime/src/native/source_execution/game_events.rs#L12))
+- Pin never-assigned scheduleType to recorded F1 round-15 zero because CMaNGOS GameEventMgr.h:53-71 leaves it indeterminate. ([`src/native/source_execution/game_events.rs:12`](../crates/benilla-world-runtime/src/native/source_execution/game_events.rs#L12))
 

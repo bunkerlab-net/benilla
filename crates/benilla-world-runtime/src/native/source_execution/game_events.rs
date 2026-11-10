@@ -9,8 +9,8 @@ const FAR_FUTURE: i64 = 4_102_444_800;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct GameEventDefinition {
-    // Deviation: Empty/never-assigned slots are never SERVERSIDE because native does not reproduce undefined scheduleType reads in CMaNGOS GameEventMgr.h:53-55,63-64 and GameEventMgr.cpp:184-186,1328-1330.
-    pub schedule: Option<u32>,
+    // Deviation: Pin never-assigned scheduleType to recorded F1 round-15 zero because CMaNGOS GameEventMgr.h:53-71 leaves it indeterminate.
+    pub schedule: u32,
     pub start: i64,
     pub end: i64,
     pub occurrence: u32,
@@ -27,7 +27,7 @@ impl GameEventDefinition {
         }
     }
     fn valid(&self) -> bool {
-        self.schedule == Some(0) || self.length > 0
+        self.schedule == 0 || self.length > 0
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -179,6 +179,10 @@ pub enum GameEventObservation {
     Active {
         event: u16,
         active: bool,
+    },
+    WeeklySchedule {
+        event: u16,
+        schedule: u32,
     },
     NextDelay(u32),
     Timer {
@@ -524,7 +528,7 @@ impl SourceGameEventManager {
                     .definitions
                     .get_mut(usize::from(row.id))
                     .ok_or_else(|| refuse("execution.event.definition_index_undefined"))?;
-                slot.schedule = Some(row.schedule);
+                slot.schedule = row.schedule;
                 slot.occurrence = row.occurrence;
                 slot.length = row.length;
                 slot.holiday = row.holiday;
@@ -573,7 +577,7 @@ impl SourceGameEventManager {
             }
             while let Some(row) = rows.date()? {
                 let slot = this.definition(u32::from(row.id))?;
-                if !matches!(slot.schedule, Some(1 | 11)) {
+                if !matches!(slot.schedule, 1 | 11) {
                     Self::decision(owner, 2, row.ordinal, row.id, "date_schedule_ignored")?;
                     continue;
                 }
@@ -593,7 +597,7 @@ impl SourceGameEventManager {
                     start_parsed: start.parsed,
                     end_parsed: end.parsed,
                 })?;
-                if slot.schedule == Some(11) {
+                if slot.schedule == 11 {
                     let today = wall(owner, EventClockSite::LoadYearly(row.id))?;
                     this.compute(row.id, 11, today, owner)?;
                 }
@@ -889,7 +893,7 @@ impl SourceGameEventManager {
         for id in 1..self.state.definitions.len() {
             let id = id as u16;
             let data = self.definition(u32::from(id))?;
-            let serverside = data.schedule == Some(0);
+            let serverside = data.schedule == 0;
             if (data.occurrence == 0 && !serverside) || (serverside && self.state.initialized) {
                 continue;
             }
@@ -967,9 +971,12 @@ impl SourceGameEventManager {
         self.run(|this| {
             this.ready()?;
             for id in 0..this.state.definitions.len() {
-                if let Some(schedule @ (2 | 3 | 5 | 6 | 8 | 9 | 11 | 12 | 13)) =
-                    this.state.definitions[id].schedule
-                {
+                let schedule = this.state.definitions[id].schedule;
+                owner.observe(GameEventObservation::WeeklySchedule {
+                    event: id as u16,
+                    schedule,
+                })?;
+                if let schedule @ (2 | 3 | 5 | 6 | 8 | 9 | 11 | 12 | 13) = schedule {
                     let today = wall(owner, EventClockSite::Weekly(id as u16))?;
                     this.compute(id as u16, schedule, today, owner)?;
                 }
