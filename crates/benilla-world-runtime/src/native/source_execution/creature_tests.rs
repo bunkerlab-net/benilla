@@ -939,6 +939,7 @@ fn event_model_overrides_spawn_model_without_display_draw_and_missing_override_t
         entry: 8,
         model: 11,
         equipment: 0,
+        ..Default::default()
     });
     world.load(0.0, &mut factory).unwrap();
     let state = factory.states.values().next().unwrap();
@@ -1488,4 +1489,25 @@ fn pool_constructor_uses_static_guid_and_destroys_failed_load_without_a_redraw()
             }
         }
     }
+}
+
+#[test]
+fn constructor_event_spells_keep_the_reached_f5_refusal() {
+    // Creature.cpp:617-619 applies event spells during UpdateEntry before map construction finishes.
+    let mut world = World::new(vec![spawn(40, 0.0)]);
+    let mut factory = Factory::new();
+    factory.event = Some(CreatureEventData {
+        start_spell: 15,
+        end_spell: 16,
+        ..Default::default()
+    });
+    factory.refuse = Some(CreaturePhase::ApplyEventSpells);
+    assert_eq!(
+        world.load(0.0, &mut factory).unwrap_err().id,
+        "execution.event.f5_spell_owner"
+    );
+    assert!(!factory.observations.iter().any(|observation| matches!(
+        observation,
+        Observation::Phase(_, CreaturePhase::MapAddToWorld)
+    )));
 }

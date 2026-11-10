@@ -10,9 +10,7 @@ pub enum MessageOwner {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SourceMessage {
     ForwardGameEvent {
-        map_id: u32,
-        creatures: Vec<u32>,
-        gameobjects: Vec<u32>,
+        maps: Vec<EventMapGuids>,
         spawn: bool,
     },
     MapGameEvent {
@@ -21,9 +19,7 @@ pub enum SourceMessage {
         spawn: bool,
     },
     UpdateCreatureEvent {
-        guid: u64,
-        event: u16,
-        activate: bool,
+        update: EventCreatureUpdate,
     },
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,12 +43,11 @@ pub struct MessageCompletion {
 
 /// Handlers must execute actual manager work; missing F4 owners return typed refusal.
 pub trait MessageWork {
+    fn begin_message(&mut self, message: &MessageEnvelope) -> Result<()>;
     fn forward_game_event(
         &mut self,
         thread: u64,
-        map_id: u32,
-        creatures: &[u32],
-        gameobjects: &[u32],
+        maps: &[EventMapGuids],
         spawn: bool,
     ) -> Result<()>;
     fn map_game_event(
@@ -68,9 +63,7 @@ pub trait MessageWork {
         &mut self,
         thread: u64,
         map: MapIdentity,
-        guid: u64,
-        event: u16,
-        activate: bool,
+        update: EventCreatureUpdate,
     ) -> Result<()>;
 }
 
@@ -153,17 +146,10 @@ impl MessageBatch {
         )?;
         let mut completions = Vec::with_capacity(self.messages.len());
         for message in self.messages {
+            work.begin_message(&message)?;
             let outcome = match (owner, message.payload) {
-                (
-                    MessageOwner::World,
-                    SourceMessage::ForwardGameEvent {
-                        map_id,
-                        creatures,
-                        gameobjects,
-                        spawn,
-                    },
-                ) => {
-                    work.forward_game_event(thread, map_id, &creatures, &gameobjects, spawn)?;
+                (MessageOwner::World, SourceMessage::ForwardGameEvent { maps, spawn }) => {
+                    work.forward_game_event(thread, &maps, spawn)?;
                     MessageOutcome::Executed
                 }
                 (
@@ -177,17 +163,10 @@ impl MessageBatch {
                     work.map_game_event(thread, map, &creatures, &gameobjects, spawn)?;
                     MessageOutcome::Executed
                 }
-                (
-                    MessageOwner::Map(map),
-                    SourceMessage::UpdateCreatureEvent {
-                        guid,
-                        event,
-                        activate,
-                    },
-                ) => {
+                (MessageOwner::Map(map), SourceMessage::UpdateCreatureEvent { update }) => {
                     // Resolve the current GUID, not the captured construction; GameEventMgr.cpp:1024-1033.
-                    if work.creature_present(map, guid) {
-                        work.update_creature_event(thread, map, guid, event, activate)?;
+                    if work.creature_present(map, update.definition.guid) {
+                        work.update_creature_event(thread, map, update)?;
                         MessageOutcome::Executed
                     } else {
                         MessageOutcome::CreatureAbsent

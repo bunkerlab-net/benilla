@@ -1213,3 +1213,32 @@ fn linking_absent_dynamic_slave_enters_real_spawn_manager_before_pruning() {
         .flatten()
         .all(|g| g.slaves.is_empty()));
 }
+
+#[test]
+fn event_unspawn_removes_only_alive_creatures_and_preserves_lootable_corpses() {
+    // GameEventMgr.cpp:956-958 queues alive creatures without killing dead lootables.
+    for dead in [false, true] {
+        let mut f = Fixture::new(false);
+        if dead {
+            f.die();
+        }
+        let object = f.life.object();
+        f.apply(|life, context, owner| {
+            EventLiveRequest {
+                map: map(),
+                key: SpawnKey {
+                    kind: GridSpawnKind::Creature,
+                    guid: 40,
+                },
+                object,
+            }
+            .creature(life, context.grid, owner)
+        })
+        .unwrap();
+        assert_eq!(f.world.cells.removals().len(), usize::from(!dead));
+        assert_eq!(f.world.objects.get(object).unwrap().in_world, dead);
+        if dead {
+            assert_eq!(f.life.death_state, CreatureDeathState::Corpse);
+        }
+    }
+}

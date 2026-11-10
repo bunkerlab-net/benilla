@@ -1175,7 +1175,25 @@ Native format, NativeCapability and production admission are unchanged.
 computes event schedules, and preserves signed memberships, top-pool
 association, substitutions, initial status and ascending linked-event decisions.
 Its owner must execute reached clock, lookup, quest, SQL and gameplay operations.
-Final gameplay effects remain the separate F4.11 obligation.
+`SourceEventEffects` executes signed membership changes, pool exclusions and
+global dynamic-GUID changes through world/map Messager stages. Map delivery
+uses the existing persistent overlays, SpawnManager and dynamic constructors.
+Creature removal preserves dead lootables. GO removal calls its real Delete
+owner. GO add deliberately writes the creature event-GUID domain, while GO
+remove reads the GO domain, `GameEventMgr.cpp:857,966`.
+
+Substitution messages capture each source row and resolve the current creature
+at delivery. Constructors can use `creature_event_data` for first-active
+substitution lookup. `EventCreatureOwner` requires F5 UpdateEntry and spell
+handlers. Quest flags, mass mail, instance/AI notifications and world shutdown
+retain typed missing-owner refusals. Resume suppresses mail only. Mail selection
+keeps the exact rewarded-quest SQL or race-mask task. Event 987 refuses before
+ordinary SQL/spawn work until the real World shutdown owner is connected.
+
+`EventMessageDispatch` connects executable payloads to the existing Messager,
+including parent-message causes and later-batch work. F4.21 must supply actual
+map traversal, map-owned queues, constructor/lifecycle adapters, SQL and F5
+handlers. No serialized state, native format or capability changes here.
 The event timer adapter resets before Update and again after its returned interval.
 Its inventory records current definitions, memberships, active IDs and status.
 

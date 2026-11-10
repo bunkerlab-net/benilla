@@ -1492,3 +1492,30 @@ fn pool_schedule_executes_existing_dynamic_go_scheduler_and_independent_save() {
 
 #[path = "pools/gameobject_effect_tests.rs"]
 mod pool_effects;
+
+#[test]
+fn event_unspawn_executes_real_go_delete_not_bare_remove() {
+    // GameEventMgr.cpp:967-968 calls Delete, including animation and pool handling.
+    let mut f = Fixture::new(false);
+    let object = f.object;
+    f.apply(|owner, _, context| {
+        EventLiveRequest {
+            map: map(),
+            key: SpawnKey {
+                kind: GridSpawnKind::GameObject,
+                guid: 7,
+            },
+            object,
+        }
+        .gameobject(context, owner)
+    })
+    .unwrap();
+    assert_eq!(f.world.cells.removals().len(), 1);
+    assert!(!f.world.objects.get(object).unwrap().in_world);
+    assert!(f
+        .factory
+        .life()
+        .events
+        .iter()
+        .any(|event| matches!(event, Event::Phase(_, Phase::DespawnAnimation))));
+}

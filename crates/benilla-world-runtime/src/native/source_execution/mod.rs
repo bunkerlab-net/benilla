@@ -121,6 +121,10 @@ mod game_events;
 #[cfg(test)]
 mod spawn_group_tests;
 pub use game_events::*;
+mod game_event_effects;
+pub use game_event_effects::*;
+mod game_event_dispatch;
+pub use game_event_dispatch::*;
 #[cfg(test)]
 mod game_event_tests;
 mod seal8_game_events;

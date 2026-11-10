@@ -1216,3 +1216,100 @@ fn nested_update_append_checks_capacity_without_changing_defined_deferred_order(
         }
     }
 }
+
+impl EventMapOwner for Work {
+    fn event_definition(&mut self, key: SpawnKey) -> Result<Option<EventSpawnDefinition>> {
+        Ok(self.definitions.get(&key).map(|data| EventSpawnDefinition {
+            map: data.map,
+            cell: data.cell,
+            entry: 1,
+            guid: u64::from(key.guid),
+        }))
+    }
+    fn event_grid_loaded(&mut self, _: MapIdentity, _: CellPair) -> Result<bool> {
+        Ok(true)
+    }
+    fn event_construct(
+        &mut self,
+        request: DynamicSpawnRequest,
+        spawns: &mut SourceSpawnManager,
+        states: &mut SourceManagers,
+    ) -> Result<bool> {
+        self.construct(spawns, states, request)
+    }
+    fn event_lookup(&mut self, _: MapIdentity, _: SpawnKey) -> Result<Option<ObjectHandle>> {
+        Ok(None)
+    }
+    fn event_remove(
+        &mut self,
+        _: EventLiveRequest,
+        _: &mut SourceSpawnManager,
+        _: &mut SourceManagers,
+    ) -> Result<()> {
+        panic!("no live objects")
+    }
+}
+
+#[test]
+fn event_map_delivery_copies_go_unit_guid_asymmetry_and_cancels_pending_spawns() {
+    // GameEventMgr.cpp:846-859,954-971 uses UNIT for GO add and GAMEOBJECT for GO remove.
+    let (mut manager, mut persistent, mut work) = world();
+    manager.initialize(&mut persistent, &mut work).unwrap();
+    let go = SpawnKey {
+        kind: GridSpawnKind::GameObject,
+        guid: 9,
+    };
+    work.definitions.insert(key(7), definition());
+    work.definitions.insert(go, definition());
+    manager.add(&persistent, key(7), &mut work).unwrap();
+    manager.add(&persistent, go, &mut work).unwrap();
+    execute_map_game_event(&mut manager, &mut persistent, &[7], &[9], true, &mut work).unwrap();
+    assert!(manager.event_guid(7, HighGuid::Creature));
+    assert!(manager.event_guid(9, HighGuid::Creature));
+    assert!(!manager.event_guid(9, HighGuid::GameObject));
+    assert_eq!(
+        work.attempts
+            .iter()
+            .map(|request| (request.key, request.requested_guid()))
+            .collect::<Vec<_>>(),
+        [(key(7), 0), (go, 0)]
+    );
+    let pair = definition().cell;
+    assert_eq!(
+        persistent
+            .state_mut(manager.persistent())
+            .unwrap()
+            .cell_guids(pair)
+            .creatures,
+        BTreeSet::from([7])
+    );
+    execute_map_game_event(&mut manager, &mut persistent, &[7], &[9], false, &mut work).unwrap();
+    assert!(!manager.event_guid(7, HighGuid::Creature));
+    assert!(manager.event_guid(9, HighGuid::Creature));
+    assert!(!manager.event_guid(9, HighGuid::GameObject));
+    assert!(manager.inventory().active.iter().all(|entry| entry.used));
+    work.attempts.clear();
+    manager.update(&mut persistent, &mut work).unwrap();
+    assert!(work.attempts.is_empty());
+    assert!(manager.inventory().active.is_empty());
+    assert!(persistent
+        .state_mut(manager.persistent())
+        .unwrap()
+        .cell_guids(pair)
+        .creatures
+        .is_empty());
+}
+
+#[test]
+fn event_map_delivery_refuses_missing_definition_at_source_assert() {
+    // GameEventMgr.cpp:844-845,854-855 asserts the fresh ObjectMgr lookup.
+    let (mut manager, mut persistent, mut work) = world();
+    manager.initialize(&mut persistent, &mut work).unwrap();
+    assert_eq!(
+        execute_map_game_event(&mut manager, &mut persistent, &[7], &[], true, &mut work)
+            .unwrap_err()
+            .id,
+        "execution.event.spawn_definition_assert"
+    );
+    assert!(work.attempts.is_empty());
+}

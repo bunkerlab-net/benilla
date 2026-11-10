@@ -225,19 +225,17 @@ impl Handlers {
     }
 }
 impl MessageWork for Handlers {
-    fn forward_game_event(
-        &mut self,
-        _: u64,
-        _: u32,
-        creatures: &[u32],
-        _: &[u32],
-        spawn: bool,
-    ) -> Result<()> {
+    fn begin_message(&mut self, _: &MessageEnvelope) -> Result<()> {
+        Ok(())
+    }
+    fn forward_game_event(&mut self, _: u64, maps: &[EventMapGuids], spawn: bool) -> Result<()> {
         self.map_queue.enqueue(MessageEnvelope {
             id: 1,
             cause: 10,
             payload: SourceMessage::MapGameEvent {
-                creatures: creatures.to_vec(),
+                creatures: maps
+                    .first()
+                    .map_or_else(Vec::new, |map| map.creatures.clone()),
                 gameobjects: vec![],
                 spawn,
             },
@@ -246,9 +244,7 @@ impl MessageWork for Handlers {
             id: 2,
             cause: 10,
             payload: SourceMessage::ForwardGameEvent {
-                map_id: 0,
-                creatures: vec![],
-                gameobjects: vec![],
+                maps: vec![],
                 spawn,
             },
         })
@@ -268,9 +264,7 @@ impl MessageWork for Handlers {
             id: 2,
             cause: 11,
             payload: SourceMessage::UpdateCreatureEvent {
-                guid: 7,
-                event: 1,
-                activate: true,
+                update: authored_event_update(),
             },
         })
     }
@@ -281,9 +275,7 @@ impl MessageWork for Handlers {
         &mut self,
         thread: u64,
         _: MapIdentity,
-        _: u64,
-        _: u16,
-        _: bool,
+        _: EventCreatureUpdate,
     ) -> Result<()> {
         self.draws.push(
             self.rng
@@ -303,9 +295,11 @@ fn event_world_map_batches_detach_and_nested_enqueue_waits() {
             id: 1,
             cause: 9,
             payload: SourceMessage::ForwardGameEvent {
-                map_id: 0,
-                creatures: vec![7, 8],
-                gameobjects: vec![],
+                maps: vec![EventMapGuids {
+                    map: 0,
+                    creatures: vec![7, 8],
+                    gameobjects: vec![],
+                }],
                 spawn: true,
             },
         })
@@ -344,7 +338,7 @@ fn stale_lookup_is_owner_specific_and_worker_rng_continues_across_maps() {
         scheduler.submit(1, job(id, map_id)).unwrap();
         let dispatched = scheduler.dequeue(2, id).unwrap();
         handlers
-            .update_creature_event(dispatched.thread, map(map_id), 7, 1, true)
+            .update_creature_event(dispatched.thread, map(map_id), authored_event_update())
             .unwrap();
         scheduler.complete(2, id).unwrap();
     }
@@ -356,9 +350,7 @@ fn stale_lookup_is_owner_specific_and_worker_rng_continues_across_maps() {
             id: 1,
             cause: 1,
             payload: SourceMessage::UpdateCreatureEvent {
-                guid: 7,
-                event: 1,
-                activate: true,
+                update: authored_event_update(),
             },
         })
         .unwrap();
@@ -380,4 +372,24 @@ fn stale_lookup_is_owner_specific_and_worker_rng_continues_across_maps() {
             ClockSample::authored(ClockKind::WallSeconds, 1)
         )
         .is_err());
+}
+
+fn authored_event_update() -> EventCreatureUpdate {
+    EventCreatureUpdate {
+        definition: EventSpawnDefinition {
+            map: 0,
+            cell: benilla_sim::resident_map::CellPair::from_indices(512, 512).unwrap(),
+            entry: 1,
+            guid: 7,
+        },
+        data: GameEventSubstitution {
+            guid: 7,
+            entry: 0,
+            model: 0,
+            equipment: 0,
+            start_spell: 0,
+            end_spell: 0,
+        },
+        activate: true,
+    }
 }

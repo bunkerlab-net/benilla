@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1, GameEventMgr.cpp:89-765,1162-1346.
-// Final spawn, substitution, quest, mail and instance effects belong to F4.11.
+//! Calendar decisions dispatch executable effects through SourceEventEffects.
 use super::super::production_compiler::{EventCatalogRows, VerifiedCatalog};
 use super::*;
 use benilla_sim::{source_calendar, source_moon, source_time::IntervalTimer};
@@ -342,6 +342,17 @@ impl SourceGameEventManager {
         Ok(self.state.substitutions[usize::from(*event)]
             .iter()
             .find(|data| data.guid == guid))
+    }
+    pub fn creature_event_data(&self, guid: u32) -> Result<Option<CreatureEventData>> {
+        Ok(self
+            .active_substitution(guid)?
+            .map(|data| CreatureEventData {
+                entry: data.entry,
+                model: data.model,
+                equipment: data.equipment,
+                start_spell: data.start_spell,
+                end_spell: data.end_spell,
+            }))
     }
     pub fn member_event(&self, kind: EventSpawnKind, guid: u32) -> Result<i16> {
         self.ready()?;

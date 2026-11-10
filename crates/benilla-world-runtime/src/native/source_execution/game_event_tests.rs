@@ -3,6 +3,8 @@
 use super::*;
 use benilla_sim::source_time::IntervalTimer;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+#[path = "game_event_effect_tests.rs"]
+mod effects;
 #[derive(Default)]
 struct Rows {
     maximum: Option<u16>,

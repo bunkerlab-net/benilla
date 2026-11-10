@@ -20,6 +20,8 @@ pub struct CreatureEventData {
     pub entry: u32,
     pub model: u32,
     pub equipment: u32,
+    pub start_spell: u32,
+    pub end_spell: u32,
 }
 #[derive(Clone, Debug)]
 pub struct CreatureTemplate {
@@ -58,6 +60,7 @@ pub enum CreaturePhase {
     InitEntryEquipmentAndFlags,
     SelectLevelStats,
     UpdateEntryFlagsAndSpells,
+    ApplyEventSpells,
     SelectFinalPointAndRelocate,
     PvpAndInstanceCreate,
     LinkingRegistration,
@@ -87,6 +90,7 @@ impl CreaturePhase {
             | Self::SelectLevelStats
             | Self::UpdateEntryFlagsAndSpells => "execution.creature.unit_initialization_owner",
             Self::SetDeadAndZeroHealth => "execution.creature.dead_health_owner",
+            Self::ApplyEventSpells => "execution.event.f5_spell_owner",
             Self::SelectFinalPointAndRelocate => "execution.creature.geometry_position_owner",
             Self::PvpAndInstanceCreate => "execution.creature.create_script_owner",
             Self::LinkingRegistration | Self::LinkingRespawn => "execution.creature.linking_owner",
@@ -489,6 +493,13 @@ where
         &mut state,
         context,
     )?;
+    // UpdateEntry applies active spells before positioning; Creature.cpp:617-619.
+    if state
+        .event
+        .is_some_and(|event| event.start_spell != 0 || event.end_spell != 0)
+    {
+        factory.creature_phase(CreaturePhase::ApplyEventSpells, &mut state, context)?;
+    }
     factory.creature_phase(
         CreaturePhase::SelectFinalPointAndRelocate,
         &mut state,
