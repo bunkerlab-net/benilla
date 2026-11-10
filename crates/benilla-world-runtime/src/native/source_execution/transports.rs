@@ -11,6 +11,9 @@ use std::{collections::BTreeMap, sync::Arc};
 #[path = "transports_movement.rs"]
 mod movement;
 pub use movement::*;
+#[path = "transports_passengers.rs"]
+mod passengers;
+pub use passengers::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct SourceTransportAnimation {

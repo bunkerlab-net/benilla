@@ -1112,8 +1112,20 @@ atan2 plus double M_PI, unlike template orientation normalization,
 F6 model operations. Default model construction/insertion and relocation
 refuse with named F6 errors. Authored owners test Contains/Remove/Relocate/Insert
 chronology, not collision correctness, `GameObject.cpp:2129-2139`.
-Attachment and every reached same-map or cross-map teleport refuse with named
-F4.17 errors before passenger/transfer effects. Zero-period modulo refuses
+`SourcePassengers` executes pointer-ordered boarding/offboarding, the source
+tangent quotient, recursive pet attachment/removal and map-guarded relocation.
+`SourceMoTransports::teleport` retains the old orientation, processes passengers,
+removes the old model/map and queues `SourceMessage::AttachTransport` after
+destination creation. `TransportMessageDispatch` attaches on the existing
+detached Messager batch before model insertion and visibility,
+`Transports.cpp:206-347,498-618`.
+F5 pet/player teleport, resurrection and visibility refuse at their reached calls.
+Creature effects expose the actual F3 relocation/removal owners through
+`PassengerEffect::creature`; their F5/F6 dependencies still refuse.
+Destination creation and causal enqueue require the actual map-manager owner.
+Pending transfers have no current map and are not serialized. F4.21 must compose
+the map/event dispatchers and shared message identities. F7 owns durable
+continuation and its eventual coordinated format cutover. Zero-period modulo refuses
 `execution.transport.period_modulo_zero_undefined` only when reached.
 The builder movement oracle compares state and unclamped spline words.
 Raw stock comparisons do not certify SQL periods or effective ObjectMgr.

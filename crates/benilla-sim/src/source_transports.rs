@@ -4,8 +4,10 @@
 //! Source transport template numerics. Bits are IEEE RNE, with no contraction.
 mod movement;
 mod numeric;
+mod passengers;
 use crate::facing::soft::{D, S};
 pub use movement::{segment_position, TransportMotion, TransportStep};
+pub use passengers::{passenger_offset, passenger_position, passenger_tangent};
 use serde::Serialize;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

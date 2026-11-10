@@ -1476,6 +1476,16 @@ narrows float atan2 plus binary64 M_PI without template normalization,
 The movement oracle extracts the unchanged update, segment and waypoint
 methods plus the unsigned tracker, with static float-overload assertions.
 Its receipt additionally binds the executable hash and approved builder image.
+
+`source_transports/passengers.rs` translates passenger transforms from
+`Entities/Transports.cpp:567-589`. Its tangent is glibc 2.36's generic
+`sysdeps/ieee754/flt-32/s_tanf.c` and `k_tanf.c`, not host libm.
+Both files carry Sun Microsystems' 1993 permission grant, preserved inline
+and included by `scripts/package-player.py`. The existing LGPL sin/cos
+reducer supplies the matching bounded reduction constants. Software IEEE
+RNE preserves the source float tangent quotient rather than replacing it
+with inverse rotation. The supported transport orientation range is ±TAU.
+The pinned-builder oracle covers the range and threshold neighbours.
 The generator checks the exact movement sample count, corpus order and
 consecutive sample indices separately from the `S` segment-numeric records.
 

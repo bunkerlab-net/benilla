@@ -46,6 +46,25 @@ pub trait MoTransportOwner {
             _ => "execution.transport.f6_dynamic_model_relocate_owner",
         }))
     }
+    fn passenger_effect(
+        &mut self,
+        effect: PassengerEffect,
+        _objects: &mut SourceObjects,
+    ) -> Result<()> {
+        Err(effect.missing_owner())
+    }
+    /// Execute MapManager::CreateMap, including destination initialization.
+    fn transport_destination(
+        &mut self,
+        _map: u32,
+        _transport: ObjectHandle,
+    ) -> Result<MapIdentity> {
+        Err(refuse("execution.transport.map_manager_create_map_owner"))
+    }
+    /// Allocate a causal message identity and enqueue on the actual destination Messager.
+    fn transport_message(&mut self, _map: MapIdentity, _transfer: TransportTransfer) -> Result<()> {
+        Err(refuse("execution.transport.map_message_schedule_owner"))
+    }
 }
 pub struct MoTransportContext<'a, O: MoTransportOwner> {
     pub cells: &'a mut SourceCells,
@@ -59,6 +78,8 @@ pub struct SourceMoTransports {
     maps: BTreeMap<MapIdentity, BTreeMap<u64, ObjectHandle>>,
     initialized: std::collections::BTreeSet<MapIdentity>,
     stopped: bool,
+    pub passengers: SourcePassengers,
+    pending: BTreeMap<ObjectHandle, MapIdentity>,
 }
 impl SourceMoTransports {
     pub fn get(&self, handle: ObjectHandle) -> Result<&SourceMoTransport> {
@@ -200,10 +221,22 @@ impl SourceMoTransports {
         objects: &mut SourceObjects,
         owner: &mut impl MoTransportOwner,
     ) -> Result<()> {
-        let Some(set) = self.maps.get(&map) else {
-            return Ok(());
-        };
-        for &handle in set.values() {
+        let mut after = None;
+        loop {
+            let next = self
+                .maps
+                .get(&map)
+                .and_then(|set| match after {
+                    None => set.first_key_value(),
+                    Some(p) => set
+                        .range((std::ops::Bound::Excluded(p), std::ops::Bound::Unbounded))
+                        .next(),
+                })
+                .map(|(&p, &h)| (p, h));
+            let Some((pointer, handle)) = next else {
+                break;
+            };
+            after = Some(pointer);
             let transport = self.objects.get_mut(&handle).unwrap();
             require(
                 objects.get(handle)?.map == Some(map),
@@ -223,8 +256,16 @@ impl SourceMoTransports {
                     other => super::numeric(other),
                 })? {
                 TransportStep::Unchanged => {}
-                TransportStep::Transfer { .. } => {
-                    return Err(refuse("execution.transport.f4_17_passenger_transfer_owner"))
+                TransportStep::Transfer { next, .. } => {
+                    let frame = &path.key_frames[next];
+                    let node = &path.nodes[frame.node];
+                    let pose = SourcePose([
+                        node.position[0],
+                        node.position[1],
+                        node.position[2],
+                        frame.orientation,
+                    ]);
+                    self.teleport(handle, node.map, pose, objects, owner)?;
                 }
                 TransportStep::Position { pose, .. } => {
                     transport.position = SourcePose(pose);
@@ -237,19 +278,172 @@ impl SourceMoTransports {
                         owner.transport_model(transport, GameObjectModelOperation::Relocate)?;
                         owner.transport_model(transport, GameObjectModelOperation::Insert)?;
                     }
+                    let view = self.passenger_transport(handle, objects)?;
+                    self.passengers.update_positions(view, objects, owner)?;
                 }
             }
         }
         Ok(())
     }
+    pub fn passenger_transport(
+        &self,
+        handle: ObjectHandle,
+        objects: &SourceObjects,
+    ) -> Result<PassengerTransport> {
+        let t = self.get(handle)?;
+        let object = objects.get(handle)?;
+        Ok(PassengerTransport {
+            handle,
+            guid: object
+                .guid
+                .ok_or_else(|| refuse("execution.transport.guid_owner"))?
+                .raw(),
+            progress: t.motion.progress(),
+            pose: t.position,
+            map: object.map,
+        })
+    }
     pub fn attach_passenger(
         &mut self,
-        _transport: ObjectHandle,
-        _passenger: ObjectHandle,
+        transport: ObjectHandle,
+        passenger: ObjectHandle,
+        adjust: bool,
+        objects: &mut SourceObjects,
+        owner: &mut impl MoTransportOwner,
     ) -> Result<()> {
-        Err(refuse(
-            "execution.transport.f4_17_passenger_attachment_owner",
-        ))
+        let view = self.passenger_transport(transport, objects)?;
+        self.passengers.add(view, passenger, adjust, objects, owner)
+    }
+    pub fn detach_passenger(
+        &mut self,
+        transport: ObjectHandle,
+        passenger: ObjectHandle,
+        objects: &mut SourceObjects,
+        owner: &mut impl MoTransportOwner,
+    ) -> Result<()> {
+        self.passengers.remove(transport, passenger, objects, owner)
+    }
+    pub fn pending_transfer(&self, handle: ObjectHandle) -> Option<MapIdentity> {
+        self.pending.get(&handle).copied()
+    }
+    // Relocate(x,y,z) deliberately retains the old orientation and ignores o; Transports.cpp:208-209.
+    pub fn teleport(
+        &mut self,
+        handle: ObjectHandle,
+        destination: u32,
+        pose: SourcePose,
+        objects: &mut SourceObjects,
+        owner: &mut impl MoTransportOwner,
+    ) -> Result<()> {
+        let old = objects
+            .get(handle)?
+            .map
+            .ok_or_else(|| refuse("execution.transport.current_map_owner"))?;
+        let transport = self
+            .objects
+            .get_mut(&handle)
+            .ok_or_else(|| refuse("execution.transport.stale_handle"))?;
+        transport.position.0[..3].copy_from_slice(&pose.0[..3]);
+        objects.set_pose(handle, transport.position)?;
+        let view = self.passenger_transport(handle, objects)?;
+        self.passengers
+            .transfer_passengers(view, destination, objects, owner)?;
+        if old.map != destination {
+            let transport = self.get(handle)?;
+            if transport.has_model
+                && owner.transport_model(transport, GameObjectModelOperation::Contains)?
+            {
+                owner.transport_model(transport, GameObjectModelOperation::Remove)?;
+            }
+            let pointer = objects
+                .get(handle)?
+                .source_allocation
+                .ok_or_else(|| refuse("execution.transport.allocation_owner"))?;
+            self.maps
+                .get_mut(&old)
+                .ok_or_else(|| refuse("execution.transport.map_binding"))?
+                .remove(&pointer);
+            self.update_for_map(handle, old, false, objects, owner)?;
+            objects.reset_map(handle)?;
+            let destination = owner.transport_destination(destination, handle)?;
+            self.pending.insert(handle, destination);
+            owner.transport_message(destination, TransportTransfer { transport: handle })?;
+        } else {
+            let transport = self.get(handle)?;
+            if transport.has_model
+                && owner.transport_model(transport, GameObjectModelOperation::Contains)?
+            {
+                owner.transport_model(transport, GameObjectModelOperation::Remove)?;
+                owner.transport_model(transport, GameObjectModelOperation::Relocate)?;
+                owner.transport_model(transport, GameObjectModelOperation::Insert)?;
+            }
+        }
+        Ok(())
+    }
+    // Player-list order and attached-player exclusions are independent of the passenger set; Transports.cpp:591-618.
+    pub fn update_for_map(
+        &self,
+        handle: ObjectHandle,
+        map: MapIdentity,
+        create: bool,
+        objects: &mut SourceObjects,
+        owner: &mut impl MoTransportOwner,
+    ) -> Result<()> {
+        let players = objects.map_players(map).collect::<Vec<_>>();
+        if players.is_empty() {
+            return Ok(());
+        }
+        if !create {
+            owner.passenger_effect(
+                PassengerEffect::BuildOutOfRange { transport: handle },
+                objects,
+            )?;
+        }
+        for player in players {
+            if self.passengers.movement(player)?.transport != Some(handle) {
+                owner.passenger_effect(
+                    PassengerEffect::Visibility {
+                        transport: handle,
+                        player,
+                        create,
+                    },
+                    objects,
+                )?;
+            }
+        }
+        Ok(())
+    }
+    // The destination message attaches before model Contains/Relocate/Insert and visibility; Transports.cpp:259-265.
+    pub fn deliver_transfer(
+        &mut self,
+        transfer: TransportTransfer,
+        cells: &SourceCells,
+        objects: &mut SourceObjects,
+        owner: &mut impl MoTransportOwner,
+    ) -> Result<()> {
+        let handle = transfer.transport;
+        require(
+            self.pending.get(&handle) == Some(&cells.map()) && objects.get(handle)?.map.is_none(),
+            "execution.transport.transfer_generation",
+        )?;
+        objects.bind_map(handle, cells.map(), cells)?;
+        let pointer = objects
+            .get(handle)?
+            .source_allocation
+            .ok_or_else(|| refuse("execution.transport.allocation_owner"))?;
+        self.maps
+            .entry(cells.map())
+            .or_default()
+            .insert(pointer, handle);
+        self.pending.remove(&handle);
+        let transport = self.get(handle)?;
+        if transport.has_model
+            && !owner.transport_model(transport, GameObjectModelOperation::Contains)?
+        {
+            owner.transport_model(transport, GameObjectModelOperation::Relocate)?;
+            owner.transport_model(transport, GameObjectModelOperation::Insert)?;
+        }
+        self.update_for_map(handle, cells.map(), true, objects, owner)
     }
 }
 #[cfg(test)]

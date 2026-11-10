@@ -1332,3 +1332,42 @@ fn missing_query_geometry_owner_refuses_instead_of_claiming_a_loaded_terrain_til
     );
     assert_eq!(terrain.tile(32, 32).unwrap(), None);
 }
+
+#[test]
+fn transport_creature_calls_execute_real_relocation_and_removal_owners() {
+    // Transports.cpp:233,534 uses the existing Map creature relocation and deferred removal.
+    let mut f = Fixture::new(60000, false);
+    let creature = f.actor(SourceObjectKind::Creature, 0.0, 0.0, false);
+    f.load_empty(520.0, GridLoadTrigger::Enter);
+    let target = pose(520.0);
+    let mut context = GridFactoryContext {
+        definitions: &mut f.definitions,
+        products: &mut f.products,
+        sets: &mut f.sets,
+        objects: &mut f.objects,
+        cells: &mut f.cells,
+    };
+    PassengerEffect::CreatureRelocate {
+        creature,
+        pose: target,
+    }
+    .creature(&mut context, &mut f.host)
+    .unwrap();
+    assert_eq!(context.objects.pose(creature).unwrap(), target);
+    assert_eq!(
+        context.objects.get(creature).unwrap().current_cell,
+        Some(context.cells.cell(target.cell().unwrap()).unwrap())
+    );
+    PassengerEffect::CreatureRemove { creature }
+        .creature(&mut context, &mut f.host)
+        .unwrap();
+    assert_eq!(context.cells.removals().len(), 1);
+    assert!(!context.objects.get(creature).unwrap().in_world);
+    assert_eq!(
+        f.phases(creature),
+        [
+            ResidencyPhase::CleanupBeforeDelete,
+            ResidencyPhase::RemoveFromWorld
+        ]
+    );
+}

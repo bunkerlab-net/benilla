@@ -281,8 +281,8 @@ fn absent_f6_relocation_stops_before_remove_or_insert() {
     assert_eq!(w.operations.len(), 1);
 }
 #[test]
-fn teleport_and_attachment_refuse_before_unimplemented_effects() {
-    // Transports.cpp:380-386 transfers before tracker and position updates.
+fn teleport_refuses_at_model_after_source_relocation() {
+    // Transports.cpp:209,268 relocates before the reached UpdateModelPosition owner.
     let t = templates(&[(42, 0)]);
     let mut m = SourceMoTransports::default();
     let mut c = SourceCells::new(map(0)).unwrap();
@@ -290,21 +290,18 @@ fn teleport_and_attachment_refuse_before_unimplemented_effects() {
     let mut w = AuthoredOwner::default();
     initialize(&t, &mut m, &mut c, &mut o, &mut w, 0);
     let h = m.members(map(0)).next().unwrap();
-    let before = o.pose(h).unwrap();
+    let orientation = o.pose(h).unwrap().0[3];
     w.operations.clear();
+    w.fail = Some(GameObjectModelOperation::Contains);
     let clock = t.templates[&42].key_frames.last().unwrap().arrive_time;
     assert_eq!(
         m.update_map(&t, map(0), clock, 0, &mut o, &mut w)
             .unwrap_err()
             .id,
-        "execution.transport.f4_17_passenger_transfer_owner"
+        "execution.transport.f6_dynamic_model_relocate_owner"
     );
-    assert_eq!(o.pose(h).unwrap(), before);
-    assert!(w.operations.is_empty());
-    assert_eq!(
-        m.attach_passenger(h, h).unwrap_err().id,
-        "execution.transport.f4_17_passenger_attachment_owner"
-    );
+    assert_eq!(o.pose(h).unwrap().0[3], orientation);
+    assert_eq!(w.operations.len(), 1);
 }
 #[test]
 fn two_maps_share_the_calling_stream_without_transport_rng() {
@@ -433,3 +430,6 @@ fn retained_stock_creation_reaches_missing_f6_for_each_transport_or_skips() {
     }
     println!("Unsealed raw catalog component reach: nine F6 refusals, zero admitted creations or movement; no effective ObjectMgr or F1 acceptance");
 }
+
+#[path = "transports_passenger_tests.rs"]
+mod passenger_tests;

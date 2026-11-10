@@ -21,6 +21,9 @@ pub enum SourceMessage {
     UpdateCreatureEvent {
         update: EventCreatureUpdate,
     },
+    AttachTransport {
+        transfer: TransportTransfer,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MessageEnvelope {
@@ -65,6 +68,14 @@ pub trait MessageWork {
         map: MapIdentity,
         update: EventCreatureUpdate,
     ) -> Result<()>;
+    fn attach_transport(
+        &mut self,
+        _thread: u64,
+        _map: MapIdentity,
+        _transfer: TransportTransfer,
+    ) -> Result<()> {
+        Err(refuse("execution.transport.map_message_dispatch_owner"))
+    }
 }
 
 pub struct SourceMessager {
@@ -94,7 +105,9 @@ impl SourceMessager {
             (MessageOwner::World, SourceMessage::ForwardGameEvent { .. })
                 | (
                     MessageOwner::Map(_),
-                    SourceMessage::MapGameEvent { .. } | SourceMessage::UpdateCreatureEvent { .. }
+                    SourceMessage::MapGameEvent { .. }
+                        | SourceMessage::UpdateCreatureEvent { .. }
+                        | SourceMessage::AttachTransport { .. }
                 )
         );
         require(correct_owner, "execution.message_owner")?;
@@ -171,6 +184,10 @@ impl MessageBatch {
                     } else {
                         MessageOutcome::CreatureAbsent
                     }
+                }
+                (MessageOwner::Map(map), SourceMessage::AttachTransport { transfer }) => {
+                    work.attach_transport(thread, map, transfer)?;
+                    MessageOutcome::Executed
                 }
                 _ => return Err(refuse("execution.message_owner")),
             };

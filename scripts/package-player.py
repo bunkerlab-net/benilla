@@ -68,6 +68,7 @@ LEGAL_DOCUMENTS = tuple(path for path in DOCUMENTS if any(
     word in PurePosixPath(path).name.upper()
     for word in ("LICENSE", "NOTICE", "AUTHORS", "COPYRIGHT"))) + (
     "crates/benilla-sim/src/facing/atan2.rs",
+    "crates/benilla-sim/src/source_transports/passengers.rs",
     "crates/benilla-sim/src/source_trig/GLIBC-NOTICE.txt",
     "crates/benilla-sim/src/source_trig/GLIBC-LICENSE.txt",
     "crates/benilla-sim/src/source_atan/GLIBC-NOTICE.txt",
