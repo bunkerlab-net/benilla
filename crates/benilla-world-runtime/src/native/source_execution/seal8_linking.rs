@@ -70,7 +70,7 @@ mod tests {
         assert!(report.constructor_identities_observed > 0);
         assert_eq!(report.independently_matched_linking_records, 0);
         assert!(!report.reference_execution_sealed && !report.whole_execution_accepted);
-        println!("SKIP unsealed P0/MG/MR linking comparison: no bound linking loader/holder/gate observations");
+        println!("SKIP unsealed P0/MG/MR linking comparison: no bound linking loader/holder/gate/event/follow projection");
         println!("{}", serde_json::to_string(&report).unwrap());
     }
 }

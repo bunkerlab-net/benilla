@@ -963,8 +963,24 @@ The pinned `CreatureLinkingMgr.cpp` contract is:
 `lookup_source_creature_linking` uses the current entry field, not GUID entry
 bits. `register_source_creature_linking` performs the slave/master operations
 from `Creature.cpp:923-929`; its true result sets the constructor's trigger flag.
-Linked respawn, combat and motion actions remain mandatory later owners.
-No missing query, clock or instance owner becomes an empty successful callback.
+`SourceCreatureLinkingHolder::event` executes entry-slave, GUID-slave, then
+reverse-master actions at `CreatureLinkingMgr.cpp:401-610`. Each list owns its
+recursion guard. New-system respawn preprocessing precedes stale pruning, pet
+and range checks. Callbacks can append registrations or recursively enter other
+lists without replacing the source iterator rules. Respawn uses the source's
+strict fresh-wall loop guard. `try_follow_master` retains the source's final
+out-of-range lookup at `:766-776`; reverse events do not.
+
+`LinkingActionRequest::lifecycle` enters retained F4.07 respawn or immediate
+forced despawn, including mandatory callbacks and removal. Forced despawn runs
+death, in-place corpse removal, then the real Unit health setter,
+`Creature.cpp:1972-1980`. `LinkingScheduleRequest::execute` enters the existing
+SpawnManager. Lifecycle pool callbacks remain owned by the F4.09 pool adapter.
+Unit/AI callers dispatch the public event or follow method at their source call.
+Absent AttackStart, threat/combat, suicide, evade and motion-follow owners refuse
+with distinct `execution.linking.f5_*_owner` errors. No unsupported AI flag is
+cleared. Failed events stop the holder rather than permit a partial retry.
+No missing query, clock, instance or action owner becomes a successful callback.
 
 The source's promoted signed range square at `CreatureLinkingMgr.cpp:659`
 overflows above 46340. Reached overflow refuses

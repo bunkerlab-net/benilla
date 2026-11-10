@@ -805,3 +805,6 @@ fn retained_catalog04_query_streams_or_explicit_absence() {
     assert_eq!(multiple.len(), 2);
     println!("Unsealed diagnostic catalog-04 linking query rows verified: {templates} templates, {guids} GUIDs; no effective-manager or F1 acceptance");
 }
+
+#[path = "creature_linking_event_tests.rs"]
+mod event_tests;

@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
-//! CreatureLinkingMgr.cpp:64-398,640-750. Actions remain separate reached owners.
+//! CreatureLinkingMgr.cpp:64-785. Passive gates and synchronous linked events.
 use super::super::production_compiler::{LinkingCatalogRows, VerifiedCatalog};
 use super::*;
 use rustc_apfloat::{ieee::Single, Float};
 use std::collections::{BTreeMap, BTreeSet};
+
+#[path = "creature_linking_events.rs"]
+mod events;
+pub use events::*;
 
 pub const LINKING_BOSS_DEAD: u16 = 0x0400;
 pub const LINKING_BOSS_ALIVE: u16 = 0x0800;
@@ -339,6 +343,7 @@ pub struct LinkingHolderGroup {
 pub struct LinkingHolderInventory {
     pub version: u32,
     pub map: MapIdentity,
+    pub stopped: bool,
     pub entries: BTreeMap<u32, Vec<LinkingHolderGroup>>,
     pub guids: BTreeMap<u32, Vec<LinkingHolderGroup>>,
     pub masters: BTreeMap<u32, Vec<SourceGuid>>,
@@ -349,6 +354,7 @@ pub struct SourceCreatureLinkingHolder {
     entries: BTreeMap<u32, Vec<LinkingHolderGroup>>,
     guids: BTreeMap<u32, Vec<LinkingHolderGroup>>,
     masters: BTreeMap<u32, Vec<SourceGuid>>,
+    stopped: bool,
 }
 pub trait LinkingGateOwner {
     fn creature_data(&mut self, guid: u32) -> Result<Option<LinkingSpawnData>>;
@@ -373,12 +379,14 @@ impl SourceCreatureLinkingHolder {
             entries: BTreeMap::new(),
             guids: BTreeMap::new(),
             masters: BTreeMap::new(),
+            stopped: false,
         })
     }
     pub fn inventory(&self) -> LinkingHolderInventory {
         LinkingHolderInventory {
             version: 1,
             map: self.map,
+            stopped: self.stopped,
             entries: self.entries.clone(),
             guids: self.guids.clone(),
             masters: self.masters.clone(),
@@ -653,7 +661,7 @@ pub enum LinkingPending {
     EffectiveObjectMgrDefinitions,
     UniqueMasterSqlOccurrences,
     ReachedInstancePredicate,
-    LinkedActions,
+    F5AiCombatMotion,
     MgMrLifecycle,
     F7Continuation,
 }
@@ -662,7 +670,7 @@ pub const LINKING_PENDING: &[LinkingPending] = &[
     LinkingPending::EffectiveObjectMgrDefinitions,
     LinkingPending::UniqueMasterSqlOccurrences,
     LinkingPending::ReachedInstancePredicate,
-    LinkingPending::LinkedActions,
+    LinkingPending::F5AiCombatMotion,
     LinkingPending::MgMrLifecycle,
     LinkingPending::F7Continuation,
 ];

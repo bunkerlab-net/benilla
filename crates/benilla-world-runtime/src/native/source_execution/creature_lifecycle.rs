@@ -32,7 +32,7 @@ impl CreatureLifecyclePending {
     pub fn refusal(self) -> Refusal {
         refuse(match self {
             Self::PoolEffects => "execution.creature_lifecycle.f4_09_pool_effects_pending",
-            Self::LinkingEffects => "execution.creature_lifecycle.f4_10_linking_effects_pending",
+            Self::LinkingEffects => "execution.creature_lifecycle.linking_dispatch_owner",
             Self::GroupEffects => "execution.creature_lifecycle.f4_12_group_effects_pending",
             Self::UnitEffects => "execution.creature_lifecycle.f5_unit_effects_pending",
             Self::AiEffects => "execution.creature_lifecycle.f5_ai_effects_pending",
@@ -74,6 +74,7 @@ pub enum CreatureLifecyclePhase {
     GroupRespawn,
     MapAdd,
     PoolRespawn(u32),
+    SetHealthZero,
 }
 impl CreatureLifecyclePhase {
     pub fn missing_owner(self) -> Refusal {
@@ -602,6 +603,30 @@ impl SourceCreatureLifecycle {
                     this.wall(CreatureLifecycleClock::Respawn, owner)?;
             }
             Ok(())
+        })
+    }
+    // Immediate ForcedDespawn uses death, in-place corpse removal, then health; Creature.cpp:1972-1980.
+    pub fn forced_despawn<D, P, F>(
+        &mut self,
+        context: &mut CreatureLifecycleContext<'_, '_, D, P>,
+        owner: &mut F,
+    ) -> Result<()>
+    where
+        D: GridDefinitions,
+        P: ResidencyProductOwner,
+        F: CreatureLifecycleOwner<D, P>,
+    {
+        require(!self.stopped, "execution.creature_lifecycle.stopped")?;
+        self.binding(context)?;
+        if self.death_state == CreatureDeathState::Dead {
+            return Ok(());
+        }
+        if self.death_state == CreatureDeathState::Alive {
+            self.die(context, owner)?;
+        }
+        self.run(|this| {
+            this.remove_inner(true, context, owner)?;
+            owner.lifecycle_phase(CreatureLifecyclePhase::SetHealthZero, this, context)
         })
     }
     pub fn inspecting_loot(&mut self, world_clock_ms: i64) -> Result<()> {

@@ -263,6 +263,9 @@ impl CreatureLifecycleOwner<Definitions, Products> for Host {
             Phase::MapAdd => {
                 add_source_creature(&mut self.factory, &mut life.construction, c.grid)?;
             }
+            Phase::SetHealthZero => {
+                self.factory.health.insert(life.object(), 0);
+            }
             _ => {}
         }
         Ok(())
@@ -1052,3 +1055,161 @@ fn pool_live_actions_reuse_retained_delay_save_readd_and_removal() {
 
 #[path = "pools/creature_effect_tests.rs"]
 mod pool_effects;
+
+struct LifecycleLinkRow(Option<LinkingTemplateRow>);
+impl LinkingRows for LifecycleLinkRow {
+    fn next_template(&mut self) -> Result<Option<LinkingTemplateRow>> {
+        Ok(self.0.take())
+    }
+    fn next_guid(&mut self) -> Result<Option<LinkingGuidRow>> {
+        Ok(None)
+    }
+}
+struct LifecycleLinkDefinitions;
+impl LinkingLoadOwner for LifecycleLinkDefinitions {
+    fn template_exists(&mut self, _: u32) -> Result<bool> {
+        Ok(true)
+    }
+    fn map_exists(&mut self, _: u32) -> Result<bool> {
+        Ok(true)
+    }
+    fn creature_data(&mut self, _: u32) -> Result<Option<LinkingSpawnData>> {
+        panic!("entry-only fixture")
+    }
+    fn query_unique_master(&mut self, _: u32, _: u32) -> Result<LinkingMasterQuery> {
+        panic!("nonpassive nonfollow fixture")
+    }
+}
+impl LinkingEventOwner for Fixture {
+    fn linking_creature(
+        &mut self,
+        m: MapIdentity,
+        object: ObjectHandle,
+    ) -> Result<LinkingCreature> {
+        assert_eq!(m, map());
+        assert_eq!(object, self.life.object());
+        LinkingCreature::read(&self.world.objects, &self.life, false, false)
+    }
+    fn linking_lookup(
+        &mut self,
+        m: MapIdentity,
+        lookup: LinkingLookup,
+    ) -> Result<Option<ObjectHandle>> {
+        Ok(lookup.resolve(m, &self.world.objects))
+    }
+    fn linking_wall(&mut self) -> Result<ClockSample> {
+        Ok(ClockSample::authored(
+            ClockKind::WallSeconds,
+            self.host.wall,
+        ))
+    }
+    fn linking_schedule(
+        &mut self,
+        request: LinkingScheduleRequest,
+        _: &mut SourceCreatureLinkingHolder,
+    ) -> Result<()> {
+        request.execute(&mut self.spawns, &mut self.persistent, &mut self.host)
+    }
+    fn linking_action(
+        &mut self,
+        request: LinkingActionRequest,
+        _: &mut SourceCreatureLinkingHolder,
+    ) -> Result<()> {
+        self.apply(|l, c, h| request.lifecycle(l, c, h))
+    }
+}
+fn lifecycle_link(
+    f: &mut Fixture,
+    flags: u16,
+) -> (SourceCreatureLinking, SourceCreatureLinkingHolder) {
+    let entry = f.life.construction.template.entry;
+    let mut links = SourceCreatureLinking::default();
+    links
+        .load(
+            &mut LifecycleLinkRow(Some(LinkingTemplateRow {
+                ordinal: 0,
+                slave: entry,
+                map: 0,
+                master: entry,
+                flags,
+                range: 0,
+            })),
+            &mut LifecycleLinkDefinitions,
+        )
+        .unwrap();
+    let mut holder = SourceCreatureLinkingHolder::new(map()).unwrap();
+    register_source_creature_linking(
+        &links,
+        &mut holder,
+        &f.world.objects,
+        f.life.object(),
+        entry,
+    )
+    .unwrap();
+    (links, holder)
+}
+#[test]
+fn linking_forced_despawn_executes_real_death_remove_and_health_owners() {
+    // ForcedDespawn goes through SetDeathState and in-place RemoveCorpse before health; Creature.cpp:1972-1980.
+    let mut f = Fixture::new(false);
+    let (links, mut holder) = lifecycle_link(&mut f, 0x0010);
+    let object = f.life.object();
+    holder
+        .event(&links, &mut f, LinkingEvent::Die, object, None)
+        .unwrap();
+    assert_eq!(f.life.death_state, CreatureDeathState::Dead);
+    assert_eq!(f.host.factory.health[&object], 0);
+    assert_eq!(
+        f.host.calls.last(),
+        Some(&Call::Phase(Phase::SetHealthZero))
+    );
+    assert!(f.host.calls.contains(&Call::Phase(Phase::UnitJustDied)));
+    assert!(f.host.calls.contains(&Call::Phase(Phase::UnitDead)));
+    assert_eq!(f.world.objects.get(object).unwrap().life_generation, 1);
+    let calls = f.host.calls.len();
+    f.apply(|l, c, h| l.forced_despawn(c, h)).unwrap();
+    assert_eq!(f.host.calls.len(), calls);
+}
+#[test]
+fn linking_respawn_uses_real_legacy_deadline_and_repeated_loop_guard() {
+    // Respawn clears persisted time and writes fresh wall time without reviving immediately; Creature.cpp:1948-1959.
+    let mut f = Fixture::new(false);
+    let (links, mut holder) = lifecycle_link(&mut f, 0x0080);
+    f.die();
+    let object = f.life.object();
+    holder
+        .event(&links, &mut f, LinkingEvent::Respawn, object, None)
+        .unwrap();
+    assert_eq!(f.life.death_state, CreatureDeathState::Dead);
+    assert_eq!(f.life.construction.respawn_time, 101);
+    assert_eq!(f.deadline(), 0);
+    f.host.calls.clear();
+    holder
+        .event(&links, &mut f, LinkingEvent::Respawn, object, None)
+        .unwrap();
+    assert!(f.host.calls.is_empty());
+    f.update();
+    assert_eq!(f.life.death_state, CreatureDeathState::Alive);
+    assert_eq!(f.world.objects.get(object).unwrap().life_generation, 2);
+}
+#[test]
+fn linking_absent_dynamic_slave_enters_real_spawn_manager_before_pruning() {
+    // Missing dynamic slave schedules via RespawnCreature before erasing the list record; CreatureLinkingMgr.cpp:533-538.
+    let mut f = Fixture::new(true);
+    let (links, mut holder) = lifecycle_link(&mut f, 0x0040);
+    let object = f.life.object();
+    f.world.objects.remove_from_world(object).unwrap();
+    holder
+        .event(&links, &mut f, LinkingEvent::Die, object, None)
+        .unwrap();
+    let active = f.spawns.inventory().active;
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].key.guid, 40);
+    assert_eq!(active[0].key.kind, GridSpawnKind::Creature);
+    assert!(holder
+        .inventory()
+        .entries
+        .values()
+        .flatten()
+        .all(|g| g.slaves.is_empty()));
+}
