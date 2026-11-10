@@ -51,14 +51,24 @@ def cases():
             path('single_frame', 3, stop=(1,))]
 
 
+def validate_movement_output(corpus, result):
+    samples = [line.split() for line in result.splitlines() if not line.startswith(b'S ')]
+    assert len(samples) == sum(len(case['samples']) for case in corpus), 'Movement oracle did not consume every sample'
+    expected = [[case['name'].encode(), str(index).encode()]
+                for case in corpus for index in range(len(case['samples']))]
+    assert [row[:2] for row in samples] == expected, 'Movement oracle case/sample order differs'
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('source', type=Path)
     parser.add_argument('evidence', type=Path)
     parser.add_argument('--private-cases',type=Path)
+    parser.add_argument('--movement', action='store_true')
+    parser.add_argument('--prepare-only', action='store_true')
     args = parser.parse_args()
     assert subprocess.check_output(['git', '-C', str(args.source), 'rev-parse', 'HEAD'], text=True).strip() == PIN
-    work = args.evidence.resolve()/'template-oracle'
+    work = args.evidence.resolve()/('movement-oracle' if args.movement else 'template-oracle')
     work.mkdir(parents=True, exist_ok=True)
     retained = {}
     def source(name):
@@ -129,34 +139,59 @@ constexpr uint32 IN_MILLISECONDS=1000;
     body += method(transport, 'class SplineRawInitializer\n') + ';\n'
     body += method(transport, 'bool TransportMgr::GenerateWaypoints(') + '\n'
     body += method(entities, 'TransportTemplate::~TransportTemplate()') + '\n'
-    body += (HERE/'source_transports_oracle.cpp').read_text()
+    harness = (HERE/('source_transport_movement_oracle.cpp' if args.movement else 'source_transports_oracle.cpp')).read_text()
+    if args.movement:
+        harness = harness.replace('// INSERT_TRACKER', method(source('src/shared/Util/Timer.h'), 'struct ShortTimeTracker\n') + ';\n')
+        methods = '\n'.join(method(entities, signature) for signature in [
+            'void Transport::MoveToNextWayPoint()', 'void Transport::Update(', 'float Transport::CalculateSegmentPos('])
+        harness = harness.replace('// INSERT_METHODS', methods)
+    body += harness
     (work/'oracle.cpp').write_text(body)
     corpus = json.loads(args.private_cases.read_text()) if args.private_cases else cases()
+    if args.movement:
+        for case in corpus:
+            case['initial'] = 0
+            case['samples'] = sorted({0,1,49,50,51,999,1000,1999,2000,2001,2999,3000,3001,3999,4000,4001,0xfffffffa,0xffffffff}
+                                     | set(range(0,150001,997))) + [0,50]
     (work/'cases.json').write_text(json.dumps(corpus, separators=(',',':'))+'\n')
     stdin = []
     for case in corpus:
         stdin.append(f"{case['name']} {case['entry']} {case['path']} {case['speed']} {case['accel']} {len(case['nodes'])} {int(case['period'] is not None)} {case['period'] or 0}")
         for node in case['nodes']:
             stdin.append(' '.join(map(str,[node['index'],node['map'],*node['position'],node['flags'],node['delay']])))
+        if args.movement:
+            stdin.append(f"{case['initial']} {len(case['samples'])}")
+            stdin.extend(f"{now} {i%2*0xffffffff}" for i,now in enumerate(case['samples']))
     (work/'inputs.txt').write_text('\n'.join(stdin)+'\n')
     compile_args = ['g++','-std=c++17','-O3','-DNDEBUG','-ffp-contract=off','-fno-fast-math','-fno-omit-frame-pointer','-g',
                     '-I/evidence','-I/source/dep/g3dlite','/evidence/oracle.cpp','-o','/evidence/oracle']
+    image = 'sha256:7f8acd0cd855b63046cfdf49f21ed319ae6b981758f5fafe2100aed8b4ef21e8' if args.movement else IMAGE
+    if args.movement:
+        actual_image = subprocess.check_output(['docker','image','inspect',image,'--format','{{.Id}}'], text=True).strip()
+        assert actual_image == image, 'Approved movement image is absent or changed'
     base = ['docker','run','--rm','-i','--network=none','--user',f'{__import__("os").getuid()}:{__import__("os").getgid()}',
             '--mount',f'type=bind,src={args.source.resolve()},dst=/source,readonly',
-            '--mount',f'type=bind,src={work},dst=/evidence',IMAGE]
+            '--mount',f'type=bind,src={work},dst=/evidence',image]
+    if args.prepare_only:
+        print(f"Prepared {work}/oracle.cpp and inputs.txt, no compiler or image execution")
+        return
     subprocess.run(base+compile_args,check=True)
     result = subprocess.check_output(base+['/evidence/oracle'],input=(work/'inputs.txt').read_bytes())
-    assert len(result.splitlines()) == len(corpus), 'Oracle did not consume every case'
-    assert [line.split()[0].decode() for line in result.splitlines()] == [case['name'] for case in corpus]
-    fixtures=HERE/'fixtures/source_transports'
+    if args.movement:
+        validate_movement_output(corpus, result)
+    else:
+        assert len(result.splitlines()) == len(corpus), 'Oracle did not consume every case'
+        assert [line.split()[0].decode() for line in result.splitlines()] == [case['name'] for case in corpus]
+    fixtures=HERE/'fixtures'/('source_transport_movement' if args.movement else 'source_transports')
     if args.private_cases:
-        (args.evidence.resolve()/'stock-transport-expected.tsv').write_bytes(result)
+        (args.evidence.resolve()/('stock-movement-expected.tsv' if args.movement else 'stock-transport-expected.tsv')).write_bytes(result)
     else:
         fixtures.mkdir(parents=True,exist_ok=True)
         (fixtures/'cases.json').write_bytes((work/'cases.json').read_bytes())
         (fixtures/'expected.tsv').write_bytes(result)
-    receipt={'image':IMAGE,'core_revision':PIN,'compile_command':compile_args,'source_sha256':retained,
+    receipt={'image':image,'core_revision':PIN,'compile_command':compile_args,'source_sha256':retained,
              'oracle_sha256':hashlib.sha256(body.encode()).hexdigest(),'output_sha256':hashlib.sha256(result).hexdigest(),
+             'binary_sha256':hashlib.sha256((work/'oracle').read_bytes()).hexdigest(),
              'cases':len(corpus),'scope':'Unsealed raw stock component fixtures' if args.private_cases else 'Authored source component fixtures, not sealed F1 acceptance'}
     if not args.private_cases:
         (fixtures/'provenance.json').write_text(json.dumps(receipt,indent=2)+'\n')

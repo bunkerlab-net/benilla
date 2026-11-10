@@ -1092,6 +1092,33 @@ continuation. This component does not select the production engine or grant
 NativeCapability. `NATIVE_FORMAT_VERSION` separately includes the corrected
 reference-facing policy and refuses format-90 saves without migration.
 
+`SourceMoTransports::initialize_map` executes MO construction in the template
+vector's SQL order. It uses the first node/orientation, entry-as-low MO GUID,
+the map snapshot and a separate source-allocation-ordered transport set.
+Transports do not enter the GO world/grid lookup. The map initializer calls
+this after active-grid loading, before player entry, `Map.cpp:214-216`.
+`update_map` is the `MapPreludePhase::Transports` handler, after messages and
+SpawnManager and before sessions/players, `Map.cpp:714-729`.
+It consumes the existing world snapshot, never a new clock read or RNG stream.
+
+`TransportMotion` retains current/next frames, the ordinary unsigned snapshot
+guard across wrap, modulo progress, exact dwell/departure predicates and the
+50 ms saturated tracker, `Transports.cpp:349-409`. Segment arithmetic stays
+binary32 and unclamped. Movement stores the unnormalized narrowed float
+atan2 plus double M_PI, unlike template orientation normalization,
+`Transports.cpp:406,411-439`, `Object.cpp:1198-1203`.
+
+`MoTransportOwner` must supply executed definitions, allocation lifetimes and
+F6 model operations. Default model construction/insertion and relocation
+refuse with named F6 errors. Authored owners test Contains/Remove/Relocate/Insert
+chronology, not collision correctness, `GameObject.cpp:2129-2139`.
+Attachment and every reached same-map or cross-map teleport refuse with named
+F4.17 errors before passenger/transfer effects. Zero-period modulo refuses
+`execution.transport.period_modulo_zero_undefined` only when reached.
+The builder movement oracle compares state and unclamped spline words.
+Raw stock comparisons do not certify SQL periods or effective ObjectMgr.
+No persistence, format cutover, capability admission or whole-F1 proof is added.
+
 ## Source spawn groups
 
 `source_execution::SourceSpawnGroups` owns F4.05's effective loader and

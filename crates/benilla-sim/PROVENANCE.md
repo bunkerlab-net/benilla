@@ -1467,6 +1467,18 @@ receipt binds complete source hashes, compiler flags and expected output bits.
 Authored component fixtures are public. Retained stock inputs and evidence
 stay private and do not establish effective ObjectMgr or sealed F1 execution.
 
+`source_transports/movement.rs` additionally translates
+`Entities/Transports.cpp:349-440` and reuses `Util/Timer.h:145-162` through
+`ShortTimeTracker`. It preserves binary32 segment arithmetic, the unclamped
+quotient, interpolation and derivative evaluation. Movement orientation
+narrows float atan2 plus binary64 M_PI without template normalization,
+`Entities/Transports.cpp:406`, `Entities/Object.cpp:1198-1203`.
+The movement oracle extracts the unchanged update, segment and waypoint
+methods plus the unsigned tracker, with static float-overload assertions.
+Its receipt additionally binds the executable hash and approved builder image.
+The generator checks the exact movement sample count, corpus order and
+consecutive sample indices separately from the `S` segment-numeric records.
+
 ## Source spawn-group selection
 
 `source_spawn_groups.rs` translates CMaNGOS Classic

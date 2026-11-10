@@ -8,6 +8,9 @@ pub use super::super::production_compiler::{
 use super::*;
 use benilla_sim::source_transports::{generate_template, Error as NumericError, TransportTemplate};
 use std::{collections::BTreeMap, sync::Arc};
+#[path = "transports_movement.rs"]
+mod movement;
+pub use movement::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct SourceTransportAnimation {
