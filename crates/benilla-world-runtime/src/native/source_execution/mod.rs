@@ -23,6 +23,8 @@ pub use creature_lifecycle::*;
 mod grid_loader;
 mod grids;
 mod guids;
+#[cfg(test)]
+mod pet_number_tests;
 pub use grid_loader::*;
 pub use grids::*;
 mod seal8_grids;

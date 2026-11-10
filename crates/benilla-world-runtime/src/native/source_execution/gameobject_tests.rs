@@ -96,6 +96,7 @@ impl Factory {
             player: GuidMaximum::NoResult,
             item: GuidMaximum::NoResult,
             corpse: GuidMaximum::NoResult,
+            pet_number: GuidMaximum::NoResult,
             creature: GuidMaximum::Value(99),
             gameobject: GuidMaximum::Value(199),
             creature_reserve: 2,

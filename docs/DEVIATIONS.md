@@ -41,7 +41,7 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 - [benilla-srp](#benilla-srp): 2
 - [benilla-ui](#benilla-ui): 135
 - [benilla-world](#benilla-world): 47
-- [benilla-world-runtime](#benilla-world-runtime): 1
+- [benilla-world-runtime](#benilla-world-runtime): 2
 
 ### benilla-app
 
@@ -1003,4 +1003,5 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 #### native
 
 - Pin never-assigned scheduleType to recorded F1 round-15 zero because CMaNGOS GameEventMgr.h:53-71 leaves it indeterminate. ([`src/native/source_execution/game_events.rs:12`](../crates/benilla-world-runtime/src/native/source_execution/game_events.rs#L12))
+- Synchronize global pet numbers because ObjectMgr.cpp:119-127 and ObjectMgr.h:826,1247 race across SpellEffects.cpp:2372,3288; owner approved 2026-11-06. ([`src/native/source_execution/guids.rs:164`](../crates/benilla-world-runtime/src/native/source_execution/guids.rs#L164))
 

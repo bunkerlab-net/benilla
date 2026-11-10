@@ -411,6 +411,34 @@ generation associations and reached callbacks remain typed pending obligations.
 No expected construction list drives gameplay. Native admission and persistence
 remain unchanged.
 
+`GlobalGuidAllocators::allocate_pet_number` shares one atomic counter across a
+world's maps, never across worlds. It is separate from map-local pet GUID lows.
+`ObjectMgr.cpp:7278-7284` loads `MAX(id)` from `character_pet` and sets the next
+number to maximum plus one; an absent query retains constructor one.
+`ObjectMgr.cpp:119-127` signals `StopNow` at `u32::MAX - 1`, then returns the old
+number and postincrements with unsigned wrap. Callers own shutdown on `stop_now`,
+as with `GuidGenerator`; continuing after shutdown can wrap and reuse numbers.
+The owner-approved synchronization changes only the original cross-map data race.
+
+Native caller order follows `WORLD_PHASES` and each reached handler's call order.
+The no-worker path executes map jobs in `SourceMapManager` key order,
+`MapManager.cpp:196-209`. Worker submission order alone does not order cross-map
+calls. A deterministic worker driver must establish that order before calling
+the shared allocator; the atomic counter does not choose a schedule.
+
+No production caller allocates global pet numbers yet. Pet creation still refuses
+with `execution.pet_constructor_owner_unavailable`; summon spells and guardian
+creation lack their F5 owners. The source callers are `Pet.cpp:1156` and
+`SpellEffects.cpp:2372,2928,3288`, with the number packed into the GUID entry at
+`Pet.cpp:2112` and `ObjectGuid.h:87`. No source-execution allocator enters saved
+state, checkpoints or root hashes here, so native format 91 is unchanged.
+
+`BENILLA_F1_PET_COUNTER_PROJECTION` selects the retained round-12 counter report.
+Its hash-bound full/shared projection compares eight recomputed increments each,
+using the known empty-table seed, not captured numbers as allocator inputs.
+Missing default evidence prints `SKIP`. This unsealed diagnostic compares numbers
+in observed order, not independently reached summon callers or native scheduling.
+
 ## Reference PathFinder distance diagnostics
 
 `ReferenceDistanceStorage` reads only the owner-approved unwritten-distance

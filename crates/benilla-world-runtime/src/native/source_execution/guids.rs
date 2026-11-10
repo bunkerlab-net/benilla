@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Pinned GUID arithmetic and allocation, without catalog or execution admission.
 use super::*;
+use std::sync::atomic::{AtomicU32, Ordering};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u16)]
 pub enum HighGuid {
@@ -114,6 +115,7 @@ pub struct GuidSeedRows {
     pub player: GuidMaximum,
     pub item: GuidMaximum,
     pub corpse: GuidMaximum,
+    pub pet_number: GuidMaximum,
     pub creature: GuidMaximum,
     pub gameobject: GuidMaximum,
     pub creature_reserve: u32,
@@ -123,6 +125,7 @@ pub struct GlobalGuidAllocators {
     players: GuidGenerator,
     items: GuidGenerator,
     corpses: GuidGenerator,
+    pet_numbers: AtomicU32,
     static_creatures: GuidGenerator,
     static_gameobjects: GuidGenerator,
     temporary_creature: u32,
@@ -138,6 +141,8 @@ impl GlobalGuidAllocators {
             players: GuidGenerator::new(HighGuid::Player, rows.player.next()),
             items: GuidGenerator::new(HighGuid::Item, rows.item.next()),
             corpses: GuidGenerator::new(HighGuid::Corpse, rows.corpse.next()),
+            // MAX(character_pet.id)+1 seeds IdGenerator, with absent query retaining one; ObjectMgr.cpp:7278-7284, ObjectMgr.h:444.
+            pet_numbers: AtomicU32::new(rows.pet_number.next()),
             static_creatures: GuidGenerator::new(HighGuid::Creature, creature),
             static_gameobjects: GuidGenerator::new(HighGuid::GameObject, gameobject),
             temporary_creature: creature.wrapping_add(rows.creature_reserve),
@@ -155,6 +160,15 @@ impl GlobalGuidAllocators {
             HighGuid::Corpse => self.corpses.generate(),
             _ => return Err(refuse("execution.guid_global_family")),
         })
+    }
+    // Deviation: synchronize global pet numbers because ObjectMgr.cpp:119-127 and ObjectMgr.h:826,1247 race across SpellEffects.cpp:2372,3288; owner approved 2026-11-06.
+    pub fn allocate_pet_number(&self) -> GuidAllocation {
+        let counter = self.pet_numbers.fetch_add(1, Ordering::Relaxed);
+        // Preserve IdGenerator's StopNow threshold and unsigned postincrement; ObjectMgr.cpp:119-127.
+        GuidAllocation {
+            counter,
+            stop_now: counter >= u32::MAX - 1,
+        }
     }
     // Exhausting the reserved static range returns source zero, without advancing; ObjectMgr.h:814-815.
     pub fn allocate_static(&mut self, high: HighGuid) -> Result<Option<GuidAllocation>> {
@@ -241,6 +255,7 @@ mod tests {
             player: GuidMaximum::Value(40),
             item: GuidMaximum::Value(50),
             corpse: GuidMaximum::NoResult,
+            pet_number: GuidMaximum::NoResult,
             creature: GuidMaximum::Value(99),
             gameobject: GuidMaximum::Value(199),
             creature_reserve: 2,
