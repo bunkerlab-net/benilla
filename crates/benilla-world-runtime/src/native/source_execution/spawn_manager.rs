@@ -30,7 +30,7 @@ pub struct DynamicSpawnDefinition {
     pub cell: CellPair,
     pub spawn_mask: u8,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct SpawnGroupHandle {
     pub id: u32,
     pub generation: u64,

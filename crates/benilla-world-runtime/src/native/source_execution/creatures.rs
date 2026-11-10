@@ -179,6 +179,8 @@ pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     fn creature_force_dynamic(&mut self) -> Result<bool>;
     fn creature_force_load_map(&mut self) -> Result<bool>;
     fn creature_group(&mut self, database: u32) -> Result<Option<CreatureGroup>>;
+    /// Re-read the live group after relay/link callbacks; Creature.cpp:1749-1753.
+    fn creature_current_group(&mut self, object: ObjectHandle) -> Result<Option<CreatureGroup>>;
     fn creature_entry(&mut self, database: u32, owner: CreatureEntryOwner) -> Result<u32>;
     fn creature_event(&mut self, database: u32) -> Result<Option<CreatureEventData>>;
     fn creature_template(&mut self, entry: u32) -> Result<Option<CreatureTemplate>>;
@@ -573,6 +575,7 @@ where
     if state.linking_trigger && context.objects.get(object)?.alive {
         factory.creature_phase(CreaturePhase::LinkingRespawn, &mut state, context)?;
     }
+    state.group = factory.creature_current_group(object)?;
     if let Some(group) = state.group {
         if group.has_formation {
             factory.creature_phase(CreaturePhase::FormationSlot, &mut state, context)?;

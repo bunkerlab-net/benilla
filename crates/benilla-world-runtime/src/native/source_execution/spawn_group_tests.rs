@@ -1625,8 +1625,9 @@ fn inventory_is_json_serializable_but_cannot_certify_restore_or_quiescence_durin
     valid.require_quiescent().unwrap();
     serde_json::to_vec(&valid).unwrap();
     type Case = (fn(&mut SpawnGroupsInventory), &'static str);
-    let cases: [Case; 5] = [
-        (|s| s.version = 3, "execution.group.inventory_version"),
+    let cases: [Case; 6] = [
+        (|s| s.version = 2, "execution.group.inventory_version"),
+        (|s| s.version = 4, "execution.group.inventory_version"),
         (
             |s| s.definitions.clear(),
             "execution.group.inventory_definition",

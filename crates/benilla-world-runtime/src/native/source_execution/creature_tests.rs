@@ -142,6 +142,7 @@ struct Factory {
     linking_trigger: bool,
     active: bool,
     nested: Option<CellPair>,
+    relay_formation: Option<bool>,
     refuse: Option<CreaturePhase>,
     health: BTreeMap<ObjectHandle, u32>,
     kernel: Option<benilla_sim::creature_init::Input>,
@@ -186,6 +187,7 @@ impl Factory {
             linking_trigger: false,
             active: false,
             nested: None,
+            relay_formation: None,
             refuse: None,
             health: BTreeMap::new(),
             kernel: None,
@@ -272,6 +274,9 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
         Ok(false)
     }
     fn creature_group(&mut self, _: u32) -> Result<Option<CreatureGroup>> {
+        Ok(self.group)
+    }
+    fn creature_current_group(&mut self, _: ObjectHandle) -> Result<Option<CreatureGroup>> {
         Ok(self.group)
     }
     fn creature_entry(&mut self, _: u32, owner: CreatureEntryOwner) -> Result<u32> {
@@ -378,6 +383,9 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
                 }
             }
             CreaturePhase::Relay(_) => {
+                if let Some(present) = self.relay_formation {
+                    self.group.as_mut().unwrap().has_formation = present;
+                }
                 if let Some(nested) = self.nested.take() {
                     context.load_grid(nested, GridLoadTrigger::Enter, self)?;
                 }
@@ -1510,4 +1518,43 @@ fn constructor_event_spells_keep_the_reached_f5_refusal() {
         observation,
         Observation::Phase(_, CreaturePhase::MapAddToWorld)
     )));
+}
+
+#[test]
+fn constructor_rechecks_live_formation_after_relay_before_group_respawn() {
+    // Creature.cpp:1742-1754 re-reads formation ownership after script/link callbacks.
+    for (before, after) in [(false, true), (true, false)] {
+        let mut row = spawn(40, 0.0);
+        row.relay = 55;
+        let mut world = World::new(vec![row]);
+        let mut factory = Factory::new();
+        factory.group = Some(CreatureGroup {
+            id: 10,
+            string_id: 0,
+            has_formation: before,
+        });
+        factory.entries[0] = 7;
+        factory.relay_formation = Some(after);
+        world.load(0.0, &mut factory).unwrap();
+        assert_eq!(
+            factory
+                .observations
+                .contains(&Observation::Phase(40, CreaturePhase::FormationSlot)),
+            after
+        );
+        assert!(factory
+            .observations
+            .contains(&Observation::Phase(40, CreaturePhase::GroupRespawn)));
+        assert_eq!(
+            factory
+                .states
+                .first_key_value()
+                .unwrap()
+                .1
+                .group
+                .unwrap()
+                .has_formation,
+            after
+        );
+    }
 }

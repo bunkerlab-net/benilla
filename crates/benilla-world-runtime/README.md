@@ -1182,8 +1182,8 @@ captured answers are not inputs. Forced entries reach the existing F3
 constructors, including zero's original fallback,
 `Entities/Object.cpp:2173-2207`; F4.02 passes zero explicitly.
 `SpawnGroupsInventory` exports definitions, occurrence records, typed
-membership, map/persistent lifetimes, chosen caches, cooldown, target guards,
-held member iterators and callback frames. Its diagnostic version is 2.
+membership, map/persistent lifetimes, chosen caches, live formation presence,
+cooldown, target guards, held iterators and callback frames. Its diagnostic version is 3.
 Quiescence cannot certify F7 restore or a durable checkpoint.
 
 Signed chance subtraction refuses
@@ -1198,6 +1198,42 @@ Other missing owners, stale identities and arithmetic overflow also refuse.
 Authored tests are component evidence. Retained observer metadata does
 not establish independently matched group selections or MP transitions.
 Native format, NativeCapability and production admission are unchanged.
+
+## Source formation slots
+
+`source_execution::SourceFormations` owns ordered static, script and player
+slots, allocation identities, Unit bindings, shared mutable definitions,
+master replacement, death/home/delete, reset and disband. It retains the
+movement origin, waypoint/path, options, spread, mirroring and follower
+restart deadline from `Maps/SpawnGroup.cpp:739-1433,1474-1503` at pin
+`8ec338a1`. Slot traversal follows the uint32-keyed `FormationSlotMap`,
+`SpawnGroupDefines.h:36`. Formations do not activate their creatures.
+
+`GroupCallback::formation` executes creation, update, home, removal and
+waypoint-reset callbacks. `CreaturePhase::formation` attaches the actual
+constructor's object before group respawn. `set_formation_data` implements
+the script creation/removal owner without enabling the unimplemented
+script dispatcher. Death/delete calls use the same retained Unit binding.
+ClearGroup still removes the formation slot before group membership,
+`Entities/Creature.cpp:1580-1582`. Last-member instance callbacks still
+precede waypoint reset, `Maps/SpawnGroup.cpp:519-521`.
+
+`FormationOwner` requires real Unit lookup, clock and motion handlers.
+Shape correction and periodic variation refuse at the F4.13b boundary.
+Live motion refuses its missing F5 owner after earlier slot mutations.
+Dynamic replacement leaves the master's motion unchanged, but initial
+master attachment still starts movement, `:969-970,1415-1421`.
+SetOptions recomputes before assigning its new bits, `:823-828`.
+
+An uninitialized random-movement origin refuses
+`execution.formation.spawn_position_uninitialized_undefined` after the
+source swap and motion clear, before `:904` reads it. Missing null slots,
+an invalid player-to-creature respawn downcast and follower deadline
+overflow refuse their reached undefined operation. Diagnostic state is
+not persisted native state or an F7 continuation certificate. Authored
+tests and unsealed evidence-availability checks do not establish MG/P0
+formation equivalence. Native format 91 and NativeCapability are unchanged.
+
 ## Source event calendar
 
 `source_execution::SourceGameEventManager` loads ordered event query operands,

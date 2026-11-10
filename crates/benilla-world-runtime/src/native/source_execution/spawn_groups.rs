@@ -106,7 +106,7 @@ pub struct GroupLoadRecord {
     pub group: u32,
     pub decision: GroupLoadDecision,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct GroupIdentity {
     pub map: MapIdentity,
     pub handle: SpawnGroupHandle,
@@ -122,6 +122,7 @@ pub struct SpawnGroupState {
     pub enabled: bool,
     pub cooldown_millis: i64,
     pub constructing: bool,
+    pub has_formation: bool,
     pub linkage_targets: BTreeSet<ObjectHandle>,
 }
 #[derive(Default)]
@@ -659,7 +660,7 @@ pub struct SpawnGroupsInventory {
 }
 impl SpawnGroupsInventory {
     pub fn validate(&self) -> Result<()> {
-        require(self.version == 2, "execution.group.inventory_version")?;
+        require(self.version == 3, "execution.group.inventory_version")?;
         for state in &self.states {
             let definition = self
                 .definitions
@@ -713,7 +714,7 @@ impl SpawnGroupsInventory {
 impl SourceSpawnGroups {
     pub fn inventory(&self) -> SpawnGroupsInventory {
         SpawnGroupsInventory {
-            version: 2,
+            version: 3,
             loaded: self.loaded,
             stopped: self.stopped,
             next_generation: self.next_generation,
@@ -734,6 +735,46 @@ impl SourceSpawnGroups {
             .get(&(group.map, group.handle.id))
             .filter(|s| s.identity == group)
             .ok_or_else(|| refuse("execution.group.stale_group"))
+    }
+    pub fn formation_definition(
+        &self,
+        group: GroupIdentity,
+    ) -> Result<(&Formation, &[GroupMember])> {
+        self.state(group)?;
+        let definition = self.definition(group.handle.id)?;
+        Ok((
+            definition
+                .formation
+                .as_ref()
+                .ok_or_else(|| refuse("execution.formation.definition_absent"))?,
+            &definition.members,
+        ))
+    }
+    pub fn set_formation_data(
+        &mut self,
+        group: GroupIdentity,
+        entry: Option<Formation>,
+        formations: &mut SourceFormations,
+        owner: &mut impl FormationOwner,
+    ) -> Result<()> {
+        self.run(|this| {
+            this.state(group)?;
+            let present = entry.is_some();
+            // The new pointer is assigned before Reset; SpawnGroup.cpp:600-601.
+            if present {
+                this.state_mut(group)?.has_formation = true;
+            }
+            formations.set_definition(
+                group,
+                entry,
+                &this.definition(group.handle.id)?.members,
+                owner,
+            )?;
+            if !present {
+                this.state_mut(group)?.has_formation = false;
+            }
+            Ok(())
+        })
     }
     fn state_mut(&mut self, group: GroupIdentity) -> Result<&mut SpawnGroupState> {
         self.states
@@ -804,6 +845,7 @@ impl SourceSpawnGroups {
                     enabled,
                     cooldown_millis: 0,
                     constructing: true,
+                    has_formation: formation,
                     linkage_targets: BTreeSet::new(),
                 },
             );
@@ -838,7 +880,7 @@ impl SourceSpawnGroups {
             Ok(CreatureGroup {
                 id: group.handle.id,
                 string_id: definition.template.string_id,
-                has_formation: definition.formation.is_some(),
+                has_formation: self.state(group)?.has_formation,
             })
         })
         .transpose()
@@ -976,8 +1018,7 @@ impl SourceSpawnGroups {
         self.run(|this| {
             this.frames.push(group);
             this.spawn_inner(group, states, false, false, work)?;
-            let definition = this.definition(group.handle.id)?;
-            if definition.kind() == GridSpawnKind::Creature && definition.formation.is_some() {
+            if this.state(group)?.has_formation {
                 work.callback(this, states, group, GroupCallback::FormationUpdate)?;
             }
             this.frames.pop();
@@ -1460,7 +1501,7 @@ impl SourceSpawnGroups {
                     group,
                     GroupCallback::LastCreatureDespawn { object },
                 )?;
-                if definition.formation.is_some() {
+                if this.state(group)?.has_formation {
                     work.callback(this, states, group, GroupCallback::ResetLastWaypoint)?;
                 }
             }

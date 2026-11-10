@@ -104,7 +104,7 @@ impl SourceSpawnGroups {
             GroupEvent::Home | GroupEvent::Respawn => {
                 // HOME's formation callback precedes RESPawn fallthrough; SpawnGroup.cpp:574-583.
                 if event == GroupEvent::Home
-                    && definition.formation.is_some()
+                    && self.state(group)?.has_formation
                     && !self.is_evading(group, work)?
                 {
                     work.callback(self, states, group, GroupCallback::FormationHome)?;
@@ -268,7 +268,7 @@ impl SourceSpawnGroups {
                 this.binding(group, context.persistent)?;
                 this.frames.push(group);
                 // ClearCreatureGroup removes formation membership first; Creature.cpp:1580-1582.
-                if this.definition(group.handle.id)?.formation.is_some() {
+                if this.state(group)?.has_formation {
                     work.callback(
                         this,
                         context.persistent,
