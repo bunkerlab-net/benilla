@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1 contributors; SpawnGroup.cpp:739-1433,1474-1503.
 use super::*;
+use benilla_sim::source_formations::{self, Position, Random};
 use benilla_sim::source_spawn_groups::{Formation, GroupMember};
 use std::collections::BTreeMap;
+mod motion;
+pub use motion::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum FormationSlotType {
@@ -29,6 +32,7 @@ pub struct FormationSlot {
     pub owner: Option<ObjectHandle>,
     pub can_follow: bool,
     pub recompute_position: bool,
+    pub position: Position,
 }
 #[derive(Clone, Debug)]
 pub struct FormationDefinition {
@@ -52,6 +56,8 @@ pub struct FormationState {
     pub followers_stopped: bool,
     pub master_died: bool,
     pub follower_start_millis: Option<i64>,
+    pub next_variation_millis: i64,
+    pub next_variation_update_millis: i64,
     pub last_waypoint: u32,
     pub waypoint_path: u32,
 }
@@ -147,21 +153,38 @@ pub trait FormationOwner {
     ) -> Result<()> {
         Err(refuse("execution.formation.f5_motion_master_owner"))
     }
+    fn formation_collision_width(&mut self, _object: ObjectHandle) -> Result<f32> {
+        Err(refuse("execution.formation.f6_collision_width_owner"))
+    }
+    fn formation_frand(&mut self, _low: f32, _high: f32) -> Result<f32> {
+        Err(refuse("execution.formation.f3_thread_rng_owner"))
+    }
+    fn formation_urand(&mut self, _low: u32, _high: u32) -> Result<u32> {
+        Err(refuse("execution.formation.f3_thread_rng_owner"))
+    }
     fn formation_positions(
         &mut self,
-        _formations: &mut SourceFormations,
-        _group: GroupIdentity,
+        formations: &mut SourceFormations,
+        group: GroupIdentity,
     ) -> Result<()> {
-        Err(refuse("execution.formation.f4_13b_shape_numerics_owner"))
+        formations.fix_positions(group, self)
     }
     fn formation_variation(
         &mut self,
-        _formations: &mut SourceFormations,
-        _group: GroupIdentity,
+        formations: &mut SourceFormations,
+        group: GroupIdentity,
     ) -> Result<()> {
-        Err(refuse(
-            "execution.formation.f4_13b_periodic_variation_owner",
-        ))
+        formations.update_variation(group, self)
+    }
+}
+struct FormationRandom<'a, O: FormationOwner + ?Sized>(&'a mut O);
+impl<O: FormationOwner + ?Sized> Random for FormationRandom<'_, O> {
+    type Error = Refusal;
+    fn frand(&mut self, low: f32, high: f32) -> Result<f32> {
+        self.0.formation_frand(low, high)
+    }
+    fn urand(&mut self, low: u32, high: u32) -> Result<u32> {
+        self.0.formation_urand(low, high)
     }
 }
 #[derive(Default)]
@@ -265,6 +288,8 @@ impl SourceFormations {
                 followers_stopped: false,
                 master_died: false,
                 follower_start_millis: None,
+                next_variation_millis: 0,
+                next_variation_update_millis: 0,
                 last_waypoint: 0,
                 waypoint_path: 0,
             },
@@ -332,6 +357,7 @@ impl SourceFormations {
                 owner: None,
                 can_follow: true,
                 recompute_position: true,
+                position: Position::default(),
             },
         );
         self.state_mut(group)?.slots.insert(id, Some(identity));
@@ -444,6 +470,130 @@ impl SourceFormations {
     }
     fn positions(&mut self, group: GroupIdentity, owner: &mut impl FormationOwner) -> Result<()> {
         owner.formation_positions(self, group)
+    }
+    /// Distinct compact count/write predicates are deliberate; SpawnGroup.cpp:1553,1584.
+    pub fn fix_positions(
+        &mut self,
+        group: GroupIdentity,
+        owner: &mut (impl FormationOwner + ?Sized),
+    ) -> Result<()> {
+        let compact = self.state(group)?.options & 2 != 0;
+        let mut members = 0_f32;
+        let mut width = 0_f32;
+        let mut cursor = None;
+        while let Some(id) = self.next_slot(group, &mut cursor)? {
+            let unit = self.slot(id)?.owner;
+            if compact
+                && match unit {
+                    None => true,
+                    Some(unit) => owner.formation_unit(unit)?.alive,
+                }
+            {
+                continue;
+            }
+            if let Some(unit) = unit {
+                // The source queries the selected width twice; SpawnGroup.cpp:1556-1557.
+                if width < owner.formation_collision_width(unit)? {
+                    width = owner.formation_collision_width(unit)?;
+                }
+            }
+            members += 1.0;
+        }
+        if members <= 1.0 {
+            return Ok(());
+        }
+        let followers = members - 1.0;
+        let shape = self.state(group)?.shape;
+        if shape > 6 {
+            return Ok(());
+        }
+        let spread = self.state(group)?.spread_bits;
+        let mut index = 1_u32;
+        let mut cursor = None;
+        while let Some(id) = self.next_slot(group, &mut cursor)? {
+            let unit = self.slot(id)?.owner;
+            if unit.is_some() && unit == self.master(group)? {
+                self.slot_mut(id)?.position.set(0, 0);
+                continue;
+            }
+            if compact
+                && match unit {
+                    None => true,
+                    Some(unit) => !owner.formation_unit(unit)?.alive,
+                }
+            {
+                continue;
+            }
+            let (angle, distance, variation) =
+                source_formations::offset(shape, spread, width.to_bits(), followers, index)
+                    .unwrap();
+            self.slot_mut(id)?.position.set(angle, distance);
+            if let Some([angle, distance]) = variation {
+                let slot = self.slot_mut(id)?;
+                slot.position.max_angle = angle;
+                slot.position.max_distance = distance;
+                slot.position
+                    .add_variation(true, &mut FormationRandom(owner))?;
+            }
+            self.slot_mut(id)?.recompute_position = true;
+            index = index.wrapping_add(1);
+        }
+        Ok(())
+    }
+    /// Both deadlines use the existing World snapshot, never a fresh sample; SpawnGroup.cpp:1506-1537.
+    pub fn update_variation(
+        &mut self,
+        group: GroupIdentity,
+        owner: &mut (impl FormationOwner + ?Sized),
+    ) -> Result<()> {
+        if self.state(group)?.shape != 0 {
+            return Ok(());
+        }
+        if let Some(master) = self.master(group)? {
+            if owner.formation_unit(master)?.moving
+                && self.state(group)?.next_variation_millis < owner.formation_world_millis()?
+            {
+                let now = owner.formation_world_millis()?;
+                let delay = owner.formation_urand(20000, 50000)?;
+                self.state_mut(group)?.next_variation_millis =
+                    now.checked_add(i64::from(delay)).ok_or_else(|| {
+                        refuse("execution.formation.variation_deadline_overflow_undefined")
+                    })?;
+                let mut cursor = None;
+                while let Some(id) = self.next_slot(group, &mut cursor)? {
+                    let unit = self.slot(id)?.owner;
+                    if unit.is_some() && unit == self.master(group)? {
+                        continue;
+                    }
+                    self.slot_mut(id)?
+                        .position
+                        .add_variation(false, &mut FormationRandom(owner))?;
+                }
+            }
+        }
+        if self.state(group)?.next_variation_update_millis < owner.formation_world_millis()? {
+            let now = owner.formation_world_millis()?;
+            self.state_mut(group)?.next_variation_update_millis =
+                now.checked_add(1000).ok_or_else(|| {
+                    refuse("execution.formation.variation_update_deadline_overflow_undefined")
+                })?;
+            let mut cursor = None;
+            while let Some(id) = self.next_slot(group, &mut cursor)? {
+                let unit = self.slot(id)?.owner;
+                if unit.is_some() && unit == self.master(group)? {
+                    continue;
+                }
+                self.slot_mut(id)?.position.update();
+            }
+        }
+        Ok(())
+    }
+    pub fn slot_offset(&self, slot: FormationSlotIdentity, mirroring: bool) -> Result<[u32; 2]> {
+        let position = &self.slot(slot)?.position;
+        Ok([
+            position.angle(mirroring, self.state(slot.group)?.mirror),
+            position.distance,
+        ])
     }
     fn master_motion(
         &mut self,

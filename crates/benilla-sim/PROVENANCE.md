@@ -1575,3 +1575,29 @@ The 2026 Rust translation and authored tests are GPL-3.0-or-later.
 The runtime owns map membership, timers and packet delivery. The pure
 module borrows the existing source RNG and calendar owners. No database
 rows, reference execution inputs or game assets are included.
+
+## Source formation numerics
+
+`source_formations` translates CMaNGOS Classic
+`8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`,
+`Maps/SpawnGroup.cpp:1541-1911`, `Maps/SpawnGroup.h:128-147`,
+and `MotionGenerators/TargetedMovementGenerator.cpp:1210-1347`.
+The existing spawn-group file hashes above apply. The targeted movement
+file SHA-256 is `eaa569e520a7b7a37d3011822e0381d41ab49b9f2dc6ffa1e43d6344bc14ff15`.
+The CMaNGOS contributors' GPL-2.0-or-later grant applies; the Rust
+translation and authored hosts are GPL-3.0-or-later.
+
+`source_formations/asin.rs` translates glibc 2.36
+[`sysdeps/ieee754/flt-32/e_asinf.c`](https://github.com/bminor/glibc/blob/glibc-2.36/sysdeps/ieee754/flt-32/e_asinf.c).
+It preserves Sun Microsystems' 1993 permission notice and Stephen
+Moshier's 2001 LGPL-2.1-or-later expansion notice inline.
+`scripts/package-player.py` includes that file among its legal documents;
+the existing bundled LGPL licence applies.
+The implementation reuses the integer-exact sqrtf and software atan2f
+kernels instead of host libm. The pinned builder resolves asinf and sqrtf
+to ordinary FUNC symbols, not IFUNCs, at libm offsets 0x161c0 and 0x16da0.
+Float-overload assertions cover asin, sqrt and the path's unqualified atan2.
+Authored source-numeric fixtures and receipts live in
+`tools/fixtures/source_formations` and `tools/fixtures/source_formation_path`.
+The follow oracle uses analytic geometry without reaching PathFinder's
+uninitialised-distance reads. No database or installation rows are included.

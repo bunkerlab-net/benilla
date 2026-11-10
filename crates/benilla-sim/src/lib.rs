@@ -112,6 +112,7 @@ pub mod player_health_regeneration;
 pub mod resident_map;
 
 pub mod source_calendar;
+pub mod source_formations;
 pub mod source_moon;
 pub mod source_pools;
 pub mod source_rng;

@@ -1013,3 +1013,5 @@ fn follower_motion_refusal_preserves_the_attached_slot_and_precedes_follow() {
         )]
     );
 }
+
+mod shapes;

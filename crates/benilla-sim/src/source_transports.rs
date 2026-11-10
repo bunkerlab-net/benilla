@@ -4,7 +4,7 @@
 //! Source transport template numerics. Bits are IEEE RNE, with no contraction.
 mod elevators;
 mod movement;
-mod numeric;
+pub(crate) mod numeric;
 mod passengers;
 use crate::facing::soft::{D, S};
 pub use elevators::elevator_position;

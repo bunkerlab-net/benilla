@@ -1218,9 +1218,14 @@ ClearGroup still removes the formation slot before group membership,
 `Entities/Creature.cpp:1580-1582`. Last-member instance callbacks still
 precede waypoint reset, `Maps/SpawnGroup.cpp:519-521`.
 
-`FormationOwner` requires real Unit lookup, clock and motion handlers.
-Shape correction and periodic variation refuse at the F4.13b boundary.
-Live motion refuses its missing F5 owner after earlier slot mutations.
+`FormationOwner` supplies real Unit lookup, World-snapshot clocks, collision
+widths, the shared F3 worker RNG and F5 motion handlers. Shape correction
+executes every source shape, including the different compact count/write
+predicates, `SpawnGroup.cpp:1553,1584`. Initial variation draws angle before
+distance, including empty/dead slots and equal bounds, `:1885-1886`.
+Periodic variation uses strict deadlines, a 20000-50000 ms draw only while
+the master moves, and signed smoothing while stopped, `:1506-1537,1896-1910`.
+Missing width, RNG or live motion owners refuse after earlier mutations.
 Dynamic replacement leaves the master's motion unchanged, but initial
 master attachment still starts movement, `:969-970,1415-1421`.
 SetOptions recomputes before assigning its new bits, `:823-828`.
@@ -1233,6 +1238,17 @@ overflow refuse their reached undefined operation. Diagnostic state is
 not persisted native state or an F7 continuation certificate. Authored
 tests and unsealed evidence-availability checks do not establish MG/P0
 formation equivalence. Native format 91 and NativeCapability are unchanged.
+
+`FormationMotion::build_path` executes the source follow computations against
+actual spline, collision, pathfinding and allowed-Z callbacks,
+`TargetedMovementGenerator.cpp:1210-1347`. It doesn't substitute slot offsets
+for follower poses. `linear_waypoint_next` follows actual ordered waypoint
+keys and applies endpoint mirroring before the next launch,
+`WaypointMovementGenerator.cpp:617-646`. Invalid iterator and signed
+conversion boundaries refuse rather than choose a repaired path.
+The pure `benilla-sim::source_formations` module uses software IEEE arithmetic,
+the existing sqrtf/atan2f kernels and the pinned glibc 2.36 asinf port.
+Authored numeric projections are not sealed F1 execution evidence.
 
 ## Source event calendar
 

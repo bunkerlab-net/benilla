@@ -3,7 +3,7 @@
 use super::{finite, Error, Result};
 use crate::facing::soft::S;
 
-pub(super) fn sqrt_single(value: S) -> Result<S> {
+pub(crate) fn sqrt_single(value: S) -> Result<S> {
     let bits = finite(value.raw())?.raw();
     if bits & 0x7fff_ffff == 0 {
         return Ok(value);
