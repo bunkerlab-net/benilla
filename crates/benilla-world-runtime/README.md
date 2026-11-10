@@ -1008,11 +1008,34 @@ The Rust translation is GPL-3.0-or-later. Its source contract is:
   skips, and selection-before-effect ordering. `:1087-1104` spawns child pools,
   GOs, then creatures; despawn reverses the type order. Counts and selected GUIDs
   live in F4.01's actual per-state `PersistentPoolData`, not a shared global set.
-- `:556-560` does nothing for same-child respawn. Every reached leaf spawn,
-  despawn and respawn instead calls the mandatory `PoolWork::leaf_effect`.
-  F4.09 owns `:305-335,442-552`'s real grid, constructor, timer, SQL and live-map
-  effects, including their different cross-map routing. There is no production
-  no-op or successful default owner.
+- `:556-560` does nothing for same-child respawn. `PoolWork::leaf_effect`
+  enters `execute_pool_leaf`, which performs actual F4.01 overlays and saves.
+  Loaded leaves use the shared F3 constructors through `PoolLoadRequest`,
+  with an explicit database GUID, `:452-454,488-490`. Failed candidates are
+  destroyed without drawing a replacement delay. Loaded delayed leaves
+  redraw after construction, then use retained lifecycle setters and saves.
+- Unloaded creatures sample wall time then draw their delay, `:469`.
+  Default GOs draw before their wall sample, save, and optionally call the
+  existing dynamic GO scheduler, `:503-515`. Negative minimum-delay GOs skip
+  this unloaded branch; loaded draws retain the unsigned source conversion,
+  `Entities/GameObject.h:601`. Zero delay still draws, saves and schedules.
+- Despawn and same-member re-add resolve the leaf's map-zero persistent state
+  on a cross-map lookup, `:305-335,530-552`. Ordinary spawn instead changes
+  the supplied state's overlay and uses its loaded map, `:442-519`.
+  `PoolLiveRequest` reuses retained objects, lifecycle saves and F3 removal
+  queues. Re-add does not construct another object or restart GO AI.
+- Global pool operations use the template map's states, `:1168-1241`.
+  World maps use their map-zero state. Instance traversal requires the
+  actual unordered successor owner and advances before the callback,
+  `Maps/MapPersistentStateMgr.h:374-395`. A canonical inventory sort is not
+  an executable traversal.
+
+Reached inverted unsigned respawn bounds refuse
+`execution.pool.respawn_bounds_undefined`, `Util/Util.cpp:74-77`.
+Signed wall-plus-delay overflow refuses `execution.pool.time_add_undefined`,
+`PoolManager.cpp:469,509`. Both are owner-approved source-undefined guards,
+not corrected source results. Catalog-04 has no inverted pool-candidate
+bounds; its 26 zero-minimum GO candidates remain on the defined path.
 
 The signed increment at `:404` refuses
 `execution.pool.count_increment_undefined` at INT32_MAX. The uint16 template

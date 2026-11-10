@@ -261,12 +261,7 @@ impl CreatureLifecycleOwner<Definitions, Products> for Host {
                     .insert(life.object(), life.construction.level * 10);
             }
             Phase::MapAdd => {
-                let pair = c.grid.objects.pose(life.object())?.cell()?;
-                let cell = c.grid.cells.cell(pair)?;
-                c.grid
-                    .objects
-                    .link_cell(life.object(), cell, c.grid.cells)?;
-                c.grid.objects.add_to_world(life.object())?;
+                add_source_creature(&mut self.factory, &mut life.construction, c.grid)?;
             }
             _ => {}
         }
@@ -1007,3 +1002,53 @@ fn new_system_can_construct_the_next_life_while_the_old_corpse_remains() {
     assert_eq!(world.objects.get(old).unwrap().life_generation, 1);
     assert_eq!(world.objects.get(new).unwrap().life_generation, 1);
 }
+
+#[test]
+fn pool_live_actions_reuse_retained_delay_save_readd_and_removal() {
+    let mut f = Fixture::new(false);
+    let object = f.life.object();
+    let load = PoolLoadRequest {
+        state: f.spawns.persistent(),
+        map: map(),
+        key: SpawnKey {
+            kind: GridSpawnKind::Creature,
+            guid: 40,
+        },
+    };
+    for action in [
+        PoolLiveAction::SetCreatureDelay(40),
+        PoolLiveAction::SetRespawnTime(40),
+        PoolLiveAction::SaveRespawn,
+        PoolLiveAction::MapAdd,
+        PoolLiveAction::Remove,
+    ] {
+        f.apply(|l, c, o| {
+            PoolLiveRequest {
+                load,
+                object,
+                action,
+            }
+            .creature(l, c, o)
+        })
+        .unwrap();
+    }
+    assert_eq!(f.life.construction.respawn_delay, 40);
+    assert!(f.life.respawn_overridden);
+    assert!(!f.life.respawn_override_once);
+    assert_eq!(f.life.construction.respawn_time, 141);
+    assert_eq!(f.deadline(), 141);
+    assert!(f
+        .host
+        .calls
+        .contains(&Call::Wall(CreatureLifecycleClock::SetRespawn)));
+    assert!(f.host.calls.contains(&Call::Phase(Phase::MapAdd)));
+    assert!(!f.world.cells.removals().is_empty());
+    f.host.calls.clear();
+    f.apply(|l, _, o| l.set_respawn_time::<Definitions, Products>(0, o))
+        .unwrap();
+    assert_eq!(f.life.construction.respawn_time, 0);
+    assert!(f.host.calls.is_empty());
+}
+
+#[path = "pools/creature_effect_tests.rs"]
+mod pool_effects;

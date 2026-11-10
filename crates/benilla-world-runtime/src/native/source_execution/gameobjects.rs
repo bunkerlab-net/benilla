@@ -528,7 +528,7 @@ where
     P: GridProductOwner,
     F: GameObjectFactoryOwner<D, P>,
 {
-    load_source_gameobject_inner(factory, attempt, row, false, 0, context)
+    load_source_gameobject_inner(factory, attempt, row, None, 0, context)
 }
 
 /// Object.cpp:2173-2188 enters LoadFromDB with requested GUID zero.
@@ -551,14 +551,29 @@ where
     if !factory.gameobject_dynamic_spawn_allowed(attempt.guid, &row)? {
         return Ok(None);
     }
-    load_source_gameobject_inner(factory, attempt, row, true, forced_entry, context).map(Some)
+    load_source_gameobject_inner(factory, attempt, row, Some(0), forced_entry, context).map(Some)
+}
+
+/// Pool leaves pass their database GUID directly; PoolManager.cpp:488-490.
+pub fn load_pool_source_gameobject<D, P, F>(
+    factory: &mut F,
+    attempt: GridLoadAttempt,
+    row: D::Row,
+    context: &mut GridFactoryContext<'_, D, P>,
+) -> Result<GridCandidateOutcome>
+where
+    D: GridDefinitions,
+    P: GridProductOwner,
+    F: GameObjectFactoryOwner<D, P>,
+{
+    load_source_gameobject_inner(factory, attempt, row, Some(attempt.guid), 0, context)
 }
 
 fn load_source_gameobject_inner<D, P, F>(
     factory: &mut F,
     attempt: GridLoadAttempt,
     row: D::Row,
-    dynamic: bool,
+    requested_guid: Option<u32>,
     forced_entry: u32,
     context: &mut GridFactoryContext<'_, D, P>,
 ) -> Result<GridCandidateOutcome>
@@ -582,7 +597,7 @@ where
         spawn.entry
     })?;
     if source_gameobject_factory(initial.as_ref()) == GameObjectFactoryKind::Elevator {
-        if dynamic {
+        if requested_guid == Some(0) {
             return Err(refuse(
                 "execution.elevator_dynamic_constructor_owner_unavailable",
             ));
@@ -592,7 +607,9 @@ where
     let handle = context
         .objects
         .construct(factory.gameobject_thread(), SourceObjectKind::GameObject)?;
-    let requested = if dynamic || factory.gameobject_event_guid(spawn.database_guid)? {
+    let requested = if let Some(guid) = requested_guid {
+        guid
+    } else if factory.gameobject_event_guid(spawn.database_guid)? {
         0
     } else {
         spawn.database_guid

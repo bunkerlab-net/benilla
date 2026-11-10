@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
-//! PoolManager loading and selection. Leaf lifecycles require the F4.09 owner.
+//! PoolManager loading, selection and synchronous leaf effects, without production admission.
 use super::super::production_compiler::{PoolCatalogRows, VerifiedCatalog};
 use super::*;
 use benilla_sim::source_pools::{self, PoolGroup, PoolObject, RollContext};
 use std::collections::{BTreeMap, BTreeSet};
+mod effects;
+mod maps;
+pub use effects::*;
+pub use maps::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub enum PoolKind {

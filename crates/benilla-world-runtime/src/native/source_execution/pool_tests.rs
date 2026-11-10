@@ -3,6 +3,8 @@
 use super::*;
 use benilla_sim::source_rng::{DrawCursor, Mt19937, SourceRandom};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+#[path = "pools/effect_tests.rs"]
+mod effects;
 #[derive(Default)]
 struct Rows {
     maximum: Option<u16>,

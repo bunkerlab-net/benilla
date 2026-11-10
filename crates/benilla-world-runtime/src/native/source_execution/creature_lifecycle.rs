@@ -99,6 +99,7 @@ pub enum CreatureLifecycleClock {
     ScriptCorpseDelay,
     DeadUpdate,
     Respawn,
+    SetRespawn,
 }
 /// The calling map's existing grid, persistent state and SpawnManager owners.
 pub struct CreatureLifecycleContext<'a, 'b, D: GridDefinitions, P: ResidencyProductOwner> {
@@ -206,6 +207,21 @@ impl SourceCreatureLifecycle {
         self.construction.respawn_delay = seconds;
         self.respawn_overridden = true;
         self.respawn_override_once = once;
+    }
+    // Zero clears without a clock read; Creature.h:801.
+    pub fn set_respawn_time<D: GridDefinitions, P: ResidencyProductOwner>(
+        &mut self,
+        delay: u32,
+        owner: &mut impl CreatureLifecycleOwner<D, P>,
+    ) -> Result<()> {
+        self.run(|this| {
+            this.construction.respawn_time = if delay == 0 {
+                0
+            } else {
+                Self::add_seconds(this.wall(CreatureLifecycleClock::SetRespawn, owner)?, delay)?
+            };
+            Ok(())
+        })
     }
     pub fn respawn_save_state(&self) -> RespawnSaveState {
         RespawnSaveState::Creature {

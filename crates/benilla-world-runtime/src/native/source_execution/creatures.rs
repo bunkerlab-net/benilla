@@ -230,7 +230,7 @@ where
     P: GridProductOwner,
     F: CreatureFactoryOwner<D, P>,
 {
-    load_source_creature_inner(factory, attempt, row, false, 0, context)
+    load_source_creature_inner(factory, attempt, row, None, 0, context)
 }
 
 /// Object.cpp:2191-2212 enters LoadFromDB with requested GUID zero, not the grid-loader GUID.
@@ -253,14 +253,29 @@ where
     if !factory.creature_dynamic_spawn_allowed(attempt.guid, &row)? {
         return Ok(None);
     }
-    load_source_creature_inner(factory, attempt, row, true, forced_entry, context).map(Some)
+    load_source_creature_inner(factory, attempt, row, Some(0), forced_entry, context).map(Some)
+}
+
+/// Pool leaves pass their database GUID directly; PoolManager.cpp:452-454.
+pub fn load_pool_source_creature<D, P, F>(
+    factory: &mut F,
+    attempt: GridLoadAttempt,
+    row: D::Row,
+    context: &mut GridFactoryContext<'_, D, P>,
+) -> Result<GridCandidateOutcome>
+where
+    D: GridDefinitions,
+    P: GridProductOwner,
+    F: CreatureFactoryOwner<D, P>,
+{
+    load_source_creature_inner(factory, attempt, row, Some(attempt.guid), 0, context)
 }
 
 fn load_source_creature_inner<D, P, F>(
     factory: &mut F,
     attempt: GridLoadAttempt,
     row: D::Row,
-    dynamic: bool,
+    requested_guid: Option<u32>,
     forced_entry: u32,
     context: &mut GridFactoryContext<'_, D, P>,
 ) -> Result<GridCandidateOutcome>
@@ -278,7 +293,9 @@ where
         .construct(factory.creature_thread(), SourceObjectKind::Creature)?;
     factory.creature_construct_candidate(object, context)?;
     // An unsupported owner is a stopped execution, not a source LoadFromDB false/delete.
-    let requested = if dynamic || factory.creature_event_guid(attempt.guid)? {
+    let requested = if let Some(guid) = requested_guid {
+        guid
+    } else if factory.creature_event_guid(attempt.guid)? {
         0
     } else {
         attempt.guid
@@ -529,30 +546,8 @@ where
     {
         dead(factory, &mut state, context)?;
     }
-    state.position = context.objects.pose(object)?.0.map(f32::from_bits);
-    let cell = compute_cell_pair(state.position[0].to_bits(), state.position[1].to_bits())
-        .map_err(|_| refuse("execution.creature.map_add_coordinates"))?;
-    if context.objects.get(object)?.active {
-        context.load_grid(cell, GridLoadTrigger::Enter, factory)?;
-    } else {
-        context.load_grid(cell, GridLoadTrigger::TerrainOnly, factory)?;
-    }
-    let cell = context.cells.cell(cell)?;
-    context.objects.link_cell(object, cell, context.cells)?;
-    context.objects.add_to_world(object)?;
-    factory.creature_phase(CreaturePhase::MapAddToWorld, &mut state, context)?;
-    if factory.creature_force_load_map()? || state.template.active {
-        context.set_active_object_state(object, true, factory)?;
-    }
-    if state.template.count_spawns {
-        factory.creature_phase(CreaturePhase::AddToSpawnCount, &mut state, context)?;
-    }
-    if context.objects.get(object)?.active {
-        context.add_to_active(object, factory)?;
-    }
+    add_source_creature(factory, &mut state, context)?;
     for phase in [
-        CreaturePhase::MapAddViewpoint,
-        CreaturePhase::MapAddVisibility,
         CreaturePhase::MotionInitialize,
         CreaturePhase::SelectAi,
         CreaturePhase::AiSpellListChanged,
@@ -578,6 +573,43 @@ where
     }
     factory.creature_created(state, context)?;
     Ok(GridCandidateOutcome::Loaded(object))
+}
+
+/// Re-add a retained construction without LoadFromDB or AI initialization; Map.cpp:471-504, Creature.cpp:173-209.
+pub fn add_source_creature<D, P, F>(
+    factory: &mut F,
+    state: &mut CreatureConstruction,
+    context: &mut GridFactoryContext<'_, D, P>,
+) -> Result<()>
+where
+    D: GridDefinitions,
+    P: GridProductOwner,
+    F: CreatureFactoryOwner<D, P>,
+{
+    let object = state.object;
+    state.position = context.objects.pose(object)?.0.map(f32::from_bits);
+    let cell = compute_cell_pair(state.position[0].to_bits(), state.position[1].to_bits())
+        .map_err(|_| refuse("execution.creature.map_add_coordinates"))?;
+    if context.objects.get(object)?.active {
+        context.load_grid(cell, GridLoadTrigger::Enter, factory)?;
+    } else {
+        context.load_grid(cell, GridLoadTrigger::TerrainOnly, factory)?;
+    }
+    let cell = context.cells.cell(cell)?;
+    context.objects.link_cell(object, cell, context.cells)?;
+    context.objects.add_to_world(object)?;
+    factory.creature_phase(CreaturePhase::MapAddToWorld, state, context)?;
+    if factory.creature_force_load_map()? || state.template.active {
+        context.set_active_object_state(object, true, factory)?;
+    }
+    if state.template.count_spawns {
+        factory.creature_phase(CreaturePhase::AddToSpawnCount, state, context)?;
+    }
+    if context.objects.get(object)?.active {
+        context.add_to_active(object, factory)?;
+    }
+    factory.creature_phase(CreaturePhase::MapAddViewpoint, state, context)?;
+    factory.creature_phase(CreaturePhase::MapAddVisibility, state, context)
 }
 fn valid_position(position: [f32; 4]) -> bool {
     // Position validity has a half-yard margin, unlike cell conversion; GridDefines.h:177-194.

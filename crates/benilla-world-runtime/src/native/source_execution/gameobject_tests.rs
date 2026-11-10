@@ -909,3 +909,60 @@ fn group_gameobject_constructor_forwards_forced_entry_and_zero_fallback() {
 
 #[path = "gameobject_lifecycle_tests.rs"]
 mod gameobject_lifecycle_tests;
+
+#[test]
+fn pool_load_uses_static_guid_and_failed_load_is_really_destroyed() {
+    for fail in [false, true] {
+        let mut world = World::new();
+        let mut factory = Factory::new();
+        factory.events = true;
+        if fail {
+            factory.templates.clear();
+        }
+        let pair = compute_cell_pair(0_f32.to_bits(), 0_f32.to_bits()).unwrap();
+        let grid = world
+            .context()
+            .load_grid(pair, GridLoadTrigger::TerrainOnly, &mut factory)
+            .unwrap()
+            .unwrap();
+        let attempt = GridLoadAttempt {
+            grid,
+            cell: pair,
+            kind: GridSpawnKind::GameObject,
+            origin: GridSpawnOrigin::Persistent,
+            guid: 7,
+            catalog_ordinal: 0,
+        };
+        let request = PoolLoadRequest {
+            state: PersistentStateIdentity {
+                map: 0,
+                instance: 0,
+                generation: 1,
+            },
+            map: map(),
+            key: SpawnKey {
+                kind: GridSpawnKind::GameObject,
+                guid: 7,
+            },
+        };
+        let outcome = request
+            .load_gameobject(&mut factory, attempt, spawn(), &mut world.context())
+            .unwrap();
+        match outcome {
+            GridCandidateOutcome::FailedAndDestroyed(object) => {
+                assert!(fail);
+                assert!(world.objects.get(object).is_err());
+                assert_eq!(factory.cursor.raw, 0);
+                assert!(factory.objects.get(object).is_err());
+            }
+            GridCandidateOutcome::Loaded(object) => {
+                assert!(!fail);
+                assert_eq!(
+                    world.objects.get(object).unwrap().guid.unwrap().counter(),
+                    7
+                );
+                assert_eq!(factory.cursor.raw, 1);
+            }
+        }
+    }
+}

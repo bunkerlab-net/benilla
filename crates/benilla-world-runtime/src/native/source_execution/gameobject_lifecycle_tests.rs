@@ -1410,3 +1410,85 @@ fn later_save_persists_the_local_sentinel_without_rewriting_an_existing_schedule
     assert_eq!(f.deadline(), i64::MAX);
     assert_eq!(f.spawns.inventory().active[0].deadline_millis, 0);
 }
+
+#[test]
+fn pool_live_actions_reuse_go_time_save_map_add_and_removal_without_ai_restart() {
+    let mut f = Fixture::new(false);
+    let load = PoolLoadRequest {
+        state: f.spawns.persistent(),
+        map: map(),
+        key: SpawnKey {
+            kind: GridSpawnKind::GameObject,
+            guid: 7,
+        },
+    };
+    for action in [
+        PoolLiveAction::SetRespawnTime(40),
+        PoolLiveAction::SaveRespawn,
+        PoolLiveAction::MapAdd,
+        PoolLiveAction::Remove,
+    ] {
+        f.apply(|o, object, c| {
+            PoolLiveRequest {
+                load,
+                object,
+                action,
+            }
+            .gameobject(c, o)
+        })
+        .unwrap();
+    }
+    assert_eq!(f.factory.objects.get(f.object).unwrap().respawn_time, 141);
+    assert_eq!(f.factory.objects.get(f.object).unwrap().respawn_delay, 40);
+    assert_eq!(
+        f.persistent
+            .state(f.spawns.persistent())
+            .unwrap()
+            .respawn(GridSpawnKind::GameObject, 7),
+        141
+    );
+    assert!(f
+        .factory
+        .life()
+        .events
+        .contains(&Event::Wall(GameObjectLifecycleClock::SetRespawn)));
+    assert!(!f
+        .factory
+        .life()
+        .events
+        .contains(&Event::Callback(f.object, GameObjectCallback::InitializeAi)));
+    assert!(!f.world.cells.removals().is_empty());
+}
+
+#[test]
+fn pool_schedule_executes_existing_dynamic_go_scheduler_and_independent_save() {
+    let mut f = Fixture::new(true);
+    let request = PoolScheduleRequest {
+        state: f.spawns.persistent(),
+        map: map(),
+        guid: 7,
+        delay: 25,
+    };
+    request
+        .execute(&mut f.spawns, &mut f.persistent, &mut f.factory)
+        .unwrap();
+    assert_eq!(
+        f.persistent
+            .state(request.state)
+            .unwrap()
+            .respawn(GridSpawnKind::GameObject, 7),
+        126
+    );
+    assert_eq!(f.spawns.inventory().active.len(), 1);
+    assert_eq!(
+        f.spawns.inventory().active[0].key,
+        SpawnKey {
+            kind: GridSpawnKind::GameObject,
+            guid: 7
+        }
+    );
+    assert_eq!(f.spawns.inventory().active[0].deadline_millis, 126_000);
+}
+
+#[path = "pools/gameobject_effect_tests.rs"]
+mod pool_effects;

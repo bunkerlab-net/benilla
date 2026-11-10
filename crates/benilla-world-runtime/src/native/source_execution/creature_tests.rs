@@ -1430,3 +1430,62 @@ fn group_constructor_forwards_forced_entry_and_preserves_zero_fallback() {
 
 #[path = "creature_lifecycle_tests.rs"]
 mod creature_lifecycle_tests;
+
+#[test]
+fn pool_constructor_uses_static_guid_and_destroys_failed_load_without_a_redraw() {
+    for fail in [false, true] {
+        let mut world = World::new(vec![]);
+        let mut factory = Factory::new();
+        factory.event_guid = true;
+        if fail {
+            factory.templates.clear();
+        }
+        let pair = cell(0.0);
+        let grid = world
+            .context()
+            .load_grid(pair, GridLoadTrigger::TerrainOnly, &mut factory)
+            .unwrap()
+            .unwrap();
+        let attempt = GridLoadAttempt {
+            grid,
+            cell: pair,
+            kind: GridSpawnKind::Creature,
+            origin: GridSpawnOrigin::Persistent,
+            guid: 40,
+            catalog_ordinal: 40,
+        };
+        let request = PoolLoadRequest {
+            state: PersistentStateIdentity {
+                map: 0,
+                instance: 0,
+                generation: 1,
+            },
+            map: map(),
+            key: SpawnKey {
+                kind: GridSpawnKind::Creature,
+                guid: 40,
+            },
+        };
+        let before = factory.random.cursor.raw;
+        let outcome = request
+            .load_creature(&mut factory, attempt, spawn(40, 0.0), &mut world.context())
+            .unwrap();
+        assert!(!factory.observations.contains(&Observation::EventGuid(40)));
+        match outcome {
+            GridCandidateOutcome::FailedAndDestroyed(object) => {
+                assert!(fail);
+                assert!(world.objects.get(object).is_err());
+                assert!(factory.observations.contains(&Observation::Destroy(object)));
+                assert_eq!(factory.random.cursor.raw, before);
+            }
+            GridCandidateOutcome::Loaded(object) => {
+                assert!(!fail);
+                assert_eq!(
+                    world.objects.get(object).unwrap().guid.unwrap().counter(),
+                    40
+                );
+                assert_eq!(factory.random.cursor.raw, before + 2);
+            }
+        }
+    }
+}
