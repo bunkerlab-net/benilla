@@ -1185,6 +1185,7 @@ impl Cvars {
     pub(crate) fn apply_finite_settings_draft_for_test(
         &mut self,
         changes: &BTreeMap<String, String>,
+        path: &std::path::Path,
     ) -> Result<(), String> {
         let mut draft = self.clone();
         for (name, value) in changes {
@@ -1199,14 +1200,12 @@ impl Cvars {
             draft.set(name, value);
         }
         draft.commit_latched();
-        let path = crate::local_state::config_path()
-            .ok_or("This session has no writable game settings directory")?;
         let file = draft.compose();
         let body = toml::to_string(&LocalConfig {
             cvars: file.clone(),
         })
         .map_err(|_| "Cannot encode game settings")?;
-        crate::local_state::write_atomic(&path, &format!("{HEADER}{body}"))
+        crate::local_state::write_atomic(path, &format!("{HEADER}{body}"))
             .map_err(|_| "Cannot save game settings; check directory permissions and retry")?;
         draft.file = file;
         draft.dirty = false;

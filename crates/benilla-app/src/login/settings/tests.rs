@@ -70,12 +70,16 @@ fn refreshing_fields_retains_draft_and_secret_is_masked_again_on_selection() {
 fn invalid_cvar_draft_never_changes_registry() {
     let mut cvars = Cvars::default();
     let before = cvars.get("MasterVolume").unwrap().to_owned();
+    let path = std::env::temp_dir().join(format!(
+        "benilla-invalid-cvar-draft-{}.toml",
+        std::process::id()
+    ));
     for value in ["NaN", "inf", "not a number"] {
         assert!(cvars
-            .apply_finite_settings_draft_for_test(&BTreeMap::from([(
-                "MasterVolume".into(),
-                value.into()
-            )]))
+            .apply_finite_settings_draft_for_test(
+                &BTreeMap::from([("MasterVolume".into(), value.into())]),
+                &path,
+            )
             .is_err());
         assert_eq!(cvars.get("MasterVolume"), Some(before.as_str()));
     }
@@ -163,24 +167,31 @@ fn game_save_writes_then_applies_and_failed_save_keeps_registry() {
     let _ = std::fs::remove_dir_all(&temp);
     std::fs::create_dir_all(&temp).unwrap();
     let _capture = EnvGuard::unset("WOW_CAPTURE");
-    let _home = EnvGuard::set("BENILLA_HOME", temp.to_str().unwrap());
+    let _home = EnvGuard::unset("BENILLA_HOME");
     let mut cvars = Cvars::default();
+    let path = temp.join("config.toml");
     let changes = BTreeMap::from([("MasterVolume".into(), "0.25".into())]);
     cvars
-        .apply_finite_settings_draft_for_test(&changes)
+        .apply_finite_settings_draft_for_test(&changes, &path)
         .unwrap();
     assert_eq!(cvars.get("MasterVolume"), Some("0.25"));
+    std::thread::spawn(|| {
+        let mut unrelated = Cvars::default();
+        unrelated.set("MusicVolume", "0.5");
+        unrelated.save();
+    })
+    .join()
+    .unwrap();
     assert!(std::fs::read_to_string(temp.join("config.toml"))
         .unwrap()
         .contains("0.25"));
     let blocked = temp.join("blocked");
     std::fs::write(&blocked, "not a directory").unwrap();
-    let _blocked = EnvGuard::set("BENILLA_HOME", blocked.to_str().unwrap());
     assert!(cvars
-        .apply_finite_settings_draft_for_test(&BTreeMap::from([(
-            "MasterVolume".into(),
-            "0.75".into()
-        )]))
+        .apply_finite_settings_draft_for_test(
+            &BTreeMap::from([("MasterVolume".into(), "0.75".into())]),
+            &blocked.join("config.toml"),
+        )
         .is_err());
     assert_eq!(cvars.get("MasterVolume"), Some("0.25"));
     let _ = std::fs::remove_dir_all(temp);
