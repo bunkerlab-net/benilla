@@ -149,6 +149,7 @@ struct Factory {
     initialized: BTreeMap<ObjectHandle, benilla_sim::creature_init::InitializedCreature>,
     ai_registry: SourceAiRegistry,
     selected_ai: Option<SelectedCreatureAi>,
+    event_ai_definitions: Option<std::sync::Arc<EventAiDefinitions>>,
 }
 impl Factory {
     fn new() -> Self {
@@ -197,6 +198,7 @@ impl Factory {
             initialized: BTreeMap::new(),
             ai_registry: SourceAiRegistry::builtin(),
             selected_ai: None,
+            event_ai_definitions: None,
         }
     }
 }
@@ -354,6 +356,13 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
         if self.refuse == Some(CreaturePhase::SelectAi) {
             return Err(selected.constructor_refusal(context.objects)?);
         }
+        if let Some(definitions) = &self.event_ai_definitions {
+            state.construct_event_ai(
+                context.objects,
+                definitions.clone(),
+                EventAiBuild::Release,
+            )?;
+        }
         // The existing F4 tests use authored callbacks, not a production AI body.
         self.creature_phase(CreaturePhase::SelectAi, state, context)
     }
@@ -369,6 +378,34 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
         self.observations
             .push(Observation::Phase(state.spawn.database_guid, phase));
         match phase {
+            CreaturePhase::AiSpellListChanged if self.event_ai_definitions.is_some() => {
+                assert!(state.event_ai().unwrap().holders.is_empty());
+            }
+            CreaturePhase::AiJustRespawned if self.event_ai_definitions.is_some() => {
+                struct Base;
+                impl EventAiLifecycleOwner for Base {
+                    fn callback(
+                        &mut self,
+                        _: &mut SourceEventAi,
+                        call: EventAiCallback,
+                    ) -> Result<()> {
+                        match call {
+                            EventAiCallback::CalculateMainSpell(_) => Err(call.missing_owner()),
+                            _ => Ok(()), // Authored base callbacks only.
+                        }
+                    }
+                }
+                state.event_ai_mut().unwrap().just_respawned(
+                    context.objects,
+                    EventAiRespawnSettings {
+                        no_aggro_on_sight: false,
+                        spawn_defensive: false,
+                        ignore_combat: false,
+                    },
+                    &mut self.random,
+                    &mut Base,
+                )?;
+            }
             CreaturePhase::InitEntryBase => {
                 self.health.insert(state.object, 1);
             }
@@ -1596,5 +1633,41 @@ fn constructor_rechecks_live_formation_after_relay_before_group_respawn() {
                 .has_formation,
             after
         );
+    }
+}
+
+#[test]
+fn selected_eventai_constructs_then_copies_holders_after_spell_list_changed() {
+    // Creature.cpp:880-887; CreatureEventAI.cpp:1384-1385.
+    let mut definitions = EventAiDefinitions::default();
+    definitions.insert(EventAiDefinition {
+        ordinal: 0,
+        id: 711,
+        entry: 7,
+        guid: 0,
+        kind: 1,
+        inverse_phase: 0,
+        chance: 100,
+        flags: 1,
+        params: [10, 10, 20, 20, 0, 0],
+        actions: std::array::from_fn(|_| EventAiAction {
+            kind: 0,
+            params: Some([0; 3]),
+        }),
+        friendly_hp_target_self: None,
+    });
+    let mut world = World::new(vec![spawn(40, 0.0), spawn(41, 0.0)]);
+    let mut factory = Factory::new();
+    factory.event_ai_definitions = Some(std::sync::Arc::new(definitions));
+    world.load(0.0, &mut factory).unwrap();
+    assert_eq!(factory.states.len(), 2);
+    for state in factory.states.values() {
+        let event_ai = state.event_ai().unwrap();
+        assert_eq!(event_ai.holders.len(), 1);
+        assert_eq!(
+            (event_ai.holders[0].event.id, event_ai.holders[0].timer),
+            (711, 10)
+        );
+        assert_eq!(event_ai.selected.object(), state.object);
     }
 }

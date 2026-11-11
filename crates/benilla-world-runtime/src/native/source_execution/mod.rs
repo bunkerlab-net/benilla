@@ -9,6 +9,18 @@ mod ai_inputs;
 pub use ai_inputs::*;
 #[cfg(test)]
 mod ai_selection_tests;
+mod event_ai_inputs;
+pub use event_ai_inputs::*;
+mod event_ai_catalog;
+pub use event_ai_catalog::*;
+mod event_ai_state;
+pub use event_ai_state::*;
+mod event_ai_config;
+pub use event_ai_config::*;
+#[cfg(test)]
+mod event_ai_retained_tests;
+#[cfg(test)]
+mod event_ai_tests;
 mod seal8_active;
 pub use seal8_active::{compare_seal8_unsealed_active, Seal8ActiveDifference, Seal8ActiveReport};
 #[cfg(test)]

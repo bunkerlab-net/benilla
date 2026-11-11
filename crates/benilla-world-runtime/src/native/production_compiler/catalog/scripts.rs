@@ -1023,3 +1023,48 @@ fn script_ai_bindings(registry: &Value) -> Result<Vec<CatalogScriptAiBinding>> {
 #[cfg(test)]
 #[path = "scripts_tests.rs"]
 mod tests;
+
+impl VerifiedCatalog {
+    /// Narrow numeric EventAI loader operands using the retained F2 schema.
+    pub(crate) fn execution_event_ai_operands<const N: usize>(
+        &mut self,
+        table: &str,
+        names: [&str; N],
+    ) -> Result<Vec<(u64, [u32; N])>> {
+        check(
+            matches!(
+                table,
+                "creature_ai_scripts"
+                    | "creature_template"
+                    | "creature"
+                    | "conditions"
+                    | "quest_template"
+                    | "broadcast_text"
+                    | "spell_template"
+                    | "creature_ai_summons"
+                    | "dbscripts_on_relay"
+                    | "dbscript_random_templates"
+                    | "creature_spell_list"
+                    | "creature_immunities"
+            ),
+            "scripts.event_ai_relation",
+        )?;
+        let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
+        let cols = columns(&schema, table)?;
+        let indices = names
+            .map(|name| position(cols, name))
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?;
+        let mut rows = Vec::new();
+        self.scan(table, 0, 256, |row| {
+            let values = cells(&row)?;
+            let mut words = [0; N];
+            for (word, &index) in words.iter_mut().zip(&indices) {
+                *word = spawns::uint(values[index])?;
+            }
+            rows.push((row.ordinal, words));
+            Ok(())
+        })?;
+        Ok(rows)
+    }
+}

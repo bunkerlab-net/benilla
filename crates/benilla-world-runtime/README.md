@@ -520,9 +520,10 @@ unsealed projection. An absent default path prints SKIP; an explicit bad path fa
 `SourceAiRegistry::select` follows `CreatureAISelector.cpp:38-90` at
 `Creature.cpp:880-887`, after motion initialization and before AI callbacks.
 It records the effective entry, spawn identity, control references, branch, and
-immutable executable binding. Selection implements no constructor or AI body.
-Each selected constructor returns its named missing-owner refusal, including
-the genuine `NullCreatureAI` fallback.
+immutable executable binding. Selection alone implements no AI body.
+The factory retains EventAI lifecycle state for that executable. Other selected
+constructors keep their named refusals, including the genuine `NullCreatureAI`
+fallback.
 
 ScriptDev runs first for eligible creatures. A nonnull `GetAI` slot stops at
 `execution.ai.scriptdev_get_ai_constructor_owner`; its unknown return cannot
@@ -540,6 +541,49 @@ factories and constructor refusals, not spawned AI classes or F1 acceptance.
 Missing private inputs print `SKIP`; explicit invalid inputs fail.
 The version-one selection inventory and validator are component-only.
 Native format 91, persistence, and `NativeCapability` remain unchanged.
+
+### Source EventAI loader and lifecycle
+
+`EventAiDefinitions` follows `CreatureEventAIMgr.cpp:211-1098`.
+It retains loader notices, skips, and missing-owner refusals separately.
+Chance narrows to uint8 before the 100 cap. Zero chance remains loaded.
+All three action slots retain their source conversions and repairs.
+The catalog adapter reads narrow F2 SQL operands and F2.6 DBC views.
+Loaded quest flags, summons, relay/template, spell-list, and immunity managers
+remain separate typed dependencies where their effective state is unavailable.
+
+`SourceEventAi` follows `CreatureEventAI.cpp:87-162,1382-1472,1597-1632,1929-1975`.
+The constructor retains definitions without initialising holders.
+`JustRespawned` follows `SpellListChanged` and copies entry rows before GUID rows.
+It first calls the base's virtual Reset over the previous holders,
+`CreatureAI.cpp:124-128`. Respawn does not reconstruct phase or throw-mask state.
+Each spawn owns its holders, timers, targets, and staged callback lists.
+The explicit `EventAiBuild` determines debug-only filtering, not Rust build mode.
+Main-spell power-cost/range setup refuses at its missing spell-state owner.
+Distance-spell insertion needs no spell-state calculation.
+
+The shared update clock uses strict `< diff`, accumulated uint32 debt,
+and one timer pass per update. Lifecycle callbacks retain their source order.
+Event predicates, actions, and base AI operations refuse at their actual calls
+until their executable owners exist. The version-one inventory includes the
+owned fields and marks missing base AI state and F7 restore explicitly.
+It changes no persisted native state, format, or capability.
+
+[INFERENCE] Stock phase transitions cannot reach the undefined shift at
+`CreatureEventAI.cpp:1950`. Construction and death set zero at lines 91 and 1510.
+All stock SET/RANDOM/RANGE operands at lines 922, 994, and 999 stay below 32.
+INC_PHASE clamps at lines 927-939, and stock steps cannot overflow that addition.
+This source/data invariant is not an observed F1 phase census.
+
+The loader census uses `BENILLA_F5_AI_CATALOG` and `BENILLA_F5_EVENT_AI_CONFIG`.
+The configuration file requires its independently approved hash.
+`LogFilter_EventAiDev` has no invented default.
+The retained seal16 configuration sets it to 1 at `mangosd.conf:432`,
+so the advanced target-repair block at `CreatureEventAIMgr.cpp:712-734` is off.
+`BENILLA_F5_EVENT_AI_TRACE` enables the comparison-only varied-timer projection.
+Absent private data prints `SKIP`. Matching those helper requests does not
+establish live event bindings or seal F1.
+
 
 ## Source gameobject constructors
 

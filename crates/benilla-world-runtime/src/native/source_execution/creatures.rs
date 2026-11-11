@@ -131,10 +131,42 @@ pub struct CreatureConstruction {
     pub linking_trigger: bool,
     pub spawning_linked: bool,
     selected_ai: Option<SelectedCreatureAi>,
+    event_ai: Option<SourceEventAi>,
 }
 impl CreatureConstruction {
     pub fn selected_ai(&self) -> Option<&SelectedCreatureAi> {
         self.selected_ai.as_ref()
+    }
+    pub fn event_ai(&self) -> Option<&SourceEventAi> {
+        self.event_ai.as_ref()
+    }
+    pub fn event_ai_mut(&mut self) -> Option<&mut SourceEventAi> {
+        self.event_ai.as_mut()
+    }
+    pub fn construct_event_ai(
+        &mut self,
+        objects: &SourceObjects,
+        definitions: std::sync::Arc<EventAiDefinitions>,
+        build: EventAiBuild,
+    ) -> Result<()> {
+        require(
+            self.event_ai.is_none(),
+            "execution.event_ai.already_constructed",
+        )?;
+        let selected = self
+            .selected_ai()
+            .ok_or_else(|| refuse("execution.ai.selection_absent"))?;
+        selected.validate(objects)?;
+        if selected.executable().builtin_kind() != Some(BuiltinCreatureAi::Event) {
+            return Err(selected.constructor_refusal(objects)?);
+        }
+        self.event_ai = Some(SourceEventAi::construct(
+            selected.clone(),
+            objects,
+            definitions,
+            build,
+        )?);
+        Ok(())
     }
     /// Retain the constructed object across lives; Creature.cpp:717-750,1912-1944.
     pub fn into_lifecycle(
@@ -204,16 +236,30 @@ pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     fn creature_ai_registry(&self) -> Result<&SourceAiRegistry> {
         Err(refuse("execution.ai.registry_owner"))
     }
+    fn creature_event_ai_definitions(&self) -> Result<std::sync::Arc<EventAiDefinitions>> {
+        Err(refuse("execution.event_ai.loaded_definitions_owner"))
+    }
+    fn creature_event_ai_build(&self) -> Result<EventAiBuild> {
+        Err(refuse("execution.event_ai.source_build_identity_owner"))
+    }
     /// Must execute the selected constructor before SpellListChanged/JustRespawned.
     fn creature_ai_construct(
         &mut self,
         state: &mut CreatureConstruction,
         context: &mut GridFactoryContext<'_, D, P>,
     ) -> Result<()> {
-        Err(state
+        let selected = state
             .selected_ai()
-            .ok_or_else(|| refuse("execution.ai.selection_absent"))?
-            .constructor_refusal(context.objects)?)
+            .ok_or_else(|| refuse("execution.ai.selection_absent"))?;
+        selected.validate(context.objects)?;
+        if selected.executable().builtin_kind() != Some(BuiltinCreatureAi::Event) {
+            return Err(selected.constructor_refusal(context.objects)?);
+        }
+        state.construct_event_ai(
+            context.objects,
+            self.creature_event_ai_definitions()?,
+            self.creature_event_ai_build()?,
+        )
     }
     fn creature_phase(
         &mut self,
@@ -448,6 +494,7 @@ where
         linking_trigger: false,
         spawning_linked: false,
         selected_ai: None,
+        event_ai: None,
     };
     factory.creature_phase(CreaturePhase::InitEntryBase, &mut state, context)?;
     let mut display = event.map_or(0, |event| event.model);

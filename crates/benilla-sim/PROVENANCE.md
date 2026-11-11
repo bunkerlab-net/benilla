@@ -915,6 +915,18 @@ receipts, generation identity, audience receipts, and an independent Unit
 history anchor. Native format `NATIVE_FORMAT_VERSION` rejects older saves without migration.
 Other event types, phase masks, flag bits, and actions remain refused.
 
+### General EventAI lifecycle reducers
+
+`src/event_ai/lifecycle.rs` adds chance narrowing and capping from
+`CreatureEventAIMgr.cpp:266-278`, timer disabling from
+`CreatureEventAI.cpp:35-48`, timer-event classification from lines 165-191,
+and the strict shared-clock boundary from lines 1929-1975.
+Equal endpoints draw no word. Reversed endpoints disable the holder without
+changing its timer. Shared uint32 debt wraps as in the source.
+The runtime owns holder copies and callbacks. These reducers do not duplicate
+TEXT selection or admit general event/action execution.
+
+
 ## Ordinary corpse appearance assignments
 
 `src/corpse_appearance.rs` derives from CMaNGOS Classic

@@ -15,6 +15,8 @@ use serde::{Deserialize, Serialize};
 
 mod ooc;
 pub use ooc::*;
+mod lifecycle;
+pub use lifecycle::*;
 
 pub const AGGRO_TEXT_POLICY_ID: &str = "cmangos-8ec338a1-aggro-text-full32-v1";
 pub const AGGRO_TEXT_SNAPSHOT_VERSION: u32 = 1;
@@ -277,3 +279,6 @@ mod tests;
 
 #[cfg(test)]
 mod ooc_tests;
+
+#[cfg(test)]
+mod lifecycle_tests;
