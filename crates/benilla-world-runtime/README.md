@@ -1924,3 +1924,61 @@ The census separates raw template/spawn counts, base construction, selection
 stage, and Guard UpdateAI outcomes. EventAI's full UpdateAI composition is
 not bound by this owner. Component inventories and native format 91 are
 unchanged; NativeCapability remains uninhabited and F1 remains unsealed.
+
+## Source DB-script definitions
+
+`LoadedDbScriptMap` ports `ScriptMgr::LoadScripts` at CMaNGOS Classic
+`8ec338a1`, `DBScripts/ScriptMgr.cpp:108-999`. All ten `dbscripts_on_*`
+relations share this loader. `SourceDbScriptMaps` loads relay before its
+consumers. Missing loaded owners refuse at the first dependent call.
+Diagnostic reports continue counting rows but cannot publish partial maps.
+
+The source types are `std::map<uint32, std::multimap<uint32,
+std::shared_ptr<ScriptInfo>>>`, keyed by script ID and delay,
+`ScriptMgr.h:653-655`. Equal delays keep insertion order from the retained
+F2.7 `ORDER BY priority` cursor. The dedicated reader verifies its query,
+row multiset, priority ordering and stream hash. This cursor does not
+certify F1 equal-priority order.
+
+Row dispositions retain logged reasons and source lines. Optional invalid
+emotes, sound flags and NPC/Unit flag modes only log. Quest exploration
+sets the loaded quest flag before checking distance, even when distance
+drops the command. Relay-to-relay missing IDs only log after loading.
+`LoadDbScriptStrings` remains the later missing owner for TALK string
+resolution. It creates absent string-template vectors and checks broadcasts,
+`ScriptMgr.cpp:1274-1300`. This loader neither assumes those strings exist nor
+executes TALK, `ScriptMgr.cpp:268-277,1214-1225`.
+
+The F2 catalog adapter reuses loaded F5.07 server spell templates and
+narrow SQL/DBC existence views. Effective quest flags and mutations,
+loaded pool/group definitions and the strict-check log filter require
+their named owners. No successful lookup substitutes for an absent owner.
+The group lookup binds directly to F4.05's loaded
+`SourceSpawnGroups::definitions`, never raw `spawn_group` membership.
+Quest exploration reads `SpecialFlags` bit `0x002`, not `QuestFlags`,
+`QuestDef.h:151,188-189`. `ObjectMgr.cpp:4564-4584,6271-6290` can set it
+before scripts load. The bounded quest lifecycle rejects this domain,
+so `execution.db_scripts.effective_quest_flags_owner` remains required.
+The negative random-template type index at `ScriptMgr.cpp:1239-1244`
+refuses `execution.db_scripts.random_template_index_undefined`.
+Buddy-pool lookups copy the defined uint16 wrap before checking the loaded
+pool array bound, `PoolManager.h:186-187,195-196`, `PoolManager.cpp:653,789`.
+An out-of-range wrapped index refuses
+`execution.db_scripts.buddy_pool_index_undefined`; wrapping into range
+still queries that wrapped slot.
+
+The retained-data census uses `BENILLA_F5_AI_CATALOG` and
+`BENILLA_F5_DB_SCRIPT_OCCURRENCES`, with an explicit SKIP when absent.
+It reports raw, validated, dropped, refused and unmeasured rows by type.
+An unbound spawn-group container is an unmeasured census input, not a
+source row rejection. Binding it requires the catalog-bound `GroupLoadOwner`
+consumed by `spawn_groups.rs:171-177`.
+Validated candidates are not a loaded map if any row refuses.
+`SourceDbScriptMaps::waypoint_maps` supplies the exact `WaypointScriptMaps`
+input to `SourceWaypointPaths::load_catalog_with_db_scripts`.
+The global loader runs CheckDbscript only after complete relay and movement
+definitions load. Unvalidated definitions never become missing script IDs.
+`LoadScriptMap`'s other type-specific post-load diagnostics, script
+scheduling, command execution and F7 live continuation are not supplied.
+Immutable definitions add no serialized state. Format 91, NativeCapability
+and frozen-unsealed F1 remain unchanged.

@@ -493,6 +493,39 @@ fn catalog04_waypoint_loader_and_raw_prefix_census_or_explicit_absence() {
         global.id,
         "execution.waypoint.scriptmgr_dbscript_loaded_maps_owner"
     );
+    struct MissingSpellOwners;
+    impl SpellLoaderOwner for MissingSpellOwners {}
+    struct MissingDbOwners;
+    impl DbScriptLoaderOwner for MissingDbOwners {}
+    let occurrences = std::env::var_os("BENILLA_F5_DB_SCRIPT_OCCURRENCES");
+    let global_after = occurrences
+        .as_ref()
+        .ok_or_else(|| refuse("execution.db_scripts.sql_occurrences_owner"))
+        .and_then(|path| {
+            let spells = SourceSpellStores::load(&mut catalog, &mut MissingSpellOwners)?;
+            let scripts = SourceDbScriptMaps::load_catalog(
+                &mut catalog,
+                Path::new(path),
+                &[DbScriptType::Relay, DbScriptType::CreatureMovement],
+                Some(&spells),
+                &mut MissingDbOwners,
+                None,
+            )?;
+            SourceWaypointPaths::load_catalog_with_db_scripts(
+                &mut catalog,
+                &creature_ids,
+                &template_ids,
+                &scripts,
+            )
+        });
+    let global_after_refusal = global_after.as_ref().err().map(|e| e.id.as_str());
+    if occurrences.is_some() {
+        // A raw SpecialFlags value cannot replace ObjectMgr::LoadQuests' product.
+        assert_eq!(
+            global_after_refusal,
+            Some("execution.db_scripts.effective_quest_flags_owner")
+        );
+    }
     let mut groups: [BTreeMap<u32, Vec<SourceWaypointRow>>; 3] = Default::default();
     let mut blacklists: [EntrySet; 3] = Default::default();
     for (family, rows) in raw.iter().enumerate() {
@@ -676,6 +709,10 @@ fn catalog04_waypoint_loader_and_raw_prefix_census_or_explicit_absence() {
         "scope":"global manager loader and separately raw ordinary default-path probes; no complete loader acceptance, live formation/event choice, spline, arrival or F1 execution is claimed",
         "before":{"waypoint_templates_missing_constructor":209,"waypoint_spawns_missing_constructor":2931,"templates_generator_defined":10163,"spawns_generator_defined":63132},
         "after":{"waypoint_templates_factory_defined":209,"waypoint_spawns_factory_defined":2931,"templates_generator_defined":10372,"spawns_generator_defined":66063,"global_loader_refusal":global.id,"global_loader_blocked_spawns":waypoint_spawns,"global_loader_reached_f6":0},
+        "dbscript_loader_before":{"refusal":global.id,"blocked_spawns":waypoint_spawns},
+        "dbscript_loader_after":{"refusal":global_after_refusal,
+            "blocked_spawns":if global_after.is_err(){waypoint_spawns}else{0},
+            "loaded_manager":global_after.is_ok(),"CheckDbscript":"wired to validated map projection"},
         "raw_table_rows":{"creature_movement":raw[0].len(),"creature_movement_template":raw[1].len(),"waypoint_path":raw[2].len(),"script_waypoint":external.len()},
         "raw_template_path_reasons":template_reasons,
         "raw_spawn_entry_alternatives":alternatives_count,
@@ -694,6 +731,8 @@ fn catalog04_waypoint_loader_and_raw_prefix_census_or_explicit_absence() {
         "F5_WAYPOINT_CENSUS {}",
         serde_json::json!({
             "global_loader_refusal":global.id,"global_loader_reached_f6":0,
+            "dbscript_loader_after_refusal":global_after_refusal,
+            "dbscript_loader_after_blocked_spawns":if global_after.is_err(){waypoint_spawns}else{0},
             "raw_templates":template_reasons.iter().map(|(k,v)| (k,v.len())).collect::<BTreeMap<_,_>>(),
             "raw_spawn_entry_alternatives":alternatives_count,
             "raw_prefix_reasons":reasons.iter().map(|(k,v)| (k,v.len())).collect::<BTreeMap<_,_>>(),

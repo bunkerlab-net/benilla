@@ -353,3 +353,7 @@ mod spell_template;
 pub use spell_template::*;
 mod spell_inputs;
 pub use spell_inputs::*;
+mod db_scripts;
+pub use db_scripts::*;
+mod db_scripts_catalog;
+pub use db_scripts_catalog::*;

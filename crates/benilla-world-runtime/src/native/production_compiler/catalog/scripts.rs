@@ -1331,3 +1331,5 @@ fn unit_event_census_relation_gate_rejects_unlisted_tables() {
         );
     }
 }
+#[path = "db_scripts.rs"]
+mod db_scripts;
