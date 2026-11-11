@@ -2426,3 +2426,265 @@ fn linked_gameobject_group_refuses_before_invalid_creature_group_cast() {
         "execution.group.linked_group_type_undefined"
     );
 }
+
+#[test]
+fn catalog_group_owner_matches_fixture_definitions_and_detaches_real_spawn_sets() {
+    use super::super::production_compiler::VerifiedCatalog;
+    VerifiedCatalog::with_authored_group_test_catalog(|mut catalog| {
+        fn rows() -> Rows {
+            let mut rows = Rows::default();
+            for id in [1, 2] {
+                rows.push(
+                    GroupPhase::Templates,
+                    GroupInputData::Template(template(id, 0, 0)),
+                );
+            }
+            rows.push(
+                GroupPhase::Formations,
+                GroupInputData::Formation(Formation {
+                    group: 1,
+                    kind: 0,
+                    spread_bits: 2.0_f32.to_bits(),
+                    options: 0,
+                    path: 5,
+                    movement: 0,
+                    comment: b"authored".to_vec(),
+                }),
+            );
+            rows.push(
+                GroupPhase::Members,
+                GroupInputData::Member {
+                    group: 1,
+                    guid: 7,
+                    slot: 3,
+                    chance: 0,
+                },
+            );
+            rows.push(
+                GroupPhase::Entries,
+                GroupInputData::Entry {
+                    group: 1,
+                    entry: RandomEntry {
+                        entry: 10,
+                        min: 1,
+                        max: 1,
+                        chance: 0,
+                    },
+                },
+            );
+            rows.push(
+                GroupPhase::Links,
+                GroupInputData::Link {
+                    group: 1,
+                    linked: 2,
+                },
+            );
+            rows.push(
+                GroupPhase::Squads,
+                GroupInputData::Squad {
+                    group: 1,
+                    squad: 4,
+                    guid: 7,
+                    entry: 10,
+                },
+            );
+            rows
+        }
+        let key = SpawnKey {
+            kind: GridSpawnKind::Creature,
+            guid: 7,
+        };
+        let definition = spawn(10);
+        let mut fixture = Owner::default();
+        fixture.spawns.insert(key, definition);
+        fixture.templates.insert((key.kind, 10));
+        fixture.static_spawns.insert(key);
+        fixture.dynamic_spawns = vec![key, key];
+        fixture.random.insert(key);
+        let mut expected = SourceSpawnGroups::default();
+        expected.load(&mut rows(), &mut fixture).unwrap();
+
+        let definitions = BTreeMap::from([(key, definition)]);
+        let random_entries = BTreeSet::from([key]);
+        let mut grids = BTreeMap::from([(
+            0,
+            GridSpawnSets::new(MapIdentity {
+                map: 0,
+                instance: 0,
+                creation_generation: 1,
+            }),
+        )]);
+        grids
+            .get_mut(&0)
+            .unwrap()
+            .register(
+                definition.cell,
+                key.kind,
+                GridSpawnOrigin::Static,
+                key.guid,
+                0,
+            )
+            .unwrap();
+        let mut dynamic = BTreeMap::from([((0, key.kind), vec![7, 8, 7])]);
+        let mut owner = CatalogGroupLoadOwner::new(
+            &mut catalog,
+            Some(EffectiveGroupSpawns {
+                definitions: &definitions,
+                random_entries: &random_entries,
+                static_grids: &mut grids,
+                dynamic_guids: &mut dynamic,
+            }),
+            Some(false),
+        );
+        let mut actual = SourceSpawnGroups::default();
+        actual.load(&mut rows(), &mut owner).unwrap();
+        assert_eq!(
+            actual.definitions().unwrap(),
+            expected.definitions().unwrap()
+        );
+        assert_eq!(actual.load_records(), expected.load_records());
+        drop(owner);
+        assert_eq!(dynamic[&(0, key.kind)], [8]);
+        // An ordinal change succeeds only if the original static registration was erased.
+        grids
+            .get_mut(&0)
+            .unwrap()
+            .register(
+                definition.cell,
+                key.kind,
+                GridSpawnOrigin::Static,
+                key.guid,
+                9,
+            )
+            .unwrap();
+        assert!(fixture.static_spawns.is_empty());
+        assert!(fixture.dynamic_spawns.is_empty());
+    });
+}
+
+#[test]
+fn catalog_group_owner_refuses_unbound_views_effective_spawns_and_config() {
+    use super::super::production_compiler::VerifiedCatalog;
+    VerifiedCatalog::with_authored_group_test_catalog(|mut catalog| {
+        let mut owner = CatalogGroupLoadOwner::new(&mut catalog, None, None);
+        for (kind, name) in [
+            (GridSpawnKind::Creature, "creatures"),
+            (GridSpawnKind::GameObject, "gameobjects"),
+        ] {
+            assert_eq!(
+                owner.spawn(SpawnKey { kind, guid: 7 }).unwrap_err().id,
+                format!("execution.spawn_groups.objectmgr_load_{name}_effective_spawn_owner")
+            );
+        }
+        assert_eq!(
+            owner.condition_exists(1).unwrap_err().id,
+            "execution.spawn_groups.conditions_view_owner"
+        );
+        assert_eq!(
+            owner.expression_exists(1).unwrap_err().id,
+            "execution.spawn_groups.worldstate_expression_view_owner"
+        );
+        assert_eq!(
+            owner.string_exists(1).unwrap_err().id,
+            "execution.spawn_groups.string_id_view_owner"
+        );
+        assert_eq!(
+            owner.creature_template_flags(10).unwrap_err().id,
+            "execution.spawn_groups.creature_template_view_owner"
+        );
+        assert_eq!(
+            owner.autoload_active().unwrap_err().id,
+            "execution.spawn_groups.autoload_active_config_owner"
+        );
+        assert!(owner.template_exists(GridSpawnKind::Creature, 10).unwrap());
+        assert!(!owner.template_exists(GridSpawnKind::Creature, 11).unwrap());
+        drop(owner);
+        assert_eq!(
+            SourceSpawnGroups::default()
+                .load_bound_catalog(&mut catalog, Path::new("."), None, None)
+                .unwrap_err()
+                .id,
+            "execution.spawn_groups.spawn_group_view_owner"
+        );
+    });
+}
+
+#[test]
+fn catalog04_spawn_group_load_counts_and_effective_spawn_refusals_or_explicit_absence() {
+    use super::super::production_compiler::VerifiedCatalog;
+    let (Some(root), Some(occurrences)) = (
+        std::env::var_os("BENILLA_F2_CATALOG"),
+        std::env::var_os("BENILLA_F2_GROUP_OCCURRENCES"),
+    ) else {
+        println!("SKIP spawn-group catalog-04 load: set BENILLA_F2_CATALOG and BENILLA_F2_GROUP_OCCURRENCES");
+        return;
+    };
+    let mut catalog = VerifiedCatalog::open(Path::new(&root), false).unwrap();
+    let mut rows = catalog
+        .execution_spawn_group_rows(Path::new(&occurrences))
+        .unwrap();
+    let mut counts = [0; 6];
+    let mut kinds = BTreeMap::new();
+    let mut members = Vec::new();
+    for phase in GroupPhase::ALL {
+        while let Some(row) = GroupRows::next(&mut rows, phase).unwrap() {
+            counts[phase as usize] += 1;
+            match row.data {
+                GroupInputData::Template(template) => {
+                    kinds.insert(template.id, template.kind);
+                }
+                GroupInputData::Member { group, guid, .. } => members.push((group, guid)),
+                _ => {}
+            }
+        }
+    }
+    assert_eq!(counts, [1346, 231, 4582, 2173, 7, 0]);
+    let mut groups = SourceSpawnGroups::default();
+    let refusal = groups
+        .load_bound_catalog(&mut catalog, Path::new(&occurrences), None, None)
+        .unwrap_err();
+    assert_eq!(
+        refusal.id,
+        "execution.spawn_groups.objectmgr_load_gameobjects_effective_spawn_owner"
+    );
+    assert!(groups.definitions().is_err());
+    let mut owner = CatalogGroupLoadOwner::new(&mut catalog, None, None);
+    let mut refused = BTreeMap::<String, usize>::new();
+    let mut passed = 0;
+    for (group, guid) in members {
+        let kind = match kinds[&group] {
+            0 => GridSpawnKind::Creature,
+            1 => GridSpawnKind::GameObject,
+            _ => panic!("invalid stock group type"),
+        };
+        match owner.spawn(SpawnKey { kind, guid }) {
+            Ok(_) => passed += 1,
+            Err(error) => *refused.entry(error.id).or_default() += 1,
+        }
+    }
+    assert_eq!(passed, 0);
+    assert_eq!(
+        refused.values().sum::<usize>(),
+        counts[GroupPhase::Members as usize]
+    );
+    assert_eq!(
+        refused,
+        BTreeMap::from([
+            (
+                "execution.spawn_groups.objectmgr_load_creatures_effective_spawn_owner".into(),
+                1950
+            ),
+            (
+                "execution.spawn_groups.objectmgr_load_gameobjects_effective_spawn_owner".into(),
+                2632
+            ),
+        ])
+    );
+    let accepted = groups
+        .load_records()
+        .iter()
+        .filter(|record| record.decision == GroupLoadDecision::Accepted)
+        .count();
+    println!("spawn-group catalog-04 query rows [groups, formations, members, entries, links, squads]={counts:?}; accepted prefix rows={accepted}; effective container unpublished; first refusal={}", refusal.id);
+    println!("spawn-group catalog-04 member prerequisite probes passed={passed}, refused={refused:?}; these are not accepted-member counts");
+}

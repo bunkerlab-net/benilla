@@ -13,6 +13,8 @@ use std::sync::Arc;
 
 mod group_links;
 pub use group_links::*;
+mod catalog;
+pub use catalog::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct GroupSpawnDefinition {

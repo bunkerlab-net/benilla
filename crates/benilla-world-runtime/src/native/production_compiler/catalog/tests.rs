@@ -296,6 +296,17 @@ impl Drop for Fixture {
         std::fs::remove_dir_all(&self.path).unwrap();
     }
 }
+
+impl VerifiedCatalog {
+    pub(crate) fn with_authored_group_test_catalog(test: impl FnOnce(Self)) {
+        let fixture = Fixture::named(
+            "creature_template",
+            "entry",
+            vec![(b"10".to_vec(), Some(b"authored".to_vec()))],
+        );
+        test(fixture.open().unwrap());
+    }
+}
 #[test]
 fn catalog_authored_scan_lookup_and_resource_contract() {
     let f = Fixture::pilot();

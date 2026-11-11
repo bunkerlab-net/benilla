@@ -15,6 +15,19 @@ pub(crate) struct SpawnGroupCatalogRows {
 }
 impl SpawnGroupCatalogRows {
     pub(crate) fn open(catalog: &mut VerifiedCatalog, occurrences: &Path) -> Result<Self> {
+        for table in [
+            "spawn_group",
+            "spawn_group_formation",
+            "spawn_group_spawn",
+            "spawn_group_entry",
+            "spawn_group_linked_group",
+            "spawn_group_squad",
+        ] {
+            check(
+                catalog.relations.contains_key(table),
+                &format!("execution.spawn_groups.{table}_view_owner"),
+            )?;
+        }
         let (metadata, meta) = occurrence_manifest(occurrences)?;
         let schema =
             bounded_json(&catalog.object(&descriptor(&catalog.manifest["schema_root"])?, 0)?)?;
@@ -132,6 +145,50 @@ impl SpawnGroupCatalogRows {
         };
         self.ordinal[slot] += 1;
         Ok(Some(GroupInput { ordinal, data }))
+    }
+}
+
+impl VerifiedCatalog {
+    /// Existence and flags consumed by LoadSpawnGroups, not effective spawn data.
+    pub(crate) fn execution_group_operands<const N: usize>(
+        &mut self,
+        table: &str,
+        names: [&str; N],
+    ) -> Result<Vec<[u32; N]>> {
+        check(
+            matches!(
+                table,
+                "conditions"
+                    | "worldstate_expression"
+                    | "string_id"
+                    | "creature_template"
+                    | "gameobject_template"
+            ),
+            "groups.operand_relation",
+        )?;
+        let owner = format!("execution.spawn_groups.{table}_view_owner");
+        check(self.relations.contains_key(table), &owner)?;
+        let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
+        let columns = spawns::columns(&schema, table).map_err(|_| fail(&owner))?;
+        let positions = names
+            .map(|name| spawns::position(&columns, name).map_err(|_| fail(&owner)))
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?;
+        let mut output = Vec::new();
+        self.scan(table, 0, 256, |row| {
+            let mut cells = [None; 256];
+            spawns::fill(&row, &mut cells)?;
+            let mut words = [0; N];
+            for (word, &position) in words.iter_mut().zip(&positions) {
+                *word = spawns::uint(cells[position])?;
+            }
+            output.push(words);
+            check(
+                output.len() <= DECODED / std::mem::size_of::<[u32; N]>().max(1),
+                "groups.view_limit",
+            )
+        })?;
+        Ok(output)
     }
 }
 

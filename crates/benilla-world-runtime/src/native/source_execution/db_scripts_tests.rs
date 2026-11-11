@@ -584,7 +584,7 @@ fn retained_catalog_db_scripts_counts_or_explicit_absence() {
     struct SpellMissing;
     impl SpellLoaderOwner for SpellMissing {}
     let spells = SourceSpellStores::load(&mut catalog, &mut SpellMissing).unwrap();
-    let mut external = Missing;
+    let mut external = catalog_group_census_owner(&mut catalog);
     let mut owner = DbScriptCatalog::new(&mut catalog, Some(&spells), &mut external, None);
     let mut relay = None;
     let mut census = BTreeMap::new();
@@ -609,6 +609,7 @@ fn retained_catalog_db_scripts_counts_or_explicit_absence() {
         let mut refused_rows = Vec::new();
         let mut unmeasured_rows = Vec::new();
         let mut loaded = 0;
+        let mut measured_groups = Vec::new();
         for r in report.rows() {
             match &r.disposition {
                 DbScriptDisposition::Loaded => loaded += 1,
@@ -623,6 +624,9 @@ fn retained_catalog_db_scripts_counts_or_explicit_absence() {
                         "missing_owner":"catalog-bound GroupLoadOwner, spawn_groups.rs:171-177"}));
                 }
                 DbScriptDisposition::Refused(e) => {
+                    if kind == DbScriptType::CreatureMovement && (470001..=470004).contains(&r.id) {
+                        measured_groups.push((r.id, e.id.clone()));
+                    }
                     *refused.entry(e.id.as_str()).or_default() += 1;
                     refused_rows
                         .push(serde_json::json!({"id":r.id,"ordinal":r.ordinal,"owner":e.id}));
@@ -639,6 +643,19 @@ fn retained_catalog_db_scripts_counts_or_explicit_absence() {
                 + unmeasured_rows.len(),
             count
         );
+        if kind == DbScriptType::CreatureMovement {
+            assert_eq!(
+                measured_groups,
+                (470001..=470004)
+                    .map(|id| (
+                        id,
+                        "execution.spawn_groups.objectmgr_load_gameobjects_effective_spawn_owner"
+                            .into()
+                    ))
+                    .collect::<Vec<_>>()
+            );
+            println!("DB-script measured spawn-group rows {measured_groups:?}");
+        }
         census.insert(
             kind.table(),
             serde_json::json!({"raw":count,"validated":loaded,

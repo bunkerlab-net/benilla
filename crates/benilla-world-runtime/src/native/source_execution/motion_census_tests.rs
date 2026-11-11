@@ -495,20 +495,19 @@ fn catalog04_waypoint_loader_and_raw_prefix_census_or_explicit_absence() {
     );
     struct MissingSpellOwners;
     impl SpellLoaderOwner for MissingSpellOwners {}
-    struct MissingDbOwners;
-    impl DbScriptLoaderOwner for MissingDbOwners {}
     let occurrences = std::env::var_os("BENILLA_F5_DB_SCRIPT_OCCURRENCES");
     let global_after = occurrences
         .as_ref()
         .ok_or_else(|| refuse("execution.db_scripts.sql_occurrences_owner"))
         .and_then(|path| {
             let spells = SourceSpellStores::load(&mut catalog, &mut MissingSpellOwners)?;
+            let mut groups = catalog_group_census_owner(&mut catalog);
             let scripts = SourceDbScriptMaps::load_catalog(
                 &mut catalog,
                 Path::new(path),
                 &[DbScriptType::Relay, DbScriptType::CreatureMovement],
                 Some(&spells),
-                &mut MissingDbOwners,
+                &mut groups,
                 None,
             )?;
             SourceWaypointPaths::load_catalog_with_db_scripts(

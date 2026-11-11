@@ -1290,6 +1290,15 @@ map-local group state. Its source is CMaNGOS Classic
   at `:1532-1544`. Zero spawn masks disable the complete group.
   Names and formation comments stop at the first NUL without trimming or
   UTF-8 replacement, `src/shared/Database/Field.h:49-51`.
+  `CatalogGroupLoadOwner` binds condition, expression, string and template
+  views. `load_bound_catalog` consumes the checked F2.3 occurrences in that
+  source order. Effective spawn definitions, static grids, dynamic vectors
+  and Autoload.Active remain explicit startup-owner inputs. Raw spawn rows
+  cannot replace them. Missing effective creature or GO inputs refuse with
+  `execution.spawn_groups.objectmgr_load_creatures_effective_spawn_owner`
+  or `execution.spawn_groups.objectmgr_load_gameobjects_effective_spawn_owner`.
+  The DB-script census reports that reached prerequisite for movement rows
+  470001-470004 rather than labelling their group lookup unmeasured.
 - `Maps/SpawnGroup.cpp:116-154,219-275` uses cumulative integer entry
   chances, sorted-key minima, zero-as-unlimited entry capacity and
   first-insert minima. `benilla-sim::source_spawn_groups` implements these
