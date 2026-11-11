@@ -147,6 +147,8 @@ struct Factory {
     health: BTreeMap<ObjectHandle, u32>,
     kernel: Option<benilla_sim::creature_init::Input>,
     initialized: BTreeMap<ObjectHandle, benilla_sim::creature_init::InitializedCreature>,
+    ai_registry: SourceAiRegistry,
+    selected_ai: Option<SelectedCreatureAi>,
 }
 impl Factory {
     fn new() -> Self {
@@ -193,6 +195,8 @@ impl Factory {
             health: BTreeMap::new(),
             kernel: None,
             initialized: BTreeMap::new(),
+            ai_registry: SourceAiRegistry::builtin(),
+            selected_ai: None,
         }
     }
 }
@@ -325,6 +329,33 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
     }
     fn creature_dead_flying_height(&mut self, _: &CreatureConstruction) -> Result<f32> {
         Ok(2.0)
+    }
+    fn creature_ai_inputs(&mut self, state: &CreatureConstruction) -> Result<CreatureAiInputs> {
+        Ok(CreatureAiInputs {
+            effective_entry: state.template.entry,
+            ai_name: String::new(),
+            script_name: String::new(),
+            control: CreatureAiControl::default(),
+            guard: false,
+            no_aggro_on_sight: false,
+            neutral_to_all: false,
+        })
+    }
+    fn creature_ai_registry(&self) -> Result<&SourceAiRegistry> {
+        Ok(&self.ai_registry)
+    }
+    fn creature_ai_construct(
+        &mut self,
+        state: &mut CreatureConstruction,
+        context: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<()> {
+        let selected = state.selected_ai().unwrap();
+        self.selected_ai = Some(selected.clone());
+        if self.refuse == Some(CreaturePhase::SelectAi) {
+            return Err(selected.constructor_refusal(context.objects)?);
+        }
+        // The existing F4 tests use authored callbacks, not a production AI body.
+        self.creature_phase(CreaturePhase::SelectAi, state, context)
     }
     fn creature_phase(
         &mut self,
@@ -600,6 +631,7 @@ fn zero_entry_group_conditional_random_and_event_precedence_preserves_zero_db_lo
         let state = factory.states.values().next().unwrap();
         assert_eq!(state.original_entry, expected_original);
         assert_eq!(state.template.entry, 8);
+        assert_eq!(state.selected_ai().unwrap().inputs().effective_entry, 8);
         let queries: Vec<_> = factory
             .observations
             .iter()
@@ -826,7 +858,14 @@ fn unavailable_reached_ai_owner_refuses_after_map_add_without_fake_destruction_o
     let mut factory = Factory::new();
     factory.refuse = Some(CreaturePhase::SelectAi);
     let refusal = world.load(0.0, &mut factory).unwrap_err();
-    assert_eq!(refusal.id, "execution.creature.ai_owner");
+    assert_eq!(refusal.id, "execution.ai.event_ai_constructor_owner");
+    let selected = factory.selected_ai.as_ref().unwrap();
+    assert_eq!(selected.inputs().effective_entry, 7);
+    assert_eq!(selected.branch(), AiSelectionBranch::Permit);
+    assert_eq!(
+        selected.executable().builtin_kind(),
+        Some(BuiltinCreatureAi::Event)
+    );
     assert_eq!(factory.random.cursor.raw, 2);
     assert!(factory.states.is_empty());
     assert!(

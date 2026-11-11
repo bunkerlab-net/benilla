@@ -515,6 +515,32 @@ trigger causality, natural unload/reload and whole-world admission remain pendin
 Set `BENILLA_F1_SEAL8_FRAMING` to the retained framing directory to exercise that
 unsealed projection. An absent default path prints SKIP; an explicit bad path fails.
 
+## Source CreatureAI selection
+
+`SourceAiRegistry::select` follows `CreatureAISelector.cpp:38-90` at
+`Creature.cpp:880-887`, after motion initialization and before AI callbacks.
+It records the effective entry, spawn identity, control references, branch, and
+immutable executable binding. Selection implements no constructor or AI body.
+Each selected constructor returns its named missing-owner refusal, including
+the genuine `NullCreatureAI` fallback.
+
+ScriptDev runs first for eligible creatures. A nonnull `GetAI` slot stops at
+`execution.ai.scriptdev_get_ai_constructor_owner`; its unknown return cannot
+justify builtin fallback. A proven null slot or absent registration can continue.
+The seven builtins follow `CreatureAIRegistry.cpp:37-43`. Permit traversal uses
+lexicographic registry keys and strict `>` replacement, not registration order.
+Builtin duplicates reject unless replacement is explicit, while ScriptDev
+registrations overwrite by ID, `ObjectRegistry.h:35,45-57` and
+`ScriptDevAIMgr.cpp:426-432`.
+
+The catalog census uses `BENILLA_F5_AI_CATALOG` and `BENILLA_F5_SCRIPT_REPORT`.
+It counts every raw creature template as an ordinary uncontrolled creature,
+with retained faction predicates and ScriptDev slots. It reports selected
+factories and constructor refusals, not spawned AI classes or F1 acceptance.
+Missing private inputs print `SKIP`; explicit invalid inputs fail.
+The version-one selection inventory and validator are component-only.
+Native format 91, persistence, and `NativeCapability` remain unchanged.
+
 ## Source gameobject constructors
 
 `GridFactoryContext::load_gameobject` executes ordinary GO construction through

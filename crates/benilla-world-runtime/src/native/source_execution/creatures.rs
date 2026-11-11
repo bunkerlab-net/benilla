@@ -130,8 +130,12 @@ pub struct CreatureConstruction {
     pub respawn_time: i64,
     pub linking_trigger: bool,
     pub spawning_linked: bool,
+    selected_ai: Option<SelectedCreatureAi>,
 }
 impl CreatureConstruction {
+    pub fn selected_ai(&self) -> Option<&SelectedCreatureAi> {
+        self.selected_ai.as_ref()
+    }
     /// Retain the constructed object across lives; Creature.cpp:717-750,1912-1944.
     pub fn into_lifecycle(
         self,
@@ -193,6 +197,24 @@ pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     fn creature_spawned_by_linked_mob(&mut self, state: &CreatureConstruction) -> Result<bool>;
     fn creature_linked_can_spawn(&mut self, state: &CreatureConstruction) -> Result<bool>;
     fn creature_dead_flying_height(&mut self, state: &CreatureConstruction) -> Result<f32>;
+    /// Live effective-template/control operands, not a selected AI answer.
+    fn creature_ai_inputs(&mut self, _state: &CreatureConstruction) -> Result<CreatureAiInputs> {
+        Err(refuse("execution.ai.live_inputs_owner"))
+    }
+    fn creature_ai_registry(&self) -> Result<&SourceAiRegistry> {
+        Err(refuse("execution.ai.registry_owner"))
+    }
+    /// Must execute the selected constructor before SpellListChanged/JustRespawned.
+    fn creature_ai_construct(
+        &mut self,
+        state: &mut CreatureConstruction,
+        context: &mut GridFactoryContext<'_, D, P>,
+    ) -> Result<()> {
+        Err(state
+            .selected_ai()
+            .ok_or_else(|| refuse("execution.ai.selection_absent"))?
+            .constructor_refusal(context.objects)?)
+    }
     fn creature_phase(
         &mut self,
         phase: CreaturePhase,
@@ -425,6 +447,7 @@ where
         },
         linking_trigger: false,
         spawning_linked: false,
+        selected_ai: None,
     };
     factory.creature_phase(CreaturePhase::InitEntryBase, &mut state, context)?;
     let mut display = event.map_or(0, |event| event.model);
@@ -560,9 +583,9 @@ where
         dead(factory, &mut state, context)?;
     }
     add_source_creature(factory, &mut state, context)?;
+    factory.creature_phase(CreaturePhase::MotionInitialize, &mut state, context)?;
+    select_source_creature_ai(factory, &mut state, context)?;
     for phase in [
-        CreaturePhase::MotionInitialize,
-        CreaturePhase::SelectAi,
         CreaturePhase::AiSpellListChanged,
         CreaturePhase::AiJustRespawned,
         CreaturePhase::InstanceRespawnAndCreatorLoot,
@@ -587,6 +610,31 @@ where
     }
     factory.creature_created(state, context)?;
     Ok(GridCandidateOutcome::Loaded(object))
+}
+
+/// Creature.cpp:880-887 calls selection after motion initialization, before AI callbacks.
+pub fn select_source_creature_ai<D, P, F>(
+    factory: &mut F,
+    state: &mut CreatureConstruction,
+    context: &mut GridFactoryContext<'_, D, P>,
+) -> Result<()>
+where
+    D: GridDefinitions,
+    P: GridProductOwner,
+    F: CreatureFactoryOwner<D, P>,
+{
+    require(state.selected_ai.is_none(), "execution.ai.already_selected")?;
+    let inputs = factory.creature_ai_inputs(state)?;
+    require(
+        inputs.effective_entry == state.template.entry,
+        "execution.ai.effective_entry",
+    )?;
+    state.selected_ai = Some(factory.creature_ai_registry()?.select(
+        context.objects,
+        state.object,
+        inputs,
+    )?);
+    factory.creature_ai_construct(state, context)
 }
 
 /// Re-add a retained construction without LoadFromDB or AI initialization; Map.cpp:471-504, Creature.cpp:173-209.

@@ -3,6 +3,12 @@
 //! Expected outcomes have no conversion to an admissible input.
 mod active;
 pub use active::*;
+mod ai_selection;
+pub use ai_selection::*;
+mod ai_inputs;
+pub use ai_inputs::*;
+#[cfg(test)]
+mod ai_selection_tests;
 mod seal8_active;
 pub use seal8_active::{compare_seal8_unsealed_active, Seal8ActiveDifference, Seal8ActiveReport};
 #[cfg(test)]

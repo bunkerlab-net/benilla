@@ -880,6 +880,146 @@ pub(super) fn prepare(
     )?;
     Ok(result)
 }
+
+/// Raw narrow template operands. This is not effective ObjectMgr loader acceptance.
+pub struct CatalogCreatureAiTemplate {
+    pub ordinal: u64,
+    pub entry: u32,
+    pub faction: u32,
+    pub extra_flags: u32,
+    pub ai_name: String,
+    pub script_name: String,
+}
+pub struct CatalogScriptAiBinding {
+    pub script_id: u32,
+    pub name: String,
+    pub registration: u64,
+    pub operation: String,
+    pub source_file: String,
+    pub source_line: u32,
+    pub source_function: String,
+    pub registry_sha256: String,
+    pub get_ai_nonnull: bool,
+}
+impl VerifiedCatalog {
+    pub(crate) fn execution_ai_templates(
+        &mut self,
+        entry: Option<u32>,
+        mut visit: impl FnMut(CatalogCreatureAiTemplate) -> Result<()>,
+    ) -> Result<()> {
+        let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
+        let cols = spawns::columns(&schema, "creature_template")?;
+        let indices = ["Entry", "Faction", "ExtraFlags", "AIName", "ScriptName"]
+            .map(|name| spawns::position(&cols, name))
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?;
+        let mut decode = |row: RowView<'_>| {
+            let values = cells(&row)?;
+            let text = |index: usize| {
+                let raw = values[index].unwrap_or(b"");
+                let raw = raw.split(|b| *b == 0).next().unwrap_or(b"");
+                std::str::from_utf8(raw)
+                    .map(str::to_owned)
+                    .map_err(|_| fail("scripts.ai_name_encoding"))
+            };
+            visit(CatalogCreatureAiTemplate {
+                ordinal: row.ordinal,
+                entry: spawns::uint(values[indices[0]])?,
+                faction: u32::from(spawns::uint(values[indices[1]])? as u16),
+                extra_flags: spawns::uint(values[indices[2]])?,
+                ai_name: text(indices[3])?,
+                script_name: text(indices[4])?,
+            })
+        };
+        if let Some(entry) = entry {
+            spawns::visit_key(self, "creature_template", entry, decode)
+        } else {
+            self.scan("creature_template", 0, 256, &mut decode)
+        }
+    }
+    /// Retained F2 input, not sealed executable binding or a constructor result.
+    pub(crate) fn execution_script_ai_bindings(
+        &self,
+        report: &Path,
+    ) -> Result<Vec<CatalogScriptAiBinding>> {
+        let mut value = input_json(report, CHUNK)?;
+        let digest = value
+            .as_object_mut()
+            .ok_or_else(|| fail("scripts.ai_report"))?
+            .remove("view_sha256")
+            .ok_or_else(|| fail("scripts.ai_report"))?;
+        check(digest == json::digest(&value), "scripts.ai_report_hash")?;
+        check(
+            value["format"] == "benilla-script-views-v1"
+                && value["catalog_sha256"] == self.manifest["catalog_sha256"],
+            "scripts.ai_report_catalog",
+        )?;
+        script_ai_bindings(&value["registrations"]["registry"])
+    }
+}
+fn script_ai_bindings(registry: &Value) -> Result<Vec<CatalogScriptAiBinding>> {
+    let records = registry["records"]
+        .as_array()
+        .ok_or_else(|| fail("scripts.ai_registry"))?;
+    check(registry["attempts"] == records.len(), "scripts.ai_registry")?;
+    let digest = registry["raw_registry_sha256"]
+        .as_str()
+        .ok_or_else(|| fail("scripts.ai_registry"))?;
+    check(
+        digest.len() == 64
+            && digest
+                .bytes()
+                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()),
+        "scripts.ai_registry",
+    )?;
+    let mut ids = BTreeSet::new();
+    let mut bindings = Vec::new();
+    for (ordinal, record) in records.iter().enumerate() {
+        let Some(id) = record["id"].as_u64() else {
+            check(
+                record["id"].is_null() && record["outcome"] == "unobserved_binding_outcome",
+                "scripts.ai_registry",
+            )?;
+            continue;
+        };
+        let id = u32::try_from(id).map_err(|_| fail("scripts.ai_registry"))?;
+        check(
+            id != 0
+                && record["outcome"]
+                    == if ids.insert(id) {
+                        "accepted"
+                    } else {
+                        "accepted_override"
+                    },
+            "scripts.ai_registry",
+        )?;
+        let text = |value: &Value| {
+            value
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+                .ok_or_else(|| fail("scripts.ai_registry"))
+        };
+        let callback = text(&record["slots"]["GetAI"])?;
+        bindings.push(CatalogScriptAiBinding {
+            script_id: id,
+            name: text(&record["name"])?,
+            registration: ordinal as u64,
+            operation: text(&record["operation"])?,
+            source_file: text(&record["source"]["file"])?,
+            source_line: u32::try_from(number(&record["source"]["line"])?)
+                .map_err(|_| fail("scripts.ai_registry"))?,
+            source_function: text(&record["source"]["function"])?,
+            registry_sha256: digest.into(),
+            get_ai_nonnull: pointer(&callback)? != 0,
+        });
+    }
+    check(
+        registry["accepted"] == bindings.len() && registry["final_bindings"] == ids.len(),
+        "scripts.ai_registry",
+    )?;
+    Ok(bindings)
+}
 #[cfg(test)]
 #[path = "scripts_tests.rs"]
 mod tests;

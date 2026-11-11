@@ -264,3 +264,46 @@ fn linked_source_and_manifest_substitution_refuse() {
     );
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn ai_slot_views_preserve_null_nonnull_and_registration_override_identity() {
+    let mut registry = Registry::default();
+    let mut lines = trace(&[
+        ("present", 7, "(nil)"),
+        ("absent", 0, "(nil)"),
+        ("present", 7, "0x10"),
+    ]);
+    let last = lines
+        .iter_mut()
+        .rev()
+        .find(|line| std::str::from_utf8(line).unwrap().contains(" GetAI 0"))
+        .unwrap();
+    *last = String::from_utf8(last.clone())
+        .unwrap()
+        .replace(" GetAI 0", " GetAI 0xf00")
+        .into_bytes();
+    for line in lines {
+        registry.feed(&line).unwrap();
+    }
+    let report = registry.finish().unwrap();
+    let bindings = script_ai_bindings(&report).unwrap();
+    assert_eq!(bindings.len(), 2);
+    assert!(!bindings[0].get_ai_nonnull);
+    assert!(bindings[1].get_ai_nonnull);
+    assert_eq!((bindings[0].registration, bindings[1].registration), (0, 2));
+    assert_eq!(bindings[1].script_id, 7);
+    assert_eq!(bindings[1].operation, "3");
+    assert_eq!(bindings[1].source_line, 7);
+    let mut malformed = report.clone();
+    malformed["records"][2]["slots"]["GetAI"] = json!("not-a-callback");
+    assert_eq!(
+        script_ai_bindings(&malformed).err().unwrap().id,
+        "scripts.registry_frame"
+    );
+    let mut truncated = report;
+    truncated["records"].as_array_mut().unwrap().pop();
+    assert_eq!(
+        script_ai_bindings(&truncated).err().unwrap().id,
+        "scripts.ai_registry"
+    );
+}
