@@ -233,7 +233,7 @@ impl SourceEventAi {
         }
         Ok(())
     }
-    fn ensure_depth(&mut self) {
+    pub(super) fn ensure_depth(&mut self) {
         if self.depth >= self.staged.len() {
             self.staged.resize_with(self.depth + 1, Vec::new);
         }

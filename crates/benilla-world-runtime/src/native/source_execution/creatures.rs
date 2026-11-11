@@ -177,10 +177,13 @@ impl CreatureConstruction {
         SourceCreatureLifecycle::new(self, settings, objects)
     }
 }
-/// Borrow the calling engine without result inputs; Util.cpp:68-78.
+/// Borrow the calling engine without result inputs; Util.cpp:68-96.
 pub trait CreatureRandom {
     fn creature_irand(&mut self, min: i32, max: i32) -> Result<i32>;
     fn creature_urand(&mut self, min: u32, max: u32) -> Result<u32>;
+    fn creature_urand_default(&mut self) -> Result<u32> {
+        Err(refuse("execution.creature.urand_default_owner"))
+    }
 }
 impl<E: RawGenerator, S: FnMut(TraceEvent)> CreatureRandom for SourceRandom<'_, E, S> {
     fn creature_irand(&mut self, min: i32, max: i32) -> Result<i32> {
@@ -190,6 +193,10 @@ impl<E: RawGenerator, S: FnMut(TraceEvent)> CreatureRandom for SourceRandom<'_, 
     fn creature_urand(&mut self, min: u32, max: u32) -> Result<u32> {
         self.urand(min, max)
             .map_err(|_| refuse("execution.creature.urand"))
+    }
+    fn creature_urand_default(&mut self) -> Result<u32> {
+        self.urand_default()
+            .map_err(|_| refuse("execution.creature.urand_default"))
     }
 }
 /// Execute reached owners through the reentrant factory; Creature.cpp:898-934,1738-1765.

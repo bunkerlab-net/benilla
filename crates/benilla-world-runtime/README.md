@@ -564,9 +564,9 @@ Distance-spell insertion needs no spell-state calculation.
 
 The shared update clock uses strict `< diff`, accumulated uint32 debt,
 and one timer pass per update. Lifecycle callbacks retain their source order.
-Event predicates, actions, and base AI operations refuse at their actual calls
-until their executable owners exist. The version-one inventory includes the
-owned fields and marks missing base AI state and F7 restore explicitly.
+`EventAiDispatcher` connects lifecycle predicates and actions to the same owner
+and RNG. Missing base AI, Unit, spell, visitor and presentation operations refuse
+at their actual calls. The diagnostic inventory marks missing base AI and F7 restore.
 It changes no persisted native state, format, or capability.
 
 [INFERENCE] Stock phase transitions cannot reach the undefined shift at
@@ -583,6 +583,42 @@ so the advanced target-repair block at `CreatureEventAIMgr.cpp:712-734` is off.
 `BENILLA_F5_EVENT_AI_TRACE` enables the comparison-only varied-timer projection.
 Absent private data prints `SKIP`. Matching those helper requests does not
 establish live event bindings or seal F1.
+
+### Source EventAI dispatch
+
+Readiness, depth-specific staging, combat rechecks, chance/reset order and the
+shared action word follow `CreatureEventAI.cpp:244-662`. Random-action selection
+skips NONE slots and redraws before executing the selected slot. NONE returns
+false. Failed combat actions suppress later slots and reset.
+Raw sites use the distinct `urand()` default operation, not the word-equivalent
+`urand(0, UINT32_MAX)`, `Util.cpp:74-78,92-96`.
+
+TEXT reuses the simulation reducer. CHANCED_TEXT, TEXT_NEW, emote, sound, unit
+flags and AI events call their typed effect owners. Phase and throw-mask actions
+mutate the retained AI instance, `CreatureEventAI.cpp:676-790,890-941,993-1001,
+1142-1157,1248-1271`. Other actions refuse at their named dependent owners.
+The friendly-buff flag-one branch passes the group ID as the bool self argument,
+not the group argument, `CreatureEventAI.cpp:424`, `UnitAI.h:445`.
+
+The older OOC projection requires a bounded native Profile, a single player
+camera and a fixed callback recipient, `event_ai/runtime/ooc.rs:307-335`,
+`event_ai/runtime.rs:733-800`. It cannot supply source-world recipients or
+arbitrary chat types. Source execution therefore keeps presentation refusals.
+
+The catalog census separates ported basic dispatch bodies from end-to-end rows.
+It reports per-event and per-action distinct-row counts, first refusals and
+nonexclusive action dependencies. It is not a live dispatch census.
+`BENILLA_F5_EVENT_AI_TRACE` also compares retained chance/shared/redraw helper
+words. Exact event IDs, predicates and recipients remain unavailable in F1.
+Undefined shifts, signed phase addition, zero-width modulo and reached null or
+zero-divisor operations refuse without changing the source-defined valid side.
+[INFERENCE] Normal KILL/LOS/emote callbacks do not supply a null invoker to
+`CreatureEventAI.cpp:324,356,469`: their victim/who/player arguments reach
+readiness at lines 1516-1524, 1634-1661 and 1828-1841. The catalog has 21
+player-only KILL rows and 72 conditional LOS/emote rows, not observed null
+invocations. Exact F1 null-invoker reach remains unavailable.
+No persisted state, native format, admission or F1 seal changes.
+
 
 
 ## Source gameobject constructors

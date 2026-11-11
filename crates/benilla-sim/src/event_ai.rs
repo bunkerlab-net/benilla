@@ -76,6 +76,17 @@ impl AggroText {
     }
 }
 
+/// CreatureEventAI.cpp:679-691, including a missing second text with a third.
+pub fn select_text_slot(ids: [i32; 3], word: u32) -> u8 {
+    if ids[1] != 0 && ids[2] != 0 {
+        (word % 3) as u8
+    } else if ids[1] != 0 && !word.is_multiple_of(2) {
+        1
+    } else {
+        0
+    }
+}
+
 /// Each request consumes one independent, full unsigned 32-bit source word.
 /// Never substitute a bounded 0..99 draw or reuse the chance word for Action.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -196,7 +207,7 @@ impl AggroTextHolder {
     /// this operation; a lookup/delivery failure must roll back the host frame.
     pub fn consume_action(&mut self, word: u32) -> Result<TextSelection, Error> {
         self.require_draw(DrawRequest::Action)?;
-        let text_slot = (word % u32::from(self.event.text_count)) as u8;
+        let text_slot = select_text_slot(self.event.text_ids, word);
         let selection = TextSelection {
             event_id: self.event.event_id,
             text_id: self.event.text_ids[usize::from(text_slot)] as u32,

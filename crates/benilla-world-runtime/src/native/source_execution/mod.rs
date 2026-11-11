@@ -17,10 +17,16 @@ mod event_ai_state;
 pub use event_ai_state::*;
 mod event_ai_config;
 pub use event_ai_config::*;
+mod event_ai_dispatch;
 #[cfg(test)]
 mod event_ai_retained_tests;
 #[cfg(test)]
 mod event_ai_tests;
+pub use event_ai_dispatch::*;
+mod event_ai_actions;
+pub use event_ai_actions::*;
+#[cfg(test)]
+mod event_ai_dispatch_tests;
 mod seal8_active;
 pub use seal8_active::{compare_seal8_unsealed_active, Seal8ActiveDifference, Seal8ActiveReport};
 #[cfg(test)]
