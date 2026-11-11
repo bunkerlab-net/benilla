@@ -31,11 +31,19 @@ mod threat;
 pub use threat::*;
 mod combat;
 pub use combat::*;
+mod unit_ai;
+pub use unit_ai::*;
+mod creature_ai;
+pub use creature_ai::*;
 #[cfg(test)]
 mod combat_tests;
 mod seal8_active;
 #[cfg(test)]
 mod threat_tests;
+#[cfg(test)]
+mod unit_ai_census_tests;
+#[cfg(test)]
+mod unit_ai_tests;
 pub use seal8_active::{compare_seal8_unsealed_active, Seal8ActiveDifference, Seal8ActiveReport};
 #[cfg(test)]
 mod active_tests;

@@ -887,6 +887,14 @@ pub struct CatalogCreatureAiTemplate {
     pub entry: u32,
     pub faction: u32,
     pub extra_flags: u32,
+    pub unit_flags: u32,
+    pub type_flags: u32,
+    pub static_flags: [u32; 4],
+    pub rank: u32,
+    pub inhabit_type: u32,
+    pub stats_multipliers: [u32; 3],
+    pub civilian: bool,
+    pub pursuit_ms: u32,
     pub ai_name: String,
     pub script_name: String,
 }
@@ -909,10 +917,29 @@ impl VerifiedCatalog {
     ) -> Result<()> {
         let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
         let cols = spawns::columns(&schema, "creature_template")?;
-        let indices = ["Entry", "Faction", "ExtraFlags", "AIName", "ScriptName"]
-            .map(|name| spawns::position(&cols, name))
-            .into_iter()
-            .collect::<Result<Vec<_>>>()?;
+        let indices = [
+            "Entry",
+            "Faction",
+            "ExtraFlags",
+            "AIName",
+            "ScriptName",
+            "UnitFlags",
+            "CreatureTypeFlags",
+            "StaticFlags1",
+            "StaticFlags2",
+            "StaticFlags3",
+            "StaticFlags4",
+            "Rank",
+            "InhabitType",
+            "HealthMultiplier",
+            "PowerMultiplier",
+            "ArmorMultiplier",
+            "Civilian",
+            "Pursuit",
+        ]
+        .map(|name| spawns::position(&cols, name))
+        .into_iter()
+        .collect::<Result<Vec<_>>>()?;
         let mut decode = |row: RowView<'_>| {
             let values = cells(&row)?;
             let text = |index: usize| {
@@ -927,6 +954,23 @@ impl VerifiedCatalog {
                 entry: spawns::uint(values[indices[0]])?,
                 faction: u32::from(spawns::uint(values[indices[1]])? as u16),
                 extra_flags: spawns::uint(values[indices[2]])?,
+                unit_flags: spawns::uint(values[indices[5]])?,
+                type_flags: spawns::uint(values[indices[6]])?,
+                static_flags: [
+                    spawns::uint(values[indices[7]])?,
+                    spawns::uint(values[indices[8]])?,
+                    spawns::uint(values[indices[9]])?,
+                    spawns::uint(values[indices[10]])?,
+                ],
+                rank: spawns::uint(values[indices[11]])?,
+                inhabit_type: spawns::uint(values[indices[12]])?,
+                stats_multipliers: [
+                    spawns::floating(values[indices[13]])?.to_bits(),
+                    spawns::floating(values[indices[14]])?.to_bits(),
+                    spawns::floating(values[indices[15]])?.to_bits(),
+                ],
+                civilian: spawns::uint(values[indices[16]])? as u8 != 0,
+                pursuit_ms: spawns::uint(values[indices[17]])?,
                 ai_name: text(indices[3])?,
                 script_name: text(indices[4])?,
             })

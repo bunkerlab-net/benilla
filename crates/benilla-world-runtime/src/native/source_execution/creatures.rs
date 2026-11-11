@@ -148,6 +148,7 @@ impl CreatureConstruction {
         objects: &SourceObjects,
         definitions: std::sync::Arc<EventAiDefinitions>,
         build: EventAiBuild,
+        base_ais: &SourceCreatureAis,
     ) -> Result<()> {
         require(
             self.event_ai.is_none(),
@@ -160,6 +161,7 @@ impl CreatureConstruction {
         if selected.executable().builtin_kind() != Some(BuiltinCreatureAi::Event) {
             return Err(selected.constructor_refusal(objects)?);
         }
+        base_ais.get(objects, selected.object())?;
         self.event_ai = Some(SourceEventAi::construct(
             selected.clone(),
             objects,
@@ -249,6 +251,9 @@ pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     fn creature_event_ai_build(&self) -> Result<EventAiBuild> {
         Err(refuse("execution.event_ai.source_build_identity_owner"))
     }
+    fn creature_base_ai_instances(&self) -> Result<&SourceCreatureAis> {
+        Err(refuse("execution.unit_ai.component_registry_binding_owner"))
+    }
     /// Must execute the selected constructor before SpellListChanged/JustRespawned.
     fn creature_ai_construct(
         &mut self,
@@ -266,6 +271,7 @@ pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
             context.objects,
             self.creature_event_ai_definitions()?,
             self.creature_event_ai_build()?,
+            self.creature_base_ai_instances()?,
         )
     }
     fn creature_phase(

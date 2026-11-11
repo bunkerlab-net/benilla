@@ -57,6 +57,13 @@ pub trait EventAiExecutionOwner: CreatureRandom {
     fn unit(&mut self, _unit: ObjectHandle) -> Result<EventAiUnit> {
         Err(refuse("execution.event_ai.f5_04_unit_owner"))
     }
+    fn combat_state(&mut self, unit: ObjectHandle) -> Result<(bool, bool)> {
+        let unit = self.unit(unit)?;
+        Ok((unit.combat, unit.evade))
+    }
+    fn victim(&mut self, unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        Ok(self.unit(unit)?.victim)
+    }
     fn current_ranged_mode(&mut self, _unit: ObjectHandle) -> Result<bool> {
         Err(refuse("execution.event_ai.f5_04_base_ai_owner"))
     }
@@ -207,27 +214,32 @@ impl SourceEventAi {
         let p = event.params;
         let mut target = None;
         let ready = match event.kind {
-            0 => owner.unit(creature)?.combat,
+            0 => owner.combat_state(creature)?.0,
             1 => {
-                let unit = owner.unit(creature)?;
-                !unit.combat && !unit.evade
+                let (combat, evade) = owner.combat_state(creature)?;
+                !combat && !evade
             }
             29 | 4 | 7 | 8 | 11 | 21 | 30 | 34 | 35 | 37 => true,
             2 => {
-                let unit = owner.unit(creature)?;
-                if p[4] == 0 && (!unit.combat || unit.max_health == 0) {
+                if p[4] == 0 && !owner.combat_state(creature)?.0 {
                     false
                 } else {
-                    percentage(unit.health, unit.max_health, p)?
+                    let unit = owner.unit(creature)?;
+                    if p[4] == 0 && unit.max_health == 0 {
+                        false
+                    } else {
+                        percentage(unit.health, unit.max_health, p)?
+                    }
                 }
             }
             3 | 31 => {
-                let unit = owner.unit(creature)?;
-                if !unit.combat {
+                if !owner.combat_state(creature)?.0 {
                     false
                 } else if event.kind == 3 {
+                    let unit = owner.unit(creature)?;
                     unit.has_mana && unit.max_mana != 0 && percentage(unit.mana, unit.max_mana, p)?
                 } else {
+                    let unit = owner.unit(creature)?;
                     unit.max_energy != 0 && percentage(unit.energy, unit.max_energy, p)?
                 }
             }
@@ -252,10 +264,9 @@ impl SourceEventAi {
                 }
             }
             9 | 12 | 13 | 18 | 24 | 28 | 33 => {
-                let unit = owner.unit(creature)?;
-                if !unit.combat {
+                if !owner.combat_state(creature)?.0 {
                     false
-                } else if let Some(victim) = unit.victim {
+                } else if let Some(victim) = owner.victim(creature)? {
                     match event.kind {
                         9 => owner.range(creature, victim, p[0], p[1])?,
                         12 => {
@@ -306,7 +317,7 @@ impl SourceEventAi {
                 } else {
                     0
                 };
-                let combat = owner.unit(creature)?.combat;
+                let combat = owner.combat_state(creature)?.0;
                 if (event.kind != 16 || p[4] & 3 == 0) && !combat
                     || event.kind == 16 && p[4] & 1 == 0 && p[4] & 2 != 0 && combat
                 {
@@ -352,7 +363,7 @@ impl SourceEventAi {
                 target.is_some()
             }
             36 => {
-                owner.unit(creature)?.victim.is_some()
+                owner.victim(creature)?.is_some()
                     && owner.combat_movement(creature)?
                     && !owner.reachable(creature)?
             }

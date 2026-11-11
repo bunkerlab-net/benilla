@@ -9,6 +9,11 @@ pub struct EventAiLoaderConfig {
     pub assistance_radius_line: Option<usize>,
     dev_filter: bool,
     assistance_radius_bits: Option<u32>,
+    guard_sight_bits: Option<u32>,
+    normal_health_bits: Option<u32>,
+    normal_damage_bits: Option<u32>,
+    normal_corpse_seconds: Option<u32>,
+    check_for_help_bits: Option<u32>,
 }
 impl EventAiLoaderConfig {
     /// The caller supplies the independently approved recorded configuration hash.
@@ -23,11 +28,16 @@ impl EventAiLoaderConfig {
         )?;
         Self::parse(&bytes, approved.clone())
     }
-    fn parse(bytes: &[u8], sha256: Sha256Id) -> Result<Self> {
+    pub(super) fn parse(bytes: &[u8], sha256: Sha256Id) -> Result<Self> {
         let text =
             std::str::from_utf8(bytes).map_err(|_| refuse("execution.event_ai.config_encoding"))?;
         let mut filter = None;
         let mut radius = None;
+        let mut guard_sight = None;
+        let mut normal_health = None;
+        let mut normal_damage = None;
+        let mut normal_corpse = None;
+        let mut check_for_help = None;
         for (index, line) in text.lines().enumerate() {
             let line = line.split('#').next().unwrap_or("").trim();
             let Some((key, value)) = line.split_once('=') else {
@@ -52,6 +62,43 @@ impl EventAiLoaderConfig {
                         .map_err(|_| refuse("execution.event_ai.config_radius_value"))?;
                     radius = Some((index + 1, value.to_bits()));
                 }
+                "GuarderSight" => {
+                    require(guard_sight.is_none(), "execution.event_ai.config_duplicate")?;
+                    let value = value
+                        .trim()
+                        .parse::<f32>()
+                        .map_err(|_| refuse("execution.unit_ai.config_guard_sight_value"))?;
+                    guard_sight = Some(value.to_bits());
+                }
+                key @ ("Rate.Creature.Normal.HP"
+                | "Rate.Creature.Normal.Damage"
+                | "CreatureCheckForHelpRadius") => {
+                    let slot = match key {
+                        "Rate.Creature.Normal.HP" => &mut normal_health,
+                        "Rate.Creature.Normal.Damage" => &mut normal_damage,
+                        _ => &mut check_for_help,
+                    };
+                    require(slot.is_none(), "execution.event_ai.config_duplicate")?;
+                    *slot = Some(
+                        value
+                            .trim()
+                            .parse::<f32>()
+                            .map_err(|_| refuse("execution.unit_ai.config_float_value"))?
+                            .to_bits(),
+                    );
+                }
+                "Corpse.Decay.NORMAL" => {
+                    require(
+                        normal_corpse.is_none(),
+                        "execution.event_ai.config_duplicate",
+                    )?;
+                    normal_corpse = Some(
+                        value
+                            .trim()
+                            .parse::<u32>()
+                            .map_err(|_| refuse("execution.unit_ai.config_corpse_value"))?,
+                    );
+                }
                 _ => {}
             }
         }
@@ -63,10 +110,41 @@ impl EventAiLoaderConfig {
             dev_filter,
             assistance_radius_line: radius.map(|v| v.0),
             assistance_radius_bits: radius.map(|v| v.1),
+            guard_sight_bits: guard_sight,
+            normal_health_bits: normal_health,
+            normal_damage_bits: normal_damage,
+            normal_corpse_seconds: normal_corpse,
+            check_for_help_bits: check_for_help,
         })
     }
     pub fn dev_log_filter(&self) -> bool {
         self.dev_filter
+    }
+    /// World.cpp:469 reads GuarderSight; absence must not select its default.
+    pub fn guard_sight(&self) -> Result<u32> {
+        self.guard_sight_bits
+            .ok_or_else(|| refuse("execution.unit_ai.config_guard_sight_missing"))
+    }
+    pub fn check_for_help_radius(&self) -> Result<u32> {
+        self.check_for_help_bits
+            .ok_or_else(|| refuse("execution.unit_ai.config_help_radius_missing"))
+    }
+    pub fn validate_creature_rates(&self, rates: &benilla_sim::creature_init::Rates) -> Result<()> {
+        let health = self
+            .normal_health_bits
+            .ok_or_else(|| refuse("execution.unit_ai.config_health_rate_missing"))?;
+        let damage = self
+            .normal_damage_bits
+            .ok_or_else(|| refuse("execution.unit_ai.config_damage_rate_missing"))?;
+        let corpse = self
+            .normal_corpse_seconds
+            .ok_or_else(|| refuse("execution.unit_ai.config_corpse_decay_missing"))?;
+        require(
+            rates.normal_health.bits() == health
+                && rates.normal_damage.bits() == damage
+                && rates.normal_corpse_decay_seconds == corpse,
+            "execution.unit_ai.kernel_recorded_rates_mismatch",
+        )
     }
     pub fn assistance_radius(&self) -> Result<u32> {
         let bits = self

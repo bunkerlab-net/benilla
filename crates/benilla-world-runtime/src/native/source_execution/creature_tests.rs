@@ -150,6 +150,10 @@ struct Factory {
     ai_registry: SourceAiRegistry,
     selected_ai: Option<SelectedCreatureAi>,
     event_ai_definitions: Option<std::sync::Arc<EventAiDefinitions>>,
+    units: SourceUnits,
+    base_ais: SourceCreatureAis,
+    combat: SourceCombat,
+    threats: SourceThreats,
 }
 impl Factory {
     fn new() -> Self {
@@ -199,6 +203,10 @@ impl Factory {
             ai_registry: SourceAiRegistry::builtin(),
             selected_ai: None,
             event_ai_definitions: None,
+            units: SourceUnits::default(),
+            base_ais: SourceCreatureAis::default(),
+            combat: SourceCombat::default(),
+            threats: SourceThreats::default(),
         }
     }
 }
@@ -357,10 +365,52 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
             return Err(selected.constructor_refusal(context.objects)?);
         }
         if let Some(definitions) = &self.event_ai_definitions {
+            struct Dependencies;
+            impl UnitAiExecutionOwner for Dependencies {}
+            let template = CreatureAiTemplateOperands {
+                ordinal: 0,
+                entry: state.template.entry,
+                faction: 0,
+                extra_flags: 0,
+                unit_flags: 0,
+                type_flags: 0,
+                static_flags: [0; 4],
+                rank: 0,
+                inhabit_type: 1,
+                stats_multipliers: [0x3f800000; 3],
+                civilian: false,
+                pursuit_ms: 15000,
+                ai_name: "EventAI".into(),
+                script_name: String::new(),
+            };
+            let config = EventAiLoaderConfig::parse(
+                b"LogFilter_EventAiDev=1",
+                Sha256Id::of(b"LogFilter_EventAiDev=1"),
+            )?;
+            self.units.register(
+                context.objects,
+                state.object,
+                SourceUnitFields::creature(&template),
+            )?;
+            self.units.bind_ai_selection(context.objects, selected)?;
+            let base = SourceCreatureAi::construct(
+                context.objects,
+                state.object,
+                &mut self.units,
+                &template,
+                false,
+                0,
+                &config,
+                &mut Dependencies,
+            )?;
+            self.base_ais
+                .install(context.objects, &mut self.units, base, &mut self.combat)?;
+            self.threats.register(state.object)?;
             state.construct_event_ai(
                 context.objects,
                 definitions.clone(),
                 EventAiBuild::Release,
+                &self.base_ais,
             )?;
         }
         // The existing F4 tests use authored callbacks, not a production AI body.
@@ -382,19 +432,26 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
                 assert!(state.event_ai().unwrap().holders.is_empty());
             }
             CreaturePhase::AiJustRespawned if self.event_ai_definitions.is_some() => {
-                struct Base;
-                impl EventAiLifecycleOwner for Base {
-                    fn callback(
-                        &mut self,
-                        _: &mut SourceEventAi,
-                        call: EventAiCallback,
-                    ) -> Result<()> {
-                        match call {
-                            EventAiCallback::CalculateMainSpell(_) => Err(call.missing_owner()),
-                            _ => Ok(()), // Authored base callbacks only.
-                        }
+                struct Dependencies;
+                impl UnitAiExecutionOwner for Dependencies {}
+                impl CreatureRandom for Dependencies {
+                    fn creature_irand(&mut self, _: i32, _: i32) -> Result<i32> {
+                        Err(refuse("authored.unexpected_base_draw"))
+                    }
+                    fn creature_urand(&mut self, _: u32, _: u32) -> Result<u32> {
+                        Err(refuse("authored.unexpected_base_draw"))
                     }
                 }
+                let mut dependencies = Dependencies;
+                let mut execution = SourceAiExecution {
+                    queries: SourceUnitQueries {
+                        objects: context.objects,
+                        units: &mut self.units,
+                    },
+                    ais: &mut self.base_ais,
+                    threats: &mut self.threats,
+                    owner: &mut dependencies,
+                };
                 state.event_ai_mut().unwrap().just_respawned(
                     context.objects,
                     EventAiRespawnSettings {
@@ -403,7 +460,7 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
                         ignore_combat: false,
                     },
                     &mut self.random,
-                    &mut Base,
+                    &mut EventAiDispatcher(&mut execution),
                 )?;
             }
             CreaturePhase::InitEntryBase => {
@@ -980,6 +1037,45 @@ fn supported_kernel_reuses_consumed_source_rolls_at_select_level_without_extra_r
             .id,
         "execution.creature.kernel_operands"
     );
+    assert_eq!(factory.random.cursor.raw, 4);
+    let input = factory.kernel.as_ref().unwrap();
+    let t = &input.template;
+    let fields_template = CreatureAiTemplateOperands {
+        ordinal: 0,
+        entry: t.entry,
+        faction: t.faction,
+        extra_flags: t.extra_flags,
+        unit_flags: t.unit_flags,
+        type_flags: t.type_flags,
+        static_flags: t.static_flags,
+        rank: t.rank,
+        inhabit_type: 1,
+        stats_multipliers: [
+            t.health_multiplier.bits(),
+            t.power_multiplier.bits(),
+            t.armor_multiplier.bits(),
+        ],
+        civilian: false,
+        pursuit_ms: 15000,
+        ai_name: "EventAI".into(),
+        script_name: String::new(),
+    };
+    let mut units = SourceUnits::default();
+    units
+        .register(
+            &world.objects,
+            state.object,
+            SourceUnitFields::creature(&fields_template),
+        )
+        .unwrap();
+    let bytes = b"LogFilter_EventAiDev=1\nRate.Creature.Normal.HP=1\nRate.Creature.Normal.Damage=1\nCorpse.Decay.NORMAL=83\n";
+    let config = EventAiLoaderConfig::parse(bytes, Sha256Id::of(bytes)).unwrap();
+    units
+        .initialize_supported_creature(&world.objects, state, input, &config)
+        .unwrap();
+    let unit = units.event_unit(&world.objects, state.object).unwrap();
+    assert_eq!(unit.health, 1);
+    assert_eq!(unit.max_health, initialized.stats.resources.max_health);
     assert_eq!(factory.random.cursor.raw, 4);
 }
 
@@ -1669,5 +1765,6 @@ fn selected_eventai_constructs_then_copies_holders_after_spell_list_changed() {
             (711, 10)
         );
         assert_eq!(event_ai.selected.object(), state.object);
+        assert!(factory.base_ais.get(&world.objects, state.object).is_ok());
     }
 }

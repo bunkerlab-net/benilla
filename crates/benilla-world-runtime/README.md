@@ -1650,3 +1650,49 @@ empty threat-list end, absent offline lookup dereference, EventAI's erased
 range-loop iterator, a concrete nontransitive NaN sort order, null helpful
 spell dereference and signed INT_MIN damage negation. Unsigned zero-health
 death-prevention subtraction wraps rather than refusing.
+
+## Source UnitAI and base CreatureAI
+
+`SourceUnitAi`, `SourceCreatureAi` and `SourceUnits` retain generation-owned
+reaction, combat-script, ranged, Unit flag, victim and resource state.
+`SourceAiExecution` supplies those actual fields to EventAI readiness, basic
+Unit actions and the concrete threat owner. Constructors and reaction
+precedence follow CMaNGOS Classic `8ec338a1` `AI/BaseAI/UnitAI.cpp:39-61`
+and `CreatureAI.cpp:28-47`. Attack bookkeeping and stop order follow
+`Entities/Unit.cpp:6259-6362`; base attack/engage/chase ordering follows
+`UnitAI.cpp:283-348` and `CreatureAI.cpp:73-99`.
+The factory requires the installed base AI before constructing its EventAI
+component. Registry installation resets the existing SourceCombat latch.
+Threat GUID rebinding uses F3's object lookup, including an NPC registered
+before base world membership, `Map.cpp:2331-2340,2371-2376`.
+
+Evade removes auras before combat stop and the home decision,
+`UnitAI.cpp:113-130`. Aura, controlled-unit combat stop, combat-entry callbacks,
+home/chase, spells and geometry still require their reached dependent owners.
+No successful empty callback substitutes for them. Action iteration rechecks
+combat-script status before every action, `UnitAI.cpp:934-951`. Ranged-mode
+changes retain the OOC true-state quirk, `UnitAI.cpp:974-1011`.
+The guard's areas 221/222 require the process C stream rather than thread MT,
+`CreatureAI.cpp:310-320`. Its unavailable binding refuses before the draw.
+
+Vitals are absent until an actual initialization owner supplies them. The
+existing bounded `resolve_supported_creature_kernel` can populate them only
+with complete supported inputs and matching recorded normal HP/damage/decay
+rates. It is not a generic SelectLevel implementation. Non-normal ranks,
+unsupported sentinel branches, event/group/flying contexts and missing input
+bundles still refuse. Combat-only readiness does not read unavailable vitals.
+Guard sight and rates come from the hash-bound recorded configuration, without
+invented defaults, `World.cpp:469`, `Creature.cpp:1417`,
+`mangosd.conf:1070,1076,1086,1794` in the retained seal16 capture.
+
+The catalog test distinguishes the base gate, true/false readiness and actual
+end-to-end dispatch. Its isolated-row probe uses the existing authored EventAI
+identity, not a replacement for source factory selection. Missing live
+invokers are reported as unavailable, not fabricated null stock calls.
+Exact F1 Unit/base-AI projections are unavailable; inherited EventAI RNG
+projections remain comparison-only. Indexing outside combat-action storage
+and out-of-range non-fixed ReactStates conversion refuse at the reached
+operation, `TimerAI.h:189-190`, `CreatureEventAI.cpp:1211`, `UnitAI.h:81-86`.
+SourceCombat remains the sole death-prevention latch owner.
+Component inventories are not serialized continuation. Format 91,
+NativeCapability and frozen-unsealed F1 are unchanged.

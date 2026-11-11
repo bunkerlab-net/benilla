@@ -190,7 +190,7 @@ impl SourceEventAi {
             "despawn_mask":self.despawn_mask,"despawn_entries":self.despawn_entries,
             "despawn_guids":self.despawn_guids,"main_spell_id":self.main_spell_id,
             "main_spells":self.main_spells,"distance_spells":self.distance_spells,
-            "base_ai_state":"execution.event_ai.f5_04_base_ai_owner",
+            "base_ai_state":"join SourceCreatureAis and SourceUnits at the selected construction generation",
             "restore":"execution.event_ai.f7_restore_owner"
         }))
     }

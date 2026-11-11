@@ -205,7 +205,7 @@ impl SourceEventAi {
         // This subset needs no threat/geometry owner. Error logging does not change the pointer result.
         Ok(match kind {
             0 => Some(self.selected.object()),
-            1 => owner.unit(self.selected.object())?.victim,
+            1 => owner.victim(self.selected.object())?,
             6 => call.invoker,
             7 => {
                 if let Some(invoker) = call.invoker {
