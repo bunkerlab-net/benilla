@@ -33,7 +33,17 @@ mod combat;
 pub use combat::*;
 mod unit_ai;
 pub use unit_ai::*;
+mod motion_master;
+pub use motion_master::*;
+mod motion;
+pub use motion::*;
+mod motion_dependencies;
+pub use motion_dependencies::*;
 mod creature_ai;
+#[cfg(test)]
+mod motion_census_tests;
+#[cfg(test)]
+mod motion_master_tests;
 pub use creature_ai::*;
 #[cfg(test)]
 mod combat_tests;

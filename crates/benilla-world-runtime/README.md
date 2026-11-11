@@ -1696,3 +1696,40 @@ operation, `TimerAI.h:189-190`, `CreatureEventAI.cpp:1211`, `UnitAI.h:81-86`.
 SourceCombat remains the sole death-prevention latch owner.
 Component inventories are not serialized continuation. Format 91,
 NativeCapability and frozen-unsealed F1 are unchanged.
+
+## Source MotionMaster and Home
+
+`SourceMotionMaster` owns the source stack, not priority slots,
+`MotionMaster.h:96-100`. Initialize, Clear, expiry, deferred destruction,
+Interrupt, Reset and static Idle follow `MotionMaster.cpp:57-277,599-620`.
+Only Home and Distract are replaced before a new generator interrupts the
+exposed top. Direct EFFECT expiry preserves stored targeted generators;
+delayed expiry removes them, `MotionMaster.cpp:203-271`.
+
+The default selector uses the four registered factories and genuine null
+fallback, `CreatureAISelector.cpp:109-135`, `CreatureAIRegistry.cpp:45-48`.
+Random, waypoint, fixed-path and linear-waypoint constructors still refuse.
+Player ownership requests unregistered FOLLOW and therefore selects Idle.
+`CreatureConstruction::initialize_motion` runs the concrete owner before AI
+selection; `SourceMotions::formation` handles Initialize, Clear and Idle.
+`SourceMotionDependencies` connects UnitAI Home and immobilization calls.
+EventAI action 64 calls that same root owner,
+`CreatureEventAI.cpp:1347-1350`, without bypassing missing root output.
+
+Home preserves active-state, evade-state, target selection and arrival
+callback order, `HomeMovementGenerator.cpp:26-110`. Missing combat-order,
+controlled-unit, active-residency, addon and callback owners refuse at their
+calls. `CombatManager.cpp:161-176` controls evade-order changes and propagation.
+Position emptiness ignores orientation, `Object.h:296`. Home refuses at the
+F6 PathFinder constructor, `HomeMovementGenerator.cpp:64`,
+`PathFinder.cpp:47-53`, before calculation or spline launch.
+The existing sim MotionState requires bounded ground geometry and an active
+spline contract; it cannot replace this generic source stack.
+
+Root state and guards follow `Unit.cpp:6496-6520,9908-9920,10070-10092`.
+Missing spline-stop and root movement-info/output owners remain typed refusals.
+The catalog census distinguishes passing F5.05 from end-to-end dispatch.
+Uninitialized path-ID reads and out-of-range spawn movement enum conversions
+refuse at `MotionMaster.h:104,173,195-196` and `Creature.cpp:453`.
+Component-only state leaves format 91, NativeCapability and frozen-unsealed
+F1 unchanged. Native continuation still requires F7.

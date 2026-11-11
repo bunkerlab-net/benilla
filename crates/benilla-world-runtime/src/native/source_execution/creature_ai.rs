@@ -518,6 +518,18 @@ impl<O: UnitAiExecutionOwner + CreatureRandom> EventAiExecutionOwner for SourceA
                     )?;
                 }
             }
+            // CreatureEventAI.cpp:1347-1350, with the real Unit root owner.
+            64 => self
+                .ais
+                .get_mut(self.queries.objects, unit)?
+                .base
+                .set_immobilized(
+                    p[0] != 0,
+                    p[1] != 0,
+                    self.queries.objects,
+                    self.queries.units,
+                    self.owner,
+                )?,
             _ => return Err(refuse(event_ai_action_owner(action.kind))),
         }
         Ok(true)

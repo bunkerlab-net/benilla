@@ -1111,4 +1111,26 @@ impl VerifiedCatalog {
         })?;
         Ok(rows)
     }
+    /// ObjectMgr.cpp:1965-1966 reads Field::GetFloat/GetUInt8, Field.h:53,56.
+    #[cfg(test)]
+    pub(crate) fn execution_motion_spawn_operands(&mut self) -> Result<Vec<(u32, u32, u8, f32)>> {
+        let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
+        let cols = columns(&schema, "creature")?;
+        let guid = position(cols, "guid")?;
+        let entry = position(cols, "id")?;
+        let motion = position(cols, "MovementType")?;
+        let radius = position(cols, "spawndist")?;
+        let mut rows = Vec::new();
+        self.scan("creature", 0, 256, |row| {
+            let values = cells(&row)?;
+            rows.push((
+                spawns::uint(values[guid])?,
+                spawns::uint(values[entry])?,
+                spawns::uint(values[motion])? as u8,
+                spawns::floating(values[radius])?,
+            ));
+            Ok(())
+        })?;
+        Ok(rows)
+    }
 }
