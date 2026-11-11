@@ -35,7 +35,15 @@ mod combat;
 pub use combat::*;
 mod unit_ai;
 pub use unit_ai::*;
+mod unit_events;
+pub use unit_events::*;
+mod unit_update;
+pub use unit_update::*;
 mod motion_master;
+#[cfg(test)]
+mod unit_events_census_tests;
+#[cfg(test)]
+mod unit_events_tests;
 pub use motion_master::*;
 mod motion;
 pub use motion::*;

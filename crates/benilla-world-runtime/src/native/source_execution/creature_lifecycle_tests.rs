@@ -3,6 +3,9 @@
 use super::*;
 use std::sync::Arc;
 
+#[path = "unit_events_lifecycle_tests.rs"]
+mod unit_events_lifecycle_tests;
+
 type Phase = CreatureLifecyclePhase;
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Call {

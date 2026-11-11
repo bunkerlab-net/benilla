@@ -37,6 +37,16 @@ impl EventKind {
         Ok(())
     }
 }
+
+/// A data-only event identity. Executable callbacks remain with the live owner.
+pub trait EventPayload: Copy + std::fmt::Debug + PartialEq + Eq {
+    fn validate(self) -> Result<(), EventError>;
+}
+impl EventPayload for EventKind {
+    fn validate(self) -> Result<(), EventError> {
+        EventKind::validate(self)
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EventError {
     Invalid(&'static str),
@@ -55,21 +65,27 @@ impl std::fmt::Display for EventError {
 impl std::error::Error for EventError {}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct EventProcessor {
+pub struct EventProcessor<K = EventKind> {
     clock_ms: u64,
     next_insertion_id: u64,
     next_event_id: u64,
     aborting: bool,
-    events: BTreeMap<u64, BasicEventSnapshot>,
+    events: BTreeMap<u64, BasicEventSnapshot<K>>,
     queue: BTreeMap<(u64, u64), u64>,
 }
-impl Default for EventProcessor {
+impl<K: EventPayload> Default for EventProcessor<K> {
     fn default() -> Self {
-        Self::new()
+        Self::with_payload()
     }
 }
 impl EventProcessor {
+    /// Preserve type inference for existing default-kind constructors.
     pub fn new() -> Self {
+        Self::with_payload()
+    }
+}
+impl<K: EventPayload> EventProcessor<K> {
+    pub fn with_payload() -> Self {
         Self {
             clock_ms: 0,
             next_insertion_id: 1,
@@ -91,7 +107,7 @@ impl EventProcessor {
             .checked_add(offset_ms)
             .ok_or(EventError::Overflow("CalculateTime"))
     }
-    pub fn event(&self, event_id: u64) -> Option<&BasicEventSnapshot> {
+    pub fn event(&self, event_id: u64) -> Option<&BasicEventSnapshot<K>> {
         self.events.get(&event_id)
     }
     /// A fresh BasicEvent's first add initializes m_addTime. Passing false on
@@ -99,7 +115,7 @@ impl EventProcessor {
     pub fn add_event(
         &mut self,
         event_id: u64,
-        kind: EventKind,
+        kind: K,
         deadline_ms: u64,
     ) -> Result<(), EventError> {
         kind.validate()?;
@@ -202,7 +218,7 @@ impl EventProcessor {
     }
     /// Source KillEvent deletes queued instances without invoking Abort.
     /// Event-specific destructor effects belong to the enclosing staged host.
-    pub fn kill_event(&mut self, event_id: u64) -> Option<BasicEventSnapshot> {
+    pub fn kill_event(&mut self, event_id: u64) -> Option<BasicEventSnapshot<K>> {
         let old = self.events.get(&event_id)?.queue?;
         self.queue.remove(&(old.deadline_ms, old.insertion_id));
         self.events.remove(&event_id)
@@ -219,7 +235,7 @@ impl EventProcessor {
     /// Nothing is published until commit. Drop, any mutation error, incomplete
     /// dispatch, and budget exhaustion leave this processor byte-for-byte intact.
     /// The caller must stage its callback/world effects in the same transaction.
-    pub fn begin_update(&mut self, diff_ms: u32) -> Result<EventTransaction<'_>, EventError> {
+    pub fn begin_update(&mut self, diff_ms: u32) -> Result<EventTransaction<'_, K>, EventError> {
         let mut staged = self.clone();
         staged.clock_ms = staged.calculate_time(u64::from(diff_ms))?;
         Ok(EventTransaction::new(
@@ -230,7 +246,7 @@ impl EventProcessor {
     }
     /// Abort callbacks run in queue order; IsDeletable is supplied AFTER Abort.
     /// Structural callback mutations are explicitly outside this iterator model.
-    pub fn begin_kill_all_events(&mut self, force: bool) -> EventTransaction<'_> {
+    pub fn begin_kill_all_events(&mut self, force: bool) -> EventTransaction<'_, K> {
         let mut staged = self.clone();
         staged.aborting = true;
         let remaining = staged.queue.values().copied().collect();
@@ -245,9 +261,9 @@ pub enum CallbackKind {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct DueEvent {
+pub struct DueEvent<K = EventKind> {
     pub event_id: u64,
-    pub kind: EventKind,
+    pub kind: K,
     pub callback: CallbackKind,
     pub now_ms: u64,
     /// Execute receives the entire Unit update diff, never lateness or remainder.
@@ -262,9 +278,9 @@ pub struct DueEvent {
 /// The executing event is detached from `queue`, exactly after source erase.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct EventCallbackSnapshot {
-    pub queue: EventProcessorSnapshot,
-    pub due: DueEvent,
+pub struct EventCallbackSnapshot<K = EventKind> {
+    pub queue: EventProcessorSnapshot<K>,
+    pub due: DueEvent<K>,
     pub callback_ordinal: u32,
 }
 enum Mode {
@@ -277,16 +293,16 @@ enum Mode {
     },
 }
 #[must_use = "dispatch and commit the staged transaction, or drop it to roll back"]
-pub struct EventTransaction<'a> {
-    target: &'a mut EventProcessor,
-    staged: EventProcessor,
+pub struct EventTransaction<'a, K = EventKind> {
+    target: &'a mut EventProcessor<K>,
+    staged: EventProcessor<K>,
     mode: Mode,
-    pending: Option<DueEvent>,
+    pending: Option<DueEvent<K>>,
     callbacks: usize,
     poisoned: bool,
 }
-impl<'a> EventTransaction<'a> {
-    fn new(target: &'a mut EventProcessor, staged: EventProcessor, mode: Mode) -> Self {
+impl<'a, K: EventPayload> EventTransaction<'a, K> {
+    fn new(target: &'a mut EventProcessor<K>, staged: EventProcessor<K>, mode: Mode) -> Self {
         Self {
             target,
             staged,
@@ -301,7 +317,7 @@ impl<'a> EventTransaction<'a> {
     }
     /// Observe the live staged queue and pending callback, never the detached
     /// enclosing owner's placeholder. No mutation or RNG is performed.
-    pub fn callback_snapshot(&self) -> Result<EventCallbackSnapshot, EventError> {
+    pub fn callback_snapshot(&self) -> Result<EventCallbackSnapshot<K>, EventError> {
         if self.poisoned {
             return Err(EventError::PoisonedTransaction);
         }
@@ -316,7 +332,7 @@ impl<'a> EventTransaction<'a> {
     pub fn next_event_id(&self) -> u64 {
         self.staged.next_event_id()
     }
-    pub fn event(&self, event_id: u64) -> Option<&BasicEventSnapshot> {
+    pub fn event(&self, event_id: u64) -> Option<&BasicEventSnapshot<K>> {
         self.staged.event(event_id)
     }
     pub fn calculate_time(&mut self, offset_ms: u64) -> Result<u64, EventError> {
@@ -342,7 +358,7 @@ impl<'a> EventTransaction<'a> {
         };
         self.checked(result)
     }
-    pub fn add_event(&mut self, id: u64, kind: EventKind, at: u64) -> Result<(), EventError> {
+    pub fn add_event(&mut self, id: u64, kind: K, at: u64) -> Result<(), EventError> {
         self.can_mutate_queue()?;
         let result = self.staged.add_event(id, kind, at);
         self.checked(result)
@@ -362,7 +378,7 @@ impl<'a> EventTransaction<'a> {
         let result = self.staged.set_aborted(id, aborted);
         self.checked(result)
     }
-    pub fn kill_event(&mut self, id: u64) -> Result<Option<BasicEventSnapshot>, EventError> {
+    pub fn kill_event(&mut self, id: u64) -> Result<Option<BasicEventSnapshot<K>>, EventError> {
         self.can_mutate_queue()?;
         if self.pending.is_some_and(|event| event.event_id == id)
             && self
@@ -376,7 +392,7 @@ impl<'a> EventTransaction<'a> {
         }
         Ok(self.staged.kill_event(id))
     }
-    pub fn pop_due(&mut self) -> Result<Option<DueEvent>, EventError> {
+    pub fn pop_due(&mut self) -> Result<Option<DueEvent<K>>, EventError> {
         self.checked(Ok(()))?;
         if self.pending.is_some() {
             return self.checked(Err(EventError::IncompleteTransaction));

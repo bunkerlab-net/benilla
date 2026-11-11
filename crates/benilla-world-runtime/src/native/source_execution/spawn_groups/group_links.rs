@@ -339,6 +339,8 @@ impl GroupCallback {
         if forced_seconds != 0 {
             creature.set_respawn_delay(forced_seconds, true);
         }
+        // SpawnGroup.cpp:640-642 enters Creature.cpp:1964-1969's Unit queue.
+        // The default lifecycle phase owns scheduling, not a fabricated callback.
         if delay_millis != 0 {
             return owner.lifecycle_phase(
                 CreatureLifecyclePhase::ScheduleForcedDespawn {
@@ -349,7 +351,7 @@ impl GroupCallback {
                 context,
             );
         }
-        creature.forced_despawn(context, owner)
+        creature.forced_despawn_after(delay_millis, only_alive, context, owner)
     }
     pub fn gameobject_lifecycle<D, P, F>(
         self,

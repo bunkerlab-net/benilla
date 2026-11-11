@@ -1191,3 +1191,73 @@ impl VerifiedCatalog {
         Ok(rows)
     }
 }
+
+#[cfg(test)]
+pub(crate) const UNIT_EVENT_SCRIPT_RELATIONS: [&str; 10] = [
+    "dbscripts_on_creature_death",
+    "dbscripts_on_creature_movement",
+    "dbscripts_on_event",
+    "dbscripts_on_go_template_use",
+    "dbscripts_on_go_use",
+    "dbscripts_on_gossip",
+    "dbscripts_on_quest_end",
+    "dbscripts_on_quest_start",
+    "dbscripts_on_relay",
+    "dbscripts_on_spell",
+];
+#[cfg(test)]
+fn unit_event_census_relation(table: &str) -> Result<()> {
+    check(
+        UNIT_EVENT_SCRIPT_RELATIONS.contains(&table) || table == "spawn_group",
+        "scripts.unit_event_census_relation",
+    )
+}
+#[cfg(test)]
+impl VerifiedCatalog {
+    /// Inventory only, never an executable content gate.
+    pub(crate) fn unit_event_census_operands<const N: usize>(
+        &mut self,
+        table: &str,
+        names: [&str; N],
+    ) -> Result<Vec<(u64, [u32; N])>> {
+        unit_event_census_relation(table)?;
+        let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
+        let cols = columns(&schema, table)?;
+        let indices = names
+            .map(|name| position(cols, name))
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?;
+        let mut rows = Vec::new();
+        self.scan(table, 0, 256, |row| {
+            let values = cells(&row)?;
+            let mut words = [0; N];
+            for (word, &index) in words.iter_mut().zip(&indices) {
+                *word = spawns::uint(values[index])?;
+            }
+            rows.push((row.ordinal, words));
+            Ok(())
+        })?;
+        Ok(rows)
+    }
+}
+#[cfg(test)]
+#[test]
+fn unit_event_census_relation_gate_rejects_unlisted_tables() {
+    for relation in UNIT_EVENT_SCRIPT_RELATIONS
+        .into_iter()
+        .chain(["spawn_group"])
+    {
+        unit_event_census_relation(relation).unwrap();
+    }
+    for relation in [
+        "creature_template",
+        "spell_template",
+        "dbscripts_on_unknown",
+        "",
+    ] {
+        assert_eq!(
+            unit_event_census_relation(relation).unwrap_err().id,
+            "scripts.unit_event_census_relation"
+        );
+    }
+}

@@ -125,10 +125,52 @@ pub trait CreatureLifecycleOwner<D: GridDefinitions, P: ResidencyProductOwner>:
     fn lifecycle_phase(
         &mut self,
         phase: CreatureLifecyclePhase,
+        creature: &mut SourceCreatureLifecycle,
+        context: &mut CreatureLifecycleContext<'_, '_, D, P>,
+    ) -> Result<()>
+    where
+        Self: Sized,
+    {
+        match phase {
+            CreatureLifecyclePhase::ScheduleForcedDespawn {
+                delay_millis,
+                only_alive,
+            } => creature.forced_despawn_after(delay_millis, only_alive, context, self),
+            CreatureLifecyclePhase::UnitUpdate(diff) => {
+                update_source_creature_unit(creature, diff, context, self)
+            }
+            _ => Err(phase.missing_owner()),
+        }
+    }
+    fn lifecycle_unit_call(
+        &mut self,
+        call: UnitUpdateCall,
+        _diff: u32,
         _creature: &mut SourceCreatureLifecycle,
         _context: &mut CreatureLifecycleContext<'_, '_, D, P>,
     ) -> Result<()> {
-        Err(phase.missing_owner())
+        Err(call.missing_owner())
+    }
+    fn lifecycle_unit_has_ai(
+        &mut self,
+        _creature: &SourceCreatureLifecycle,
+        _context: &CreatureLifecycleContext<'_, '_, D, P>,
+    ) -> Result<bool> {
+        Err(refuse("execution.unit_update.ai_binding_owner"))
+    }
+    fn lifecycle_heartbeat_owner(&mut self) -> Result<&mut dyn UnitHeartbeatOwner> {
+        Err(refuse("execution.unit_heartbeat.f5_12_aura_holder_owner"))
+    }
+    fn lifecycle_unit_heartbeat_update(
+        &mut self,
+        diff: u32,
+        creature: &mut SourceCreatureLifecycle,
+        _context: &mut CreatureLifecycleContext<'_, '_, D, P>,
+    ) -> Result<()> {
+        let unit = creature.object();
+        creature
+            .unit_update
+            .world_object_update(unit, diff, self.lifecycle_heartbeat_owner()?)
     }
     // Group delay selection includes its constant-without-max branch; SpawnGroup.cpp:474-484.
     fn lifecycle_group_delay(
@@ -167,6 +209,8 @@ pub struct SourceCreatureLifecycle {
     pub loot_status: u32,
     new_spawning_system: bool,
     stopped: bool,
+    pub unit_events: SourceUnitEvents,
+    pub unit_update: SourceUnitUpdate,
 }
 impl SourceCreatureLifecycle {
     pub(super) fn new(
@@ -202,6 +246,8 @@ impl SourceCreatureLifecycle {
             loot_status: 0,
             new_spawning_system,
             stopped: false,
+            unit_events: SourceUnitEvents::default(),
+            unit_update: SourceUnitUpdate::default(),
         })
     }
     pub fn object(&self) -> ObjectHandle {
@@ -632,6 +678,38 @@ impl SourceCreatureLifecycle {
             this.remove_inner(true, context, owner)?;
             owner.lifecycle_phase(CreatureLifecyclePhase::SetHealthZero, this, context)
         })
+    }
+    /// Creature.cpp:1962-1969. onlyAlive is ignored by the immediate branch.
+    pub fn forced_despawn_after<D, P, F>(
+        &mut self,
+        delay_millis: u32,
+        only_alive: bool,
+        context: &mut CreatureLifecycleContext<'_, '_, D, P>,
+        owner: &mut F,
+    ) -> Result<()>
+    where
+        D: GridDefinitions,
+        P: ResidencyProductOwner,
+        F: CreatureLifecycleOwner<D, P>,
+    {
+        require(!self.stopped, "execution.creature_lifecycle.stopped")?;
+        self.binding(context)?;
+        if delay_millis != 0 {
+            self.unit_events
+                .schedule_forced_despawn(delay_millis, only_alive)?;
+            Ok(())
+        } else {
+            // The event's virtual call selects Pet's Unsummon path, not RemoveCorpse.
+            // Pet.cpp:2282-2310. Nonzero pet delays still use Creature's queue.
+            if context.grid.objects.get(self.object())?.kind == SourceObjectKind::Pet
+                && self.death_state != CreatureDeathState::Dead
+            {
+                return Err(refuse(
+                    "execution.unit_events.f5_15b_pet_forced_despawn_owner",
+                ));
+            }
+            self.forced_despawn(context, owner)
+        }
     }
     pub fn inspecting_loot(&mut self, world_clock_ms: i64) -> Result<()> {
         self.run(|this| {

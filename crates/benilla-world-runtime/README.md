@@ -1816,4 +1816,47 @@ not spawned classes or F1 parity. It uses the same retained catalog, ScriptDev
 registry and recorded configuration as the earlier AI censuses. Invented-ID
 tests cover selection, lifecycle and missing-owner order. The version-one
 builtin inventory joins the existing live base state without serialized fields.
+
+## Source Unit events and heartbeat
+
+`SourceUnitEvents` reuses the sim `EventProcessor<K = EventKind>` with a
+source-only data enum. The default kind's serialized schema and bytes are
+unchanged. The source queue has no serde or restore interface. Each retained
+creature owns its queue, event IDs, clock, insertion order and abort flags.
+Its in-memory inventory is for F7, not native save/Open.
+
+Delayed forced despawn captures only `onlyAlive` and the owning creature
+generation, `Creature.h:1037-1045` at CMaNGOS Classic `8ec338a1`.
+Scheduling uses the Unit clock, `Creature.cpp:1962-1969`. At the inclusive
+deadline, `onlyAlive` checks current life state before calling the real
+death, corpse-removal and zero-health owners, `Creature.cpp:96-102,1972-1980`.
+Delay zero executes synchronously and ignores `onlyAlive`, as the source does.
+The event's virtual Pet call requires F5.15b Unsummon ownership,
+`Pet.cpp:2282-2310`; it never substitutes Creature corpse removal.
+The default lifecycle phase replaces the delayed group-event refusal at
+`SpawnGroup.cpp:640-642`. Explicit foreign lifecycle adapters still must
+dispatch their actual effects or refuse.
+
+Cancellation marks an event until its deadline. KillEvent deletes without
+Abort. ForcedDespawnDelayEvent inherits empty Abort and true IsDeletable,
+`EventProcessor.cpp:32-85,88-107`, `EventProcessor.h:46-48`.
+A refused callback stops the owner, since queue rollback cannot undo world
+effects. In-flight queue access refuses instead of losing newly queued work.
+
+`SourceUnitUpdate` preserves cooldown, events, spells, deleted-aura cleanup,
+timers, spline/motion, AI, combat and WorldObject order,
+`Unit.cpp:484-536`. Each unavailable dependent call refuses where reached.
+`SourceUnitUpdate::world_object_update` starts with an expired timer and
+resets to 5000 milliseconds. ShortTimeTracker saturates instead of retaining
+debt, so a large diff produces one heartbeat, `Timer.h:145-158`,
+`Object.cpp:1183-1190`, `Object.h:861`.
+
+Heartbeat calls the genuinely empty WorldObject base, then walks source
+holder/effect order, evaluates the live heartbeat proc counter and invokes
+the installed AI, without an alive guard, `Unit.cpp:539-556`.
+The aura owner must retain multimap insertion order and validate callbacks'
+iterator lifetime, `Unit.h:1076`, `SpellAuras.h:99`.
+Missing F5.12 aura holders/scripts, F5.14 procs and selected AI callbacks
+remain typed refusals. Catalog census counts are static candidates, not
+recorded dispatch or end-to-end gameplay acceptance.
 Format 91, NativeCapability and frozen-unsealed F1 remain unchanged.

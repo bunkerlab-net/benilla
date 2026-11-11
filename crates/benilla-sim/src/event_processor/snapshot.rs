@@ -13,9 +13,9 @@ pub struct QueueEntry {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct BasicEventSnapshot {
+pub struct BasicEventSnapshot<K = EventKind> {
     pub event_id: u64,
-    pub kind: EventKind,
+    pub kind: K,
     pub add_time_ms: u64,
     pub exec_time_ms: u64,
     pub to_abort: bool,
@@ -23,7 +23,8 @@ pub struct BasicEventSnapshot {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct EventProcessorSnapshot {
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct EventProcessorSnapshot<K = EventKind> {
     pub version: u32,
     pub clock_ms: u64,
     pub next_insertion_id: u64,
@@ -32,17 +33,17 @@ pub struct EventProcessorSnapshot {
     pub aborting: bool,
     /// Canonical ascending (deadline, insertion). Identity/kind travel with it.
     #[serde(deserialize_with = "bounded_events")]
-    pub queued: Vec<BasicEventSnapshot>,
+    pub queued: Vec<BasicEventSnapshot<K>>,
     /// Execute(false) without re-add remains alive, sorted by stable identity.
     #[serde(deserialize_with = "bounded_events")]
-    pub detached: Vec<BasicEventSnapshot>,
+    pub detached: Vec<BasicEventSnapshot<K>>,
 }
-fn bounded_events<'de, D: serde::Deserializer<'de>>(
+fn bounded_events<'de, D: serde::Deserializer<'de>, K: Deserialize<'de>>(
     deserializer: D,
-) -> Result<Vec<BasicEventSnapshot>, D::Error> {
-    struct Bounded(PhantomData<BasicEventSnapshot>);
-    impl<'de> Visitor<'de> for Bounded {
-        type Value = Vec<BasicEventSnapshot>;
+) -> Result<Vec<BasicEventSnapshot<K>>, D::Error> {
+    struct Bounded<K>(PhantomData<BasicEventSnapshot<K>>);
+    impl<'de, K: Deserialize<'de>> Visitor<'de> for Bounded<K> {
+        type Value = Vec<BasicEventSnapshot<K>>;
         fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "at most {MAX_EVENTS} BasicEvents")
         }
@@ -60,10 +61,10 @@ fn bounded_events<'de, D: serde::Deserializer<'de>>(
             Ok(out)
         }
     }
-    deserializer.deserialize_seq(Bounded(PhantomData))
+    deserializer.deserialize_seq(Bounded::<K>(PhantomData))
 }
-impl EventProcessor {
-    pub fn snapshot(&self) -> EventProcessorSnapshot {
+impl<K: EventPayload> EventProcessor<K> {
+    pub fn snapshot(&self) -> EventProcessorSnapshot<K> {
         EventProcessorSnapshot {
             version: SNAPSHOT_VERSION,
             clock_ms: self.clock_ms,
@@ -83,7 +84,7 @@ impl EventProcessor {
                 .collect(),
         }
     }
-    pub fn restore(snapshot: EventProcessorSnapshot) -> Result<Self, EventError> {
+    pub fn restore(snapshot: EventProcessorSnapshot<K>) -> Result<Self, EventError> {
         if snapshot.version != SNAPSHOT_VERSION
             || snapshot.next_insertion_id == 0
             || snapshot.next_event_id == 0
