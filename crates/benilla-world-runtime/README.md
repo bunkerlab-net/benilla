@@ -1822,9 +1822,9 @@ CreatureAI base constructor, `NullCreatureAI.cpp:22-25`. Its empty overrides
 and false visibility are source behaviour, `NullCreatureAI.h:30-38`.
 GuardAI shares the generation-owned CreatureAI base and preserves its sight
 and assistance branch order, `GuardAI.cpp:32-92`. Its inherited update expires
-base timers before the typed SelectHostileTarget binding refusal,
-`UnitAI.cpp:1084-1090`, `Unit.cpp:8691-8807`. That Unit operation needs a
-separate owner for taunt/aura, evade and reachability state.
+base timers before concrete target selection through `SourceAiDependencies`,
+`UnitAI.cpp:1084-1090`, `Unit.cpp:8691-8807`. The inherited event-timer callback
+is genuinely empty for GuardAI, `UnitAI.h:504`.
 
 PossessedAI constructs UnitAI directly, not CreatureAI, `PossessedAI.cpp:4-6`.
 Its update skips timers, threat selection and spell lists and runs only the
@@ -1888,3 +1888,39 @@ Missing F5.12 aura holders/scripts, F5.14 procs and selected AI callbacks
 remain typed refusals. Catalog census counts are static candidates, not
 recorded dispatch or end-to-end gameplay acceptance.
 Format 91, NativeCapability and frozen-unsealed F1 remain unchanged.
+
+## Source hostile target selection
+
+`SourceCreatureAi::select_hostile_target` executes `Unit.cpp:8691-8807`
+against the existing Unit fields and threat managers. It preserves the
+cannot-execute return value, guarded empty-list selection, cached taunt and
+binary32 switch priorities, rooted old-victim detach without AttackStop,
+virtual CreatureAI AttackStart, reachability evade timer, attacker exception,
+and fixate-before-evade ordering. A true return need not have a victim.
+
+Selection does not read taunt auras at entry. Evade clears fixate priorities
+before the missing `GetAurasByType(SPELL_AURA_MOD_TAUNT)` owner refuses at
+`ThreatManager.cpp:559`. Known-empty aura state is not an implicit default.
+The following EnterEvadeMode still removes auras before combat stop and home.
+
+`HostileTargetExecutionOwner` refuses unavailable calls where reached:
+melee range at `ThreatManager.cpp:350` or `Unit.cpp:8734`, facing at
+`Unit.cpp:8715,8750`, current-generator reachability at `:8762`, flight and
+vertical distance at `:8764-8765`, current motion type at `:8795`, and attacker
+attackability/accessibility at `:8799`. AttackStart retains its spell/aura
+refusals. Clearing permanent evade retains controlled-unit propagation at
+`CombatManager.cpp:176`; stopping a nonzero evade timer does not propagate.
+
+Target comparisons resolve the retained target GUID through the F3 map lookup,
+including registered-before-world NPCs. `Unit::GetTarget` also preserves its
+out-of-world null result and loading-pet dependency, `Unit.cpp:6638-6664`.
+The attacker loop uses `std::set<Unit*>` address order, `Unit.h:1075`, through
+F3's bound allocation addresses, `source_execution/objects.rs:200-234`.
+Unbound multi-attacker order refuses; an empty or single-entry set needs no
+address ordering. The loop predicates do not change the attacker set,
+`Relations.cpp:351-417`, `Unit.cpp:4460-4469`, `Object.h:969-972`.
+
+The census separates raw template/spawn counts, base construction, selection
+stage, and Guard UpdateAI outcomes. EventAI's full UpdateAI composition is
+not bound by this owner. Component inventories and native format 91 are
+unchanged; NativeCapability remains uninhabited and F1 remains unsealed.

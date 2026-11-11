@@ -23,12 +23,15 @@ pub struct SourceBuiltinAi {
 pub trait BuiltinAiExecutionOwner: UnitAiExecutionOwner {
     fn select_hostile_target(
         &mut self,
-        _ai: &mut SourceCreatureAi,
-        _objects: &SourceObjects,
-        _units: &mut SourceUnits,
+        ai: &mut SourceCreatureAi,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
     ) -> Result<bool> {
+        if !objects.get(ai.base.unit)?.alive || !units.get(objects, ai.base.unit)?.has_ai {
+            return Ok(false);
+        }
         Err(refuse(
-            "execution.builtin_ai.f5_04_select_hostile_target_binding_owner",
+            "execution.select_hostile_target.threat_context_owner",
         ))
     }
     fn update_melee(

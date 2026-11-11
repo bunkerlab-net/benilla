@@ -39,7 +39,11 @@ mod unit_events;
 pub use unit_events::*;
 mod unit_update;
 pub use unit_update::*;
+mod select_hostile_target;
+pub use select_hostile_target::*;
 mod motion_master;
+#[cfg(test)]
+mod select_hostile_target_tests;
 #[cfg(test)]
 mod unit_events_census_tests;
 #[cfg(test)]

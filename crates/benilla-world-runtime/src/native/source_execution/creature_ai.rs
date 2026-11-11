@@ -609,3 +609,35 @@ impl<O: UnitAiExecutionOwner> UnitAiExecutionOwner for SourceAiDependencies<'_, 
         self.owner.reachable(unit)
     }
 }
+
+impl<O: BuiltinAiExecutionOwner + HostileTargetExecutionOwner> BuiltinAiExecutionOwner
+    for SourceAiDependencies<'_, O>
+{
+    fn select_hostile_target(
+        &mut self,
+        ai: &mut SourceCreatureAi,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+    ) -> Result<bool> {
+        ai.select_hostile_target(objects, units, self.threats, self.owner)
+    }
+    fn update_melee(
+        &mut self,
+        unit: ObjectHandle,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+    ) -> Result<()> {
+        self.owner.update_melee(unit, objects, units)
+    }
+    fn guard_query(
+        &mut self,
+        unit: ObjectHandle,
+        target: ObjectHandle,
+        query: GuardQuery,
+    ) -> Result<bool> {
+        self.owner.guard_query(unit, target, query)
+    }
+    fn helper_attacker(&mut self, unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        self.owner.helper_attacker(unit)
+    }
+}

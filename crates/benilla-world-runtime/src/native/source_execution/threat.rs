@@ -611,6 +611,11 @@ impl SourceThreats {
         guid: Option<u64>,
         casters: &[u64],
     ) -> Result<()> {
+        self.fixate_references(source, guid)?;
+        self.taunt_update(source, casters)
+    }
+    /// ThreatManager.cpp:580-586 runs before TauntUpdate reads aura state at :559.
+    pub fn fixate_references(&mut self, source: ObjectHandle, guid: Option<u64>) -> Result<()> {
         for reference in &mut self.manager_mut(source)?.online {
             if Some(reference.guid) == guid {
                 reference.taunt = u32::MAX;
@@ -618,7 +623,7 @@ impl SourceThreats {
                 reference.taunt = 0;
             }
         }
-        self.taunt_update(source, casters)
+        Ok(())
     }
     pub fn select(
         &mut self,

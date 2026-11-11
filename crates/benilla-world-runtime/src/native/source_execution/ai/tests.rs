@@ -27,6 +27,7 @@ fn config() -> EventAiLoaderConfig {
 struct Unbound;
 impl UnitAiExecutionOwner for Unbound {}
 impl BuiltinAiExecutionOwner for Unbound {}
+impl HostileTargetExecutionOwner for Unbound {}
 struct Fixture {
     objects: SourceObjects,
     units: SourceUnits,
@@ -319,12 +320,26 @@ fn guard_inherited_update_expires_exact_boundary_timer_before_target_binding() {
     base.generic_timers[0].disabled = false;
     base.generic_timers[0].remaining = 10;
     base.distancing_cooldown = true;
+    let mut threats = SourceThreats::default();
+    threats.register(unit).unwrap();
+    f.units.get_mut(&f.objects, unit).unwrap().flags |= UNIT_FLAG_COMBAT | 0x40000;
     assert_eq!(
-        f.ai.update(9, &f.objects, &mut f.units, &mut f.ais, &mut Unbound)
-            .unwrap_err()
-            .id,
-        "execution.builtin_ai.f5_04_select_hostile_target_binding_owner"
+        f.ai.update(
+            9,
+            &f.objects,
+            &mut f.units,
+            &mut f.ais,
+            &mut SourceAiDependencies {
+                threats: &mut threats,
+                owner: &mut Unbound
+            },
+        )
+        .unwrap_err()
+        .id,
+        "execution.select_hostile_target.f5_12_f5_13_taunt_auras_owner"
     );
+    assert!(threats.manager(unit).unwrap().online().is_empty());
+    assert_eq!(threats.manager(unit).unwrap().current(), None);
     assert!(
         f.ais
             .get(&f.objects, unit)
@@ -611,6 +626,8 @@ fn builtin_catalog04_constructor_census_or_explicit_absence() {
             .register(&objects, unit, SourceUnitFields::creature(&t))
             .unwrap();
         let mut ais = SourceCreatureAis::default();
+        let mut threats = SourceThreats::default();
+        threats.register(unit).unwrap();
         let result = (|| {
             if matches!(
                 selected.executable().builtin_kind(),
@@ -633,7 +650,16 @@ fn builtin_catalog04_constructor_census_or_explicit_absence() {
         let reason = match result {
             Ok(mut ai) => {
                 let update = ai
-                    .update(100, &objects, &mut units, &mut ais, &mut Unbound)
+                    .update(
+                        100,
+                        &objects,
+                        &mut units,
+                        &mut ais,
+                        &mut SourceAiDependencies {
+                            threats: &mut threats,
+                            owner: &mut Unbound,
+                        },
+                    )
                     .map_or_else(|e| e.id, |_| "updated".into());
                 let counts = update_gates
                     .entry(name.clone())
@@ -652,10 +678,7 @@ fn builtin_catalog04_constructor_census_or_explicit_absence() {
     assert_eq!(selected_counts["GuardAI"], 96);
     assert_eq!(selected_counts["TotemAI"], 93);
     assert_eq!(outcomes["GuardAI"]["constructed"], 96);
-    assert_eq!(
-        update_gates["GuardAI"]["execution.builtin_ai.f5_04_select_hostile_target_binding_owner"],
-        (96, 337)
-    );
+    assert_eq!(update_gates["GuardAI"]["updated"], (96, 337));
     println!("builtin catalog-04 selection={selected_counts:?}; constructors={outcomes:?}; first-update gates (templates, raw-spawn rows)={update_gates:?}; ordinary uncontrolled raw-template alternatives, not live-spawn or F1 acceptance; EventAI uses its existing separate constructor");
 }
 

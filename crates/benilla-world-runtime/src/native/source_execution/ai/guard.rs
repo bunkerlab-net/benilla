@@ -26,7 +26,9 @@ pub(super) fn update(
             _ => return Err(refuse("execution.builtin_ai.f5_17_timer_override_owner")),
         }
     }
-    if !owner.select_hostile_target(ai, objects, units)? {
+    let combat = owner.select_hostile_target(ai, objects, units)?;
+    // Guard inherits the genuine empty UnitAI::UpdateEventTimers, UnitAI.h:504.
+    if !combat {
         return Ok(());
     }
     // Ranged distancing reads live spell prevention and F6 melee reach, :1095-1118.
