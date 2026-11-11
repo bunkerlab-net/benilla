@@ -61,8 +61,7 @@ jobs:
       - name: Install Linux build libraries
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential pkg-config libasound2-dev libudev-dev
+          bash scripts/ci-apt-install.sh build-essential pkg-config libasound2-dev libudev-dev
       - name: Install the repository toolchain
         run: |
           rustup toolchain install

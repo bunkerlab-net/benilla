@@ -104,6 +104,10 @@ out of scope is closed with the reason.
   compiler, which some dependencies build with. On macOS the Xcode
   command line tools, which also supply libclang for the audio bindings; on Linux the ALSA and
   udev development packages and pkg-config. `python3` runs two of the gates.
+  Linux CI uses `scripts/ci-apt-install.sh` to retry package installation and switch
+  Ubuntu mirrors after persistent security-host DNS failures without removing the
+  security suite. Run `python3 scripts/test-ci-apt-install.py` to test recovery
+  with isolated sources and stubbed commands, without changing the host's apt setup.
 - **A 1.12.1 install of your own.** `WOW_DATA=<its Data folder>`, or a `WoW` link at the repo
   root, which only a dev build sees: the player build looks for `Data/` or `WoW/Data/` beside
   the binary. benilla reads the install and never writes into it. `WOW_DATA=` (set, empty)
