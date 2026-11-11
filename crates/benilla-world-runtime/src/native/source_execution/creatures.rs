@@ -132,6 +132,7 @@ pub struct CreatureConstruction {
     pub spawning_linked: bool,
     selected_ai: Option<SelectedCreatureAi>,
     event_ai: Option<SourceEventAi>,
+    builtin_ai: Option<SourceBuiltinAi>,
 }
 impl CreatureConstruction {
     pub fn selected_ai(&self) -> Option<&SelectedCreatureAi> {
@@ -142,6 +143,33 @@ impl CreatureConstruction {
     }
     pub fn event_ai_mut(&mut self) -> Option<&mut SourceEventAi> {
         self.event_ai.as_mut()
+    }
+    pub fn builtin_ai(&self) -> Option<&SourceBuiltinAi> {
+        self.builtin_ai.as_ref()
+    }
+    pub fn builtin_ai_mut(&mut self) -> Option<&mut SourceBuiltinAi> {
+        self.builtin_ai.as_mut()
+    }
+    pub fn construct_builtin_ai(
+        &mut self,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        ais: &SourceCreatureAis,
+    ) -> Result<()> {
+        require(
+            self.builtin_ai.is_none(),
+            "execution.builtin_ai.already_constructed",
+        )?;
+        let selected = self
+            .selected_ai()
+            .ok_or_else(|| refuse("execution.ai.selection_absent"))?;
+        self.builtin_ai = Some(SourceBuiltinAi::construct(
+            selected.clone(),
+            objects,
+            units,
+            ais,
+        )?);
+        Ok(())
     }
     pub fn construct_event_ai(
         &mut self,
@@ -254,25 +282,19 @@ pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     fn creature_base_ai_instances(&self) -> Result<&SourceCreatureAis> {
         Err(refuse("execution.unit_ai.component_registry_binding_owner"))
     }
+    /// The two owners share one live registry; implementations split their disjoint borrows.
+    fn creature_builtin_ai_owners(&mut self) -> Result<(&mut SourceUnits, &SourceCreatureAis)> {
+        Err(refuse(
+            "execution.builtin_ai.live_unit_and_base_binding_owner",
+        ))
+    }
     /// Must execute the selected constructor before SpellListChanged/JustRespawned.
     fn creature_ai_construct(
         &mut self,
         state: &mut CreatureConstruction,
         context: &mut GridFactoryContext<'_, D, P>,
     ) -> Result<()> {
-        let selected = state
-            .selected_ai()
-            .ok_or_else(|| refuse("execution.ai.selection_absent"))?;
-        selected.validate(context.objects)?;
-        if selected.executable().builtin_kind() != Some(BuiltinCreatureAi::Event) {
-            return Err(selected.constructor_refusal(context.objects)?);
-        }
-        state.construct_event_ai(
-            context.objects,
-            self.creature_event_ai_definitions()?,
-            self.creature_event_ai_build()?,
-            self.creature_base_ai_instances()?,
-        )
+        construct_source_creature_ai(self, state, context)
     }
     fn creature_phase(
         &mut self,
@@ -508,6 +530,7 @@ where
         spawning_linked: false,
         selected_ai: None,
         event_ai: None,
+        builtin_ai: None,
     };
     factory.creature_phase(CreaturePhase::InitEntryBase, &mut state, context)?;
     let mut display = event.map_or(0, |event| event.model);
@@ -670,6 +693,39 @@ where
     }
     factory.creature_created(state, context)?;
     Ok(GridCandidateOutcome::Loaded(object))
+}
+
+/// Selected construction only. EventAI keeps its existing definition/build/base owner path.
+pub fn construct_source_creature_ai<D, P, F>(
+    factory: &mut F,
+    state: &mut CreatureConstruction,
+    context: &mut GridFactoryContext<'_, D, P>,
+) -> Result<()>
+where
+    D: GridDefinitions,
+    P: GridProductOwner,
+    F: CreatureFactoryOwner<D, P>,
+{
+    let selected = state
+        .selected_ai()
+        .ok_or_else(|| refuse("execution.ai.selection_absent"))?;
+    selected.validate(context.objects)?;
+    if matches!(
+        selected.executable().builtin_kind(),
+        Some(BuiltinCreatureAi::Null | BuiltinCreatureAi::Guard | BuiltinCreatureAi::Possessed)
+    ) {
+        let (units, ais) = factory.creature_builtin_ai_owners()?;
+        return state.construct_builtin_ai(context.objects, units, ais);
+    }
+    if selected.executable().builtin_kind() != Some(BuiltinCreatureAi::Event) {
+        return Err(selected.constructor_refusal(context.objects)?);
+    }
+    state.construct_event_ai(
+        context.objects,
+        factory.creature_event_ai_definitions()?,
+        factory.creature_event_ai_build()?,
+        factory.creature_base_ai_instances()?,
+    )
 }
 
 /// Creature.cpp:880-887 calls selection after motion initialization, before AI callbacks.

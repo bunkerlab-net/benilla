@@ -521,9 +521,9 @@ unsealed projection. An absent default path prints SKIP; an explicit bad path fa
 `Creature.cpp:880-887`, after motion initialization and before AI callbacks.
 It records the effective entry, spawn identity, control references, branch, and
 immutable executable binding. Selection alone implements no AI body.
-The factory retains EventAI lifecycle state for that executable. Other selected
-constructors keep their named refusals, including the genuine `NullCreatureAI`
-fallback.
+The factory retains EventAI lifecycle state for that executable and constructs
+NullAI, GuardAI and PossessedAI through `SourceBuiltinAi`. The remaining selected
+constructors keep their named refusals.
 
 ScriptDev runs first for eligible creatures. A nonnull `GetAI` slot stops at
 `execution.ai.scriptdev_get_ai_constructor_owner`; its unknown return cannot
@@ -1785,3 +1785,35 @@ The version-one immutable inventory binds the catalog and client identities.
 Its validator checks retained chain order. These definitions are not
 serialized live Spell/Aura continuation. Native format 91, NativeCapability
 and frozen-unsealed F1 are unchanged.
+
+## Source builtin CreatureAI
+
+`SourceBuiltinAi` executes selected NullAI, GuardAI and PossessedAI identities
+from `CreatureAIRegistry.cpp:37-43`. NullAI disables combat after its real
+CreatureAI base constructor, `NullCreatureAI.cpp:22-25`. Its empty overrides
+and false visibility are source behaviour, `NullCreatureAI.h:30-38`.
+GuardAI shares the generation-owned CreatureAI base and preserves its sight
+and assistance branch order, `GuardAI.cpp:32-92`. Its inherited update expires
+base timers before the typed SelectHostileTarget binding refusal,
+`UnitAI.cpp:1084-1090`, `Unit.cpp:8691-8807`. That Unit operation needs a
+separate owner for taunt/aura, evade and reachability state.
+
+PossessedAI constructs UnitAI directly, not CreatureAI, `PossessedAI.cpp:4-6`.
+Its update skips timers, threat selection and spell lists and runs only the
+short-circuited melee path, `PossessedAI.h:41-44`, `UnitAI.cpp:296-299`.
+Its static empty spell list suppresses initial cooldown setup on combat entry,
+`PossessedAI.cpp:8-11`, `UnitAI.cpp:104-110`.
+Death inherits combat-only-root removal for all three classes,
+`UnitAI.cpp:132-135`. Owner loss adds no class-specific cleanup.
+All three inherit the empty heartbeat callback, `UnitAI.h:415`; the dispatcher
+validates the live selected class before returning.
+Missing melee, spell/aura, motion, assistance and spatial operations retain
+typed refusals at the reached call. PetAI, GuardianAI and TotemAI still require
+their concrete ports. EventAI remains the existing separate implementation.
+
+The builtin catalog test counts ordinary uncontrolled raw-template alternatives,
+not spawned classes or F1 parity. It uses the same retained catalog, ScriptDev
+registry and recorded configuration as the earlier AI censuses. Invented-ID
+tests cover selection, lifecycle and missing-owner order. The version-one
+builtin inventory joins the existing live base state without serialized fields.
+Format 91, NativeCapability and frozen-unsealed F1 remain unchanged.

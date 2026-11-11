@@ -5,6 +5,8 @@ mod active;
 pub use active::*;
 mod ai_selection;
 pub use ai_selection::*;
+mod ai;
+pub use ai::*;
 mod ai_inputs;
 pub use ai_inputs::*;
 #[cfg(test)]

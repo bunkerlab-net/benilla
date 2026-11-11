@@ -150,6 +150,7 @@ struct Factory {
     ai_registry: SourceAiRegistry,
     selected_ai: Option<SelectedCreatureAi>,
     event_ai_definitions: Option<std::sync::Arc<EventAiDefinitions>>,
+    builtin_dispatch_name: Option<String>,
     units: SourceUnits,
     base_ais: SourceCreatureAis,
     combat: SourceCombat,
@@ -203,6 +204,7 @@ impl Factory {
             ai_registry: SourceAiRegistry::builtin(),
             selected_ai: None,
             event_ai_definitions: None,
+            builtin_dispatch_name: None,
             units: SourceUnits::default(),
             base_ais: SourceCreatureAis::default(),
             combat: SourceCombat::default(),
@@ -343,7 +345,7 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
     fn creature_ai_inputs(&mut self, state: &CreatureConstruction) -> Result<CreatureAiInputs> {
         Ok(CreatureAiInputs {
             effective_entry: state.template.entry,
-            ai_name: String::new(),
+            ai_name: self.builtin_dispatch_name.clone().unwrap_or_default(),
             script_name: String::new(),
             control: CreatureAiControl::default(),
             guard: false,
@@ -353,6 +355,20 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
     }
     fn creature_ai_registry(&self) -> Result<&SourceAiRegistry> {
         Ok(&self.ai_registry)
+    }
+    fn creature_builtin_ai_owners(&mut self) -> Result<(&mut SourceUnits, &SourceCreatureAis)> {
+        Ok((&mut self.units, &self.base_ais))
+    }
+    fn creature_base_ai_instances(&self) -> Result<&SourceCreatureAis> {
+        Ok(&self.base_ais)
+    }
+    fn creature_event_ai_definitions(&self) -> Result<std::sync::Arc<EventAiDefinitions>> {
+        self.event_ai_definitions
+            .clone()
+            .ok_or_else(|| refuse("execution.event_ai.loaded_definitions_owner"))
+    }
+    fn creature_event_ai_build(&self) -> Result<EventAiBuild> {
+        Ok(EventAiBuild::Release)
     }
     fn creature_ai_construct(
         &mut self,
@@ -393,19 +409,25 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
                 SourceUnitFields::creature(&template),
             )?;
             self.units.bind_ai_selection(context.objects, selected)?;
-            let base = SourceCreatureAi::construct(
-                context.objects,
-                state.object,
-                &mut self.units,
-                &template,
-                false,
-                0,
-                &config,
-                &mut Dependencies,
-            )?;
-            self.base_ais
-                .install(context.objects, &mut self.units, base, &mut self.combat)?;
+            if self.builtin_dispatch_name.as_deref() != Some("PossessedAI") {
+                let base = SourceCreatureAi::construct(
+                    context.objects,
+                    state.object,
+                    &mut self.units,
+                    &template,
+                    false,
+                    0,
+                    &config,
+                    &mut Dependencies,
+                )?;
+                self.base_ais
+                    .install(context.objects, &mut self.units, base, &mut self.combat)?;
+            }
             self.threats.register(state.object)?;
+            if self.builtin_dispatch_name.is_some() {
+                construct_source_creature_ai(self, state, context)?;
+                return self.creature_phase(CreaturePhase::SelectAi, state, context);
+            }
             state.construct_event_ai(
                 context.objects,
                 definitions.clone(),
@@ -422,12 +444,35 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
         state: &mut CreatureConstruction,
         context: &mut GridFactoryContext<'_, Definitions, Products>,
     ) -> Result<()> {
+        if self.builtin_dispatch_name.is_some() && phase == CreaturePhase::InitEntryBase {
+            assert_eq!(
+                construct_source_creature_ai(self, state, context)
+                    .unwrap_err()
+                    .id,
+                "execution.ai.selection_absent"
+            );
+        }
         if self.refuse == Some(phase) {
             return Err(phase.missing_owner());
         }
         self.observations
             .push(Observation::Phase(state.spawn.database_guid, phase));
         match phase {
+            CreaturePhase::AiSpellListChanged | CreaturePhase::AiJustRespawned
+                if self
+                    .builtin_dispatch_name
+                    .as_deref()
+                    .is_some_and(|name| name != "EventAI") =>
+            {
+                assert!(state.builtin_ai().is_some());
+                assert!(state.event_ai().is_none());
+                if phase == CreaturePhase::AiJustRespawned {
+                    state
+                        .builtin_ai_mut()
+                        .unwrap()
+                        .just_respawned(context.objects, &mut self.base_ais)?;
+                }
+            }
             CreaturePhase::AiSpellListChanged if self.event_ai_definitions.is_some() => {
                 assert!(state.event_ai().unwrap().holders.is_empty());
             }
@@ -1766,5 +1811,59 @@ fn selected_eventai_constructs_then_copies_holders_after_spell_list_changed() {
         );
         assert_eq!(event_ai.selected.object(), state.object);
         assert!(factory.base_ais.get(&world.objects, state.object).is_ok());
+    }
+}
+
+#[test]
+fn selected_builtin_factory_dispatch_retains_real_bodies_and_named_refusals() {
+    for (name, missing) in [
+        ("NullAI", None),
+        ("GuardAI", None),
+        ("PossessedAI", None),
+        ("EventAI", None),
+        ("PetAI", Some("execution.ai.pet_constructor_owner")),
+        (
+            "GuardianAI",
+            Some("execution.ai.guardian_constructor_owner"),
+        ),
+        ("TotemAI", Some("execution.ai.totem_constructor_owner")),
+    ] {
+        let mut world = World::new(vec![spawn(40, 0.)]);
+        let mut factory = Factory::new();
+        factory.builtin_dispatch_name = Some(name.into());
+        factory.event_ai_definitions = Some(std::sync::Arc::new(EventAiDefinitions::default()));
+        let result = world.load(0., &mut factory);
+        if let Some(id) = missing {
+            assert_eq!(result.unwrap_err().id, id);
+            assert!(factory.states.is_empty());
+            continue;
+        }
+        result.unwrap();
+        let (&unit, state) = factory.states.first_key_value().unwrap();
+        if name == "EventAI" {
+            assert!(state.event_ai().is_some());
+            assert!(state.builtin_ai().is_none());
+        } else {
+            assert_eq!(
+                state
+                    .builtin_ai()
+                    .unwrap()
+                    .selected()
+                    .executable()
+                    .builtin_kind()
+                    .unwrap()
+                    .key(),
+                name
+            );
+            assert!(state.event_ai().is_none());
+            assert_eq!(
+                factory
+                    .units
+                    .get(&world.objects, unit)
+                    .unwrap()
+                    .can_enter_combat,
+                name != "NullAI"
+            );
+        }
     }
 }
