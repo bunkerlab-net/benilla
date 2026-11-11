@@ -60,9 +60,9 @@ impl CreatureConstruction {
         owner: &mut dyn MotionExecutionOwner,
     ) -> Result<()> {
         motions.construct(context.objects, self.object, default)?;
-        motions
-            .get_mut(context.objects, self.object)?
-            .initialize(context, owner)
+        let master = motions.get_mut(context.objects, self.object)?;
+        master.bind_respawn_radius(self.spawn.respawn_radius);
+        master.initialize(context, owner)
     }
 }
 /// Compose this with SourceAiDependencies to retain concrete threat ownership.

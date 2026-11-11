@@ -1068,6 +1068,15 @@ fn script_ai_bindings(registry: &Value) -> Result<Vec<CatalogScriptAiBinding>> {
 #[path = "scripts_tests.rs"]
 mod tests;
 
+#[cfg(test)]
+pub(crate) struct MotionSpawnOperands {
+    pub guid: u32,
+    pub entry: u32,
+    pub movement_type: u8,
+    pub radius: f32,
+    pub pose: [f32; 4],
+}
+
 impl VerifiedCatalog {
     /// Narrow numeric EventAI loader operands using the retained F2 schema.
     pub(crate) fn execution_event_ai_operands<const N: usize>(
@@ -1111,24 +1120,72 @@ impl VerifiedCatalog {
         })?;
         Ok(rows)
     }
+    /// Test-only raw census operands, never EventAI execution relations.
+    #[cfg(test)]
+    pub(crate) fn motion_census_operands<const N: usize>(
+        &mut self,
+        table: &str,
+        names: [&str; N],
+    ) -> Result<Vec<(u64, [u32; N])>> {
+        check(
+            matches!(
+                table,
+                "creature_spawn_entry"
+                    | "spawn_group"
+                    | "spawn_group_spawn"
+                    | "spawn_group_entry"
+                    | "spawn_group_squad"
+                    | "creature_conditional_spawn"
+                    | "game_event_creature_data"
+            ),
+            "scripts.motion_census_relation",
+        )?;
+        let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
+        let cols = columns(&schema, table)?;
+        let indices = names
+            .map(|name| position(cols, name))
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?;
+        let mut rows = Vec::new();
+        self.scan(table, 0, 256, |row| {
+            let values = cells(&row)?;
+            let mut words = [0; N];
+            for (word, &index) in words.iter_mut().zip(&indices) {
+                *word = spawns::uint(values[index])?;
+            }
+            rows.push((row.ordinal, words));
+            Ok(())
+        })?;
+        Ok(rows)
+    }
     /// ObjectMgr.cpp:1965-1966 reads Field::GetFloat/GetUInt8, Field.h:53,56.
     #[cfg(test)]
-    pub(crate) fn execution_motion_spawn_operands(&mut self) -> Result<Vec<(u32, u32, u8, f32)>> {
+    pub(crate) fn execution_motion_spawn_operands(&mut self) -> Result<Vec<MotionSpawnOperands>> {
         let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
         let cols = columns(&schema, "creature")?;
         let guid = position(cols, "guid")?;
         let entry = position(cols, "id")?;
         let motion = position(cols, "MovementType")?;
         let radius = position(cols, "spawndist")?;
+        let pose = ["position_x", "position_y", "position_z", "orientation"]
+            .map(|name| position(cols, name))
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?;
         let mut rows = Vec::new();
         self.scan("creature", 0, 256, |row| {
             let values = cells(&row)?;
-            rows.push((
-                spawns::uint(values[guid])?,
-                spawns::uint(values[entry])?,
-                spawns::uint(values[motion])? as u8,
-                spawns::floating(values[radius])?,
-            ));
+            rows.push(MotionSpawnOperands {
+                guid: spawns::uint(values[guid])?,
+                entry: spawns::uint(values[entry])?,
+                movement_type: spawns::uint(values[motion])? as u8,
+                radius: spawns::floating(values[radius])?,
+                pose: [
+                    spawns::floating(values[pose[0]])?,
+                    spawns::floating(values[pose[1]])?,
+                    spawns::floating(values[pose[2]])?,
+                    spawns::floating(values[pose[3]])?,
+                ],
+            });
             Ok(())
         })?;
         Ok(rows)

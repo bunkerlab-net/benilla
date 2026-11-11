@@ -30,7 +30,7 @@ impl MotionDefault {
 /// FOLLOW has no registered factory and therefore falls back to static Idle.
 pub fn source_default_motion(movement_type: u32, player_owner: bool) -> Result<u32> {
     match if player_owner { 7 } else { movement_type } {
-        1 => Err(refuse("execution.motion.f5_wander_owner")),
+        1 => Ok(1),
         2 => Err(refuse("execution.motion.f5_waypoint_owner")),
         3 => Err(refuse("execution.motion.f5_fixed_path_owner")),
         4 => Err(refuse("execution.motion.f5_linear_waypoint_owner")),
@@ -72,6 +72,12 @@ pub trait MotionExecutionOwner {
     fn controlled_evade(&mut self, _unit: ObjectHandle, _home: bool) -> Result<()> {
         Err(refuse("execution.motion.controlled_evade_owner"))
     }
+    fn client_controlled(&mut self, _unit: ObjectHandle) -> Result<bool> {
+        Err(refuse("execution.motion.client_controlled_owner"))
+    }
+    fn client_controlling(&mut self, _unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        Err(refuse("execution.motion.client_controlling_owner"))
+    }
 }
 pub struct MotionContext<'a> {
     pub objects: &'a SourceObjects,
@@ -90,6 +96,10 @@ pub enum MotionCall {
     RespawnDelayFive,
     ForcedDespawnOne,
     SendRoot(bool),
+    InterruptMoving,
+    StopMovingForced,
+    RestoreClientControl(ObjectHandle),
+    RestoreWalk(bool),
 }
 impl MotionCall {
     pub fn missing_owner(self) -> Refusal {
@@ -105,6 +115,10 @@ impl MotionCall {
                 "execution.motion.f5_06_despawn_owner"
             }
             Self::SendRoot(_) => "execution.motion.root_movement_info_output_owner",
+            Self::InterruptMoving => "execution.motion.f6_interrupt_moving_owner",
+            Self::StopMovingForced => "execution.motion.f6_stop_moving_forced_owner",
+            Self::RestoreClientControl(_) => "execution.motion.client_control_output_owner",
+            Self::RestoreWalk(_) => "execution.motion.walk_movement_info_output_owner",
         })
     }
 }
@@ -177,6 +191,7 @@ pub struct SourceMotionMaster {
     pub unit: ObjectHandle,
     pub default: MotionDefault,
     current_path: Option<u32>,
+    respawn_radius: Option<f32>,
     stack: Vec<Generator>,
     expired: Option<Vec<Generator>>,
     updating: bool,
@@ -188,11 +203,16 @@ impl SourceMotionMaster {
             unit,
             default,
             current_path: None,
+            respawn_radius: None,
             stack: Vec::new(),
             expired: None,
             updating: false,
             needs_reset: false,
         }
+    }
+    /// Bind the live Creature::m_respawnradius, Creature.cpp:1688,2493-2506.
+    pub fn bind_respawn_radius(&mut self, radius: f32) {
+        self.respawn_radius = Some(radius);
     }
     pub fn len(&self) -> usize {
         self.stack.len()
@@ -255,7 +275,17 @@ impl SourceMotionMaster {
                 })
                 .transpose()?
                 .unwrap_or(false);
-            source_default_motion(self.default.movement_type, player_owner)?;
+            if source_default_motion(self.default.movement_type, player_owner)? == 1 {
+                let radius = self
+                    .respawn_radius
+                    .ok_or_else(|| refuse("execution.motion.respawn_radius_owner"))?;
+                let generator = Rc::new(SourceWanderGenerator::from_creature(
+                    self.unit, context, radius,
+                )?);
+                // MotionMaster.cpp:80-81 pushes before calling Initialize.
+                self.stack.push(Generator::Owned(generator.clone()));
+                return generator.initialize(self, context, owner);
+            }
         }
         self.stack.push(Generator::Idle);
         Ok(())

@@ -33,6 +33,7 @@ pub struct SourceUnitFields {
     pub neutral_to_all: Option<bool>,
     pub can_aggro: Option<bool>,
     pub force_attacking: bool,
+    pub run_during_wander: bool,
     pub flags: u32,
     pub state: u32,
     pub vitals: Option<SourceUnitVitals>,
@@ -75,6 +76,7 @@ impl SourceUnitFields {
             neutral_to_all: None,
             can_aggro: None,
             force_attacking: template.extra_flags & 0x80000 != 0,
+            run_during_wander: template.extra_flags & 0x20 != 0,
             flags: template.unit_flags
                 | if template.static_flags[0] & 0x200 != 0 {
                     0x0200_0000

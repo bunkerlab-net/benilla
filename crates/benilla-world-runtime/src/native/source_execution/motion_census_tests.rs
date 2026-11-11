@@ -24,22 +24,49 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
         .unwrap();
     let mut defined_templates = 0;
     let mut template_refusals = BTreeMap::<String, Vec<u32>>::new();
+    let mut wander_templates = Vec::new();
     for (_, [entry, raw]) in &template_motion {
         // ObjectMgr.cpp:533-536 repairs invalid template movement to Idle.
         let movement = if *raw >= 5 { 0 } else { *raw };
         match source_default_motion(movement, false) {
-            Ok(0) => defined_templates += 1,
-            Ok(_) => panic!("unexpected default"),
+            Ok(kind) => {
+                defined_templates += 1;
+                if kind == 1 {
+                    wander_templates.push(*entry);
+                }
+            }
             Err(e) => template_refusals.entry(e.id).or_default().push(*entry),
         }
     }
     assert_eq!(template_motion.len(), 10384);
+    let template_defaults = template_motion
+        .iter()
+        .map(|(_, [entry, kind])| (*entry, *kind))
+        .collect::<BTreeMap<_, _>>();
     let spawn_motion = catalog.execution_motion_spawn_operands().unwrap();
     let mut defined_spawns = 0;
     let mut spawn_refusals = BTreeMap::<String, Vec<u32>>::new();
     let mut radius_repairs = 0;
     let mut spawn_type_undefined = 0;
-    for (guid, _, raw, radius) in &spawn_motion {
+    let mut wander_spawns = Vec::new();
+    let mut negative_radius_repairs = 0;
+    let templates = catalog_creature_ai_census_inputs(&mut catalog)
+        .unwrap()
+        .into_iter()
+        .map(|t| (t.entry, t))
+        .collect::<BTreeMap<_, _>>();
+    let alternatives = MotionEntryAlternatives::load(&mut catalog);
+    let mut wander_constructor_alternatives = 0;
+    let mut wander_constructed_spawns = Vec::new();
+    let mut wander_missing_effective_template = BTreeMap::new();
+    for spawn in &spawn_motion {
+        let (guid, entry, raw, radius, pose) = (
+            &spawn.guid,
+            &spawn.entry,
+            &spawn.movement_type,
+            &spawn.radius,
+            &spawn.pose,
+        );
         let mut movement = u32::from(*raw);
         // ObjectMgr.cpp:1998-2008 has an else-if: a negative radius does not
         // also turn random movement into idle in this same loader pass.
@@ -47,6 +74,12 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
             movement = 0;
             radius_repairs += 1;
         }
+        let radius = if *radius < 0. {
+            negative_radius_repairs += 1;
+            0.
+        } else {
+            *radius
+        };
         let default = match MotionDefault::from_spawn(movement as u8, 0) {
             Ok(default) => default,
             Err(e) => {
@@ -56,19 +89,74 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
             }
         };
         match source_default_motion(default.movement_type, false) {
-            Ok(0) => defined_spawns += 1,
-            Ok(_) => panic!("unexpected default"),
+            Ok(kind) => {
+                defined_spawns += 1;
+                if kind == 1 {
+                    wander_spawns.push(*guid);
+                    let entries = alternatives.resolve(*guid, *entry);
+                    if entries.is_empty() || entries.iter().any(|e| !templates.contains_key(e)) {
+                        let failure = refuse("execution.motion.missing_effective_template_binding");
+                        wander_missing_effective_template.insert(*guid, (failure, *entry, entries));
+                        continue;
+                    }
+                    for effective_entry in &entries {
+                        let mut objects = SourceObjects::default();
+                        let unit = objects.construct(1, SourceObjectKind::Creature).unwrap();
+                        objects
+                            .set_respawn_definition(unit, SourcePose(pose.map(f32::to_bits)), true)
+                            .unwrap();
+                        let mut units = SourceUnits::default();
+                        units
+                            .register(
+                                &objects,
+                                unit,
+                                SourceUnitFields::creature(&templates[effective_entry]),
+                            )
+                            .unwrap();
+                        let mut master = SourceMotionMaster::new(unit, default);
+                        master.bind_respawn_radius(radius);
+                        let mut context = MotionContext {
+                            objects: &objects,
+                            units: &mut units,
+                        };
+                        let failure = master.initialize(&mut context, &mut Unbound).unwrap_err();
+                        assert_eq!(
+                            failure.id,
+                            "execution.motion.f6_wander_pathfinder_constructor_owner"
+                        );
+                        assert_eq!(master.current_type(), 1);
+                        assert_eq!(
+                            context.units.get(&objects, unit).unwrap().state & WANDER_ACTIVE,
+                            WANDER_ACTIVE
+                        );
+                        wander_constructor_alternatives += 1;
+                    }
+                    wander_constructed_spawns.push(*guid);
+                    spawn_refusals
+                        .entry("execution.motion.f6_wander_pathfinder_constructor_owner".into())
+                        .or_default()
+                        .push(*guid);
+                }
+            }
             Err(e) => spawn_refusals.entry(e.id).or_default().push(*guid),
         }
     }
-    let templates = catalog_creature_ai_census_inputs(&mut catalog)
-        .unwrap()
-        .into_iter()
-        .map(|t| (t.entry, t))
-        .collect::<BTreeMap<_, _>>();
     let spawn_entries = spawn_motion
         .iter()
-        .map(|(g, e, _, _)| (*g, *e))
+        .map(|spawn| (spawn.guid, spawn.entry))
+        .collect::<BTreeMap<_, _>>();
+    let spawn_defaults = spawn_motion
+        .iter()
+        .map(|spawn| {
+            (
+                spawn.guid,
+                if spawn.radius == 0. && spawn.movement_type == 1 {
+                    0
+                } else {
+                    u32::from(spawn.movement_type)
+                },
+            )
+        })
         .collect::<BTreeMap<_, _>>();
     let rows = catalog_event_ai_rows(&mut catalog).unwrap();
     let mut loader = EventAiCatalog::new(&mut catalog, config.clone());
@@ -77,6 +165,7 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
     let mut other_refusals = BTreeMap::<String, usize>::new();
     let mut motion_actions = BTreeMap::<u16, usize>::new();
     let mut motion_dependent_rows = 0;
+    let mut motion_rows_with_wander_default = Vec::new();
     for row in rows {
         let event = match load_event_ai_row(&mut loader, row) {
             Ok(EventAiLoad {
@@ -96,7 +185,8 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
             .filter(|a| event_ai_action_owner(a.kind) == "execution.event_ai.f5_05_motion_owner")
             .map(|a| a.kind)
             .collect::<std::collections::BTreeSet<_>>();
-        if !dependent.is_empty() {
+        let motion_dependent = !dependent.is_empty();
+        if motion_dependent {
             motion_dependent_rows += 1;
         }
         for kind in dependent {
@@ -108,6 +198,15 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
             spawn_entries[&event.guid]
         };
         let t = &templates[&entry];
+        // This is a raw default-alternative gate change, not action dispatch.
+        let default = if event.entry != 0 {
+            template_defaults[&entry]
+        } else {
+            spawn_defaults[&event.guid]
+        };
+        if motion_dependent && default == 1 {
+            motion_rows_with_wander_default.push(event.id);
+        }
         let mut objects = SourceObjects::default();
         let unit = objects.construct(1, SourceObjectKind::Creature).unwrap();
         let mut units = SourceUnits::default();
@@ -151,6 +250,10 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
     assert_eq!(loaded, 11126);
     assert_eq!(root_rows.len(), 39);
     assert_eq!(motion_dependent_rows, 1562);
+    assert_eq!(wander_templates.len(), 3163);
+    assert_eq!(wander_spawns.len(), 43119);
+    assert_eq!(defined_templates, 10163);
+    assert_eq!(defined_spawns, 63132);
     assert_eq!(
         spawn_type_undefined, 0,
         "normal stock undefined conversion must stop before commit"
@@ -158,11 +261,15 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
     let report = serde_json::json!({
         "catalog_sha256": catalog.report()["catalog_sha256"],
         "scope": "raw ordinary uncontrolled template and static spawn alternatives; not group/event substitutions, admitted live factories or F1 evidence",
-        "templates": {"total": template_motion.len(), "defined_idle": defined_templates, "refusal_entries": template_refusals},
-        "spawns": {"total": spawn_motion.len(), "defined_idle": defined_spawns, "radius_zero_random_to_idle": radius_repairs, "refusal_guids": spawn_refusals},
+        "templates": {"total": template_motion.len(), "generator_defined": defined_templates, "before_generator_defined": defined_templates - wander_templates.len(), "wander_generator_defined_entries": wander_templates, "missing_constructor_entries": template_refusals},
+        "spawns": {"total": spawn_motion.len(), "generator_defined": defined_spawns, "before_generator_defined": defined_spawns - wander_spawns.len(), "wander_raw_family_guids": wander_spawns, "wander_constructed_f6_refusal_guids": wander_constructed_spawns, "missing_effective_template_bindings": wander_missing_effective_template, "radius_negative_to_zero": negative_radius_repairs, "radius_zero_random_to_idle": radius_repairs, "refusal_guids": spawn_refusals},
+        "wander_constructor_alternatives": wander_constructor_alternatives,
+        "entry_scope": "retained random-loader, group/squad, conditional and event alternatives; no live group/condition/event selection or RNG choice is claimed",
         "eventai": {"loaded": loaded, "past_f5_05_immobilization": root_rows.len(), "root_rows": root_rows, "next_refusal": "root_movement_info_output_owner", "motion_action_dependent_rows": motion_dependent_rows, "motion_action_types_nonexclusive": motion_actions, "new_end_to_end_rows": 0, "other_motion_action_rows_fully_unblocked": 0, "other_constructor_or_loader_refusals": other_refusals},
+        "wander_eventai_status": {"motion_dependent_rows": motion_dependent_rows, "raw_default_constructor_gate_changed_rows": motion_rows_with_wander_default, "changed_dispatch_status_rows": 0, "new_end_to_end_rows": 0, "reason": "default constructor advances to F6; action dependencies and real invocation bindings remain unavailable"},
         "action64": {"rows_with_owned_immobilization_body": motion_actions.get(&64).copied().unwrap_or(0), "remaining_owner": "root_movement_info_output_owner", "end_to_end_rows": 0},
         "undefined": {"spawn_default_enum_conversion_candidates": spawn_type_undefined, "pre_initialize_path_reads_in_this_ordinary_creature_census": 0, "live_player_possession_path_read_reach": "unavailable; path getter refuses only at the actual read"},
+        "wander_undefined": {"new_undefined_sites": 0, "stock_undefined_reach": 0, "pause_arithmetic": "unsigned addition wraps; pinned uint32-to-int32 conversion is implementation-defined, not undefined; boundary tests preserve it"},
         "format": 91, "format_change": false, "F1": "frozen unsealed"
     });
     if let Some(path) = std::env::var_os("BENILLA_F5_MOTION_CENSUS") {
@@ -174,10 +281,162 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
         "spawns_total":spawn_motion.len(), "spawns_defined":defined_spawns,
         "spawn_refusals":spawn_refusals.iter().map(|(k,v)| (k,v.len())).collect::<BTreeMap<_,_>>(),
         "radius_repairs":radius_repairs,"past_f5_05":root_rows.len(),"motion_rows":motion_dependent_rows,
+        "wander_templates":wander_templates.len(), "wander_spawns_raw_family":wander_spawns.len(),
+        "wander_spawns_constructed_f6":wander_constructed_spawns.len(),
+        "wander_constructor_alternatives":wander_constructor_alternatives,
+        "wander_missing_effective_template_bindings":wander_missing_effective_template.len(),
+        "before_templates_defined":defined_templates-wander_templates.len(),
+        "before_spawns_defined":defined_spawns-wander_spawns.len(),
+        "motion_rows_changed_status":0, "negative_radius_repairs":negative_radius_repairs,
+        "motion_rows_raw_wander_default_gate_changed":motion_rows_with_wander_default.len(),
         "motion_action_types":motion_actions,"undefined_spawn_types":spawn_type_undefined
     });
     println!(
         "F5_MOTION_CENSUS {}",
         serde_json::to_string(&summary).unwrap()
     );
+}
+
+type EntrySet = std::collections::BTreeSet<u32>;
+#[derive(Default)]
+struct MotionEntryAlternatives {
+    random: BTreeMap<u32, EntrySet>,
+    group: BTreeMap<u32, EntrySet>,
+    conditional: BTreeMap<u32, EntrySet>,
+    event: BTreeMap<u32, EntrySet>,
+}
+impl MotionEntryAlternatives {
+    /// Alternatives only, not loader acceptance, team/event state or random choice.
+    fn load(catalog: &mut super::super::production_compiler::VerifiedCatalog) -> Self {
+        let mut this = Self::default();
+        for (_, [guid, entry]) in catalog
+            .motion_census_operands("creature_spawn_entry", ["guid", "entry"])
+            .unwrap()
+        {
+            this.random.entry(guid).or_default().insert(entry);
+        }
+        let creature_groups = catalog
+            .motion_census_operands("spawn_group", ["Id", "Type"])
+            .unwrap()
+            .into_iter()
+            .filter(|(_, [_, kind])| *kind == 0)
+            .map(|(_, [id, _])| id)
+            .collect::<EntrySet>();
+        let mut group_entries = BTreeMap::<u32, EntrySet>::new();
+        // ObjectMgr.cpp:1355-1394,1426-1460; SpawnGroupDefines.h:63-67.
+        for (_, [group, entry]) in catalog
+            .motion_census_operands("spawn_group_entry", ["Id", "Entry"])
+            .unwrap()
+        {
+            if creature_groups.contains(&group) {
+                group_entries.entry(group).or_default().insert(entry);
+            }
+        }
+        let mut squads = BTreeMap::<(u32, u32), EntrySet>::new();
+        let mut squad_groups = EntrySet::new();
+        for (_, [group, guid, entry]) in catalog
+            .motion_census_operands("spawn_group_squad", ["Id", "Guid", "Entry"])
+            .unwrap()
+        {
+            if creature_groups.contains(&group) {
+                squad_groups.insert(group);
+                squads.entry((group, guid)).or_default().insert(entry);
+            }
+        }
+        // ObjectMgr.cpp:1250-1324; SpawnGroup.cpp:191-202. Squads override entries.
+        for (_, [group, guid]) in catalog
+            .motion_census_operands("spawn_group_spawn", ["Id", "Guid"])
+            .unwrap()
+        {
+            if !creature_groups.contains(&group) {
+                continue;
+            }
+            let entries = if squad_groups.contains(&group) {
+                squads.get(&(group, guid))
+            } else {
+                this.random.get(&guid).or_else(|| group_entries.get(&group))
+            };
+            if let Some(entries) = entries {
+                this.group.entry(guid).or_default().extend(entries);
+            }
+        }
+        // Creature.cpp:3031-3056 retains both possible dungeon-team alternatives.
+        for (_, [guid, alliance, horde]) in catalog
+            .motion_census_operands(
+                "creature_conditional_spawn",
+                ["Guid", "EntryAlliance", "EntryHorde"],
+            )
+            .unwrap()
+        {
+            this.conditional
+                .entry(guid)
+                .or_default()
+                .extend([alliance, horde]);
+        }
+        // GameEventMgr.cpp:410-418; Creature.cpp:322-324,1648-1650.
+        for (_, [guid, entry]) in catalog
+            .motion_census_operands("game_event_creature_data", ["guid", "entry_id"])
+            .unwrap()
+        {
+            this.event.entry(guid).or_default().insert(entry);
+        }
+        this
+    }
+    fn resolve(&self, guid: u32, raw_entry: u32) -> EntrySet {
+        // ObjectMgr.cpp:1916-1932,1957,2048-2050 resolves random entries at load.
+        // Creature.cpp:1634-1653 then uses group, conditional, random(0), event.
+        let mut entries = EntrySet::from([raw_entry]);
+        let mut needs_entry = entries.remove(&0);
+        let random_loader = if self.conditional.contains_key(&guid) {
+            None
+        } else {
+            self.random.get(&guid)
+        };
+        for candidates in [
+            random_loader,
+            self.group.get(&guid),
+            self.conditional.get(&guid),
+            self.random.get(&0),
+        ] {
+            if !needs_entry {
+                break;
+            }
+            if let Some(candidates) = candidates {
+                entries.extend(candidates.iter().copied().filter(|entry| *entry != 0));
+                needs_entry = candidates.is_empty() || candidates.contains(&0);
+            }
+        }
+        // Include inactive-event originals and each retained nonzero override.
+        if let Some(events) = self.event.get(&guid) {
+            entries.extend(events);
+        }
+        entries.remove(&0);
+        entries
+    }
+}
+
+#[test]
+fn entry_census_random_loader_then_group_conditional_and_event_alternatives() {
+    let mut alternatives = MotionEntryAlternatives::default();
+    alternatives.random.insert(5, EntrySet::from([10, 11]));
+    alternatives.group.insert(5, EntrySet::from([12]));
+    alternatives.conditional.insert(5, EntrySet::from([13, 0]));
+    alternatives.event.insert(5, EntrySet::from([14]));
+    assert_eq!(alternatives.resolve(5, 9), EntrySet::from([9, 14]));
+    assert_eq!(alternatives.resolve(5, 0), EntrySet::from([12, 14]));
+    alternatives.group.clear();
+    assert_eq!(alternatives.resolve(5, 0), EntrySet::from([13, 14]));
+    alternatives.random.insert(0, EntrySet::from([20]));
+    assert_eq!(alternatives.resolve(5, 0), EntrySet::from([13, 14, 20]));
+    alternatives.conditional.clear();
+    assert_eq!(alternatives.resolve(5, 0), EntrySet::from([10, 11, 14]));
+}
+
+#[test]
+fn entry_census_unbound_entry_stays_empty_without_an_authored_template() {
+    let mut alternatives = MotionEntryAlternatives::default();
+    assert!(alternatives.resolve(5, 0).is_empty());
+    alternatives.random.insert(0, EntrySet::from([20]));
+    assert_eq!(alternatives.resolve(5, 0), EntrySet::from([20]));
+    assert_eq!(alternatives.resolve(5, 999999), EntrySet::from([999999]));
 }

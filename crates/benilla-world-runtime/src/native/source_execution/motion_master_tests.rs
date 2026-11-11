@@ -375,7 +375,7 @@ fn initialize_defaults_registered_and_null_factories() {
         units: &mut units,
     };
     for (kind, refusal) in [
-        (1, "execution.motion.f5_wander_owner"),
+        (1, "execution.motion.respawn_radius_owner"),
         (2, "execution.motion.f5_waypoint_owner"),
         (3, "execution.motion.f5_fixed_path_owner"),
         (4, "execution.motion.f5_linear_waypoint_owner"),

@@ -1697,7 +1697,7 @@ SourceCombat remains the sole death-prevention latch owner.
 Component inventories are not serialized continuation. Format 91,
 NativeCapability and frozen-unsealed F1 are unchanged.
 
-## Source MotionMaster and Home
+## Source MotionMaster, Wander and Home
 
 `SourceMotionMaster` owns the source stack, not priority slots,
 `MotionMaster.h:96-100`. Initialize, Clear, expiry, deferred destruction,
@@ -1708,7 +1708,7 @@ delayed expiry removes them, `MotionMaster.cpp:203-271`.
 
 The default selector uses the four registered factories and genuine null
 fallback, `CreatureAISelector.cpp:109-135`, `CreatureAIRegistry.cpp:45-48`.
-Random, waypoint, fixed-path and linear-waypoint constructors still refuse.
+Waypoint, fixed-path and linear-waypoint constructors still refuse.
 Player ownership requests unregistered FOLLOW and therefore selects Idle.
 `CreatureConstruction::initialize_motion` runs the concrete owner before AI
 selection; `SourceMotions::formation` handles Initialize, Clear and Idle.
@@ -1725,6 +1725,27 @@ F6 PathFinder constructor, `HomeMovementGenerator.cpp:64`,
 `PathFinder.cpp:47-53`, before calculation or spline launch.
 The existing sim MotionState requires bounded ground geometry and an active
 spline contract; it cannot replace this generic source stack.
+
+Wander takes its center and radius from live respawn fields, without a minimum
+radius or extra square-root draw, `RandomMovementGenerator.cpp:165-182`,
+`Creature.cpp:2493-2506`. Initialize adds ROAMING before refusing at the F6
+PathFinder constructor, `RandomMovementGenerator.cpp:25-29`. The generator is
+already on the stack, `MotionMaster.cpp:80-81`. Reset clears only its timer
+before Initialize; interruption and finalization retain their source order,
+`RandomMovementGenerator.cpp:51-81,184-211`. Timer and pause kernels use the
+unsigned ShortTimeTracker, `Timer.h:145-162`. Pause addition wraps unsigned
+before the pinned signed conversion and clamp, rather than overflowing signed
+arithmetic, `RandomMovementGenerator.cpp:208-209`.
+
+Destination-draw and post-launch pause tests are kernel-only. Actual F6
+`ComputePathToRandomPoint` updates its filter and navmesh before drawing
+`rand_norm_f` for angle then radius, `PathFinder.cpp:1360-1367`. Walk choice
+uses `urand(0,99)` only after finding a path, then a nonzero launch result
+permits `urand(1,3)` before `urand(3000,10000)`,
+`RandomMovementGenerator.cpp:127-148,101-112`. This port never fabricates a
+destination, path or spline, and the census records Wander's F6 refusal
+separately from missing constructors. No motion-dependent EventAI row gains
+end-to-end execution through this constructor prefix.
 
 Root state and guards follow `Unit.cpp:6496-6520,9908-9920,10070-10092`.
 Missing spline-stop and root movement-info/output owners remain typed refusals.

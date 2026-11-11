@@ -594,3 +594,43 @@ fn persistent_catalog_lookup_refuses_absent_duplicate_and_wrong_family_guids() {
         "catalog.spawn_duplicate_guid"
     );
 }
+
+#[test]
+fn motion_census_accessor_keeps_eventai_relations_closed() {
+    let fixture = Fixture::named(
+        "creature_spawn_entry",
+        "guid",
+        vec![(b"9".to_vec(), Some(b"10".to_vec()))],
+    );
+    let mut catalog = fixture.open().unwrap();
+    for table in [
+        "creature_spawn_entry",
+        "spawn_group",
+        "spawn_group_spawn",
+        "spawn_group_entry",
+        "spawn_group_squad",
+        "creature_conditional_spawn",
+        "game_event_creature_data",
+    ] {
+        assert_eq!(
+            catalog
+                .execution_event_ai_operands(table, ["guid"])
+                .unwrap_err()
+                .id,
+            "scripts.event_ai_relation"
+        );
+    }
+    assert_eq!(
+        catalog
+            .motion_census_operands("creature_spawn_entry", ["guid"])
+            .unwrap(),
+        [(0, [9])]
+    );
+    assert_eq!(
+        catalog
+            .motion_census_operands("creature", ["guid"])
+            .unwrap_err()
+            .id,
+        "scripts.motion_census_relation"
+    );
+}
