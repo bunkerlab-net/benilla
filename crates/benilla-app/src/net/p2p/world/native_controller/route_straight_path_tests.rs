@@ -551,6 +551,7 @@ fn setup_with_poses(
                     19 => request.context.binding.tick += 1,
                     _ => {}
                 }
+                // Mode 1 expires this provider attempt; missing receipts remain terminal.
                 let deadline = Instant::now()
                     + if mode == 1 {
                         Duration::ZERO
@@ -767,6 +768,8 @@ fn actual_width_straight_dependencies_retry_without_publishing_and_only_syntheti
                 if attempt != 0 {
                     c.retry_tick().unwrap();
                 }
+                let completed = observations.lock().unwrap().len();
+                let refused = failures.lock().unwrap().len();
                 let out = c.pump(if attempt == 0 {
                     c.tick_duration()
                 } else {
@@ -775,6 +778,18 @@ fn actual_width_straight_dependencies_retry_without_publishing_and_only_syntheti
                 assert_eq!(out.ticks, 0);
                 assert!(out.events.is_empty());
                 assert!(matches!(out.pause.unwrap().kind, PauseKind::Authority));
+                let expected: &[Failure] = match mode {
+                    0 => &[],
+                    1 => &[Failure::Deadline],
+                    15 | 20 => &[Failure::MissingGeometry],
+                    _ => unreachable!(),
+                };
+                assert_eq!(&failures.lock().unwrap()[refused..], expected);
+                assert_eq!(
+                    observations.lock().unwrap().len(),
+                    completed + usize::from(mode == 0),
+                    "expiry and missing receipts must publish no dependency before retry_tick"
+                );
                 assert_eq!(boundary(&c, &h), before);
                 assert!(c.outbox.is_none());
                 assert!(c.actions.is_empty());
@@ -791,7 +806,14 @@ fn actual_width_straight_dependencies_retry_without_publishing_and_only_syntheti
                 assert_eq!(queries.lock().unwrap().len(), count);
                 assert_eq!(boundary(&c, &h), before);
             }
-            assert_eq!(*failures.lock().unwrap(), [Failure::MissingGeometry; 3]);
+            assert_eq!(
+                *failures.lock().unwrap(),
+                [
+                    Failure::Deadline,
+                    Failure::MissingGeometry,
+                    Failure::MissingGeometry
+                ]
+            );
             let queries = queries.lock().unwrap();
             let warm: Vec<_> = queries
                 .iter()
@@ -1407,6 +1429,8 @@ fn real_straight_rejection_or_clipping_continues_from_terminal_cache_type_and_or
                 if attempt > 0 {
                     c.retry_tick().unwrap();
                 }
+                let completed = observations.lock().unwrap().len();
+                let refused = failures.lock().unwrap().len();
                 let out = c.pump(if attempt == 0 {
                     c.tick_duration()
                 } else {
@@ -1415,6 +1439,13 @@ fn real_straight_rejection_or_clipping_continues_from_terminal_cache_type_and_or
                 assert_eq!(out.ticks, 0);
                 assert!(out.events.is_empty());
                 assert!(matches!(out.pause.unwrap().kind, PauseKind::Authority));
+                let expected: &[Failure] = if mode == 1 { &[Failure::Deadline] } else { &[] };
+                assert_eq!(&failures.lock().unwrap()[refused..], expected);
+                assert_eq!(
+                    observations.lock().unwrap().len(),
+                    completed + usize::from(mode == 0),
+                    "an expired attempt must not publish a dependency before retry_tick"
+                );
                 assert_eq!(boundary(&c, &h), before);
                 assert!(c.outbox.is_none());
                 let current = c.pending.as_ref().unwrap();
@@ -1426,7 +1457,7 @@ fn real_straight_rejection_or_clipping_continues_from_terminal_cache_type_and_or
                     pending = Some(current);
                 }
             }
-            assert_eq!(*failures.lock().unwrap(), [Failure::MissingGeometry]);
+            assert_eq!(*failures.lock().unwrap(), [Failure::Deadline]);
             let queries = queries.lock().unwrap();
             let warm: Vec<_> = queries
                 .iter()

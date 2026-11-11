@@ -240,6 +240,7 @@ fn point_path_setup(
                     context: actual_context,
                     first_ticket: 51,
                 };
+                // Mode 1 expires this provider attempt, not a missing geometry dependency.
                 let deadline = Instant::now()
                     + if mode == 1 {
                         Duration::ZERO
@@ -390,6 +391,8 @@ fn exercise_terminal_dependency(optimize_path: bool, crossing: bool) {
         if attempt != 0 {
             c.retry_tick().unwrap();
         }
+        let completed = observations.lock().unwrap().len();
+        let refused = failures.lock().unwrap().len();
         let out = c.pump(if attempt == 0 {
             c.tick_duration()
         } else {
@@ -398,6 +401,13 @@ fn exercise_terminal_dependency(optimize_path: bool, crossing: bool) {
         assert_eq!(out.ticks, 0);
         assert!(out.events.is_empty());
         assert!(matches!(out.pause.unwrap().kind, PauseKind::Authority));
+        let expected: &[Failure] = if mode == 1 { &[Failure::Deadline] } else { &[] };
+        assert_eq!(&failures.lock().unwrap()[refused..], expected);
+        assert_eq!(
+            observations.lock().unwrap().len(),
+            completed + usize::from(mode == 0),
+            "an expired attempt must not publish a dependency before retry_tick"
+        );
         assert_eq!(c.world.checkpoint().unwrap(), before);
         assert_eq!(c.world.records(), records);
         assert_eq!(retained(&c), cache);
@@ -417,7 +427,7 @@ fn exercise_terminal_dependency(optimize_path: bool, crossing: bool) {
         assert_eq!(c.pump(Duration::from_secs(60)).ticks, 0);
         assert_eq!(requests.lock().unwrap().len(), count);
     }
-    assert_eq!(*failures.lock().unwrap(), [Failure::MissingGeometry]);
+    assert_eq!(*failures.lock().unwrap(), [Failure::Deadline]);
     let requests = requests.lock().unwrap();
     let warm: Vec<_> = requests
         .iter()
