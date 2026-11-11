@@ -1464,3 +1464,51 @@ Missing registry ownership refuses rather than assuming an empty passenger set.
 Creature relocation enters the real F3 owner. Player relocation and visibility
 still require F5; missing dynamic models still refuse at F6's reached call.
 No persisted schema, native format or capability changes.
+
+## Authored manager composition
+
+F4.21 supplies contracts and authored composition only. `SourceManagerStartup`
+orders the landed manager points, not the complete intervening World loaders.
+F3.13 must execute those loaders and bind effective catalog, initial-character,
+clock, scheduler and callback owners before live cutover. Startup and map
+initialization reject continuation-shaped requests before any initialization
+callback. Repeated attempts cannot restart a partially initialized owner.
+
+The order derives from CMaNGOS Classic `8ec338a1`, GPL-2.0-or-later.
+The Rust composition and authored tests are GPL-3.0-or-later:
+
+- `World.cpp:970,1092-1137,1196,1333-1389,1416` orders transport animation,
+  linking, pools, weather, quests, events, conditions, groups, transport
+  templates, persistent maps, creature/GO respawns, corpses, scripts, world
+  timers, map startup and event initialization.
+- `Map.cpp:190-216` orders instance data, persistent binding, pool initialization,
+  graveyards, variables, SpawnManager, navigation, active entities and transports.
+  `MapManager.cpp:96-110` launches both continents and joins their initializers.
+- `Map.cpp:702-729,743-751,823-870,894-1030` orders calendar, collision tree,
+  detached messages, SpawnManager, transports, sessions, players, collected
+  object Updates, field output, grid states, scripts, instance Update and weather.
+  The collected set survives until after weather. Its membership and dispatch
+  use the landed F3 owners. MO-transports remain separate from elevator Updates.
+- `MapManager.cpp:196-226` retains map accumulation, every map job, the join,
+  unload checks and timer clearing. `World.cpp:1652-1684` orders SQL callbacks,
+  corpse sweep, game events, delayed removals and persistent-state Update.
+  `WorldManagerContext` connects messages, the event timer and the actual corpse
+  sweep at those existing `WorldWork` points. It creates no second scheduler.
+
+`MapManagerContext` joins the existing mutable owners. Event-message callbacks
+can synchronously mutate SpawnManager before its update. Missing F5 sessions,
+player/event execution, script/instance initialization and F6 navigation or
+dynamic collision return owner-specific typed refusals. Existing constructor,
+passenger, lifecycle and model refusals remain in force. Authored callbacks
+are confined to tests, not production substitutes.
+
+`ManagerCompositionInventory` joins persistent/map generations, spawn/group
+handles, formation slots and bindings, event/pool references, dynamic GUID lists,
+linking guards, weather owners, corpse owners, event-message allocation,
+messages, passenger membership and transport sets or pending transfer messages.
+Unloaded selections and source-retained stale linking GUIDs are not discarded.
+This diagnostic contract does not supply F7's complete save representation,
+foreign F5/F6 state or restore. Checkpoints and continuation refuse until F7.
+The output-only comparator reports the first mismatch or exhaustion in either
+stream. Expected observations never enter dispatch. No State, Profile,
+TickRecord, native format or capability change occurs.

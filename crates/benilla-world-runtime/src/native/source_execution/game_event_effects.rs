@@ -3,6 +3,9 @@
 use super::*;
 use benilla_sim::resident_map::CellPair;
 use std::collections::BTreeMap;
+#[path = "event_effect_inventory.rs"]
+mod inventory;
+pub use inventory::*;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EventMapGuids {

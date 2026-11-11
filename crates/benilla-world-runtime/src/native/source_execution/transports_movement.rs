@@ -82,6 +82,77 @@ pub struct SourceMoTransports {
     pending: BTreeMap<ObjectHandle, MapIdentity>,
 }
 impl SourceMoTransports {
+    /// Join all map sets and in-flight messages, including off-camera transports.
+    pub fn validate_manager_owners(
+        &self,
+        objects: &SourceObjects,
+        maps: &std::collections::BTreeSet<MapIdentity>,
+        inventories: &[MapManagerInventory],
+    ) -> Result<()> {
+        require(
+            !self.stopped && self.initialized == *maps,
+            "execution.managers.transport_map_owner",
+        )?;
+        let mut members = std::collections::BTreeSet::new();
+        for (map, set) in &self.maps {
+            require(maps.contains(map), "execution.managers.transport_map_owner")?;
+            for (&pointer, &handle) in set {
+                let object = objects.get(handle)?;
+                require(
+                    members.insert(handle)
+                        && self.objects.contains_key(&handle)
+                        && object.map == Some(*map)
+                        && object.source_allocation == Some(pointer)
+                        && !self.pending.contains_key(&handle),
+                    "execution.managers.transport_object_owner",
+                )?;
+            }
+        }
+        for (&handle, &destination) in &self.pending {
+            require(
+                maps.contains(&destination)
+                    && objects.get(handle)?.map.is_none()
+                    && self.objects.contains_key(&handle)
+                    && members.insert(handle),
+                "execution.managers.transport_transfer_owner",
+            )?;
+            let deliveries = inventories
+                .iter()
+                .flat_map(|map| &map.messages.queue)
+                .filter(|message| {
+                    matches!(&message.payload, SourceMessage::AttachTransport { transfer }
+                    if transfer.transport == handle)
+                })
+                .count();
+            require(
+                deliveries == 1
+                    && inventories.iter().any(|map| {
+                        map.messages.owner == MessageOwner::Map(destination)
+                            && map.messages.queue.iter().any(|message| {
+                                matches!(&message.payload,
+                    SourceMessage::AttachTransport { transfer } if transfer.transport == handle)
+                            })
+                    }),
+                "execution.managers.transport_transfer_message",
+            )?;
+        }
+        require(
+            members.len() == self.objects.len(),
+            "execution.managers.omitted_transport_owner",
+        )?;
+        for map in inventories {
+            for message in &map.messages.queue {
+                if let SourceMessage::AttachTransport { transfer } = &message.payload {
+                    require(
+                        self.pending.get(&transfer.transport) == Some(&map.spawn.map),
+                        "execution.managers.transport_transfer_message",
+                    )?;
+                }
+            }
+        }
+        self.passengers.validate_manager_owners(objects)?;
+        Ok(())
+    }
     pub fn get(&self, handle: ObjectHandle) -> Result<&SourceMoTransport> {
         self.objects
             .get(&handle)

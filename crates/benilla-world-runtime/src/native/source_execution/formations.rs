@@ -5,6 +5,7 @@ use benilla_sim::source_formations::{self, Position, Random};
 use benilla_sim::source_spawn_groups::{Formation, GroupMember};
 use std::collections::BTreeMap;
 mod motion;
+mod validation;
 pub use motion::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]

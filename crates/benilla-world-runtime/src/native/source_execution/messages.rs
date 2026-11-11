@@ -84,6 +84,41 @@ pub struct SourceMessager {
     last_id: u64,
     failed: bool,
 }
+/// Diagnostic continuation contract only. Never deserialized as executable input.
+#[derive(Clone, Debug)]
+pub struct MessageInventory {
+    pub owner: MessageOwner,
+    pub queue: Vec<MessageEnvelope>,
+    pub last_id: u64,
+    pub failed: bool,
+}
+impl MessageInventory {
+    pub fn validate(&self) -> Result<()> {
+        require(!self.failed, "execution.messages_stopped")?;
+        let mut previous = 0;
+        for message in &self.queue {
+            require(
+                message.id > previous && message.id <= self.last_id && message.cause > 0,
+                "execution.message_identity",
+            )?;
+            require(
+                matches!(
+                    (&self.owner, &message.payload),
+                    (MessageOwner::World, SourceMessage::ForwardGameEvent { .. })
+                        | (
+                            MessageOwner::Map(_),
+                            SourceMessage::MapGameEvent { .. }
+                                | SourceMessage::UpdateCreatureEvent { .. }
+                                | SourceMessage::AttachTransport { .. }
+                        )
+                ),
+                "execution.message_owner",
+            )?;
+            previous = message.id;
+        }
+        Ok(())
+    }
+}
 impl SourceMessager {
     pub fn new(owner: MessageOwner) -> Self {
         Self {
@@ -91,6 +126,17 @@ impl SourceMessager {
             queue: Vec::new(),
             last_id: 0,
             failed: false,
+        }
+    }
+    pub fn owner(&self) -> MessageOwner {
+        self.owner
+    }
+    pub fn inventory(&self) -> MessageInventory {
+        MessageInventory {
+            owner: self.owner,
+            queue: self.queue.clone(),
+            last_id: self.last_id,
+            failed: self.failed,
         }
     }
     // Enqueue linearization is the exclusive mutable borrow; Messager.h:30-33.

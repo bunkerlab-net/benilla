@@ -119,6 +119,35 @@ pub struct SourcePassengers {
     next: BTreeMap<ObjectHandle, Option<u64>>,
 }
 impl SourcePassengers {
+    pub(super) fn validate_manager_owners(&self, objects: &SourceObjects) -> Result<()> {
+        require(
+            self.next.values().all(Option::is_none),
+            "execution.managers.passenger_traversal_active",
+        )?;
+        for (&transport, set) in &self.sets {
+            objects.get(transport)?;
+            for (&pointer, &passenger) in set {
+                require(
+                    objects.get(passenger)?.source_allocation == Some(pointer)
+                        && self.movement(passenger)?.transport == Some(transport),
+                    "execution.managers.passenger_owner",
+                )?;
+            }
+        }
+        for (&unit, state) in &self.units {
+            objects.get(unit)?;
+            if let Some(transport) = state.transport {
+                require(
+                    self.members(transport).any(|member| member == unit),
+                    "execution.managers.passenger_membership",
+                )?;
+            }
+            for pet in [state.pet, state.mini_pet].into_iter().flatten() {
+                objects.get(pet)?;
+            }
+        }
+        Ok(())
+    }
     /// Bind actual Unit movement/pet state, never observations of boarding outcomes.
     pub fn bind_unit(
         &mut self,

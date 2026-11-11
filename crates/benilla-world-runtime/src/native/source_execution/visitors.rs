@@ -111,12 +111,23 @@ pub fn collect_source_updates(
     inputs: &mut impl SourceVisitInputs,
     observe: &mut impl FnMut(SourceUpdateEvent) -> Result<()>,
 ) -> Result<SourceUpdateSet> {
+    cells.reset_update_marks();
+    collect_source_updates_after_reset(objects, cells, map_visibility, inputs, observe)
+}
+
+/// Map dispatch has already reset at Map.cpp:718, before transport/player callbacks.
+pub(super) fn collect_source_updates_after_reset(
+    objects: &SourceObjects,
+    cells: &mut SourceCells,
+    map_visibility: f32,
+    inputs: &mut impl SourceVisitInputs,
+    observe: &mut impl FnMut(SourceUpdateEvent) -> Result<()>,
+) -> Result<SourceUpdateSet> {
     require(
         map_visibility.is_finite(),
         "execution.visitors.map_visibility",
     )?;
     let map = cells.map();
-    cells.reset_update_marks();
     let mut membership = Membership {
         set: SourceUpdateSet::new(map)?,
     };

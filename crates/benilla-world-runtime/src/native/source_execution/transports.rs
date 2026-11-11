@@ -347,5 +347,8 @@ impl SourceTransportTemplates {
 }
 
 #[cfg(test)]
+#[path = "manager_dispatch_tests.rs"]
+mod manager_dispatch_tests;
+#[cfg(test)]
 #[path = "transports_tests.rs"]
 mod tests;

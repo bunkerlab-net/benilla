@@ -44,6 +44,23 @@ pub struct PersistentPoolData {
     initialized: bool,
 }
 impl PersistentPoolData {
+    /// Join retained selections, including unloaded leaves and zero child counts.
+    pub(super) fn validate_manager_owners(&self, pools: &PoolInventory) -> Result<()> {
+        require(
+            self.creatures
+                .iter()
+                .all(|guid| pools.membership[2].contains_key(guid))
+                && self
+                    .gameobjects
+                    .iter()
+                    .all(|guid| pools.membership[1].contains_key(guid))
+                && self
+                    .pools
+                    .keys()
+                    .all(|pool| (*pool as usize) < pools.templates.len()),
+            "execution.managers.selected_pool_owner",
+        )
+    }
     pub fn initialized(&self) -> bool {
         self.initialized
     }

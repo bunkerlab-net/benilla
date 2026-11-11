@@ -32,14 +32,22 @@ pub use seal8_grids::{compare_seal8_unsealed_grids, Seal8GridReport};
 #[cfg(test)]
 mod grid_tests;
 mod inputs;
+mod manager_dispatch;
 mod manager_inputs;
 mod managers;
+pub use manager_dispatch::*;
+mod manager_validation;
+pub use manager_validation::*;
+mod world_managers;
+pub use world_managers::*;
 mod messages;
 mod objects;
 mod path_distance;
 mod persistent_state;
 mod scheduler;
 mod spawn_manager;
+#[cfg(test)]
+mod world_manager_tests;
 pub use spawn_manager::*;
 mod seal8_distance;
 mod seal8_objects;
