@@ -131,13 +131,40 @@ impl VerifiedCatalog {
         held.check()?;
         Ok(output)
     }
-    /// Narrow existence/metadata views. Loaded quest flags and pools remain external.
+    /// SpecialFlags dependency slice of F2.9 and LoadQuestAreaTriggers' query.
+    pub(crate) fn execution_quest_flag_operands<const N: usize>(
+        &mut self,
+        table: &str,
+        names: [&str; N],
+    ) -> Result<Vec<[u32; N]>> {
+        check(
+            matches!(table, "quest_template" | "areatrigger_involvedrelation"),
+            "execution.quest_flags.relation_owner",
+        )?;
+        check(
+            self.relations.contains_key(table),
+            if table == "quest_template" {
+                "execution.quest_flags.quest_template_owner"
+            } else {
+                "execution.quest_flags.area_trigger_relations_owner"
+            },
+        )?;
+        self.db_script_operand_words(table, names)
+    }
+    /// Narrow existence/metadata views. Loaded pools remain external.
     pub(crate) fn execution_db_script_operands<const N: usize>(
         &mut self,
         table: &str,
         names: [&str; N],
     ) -> Result<Vec<[u32; N]>> {
         operand_relation(table)?;
+        self.db_script_operand_words(table, names)
+    }
+    fn db_script_operand_words<const N: usize>(
+        &mut self,
+        table: &str,
+        names: [&str; N],
+    ) -> Result<Vec<[u32; N]>> {
         let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
         let cols = columns(&schema, table)?;
         let indices = names

@@ -520,10 +520,10 @@ fn catalog04_waypoint_loader_and_raw_prefix_census_or_explicit_absence() {
         });
     let global_after_refusal = global_after.as_ref().err().map(|e| e.id.as_str());
     if occurrences.is_some() {
-        // A raw SpecialFlags value cannot replace ObjectMgr::LoadQuests' product.
+        // Quest flags now load before ScriptMgr; the unbound F4 group is next.
         assert_eq!(
             global_after_refusal,
-            Some("execution.db_scripts.effective_quest_flags_owner")
+            Some("execution.db_scripts.spawn_group_owner")
         );
     }
     let mut groups: [BTreeMap<u32, Vec<SourceWaypointRow>>; 3] = Default::default();
@@ -710,6 +710,7 @@ fn catalog04_waypoint_loader_and_raw_prefix_census_or_explicit_absence() {
         "before":{"waypoint_templates_missing_constructor":209,"waypoint_spawns_missing_constructor":2931,"templates_generator_defined":10163,"spawns_generator_defined":63132},
         "after":{"waypoint_templates_factory_defined":209,"waypoint_spawns_factory_defined":2931,"templates_generator_defined":10372,"spawns_generator_defined":66063,"global_loader_refusal":global.id,"global_loader_blocked_spawns":waypoint_spawns,"global_loader_reached_f6":0},
         "dbscript_loader_before":{"refusal":global.id,"blocked_spawns":waypoint_spawns},
+        "quest_flags_before":{"refusal":"execution.db_scripts.effective_quest_flags_owner","blocked_spawns":waypoint_spawns},
         "dbscript_loader_after":{"refusal":global_after_refusal,
             "blocked_spawns":if global_after.is_err(){waypoint_spawns}else{0},
             "loaded_manager":global_after.is_ok(),"CheckDbscript":"wired to validated map projection"},

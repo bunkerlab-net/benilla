@@ -1961,15 +1961,27 @@ resolution. It creates absent string-template vectors and checks broadcasts,
 executes TALK, `ScriptMgr.cpp:268-277,1214-1225`.
 
 The F2 catalog adapter reuses loaded F5.07 server spell templates and
-narrow SQL/DBC existence views. Effective quest flags and mutations,
-loaded pool/group definitions and the strict-check log filter require
-their named owners. No successful lookup substitutes for an absent owner.
+narrow SQL/DBC existence views. Loaded pool/group definitions and the
+strict-check log filter require their named owners. No successful lookup
+substitutes for an absent owner.
 The group lookup binds directly to F4.05's loaded
 `SourceSpawnGroups::definitions`, never raw `spawn_group` membership.
-Quest exploration reads `SpecialFlags` bit `0x002`, not `QuestFlags`,
-`QuestDef.h:151,188-189`. `ObjectMgr.cpp:4564-4584,6271-6290` can set it
-before scripts load. The bounded quest lifecycle rejects this domain,
-so `execution.db_scripts.effective_quest_flags_owner` remains required.
+`SourceQuestFlags` reproduces the flag-affecting quest loader reads only,
+not complete quest gameplay validation. It sets delivery, spell-event,
+kill/speak, and timed flags in `ObjectMgr.cpp:4513,4584,4618,4833` order.
+Delivery flags precede item validation. Kill/speak flags use the cached
+target ID even when validation clears the quest field, `:4504-4519,4599-4618`.
+Required-spell checks use loaded server SpellEntry effects, not client DBC
+spells, `:4554-4584`. Missing dependency owners refuse.
+Area-trigger relations set exploration flags only after checking
+`AreaTrigger.dbc` and quest existence, `:6271-6290`. Startup loads quests
+before quest area triggers and both before relay scripts,
+`World.cpp:1101,1146,1217`. DB-script reads and mutations require the
+post-trigger owner. Exploration uses `SpecialFlags` bit `0x002`, not
+`QuestFlags`, `QuestDef.h:151,188-189`. Script mutations remain immediate
+before distance validation, `ScriptMgr.cpp:325-351`. Signed target
+negation at `ObjectMgr.cpp:4600` refuses
+`execution.quest_flags.target_negation_undefined` for `INT32_MIN`.
 The negative random-template type index at `ScriptMgr.cpp:1239-1244`
 refuses `execution.db_scripts.random_template_index_undefined`.
 Buddy-pool lookups copy the defined uint16 wrap before checking the loaded
