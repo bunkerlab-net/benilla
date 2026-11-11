@@ -288,3 +288,59 @@ impl SourceBuiltinAi {
         Err(refuse("execution.builtin_ai.f6_visibility_owner"))
     }
 }
+
+// UnitAI.cpp:1084-1090. The virtual UpdateEventTimers runs between these halves.
+pub(super) fn inherited_update_prefix(
+    ai: &mut SourceCreatureAi,
+    diff: u32,
+    objects: &SourceObjects,
+    units: &mut SourceUnits,
+    owner: &mut impl BuiltinAiExecutionOwner,
+) -> Result<bool> {
+    // TimerAI.cpp:26-42,136-143.
+    for timer in &mut ai.base.generic_timers {
+        if timer.disabled {
+            continue;
+        }
+        if timer.remaining > diff {
+            timer.remaining -= diff;
+            continue;
+        }
+        timer.remaining = 0;
+        timer.disabled = true;
+        match timer.id {
+            2000 => ai.base.distancing_cooldown = false,
+            2001 => ai.base.spell_list_cooldown = false,
+            _ => return Err(refuse("execution.builtin_ai.f5_17_timer_override_owner")),
+        }
+    }
+    owner.select_hostile_target(ai, objects, units)
+}
+
+// UnitAI.cpp:1092-1127. Shared by Guard and CreatureEventAI without an override.
+pub(super) fn inherited_update_combat(
+    ai: &mut SourceCreatureAi,
+    combat: bool,
+    objects: &SourceObjects,
+    units: &mut SourceUnits,
+    owner: &mut impl BuiltinAiExecutionOwner,
+) -> Result<()> {
+    if !combat {
+        return Ok(());
+    }
+    if ai.base.ranged_mode
+        && units.get(objects, ai.base.unit)?.victim.is_some()
+        && ai.base.can_execute(objects, units)?
+        && (matches!(ai.base.ranged_setting, 2 | 4)
+            || ai.base.current_ranged_mode && ai.base.melee_enabled)
+    {
+        return Err(refuse("execution.builtin_ai.f6_ranged_distancing_owner"));
+    }
+    ai.base.execute_actions(objects, units, owner)?;
+    if !ai.base.spell_list_cooldown {
+        return Err(refuse(
+            "execution.builtin_ai.f5_08_update_spell_lists_owner",
+        ));
+    }
+    possessed::update(&ai.base, objects, units, owner)
+}

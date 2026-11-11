@@ -569,6 +569,17 @@ and RNG. Missing base AI, Unit, spell, visitor and presentation operations refus
 at their actual calls. The diagnostic inventory marks missing base AI and F7 restore.
 It changes no persisted native state, format, or capability.
 
+`SourceEventAi::update` binds the inherited `UnitAI.cpp:1084-1127` body through
+`SourceAiExecution`. Guard and EventAI share the base timer/selection prefix and
+combat suffix. EventAI runs its `UpdateEventTimers` override between them,
+`CreatureEventAI.cpp:1929-1975`, even when selection returns false.
+Combat-only distancing, actions, spell lists and melee remain after that gate.
+Missing spells, motion and F6 queries refuse at their reached calls.
+`IsTimerBasedEvent` includes callback reset timers, unlike periodic checks,
+`CreatureEventAI.cpp:165-241`. The update census counts copied-holder template
+and raw-spawn alternatives separately, including negative-GUID rows, without
+claiming completed respawn, live-world initialization or F1 parity.
+
 [INFERENCE] Stock phase transitions cannot reach the undefined shift at
 `CreatureEventAI.cpp:1950`. Construction and death set zero at lines 91 and 1510.
 All stock SET/RANDOM/RANGE operands at lines 922, 994, and 999 stay below 32.

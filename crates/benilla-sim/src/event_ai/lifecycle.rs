@@ -31,6 +31,11 @@ pub fn timer_executed_event(kind: u32) -> bool {
     matches!(kind, 0..=3 | 9 | 12..=16 | 18 | 23 | 24 | 27..=29 | 31..=33)
 }
 
+/// CreatureEventAI.cpp:209-241, including callback events with reset timers.
+pub fn timer_based_event(kind: u32) -> bool {
+    matches!(kind, 0..=3 | 5 | 8..=10 | 12..=18 | 23..=29 | 31..=34)
+}
+
 /// Shared unsigned debt wraps as uint32 upstream, CreatureEventAI.cpp:1929-1975.
 /// Completion is separate because ProcessEvents precedes resetting the clock.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]

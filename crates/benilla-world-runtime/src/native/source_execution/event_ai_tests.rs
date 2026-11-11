@@ -683,3 +683,320 @@ fn retained_catalog04_eventai_disposition_and_missing_owner_census_or_explicit_a
     assert!(loaded > 0);
     println!("catalog-04 EventAI census: dispositions={dispositions:?}; refusal_reasons={reasons:?}; notices={notices:?}; loaded_main_slots={main}; loaded_distance_slots={distance}; raw catalog operands, not sealed F1 acceptance");
 }
+
+fn update_template() -> CreatureAiTemplateOperands {
+    CreatureAiTemplateOperands {
+        ordinal: 0,
+        entry: 901,
+        faction: 14,
+        extra_flags: 0,
+        unit_flags: 0,
+        type_flags: 0,
+        static_flags: [0; 4],
+        rank: 0,
+        inhabit_type: 1,
+        stats_multipliers: [0x3f800000; 3],
+        civilian: false,
+        pursuit_ms: 15000,
+        ai_name: "EventAI".into(),
+        script_name: String::new(),
+    }
+}
+
+impl UnitAiExecutionOwner for Host {}
+impl BuiltinAiExecutionOwner for Host {}
+impl HostileTargetExecutionOwner for Host {}
+
+#[test]
+fn inherited_eventai_update_runs_timers_selection_event_timers_then_ooc_return() {
+    let mut objects = SourceObjects::default();
+    let mut defs = EventAiDefinitions::default();
+    // Combat-only timer expires but does not read missing vitals out of combat.
+    defs.insert(definition(1, 0));
+    let mut state = state(&mut objects, Arc::new(defs), 41, EventAiBuild::Release);
+    state.init(&objects, &mut Host::default()).unwrap();
+    state.holders[0].timer = 5;
+    let unit = state.selected.object();
+    objects.get_mut(unit).unwrap().alive = true;
+    let mut units = SourceUnits::default();
+    units
+        .register(
+            &objects,
+            unit,
+            SourceUnitFields::creature(&update_template()),
+        )
+        .unwrap();
+    let bytes = b"LogFilter_EventAiDev=1\nGuarderSight=50\n";
+    let config = EventAiLoaderConfig::parse(bytes, Sha256Id::of(bytes)).unwrap();
+    let base = SourceCreatureAi::construct(
+        &objects,
+        unit,
+        &mut units,
+        &update_template(),
+        false,
+        0,
+        &config,
+        &mut Host::default(),
+    )
+    .unwrap();
+    assert!(base.base.spell_list_cooldown); // UnitAI.cpp:58.
+    let mut ais = SourceCreatureAis::default();
+    ais.install(&objects, &mut units, base, &mut SourceCombat::default())
+        .unwrap();
+    let timer = &mut ais.get_mut(&objects, unit).unwrap().base.generic_timers[0];
+    timer.remaining = 5;
+    timer.disabled = false;
+    ais.get_mut(&objects, unit)
+        .unwrap()
+        .base
+        .distancing_cooldown = true;
+    let mut threats = SourceThreats::default();
+    // Selection fails after the base timer, before EventAI timers.
+    let mut host = Host::default();
+    let mut execution = SourceAiExecution {
+        queries: SourceUnitQueries {
+            objects: &objects,
+            units: &mut units,
+        },
+        ais: &mut ais,
+        threats: &mut threats,
+        owner: &mut host,
+    };
+    assert!(state.update(501, &mut execution).is_err());
+    assert!(
+        !execution
+            .ais
+            .get(&objects, unit)
+            .unwrap()
+            .base
+            .distancing_cooldown
+    );
+    assert_eq!(state.holders[0].timer, 5);
+    execution.threats.register(unit).unwrap();
+    state.update(501, &mut execution).unwrap();
+    assert_eq!(state.holders[0].timer, 0);
+    assert_eq!(
+        state.clock,
+        benilla_sim::event_ai::EventClock {
+            remaining: 500,
+            debt: 0
+        }
+    );
+    // UnitAI.cpp:1088 can return true while casting with an empty threat list.
+    // Event timers still execute before ExecuteActions and UpdateSpellLists.
+    let fields = execution.queries.units.get_mut(&objects, unit).unwrap();
+    fields.casting_non_melee = true;
+    fields.flags |= UNIT_FLAG_COMBAT;
+    // UnitAI.cpp:104-109 combat activation, before unavailable initial spell cooldowns.
+    execution
+        .ais
+        .get_mut(&objects, unit)
+        .unwrap()
+        .base
+        .spell_list_cooldown = false;
+    state.holders[0].event.kind = 1;
+    state.holders[0].timer = 5;
+    assert_eq!(
+        state.update(501, &mut execution).unwrap_err().id,
+        "execution.builtin_ai.f5_08_update_spell_lists_owner"
+    );
+    assert_eq!(state.holders[0].timer, 0);
+    assert_eq!(state.clock.debt, 0);
+    // CreatureEventAI.cpp:1950 has undefined shift at 32, not at 31.
+    execution
+        .queries
+        .units
+        .get_mut(&objects, unit)
+        .unwrap()
+        .flags &= !UNIT_FLAG_COMBAT;
+    execution
+        .queries
+        .units
+        .get_mut(&objects, unit)
+        .unwrap()
+        .casting_non_melee = false;
+    state.phase = 31;
+    state.holders[0].timer = 1000;
+    state.update(501, &mut execution).unwrap();
+    assert_eq!(state.holders[0].timer, 499);
+    state.phase = 32;
+    assert_eq!(
+        state.update(501, &mut execution).unwrap_err().id,
+        "execution.event_ai.phase_shift_undefined"
+    );
+    assert_eq!(state.holders[0].timer, 499);
+    assert!(host.draws.is_empty());
+}
+
+#[test]
+fn timer_based_classifier_preserves_callback_and_non_timer_domains() {
+    // CreatureEventAI.cpp:209-241. Callback timers are not periodic checks.
+    let expected = [
+        0, 1, 2, 3, 5, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 23, 24, 25, 26, 27, 28, 29, 31, 32,
+        33, 34,
+    ];
+    for kind in 0..=40 {
+        assert_eq!(
+            benilla_sim::event_ai::timer_based_event(kind),
+            expected.contains(&kind),
+            "event {kind}"
+        );
+    }
+    assert!(!benilla_sim::event_ai::timer_based_event(u32::MAX));
+    for kind in [5, 8, 10, 17, 25, 26, 34] {
+        assert!(!benilla_sim::event_ai::timer_executed_event(kind));
+    }
+}
+
+#[test]
+fn retained_catalog04_inherited_eventai_update_census_or_explicit_absence() {
+    let Some(root) = std::env::var_os("BENILLA_F5_AI_CATALOG") else {
+        println!("SKIP EventAI inherited update census: set BENILLA_F5_AI_CATALOG, BENILLA_F5_SCRIPT_REPORT and BENILLA_F5_EVENT_AI_CONFIG");
+        return;
+    };
+    let report = std::env::var_os("BENILLA_F5_SCRIPT_REPORT").unwrap();
+    let config_path = std::env::var_os("BENILLA_F5_EVENT_AI_CONFIG").unwrap();
+    let config = EventAiLoaderConfig::recorded(
+        Path::new(&config_path),
+        &Sha256Id::parse("321f2dc486e38f77037366bf84fb0ce8d09ed823ffa4524082ab01a8b0b79244")
+            .unwrap(),
+    )
+    .unwrap();
+    let mut catalog =
+        super::super::production_compiler::VerifiedCatalog::open(Path::new(&root), false).unwrap();
+    assert_eq!(
+        catalog.report()["catalog_sha256"],
+        "757dcfb85e2b2a0de6571b0fe981c214fa57a4e2e546968ca61171113f379bd6"
+    );
+    let mut builder = AiRegistryBuilder::builtin();
+    builder
+        .load_catalog_scripts(&catalog, Path::new(&report))
+        .unwrap();
+    let registry = builder.freeze();
+    let factions = CreatureAiFactions::load_catalog(&mut catalog).unwrap();
+    let mut spawns = BTreeMap::<u32, Vec<u32>>::new();
+    for (_, row) in catalog
+        .execution_event_ai_operands("creature", ["guid", "id"])
+        .unwrap()
+    {
+        spawns.entry(row[1]).or_default().push(row[0]);
+    }
+    let rows = catalog_event_ai_rows(&mut catalog).unwrap();
+    let mut definitions = EventAiDefinitions::default();
+    let mut unavailable = BTreeMap::<i32, String>::new();
+    let mut loader = EventAiCatalog::new(&mut catalog, config.clone());
+    for row in rows {
+        let key = row.words[1] as i32;
+        match load_event_ai_row(&mut loader, row) {
+            Ok(EventAiLoad {
+                disposition: EventAiDisposition::Loaded(event),
+                ..
+            }) => definitions.insert(event),
+            Ok(_) => {}
+            Err(error) => {
+                unavailable.entry(key).or_insert(error.id);
+            }
+        }
+    }
+    let definitions = Arc::new(definitions);
+    let mut counts = BTreeMap::<String, [usize; 2]>::new();
+    let mut totals = [0; 2];
+    for t in catalog_creature_ai_census_inputs(&mut catalog).unwrap() {
+        // Templates use GUID zero; each raw spawn is also probed with its own GUID rows.
+        for (column, guid) in std::iter::once((0, 0)).chain(
+            spawns
+                .get(&t.entry)
+                .into_iter()
+                .flatten()
+                .copied()
+                .map(|guid| (1, guid)),
+        ) {
+            let mut objects = SourceObjects::default();
+            let unit = objects.construct(1, SourceObjectKind::Creature).unwrap();
+            objects.get_mut(unit).unwrap().database_guid = guid;
+            let selected = registry
+                .select(
+                    &objects,
+                    unit,
+                    t.clone().inputs(
+                        CreatureAiControl::default(),
+                        factions.neutral_to_all(t.faction),
+                    ),
+                )
+                .unwrap();
+            if selected.executable().builtin_kind() != Some(BuiltinCreatureAi::Event) {
+                continue;
+            }
+            totals[column] += 1;
+            let mut units = SourceUnits::default();
+            units
+                .register(&objects, unit, SourceUnitFields::creature(&t))
+                .unwrap();
+            let mut mt = benilla_sim::source_rng::Mt19937::from_seed(5489);
+            let mut cursor = benilla_sim::source_rng::DrawCursor::default();
+            let mut sink = |_| {};
+            let mut host =
+                benilla_sim::source_rng::SourceRandom::new(1, &mut mt, &mut cursor, &mut sink)
+                    .unwrap();
+            let result = (|| -> Result<()> {
+                let base = SourceCreatureAi::construct(
+                    &objects, unit, &mut units, &t, false, 0, &config, &mut host,
+                )?;
+                let mut ais = SourceCreatureAis::default();
+                ais.install(&objects, &mut units, base, &mut SourceCombat::default())?;
+                units.bind_ai_selection(&objects, &selected)?;
+                if let Some(reason) = unavailable
+                    .get(&(t.entry as i32))
+                    .or_else(|| unavailable.get(&-(guid as i32)))
+                {
+                    return Err(refuse(reason));
+                }
+                let mut state = SourceEventAi::construct(
+                    selected,
+                    &objects,
+                    Arc::clone(&definitions),
+                    EventAiBuild::Release,
+                )?;
+                let mut threats = SourceThreats::default();
+                threats.register(unit)?;
+                let mut execution = SourceAiExecution {
+                    queries: SourceUnitQueries {
+                        objects: &objects,
+                        units: &mut units,
+                    },
+                    ais: &mut ais,
+                    threats: &mut threats,
+                    owner: &mut host,
+                };
+                state.init(&objects, &mut EventAiDispatcher(&mut execution))?;
+                state.update(100, &mut execution)
+            })()
+            .map_or_else(|error| error.id, |_| "completed".into());
+            counts.entry(result).or_default()[column] += 1;
+        }
+    }
+    assert_eq!(totals, [9865, 60209]);
+    assert_eq!(counts.values().map(|n| n[0]).sum::<usize>(), totals[0]);
+    assert_eq!(counts.values().map(|n| n[1]).sum::<usize>(), totals[1]);
+    println!(
+        "F5_EVENTAI_UPDATE_CENSUS {}",
+        serde_json::json!({
+            "scope":"ordinary uncontrolled template and independent raw-spawn alternatives; copied loaded holders, constructed clock, diff100, absent vitals; not respawn, initialized world, F1 or admission",
+            "columns":["templates","raw_spawn_rows"], "totals":totals, "first_stop":counts,
+            "format":91, "capability":"uninhabited"
+        })
+    );
+}
+
+impl<E: benilla_sim::source_rng::RawGenerator, S: FnMut(benilla_sim::source_rng::TraceEvent)>
+    UnitAiExecutionOwner for benilla_sim::source_rng::SourceRandom<'_, E, S>
+{
+}
+impl<E: benilla_sim::source_rng::RawGenerator, S: FnMut(benilla_sim::source_rng::TraceEvent)>
+    BuiltinAiExecutionOwner for benilla_sim::source_rng::SourceRandom<'_, E, S>
+{
+}
+impl<E: benilla_sim::source_rng::RawGenerator, S: FnMut(benilla_sim::source_rng::TraceEvent)>
+    HostileTargetExecutionOwner for benilla_sim::source_rng::SourceRandom<'_, E, S>
+{
+}

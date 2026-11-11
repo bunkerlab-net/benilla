@@ -536,6 +536,37 @@ impl<O: UnitAiExecutionOwner + CreatureRandom> EventAiExecutionOwner for SourceA
     }
 }
 
+impl<O: BuiltinAiExecutionOwner + HostileTargetExecutionOwner + CreatureRandom>
+    SourceAiExecution<'_, O>
+{
+    /// CreatureEventAI.h:898 overrides only UnitAI.h:504, not UpdateAI.
+    pub fn update_event_ai(&mut self, state: &mut SourceEventAi, diff: u32) -> Result<()> {
+        state.validate(self.queries.objects)?;
+        let unit = state.selected.object();
+        let combat = ai::inherited_update_prefix(
+            self.ais.get_mut(self.queries.objects, unit)?,
+            diff,
+            self.queries.objects,
+            self.queries.units,
+            &mut SourceAiDependencies {
+                threats: self.threats,
+                owner: self.owner,
+            },
+        )?;
+        state.update_timers(diff, &mut EventAiDispatcher(self))?;
+        ai::inherited_update_combat(
+            self.ais.get_mut(self.queries.objects, unit)?,
+            combat,
+            self.queries.objects,
+            self.queries.units,
+            &mut SourceAiDependencies {
+                threats: self.threats,
+                owner: self.owner,
+            },
+        )
+    }
+}
+
 /// Binds Unit::Attack/Engage calls to the same concrete threat managers as EventAI.
 pub struct SourceAiDependencies<'a, O: UnitAiExecutionOwner> {
     pub threats: &'a mut SourceThreats,

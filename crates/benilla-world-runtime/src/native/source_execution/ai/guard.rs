@@ -9,44 +9,9 @@ pub(super) fn update(
     units: &mut SourceUnits,
     owner: &mut impl BuiltinAiExecutionOwner,
 ) -> Result<()> {
-    // GuardAI inherits UnitAI.cpp:1084-1127. TimerAI.cpp:26-42,136-143.
-    for timer in &mut ai.base.generic_timers {
-        if timer.disabled {
-            continue;
-        }
-        if timer.remaining > diff {
-            timer.remaining -= diff;
-            continue;
-        }
-        timer.remaining = 0;
-        timer.disabled = true;
-        match timer.id {
-            2000 => ai.base.distancing_cooldown = false,
-            2001 => ai.base.spell_list_cooldown = false,
-            _ => return Err(refuse("execution.builtin_ai.f5_17_timer_override_owner")),
-        }
-    }
-    let combat = owner.select_hostile_target(ai, objects, units)?;
+    let combat = super::inherited_update_prefix(ai, diff, objects, units, owner)?;
     // Guard inherits the genuine empty UnitAI::UpdateEventTimers, UnitAI.h:504.
-    if !combat {
-        return Ok(());
-    }
-    // Ranged distancing reads live spell prevention and F6 melee reach, :1095-1118.
-    if ai.base.ranged_mode
-        && units.get(objects, ai.base.unit)?.victim.is_some()
-        && ai.base.can_execute(objects, units)?
-        && (matches!(ai.base.ranged_setting, 2 | 4)
-            || ai.base.current_ranged_mode && ai.base.melee_enabled)
-    {
-        return Err(refuse("execution.builtin_ai.f6_ranged_distancing_owner"));
-    }
-    ai.base.execute_actions(objects, units, owner)?;
-    if !ai.base.spell_list_cooldown {
-        return Err(refuse(
-            "execution.builtin_ai.f5_08_update_spell_lists_owner",
-        ));
-    }
-    possessed::update(&ai.base, objects, units, owner)
+    super::inherited_update_combat(ai, combat, objects, units, owner)
 }
 
 pub(super) fn move_in_line_of_sight(

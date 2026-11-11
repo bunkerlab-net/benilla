@@ -117,6 +117,18 @@ pub struct SourceEventAi {
     pub distance_spells: BTreeSet<u32>,
 }
 impl SourceEventAi {
+    /// Inherited UnitAI.cpp:1084-1127 with CreatureEventAI.cpp:1929-1975.
+    pub fn update(
+        &mut self,
+        diff: u32,
+        execution: &mut SourceAiExecution<
+            '_,
+            impl BuiltinAiExecutionOwner + HostileTargetExecutionOwner + CreatureRandom,
+        >,
+    ) -> Result<()> {
+        execution.update_event_ai(self, diff)
+    }
+
     /// Constructor does not call InitAI. Creature.cpp:880-887 calls SpellListChanged first.
     pub fn construct(
         selected: SelectedCreatureAi,

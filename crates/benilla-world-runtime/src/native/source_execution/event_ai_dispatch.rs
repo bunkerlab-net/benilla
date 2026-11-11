@@ -384,7 +384,7 @@ impl SourceEventAi {
     pub fn reset_event(&mut self, index: usize, random: &mut impl CreatureRandom) -> Result<()> {
         let holder = &mut self.holders[index];
         let kind = holder.event.kind;
-        if matches!(kind, 0..=3 | 5 | 8..=10 | 12..=18 | 23..=29 | 31..=34) {
+        if benilla_sim::event_ai::timer_based_event(kind) {
             let p = holder.event.params;
             let range = match kind {
                 5 | 13 => [p[0], p[1]],
