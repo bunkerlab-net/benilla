@@ -1697,7 +1697,7 @@ SourceCombat remains the sole death-prevention latch owner.
 Component inventories are not serialized continuation. Format 91,
 NativeCapability and frozen-unsealed F1 are unchanged.
 
-## Source MotionMaster, Wander and Home
+## Source MotionMaster, Wander, waypoint and Home
 
 `SourceMotionMaster` owns the source stack, not priority slots,
 `MotionMaster.h:96-100`. Initialize, Clear, expiry, deferred destruction,
@@ -1708,10 +1708,11 @@ delayed expiry removes them, `MotionMaster.cpp:203-271`.
 
 The default selector uses the four registered factories and genuine null
 fallback, `CreatureAISelector.cpp:109-135`, `CreatureAIRegistry.cpp:45-48`.
-Waypoint, fixed-path and linear-waypoint constructors still refuse.
+Fixed-path and linear-waypoint constructors still refuse.
 Player ownership requests unregistered FOLLOW and therefore selects Idle.
 `CreatureConstruction::initialize_motion` runs the concrete owner before AI
-selection; `SourceMotions::formation` handles Initialize, Clear and Idle.
+selection; `SourceMotions::formation` handles Initialize, Clear, Idle and
+non-linear MoveWaypoint, `SpawnGroup.cpp:890`.
 `SourceMotionDependencies` connects UnitAI Home and immobilization calls.
 EventAI action 64 calls that same root owner,
 `CreatureEventAI.cpp:1347-1350`, without bypassing missing root output.
@@ -1746,6 +1747,33 @@ permits `urand(1,3)` before `urand(3000,10000)`,
 destination, path or spline, and the census records Wander's F6 refusal
 separately from missing constructors. No motion-dependent EventAI row gains
 end-to-end execution through this constructor prefix.
+
+Waypoint constructs and initializes before its path is loaded,
+`MotionMaster.cpp:80-94`. Default selection checks GUID, entry path zero,
+then `waypoint_path` at `entry << 8`, `WaypointManager.h:69-127,169-178`.
+The manager loads `creature_movement`, `creature_movement_template` and
+`waypoint_path` in that order, `WaypointManager.cpp:198,329,441`.
+ScriptDev registers external paths separately, `system.cpp:75-114`.
+Loaded ScriptMgr movement/relay maps are required at the first nonzero
+node script, `WaypointManager.cpp:47-155`; raw script rows cannot replace
+their loader validation. The global catalog census reports that refusal
+separately from raw selected-path dependency probes.
+
+Waypoint always wraps to its first ordered node, rather than stopping at
+the end, `WaypointMovementGenerator.cpp:163-170,290-296`. Arrival executes
+the node DB script before AI notification, captures reset position, then
+computes the delay and advances, `:173-254`. Delay arithmetic wraps unsigned
+before the pinned signed conversion, `:211,577-578`. The single-node
+5000-ms repair modifies a copy, not the loaded node, `:70-82`.
+Initial delay does not suppress the initial send, `:95-131`.
+Spline queries and PathFinder construction refuse at their actual F6 calls,
+`:305-365,264`; no spline or geometry result is synthesized. Arrival tests
+are numerical state kernels, not successful travel or F1 evidence.
+Reset, interrupt and finalize preserve their source state and callback
+order, `:135-161`. Indeterminate path reads, empty-path iterator dereferences
+and null-AI indexed-arrival queries refuse at `WaypointMovementGenerator.h:56,74-77`
+and `WaypointMovementGenerator.cpp:115-116,243`. Native save/Open still
+requires F7; the generator adds no serialized state.
 
 Root state and guards follow `Unit.cpp:6496-6520,9908-9920,10070-10092`.
 Missing spline-stop and root movement-info/output owners remain typed refusals.

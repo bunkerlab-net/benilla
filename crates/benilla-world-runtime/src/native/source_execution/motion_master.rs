@@ -30,8 +30,7 @@ impl MotionDefault {
 /// FOLLOW has no registered factory and therefore falls back to static Idle.
 pub fn source_default_motion(movement_type: u32, player_owner: bool) -> Result<u32> {
     match if player_owner { 7 } else { movement_type } {
-        1 => Ok(1),
-        2 => Err(refuse("execution.motion.f5_waypoint_owner")),
+        1 | 2 => Ok(movement_type),
         3 => Err(refuse("execution.motion.f5_fixed_path_owner")),
         4 => Err(refuse("execution.motion.f5_linear_waypoint_owner")),
         _ => Ok(0),
@@ -77,6 +76,50 @@ pub trait MotionExecutionOwner {
     }
     fn client_controlling(&mut self, _unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
         Err(refuse("execution.motion.client_controlling_owner"))
+    }
+    /// MotionMaster.cpp:85-94 reads the actual group's leader slot and path.
+    fn waypoint_formation_path(&mut self, _unit: ObjectHandle) -> Result<Option<u32>> {
+        Err(refuse("execution.waypoint.formation_path_binding_owner"))
+    }
+    fn waypoint_paths(&mut self) -> Result<Rc<SourceWaypointPaths>> {
+        Err(refuse("execution.waypoint.loaded_waypoint_manager_owner"))
+    }
+    fn waypoint_position(&mut self, _unit: ObjectHandle) -> Result<[f32; 4]> {
+        Err(refuse(
+            "execution.waypoint.transport_relative_position_owner",
+        ))
+    }
+    /// Unit.cpp:4343-4381, IsNonMeleeSpellCasted(false,false,true,true).
+    fn waypoint_casting_for_movement(&mut self, _unit: ObjectHandle) -> Result<bool> {
+        Err(refuse(
+            "execution.waypoint.f5_spell_movement_cast_query_owner",
+        ))
+    }
+    fn waypoint_ai_path(&mut self, _unit: ObjectHandle) -> Result<u32> {
+        Err(refuse("execution.waypoint.ai_current_path_owner"))
+    }
+    /// Includes the temporary summoner notification, cpp:417-426.
+    fn waypoint_inform(
+        &mut self,
+        _generator: &SourceWaypointGenerator,
+        _master: &mut SourceMotionMaster,
+        _context: &mut MotionContext<'_>,
+        _kind: u32,
+        _point: u32,
+    ) -> Result<()> {
+        Err(refuse("execution.waypoint.f5_ai_movement_inform_owner"))
+    }
+    fn waypoint_script(
+        &mut self,
+        _generator: &SourceWaypointGenerator,
+        _master: &mut SourceMotionMaster,
+        _context: &mut MotionContext<'_>,
+        _script: u32,
+        _target: Option<SourceGuid>,
+    ) -> Result<()> {
+        Err(refuse(
+            "execution.waypoint.f5_dbscript_movement_execution_owner",
+        ))
     }
 }
 pub struct MotionContext<'a> {
@@ -275,7 +318,8 @@ impl SourceMotionMaster {
                 })
                 .transpose()?
                 .unwrap_or(false);
-            if source_default_motion(self.default.movement_type, player_owner)? == 1 {
+            let kind = source_default_motion(self.default.movement_type, player_owner)?;
+            if kind == 1 {
                 let radius = self
                     .respawn_radius
                     .ok_or_else(|| refuse("execution.motion.respawn_radius_owner"))?;
@@ -285,6 +329,24 @@ impl SourceMotionMaster {
                 // MotionMaster.cpp:80-81 pushes before calling Initialize.
                 self.stack.push(Generator::Owned(generator.clone()));
                 return generator.initialize(self, context, owner);
+            }
+            if kind == 2 {
+                let generator = Rc::new(SourceWaypointGenerator::default());
+                self.stack.push(Generator::Owned(generator.clone()));
+                generator.initialize(self, context, owner)?;
+                let formation_path = owner.waypoint_formation_path(self.unit)?;
+                let origin = if let Some(path) = formation_path {
+                    self.current_path = Some(path);
+                    WaypointOrigin::WaypointPath
+                } else {
+                    WaypointOrigin::None
+                };
+                let request = WaypointPathRequest {
+                    path_id: self.path_id()? as i32,
+                    origin,
+                    ..Default::default()
+                };
+                return generator.initialize_path(self, context, owner, request);
             }
         }
         self.stack.push(Generator::Idle);
@@ -468,6 +530,36 @@ impl SourceMotionMaster {
         }
         Ok(())
     }
+    /// MotionMaster.cpp:466-484. An existing waypoint is not replaced.
+    pub fn move_waypoint(
+        &mut self,
+        request: WaypointPathRequest,
+        forced_movement: u32,
+        target: Option<SourceGuid>,
+        context: &mut MotionContext<'_>,
+        owner: &mut dyn MotionExecutionOwner,
+    ) -> Result<()> {
+        if !matches!(
+            context.objects.get(self.unit)?.kind,
+            SourceObjectKind::Creature | SourceObjectKind::Pet
+        ) || self.current_type() == 2
+        {
+            return Ok(());
+        }
+        self.current_path = Some(request.path_id as u32);
+        let generator = Rc::new(SourceWaypointGenerator::default());
+        generator.forced_movement.set(forced_movement);
+        generator.target_guid.set(target);
+        if matches!(self.current_type(), 5 | 12) {
+            self.expire(false, context, owner)?;
+        }
+        if let Some(Generator::Owned(g)) = self.stack.last().cloned() {
+            g.interrupt(self, context, owner)?;
+        }
+        generator.initialize(self, context, owner)?;
+        self.stack.push(Generator::Owned(generator.clone()));
+        generator.initialize_path(self, context, owner, request)
+    }
     pub fn formation(
         &mut self,
         command: FormationMotion,
@@ -482,6 +574,21 @@ impl SourceMotionMaster {
                 self.move_idle();
                 Ok(())
             }
+            // SpawnGroup.cpp:890 calls MoveWaypoint with PATH_FROM_WAYPOINT_PATH.
+            FormationMotion::Waypoint {
+                path,
+                linear: false,
+            } => self.move_waypoint(
+                WaypointPathRequest {
+                    path_id: path as i32,
+                    origin: WaypointOrigin::WaypointPath,
+                    ..Default::default()
+                },
+                0,
+                None,
+                context,
+                owner,
+            ),
             _ => Err(command.missing_owner()),
         }
     }

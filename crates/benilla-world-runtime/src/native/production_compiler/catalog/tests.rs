@@ -634,3 +634,36 @@ fn motion_census_accessor_keeps_eventai_relations_closed() {
         "scripts.motion_census_relation"
     );
 }
+
+#[test]
+fn waypoint_reader_rejects_relations_outside_its_own_loader_list() {
+    let fixture = Fixture::named("creature_movement", "Id", vec![]);
+    let mut catalog = fixture.open().unwrap();
+    for table in [
+        "creature",
+        "creature_ai_scripts",
+        "dbscripts_on_creature_movement",
+        "movement_template",
+        "waypoint_path_name",
+    ] {
+        assert_eq!(
+            catalog.execution_waypoint_rows(table).unwrap_err().id,
+            "scripts.waypoint_relation"
+        );
+    }
+    // Admitted relation still requires its real schema, never default columns.
+    assert_eq!(
+        catalog
+            .execution_waypoint_rows("creature_movement")
+            .unwrap_err()
+            .id,
+        "catalog.schema"
+    );
+    assert_eq!(
+        catalog
+            .execution_event_ai_operands("creature_movement", ["Id"])
+            .unwrap_err()
+            .id,
+        "scripts.event_ai_relation"
+    );
+}

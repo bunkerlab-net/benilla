@@ -376,7 +376,6 @@ fn initialize_defaults_registered_and_null_factories() {
     };
     for (kind, refusal) in [
         (1, "execution.motion.respawn_radius_owner"),
-        (2, "execution.motion.f5_waypoint_owner"),
         (3, "execution.motion.f5_fixed_path_owner"),
         (4, "execution.motion.f5_linear_waypoint_owner"),
     ] {
@@ -393,6 +392,18 @@ fn initialize_defaults_registered_and_null_factories() {
         master.initialize(&mut c, &mut Unbound).unwrap();
         assert_eq!(master.current_type(), 0);
     }
+    // MotionMaster.cpp:80-94 retains the initialized generator before group lookup.
+    master.default.movement_type = 2;
+    assert_eq!(
+        master.initialize(&mut c, &mut Unbound).unwrap_err().id,
+        "execution.waypoint.formation_path_binding_owner"
+    );
+    assert_eq!(master.len(), 1);
+    assert_eq!(master.current_type(), 2);
+    assert_eq!(
+        c.units.get(&objects, master.unit).unwrap().state & WANDER_ACTIVE,
+        WANDER_ACTIVE
+    );
 }
 #[test]
 fn initialize_possessed_and_player_owned_creature_use_static_idle() {
@@ -829,7 +840,13 @@ fn formation_commands_use_master_and_leave_follow_waypoints_refused() {
             )
             .unwrap_err()
             .id,
-        "execution.formation.f5_motion_master_owner"
+        "execution.waypoint.loaded_waypoint_manager_owner"
+    );
+    assert_eq!(master.current_type(), 2);
+    assert_eq!(master.path_id().unwrap(), 9);
+    assert_eq!(
+        c.units.get(&objects, master.unit).unwrap().state & WANDER_ACTIVE,
+        WANDER_ACTIVE
     );
 }
 

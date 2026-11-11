@@ -1078,6 +1078,76 @@ pub(crate) struct MotionSpawnOperands {
 }
 
 impl VerifiedCatalog {
+    /// WaypointManager.cpp:198,329,441 and ScriptDevAI/system/system.cpp:75.
+    /// Raw retained rows only. ScriptMgr validation is a separate required owner.
+    pub(crate) fn execution_waypoint_rows(
+        &mut self,
+        table: &str,
+    ) -> Result<Vec<crate::native::source_execution::SourceWaypointRow>> {
+        use crate::native::source_execution::{SourceWaypointNode, SourceWaypointRow};
+        check(
+            matches!(
+                table,
+                "creature_movement"
+                    | "creature_movement_template"
+                    | "waypoint_path"
+                    | "script_waypoint"
+            ),
+            "scripts.waypoint_relation",
+        )?;
+        let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
+        let cols = columns(&schema, table)?;
+        let template = matches!(table, "creature_movement_template" | "script_waypoint");
+        let owner = position(
+            cols,
+            if template {
+                "Entry"
+            } else if table == "waypoint_path" {
+                "PathId"
+            } else {
+                "Id"
+            },
+        )?;
+        let path = if template {
+            Some(position(cols, "PathId")?)
+        } else {
+            None
+        };
+        let point = position(cols, "Point")?;
+        let x = position(cols, "PositionX")?;
+        let y = position(cols, "PositionY")?;
+        let z = position(cols, "PositionZ")?;
+        let orientation = position(cols, "Orientation")?;
+        let delay = position(cols, "WaitTime")?;
+        let script = position(cols, "ScriptId")?;
+        let mut rows = Vec::new();
+        self.scan(table, 0, 256, |row| {
+            let v = cells(&row)?;
+            let o = spawns::floating(v[orientation])?;
+            rows.push(SourceWaypointRow {
+                ordinal: row.ordinal,
+                owner: spawns::uint(v[owner])?,
+                path: path.map(|i| spawns::uint(v[i])).transpose()?.unwrap_or(0),
+                point: spawns::uint(v[point])?,
+                node: SourceWaypointNode {
+                    position: [
+                        spawns::floating(v[x])?,
+                        spawns::floating(v[y])?,
+                        spawns::floating(v[z])?,
+                    ],
+                    orientation: if table != "script_waypoint" && o == 100. {
+                        None
+                    } else {
+                        Some(o)
+                    },
+                    delay: spawns::uint(v[delay])?,
+                    script: spawns::uint(v[script])?,
+                },
+            });
+            Ok(())
+        })?;
+        Ok(rows)
+    }
     /// Narrow numeric EventAI loader operands using the retained F2 schema.
     pub(crate) fn execution_event_ai_operands<const N: usize>(
         &mut self,

@@ -25,6 +25,7 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
     let mut defined_templates = 0;
     let mut template_refusals = BTreeMap::<String, Vec<u32>>::new();
     let mut wander_templates = Vec::new();
+    let mut waypoint_templates = Vec::new();
     for (_, [entry, raw]) in &template_motion {
         // ObjectMgr.cpp:533-536 repairs invalid template movement to Idle.
         let movement = if *raw >= 5 { 0 } else { *raw };
@@ -33,6 +34,9 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
                 defined_templates += 1;
                 if kind == 1 {
                     wander_templates.push(*entry);
+                }
+                if kind == 2 {
+                    waypoint_templates.push(*entry);
                 }
             }
             Err(e) => template_refusals.entry(e.id).or_default().push(*entry),
@@ -49,6 +53,7 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
     let mut radius_repairs = 0;
     let mut spawn_type_undefined = 0;
     let mut wander_spawns = Vec::new();
+    let mut waypoint_spawns = Vec::new();
     let mut negative_radius_repairs = 0;
     let templates = catalog_creature_ai_census_inputs(&mut catalog)
         .unwrap()
@@ -91,6 +96,9 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
         match source_default_motion(default.movement_type, false) {
             Ok(kind) => {
                 defined_spawns += 1;
+                if kind == 2 {
+                    waypoint_spawns.push(*guid);
+                }
                 if kind == 1 {
                     wander_spawns.push(*guid);
                     let entries = alternatives.resolve(*guid, *entry);
@@ -252,8 +260,10 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
     assert_eq!(motion_dependent_rows, 1562);
     assert_eq!(wander_templates.len(), 3163);
     assert_eq!(wander_spawns.len(), 43119);
-    assert_eq!(defined_templates, 10163);
-    assert_eq!(defined_spawns, 63132);
+    assert_eq!(waypoint_templates.len(), 209);
+    assert_eq!(waypoint_spawns.len(), 2931);
+    assert_eq!(defined_templates, 10372);
+    assert_eq!(defined_spawns, 66063);
     assert_eq!(
         spawn_type_undefined, 0,
         "normal stock undefined conversion must stop before commit"
@@ -261,9 +271,15 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
     let report = serde_json::json!({
         "catalog_sha256": catalog.report()["catalog_sha256"],
         "scope": "raw ordinary uncontrolled template and static spawn alternatives; not group/event substitutions, admitted live factories or F1 evidence",
-        "templates": {"total": template_motion.len(), "generator_defined": defined_templates, "before_generator_defined": defined_templates - wander_templates.len(), "wander_generator_defined_entries": wander_templates, "missing_constructor_entries": template_refusals},
-        "spawns": {"total": spawn_motion.len(), "generator_defined": defined_spawns, "before_generator_defined": defined_spawns - wander_spawns.len(), "wander_raw_family_guids": wander_spawns, "wander_constructed_f6_refusal_guids": wander_constructed_spawns, "missing_effective_template_bindings": wander_missing_effective_template, "radius_negative_to_zero": negative_radius_repairs, "radius_zero_random_to_idle": radius_repairs, "refusal_guids": spawn_refusals},
+        "templates": {"total": template_motion.len(), "generator_defined": defined_templates, "before_generator_defined": defined_templates - waypoint_templates.len(), "wander_generator_defined_entries": wander_templates, "missing_constructor_entries": template_refusals},
+        "spawns": {"total": spawn_motion.len(), "generator_defined": defined_spawns, "before_generator_defined": defined_spawns - waypoint_spawns.len(), "wander_raw_family_guids": wander_spawns, "wander_constructed_f6_refusal_guids": wander_constructed_spawns, "missing_effective_template_bindings": wander_missing_effective_template, "radius_negative_to_zero": negative_radius_repairs, "radius_zero_random_to_idle": radius_repairs, "refusal_guids": spawn_refusals},
         "wander_constructor_alternatives": wander_constructor_alternatives,
+        "waypoint_raw_factory_availability": {
+            "templates": waypoint_templates, "spawns": waypoint_spawns,
+            "before_templates_defined": defined_templates - waypoint_templates.len(),
+            "before_spawns_defined": defined_spawns - waypoint_spawns.len(),
+            "note": "Factory availability only. Global loader and raw selected-path dependencies are reported by the separate waypoint census."
+        },
         "entry_scope": "retained random-loader, group/squad, conditional and event alternatives; no live group/condition/event selection or RNG choice is claimed",
         "eventai": {"loaded": loaded, "past_f5_05_immobilization": root_rows.len(), "root_rows": root_rows, "next_refusal": "root_movement_info_output_owner", "motion_action_dependent_rows": motion_dependent_rows, "motion_action_types_nonexclusive": motion_actions, "new_end_to_end_rows": 0, "other_motion_action_rows_fully_unblocked": 0, "other_constructor_or_loader_refusals": other_refusals},
         "wander_eventai_status": {"motion_dependent_rows": motion_dependent_rows, "raw_default_constructor_gate_changed_rows": motion_rows_with_wander_default, "changed_dispatch_status_rows": 0, "new_end_to_end_rows": 0, "reason": "default constructor advances to F6; action dependencies and real invocation bindings remain unavailable"},
@@ -285,8 +301,8 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
         "wander_spawns_constructed_f6":wander_constructed_spawns.len(),
         "wander_constructor_alternatives":wander_constructor_alternatives,
         "wander_missing_effective_template_bindings":wander_missing_effective_template.len(),
-        "before_templates_defined":defined_templates-wander_templates.len(),
-        "before_spawns_defined":defined_spawns-wander_spawns.len(),
+        "before_templates_defined":defined_templates-waypoint_templates.len(),
+        "before_spawns_defined":defined_spawns-waypoint_spawns.len(),
         "motion_rows_changed_status":0, "negative_radius_repairs":negative_radius_repairs,
         "motion_rows_raw_wander_default_gate_changed":motion_rows_with_wander_default.len(),
         "motion_action_types":motion_actions,"undefined_spawn_types":spawn_type_undefined
@@ -439,4 +455,250 @@ fn entry_census_unbound_entry_stays_empty_without_an_authored_template() {
     alternatives.random.insert(0, EntrySet::from([20]));
     assert_eq!(alternatives.resolve(5, 0), EntrySet::from([20]));
     assert_eq!(alternatives.resolve(5, 999999), EntrySet::from([999999]));
+}
+
+/// Raw selected-path probes cannot bypass the global ScriptMgr loader refusal.
+/// They bind only the selected table rows, not a live complete WaypointManager.
+#[test]
+fn catalog04_waypoint_loader_and_raw_prefix_census_or_explicit_absence() {
+    let Some(root) = std::env::var_os("BENILLA_F5_AI_CATALOG") else {
+        println!("SKIP waypoint catalog census: BENILLA_F5_AI_CATALOG absent");
+        return;
+    };
+    let mut catalog =
+        super::super::production_compiler::VerifiedCatalog::open(Path::new(&root), false).unwrap();
+    let spawns = catalog.execution_motion_spawn_operands().unwrap();
+    let templates = catalog_creature_ai_census_inputs(&mut catalog)
+        .unwrap()
+        .into_iter()
+        .map(|t| (t.entry, t))
+        .collect::<BTreeMap<_, _>>();
+    let creature_ids = spawns.iter().map(|s| s.guid).collect::<EntrySet>();
+    let template_ids = templates.keys().copied().collect::<EntrySet>();
+    let raw = [
+        catalog
+            .execution_waypoint_rows("creature_movement")
+            .unwrap(),
+        catalog
+            .execution_waypoint_rows("creature_movement_template")
+            .unwrap(),
+        catalog.execution_waypoint_rows("waypoint_path").unwrap(),
+    ];
+    let external = catalog.execution_waypoint_rows("script_waypoint").unwrap();
+    let global =
+        SourceWaypointPaths::load_catalog(&mut catalog, &creature_ids, &template_ids, None)
+            .err()
+            .unwrap();
+    assert_eq!(
+        global.id,
+        "execution.waypoint.scriptmgr_dbscript_loaded_maps_owner"
+    );
+    let mut groups: [BTreeMap<u32, Vec<SourceWaypointRow>>; 3] = Default::default();
+    let mut blacklists: [EntrySet; 3] = Default::default();
+    for (family, rows) in raw.iter().enumerate() {
+        for row in rows {
+            let key = if family == 1 {
+                row.owner.wrapping_shl(8).wrapping_add(row.path)
+            } else {
+                row.owner
+            };
+            if row.point == 0 {
+                blacklists[family].insert(key);
+            }
+            if (family == 0 && !creature_ids.contains(&row.owner))
+                || (family == 1 && !template_ids.contains(&row.owner))
+            {
+                continue;
+            }
+            groups[family].entry(key).or_default().push(*row);
+        }
+    }
+    for key in &blacklists[0] {
+        groups[0].remove(key);
+    }
+    for key in blacklists[1].union(&blacklists[2]) {
+        groups[1].remove(key);
+    }
+    let alternatives = MotionEntryAlternatives::load(&mut catalog);
+    let mut reasons = BTreeMap::<String, Vec<(u32, u32)>>::new();
+    let mut spawn_reasons = BTreeMap::<String, EntrySet>::new();
+    let mut template_reasons = BTreeMap::<String, Vec<u32>>::new();
+    let mut origins = BTreeMap::<String, usize>::new();
+    let template_motion = catalog
+        .execution_event_ai_operands("creature_template", ["Entry", "MovementType"])
+        .unwrap();
+    let selected = |entry: u32, guid: u32| {
+        [
+            (0, guid),
+            (1, entry.wrapping_shl(8)),
+            (2, entry.wrapping_shl(8)),
+        ]
+        .into_iter()
+        .find_map(|(family, key)| groups[family].get(&key).map(|rows| (family, rows)))
+    };
+    for (_, [entry, kind]) in &template_motion {
+        if *kind != 2 {
+            continue;
+        }
+        let reason = match selected(*entry, 0) {
+            None => "raw_missing_path",
+            Some((_, rows)) if rows.iter().any(|r| r.node.script != 0) => {
+                "raw_scriptmgr_loaded_maps_dependency"
+            }
+            Some(_) => "raw_script_free_path",
+        };
+        template_reasons
+            .entry(reason.into())
+            .or_default()
+            .push(*entry);
+    }
+    struct RawOwner {
+        paths: std::rc::Rc<SourceWaypointPaths>,
+    }
+    impl MotionExecutionOwner for RawOwner {
+        fn waypoint_paths(&mut self) -> Result<std::rc::Rc<SourceWaypointPaths>> {
+            Ok(self.paths.clone())
+        }
+        // Prefix probe constructs a fresh Unit with null spell slots,
+        // Unit.cpp:350-351. This is not a live casting-state default.
+        fn waypoint_casting_for_movement(&mut self, _: ObjectHandle) -> Result<bool> {
+            Ok(false)
+        }
+    }
+    let mut alternatives_count = 0;
+    let mut waypoint_spawns = 0;
+    let mut undefined = Vec::new();
+    for spawn in spawns.iter().filter(|s| s.movement_type == 2) {
+        waypoint_spawns += 1;
+        let entries = alternatives.resolve(spawn.guid, spawn.entry);
+        if entries.is_empty() {
+            reasons
+                .entry("raw_unresolved_entry".into())
+                .or_default()
+                .push((spawn.guid, spawn.entry));
+            spawn_reasons
+                .entry("raw_unresolved_entry".into())
+                .or_default()
+                .insert(spawn.guid);
+        }
+        for entry in entries {
+            alternatives_count += 1;
+            let reason = if !templates.contains_key(&entry) {
+                "raw_unresolved_entry".to_owned()
+            } else if let Some((family, rows)) = selected(entry, spawn.guid) {
+                *origins
+                    .entry(["guid", "entry", "waypoint_path"][family].into())
+                    .or_default() += 1;
+                if rows.iter().any(|r| r.node.script != 0) {
+                    "raw_scriptmgr_loaded_maps_dependency".into()
+                } else {
+                    let mut selected_rows: [Vec<SourceWaypointRow>; 3] = Default::default();
+                    selected_rows[family] = rows.clone();
+                    match SourceWaypointPaths::load(
+                        selected_rows,
+                        &creature_ids,
+                        &template_ids,
+                        None,
+                    ) {
+                        Err(e) => e.id,
+                        Ok(paths) => {
+                            let mut objects = SourceObjects::default();
+                            let unit = objects.construct(1, SourceObjectKind::Creature).unwrap();
+                            objects
+                                .assign_guid(
+                                    unit,
+                                    spawn.guid,
+                                    SourceGuid::with_entry(HighGuid::Creature, entry, spawn.guid),
+                                )
+                                .unwrap();
+                            objects
+                                .set_pose(unit, SourcePose(spawn.pose.map(f32::to_bits)))
+                                .unwrap();
+                            let mut units = SourceUnits::default();
+                            units
+                                .register(
+                                    &objects,
+                                    unit,
+                                    SourceUnitFields::creature(&templates[&entry]),
+                                )
+                                .unwrap();
+                            let mut master = SourceMotionMaster::new(
+                                unit,
+                                MotionDefault {
+                                    movement_type: 2,
+                                    default_path: 0,
+                                },
+                            );
+                            let mut context = MotionContext {
+                                objects: &objects,
+                                units: &mut units,
+                            };
+                            let generator = SourceWaypointGenerator::default();
+                            let mut owner = RawOwner {
+                                paths: std::rc::Rc::new(paths),
+                            };
+                            generator
+                                .initialize(&mut master, &mut context, &mut owner)
+                                .unwrap();
+                            let e = generator
+                                .initialize_path(
+                                    &mut master,
+                                    &mut context,
+                                    &mut owner,
+                                    WaypointPathRequest::default(),
+                                )
+                                .unwrap_err();
+                            if e.id.ends_with("_undefined") {
+                                undefined.push((spawn.guid, entry, e.id.clone()));
+                            }
+                            e.id
+                        }
+                    }
+                }
+            } else {
+                "raw_missing_path".into()
+            };
+            reasons
+                .entry(reason.clone())
+                .or_default()
+                .push((spawn.guid, entry));
+            spawn_reasons.entry(reason).or_default().insert(spawn.guid);
+        }
+    }
+    assert_eq!(waypoint_spawns, 2931);
+    assert_eq!(template_reasons.values().map(Vec::len).sum::<usize>(), 209);
+    assert!(
+        undefined.is_empty(),
+        "stock undefined prefix rows must stop before commit: {undefined:?}"
+    );
+    let report = serde_json::json!({
+        "catalog_sha256":catalog.report()["catalog_sha256"],
+        "scope":"global manager loader and separately raw ordinary default-path probes; no complete loader acceptance, live formation/event choice, spline, arrival or F1 execution is claimed",
+        "before":{"waypoint_templates_missing_constructor":209,"waypoint_spawns_missing_constructor":2931,"templates_generator_defined":10163,"spawns_generator_defined":63132},
+        "after":{"waypoint_templates_factory_defined":209,"waypoint_spawns_factory_defined":2931,"templates_generator_defined":10372,"spawns_generator_defined":66063,"global_loader_refusal":global.id,"global_loader_blocked_spawns":waypoint_spawns,"global_loader_reached_f6":0},
+        "raw_table_rows":{"creature_movement":raw[0].len(),"creature_movement_template":raw[1].len(),"waypoint_path":raw[2].len(),"script_waypoint":external.len()},
+        "raw_template_path_reasons":template_reasons,
+        "raw_spawn_entry_alternatives":alternatives_count,
+        "raw_prefix_reason_alternatives":reasons,
+        "raw_prefix_reason_spawn_sets_nonexclusive":spawn_reasons,
+        "raw_selected_origins":origins,
+        "arrival_script_owner_reach":"unavailable; global loader refuses before construction and all raw script-free prefix probes stop at F6",
+        "undefined_prefix_rows":undefined,
+        "later_undefined_reach":"null-AI indexed arrival requires an F6 spline; not reached in this prefix, live reach unavailable",
+        "format":91,"format_change":false,"F1":"frozen unsealed","native_capability":"uninhabited"
+    });
+    if let Some(path) = std::env::var_os("BENILLA_F5_WAYPOINT_CENSUS") {
+        std::fs::write(path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
+    }
+    println!(
+        "F5_WAYPOINT_CENSUS {}",
+        serde_json::json!({
+            "global_loader_refusal":global.id,"global_loader_reached_f6":0,
+            "raw_templates":template_reasons.iter().map(|(k,v)| (k,v.len())).collect::<BTreeMap<_,_>>(),
+            "raw_spawn_entry_alternatives":alternatives_count,
+            "raw_prefix_reasons":reasons.iter().map(|(k,v)| (k,v.len())).collect::<BTreeMap<_,_>>(),
+            "raw_spawn_sets_nonexclusive":spawn_reasons.iter().map(|(k,v)| (k,v.len())).collect::<BTreeMap<_,_>>(),
+            "undefined_prefix_rows":undefined.len()
+        })
+    );
 }
