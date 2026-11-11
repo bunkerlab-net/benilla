@@ -1733,3 +1733,34 @@ Uninitialized path-ID reads and out-of-range spawn movement enum conversions
 refuse at `MotionMaster.h:104,173,195-196` and `Creature.cpp:453`.
 Component-only state leaves format 91, NativeCapability and frozen-unsealed
 F1 unchanged. Native continuation still requires F7.
+
+## Source SpellMgr definitions
+
+`source_execution::SourceSpellStores::load` executes the complete retained F2
+spell relations. SQL `spell_template` supplies server metadata; client
+`Spell.dbc` has a separate identity and never supplies missing SQL spells.
+The layout follows `DBCStructure.h:716-814` and `SQLStorages.cpp:40,55` at
+CMaNGOS Classic `8ec338a1`.
+
+The read-only owner retains chains, stacking, facing, cones, threat, proc,
+destination/script targets, areas, affect/elixir masks, learning and pet auras.
+Source loaders are `SpellMgr.cpp:434-806,936-1090,1284-1605,1625-1770,
+1772-1898,1930-2000,2078-2288,2879-3034` and `SpellStacking.cpp:32-118`.
+Script binding keeps separate first-insertion spell/aura maps,
+`Spells/Scripts/SpellScript.cpp:78-104,124-132`. Missing external loaded
+definitions and executable registries refuse; raw SQL membership is not proof
+that an external loader accepted a row. Per-row dispositions distinguish source
+skips from unresolved owners, and unresolved alternatives block negative lookups.
+Chain iteration reuses the pinned libstdc++ 12 hash-table owner rather than
+sorting IDs, `SpellMgr.h:1895` and `SpellMgr.cpp:1595-1605`. Proc propagation
+refuses a dereference after rehash invalidates its stored iterator,
+`SpellMgr.cpp:572,576` and `SpellMgr.h:1750`.
+
+Trigger closure retains all three slots and missing IDs. This is table
+dependency coverage, not effect execution. EventAI main-spell setup still
+refuses because `UnitAI.cpp:965-968` calls `Spell::CalculatePowerCost`, which
+consumes live Unit and modifier state at `Spell.cpp:6311-6370`.
+The version-one immutable inventory binds the catalog and client identities.
+Its validator checks retained chain order. These definitions are not
+serialized live Spell/Aura continuation. Native format 91, NativeCapability
+and frozen-unsealed F1 are unchanged.

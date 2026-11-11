@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Complete spell and condition inputs, with no executable handler admission.
+use super::super::super::source_execution::identity_table::IdentityTable;
 use super::*;
 use std::collections::BTreeSet;
 use std::io::{BufWriter, Write};
@@ -220,13 +221,27 @@ fn read_table(catalog: &mut VerifiedCatalog, name: &str, retained: &mut usize) -
 }
 struct Chains {
     nodes: Nodes,
+    order: Vec<u32>,
     fallback: Nodes,
     dispositions: BTreeMap<u64, String>,
     talents: BTreeMap<u32, (u32, Vec<u32>)>,
     abilities: BTreeSet<u32>,
 }
+fn chain_insert(
+    nodes: &mut Nodes,
+    order: &mut IdentityTable<()>,
+    id: u32,
+    node: [u32; 4],
+) -> Result<()> {
+    order
+        .insert(u64::from(id), (), 100_000)
+        .map_err(|e| fail(&e.id))?;
+    nodes.insert(id, node);
+    Ok(())
+}
 fn chains(spells: &Spells, talents: &DbcRows, abilities: &DbcRows, sql: &Table) -> Result<Chains> {
     let mut nodes = Nodes::new();
+    let mut order = IdentityTable::default();
     let mut positions = BTreeMap::new();
     for w in talents.values() {
         for j in 0..5 {
@@ -234,11 +249,13 @@ fn chains(spells: &Spells, talents: &DbcRows, abilities: &DbcRows, sql: &Table) 
             if spell != 0 {
                 positions.insert(spell, (j as u32 + 1, w.clone()));
             }
-            if w[5] != 0 && spells.contains_key(&spell) {
-                nodes.insert(
+            if spell != 0 && w[5] != 0 && spells.contains_key(&spell) {
+                chain_insert(
+                    &mut nodes,
+                    &mut order,
                     spell,
                     [if j == 0 { 0 } else { w[3 + j] }, w[4], j as u32 + 1, 0],
-                );
+                )?;
             }
         }
     }
@@ -246,7 +263,7 @@ fn chains(spells: &Spells, talents: &DbcRows, abilities: &DbcRows, sql: &Table) 
     for w in abilities.values() {
         by_spell.entry(w[2]).or_default().push(w);
     }
-    let mut previous = BTreeMap::new();
+    let mut previous = IdentityTable::default();
     for (&spell, rows) in &by_spell {
         for w in rows {
             let forward = if spell == 2366 { 2368 } else { w[8] };
@@ -259,32 +276,54 @@ fn chains(spells: &Spells, talents: &DbcRows, abilities: &DbcRows, sql: &Table) 
             }
             if let Some(node) = nodes.get(&forward) {
                 check(node[0] == spell, "spells.chain_conflict")?;
-            } else if let Some(&p) = previous.get(&forward) {
+            } else if let Some(&p) = previous.get(u64::from(forward)) {
                 check(p == spell, "spells.chain_conflict")?;
-            } else if let Some(node) = nodes.get(&spell) {
-                nodes.insert(forward, [spell, node[1], node[2] + 1, 0]);
+            } else if let Some(node) = nodes.get(&spell).copied() {
+                chain_insert(
+                    &mut nodes,
+                    &mut order,
+                    forward,
+                    [spell, node[1], (node[2] + 1) & 255, 0],
+                )?;
             } else {
-                previous.insert(forward, spell);
+                previous
+                    .insert(u64::from(forward), spell, 100_000)
+                    .map_err(|e| fail(&e.id))?;
             }
         }
     }
-    while let Some((spell, mut parent)) = previous.pop_first() {
+    while let Some(spell) = previous.first_key() {
+        let mut parent = previous.erase(spell).expect("source begin exists");
+        let spell = spell as u32;
+        if let Some(node) = nodes.get(&spell) {
+            check(node[0] == parent, "spells.chain_conflict")?;
+            continue;
+        }
         let mut path = vec![(spell, parent)];
         let mut seen = BTreeSet::from([spell]);
-        while !nodes.contains_key(&parent) && previous.contains_key(&parent) {
+        while !nodes.contains_key(&parent) && previous.get(u64::from(parent)).is_some() {
             check(
                 seen.insert(parent) && path.len() <= 30,
                 "spells.chain_cycle",
             )?;
-            let next = previous[&parent];
+            let next = *previous
+                .get(u64::from(parent))
+                .expect("checked previous rank");
             path.push((parent, next));
             parent = next;
         }
         check(!seen.contains(&parent), "spells.chain_cycle")?;
-        nodes.entry(parent).or_insert([0, parent, 1, 0]);
+        if !nodes.contains_key(&parent) {
+            chain_insert(&mut nodes, &mut order, parent, [0, parent, 1, 0])?;
+        }
         for (child, parent) in path.into_iter().rev() {
             let node = nodes[&parent];
-            nodes.insert(child, [parent, node[1], node[2] + 1, 0]);
+            chain_insert(
+                &mut nodes,
+                &mut order,
+                child,
+                [parent, node[1], (node[2] + 1) & 255, 0],
+            )?;
         }
     }
     let fallback = nodes.clone();
@@ -327,13 +366,14 @@ fn chains(spells: &Spells, talents: &DbcRows, abilities: &DbcRows, sql: &Table) 
         }) {
             "skip:talent_conflict"
         } else {
-            nodes.insert(spell, n);
+            chain_insert(&mut nodes, &mut order, spell, n)?;
             "loaded"
         };
         dispositions.insert(*ordinal, status.to_owned());
     }
     Ok(Chains {
         nodes,
+        order: order.iter().map(|(id, ())| id as u32).collect(),
         fallback,
         dispositions,
         talents: positions,
@@ -1109,6 +1149,151 @@ impl VerifiedCatalog {
             Ok(())
         })?;
         Ok(json!({"whole_empty":whole_empty,"selected_empty":count==0,"rows":count}))
+    }
+}
+
+pub(crate) struct LoadedSpellChains {
+    pub nodes: BTreeMap<u32, [u32; 4]>,
+    pub order: Vec<u32>,
+    pub rows: Vec<(u64, u32, String)>,
+    pub build_next: bool,
+}
+
+impl VerifiedCatalog {
+    /// Executes source field conversions over the complete retained relation.
+    /// Ordinals are catalog order, not a sealed F1 SQL cursor.
+    pub(crate) fn execution_spell_scan(
+        &mut self,
+        table: &str,
+        mut visit: impl FnMut(u64, &[Value]) -> Result<()>,
+    ) -> Result<()> {
+        let spec = POLICY["tables"]
+            .get(table)
+            .ok_or_else(|| fail("spells.unknown_relation"))?;
+        check(
+            self.manifest["core_revision"] == POLICY["core_revision"],
+            "spells.source_pin",
+        )?;
+        let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
+        let names = schema["tables"][table]["columns"]
+            .as_array()
+            .ok_or_else(|| fail("spells.schema"))?;
+        check(
+            names
+                .iter()
+                .map(|c| c["COLUMN_NAME"].as_str().unwrap_or("").to_ascii_lowercase())
+                .collect::<Vec<_>>()
+                == spec["fields"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|f| f[0].as_str().unwrap().to_owned())
+                    .collect::<Vec<_>>(),
+            "spells.schema",
+        )?;
+        let mut index_wrap = false;
+        if matches!(table, "spell_template" | "spell_cone") {
+            // SQLStorageImpl.h:317 computes MAX(id)+1 before creating records.
+            self.scan(table, 0, 256, |row| {
+                index_wrap |=
+                    spawns::uint(row.cells().next().ok_or_else(|| fail("spells.schema"))??)?
+                        == u32::MAX;
+                Ok(())
+            })?;
+        }
+        self.scan(table, 0, 256, |row| {
+            check(!index_wrap, "execution.spells.sql_index_write_undefined")?;
+            let values = row
+                .cells()
+                .zip(fields(table))
+                .map(|(c, f)| convert(c?, f[1].as_str().unwrap()))
+                .collect::<Result<Vec<_>>>()?;
+            visit(row.ordinal, &values)
+        })
+    }
+
+    pub(crate) fn execution_spell_script_scan(
+        &mut self,
+        mut visit: impl FnMut(u64, u32, &[u8]) -> Result<()>,
+    ) -> Result<()> {
+        let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
+        let cols = schema["tables"]["spell_scripts"]["columns"]
+            .as_array()
+            .ok_or_else(|| fail("spells.schema"))?;
+        let column = |name: &str| {
+            cols.iter()
+                .position(|c| {
+                    c["COLUMN_NAME"]
+                        .as_str()
+                        .is_some_and(|n| n.eq_ignore_ascii_case(name))
+                })
+                .ok_or_else(|| fail("spells.schema"))
+        };
+        let id = column("Id")?;
+        let name = column("ScriptName")?;
+        self.scan("spell_scripts", 0, 256, |row| {
+            let c = row.cells().collect::<Result<Vec<_>>>()?;
+            let name = c[name]
+                .unwrap_or_default()
+                .split(|b| *b == 0)
+                .next()
+                .unwrap_or_default();
+            visit(row.ordinal, spawns::uint(c[id])?, name)
+        })
+    }
+
+    pub(crate) fn execution_spell_chains(
+        &mut self,
+        spells: &BTreeMap<u32, [u32; 25]>,
+        talents: &BTreeMap<u32, Vec<u32>>,
+        abilities: &BTreeMap<u32, Vec<u32>>,
+    ) -> Result<LoadedSpellChains> {
+        let sql = read_table(self, "spell_chain", &mut 0)?;
+        let loaded = chains(spells, talents, abilities, &sql)?;
+        let rows = sql
+            .rows
+            .iter()
+            .map(|(ordinal, row)| {
+                (
+                    *ordinal,
+                    sql.n(row, "spell_id"),
+                    loaded.dispositions[ordinal].clone(),
+                )
+            })
+            .collect();
+        Ok(LoadedSpellChains {
+            nodes: loaded.nodes,
+            order: loaded.order,
+            rows,
+            build_next: !sql.rows.is_empty(),
+        })
+    }
+
+    pub(crate) fn execution_client_spell_ids(&mut self) -> Result<(String, usize, BTreeSet<u32>)> {
+        let inventory = bounded_json(&self.object(&descriptor(&self.manifest["dbc_root"])?, 0)?)?;
+        let mut view = dbc::open(
+            self,
+            &inventory,
+            "Spell.dbc",
+            Some(json!({"format":format!("n{}", "x".repeat(172)), "record_bytes":692})),
+        )?;
+        let count = view.record_count();
+        let mut ids = BTreeSet::new();
+        for ordinal in 0..count {
+            ids.insert(
+                view.record(ordinal)?["key"]
+                    .as_u64()
+                    .ok_or_else(|| fail("spells.client_layout"))? as u32,
+            );
+        }
+        Ok((
+            inventory["Spell.dbc"]["sha256"]
+                .as_str()
+                .ok_or_else(|| fail("spells.client_layout"))?
+                .to_owned(),
+            count,
+            ids,
+        ))
     }
 }
 #[cfg(test)]

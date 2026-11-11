@@ -320,3 +320,67 @@ fn additional_pet_rows_use_the_source_short_validation_branch() {
         ]
     );
 }
+
+#[test]
+fn talent_zero_slot_is_not_spell_zero_even_when_sql_has_zero() {
+    // SpellMgr.cpp:1302-1304 explicitly skips a zero RankID.
+    let spells = BTreeMap::from([(0, [0; 25]), (1, [0; 25]), (2, [0; 25])]);
+    let mut talent = vec![0; 21];
+    talent[4] = 1;
+    talent[5] = 2;
+    let loaded = chains(
+        &spells,
+        &BTreeMap::from([(1, talent)]),
+        &BTreeMap::new(),
+        &table("spell_chain", &[]),
+    )
+    .unwrap();
+    assert!(!loaded.nodes.contains_key(&0));
+    assert_eq!(loaded.nodes[&2], [1, 1, 2, 0]);
+}
+
+#[test]
+fn ability_chain_rank_narrows_to_uint8_without_saturating() {
+    // SpellMgr.cpp:1378 and SpellMgr.h:1892 use uint8 rank.
+    let spells = (1..=260).map(|id| (id, [0; 25])).collect();
+    let mut talent = vec![0; 21];
+    talent[4] = 1;
+    talent[5] = 2;
+    let abilities = (1..=260)
+        .map(|id| {
+            let mut w = vec![0; 15];
+            w[2] = id;
+            if id < 260 {
+                w[8] = id + 1;
+            }
+            (id, w)
+        })
+        .collect();
+    let loaded = chains(
+        &spells,
+        &BTreeMap::from([(1, talent)]),
+        &abilities,
+        &table("spell_chain", &[]),
+    )
+    .unwrap();
+    assert_eq!(loaded.nodes[&255][2], 255);
+    assert_eq!(loaded.nodes[&256][2], 0);
+    assert_eq!(loaded.nodes[&257][2], 1);
+}
+
+#[test]
+fn loaded_chain_traversal_uses_libstdcpp_insertion_order() {
+    // SpellMgr.h:1895 and SpellMgr.cpp:1595-1605 traverse unordered_map.
+    let spells = BTreeMap::from([(1, [0; 25]), (2, [0; 25]), (3, [0; 25])]);
+    let sql = table(
+        "spell_chain",
+        &[
+            json!({"spell_id":1,"prev_spell":0,"first_spell":1,"rank":1,"req_spell":0}),
+            json!({"spell_id":2,"prev_spell":1,"first_spell":1,"rank":2,"req_spell":0}),
+            json!({"spell_id":3,"prev_spell":1,"first_spell":1,"rank":2,"req_spell":0}),
+        ],
+    );
+    let loaded = chains(&spells, &BTreeMap::new(), &BTreeMap::new(), &sql).unwrap();
+    assert_eq!(loaded.order, [3, 2, 1]);
+    assert_eq!(loaded.nodes.keys().copied().collect::<Vec<_>>(), [1, 2, 3]);
+}

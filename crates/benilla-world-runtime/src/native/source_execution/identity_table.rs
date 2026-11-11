@@ -15,7 +15,7 @@ struct Node<V> {
     next: Option<usize>,
 }
 #[derive(Debug)]
-pub(super) struct IdentityTable<V> {
+pub(crate) struct IdentityTable<V> {
     head: Option<usize>,
     nodes: Vec<Node<V>>,
     free: Vec<usize>,
