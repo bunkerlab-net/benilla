@@ -1618,3 +1618,35 @@ foreign F5/F6 state or restore. Checkpoints and continuation refuse until F7.
 The output-only comparator reports the first mismatch or exhaustion in either
 stream. Expected observations never enter dispatch. No State, Profile,
 TickRecord, native format or capability change occurs.
+
+## Source threat and combat calls
+
+`native::source_execution::SourceThreats` retains per-Unit online/offline lists,
+current victim, dirty order, reverse references and construction generations.
+It ports CMaNGOS Classic `8ec338a1` `Combat/ThreatManager.cpp:108-197,250-424,446-659`
+and `Combat/HostileRefManager.cpp:39-152`. Stable ties, taunt/fixate, suppression,
+rooted melee priority and strict binary32 110%/130% switching follow the source.
+The pinned manager has no threat-redirection body, `ThreatManager.cpp:446-488`.
+Pet-master zero entries are separate live references, not player-only threat.
+
+EventAI actions 13 and 14 call that owner at `CreatureEventAI.cpp:830-847`.
+Zone combat is a separate Unit/map operation and remains refused.
+`SourceCombat` preserves mutable damage callback order, death-prevention
+notification and clamping, damage-caused threat and linking suicide's direct
+INSTAKILL call, `Entities/Unit.cpp:865-1016,1203-1220`,
+`AI/BaseAI/CreatureAI.cpp:102-114`. It reuses the existing melee decision kernel,
+not a second damage calculator. Unit fields, aura/spell calculations, actual
+Kill, motion and geometry still need their named execution owners.
+
+Diagnostic state version one includes every threat reference's GUID, optional
+live generation, amount, accessibility, suppression/toggle, taunt and fade,
+both list orders, current victim, dirty bit, reverse-link order and the combat
+death-prevented latch. Validation checks live generations and reciprocal links.
+This component state is not serialized native continuation. F7 restore,
+format 91, NativeCapability and frozen-unsealed F1 are unchanged.
+
+Typed refusals preserve reached undefined source operations: decrementing an
+empty threat-list end, absent offline lookup dereference, EventAI's erased
+range-loop iterator, a concrete nontransitive NaN sort order, null helpful
+spell dereference and signed INT_MIN damage negation. Unsigned zero-health
+death-prevention subtraction wraps rather than refusing.

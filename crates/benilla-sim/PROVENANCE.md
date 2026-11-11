@@ -1651,3 +1651,15 @@ Authored source-numeric fixtures and receipts live in
 `tools/fixtures/source_formations` and `tools/fixtures/source_formation_path`.
 The follow oracle uses analytic geometry without reaching PathFinder's
 uninitialised-distance reads. No database or installation rows are included.
+
+## Unbounded threat arithmetic
+
+`creature_ai/hostile_reference.rs` additionally translates
+`Combat/ThreatManager.cpp:108-123,398-406` and `ThreatManager.h:68-72`
+at CMaNGOS Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`.
+The CMaNGOS contributors' GPL-2.0-or-later grant applies. The Rust
+translation and authored tests are GPL-3.0-or-later.
+Pure `ThreatValue` reducers retain IEEE binary32 bits, including subnormals
+and infinities, with software round-to-nearest-even after each operation.
+The existing bounded solo HostileReferences and its persisted policy are
+unchanged. Runtime owns multiple live references and dependent callbacks.

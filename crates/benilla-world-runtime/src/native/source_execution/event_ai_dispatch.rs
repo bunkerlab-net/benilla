@@ -51,6 +51,9 @@ pub enum EventAiFriendlyQuery {
 /// Dependent owners execute at the reached operation. Defaults never report success.
 /// F5.04 owns Unit/base AI, F5.07+ spells, F6 geometry, later presentation rows output.
 pub trait EventAiExecutionOwner: CreatureRandom {
+    fn threat_context(&mut self) -> Result<ThreatContext<'_>> {
+        Err(refuse("execution.threat.f5_04b_unit_fields_owner"))
+    }
     fn unit(&mut self, _unit: ObjectHandle) -> Result<EventAiUnit> {
         Err(refuse("execution.event_ai.f5_04_unit_owner"))
     }

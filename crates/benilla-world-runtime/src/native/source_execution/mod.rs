@@ -27,7 +27,15 @@ mod event_ai_actions;
 pub use event_ai_actions::*;
 #[cfg(test)]
 mod event_ai_dispatch_tests;
+mod threat;
+pub use threat::*;
+mod combat;
+pub use combat::*;
+#[cfg(test)]
+mod combat_tests;
 mod seal8_active;
+#[cfg(test)]
+mod threat_tests;
 pub use seal8_active::{compare_seal8_unsealed_active, Seal8ActiveDifference, Seal8ActiveReport};
 #[cfg(test)]
 mod active_tests;

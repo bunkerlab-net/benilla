@@ -2,7 +2,7 @@ use super::*;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 
-fn state() -> SourceEventAi {
+pub(super) fn state() -> SourceEventAi {
     let mut objects = SourceObjects::default();
     let object = objects.construct(1, SourceObjectKind::Creature).unwrap();
     let mut registry = AiRegistryBuilder::builtin();
@@ -998,7 +998,7 @@ fn unavailable_basic_and_dependent_owners_never_report_success() {
         ),
         (11, [7, 0, 0], "execution.event_ai.f5_07_spell_owner"),
         (12, [7, 0, 0], "execution.event_ai.f5_15_summon_owner"),
-        (13, [7, 0, 0], "execution.event_ai.f5_04_threat_owner"),
+        (13, [7, 0, 0], "execution.threat.f5_04b_unit_fields_owner"),
         (21, [7, 0, 0], "execution.event_ai.f5_05_motion_owner"),
         (15, [7, 0, 0], "execution.event_ai.f5_24_quest_owner"),
     ] {

@@ -229,3 +229,142 @@ impl HostileReferences {
         Ok(())
     }
 }
+
+/// Unrestricted IEEE binary32 threat arithmetic, rounded after each source operation.
+/// Unlike the bounded solo `Real`, this also retains subnormals and infinities.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ThreatValue(u32);
+impl ThreatValue {
+    pub const ZERO: Self = Self(0);
+    pub const fn from_bits(bits: u32) -> Self {
+        Self(bits)
+    }
+    pub const fn bits(self) -> u32 {
+        self.0
+    }
+    fn value(self) -> rustc_apfloat::ieee::Single {
+        use rustc_apfloat::Float;
+        rustc_apfloat::ieee::Single::from_bits(u128::from(self.0))
+    }
+    pub fn from_u32(value: u32) -> Self {
+        use rustc_apfloat::Float;
+        Self(
+            rustc_apfloat::ieee::Single::from_u128(u128::from(value))
+                .value
+                .to_bits() as u32,
+        )
+    }
+    pub fn from_i32(value: i32) -> Self {
+        use rustc_apfloat::Float;
+        Self(
+            rustc_apfloat::ieee::Single::from_i128(i128::from(value))
+                .value
+                .to_bits() as u32,
+        )
+    }
+    pub fn add_value(self, other: Self) -> Self {
+        use rustc_apfloat::Float;
+        Self((self.value() + other.value()).value.to_bits() as u32)
+    }
+    pub fn multiply(self, other: Self) -> Self {
+        use rustc_apfloat::Float;
+        Self((self.value() * other.value()).value.to_bits() as u32)
+    }
+    pub fn divide(self, other: Self) -> Self {
+        use rustc_apfloat::Float;
+        Self((self.value() / other.value()).value.to_bits() as u32)
+    }
+    pub fn negative(self) -> Self {
+        Self(self.0 ^ 0x8000_0000)
+    }
+    pub fn greater(self, other: Self) -> bool {
+        self.value() > other.value()
+    }
+    pub fn less(self, other: Self) -> bool {
+        self.value() < other.value()
+    }
+    pub fn is_zero(self) -> bool {
+        self.0 & 0x7fff_ffff == 0
+    }
+    pub fn is_nan(self) -> bool {
+        self.0 & 0x7fff_ffff > 0x7f80_0000
+    }
+    /// ThreatManager.h:68-72, multiply before divide, with exact -100 cancellation.
+    pub fn percent_delta(self, percent: i32) -> Self {
+        if percent == -100 {
+            self.negative()
+        } else {
+            self.multiply(Self::from_i32(percent))
+                .divide(Self::from_u32(100))
+        }
+    }
+}
+
+/// HostileReference::addThreat, ThreatManager.cpp:108-123.
+/// Returns both the resulting amount and the clamped event delta.
+pub fn add_threat_value(before: ThreatValue, mut delta: ThreatValue) -> (ThreatValue, ThreatValue) {
+    if delta.add_value(before).less(ThreatValue::ZERO) {
+        delta = before.negative();
+    }
+    (before.add_value(delta), delta)
+}
+
+/// ThreatManager.cpp:398-406, strict binary32 110%/130% comparisons.
+pub fn threat_switch(current: ThreatValue, challenger: ThreatValue, melee: bool) -> bool {
+    let low = ThreatValue::from_bits(0x3f8c_cccd).multiply(current);
+    if !challenger.greater(low) {
+        return false;
+    }
+    challenger.greater(ThreatValue::from_bits(0x3fa6_6666).multiply(current)) || melee
+}
+
+#[cfg(test)]
+mod threat_tests {
+    use super::*;
+
+    #[test]
+    fn source_binary32_switch_boundaries_are_strict() {
+        let current = ThreatValue::from_u32(100);
+        // ThreatManager.cpp:398, binary32 1.1f * 100.f rounds to 110.f.
+        let low = ThreatValue::from_bits(0x42dc_0000);
+        assert!(!threat_switch(current, low, true));
+        assert!(threat_switch(
+            current,
+            ThreatValue::from_bits(0x42dc_0001),
+            true
+        ));
+        assert!(!threat_switch(current, ThreatValue::from_u32(130), false));
+        assert!(threat_switch(
+            current,
+            ThreatValue::from_bits(0x4302_0001),
+            false
+        ));
+    }
+
+    #[test]
+    fn source_percent_preserves_operation_order_exact_cancel_and_ieee_values() {
+        let before = ThreatValue::from_u32(7);
+        let (zero, delta) = add_threat_value(before, before.percent_delta(-100));
+        assert!(zero.is_zero());
+        assert_eq!(delta.bits(), 0xc0e00000);
+        let (clamped, delta) = add_threat_value(before, ThreatValue::from_i32(-9));
+        assert!(clamped.is_zero());
+        assert_eq!(delta.bits(), 0xc0e00000);
+        assert_eq!(
+            ThreatValue::from_bits(1)
+                .add_value(ThreatValue::from_bits(1))
+                .bits(),
+            2
+        );
+        assert_eq!(
+            ThreatValue::from_bits(0x7f7fffff)
+                .multiply(ThreatValue::from_u32(2))
+                .bits(),
+            0x7f800000
+        );
+        assert_eq!(
+            ThreatValue::from_u32(100).percent_delta(10).bits(),
+            0x41200000
+        );
+    }
+}

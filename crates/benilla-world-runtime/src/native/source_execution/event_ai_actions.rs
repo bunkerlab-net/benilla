@@ -12,7 +12,8 @@ pub fn event_ai_action_owner(kind: u16) -> &'static str {
         5 | 10 => "execution.event_ai.presentation_emote_owner",
         11 | 60 => "execution.event_ai.f5_07_spell_owner",
         12 | 32 | 56 => "execution.event_ai.f5_15_summon_owner",
-        13 | 14 | 38 => "execution.event_ai.f5_04_threat_owner",
+        13 | 14 => "execution.threat.f5_04b_unit_fields_owner",
+        38 => "execution.event_ai.f5_04b_zone_combat_owner",
         15 | 16 | 26 | 27 | 33 => "execution.event_ai.f5_24_quest_owner",
         21 | 25 | 29 | 48 | 51 | 58 | 59 | 64 | 65 => "execution.event_ai.f5_05_motion_owner",
         28 => "execution.event_ai.f5_12_aura_owner",
@@ -79,6 +80,33 @@ impl SourceEventAi {
                         owner.emote(creature, value as u32)?;
                     }
                 }
+            }
+            13 => {
+                if let Some(target) = self.action_target(p[1], call, event_target, owner)? {
+                    let context = owner.threat_context()?;
+                    if p[2] != 0 {
+                        context.state.add(
+                            creature,
+                            Some(target),
+                            ThreatValue::from_i32(p[0] as i32),
+                            false,
+                            0,
+                            None,
+                            context.owner,
+                        )?;
+                    } else {
+                        let guid = context.owner.threat_unit(target)?.guid;
+                        context
+                            .state
+                            .modify_percent(creature, guid, p[0] as i32, context.owner)?;
+                    }
+                }
+            }
+            14 => {
+                let context = owner.threat_context()?;
+                context
+                    .state
+                    .event_ai_all_percent(creature, p[0] as i32, context.owner)?;
             }
             18 | 19 => {
                 if let Some(target) = self.action_target(p[1], call, event_target, owner)? {
