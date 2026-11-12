@@ -127,6 +127,12 @@ pub use startup_items::*;
 #[path = "geometry/terrain_manager.rs"]
 mod terrain_manager;
 pub use terrain_manager::*;
+#[path = "geometry/vmap_manager.rs"]
+mod vmap_manager;
+pub use vmap_manager::*;
+#[path = "geometry/vmap_scene.rs"]
+mod vmap_scene;
+pub use vmap_scene::*;
 #[cfg(test)]
 mod terrain_startup_census;
 #[cfg(test)]

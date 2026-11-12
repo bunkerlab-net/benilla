@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! TerrainManager and cold map-only TerrainInfo execution, not geometry admission.
+//! TerrainManager and TerrainInfo with live VMap lifetime, not geometry admission.
 use super::identity_table::IdentityTable;
 use super::*;
 use benilla_native_terrain::grid_area::{AreaData, AreaReadError, FlagSearch};
@@ -112,85 +112,6 @@ impl SourceTerrainDbc {
     }
 }
 
-/// VMapManager2.cpp:36-38,76-83,258-269. Construction installs no tree.
-pub struct SourceVMapManager {
-    created: bool,
-    thread_safe: bool,
-    los_enabled: bool,
-    height_enabled: bool,
-    trees: BTreeMap<u32, Option<u64>>,
-    pub configuration: Option<(Sha256Id, [usize; 2])>,
-}
-impl Default for SourceVMapManager {
-    fn default() -> Self {
-        Self {
-            created: false,
-            thread_safe: true,
-            los_enabled: true,
-            height_enabled: true,
-            trees: BTreeMap::new(),
-            configuration: None,
-        }
-    }
-}
-impl SourceVMapManager {
-    pub fn created(&self) -> bool {
-        self.created
-    }
-    pub fn loaded_trees(&self) -> usize {
-        self.trees.values().filter(|tree| tree.is_some()).count()
-    }
-    pub fn thread_safe(&self) -> bool {
-        self.thread_safe
-    }
-    pub fn map_slots(&self) -> usize {
-        self.trees.len()
-    }
-    pub fn settings(&self) -> [bool; 2] {
-        [self.los_enabled, self.height_enabled]
-    }
-    fn has_tree(&self, map: u32) -> bool {
-        self.trees.get(&map).is_some_and(Option::is_some)
-    }
-    /// World.cpp:817-824,912-919; seal16-full-01/mangosd.conf:265-266.
-    pub fn initialize_recorded_world(
-        &mut self,
-        maps: impl IntoIterator<Item = u32>,
-        bytes: &[u8],
-        approved: &Sha256Id,
-    ) -> Result<()> {
-        require(
-            Sha256Id::of(bytes) == *approved,
-            "execution.terrain.vmap_config_identity",
-        )?;
-        let (los_line, los) = super::spawn_loader_config::assignment(bytes, "vmap.enableLOS")?;
-        let (height_line, height) =
-            super::spawn_loader_config::assignment(bytes, "vmap.enableHeight")?;
-        let enabled = |value: &str| {
-            value == "1" || value.eq_ignore_ascii_case("true") || value.eq_ignore_ascii_case("yes")
-        };
-        self.created = true;
-        self.los_enabled = enabled(&los);
-        self.height_enabled = enabled(&height);
-        self.configuration = Some((approved.clone(), [los_line, height_line]));
-        for map in maps {
-            self.trees.entry(map).or_insert(None);
-        }
-        self.thread_safe = false;
-        Ok(())
-    }
-    fn area_info(&self, map: u32) -> Result<()> {
-        require(
-            !self.has_tree(map),
-            "execution.terrain.live_vmap_area_owner",
-        )
-    }
-    #[cfg(test)]
-    pub(super) fn install_tree(&mut self, map: u32, generation: u64) {
-        self.trees.insert(map, Some(generation));
-    }
-}
-
 /// GridMap.cpp:43-69. Default storage is real even when fopen fails.
 #[derive(Debug)]
 pub struct SourceGridMap {
@@ -299,6 +220,18 @@ impl SourceGridMap {
         }
         Ok(grid)
     }
+    fn area_occlusion_height(&self) -> Result<f32> {
+        if let Some(bytes) = &self.bytes {
+            let offset = word(bytes, 16)? as usize;
+            if offset != 0 {
+                require(
+                    word(bytes, offset + 4)? & 1 != 0,
+                    "execution.terrain.nonflat_area_occlusion_height_owner",
+                )?;
+            }
+        }
+        Ok(self.flat_height)
+    }
     pub fn area(&self, x: f32, y: f32) -> Result<u16> {
         self.areas
             .get(x, y)
@@ -325,15 +258,28 @@ impl SourceTerrainInfo {
         pose: [f32; 3],
         map_only: bool,
         files: &SourceTerrainFiles,
+        vmap: &mut SourceVMapManager,
     ) -> Result<TerrainTileIdentity> {
         let grids = &mut self.grids;
         self.residency
             .query_terrain_at([pose[0].to_bits(), pose[1].to_bits()], map_only, |c| {
+                // GridMap.cpp:1243-1247 checks both loaders before allocation,
+                // even for mapOnly when no GridMap exists yet.
+                if !(map_only && grids.contains_key(&(c.x, c.y)))
+                    && vmap.is_tile_loaded(map, c.x, c.y)
+                {
+                    return Err(refuse("execution.terrain.mmap_tile_loaded_owner"));
+                }
                 if let std::collections::btree_map::Entry::Vacant(entry) = grids.entry((c.x, c.y)) {
                     entry.insert(SourceGridMap::load(files.read((map, c.x, c.y))?)?);
                 }
-                // Actual missing owner, after map allocation, before VMap/MMap loading.
-                require(map_only, "execution.terrain.vmap_tile_load_owner")?;
+                if !map_only {
+                    if !vmap.is_tile_loaded(map, c.x, c.y) {
+                        vmap.load_map(map, c.x, c.y)?;
+                    }
+                    // GridMap.cpp:1299-1302 is reached after the real VMap load.
+                    return Err(refuse("execution.terrain.mmap_tile_load_owner"));
+                }
                 Ok(TerrainQueryLoad {
                     present: true,
                     fully_loaded: false,
@@ -351,6 +297,7 @@ pub struct SourceTerrainManager {
     mmap_created: bool,
     pub files: SourceTerrainFiles,
     pub dbc: SourceTerrainDbc,
+    pub wmo_areas: vmap_scene::SourceWmoAreas,
 }
 impl SourceTerrainManager {
     pub fn new(files: SourceTerrainFiles, dbc: SourceTerrainDbc) -> Self {
@@ -411,7 +358,17 @@ impl SourceTerrainManager {
     }
     pub fn zone_and_area(&mut self, map: u32, pose: [f32; 3]) -> Result<[u32; 2]> {
         require(self.terrain(map).is_some(), "execution.terrain.info_owner")?;
-        self.vmap.area_info(map)?;
+        if let Some(area) = self.vmap.area_info(map, pose)? {
+            // GridMap.cpp:904-918 calls full GetGrid before terrain occlusion.
+            let tile = self.query_grid(map, pose, false)?;
+            let grid = self.terrain(map).unwrap().grid(tile.x, tile.y).unwrap();
+            let height = grid.area_occlusion_height()?;
+            if !vmap_scene::area_hidden_by_terrain(pose[2], height, area.floor) {
+                if let Some(flag) = self.wmo_areas.flag(area, &self.dbc.areas, map)? {
+                    return Ok(self.dbc.location(map, flag));
+                }
+            }
+        }
         let tile = self.query_grid(map, pose, true)?;
         let grid = self.terrain(map).unwrap().grid(tile.x, tile.y).unwrap();
         Ok(self.dbc.location(map, grid.area(pose[0], pose[1])?))
@@ -425,7 +382,7 @@ impl SourceTerrainManager {
         self.terrains
             .get_mut(u64::from(map))
             .ok_or_else(|| refuse("execution.terrain.info_owner"))?
-            .query(map, pose, map_only, &self.files)
+            .query(map, pose, map_only, &self.files, &mut self.vmap)
     }
     pub fn add_ref(&mut self, map: u32) -> Result<()> {
         let info = self
@@ -444,10 +401,9 @@ impl SourceTerrainManager {
         Ok(info.references < 1)
     }
     fn destroy(&mut self, map: u32) -> Result<()> {
-        require(
-            !self.vmap.has_tree(map),
-            "execution.terrain.vmap_map_unload_owner",
-        )?;
+        // GridMap.cpp:716-724 destroys GridMaps before releasing map geometry.
+        self.terrains.get_mut(u64::from(map)).unwrap().grids.clear();
+        self.vmap.unload_map(map);
         self.terrains.erase(u64::from(map));
         // GridMap.cpp:716-724 obtains the still-empty MMap singleton after VMap unload.
         self.mmap_created = true;
@@ -473,7 +429,7 @@ impl SourceTerrainManager {
             let info = self.terrains.get_mut(map).unwrap();
             let mut cleanup = ColdCleanup {
                 grids: &mut info.grids,
-                vmap: &self.vmap,
+                vmap: &mut self.vmap,
                 mmap_created: &mut self.mmap_created,
             };
             info.residency.cleanup(diff, &mut cleanup)?;
@@ -483,7 +439,7 @@ impl SourceTerrainManager {
 }
 struct ColdCleanup<'a> {
     grids: &'a mut BTreeMap<(u16, u16), SourceGridMap>,
-    vmap: &'a SourceVMapManager,
+    vmap: &'a mut SourceVMapManager,
     mmap_created: &'a mut bool,
 }
 impl GridProductOwner for ColdCleanup<'_> {
@@ -508,10 +464,7 @@ impl TerrainResidencyOwner for ColdCleanup<'_> {
             TerrainCleanupPhase::DeleteGridMap => {
                 self.grids.remove(&(tile.x, tile.y));
             }
-            TerrainCleanupPhase::UnloadVMap => require(
-                !self.vmap.has_tree(tile.map),
-                "execution.terrain.vmap_tile_unload_owner",
-            )?,
+            TerrainCleanupPhase::UnloadVMap => self.vmap.unload_tile(tile.map, tile.x, tile.y)?,
             TerrainCleanupPhase::UnloadMMap => *self.mmap_created = true,
         }
         Ok(())

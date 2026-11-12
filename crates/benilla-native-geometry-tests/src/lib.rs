@@ -13,6 +13,9 @@ mod source_navigation;
 #[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_vmap.rs"]
 mod source_vmap;
 
+#[allow(dead_code)] // Exact production owner inclusion, matching this harness's app kernel tests.
+#[path = "../../benilla-native-vmap/src/live/mod.rs"]
+mod source_live_vmap;
 #[path = "../../benilla-world/src/terrain_stream/native_coverage/static_mesh.rs"]
 mod static_mesh;
 

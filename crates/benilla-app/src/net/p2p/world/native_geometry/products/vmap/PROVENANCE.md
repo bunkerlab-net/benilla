@@ -23,6 +23,12 @@ Kulla, copyright 2003–2007.
 [Detour's notice](../DETOUR-NOTICE.txt) is retained; no Detour implementation is linked.
 No install assets, database content, or native executable are included.
 
+The app now includes the single math and BIH implementation from
+`benilla-native-vmap/src/live/{math,bih}.rs`. The stricter snapshot contract
+below remains unchanged. The separate live manager preserves source
+residency and shared flags, but refuses nonzero rotations until the glibc
+2.36 FMA trig port is exact. See that crate's `PROVENANCE.md`.
+
 ## Loading and bounds
 
 `InventoriedProducts::load_static_vmap` consumes only the immutable, hash-bound product

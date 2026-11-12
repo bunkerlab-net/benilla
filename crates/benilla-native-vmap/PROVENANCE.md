@@ -91,11 +91,71 @@ The Rust writer never generates its own expected oracle outputs.
 Additional tests cover every truncated input prefix, invalid profile, index
 counts/ranges, nonfinite and unused vertices, signed zeros and subnormals,
 source offset overflow, allocation-size arithmetic and both count ceilings.
-The independent assembler and `.vmo` reader/query evidence lives in the
-geometry test crate; this crate does not assemble or load those products.
+The independent assembler and `.vmo` component-query evidence lives in the
+geometry test crate. Raw serialization alone does not establish a source
+lease, gameplay admission or complete production geometry.
 
-There is no CLI, filesystem, archive acquisition, ADT/WMO discovery, instance
-transform, map-tree assembly, MMap generation, source lease or gameplay
-admission here. Matching this raw serialization is a bounded source
-compatibility prerequisite, not evidence of complete production geometry or
-playable-world coverage.
+## Live static owners
+
+`live::Manager` reads retained diagnostic `VMAP_7.0` products. It owns map
+trees, logical tile entries, first-installed instances and filename-keyed
+WorldModels. Queries borrow those owners, not a canonical resident snapshot.
+CMaNGOS 8ec338a1 `VMapManager2.cpp:97-183,310-346` and
+`MapTree.cpp:272-493` define load, flags, references, unload and reload.
+Known fopen absence differs from an unavailable native product. Source bytes
+cannot change after observation.
+
+Non-tiled global models and source `map,y,x.vmtile` names are retained.
+Repeated slots retain their first instance but acquire another shared model
+reference and overwrite its flags. Source last-logical-tile deletion on a
+non-tiled map leaks the global model reference because the destructor does
+not call UnloadMap, `VMapManager2.cpp:176-180`, `MapTree.cpp:133-136`.
+Unloaded instance storage stays allocated until replacement or tree deletion,
+`ModelInstance.h:69`. Authored tests cover these branches.
+
+The app includes the single shared `live/{math,bih}.rs` implementation.
+Its stricter immutable component contract is unchanged. The retained
+[BIH notice](../benilla-app/src/net/p2p/world/native_geometry/products/vmap/BIH-NOTICE.txt)
+credits Christopher Kulla's Sunflow MIT/X11 work. G3D's
+[Modified BSD notice](../benilla-native-geometry-tests/tools/vmap_G3D_LICENSE.cpp.txt)
+also applies. The new source decoder retains source tree/group/triangle order,
+strict triangle intervals and independent area floor/metadata writes,
+`WorldModel.cpp:35-85,379-390,428-513`, `ModelInstance.cpp:35-153`.
+
+Basic operations use separate native IEEE RNE arithmetic on x86-64. A
+read-only MXCSR check refuses other rounding modes, FTZ and DAZ. No host
+transcendental function supplies an answer. Signed-zero Euler identities are
+exact. All nonzero rotations remain refused, not approximated.
+
+An exhaustive comparison of all 2^32 input encodings against glibc 2.36
+checked all 2,213,980,068 inputs accepted by the existing assembler trig
+domain. FMA sinf had zero differences and FMA cosf had ten. The first input,
+`418a3adb`, returns `b7b4f770` in glibc versus `b7b4f76f` in the existing
+Rust port. Masking FMA/AVX2 produced zero sinf/cosf differences over that
+entire accepted domain. This proves only the accepted-domain non-FMA match,
+not the required FMA binding. NaN encodings, infinities and finite inputs
+outside the port's domain remain separately classified refusals.
+
+The exact private receipt is
+`benilla-config/full-server/f6/trig-exhaustive/receipt.json`.
+The existing port remains unchanged. Diagnostic products contain 704,523
+nonzero angle occurrences inside that domain and one outside it.
+`NumericBinding` and `RotationDomain` retain separate reasons. Equality at
+the source's unchecked slot boundary and missing model bounds have typed
+undefined-operation refusals, with authored boundary tests. Their diagnostic
+stock-reach counts are both zero. No new extraction or reference recording
+occurred, and these historical products are not D1 acceptance evidence.
+
+TerrainInfo now uses this live manager. A positive WMO hit follows full
+GetGrid before terrain occlusion, `GridMap.cpp:904-918`. Missing MMap loading
+remains a later refusal, not a terrain-only shortcut. Map-only startup misses
+keep their existing calculation. Native format remains 91.
+
+TerrainInfo retains the early both-loaded predicate at
+`GridMap.cpp:1243-1247`. An already loaded VMap tile reaches the missing MMap
+loaded-tile lookup before GridMap allocation unless an existing GridMap
+short-circuits a map-only call. The predicate is not assumed false.
+
+Model handles bind to their live canonical name allocation and generation.
+Matching filename bytes and counters from another manager do not authorise
+a query. A retained handle keeps name bytes alive, not collision geometry.

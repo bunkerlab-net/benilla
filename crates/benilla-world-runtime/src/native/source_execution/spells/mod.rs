@@ -18,6 +18,8 @@ pub use unit_event_owner::*;
 #[cfg(test)]
 mod census_tests;
 #[cfg(test)]
+mod geometry_tests;
+#[cfg(test)]
 mod tests;
 
 /// Exact live scalar operands, not a pristine-caster assumption.
@@ -189,7 +191,12 @@ pub trait SpellExecutionOwner {
         Err(call.missing_owner())
     }
     /// Spell.cpp:5098. This must bind the F6 live-object query, never map-only area.
-    fn zone_area(&mut self, _caster: ObjectHandle) -> Result<[u32; 2]> {
+    fn zone_area(&mut self, caster: ObjectHandle) -> Result<[u32; 2]> {
+        let (objects, terrain) = self.terrain_geometry()?;
+        terrain.object_zone_and_area(objects, caster)
+    }
+    /// Borrow the real F3 object and F6 geometry owners. No caller-supplied pose.
+    fn terrain_geometry(&mut self) -> Result<(&SourceObjects, &mut SourceTerrainManager)> {
         Err(refuse(
             "execution.spells.f6_WorldObject_GetZoneAndAreaId_owner",
         ))

@@ -9,10 +9,28 @@ fn fields(name: &str) -> Result<&'static [u32]> {
         _ => Err(fail("terrain.dbc_not_allowed")),
     }
 }
+fn wmo_fields(name: &str) -> Result<&'static [u32]> {
+    match name {
+        "WMOAreaTable.dbc" => Ok(&[0, 1, 2, 3, 9, 10]),
+        _ => Err(fail("terrain.wmo_dbc_not_allowed")),
+    }
+}
 impl VerifiedCatalog {
     /// Last physical duplicate wins, as DBCFileLoader::AutoProduceData does.
     pub(crate) fn execution_terrain_dbc(&mut self, name: &str) -> Result<Vec<Vec<u32>>> {
         let fields = fields(name)?;
+        self.execution_geometry_dbc_fields(name, fields)
+    }
+    /// F2.6 WMOAreaTable fields, DBCStructure.h:1026-1038.
+    pub(crate) fn execution_wmo_area_dbc(&mut self, name: &str) -> Result<Vec<Vec<u32>>> {
+        let fields = wmo_fields(name)?;
+        self.execution_geometry_dbc_fields(name, fields)
+    }
+    fn execution_geometry_dbc_fields(
+        &mut self,
+        name: &str,
+        fields: &[u32],
+    ) -> Result<Vec<Vec<u32>>> {
         let mut view = self.dbc_view(name)?;
         let mut entries = BTreeMap::new();
         for ordinal in 0..view.record_count() {
@@ -44,6 +62,23 @@ mod tests {
         );
         assert_eq!(
             super::fields("creature").unwrap_err().id,
+            "terrain.dbc_not_allowed"
+        );
+    }
+    #[test]
+    fn wmo_reader_refuses_other_tables_without_expanding_terrain_reader() {
+        assert_eq!(
+            super::wmo_fields("WMOAreaTable.dbc").unwrap(),
+            [0, 1, 2, 3, 9, 10]
+        );
+        for name in ["AreaTable.dbc", "Map.dbc", "Spell.dbc", "creature"] {
+            assert_eq!(
+                super::wmo_fields(name).unwrap_err().id,
+                "terrain.wmo_dbc_not_allowed"
+            );
+        }
+        assert_eq!(
+            super::fields("WMOAreaTable.dbc").unwrap_err().id,
             "terrain.dbc_not_allowed"
         );
     }

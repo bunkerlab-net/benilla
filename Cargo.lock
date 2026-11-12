@@ -1185,6 +1185,7 @@ dependencies = [
  "benilla-formats",
  "benilla-native-nav",
  "benilla-native-terrain",
+ "benilla-native-vmap",
  "benilla-sim",
  "benilla-world-data",
  "libc",

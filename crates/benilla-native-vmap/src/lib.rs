@@ -11,6 +11,7 @@
 
 mod bih;
 mod error;
+pub mod live;
 mod model_writer;
 mod source_model_name;
 pub use source_model_name::{SourceModelName, SourceModelNameError};

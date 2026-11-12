@@ -114,10 +114,19 @@ fn constructor_rejection_span_and_map_only_queries_need_no_map_identity() {
     assert_eq!(info.residency.reference_count(32, 32).unwrap(), 0);
     assert!(info.residency.load_attempted(32, 32).unwrap());
     let tile = info.residency.tile(32, 32).unwrap();
+    manager
+        .vmap
+        .collision
+        .files
+        .observe(b"000.vmtree", benilla_native_vmap::live::FileState::Absent)
+        .unwrap();
     assert_eq!(
         manager.query_grid(0, [0.0; 3], false).unwrap_err().id,
-        "execution.terrain.vmap_tile_load_owner"
+        "execution.terrain.mmap_tile_load_owner"
     );
+    // VMapManager2.cpp:123-141 attempted the map before GridMap.cpp:1299.
+    assert_eq!(manager.vmap.map_slots(), 1);
+    assert!(!manager.vmap.has_tree(0));
     assert_eq!(
         manager.terrain(0).unwrap().residency.tile(32, 32).unwrap(),
         tile
@@ -269,19 +278,53 @@ fn timer_wrap_cleanup_and_reference_history_do_not_force_evict() {
     assert!(manager.is_empty());
 }
 #[test]
-fn loaded_vmap_tree_refuses_before_terrain_query_instead_of_reusing_cold_answer() {
-    // VMapManager2.cpp:258-269 reaches a tree query only when one exists.
+fn loaded_vmap_area_advances_to_mmap_after_real_point_query() {
+    // VMapManager2.cpp:258-269; GridMap.cpp:904-918,1243-1247.
     let mut manager = SourceTerrainManager::default();
     let mut mt = Mt19937::from_seed(1);
     let mut cursor = DrawCursor::default();
     let mut sink = |_| {};
     let mut random = SourceRandom::new(1, &mut mt, &mut cursor, &mut sink).unwrap();
     manager.load_terrain(0, &mut random).unwrap();
-    manager.vmap.install_tree(0, 1);
+    install_authored_wmo(&mut manager.vmap);
+    manager.files.retain_source_absence(0, 32, 32);
+    let pose = [0.0, 0.0, 10.0];
+    let area = manager.vmap.area_info(0, pose).unwrap().unwrap();
     assert_eq!(
-        manager.zone_and_area(0, [0.0; 3]).unwrap_err().id,
-        "execution.terrain.live_vmap_area_owner"
+        (area.root, area.adt, area.group, area.flags),
+        (17, 2, 23, 32)
     );
+    assert_eq!(area.floor.to_bits(), 0x35800000);
+    assert!(manager.terrain(0).unwrap().grid(32, 32).is_none());
+    assert_eq!(
+        manager.zone_and_area(0, pose).unwrap_err().id,
+        "execution.terrain.mmap_tile_loaded_owner"
+    );
+    assert!(manager.terrain(0).unwrap().grid(32, 32).is_none());
+    assert!(!manager
+        .terrain(0)
+        .unwrap()
+        .residency
+        .load_attempted(32, 32)
+        .unwrap());
+}
+#[test]
+fn loaded_vmap_miss_still_reaches_early_mmap_lookup_for_new_map_only_grid() {
+    // GridMap.cpp:1243-1247 does not skip its second operand for mapOnly.
+    let mut manager = SourceTerrainManager::default();
+    let mut mt = Mt19937::from_seed(1);
+    let mut cursor = DrawCursor::default();
+    let mut sink = |_| {};
+    let mut random = SourceRandom::new(1, &mut mt, &mut cursor, &mut sink).unwrap();
+    manager.load_terrain(0, &mut random).unwrap();
+    install_authored_wmo(&mut manager.vmap);
+    let pose = [-50.0, 0.0, 10.0];
+    assert!(manager.vmap.area_info(0, pose).unwrap().is_none());
+    assert_eq!(
+        manager.zone_and_area(0, pose).unwrap_err().id,
+        "execution.terrain.mmap_tile_loaded_owner"
+    );
+    assert!(manager.terrain(0).unwrap().grid(32, 32).is_none());
     assert!(!manager
         .terrain(0)
         .unwrap()
@@ -409,4 +452,78 @@ fn unload_all_preserves_source_hash_bucket_history_for_later_construction() {
     manager.load_terrain(0, &mut random).unwrap();
     assert_eq!(manager.bucket_count(), 29);
     assert_eq!(random.cursor().raw, 16);
+}
+
+fn install_authored_wmo(vmap: &mut SourceVMapManager) {
+    // Original numeric products, not install assets or acquired acceptance inputs.
+    use benilla_native_vmap::live::{to_internal, FileState, LoadResult};
+    fn words(bytes: &mut Vec<u8>, values: &[u32]) {
+        for word in values {
+            bytes.extend(word.to_le_bytes());
+        }
+    }
+    fn floats(bytes: &mut Vec<u8>, values: &[f32]) {
+        for value in values {
+            bytes.extend(value.to_le_bytes());
+        }
+    }
+    fn bih(bytes: &mut Vec<u8>, bounds: &[f32; 6]) {
+        floats(bytes, bounds);
+        words(bytes, &[3, 3 << 30, 1, 0, 1, 0]);
+    }
+    let mid = to_internal([0.0; 3]);
+    let world = [
+        mid[0] - 10.0,
+        mid[1] - 10.0,
+        -10.0,
+        mid[0] + 10.0,
+        mid[1] + 10.0,
+        20.0,
+    ];
+    let local = [-10.0, -10.0, -10.0, 10.0, 10.0, 20.0];
+    let mut tree = b"VMAP_7.0\x01NODE".to_vec();
+    bih(&mut tree, &world);
+    tree.extend(b"GOBJ");
+    let mut model = b"VMAP_7.0WMOD".to_vec();
+    words(&mut model, &[8, 17]);
+    model.extend(b"GMOD");
+    words(&mut model, &[1]);
+    floats(&mut model, &local);
+    words(&mut model, &[32, 23]);
+    model.extend(b"VERT");
+    words(&mut model, &[40, 3]);
+    floats(
+        &mut model,
+        &[-10.0, -10.0, 0.0, 10.0, -10.0, 0.0, 0.0, 10.0, 0.0],
+    );
+    model.extend(b"TRIM");
+    words(&mut model, &[16, 1, 0, 1, 2]);
+    model.extend(b"MBIH");
+    bih(&mut model, &local);
+    model.extend(b"LIQU");
+    words(&mut model, &[0]);
+    model.extend(b"GBIH");
+    bih(&mut model, &local);
+    let mut tile = b"VMAP_7.0".to_vec();
+    words(&mut tile, &[1, 4]);
+    tile.extend(2u16.to_le_bytes());
+    words(&mut tile, &[1]);
+    floats(&mut tile, &mid);
+    floats(&mut tile, &[0.0, 0.0, 0.0, 1.0]);
+    floats(&mut tile, &world);
+    words(&mut tile, &[8]);
+    tile.extend(b"test.wmo");
+    words(&mut tile, &[0]);
+    let products: [(&[u8], Vec<u8>); 3] = [
+        (b"000.vmtree", tree),
+        (b"000_32_32.vmtile", tile),
+        (b"test.wmo.vmo", model),
+    ];
+    for (name, bytes) in products {
+        vmap.collision
+            .files
+            .observe(name, FileState::Present(bytes.into()))
+            .unwrap();
+    }
+    assert_eq!(vmap.load_map(0, 32, 32).unwrap(), LoadResult::Ok);
 }
