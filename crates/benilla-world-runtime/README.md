@@ -2031,10 +2031,9 @@ Validated candidates are not a loaded map if any row refuses.
 input to `SourceWaypointPaths::load_catalog_with_db_scripts`.
 The global loader runs CheckDbscript only after complete relay and movement
 definitions load. Unvalidated definitions never become missing script IDs.
-`LoadScriptMap`'s other type-specific post-load diagnostics, script
-scheduling, command execution and F7 live continuation are not supplied.
-Immutable definitions add no serialized state. Format 91, NativeCapability
-and frozen-unsealed F1 remain unchanged.
+`LoadScriptMap`'s other type-specific post-load diagnostics and F7 live
+continuation remain unavailable. The executor below consumes only complete
+loaded maps. Format 91, NativeCapability and frozen-unsealed F1 stay unchanged.
 
 ## Source creature assistance
 
@@ -2079,8 +2078,8 @@ refuses unbound pointers, `Unit.h:1239-1245`. `SourceAiEventType` preserves
 every raw uint32 event number through capture, sending, and receiving.
 Owner decision 2026-11-12 records this Deviation from the non-fixed C++
 enum's 0 through 1023 range, `AIDefines.h:22-56`,
-`ScriptMgr.cpp:2759-2775`. Script7166 reaches that Deviation once a
-DB-script command executor exists. EventAI still skips action45 event
+`ScriptMgr.cpp:2759-2775`. The DB-script executor sends gossip script7166's
+raw event7166 through this receiver. EventAI still skips action45 event
 numbers at or above12 during loading, `CreatureEventAIMgr.cpp:909-913`.
 Null receiver AI dereferences refuse before callback delivery,
 `UnitAI.cpp:593,646`, `Creature.cpp:2210`. Map insertion precedes AI
@@ -2182,3 +2181,39 @@ raw word. `BENILLA_F2_SPAWN_OCCURRENCES` also exercises the real loader
 through its first terrain refusal. This diagnostic comparison does not
 seal F1 SQL occurrence identity or complete startup, spawn groups, or
 waypoint loading. Native format 91 and F1 evidence remain unchanged.
+
+## Source DB-script execution
+
+`SourceDbScriptExecutor` consumes immutable `SourceDbScriptMaps`. Zero-delay
+steps run inside `start`; delayed steps retain per-map deadlines and insertion
+order. The clock is the World's millisecond snapshot, `Map.cpp:83-85`,
+`Common.h:58-59`. Uniqueness includes the executing queued step. Processing
+uses inclusive deadlines, removes matching invocations on termination, and
+restarts at the earliest entry, `Map.cpp:2166-2276`. The source map calls it
+after grid updates and before instance updates, `Map.cpp:1023-1028`.
+`SourceDbScriptMapEnd` binds this queue to the existing Scripts phase and
+delegates the other map/weather owners without replacing them.
+
+GUID lookup, buddy precedence, direction flags, and source-major Cartesian
+dispatch follow `ScriptMgr.cpp:1309-1643,1704-1764`. Buddy searches retain
+source traversal order. The dead-entry search deliberately doesn't require
+dead state, `GridNotifiers.h:1329-1336`; a failed self-entry search carries
+the source null-buddy quirk, `ScriptMgr.cpp:1586-1589`.
+
+The command switch follows `ScriptMgr.cpp:1767-3346`. Text and emote
+selection retain source RNG calls, including singleton emotes. Command35
+uses `SourceAiEventType` and the existing assistance/EventAI receive paths.
+Relay commands use the declaration's default of no uniqueness checking,
+`Map.h:240`, despite the stale default comment in `Map.cpp:2166`.
+Unavailable spell, motion, geometry, quest, item, gossip, presentation, and
+live F4 bindings refuse at their reached dependency calls. Source-defined
+skips remain skips. No successful callback substitutes for an absent owner.
+
+The private catalog census separates complete loaded maps from whole maps
+whose loader refuses. It executes each eligible row against explicit
+authored object roles and reports effects/termination, source skips, and
+named refusals per command. It isn't a production invocation census or F1
+acceptance. Undefined pointer, enum, array, height-input, and clock domains
+have named refusals. Their data-only operand counts don't prove dynamic
+null/downcast reach absent. The queue inventory isn't F7 restore support.
+No persisted state changes; format 91 and NativeCapability stay unchanged.

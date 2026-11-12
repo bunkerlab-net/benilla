@@ -62,7 +62,7 @@ pub struct DbScriptRow {
 }
 impl DbScriptRow {
     // ScriptMgr.h:543-579. GO flag only affects these three commands.
-    fn creature_buddy(&self) -> bool {
+    pub(super) fn creature_buddy(&self) -> bool {
         match self.command {
             31 | 36 | 37 => self.flags & 0x400 == 0,
             9 | 11 | 12 | 13 | 27 | 40 | 43 => false,
