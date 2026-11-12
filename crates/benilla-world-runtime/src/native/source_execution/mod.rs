@@ -122,6 +122,8 @@ mod seal8_objects;
 #[cfg(test)]
 mod spawn_manager_tests;
 mod startup;
+mod startup_items;
+pub use startup_items::*;
 mod trace;
 mod world;
 pub use manager_inputs::*;

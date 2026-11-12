@@ -12,6 +12,7 @@ use std::{
 };
 mod reader;
 mod spawns;
+mod startup_items;
 pub use spawns::{diagnose_catalog_spawns, SpawnViews};
 pub use spawns::{ObjectMgrSpawnRow, ObjectMgrSpawnRows};
 mod groups;

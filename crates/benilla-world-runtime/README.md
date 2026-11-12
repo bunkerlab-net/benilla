@@ -2155,3 +2155,30 @@ with named undefined-behaviour errors, `ObjectMgr.h:603` and
 check at `:2267`, not an incoming-state check. These immutable diagnostic
 definitions change no persisted state. Native format 91 and the frozen,
 unsealed F1 evidence remain unchanged.
+
+## Source startup item RNG
+
+`SourceStartupItems` executes the RandomProperty validation prefix at
+`World.cpp:1003,1006`, pinned to `8ec338a1`. Enchantment rows retain query
+order and the strict chance filter, `ItemEnchantmentMgr.cpp:51-71`.
+Missing enchantment lists return zero without drawing, `:83-90`.
+Selection preserves float accumulation, strict comparisons, and the
+fallback's integer division, `:93-115`. Item validation visits ascending
+storage IDs and clears RandomProperty when the sampled enchantment is
+absent from ItemRandomProperties.dbc, `ObjectMgr.cpp:2563,2769-2773`.
+
+The catalog prefix borrows F3's existing `SourceRandom`. Its computed
+position can bind effective spawn selection at `World.cpp:1066`.
+The first terrain lookup refuses with
+`execution.startup_items.terrain_info_constructor_rng_owner`.
+`TerrainInfo` draws `urand(20,40)` and assigns its cleanup timer at
+`GridMap.cpp:708-711`; this prefix does not execute that constructor.
+The refused owner cannot consume later random draws.
+
+Set `BENILLA_F3_STARTUP_TRACE` to the frozen
+`seal8-full-08/run/trace.tsv`, alongside `BENILLA_F2_CATALOG`, to compare
+the recorded item operands, enchantment order, helper results, and every
+raw word. `BENILLA_F2_SPAWN_OCCURRENCES` also exercises the real loader
+through its first terrain refusal. This diagnostic comparison does not
+seal F1 SQL occurrence identity or complete startup, spawn groups, or
+waypoint loading. Native format 91 and F1 evidence remain unchanged.
