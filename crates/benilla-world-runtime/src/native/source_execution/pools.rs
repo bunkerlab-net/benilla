@@ -226,6 +226,35 @@ impl PoolInventory {
         Err(PoolPending::DurableContinuation.refusal())
     }
 }
+/// Only LoadFromDB's MAX phase, not loaded templates or memberships.
+#[derive(Default)]
+pub struct SourcePoolMaximum {
+    maximum: Option<u16>,
+    query_returned: bool,
+}
+impl SourcePoolMaximum {
+    pub fn load(rows: &mut impl PoolRows) -> Result<Self> {
+        // PoolManager.cpp:566,606-614; Field.h:57 narrows before storage.
+        let maximum = rows.maximum()?;
+        Ok(Self {
+            maximum: Some(maximum.unwrap_or(0)),
+            query_returned: maximum.is_some(),
+        })
+    }
+    pub fn load_catalog(catalog: &mut VerifiedCatalog, occurrences: &Path) -> Result<Self> {
+        Self::load(&mut catalog.execution_pool_rows(occurrences)?)
+    }
+    pub fn maximum(&self) -> Result<u16> {
+        self.maximum
+            .ok_or_else(|| refuse("execution.db_scripts.pool_max_id_owner"))
+    }
+}
+impl DbScriptLoaderOwner for SourcePoolMaximum {
+    fn max_pool_id(&mut self) -> Result<u32> {
+        self.maximum().map(u32::from)
+    }
+}
+
 #[derive(Default)]
 pub struct SourcePoolManager {
     maximum: u16,
@@ -236,6 +265,16 @@ pub struct SourcePoolManager {
     loaded: bool,
     started: bool,
     stopped: bool,
+}
+impl DbScriptLoaderOwner for SourcePoolManager {
+    fn max_pool_id(&mut self) -> Result<u32> {
+        require(
+            self.loaded && !self.stopped,
+            "execution.db_scripts.pool_max_id_owner",
+        )?;
+        // PoolManager.h:140,193 returns stored uint16, not the last template.
+        Ok(u32::from(self.maximum))
+    }
 }
 fn numeric(error: source_pools::Error) -> Refusal {
     refuse(match error {
@@ -339,11 +378,13 @@ impl SourcePoolManager {
         self.run(|this| {
             require(!this.started, "execution.pool.loader_repeated")?;
             this.started = true;
-            let Some(maximum) = rows.maximum()? else {
+            let maximum = SourcePoolMaximum::load(rows)?;
+            this.maximum = maximum.maximum()?;
+            if !maximum.query_returned {
                 this.loaded = true;
                 return Ok(());
-            };
-            this.maximum = maximum;
+            }
+            let maximum = this.maximum;
             this.templates
                 .resize_with(usize::from(maximum) + 1, PoolTemplate::default);
             let mut templates = 0;

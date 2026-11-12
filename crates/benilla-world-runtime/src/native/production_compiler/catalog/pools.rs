@@ -1039,6 +1039,38 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
     #[test]
+    fn pool_maximum_cursor_narrows_like_field_get_uint16() {
+        // PoolManager.cpp:614, Field.h:57: SQL NULL is zero; narrowing wraps.
+        let root = std::env::current_dir()
+            .unwrap()
+            .join(format!("target/pool-max-cursor-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        for (index, (cell, expected)) in [
+            (None, 0),
+            (Some(&b"65535"[..]), 65535),
+            (Some(&b"65536"[..]), 0),
+            (Some(&b"65546"[..]), 10),
+            (Some(&b"-1"[..]), 65535),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let path = root.join(index.to_string());
+            std::fs::write(&path, frame(0, &[cell])).unwrap();
+            let mut cursor = PoolCatalogRows {
+                metadata: reader::Held::open(&path, MAX_RAW).unwrap(),
+                streams: vec![reader::Held::open(&path, MAX_RAW).unwrap()],
+                rows: [1, 0, 0, 0, 0, 0, 0],
+                at: [0; 7],
+                ordinal: [0; 7],
+                buffer: vec![0; FRAME],
+            };
+            assert_eq!(cursor.maximum().unwrap(), Some(expected));
+            assert_eq!(cursor.maximum().unwrap(), None);
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
     fn retained_pool_raw_occurrences_are_inputs_not_effective_objectmgr_acceptance() {
         let (Some(root), Some(occurrences)) = (
             std::env::var_os("BENILLA_F2_CATALOG"),

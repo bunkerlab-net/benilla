@@ -603,6 +603,10 @@ fn absent_maximum_empty_template_and_loader_owner_failures_remain_distinct() {
     let mut work = Work::default();
     let mut manager = SourcePoolManager::default();
     assert_eq!(
+        manager.max_pool_id().unwrap_err().id,
+        "execution.db_scripts.pool_max_id_owner"
+    );
+    assert_eq!(
         manager
             .initialize(&mut states, id, &mut work)
             .unwrap_err()
@@ -621,6 +625,10 @@ fn absent_maximum_empty_template_and_loader_owner_failures_remain_distinct() {
             )
             .unwrap();
         assert!(manager.inventory().loaded && manager.inventory().templates.is_empty());
+        assert_eq!(
+            manager.max_pool_id().unwrap(),
+            u32::from(maximum.unwrap_or(0))
+        );
         manager.initialize(&mut states, id, &mut work).unwrap();
         assert_eq!(
             manager

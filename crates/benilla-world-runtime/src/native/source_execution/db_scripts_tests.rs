@@ -585,7 +585,13 @@ fn retained_catalog_db_scripts_counts_or_explicit_absence() {
     impl SpellLoaderOwner for SpellMissing {}
     let spells = SourceSpellStores::load(&mut catalog, &mut SpellMissing).unwrap();
     let mut external = catalog_group_census_owner(&mut catalog);
-    let mut owner = DbScriptCatalog::new(&mut catalog, Some(&spells), &mut external, None);
+    let pool_occurrences = std::env::var_os("BENILLA_F2_POOL_OCCURRENCES")
+        .expect("pool-max component census requires pool occurrences");
+    let maximum =
+        SourcePoolMaximum::load_catalog(&mut catalog, Path::new(&pool_occurrences)).unwrap();
+    assert_eq!(maximum.maximum().unwrap(), 50003);
+    let mut owner = DbScriptCatalog::new(&mut catalog, Some(&spells), &mut external, None)
+        .with_pool_maximum(&maximum);
     let mut relay = None;
     let mut census = BTreeMap::new();
     for kind in [
@@ -683,6 +689,9 @@ fn retained_catalog_db_scripts_counts_or_explicit_absence() {
     for (kind, count) in expected {
         assert_eq!(census[kind]["raw"], count);
     }
+    assert_eq!(census["dbscripts_on_spell"]["validated"], 31);
+    assert_eq!(census["dbscripts_on_spell"]["complete_loaded_map"], true);
+    println!("Spell map publishes given the pool-max owner; this component census does not load pool templates/memberships or pass earlier integrated startup spawn owners.");
     println!(
         "DB-script catalog-04 census {}",
         serde_json::to_string(&census).unwrap()
@@ -889,4 +898,60 @@ fn buddy_pool_lookup_wraps_uint16_before_guarding_the_actual_vector_bound() {
             "undefined index must refuse before lookup"
         );
     }
+}
+
+#[test]
+fn terminate_script_uses_loaded_uint16_pool_maximum_without_narrowing_operand() {
+    struct MaximumRows(Option<u16>);
+    impl PoolRows for MaximumRows {
+        fn maximum(&mut self) -> Result<Option<u16>> {
+            Ok(self.0)
+        }
+        fn template(&mut self) -> Result<Option<PoolTemplateRow>> {
+            panic!("MAX phase must not load templates")
+        }
+        fn member(&mut self, _: usize) -> Result<Option<PoolMembershipRow>> {
+            panic!("MAX phase must not load memberships")
+        }
+    }
+    let mut r = row(31, 0, 0);
+    r.data[2] = 10;
+    assert_eq!(
+        load(vec![r.clone()], &mut SourcePoolMaximum::default())
+            .unwrap_err()
+            .id,
+        "execution.db_scripts.pool_max_id_owner"
+    );
+    for (maximum, pool, accepted) in [
+        (Some(10), 0, true),
+        (Some(10), 9, true),
+        (Some(10), 10, true),
+        (Some(10), 11, false),
+        (Some(10), 65546, false),
+        (Some(u16::MAX), 65535, true),
+        (Some(u16::MAX), 65536, false),
+        (None, 0, true),
+        (None, 1, false),
+        (Some(0), 0, true),
+        (Some(0), 1, false),
+    ] {
+        // ScriptMgr.cpp:698 compares uint32 poolId to promoted uint16 MAX.
+        let mut owner = SourcePoolMaximum::load(&mut MaximumRows(maximum)).unwrap();
+        assert_eq!(owner.maximum().unwrap(), maximum.unwrap_or(0));
+        r.data[2] = pool;
+        let map = load(vec![r.clone()], &mut owner).unwrap();
+        assert_eq!(map.loaded_count(), usize::from(accepted));
+        if !accepted {
+            assert_eq!(map.rows()[0].logs[0].reason, "terminate_pool_invalid");
+            assert_eq!(map.rows()[0].logs[0].source_line, 700);
+        }
+    }
+    // Zero short-circuits before consulting an unloaded owner.
+    r.data[2] = 0;
+    assert_eq!(
+        load(vec![r], &mut SourcePoolMaximum::default())
+            .unwrap()
+            .loaded_count(),
+        1
+    );
 }

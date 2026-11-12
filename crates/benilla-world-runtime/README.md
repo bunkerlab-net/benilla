@@ -2021,6 +2021,16 @@ The F2 catalog adapter reuses loaded F5.07 server spell templates and
 narrow SQL/DBC existence views. Loaded pool/group definitions and the
 strict-check log filter require their named owners. No successful lookup
 substitutes for an absent owner.
+`SourcePoolMaximum` executes only `PoolManager.cpp:606-614` through the
+existing checked pool cursor. `Field.h:57` narrows MAX to uint16; no result
+retains the constructor's zero, `PoolManager.cpp:566`. The full pool loader
+reuses this phase. `DbScriptCatalog::with_pool_maximum` binds it for the
+uint32 comparison at `ScriptMgr.cpp:698`, without narrowing the script
+operand. An unloaded maximum refuses `execution.db_scripts.pool_max_id_owner`.
+This does not certify loaded pool templates or memberships. Pools load at
+`World.cpp:1095`, after creatures/gameobjects at `:1066,1072` and before
+DB scripts at `:1217-1226`. The spell-map census publishes all 31 rows given
+this maximum owner; integrated startup still needs its earlier spawn owners.
 The group lookup binds directly to F4.05's loaded
 `SourceSpawnGroups::definitions`, never raw `spawn_group` membership.
 `SourceQuestFlags` reproduces the flag-affecting quest loader reads only,

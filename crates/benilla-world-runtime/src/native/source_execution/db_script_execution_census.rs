@@ -3,6 +3,11 @@ use std::collections::BTreeMap;
 
 #[test]
 fn retained_loaded_command_census_or_explicit_absence() {
+    command_census(false);
+    command_census(true);
+}
+
+fn command_census(bind_pool_maximum: bool) {
     use crate::native::production_compiler::VerifiedCatalog;
     let Some(root) = std::env::var_os("BENILLA_F5_AI_CATALOG") else {
         println!("SKIP DB-script executor census: set BENILLA_F5_AI_CATALOG");
@@ -23,7 +28,19 @@ fn retained_loaded_command_census_or_explicit_absence() {
         );
     }
     let mut external = catalog_group_census_owner(&mut catalog);
+    let maximum = if bind_pool_maximum {
+        let path = std::env::var_os("BENILLA_F2_POOL_OCCURRENCES")
+            .expect("pool-max component census requires pool occurrences");
+        Some(SourcePoolMaximum::load_catalog(&mut catalog, Path::new(&path)).unwrap())
+    } else {
+        None
+    };
     let mut owner = DbScriptCatalog::new(&mut catalog, Some(&spells), &mut external, None);
+    if let Some(maximum) = &maximum {
+        assert_eq!(maximum.maximum().unwrap(), 50003);
+        owner = owner.with_pool_maximum(maximum);
+    }
+    println!("DB-script component census pool MAX phase bound={bind_pool_maximum}; no claim of loaded pool templates/memberships or integrated startup past earlier spawn owners");
     let mut relay = None;
     // raw, complete-loaded, effect/termination, executor-refused, loader-unexecutable, source-skipped
     let mut counts = BTreeMap::<u32, [usize; 6]>::new();
@@ -31,6 +48,8 @@ fn retained_loaded_command_census_or_explicit_absence() {
     let mut incomplete_maps = BTreeMap::new();
     let mut complete_inputs = Vec::new();
     let mut ub_operands = BTreeMap::<&str, usize>::new();
+    let mut spell_counts = [0usize; 6];
+    let mut spell_refused = BTreeMap::<String, usize>::new();
     for kind in [
         DbScriptType::Relay,
         DbScriptType::Gossip,
@@ -95,6 +114,11 @@ fn retained_loaded_command_census_or_explicit_absence() {
         for (row, disposition) in rows.iter().zip(report.rows()) {
             let count = counts.entry(row.command).or_default();
             count[0] += 1;
+            if kind == DbScriptType::Spell {
+                spell_counts[0] += 1;
+                spell_counts[4] += usize::from(!complete);
+                spell_counts[1] += usize::from(complete);
+            }
             if !complete {
                 count[4] += 1;
             }
@@ -182,6 +206,23 @@ fn retained_loaded_command_census_or_explicit_absence() {
                 );
             }
             let count = counts.get_mut(&row.command).unwrap();
+            let outcome = match &result {
+                Ok(terminated)
+                    if *terminated || !f.host.effects.is_empty() || !f.host.received.is_empty() =>
+                {
+                    2
+                }
+                Ok(_) => 5,
+                Err(error) => {
+                    if kind == DbScriptType::Spell {
+                        *spell_refused.entry(error.id.clone()).or_default() += 1;
+                    }
+                    3
+                }
+            };
+            if kind == DbScriptType::Spell {
+                spell_counts[outcome] += 1;
+            }
             match result {
                 Ok(terminated)
                     if terminated || !f.host.effects.is_empty() || !f.host.received.is_empty() =>
@@ -211,6 +252,33 @@ fn retained_loaded_command_census_or_explicit_absence() {
     assert!(
         undefined.is_empty(),
         "stock operands reach undefined execution in authored host: {undefined:?}"
+    );
+    assert_eq!(
+        spell_counts,
+        if bind_pool_maximum {
+            [31, 31, 3, 27, 0, 1]
+        } else {
+            [31, 0, 0, 0, 31, 0]
+        }
+    );
+    let totals = counts.values().fold([0; 6], |mut total, count| {
+        for (sum, value) in total.iter_mut().zip(count) {
+            *sum += value;
+        }
+        total
+    });
+    assert_eq!(
+        totals,
+        if bind_pool_maximum {
+            [7166, 4755, 1450, 2775, 2411, 530]
+        } else {
+            [7166, 4724, 1447, 2748, 2442, 529]
+        }
+    );
+    println!("DB-script component totals {totals:?}");
+    println!(
+        "DB-script spell component counts {spell_counts:?}; executor refusals {}",
+        serde_json::to_string(&spell_refused).unwrap()
     );
     println!("DB-script executor census [raw, complete-loaded, effect-or-termination, executor-refused, loader-unexecutable, source-skipped] {}",serde_json::to_string(&counts).unwrap());
     println!(

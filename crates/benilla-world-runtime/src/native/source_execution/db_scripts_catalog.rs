@@ -197,6 +197,7 @@ pub struct DbScriptCatalog<'a, O> {
     go_types: Option<BTreeMap<u32, u32>>,
     strict_check_filtered: Option<bool>,
     quest_flags: Option<SourceQuestFlags>,
+    pool_maximum: Option<&'a SourcePoolMaximum>,
 }
 impl<'a, O: DbScriptLoaderOwner> DbScriptCatalog<'a, O> {
     pub fn new(
@@ -214,7 +215,13 @@ impl<'a, O: DbScriptLoaderOwner> DbScriptCatalog<'a, O> {
             go_types: None,
             strict_check_filtered,
             quest_flags: None,
+            pool_maximum: None,
         }
+    }
+    /// World.cpp:1095 precedes :1217-1226. This binds only the MAX phase.
+    pub fn with_pool_maximum(mut self, maximum: &'a SourcePoolMaximum) -> Self {
+        self.pool_maximum = Some(maximum);
+        self
     }
     fn quest_flags(&mut self) -> Result<&mut SourceQuestFlags> {
         if self.quest_flags.is_none() {
@@ -316,7 +323,10 @@ impl<O: DbScriptLoaderOwner> DbScriptLoaderOwner for DbScriptCatalog<'_, O> {
         Ok(self.go_types.as_ref().unwrap().get(&entry).copied())
     }
     fn max_pool_id(&mut self) -> Result<u32> {
-        self.external.max_pool_id()
+        match self.pool_maximum {
+            Some(maximum) => maximum.maximum().map(u32::from),
+            None => self.external.max_pool_id(),
+        }
     }
     fn taxi_spell(&mut self, path: u32) -> Result<Option<u32>> {
         if self
