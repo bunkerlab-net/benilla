@@ -122,7 +122,7 @@ impl WanderRequest {
             .mul(Real::constant(0x4000_0000))?
             .mul(Real::constant(0x4049_0fdb))?;
         let range = self.radius_draw.mul(self.radius)?;
-        let [sin, cos] = crate::source_trig::sin_cos_radians_bits_soft(angle.bits())
+        let [sin, cos] = crate::source_trig_fma::sin_cos_radians_bits_soft(angle.bits())
             .map_err(|_| MotionError::Unsupported("Wander source trigonometry"))?;
         let point = Point {
             x: self.center.x.add(range.mul(Real::from_bits(cos)?)?)?,

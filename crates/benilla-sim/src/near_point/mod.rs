@@ -4,10 +4,10 @@
 //! WorldObject::GetNearPoint2dAt candidates under separate bounded numeric profiles.
 //! No collision search, radii, height, LOS, visibility, PathFinder or admission.
 //! The caller supplies the actual raw radians, never an angle inferred from Real.
-use crate::{facing::soft::S, source_trig};
+use crate::{facing::soft::S, source_trig, source_trig_fma};
 
-pub const POLICY: &str = "cmangos-8ec338a1-initial-near-point-glibc-2.41-soft-rne-v1";
-pub const FALLBACK_POLICY: &str = "cmangos-8ec338a1-fallback-near-point-glibc-2.41-soft-rne-v1";
+pub const POLICY: &str = "cmangos-8ec338a1-initial-near-point-glibc-2.36-fma-soft-rne-v1";
+pub const FALLBACK_POLICY: &str = "cmangos-8ec338a1-fallback-near-point-glibc-2.36-fma-soft-rne-v1";
 /// LF-normalized pinned Object.cpp and GridDefines.h, respectively.
 pub const SOURCE_SHA256: [&str; 2] = [
     "410904520fe2847a855c396d9fe442065268fd4ff5bb510633c3aadb5c54665b",
@@ -80,7 +80,7 @@ pub fn candidate_bits(target_xy: [u32; 2], distance: u32, angle: u32) -> Result<
     if angle_value < S::ZERO || angle & 0x7fff_ffff > source_trig::TAU_BITS {
         return Err(Error::Angle);
     }
-    let [sin, cos] = source_trig::sin_cos_radians_bits_soft(angle).map_err(Error::Trig)?;
+    let [sin, cos] = source_trig_fma::sin_cos_radians_bits_soft(angle).map_err(Error::Trig)?;
     Ok(candidate_from_trig(target, distance, [sin, cos]))
 }
 
@@ -106,7 +106,7 @@ pub fn fallback_candidate_bits(
     {
         return Err(Error::Angle);
     }
-    let trig = source_trig::sin_cos_fallback_radians_bits_soft(angle).map_err(Error::Trig)?;
+    let trig = source_trig_fma::sin_cos_fallback_radians_bits_soft(angle).map_err(Error::Trig)?;
     Ok(candidate_from_trig(target, distance, trig))
 }
 

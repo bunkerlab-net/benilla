@@ -82,7 +82,7 @@ pub fn passenger_tangent(bits: u32) -> Result<u32> {
     Ok((t + a * (s + t * v)).raw())
 }
 fn trig(o: u32) -> Result<[S; 2]> {
-    crate::source_trig::sin_cos_radians_bits_soft(o)
+    crate::source_trig_fma::sin_cos_radians_bits_soft(o)
         .map(|v| v.map(S::bits))
         .map_err(|_| Error::NumericDomain)
 }

@@ -22,15 +22,14 @@ LF-normalized full-file SHA-256 identities, in `near_point::SOURCE_SHA256`:
 Source copyright CMaNGOS contributors, GPL-2.0-or-later. This bounded translation
 and authored numeric boundary are GPL-3.0-or-later, 2026 Benilla fork contributors;
 existing [upstream notices](licenses/COPYRIGHT.md) and [GPL text](licenses/GPL-3.0.txt)
-apply. The shared sinf/cosf core retains the separate original FSF 2018–2025
-LGPL-2.1-or-later grant, complete notice, license and five source hashes described
-in [SOURCE-TRIG.md](SOURCE-TRIG.md). No client assets or world rows are included.
+apply. The sinf/cosf core retains the separate original FSF 2018-2022
+LGPL-2.1-or-later grant, complete notice, licence, and five source hashes described
+in [SOURCE-TRIG-FMA.md](SOURCE-TRIG-FMA.md). No client assets or world rows are included.
 
 The selected policy is
-`cmangos-8ec338a1-initial-near-point-glibc-2.41-soft-rne-v1`, together with
-`source_trig::SOFT_POLICY` and its source identities. CMaNGOS's native C library
-calls are not a cross-platform bit identity: this contract explicitly chooses
-the pinned glibc algorithm and software arithmetic.
+`cmangos-8ec338a1-initial-near-point-glibc-2.36-fma-soft-rne-v1`, together with
+`source_trig_fma::SOFT_POLICY` and its source identities. The software arithmetic
+models the pinned reference process's FMA sinf/cosf results, not arbitrary host libm.
 
 ## Raw input and output boundary
 
@@ -110,9 +109,9 @@ no full selector or platform-libm parity is claimed.
 `near_point::fallback_candidate_bits(target_xy, distance, raw_angle)` exposes
 only the same source `GetNearPoint2dAt` arithmetic on a separately named angle
 domain. Its policy is
-`cmangos-8ec338a1-fallback-near-point-glibc-2.41-soft-rne-v1`, together with
-`source_trig::FALLBACK_SOFT_POLICY`. The initial `candidate_bits`, its normalized
-angle admission and its existing policy identity are unchanged.
+`cmangos-8ec338a1-fallback-near-point-glibc-2.36-fma-soft-rne-v1`, together with
+`source_trig_fma::FALLBACK_SOFT_POLICY`. Both callers retain their existing angle
+domains and select the FMA kernel.
 
 The fallback numeric angle must be the actual source binary32
 `RNE32(base_angle + selector_offset)` from `GetNearPointAt`, without normalization.

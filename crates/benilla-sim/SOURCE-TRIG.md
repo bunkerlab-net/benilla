@@ -20,6 +20,10 @@ crate-private boundary and is independent of host floating-point arithmetic.
 The coefficient arrays, source branch selection and polynomial occur only once
 in [the shared core](src/source_trig/core.rs); the adapters contain no polynomial.
 
+The reference-process numeric contract is the separate [glibc 2.36 FMA port](SOURCE-TRIG-FMA.md).
+This module retains the existing unfused fixture profile and the separately
+built offline-tool profiles. Their libm dispatch is not bound by a server receipt.
+
 ## Source and licensing
 
 The selected source is [GNU libc 2.41](https://github.com/bminor/glibc/tree/74f59e9271cbb4071671e5a474e7d4f1622b186f/sysdeps/ieee754/flt-32),

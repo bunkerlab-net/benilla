@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1, TransportMgr.cpp and Movement/spline.cpp.
 // Upstream GPL-2.0-or-later; Rust translation GPL-3.0-or-later.
-//! Source transport template numerics. Bits are IEEE RNE, with no contraction.
+//! Source transport numerics. Outer IEEE RNE operations are separate; trig uses glibc 2.36 FMA.
 mod elevators;
 mod movement;
 pub(crate) mod numeric;

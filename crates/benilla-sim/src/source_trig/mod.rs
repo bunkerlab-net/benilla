@@ -44,7 +44,7 @@ impl std::fmt::Display for Error {
 }
 impl std::error::Error for Error {}
 
-fn validate(angle: u32) -> Result<(), Error> {
+pub(crate) fn validate(angle: u32) -> Result<(), Error> {
     let magnitude = angle & 0x7fff_ffff;
     if magnitude >= 0x7f80_0000 {
         return Err(Error::NonFinite);
@@ -66,6 +66,11 @@ pub fn sin_cos_radians_bits_native(angle: u32) -> Result<[u32; 2], Error> {
 /// Raw [sine, cosine] bits within the separately bounded Euler radian domain.
 /// Uses the unchanged source fast reducer after the caller's raw degree conversion.
 pub fn sin_cos_euler_radians_bits_native(angle: u32) -> Result<[u32; 2], Error> {
+    validate_euler(angle)?;
+    core::sin_cos::<native::Native>(angle)
+}
+
+pub(crate) fn validate_euler(angle: u32) -> Result<(), Error> {
     let magnitude = angle & 0x7fff_ffff;
     if magnitude >= 0x7f80_0000 {
         return Err(Error::NonFinite);
@@ -73,7 +78,7 @@ pub fn sin_cos_euler_radians_bits_native(angle: u32) -> Result<[u32; 2], Error> 
     if magnitude > EULER_MAX_RADIANS_BITS {
         return Err(Error::Angle);
     }
-    core::sin_cos::<native::Native>(angle)
+    Ok(())
 }
 
 /// Raw [sine, cosine] bits within the separately bounded assembler radian domain.
@@ -103,6 +108,11 @@ pub fn sin_cos_radians_bits_soft(angle: u32) -> Result<[u32; 2], Error> {
 /// base-angle plus selector-offset sum; this function never normalizes it.
 /// Existing ±TAU APIs retain their separate, unchanged admission policies.
 pub fn sin_cos_fallback_radians_bits_soft(angle: u32) -> Result<[u32; 2], Error> {
+    validate_fallback(angle)?;
+    core::sin_cos::<software::Software>(angle)
+}
+
+pub(crate) fn validate_fallback(angle: u32) -> Result<(), Error> {
     let magnitude = angle & 0x7fff_ffff;
     if magnitude >= 0x7f80_0000 {
         return Err(Error::NonFinite);
@@ -115,7 +125,7 @@ pub fn sin_cos_fallback_radians_bits_soft(angle: u32) -> Result<[u32; 2], Error>
     if magnitude > limit {
         return Err(Error::Angle);
     }
-    core::sin_cos::<software::Software>(angle)
+    Ok(())
 }
 
 #[cfg(test)]

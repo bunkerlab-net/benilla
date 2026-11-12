@@ -60,7 +60,7 @@ fn model_point(point: [f32; 3], spawn: Spawn) -> Result<[f32; 3]> {
     let radians =
         (f64::from_bits(0x4009_21fb_5444_2d28) * f64::from(spawn.rotation[1]) / 180.0) as f32;
     let [sine, cosine] =
-        benilla_sim::source_trig::sin_cos_euler_radians_bits_native(radians.to_bits())
+        benilla_sim::source_trig_fma::sin_cos_euler_radians_bits_native(radians.to_bits())
             .map_err(|_| error("rotation_domain"))?
             .map(f32::from_bits);
     let determinant = cosine * cosine - -sine * sine;

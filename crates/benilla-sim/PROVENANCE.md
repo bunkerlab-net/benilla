@@ -807,6 +807,16 @@ Foundation, Inc.; complete notices, license and five original source hashes are
 linked in its contract. Existing VMap degree conversion and oracle vectors remain
 unchanged. The combined crate remains GPL-3.0-or-later.
 
+[`source_trig_fma`](SOURCE-TRIG-FMA.md) separately translates glibc 2.36
+`s_sinf.c`, `s_cosf.c`, `s_sincosf.h`, `sincosf_poly.h`, and `s_sincosf_data.c`.
+Its full-domain reducer and explicit fused operations model the pinned libm
+functions at offsets `0x73720` and `0x73280`. The core retains the original
+LGPL-2.1-or-later grant and Copyright 2018-2022 Free Software Foundation, Inc.
+`src/source_trig_fma/GLIBC-NOTICE.txt` preserves the notice, and
+`src/source_trig/GLIBC-LICENSE.txt` supplies the full licence. Authored adapters
+remain GPL-3.0-or-later. The contract lists source hashes, the exhaustive
+receipt, and the reference-process versus offline-tool caller classification.
+
 [`near_point`](NEAR-POINT.md) translates the initial
 `WorldObject::GetNearPoint2dAt` XY arithmetic and `NormalizeMapCoord` from the
 same pinned CMaNGOS revision. Its software IEEE RNE products and additions are

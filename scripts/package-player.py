@@ -75,6 +75,7 @@ LEGAL_DOCUMENTS = tuple(path for path in DOCUMENTS if any(
     "crates/benilla-sim/src/source_atan/GLIBC-NOTICE.txt",
     "crates/benilla-sim/src/source_atan/GLIBC-LICENSE.txt",
     "crates/benilla-sim/src/source_sine/GLIBC-NOTICE.txt",
+    "crates/benilla-sim/src/source_trig_fma/GLIBC-NOTICE.txt",
     "crates/benilla-native-vmap-source/G3D-NOTICE.cpp.txt",
     "crates/benilla-native-vmap-source/CMANGOS-NOTICE.txt",
     "crates/benilla-native-vmap/CMANGOS-NOTICE.txt",

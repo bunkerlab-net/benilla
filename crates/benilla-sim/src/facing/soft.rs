@@ -23,6 +23,9 @@ impl D {
     pub fn integer(value: i32) -> Self {
         Self(Double::from_i128_r(i128::from(value), R).value)
     }
+    pub fn integer_i64(value: i64) -> Self {
+        Self(Double::from_i128_r(i128::from(value), R).value)
+    }
     /// C-style conversion: INEXACT is expected; invalid/overflow must not saturate.
     pub fn truncate_i32(self) -> Option<i32> {
         let out = self.0.to_i128_r(32, Round::TowardZero, &mut false);

@@ -88,6 +88,9 @@ pub mod spell_range;
 /// Bounded shared source-profile sine/cosine with native and software adapters.
 pub mod source_trig;
 
+/// Full-domain pinned glibc 2.36 FMA binary32 sine/cosine results.
+pub mod source_trig_fma;
+
 /// Pinned binary64 atan of widened nonnegative binary32 source ratios.
 pub mod source_atan;
 
