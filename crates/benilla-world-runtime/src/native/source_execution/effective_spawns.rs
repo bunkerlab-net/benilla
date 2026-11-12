@@ -112,6 +112,47 @@ impl EffectiveSpawnRows for ObjectMgrSpawnRows {
         Ok(self.next(kind.table())?)
     }
 }
+fn ordered_spawn_rows(
+    rows: &mut impl EffectiveSpawnRows,
+    kind: GridSpawnKind,
+    ordered: &mut Vec<ObjectMgrSpawnRow>,
+) -> Result<()> {
+    ordered.clear();
+    while let Some(row) = rows.next_spawn(kind)? {
+        ordered.push(row);
+    }
+    fn floats(a: &[f32], b: &[f32]) -> std::cmp::Ordering {
+        a.iter()
+            .zip(b)
+            .map(|(a, b)| a.total_cmp(b))
+            .find(|order| !order.is_eq())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    }
+    // Reference environment: ObjectMgr.cpp:1877-1890,2086-2094; full-server/f1/db-snapshot.py:9 --order-by-primary; MyISAM ALL, Data_free=0; spawn-row-order receipt 1c6e2dac.
+    ordered.sort_unstable_by(|a, b| {
+        a.guid
+            .cmp(&b.guid)
+            .then_with(|| a.event.cmp(&b.event))
+            .then_with(|| a.entry.cmp(&b.entry))
+            .then_with(|| a.map.cmp(&b.map))
+            .then_with(|| floats(&a.pose, &b.pose))
+            .then_with(|| match kind {
+                GridSpawnKind::Creature => a
+                    .respawn
+                    .cmp(&b.respawn)
+                    .then_with(|| a.radius.total_cmp(&b.radius))
+                    .then_with(|| a.movement.cmp(&b.movement))
+                    .then_with(|| a.mask.cmp(&b.mask))
+                    .then_with(|| a.pools.cmp(&b.pools))
+                    .then_with(|| a.spawn_template.cmp(&b.spawn_template)),
+                GridSpawnKind::GameObject => floats(&a.rotation, &b.rotation)
+                    .then_with(|| a.respawn.cmp(&b.respawn))
+                    .then_with(|| a.mask.cmp(&b.mask))
+                    .then_with(|| a.pools.cmp(&b.pools)),
+            })
+    });
+    Ok(())
+}
 impl SourceEffectiveSpawns {
     /// Execute World.cpp:1066 then :1072. A missing owner stops the prefix.
     /// The caller binds prerequisite loader products and the actual F3 stream.
@@ -123,8 +164,10 @@ impl SourceEffectiveSpawns {
         owner: &mut impl EffectiveSpawnOwner,
     ) -> Result<()> {
         let mut gameobjects_seen = false;
+        let mut ordered = Vec::new();
         for kind in [GridSpawnKind::Creature, GridSpawnKind::GameObject] {
-            while let Some(row) = rows.next_spawn(kind)? {
+            ordered_spawn_rows(rows, kind, &mut ordered)?;
+            for row in ordered.drain(..) {
                 gameobjects_seen |= kind == GridSpawnKind::GameObject;
                 self.inspect_row(kind, row, inputs, owner)?;
             }

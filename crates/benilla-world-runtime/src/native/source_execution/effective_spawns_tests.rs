@@ -715,6 +715,55 @@ fn startup_rows_keep_empty_query_returns_and_stop_at_first_missing_owner() {
 }
 
 #[test]
+fn startup_rows_use_reference_primary_keys_then_full_row_not_export_ordinals() {
+    struct Rows([std::collections::VecDeque<ObjectMgrSpawnRow>; 2]);
+    impl EffectiveSpawnRows for Rows {
+        fn next_spawn(&mut self, kind: GridSpawnKind) -> Result<Option<ObjectMgrSpawnRow>> {
+            Ok(self.0[usize::from(kind == GridSpawnKind::GameObject)].pop_front())
+        }
+    }
+    for kind in [GridSpawnKind::Creature, GridSpawnKind::GameObject] {
+        let mut supplied = Vec::new();
+        // Signed event ASC: spawn-row-order/game_event_{creature,gameobject}-schema.tsv:4-5 and tie-order-analysis.json:7,15; equal-event pose ties use the full row.
+        for (ordinal, guid, event, x) in [
+            (0, 9, 0, 0.0),
+            (1, 7, 2, 0.0),
+            (2, 7, -2, 1.0),
+            (3, 7, -2, -1.0),
+        ] {
+            let mut r = row();
+            r.ordinal = ordinal;
+            r.guid = guid;
+            r.event = event;
+            r.pose[0] = x;
+            supplied.push(r);
+        }
+        let mut rows = Rows(Default::default());
+        rows.0[usize::from(kind == GridSpawnKind::GameObject)] = supplied.into();
+        let mut spawns = SourceEffectiveSpawns::default();
+        spawns
+            .load_rows(
+                &mut rows,
+                &inputs(),
+                &[[7, 100, 1, 0]],
+                &mut Host::default(),
+            )
+            .unwrap();
+        assert_eq!(
+            spawns
+                .records
+                .iter()
+                .filter(|r| r.line == 0)
+                .map(|r| (r.key.guid, r.ordinal))
+                .collect::<Vec<_>>(),
+            [(7, 3), (7, 2), (7, 1), (9, 0)]
+        );
+        // The last composite-key row overwrites the earlier event memberships.
+        assert_eq!(spawns.pre_terrain[&key(kind)].row.event, 2);
+    }
+}
+
+#[test]
 fn loaded_instance_owner_precedes_orientation_validation_and_never_uses_raw_ids() {
     let mut i = inputs();
     i.instances = None;

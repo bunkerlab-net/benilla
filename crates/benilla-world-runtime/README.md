@@ -2154,6 +2154,24 @@ gameobject loading at `World.cpp:1066,1072`. The joined-row reader verifies
 the F2 occurrence hashes, query projections, and catalog row multisets.
 These diagnostic occurrences do not certify the recorded F1 SQL order.
 
+The creature and gameobject loaders visit ascending `guid`, then numeric
+`event` order from the joined `game_event_*` primary key, then the full row.
+This copies the reference environment, not a database engine guarantee.
+The seal8 reset restored `pre-start-classicmangos.sql`,
+`full-server/f1/sealing/source-choice/seal8-full-08/reset.json:4-8`.
+Its producer uses `--order-by-primary`, `full-server/f1/db-snapshot.py:9`.
+MariaDB 12.3.3 reports MyISAM `ALL` scans with no driving index and
+`Data_free=0`. All 66,436 creature and 47,430 gameobject base positions match
+the reset INSERT order. The exact joined queries at
+`ObjectMgr.cpp:1877-1890,2086-2094` match all 66,508 and 47,702 recorded rows,
+including 72 and 272 duplicate-guid occurrences from the event joins.
+Those joins use `ref` on `PRIMARY(guid,event)`; other joins use unique
+`eq_ref` lookups. Raw evidence and SHA-256 receipts live under
+`benilla-config/spawn-row-order/`, receipt
+`1c6e2dac9b7b136a7b4ccedf5e880b80e1b951413ed99f0a7fe61651f205d5f2`.
+No other relation changes order. Original export ordinals remain diagnostic
+provenance, not sorting keys.
+
 The loaders insert spawn data before map and coordinate checks,
 `ObjectMgr.cpp:1955,2145`. Skips after insertion retain those map entries.
 `CatalogGroupLoadOwner::with_pre_terrain` exposes only the assigned group
@@ -2247,11 +2265,21 @@ through its first terrain refusal. This diagnostic comparison does not
 seal F1 SQL occurrence identity or complete startup, spawn groups, or
 waypoint loading. Native format 91 and F1 evidence remain unchanged.
 
-`terrain_startup_census` reports the complete catalog diagnostic separately
-from the frozen comparison. The latter matches real terrain constructors and
-four selections, then refuses before selection five because F2's joined
-occurrence order is not seal8's. No rows are reordered to force equality.
+`terrain_startup_census` compares every executed selection identity, helper
+result and raw RNG word with the frozen trace after independent loader
+execution. Expected observations never order rows or supply selections.
+The comparison reports the first identity or result divergence by name.
 Frozen products remain diagnostic inputs with unsealed producer lineage.
+The spawn boundary is 5,324 selections and 8,713 raw words, positions 0 through
+8712. The diagnostic then names `execution.pool.random_owner` at the next
+startup shuffle, recorded at `PoolManager.cpp:248`, reached from
+`World.cpp:1095`. It verifies that the trace assigns word `2637113002` to raw
+position 8713 there without consuming it through an unbound pool owner.
+F4.04 already ports the shuffle and compares numeric results with observed
+before-lists, `source_execution/seal8_pools.rs:219-225`. That projection does
+not bind independently loaded pool members or persistent-map transitions,
+`:280-301`. Startup must connect those lists and states, eligibility and leaf
+effects to the continuing world-thread stream through `PoolWork`.
 The shared AREA
 reader and DBC flag-selection kernel live in `benilla-native-terrain::grid_area`;
 the app keeps its stricter component framing and query-budget contract.

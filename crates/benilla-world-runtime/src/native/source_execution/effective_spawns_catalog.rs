@@ -126,8 +126,10 @@ impl SourceEffectiveSpawns {
             ..Default::default()
         };
         let mut gameobjects_seen = false;
+        let mut ordered = Vec::new();
         for kind in [GridSpawnKind::Creature, GridSpawnKind::GameObject] {
-            while let Some(row) = rows.next(kind.table())? {
+            ordered_spawn_rows(&mut rows, kind, &mut ordered)?;
+            for row in ordered.drain(..) {
                 gameobjects_seen |= kind == GridSpawnKind::GameObject;
                 let _refused = this.inspect_row(kind, row, inputs, owner);
             }

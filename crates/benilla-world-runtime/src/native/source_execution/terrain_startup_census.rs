@@ -6,14 +6,13 @@ use benilla_sim::source_rng::{
 };
 use std::io::{BufRead, BufReader};
 
-/// This comparison does not reorder rows or supply expected selection values.
-struct FrozenOccurrenceCheck<'a> {
+/// Mark input occurrences only; expected observations never enter loader execution.
+struct SelectionOccurrences<'a> {
     rows: super::super::production_compiler::ObjectMgrSpawnRows,
     inputs: &'a EffectiveSpawnInputs,
-    expected: &'a [SpawnKey],
-    next: usize,
+    candidates: std::collections::BTreeSet<(GridSpawnKind, u64)>,
 }
-impl EffectiveSpawnRows for FrozenOccurrenceCheck<'_> {
+impl EffectiveSpawnRows for SelectionOccurrences<'_> {
     fn next_spawn(
         &mut self,
         kind: GridSpawnKind,
@@ -27,11 +26,7 @@ impl EffectiveSpawnRows for FrozenOccurrenceCheck<'_> {
             let conditional =
                 kind == GridSpawnKind::Creature && self.inputs.conditional.contains_key(&row.guid);
             if row.entry == 0 && !conditional && self.inputs.random.contains_key(&key) {
-                require(
-                    self.expected.get(self.next) == Some(&key),
-                    "execution.effective_spawns.recorded_occurrence_order_owner",
-                )?;
-                self.next += 1;
+                self.candidates.insert((kind, row.ordinal));
             }
         }
         Ok(row)
@@ -93,6 +88,9 @@ fn seal8_full08_terrain_and_spawn_prefix_matches_or_names_first_unported_owner()
     let mut spawn_query = None;
     let mut source_guid = 0;
     let mut source_selections = Vec::new();
+    let mut spawn_word_end = 0;
+    let mut next_shuffle = None;
+    let mut next_shuffle_word = None;
     let mut reader = BufReader::with_capacity(1 << 20, std::fs::File::open(trace).unwrap());
     let mut line = String::new();
     loop {
@@ -160,8 +158,17 @@ fn seal8_full08_terrain_and_spawn_prefix_matches_or_names_first_unported_owner()
                 });
             }
         }
+        if kind == "rng_shuffle_begin" && spawn_calls == 5324 && next_shuffle.is_none() {
+            next_shuffle = Some((p[2].to_owned(), p[3].parse::<u32>().unwrap()));
+        }
         if kind == "mt_raw" {
             words.push((p[1].parse::<u64>().unwrap(), p[2].parse::<u64>().unwrap()));
+            if next_shuffle.is_some() && next_shuffle_word.is_none() {
+                next_shuffle_word = words.last().copied();
+            }
+        }
+        if kind == "rng_shuffle_end" && next_shuffle.is_some() {
+            assert!(next_shuffle_word.is_some());
         }
         if kind == "rng_result" && terrain_reached {
             semantic.push(match p[0] {
@@ -169,10 +176,19 @@ fn seal8_full08_terrain_and_spawn_prefix_matches_or_names_first_unported_owner()
                 "irand" => Value::I64(p[1].parse().unwrap()),
                 _ => panic!("unported semantic helper {p:?}"),
             });
+            if p[0] == "irand" {
+                spawn_word_end = words.len();
+            }
         }
     }
     assert_eq!((terrain_calls, spawn_calls), (2, 5324));
     assert_eq!(words[3387..3389], [(3387, 3133881188), (3388, 2748007659)]);
+    assert_eq!(spawn_word_end, 8713);
+    assert_eq!(words[spawn_word_end], (8713, 2637113002));
+    assert_eq!(next_shuffle_word, Some((8713, 2637113002)));
+    let next_shuffle = next_shuffle.unwrap();
+    assert!(next_shuffle.0.ends_with("Pools/PoolManager.cpp"));
+    assert_eq!(next_shuffle.1, 248);
     let mut catalog =
         super::super::production_compiler::VerifiedCatalog::open(Path::new(&root), false).unwrap();
     let mut geometry =
@@ -244,11 +260,15 @@ fn seal8_full08_terrain_and_spawn_prefix_matches_or_names_first_unported_owner()
             ["guid", "animprogress", "state", "stringId"],
         )
         .unwrap();
-    let mut rows = super::super::production_compiler::ObjectMgrSpawnRows::open(
-        &mut catalog,
-        Path::new(&occurrences),
-    )
-    .unwrap();
+    let mut rows = SelectionOccurrences {
+        rows: super::super::production_compiler::ObjectMgrSpawnRows::open(
+            &mut catalog,
+            Path::new(&occurrences),
+        )
+        .unwrap(),
+        inputs: &inputs,
+        candidates: Default::default(),
+    };
     let initial = initial.unwrap();
     let mut mt = Mt19937::from_state(initial.clone()).unwrap();
     let mut cursor = DrawCursor::default();
@@ -299,17 +319,56 @@ fn seal8_full08_terrain_and_spawn_prefix_matches_or_names_first_unported_owner()
     drop(execution);
     let raw = random.cursor().raw;
     let _ = sink;
-    assert_eq!(actual_words, words[..actual_words.len()]);
-    // The diagnostic joined stream is explicitly not the frozen SQL occurrence order.
-    // Compare before the first identity mismatch, not coincidentally equal indices.
-    assert_eq!(actual_semantic[1..7], semantic[..6]);
-    let first_numeric = actual_semantic[3..]
+    let actual_selections = spawns
+        .records
         .iter()
-        .zip(&semantic[2..])
-        .position(|(a, b)| a != b);
-    assert_eq!(first_numeric, Some(7));
-    println!("F6_DIAGNOSTIC_RNG matched_engine_words={raw} strict_constructor_and_selection_words=3393 first_operand_identity_mismatch_selection=5 first_numeric_mismatch_selection=8 next_worldstate_raw={}", words.len());
-    result.unwrap();
+        .filter(|r| r.line == 0 && rows.candidates.contains(&(r.key.kind, r.ordinal)))
+        .map(|r| r.key)
+        .collect::<Vec<_>>();
+    let identity_mismatch = actual_selections
+        .iter()
+        .zip(&source_selections)
+        .position(|(got, expected)| got != expected);
+    if let Some(index) = identity_mismatch {
+        println!("F6_FIRST_DIVERGENCE selection={} expected={:?} got={:?} expected_entry={:?} got_entry={:?} raw_words={raw} candidate_causes=base_row_order,event_join_order,random_list_presence",
+            index + 1, source_selections[index], actual_selections[index],
+            inputs.random.get(&source_selections[index]),
+            spawns.pre_terrain_map().get(&actual_selections[index]).map(|d| d.row.entry));
+    }
+    require(
+        identity_mismatch.is_none() && actual_selections.len() == source_selections.len(),
+        "execution.effective_spawns.recorded_selection_identity_mismatch",
+    )
+    .unwrap();
+    let numeric_mismatch = actual_semantic[1..]
+        .iter()
+        .zip(&semantic)
+        .position(|(got, expected)| got != expected);
+    if let Some(index) = numeric_mismatch {
+        let selection = semantic[..=index]
+            .iter()
+            .filter(|v| matches!(v, Value::I64(_)))
+            .count();
+        println!("F6_FIRST_DIVERGENCE selection={selection} key={:?} expected={:?} got={:?} words_expected={:?} words_got={:?} candidate_causes=random_list_order,helper_bounds,terrain_rng_position",
+            source_selections.get(selection.wrapping_sub(1)), semantic[index],
+            actual_semantic[index + 1], words.get(3389 + selection.wrapping_sub(1)),
+            actual_words.get(3389 + selection.wrapping_sub(1)));
+    }
+    require(
+        numeric_mismatch.is_none() && actual_semantic.len() - 1 == semantic.len(),
+        "execution.effective_spawns.recorded_selection_result_mismatch",
+    )
+    .unwrap();
+    assert_eq!(actual_words, words[..spawn_word_end]);
+    assert_eq!(raw, spawn_word_end as u64);
+    println!("F6_FROZEN_PREFIX matched_selections={} total_selections=5324 matched_raw_words={raw} matched_terrain_calls=2 first_divergence=none next_startup_rng={}:{} next_startup_raw={spawn_word_end}",actual_selections.len(),next_shuffle.0,next_shuffle.1);
+    let continuation: Result<()> = result.and(Err(PoolPending::RandomOwner.refusal()));
+    let refusal = continuation.unwrap_err();
+    assert_eq!(refusal.id, "execution.pool.random_owner");
+    println!(
+        "F6_NEXT_STARTUP refusal={} raw={raw} source={}:{} recorded_word={:?}",
+        refusal.id, next_shuffle.0, next_shuffle.1, next_shuffle_word
+    );
     assert_eq!(spawns.draws_needed, 5324);
     assert_eq!(spawns.random_rows, [3468, 1856]);
     assert_eq!(actual_semantic.len() - 1, 5326);
@@ -324,61 +383,4 @@ fn seal8_full08_terrain_and_spawn_prefix_matches_or_names_first_unported_owner()
         geometry.terrain(1).unwrap().residency.cleanup_current(),
         33000
     );
-
-    let mut strict_geometry = SourceTerrainManager::new(
-        std::mem::take(&mut geometry.files),
-        std::mem::take(&mut geometry.dbc),
-    );
-    strict_geometry
-        .vmap
-        .initialize_recorded_world(
-            strict_geometry.dbc.linked_zones.keys().copied(),
-            &config_bytes,
-            &config_hash,
-        )
-        .unwrap();
-    let mut mt = Mt19937::from_state(initial).unwrap();
-    let mut cursor = DrawCursor::default();
-    let mut strict_words = Vec::new();
-    let mut sink = |event: TraceEvent| {
-        if let EventKind::Raw { position, word, .. } = event.kind {
-            strict_words.push((position, word));
-        }
-    };
-    let mut random = SourceRandom::new(1, &mut mt, &mut cursor, &mut sink).unwrap();
-    let items = SourceStartupItems::catalog_prefix(&mut catalog, &mut random).unwrap();
-    let mut execution = items
-        .bind_spawns(&mut random)
-        .unwrap()
-        .with_terrain(&mut strict_geometry);
-    let mut owner = ConfiguredEffectiveSpawnOwner {
-        execution: &mut execution,
-        autoload: &autoload,
-    };
-    let mut checked = FrozenOccurrenceCheck {
-        rows: super::super::production_compiler::ObjectMgrSpawnRows::open(
-            &mut catalog,
-            Path::new(&occurrences),
-        )
-        .unwrap(),
-        inputs: &inputs,
-        expected: &source_selections,
-        next: 0,
-    };
-    let mut strict_spawns = SourceEffectiveSpawns::default();
-    let refusal = strict_spawns
-        .load_rows(&mut checked, &inputs, &addons, &mut owner)
-        .unwrap_err();
-    assert_eq!(
-        refusal.id,
-        "execution.effective_spawns.recorded_occurrence_order_owner"
-    );
-    assert_eq!(checked.next, 4);
-    assert_eq!(strict_spawns.draws_needed, 4);
-    println!("F6_FROZEN_PREFIX complete={} selections=4 raw=3393 refusal={} next_source_guid={} next_catalog_guid=10053",
-        strict_spawns.complete_count(),refusal.id,source_selections[4].guid);
-    assert_eq!(source_selections[4].guid, 376);
-    drop(execution);
-    assert_eq!(random.cursor().raw, 3393);
-    assert_eq!(strict_words, words[..3393]);
 }
