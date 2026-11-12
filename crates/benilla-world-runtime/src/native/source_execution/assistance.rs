@@ -5,7 +5,7 @@ use super::*;
 
 pub const AI_EVENT_CALL_ASSISTANCE: u32 = 13;
 
-// Deviation: Owner decision 2026-11-12 preserves raw u32 instead of the non-fixed enum's 0..1023 range, AIDefines.h:22-56; ScriptMgr.cpp:2759-2775.
+// Deviation: Preserve the raw u32 event number, because C++ leaves the non-fixed AIEventType enum indeterminate outside 0..1023 (AIDefines.h:22-56) and the owner chose intent on 2026-11-12 so scourge_invasion.cpp:956-965's 7166 reaches its receiver unchanged; ScriptMgr.cpp:2759-2775.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SourceAiEventType(u32);
 impl SourceAiEventType {

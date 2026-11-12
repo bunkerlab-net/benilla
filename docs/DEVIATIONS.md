@@ -41,7 +41,7 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 - [benilla-srp](#benilla-srp): 2
 - [benilla-ui](#benilla-ui): 135
 - [benilla-world](#benilla-world): 47
-- [benilla-world-runtime](#benilla-world-runtime): 2
+- [benilla-world-runtime](#benilla-world-runtime): 3
 
 ### benilla-app
 
@@ -667,10 +667,10 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 - PathFinder.cpp:364 reads unwritten :412 storage in the observed build (:362/:410 at the pin); native keeps the nearest polygon because absent distance requires source intent, not undefined bytes. ([`src/warm_cache.rs:562`](../crates/benilla-native-nav/src/warm_cache.rs#L562))
 ### benilla-native-vmap-source
 
-#### (crate root)
+#### producer_policy
 
-- Key M2 collision by canonical path because CMaNGOS 8ec338a1 gameobject\_extract.cpp:26-39 uses basename FileExists first-wins and model.cpp:49-73 writes no zero-hull file, giving a no-collision model the other model's hull; benilla keeps each model's own collision. ([`src/lib.rs:938`](../crates/benilla-native-vmap-source/src/lib.rs#L938))
-- Key WMO geometry by full canonical path because CMaNGOS 8ec338a1 vmapexport.cpp:160-167 flattens basenames and FileExists returns first-wins, then src/game/vmap/TileAssembler.cpp:298-329 writes basename.vmo, giving the loser the winner's geometry and depending on leftover output. ([`src/lib.rs:939`](../crates/benilla-native-vmap-source/src/lib.rs#L939))
+- Key M2 collision by canonical path because CMaNGOS 8ec338a1 gameobject\_extract.cpp:26-39 uses basename FileExists first-wins and model.cpp:49-73 writes no zero-hull file, giving a no-collision model the other model's hull; benilla keeps each model's own collision. ([`src/producer_policy.rs:26`](../crates/benilla-native-vmap-source/src/producer_policy.rs#L26))
+- Key WMO geometry by full canonical path because CMaNGOS 8ec338a1 vmapexport.cpp:160-167 flattens basenames and FileExists returns first-wins, then src/game/vmap/TileAssembler.cpp:298-329 writes basename.vmo, giving the loser the winner's geometry and depending on leftover output. ([`src/producer_policy.rs:27`](../crates/benilla-native-vmap-source/src/producer_policy.rs#L27))
 ### benilla-protocol
 
 #### (crate root)
@@ -1002,6 +1002,7 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 
 #### native
 
+- Preserve the raw u32 event number, because C++ leaves the non-fixed AIEventType enum indeterminate outside 0..1023 (AIDefines.h:22-56) and the owner chose intent on 2026-11-12 so scourge\_invasion.cpp:956-965's 7166 reaches its receiver unchanged; ScriptMgr.cpp:2759-2775. ([`src/native/source_execution/assistance.rs:8`](../crates/benilla-world-runtime/src/native/source_execution/assistance.rs#L8))
 - Pin never-assigned scheduleType to recorded F1 round-15 zero because CMaNGOS GameEventMgr.h:53-71 leaves it indeterminate. ([`src/native/source_execution/game_events.rs:12`](../crates/benilla-world-runtime/src/native/source_execution/game_events.rs#L12))
 - Synchronize global pet numbers because ObjectMgr.cpp:119-127 and ObjectMgr.h:826,1247 race across SpellEffects.cpp:2372,3288; owner approved 2026-11-06. ([`src/native/source_execution/guids.rs:164`](../crates/benilla-world-runtime/src/native/source_execution/guids.rs#L164))
 

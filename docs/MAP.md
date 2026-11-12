@@ -140,13 +140,13 @@
 - **benilla-native-corridor-tests** (lib.rs): core dual_reopen_component_tests home_component_tests home_mailbox_tests local_corridor products real_corridor_fixture reconstruction_component_tests route_commit source_cache_reconstruction source_creature_initialization source_ground_height source_location source_navigation source_near_point source_near_point_empty source_pathfinder_query source_player_environment source_route_chase_gate source_route_filter source_route_point_path source_route_resident_local source_route_same_polygon source_route_same_polygon_local source_route_smoothing source_route_straight_path source_route_warm_cache source_vmap staged_wander_tests suspended_owner_component_tests wander_component_tests wander_reopen_component_tests
 - **benilla-native-geometry-tests** (lib.rs): core installed_source_fixture_tests planar production_item_order products route_commit source_creature_initialization source_ground_height source_location source_navigation source_near_point source_near_point_empty source_pathfinder_query source_player_environment source_route_chase_gate source_route_filter source_route_point_path source_route_same_polygon source_route_smoothing source_route_straight_path source_route_warm_cache source_vmap static_mesh
 - **benilla-native-nav** (lib.rs): cold_distance cold_distance_tests collinear_tests detail_tests direct_corridor_tests generated_tests smoothing smoothing_tests source_cold_same_polygon source_home_same_polygon source_query source_wander_and_chase_reconstruction_tests source_wander_same_polygon tests tile_presence validate warm_cache warm_cache_tests warm_point_path warm_point_path_tests warm_straight_path warm_straight_path_tests water_tests
-- **benilla-native-terrain** (lib.rs): diagnostic_id diagnostics location map_fixture receipts source test_support writer
-- **benilla-native-vmap-source** (lib.rs): assembled_spawn_bounds discovery doodad_projection doodad_reference_order doodad_transform_math doodads encounter_ids map_bundle map_products map_spawn_index placement_records profiling receipts selected_model_names source tests
+- **benilla-native-terrain** (lib.rs): diagnostic_id diagnostics grid_area location map_fixture receipts source test_support writer
+- **benilla-native-vmap-source** (lib.rs): assembled_spawn_bounds discovery doodad_projection doodad_reference_order doodad_transform_math doodads encounter_ids identity map_bundle map_products map_spawn_index placement_records producer_policy profiling receipts selected_model_names source tests
 - **benilla-native-vmap** (lib.rs): bih error model_writer source_model_name tests wmo wmo_error
 - **benilla-p2p** (lib.rs): discovery identity internet rejection
 - **benilla-profile** (lib.rs): recovery starting_location storage tests world_setup
 - **benilla-protocol** (lib.rs): auth events guid messages wire world
-- **benilla-sim** (lib.rs): canonical_order chase_gate classic classic_spell classic_targets corpse_appearance corpse_reclaim creature_ai creature_capabilities creature_init creature_motion creature_regeneration creature_swimming encounter event_ai event_processor facing inventory loot mage_resource map_classification near_point npc_melee player_appearance player_death player_health_regeneration player_melee player_model player_progression player_slow quest quest_lifecycle reputation resident_map route_filter source_atan source_calendar source_formations source_moon source_pools source_rng source_spawn_groups source_time source_transports source_trig source_weather spell_event spell_range starter_init world_rules xp
+- **benilla-sim** (lib.rs): canonical_order chase_gate classic classic_spell classic_targets corpse_appearance corpse_reclaim creature_ai creature_capabilities creature_init creature_motion creature_regeneration creature_swimming encounter event_ai event_processor facing inventory loot mage_resource map_classification near_point npc_melee player_appearance player_death player_health_regeneration player_melee player_model player_progression player_slow quest quest_lifecycle reputation resident_map route_filter source_atan source_calendar source_formations source_moon source_pools source_rng source_sine source_spawn_groups source_time source_transports source_trig source_weather spell_event spell_range starter_init world_rules xp
 - **benilla-srp** (lib.rs): vanilla_header
 - **benilla-ui** (lib.rs): auction_sort bindings_xml civil color crt framexml justify layout loader markup messages order screencoord script source status strings test_support toc widget
 - **benilla-visual** (lib.rs): relight
@@ -585,6 +585,7 @@
 - `soundprobe.py` — Read back a `$WOW_SOUND_PROBE` capture and name the mechanism behind a speaker-breaking sound.
 - `sync-reference.py` — Vendor benilla-re's tables into `reference/` at the commit `reference/PIN` names.
 - `test-capture-ci-log.py` — CI diagnostic logging regressions; no Rust build or game data required.""" import importlib.util import os from pathlib import Path import shutil impo…
+- `test-ci-apt-install.py` — Exercise CI apt retries without sudo, networking or host apt changes."""
 - `test-classic-export.py` — No database/network or game content: original fake-source exporter tests.
 - `test-doc-links.py` — The doc-link gate must fail closed when rustdoc did not run successfully.""" import contextlib import importlib.util import io from pathlib import Pat…
 - `test-initial-hooks.py` — Authored area/proc capture cases only.
@@ -608,6 +609,7 @@
 - `vplsum.py` — Read a `vpl`/`bub` overlay trace and say where the motion came from: projection, solve or snap.
 - `api-coverage.sh` — Addon-API coverage: how much of the 1.12.1 client's global surface benilla's UI VM presents.
 - `check.sh` — The in-loop verify: fmt everywhere, clippy and test on the changed crates and their dependents.
+- `ci-apt-install.sh` — Usage: bash scripts/ci-apt-install.sh PACKAGE... Retry the complete transaction three times per mirror, with five apt fetch retries. CI_APT_DIR redire…
 - `cine.sh` — Play one cinematic on the probe and print what happened, as a timeline.
 - `doc-tests.sh` — The doctests `scripts/unit-tests.sh` leaves to `cargo test` under cargo-nextest, which runs none: those of the library packages among the ones named, …
 - `gates.sh` — The land gate chain: every gate in order, stopping at the first failure.
