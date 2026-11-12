@@ -37,6 +37,10 @@ mod unit_ai;
 pub use unit_ai::*;
 mod unit_events;
 pub use unit_events::*;
+mod assistance;
+pub use assistance::*;
+#[cfg(test)]
+mod assistance_tests;
 mod unit_update;
 pub use unit_update::*;
 mod select_hostile_target;

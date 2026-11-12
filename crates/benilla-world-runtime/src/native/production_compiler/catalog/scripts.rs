@@ -895,6 +895,8 @@ pub struct CatalogCreatureAiTemplate {
     pub stats_multipliers: [u32; 3],
     pub civilian: bool,
     pub pursuit_ms: u32,
+    pub call_for_help: u32,
+    pub creature_type: u32,
     pub ai_name: String,
     pub script_name: String,
 }
@@ -936,6 +938,8 @@ impl VerifiedCatalog {
             "ArmorMultiplier",
             "Civilian",
             "Pursuit",
+            "CallForHelp",
+            "CreatureType",
         ]
         .map(|name| spawns::position(&cols, name))
         .into_iter()
@@ -971,6 +975,9 @@ impl VerifiedCatalog {
                 ],
                 civilian: spawns::uint(values[indices[16]])? as u8 != 0,
                 pursuit_ms: spawns::uint(values[indices[17]])?,
+                // SQLStorages.cpp:21-22,45; Creature.h:100,116 use uint32 fields.
+                call_for_help: spawns::uint(values[indices[18]])?,
+                creature_type: spawns::uint(values[indices[19]])?,
                 ai_name: text(indices[3])?,
                 script_name: text(indices[4])?,
             })

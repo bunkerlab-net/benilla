@@ -2,8 +2,8 @@
 // CMaNGOS Classic 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f:
 // Unit.cpp:559-582,6365-6385,7972-8013; Creature.cpp:140-142,463-464,2159-2197;
 // GridNotifiers.cpp:265-281; CellImpl.h:37-193. Upstream GPL-2.0-or-later.
-//! Selected combat-entry assistance, with authored complete non-assistable traversal.
-//! This owns no map traversal implementation and grants no content admission.
+//! Selected native combat-entry assistance and replay. Source assistance lives
+//! in source_execution::SourceAssistance; neither path grants content admission.
 use super::*;
 use benilla_sim::creature_motion::Pose;
 use serde::{Deserialize, Serialize};

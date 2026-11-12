@@ -20,6 +20,8 @@ pub struct CreatureAiTemplateOperands {
     pub stats_multipliers: [u32; 3],
     pub civilian: bool,
     pub pursuit_ms: u32,
+    pub call_for_help: u32,
+    pub creature_type: u32,
     pub ai_name: String,
     pub script_name: String,
 }
@@ -38,6 +40,8 @@ impl From<CatalogCreatureAiTemplate> for CreatureAiTemplateOperands {
             stats_multipliers: row.stats_multipliers,
             civilian: row.civilian,
             pursuit_ms: row.pursuit_ms,
+            call_for_help: row.call_for_help,
+            creature_type: row.creature_type,
             ai_name: row.ai_name,
             script_name: row.script_name,
         }
@@ -196,6 +200,8 @@ mod tests {
             stats_multipliers: [0x3f80_0000; 3],
             civilian: false,
             pursuit_ms: 15000,
+            call_for_help: 0,
+            creature_type: 0,
             ai_name: "TotemAI".into(),
             script_name: "authored_script".into(),
         };

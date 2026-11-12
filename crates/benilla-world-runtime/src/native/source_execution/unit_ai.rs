@@ -63,6 +63,12 @@ pub struct SourceUnitFields {
     pub last_refresh_position: Option<[u32; 4]>,
     pub combat_tick: u32,
     pub damage_by_others: u32,
+    pub already_called_assistance: bool,
+    pub can_call_assistance: bool,
+    pub can_check_help: bool,
+    pub call_for_help: u32,
+    pub critter: bool,
+    pub linking_event_trigger: Option<bool>,
 }
 impl SourceUnitFields {
     /// Unit.cpp:330,423-425; Creature.cpp:541-579. Spawn overrides belong to UpdateEntry.
@@ -121,6 +127,12 @@ impl SourceUnitFields {
             last_refresh_position: None,
             combat_tick: 1200,
             damage_by_others: 0,
+            already_called_assistance: false,
+            can_call_assistance: template.extra_flags & 0x800 == 0,
+            can_check_help: true,
+            call_for_help: template.call_for_help,
+            critter: template.creature_type == 8,
+            linking_event_trigger: None,
         }
     }
     pub fn in_combat(&self) -> bool {
@@ -337,6 +349,14 @@ pub enum UnitAiCall {
     InterruptMelee,
     PlayerAttackCancel,
     RemoveUnattackableAuras,
+    CallForHelp {
+        radius_bits: u32,
+    },
+    SendAiEventAround {
+        event: SourceAiEventType,
+        invoker: ObjectHandle,
+        radius_bits: u32,
+    },
     CheckForHelp {
         target: ObjectHandle,
         radius_bits: u32,
@@ -362,6 +382,9 @@ impl UnitAiCall {
             }
             Self::AiReaction | Self::PlayerAttackCancel => "execution.unit_ai.presentation_owner",
             Self::CheckForHelp { .. } => "execution.unit_ai.f5_06_assistance_owner",
+            Self::CallForHelp { .. } | Self::SendAiEventAround { .. } => {
+                "execution.event_ai.f5_06_ai_event_visitor_owner"
+            }
             Self::DetectOrAttack(_) => "execution.unit_ai.f6_detection_owner",
             Self::ZoneUnderAttack(_) => "execution.unit_ai.presentation_owner",
             Self::AddInitialThreat(_) => "execution.unit_ai.threat_context_binding_owner",

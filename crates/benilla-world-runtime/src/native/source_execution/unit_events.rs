@@ -3,13 +3,14 @@
 //! Live Unit BasicEvents. This owner deliberately has no serde or restore interface.
 use super::*;
 use benilla_sim::event_processor::{
-    CallbackKind, DueEvent, EventError, EventPayload, EventProcessor, EventProcessorSnapshot,
+    CallbackKind, EventError, EventPayload, EventProcessor, EventProcessorSnapshot,
 };
 
 /// Captures data, never a closure or native address. Creature.h:1037-1045.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SourceUnitEvent {
     ForcedDespawn { only_alive: bool },
+    Assistance,
 }
 impl EventPayload for SourceUnitEvent {
     fn validate(self) -> std::result::Result<(), EventError> {
@@ -18,9 +19,16 @@ impl EventPayload for SourceUnitEvent {
 }
 
 /// The live callback owner must stage effects or stop execution after a refusal.
-/// Future assistance/spell owners extend the typed event, not a second queue.
+/// Spell owners extend the typed event, not a second queue.
 pub trait UnitEventOwner {
     fn forced_despawn(&mut self, only_alive: bool) -> Result<()>;
+    fn assistance(
+        &mut self,
+        _capture: &AssistanceCapture,
+        _queue: &mut impl AssistanceQueue,
+    ) -> Result<()> {
+        Err(refuse("execution.assistance.live_dispatch_binding_owner"))
+    }
 }
 
 /// Source-only queues cannot become native persisted closure/event state.
@@ -32,6 +40,7 @@ pub trait UnitEventOwner {
 pub struct SourceUnitEvents {
     queue: EventProcessor<SourceUnitEvent>,
     stopped: bool,
+    captures: std::collections::BTreeMap<u64, AssistanceCapture>,
 }
 impl SourceUnitEvents {
     pub fn clock_millis(&self) -> u64 {
@@ -62,7 +71,11 @@ impl SourceUnitEvents {
     /// KillEvent deletes without Abort; EventProcessor.cpp:88-98.
     pub fn kill_event(&mut self, id: u64) -> Result<bool> {
         require(!self.stopped, "execution.unit_events.stopped")?;
-        Ok(self.queue.kill_event(id).is_some())
+        let removed = self.queue.kill_event(id).is_some();
+        if removed {
+            self.captures.remove(&id);
+        }
+        Ok(removed)
     }
     /// ForcedDespawnDelayEvent inherits empty Abort and true IsDeletable,
     /// EventProcessor.h:46-48; Creature.h:1037-1045. Force skips IsDeletable.
@@ -70,7 +83,8 @@ impl SourceUnitEvents {
         require(!self.stopped, "execution.unit_events.stopped")?;
         let result = (|| {
             let mut transaction = self.queue.begin_kill_all_events(force);
-            while transaction.pop_due().map_err(event_refusal)?.is_some() {
+            while let Some(due) = transaction.pop_due().map_err(event_refusal)? {
+                self.captures.remove(&due.event_id);
                 transaction.finish_abort(true).map_err(event_refusal)?;
             }
             transaction.commit().map_err(event_refusal)
@@ -83,7 +97,25 @@ impl SourceUnitEvents {
         let result = (|| {
             let mut transaction = self.queue.begin_update(diff).map_err(event_refusal)?;
             while let Some(due) = transaction.pop_due().map_err(event_refusal)? {
-                Self::dispatch(due, owner)?;
+                let capture = self.captures.remove(&due.event_id);
+                if due.callback == CallbackKind::Execute {
+                    match due.kind {
+                        SourceUnitEvent::ForcedDespawn { only_alive } => {
+                            owner.forced_despawn(only_alive)?
+                        }
+                        SourceUnitEvent::Assistance => {
+                            let capture = capture
+                                .ok_or_else(|| refuse("execution.assistance.capture_missing"))?;
+                            owner.assistance(
+                                &capture,
+                                &mut UnitEventSchedule {
+                                    transaction: &mut transaction,
+                                    captures: &mut self.captures,
+                                },
+                            )?;
+                        }
+                    }
+                }
                 match due.callback {
                     CallbackKind::Execute => transaction.finish_execute(true),
                     CallbackKind::Abort => transaction.finish_abort(true),
@@ -96,21 +128,56 @@ impl SourceUnitEvents {
         self.stopped |= result.is_err();
         result
     }
-    fn dispatch(due: DueEvent<SourceUnitEvent>, owner: &mut impl UnitEventOwner) -> Result<()> {
-        if due.callback == CallbackKind::Abort {
-            return Ok(());
-        }
-        match due.kind {
-            SourceUnitEvent::ForcedDespawn { only_alive } => owner.forced_despawn(only_alive),
-        }
-    }
     /// In-memory F7 inventory only. SourceUnitEvent intentionally lacks Serialize.
     pub fn inventory(&self) -> EventProcessorSnapshot<SourceUnitEvent> {
         self.queue.snapshot()
     }
     pub fn validate(&self) -> Result<()> {
         EventProcessor::restore(self.inventory()).map_err(event_refusal)?;
+        for event in self.inventory().queued {
+            require(
+                matches!(event.kind, SourceUnitEvent::Assistance)
+                    == self.captures.contains_key(&event.event_id),
+                "execution.assistance.capture_inventory",
+            )?;
+        }
         Ok(())
+    }
+    pub fn assistance_captures(&self) -> &std::collections::BTreeMap<u64, AssistanceCapture> {
+        &self.captures
+    }
+}
+impl AssistanceQueue for SourceUnitEvents {
+    fn add_assistance(&mut self, delay: u32, capture: AssistanceCapture) -> Result<u64> {
+        require(!self.stopped, "execution.unit_events.stopped")?;
+        let id = self.queue.next_event_id();
+        let at = self
+            .queue
+            .calculate_time(u64::from(delay))
+            .map_err(event_refusal)?;
+        self.queue
+            .add_event(id, SourceUnitEvent::Assistance, at)
+            .map_err(event_refusal)?;
+        self.captures.insert(id, capture);
+        Ok(id)
+    }
+}
+struct UnitEventSchedule<'a, 'b> {
+    transaction: &'a mut benilla_sim::event_processor::EventTransaction<'b, SourceUnitEvent>,
+    captures: &'a mut std::collections::BTreeMap<u64, AssistanceCapture>,
+}
+impl AssistanceQueue for UnitEventSchedule<'_, '_> {
+    fn add_assistance(&mut self, delay: u32, capture: AssistanceCapture) -> Result<u64> {
+        let id = self.transaction.next_event_id();
+        let at = self
+            .transaction
+            .calculate_time(u64::from(delay))
+            .map_err(event_refusal)?;
+        self.transaction
+            .add_event(id, SourceUnitEvent::Assistance, at)
+            .map_err(event_refusal)?;
+        self.captures.insert(id, capture);
+        Ok(id)
     }
 }
 fn event_refusal(error: EventError) -> Refusal {
@@ -134,6 +201,18 @@ impl<D: GridDefinitions, P: ResidencyProductOwner, F: CreatureLifecycleOwner<D, 
         }
         self.creature
             .forced_despawn_after(0, false, self.context, self.owner)
+    }
+    fn assistance(
+        &mut self,
+        capture: &AssistanceCapture,
+        queue: &mut impl AssistanceQueue,
+    ) -> Result<()> {
+        require(
+            capture.sender == self.creature.object(),
+            "execution.assistance.event_owner_generation",
+        )?;
+        self.owner
+            .lifecycle_assistance_event(capture, queue, self.creature, self.context)
     }
 }
 pub fn update_source_creature_events<D, P, F>(

@@ -142,6 +142,15 @@ pub trait CreatureLifecycleOwner<D: GridDefinitions, P: ResidencyProductOwner>:
             _ => Err(phase.missing_owner()),
         }
     }
+    fn lifecycle_assistance_event(
+        &mut self,
+        _capture: &AssistanceCapture,
+        _queue: &mut impl AssistanceQueue,
+        _creature: &mut SourceCreatureLifecycle,
+        _context: &mut CreatureLifecycleContext<'_, '_, D, P>,
+    ) -> Result<()> {
+        Err(refuse("execution.assistance.lifecycle_live_binding_owner"))
+    }
     fn lifecycle_unit_call(
         &mut self,
         call: UnitUpdateCall,

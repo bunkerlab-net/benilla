@@ -3,6 +3,8 @@
 use super::*;
 use std::sync::Arc;
 
+#[path = "assistance_lifecycle_tests.rs"]
+mod assistance_lifecycle_tests;
 #[path = "unit_events_lifecycle_tests.rs"]
 mod unit_events_lifecycle_tests;
 

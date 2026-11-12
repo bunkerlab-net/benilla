@@ -315,7 +315,7 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
 
 type EntrySet = std::collections::BTreeSet<u32>;
 #[derive(Default)]
-struct MotionEntryAlternatives {
+pub(super) struct MotionEntryAlternatives {
     random: BTreeMap<u32, EntrySet>,
     group: BTreeMap<u32, EntrySet>,
     conditional: BTreeMap<u32, EntrySet>,
@@ -323,7 +323,7 @@ struct MotionEntryAlternatives {
 }
 impl MotionEntryAlternatives {
     /// Alternatives only, not loader acceptance, team/event state or random choice.
-    fn load(catalog: &mut super::super::production_compiler::VerifiedCatalog) -> Self {
+    pub(super) fn load(catalog: &mut super::super::production_compiler::VerifiedCatalog) -> Self {
         let mut this = Self::default();
         for (_, [guid, entry]) in catalog
             .motion_census_operands("creature_spawn_entry", ["guid", "entry"])
@@ -398,7 +398,7 @@ impl MotionEntryAlternatives {
         }
         this
     }
-    fn resolve(&self, guid: u32, raw_entry: u32) -> EntrySet {
+    pub(super) fn resolve(&self, guid: u32, raw_entry: u32) -> EntrySet {
         // ObjectMgr.cpp:1916-1932,1957,2048-2050 resolves random entries at load.
         // Creature.cpp:1634-1653 then uses group, conditional, random(0), event.
         let mut entries = EntrySet::from([raw_entry]);

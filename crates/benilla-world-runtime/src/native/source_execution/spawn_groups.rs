@@ -636,6 +636,9 @@ pub trait GroupWork: GroupRandom<Error = Refusal> + PersistentEffects {
     fn live_object(&mut self, map: MapIdentity, key: SpawnKey) -> Result<Option<ObjectHandle>>;
     fn removed_object(&mut self, object: ObjectHandle) -> Result<GroupRemovedObject>;
     fn has_instance(&mut self, object: ObjectHandle) -> Result<bool>;
+    fn assistance_fields(&mut self) -> Result<(&mut SourceUnits, &SourceObjects)> {
+        Err(refuse("execution.group.f5_assistance_owner"))
+    }
     fn callback(
         &mut self,
         _groups: &mut SourceSpawnGroups,
@@ -643,6 +646,10 @@ pub trait GroupWork: GroupRandom<Error = Refusal> + PersistentEffects {
         _group: GroupIdentity,
         callback: GroupCallback,
     ) -> Result<()> {
+        if matches!(callback, GroupCallback::SetNoCallAssistance { .. }) {
+            let (units, objects) = self.assistance_fields()?;
+            return SourceAssistance::group_callback(callback, units, objects);
+        }
         Err(callback.missing_owner())
     }
     fn group_operation(&mut self, operation: GroupOperation) -> Result<()>;

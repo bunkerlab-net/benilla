@@ -2014,3 +2014,58 @@ definitions load. Unvalidated definitions never become missing script IDs.
 scheduling, command execution and F7 live continuation are not supplied.
 Immutable definitions add no serialized state. Format 91, NativeCapability
 and frozen-unsealed F1 remain unchanged.
+
+## Source creature assistance
+
+`SourceAssistance` uses the existing `SourceUnitEvents` queue for aggro
+linking, help re-enablement, and `AiDelayEventAround`. It captures the enemy
+GUID, persistent group identity, receiver GUID vector, and original latch,
+`Unit.cpp:559-581,8007-8013`, `Creature.cpp:2178-2197`, and
+`UnitAI.cpp:567-612` at CMaNGOS Classic `8ec338a1`.
+The source returns the old assistance latch without negating it. A first
+ordinary pull still searches but captures false for delivery.
+
+Execution resolves GUIDs again, checks live combat for the aggro event, then
+calls linking, the captured group, and assistance in that order.
+`ReceiveAIEvent` runs before live `HandleAssistanceCall` eligibility,
+`Creature.cpp:2200-2213`, `CreatureAI.cpp:224-232`. `CallForHelp` instead
+visits grid creatures and calls `OnCallForHelp` directly,
+`Creature.cpp:2217-2227`, `GridNotifiers.cpp:245-262`.
+Faction flee takes precedence over respond, `CreatureAI.cpp:208-221`.
+
+`SourceAssistanceEvents` composes assistance with other Unit callbacks.
+The normal lifecycle delegates through
+`CreatureLifecycleOwner::lifecycle_assistance_event`; an absent live binding
+refuses at that callback.
+Nested callbacks add events to the same in-flight processor, preserving
+equal-deadline insertion order. Abort and deletion release captured lists,
+`EventProcessor.cpp:32-107`; neither event class overrides the base empty
+Abort or true IsDeletable. CombatStop resets the latch without cancelling
+events, `Unit.cpp:6374`. Delayed events retain GUIDs; immediate events retain
+the original construction handles.
+
+`SourceAssistanceDependencies` routes UnitAI CheckForHelp and EventAI
+actions 39 and 45 to these owners. Spawn-group assistance writes the latch
+before recursive combat entry, `SpawnGroup.cpp:548-549`.
+Visitors, distance, LOS, visibility, and accessibility need F6. Relationship
+queries, selected virtual AI callbacks, and live F4 group/linking bindings
+must execute their real owners or refuse. No empty callback or authored
+non-assistable traversal substitutes for an unavailable owner.
+
+Receiver lists preserve traversal order, `EntitiesMgr.h:46`. The helper's
+fallback attacker selection uses recorded source allocation order and
+refuses unbound pointers, `Unit.h:1239-1245`. `SourceAiEventType` preserves
+every raw uint32 event number through capture, sending, and receiving.
+Owner decision 2026-11-12 records this Deviation from the non-fixed C++
+enum's 0 through 1023 range, `AIDefines.h:22-56`,
+`ScriptMgr.cpp:2759-2775`. Script7166 reaches that Deviation once a
+DB-script command executor exists. EventAI still skips action45 event
+numbers at or above12 during loading, `CreatureEventAIMgr.cpp:909-913`.
+Null receiver AI dereferences refuse before callback delivery,
+`UnitAI.cpp:593,646`, `Creature.cpp:2210`. Map insertion precedes AI
+initialisation, `Creature.cpp:1738-1740`; constructor order alone does not
+prove this case unreachable.
+
+The F7 in-memory inventory adds assistance latches, help eligibility, template
+help radius, and each queued capture. It adds no native serialized state.
+Format 91, NativeCapability, and frozen-unsealed F1 remain unchanged.

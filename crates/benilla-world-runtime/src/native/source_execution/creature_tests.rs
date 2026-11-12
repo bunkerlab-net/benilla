@@ -396,6 +396,8 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
                 stats_multipliers: [0x3f800000; 3],
                 civilian: false,
                 pursuit_ms: 15000,
+                call_for_help: 0,
+                creature_type: 0,
                 ai_name: "EventAI".into(),
                 script_name: String::new(),
             };
@@ -1102,6 +1104,8 @@ fn supported_kernel_reuses_consumed_source_rolls_at_select_level_without_extra_r
         ],
         civilian: false,
         pursuit_ms: 15000,
+        call_for_help: 0,
+        creature_type: 0,
         ai_name: "EventAI".into(),
         script_name: String::new(),
     };

@@ -371,6 +371,24 @@ impl<O: UnitAiExecutionOwner + CreatureRandom> CreatureRandom for SourceAiExecut
     }
 }
 impl<O: UnitAiExecutionOwner + CreatureRandom> EventAiExecutionOwner for SourceAiExecution<'_, O> {
+    fn send_ai_event(
+        &mut self,
+        state: &mut SourceEventAi,
+        event: u32,
+        target: ObjectHandle,
+        radius: u32,
+    ) -> Result<()> {
+        self.owner.call(
+            state.selected.object(),
+            UnitAiCall::SendAiEventAround {
+                event: SourceAiEventType::from(event),
+                invoker: target,
+                radius_bits: (radius as f32).to_bits(),
+            },
+            self.queries.units,
+            self.queries.objects,
+        )
+    }
     fn threat_context(&mut self) -> Result<ThreatContext<'_>> {
         Ok(ThreatContext {
             state: self.threats,
@@ -467,6 +485,15 @@ impl<O: UnitAiExecutionOwner + CreatureRandom> EventAiExecutionOwner for SourceA
             .params
             .ok_or_else(|| refuse("execution.event_ai.action_parameters"))?;
         match action.kind {
+            // CreatureEventAI.cpp:1104-1107, CreatureAI.cpp:203-205.
+            39 => self.owner.call(
+                unit,
+                UnitAiCall::CallForHelp {
+                    radius_bits: (p[0] as f32).to_bits(),
+                },
+                self.queries.units,
+                self.queries.objects,
+            )?,
             20 => self
                 .ais
                 .get_mut(self.queries.objects, unit)?
