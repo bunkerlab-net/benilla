@@ -522,7 +522,7 @@ fn catalog04_waypoint_loader_and_raw_prefix_census_or_explicit_absence() {
         // Quest flags now load before ScriptMgr; the unbound F4 group is next.
         assert_eq!(
             global_after_refusal,
-            Some("execution.db_scripts.spawn_group_owner")
+            Some("execution.spawn_groups.objectmgr_load_gameobjects_effective_spawn_owner")
         );
     }
     let mut groups: [BTreeMap<u32, Vec<SourceWaypointRow>>; 3] = Default::default();
