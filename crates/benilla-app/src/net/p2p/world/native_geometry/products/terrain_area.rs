@@ -368,7 +368,7 @@ impl TerrainAreaSnapshot<'_> {
         }
         budget.take()?;
         let area_flag = match selected {
-            Some(area) => area.explore_flag as u16,
+            Some(area) => benilla_native_terrain::grid_area::narrow_flag(area.explore_flag),
             None => tile.area_flag(position[0], position[1])?,
         };
         let area = self.resolve_flag(area_flag, budget)?;
@@ -393,20 +393,17 @@ impl TerrainAreaSnapshot<'_> {
         flag: u16,
         budget: &mut QueryBudget,
     ) -> Result<Option<AreaEntry>, Error> {
-        let mut last_wrong_map = None;
+        let mut search = benilla_native_terrain::grid_area::FlagSearch::new(flag, self.binding.map);
         // Source LookupEntry(i) scans indexed IDs, not physical record order. Sparse
         // absent IDs cannot match; bounded iteration charges every actual row visited.
         for area in self.areas.ordered_entries() {
             budget.take()?;
-            if flag != 0 && area.explore_flag == u32::from(flag) {
-                if area.map_id == self.binding.map {
-                    return Ok(Some(area));
-                }
-                last_wrong_map = Some(area);
+            if let Some(area) = search.visit(area, area.explore_flag, area.map_id) {
+                return Ok(Some(area));
             }
         }
-        if last_wrong_map.is_some() {
-            return Ok(last_wrong_map);
+        if let Some(area) = search.wrong_map() {
+            return Ok(Some(area));
         }
         budget.take()?;
         let Some(linked_zone) = self.maps.linked_zone(self.binding.map) else {

@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies]
 benilla-sim = { path = "../benilla-sim" }
+benilla-native-terrain = { path = "../benilla-native-terrain" }
 # Only the launcher's explicit dev feature may enable source-tree path resolution.
 benilla-formats = { path = "../benilla-formats", default-features = false }
 benilla-world-data = { path = "../benilla-world-data" }

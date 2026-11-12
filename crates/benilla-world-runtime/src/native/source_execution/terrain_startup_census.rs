@@ -1,0 +1,384 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//! Frozen products are diagnostic inputs, never repaired producer lineage.
+use super::*;
+use benilla_sim::source_rng::{
+    DrawCursor, EventKind, Mt19937, MtState, Operation, SourceRandom, TraceEvent, Value,
+};
+use std::io::{BufRead, BufReader};
+
+/// This comparison does not reorder rows or supply expected selection values.
+struct FrozenOccurrenceCheck<'a> {
+    rows: super::super::production_compiler::ObjectMgrSpawnRows,
+    inputs: &'a EffectiveSpawnInputs,
+    expected: &'a [SpawnKey],
+    next: usize,
+}
+impl EffectiveSpawnRows for FrozenOccurrenceCheck<'_> {
+    fn next_spawn(
+        &mut self,
+        kind: GridSpawnKind,
+    ) -> Result<Option<super::super::production_compiler::ObjectMgrSpawnRow>> {
+        let row = self.rows.next(kind.table())?;
+        if let Some(row) = &row {
+            let key = SpawnKey {
+                kind,
+                guid: row.guid,
+            };
+            let conditional =
+                kind == GridSpawnKind::Creature && self.inputs.conditional.contains_key(&row.guid);
+            if row.entry == 0 && !conditional && self.inputs.random.contains_key(&key) {
+                require(
+                    self.expected.get(self.next) == Some(&key),
+                    "execution.effective_spawns.recorded_occurrence_order_owner",
+                )?;
+                self.next += 1;
+            }
+        }
+        Ok(row)
+    }
+}
+fn unhex(text: &str) -> Vec<u8> {
+    text.as_bytes()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+        .collect()
+}
+
+#[test]
+fn seal8_full08_terrain_and_spawn_prefix_matches_or_names_first_unported_owner() {
+    let (Some(root), Some(trace), Some(occurrences), Some(config)) = (
+        std::env::var_os("BENILLA_F2_CATALOG"),
+        std::env::var_os("BENILLA_F3_STARTUP_TRACE"),
+        std::env::var_os("BENILLA_F2_SPAWN_OCCURRENCES"),
+        std::env::var_os("BENILLA_F5_EVENT_AI_CONFIG"),
+    ) else {
+        println!("SKIP F6 terrain prefix: bind catalog, seal8 trace, spawn occurrences and config");
+        return;
+    };
+    let trace = Path::new(&trace);
+    let frozen = trace.ancestors().nth(5).unwrap();
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(frozen.join("products-manifest.json")).unwrap())
+            .unwrap();
+    let mut files = SourceTerrainFiles::default();
+    for entry in manifest.as_array().unwrap() {
+        let name = entry["path"].as_str().unwrap();
+        let Some(tile) = name
+            .strip_prefix("maps/")
+            .and_then(|s| s.strip_suffix(".map"))
+        else {
+            continue;
+        };
+        let map = tile[..3].parse::<u32>().unwrap();
+        let x = tile[3..5].parse::<u16>().unwrap();
+        let y = tile[5..7].parse::<u16>().unwrap();
+        files
+            .retain_present(
+                map,
+                x,
+                y,
+                &frozen.join("products").join(name),
+                &Sha256Id::parse(entry["sha256"].as_str().unwrap()).unwrap(),
+            )
+            .unwrap();
+    }
+    let mut words = Vec::new();
+    let mut semantic = Vec::new();
+    let mut initial = None;
+    let mut terrain_reached = false;
+    let mut terrain_calls = 0;
+    let mut spawn_calls = 0;
+    let mut spawn_query = None;
+    let mut source_guid = 0;
+    let mut source_selections = Vec::new();
+    let mut reader = BufReader::with_capacity(1 << 20, std::fs::File::open(trace).unwrap());
+    let mut line = String::new();
+    loop {
+        line.clear();
+        assert!(
+            reader.read_line(&mut line).unwrap() != 0,
+            "missing WorldState boundary"
+        );
+        let mut fields = line.trim_end().splitn(4, '\t');
+        if fields.next() != Some("1") {
+            continue;
+        }
+        let _seq = fields.next().unwrap();
+        let kind = fields.next().unwrap();
+        let p = fields
+            .next()
+            .unwrap()
+            .split_whitespace()
+            .collect::<Vec<_>>();
+        if kind == "sql_query" {
+            let query = unhex(p.last().unwrap());
+            spawn_query = if query.starts_with(b"SELECT creature.guid, creature.id, map,") {
+                Some((GridSpawnKind::Creature, p[0].to_owned()))
+            } else if query.starts_with(b"SELECT gameobject.guid, gameobject.id, map,") {
+                Some((GridSpawnKind::GameObject, p[0].to_owned()))
+            } else {
+                None
+            };
+        }
+        if kind == "sql_field"
+            && p[1] == "0"
+            && spawn_query
+                .as_ref()
+                .is_some_and(|(_, address)| *address == p[0])
+        {
+            source_guid = std::str::from_utf8(&unhex(p.last().unwrap()))
+                .unwrap()
+                .parse()
+                .unwrap();
+        }
+        if kind == "mt_state" && initial.is_none() {
+            let mut state = [0; 624];
+            for (word, value) in state.iter_mut().zip(&p[1..625]) {
+                *word = value.parse().unwrap();
+            }
+            initial = Some(MtState {
+                words: state,
+                index: p[625].parse().unwrap(),
+            });
+        }
+        if kind == "rng_call" {
+            if p[1].ends_with("WorldState.cpp") {
+                break;
+            }
+            if p[1].ends_with("GridMap.cpp") {
+                terrain_reached = true;
+                terrain_calls += 1;
+                assert_eq!(p[2..], ["708", "20", "40"]);
+            } else if terrain_reached {
+                assert!(p[1].ends_with("ObjectMgr.h"), "unported RNG call {p:?}");
+                spawn_calls += 1;
+                source_selections.push(SpawnKey {
+                    kind: spawn_query.as_ref().unwrap().0,
+                    guid: source_guid,
+                });
+            }
+        }
+        if kind == "mt_raw" {
+            words.push((p[1].parse::<u64>().unwrap(), p[2].parse::<u64>().unwrap()));
+        }
+        if kind == "rng_result" && terrain_reached {
+            semantic.push(match p[0] {
+                "urand" => Value::U64(p[1].parse().unwrap()),
+                "irand" => Value::I64(p[1].parse().unwrap()),
+                _ => panic!("unported semantic helper {p:?}"),
+            });
+        }
+    }
+    assert_eq!((terrain_calls, spawn_calls), (2, 5324));
+    assert_eq!(words[3387..3389], [(3387, 3133881188), (3388, 2748007659)]);
+    let mut catalog =
+        super::super::production_compiler::VerifiedCatalog::open(Path::new(&root), false).unwrap();
+    let mut geometry =
+        SourceTerrainManager::new(files, SourceTerrainDbc::catalog(&mut catalog).unwrap());
+    let narrowed = geometry
+        .dbc
+        .areas
+        .values()
+        .filter(|a| a.flag > 65535)
+        .count();
+    let config_bytes = std::fs::read(&config).unwrap();
+    let config_hash = Sha256Id::of(&config_bytes);
+    geometry
+        .vmap
+        .initialize_recorded_world(
+            geometry.dbc.linked_zones.keys().copied(),
+            &config_bytes,
+            &config_hash,
+        )
+        .unwrap();
+    assert_eq!(geometry.vmap.configuration.as_ref().unwrap().1, [265, 266]);
+    assert_eq!(geometry.vmap.settings(), [true, true]);
+    assert!(!geometry.vmap.thread_safe());
+    let autoload = AutoloadActiveConfig::recorded(Path::new(&config), &config_hash).unwrap();
+    let reset = InstanceResetConfig::recorded(Path::new(&config), &config_hash).unwrap();
+    struct Unbound;
+    impl EffectiveSpawnOwner for Unbound {}
+    let baseline = SourceEffectiveSpawns::inspect_catalog_startup_owners(
+        &mut catalog,
+        Path::new(&occurrences),
+        Path::new(&config),
+        &config_hash,
+        &mut Unbound,
+    )
+    .unwrap();
+    let terrain_keys = baseline
+        .pre_terrain_refusals()
+        .iter()
+        .filter(|(_, e)| e.id == "execution.effective_spawns.terrain_original_zone_owner")
+        .map(|(key, _)| *key)
+        .collect::<Vec<_>>();
+    let selection_keys = baseline
+        .pre_terrain_refusals()
+        .iter()
+        .filter(|(_, e)| {
+            e.id == "execution.effective_spawns.world_thread_startup_rng_position_owner"
+        })
+        .map(|(key, _)| *key)
+        .collect::<Vec<_>>();
+    let terrain_occurrences = baseline
+        .records
+        .iter()
+        .filter(|r| r.reason == "execution.effective_spawns.terrain_original_zone_owner")
+        .count();
+    assert_eq!(
+        (
+            terrain_keys.len(),
+            terrain_occurrences,
+            selection_keys.len()
+        ),
+        (92977, 93321, 5324)
+    );
+    let instances = LoadedInstanceTemplates::catalog_diagnostic(&mut catalog, &reset).unwrap();
+    let mut inputs = EffectiveSpawnInputs::catalog_diagnostic(&mut catalog).unwrap();
+    instances.bind_effective_spawns(&mut inputs);
+    let addons = catalog
+        .execution_effective_spawn_operands(
+            "gameobject_addon",
+            ["guid", "animprogress", "state", "stringId"],
+        )
+        .unwrap();
+    let mut rows = super::super::production_compiler::ObjectMgrSpawnRows::open(
+        &mut catalog,
+        Path::new(&occurrences),
+    )
+    .unwrap();
+    let initial = initial.unwrap();
+    let mut mt = Mt19937::from_state(initial.clone()).unwrap();
+    let mut cursor = DrawCursor::default();
+    let mut actual_words = Vec::new();
+    let mut actual_semantic = Vec::new();
+    let mut top = None;
+    let mut sink = |event: TraceEvent| match event.kind {
+        EventKind::Raw { position, word, .. } => actual_words.push((position, word)),
+        EventKind::Begin {
+            span,
+            parent: None,
+            operation,
+            ..
+        } => top = Some((span, operation)),
+        EventKind::End {
+            span,
+            result: Ok(value),
+            ..
+        } if top.is_some_and(|(s, op)| {
+            s == span && matches!(op, Operation::Irand | Operation::Urand)
+        }) =>
+        {
+            actual_semantic.push(value)
+        }
+        _ => (),
+    };
+    let mut random = SourceRandom::new(1, &mut mt, &mut cursor, &mut sink).unwrap();
+    let items = SourceStartupItems::catalog_prefix(&mut catalog, &mut random).unwrap();
+    assert_eq!(random.cursor().raw, 3387);
+    let mut execution = items
+        .bind_spawns(&mut random)
+        .unwrap()
+        .with_terrain(&mut geometry);
+    let mut owner = ConfiguredEffectiveSpawnOwner {
+        execution: &mut execution,
+        autoload: &autoload,
+    };
+    let mut spawns = SourceEffectiveSpawns::default();
+    let result = spawns.load_rows(&mut rows, &inputs, &addons, &mut owner);
+    let refusal = result.as_ref().err().map(|e| e.id.as_str());
+    println!("F6_CATALOG_DIAGNOSTIC before_terrain_unique=92977 before_terrain_occurrences=93321 before_selections=5324 after_complete={} pre_terrain={} selections={} creature_selections={} go_selections={} refusal={refusal:?} last={:?} area_integer_narrowing_rows={narrowed}",spawns.complete_count(),spawns.pre_terrain_map().len(),spawns.draws_needed,spawns.random_rows[0],spawns.random_rows[1],spawns.records.last());
+    let completed = |keys: &[SpawnKey]| {
+        keys.iter()
+            .filter(|key| spawns.complete_data(**key).is_ok_and(|data| data.is_some()))
+            .count()
+    };
+    println!("F6_TRANSITIONS terrain_unique_before={} terrain_occurrences_before={terrain_occurrences} terrain_complete_after={} selections_before={} selections_complete_after={}",terrain_keys.len(),completed(&terrain_keys),selection_keys.len(),completed(&selection_keys));
+    drop(execution);
+    let raw = random.cursor().raw;
+    let _ = sink;
+    assert_eq!(actual_words, words[..actual_words.len()]);
+    // The diagnostic joined stream is explicitly not the frozen SQL occurrence order.
+    // Compare before the first identity mismatch, not coincidentally equal indices.
+    assert_eq!(actual_semantic[1..7], semantic[..6]);
+    let first_numeric = actual_semantic[3..]
+        .iter()
+        .zip(&semantic[2..])
+        .position(|(a, b)| a != b);
+    assert_eq!(first_numeric, Some(7));
+    println!("F6_DIAGNOSTIC_RNG matched_engine_words={raw} strict_constructor_and_selection_words=3393 first_operand_identity_mismatch_selection=5 first_numeric_mismatch_selection=8 next_worldstate_raw={}", words.len());
+    result.unwrap();
+    assert_eq!(spawns.draws_needed, 5324);
+    assert_eq!(spawns.random_rows, [3468, 1856]);
+    assert_eq!(actual_semantic.len() - 1, 5326);
+    assert!(spawns.pre_terrain_refusals().is_empty());
+    assert_eq!(geometry.len(), 2);
+    assert_eq!(geometry.vmap.loaded_trees(), 0);
+    assert_eq!(
+        geometry.terrain(0).unwrap().residency.cleanup_current(),
+        35000
+    );
+    assert_eq!(
+        geometry.terrain(1).unwrap().residency.cleanup_current(),
+        33000
+    );
+
+    let mut strict_geometry = SourceTerrainManager::new(
+        std::mem::take(&mut geometry.files),
+        std::mem::take(&mut geometry.dbc),
+    );
+    strict_geometry
+        .vmap
+        .initialize_recorded_world(
+            strict_geometry.dbc.linked_zones.keys().copied(),
+            &config_bytes,
+            &config_hash,
+        )
+        .unwrap();
+    let mut mt = Mt19937::from_state(initial).unwrap();
+    let mut cursor = DrawCursor::default();
+    let mut strict_words = Vec::new();
+    let mut sink = |event: TraceEvent| {
+        if let EventKind::Raw { position, word, .. } = event.kind {
+            strict_words.push((position, word));
+        }
+    };
+    let mut random = SourceRandom::new(1, &mut mt, &mut cursor, &mut sink).unwrap();
+    let items = SourceStartupItems::catalog_prefix(&mut catalog, &mut random).unwrap();
+    let mut execution = items
+        .bind_spawns(&mut random)
+        .unwrap()
+        .with_terrain(&mut strict_geometry);
+    let mut owner = ConfiguredEffectiveSpawnOwner {
+        execution: &mut execution,
+        autoload: &autoload,
+    };
+    let mut checked = FrozenOccurrenceCheck {
+        rows: super::super::production_compiler::ObjectMgrSpawnRows::open(
+            &mut catalog,
+            Path::new(&occurrences),
+        )
+        .unwrap(),
+        inputs: &inputs,
+        expected: &source_selections,
+        next: 0,
+    };
+    let mut strict_spawns = SourceEffectiveSpawns::default();
+    let refusal = strict_spawns
+        .load_rows(&mut checked, &inputs, &addons, &mut owner)
+        .unwrap_err();
+    assert_eq!(
+        refusal.id,
+        "execution.effective_spawns.recorded_occurrence_order_owner"
+    );
+    assert_eq!(checked.next, 4);
+    assert_eq!(strict_spawns.draws_needed, 4);
+    println!("F6_FROZEN_PREFIX complete={} selections=4 raw=3393 refusal={} next_source_guid={} next_catalog_guid=10053",
+        strict_spawns.complete_count(),refusal.id,source_selections[4].guid);
+    assert_eq!(source_selections[4].guid, 376);
+    drop(execution);
+    assert_eq!(random.cursor().raw, 3393);
+    assert_eq!(strict_words, words[..3393]);
+}

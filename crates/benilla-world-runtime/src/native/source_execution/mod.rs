@@ -124,6 +124,13 @@ mod spawn_manager_tests;
 mod startup;
 mod startup_items;
 pub use startup_items::*;
+#[path = "geometry/terrain_manager.rs"]
+mod terrain_manager;
+pub use terrain_manager::*;
+#[cfg(test)]
+mod terrain_startup_census;
+#[cfg(test)]
+mod terrain_startup_tests;
 mod trace;
 mod world;
 pub use manager_inputs::*;

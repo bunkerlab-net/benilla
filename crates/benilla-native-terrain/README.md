@@ -15,6 +15,10 @@ uint16 flags preserve extractor narrowing, unknown-area `0xffff` and packed
 Its declared epoch binds both captures' archive winners and exact member bytes.
 It is a historical source version, not a live-install lease.
 
+`grid_area` shares GridMap's AREA reader, checked signed coordinate conversion,
+defined uint16 narrowing and indexed DBC flag selection with the app and runtime.
+It does not load collision, validate producer lineage or admit gameplay.
+
 `mbx +stable run --locked -p benilla-native-terrain --bin benilla-native-location --`
 accepts `--data`, `--map`, repeated `--tile X,Y` and a fresh `--output` directory.
 The private export contains complete catalogs, generated terrain and numeric grids.

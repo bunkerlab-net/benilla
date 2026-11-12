@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
-//! World.cpp:1003,1006 startup prefix. No terrain constructor is synthesized.
+//! World.cpp:1003,1006 startup prefix, borrowing the continuing world-thread stream.
 use super::*;
 use benilla_sim::source_rng::{RawGenerator, SourceRandom, TraceEvent};
 use std::collections::{BTreeMap, BTreeSet};
@@ -136,7 +136,7 @@ impl SourceStartupItems {
         this.validate(items, &properties, random)?;
         Ok(this)
     }
-    /// Keep the borrowed F3 stream. The first terrain lookup stops this prefix.
+    /// Keep the borrowed F3 stream. Terrain must be explicitly bound below.
     pub fn bind_spawns<'a, 'b, E: RawGenerator, S: FnMut(TraceEvent)>(
         self,
         random: &'a mut SourceRandom<'b, E, S>,
@@ -149,6 +149,7 @@ impl SourceStartupItems {
             items: self,
             random,
             stopped: false,
+            terrain: None,
         })
     }
 }
@@ -157,6 +158,13 @@ pub struct ItemStartupSpawnOwner<'a, 'b, E, S> {
     pub items: SourceStartupItems,
     random: &'a mut SourceRandom<'b, E, S>,
     stopped: bool,
+    terrain: Option<&'a mut SourceTerrainManager>,
+}
+impl<'a, E, S> ItemStartupSpawnOwner<'a, '_, E, S> {
+    pub fn with_terrain(mut self, terrain: &'a mut SourceTerrainManager) -> Self {
+        self.terrain = Some(terrain);
+        self
+    }
 }
 impl<E: RawGenerator, S: FnMut(TraceEvent)> CreatureRandom for ItemStartupSpawnOwner<'_, '_, E, S> {
     fn creature_irand(&mut self, min: i32, max: i32) -> Result<i32> {
@@ -184,11 +192,19 @@ impl<E: RawGenerator, S: FnMut(TraceEvent)> EffectiveSpawnOwner
         )?;
         Ok(self)
     }
-    fn original_zone(&mut self, _: u32, _: [f32; 3]) -> Result<u32> {
-        self.stopped = true;
-        Err(refuse(
-            "execution.startup_items.terrain_info_constructor_rng_owner",
-        ))
+    fn original_zone(&mut self, map: u32, pose: [f32; 3]) -> Result<u32> {
+        require(
+            !self.stopped,
+            "execution.startup_items.stopped_at_terrain_owner",
+        )?;
+        let result = match self.terrain.as_deref_mut() {
+            Some(terrain) => terrain.original_zone(map, pose, self.random),
+            None => Err(refuse(
+                "execution.startup_items.terrain_info_constructor_rng_owner",
+            )),
+        };
+        self.stopped = result.is_err();
+        result
     }
 }
 #[cfg(test)]

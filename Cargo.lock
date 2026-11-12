@@ -1184,6 +1184,7 @@ version = "0.3.1"
 dependencies = [
  "benilla-formats",
  "benilla-native-nav",
+ "benilla-native-terrain",
  "benilla-sim",
  "benilla-world-data",
  "libc",

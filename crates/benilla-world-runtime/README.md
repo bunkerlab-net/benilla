@@ -1029,7 +1029,8 @@ The header is from the same pinned Debian package documented above, SHA-256
 `067a90ae5b9ada21dc2e4ab1cd580ba33a54a78ce03baf7366d2658f0426b119`.
 
 `SourceTerrainResidency` owns separate shared TerrainInfo tile references and
-its minute timer. `GridMap.cpp:693-711` consumes one source `urand(20,40)` for
+its unsigned ShortIntervalTimer, `Timer.h:105-129`, including uint32 wrap and
+one-interval reset. `GridMap.cpp:693-711` consumes one source `urand(20,40)` for
 the initial timer offset. `GridMap.cpp:726-759,805-825` references before load,
 keeps each map's successful-load bit separate, and only decrements on release.
 `GridMap.cpp:763-795` sweeps y outside x, deletes only present zero-reference
@@ -1038,8 +1039,9 @@ tiles, unloads data before VMap/MMap, and resets the interval once.
 load caching and later full loading of a map-only tile. That coordinate formula
 is not the NGrid's 63-coordinate conversion.
 
-The real loader uses `SourceTerrainProducts`. Actual query, terrain, VMap and
-MMap effects remain mandatory F6 owners. No geometry success fallback exists.
+The real loader uses `SourceTerrainProducts`. `SourceTerrainManager` also owns
+map-only startup queries without inventing a MapIdentity. VMap/full MMap loading
+and nonempty VMap area queries still require the named F6 owners.
 `RESIDENCY_PENDING` names those F4/F5/F6 owners, sealed lifecycle inputs and
 the PR remote/unload/reload scenario. Authored factories are labelled fixtures.
 F1 PR has no retained recording here. PL forced shutdown cannot close that
@@ -2222,11 +2224,20 @@ absent from ItemRandomProperties.dbc, `ObjectMgr.cpp:2563,2769-2773`.
 
 The catalog prefix borrows F3's existing `SourceRandom`. Its computed
 position can bind effective spawn selection at `World.cpp:1066`.
-The first terrain lookup refuses with
-`execution.startup_items.terrain_info_constructor_rng_owner`.
-`TerrainInfo` draws `urand(20,40)` and assigns its cleanup timer at
-`GridMap.cpp:708-711`; this prefix does not execute that constructor.
-The refused owner cannot consume later random draws.
+`with_terrain` binds `SourceTerrainManager`, which constructs TerrainInfo only
+on a reached lookup, draws on the same stream, then obtains the default VMap
+manager, `GridMap.cpp:693-714,1348-1359`. Map-only queries retain acquired map
+bytes and source-default GridMaps for observed source absence, `:43-89,1222-1276`.
+An acquisition index miss refuses rather than becoming source absence.
+Cold VMap lookup uses the manager's real null-slot state,
+`VMapManager2.cpp:36-38,54-83,258-269`. World initialization binds the same
+recorded config's VMap flags before creating null map slots,
+`World.cpp:817-824,912-919`, seal16-full-01/mangosd.conf:265-266.
+A loaded tree needs the live F6 query owner.
+DBC flag resolution preserves indexed ordering, last wrong-map fallback,
+linked-zone ID zero and direct scalar parent return, `DBCStores.cpp:676-704`,
+`GridMap.cpp:1406-1412`. Unbound diagnostics still refuse at the constructor;
+any geometry refusal prevents subsequent random draws through that owner.
 
 Set `BENILLA_F3_STARTUP_TRACE` to the frozen
 `seal8-full-08/run/trace.tsv`, alongside `BENILLA_F2_CATALOG`, to compare
@@ -2235,6 +2246,15 @@ raw word. `BENILLA_F2_SPAWN_OCCURRENCES` also exercises the real loader
 through its first terrain refusal. This diagnostic comparison does not
 seal F1 SQL occurrence identity or complete startup, spawn groups, or
 waypoint loading. Native format 91 and F1 evidence remain unchanged.
+
+`terrain_startup_census` reports the complete catalog diagnostic separately
+from the frozen comparison. The latter matches real terrain constructors and
+four selections, then refuses before selection five because F2's joined
+occurrence order is not seal8's. No rows are reordered to force equality.
+Frozen products remain diagnostic inputs with unsealed producer lineage.
+The shared AREA
+reader and DBC flag-selection kernel live in `benilla-native-terrain::grid_area`;
+the app keeps its stricter component framing and query-budget contract.
 
 ## Source DB-script execution
 

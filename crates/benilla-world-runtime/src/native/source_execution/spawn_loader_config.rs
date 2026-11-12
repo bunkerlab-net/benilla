@@ -14,7 +14,7 @@ pub struct InstanceResetConfig {
     pub line: usize,
     rate: f32,
 }
-fn assignment(bytes: &[u8], key: &str) -> Result<(usize, String)> {
+pub(super) fn assignment(bytes: &[u8], key: &str) -> Result<(usize, String)> {
     let text =
         std::str::from_utf8(bytes).map_err(|_| refuse("execution.spawn_loader.config_encoding"))?;
     let mut found = None;

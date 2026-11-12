@@ -2,7 +2,9 @@
 //! Pinned GridMap AREA keys and complete AreaTable.dbc rows for liquid overrides.
 //! Source: CMaNGOS 8ec338a1 GridMap.cpp, DBCStructure.h and DBCfmt.h.
 use super::super::Hash;
-use super::{u16_at, u32_at, Error, GRID_SIZE};
+#[cfg(test)]
+use super::GRID_SIZE;
+use super::{u16_at, u32_at, Error};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
@@ -12,9 +14,13 @@ const FIELDS: usize = 25;
 const STRIDE: usize = FIELDS * 4;
 
 #[derive(Debug)]
-pub(super) struct GridAreas {
-    global: u16,
-    cells: Option<Box<[u16; 256]>>,
+pub(super) struct GridAreas(benilla_native_terrain::grid_area::AreaData);
+
+impl std::ops::Deref for GridAreas {
+    type Target = benilla_native_terrain::grid_area::AreaData;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 impl GridAreas {
@@ -23,35 +29,22 @@ impl GridAreas {
             return Err(Error::Format);
         }
         let flags = u16_at(bytes, 4)?;
-        let cells = match flags {
-            0 if bytes.len() == 520 => {
-                let mut cells = Box::new([0; 256]);
-                for (i, cell) in cells.iter_mut().enumerate() {
-                    *cell = u16_at(bytes, 8 + i * 2)?;
-                }
-                Some(cells)
-            }
-            1 if bytes.len() == 8 => None,
+        match flags {
+            0 if bytes.len() == 520 => (),
+            1 if bytes.len() == 8 => (),
             0 | 1 => return Err(Error::Framing),
             _ => return Err(Error::Unsupported),
-        };
-        Ok(Self {
-            global: u16_at(bytes, 6)?,
-            cells,
-        })
+        }
+        benilla_native_terrain::grid_area::AreaData::decode(bytes)
+            .map(Self)
+            .map_err(|_| Error::Framing)
     }
 
     /// Caller has already bounded the world position to its TerrainTile.
     pub(super) fn get(&self, x: f32, y: f32) -> u16 {
-        let Some(cells) = &self.cells else {
-            return self.global;
-        };
-        // GridMap::getArea computes at resolution 16, independently of liquid's 128.
-        let x = 16.0 * (32.0 - x / GRID_SIZE);
-        let y = 16.0 * (32.0 - y / GRID_SIZE);
-        let lx = x as usize & 15;
-        let ly = y as usize & 15;
-        cells[lx * 16 + ly]
+        self.0
+            .get(x, y)
+            .expect("TerrainTile bounds the AREA coordinate conversion")
     }
 }
 

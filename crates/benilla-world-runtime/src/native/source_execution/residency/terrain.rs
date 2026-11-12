@@ -3,7 +3,7 @@
 //! TerrainInfo tile references and independent minute cleanup, with real F6 owners.
 use super::*;
 use benilla_sim::source_rng::{RawGenerator, SourceRandom, TraceEvent};
-use benilla_sim::source_time::IntervalTimer;
+use benilla_sim::source_time::ShortIntervalTimer;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TerrainTileIdentity {
@@ -51,7 +51,7 @@ pub struct SourceTerrainResidency {
     map: u32,
     generation: u64,
     next_tile: u64,
-    timer: IntervalTimer,
+    timer: ShortIntervalTimer,
     tiles: BTreeMap<(u16, u16), TerrainTile>,
     // Map::m_bLoadedGrids belongs to each map instance, not TerrainInfo.
     maps: BTreeSet<(MapIdentity, u16, u16)>,
@@ -66,9 +66,9 @@ impl SourceTerrainResidency {
         let start = random
             .urand(20, 40)
             .map_err(|_| refuse("execution.residency.terrain_random_owner"))?;
-        let mut timer = IntervalTimer::default();
+        let mut timer = ShortIntervalTimer::default();
         timer.set_interval(60_000);
-        timer.set_current(i64::from(start) * 1000);
+        timer.set_current(start * 1000);
         Ok(Self {
             map,
             generation,
@@ -96,7 +96,7 @@ impl SourceTerrainResidency {
             .get(&(x, y))
             .is_some_and(|tile| tile.load_attempted))
     }
-    pub fn cleanup_current(&self) -> i64 {
+    pub fn cleanup_current(&self) -> u32 {
         self.timer.get_current()
     }
     // GetGrid can create unreferenced tiles before any NGrid; GridMap.cpp:1222-1238.
@@ -111,10 +111,21 @@ impl SourceTerrainResidency {
             map.map == self.map && map.creation_generation > 0,
             "execution.residency.terrain_map",
         )?;
+        self.query_terrain_at(position, map_only, |c| {
+            owner.load_query_tile(map, c, map_only)
+        })
+    }
+    /// TerrainInfo exists before Map construction, GridMap.cpp:1222-1238.
+    pub fn query_terrain_at(
+        &mut self,
+        position: [u32; 2],
+        map_only: bool,
+        mut load: impl FnMut(ProductCoordinates) -> Result<TerrainQueryLoad>,
+    ) -> Result<Option<TerrainTileIdentity>> {
         let coordinate = |bits| -> Result<u16> {
             let value = 32.0_f32 - f32::from_bits(bits) / f32::from_bits(0x4405_5555);
             require(
-                value.is_finite() && (0.0..64.0).contains(&value),
+                value.is_finite() && value > -1.0 && value < 64.0,
                 "execution.residency.terrain_query_coordinates",
             )?;
             Ok(value as u16)
@@ -128,7 +139,7 @@ impl SourceTerrainResidency {
             return Ok(None);
         }
         if tile.present.is_none() || (!tile.fully_loaded && !map_only) {
-            let outcome = owner.load_query_tile(map, c, map_only)?;
+            let outcome = load(c)?;
             require(
                 (outcome.present || tile.present.is_none())
                     && (!outcome.fully_loaded || outcome.present),
@@ -204,9 +215,7 @@ impl SourceTerrainResidency {
         Ok(())
     }
     pub fn cleanup<O: TerrainResidencyOwner>(&mut self, diff: u32, owner: &mut O) -> Result<()> {
-        self.timer
-            .update(i64::from(diff))
-            .map_err(|_| refuse("execution.residency.terrain_timer_overflow"))?;
+        self.timer.update(diff);
         if !self.timer.passed() {
             return Ok(());
         }
@@ -234,9 +243,8 @@ impl SourceTerrainResidency {
                 }
             }
         }
-        self.timer
-            .reset()
-            .map_err(|_| refuse("execution.residency.terrain_timer_overflow"))
+        self.timer.reset();
+        Ok(())
     }
 }
 /// The existing real loader calls this adapter. Missing geometry never becomes
