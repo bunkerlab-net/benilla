@@ -155,7 +155,22 @@ impl PreparedDiscovery {
         if !candidate.spawn.scale.is_finite() {
             return Err(DoodadProjectionError::NumericDomain);
         }
-        let name = product.model_name().as_bytes();
+        let source_name;
+        let name = if self.producer_policy() == crate::ProducerPolicy::PinnedBasenameFirstWins {
+            let metadata = self.products[parent.product]
+                .doodads
+                .as_ref()
+                .ok_or(DoodadProjectionError::RetainedIdentity)?;
+            let raw = metadata
+                .root
+                .path_at(candidate.spawn.name_index)
+                .map_err(|_| DoodadProjectionError::RetainedIdentity)?;
+            source_name = crate::producer_policy::doodad_instance_name(raw)
+                .map_err(|_| DoodadProjectionError::RetainedIdentity)?;
+            source_name.as_slice()
+        } else {
+            product.model_name().as_bytes()
+        };
         let recorded = candidate.serialized_name_len as usize;
         if recorded != name.len() {
             return Err(DoodadProjectionError::RetainedIdentity);

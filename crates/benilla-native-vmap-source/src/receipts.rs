@@ -29,3 +29,13 @@ impl<'a> SourceReceipt<'a> {
         self.outcome
     }
 }
+
+/// Original lookup ordinal and scope, including per-archive listfile occurrences.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct SourceOccurrence<'a> {
+    pub ordinal: usize,
+    pub listfile_archive: Option<usize>,
+    pub probe_count: usize,
+    pub encoded_identity: Option<[u8; 32]>,
+    pub receipt: SourceReceipt<'a>,
+}

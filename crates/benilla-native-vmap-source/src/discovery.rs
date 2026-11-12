@@ -194,6 +194,17 @@ pub(crate) fn tokenize_listfile(bytes: &[u8]) -> Result<Vec<&[u8]>, DiscoveryErr
     tokenize_listfile_inner(bytes).map_err(DiscoveryError::from_internal)
 }
 
+/// mpq_libmpq04.h:51-67 allocates exactly size and calls strtok again even
+/// after the counter reaches size. A captured NUL, not a final LF, bounds it.
+pub(crate) fn parse_pinned_wmo_listfile(
+    bytes: &[u8],
+) -> Result<Vec<ModelDependency>, DiscoveryError> {
+    if !bytes.contains(&0) {
+        return Err(DiscoveryError::new("vmap.listfile_undefined_suffix_read"));
+    }
+    parse_wmo_listfile(bytes)
+}
+
 fn tokenize_listfile_inner(bytes: &[u8]) -> InternalResult<Vec<&[u8]>> {
     ensure!(
         bytes.len() <= MAX_FILE_BYTES,
@@ -667,7 +678,7 @@ fn safe_member(bytes: &[u8]) -> InternalResult<()> {
 
 /// adtfile.cpp::fixnamen uses the already-mutated previous character. ASCII
 /// restriction makes C isalpha deterministic; the last three bytes are OR 0x20.
-fn fix_name(bytes: &mut [u8]) {
+pub(crate) fn fix_name(bytes: &mut [u8]) {
     if bytes.len() < 3 {
         return;
     }
@@ -685,7 +696,7 @@ fn fix_name(bytes: &mut [u8]) {
     }
 }
 
-fn fix_spaces(bytes: &mut [u8]) {
+pub(crate) fn fix_spaces(bytes: &mut [u8]) {
     if bytes.len() >= 3 {
         let split = bytes.len() - 3;
         for byte in &mut bytes[..split] {

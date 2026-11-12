@@ -2000,3 +2000,30 @@ fn history_traverses_wdt_rows_before_columns_and_ignores_a_future_row() {
         &source_fixture("liquid_history61_positive.map"),
     );
 }
+
+#[test]
+fn mclq_predecessor_crosses_only_prior_physical_map_rows() {
+    // contrib/extractor/System.cpp:200-205,289,848-880 traverses physical
+    // Map.dbc order and retains process-global liquid_height between maps.
+    let fixture = Fixture::new();
+    let mut entries = cross_map_history_entries();
+    let selected = Tile { x: 31, y: 32 };
+    fs::write(fixture.data.join("terrain.MPQ"), archive(&entries)).unwrap();
+    let prior = prepare(&fixture.data, 1, &[selected]).unwrap();
+    assert_eq!(
+        prior.tiles().next().unwrap().1,
+        source_fixture("liquid_history61_positive.map")
+    );
+    entries[0] = raw_entry(
+        "DBFilesClient\\Map.dbc",
+        map_dbc(&[(1, b"AuthoredOracle"), (700, b"PriorHistory")]),
+    );
+    fs::write(fixture.data.join("terrain.MPQ"), archive(&entries)).unwrap();
+    let future = prepare(&fixture.data, 1, &[selected]).unwrap();
+    assert_eq!(
+        future.tiles().next().unwrap().1,
+        source_fixture("liquid_history61_initial.map")
+    );
+    assert_ne!(prior.source_epoch(), future.source_epoch());
+    assert!(prior.verify_unchanged().is_err());
+}

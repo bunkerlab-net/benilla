@@ -33,7 +33,7 @@ No client-install assets are distributed. Regression MPQs are authored fixtures.
 - Raw client IDs and transforms are retained without asserting final assembled
   coordinates, global generated IDs, placement bounds, or map-clearance authority.
 
-## Explicit compatibility profile
+## Canonical component compatibility profile
 
 The named `cmangos-vmap-listfile-logical-nul-v1` rule treats the exact captured
 listfile end as a logical NUL. The original allocation has no extra terminator,
@@ -100,3 +100,11 @@ The source-bound WMO writer supports validated MLIQ and preserves its final-chun
 reset behavior. `liquid_header_policy` records the explicit unused-padding rule;
 `wmo_liquid_groups` counts emitted active groups, excluding reset and skipped
 groups. Every consumed group remains bound to the changed-input receipts.
+
+## Pinned execution policy
+
+The separately named [pinned producer policy](PINNED-PRODUCER.md) ports the source
+basename and FileExists rules without changing canonical component callers. Its
+listfile parser refuses uncaptured suffix reads instead of adding a terminator.
+Exact product and dependency receipts remain preparation, not historical lineage
+or gameplay admission.

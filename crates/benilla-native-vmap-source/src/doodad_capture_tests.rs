@@ -1329,3 +1329,61 @@ fn filtered_prefix_replay_is_bounded_before_parent_and_child_eligibility() {
     assert_eq!(builder.encounter_ids.len(), 0);
     assert!(builder.doodad_candidates.is_empty());
 }
+
+#[test]
+fn pinned_doodad_record_binds_terminal_nul_and_exact_assembled_products() {
+    let temp = Temp::new();
+    let data = temp.data();
+    let mut entries = wmo_entries(1);
+    dc_replace(
+        &mut entries,
+        ROOT,
+        dc_root(1, b"Models\\Solid.mdx\0", &[(0, 1)], &[0]),
+    );
+    dc_replace(
+        &mut entries,
+        "World\\Wmo\\Temple_000.wmo",
+        dc_group(false, true, &[0]),
+    );
+    entries.push(raw_entry(SOLID, m2(true)));
+    entries.push(raw_entry(ADT, dc_adt(0, 0, 55)));
+    save(&data, "wmo.MPQ", &entries);
+    let output = temp.0.join("empty-output");
+    fs::create_dir(&output).unwrap();
+    let prepared = prepare_pinned(&data, 0, &output, || false).unwrap();
+    assert_eq!(prepared.doodad_candidates().len(), 1);
+    assert_eq!(prepared.doodad_candidates()[0].serialized_name_len, 9);
+    let profile =
+        DoodadProjectionProfile::from_policy_id(crate::doodad_transform_math::POLICY).unwrap();
+    let projected = prepared.project_doodad(0, profile).unwrap();
+    assert_eq!(&projected.suffix_after_generated_id()[32..], b"Solid.m2\0");
+    let records = prepared.placement_records(profile, || false).unwrap();
+    assert!(records.bytes().ends_with(b"Solid.m2\0"));
+    let bundle = prepared
+        .assemble_map_bundle(profile, || false)
+        .unwrap()
+        .unwrap();
+    assert_eq!(bundle.models().len(), 2);
+    let child = bundle
+        .models()
+        .iter()
+        .find(|m| m.source_name() == b"Solid.m2\0")
+        .unwrap();
+    assert_eq!(child.effective_source_basename(), b"Solid.m2");
+    assert_ne!(bundle.product_identity(), [0; 32]);
+    let mut identity = crate::identity::ProducerIdentity::new();
+    let first = prepared
+        .producer_binding(&identity, profile, || false)
+        .unwrap();
+    let config = temp.0.join("config");
+    fs::write(&config, b"authored config bytes").unwrap();
+    identity
+        .capture(crate::identity::DependencyRole::Config, b"config", &config)
+        .unwrap();
+    assert_ne!(
+        first,
+        prepared
+            .producer_binding(&identity, profile, || false)
+            .unwrap()
+    );
+}

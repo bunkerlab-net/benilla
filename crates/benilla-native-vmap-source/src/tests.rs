@@ -991,3 +991,6 @@ fn m2_record_stream_preserves_source_coordinate_scale_name_and_duplicate_ids() {
         again.preprocessing_binding()
     );
 }
+
+#[path = "producer_policy_tests.rs"]
+mod producer_policy_tests;

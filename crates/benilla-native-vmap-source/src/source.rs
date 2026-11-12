@@ -302,6 +302,36 @@ impl CapturedSource {
         })
     }
 
+    pub(crate) fn source_occurrences(&self) -> impl Iterator<Item = crate::SourceOccurrence<'_>> {
+        self.receipts.iter().enumerate().map(|(ordinal, receipt)| {
+            let outcome = match &receipt.outcome {
+                Outcome::Present(member) => crate::SourceOutcome::Present {
+                    winning_archive: &member.winning_archive,
+                    sha256: &member.sha256,
+                    bytes: member.bytes,
+                },
+                Outcome::Absent => crate::SourceOutcome::Absent,
+                Outcome::Dummy {
+                    winning_archive,
+                    bytes,
+                } => crate::SourceOutcome::Dummy {
+                    winning_archive,
+                    bytes: *bytes,
+                },
+            };
+            crate::SourceOccurrence {
+                ordinal,
+                listfile_archive: match receipt.scope {
+                    LookupScope::Chain => None,
+                    LookupScope::Archive(index) => Some(index),
+                },
+                probe_count: receipt.probe_count,
+                encoded_identity: receipt.encoded_identity,
+                receipt: crate::SourceReceipt::new(receipt.name.as_str(), outcome),
+            }
+        })
+    }
+
     pub(crate) fn open(data: &Path, cancel: &dyn Fn() -> bool) -> Result<Self> {
         check_cancel(cancel)?;
         if !data.is_dir() {
@@ -418,6 +448,29 @@ impl CapturedSource {
                     digest.update((member.bytes as u64).to_le_bytes());
                     hash_field(&mut digest, member.sha256.as_bytes());
                 }
+            }
+        }
+        format!("{:x}", digest.finalize())
+    }
+
+    /// Pinned identity adds encoded member and archive-index occurrences without
+    /// changing the canonical component's already-versioned capture digest.
+    pub(crate) fn exact_binding_digest(&self) -> String {
+        let mut digest = Sha256::new();
+        hash_field(&mut digest, b"cmangos-vmap-exact-occurrences-v1");
+        hash_field(&mut digest, self.binding_digest().as_bytes());
+        for archive in &self.chain.archives {
+            if let Some(identity) = archive.bounded_index_identity() {
+                hash_field(&mut digest, &identity);
+            } else {
+                hash_field(&mut digest, b"no-archive-index");
+            }
+        }
+        for receipt in &self.receipts {
+            if let Some(identity) = receipt.encoded_identity {
+                hash_field(&mut digest, &identity);
+            } else {
+                hash_field(&mut digest, b"no-encoded-member");
             }
         }
         format!("{:x}", digest.finalize())

@@ -18,14 +18,17 @@ mod doodad_reference_order;
 mod doodad_transform_math;
 mod doodads;
 mod encounter_ids;
+pub mod identity;
 mod map_bundle;
 mod map_products;
 mod map_spawn_index;
 mod placement_records;
+mod producer_policy;
+pub use producer_policy::ProducerPolicy;
 #[cfg(feature = "synthetic-map-tests")]
 pub mod profiling;
 mod receipts;
-pub use receipts::{SourceOutcome, SourceReceipt};
+pub use receipts::{SourceOccurrence, SourceOutcome, SourceReceipt};
 mod selected_model_names;
 mod source;
 
@@ -136,7 +139,7 @@ pub struct DoodadCandidate {
     pub child_ordinal: u16,
     pub product_index: usize,
     pub spawn: DoodadSpawn,
-    /// Encoded canonical model-name length; no asset text or trailing NUL.
+    /// Exact serialized name length. Pinned .mdx/.mdl doodads retain the final NUL.
     pub serialized_name_len: u32,
 }
 
@@ -262,6 +265,13 @@ pub struct PreparedDiscovery {
     doodad_candidates: Vec<DoodadCandidate>,
 }
 impl PreparedDiscovery {
+    pub fn producer_policy(&self) -> ProducerPolicy {
+        if self.summary.writer_policy == ProducerPolicy::PinnedBasenameFirstWins.writer_policy() {
+            ProducerPolicy::PinnedBasenameFirstWins
+        } else {
+            ProducerPolicy::CanonicalComponent
+        }
+    }
     pub fn map_id(&self) -> u32 {
         self.summary.map_id
     }
@@ -269,6 +279,9 @@ impl PreparedDiscovery {
     /// Archive-scoped enumeration remains bound by the original source epoch.
     pub fn source_receipts(&self) -> impl Iterator<Item = SourceReceipt<'_>> {
         self.source.source_receipts()
+    }
+    pub fn source_occurrences(&self) -> impl Iterator<Item = SourceOccurrence<'_>> {
+        self.source.source_occurrences()
     }
     pub fn source_policy(&self) -> &'static str {
         source::SOURCE_POLICY
@@ -288,7 +301,7 @@ impl PreparedDiscovery {
     }
     /// Diagnostic digest only; cannot construct a witness or prove a live lease.
     pub fn source_epoch(&self) -> String {
-        self.source.binding_digest()
+        self.summary.source_epoch.clone()
     }
     pub fn verify_unchanged(&self, cancelled: impl Fn() -> bool) -> Result<(), Error> {
         self.source
@@ -345,6 +358,8 @@ pub enum Error {
     RequiredMemberDummy,
     NameCollision,
     UnresolvedWmoReference,
+    OutputRootUnavailable,
+    OutputRootNotEmpty,
     UnsupportedPrefixMapDirectory,
     GlobalRootLimit,
     DependencyOrder,
@@ -407,6 +422,8 @@ impl Error {
                 Self::RequiredMemberDummy => "vmap.required_member_dummy",
                 Self::NameCollision => "vmap.flat_name_collision",
                 Self::UnresolvedWmoReference => "vmap.unresolved_wmo_reference",
+                Self::OutputRootUnavailable => "vmap.output_root_unavailable",
+                Self::OutputRootNotEmpty => "vmap.output_root_not_empty",
                 Self::UnsupportedPrefixMapDirectory => "vmap.unsupported_prefix_map_directory",
                 Self::GlobalRootLimit => "vmap.global_root_limit",
                 Self::DependencyOrder => "vmap.dependency_order",
@@ -537,6 +554,25 @@ pub fn prepare(
     builder.finish()
 }
 
+/// Pinned basename/FileExists semantics with a positively observed empty root.
+/// This prepares in memory only. Acquisition still requires owner approval.
+pub fn prepare_pinned(
+    data_path: &Path,
+    map_id: u32,
+    empty_output: &Path,
+    cancelled: impl Fn() -> bool,
+) -> Result<PreparedDiscovery, Error> {
+    producer_policy::require_empty_output(empty_output)?;
+    let source = CapturedSource::open(data_path, &cancelled)?;
+    let mut builder = Builder::new(source, map_id, 0);
+    builder.policy = ProducerPolicy::PinnedBasenameFirstWins;
+    builder.summary.writer_policy = builder.policy.writer_policy();
+    builder.summary.listfile_policy = builder.policy.listfile_policy();
+    prepare_inner(&mut builder, map_id, &cancelled).map_err(|cause| builder.failure(cause))?;
+    producer_policy::require_empty_output(empty_output)?;
+    builder.finish()
+}
+
 fn prepare_inner(
     builder: &mut Builder,
     map_id: u32,
@@ -559,7 +595,12 @@ fn prepare_inner(
         {
             Lookup::Absent => continue,
             Lookup::Dummy { .. } => return Err(Error::RequiredMemberDummy),
-            Lookup::Present(bytes) => discovery::parse_wmo_listfile(bytes.bytes())?,
+            Lookup::Present(bytes) => match builder.policy {
+                ProducerPolicy::CanonicalComponent => discovery::parse_wmo_listfile(bytes.bytes())?,
+                ProducerPolicy::PinnedBasenameFirstWins => {
+                    discovery::parse_pinned_wmo_listfile(bytes.bytes())?
+                }
+            },
         };
         for dependency in names {
             check_cancel(cancelled)?;
@@ -666,6 +707,7 @@ fn prepare_inner(
 }
 
 struct Builder {
+    policy: ProducerPolicy,
     source: CapturedSource,
     summary: DiscoverySummary,
     placements: Vec<Placement>,
@@ -679,12 +721,13 @@ struct Builder {
 impl Builder {
     fn new(source: CapturedSource, map_id: u32, map_record_ordinal: usize) -> Self {
         Self {
+            policy: ProducerPolicy::CanonicalComponent,
             source,
             summary: DiscoverySummary {
                 source_pin: SOURCE_PIN,
                 acquisition_policy: source::SOURCE_POLICY,
-                listfile_policy: discovery::LISTFILE_POLICY,
-                writer_policy: "benilla-vmaps05-canonical-model-path-v9",
+                listfile_policy: ProducerPolicy::CanonicalComponent.listfile_policy(),
+                writer_policy: ProducerPolicy::CanonicalComponent.writer_policy(),
                 liquid_header_policy: WMO_LIQUID_HEADER_ZERO_PADDING_V1,
                 doodad_reference_order_policy: doodad_reference_order::POLICY,
                 encounter_id_policy: encounter_ids::POLICY,
@@ -760,12 +803,13 @@ impl Builder {
                         DiscoveryEvent::ReferenceWmo(_) => {
                             let index = *self
                                 .names
-                                .get(&dependency.member.to_ascii_lowercase())
+                                .get(self.policy.key(dependency).as_ref())
                                 .ok_or(Error::UnresolvedWmoReference)?;
-                            if self.products[index].kind != ModelKind::Wmo
-                                || !self.products[index]
-                                    .member
-                                    .eq_ignore_ascii_case(&dependency.member)
+                            if self.policy == ProducerPolicy::CanonicalComponent
+                                && (self.products[index].kind != ModelKind::Wmo
+                                    || !self.products[index]
+                                        .member
+                                        .eq_ignore_ascii_case(&dependency.member))
                             {
                                 return Err(Error::NameCollision);
                             }
@@ -782,11 +826,21 @@ impl Builder {
                         PlacementInput::M2(v) => v.dependency,
                         PlacementInput::Wmo(v) => v.dependency,
                     };
-                    let product = resolved
+                    let mut product = resolved
                         .get(dependency)
                         .copied()
                         .flatten()
                         .ok_or(Error::DependencyOrder)?;
+                    // MDDF/MODF open the CURRENT flat output, after all prior
+                    // name events, not the product captured at a name event.
+                    // model.cpp:169-184; wmo.cpp:567-584.
+                    if self.policy == ProducerPolicy::PinnedBasenameFirstWins {
+                        let dependency = &inputs.dependencies[dependency];
+                        if let Some(&current) = self.names.get(self.policy.key(dependency).as_ref())
+                        {
+                            product = current;
+                        }
+                    }
                     // WMOInstance checks MODF bit 0 before opening the raw model.
                     let disposition = if matches!(input, PlacementInput::Wmo(v) if v.flags & 1 != 0)
                     {
@@ -885,8 +939,19 @@ impl Builder {
             let Some(dependency) = discovery::doodad_model_dependency(path)? else {
                 continue;
             };
-            let key = dependency.member.to_ascii_lowercase();
-            let Some(&product_index) = self.names.get(&key) else {
+            let instance_name = if self.policy == ProducerPolicy::PinnedBasenameFirstWins {
+                Some(producer_policy::doodad_instance_name(path)?)
+            } else {
+                None
+            };
+            let key = match &instance_name {
+                Some(name) => std::borrow::Cow::Borrowed(
+                    std::str::from_utf8(name.strip_suffix(&[0]).unwrap_or(name))
+                        .map_err(|_| Error::DoodadNameIdentity)?,
+                ),
+                None => self.policy.key(&dependency),
+            };
+            let Some(&product_index) = self.names.get(key.as_ref()) else {
                 continue;
             };
             if self.products[product_index].kind != ModelKind::M2 {
@@ -917,7 +982,10 @@ impl Builder {
                 child_ordinal,
                 product_index,
                 spawn: spawn.clone(),
-                serialized_name_len: self.products[product_index].model_name().len() as u32,
+                serialized_name_len: instance_name
+                    .as_ref()
+                    .map_or_else(|| self.products[product_index].model_name().len(), Vec::len)
+                    as u32,
             });
         }
         self.summary.doodad_candidates = self.doodad_candidates.len();
@@ -935,20 +1003,23 @@ impl Builder {
         dependency: &ModelDependency,
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Option<usize>, Error> {
-        // Deviation: Key M2 collision by canonical path because CMaNGOS 8ec338a1 gameobject_extract.cpp:26-39 uses basename FileExists first-wins and model.cpp:49-73 writes no zero-hull file, giving a no-collision model the other model's hull; benilla keeps each model's own collision.
-        // Deviation: Key WMO geometry by full canonical path because CMaNGOS 8ec338a1 vmapexport.cpp:160-167 flattens basenames and FileExists returns first-wins, then src/game/vmap/TileAssembler.cpp:298-329 writes basename.vmo, giving the loser the winner's geometry and depending on leftover output.
-        let key = dependency.member.to_ascii_lowercase();
-        let existing = self.names.get(&key).copied();
+        let key = self.policy.key(dependency);
+        let mut existing = self.names.get(key.as_ref()).copied();
         if let Some(index) = existing {
             let product = &self.products[index];
-            if product.kind != dependency.kind
-                || !product.member.eq_ignore_ascii_case(&dependency.member)
+            if self.policy == ProducerPolicy::CanonicalComponent
+                && (product.kind != dependency.kind
+                    || !product.member.eq_ignore_ascii_case(&dependency.member))
             {
                 return Err(Error::NameCollision);
             }
-            // FileExists caches only emitted files; M2::open's zero hull emits none.
+            // FileExists caches emitted files only. A zero hull does not
+            // reserve the basename, model.cpp:49-73.
             if !matches!(product.collision, Collision::M2EmptyHull) {
                 return Ok(Some(index));
+            }
+            if self.policy == ProducerPolicy::PinnedBasenameFirstWins {
+                existing = None;
             }
         }
         let lookup = self.source.read(&dependency.member, cancelled)?;
@@ -988,7 +1059,10 @@ impl Builder {
             kind: dependency.kind,
             member: dependency.member.clone(),
             extracted_name: dependency.extracted_name.clone(),
-            canonical_name: canonical_model_name(&key),
+            canonical_name: match self.policy {
+                ProducerPolicy::CanonicalComponent => canonical_model_name(&key),
+                ProducerPolicy::PinnedBasenameFirstWins => dependency.extracted_name.clone(),
+            },
             collision,
             doodads,
         };
@@ -1009,7 +1083,7 @@ impl Builder {
         }
         let index = self.products.len();
         self.products.push(product);
-        self.names.insert(key, index);
+        self.names.insert(key.into_owned(), index);
         self.summary.retained_raw_bytes = total;
         Ok(Some(index))
     }
@@ -1145,7 +1219,10 @@ impl Builder {
     }
     fn finish(mut self) -> Result<PreparedDiscovery, Error> {
         self.summary.encounter_id_count = self.encounter_ids.len();
-        self.summary.source_epoch = self.source.binding_digest();
+        self.summary.source_epoch = match self.policy {
+            ProducerPolicy::CanonicalComponent => self.source.binding_digest(),
+            ProducerPolicy::PinnedBasenameFirstWins => self.source.exact_binding_digest(),
+        };
         self.summary.archive_count = self.source.archives().len();
         self.summary.member_lookups = self.source.read_count();
         self.summary.read_work_bytes = self.source.read_work_bytes();

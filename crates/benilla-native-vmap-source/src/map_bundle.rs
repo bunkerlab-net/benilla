@@ -126,6 +126,32 @@ impl AssembledSourceMap<'_> {
     pub fn models(&self) -> &[AssembledModelProduct] {
         &self.models
     }
+    /// Exact tree/BIH, tile, model-set order, raw names and C-string output names.
+    /// This binds these bytes, not an independently unproven producer lineage.
+    pub fn product_identity(&self) -> [u8; 32] {
+        use sha2::{Digest, Sha256};
+        let mut hash = Sha256::new();
+        let field = crate::identity::field;
+        field(&mut hash, b"cmangos-vmap-exact-map-products-v1");
+        field(
+            &mut hash,
+            self.source.get().summary.writer_policy.as_bytes(),
+        );
+        field(&mut hash, self.map.source_binding());
+        field(&mut hash, self.map.tree_bytes());
+        for tile in self.map.tiles() {
+            let (x, y) = tile.coordinates();
+            hash.update(x.to_le_bytes());
+            hash.update(y.to_le_bytes());
+            field(&mut hash, tile.bytes());
+        }
+        for model in &self.models {
+            field(&mut hash, model.source_name());
+            field(&mut hash, model.effective_source_basename());
+            field(&mut hash, model.bytes());
+        }
+        hash.finalize().into()
+    }
     pub fn verify_unchanged(&self, cancelled: impl Fn() -> bool) -> Result<(), MapBundleError> {
         #[cfg(feature = "synthetic-map-tests")]
         let _runtime = crate::profiling::RuntimeScope::enter();
@@ -259,6 +285,10 @@ fn select_models(
         .map_err(|_| MapBundleError::Allocation)?;
     for (i, product) in products.iter().enumerate() {
         check(&cancelled)?;
+        // A zero hull creates no file and cannot reserve a flat output name.
+        if product.raw_vmap().is_none() {
+            continue;
+        }
         if raw_lookup
             .insert(product.model_name().as_bytes(), i)
             .is_some()
