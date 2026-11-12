@@ -217,4 +217,76 @@ impl VerifiedCatalog {
         })?;
         Ok(output)
     }
+    /// SQLInstanceLoader operands, including the preceding sorted ScriptDevAI name IDs.
+    pub(crate) fn execution_instance_templates(
+        &mut self,
+    ) -> Result<Vec<crate::native::source_execution::InstanceTemplateRow>> {
+        use crate::native::source_execution::InstanceTemplateRow;
+        let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
+        let mut names = BTreeSet::new();
+        let spec = &catalog_schema::POLICY["loaders"]["AI/ScriptDevAI/ScriptDevAIMgr:480"];
+        for relation in spec["relations"]
+            .as_array()
+            .ok_or_else(|| fail("scripts.query"))?
+        {
+            let table = relation.as_str().ok_or_else(|| fail("scripts.query"))?;
+            let index = position(&columns(&schema, table)?, "ScriptName")?;
+            self.scan(table, 0, 256, |row| {
+                let mut cells = [None; 256];
+                fill(&row, &mut cells)?;
+                if let Some(name) = cells[index].filter(|v| !v.is_empty()) {
+                    check(name.is_ascii(), "scripts.name_collation")?;
+                    names.insert(name.to_vec());
+                    check(names.len() * 256 <= DECODED, "scripts.view_limit")?;
+                }
+                Ok(())
+            })?;
+        }
+        let normalized: BTreeSet<_> = names
+            .iter()
+            .map(|v| v.trim_ascii_end().to_ascii_lowercase())
+            .collect();
+        check(normalized.len() == names.len(), "scripts.name_collation")?;
+        // ScriptDevAIMgr.cpp:479,515,532-544: empty name is zero; byte-sorted names follow.
+        let ids: BTreeMap<_, _> = names
+            .into_iter()
+            .enumerate()
+            .map(|(i, name)| (name, (i + 1) as u32))
+            .collect();
+        let cols = columns(&schema, "instance_template")?;
+        // SQLStorages.cpp:34-35 defines this exact 11-column SELECT * layout.
+        check(cols.len() == 11, "instance_templates.sql_layout")?;
+        let mut output = Vec::new();
+        self.scan("instance_template", 0, 256, |row| {
+            let mut c = [None; 256];
+            fill(&row, &mut c)?;
+            let name = c[9]
+                .unwrap_or_default()
+                .split(|b| *b == 0)
+                .next()
+                .unwrap_or_default();
+            output.push(InstanceTemplateRow {
+                map: uint(c[0])?,
+                parent: uint(c[1])?,
+                level_min: uint(c[2])?,
+                level_max: uint(c[3])?,
+                max_players: uint(c[4])?,
+                reset_days: uint(c[5])?,
+                ghost_map: uint(c[6])? as i32,
+                ghost_xy: [floating(c[7])?, floating(c[8])?],
+                script_id: if name.is_empty() {
+                    0
+                } else {
+                    *ids.get(name)
+                        .ok_or_else(|| fail("instance_templates.script_name_owner"))?
+                },
+                mount_allowed: uint(c[10])? > 0,
+            });
+            check(
+                output.len() <= DECODED / std::mem::size_of::<InstanceTemplateRow>(),
+                "instance_templates.view_limit",
+            )
+        })?;
+        Ok(output)
+    }
 }

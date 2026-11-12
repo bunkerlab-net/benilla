@@ -92,6 +92,34 @@ impl SourceEffectiveSpawns {
         struct Unbound;
         impl EffectiveSpawnOwner for Unbound {}
         let inputs = EffectiveSpawnInputs::catalog_diagnostic(catalog)?;
+        Self::inspect_catalog_with_inputs(catalog, occurrences, &inputs, &mut Unbound)
+    }
+    /// World.cpp:933 loaded instances and :495 recorded autoload, before :1066/:1072.
+    /// RNG position and terrain remain owned by the supplied execution owner.
+    pub fn inspect_catalog_startup_owners(
+        catalog: &mut VerifiedCatalog,
+        occurrences: &Path,
+        config: &Path,
+        approved: &Sha256Id,
+        execution: &mut impl EffectiveSpawnOwner,
+    ) -> Result<Self> {
+        let reset = InstanceResetConfig::recorded(config, approved)?;
+        let autoload = AutoloadActiveConfig::recorded(config, approved)?;
+        let instances = LoadedInstanceTemplates::catalog_diagnostic(catalog, &reset)?;
+        let mut inputs = EffectiveSpawnInputs::catalog_diagnostic(catalog)?;
+        instances.bind_effective_spawns(&mut inputs);
+        let mut owner = ConfiguredEffectiveSpawnOwner {
+            execution,
+            autoload: &autoload,
+        };
+        Self::inspect_catalog_with_inputs(catalog, occurrences, &inputs, &mut owner)
+    }
+    fn inspect_catalog_with_inputs(
+        catalog: &mut VerifiedCatalog,
+        occurrences: &Path,
+        inputs: &EffectiveSpawnInputs,
+        owner: &mut impl EffectiveSpawnOwner,
+    ) -> Result<Self> {
         let mut rows = ObjectMgrSpawnRows::open(catalog, occurrences)?;
         let mut this = Self {
             random_entries: inputs.random.keys().copied().collect(),
@@ -101,7 +129,7 @@ impl SourceEffectiveSpawns {
         for kind in [GridSpawnKind::Creature, GridSpawnKind::GameObject] {
             while let Some(row) = rows.next(kind.table())? {
                 gameobjects_seen |= kind == GridSpawnKind::GameObject;
-                let _refused = this.inspect_row(kind, row, &inputs, &mut Unbound);
+                let _refused = this.inspect_row(kind, row, inputs, owner);
             }
         }
         // This query executes after all GO rows, including rows skipped post-insert.

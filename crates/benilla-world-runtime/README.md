@@ -2103,12 +2103,36 @@ The loaders insert spawn data before map and coordinate checks,
 `ObjectMgr.cpp:1955,2145`. Skips after insertion retain those map entries.
 `CatalogGroupLoadOwner::with_pre_terrain` exposes only the assigned group
 fields. It cannot complete group finalisation without the terrain owner.
-The zone lookup occurs at `:2028-2031,2225-2228`. Missing terrain, startup
-RNG position, and active-load configuration owners refuse where reached.
-No completed startup or partial loaded group container is published.
-Dungeon GO validation requires the effective `LoadInstanceTemplate` result,
-`MapManager.cpp:245-248`. Raw template IDs cannot replace that owner because
-`ObjectMgr.cpp:5382,5390,5420` erases invalid templates.
+The zone lookup occurs at `:2028-2031,2225-2228`. Missing terrain and startup
+RNG position owners still refuse where reached. No completed startup or
+partial loaded group container is published.
+
+`LoadedInstanceTemplates` executes the immutable `LoadInstanceTemplate`
+product at `World.cpp:933`, before spawn loading at `:1066,1072`. It ports
+the indexed erase rules, parent corrections, ghost checks against the
+current loaded set, and reset scaling, `ObjectMgr.cpp:5367-5442`.
+Missing-parent correction continues before ghost checks and reset scaling,
+`:5402-5403`. The catalog adapter also computes the preceding sorted script
+name IDs, `ScriptDevAIMgr.cpp:477-515,532-544`.
+`bind_effective_spawns` installs only surviving IDs into `instances`;
+dungeon GO validation uses that loaded set, `MapManager.cpp:245-248`.
+The redundant missing-ghost-DBC erase at `ObjectMgr.cpp:5428` is unreachable
+after `IsValidMAP` has required that DBC entry at `MapManager.h:100-102`.
+
+`AutoloadActiveConfig` binds `Autoload.Active`, read through
+`sConfig.GetBoolDefault` at `World.cpp:495,2415-2417`. The recorded seal16
+`mangosd.conf:258` supplies `1`. Missing keys refuse rather than choosing
+the source default. Malformed boolean values become false, exactly as
+`Config.cpp:117-124`. `ConfiguredEffectiveSpawnOwner` supplies that value
+while borrowing the existing RNG and terrain owner. Instance reset scaling
+uses recorded `Rate.InstanceResetTime=1` at `mangosd.conf:1528`, loaded at
+`World.cpp:455`. Undefined float-to-uint32 reset conversions refuse.
+
+`inspect_catalog_startup_owners` binds both owners before visiting spawns.
+It remains a diagnostic, not a recorded startup-order certificate.
+The original unbound diagnostic deliberately retains missing-owner errors.
+The startup-owner census requires `BENILLA_F5_EVENT_AI_CONFIG` as well as
+the catalog and spawn occurrences, and prints `SKIP` when absent.
 
 An entry of zero checks the conditional validation default before
 attempting random selection, `:1916-1932`. Conditional entries reset after terrain and

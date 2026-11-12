@@ -197,6 +197,10 @@ mod spawn_groups;
 pub use spawn_groups::*;
 mod effective_spawns;
 pub use effective_spawns::*;
+mod instance_templates;
+pub use instance_templates::*;
+mod spawn_loader_config;
+pub use spawn_loader_config::*;
 mod formations;
 pub use formations::*;
 #[cfg(test)]
