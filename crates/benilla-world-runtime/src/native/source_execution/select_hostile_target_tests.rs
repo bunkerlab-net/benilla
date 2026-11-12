@@ -20,6 +20,8 @@ fn template() -> CreatureAiTemplateOperands {
         stats_multipliers: [0x3f800000; 3],
         civilian: false,
         pursuit_ms: 15000,
+        call_for_help: 0,
+        creature_type: 0,
         ai_name: "GuardAI".into(),
         script_name: String::new(),
     }
