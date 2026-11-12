@@ -179,16 +179,12 @@ fn initialize_pushes_wander_and_sets_roaming_before_first_f6_call() {
 }
 
 #[test]
-fn selector_defines_wander_and_waypoint_but_refuses_fixed_and_linear() {
+fn selector_defines_all_four_registered_generators() {
     assert_eq!(source_default_motion(1, false).unwrap(), 1);
     assert_eq!(source_default_motion(1, true).unwrap(), 0);
     assert_eq!(source_default_motion(2, false).unwrap(), 2);
-    for (kind, id) in [
-        (3, "execution.motion.f5_fixed_path_owner"),
-        (4, "execution.motion.f5_linear_waypoint_owner"),
-    ] {
-        assert_eq!(source_default_motion(kind, false).unwrap_err().id, id);
-    }
+    assert_eq!(source_default_motion(3, false).unwrap(), 3);
+    assert_eq!(source_default_motion(4, false).unwrap(), 4);
 }
 
 #[test]

@@ -9,3 +9,7 @@ mod waypoint_inputs;
 pub use waypoint_inputs::*;
 mod waypoint;
 pub use waypoint::*;
+mod fixed_path;
+pub use fixed_path::*;
+#[cfg(test)]
+mod fixed_path_census_tests;

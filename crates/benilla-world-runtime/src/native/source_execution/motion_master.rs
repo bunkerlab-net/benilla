@@ -30,9 +30,7 @@ impl MotionDefault {
 /// FOLLOW has no registered factory and therefore falls back to static Idle.
 pub fn source_default_motion(movement_type: u32, player_owner: bool) -> Result<u32> {
     match if player_owner { 7 } else { movement_type } {
-        1 | 2 => Ok(movement_type),
-        3 => Err(refuse("execution.motion.f5_fixed_path_owner")),
-        4 => Err(refuse("execution.motion.f5_linear_waypoint_owner")),
+        1..=4 => Ok(movement_type),
         _ => Ok(0),
     }
 }
@@ -112,6 +110,36 @@ pub trait MotionExecutionOwner {
     fn waypoint_script(
         &mut self,
         _generator: &SourceWaypointGenerator,
+        _master: &mut SourceMotionMaster,
+        _context: &mut MotionContext<'_>,
+        _script: u32,
+        _target: Option<SourceGuid>,
+    ) -> Result<()> {
+        Err(refuse(
+            "execution.waypoint.f5_dbscript_movement_execution_owner",
+        ))
+    }
+    /// Checks the actual formation slot, then calls OnWPStartNode/OnWPEndNode.
+    /// An explicitly bound absent slot skips the hook, cpp:628-642.
+    fn linear_waypoint_endpoint(&mut self, _unit: ObjectHandle, _returning: bool) -> Result<()> {
+        Err(refuse("execution.waypoint.formation_linear_endpoint_owner"))
+    }
+    fn fixed_path_spline(&mut self, _unit: ObjectHandle) -> Result<FixedPathSplineState> {
+        Err(refuse("execution.fixed_path.f6_spline_state_owner"))
+    }
+    /// Includes optional unit AI and temporary-summoner AI notifications.
+    fn fixed_path_inform(
+        &mut self,
+        _master: &mut SourceMotionMaster,
+        _context: &mut MotionContext<'_>,
+        _kind: u32,
+        _point: u32,
+    ) -> Result<()> {
+        Err(refuse("execution.fixed_path.f5_ai_movement_inform_owner"))
+    }
+    fn fixed_path_script(
+        &mut self,
+        _generator: &SourceFixedPathGenerator,
         _master: &mut SourceMotionMaster,
         _context: &mut MotionContext<'_>,
         _script: u32,
@@ -206,6 +234,9 @@ pub trait SourceMovementGenerator {
     }
     fn reset_position(&self) -> Option<[f32; 4]> {
         None
+    }
+    fn pause(&self, _delta: i32, _force: bool) -> Result<()> {
+        Err(refuse("execution.motion.pause_generator_owner"))
     }
 }
 #[derive(Clone)]
@@ -330,8 +361,28 @@ impl SourceMotionMaster {
                 self.stack.push(Generator::Owned(generator.clone()));
                 return generator.initialize(self, context, owner);
             }
-            if kind == 2 {
-                let generator = Rc::new(SourceWaypointGenerator::default());
+            if kind == 3 {
+                let generator = Rc::new(SourceFixedPathGenerator::load(
+                    self,
+                    context,
+                    owner,
+                    self.path_id()? as i32,
+                    WaypointOrigin::None,
+                    FixedPathOptions {
+                        flying: true,
+                        cyclic: true,
+                        ..Default::default()
+                    },
+                )?);
+                self.stack.push(Generator::Owned(generator.clone()));
+                return generator.initialize(self, context, owner);
+            }
+            if kind == 2 || kind == 4 {
+                let generator = Rc::new(if kind == 4 {
+                    SourceWaypointGenerator::linear()
+                } else {
+                    SourceWaypointGenerator::default()
+                });
                 self.stack.push(Generator::Owned(generator.clone()));
                 generator.initialize(self, context, owner)?;
                 let formation_path = owner.waypoint_formation_path(self.unit)?;
@@ -560,6 +611,105 @@ impl SourceMotionMaster {
         self.stack.push(Generator::Owned(generator.clone()));
         generator.initialize_path(self, context, owner, request)
     }
+    /// MotionMaster.cpp:492-510 checks enum 4 although Linear reports enum 2.
+    pub fn move_linear_waypoint(
+        &mut self,
+        request: WaypointPathRequest,
+        forced_movement: u32,
+        target: Option<SourceGuid>,
+        context: &mut MotionContext<'_>,
+        owner: &mut dyn MotionExecutionOwner,
+    ) -> Result<()> {
+        if !matches!(
+            context.objects.get(self.unit)?.kind,
+            SourceObjectKind::Creature | SourceObjectKind::Pet
+        ) || self.current_type() == 4
+        {
+            return Ok(());
+        }
+        self.current_path = Some(request.path_id as u32);
+        let generator = Rc::new(SourceWaypointGenerator::linear());
+        generator.forced_movement.set(forced_movement);
+        generator.target_guid.set(target);
+        if matches!(self.current_type(), 5 | 12) {
+            self.expire(false, context, owner)?;
+        }
+        if let Some(Generator::Owned(g)) = self.stack.last().cloned() {
+            g.interrupt(self, context, owner)?;
+        }
+        generator.initialize(self, context, owner)?;
+        self.stack.push(Generator::Owned(generator.clone()));
+        generator.initialize_path(self, context, owner, request)
+    }
+    /// MotionMaster.cpp:425-444. Empty point paths do not mutate the stack.
+    pub fn move_path_points(
+        &mut self,
+        points: &[[f32; 3]],
+        orientation: f32,
+        options: FixedPathOptions,
+        context: &mut MotionContext<'_>,
+        owner: &mut dyn MotionExecutionOwner,
+    ) -> Result<()> {
+        if points.is_empty() {
+            return Ok(());
+        }
+        self.mutate(
+            SourceFixedPathGenerator::from_points(points, Some(orientation), options),
+            context,
+            owner,
+        )
+    }
+    pub fn move_path(
+        &mut self,
+        path_id: i32,
+        origin: WaypointOrigin,
+        options: FixedPathOptions,
+        context: &mut MotionContext<'_>,
+        owner: &mut dyn MotionExecutionOwner,
+    ) -> Result<()> {
+        self.current_path = Some(path_id as u32);
+        let generator =
+            SourceFixedPathGenerator::load(self, context, owner, path_id, origin, options)?;
+        self.mutate(generator, context, owner)
+    }
+    /// MotionMaster.cpp:629-675. PATH pauses clear the retained spline.
+    pub fn pause_waypoints(
+        &mut self,
+        time: u32,
+        context: &mut MotionContext<'_>,
+        owner: &mut dyn MotionExecutionOwner,
+    ) -> Result<()> {
+        if !matches!(
+            context.objects.get(self.unit)?.kind,
+            SourceObjectKind::Creature | SourceObjectKind::Pet
+        ) {
+            return Ok(());
+        }
+        self.stop_moving(context, owner)?;
+        if time == 0 {
+            context.units.get_mut(context.objects, self.unit)?.state |= WAYPOINT_PAUSED;
+        } else if matches!(self.current_type(), 1..=3) {
+            if let Some(Generator::Owned(g)) = self.stack.last().cloned() {
+                g.pause(time as i32, true)?;
+            }
+        }
+        Ok(())
+    }
+    pub fn unpause_waypoints(&mut self, context: &mut MotionContext<'_>) -> Result<()> {
+        if !matches!(
+            context.objects.get(self.unit)?.kind,
+            SourceObjectKind::Creature | SourceObjectKind::Pet
+        ) {
+            return Ok(());
+        }
+        context.units.get_mut(context.objects, self.unit)?.state &= !WAYPOINT_PAUSED;
+        if matches!(self.current_type(), 2 | 3) {
+            if let Some(Generator::Owned(g)) = self.stack.last().cloned() {
+                g.pause(0, true)?;
+            }
+        }
+        Ok(())
+    }
     pub fn formation(
         &mut self,
         command: FormationMotion,
@@ -579,6 +729,17 @@ impl SourceMotionMaster {
                 path,
                 linear: false,
             } => self.move_waypoint(
+                WaypointPathRequest {
+                    path_id: path as i32,
+                    origin: WaypointOrigin::WaypointPath,
+                    ..Default::default()
+                },
+                0,
+                None,
+                context,
+                owner,
+            ),
+            FormationMotion::Waypoint { path, linear: true } => self.move_linear_waypoint(
                 WaypointPathRequest {
                     path_id: path as i32,
                     origin: WaypointOrigin::WaypointPath,

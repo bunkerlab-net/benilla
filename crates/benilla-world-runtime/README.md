@@ -1749,11 +1749,11 @@ delayed expiry removes them, `MotionMaster.cpp:203-271`.
 
 The default selector uses the four registered factories and genuine null
 fallback, `CreatureAISelector.cpp:109-135`, `CreatureAIRegistry.cpp:45-48`.
-Fixed-path and linear-waypoint constructors still refuse.
+All four constructors are owned up to their first F6 spline or geometry call.
 Player ownership requests unregistered FOLLOW and therefore selects Idle.
 `CreatureConstruction::initialize_motion` runs the concrete owner before AI
 selection; `SourceMotions::formation` handles Initialize, Clear, Idle and
-non-linear MoveWaypoint, `SpawnGroup.cpp:890`.
+both MoveWaypoint and MoveLinearWP, `SpawnGroup.cpp:890`.
 `SourceMotionDependencies` connects UnitAI Home and immobilization calls.
 EventAI action 64 calls that same root owner,
 `CreatureEventAI.cpp:1347-1350`, without bypassing missing root output.
@@ -1815,6 +1815,33 @@ order, `:135-161`. Indeterminate path reads, empty-path iterator dereferences
 and null-AI indexed-arrival queries refuse at `WaypointMovementGenerator.h:56,74-77`
 and `WaypointMovementGenerator.cpp:115-116,243`. Native save/Open still
 requires F7; the generator adds no serialized state.
+
+Linear waypoints reuse the waypoint loader, timers, scripts and notifications.
+They report waypoint kind 2, not linear kind 4,
+`WaypointMovementGenerator.h:146-150`. Ordered-node transitions reuse
+`source_linear_waypoint_next`, shared with the existing formation method,
+including endpoint mirroring, `WaypointMovementGenerator.cpp:617-646`.
+Lookahead stops at each endpoint
+and reverses its query direction when looped, `:649-668`.
+The one-node reverse iterator boundaries refuse instead of repairing the path.
+`MoveLinearWP` retains its ineffective kind-4 replacement guard,
+`MotionMaster.cpp:492-510`.
+
+Fixed paths copy the selected loaded waypoint map, and any node delay disables
+cyclic movement, `PathMovementGenerator.cpp:39-58`. Spline preparation rotates
+cyclic nodes at the offset or stops noncyclic segments at the next delay,
+`:78-115`. Initialization queries the real prior spline before preparing points,
+`:61-70`; MoveSplineInit construction refuses at `:274`. No launch result,
+first-cycle flag or ROAMING_MOVE flag is fabricated. Reset rebuilds only the
+abstract spline, `:266-270`. Update retains the extra cyclic spline index,
+script-before-AI notifications, saturating timers and end-of-path expiry,
+`:140-226`. Tests that supply spline-read operands are state kernels, not travel.
+Fixed pause and unpause clear the prepared spline,
+`MotionMaster.cpp:644-647,670-673`, `PathMovementGenerator.cpp:304-316`.
+Offset iterator, empty-path modulo and signed-index overflow boundaries refuse
+at `:84,100,159,168,198`; unsigned pause addition still wraps at `:315`.
+The catalog census separates constructor availability from global loader
+refusals and raw selected-path F6 probes. No additional path loader is used.
 
 Root state and guards follow `Unit.cpp:6496-6520,9908-9920,10070-10092`.
 Missing spline-stop and root movement-info/output owners remain typed refusals.

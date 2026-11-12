@@ -262,8 +262,8 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
     assert_eq!(wander_spawns.len(), 43119);
     assert_eq!(waypoint_templates.len(), 209);
     assert_eq!(waypoint_spawns.len(), 2931);
-    assert_eq!(defined_templates, 10372);
-    assert_eq!(defined_spawns, 66063);
+    assert_eq!(defined_templates, 10384);
+    assert_eq!(defined_spawns, 66436);
     assert_eq!(
         spawn_type_undefined, 0,
         "normal stock undefined conversion must stop before commit"
@@ -271,13 +271,13 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
     let report = serde_json::json!({
         "catalog_sha256": catalog.report()["catalog_sha256"],
         "scope": "raw ordinary uncontrolled template and static spawn alternatives; not group/event substitutions, admitted live factories or F1 evidence",
-        "templates": {"total": template_motion.len(), "generator_defined": defined_templates, "before_generator_defined": defined_templates - waypoint_templates.len(), "wander_generator_defined_entries": wander_templates, "missing_constructor_entries": template_refusals},
-        "spawns": {"total": spawn_motion.len(), "generator_defined": defined_spawns, "before_generator_defined": defined_spawns - waypoint_spawns.len(), "wander_raw_family_guids": wander_spawns, "wander_constructed_f6_refusal_guids": wander_constructed_spawns, "missing_effective_template_bindings": wander_missing_effective_template, "radius_negative_to_zero": negative_radius_repairs, "radius_zero_random_to_idle": radius_repairs, "refusal_guids": spawn_refusals},
+        "templates": {"total": template_motion.len(), "generator_defined": defined_templates, "before_generator_defined": 10372, "wander_generator_defined_entries": wander_templates, "missing_constructor_entries": template_refusals},
+        "spawns": {"total": spawn_motion.len(), "generator_defined": defined_spawns, "before_generator_defined": 66063, "wander_raw_family_guids": wander_spawns, "wander_constructed_f6_refusal_guids": wander_constructed_spawns, "missing_effective_template_bindings": wander_missing_effective_template, "radius_negative_to_zero": negative_radius_repairs, "radius_zero_random_to_idle": radius_repairs, "refusal_guids": spawn_refusals},
         "wander_constructor_alternatives": wander_constructor_alternatives,
         "waypoint_raw_factory_availability": {
             "templates": waypoint_templates, "spawns": waypoint_spawns,
-            "before_templates_defined": defined_templates - waypoint_templates.len(),
-            "before_spawns_defined": defined_spawns - waypoint_spawns.len(),
+            "before_templates_defined": 10163,
+            "before_spawns_defined": 63132,
             "note": "Factory availability only. Global loader and raw selected-path dependencies are reported by the separate waypoint census."
         },
         "entry_scope": "retained random-loader, group/squad, conditional and event alternatives; no live group/condition/event selection or RNG choice is claimed",
@@ -301,8 +301,8 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
         "wander_spawns_constructed_f6":wander_constructed_spawns.len(),
         "wander_constructor_alternatives":wander_constructor_alternatives,
         "wander_missing_effective_template_bindings":wander_missing_effective_template.len(),
-        "before_templates_defined":defined_templates-waypoint_templates.len(),
-        "before_spawns_defined":defined_spawns-waypoint_spawns.len(),
+        "before_templates_defined":10372,
+        "before_spawns_defined":66063,
         "motion_rows_changed_status":0, "negative_radius_repairs":negative_radius_repairs,
         "motion_rows_raw_wander_default_gate_changed":motion_rows_with_wander_default.len(),
         "motion_action_types":motion_actions,"undefined_spawn_types":spawn_type_undefined

@@ -36,6 +36,8 @@ pub struct SourceWaypointGenerator {
     node_indexes: RefCell<VecDeque<i32>>,
     pub forced_movement: Cell<u32>,
     pub target_guid: Cell<Option<SourceGuid>>,
+    linear: bool,
+    drive_way_back: Cell<bool>,
 }
 impl Default for SourceWaypointGenerator {
     fn default() -> Self {
@@ -49,10 +51,87 @@ impl Default for SourceWaypointGenerator {
             node_indexes: RefCell::new(VecDeque::new()),
             forced_movement: Cell::new(0),
             target_guid: Cell::new(None),
+            linear: false,
+            drive_way_back: Cell::new(false),
         }
     }
 }
 impl SourceWaypointGenerator {
+    pub fn linear() -> Self {
+        Self {
+            linear: true,
+            ..Default::default()
+        }
+    }
+    pub fn drive_way_back(&self) -> bool {
+        self.drive_way_back.get()
+    }
+    /// cpp:290-296,649-668. Lookahead stops at each linear endpoint.
+    pub fn node_after(&self, current: u32, looped: bool) -> Result<Option<u32>> {
+        let path = self
+            .path()?
+            .ok_or_else(|| refuse("execution.waypoint.null_path_iterator_undefined"))?;
+        require(
+            path.contains_key(&current),
+            "execution.waypoint.empty_path_iterator_undefined",
+        )?;
+        if !self.linear {
+            return Ok(path
+                .range((
+                    std::ops::Bound::Excluded(current),
+                    std::ops::Bound::Unbounded,
+                ))
+                .next()
+                .or_else(|| path.first_key_value())
+                .map(|(&k, _)| k));
+        }
+        let forward = if looped {
+            self.drive_way_back.get()
+        } else {
+            !self.drive_way_back.get()
+        };
+        Ok(if forward {
+            path.range((
+                std::ops::Bound::Excluded(current),
+                std::ops::Bound::Unbounded,
+            ))
+            .next()
+            .map(|(&k, _)| k)
+        } else {
+            path.range(..current).next_back().map(|(&k, _)| k)
+        })
+    }
+    fn switch_node(
+        &self,
+        master: &SourceMotionMaster,
+        owner: &mut dyn MotionExecutionOwner,
+        path: &SourceWaypointPath,
+        current: u32,
+    ) -> Result<u32> {
+        if self.linear {
+            let mut next = current;
+            let mut returning = self.drive_way_back.get();
+            let result =
+                source_linear_waypoint_next(path, &mut next, &mut returning, |returning| {
+                    self.drive_way_back.set(returning);
+                    owner.linear_waypoint_endpoint(master.unit, returning)
+                });
+            // Source mutates direction/iterator before invoking formation hooks.
+            self.drive_way_back.set(returning);
+            self.cursor.set(Some(next));
+            result?;
+            Ok(next)
+        } else {
+            path.range((
+                std::ops::Bound::Excluded(current),
+                std::ops::Bound::Unbounded,
+            ))
+            .next()
+            .or_else(|| path.first_key_value())
+            .map(|(&k, _)| k)
+            .ok_or_else(|| refuse("execution.waypoint.empty_path_iterator_undefined"))
+        }
+    }
     pub fn progress(&self) -> WaypointProgress {
         self.progress.get()
     }
@@ -320,15 +399,7 @@ impl SourceWaypointGenerator {
             .cursor
             .get()
             .ok_or_else(|| refuse("execution.waypoint.empty_path_iterator_undefined"))?;
-        let next = path
-            .range((
-                std::ops::Bound::Excluded(cursor),
-                std::ops::Bound::Unbounded,
-            ))
-            .next()
-            .or_else(|| path.first_key_value())
-            .map(|(&k, _)| k)
-            .ok_or_else(|| refuse("execution.waypoint.empty_path_iterator_undefined"))?;
+        let next = self.switch_node(master, owner, &path, cursor)?;
         // In C++ the iterator changes before i_currentNode, cpp:214,252.
         // Keep i_currentNode until callbacks finish, including a restart.
         self.cursor.set(Some(next));
@@ -373,6 +444,10 @@ impl SourceWaypointGenerator {
 impl SourceMovementGenerator for SourceWaypointGenerator {
     fn kind(&self) -> u32 {
         2
+    }
+    fn pause(&self, delta: i32, force: bool) -> Result<()> {
+        self.add_pause(delta, force);
+        Ok(())
     }
     fn initialize(
         &self,
@@ -481,6 +556,9 @@ impl SourceMovementGenerator for SourceWaypointGenerator {
         Some(self.reset_point.get())
     }
 }
+#[cfg(test)]
+#[path = "linear_tests.rs"]
+mod linear_tests;
 #[cfg(test)]
 #[path = "waypoint_tests.rs"]
 mod tests;

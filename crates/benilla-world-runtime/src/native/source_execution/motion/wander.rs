@@ -201,6 +201,10 @@ impl SourceMovementGenerator for SourceWanderGenerator {
     fn kind(&self) -> u32 {
         1
     }
+    fn pause(&self, delta: i32, force: bool) -> Result<()> {
+        self.add_to_random_pause_time(delta, force);
+        Ok(())
+    }
     fn initialize(
         &self,
         master: &mut SourceMotionMaster,

@@ -378,8 +378,7 @@ fn initialize_defaults_registered_and_null_factories() {
     };
     for (kind, refusal) in [
         (1, "execution.motion.respawn_radius_owner"),
-        (3, "execution.motion.f5_fixed_path_owner"),
-        (4, "execution.motion.f5_linear_waypoint_owner"),
+        (3, "execution.waypoint.loaded_waypoint_manager_owner"),
     ] {
         master.default.movement_type = kind;
         assert_eq!(
@@ -406,6 +405,15 @@ fn initialize_defaults_registered_and_null_factories() {
         c.units.get(&objects, master.unit).unwrap().state & WANDER_ACTIVE,
         WANDER_ACTIVE
     );
+    master
+        .clear(false, true, &mut c, &mut HomeOwner::default())
+        .unwrap();
+    master.default.movement_type = 4;
+    assert_eq!(
+        master.initialize(&mut c, &mut Unbound).unwrap_err().id,
+        "execution.waypoint.formation_path_binding_owner"
+    );
+    assert_eq!(master.current_type(), 2);
 }
 #[test]
 fn initialize_possessed_and_player_owned_creature_use_static_idle() {

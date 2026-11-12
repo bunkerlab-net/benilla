@@ -51,43 +51,52 @@ impl SourceFormations {
         current: &mut u32,
         returning: &mut bool,
     ) -> Result<()> {
-        use std::ops::Bound::{Excluded, Unbounded};
-        require(
-            path.contains_key(current),
-            "execution.formation.waypoint_iterator",
-        )?;
-        if !*returning {
-            if let Some((&next, _)) = path.range((Excluded(*current), Unbounded)).next() {
-                *current = next;
-            } else {
-                // --begin is undefined before the mirror callback; WaypointMovementGenerator.cpp:624.
-                *current = *path
-                    .range(..*current)
-                    .next_back()
-                    .map(|(key, _)| key)
-                    .ok_or_else(|| {
-                        refuse("execution.formation.waypoint_previous_begin_undefined")
-                    })?;
-                *returning = true;
-                if let Some(slot) = self.binding(unit) {
-                    self.state_mut(slot.group)?.mirror = true;
-                }
-            }
-        } else if path.first_key_value().map(|(key, _)| key) == Some(current) {
-            // ++begin may become end, then the caller dereferences it; WaypointMovementGenerator.cpp:639.
-            *returning = false;
-            let next = path
-                .range((Excluded(*current), Unbounded))
-                .next()
-                .map(|(key, _)| *key);
+        source_linear_waypoint_next(path, current, returning, |mirror| {
             if let Some(slot) = self.binding(unit) {
-                self.state_mut(slot.group)?.mirror = false;
+                self.state_mut(slot.group)?.mirror = mirror;
             }
-            *current =
-                next.ok_or_else(|| refuse("execution.formation.waypoint_next_end_undefined"))?;
-        } else {
-            *current = *path.range(..*current).next_back().unwrap().0;
-        }
-        Ok(())
+            Ok(())
+        })
     }
+}
+
+/// Ordered-node step shared by the formation and actual movement generator.
+/// Endpoint callbacks run only when direction flips, cpp:624-642.
+pub fn source_linear_waypoint_next<T>(
+    path: &BTreeMap<u32, T>,
+    current: &mut u32,
+    returning: &mut bool,
+    mut endpoint: impl FnMut(bool) -> Result<()>,
+) -> Result<()> {
+    use std::ops::Bound::{Excluded, Unbounded};
+    require(
+        path.contains_key(current),
+        "execution.formation.waypoint_iterator",
+    )?;
+    if !*returning {
+        if let Some((&next, _)) = path.range((Excluded(*current), Unbounded)).next() {
+            *current = next;
+        } else {
+            // --begin is undefined before the mirror callback, cpp:624.
+            *current = *path
+                .range(..*current)
+                .next_back()
+                .map(|(key, _)| key)
+                .ok_or_else(|| refuse("execution.formation.waypoint_previous_begin_undefined"))?;
+            *returning = true;
+            endpoint(true)?;
+        }
+    } else if path.first_key_value().map(|(key, _)| key) == Some(current) {
+        // ++begin reaches end before the hook, and caller dereferences it after.
+        *returning = false;
+        let next = path
+            .range((Excluded(*current), Unbounded))
+            .next()
+            .map(|(key, _)| *key);
+        endpoint(false)?;
+        *current = next.ok_or_else(|| refuse("execution.formation.waypoint_next_end_undefined"))?;
+    } else {
+        *current = *path.range(..*current).next_back().unwrap().0;
+    }
+    Ok(())
 }
