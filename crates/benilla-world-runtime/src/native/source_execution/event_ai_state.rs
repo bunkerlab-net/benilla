@@ -141,6 +141,30 @@ impl SourceEventAi {
             selected.executable().builtin_kind() == Some(BuiltinCreatureAi::Event),
             "execution.event_ai.executable_identity",
         )?;
+        Self::construct_base(selected, definitions, build)
+    }
+    /// TotemAI.cpp:36 and GuardianAI.cpp:25 construct this exact EventAI base.
+    pub(crate) fn construct_inherited(
+        selected: SelectedCreatureAi,
+        objects: &SourceObjects,
+        definitions: Arc<EventAiDefinitions>,
+        build: EventAiBuild,
+    ) -> Result<Self> {
+        selected.validate(objects)?;
+        require(
+            matches!(
+                selected.executable().builtin_kind(),
+                Some(BuiltinCreatureAi::Totem | BuiltinCreatureAi::Guardian)
+            ),
+            "execution.event_ai.derived_executable_identity",
+        )?;
+        Self::construct_base(selected, definitions, build)
+    }
+    fn construct_base(
+        selected: SelectedCreatureAi,
+        definitions: Arc<EventAiDefinitions>,
+        build: EventAiBuild,
+    ) -> Result<Self> {
         Ok(Self {
             selected,
             definitions,
@@ -165,6 +189,30 @@ impl SourceEventAi {
     }
     pub fn validate(&self, objects: &SourceObjects) -> Result<()> {
         self.selected.validate(objects)?;
+        self.validate_state(objects)
+    }
+    pub(crate) fn validate_inherited(&self, objects: &SourceObjects) -> Result<()> {
+        require(
+            matches!(
+                self.selected.executable().builtin_kind(),
+                Some(BuiltinCreatureAi::Guardian | BuiltinCreatureAi::Totem)
+            ),
+            "execution.event_ai.derived_executable_identity",
+        )?;
+        self.selected.validate_object(objects)?;
+        self.validate_state(objects)
+    }
+    fn validate_callback_selection(&self, objects: &SourceObjects) -> Result<()> {
+        if matches!(
+            self.selected.executable().builtin_kind(),
+            Some(BuiltinCreatureAi::Guardian | BuiltinCreatureAi::Totem)
+        ) {
+            self.selected.validate_object(objects)
+        } else {
+            self.selected.validate(objects)
+        }
+    }
+    fn validate_state(&self, objects: &SourceObjects) -> Result<()> {
         require(self.depth <= self.staged.len(), "execution.event_ai.depth")?;
         require(
             self.staged
@@ -191,7 +239,8 @@ impl SourceEventAi {
     }
     /// Complete fields owned here, not a substitute for F5.04 base AI or F7 restore.
     pub fn inventory(&self, objects: &SourceObjects) -> Result<serde_json::Value> {
-        self.validate(objects)?;
+        self.validate_callback_selection(objects)?;
+        self.validate_state(objects)?;
         Ok(serde_json::json!({
             "version":1,"selected":self.selected,"definitions":self.definitions.as_ref(),
             "build":self.build,"holders":self.holders,"clock":self.clock,
@@ -211,7 +260,7 @@ impl SourceEventAi {
         objects: &SourceObjects,
         owner: &mut impl EventAiLifecycleOwner,
     ) -> Result<()> {
-        self.selected.validate(objects)?;
+        self.validate_callback_selection(objects)?;
         self.holders.clear();
         let guid = objects.get(self.selected.object())?.database_guid;
         let definitions = Arc::clone(&self.definitions);
@@ -309,7 +358,7 @@ impl SourceEventAi {
         random: &mut dyn CreatureRandom,
         owner: &mut impl EventAiLifecycleOwner,
     ) -> Result<()> {
-        self.selected.validate(objects)?;
+        self.validate_callback_selection(objects)?;
         // Base CreatureAI.cpp:124-128 invokes virtual Reset before InitAI copies new holders.
         owner.callback(self, EventAiCallback::ResetAllBaseTimers)?;
         self.reset(random, owner)?;
@@ -371,7 +420,7 @@ impl SourceEventAi {
         random: &mut dyn CreatureRandom,
         owner: &mut impl EventAiLifecycleOwner,
     ) -> Result<()> {
-        self.selected.validate(objects)?;
+        self.validate_callback_selection(objects)?;
         if let Some(enemy) = enemy {
             objects.get(enemy)?;
         }

@@ -359,6 +359,19 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
     fn creature_builtin_ai_owners(&mut self) -> Result<(&mut SourceUnits, &SourceCreatureAis)> {
         Ok((&mut self.units, &self.base_ais))
     }
+    fn creature_summoned_ai_owners(
+        &mut self,
+        event: &SourceEventAi,
+    ) -> Result<(&mut SourceUnits, &mut SourceCreatureAis, Option<u32>)> {
+        // The constructor must build the actual EventAI base before this missing binding.
+        assert_eq!(Some(&event.selected), self.selected_ai.as_ref());
+        assert!(event.holders.is_empty());
+        assert_eq!(event.clock.remaining, 0);
+        assert_eq!(event.phase, 0);
+        Err(refuse(
+            "execution.summoned_ai.live_unit_and_base_binding_owner",
+        ))
+    }
     fn creature_base_ai_instances(&self) -> Result<&SourceCreatureAis> {
         Ok(&self.base_ais)
     }
@@ -1828,9 +1841,12 @@ fn selected_builtin_factory_dispatch_retains_real_bodies_and_named_refusals() {
         ("PetAI", Some("execution.ai.pet_constructor_owner")),
         (
             "GuardianAI",
-            Some("execution.ai.guardian_constructor_owner"),
+            Some("execution.summoned_ai.live_unit_and_base_binding_owner"),
         ),
-        ("TotemAI", Some("execution.ai.totem_constructor_owner")),
+        (
+            "TotemAI",
+            Some("execution.summoned_ai.live_unit_and_base_binding_owner"),
+        ),
     ] {
         let mut world = World::new(vec![spawn(40, 0.)]);
         let mut factory = Factory::new();
@@ -1839,6 +1855,14 @@ fn selected_builtin_factory_dispatch_retains_real_bodies_and_named_refusals() {
         let result = world.load(0., &mut factory);
         if let Some(id) = missing {
             assert_eq!(result.unwrap_err().id, id);
+            if matches!(name, "GuardianAI" | "TotemAI") {
+                let selected = factory.selected_ai.as_ref().unwrap();
+                assert_eq!(selected.executable().builtin_kind().unwrap().key(), name);
+                assert!(factory
+                    .base_ais
+                    .get(&world.objects, selected.object())
+                    .is_ok());
+            }
             assert!(factory.states.is_empty());
             continue;
         }

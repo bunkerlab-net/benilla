@@ -133,6 +133,7 @@ pub struct CreatureConstruction {
     selected_ai: Option<SelectedCreatureAi>,
     event_ai: Option<SourceEventAi>,
     builtin_ai: Option<SourceBuiltinAi>,
+    summoned_ai: Option<SourceSummonedAi>,
 }
 impl CreatureConstruction {
     pub fn selected_ai(&self) -> Option<&SelectedCreatureAi> {
@@ -149,6 +150,37 @@ impl CreatureConstruction {
     }
     pub fn builtin_ai_mut(&mut self) -> Option<&mut SourceBuiltinAi> {
         self.builtin_ai.as_mut()
+    }
+    pub fn summoned_ai(&self) -> Option<&SourceSummonedAi> {
+        self.summoned_ai.as_ref()
+    }
+    pub fn summoned_ai_mut(&mut self) -> Option<&mut SourceSummonedAi> {
+        self.summoned_ai.as_mut()
+    }
+    pub fn construct_summoned_ai(
+        &mut self,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        ais: &mut SourceCreatureAis,
+        event: SourceEventAi,
+        created_by_spell: Option<u32>,
+    ) -> Result<()> {
+        require(
+            self.summoned_ai.is_none(),
+            "execution.summoned_ai.already_constructed",
+        )?;
+        require(
+            self.selected_ai() == Some(&event.selected),
+            "execution.summoned_ai.selection_mismatch",
+        )?;
+        self.summoned_ai = Some(SourceSummonedAi::from_event(
+            event,
+            objects,
+            units,
+            ais,
+            created_by_spell,
+        )?);
+        Ok(())
     }
     pub fn construct_builtin_ai(
         &mut self,
@@ -286,6 +318,15 @@ pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     fn creature_builtin_ai_owners(&mut self) -> Result<(&mut SourceUnits, &SourceCreatureAis)> {
         Err(refuse(
             "execution.builtin_ai.live_unit_and_base_binding_owner",
+        ))
+    }
+    /// Bind the live Unit/base registries and UNIT_CREATED_BY_SPELL, not a default spell.
+    fn creature_summoned_ai_owners(
+        &mut self,
+        _event: &SourceEventAi,
+    ) -> Result<(&mut SourceUnits, &mut SourceCreatureAis, Option<u32>)> {
+        Err(refuse(
+            "execution.summoned_ai.live_unit_and_base_binding_owner",
         ))
     }
     /// Must execute the selected constructor before SpellListChanged/JustRespawned.
@@ -531,6 +572,7 @@ where
         selected_ai: None,
         event_ai: None,
         builtin_ai: None,
+        summoned_ai: None,
     };
     factory.creature_phase(CreaturePhase::InitEntryBase, &mut state, context)?;
     let mut display = event.map_or(0, |event| event.model);
@@ -716,6 +758,22 @@ where
     ) {
         let (units, ais) = factory.creature_builtin_ai_owners()?;
         return state.construct_builtin_ai(context.objects, units, ais);
+    }
+    if matches!(
+        selected.executable().builtin_kind(),
+        Some(BuiltinCreatureAi::Totem | BuiltinCreatureAi::Guardian)
+    ) {
+        let definitions = factory.creature_event_ai_definitions()?;
+        let build = factory.creature_event_ai_build()?;
+        let event = SourceEventAi::construct_inherited(
+            selected.clone(),
+            context.objects,
+            definitions,
+            build,
+        )?;
+        let (units, ais, spell) = factory.creature_summoned_ai_owners(&event)?;
+        state.construct_summoned_ai(context.objects, units, ais, event, spell)?;
+        return Ok(());
     }
     if selected.executable().builtin_kind() != Some(BuiltinCreatureAi::Event) {
         return Err(selected.constructor_refusal(context.objects)?);

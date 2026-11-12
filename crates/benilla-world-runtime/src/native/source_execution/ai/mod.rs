@@ -5,6 +5,10 @@ use super::*;
 mod guard;
 mod null;
 mod possessed;
+mod summoned;
+pub use summoned::*;
+#[cfg(test)]
+mod summoned_tests;
 #[cfg(test)]
 mod tests;
 

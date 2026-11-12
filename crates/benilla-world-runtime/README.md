@@ -522,8 +522,9 @@ unsealed projection. An absent default path prints SKIP; an explicit bad path fa
 It records the effective entry, spawn identity, control references, branch, and
 immutable executable binding. Selection alone implements no AI body.
 The factory retains EventAI lifecycle state for that executable and constructs
-NullAI, GuardAI and PossessedAI through `SourceBuiltinAi`. The remaining selected
-constructors keep their named refusals.
+NullAI, GuardAI and PossessedAI through `SourceBuiltinAi`. `SourceSummonedAi`
+constructs TotemAI and GuardianAI with the same EventAI loader and holders.
+PetAI keeps its named construction refusal.
 
 ScriptDev runs first for eligible creatures. A nonnull `GetAI` slot stops at
 `execution.ai.scriptdev_get_ai_constructor_owner`; its unknown return cannot
@@ -541,6 +542,26 @@ factories and constructor refusals, not spawned AI classes or F1 acceptance.
 Missing private inputs print `SKIP`; explicit invalid inputs fail.
 The version-one selection inventory and validator are component-only.
 Native format 91, persistence, and `NativeCapability` remain unchanged.
+
+TotemAI updates EventAI timers before testing its summon subtype, without the
+inherited UnitAI timer/hostile-selection prefix. Its attack and sight overrides
+are empty, and visibility is false, `TotemAI.cpp:40-42,58-124`. Spell lookup,
+cooldowns, range, target visitation, facing and nontriggered casts require their
+named owners. A non-Totem object refuses the undefined downcast at
+`TotemAI.cpp:62,128` before reading Totem fields.
+
+GuardianAI requires its owner at construction. Spell 11939 changes follow
+distance from 1.5 to 3.0, `GuardianAI.cpp:25-38`. Assistance precedes inherited
+UnitAI/EventAI updates, `GuardianAI.cpp:54-74`. Respawn skips EventAI reset
+when the owner is absent; otherwise reset precedes follow registration and
+motion, `GuardianAI.cpp:41-52`, `CreatureAI.cpp:262-271`. Death and unsummon
+release player follow data after their inherited callbacks,
+`GuardianAI.cpp:84-94`. Both derived evade overrides deliberately omit EventAI's
+aggregation-despawn tail, `GuardianAI.cpp:96-108`, `TotemAI.cpp:44-56`.
+The summoned census uses the same three environment variables as the builtin
+constructor census. Its ordinary template/raw-spawn counts do not establish
+summon-time subtype, ownership or actual live execution.
+
 
 ### Source EventAI loader and lifecycle
 

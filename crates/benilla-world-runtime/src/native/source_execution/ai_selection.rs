@@ -157,6 +157,11 @@ impl SelectedCreatureAi {
     }
     /// Validate retained construction generations before a later constructor dispatch.
     pub fn validate(&self, objects: &SourceObjects) -> Result<()> {
+        self.validate_object(objects)?;
+        validate_control(objects, self.object, &self.inputs.control)
+    }
+    /// Derived lifecycle calls read live owners, not the construction-time relationship.
+    pub(crate) fn validate_object(&self, objects: &SourceObjects) -> Result<()> {
         let object = objects.get(self.object)?;
         require(
             self.version == 1
@@ -165,7 +170,7 @@ impl SelectedCreatureAi {
                 && object.map == self.map,
             "execution.ai.spawn_context_changed",
         )?;
-        validate_control(objects, self.object, &self.inputs.control)
+        Ok(())
     }
     /// Selection alone cannot execute even NullCreatureAI's CreatureAI base constructor.
     pub fn constructor_refusal(&self, objects: &SourceObjects) -> Result<Refusal> {
