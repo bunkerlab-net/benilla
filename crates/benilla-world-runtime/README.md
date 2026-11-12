@@ -2291,3 +2291,35 @@ acceptance. Undefined pointer, enum, array, height-input, and clock domains
 have named refusals. Their data-only operand counts don't prove dynamic
 null/downcast reach absent. The queue inventory isn't F7 restore support.
 No persisted state changes; format 91 and NativeCapability stay unchanged.
+
+## Source SpellStart
+
+`SourceSpell` retains live cast state without a persistence interface.
+`SpellStart` queues its event before checking the cast, including a failed
+check, `Spell.cpp:2997-3018`. Preparation preserves independent trigger bits,
+cast-time calculation after checks, current-slot assignment, and GCD order,
+`:3030-3098`. Cancellation and pushback follow `:3101-3157,6803-6882`.
+The current-slot owner preserves the autorepeat lookup at `Unit.cpp:4259`
+and detaches flying spells without destroying their events.
+
+`SourceUnitEvents` dispatches `SourceUnitEvent::Spell` on the existing Unit
+queue. `SpellUnitEventOwner` uses the shared `spell_event` reducers and
+retains the creation-tick guard, entire update diff, same-update re-adds,
+and reference-dependent deletion, `Spell.cpp:3519-3525,7149-7244`.
+The ordinary numeric range adapter uses `benilla_sim::spell_range`.
+
+EventAI CAST and interrupt, UnitAI teleport and interrupts, Totem casting,
+and DB-script cast/custom-cast/interrupt request a `SpellStartContext`.
+An unbound context refuses. Bound callers execute the constructor and
+start owner rather than reporting a successful cast.
+
+Unit, aura, pet, item, script, output, modifier, and geometry requests refuse
+at their reached dependency calls. The constructor requires loaded targeting
+metadata at `Spell.cpp:482`; a missing source map entry is undefined at
+`SpellTargets.cpp:235-238`. `CheckCast` always queries the live object's
+zone and area at `Spell.cpp:5098`. The F6 binding must use
+`SourceTerrainManager::zone_and_area`, including its VMap refusal, not a
+map-only substitute. Cast, target filling, and effects remain distinct
+named refusals. The catalog census reports static definition readiness
+separately from actual executions and never supplies fixture Units.
+Native format 91, NativeCapability, and frozen F1 evidence are unchanged.

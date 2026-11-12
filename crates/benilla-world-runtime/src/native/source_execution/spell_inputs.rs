@@ -548,7 +548,7 @@ impl SourceSpellStores {
         })?;
         Ok(stores)
     }
-    fn insert_template(&mut self, template: SpellTemplate) -> Result<()> {
+    pub(super) fn insert_template(&mut self, template: SpellTemplate) -> Result<()> {
         // SQLStorageImpl.h:317,394; SQLStorage.h:124-126. A wrapped extent
         // reaches an out-of-bounds index write on creation, not a source skip.
         require(

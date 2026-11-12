@@ -80,11 +80,13 @@ pub trait SummonedAiExecutionOwner:
     }
     fn cast_totem_spell(
         &mut self,
-        _unit: ObjectHandle,
-        _target: ObjectHandle,
-        _spell: u32,
+        unit: ObjectHandle,
+        target: ObjectHandle,
+        spell: u32,
     ) -> Result<()> {
-        Err(refuse("execution.totem_ai.f5_08_nontriggered_cast_owner"))
+        self.spell_context()?
+            .cast(unit, Some(target), spell, SpellTriggerFlags(0), false)?;
+        Ok(())
     }
     fn follow_data(&mut self, _unit: ObjectHandle, _player: ObjectHandle) -> Result<(f32, f32)> {
         Err(refuse(

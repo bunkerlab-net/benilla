@@ -1,0 +1,304 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//! Live SpellStart and typed requests to the owners reached by Spell.cpp.
+use super::*;
+use std::collections::BTreeMap;
+mod callers;
+mod checks;
+mod db_callers;
+mod events;
+mod start;
+mod state;
+mod unit_event_owner;
+pub use callers::*;
+pub use checks::*;
+pub use events::*;
+pub use start::*;
+pub use state::*;
+pub use unit_event_owner::*;
+#[cfg(test)]
+mod census_tests;
+#[cfg(test)]
+mod tests;
+
+/// Exact live scalar operands, not a pristine-caster assumption.
+#[derive(Clone, Copy, Debug)]
+pub struct SpellUnitState {
+    pub player: bool,
+    pub gameobject: bool,
+    pub alive: bool,
+    pub standing: bool,
+    pub player_controlled: bool,
+    pub combat: bool,
+    pub battleground_wait_leave: bool,
+    pub gm: bool,
+    pub moving: bool,
+    pub falling_far: bool,
+    pub stealth: bool,
+    pub form: u32,
+    pub class: u32,
+    pub combo_target: Option<ObjectHandle>,
+    pub mounted: bool,
+    pub taxi: bool,
+    pub totem: bool,
+    pub untargetable: bool,
+    pub has_ai: bool,
+    pub position: [u32; 4],
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpellCheck {
+    IsSpellReady,
+    HasGcd,
+    IsOutdoors,
+    Shapeshift,
+    OverrideScript(u32),
+    LowLevelRank,
+    Tapped,
+    Visible,
+    TargetCreatureType,
+    PositiveImmunity(u32),
+    FacingBack,
+    FacingFront,
+    SpiritOfRedemption,
+    StrongerAura(u32),
+    Dispel,
+    TargetLevel,
+    PetTarget(u8),
+    TargetFilter(u8),
+    AllowedInLocation([u32; 2]),
+    Items,
+    Focus,
+    Range(bool),
+    Power(bool),
+    CasterAuras,
+    Effect(u8),
+    Aura(u8),
+    Trade,
+    NoActivePets,
+    CaptureSpirit,
+    ScreecherSpirit,
+    OnCheckCast(bool),
+}
+impl SpellCheck {
+    /// The missing owner is named at the first source query, not at SpellStart.
+    pub fn missing_owner(self) -> Refusal {
+        let name = match self {
+            Self::IsSpellReady => "WorldObject_IsSpellReady_cooldown",
+            Self::HasGcd => "WorldObject_HasGCD",
+            Self::IsOutdoors => "f6_TerrainInfo_IsOutdoors",
+            Self::Shapeshift => "GetErrorAtShapeshiftedCast",
+            Self::OverrideScript(_) => "f5_12_Unit_HasOverrideScript",
+            Self::LowLevelRank => "SpellMgr_SelectAuraRankForLevel",
+            Self::Tapped => "Creature_IsTappedBy",
+            Self::Visible => "f6_Unit_IsVisibleForOrDetect",
+            Self::TargetCreatureType => "Unit_GetCreatureTypeMask",
+            Self::PositiveImmunity(_) => "f5_14_Unit_IsImmuneToSpell",
+            Self::FacingBack | Self::FacingFront => "f6_WorldObject_facing",
+            Self::SpiritOfRedemption => "f5_12_Unit_HasAuraType",
+            Self::StrongerAura(_) | Self::Dispel => "f5_12_Unit_GetSpellAuraHolderMap",
+            Self::TargetLevel => "Unit_GetLevel",
+            Self::PetTarget(_) => "f5_15_Unit_GetPet_GetCharm",
+            Self::TargetFilter(_) => "Unit_CanAttackSpell_CanAssistSpell",
+            Self::AllowedInLocation(_) => "SpellMgr_GetSpellAllowedInLocationError",
+            Self::Items => "f5_25_Spell_CheckItems",
+            Self::Focus => "f6_Cell_VisitGridObjects_spell_focus",
+            Self::Range(_) => "f6_Spell_CheckRange",
+            Self::Power(_) => "Unit_GetPower_CheckPower",
+            Self::CasterAuras => "f5_12_Unit_GetAurasByType_CheckCasterAuras",
+            Self::Effect(_) => "Spell_CheckCast_effect_operands",
+            Self::Aura(_) => "f5_12_Spell_CheckCast_aura_operands",
+            Self::Trade => "f5_25_Player_GetTradeData",
+            Self::NoActivePets => "f5_15_Player_GetPetGuid_TryLoadFromDB",
+            Self::CaptureSpirit => "WorldObject_GetObjectGuid_GetEntry",
+            Self::ScreecherSpirit => "Creature_HasBeenHitBySpell_RegisterHitBySpell",
+            Self::OnCheckCast(_) => "f5_21_Spell_OnCheckCast",
+        };
+        refuse(&format!("execution.spells.{name}_owner"))
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpellCall {
+    Init,
+    PrepareTriggerData,
+    RemoveCastAuras(u32),
+    AiCastState(bool),
+    SuccessfulStart,
+    UnsummonPet,
+    SendStart,
+    SendResult(SpellCastResult),
+    ResetMods,
+    Interrupted,
+    AutoRepeatCancel,
+    AiInterrupt,
+    ChannelCancel,
+    RemoveOwnedObjects,
+    Cast(bool),
+    HandleDelayed(u64),
+    HandleImmediate,
+    FillTargetMap,
+    ExecuteEffects,
+    ChannelUpdate,
+    ChannelPushback(u32),
+    Pushback(u32),
+}
+impl SpellCall {
+    pub fn missing_owner(self) -> Refusal {
+        refuse(match self {
+            Self::Init | Self::SuccessfulStart => "execution.spells.f5_21_spell_script_owner",
+            Self::PrepareTriggerData => "execution.spells.prepareDataForTriggerSystem_owner",
+            Self::RemoveCastAuras(_) => "execution.spells.f5_12_RemoveAurasOnCast_owner",
+            Self::AiCastState(_) => "execution.spells.UnitAI_OnSpellCastStateChange_owner",
+            Self::AiInterrupt => "execution.spells.UnitAI_OnSpellInterrupt_owner",
+            Self::UnsummonPet => "execution.spells.f5_15_Pet_Unsummon_owner",
+            Self::Cast(_) => "execution.spells.f5_10_Spell_cast_owner",
+            Self::FillTargetMap => "execution.spells.f5_09_Spell_FillTargetMap_owner",
+            Self::ExecuteEffects => "execution.spells.f5_11_Spell_ExecuteEffects_owner",
+            Self::HandleDelayed(_) => "execution.spells.f5_10_Spell_handle_delayed_owner",
+            Self::HandleImmediate => "execution.spells.f5_10_Spell_handle_immediate_owner",
+            Self::ChannelUpdate => "execution.spells.Unit_channel_update_operands_owner",
+            Self::ChannelCancel | Self::ChannelPushback(_) => {
+                "execution.spells.Spell_UniqueTargetInfo_channel_owner"
+            }
+            Self::ResetMods => "execution.spells.Unit_GetSpellModOwner_cancel_owner",
+            Self::RemoveOwnedObjects => {
+                "execution.spells.Unit_RemoveDynObject_RemoveGameObject_RemoveCreature_owner"
+            }
+            Self::SendStart => "execution.spells.SendSpellStart_owner",
+            Self::SendResult(_) => "execution.spells.SendCastResult_owner",
+            Self::Interrupted => "execution.spells.SendInterrupted_owner",
+            Self::AutoRepeatCancel => "execution.spells.Player_SendAutoRepeatCancel_owner",
+            Self::Pushback(_) => {
+                "execution.spells.Player_SendDirectMessage_SMSG_SPELL_DELAYED_owner"
+            }
+        })
+    }
+}
+/// External state queries are fallible. An unbound query never becomes false/OK.
+pub trait SpellExecutionOwner {
+    fn unit(&mut self, _unit: ObjectHandle) -> Result<SpellUnitState> {
+        Err(refuse("execution.spells.Unit_check_operands_owner"))
+    }
+    fn check(
+        &mut self,
+        _spell: &mut SourceSpell,
+        _t: &SpellTemplate,
+        check: SpellCheck,
+    ) -> Result<SpellCastResult> {
+        Err(check.missing_owner())
+    }
+    fn call(&mut self, _spell: &mut SourceSpell, call: SpellCall) -> Result<()> {
+        Err(call.missing_owner())
+    }
+    /// Spell.cpp:5098. This must bind the F6 live-object query, never map-only area.
+    fn zone_area(&mut self, _caster: ObjectHandle) -> Result<[u32; 2]> {
+        Err(refuse(
+            "execution.spells.f6_WorldObject_GetZoneAndAreaId_owner",
+        ))
+    }
+    fn cast_time(&mut self, _spell: &mut SourceSpell, _t: &SpellTemplate) -> Result<i32> {
+        Err(refuse(
+            "execution.spells.GetSpellCastTime_Unit_modifiers_owner",
+        ))
+    }
+    fn map_time(&mut self, _caster: ObjectHandle) -> Result<u32> {
+        Err(refuse("execution.spells.Map_GetCurrentMSTime_owner"))
+    }
+    fn add_gcd(&mut self, _spell: &SourceSpell, _t: &SpellTemplate) -> Result<()> {
+        Err(refuse("execution.spells.WorldObject_AddGCD_owner"))
+    }
+    fn reset_gcd(&mut self, _spell: &SourceSpell, _t: &SpellTemplate) -> Result<()> {
+        Err(refuse("execution.spells.WorldObject_ResetGCD_owner"))
+    }
+    fn set_current(&mut self, _spell: &mut SourceSpell, _t: &SpellTemplate) -> Result<()> {
+        Err(refuse("execution.spells.Unit_SetCurrentCastedSpell_owner"))
+    }
+    fn update_pointers(&mut self, _spell: &mut SourceSpell) -> Result<bool> {
+        Err(refuse("execution.spells.Spell_UpdatePointers_owner"))
+    }
+    /// Spell.cpp:6816-6819,6848-6851. Must use the live modifier and thread RNG.
+    fn resist_pushback(&mut self, _spell: &SourceSpell) -> Result<bool> {
+        Err(refuse(
+            "execution.spells.f5_12_pushback_modifiers_rng_owner",
+        ))
+    }
+    fn line_of_sight(&mut self, _caster: ObjectHandle, _target: ObjectHandle) -> Result<()> {
+        Err(refuse(
+            "execution.spells.f6_WorldObject_IsWithinLOSInMap_owner",
+        ))
+    }
+    fn selection_target(&mut self, _spell: &mut SourceSpell) -> Result<()> {
+        Err(refuse(
+            "execution.spells.Map_GetUnit_Player_GetSelectionGuid_owner",
+        ))
+    }
+    fn reset_auto_repeat(&mut self) -> Result<()> {
+        Err(refuse("execution.spells.Unit_ResetAutoRepeatSpells_owner"))
+    }
+    fn other_non_melee_cast(&mut self, _spell: &SourceSpell) -> Result<bool> {
+        Err(refuse("execution.spells.Unit_IsNonMeleeSpellCasted_owner"))
+    }
+    fn handle_delayed(&mut self, _spell: &mut SourceSpell, _elapsed: u64) -> Result<u64> {
+        Err(refuse("execution.spells.f5_10_Spell_handle_delayed_owner"))
+    }
+    fn casting_source(&mut self, _spell: &SourceSpell) -> Result<Option<[u32; 3]>> {
+        Err(refuse("execution.spells.GetCastingObject_owner"))
+    }
+    fn ai_cast_state(
+        &mut self,
+        _original: ObjectHandle,
+        _caster: ObjectHandle,
+    ) -> Result<(bool, bool)> {
+        Err(refuse("execution.spells.UnitAI_order_current_cast_owner"))
+    }
+    fn has_aura(&mut self, _unit: ObjectHandle, _spell: u32) -> Result<bool> {
+        Err(refuse("execution.spells.f5_12_Unit_HasAura_owner"))
+    }
+    fn ai_target_creature_type(
+        &mut self,
+        _target: ObjectHandle,
+        _t: &SpellTemplate,
+    ) -> Result<bool> {
+        Err(refuse("execution.spells.Unit_GetCreatureTypeMask_owner"))
+    }
+    fn active_auto_spell(&mut self, _unit: ObjectHandle) -> Result<Option<u32>> {
+        Err(refuse(
+            "execution.spells.Unit_GetCurrentSpell_autorepeat_owner",
+        ))
+    }
+    fn interrupt_for_ai(&mut self, _caster: ObjectHandle, _melee: bool) -> Result<()> {
+        Err(refuse("execution.spells.Unit_InterruptSpell_owner"))
+    }
+    fn interrupt_slot(&mut self, _caster: ObjectHandle, _slot: u32) -> Result<()> {
+        Err(refuse(
+            "execution.spells.Unit_InterruptSpell_current_slot_owner",
+        ))
+    }
+    fn indoor_policy(&mut self) -> Result<bool> {
+        Err(refuse(
+            "execution.spells.World_vmap_indoor_configuration_owner",
+        ))
+    }
+    fn wand_school(&mut self, _caster: ObjectHandle) -> Result<u32> {
+        Err(refuse(
+            "execution.spells.Unit_GetRangedDamageSchoolMask_owner",
+        ))
+    }
+    fn original_caster(
+        &mut self,
+        _caster: ObjectHandle,
+        _original: ObjectHandle,
+    ) -> Result<Option<ObjectHandle>> {
+        Err(refuse(
+            "execution.spells.Spell_UpdateOriginalCasterPointer_owner",
+        ))
+    }
+    fn positive_definition(&mut self, _t: &SpellTemplate) -> Result<bool> {
+        Err(refuse("execution.spells.IsPositiveSpell_definition_owner"))
+    }
+    /// Spell.cpp:482; SpellTargets.cpp:235-238. A bound lookup must refuse a
+    /// missing map entry as undefined, not supply default filtering schemes.
+    fn targeting_data(&mut self, _spell: u32) -> Result<[[u32; 2]; 3]> {
+        Err(refuse(
+            "execution.spells.f5_09_SpellTargetMgr_GetSpellTargetingData_owner",
+        ))
+    }
+}

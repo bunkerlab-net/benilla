@@ -374,6 +374,8 @@ mod spell_inputs;
 pub use spell_inputs::*;
 mod spell_targets;
 pub use spell_targets::*;
+mod spells;
+pub use spells::*;
 mod db_scripts;
 pub use db_scripts::*;
 mod db_scripts_catalog;

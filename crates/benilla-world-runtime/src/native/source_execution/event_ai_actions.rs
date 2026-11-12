@@ -10,7 +10,8 @@ pub fn event_ai_action_owner(kind: u16) -> &'static str {
         1 | 44 | 54 => "execution.event_ai.presentation_text_owner",
         4 | 9 => "execution.event_ai.presentation_sound_owner",
         5 | 10 => "execution.event_ai.presentation_emote_owner",
-        11 | 60 => "execution.event_ai.f5_07_spell_owner",
+        11 => "execution.spells.live_SpellStart_context_owner",
+        60 => "execution.spells.creature_spell_list_owner",
         12 | 32 | 56 => "execution.event_ai.f5_15_summon_owner",
         13 | 14 => "execution.threat.f5_04b_unit_fields_owner",
         38 => "execution.event_ai.f5_04b_zone_combat_owner",
@@ -80,6 +81,48 @@ impl SourceEventAi {
                         owner.emote(creature, value as u32)?;
                     }
                 }
+            }
+            11 => {
+                // CreatureEventAI.cpp:784-804. Keep the source's unused masked
+                // castFlags local unused: DoCastSpellIfCan receives the original.
+                let filtered = p[2] & 0x16 == 0;
+                if filtered && !owner.spell_context()?.contains(p[0]) {
+                    return Ok(false);
+                }
+                let target = match p[1] {
+                    0 | 1 | 6 | 7 | 10..=12 | 15 => {
+                        let target = self.action_target(p[1], call, event_target, owner)?;
+                        if target.is_none() && p[1] != 15 {
+                            return Ok(false);
+                        }
+                        target
+                    }
+                    _ => {
+                        let (target, failed) = owner.cast_target(
+                            creature,
+                            p[1],
+                            call,
+                            event_target,
+                            if filtered { p[0] } else { 0 },
+                            if filtered { p[2] } else { 0 },
+                        )?;
+                        if failed {
+                            return Ok(false);
+                        }
+                        target
+                    }
+                };
+                return owner.spell_context()?.ai_cast(creature, target, p[0], p[2]);
+            }
+            52 => {
+                require(
+                    p[0] < 4,
+                    "execution.spells.EventAI_interrupt_slot_index_undefined",
+                )?;
+                owner
+                    .spell_context()?
+                    .owner
+                    .interrupt_slot(creature, p[0])?;
             }
             13 => {
                 if let Some(target) = self.action_target(p[1], call, event_target, owner)? {

@@ -411,6 +411,9 @@ pub enum UnitAiSightQuery {
     Accessible,
 }
 pub trait UnitAiExecutionOwner {
+    fn spell_context(&mut self) -> Result<SpellStartContext<'_>> {
+        Err(refuse("execution.spells.live_SpellStart_context_owner"))
+    }
     fn call(
         &mut self,
         _unit: ObjectHandle,
@@ -418,7 +421,23 @@ pub trait UnitAiExecutionOwner {
         _units: &mut SourceUnits,
         _objects: &SourceObjects,
     ) -> Result<()> {
-        Err(call.missing_owner())
+        match call {
+            UnitAiCall::TeleportCast(target) => {
+                self.spell_context()?.cast(
+                    _unit,
+                    Some(target),
+                    21727,
+                    SpellTriggerFlags(1),
+                    false,
+                )?;
+                Ok(())
+            }
+            UnitAiCall::InterruptNonMelee => {
+                self.spell_context()?.owner.interrupt_for_ai(_unit, false)
+            }
+            UnitAiCall::InterruptMelee => self.spell_context()?.owner.interrupt_for_ai(_unit, true),
+            _ => Err(call.missing_owner()),
+        }
     }
     fn execute_action(
         &mut self,

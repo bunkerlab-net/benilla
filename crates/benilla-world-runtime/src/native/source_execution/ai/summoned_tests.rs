@@ -764,7 +764,7 @@ fn summoned_unbound_dependencies_name_the_actual_owner() {
             "execution.totem_ai.f6_target_geometry_owner",
             "execution.totem_ai.f6_nearest_attackable_visitor_owner",
             "execution.select_hostile_target.f6_set_in_front_owner",
-            "execution.totem_ai.f5_08_nontriggered_cast_owner",
+            "execution.spells.live_SpellStart_context_owner",
             "execution.guardian_ai.f5_05_follow_motion_owner",
             "execution.guardian_ai.f5_15_pet_subtype_owner",
             "execution.guardian_ai.f6_ooc_los_geometry_owner",

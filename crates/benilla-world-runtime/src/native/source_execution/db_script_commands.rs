@@ -150,6 +150,9 @@ impl DbScriptCall {
     }
 }
 pub trait DbScriptExecutionOwner: AssistanceExecutionOwner {
+    fn spell_context(&mut self) -> Result<SpellStartContext<'_>> {
+        Err(refuse("execution.spells.live_SpellStart_context_owner"))
+    }
     fn clock_millis(&mut self) -> Result<i64> {
         Err(script_missing("map_clock"))
     }
@@ -260,8 +263,13 @@ pub trait DbScriptExecutionOwner: AssistanceExecutionOwner {
         Err(script_missing("f5_04_attack_eligibility"))
     }
     /// SpellEntry attribute EXCLUDE_CASTER and Targets, not an expected cast result.
-    fn spell_targets(&mut self, _id: u32) -> Result<(bool, u32)> {
-        Err(script_missing("f5_07_spell_template"))
+    fn spell_targets(&mut self, id: u32) -> Result<(bool, u32)> {
+        let context = self.spell_context()?;
+        let t = context
+            .stores
+            .template(id)
+            .ok_or_else(|| refuse("execution.spells.DB_script_null_template_undefined"))?;
+        Ok((t.attributesex & 0x80000 != 0, t.targets))
     }
     fn choose_display(&mut self, _entry: u32) -> Result<u32> {
         Err(script_missing("f4_creature_display"))
@@ -291,13 +299,35 @@ pub trait DbScriptExecutionOwner: AssistanceExecutionOwner {
     fn call(
         &mut self,
         call: DbScriptCall,
-        _row: &DbScriptRow,
-        _source: Option<ObjectHandle>,
-        _target: Option<ObjectHandle>,
-        _objects: &mut SourceObjects,
+        row: &DbScriptRow,
+        source: Option<ObjectHandle>,
+        target: Option<ObjectHandle>,
+        objects: &mut SourceObjects,
         _units: &mut SourceUnits,
     ) -> Result<()> {
-        Err(call.missing_owner())
+        match call {
+            DbScriptCall::CastSpell(spell) => self.spell_context()?.db_cast(
+                objects,
+                source.ok_or_else(|| script_missing("cast_source"))?,
+                target,
+                spell,
+                row.data[1],
+                None,
+            ),
+            DbScriptCall::CustomSpell => self.spell_context()?.db_cast(
+                objects,
+                source.ok_or_else(|| script_missing("cast_source"))?,
+                target,
+                row.data[0],
+                row.data[1],
+                Some([row.text[0], row.text[1], row.text[2]]),
+            ),
+            DbScriptCall::Interrupt(slot) => self
+                .spell_context()?
+                .owner
+                .interrupt_slot(source.ok_or_else(|| script_missing("cast_source"))?, slot),
+            _ => Err(call.missing_owner()),
+        }
     }
 }
 

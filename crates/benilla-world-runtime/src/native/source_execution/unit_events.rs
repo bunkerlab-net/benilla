@@ -11,6 +11,7 @@ use benilla_sim::event_processor::{
 pub enum SourceUnitEvent {
     ForcedDespawn { only_alive: bool },
     Assistance,
+    Spell { spell: u64 },
 }
 impl EventPayload for SourceUnitEvent {
     fn validate(self) -> std::result::Result<(), EventError> {
@@ -22,12 +23,32 @@ impl EventPayload for SourceUnitEvent {
 /// Spell owners extend the typed event, not a second queue.
 pub trait UnitEventOwner {
     fn forced_despawn(&mut self, only_alive: bool) -> Result<()>;
+    fn spell_event(
+        &mut self,
+        _spell: u64,
+        _now: u64,
+        _diff: u32,
+    ) -> Result<benilla_sim::spell_event::SpellEventPlan> {
+        Err(refuse("execution.spells.live_SpellEvent_owner"))
+    }
+    fn abort_spell(&mut self, _spell: u64) -> Result<bool> {
+        Err(refuse("execution.spells.live_SpellEvent_Abort_owner"))
+    }
+    fn delete_spell(&mut self, _spell: u64) -> Result<()> {
+        Err(refuse("execution.spells.live_SpellEvent_destructor_owner"))
+    }
     fn assistance(
         &mut self,
         _capture: &AssistanceCapture,
         _queue: &mut impl AssistanceQueue,
     ) -> Result<()> {
         Err(refuse("execution.assistance.live_dispatch_binding_owner"))
+    }
+}
+struct UnboundUnitEventOwner;
+impl UnitEventOwner for UnboundUnitEventOwner {
+    fn forced_despawn(&mut self, _: bool) -> Result<()> {
+        Err(refuse("execution.unit_events.forced_despawn_owner"))
     }
 }
 
@@ -71,6 +92,13 @@ impl SourceUnitEvents {
     /// KillEvent deletes without Abort; EventProcessor.cpp:88-98.
     pub fn kill_event(&mut self, id: u64) -> Result<bool> {
         require(!self.stopped, "execution.unit_events.stopped")?;
+        require(
+            !self
+                .queue
+                .event(id)
+                .is_some_and(|e| matches!(e.kind, SourceUnitEvent::Spell { .. })),
+            "execution.spells.KillEvent_requires_live_destructor_owner",
+        )?;
         let removed = self.queue.kill_event(id).is_some();
         if removed {
             self.captures.remove(&id);
@@ -80,12 +108,49 @@ impl SourceUnitEvents {
     /// ForcedDespawnDelayEvent inherits empty Abort and true IsDeletable,
     /// EventProcessor.h:46-48; Creature.h:1037-1045. Force skips IsDeletable.
     pub fn kill_all(&mut self, force: bool) -> Result<()> {
+        self.kill_all_with_owner(force, &mut UnboundUnitEventOwner)
+    }
+    /// SpellEvent destruction needs the live Spell owner, including on force.
+    pub fn kill_event_with_owner(
+        &mut self,
+        id: u64,
+        owner: &mut impl UnitEventOwner,
+    ) -> Result<bool> {
+        require(!self.stopped, "execution.unit_events.stopped")?;
+        if let Some(SourceUnitEvent::Spell { spell }) = self.queue.event(id).map(|e| e.kind) {
+            if let Err(e) = owner.delete_spell(spell) {
+                self.stopped = true;
+                return Err(e);
+            }
+        }
+        let removed = self.queue.kill_event(id).is_some();
+        if removed {
+            self.captures.remove(&id);
+        }
+        Ok(removed)
+    }
+    pub fn kill_all_with_owner(
+        &mut self,
+        force: bool,
+        owner: &mut impl UnitEventOwner,
+    ) -> Result<()> {
         require(!self.stopped, "execution.unit_events.stopped")?;
         let result = (|| {
             let mut transaction = self.queue.begin_kill_all_events(force);
             while let Some(due) = transaction.pop_due().map_err(event_refusal)? {
-                self.captures.remove(&due.event_id);
-                transaction.finish_abort(true).map_err(event_refusal)?;
+                let deletable = if let SourceUnitEvent::Spell { spell } = due.kind {
+                    let deletable = owner.abort_spell(spell)?;
+                    if force || deletable {
+                        owner.delete_spell(spell)?;
+                    }
+                    deletable
+                } else {
+                    true
+                };
+                if force || deletable {
+                    self.captures.remove(&due.event_id);
+                }
+                transaction.finish_abort(deletable).map_err(event_refusal)?;
             }
             transaction.commit().map_err(event_refusal)
         })();
@@ -97,6 +162,36 @@ impl SourceUnitEvents {
         let result = (|| {
             let mut transaction = self.queue.begin_update(diff).map_err(event_refusal)?;
             while let Some(due) = transaction.pop_due().map_err(event_refusal)? {
+                if let SourceUnitEvent::Spell { spell } = due.kind {
+                    match due.callback {
+                        CallbackKind::Execute => {
+                            use benilla_sim::spell_event::SpellEventPlan;
+                            match owner.spell_event(spell, due.now_ms, diff)? {
+                                SpellEventPlan::Delete => {
+                                    owner.delete_spell(spell)?;
+                                    transaction.finish_execute(true).map_err(event_refusal)?;
+                                }
+                                SpellEventPlan::ReAdd { deadline_ms, .. } => {
+                                    transaction
+                                        .re_add(due.event_id, deadline_ms, false)
+                                        .map_err(event_refusal)?;
+                                    transaction.finish_execute(false).map_err(event_refusal)?;
+                                }
+                                SpellEventPlan::HandleDelayed { .. } => {
+                                    return Err(refuse(
+                                        "execution.spells.unresolved_HandleDelayed_plan",
+                                    ))
+                                }
+                            }
+                        }
+                        CallbackKind::Abort => {
+                            owner.abort_spell(spell)?;
+                            owner.delete_spell(spell)?;
+                            transaction.finish_abort(true).map_err(event_refusal)?;
+                        }
+                    }
+                    continue;
+                }
                 let capture = self.captures.remove(&due.event_id);
                 if due.callback == CallbackKind::Execute {
                     match due.kind {
@@ -113,6 +208,9 @@ impl SourceUnitEvents {
                                     captures: &mut self.captures,
                                 },
                             )?;
+                        }
+                        SourceUnitEvent::Spell { .. } => {
+                            unreachable!("handled before ordinary events")
                         }
                     }
                 }
@@ -145,6 +243,17 @@ impl SourceUnitEvents {
     }
     pub fn assistance_captures(&self) -> &std::collections::BTreeMap<u64, AssistanceCapture> {
         &self.captures
+    }
+}
+impl SpellEventQueue for SourceUnitEvents {
+    fn add_spell(&mut self, spell: u64) -> Result<u64> {
+        require(!self.stopped, "execution.unit_events.stopped")?;
+        let id = self.queue.next_event_id();
+        let at = self.queue.calculate_time(1).map_err(event_refusal)?;
+        self.queue
+            .add_event(id, SourceUnitEvent::Spell { spell }, at)
+            .map_err(event_refusal)?;
+        Ok(id)
     }
 }
 impl AssistanceQueue for SourceUnitEvents {

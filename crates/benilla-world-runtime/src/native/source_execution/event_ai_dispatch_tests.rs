@@ -446,7 +446,7 @@ fn missing_owner_refuses_before_later_action_and_keeps_inflight_state() {
     let mut owner = host(&state, [0, 1]);
     assert_eq!(
         run(&mut state, &mut owner).unwrap_err().id,
-        "execution.event_ai.f5_07_spell_owner"
+        "execution.spells.live_SpellStart_context_owner"
     );
     assert_eq!(state.phase, 0);
     assert!(owner.outputs.is_empty());
@@ -996,7 +996,11 @@ fn unavailable_basic_and_dependent_owners_never_report_success() {
             [7, 1, 0],
             "execution.event_ai.f5_06_ai_event_visitor_owner",
         ),
-        (11, [7, 0, 0], "execution.event_ai.f5_07_spell_owner"),
+        (
+            11,
+            [7, 0, 0],
+            "execution.spells.live_SpellStart_context_owner",
+        ),
         (12, [7, 0, 0], "execution.event_ai.f5_15_summon_owner"),
         (13, [7, 0, 0], "execution.threat.f5_04b_unit_fields_owner"),
         (21, [7, 0, 0], "execution.event_ai.f5_05_motion_owner"),
