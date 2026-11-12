@@ -15,6 +15,8 @@ fn template(name: &str) -> CreatureAiTemplateOperands {
         stats_multipliers: [1f32.to_bits(); 3],
         civilian: false,
         pursuit_ms: 15000,
+        call_for_help: 0,
+        creature_type: 0,
         ai_name: name.into(),
         script_name: String::new(),
     }
