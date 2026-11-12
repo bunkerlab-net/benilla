@@ -1882,6 +1882,23 @@ Its validator checks retained chain order. These definitions are not
 serialized live Spell/Aura continuation. Native format 91, NativeCapability
 and frozen-unsealed F1 are unchanged.
 
+## Source SpellTargetMgr
+
+`SourceSpellTargetMgr::initialize` consumes loaded `SourceSpellStores` after
+script-target dispositions, `World.cpp:1081-1084`. The exact 64 target and
+130 effect records follow `SpellTargets.cpp:31-231`; their enums and flags
+follow `SpellTargetDefines.h:22-172` at CMaNGOS Classic `8ec338a1`.
+Initialization preserves dynamic target precedence, ignored-target masks,
+script inverse-effect bounds, and filtering overrides,
+`SpellTargets.cpp:241-467,508-528`. Unavailable script bounds refuse only
+spells whose merging reaches that owner. Empty effects retain zero types.
+Missing spell lookups and out-of-range table/effect indexes refuse instead
+of reproducing undefined access, `SpellTargets.cpp:237,270,274,368,446,472`.
+Jump radius remains exactly 10 regardless of spell ID,
+`SpellTargets.cpp:503-505`, `Globals/SharedDefines.h:1623`.
+This immutable owner does not select live targets or execute effects.
+Native format 91, NativeCapability, and frozen-unsealed F1 are unchanged.
+
 ## Source builtin CreatureAI
 
 `SourceBuiltinAi` executes selected NullAI, GuardAI and PossessedAI identities
