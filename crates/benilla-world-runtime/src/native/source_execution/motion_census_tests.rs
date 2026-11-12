@@ -519,11 +519,13 @@ fn catalog04_waypoint_loader_and_raw_prefix_census_or_explicit_absence() {
         });
     let global_after_refusal = global_after.as_ref().err().map(|e| e.id.as_str());
     if occurrences.is_some() {
-        // Quest flags now load before ScriptMgr; the unbound F4 group is next.
-        assert_eq!(
-            global_after_refusal,
-            Some("execution.spawn_groups.objectmgr_load_gameobjects_effective_spawn_owner")
-        );
+        // Pre-terrain products reach the first unresolved startup random entry.
+        let group_owner = if std::env::var_os("BENILLA_F2_SPAWN_OCCURRENCES").is_some() {
+            "execution.effective_spawns.world_thread_startup_rng_position_owner"
+        } else {
+            "execution.spawn_groups.objectmgr_load_gameobjects_effective_spawn_owner"
+        };
+        assert_eq!(global_after_refusal, Some(group_owner));
     }
     let mut groups: [BTreeMap<u32, Vec<SourceWaypointRow>>; 3] = Default::default();
     let mut blacklists: [EntrySet; 3] = Default::default();

@@ -14,6 +14,7 @@ pub struct EffectiveGroupSpawns<'a> {
 pub struct CatalogGroupLoadOwner<'a> {
     catalog: &'a mut VerifiedCatalog,
     spawns: Option<EffectiveGroupSpawns<'a>>,
+    pre_terrain: Option<SourceEffectiveSpawns>,
     autoload: Option<bool>,
     ids: BTreeMap<&'static str, BTreeSet<u32>>,
     creature_flags: Option<BTreeMap<u32, u32>>,
@@ -27,10 +28,20 @@ impl<'a> CatalogGroupLoadOwner<'a> {
         Self {
             catalog,
             spawns,
+            pre_terrain: None,
             autoload,
             ids: BTreeMap::new(),
             creature_flags: None,
         }
+    }
+    /// Diagnostic pre-terrain map fields, not completed startup products.
+    pub fn with_pre_terrain(
+        catalog: &'a mut VerifiedCatalog,
+        spawns: SourceEffectiveSpawns,
+    ) -> Self {
+        let mut this = Self::new(catalog, None, None);
+        this.pre_terrain = Some(spawns);
+        this
     }
     fn ids(&mut self, table: &'static str, column: &str) -> Result<&BTreeSet<u32>> {
         if !self.ids.contains_key(table) {
@@ -75,6 +86,9 @@ impl GroupLoadOwner for CatalogGroupLoadOwner<'_> {
     fn spawn(&mut self, key: SpawnKey) -> Result<Option<GroupSpawnDefinition>> {
         // ObjectMgr.cpp:1283-1313 reads effective data. In particular id=0 can
         // consume startup irand before insertion, :1916-1932 / ObjectMgr.h:600-604.
+        if let Some(spawns) = &self.pre_terrain {
+            return spawns.pre_terrain_group_definition(key);
+        }
         Ok(self.spawns(key.kind)?.definitions.get(&key).copied())
     }
     fn template_exists(&mut self, kind: GridSpawnKind, entry: u32) -> Result<bool> {
@@ -101,9 +115,27 @@ impl GroupLoadOwner for CatalogGroupLoadOwner<'_> {
         Ok(self.creature_flags.as_ref().unwrap().get(&entry).copied())
     }
     fn has_random_entries(&mut self, key: SpawnKey) -> Result<bool> {
+        if let Some(spawns) = &self.pre_terrain {
+            return Ok(spawns.random_entries.contains(&key));
+        }
         Ok(self.spawns(key.kind)?.random_entries.contains(&key))
     }
     fn detach_spawn(&mut self, key: SpawnKey, definition: GroupSpawnDefinition) -> Result<()> {
+        if let Some(spawns) = &mut self.pre_terrain {
+            spawns.complete_data(key)?;
+            let cell = definition.cell;
+            if let Some(grid) =
+                spawns
+                    .static_grids
+                    .get_mut(&(definition.map, cell.x(), cell.y(), key.kind))
+            {
+                grid.remove(&key.guid);
+            }
+            if let Some(guids) = spawns.dynamic_guids.get_mut(&(definition.map, key.kind)) {
+                guids.retain(|guid| *guid != key.guid);
+            }
+            return Ok(());
+        }
         let spawns = self.spawns(key.kind)?;
         require(
             spawns.definitions.get(&key) == Some(&definition),
@@ -160,7 +192,20 @@ pub(crate) fn catalog_group_census_owner(
     let mut groups = SourceSpawnGroups::default();
     let result = std::env::var_os("BENILLA_F2_GROUP_OCCURRENCES")
         .ok_or_else(|| refuse("execution.spawn_groups.group_occurrences_owner"))
-        .and_then(|path| groups.load_bound_catalog(catalog, Path::new(&path), None, None))
+        .and_then(|path| {
+            let Some(spawn_path) = std::env::var_os("BENILLA_F2_SPAWN_OCCURRENCES") else {
+                return groups.load_bound_catalog(catalog, Path::new(&path), None, None);
+            };
+            let spawns = SourceEffectiveSpawns::inspect_catalog_pre_terrain(
+                catalog,
+                Path::new(&spawn_path),
+            )?;
+            let mut rows = catalog.execution_spawn_group_rows(Path::new(&path))?;
+            groups.load(
+                &mut rows,
+                &mut CatalogGroupLoadOwner::with_pre_terrain(catalog, spawns),
+            )
+        })
         .map(|()| groups);
     CensusGroups(result)
 }

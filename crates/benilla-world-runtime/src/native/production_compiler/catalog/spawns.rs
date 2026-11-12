@@ -2,6 +2,9 @@
 //! Complete source views. Index order is never loader occurrence order.
 use super::*;
 use std::collections::BTreeSet;
+#[path = "effective_spawns.rs"]
+mod effective_spawns;
+pub use effective_spawns::{ObjectMgrSpawnRow, ObjectMgrSpawnRows};
 const FAMILIES: &[&str] = &[
     "creature",
     "gameobject",

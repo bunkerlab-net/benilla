@@ -13,6 +13,7 @@ use std::{
 mod reader;
 mod spawns;
 pub use spawns::{diagnose_catalog_spawns, SpawnViews};
+pub use spawns::{ObjectMgrSpawnRow, ObjectMgrSpawnRows};
 mod groups;
 pub use groups::diagnose_catalog_groups;
 pub(crate) use groups::{LinkingCatalogRows, SpawnGroupCatalogRows};

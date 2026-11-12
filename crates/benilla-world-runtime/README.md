@@ -2069,3 +2069,44 @@ prove this case unreachable.
 The F7 in-memory inventory adds assistance latches, help eligibility, template
 help radius, and each queued capture. It adds no native serialized state.
 Format 91, NativeCapability, and frozen-unsealed F1 remain unchanged.
+
+## Source effective spawn loading
+
+`SourceEffectiveSpawns` ports the creature and gameobject loader branches at
+`ObjectMgr.cpp:1873-2282`, pinned to `8ec338a1`. Creature loading precedes
+gameobject loading at `World.cpp:1066,1072`. The joined-row reader verifies
+the F2 occurrence hashes, query projections, and catalog row multisets.
+These diagnostic occurrences do not certify the recorded F1 SQL order.
+
+The loaders insert spawn data before map and coordinate checks,
+`ObjectMgr.cpp:1955,2145`. Skips after insertion retain those map entries.
+`CatalogGroupLoadOwner::with_pre_terrain` exposes only the assigned group
+fields. It cannot complete group finalisation without the terrain owner.
+The zone lookup occurs at `:2028-2031,2225-2228`. Missing terrain, startup
+RNG position, and active-load configuration owners refuse where reached.
+No completed startup or partial loaded group container is published.
+Dungeon GO validation requires the effective `LoadInstanceTemplate` result,
+`MapManager.cpp:245-248`. Raw template IDs cannot replace that owner because
+`ObjectMgr.cpp:5382,5390,5420` erases invalid templates.
+
+An entry of zero checks the conditional validation default before
+attempting random selection, `:1916-1932`. Conditional entries reset after terrain and
+grid effects, `:2048-2050`. Every reached random list draws, including a
+single-entry list, `ObjectMgr.h:600-604`. The owner borrows F3's
+`CreatureRandom` implementation over `SourceRandom`. It creates no engine
+and does not treat a captured result as an input.
+
+The retained F1 trace records these load-time draws. It does not provide
+the typed startup-position owner required by this loader. The catalog
+census therefore refuses random rows and counts deterministic pre-terrain
+rows separately from complete rows. Bind `BENILLA_F2_SPAWN_OCCURRENCES`
+alongside the existing catalog and group occurrence variables to enable
+the pre-terrain group, DB-script, and waypoint probes. New censuses print
+`SKIP` when these inputs are absent.
+
+The empty random-list index and empty GO-addon query dereference refuse
+with named undefined-behaviour errors, `ObjectMgr.h:603` and
+`ObjectMgr.cpp:2252-2255`. The addon tests preserve the previous-state
+check at `:2267`, not an incoming-state check. These immutable diagnostic
+definitions change no persisted state. Native format 91 and the frozen,
+unsealed F1 evidence remain unchanged.

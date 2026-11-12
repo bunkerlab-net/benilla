@@ -644,14 +644,15 @@ fn retained_catalog_db_scripts_counts_or_explicit_absence() {
             count
         );
         if kind == DbScriptType::CreatureMovement {
+            let group_owner = if std::env::var_os("BENILLA_F2_SPAWN_OCCURRENCES").is_some() {
+                "execution.effective_spawns.world_thread_startup_rng_position_owner"
+            } else {
+                "execution.spawn_groups.objectmgr_load_gameobjects_effective_spawn_owner"
+            };
             assert_eq!(
                 measured_groups,
                 (470001..=470004)
-                    .map(|id| (
-                        id,
-                        "execution.spawn_groups.objectmgr_load_gameobjects_effective_spawn_owner"
-                            .into()
-                    ))
+                    .map(|id| (id, group_owner.into()))
                     .collect::<Vec<_>>()
             );
             println!("DB-script measured spawn-group rows {measured_groups:?}");

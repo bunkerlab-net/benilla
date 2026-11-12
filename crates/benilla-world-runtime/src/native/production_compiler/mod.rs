@@ -17,6 +17,7 @@ pub use catalog::{
 pub use catalog::{diagnose_catalog_dbc, CatalogDbcView};
 pub(crate) use catalog::{CatalogCreatureAiTemplate, CatalogScriptAiBinding};
 pub(crate) use catalog::{LinkingCatalogRows, SpawnGroupCatalogRows};
+pub use catalog::{ObjectMgrSpawnRow, ObjectMgrSpawnRows};
 pub use catalog::{
     TransportAnimationRecord, TransportGameObject, TransportIntegrityRow, TransportSqlRow,
 };

@@ -195,6 +195,8 @@ mod seal8_transports;
 pub use seal8_transports::{inspect_seal8_unsealed_transports, Seal8TransportReport};
 mod spawn_groups;
 pub use spawn_groups::*;
+mod effective_spawns;
+pub use effective_spawns::*;
 mod formations;
 pub use formations::*;
 #[cfg(test)]
