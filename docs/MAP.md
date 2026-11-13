@@ -15,6 +15,7 @@
 - **benilla-config** (no Bevy) — Executable-adjacent configuration for the experimental peer-to-peer fork
 - **benilla-dbc** (no Bevy) — WDBC (client DBC) reader for WoW 1.12.1 (build 5875)
 - **benilla-encounter** (no Bevy) — Opt-in synthetic encounter controller for the fork chat UI
+- **benilla-extractor-observer** (no Bevy) — External Linux hardware-breakpoint observer with fail-closed fixture qualification
 - **benilla-formats** (no Bevy) — WoW 1.12.1 asset-format adapters (MPQ/BLP/DBC/ADT/WDT) and the benilla-extract CLI
 - **benilla-lua** (no Bevy) — The Lua interpreter benilla's script host runs: 5.1.5 with the 1.12.1 client's grammar, its state as plain Rust data
 - **benilla-m2** (no Bevy) — M2 (MD20) model reader for WoW 1.12.1 (build 5875)
@@ -131,6 +132,7 @@
 - **benilla-app** (lib.rs): account_data addon_harness area area_poi area_trigger asset_churn aura_visual bindings blob_shadow bowstring camera_shake capture char_select chat_bubble chr_classes cinematic client_state combat_log combat_text console crash creature_anim creature_type cursor cvars death debug_panel dev devtools doodad_events entities field_callbacks field_watch fishing_line footprints game_plugins game_tip glue glue_session glue_strings go_anim go_templates hover_log item_lane item_names item_watch items lanes loading_screen local_state login minimap nameplates names net no_install npc_text opaque2d perf pipe_warm player player_commands poi_marker portrait preflight probe_shield profile_recovery query_cache quest_markers raid_marks ranged_flex realmlist run_mode screen_fade screenshot script_calls shaders shutdown smart_rect sound spell swing_refusal target test_support text_filter textinput transport tutorial ui_action ui_auction ui_aura ui_bank ui_battlefield ui_battlefield_positions ui_battlefield_score ui_billing ui_bind_confirm ui_binder ui_cast ui_char ui_chat ui_craft ui_dialog_verbs ui_dressup ui_duel ui_gamma ui_gm_ticket ui_gossip ui_guild ui_honor ui_inspect ui_instance ui_item_text ui_items ui_layout ui_logout ui_loot ui_loot_roll ui_macro ui_mail ui_memory ui_merchant ui_mirror ui_models ui_net ui_panes ui_party ui_pass ui_pet ui_pet_book ui_pet_stats ui_petition ui_quest ui_quest_log ui_quest_share ui_reputation ui_saved ui_script ui_session ui_shapeshift ui_social ui_spellbook ui_stable ui_summon ui_tabard ui_talent ui_talent_wipe ui_taxi ui_text ui_tooltip ui_trade ui_tradeskill ui_trainer ui_unit ui_world_enter ui_world_map video vm_pass vplates wdb weapon_trail world_backdrop world_console world_state world_state_ui
 - **benilla-assets** (lib.rs): adt anim_rng blp column_grid coords gpu_blp m2 materials minimap_grid model spatial_cache terrain tex_filter tga_chain trace wdt wmo world_assets
 - **benilla-config** (lib.rs): editor encounter_tests native_regeneration_tests tests world_clock
+- **benilla-extractor-observer** (lib.rs): linux receipt
 - **benilla-formats** (lib.rs): anim_data area_poi area_sound area_table area_trigger auction_house authored_mpq_crypto bank_bag_slot_prices camera_shakes cfg_categories cfg_configs chain characters chat_channels chr_classes chr_races cinematics creature_families creature_sound creature_spell_data creature_types creatures dbc death_thud durability elevators emit_timing emote_text emotes environmental_damage exhaustion factions footsteps game_tips gameobjects garble gm_survey gm_ticket_category ground_effects install item_random_properties item_sounds item_visuals itembagfamily itemclass items itemsets itemsubclass languages lfg_dungeons light liquid loading_route loading_screen locale locale_routing lock lock_type loose macro_icons mail_template maps material minimap_translate models npc_greeting packages page_text_material particles pet_stats quest_headers quest_info race_creature_type race_pvp_team race_sound resistances ribbons server_messages sheathe skill_lines skill_tiers sound_entries sound_provider sound_water spell_focus spell_mechanic spell_visual spells stable_slot_prices stationery talents taxi taxi_nodes taxi_path terrain text_filter_lists tga transports unit_blood value_track vocal_ui_sounds wdl weapon_impact weapon_swing wmo_area world_map_area world_map_continent world_map_overlay world_state_ui wow_ini zone_map
 - **benilla-lua** (lib.rs): api cfmt compile heap ld12 lex lib_base lib_math lib_string lib_table number parse pools proto reload strtod table value vm
 - **benilla-m2** (lib.rs): error model skin tests track
@@ -138,11 +140,11 @@
 - **benilla-movie** (lib.rs): avi bits color decoder headers idct scan testing vlc
 - **benilla-mpq** (lib.rs): crypto
 - **benilla-native-corridor-tests** (lib.rs): core dual_reopen_component_tests home_component_tests home_mailbox_tests local_corridor products real_corridor_fixture reconstruction_component_tests route_commit source_cache_reconstruction source_creature_initialization source_ground_height source_location source_navigation source_near_point source_near_point_empty source_pathfinder_query source_player_environment source_route_chase_gate source_route_filter source_route_point_path source_route_resident_local source_route_same_polygon source_route_same_polygon_local source_route_smoothing source_route_straight_path source_route_warm_cache source_vmap staged_wander_tests suspended_owner_component_tests wander_component_tests wander_reopen_component_tests
-- **benilla-native-geometry-tests** (lib.rs): core installed_source_fixture_tests planar production_item_order products route_commit source_creature_initialization source_ground_height source_location source_navigation source_near_point source_near_point_empty source_pathfinder_query source_player_environment source_route_chase_gate source_route_filter source_route_point_path source_route_same_polygon source_route_smoothing source_route_straight_path source_route_warm_cache source_vmap static_mesh
+- **benilla-native-geometry-tests** (lib.rs): core installed_source_fixture_tests planar production_item_order products route_commit source_creature_initialization source_ground_height source_live_vmap source_location source_navigation source_near_point source_near_point_empty source_pathfinder_query source_player_environment source_route_chase_gate source_route_filter source_route_point_path source_route_same_polygon source_route_smoothing source_route_straight_path source_route_warm_cache source_vmap static_mesh
 - **benilla-native-nav** (lib.rs): cold_distance cold_distance_tests collinear_tests detail_tests direct_corridor_tests generated_tests smoothing smoothing_tests source_cold_same_polygon source_home_same_polygon source_query source_wander_and_chase_reconstruction_tests source_wander_same_polygon tests tile_presence validate warm_cache warm_cache_tests warm_point_path warm_point_path_tests warm_straight_path warm_straight_path_tests water_tests
 - **benilla-native-terrain** (lib.rs): diagnostic_id diagnostics grid_area location map_fixture receipts source test_support writer
 - **benilla-native-vmap-source** (lib.rs): assembled_spawn_bounds discovery doodad_projection doodad_reference_order doodad_transform_math doodads encounter_ids identity map_bundle map_products map_spawn_index placement_records producer_policy profiling receipts selected_model_names source tests
-- **benilla-native-vmap** (lib.rs): bih error model_writer source_model_name tests wmo wmo_error
+- **benilla-native-vmap** (lib.rs): bih error live model_writer source_model_name tests wmo wmo_error
 - **benilla-p2p** (lib.rs): discovery identity internet rejection
 - **benilla-profile** (lib.rs): recovery starting_location storage tests world_setup
 - **benilla-protocol** (lib.rs): auth events guid messages wire world
@@ -580,8 +582,10 @@
 - `gen-message-catalog.py` — Generate `crates/benilla-ui/src/messages/catalog.rs` from `reference/messages.tsv`.
 - `mixsum.py` — Read a `$WOW_MIX_TAP` capture and say, in numbers, what the mix was doing when.
 - `native-starter.py` — Prepare exact native starter bindings from a private v2 capture and local DBCs.
+- `observer-manifest.py` — Read-only ELF evidence inventory.
 - `package-player.py` — Package a minimal player or separate diagnostics with exact vendored build source.""" import argparse import hashlib import io import json import os f…
 - `pass-span-lint.py` — Refuse a second open `pass_span` on the same render pass (a wgpu validation error on Vulkan).
+- `qualify-extractor-observer.py` — Qualify authored static fixtures only.
 - `soundprobe.py` — Read back a `$WOW_SOUND_PROBE` capture and name the mechanism behind a speaker-breaking sound.
 - `sync-reference.py` — Vendor benilla-re's tables into `reference/` at the commit `reference/PIN` names.
 - `test-capture-ci-log.py` — CI diagnostic logging regressions; no Rust build or game data required.""" import importlib.util import os from pathlib import Path import shutil impo…
@@ -590,6 +594,7 @@
 - `test-doc-links.py` — The doc-link gate must fail closed when rustdoc did not run successfully.""" import contextlib import importlib.util import io from pathlib import Pat…
 - `test-initial-hooks.py` — Authored area/proc capture cases only.
 - `test-native-starter.py` — Original synthetic rows only.
+- `test-observer-manifest.py` — Authored tests for conservative static anchor classification.
 - `test-package-player.py` — Packaging and resolved feature-graph tests: no app build or game data.""" import hashlib import importlib.util import io import json import os import …
 - `test-player-diagnostics.py` — Authored child fixtures for bounded player smoke; no app build or game data.""" import contextlib import copy import importlib.util import io import j…
 - `test-verify-libtest-output.py` — No-compile fixtures for the actual joined-suite CI shell gates."""

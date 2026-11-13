@@ -41,6 +41,8 @@ jobs:
         run: python3 scripts/test-verify-libtest-output.py
       - name: Test apt mirror recovery
         run: python3 scripts/test-ci-apt-install.py
+      - name: Test conservative observer manifest classification
+        run: python3 scripts/test-observer-manifest.py
       - name: System libraries
         run: |
           bash scripts/ci-apt-install.sh pkg-config libasound2-dev libudev-dev libwayland-dev

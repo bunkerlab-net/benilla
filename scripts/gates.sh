@@ -127,6 +127,7 @@ run fmt cargo fmt --all -- --check
 # deviation-why: every `Deviation:` comment and `Deviates` row names its reason (`scripts/genmap.sh --check`).
 run deviation-why scripts/genmap.sh --check
 run clippy cargo clippy --workspace --all-targets -- -D warnings
+run observer-manifest-tests python3 scripts/test-observer-manifest.py
 
 # test: where the install resolves and the `wow-addons-vanilla` corpus link exists,
 # BENILLA_REQUIRE_DATA=1 refuses a data-gated test that skips; with the install alone it would
