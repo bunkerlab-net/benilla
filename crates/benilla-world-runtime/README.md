@@ -2346,15 +2346,26 @@ preludes, `Map.cpp:155-189`. Both TerrainInfo objects already exist, so the
 constructors draw nothing. Each map references its terrain once.
 The map births match trace lines 60100929 and 60100933.
 
-Both initializers refuse `execution.managers.f5.instance_initialization_owner`
-at `Map.cpp:190,1679`. No script, map-thread RNG, SQL, pool initialization,
-MMap lock, or later manager step runs. Thread 6 belongs to map 0 and has two
-captured script words before SQL. Thread 7 belongs to map 1 and has none.
-Their captured streams remain independent at cursor zero. The comparison
-does not assign an order to the two initializers.
+Both initializers construct their world scripts, submit the world-row SQL,
+bind persistent state, and initialize map pools, `Map.cpp:190-194`.
+Thread 6/map 0 matches 26,567 words, 2,017 pool members and 1,488 pool counts.
+Thread 7/map 1 matches 11,895 words, 1,585 pool members and 1,089 pool counts.
+All four map SQL statements and both complete pool snapshots match.
+The streams remain independent; no initializer order is imposed.
+
+Per-state event initialization executes the current native active-event set,
+`GameEventMgr.cpp:659-665`, through the existing `InitSpawnPool` map filter,
+`PoolManager.cpp:1208-1212`. Events iterate in ascending order and each pool
+list retains insertion order, `GameEventMgr.h:95,128-130,150-152`.
+At continent startup the set is empty: `World.cpp:1389` precedes global
+event initialization at `:1416`. Recorded map pool snapshots at trace lines
+60295941 and 60367581 precede the event-status query at 61722965.
+Event 7's earlier calendar samples do not activate it.
+Both jobs refuse `execution.continents.graveyard_init_owner` at `Map.cpp:196`.
+Graveyards and all later map managers remain unexecuted.
 The world-thread clone-only next-word check matches `(8712,3411341330)`.
-Event initialization, status/quest comparisons, and the WorldState cutoff
-remain beyond the reached F5 refusal. Seal8 keeps its earlier lunar refusal.
+Global event/status/quest comparisons and WorldState remain beyond the map
+refusal. Seal8 keeps its earlier lunar refusal. Native format 91 is unchanged.
 These comparisons do not admit gameplay or create sealed F1 lineage.
 
 The shared AREA

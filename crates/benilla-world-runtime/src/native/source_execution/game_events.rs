@@ -313,6 +313,23 @@ impl SourceGameEventManager {
     pub fn inventory(&self) -> &GameEventInventory {
         &self.state
     }
+    /// GameEventMgr.cpp:659-665 applies only pools to the newly bound map state.
+    pub fn initialize_state(
+        &self,
+        states: &mut SourceManagers,
+        state: PersistentStateIdentity,
+        pools: &mut SourcePoolManager,
+        work: &mut impl PoolWork,
+    ) -> Result<()> {
+        self.ready()?;
+        // GameEventMgr.h:95,128-130,150-152: std::set events, std::list pool IDs.
+        for &event in &self.state.active {
+            for &pool in &self.state.pools[usize::from(event)] {
+                pools.init_spawn_pool(states, state, pool, work)?;
+            }
+        }
+        Ok(())
+    }
     pub fn load_catalog(
         &mut self,
         catalog: &mut VerifiedCatalog,

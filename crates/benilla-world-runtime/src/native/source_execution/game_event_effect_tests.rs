@@ -873,6 +873,123 @@ impl PersistentEffects for Host {
 }
 
 #[test]
+fn map_event_pools_use_current_active_set_and_source_iteration_order() {
+    struct Maps;
+    impl PoolLoadOwner for Maps {
+        fn spawn_map(&mut self, _: PoolKind, guid: u32) -> Result<Option<u32>> {
+            Ok(Some(u32::from(guid == 9)))
+        }
+        fn map_exists(&mut self, _: u32) -> Result<bool> {
+            Ok(true)
+        }
+    }
+    let mut pool_rows = PoolRowsFixture {
+        templates: (1..=4)
+            .map(|id| PoolTemplateRow {
+                ordinal: u64::from(id - 1),
+                id,
+                limit: 1,
+                description: vec![],
+            })
+            .collect(),
+        members: (1..=4)
+            .map(|pool| PoolMembershipRow {
+                ordinal: u64::from(pool - 1),
+                guid: u32::from(pool) + 6,
+                pool,
+                chance: 0.0,
+            })
+            .collect(),
+    };
+    let mut pools = SourcePoolManager::default();
+    pools.load(&mut pool_rows, &mut Maps).unwrap();
+    let mut event_rows = rows(2);
+    event_rows.creatures = [(8, 1), (7, 1), (9, 2), (10, 2)]
+        .into_iter()
+        .enumerate()
+        .map(|(ordinal, (guid, event))| GameEventMemberRow {
+            ordinal: ordinal as u64,
+            exists: true,
+            guid,
+            event,
+        })
+        .collect();
+    let mut calendar = Owner::default();
+    let mut manager = SourceGameEventManager::default();
+    manager
+        .load(&mut event_rows, &mut pools, &mut calendar)
+        .unwrap();
+    assert_eq!(manager.inventory().pools[1], [2, 1]);
+    assert_eq!(manager.inventory().pools[2], [3, 4]);
+    let mut host = Host::default();
+    let mut states = SourceManagers::default();
+    let state = states
+        .create_state(
+            PersistentMapEntry { id: 0, map_type: 0 },
+            0,
+            0,
+            false,
+            true,
+            0,
+            &mut host,
+        )
+        .unwrap();
+    manager
+        .initialize_state(&mut states, state, &mut pools, &mut host)
+        .unwrap();
+    assert!(host.calls.is_empty());
+    // GameEventMgr.h:95,128-130,150-152: ascending event set, insertion-ordered pool lists.
+    manager
+        .start_event(2, false, false, false, &mut calendar)
+        .unwrap();
+    manager
+        .start_event(1, false, false, false, &mut calendar)
+        .unwrap();
+    manager
+        .initialize_state(&mut states, state, &mut pools, &mut host)
+        .unwrap();
+    let leaves = host
+        .calls
+        .iter()
+        .filter(|call| call.starts_with("pool:"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        leaves,
+        [
+            "pool:Spawn { instantly: true }:8",
+            "pool:Spawn { instantly: true }:7",
+            "pool:Spawn { instantly: true }:10",
+        ]
+    );
+    host.calls.clear();
+    let other = states
+        .create_state(
+            PersistentMapEntry { id: 1, map_type: 0 },
+            0,
+            0,
+            false,
+            true,
+            0,
+            &mut host,
+        )
+        .unwrap();
+    manager
+        .initialize_state(&mut states, other, &mut pools, &mut host)
+        .unwrap();
+    let leaves = host
+        .calls
+        .iter()
+        .filter(|call| call.starts_with("pool:"))
+        .collect::<Vec<_>>();
+    assert_eq!(leaves, ["pool:Spawn { instantly: true }:9"]);
+    assert_eq!(manager.inventory().active, BTreeSet::from([1, 2]));
+    assert!(!manager.inventory().initialized);
+    assert_eq!(host.effects.world.pending(), 0);
+    assert!(host.sql.is_empty() && host.calendar.effects.is_empty());
+    assert!(!pools.inventory().stopped);
+}
+
+#[test]
 fn retained_event_effect_projection_or_explicit_absence() {
     let explicit = std::env::var_os("BENILLA_F4_EVENT_EFFECTS_REPORT");
     let path = explicit

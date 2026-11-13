@@ -507,6 +507,64 @@ impl PoolWork for PoolEffects {
     }
 }
 
+fn empty_events(pools: &mut SourcePoolManager) -> SourceGameEventManager {
+    struct Rows;
+    impl GameEventRows for Rows {
+        fn maximum(&mut self) -> Result<Option<u16>> {
+            Ok(None)
+        }
+        fn definition(&mut self) -> Result<Option<GameEventDefinitionRow>> {
+            Ok(None)
+        }
+        fn date(&mut self) -> Result<Option<GameEventDateRow>> {
+            Ok(None)
+        }
+        fn member(&mut self, _: EventSpawnKind) -> Result<Option<GameEventMemberRow>> {
+            Ok(None)
+        }
+        fn substitution(&mut self) -> Result<Option<GameEventSubstitutionRow>> {
+            Ok(None)
+        }
+        fn quest(&mut self) -> Result<Option<(u64, u32, u16)>> {
+            Ok(None)
+        }
+        fn mail(&mut self) -> Result<Option<GameEventMailRow>> {
+            Ok(None)
+        }
+    }
+    struct Owner;
+    impl GameEventOwner for Owner {
+        fn clock(&mut self, _: EventClockSite) -> Result<ClockSample> {
+            panic!("no events")
+        }
+        fn reference(&mut self, _: EventReference, _: u32) -> Result<bool> {
+            panic!("no events")
+        }
+        fn set_quest_active(&mut self, _: u32, _: bool) -> Result<()> {
+            panic!("no events")
+        }
+        fn check_pool_event(
+            &mut self,
+            _: &SourcePoolManager,
+            _: u16,
+            _: i16,
+            _: &BTreeMap<u32, i16>,
+            _: &BTreeMap<u32, i16>,
+        ) -> Result<()> {
+            panic!("no events")
+        }
+        fn effect(&mut self, _: &mut SourceGameEventManager, _: GameEventEffect) -> Result<()> {
+            panic!("no events")
+        }
+        fn observe(&mut self, _: GameEventObservation) -> Result<()> {
+            Ok(())
+        }
+    }
+    let mut events = SourceGameEventManager::default();
+    events.load(&mut Rows, pools, &mut Owner).unwrap();
+    events
+}
+
 #[test]
 fn persistent_attach_and_pool_shuffle_precede_map_eligibility_refusal_on_each_map() {
     for slot in 0..2 {
@@ -538,9 +596,14 @@ fn persistent_attach_and_pool_shuffle_precede_map_eligibility_refusal_on_each_ma
             let mut states = SourceManagers::default();
             let mut work = PoolEffects::new(slot as u64 + 6);
             assert_eq!(
-                map.initialize_persistent_pools(&mut states, &mut pools, &mut work)
-                    .unwrap_err()
-                    .id,
+                map.initialize_persistent_pools(
+                    &mut states,
+                    &mut pools,
+                    &SourceGameEventManager::default(),
+                    &mut work
+                )
+                .unwrap_err()
+                .id,
                 "execution.pool.map_can_spawn_owner"
             );
             assert!(work.requested);
@@ -559,16 +622,21 @@ fn persistent_attach_and_pool_shuffle_precede_map_eligibility_refusal_on_each_ma
 }
 
 #[test]
-fn incomplete_instance_refuses_before_attach_and_empty_pools_reach_next_event_owner() {
+fn incomplete_instance_refuses_before_attach_and_empty_events_reach_graveyard_owner() {
     let mut maps = ready();
     let map = &mut maps.maps[0];
     let mut states = SourceManagers::default();
     let mut pools = SourcePoolManager::default();
     let mut work = PoolEffects::new(6);
     assert_eq!(
-        map.initialize_persistent_pools(&mut states, &mut pools, &mut work)
-            .unwrap_err()
-            .id,
+        map.initialize_persistent_pools(
+            &mut states,
+            &mut pools,
+            &SourceGameEventManager::default(),
+            &mut work
+        )
+        .unwrap_err()
+        .id,
         "execution.continents.instance_initialization_incomplete"
     );
     assert!(work.persistent.is_empty() && map.persistent.is_none());
@@ -583,11 +651,12 @@ fn incomplete_instance_refuses_before_attach_and_empty_pools_reach_next_event_ow
             &mut PoolDefinitions(0),
         )
         .unwrap();
+    let events = empty_events(&mut pools);
     assert_eq!(
-        map.initialize_persistent_pools(&mut states, &mut pools, &mut work)
+        map.initialize_persistent_pools(&mut states, &mut pools, &events, &mut work)
             .unwrap_err()
             .id,
-        "execution.continents.map_event_pool_owner"
+        "execution.continents.graveyard_init_owner"
     );
     assert_eq!(work.cursor.raw, 0);
     assert!(states

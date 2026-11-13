@@ -244,21 +244,23 @@ impl SourceContinent {
         states.bind_map(state, Some(self.identity), work)?;
         Ok(state)
     }
-    /// Map.cpp:192-194, MapPersistentStateMgr.cpp:198-205.
+    /// Map.cpp:192-196, MapPersistentStateMgr.cpp:198-207.
     pub fn initialize_persistent_pools(
         &mut self,
         states: &mut SourceManagers,
         pools: &mut SourcePoolManager,
+        events: &SourceGameEventManager,
         work: &mut (impl PoolWork + PersistentEffects),
     ) -> Result<()> {
         self.attach_persistent_state(states, work)?;
-        self.initialize_pools(states, pools, work)
+        self.initialize_pools(states, pools, events, work)
     }
-    /// MapPersistentStateMgr.cpp:198-205, after the map binding is installed.
+    /// Map.cpp:194-196, after the map binding is installed.
     pub fn initialize_pools(
         &self,
         states: &mut SourceManagers,
         pools: &mut SourcePoolManager,
+        events: &SourceGameEventManager,
         work: &mut impl PoolWork,
     ) -> Result<()> {
         let state = self
@@ -271,10 +273,9 @@ impl SourceContinent {
         if !states.state(state)?.pools().initialized() {
             states.state_mut(state)?.pools_mut().mark_initialized();
             pools.initialize(states, state, work)?;
-            // The per-map GameEventMgr::Initialize call is after PoolMgr::Initialize.
-            return Err(refuse("execution.continents.map_event_pool_owner"));
+            events.initialize_state(states, state, pools, work)?;
         }
-        Ok(())
+        Err(refuse("execution.continents.graveyard_init_owner")) // Map.cpp:196.
     }
 }
 

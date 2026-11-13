@@ -107,6 +107,7 @@ struct MapThreadEvidence {
     shuffle_after: Vec<u32>,
     total_words: usize,
     pool_raw_end: Option<usize>,
+    pool_snapshot_line: Option<u64>,
     total_shuffles: usize,
     pool_shuffles: Option<usize>,
     pool_members: [BTreeSet<u32>; 2],
@@ -134,9 +135,21 @@ pub(super) struct Inputs {
     map_identities: BTreeMap<u64, (u64, String)>,
     map_bindings: BTreeMap<u32, (u64, u64, u64)>,
     map_threads: BTreeMap<u64, MapThreadEvidence>,
+    event_initialize_line: Option<u64>,
+    event_status_writes: Vec<(u64, String)>,
 }
 impl Inputs {
     pub(super) fn observe_thread(&mut self, thread: u64, line: u64, kind: &str, p: &[&str]) {
+        if kind == "sql_query" && unhex(p.last().unwrap()) == b"SELECT event FROM game_event_status"
+        {
+            self.event_initialize_line.get_or_insert(line);
+        }
+        if kind == "sql_write_bytes" {
+            let sql = String::from_utf8(unhex(p.last().unwrap())).unwrap();
+            if sql.contains("game_event_status") {
+                self.event_status_writes.push((line, sql));
+            }
+        }
         if kind == "logical_birth" && p[1] == "map" {
             self.map_identities
                 .insert(p[0].parse().unwrap(), (line, p[4].into()));
@@ -199,6 +212,7 @@ impl Inputs {
                 values.push(p[3].parse().unwrap());
             }
             "constructor_persistent_pool_state" if p[1] == "1" => {
+                assert!(evidence.pool_snapshot_line.replace(line).is_none());
                 assert!(evidence
                     .pool_raw_end
                     .replace(evidence.total_words)
@@ -1074,6 +1088,21 @@ pub(super) fn continue_startup(
     owner.pools = pools;
     assert!(owner.clocks.is_empty());
     assert!(events.inventory().loaded);
+    // World.cpp:1389 precedes :1416. Loading event 7's calendar is not StartEvent.
+    assert!(events.inventory().active.is_empty() && !events.inventory().initialized);
+    let event_initialize_line = observed.event_initialize_line.unwrap();
+    assert!(observed
+        .event_status_writes
+        .iter()
+        .all(|(line, _)| *line > event_initialize_line));
+    assert!(!observed
+        .event_status_writes
+        .iter()
+        .any(|(_, sql)| sql == "INSERT INTO game_event_status (event) VALUES (7)"));
+    assert!(!observed
+        .event_status_writes
+        .iter()
+        .any(|(_, sql)| sql == "INSERT INTO game_event_status (event) VALUES (27)"));
     let mut event_load_counts = [0usize; 4];
     for observation in &owner.observations {
         match observation {
@@ -1306,6 +1335,7 @@ pub(super) fn continue_startup(
             assert!(continents.maps[slot].variables.is_empty());
             assert_eq!(random.cursor().raw, 0);
         }
+        assert!(evidence.pool_snapshot_line.unwrap() < event_initialize_line);
         // Only the loaded definitions are forked for two independent diagnostic prefixes.
         // A refused job's stopped flag must not invent a scheduling dependency on its peer.
         let mut pools = owner.pools.clone();
@@ -1324,9 +1354,9 @@ pub(super) fn continue_startup(
                 persistent: Vec::new(),
             };
             let refusal = continents.maps[slot]
-                .initialize_pools(&mut states, &mut pools, &mut work)
+                .initialize_pools(&mut states, &mut pools, &events, &mut work)
                 .unwrap_err();
-            assert_eq!(refusal.id, "execution.continents.map_event_pool_owner");
+            assert_eq!(refusal.id, "execution.continents.graveyard_init_owner");
             work.shuffles
         };
         matched_map_words[slot] = random.cursor().raw;
@@ -1388,7 +1418,7 @@ pub(super) fn continue_startup(
             serde_json::to_value(states.state(state).unwrap().pools()).unwrap(),
             expected
         );
-        println!("F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} next_owner=execution.continents.map_event_pool_owner next_source=Maps/MapPersistentStateMgr.cpp:205", matched_map_words[slot], evidence.pool_members.iter().map(BTreeSet::len).sum::<usize>(), evidence.pool_counts.len(), shuffles.len());
+        println!("F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} next_owner=execution.continents.graveyard_init_owner next_source=Maps/Map.cpp:196", matched_map_words[slot], evidence.pool_members.iter().map(BTreeSet::len).sum::<usize>(), evidence.pool_counts.len(), shuffles.len(), evidence.pool_snapshot_line.unwrap());
         owner.states = states;
         let raw = trace
             .iter()
@@ -1422,7 +1452,7 @@ pub(super) fn continue_startup(
         assert_eq!(u64::from(initial_engine.next_u32()), first_word);
     }
     if continents.maps.iter().any(|map| map.script_id != 0) {
-        let refusal = refuse("execution.continents.map_event_pool_owner");
+        let refusal = refuse("execution.continents.graveyard_init_owner");
         assert!(!events.inventory().initialized);
         assert!(owner.sql.is_empty() && owner.raw.is_empty());
         assert_eq!(owner.cursor.raw, 8712);
@@ -1435,7 +1465,7 @@ pub(super) fn continue_startup(
             .filter(|operation| matches!(operation, PoolOperation::Selected { add: true, .. }))
             .count();
         assert!(results > 0);
-        println!("F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} matched_map_thread_words={matched_map_words:?} matched_map_sql=4 pool_results={results} event_initialization_reached=false next_owner={} next_source=Maps/MapPersistentStateMgr.cpp:205 next_raw={} next_word={} clone_next_word_checked=true",owner.cursor.raw,refusal.id,next_word.0,next_word.1);
+        println!("F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} matched_map_thread_words={matched_map_words:?} matched_map_sql=4 pool_results={results} event_initialization_reached=false next_owner={} next_source=Maps/Map.cpp:196 next_raw={} next_word={} clone_next_word_checked=true",owner.cursor.raw,refusal.id,next_word.0,next_word.1);
         return;
     }
     let initial_status = owner.status.iter().copied().collect::<Vec<_>>();
