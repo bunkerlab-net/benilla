@@ -164,8 +164,8 @@ impl NumericState {
             return Err(Error::Numeric("create rows"));
         }
         let mut attributes = Attributes([0; 5]);
-        for i in 0..5 {
-            attributes.0[i] = attribute(m, i)?;
+        for (i, v) in attributes.0.iter_mut().enumerate() {
+            *v = attribute(m, i)?;
         }
         let mut resistances = [0; 7];
         for (i, v) in resistances.iter_mut().enumerate() {

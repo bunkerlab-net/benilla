@@ -1087,9 +1087,9 @@ impl SpellAuthoritySource {
         {
             return Err(NativeError::InvalidProfile);
         }
-        for i in 0..3 {
+        for (i, expected) in spec.effects.iter().enumerate() {
             let effect = self.effect(i)?;
-            if spec.effects[i] != effect {
+            if *expected != effect {
                 return Err(NativeError::InvalidProfile);
             }
         }
