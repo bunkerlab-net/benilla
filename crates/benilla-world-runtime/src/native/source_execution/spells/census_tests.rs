@@ -226,6 +226,9 @@ fn catalog04_spell_area_and_first_cast_location_census() {
     let mut rejected = BTreeMap::<String, usize>::new();
     let mut refused = BTreeMap::<String, usize>::new();
     let mut next = BTreeMap::<String, usize>::new();
+    let mut items_reached = 0;
+    let mut items_passed = 0;
+    let mut items_refused = BTreeMap::<String, usize>::new();
     for row in rows {
         let Ok(EventAiLoad {
             disposition: EventAiDisposition::Loaded(e),
@@ -267,8 +270,37 @@ fn catalog04_spell_area_and_first_cast_location_census() {
         match s.allowed_in_location(t, 0, 0, 0, None, &mut Missing) {
             Ok(R::Ok) => {
                 passed += 1;
-                struct Suffix;
-                impl SpellExecutionOwner for Suffix {}
+                #[derive(Default)]
+                struct Suffix {
+                    items_reached: usize,
+                    items_passed: usize,
+                    items_refused: BTreeMap<String, usize>,
+                }
+                impl SpellExecutionOwner for Suffix {
+                    fn check(
+                        &mut self,
+                        spell: &mut SourceSpell,
+                        t: &SpellTemplate,
+                        check: SpellCheck,
+                    ) -> Result<R> {
+                        if check != SpellCheck::Items {
+                            return Err(check.missing_owner());
+                        }
+                        self.items_reached += 1;
+                        // This census is conditional on an ownerless creature.
+                        // Spell.cpp:6438 depends only on that actual caster type,
+                        // not on an invented inventory, pose or Unit state.
+                        let result = spell.check_items(t, false, self);
+                        match &result {
+                            Ok(R::Ok) => self.items_passed += 1,
+                            Err(error) => {
+                                *self.items_refused.entry(error.id.clone()).or_default() += 1;
+                            }
+                            _ => {}
+                        }
+                        result
+                    }
+                }
                 let p = action.params.unwrap();
                 // UnitAI.cpp:211-224; callers.rs maps these flags identically.
                 let mut flags = u32::from(p[2] & 2 != 0) | if p[2] & 0x40 != 0 { 4 } else { 0 };
@@ -287,18 +319,26 @@ fn catalog04_spell_area_and_first_cast_location_census() {
                     .script_binding(SpellScriptKind::Spell, id)
                     .unwrap()
                     .is_some();
-                let name = match value.check_cast_location_suffix(t, true, false, &mut Suffix) {
+                let mut suffix = Suffix::default();
+                let name = match value.check_cast_location_suffix(t, true, false, &mut suffix) {
                     Err(error) => error.id,
                     Ok(R::Ok) => SpellCall::PrepareTriggerData.missing_owner().id,
                     Ok(result) => panic!("unexpected static suffix result {result:?} for {id}"),
                 };
                 *next.entry(name).or_default() += 1;
+                items_reached += suffix.items_reached;
+                items_passed += suffix.items_passed;
+                for (name, count) in suffix.items_refused {
+                    *items_refused.entry(name).or_default() += count;
+                }
             }
             Ok(result) => *rejected.entry(format!("{result:?}")).or_default() += 1,
             Err(error) => *refused.entry(error.id).or_default() += 1,
         }
     }
     assert_eq!(total, 7542);
+    assert_eq!((items_reached, items_passed), (7032, 7032));
+    assert!(items_refused.is_empty());
     let raw = catalog.execution_spell_area_rows("spell_area").unwrap();
     let gender_ub = raw.iter().filter(|r| r.words[8] > 3).count();
     let abs_candidates = raw.iter().filter(|r| r.words[6] == 0x80000000).count();
@@ -308,6 +348,11 @@ fn catalog04_spell_area_and_first_cast_location_census() {
         "spell_area":{"rows":raw.len(),"loaded":loaded,"dropped":dropped,"unresolved":unresolved},
         "first_cast_rows":total,"location_pass":passed,"source_rejected":rejected,
         "location_refused":refused,"next":next,
+        "check_items":{"reaches_check":items_reached,"passes_check":items_passed,
+            "refused":items_refused,"source_rejected":0,
+            "before":{"reaches_check":7032,"passes_check":0,
+                "execution.spells.f5_25_Spell_CheckItems_owner":7032},
+            "undefined_operations_reached":0},
         "undefined_operand_candidates":{"gender":gender_ub,"abs":abs_candidates},
         "actual_stock_executions":0,"format":91,
     });

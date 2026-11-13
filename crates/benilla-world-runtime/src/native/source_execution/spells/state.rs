@@ -56,11 +56,16 @@ pub enum SpellCastResult {
     BadImplicitTargets,
     Unknown,
     Interrupted,
+    ItemGone,
+    EquippedItemClass,
+    CantBeDisenchanted,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SpellTargets {
     pub unit: Option<ObjectHandle>,
     pub gameobject: Option<ObjectHandle>,
+    pub item_guid: u64,
+    pub item: Option<ObjectHandle>,
     pub mask: u32,
     pub destination: Option<[u32; 3]>,
     pub source: Option<[u32; 3]>,
@@ -132,6 +137,8 @@ pub struct SourceSpell {
     pub state: SourceSpellState,
     pub targets: SpellTargets,
     pub triggered_by_aura: Option<u32>,
+    /// First reagent of m_triggeredBySpellInfo, absent when that pointer is null.
+    pub triggered_by_spell_reagent: Option<i32>,
     pub event: Option<u64>,
     pub base_points: [i32; 3],
     pub school_mask: u32,
@@ -193,6 +200,7 @@ impl SourceSpell {
             targets: SpellTargets::default(),
             triggered_by_aura: None,
             event: None,
+            triggered_by_spell_reagent: None,
             base_points,
             cast_time: 0,
             timer: 0,

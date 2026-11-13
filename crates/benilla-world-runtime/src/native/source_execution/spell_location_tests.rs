@@ -712,9 +712,30 @@ fn check_cast_continues_to_items_and_only_source_rejections_become_dont_report()
         objects: &'a SourceObjects,
         units: &'a SourceUnits,
         live: Missing,
+        unit_reads: usize,
+        checks: Vec<SpellCheck>,
     }
     impl SpellExecutionOwner for Bound<'_> {
+        fn check(
+            &mut self,
+            spell: &mut SourceSpell,
+            t: &SpellTemplate,
+            check: SpellCheck,
+        ) -> Result<R> {
+            self.checks.push(check);
+            match check {
+                SpellCheck::Items => {
+                    let player = self.unit(spell.caster)?.player;
+                    spell.check_items(t, player, self)
+                }
+                SpellCheck::AllowedInLocation(location) => {
+                    self.location_context()?.check(t, spell.caster, location)
+                }
+                _ => Err(check.missing_owner()),
+            }
+        }
         fn unit(&mut self, _: ObjectHandle) -> Result<SpellUnitState> {
+            self.unit_reads += 1;
             Ok(operands())
         }
         fn zone_area(&mut self, _: ObjectHandle) -> Result<[u32; 2]> {
@@ -752,13 +773,34 @@ fn check_cast_continues_to_items_and_only_source_rejections_become_dont_report()
                 objects: &objects,
                 units: &units,
                 live: Missing,
+                unit_reads: 0,
+                checks: Vec::new(),
             };
             let mut spell = authored_spell(&t, caster, flags);
             if area_id == 12 {
-                assert_eq!(
-                    spell.check_cast(&t, false, &mut owner).unwrap_err(),
-                    SpellCheck::Items.missing_owner()
-                );
+                if flags == 1 {
+                    assert_eq!(spell.check_cast(&t, false, &mut owner).unwrap(), R::Ok);
+                    assert_eq!(
+                        owner.checks,
+                        [SpellCheck::AllowedInLocation([12, 87]), SpellCheck::Items]
+                    );
+                } else {
+                    // Spell.cpp:6219-6220 skips range for strict=false, cast time 0.
+                    assert_eq!(
+                        spell.check_cast(&t, false, &mut owner).unwrap_err(),
+                        SpellCheck::Power(false).missing_owner()
+                    );
+                    assert_eq!(
+                        owner.checks,
+                        [
+                            SpellCheck::AllowedInLocation([12, 87]),
+                            SpellCheck::Items,
+                            SpellCheck::Power(false),
+                        ]
+                    );
+                }
+                // One read in CheckCast, then the non-player CheckItems branch.
+                assert_eq!(owner.unit_reads, 2);
             } else {
                 assert_eq!(
                     spell.check_cast(&t, false, &mut owner).unwrap(),
@@ -778,6 +820,8 @@ fn check_cast_continues_to_items_and_only_source_rejections_become_dont_report()
         objects: &objects,
         units: &units,
         live: Missing,
+        unit_reads: 0,
+        checks: Vec::new(),
     };
     let mut spell = authored_spell(&t, caster, 1);
     assert_eq!(

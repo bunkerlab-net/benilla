@@ -4,6 +4,7 @@ use super::*;
 use std::collections::BTreeMap;
 mod callers;
 mod checks;
+mod items;
 mod location;
 pub use location::*;
 mod db_callers;
@@ -21,6 +22,8 @@ pub use unit_event_owner::*;
 mod census_tests;
 #[cfg(test)]
 mod geometry_tests;
+#[cfg(test)]
+mod items_tests;
 #[cfg(test)]
 mod tests;
 
@@ -103,7 +106,7 @@ impl SpellCheck {
             Self::PetTarget(_) => "f5_15_Unit_GetPet_GetCharm",
             Self::TargetFilter(_) => "Unit_CanAttackSpell_CanAssistSpell",
             Self::AllowedInLocation(_) => "SpellMgr_GetSpellAllowedInLocationError",
-            Self::Items => "f5_25_Spell_CheckItems",
+            Self::Items => "Unit_check_operands",
             Self::Focus => "f6_Cell_VisitGridObjects_spell_focus",
             Self::Range(_) => "f6_Spell_CheckRange",
             Self::Power(_) => "Unit_GetPower_CheckPower",
@@ -189,6 +192,10 @@ pub trait SpellExecutionOwner {
     ) -> Result<SpellCastResult> {
         if let SpellCheck::AllowedInLocation(location) = check {
             return self.location_context()?.check(t, spell.caster, location);
+        }
+        if check == SpellCheck::Items {
+            let player = self.unit(spell.caster)?.player;
+            return spell.check_items(t, player, self);
         }
         Err(check.missing_owner())
     }
