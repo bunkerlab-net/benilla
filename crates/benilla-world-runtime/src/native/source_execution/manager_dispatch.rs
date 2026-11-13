@@ -139,6 +139,9 @@ impl MapManagerStartupPhase {
 }
 
 pub trait ManagerStartupWork {
+    fn navigation_manager(&mut self) -> Result<&mut SourceMMapManager> {
+        Err(MissingManagerOwner::F6Navigation.refusal())
+    }
     fn startup(&mut self, phase: ManagerStartupPhase) -> Result<()> {
         Err(match phase {
             ManagerStartupPhase::Scripts => MissingManagerOwner::F5ScriptInitialization,
@@ -146,10 +149,12 @@ pub trait ManagerStartupWork {
         }
         .refusal())
     }
-    fn initialize_map(&mut self, _map: MapIdentity, phase: MapManagerStartupPhase) -> Result<()> {
+    fn initialize_map(&mut self, map: MapIdentity, phase: MapManagerStartupPhase) -> Result<()> {
+        if phase == MapManagerStartupPhase::Navigation {
+            return self.navigation_manager()?.initialize_map(map);
+        }
         Err(match phase {
             MapManagerStartupPhase::InstanceData => MissingManagerOwner::F5InstanceInitialization,
-            MapManagerStartupPhase::Navigation => MissingManagerOwner::F6Navigation,
             _ => MissingManagerOwner::F3SourceCutover,
         }
         .refusal())

@@ -2,6 +2,7 @@
 //! Private, bounded MMap/Detour reader. Queries describe only the loaded source mesh;
 //! they never authorize body movement, sloped support, source epochs or live sessions.
 mod cold_distance;
+pub mod live;
 mod smoothing;
 mod source_cold_same_polygon;
 mod source_home_same_polygon;

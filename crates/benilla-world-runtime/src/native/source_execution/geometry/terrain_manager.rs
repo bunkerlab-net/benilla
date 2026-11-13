@@ -254,6 +254,7 @@ impl SourceTerrainInfo {
         map_only: bool,
         files: &SourceTerrainFiles,
         vmap: &mut SourceVMapManager,
+        mmap: &mut SourceMMapManager,
     ) -> Result<TerrainTileIdentity> {
         let grids = &mut self.grids;
         self.residency
@@ -262,8 +263,12 @@ impl SourceTerrainInfo {
                 // even for mapOnly when no GridMap exists yet.
                 if !(map_only && grids.contains_key(&(c.x, c.y)))
                     && vmap.is_tile_loaded(map, c.x, c.y)
+                    && mmap.is_tile_loaded(map, c.x, c.y)
                 {
-                    return Err(refuse("execution.terrain.mmap_tile_loaded_owner"));
+                    return Ok(TerrainQueryLoad {
+                        present: grids.contains_key(&(c.x, c.y)),
+                        fully_loaded: grids.contains_key(&(c.x, c.y)),
+                    });
                 }
                 if let std::collections::btree_map::Entry::Vacant(entry) = grids.entry((c.x, c.y)) {
                     entry.insert(SourceGridMap::load(files.read((map, c.x, c.y))?)?);
@@ -272,12 +277,14 @@ impl SourceTerrainInfo {
                     if !vmap.is_tile_loaded(map, c.x, c.y) {
                         vmap.load_map(map, c.x, c.y)?;
                     }
-                    // GridMap.cpp:1299-1302 is reached after the real VMap load.
-                    return Err(refuse("execution.terrain.mmap_tile_load_owner"));
+                    if !mmap.is_tile_loaded(map, c.x, c.y) {
+                        // The source ignores false, but native validation never becomes absence.
+                        mmap.load_tile(map, c.x, c.y)?;
+                    }
                 }
                 Ok(TerrainQueryLoad {
                     present: true,
-                    fully_loaded: false,
+                    fully_loaded: !map_only,
                 })
             })?
             .ok_or_else(|| refuse("execution.terrain.grid_allocation_owner"))
@@ -289,7 +296,7 @@ pub struct SourceTerrainManager {
     terrains: IdentityTable<SourceTerrainInfo>,
     next_generation: u64,
     pub vmap: SourceVMapManager,
-    mmap_created: bool,
+    pub mmap: SourceMMapManager,
     pub files: SourceTerrainFiles,
     pub dbc: SourceTerrainDbc,
     pub wmo_areas: vmap_scene::SourceWmoAreas,
@@ -382,7 +389,14 @@ impl SourceTerrainManager {
         self.terrains
             .get_mut(u64::from(map))
             .ok_or_else(|| refuse("execution.terrain.info_owner"))?
-            .query(map, pose, map_only, &self.files, &mut self.vmap)
+            .query(
+                map,
+                pose,
+                map_only,
+                &self.files,
+                &mut self.vmap,
+                &mut self.mmap,
+            )
     }
     /// GridMap.cpp:828-884. GetGrid's full upgrade precedes every height query,
     /// including useVmaps=false and disabled height calculation.
@@ -440,8 +454,8 @@ impl SourceTerrainManager {
         self.terrains.get_mut(u64::from(map)).unwrap().grids.clear();
         self.vmap.unload_map(map);
         self.terrains.erase(u64::from(map));
-        // GridMap.cpp:716-724 obtains the still-empty MMap singleton after VMap unload.
-        self.mmap_created = true;
+        // GridMap.cpp:716-724 releases shared mesh only after VMap teardown.
+        self.mmap.unload_map(map)?;
         Ok(())
     }
     pub fn unload_terrain(&mut self, map: u32, grid_unload: bool) -> Result<()> {
@@ -465,7 +479,7 @@ impl SourceTerrainManager {
             let mut cleanup = ColdCleanup {
                 grids: &mut info.grids,
                 vmap: &mut self.vmap,
-                mmap_created: &mut self.mmap_created,
+                mmap: &mut self.mmap,
             };
             info.residency.cleanup(diff, &mut cleanup)?;
         }
@@ -475,7 +489,7 @@ impl SourceTerrainManager {
 struct ColdCleanup<'a> {
     grids: &'a mut BTreeMap<(u16, u16), SourceGridMap>,
     vmap: &'a mut SourceVMapManager,
-    mmap_created: &'a mut bool,
+    mmap: &'a mut SourceMMapManager,
 }
 impl GridProductOwner for ColdCleanup<'_> {
     fn load(&mut self, _: MapIdentity, _: ProductCoordinates) -> Result<bool> {
@@ -500,7 +514,9 @@ impl TerrainResidencyOwner for ColdCleanup<'_> {
                 self.grids.remove(&(tile.x, tile.y));
             }
             TerrainCleanupPhase::UnloadVMap => self.vmap.unload_tile(tile.map, tile.x, tile.y)?,
-            TerrainCleanupPhase::UnloadMMap => *self.mmap_created = true,
+            TerrainCleanupPhase::UnloadMMap => {
+                self.mmap.unload_tile(tile.map, tile.x, tile.y)?;
+            }
         }
         Ok(())
     }

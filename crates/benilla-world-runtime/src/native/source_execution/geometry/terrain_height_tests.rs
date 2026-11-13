@@ -133,7 +133,7 @@ fn height_static_runs_full_grid_upgrade_before_disabled_vmap_branch_without_weak
             .height_static(0, [0.0; 3], false, 10.0)
             .unwrap_err()
             .id,
-        "execution.terrain.mmap_tile_load_owner"
+        "execution.mmap.load_map_without_mesh"
     );
     assert_eq!(manager.vmap.map_slots(), 1);
     assert!(!manager.vmap.has_tree(0));

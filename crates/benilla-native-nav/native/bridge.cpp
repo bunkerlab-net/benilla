@@ -86,7 +86,102 @@ static void* create_nav(const unsigned char* params, int nodes) {
         nav->query->init(nav->mesh, nodes)!=DT_SUCCESS) { delete nav; return nullptr; }
     return nav;
 }
+
+// MoveMap's mutable mesh is independent from each instance's query.
+// As in the immutable bridge, storage alignment is owned here, not by Detour.
+struct BenillaLiveMesh {
+    dtNavMesh* mesh = dtAllocNavMesh();
+    void** allocations = nullptr;
+    int capacity = 0;
+    ~BenillaLiveMesh() {
+        dtFreeNavMesh(mesh);
+        if (allocations) for (int i=0; i<capacity; ++i) std::free(allocations[i]);
+        std::free(allocations);
+    }
+};
 extern "C" {
+unsigned benilla_live_numeric() {
+#if defined(__x86_64__) || defined(_M_X64)
+    return std::fegetround() == FE_TONEAREST && (_mm_getcsr() & 0xe040u) == 0;
+#else
+    return 0;
+#endif
+}
+void* benilla_live_create(const unsigned char* params) {
+    auto* live = new(std::nothrow) BenillaLiveMesh;
+    if (!live) return nullptr;
+    dtNavMeshParams p;
+    std::memcpy(&p, params, sizeof p);
+    live->capacity = p.maxTiles;
+    live->allocations = static_cast<void**>(std::calloc(size_t(p.maxTiles), sizeof(void*)));
+    if (!live->mesh || !live->allocations || dtStatusFailed(live->mesh->init(&p))) {
+        delete live; return nullptr;
+    }
+    return live;
+}
+void benilla_live_free(void* raw) { delete static_cast<BenillaLiveMesh*>(raw); }
+void* benilla_live_query(void* raw) {
+    auto* live = static_cast<BenillaLiveMesh*>(raw);
+    auto* query = dtAllocNavMeshQuery();
+    if (!query) return nullptr;
+    if (dtStatusFailed(query->init(live->mesh, 1024))) {
+        dtFreeNavMeshQuery(query); return nullptr;
+    }
+    return query;
+}
+void benilla_live_query_free(void* raw) { dtFreeNavMeshQuery(static_cast<dtNavMeshQuery*>(raw)); }
+unsigned benilla_live_query_capacity(const void* mesh, const void* raw) {
+    const auto* live = static_cast<const BenillaLiveMesh*>(mesh);
+    const auto* query = static_cast<const dtNavMeshQuery*>(raw);
+    if (query->getAttachedNavMesh() != live->mesh || !query->getNodePool()) return 0;
+    return static_cast<unsigned>(query->getNodePool()->getMaxNodes());
+}
+unsigned benilla_live_add(void* raw, const unsigned char* bytes, int size, dtTileRef* ref) {
+    auto* live = static_cast<BenillaLiveMesh*>(raw);
+    dtMeshHeader h;
+    std::memcpy(&h, bytes, sizeof h);
+    const size_t offset = 100 + size_t(h.vertCount)*12 + size_t(h.polyCount)*32;
+    void* allocation = std::malloc(size_t(size)+8);
+    if (!allocation) return DT_FAILURE | DT_OUT_OF_MEMORY;
+    auto* data = static_cast<unsigned char*>(allocation) + (offset%8 ? 4 : 0);
+    std::memcpy(data, bytes, size_t(size));
+    const dtStatus status = live->mesh->addTile(data, size, 0, 0, ref);
+    if (dtStatusFailed(status)) { std::free(allocation); return status; }
+    live->allocations[live->mesh->decodePolyIdTile(*ref)] = allocation;
+    return status;
+}
+unsigned benilla_live_remove(void* raw, dtTileRef ref) {
+    auto* live = static_cast<BenillaLiveMesh*>(raw);
+    const dtStatus status = live->mesh->removeTile(ref, nullptr, nullptr);
+    if (dtStatusSucceed(status)) {
+        const unsigned index = live->mesh->decodePolyIdTile(ref);
+        std::free(live->allocations[index]);
+        live->allocations[index] = nullptr;
+    }
+    return status;
+}
+// The caller supplies a live installed ref. Read link order without a query.
+unsigned benilla_live_links(const void* raw, dtTileRef ref, unsigned polygon,
+    dtPolyRef* out, unsigned capacity) {
+    const auto* live = static_cast<const BenillaLiveMesh*>(raw);
+    const dtMeshTile* tile = nullptr;
+    const dtPoly* poly = nullptr;
+    if (dtStatusFailed(live->mesh->getTileAndPolyByRef(ref | polygon, &tile, &poly))) return UINT_MAX;
+    unsigned n = 0;
+    for (unsigned link=poly->firstLink; link != DT_NULL_LINK; link=tile->links[link].next) {
+        if (n < capacity) out[n] = tile->links[link].ref;
+        ++n;
+    }
+    return n;
+}
+void benilla_live_slot(const void* raw, unsigned index, unsigned* out) {
+    const auto* live = static_cast<const BenillaLiveMesh*>(raw);
+    const dtNavMesh* mesh = live->mesh;
+    const dtMeshTile* tile = mesh->getTile(static_cast<int>(index));
+    out[0] = tile->salt;
+    out[1] = tile->header ? 1 : 0;
+    out[2] = tile->next ? static_cast<unsigned>(tile->next - mesh->getTile(0)) : UINT_MAX;
+}
 // The bounded loader remains a separate ABI; source query capacity is never relabeled.
 void* benilla_nav_create(const unsigned char* params) { return create_nav(params, 512); }
 // MoveMap.cpp::loadMapInstance initializes the retained map-instance query with 1024.

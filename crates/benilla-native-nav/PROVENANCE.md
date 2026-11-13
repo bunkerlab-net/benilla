@@ -1117,3 +1117,45 @@ decoded triangle metadata and predecessor release. These authored composition te
 are not an original-source sequence oracle. Endpoint attribution proves neither
 continuous ground support nor body clearance, generator settings, application
 acceptance or production gameplay authority; those require separate live proofs.
+
+## Live mutable map meshes
+
+`live::MapMesh` shares one pinned Detour mesh across distinct 1024-node
+map-instance queries. It uses the existing source query profile and complete
+tile validator. It does not use the bounded 512-node sliced-search path or
+convert immutable `SourceMapQuery` leases into manager-owned queries.
+
+The runtime `SourceMMapManager` ports `src/game/MotionGenerators/MoveMap.cpp:45-83,102-163,198-278,356-509`
+and map initialization at `src/game/Maps/Map.cpp:202-212`. Source failures remain
+distinct from uncaptured or invalid expected products. The configuration binds
+the recorded `mmap.enabled`, `mmap.ignoreMapIds`, and `mmap.preload` assignments.
+Preload requests refuse until actual source directory iteration is available.
+
+Insertion and removal execute the vendored source, including slot order,
+salts, hash chains, link heads, and link removal. The source ranges are
+`dep/recastnavigation/Detour/Source/DetourNavMesh.cpp:224-265,300-452,524-559,908-1054,1240-1339`.
+Queries use `DetourNavMeshQuery.cpp:171-223`. The bridge owns aligned
+serialized buffers separately from Detour, as the existing immutable bridge
+does. It frees buffers only after successful removal or mesh destruction.
+
+The live loader caches validated topology and checks only new neighbouring
+connections. Existing polygon, detail, byte, work, and one-to-one portal
+restrictions remain refusals, not repaired products. Offmesh insertion refuses
+before `baseOffMeshLinks` reaches unbound nearest/detail-height arithmetic.
+Supported insertion uses x86-64 IEEE arithmetic with RNE and FTZ/DAZ disabled;
+portal `roundf` arguments are finite and bounded to `[0,255]`.
+No trigonometric or approximate libm implementation supplies geometry.
+
+Query handles authenticate both actual mesh and query allocations. Instance
+unload, query recreation, map destruction, and a foreign manager cannot revive
+an old handle. Inventory exposes loaded grid/ref pairs, slot salts and chains,
+instance keys, and actual link-list order for the continuation owner.
+No persisted bytes, product identity, PathFinder filter, route, or gameplay
+admission changes.
+
+`MoveMapSharedDefines.h:28-37` initializes every tile header field. A zero-byte
+header read retains those defaults and reaches the source data-read failure.
+A partial element of one through 19 bytes refuses under C11 7.21.8.1p2,
+because its value is indeterminate. A complete 20-byte header follows the
+normal source branches. Short `dtNavMeshParams` reads remain refused, including
+zero bytes, because that object has no constructor.

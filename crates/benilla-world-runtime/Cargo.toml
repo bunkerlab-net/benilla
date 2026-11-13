@@ -15,7 +15,7 @@ benilla-native-vmap = { path = "../benilla-native-vmap" }
 # Only the launcher's explicit dev feature may enable source-tree path resolution.
 benilla-formats = { path = "../benilla-formats", default-features = false }
 benilla-world-data = { path = "../benilla-world-data" }
-benilla-native-nav = { path = "../benilla-native-nav", optional = true }
+benilla-native-nav = { path = "../benilla-native-nav" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["arbitrary_precision"] }
 sha2 = "0.10"
@@ -33,7 +33,4 @@ tokio = { version = "=1.53.2", default-features = false, features = ["net", "rt"
 
 [features]
 # Explicit test harness only. Never enables native raw-content admission or app startup.
-synthetic-native-tests = ["dep:benilla-native-nav"]
-
-[dev-dependencies]
-benilla-native-nav = { path = "../benilla-native-nav" }
+synthetic-native-tests = []

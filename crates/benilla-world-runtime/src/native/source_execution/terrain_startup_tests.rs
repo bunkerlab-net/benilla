@@ -122,7 +122,7 @@ fn constructor_rejection_span_and_map_only_queries_need_no_map_identity() {
         .unwrap();
     assert_eq!(
         manager.query_grid(0, [0.0; 3], false).unwrap_err().id,
-        "execution.terrain.mmap_tile_load_owner"
+        "execution.mmap.load_map_without_mesh"
     );
     // VMapManager2.cpp:123-141 attempted the map before GridMap.cpp:1299.
     assert_eq!(manager.vmap.map_slots(), 1);
@@ -301,9 +301,10 @@ fn loaded_vmap_area_advances_to_mmap_after_real_point_query() {
     assert!(manager.terrain(0).unwrap().grid(32, 32).is_none());
     assert_eq!(
         manager.zone_and_area(0, pose).unwrap_err().id,
-        "execution.terrain.mmap_tile_loaded_owner"
+        "execution.mmap.load_map_without_mesh"
     );
-    assert!(manager.terrain(0).unwrap().grid(32, 32).is_none());
+    // The real negative MMap predicate now permits GridMap allocation before loadMap.
+    assert!(manager.terrain(0).unwrap().grid(32, 32).is_some());
     assert!(!manager
         .terrain(0)
         .unwrap()
@@ -323,12 +324,52 @@ fn loaded_vmap_miss_still_reaches_early_mmap_lookup_for_new_map_only_grid() {
     install_authored_wmo(&mut manager.vmap);
     let pose = [-50.0, 0.0, 10.0];
     assert!(manager.vmap.area_info(0, pose).unwrap().is_none());
+    assert!(!manager.mmap.created());
     assert_eq!(
         manager.zone_and_area(0, pose).unwrap_err().id,
-        "execution.terrain.mmap_tile_loaded_owner"
+        "execution.terrain.map_product_unavailable"
     );
+    assert!(manager.mmap.created());
     assert!(manager.terrain(0).unwrap().grid(32, 32).is_none());
     assert!(!manager
+        .terrain(0)
+        .unwrap()
+        .residency
+        .load_attempted(32, 32)
+        .unwrap());
+}
+
+#[test]
+fn authored_linked_zone_fallback_runs_after_real_negative_mmap_lookup() {
+    let mut manager = SourceTerrainManager::default();
+    let mut mt = Mt19937::from_seed(1);
+    let mut cursor = DrawCursor::default();
+    let mut sink = |_| {};
+    let mut random = SourceRandom::new(1, &mut mt, &mut cursor, &mut sink).unwrap();
+    manager.load_terrain(0, &mut random).unwrap();
+    install_authored_wmo(&mut manager.vmap);
+    // src/game/Maps/GridMap.cpp:83-89 preserves the default grid after fopen absence.
+    manager.files.retain_source_absence(0, 32, 32);
+    // src/game/Server/DBCStores.cpp:701-702 reads the map's linked-zone ID and AREA row.
+    manager.dbc.linked_zones.insert(0, 900);
+    manager.dbc.areas.insert(
+        900,
+        SourceAreaEntry {
+            id: 900,
+            map: 0,
+            // src/game/Maps/GridMap.cpp:1408-1411 selects ID when zone is zero.
+            zone: 0,
+            flag: 0,
+        },
+    );
+    let pose = [-50.0, 0.0, 10.0];
+    assert!(manager.vmap.area_info(0, pose).unwrap().is_none());
+    assert!(!manager.mmap.created());
+    assert_eq!(manager.zone_and_area(0, pose).unwrap(), [900, 900]);
+    assert!(manager.mmap.created());
+    assert!(!manager.mmap.is_tile_loaded(0, 32, 32));
+    assert!(manager.terrain(0).unwrap().grid(32, 32).is_some());
+    assert!(manager
         .terrain(0)
         .unwrap()
         .residency

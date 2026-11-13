@@ -449,7 +449,7 @@ fn runtime_stops_at_actual_full_grid_owner_before_any_liquid_store_lookup() {
             .liquid_status(0, [0.0; 3], 0, 2.0, Some(&mut out))
             .unwrap_err()
             .id,
-        "execution.terrain.mmap_tile_load_owner"
+        "execution.mmap.load_map_without_mesh"
     );
     assert_eq!(out, sentinel());
     let grid = manager.terrain(0).unwrap().grid(32, 32).unwrap();

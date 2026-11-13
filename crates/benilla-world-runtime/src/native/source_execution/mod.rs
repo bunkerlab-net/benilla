@@ -128,6 +128,9 @@ mod spawn_manager_tests;
 mod startup;
 mod startup_items;
 pub use startup_items::*;
+#[path = "geometry/mmap_manager.rs"]
+mod mmap_manager;
+pub use mmap_manager::*;
 #[path = "geometry/terrain_manager.rs"]
 mod terrain_manager;
 pub use terrain_manager::*;
