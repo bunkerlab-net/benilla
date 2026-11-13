@@ -8,9 +8,7 @@ use super::{
 use sha2::{Digest, Sha256};
 use std::{ops::Deref, sync::Arc, time::Instant};
 
-const INVALID_HEIGHT: f32 = -100_000.0;
 const INVALID_HEIGHT_VALUE: f32 = -200_000.0;
-const DEFAULT_HEIGHT_SEARCH: f32 = 10.0;
 pub(super) const POLICY: &[u8] = b"cmangos-8ec338a1-static-height-enabled-complete-dry-vmap-v1";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -196,33 +194,10 @@ pub(super) fn height(
 pub(super) fn select_height(
     map_height: f32,
     z: f32,
-    mut max_search: f32,
-    mut query: impl FnMut(f32, f32) -> Result<f32, Error>,
+    max_search: f32,
+    query: impl FnMut(f32, f32) -> Result<f32, Error>,
 ) -> Result<f32, Error> {
-    let z2 = z + 2.0;
-    if map_height > INVALID_HEIGHT && z2 - map_height > max_search {
-        max_search = z2 - map_height + 1.0;
-    }
-    let mut vmap_height = query(z2, max_search)?;
-    if vmap_height <= INVALID_HEIGHT {
-        vmap_height = query(z2, 10_000.0)?;
-    }
-    if vmap_height <= INVALID_HEIGHT && map_height > z2 && (z2 - map_height).abs() > 30.0 {
-        vmap_height = query(z2, -max_search)?;
-    }
-    if vmap_height <= INVALID_HEIGHT && map_height > INVALID_HEIGHT && z2 < map_height {
-        vmap_height = query(map_height + 2.0, DEFAULT_HEIGHT_SEARCH)?;
-    }
-    if vmap_height > INVALID_HEIGHT {
-        if map_height > INVALID_HEIGHT {
-            if z < map_height || vmap_height > map_height {
-                return Ok(vmap_height);
-            }
-            return Ok(map_height);
-        }
-        return Ok(vmap_height);
-    }
-    Ok(map_height)
+    benilla_native_terrain::grid_height::select_height(map_height, z, true, true, max_search, query)
 }
 
 #[cfg(test)]

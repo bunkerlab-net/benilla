@@ -5,6 +5,7 @@
 mod diagnostic_id;
 mod diagnostics;
 pub mod grid_area;
+pub mod grid_height;
 pub mod location;
 mod receipts;
 mod source;

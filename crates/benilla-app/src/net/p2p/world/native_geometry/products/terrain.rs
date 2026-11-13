@@ -145,31 +145,9 @@ impl TerrainTile {
         if self.is_hole(ix, iy) {
             return Ok(PointHeight::Hole);
         }
-        // GridMap::getHeightFromFloat's four center-fan triangles, not bilinear interpolation.
-        let (a, b, c) = if x + y < 1.0 {
-            if x > y {
-                let h1 = v9[ix * 129 + iy];
-                let h2 = v9[(ix + 1) * 129 + iy];
-                let h5 = 2.0 * v8[ix * 128 + iy];
-                (h2 - h1, h5 - h1 - h2, h1)
-            } else {
-                let h1 = v9[ix * 129 + iy];
-                let h3 = v9[ix * 129 + iy + 1];
-                let h5 = 2.0 * v8[ix * 128 + iy];
-                (h5 - h1 - h3, h3 - h1, h1)
-            }
-        } else if x > y {
-            let h2 = v9[(ix + 1) * 129 + iy];
-            let h4 = v9[(ix + 1) * 129 + iy + 1];
-            let h5 = 2.0 * v8[ix * 128 + iy];
-            (h2 + h4 - h5, h4 - h2, h5 - h4)
-        } else {
-            let h3 = v9[ix * 129 + iy + 1];
-            let h4 = v9[(ix + 1) * 129 + iy + 1];
-            let h5 = 2.0 * v8[ix * 128 + iy];
-            (h4 - h3, h3 + h4 - h5, h5 - h4)
-        };
-        Ok(PointHeight::Height(a * x + b * y + c))
+        Ok(PointHeight::Height(
+            benilla_native_terrain::grid_height::float_height(v9, v8, [x, y], [ix, iy]),
+        ))
     }
 
     fn coordinates(&self, x: f32, y: f32) -> Result<(f32, f32, usize, usize), Error> {
@@ -188,8 +166,7 @@ impl TerrainTile {
     }
 
     fn is_hole(&self, row: usize, col: usize) -> bool {
-        let mask = 1 << (row % 8 / 2 * 4 + col % 8 / 2);
-        self.holes[row / 8 * 16 + col / 8] & mask != 0
+        benilla_native_terrain::grid_height::is_hole(&self.holes, [row, col])
     }
 }
 

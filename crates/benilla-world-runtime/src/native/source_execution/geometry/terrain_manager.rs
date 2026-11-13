@@ -3,6 +3,9 @@
 use super::identity_table::IdentityTable;
 use super::*;
 use benilla_native_terrain::grid_area::{AreaData, AreaReadError, FlagSearch};
+use benilla_native_terrain::grid_height::{
+    self, HeightData, HeightQueryError, HeightReadError, HeightValue,
+};
 use benilla_sim::source_rng::{RawGenerator, SourceRandom, TraceEvent};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -118,7 +121,7 @@ pub struct SourceGridMap {
     pub bytes: Option<Arc<[u8]>>,
     pub load_success: bool,
     areas: AreaData,
-    pub flat_height: f32,
+    heights: HeightData,
     pub holes: [u16; 256],
     pub liquid_entry: u16,
     pub liquid_flags: u8,
@@ -132,7 +135,7 @@ impl Default for SourceGridMap {
             bytes: None,
             load_success: true,
             areas: AreaData::default(),
-            flat_height: -200_000.0,
+            heights: HeightData::default(),
             holes: [0; 256],
             liquid_entry: 0,
             liquid_flags: 0,
@@ -193,15 +196,14 @@ impl SourceGridMap {
         }
         let height = word(bytes, 16)? as usize;
         if height != 0 {
-            let header = bytes
-                .get(height..height + 16)
-                .ok_or_else(|| refuse("execution.terrain.height_header_read_undefined"))?;
-            if &header[..4] != b"MHGT" {
-                grid.load_success = false;
-                return Ok(grid);
-            }
-            grid.flat_height = f32::from_bits(word(header, 8)?);
-            // Nonflat arrays remain retained in bytes, never interpreted as flat height.
+            grid.heights = match HeightData::decode(Arc::clone(bytes), height) {
+                Ok(heights) => heights,
+                Err(HeightReadError::Magic) => {
+                    grid.load_success = false;
+                    return Ok(grid);
+                }
+                Err(error) => return Err(height_read_error(error)),
+            };
         }
         let liquid = word(bytes, 24)? as usize;
         if liquid != 0 {
@@ -220,17 +222,16 @@ impl SourceGridMap {
         }
         Ok(grid)
     }
-    fn area_occlusion_height(&self) -> Result<f32> {
-        if let Some(bytes) = &self.bytes {
-            let offset = word(bytes, 16)? as usize;
-            if offset != 0 {
-                require(
-                    word(bytes, offset + 4)? & 1 != 0,
-                    "execution.terrain.nonflat_area_occlusion_height_owner",
-                )?;
-            }
+    /// GridMap.h:116, dispatch selected by loadHeightData.
+    pub fn height(&self, x: f32, y: f32) -> Result<f32> {
+        match self
+            .heights
+            .get(x, y, &self.holes)
+            .map_err(height_query_error)?
+        {
+            HeightValue::Height(height) => Ok(height),
+            HeightValue::Hole => Ok(grid_height::INVALID_HEIGHT_VALUE),
         }
-        Ok(self.flat_height)
     }
     pub fn area(&self, x: f32, y: f32) -> Result<u16> {
         self.areas
@@ -362,7 +363,7 @@ impl SourceTerrainManager {
             // GridMap.cpp:904-918 calls full GetGrid before terrain occlusion.
             let tile = self.query_grid(map, pose, false)?;
             let grid = self.terrain(map).unwrap().grid(tile.x, tile.y).unwrap();
-            let height = grid.area_occlusion_height()?;
+            let height = grid.height(pose[0], pose[1])?;
             if !vmap_scene::area_hidden_by_terrain(pose[2], height, area.floor) {
                 if let Some(flag) = self.wmo_areas.flag(area, &self.dbc.areas, map)? {
                     return Ok(self.dbc.location(map, flag));
@@ -383,6 +384,41 @@ impl SourceTerrainManager {
             .get_mut(u64::from(map))
             .ok_or_else(|| refuse("execution.terrain.info_owner"))?
             .query(map, pose, map_only, &self.files, &mut self.vmap)
+    }
+    /// GridMap.cpp:828-884. GetGrid's full upgrade precedes every height query,
+    /// including useVmaps=false and disabled height calculation.
+    pub fn height_static(
+        &mut self,
+        map: u32,
+        pose: [f32; 3],
+        use_vmaps: bool,
+        max_search: f32,
+    ) -> Result<f32> {
+        let tile = self.query_grid(map, pose, false)?;
+        let map_height = self
+            .terrain(map)
+            .unwrap()
+            .grid(tile.x, tile.y)
+            .unwrap()
+            .height(pose[0], pose[1])?;
+        grid_height::select_height(
+            map_height,
+            pose[2],
+            use_vmaps,
+            self.vmap.settings()[1],
+            max_search,
+            |z, search| {
+                self.vmap
+                    .collision
+                    .height(
+                        map,
+                        [pose[0], pose[1], z],
+                        search,
+                        std::time::Instant::now() + std::time::Duration::from_secs(30),
+                    )
+                    .map_err(vmap_manager::vmap_error)
+            },
+        )
     }
     pub fn add_ref(&mut self, map: u32) -> Result<()> {
         let info = self
@@ -470,3 +506,32 @@ impl TerrainResidencyOwner for ColdCleanup<'_> {
         Ok(())
     }
 }
+
+fn height_read_error(error: HeightReadError) -> Refusal {
+    refuse(match error {
+        HeightReadError::HeaderReadUndefined => "execution.terrain.height_header_read_undefined",
+        HeightReadError::Magic => unreachable!(),
+        HeightReadError::InvalidHeaderFlags(_) => "execution.terrain.height_invalid_header_flags",
+    })
+}
+
+fn height_query_error(error: HeightQueryError) -> Refusal {
+    refuse(match error {
+        HeightQueryError::CoordinateConversionUndefined => {
+            "execution.terrain.height_coordinate_conversion_undefined"
+        }
+        HeightQueryError::FloatSampleReadUndefined => {
+            "execution.terrain.height_float_sample_read_undefined"
+        }
+        HeightQueryError::Uint8SampleReadUndefined => {
+            "execution.terrain.height_uint8_sample_read_undefined"
+        }
+        HeightQueryError::Uint16SampleReadUndefined => {
+            "execution.terrain.height_uint16_sample_read_undefined"
+        }
+    })
+}
+
+#[cfg(test)]
+#[path = "terrain_height_tests.rs"]
+mod height_tests;

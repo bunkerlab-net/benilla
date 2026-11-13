@@ -163,7 +163,10 @@ fn absent_source_file_has_real_defaults_but_missing_acquisition_and_partial_area
     let grid = manager.terrain(0).unwrap().grid(32, 32).unwrap();
     assert!(grid.bytes.is_none());
     assert!(grid.load_success);
-    assert_eq!(grid.flat_height.to_bits(), (-200000.0f32).to_bits());
+    assert_eq!(
+        grid.height(0.0, 0.0).unwrap().to_bits(),
+        (-200000.0f32).to_bits()
+    );
     assert_eq!(grid.holes, [0; 256]);
     assert_eq!(
         (grid.liquid_entry, grid.liquid_flags, grid.liquid_size),

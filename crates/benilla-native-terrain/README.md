@@ -245,6 +245,29 @@ archive content is needed. A supported header does not by itself prove terrain
 coverage or permit gameplay. The source-resolution policy is version three; the
 complete consumed-member bytes and exact winner comparisons are unchanged.
 
+## Shared source height reader
+
+`grid_height` reads flat, float, uint8, and uint16 MHGT data without rewriting
+or copying the retained product allocation. It preserves V9-before-V8 order,
+NO_HEIGHT-before-INT16-before-INT8 dispatch, and binary32 subtraction/division
+for the packed multipliers. Source: `GridMap.cpp:173-214` at `SOURCE_PIN`.
+Known combined flags follow that source precedence. Unknown bits return
+`InvalidHeaderFlags`; incomplete headers return a named read error. Short array
+reads retain the source's successful load and refuse only when a query reaches
+an indeterminate sample. A preceding float hole can still return without a read.
+
+Float queries check holes; flat and packed queries bypass them. All four
+centre-fan planes retain the source operation order, including integer packed
+coefficients and the final multiplier/base operations. Source:
+`GridMap.cpp:273-508`. The shared TerrainInfo selector preserves z+2, all four
+VMap attempts, strict comparisons, and equal-height selection:
+`GridMap.cpp:828-884`. The server runtime uses this reader. The app reuses its
+float/hole and selector kernels but keeps its existing float/flat admission.
+
+This consumer supports products from `ad -f 1`; the writer below still emits
+`-f 0`. Neither reader availability nor authored fixtures establishes new
+producer lineage, gameplay admission, or a persisted-format change.
+
 ## Writer fidelity and restrictions
 
 The source references are `contrib/extractor/System.cpp`: Map loading 189–208,
