@@ -44,7 +44,7 @@ const MAX_ELEMENTS: usize = 262_144;
 const MAX_GROUPS: usize = 4096;
 const MAX_SPAWNS: usize = 16_384;
 pub(crate) const MAX_QUERY_WORK: usize = 32_768;
-const POLICY: &[u8] = b"benilla-dry-static-vmap-ray-v4-source-euler1800";
+const POLICY: &[u8] = b"benilla-dry-static-vmap-ray-v5-glibc236-fma-euler1800";
 
 pub(super) fn dry_policy(inventory: Hash) -> Hash {
     let mut hash = Sha256::new();

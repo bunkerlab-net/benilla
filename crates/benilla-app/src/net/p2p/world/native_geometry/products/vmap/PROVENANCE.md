@@ -135,39 +135,38 @@ another legitimate approximation is `0x3e665991`. The latter moves the authored 
 ramp corner's world z from `0x3fcb69e8` to `0x3fcb69e6`, outside the exact serialized
 bound. Bounds remain strict; widening them or accepting an epsilon would hide geometry.
 
-`trig.rs` therefore intentionally pins the fixture profile's generic
-[glibc 2.41 implementation](https://github.com/bminor/glibc/tree/74f59e9271cbb4071671e5a474e7d4f1622b186f/sysdeps/ieee754/flt-32)
-at commit `74f59e9271cbb4071671e5a474e7d4f1622b186f`, independently of the host libc.
-This is a source-derived port of `s_sinf.c`, `s_cosf.c`, `sincosf_poly.h`,
-`s_sincosf.h` and `s_sincosf_data.c`, restricted to finite Euler angles in [-1800,1800].
-The degree conversion uses the pinned G3D binary64 PI before the binary32 radian cast.
-`TOINT_INTRINSICS=0` reduction, coefficient bits, and unfused binary64 expression order
-are retained. The admitted radian range fits the source fast reducer; no general
-large-angle, nonfinite, floating-point exception or alternate rounding-mode API is
-provided. NaN, infinities and out-of-range degrees reject before reduction. Both inverse
-query transforms and forward vertex validation use this same profile. The policy binding
-is changed so snapshots cannot silently cross numeric profiles. Existing CMaNGOS/G3D
-product bytes and all existing geometric oracle expectations remain unchanged.
+`trig.rs` selects the pinned
+[glibc 2.36 FMA kernel](../../../../../../../../benilla-sim/SOURCE-TRIG-FMA.md).
+The degree and assembler-radian bounds remain unchanged. The wrapper retains
+G3D's binary64 PI conversion before the binary32 radian cast. Both inverse
+query transforms and forward vertex validation use this profile. Basic matrix
+operations remain separate, not implicitly fused.
 
-The degree wrapper delegates its radian evaluation to
-[benilla-sim's shared source core](../../../../../../../../benilla-sim/SOURCE-TRIG.md).
-That core has native and software adapters with one reducer/polynomial. This
-VMap caller uses the existing assembler ±1800-degree native adapter, matching
-the source acquisition profile without wrapping raw angles.
-[ModelInstance.cpp:31](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/vmap/ModelInstance.cpp#L31)
-uses those raw angles directly. Navigation mesh transforms retain the source's
-negative-degree conversion with the same admitted range.
+The static VMap policy is
+`benilla-dry-static-vmap-ray-v5-glibc236-fma-euler1800`. Cached ray, height,
+location, liquid, and composed route/near-point bindings with the previous
+digest cannot be reused. No source product bytes or geometric tolerances change.
+The offline TerrainBuilder navigation-mesh transform keeps its separate
+unfused profile because that executable's libm dispatch is not bound here.
+The independent location binding includes the parent VMap numeric policy.
+The liquid policy selects FMA and retains both parent policy digests.
 
-The original [glibc notice](GLIBC-NOTICE.txt) and
-[LGPL-2.1-or-later license](GLIBC-LICENSE.txt) are retained. The bounded Rust translation
-was made on 2026-10-14; original copyright is Free Software Foundation, Inc., 2018–2025.
-[Full-file SHA-256 guards](../../../../../../../../benilla-native-geometry-tests/tools/vmap_glibc_source_hashes.sha256)
-pin all five originals. The independent offline C++ oracle compiles their original math
-bodies and coefficient arrays, with only include/declaration plumbing supplied, and with
-round-to-nearest, no fast math and no contraction. Tests compare 244 signed boundary
-cases plus a SHA-256 digest over 4,251,072 signed samples spanning the complete admitted
-bit range and a 1/1024-degree grid. These are differential samples, not an exhaustive
-proof over all binary32 angles or a claim of universal native-libc equivalence.
+The kernel's LGPL notice and complete licence ship through benilla-sim.
+The existing local [notice](GLIBC-NOTICE.txt), [licence](GLIBC-LICENSE.txt),
+and unfused fixture manifest remain intact for the retained offline profile.
+The pinned-image degree oracle calls the image's actual resolved libm functions.
+All 244 existing signed boundary expectations remain unchanged.
+It adds 14 authored degree vectors, including every known cosine discriminator.
+The 4,251,072-sample degree digest changes from
+`c4a91f378dea062d0159217e6910b374c0ceacf90f644fe05d1a2ac465841998` to
+`19a2791f8c35c9b147a8753bb2cd1e32f523b9028a55db830d10dce34d61e4be`.
+Exactly two grid cases differ, degree bits `44777ff0` and `c4777ff0`.
+Their radian bits are `418a3add` and `c18a3add`; cosine changes from
+`b794f76f` to `b794f770`, and sine stays unchanged.
+The masked oracle exactly reproduces the old unfused digest.
+The full-domain exhaustive kernel receipt is separate from this degree sample.
+Neither component proof removes the live manager's nonzero-rotation refusal
+or establishes historical dispatch before the bound recordings.
 
 ## Queries and current consumer
 
@@ -182,8 +181,8 @@ limited to 4,096. Each query has at most 32,768 work steps and an absolute deadl
 Exhaustion, malformed queries and unresolved candidates are errors, never clear rays.
 
 A reply echoes exact endpoint bits, M2 mask, ticket and snapshot binding. The binding
-contains map, content, source epoch, full inventory revision and static-ray policy-v3
-with the bounded glibc-2.41 trig and source M2 loading profiles.
+contains map, content, source epoch, full inventory revision and static-ray policy-v5
+with bounded glibc 2.36 FMA trig and the source M2 loading profile.
 Those are consistency declarations, not authenticated provenance or a live source lease.
 
 The app's optional `install_with_static_vmap` connects this snapshot through

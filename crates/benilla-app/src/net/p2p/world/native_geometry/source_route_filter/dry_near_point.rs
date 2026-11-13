@@ -31,7 +31,7 @@ pub(crate) fn geometry_revision(height: source_height::Binding) -> [u8; 32] {
     for policy in [
         primary::POLICY,
         benilla_sim::near_point::POLICY,
-        benilla_sim::source_trig::SOFT_POLICY,
+        benilla_sim::source_trig_fma::SOFT_POLICY,
         benilla_sim::facing::POLICY,
     ] {
         hash.update((policy.len() as u64).to_le_bytes());
@@ -40,7 +40,7 @@ pub(crate) fn geometry_revision(height: source_height::Binding) -> [u8; 32] {
     for source in primary::SOURCE_SHA256
         .iter()
         .chain(benilla_sim::near_point::SOURCE_SHA256.iter())
-        .chain(benilla_sim::source_trig::SOURCE_SHA256.iter())
+        .chain(benilla_sim::source_trig_fma::SOURCE_SHA256.iter())
         .chain(benilla_sim::facing::SOURCE_SHA256.iter())
     {
         hash.update(source.as_bytes());

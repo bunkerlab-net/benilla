@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Only the first candidate and its ground adjustment, not NearPoint acceptance.
 use super::*;
-use benilla_sim::{facing, near_point, source_trig};
+use benilla_sim::{facing, near_point, source_trig_fma};
 
 /// A derived candidate is not evidence that collision selection/LOS accepted it.
 /// The ground reply retains the complete frozen context, raw XY and target Z,
@@ -16,13 +16,17 @@ pub(crate) struct InitialCandidateReply {
 pub(super) fn policy_digest() -> [u8; 32] {
     let mut h = Sha256::new();
     h.update(b"benilla-source-initial-ground-candidate-v1");
-    for policy in [near_point::POLICY, source_trig::SOFT_POLICY, facing::POLICY] {
+    for policy in [
+        near_point::POLICY,
+        source_trig_fma::SOFT_POLICY,
+        facing::POLICY,
+    ] {
         h.update((policy.len() as u64).to_le_bytes());
         h.update(policy.as_bytes());
     }
     for hash in near_point::SOURCE_SHA256
         .iter()
-        .chain(source_trig::SOURCE_SHA256.iter())
+        .chain(source_trig_fma::SOURCE_SHA256.iter())
         .chain(facing::SOURCE_SHA256.iter())
     {
         h.update(hash.as_bytes());

@@ -188,7 +188,7 @@ impl SamePolygonBinding {
             SOURCE_PATH_DISTANCE_INTENT_REVISION,
             benilla_native_nav::SOURCE_HOME_SAME_POLYGON_POLICY,
             motion::WANDER_POLICY_ID,
-            benilla_sim::source_trig::SOFT_POLICY,
+            benilla_sim::source_trig_fma::SOFT_POLICY,
         ] {
             hash.update((policy.len() as u64).to_le_bytes());
             hash.update(policy.as_bytes());
@@ -198,7 +198,7 @@ impl SamePolygonBinding {
         }
         hash.update(SOURCE_PATH_DISTANCE_INTENT_VERSION.to_le_bytes());
         hash.update(wander::POLICY);
-        for source in benilla_sim::source_trig::SOURCE_SHA256 {
+        for source in benilla_sim::source_trig_fma::SOURCE_SHA256 {
             hash.update(source.as_bytes());
         }
         hash.update(

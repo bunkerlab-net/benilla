@@ -14,7 +14,7 @@ use super::{
     },
     source_near_point::{self, SourceNearPointConfiguration},
 };
-use benilla_sim::{creature_motion as motion, near_point, source_atan, source_trig};
+use benilla_sim::{creature_motion as motion, near_point, source_atan, source_trig_fma};
 use benilla_world_runtime::native::{
     AuthorityRequest, Facts, MotionFacts, MotionQuery, Profile, Query,
 };
@@ -44,7 +44,7 @@ pub(crate) fn geometry_revision(
         near_point::selector::POLICY,
         near_point::FALLBACK_POLICY,
         source_atan::POLICY,
-        source_trig::FALLBACK_SOFT_POLICY,
+        source_trig_fma::FALLBACK_SOFT_POLICY,
     ] {
         hash.update((policy.len() as u64).to_le_bytes());
         hash.update(policy.as_bytes());

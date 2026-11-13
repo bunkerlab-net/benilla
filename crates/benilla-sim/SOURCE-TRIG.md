@@ -63,15 +63,17 @@ INVALID_OP. Its signed shift and all polynomial expression ordering match the
 source. No implicit or explicit FMA is used. Exception flags, errno, arbitrary
 angles and other rounding modes are outside this interface.
 
-## Existing Euler caller and evidence
+## Offline Euler profile and retained evidence
 
-The app's [VMap wrapper](../benilla-app/src/net/p2p/world/native_geometry/products/vmap/trig.rs)
-validates inclusive ±1800 degrees and retains the pinned G3D binary64 PI
-conversion before narrowing radians. It calls the existing assembler native
-adapter. Its independent oracle covers 244 signed boundary cases and a
-4,251,072-sample digest. The [VMap provenance](../benilla-app/src/net/p2p/world/native_geometry/products/vmap/PROVENANCE.md)
-and [five-file oracle manifest](../benilla-native-geometry-tests/tools/vmap_glibc_source_hashes.sha256)
-remain applicable.
+The separately built assembler, extractor, and MoveMapGen counterparts retain
+the existing bounded native adapters. Their libm dispatch is not established
+by a reference-process receipt. The app's ModelInstance wrapper instead selects
+the [glibc 2.36 FMA profile](SOURCE-TRIG-FMA.md).
+
+The retained unfused oracle covers 244 signed boundary cases and a
+4,251,072-sample degree digest. Its
+[five-file manifest](../benilla-native-geometry-tests/tools/vmap_glibc_source_hashes.sha256)
+and fixtures remain unchanged for that independently selected profile.
 
 The [near-point oracle contract](../benilla-native-geometry-tests/tools/near_point_candidate_README.md)
 adds 258 independent radian cases and a 737,002-sample radian digest, plus

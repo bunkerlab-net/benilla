@@ -10,4 +10,5 @@ description = "Bounded source-compatible raw M2 and dry WMO collision extraction
 workspace = true
 
 [dependencies]
+benilla-sim = { path = "../benilla-sim" }
 sha2 = "0.10"

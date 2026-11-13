@@ -9,7 +9,7 @@ use super::{
 use sha2::{Digest, Sha256};
 use std::time::Instant;
 
-const POLICY: &[u8] = b"cmangos-8ec338a1-static-vmap-liquid-v1-glibc-2.41-defined-u32-domain";
+const POLICY: &[u8] = b"cmangos-8ec338a1-static-vmap-liquid-v2-glibc-2.36-fma-defined-u32-domain";
 const TILE_SIZE: f32 = 533.333_f32 / 128.0_f32;
 
 /// Bound separately from all dry rays/heights/locations and terrain liquid status.

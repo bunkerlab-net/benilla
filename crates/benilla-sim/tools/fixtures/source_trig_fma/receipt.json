@@ -1,6 +1,7 @@
 {
   "image": "sha256:7f8acd0cd855b63046cfdf49f21ed319ae6b981758f5fafe2100aed8b4ef21e8",
   "libm_sha256": "7f2ca87f652f56b094462474b076749e90e689d0ecb9cb63c7679820b271b4e7",
+  "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
   "exhaustive": true,
   "stream_layout": "For each u32 input ascending: oracle sine, oracle cosine, Rust sine, Rust cosine as four little-endian u32 words; streamed, not retained.",
   "fma": {
@@ -28,6 +29,6 @@
     "crates/benilla-sim/src/source_trig_fma/mod.rs": "79612d6704cd426175b5ced8becb003f13f13944e45b69da7d6e9d90d3bcc8aa",
     "crates/benilla-sim/src/source_trig_fma/native.rs": "13c7f458a2e7c5e8bd0e55e1fa4f7ab9227c3e899c8613d8bcfdcf1deafbc27c"
   },
-  "private_receipt_sha256": "64a31bf41a002cde842c0b138b2911c346112ea407da5a2f35af6e989870c39f",
-  "private_receipt": "benilla-config/full-server/f6/trig-fma/receipt.json"
+  "private_receipt_sha256": "e62a6e53e6911290feeb08a1b6fae7b88cdbd46c895157e495632d7bdb00b8f3",
+  "private_receipt": "benilla-config/full-server/f6/trig-fma/rustc-1.100/full-domain/receipt.json"
 }

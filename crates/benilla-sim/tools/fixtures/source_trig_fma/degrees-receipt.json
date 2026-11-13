@@ -1,0 +1,41 @@
+{
+  "image": "sha256:7f8acd0cd855b63046cfdf49f21ed319ae6b981758f5fafe2100aed8b4ef21e8",
+  "libm_sha256": "7f2ca87f652f56b094462474b076749e90e689d0ecb9cb63c7679820b271b4e7",
+  "source_sha256": "75f7632a7c588937deeeeb92709e326c15d0a67ec2157c2f8ac7c80d66164a7b",
+  "binary_sha256": "48d5593f6fcbb1d75404bbfeceab402f61aabc94d5053a1ae171419ad315b576",
+  "grid_count": 4251072,
+  "sine_differences": 0,
+  "cosine_differences": 2,
+  "grid_sha256": {
+    "fma": "19a2791f8c35c9b147a8753bb2cd1e32f523b9028a55db830d10dce34d61e4be",
+    "masked": "c4a91f378dea062d0159217e6910b374c0ceacf90f644fe05d1a2ac465841998"
+  },
+  "differences": [
+    {
+      "degrees": "44777ff0",
+      "fma": [
+        "bf800000",
+        "b794f770"
+      ],
+      "masked": [
+        "bf800000",
+        "b794f76f"
+      ]
+    },
+    {
+      "degrees": "c4777ff0",
+      "fma": [
+        "3f800000",
+        "b794f770"
+      ],
+      "masked": [
+        "3f800000",
+        "b794f76f"
+      ]
+    }
+  ],
+  "authored_degree_vectors": 14,
+  "existing_boundaries_unchanged": 244,
+  "private_receipt_sha256": "b30b33c7d866197c4498d8bb2d247ab8412d9474c3690acb91ba7724b55ed8ff",
+  "private_receipt": "benilla-config/full-server/f6/trig-fma/rustc-1.100/degrees/degrees-receipt.json"
+}

@@ -51,7 +51,7 @@ list include this port. No code enters a permissive crate.
 Run the gate from the worktree:
 
 ```sh
-python3 crates/benilla-sim/tools/source_trig_fma_generate.py /home/robbie/Work/benilla/benilla-config/full-server/f6/trig-fma
+python3 crates/benilla-sim/tools/source_trig_fma_generate.py rustc-1.100/full-domain
 ```
 
 The generator verifies the exact approved image and libm hashes before execution.
@@ -97,6 +97,8 @@ angle refusal:
 | `near_point/mod.rs:83,109`, initial and fallback candidates | `src/game/Entities/Object.cpp:2297-2304` |
 | `source_transports/passengers.rs:84-88`, passenger position and offset | `src/game/Entities/Transports.cpp:567-588` |
 | Runtime `production_compiler/location_inputs/collision.rs:49-65`, `model_point` | `src/game/vmap/ModelInstance.cpp:29-34` |
+| App `products/vmap/trig.rs:10-20`, ModelInstance transforms through shared `live/math.rs` | `src/game/vmap/ModelInstance.cpp:31` |
+| `benilla-native-vmap/src/live/trig.rs:5-16`, signed-zero execution transforms | `src/game/vmap/ModelInstance.cpp:31` |
 
 These separately built offline counterparts retain their existing unfused
 profile. A reference-process receipt does not establish their libm dispatch:
@@ -107,9 +109,40 @@ profile. A reference-process receipt does not establish their libm dispatch:
 | `benilla-native-vmap-source/src/doodad_transform_math.rs:4-12` | `contrib/vmap_extractor/vmapextract/model.cpp:223`, `Doodad::ExtractSet`, extractor |
 | App `products/vmap/nav_mesh.rs:1-6,292-301` | `contrib/mmap/src/TerrainBuilder.cpp:559-770`, MoveMapGen |
 
-The app's static `products/vmap/trig.rs:14-18` represents `ModelInstance.cpp:31`,
-not an offline tool. Its legacy fixture profile is distinct from the live
-execution rotation binding. No existing numeric test expectation changes in
-the non-app migration. The ten known assembler-domain differences lie outside
-the TAU and fallback domains. The runtime caller retains its Euler bound.
+The app ModelInstance wrapper retains its degree and assembler-radian bounds.
+The live manager uses the same FMA component kernel for signed-zero rotations.
+Its nonzero `NumericBinding` and out-of-domain `RotationDomain` refusals remain
+unchanged. A component arithmetic proof does not supply the actual-process
+rotation execution binding.
+
+The app updates the static VMap, location, and liquid policies, plus numeric
+identities for initial ground candidates, empty-selector near points, resident
+ground and dry-swimming near points, and same-polygon Chase/Home/Wander routes.
+Location bindings now include the parent VMap numeric policy. Liquid bindings
+already include both parent policies. This invalidates cached snapshots, replies,
+route jobs, and derived policies carrying the old digests.
+Existing fingerprint tests derive their identities rather than asserting fixed
+digest literals. Their assertions stay unchanged. A new location regression
+changes only the parent numeric policy and requires the old query to refuse.
+
+The independent pinned-image degree oracle retains all 244 authored boundary
+expectations and adds 14 signed degree vectors covering every known discriminator.
+The existing 4,251,072-sample degree-grid test changes its SHA-256 expectation from
+`c4a91f378dea062d0159217e6910b374c0ceacf90f644fe05d1a2ac465841998` to
+`19a2791f8c35c9b147a8753bb2cd1e32f523b9028a55db830d10dce34d61e4be`.
+Only degree inputs `0x44777ff0` and `0xc4777ff0` differ in that grid. They become
+radians `0x418a3add` and `0xc18a3add`, among the ten known cosine discriminators.
+Their cosine changes from `0xb794f76f` to `0xb794f770`. Sine is unchanged.
+The old unfused degree digest remains with its separate offline fixtures.
+
+Run `tools/source_trig_fma_degrees_generate.py rustc-1.100/degrees`
+to reproduce the degree receipt, vectors, and streamed grid hashes.
+
+Both generators create a new relative child of the assigned
+`benilla-config/full-server/f6/trig-fma` directory. They refuse absolute paths,
+parent traversal, every symlink component, and existing output directories.
+Receipts from previous runs remain unchanged. Choose an unused run name when
+repeating either command. Run
+`python3 -B crates/benilla-sim/tools/test_source_trig_fma_evidence.py`
+to check these output guards without starting an oracle.
 

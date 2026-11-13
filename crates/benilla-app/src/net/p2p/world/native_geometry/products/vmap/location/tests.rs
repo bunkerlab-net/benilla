@@ -127,6 +127,20 @@ fn location_policy_and_every_identity_field_are_bound() {
 }
 
 #[test]
+fn location_binding_tracks_parent_numeric_policy() {
+    let mut snapshot = base_snapshot();
+    let original = request(&snapshot, [0.0, 0.0, 0.0]);
+    let inventory = snapshot.binding().inventory;
+    snapshot.binding.policy[0] ^= 1;
+    assert_eq!(snapshot.binding().inventory, inventory);
+    assert_ne!(snapshot.location_binding().policy, original.snapshot.policy);
+    assert_eq!(
+        snapshot.query_location(original, deadline()),
+        Err(Error::Identity)
+    );
+}
+
+#[test]
 fn nonfinite_out_of_profile_and_expired_requests_never_become_absence() {
     let snapshot = base_snapshot();
     let original = request(&snapshot, [0.0, 0.0, 0.0]);

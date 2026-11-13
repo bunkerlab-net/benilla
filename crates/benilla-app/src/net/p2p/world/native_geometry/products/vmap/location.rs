@@ -9,7 +9,7 @@ use super::{
 use sha2::{Digest, Sha256};
 use std::time::Instant;
 
-const POLICY: &[u8] = b"benilla-dry-static-vmap-location-v1-glibc-2.41-bounded-trig";
+const POLICY: &[u8] = b"benilla-dry-static-vmap-location-v2-glibc-2.36-fma-bounded-trig";
 
 pub(super) struct SelectedLocation {
     pub floor: LocationFloor,
@@ -24,6 +24,7 @@ impl VmapSnapshot {
         let mut hash = Sha256::new();
         hash.update(POLICY);
         hash.update(self.binding.inventory);
+        hash.update(self.binding.policy);
         SnapshotBinding {
             policy: hash.finalize().into(),
             ..self.binding

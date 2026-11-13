@@ -127,20 +127,21 @@ read-only MXCSR check refuses other rounding modes, FTZ and DAZ. No host
 transcendental function supplies an answer. Signed-zero Euler identities are
 exact. All nonzero rotations remain refused, not approximated.
 
-An exhaustive comparison of all 2^32 input encodings against glibc 2.36
-checked all 2,213,980,068 inputs accepted by the existing assembler trig
-domain. FMA sinf had zero differences and FMA cosf had ten. The first input,
-`418a3adb`, returns `b7b4f770` in glibc versus `b7b4f76f` in the existing
-Rust port. Masking FMA/AVX2 produced zero sinf/cosf differences over that
-entire accepted domain. This proves only the accepted-domain non-FMA match,
-not the required FMA binding. NaN encodings, infinities and finite inputs
-outside the port's domain remain separately classified refusals.
+The component kernel is now
+[`benilla_sim::source_trig_fma`](../benilla-sim/SOURCE-TRIG-FMA.md).
+Its pinned glibc 2.36 FMA oracle matches both functions on all 2^32 encodings.
+It retains the LGPL-2.1-or-later FSF 2018-2022 notice and complete licence in
+benilla-sim; the player package includes those notices. No coefficients are
+copied into this crate.
 
-The exact private receipt is
-`benilla-config/full-server/f6/trig-exhaustive/receipt.json`.
-The existing port remains unchanged. Diagnostic products contain 704,523
-nonzero angle occurrences inside that domain and one outside it.
-`NumericBinding` and `RotationDomain` retain separate reasons. Equality at
+The live wrapper retains the assembler-radian domain and calls that kernel
+only for signed-zero identities. Nonzero rotations still require an
+acquisition-bound execution binding. `NumericBinding` and `RotationDomain`
+retain separate refusal reasons. Diagnostic products contain 704,523 nonzero
+angle occurrences inside that domain and one outside it. The app's immutable
+ModelInstance component wrapper selects FMA across its existing bounded domain.
+The separately built offline tool profiles remain unfused and unbound.
+Equality at
 the source's unchecked slot boundary and missing model bounds have typed
 undefined-operation refusals, with authored boundary tests. Their diagnostic
 stock-reach counts are both zero. No new extraction or reference recording

@@ -1,20 +1,22 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (C) 2018-2025 Free Software Foundation, Inc.
 // Bounded Rust translation, modified 2026-10-15: Benilla fork contributors.
-// The source-derived reducer/polynomial is shared in benilla-sim::source_trig.
+// The source-derived FMA kernel is shared in benilla-sim::source_trig_fma.
 // See GLIBC-NOTICE.txt and PROVENANCE.md for the exact source and license.
 use super::Error;
 
 /// Source-profile float trig only for admitted Euler degrees, not a general libm.
-/// Preserve the original VMap degree conversion and native unfused arithmetic.
+/// Preserve the original VMap degree conversion and select pinned glibc 2.36 FMA.
 pub(super) fn sin_cos_degrees(angle: f32) -> Result<(f32, f32), Error> {
     if !angle.is_finite() || angle.abs() > 1800.0 {
         return Err(Error::Unsupported);
     }
     // ModelInstance.cpp:31 uses G3D::pi() in binary64 before the float cast.
     let radians = (f64::from_bits(0x4009_21fb_5444_2d28) * f64::from(angle) / 180.0) as f32;
-    let [s, c] = benilla_sim::source_trig::sin_cos_assembler_radians_bits_native(radians.to_bits())
-        .map_err(|_| Error::Unsupported)?;
+    if radians.to_bits() & 0x7fff_ffff > benilla_sim::source_trig::ASSEMBLER_MAX_RADIANS_BITS {
+        return Err(Error::Unsupported);
+    }
+    let [s, c] = benilla_sim::source_trig_fma::sin_cos_bits_native(radians.to_bits());
     Ok((f32::from_bits(s), f32::from_bits(c)))
 }
 
@@ -58,8 +60,31 @@ mod tests {
             }
         }
         assert_eq!(count, 4_251_072);
-        let expected = include_str!("../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/trig-grid.sha256").trim();
+        let expected = include_str!("../../../../../../../../benilla-sim/tools/fixtures/source_trig_fma/degrees-grid.sha256").trim();
         assert_eq!(format!("{:x}", digest.finalize()), expected);
+    }
+
+    #[test]
+    fn authored_degree_fma_discriminators_match_pinned_builder() {
+        let cases = include_str!(
+            "../../../../../../../../benilla-sim/tools/fixtures/source_trig_fma/degrees.tsv"
+        );
+        let mut count = 0;
+        for row in cases.lines() {
+            let values: Vec<u32> = row
+                .split_whitespace()
+                .map(|word| u32::from_str_radix(word, 16).unwrap())
+                .collect();
+            assert_eq!(values.len(), 4);
+            let degrees = f32::from_bits(values[0]);
+            let radians =
+                (f64::from_bits(0x4009_21fb_5444_2d28) * f64::from(degrees) / 180.0) as f32;
+            assert_eq!(radians.to_bits(), values[1]);
+            let (sine, cosine) = sin_cos_degrees(degrees).unwrap();
+            assert_eq!([sine.to_bits(), cosine.to_bits()], values[2..], "{row}");
+            count += 1;
+        }
+        assert_eq!(count, 14);
     }
 
     #[test]

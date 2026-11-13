@@ -382,13 +382,13 @@ an orientation for a bearing or adds bounding radii to the request distance.
 Transient angle and position values remain raw binary32, including subnormals and
 signed zero; no persistent `Real` conversion silently narrows that domain.
 
-The single glibc-derived trig algorithm now has separately selected native and
-software arithmetic adapters. VMap keeps its original native-unfused arithmetic
-and degree conversion. The candidate selects software RNE trigonometry and
-binary32 multiplication, then separately rounded addition, then the exact source
-map clamp. This is a pinned source numeric profile, not a claim that every C++
-platform's libm produces identical bits. Existing geometry and height arithmetic
-are not thereby converted to software floating point.
+Reference-process trigonometry selects the pinned
+[glibc 2.36 FMA kernel](../../../../../../benilla-sim/SOURCE-TRIG-FMA.md),
+with native and software arithmetic adapters. VMap keeps its degree conversion
+and separate native matrix operations. The candidate selects software RNE
+trigonometry, separate binary32 distance products and sums, then the source map
+clamp. Offline assembler, extractor, and TerrainBuilder counterparts retain their
+unfused profile because their own libm dispatch is not bound here.
 
 The revised spatial policy binds the candidate, trig and facing policy identities
 and pinned source hashes, even for an absolute-angle query. The reply echoes the

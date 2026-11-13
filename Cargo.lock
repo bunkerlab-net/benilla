@@ -993,6 +993,7 @@ dependencies = [
 name = "benilla-native-vmap"
 version = "0.3.1"
 dependencies = [
+ "benilla-sim",
  "sha2 0.10.9",
 ]
 

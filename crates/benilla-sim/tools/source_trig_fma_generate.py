@@ -9,10 +9,11 @@ from pathlib import Path
 import shutil
 import subprocess
 import urllib.request
+from source_trig_fma_evidence import ASSIGNED, create_evidence
 
 IMAGE = 'sha256:7f8acd0cd855b63046cfdf49f21ed319ae6b981758f5fafe2100aed8b4ef21e8'
 LIBM = '7f2ca87f652f56b094462474b076749e90e689d0ecb9cb63c7679820b271b4e7'
-PARENT = Path('/home/robbie/Work/benilla/benilla-config/full-server/f6')
+PARENT = ASSIGNED.parent
 FILES = ('s_sinf.c', 's_cosf.c', 's_sincosf.h', 'sincosf_poly.h', 's_sincosf_data.c')
 
 
@@ -22,19 +23,16 @@ def digest(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('evidence', type=Path)
+    parser.add_argument('evidence', type=Path, help='New relative child directory inside f6/trig-fma')
     parser.add_argument('--vectors-only', action='store_true')
     args = parser.parse_args()
     actual = subprocess.check_output(['docker', 'image', 'inspect', IMAGE, '--format', '{{.Id}}'], text=True).strip()
     if actual != IMAGE:
         raise SystemExit('Pinned image identity mismatch')
-    root = args.evidence.resolve()
-    if root.parent != PARENT or root.name != 'trig-fma':
-        raise SystemExit('Output must be the assigned main-checkout f6/trig-fma directory')
     available = shutil.disk_usage(PARENT).free
     if available < 4 * 1024**3:
         raise SystemExit('Less than 4 GiB free')
-    root.mkdir(parents=True, exist_ok=True)
+    root = create_evidence(args.evidence, ASSIGNED)
     source = Path(__file__).resolve().parents[3]
     tools = source / 'crates/benilla-sim/tools'
     base = ['docker', 'run', '--rm', '--network', 'none', '--read-only', '--log-driver', 'none',
