@@ -46,7 +46,7 @@ const MAX_TREE_WORDS: usize = 16_777_216;
 const MAX_OBJECT_WORDS: usize = 1_048_576;
 
 /// Separate, unfused IEEE RNE operations with gradual underflow on x86-64 MXCSR
-/// and aarch64 FPCR. Other architectures and nonzero Euler angles remain refused.
+/// and aarch64 FPCR. Other architectures remain refused.
 fn arithmetic_environment() -> Result<()> {
     #[cfg(target_arch = "x86_64")]
     {
@@ -270,6 +270,7 @@ pub struct Manager {
     thread_unsafe: bool,
     los_enabled: bool,
     height_enabled: bool,
+    rotation_dispatch: Option<benilla_sim::source_trig_fma::DispatchBinding>,
 }
 impl Default for Manager {
     fn default() -> Self {
@@ -281,12 +282,20 @@ impl Default for Manager {
             thread_unsafe: false,
             los_enabled: true,
             height_enabled: true,
+            rotation_dispatch: None,
         }
     }
 }
 impl Manager {
     pub fn new() -> Self {
         Self::default()
+    }
+    /// Only an authenticated acquisition's actual-process receipt grants this capability.
+    pub fn bind_rotation_dispatch(
+        &mut self,
+        binding: benilla_sim::source_trig_fma::DispatchBinding,
+    ) {
+        self.rotation_dispatch = Some(binding);
     }
     pub fn configure(&mut self, los: bool, height: bool) {
         self.los_enabled = los;
@@ -408,7 +417,13 @@ impl Manager {
             return Ok(());
         }
         arithmetic_environment()?;
-        let inverse = inverse(rotation(s.angles)?)?;
+        let matrix = match self.rotation_dispatch {
+            Some(binding) => rotation_with(s.angles, |angle| {
+                Ok(trig::sin_cos_degrees_bound(angle, binding))
+            })?,
+            None => rotation(s.angles)?,
+        };
+        let inverse = inverse(matrix)?;
         let inverse_scale = 1.0 / s.scale;
         self.next_generation = self.next_generation.checked_add(1).ok_or(Error::Budget)?;
         t.slots[slot] = Some(Instance {

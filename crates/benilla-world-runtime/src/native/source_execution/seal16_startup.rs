@@ -1030,6 +1030,10 @@ pub(super) fn continue_startup(
         &receipt,
     )
     .unwrap();
+    geometry
+        .vmap
+        .bind_rotation_dispatch(16, &receipt.source_acquisition_bindings, &receipt)
+        .unwrap();
     let mut calendar = Calendar(std::mem::take(&mut observed.calendar));
     let mut lunar_trace = Vec::new();
     let lunar = ReferenceLunarEventOwner::new(

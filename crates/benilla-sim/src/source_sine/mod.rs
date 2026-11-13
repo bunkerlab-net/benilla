@@ -48,13 +48,14 @@ pub struct ProcessReceipt {
 pub struct DispatchBinding {
     _private: (),
 }
-impl DispatchBinding {
-    /// The caller authenticates this receipt against its acquisition before projecting it here.
-    pub fn from_process_receipt(
+impl ProcessReceipt {
+    /// Shared acquisition/actual-process validation for recorded libm dispatches.
+    pub(crate) fn binds_dispatch(
+        &self,
         round: u32,
         acquisition: &AcquisitionBinding,
-        receipt: &ProcessReceipt,
-    ) -> moon::Result<Self> {
+        required: &[(&str, &str)],
+    ) -> bool {
         let hash = |s: &str| {
             s.len() == 64
                 && s.bytes()
@@ -65,27 +66,38 @@ impl DispatchBinding {
             &acquisition.schema,
             &acquisition.instrumentation,
         ];
-        let mut functions = receipt
-            .resolved_functions_before_gameplay
-            .iter()
-            .filter(|f| f.function == "sin");
-        let sine = functions.next();
-        if round < 14
-            || receipt.format != "benilla-reference-actual-process-environment-v2"
-            || !receipt.observed_inside_actual_source_process
-            || receipt.platform != "x86_64"
-            || !hash(&receipt.source_process_receipt_sha256)
-            || !hashes.iter().all(|s| hash(s))
-            || &receipt.source_acquisition_bindings != acquisition
-            || !["fma", "avx2"]
+        round >= 14
+            && self.format == "benilla-reference-actual-process-environment-v2"
+            && self.observed_inside_actual_source_process
+            && self.platform == "x86_64"
+            && hash(&self.source_process_receipt_sha256)
+            && hashes.iter().all(|s| hash(s))
+            && &self.source_acquisition_bindings == acquisition
+            && ["fma", "avx2"]
                 .iter()
-                .all(|name| receipt.cpu_flags.iter().any(|f| f == name))
-            || receipt.loader_environment.get("GLIBC_TUNABLES") != Some(&None)
-            || receipt.loader_environment.get("LD_HWCAP_MASK") != Some(&None)
-            || functions.next().is_some()
-            || !sine
-                .is_some_and(|s| s.module_sha256 == LIBM_SHA256 && s.relative_offset == FMA_OFFSET)
-        {
+                .all(|name| self.cpu_flags.iter().any(|f| f == name))
+            && self.loader_environment.get("GLIBC_TUNABLES") == Some(&None)
+            && self.loader_environment.get("LD_HWCAP_MASK") == Some(&None)
+            && required.iter().all(|(name, offset)| {
+                let mut functions = self
+                    .resolved_functions_before_gameplay
+                    .iter()
+                    .filter(|f| f.function == *name);
+                functions
+                    .next()
+                    .is_some_and(|f| f.module_sha256 == LIBM_SHA256 && f.relative_offset == *offset)
+                    && functions.next().is_none()
+            })
+    }
+}
+impl DispatchBinding {
+    /// The caller authenticates this receipt against its acquisition before projecting it here.
+    pub fn from_process_receipt(
+        round: u32,
+        acquisition: &AcquisitionBinding,
+        receipt: &ProcessReceipt,
+    ) -> moon::Result<Self> {
+        if !receipt.binds_dispatch(round, acquisition, &[("sin", FMA_OFFSET)]) {
             return Err(moon::Error::MissingSineBinding);
         }
         Ok(Self { _private: () })

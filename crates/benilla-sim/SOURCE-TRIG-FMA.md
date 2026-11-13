@@ -98,7 +98,7 @@ angle refusal:
 | `source_transports/passengers.rs:84-88`, passenger position and offset | `src/game/Entities/Transports.cpp:567-588` |
 | Runtime `production_compiler/location_inputs/collision.rs:49-65`, `model_point` | `src/game/vmap/ModelInstance.cpp:29-34` |
 | App `products/vmap/trig.rs:10-20`, ModelInstance transforms through shared `live/math.rs` | `src/game/vmap/ModelInstance.cpp:31` |
-| `benilla-native-vmap/src/live/trig.rs:5-16`, signed-zero execution transforms | `src/game/vmap/ModelInstance.cpp:31` |
+| `benilla-native-vmap/src/live/trig.rs`, acquisition-bound live transforms | `src/game/vmap/ModelInstance.cpp:31` |
 
 These separately built offline counterparts retain their existing unfused
 profile. A reference-process receipt does not establish their libm dispatch:
@@ -110,10 +110,15 @@ profile. A reference-process receipt does not establish their libm dispatch:
 | App `products/vmap/nav_mesh.rs:1-6,292-301` | `contrib/mmap/src/TerrainBuilder.cpp:559-770`, MoveMapGen |
 
 The app ModelInstance wrapper retains its degree and assembler-radian bounds.
-The live manager uses the same FMA component kernel for signed-zero rotations.
-Its nonzero `NumericBinding` and out-of-domain `RotationDomain` refusals remain
-unchanged. A component arithmetic proof does not supply the actual-process
-rotation execution binding.
+The live manager shares the lunar sine owner's actual-process receipt
+validator. A matching round-14-or-later acquisition must record both FMA
+`sinf` and `cosf` offsets in the pinned libm before gameplay. The runtime
+authenticates the receipt bytes before binding its collision manager.
+Without this capability the original signed-zero-only and domain refusals
+remain. With it, full-domain reduction follows ModelInstance.cpp:31 and
+G3D Matrix3.cpp:1655-1671 without a source-absent angle limit.
+The shared matrix helper accepts the selected trig adapter; the app still
+uses its unchanged bounded wrapper. No cached product identity changes.
 
 The app updates the static VMap, location, and liquid policies, plus numeric
 identities for initial ground candidates, empty-selector near points, resident

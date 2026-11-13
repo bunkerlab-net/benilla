@@ -29,13 +29,19 @@ fn multiply(a: Matrix, b: Matrix) -> Matrix {
 }
 /// G3D::Matrix3::fromEulerAnglesZYX; ModelInstance uses {rotation.y,x,z}.
 pub(super) fn rotation(angles: Vector) -> Result<Matrix, Error> {
+    rotation_with(angles, super::trig::sin_cos_degrees)
+}
+pub(super) fn rotation_with(
+    angles: Vector,
+    sin_cos: impl Fn(f32) -> Result<(f32, f32), Error>,
+) -> Result<Matrix, Error> {
     // G3D casts degrees to binary32 radians before its float trig overloads.
     // Pin their source profile rather than inheriting the host libc approximation.
-    let (s, c) = super::trig::sin_cos_degrees(angles[1])?;
+    let (s, c) = sin_cos(angles[1])?;
     let z = [[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]];
-    let (s, c) = super::trig::sin_cos_degrees(angles[0])?;
+    let (s, c) = sin_cos(angles[0])?;
     let y = [[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]];
-    let (s, c) = super::trig::sin_cos_degrees(angles[2])?;
+    let (s, c) = sin_cos(angles[2])?;
     let x = [[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]];
     Ok(multiply(z, multiply(y, x)))
 }

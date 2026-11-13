@@ -540,6 +540,97 @@ fn undefined_slot_boundary_and_unbound_rotations_refuse_at_the_actual_operation(
         }
     }
 }
+
+fn rotation_binding() -> benilla_sim::source_trig_fma::DispatchBinding {
+    use benilla_sim::{source_sine::*, source_trig_fma as fma};
+    let acquisition = AcquisitionBinding {
+        manifest: "2".repeat(64),
+        schema: "3".repeat(64),
+        instrumentation: "4".repeat(64),
+    };
+    let receipt = ProcessReceipt {
+        format: "benilla-reference-actual-process-environment-v2".into(),
+        source_process_receipt_sha256: "1".repeat(64),
+        source_acquisition_bindings: acquisition.clone(),
+        cpu_flags: vec!["fma".into(), "avx2".into()],
+        platform: "x86_64".into(),
+        loader_environment: [
+            ("GLIBC_TUNABLES".into(), None),
+            ("LD_HWCAP_MASK".into(), None),
+        ]
+        .into(),
+        resolved_functions_before_gameplay: [
+            ("sinf", fma::SINF_OFFSET),
+            ("cosf", fma::COSF_OFFSET),
+        ]
+        .map(|(name, offset)| ResolvedFunction {
+            function: name.into(),
+            module_sha256: fma::LIBM_SHA256.into(),
+            relative_offset: offset.into(),
+        })
+        .into(),
+        observed_inside_actual_source_process: true,
+    };
+    fma::DispatchBinding::from_process_receipt(14, &acquisition, &receipt).unwrap()
+}
+#[test]
+fn bound_degrees_match_authored_fma_words_and_full_domain_kernel() {
+    let binding = rotation_binding();
+    for row in
+        include_str!("../../../benilla-sim/tools/fixtures/source_trig_fma/degrees.tsv").lines()
+    {
+        let words: Vec<_> = row
+            .split_whitespace()
+            .map(|s| u32::from_str_radix(s, 16).unwrap())
+            .collect();
+        let (s, c) = trig::sin_cos_degrees_bound(f32::from_bits(words[0]), binding);
+        assert_eq!([s.to_bits(), c.to_bits()], words[2..], "{row}");
+    }
+    for degrees in [-2524.5, -1801.0, 13.0, -9.0, 360.0, f32::MAX, -f32::MAX] {
+        let radians = (f64::from_bits(0x4009_21fb_5444_2d28) * f64::from(degrees) / 180.0) as f32;
+        if degrees == -2524.5 {
+            assert_eq!(radians.to_bits(), 0xc230_3e4c);
+        }
+        let (s, c) = trig::sin_cos_degrees_bound(degrees, binding);
+        assert_eq!(
+            [s.to_bits(), c.to_bits()],
+            benilla_sim::source_trig_fma::sin_cos_bits(radians.to_bits())
+        );
+    }
+}
+#[test]
+fn bound_nonfinite_trig_preserves_source_nan_results_without_a_domain_gate() {
+    let binding = rotation_binding();
+    for bits in [
+        0x7f80_0000,
+        0xff80_0000,
+        0x7fc1_2345,
+        0xffc1_2345,
+        0x7f81_2345,
+    ] {
+        let degrees = f32::from_bits(bits);
+        let radians = (f64::from_bits(0x4009_21fb_5444_2d28) * f64::from(degrees) / 180.0) as f32;
+        let (s, c) = trig::sin_cos_degrees_bound(degrees, binding);
+        assert_eq!(
+            [s.to_bits(), c.to_bits()],
+            benilla_sim::source_trig_fma::sin_cos_bits(radians.to_bits())
+        );
+        assert!(s.is_nan() && c.is_nan());
+        assert_eq!(trig::sin_cos_degrees(degrees), Err(Error::RotationDomain));
+    }
+}
+#[test]
+fn bound_manager_loads_nonzero_and_large_rotation_then_queries_real_model() {
+    for angle in [-0.0, 0.0, 1.0, 1800.0, 1801.0, -2524.5] {
+        let mut m = fixture(1, &[(1, 0.0)], false);
+        m.bind_rotation_dispatch(rotation_binding());
+        load(&mut m, 1, 2, &[spawn(0, 4, 1, 2, angle)]);
+        assert_eq!(m.tree_inventory()[0].slots.len(), 1);
+        assert_eq!(m.model_inventory()[0].references, 1);
+        // Rotation around Y leaves this ray through the triangle's origin.
+        assert!(blocked(&m, false), "{angle}");
+    }
+}
 #[test]
 fn immutable_source_cannot_be_replaced_after_capture() {
     let mut files = ProductFiles::default();

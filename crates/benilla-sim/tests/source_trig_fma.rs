@@ -95,3 +95,72 @@ fn migrated_caller_wrappers_preserve_every_old_domain_refusal() {
         }
     }
 }
+
+#[test]
+fn rotation_dispatch_requires_both_actual_process_functions_since_round14() {
+    use benilla_sim::source_sine::{AcquisitionBinding, ProcessReceipt};
+    use serde_json::json;
+    let mut receipt: serde_json::Value = serde_json::from_str(include_str!(
+        "../tools/fixtures/source_sine/process-environment.json"
+    ))
+    .unwrap();
+    receipt["resolved_functions_before_gameplay"] = json!([
+        {"function":"sinf", "module_sha256":fma::LIBM_SHA256, "relative_offset":fma::SINF_OFFSET},
+        {"function":"cosf", "module_sha256":fma::LIBM_SHA256, "relative_offset":fma::COSF_OFFSET}
+    ]);
+    let acquisition: AcquisitionBinding =
+        serde_json::from_value(receipt["source_acquisition_bindings"].clone()).unwrap();
+    let bind = |round, value: serde_json::Value| {
+        let receipt: ProcessReceipt = serde_json::from_value(value).unwrap();
+        fma::DispatchBinding::from_process_receipt(round, &acquisition, &receipt)
+    };
+    assert!(bind(14, receipt.clone()).is_ok());
+    assert!(bind(16, receipt.clone()).is_ok());
+    assert_eq!(bind(13, receipt.clone()), Err(fma::MissingDispatchBinding));
+    for (key, value) in [
+        ("format", json!("unbound")),
+        ("observed_inside_actual_source_process", json!(false)),
+        ("platform", json!("other")),
+        ("cpu_flags", json!(["avx2"])),
+        ("source_process_receipt_sha256", json!("bad")),
+        (
+            "source_acquisition_bindings",
+            json!({
+                "REFERENCE_MANIFEST_SHA256":"5".repeat(64),
+                "REFERENCE_SCHEMA_SHA256":acquisition.schema,
+                "REFERENCE_INSTRUMENTATION_SHA256":acquisition.instrumentation
+            }),
+        ),
+        (
+            "loader_environment",
+            json!({"GLIBC_TUNABLES":"glibc.cpu.hwcaps=-FMA,-AVX2","LD_HWCAP_MASK":null}),
+        ),
+    ] {
+        let mut bad = receipt.clone();
+        bad[key] = value;
+        assert_eq!(bind(14, bad), Err(fma::MissingDispatchBinding), "{key}");
+    }
+    for index in [0, 1] {
+        for (key, value) in [
+            ("relative_offset", json!("0x72810")),
+            ("module_sha256", json!("0".repeat(64))),
+        ] {
+            let mut bad = receipt.clone();
+            bad["resolved_functions_before_gameplay"][index][key] = value;
+            assert_eq!(bind(14, bad), Err(fma::MissingDispatchBinding));
+        }
+        let mut missing = receipt.clone();
+        missing["resolved_functions_before_gameplay"]
+            .as_array_mut()
+            .unwrap()
+            .remove(index);
+        assert_eq!(bind(14, missing), Err(fma::MissingDispatchBinding));
+        let mut duplicate = receipt.clone();
+        let function = duplicate["resolved_functions_before_gameplay"][index].clone();
+        duplicate["resolved_functions_before_gameplay"]
+            .as_array_mut()
+            .unwrap()
+            .push(function);
+        assert_eq!(bind(14, duplicate), Err(fma::MissingDispatchBinding));
+    }
+}

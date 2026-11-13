@@ -83,13 +83,17 @@ fn stores(prefix: &str) -> Stores {
         })),
     }
 }
-fn scene(dataset: &str) -> Result<SourceVMapManager> {
+fn scene(dataset: &str, bound: bool) -> Result<SourceVMapManager> {
     let directory = if dataset.starts_with("terrain-wet-vmap") {
         dataset.to_owned()
     } else {
         format!("vmap_source/{dataset}")
     };
     let mut scene = SourceVMapManager::default();
+    if bound {
+        let receipt = rotation_receipt();
+        scene.bind_rotation_dispatch(14, &receipt.source_acquisition_bindings, &receipt)?;
+    }
     for entry in std::fs::read_dir(root().join(directory)).unwrap() {
         let entry = entry.unwrap();
         if entry.file_type().unwrap().is_file() {
@@ -105,6 +109,45 @@ fn scene(dataset: &str) -> Result<SourceVMapManager> {
     }
     scene.load_map(0, 32, 32)?;
     Ok(scene)
+}
+fn rotation_receipt() -> benilla_sim::source_sine::ProcessReceipt {
+    use benilla_sim::source_trig_fma as fma;
+    let mut receipt: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../benilla-sim/tools/fixtures/source_sine/process-environment.json"
+    ))
+    .unwrap();
+    receipt["resolved_functions_before_gameplay"] = serde_json::json!([
+        {"function":"sinf", "module_sha256":fma::LIBM_SHA256, "relative_offset":fma::SINF_OFFSET},
+        {"function":"cosf", "module_sha256":fma::LIBM_SHA256, "relative_offset":fma::COSF_OFFSET}
+    ]);
+    serde_json::from_value(receipt).unwrap()
+}
+
+#[test]
+fn runtime_rotation_binding_preserves_named_refusal_at_round13_and_binds_round14() {
+    let receipt = rotation_receipt();
+    let mut manager = SourceVMapManager::default();
+    assert_eq!(
+        manager
+            .bind_rotation_dispatch(13, &receipt.source_acquisition_bindings, &receipt)
+            .unwrap_err()
+            .id,
+        "execution.vmap.glibc236_fma_rotation_binding"
+    );
+    assert_eq!(
+        scene("scopedliquid", false).err().unwrap().id,
+        "execution.vmap.glibc236_fma_rotation_binding"
+    );
+    manager
+        .bind_rotation_dispatch(14, &receipt.source_acquisition_bindings, &receipt)
+        .unwrap();
+    assert!(
+        scene("scopedliquid", true)
+            .unwrap()
+            .collision
+            .loaded_trees()
+            > 0
+    );
 }
 fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(30)
@@ -210,6 +253,13 @@ fn output(data: LiquidData) -> (u32, u32, u32, u32) {
 
 #[test]
 fn existing_wet_oracle_matches_all_grid_rows_and_every_rotation_bound_composition() {
+    compare_composition(false);
+}
+#[test]
+fn bound_rotation_matches_every_withheld_liquid_composition_row() {
+    compare_composition(true);
+}
+fn compare_composition(bound: bool) {
     let cases = include_str!(
         "../../../../../benilla-native-geometry-tests/tools/fixtures/terrain-wet-liquid.tsv"
     );
@@ -232,7 +282,7 @@ fn existing_wet_oracle_matches_all_grid_rows_and_every_rotation_bound_compositio
         "scopedarea/reverse",
     ]
     .into_iter()
-    .map(|s| (s, scene(s)))
+    .map(|s| (s, scene(s, bound)))
     .collect();
     let (mut count, mut rejects, mut fallback, mut nulls) = (0, 0, 0, 0);
     let mut refused = 0;
@@ -313,15 +363,18 @@ fn existing_wet_oracle_matches_all_grid_rows_and_every_rotation_bound_compositio
         nulls += usize::from(n(10) == 0);
         count += 1;
     }
-    assert_eq!(
-        (count, rejects, fallback, nulls, refused),
+    let expected = if bound {
+        (27566, 705, 9557, 260, 0)
+    } else {
         (22511, 555, 8024, 155, 5055)
-    );
+    };
+    assert_eq!((count, rejects, fallback, nulls, refused), expected);
+    println!("LIQUID_COMPOSITION bound={bound} matched={count} refused={refused}");
 }
 
 #[test]
 fn wrappers_preserve_above_water_shallow_swim_and_failed_water_z_outputs() {
-    let scene = scene("terrain-wet-vmap").unwrap();
+    let scene = scene("terrain-wet-vmap", false).unwrap();
     let stores = stores("terrain-wet-liquid/store0");
     let grid =
         SourceGridMap::load(Some(bytes("terrain-wet-liquid/0.map.test-fixture").into())).unwrap();

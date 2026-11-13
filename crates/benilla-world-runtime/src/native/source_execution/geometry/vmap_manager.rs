@@ -43,6 +43,23 @@ pub(super) fn vmap_error(error: live::Error) -> Refusal {
     })
 }
 impl SourceVMapManager {
+    /// Reuse the lunar owner's acquisition-bound actual-process dispatch validator.
+    /// The caller authenticates the receipt bytes against the acquisition first.
+    pub fn bind_rotation_dispatch(
+        &mut self,
+        round: u32,
+        acquisition: &benilla_sim::source_sine::AcquisitionBinding,
+        receipt: &benilla_sim::source_sine::ProcessReceipt,
+    ) -> Result<()> {
+        let binding = benilla_sim::source_trig_fma::DispatchBinding::from_process_receipt(
+            round,
+            acquisition,
+            receipt,
+        )
+        .map_err(|_| vmap_error(live::Error::NumericBinding))?;
+        self.collision.bind_rotation_dispatch(binding);
+        Ok(())
+    }
     pub fn created(&self) -> bool {
         self.created
     }
@@ -127,3 +144,7 @@ impl SourceVMapManager {
             .map_err(vmap_error)
     }
 }
+
+#[cfg(test)]
+#[path = "vmap_rotation_tests.rs"]
+mod rotation_tests;

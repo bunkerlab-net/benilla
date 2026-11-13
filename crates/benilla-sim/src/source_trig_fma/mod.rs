@@ -21,6 +21,31 @@ pub const LIBM_SHA256: &str = crate::source_sine::LIBM_SHA256;
 pub const SINF_OFFSET: &str = "0x73720";
 pub const COSF_OFFSET: &str = "0x73280";
 
+/// Capability for recorded binary32 FMA dispatch, not a host-CPU inference.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DispatchBinding {
+    _private: (),
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MissingDispatchBinding;
+impl DispatchBinding {
+    /// Authenticate receipt bytes against the acquisition before projecting them here.
+    pub fn from_process_receipt(
+        round: u32,
+        acquisition: &crate::source_sine::AcquisitionBinding,
+        receipt: &crate::source_sine::ProcessReceipt,
+    ) -> Result<Self, MissingDispatchBinding> {
+        if !receipt.binds_dispatch(
+            round,
+            acquisition,
+            &[("sinf", SINF_OFFSET), ("cosf", COSF_OFFSET)],
+        ) {
+            return Err(MissingDispatchBinding);
+        }
+        Ok(Self { _private: () })
+    }
+}
+
 /// Raw [sinf, cosf] results for every binary32 encoding, using software RNE.
 /// NaNs retain sign/payload and become quiet. Both infinities return 0xffc00000.
 /// This returns result bits only, not C errno or floating-point exception flags.

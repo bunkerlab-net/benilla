@@ -148,8 +148,9 @@ Parallel-clip NaNs feed only ordered comparisons, never sign/bit tests.
 `live/math.rs` writes triangle distance only inside its strict positive
 interval. Its box sign test sees only a negative sentinel or an outside
 plane distance, never a NaN. Its square root feeds an infinity comparison.
-Only signed-zero rotations reach stored inverse matrices. The unchecked
-`to_internal` helper retains its existing nonfinite-input behaviour.
+Nonzero finite rotations reach stored inverse matrices only after binding the
+recorded FMA dispatch. The unchecked `to_internal` helper retains its existing
+nonfinite-input behaviour.
 
 Finite liquid heights can overflow during interpolation and produce a NaN
 returned to `LiquidOutput.level`. Hit-position modification can also
@@ -168,13 +169,18 @@ It retains the LGPL-2.1-or-later FSF 2018-2022 notice and complete licence in
 benilla-sim; the player package includes those notices. No coefficients are
 copied into this crate.
 
-The live wrapper retains the assembler-radian domain and calls that kernel
-only for signed-zero identities. Nonzero rotations still require an
-acquisition-bound execution binding. `NumericBinding` and `RotationDomain`
-retain separate refusal reasons. Diagnostic products contain 704,523 nonzero
-angle occurrences inside that domain and one outside it. The app's immutable
-ModelInstance component wrapper selects FMA across its existing bounded domain.
-The separately built offline tool profiles remain unfused and unbound.
+The live manager accepts nonzero rotations only with an acquisition-bound
+round-14-or-later actual-process receipt for both `sinf` and `cosf`. It reuses
+the lunar sine receipt validator, requiring the pinned libm hash, FMA offsets,
+actual-process CPU flags, loader controls, and matching acquisition hashes.
+The owner authenticates the receipt bytes before granting that capability.
+Absent or older receipts retain `NumericBinding` and the old `RotationDomain`
+refusal. The bound path has no angle limit, matching ModelInstance.cpp:31 and
+G3D Matrix3.cpp:1655-1671. Full-domain FMA reduction covers the diagnostic
+-2524.5-degree occurrence without wrapping. The trig kernel retains source
+NaN/infinity results; product nonfinite-input validation is unchanged.
+The app's immutable ModelInstance wrapper and separately built offline tools
+retain their existing kernels, domains, refusals, and product identities.
 Equality at
 the source's unchecked slot boundary and missing model bounds have typed
 undefined-operation refusals, with authored boundary tests. Their diagnostic
