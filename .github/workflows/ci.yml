@@ -1242,10 +1242,18 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       # Every crate runs, so one binary's crash does not hide the rest of the workspace.
       - name: test
-        run: cargo test --locked --workspace --no-fail-fast
-      # A binary that dies whole names no test; on one thread each test's name prints before it runs.
+        id: windows-tests
+        shell: pwsh
+        run: |
+          cargo test --locked --workspace --no-fail-fast 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP\windows-tests.log"
+          $testExit = $LASTEXITCODE
+          $crashed = python scripts/verify-libtest-output.py --needs-crash-rerun "$env:RUNNER_TEMP\windows-tests.log"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "crash-rerun=$crashed" >> $env:GITHUB_OUTPUT
+          exit $testExit
+      # Cargo names ordinary FAILED tests. Only an abnormal test-process exit needs the serial rerun.
       - name: name the test a crash took down
-        if: failure()
+        if: failure() && steps.windows-tests.outputs.crash-rerun == 'true'
         run: cargo test --locked --workspace --no-fail-fast -- --test-threads=1
       # The player binary links with the main thread's stack its build script asks for: MSVC's own
       # 1 MB overflows at the login screen. Read from the PE header (PE32+: optional header +72).

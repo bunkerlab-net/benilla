@@ -1643,6 +1643,67 @@ class ExactProofTests(unittest.TestCase):
             result = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_crash_rerun_skips_ordinary_test_and_build_failures(self):
+        ordinary = (
+            "running 1 test\n"
+            "test named_failure ... FAILED\n"
+            "test result: FAILED. 0 passed; 1 failed; 0 ignored; "
+            "0 measured; 0 filtered out; finished in 0.01s\n"
+            "error: test failed, to rerun pass `-p benilla-app --lib`\n"
+        )
+        build_failure = (
+            "error: could not compile `benilla-app` (lib test)\n"
+            "Caused by:\n"
+            "  process didn't exit successfully: `rustc ...` (exit code: 1)\n"
+        )
+        for output in ("", ordinary, build_failure, ordinary + build_failure):
+            with self.subTest(output=output):
+                self.assertFalse(VERIFIER.needs_crash_rerun(output))
+
+    def test_crash_rerun_detects_abnormal_test_exit_among_completed_suites(self):
+        for cause in ("exit code: 3221225725, STATUS_STACK_OVERFLOW", "signal: 6, SIGABRT"):
+            output = (
+                "test result: ok. 1 passed; 0 failed; 0 ignored; "
+                "0 measured; 0 filtered out; finished in 0.01s\n"
+                "Running unittests src/lib.rs (target/debug/deps/benilla_app-deadbeef)\n"
+                "running 9214 tests\n"
+                "\x1b[1;31merror\x1b[0m: test failed, to rerun pass `-p benilla-app --lib`\n"
+                "Caused by:\n"
+                f"  process didn't exit successfully: `benilla_app-deadbeef` ({cause})\n"
+                "Running unittests src/lib.rs (target/debug/deps/benilla_assets-deadbeef)\n"
+                "test result: ok. 1 passed; 0 failed; 0 ignored; "
+                "0 measured; 0 filtered out; finished in 0.01s\n"
+            )
+            with self.subTest(cause=cause):
+                self.assertTrue(VERIFIER.needs_crash_rerun(output))
+                self.assertTrue(VERIFIER.needs_crash_rerun(output.replace("\n", "\r\n")))
+                with tempfile.TemporaryDirectory(dir=ROOT) as temp:
+                    log = Path(temp) / "test.log"
+                    log.write_text(output)
+                    result = subprocess.run(
+                        [sys.executable, str(ROOT / "scripts/verify-libtest-output.py"),
+                         "--needs-crash-rerun", str(log)], capture_output=True, text=True, timeout=10,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, "true\n")
+
+    def test_windows_keeps_full_coverage_and_failure_with_crash_only_rerun(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        windows = workflow.split("\n  windows:\n", 1)[1].split("\n  gates:\n", 1)[0]
+        self.assertIn("    timeout-minutes: 240\n", windows)
+        self.assertNotIn("continue-on-error:", windows)
+        test, rerun = windows.split("      - name: name the test a crash took down\n", 1)
+        self.assertIn("cargo test --locked --workspace --no-fail-fast 2>&1 | Tee-Object", test)
+        self.assertIn("$testExit = $LASTEXITCODE", test)
+        self.assertIn("python scripts/verify-libtest-output.py --needs-crash-rerun", test)
+        self.assertIn('if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }', test)
+        self.assertIn('"crash-rerun=$crashed" >> $env:GITHUB_OUTPUT', test)
+        self.assertIn("exit $testExit", test)
+        self.assertIn("if: failure() && steps.windows-tests.outputs.crash-rerun == 'true'", rerun)
+        self.assertIn("run: cargo test --locked --workspace --no-fail-fast -- --test-threads=1", rerun)
+        self.assertIn("      - name: player stack\n        if: ${{ !cancelled() }}", rerun)
+        self.assertIn("cargo build --locked -p benilla --no-default-features", rerun)
+
     def test_aggregate_requires_every_job_and_rejects_non_success(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         aggregate = workflow.split("\n  gates:\n", 1)[1].split("\n  windows:\n", 1)[0]

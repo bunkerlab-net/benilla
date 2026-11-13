@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify one serial, pretty-format libtest run from its stdout, not merged stderr."""
+"""Verify exact libtest output or classify Cargo's abnormal test-process exits."""
 
 import argparse
 from pathlib import Path
@@ -36,13 +36,32 @@ def verify(output: str, names: list[str]) -> None:
         raise ValueError("test summary does not prove the exact passing count")
 
 
+def needs_crash_rerun(output: str) -> bool:
+    """Cargo reports abnormal test exits separately from ordinary FAILED summaries."""
+    failed_test = False
+    for line in output.splitlines():
+        line = re.sub(r"\x1b\[[0-9;]*m", "", line).strip()
+        if line.startswith("error:"):
+            failed_test = line.startswith("error: test failed, to rerun pass ")
+        elif line.startswith(("Running ", "Doc-tests ")):
+            failed_test = False
+        elif failed_test and line.startswith("process didn't exit successfully:"):
+            return True
+    return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("log", type=Path)
-    parser.add_argument("names", nargs="+")
+    parser.add_argument("names", nargs="*")
+    parser.add_argument("--needs-crash-rerun", action="store_true")
     args = parser.parse_args()
     try:
-        verify(args.log.read_text(encoding="utf-8"), args.names)
+        output = args.log.read_text(encoding="utf-8")
+        if args.needs_crash_rerun:
+            print(str(needs_crash_rerun(output)).lower())
+        else:
+            verify(output, args.names)
     except (OSError, UnicodeError, ValueError) as error:
         print(f"libtest verification failed: {error}", file=sys.stderr)
         return 1
