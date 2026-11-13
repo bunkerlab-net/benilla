@@ -425,6 +425,47 @@ fn liquid_floor_and_type_writes_precede_mask_and_level_success() {
         .unwrap());
     assert_eq!(out.level, 3.0);
 }
+
+#[test]
+fn liquid_masks_match_source_for_every_id_arm_and_all_request_masks() {
+    // VMapManager2.cpp:272-283; GridMapDefines.h:66-75.
+    for (kind, expected) in [
+        (0u32, 0u8),
+        (1, 8),
+        (2, 2),
+        (3, 1),
+        (4, 4),
+        (21, 4),
+        (41, 8),
+        (61, 8),
+        (999, 0),
+    ] {
+        let mut m = Manager::new();
+        present(&mut m, b"000.vmtree", tree(true, 1, &[]));
+        let mut bytes = model(&[(1, 0.0)], true);
+        let at = bytes.windows(4).position(|b| b == b"LIQU").unwrap() + 28;
+        bytes[at..at + 4].copy_from_slice(&kind.to_le_bytes());
+        present(&mut m, b"test.wmo.vmo", bytes);
+        load(&mut m, 1, 2, &[spawn(0, 4, 1, 2, 0.0)]);
+        for mask in 0..=u8::MAX {
+            let mut out = LiquidOutput {
+                level: 99.0,
+                floor: 98.0,
+                kind: 97,
+            };
+            let accepted = m
+                .liquid_level(0, [0.0, 0.0, 10.0], mask, &mut out, deadline())
+                .unwrap();
+            assert_eq!(
+                accepted,
+                mask == 0 || mask & expected != 0,
+                "kind {kind} mask {mask}"
+            );
+            assert_eq!((out.floor.to_bits(), out.kind), (0x35800000, kind));
+            assert_eq!(out.level, if accepted { 3.0 } else { 99.0 });
+        }
+    }
+}
 #[test]
 fn cold_disabled_ignored_error_and_uncaptured_are_not_conflated() {
     let mut m = Manager::new();

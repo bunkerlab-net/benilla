@@ -591,11 +591,12 @@ impl Manager {
         let group = &model.model.groups[location.group_index];
         out.floor = location.floor;
         out.kind = group.liquid.as_ref().map_or(0, |l| l.kind);
+        // VMapManager2.cpp:272-283; GridMapDefines.h:66-75, not DBC Type indices.
         let kind_mask = match out.kind {
-            1 | 41 | 61 => 1,
+            1 | 41 | 61 => 8,
             2 => 2,
-            3 => 4,
-            4 | 21 => 8,
+            3 => 1,
+            4 | 21 => 4,
             _ => 0,
         };
         if mask != 0 && mask & kind_mask == 0 {
