@@ -3,10 +3,45 @@ use crate::native::production_compiler::VerifiedCatalog;
 use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};
 
+#[derive(Default, serde::Serialize)]
+struct PowerStageCensus {
+    reaches_check: usize,
+    passes_check: usize,
+    refused: BTreeMap<String, usize>,
+    source_rejected: BTreeMap<String, usize>,
+}
+impl PowerStageCensus {
+    fn record(&mut self, result: &Result<SpellCastResult>) {
+        self.reaches_check += 1;
+        match result {
+            Ok(SpellCastResult::Ok) => self.passes_check += 1,
+            Ok(result) => {
+                *self
+                    .source_rejected
+                    .entry(format!("{result:?}"))
+                    .or_default() += 1
+            }
+            Err(error) => *self.refused.entry(error.id.clone()).or_default() += 1,
+        }
+    }
+    fn merge(&mut self, other: Self) {
+        self.reaches_check += other.reaches_check;
+        self.passes_check += other.passes_check;
+        for (name, count) in other.refused {
+            *self.refused.entry(name).or_default() += count;
+        }
+        for (name, count) in other.source_rejected {
+            *self.source_rejected.entry(name).or_default() += count;
+        }
+    }
+}
+
 #[test]
 fn catalog04_spell_start_static_readiness_and_undefined_operands() {
     let Some(root) = std::env::var_os("BENILLA_F5_AI_CATALOG") else {
-        println!("SKIP F5.08 catalog-04 census: set BENILLA_F5_AI_CATALOG and BENILLA_F5_EVENT_AI_CONFIG");
+        println!(
+            "SKIP F5.08 catalog-04 census: set BENILLA_F5_AI_CATALOG and BENILLA_F5_EVENT_AI_CONFIG"
+        );
         return;
     };
     let mut catalog = VerifiedCatalog::open(Path::new(&root), false).unwrap();
@@ -180,7 +215,9 @@ fn catalog04_spell_start_static_readiness_and_undefined_operands() {
         "undefined_dynamic_reach":"unavailable for CAST_ONLY_XYZ null target, tame-caster null, modifier arithmetic and targeting map miss; catalog definitions are not live reach evidence",
         "next":"F5.09 loaded constructor targeting metadata; F6 live location remains mandatory before any cast passes CheckCast"
     });
-    println!("F5.08 static before={before:?} after={constructor:?} action_slots={action_slots:?}; actual observed=0 passed=0; DB raw rows={db_rows:?} alternatives={db_alternatives:?}");
+    println!(
+        "F5.08 static before={before:?} after={constructor:?} action_slots={action_slots:?}; actual observed=0 passed=0; DB raw rows={db_rows:?} alternatives={db_alternatives:?}"
+    );
     if let Some(path) = std::env::var_os("BENILLA_F5_SPELL_START_CENSUS") {
         std::fs::write(path, serde_json::to_vec_pretty(&evidence).unwrap()).unwrap();
     }
@@ -197,6 +234,8 @@ fn catalog04_spell_area_and_first_cast_location_census() {
     };
     let mut catalog = VerifiedCatalog::open(Path::new(&root), false).unwrap();
     let s = SourceSpellStores::load(&mut catalog, &mut Missing).unwrap();
+    let school_gt_6 = s.templates().values().filter(|t| t.school > 6).count();
+    let school_ge_32 = s.templates().values().filter(|t| t.school >= 32).count();
     let mut loaded = 0;
     let mut dropped = BTreeMap::<String, usize>::new();
     let mut unresolved = BTreeMap::<String, usize>::new();
@@ -220,6 +259,30 @@ fn catalog04_spell_area_and_first_cast_location_census() {
     )
     .unwrap();
     let rows = catalog_event_ai_rows(&mut catalog).unwrap();
+    let level_rows = catalog
+        .spell_power_census_levels("creature_template")
+        .unwrap();
+    let mut levels = BTreeMap::<u32, Vec<[u32; 2]>>::new();
+    for [entry, low, high] in level_rows {
+        levels.entry(entry).or_default().push([low, high]);
+    }
+    let mut templates = BTreeMap::<u32, Vec<CreatureAiTemplateOperands>>::new();
+    for row in catalog_creature_ai_census_inputs(&mut catalog).unwrap() {
+        templates.entry(row.entry).or_default().push(row);
+    }
+    let mut power = PowerStageCensus::default();
+    let mut caster_auras = PowerStageCensus::default();
+    let mut isolated_caster_auras = PowerStageCensus::default();
+    let mut power_bindings = [
+        "resolver_powered",
+        "level_draw_unbound",
+        "missing_complete_initialization_bundle",
+        "out_of_domain",
+    ]
+    .map(|name| (name.to_owned(), 0usize))
+    .into_iter()
+    .collect::<BTreeMap<_, _>>();
+    let mut post_aura_next = BTreeMap::<String, usize>::new();
     let mut loader = EventAiCatalog::new(&mut catalog, config);
     let mut total = 0;
     let mut passed = 0;
@@ -284,8 +347,18 @@ fn catalog04_spell_area_and_first_cast_location_census() {
                     items_reached: usize,
                     items_passed: usize,
                     items_refused: BTreeMap<String, usize>,
+                    power: PowerStageCensus,
+                    caster_auras: PowerStageCensus,
                 }
                 impl SpellExecutionOwner for Suffix<'_> {
+                    fn power_objects(&mut self) -> Result<&SourceObjects> {
+                        Ok(&self.range.objects)
+                    }
+                    fn caster_aura_flags(&mut self, _: ObjectHandle) -> Result<u32> {
+                        // Explicit isolated no-control-flags/no-auras condition,
+                        // never a live Unit-state binding for this catalog row.
+                        Ok(0)
+                    }
                     fn range_objects(&mut self) -> Result<&SourceObjects> {
                         self.range.range_objects()
                     }
@@ -306,6 +379,16 @@ fn catalog04_spell_area_and_first_cast_location_census() {
                         t: &SpellTemplate,
                         check: SpellCheck,
                     ) -> Result<R> {
+                        if let SpellCheck::Power(strict) = check {
+                            let result = spell.check_power(t, strict, self);
+                            self.power.record(&result);
+                            return result;
+                        }
+                        if check == SpellCheck::CasterAuras {
+                            let result = spell.check_caster_auras(t, self);
+                            self.caster_auras.record(&result);
+                            return result;
+                        }
                         if let SpellCheck::Range(strict) = check {
                             self.range_reached += 1;
                             let result = spell.check_range(t, strict, self);
@@ -369,6 +452,8 @@ fn catalog04_spell_area_and_first_cast_location_census() {
                     items_reached: 0,
                     items_passed: 0,
                     items_refused: BTreeMap::new(),
+                    power: PowerStageCensus::default(),
+                    caster_auras: PowerStageCensus::default(),
                 };
                 let name = match value.check_cast_location_suffix(t, true, false, &mut suffix) {
                     Err(error) => error.id,
@@ -376,6 +461,43 @@ fn catalog04_spell_area_and_first_cast_location_census() {
                     Ok(result) => format!("SPELL_FAILED_{result:?}"),
                 };
                 *next.entry(name).or_default() += 1;
+                if suffix.power.reaches_check != 0 {
+                    // F5UnitAi's resolver needs a complete initialization bundle.
+                    // Raw rank/level candidates cannot prove that bundle exists.
+                    let binding = if levels
+                        .get(&e.entry)
+                        .is_some_and(|v| v.iter().any(|[lo, hi]| lo != hi))
+                    {
+                        "level_draw_unbound"
+                    } else if templates.get(&e.entry).is_some_and(|v| {
+                        v.iter().all(|t| {
+                            t.rank != 0
+                                || t.inhabit_type & 4 != 0
+                                || (f32::from_bits(t.stats_multipliers[2]) >= 0.0
+                                    && t.stats_multipliers[..2]
+                                        .iter()
+                                        .any(|bits| f32::from_bits(*bits) < 0.0))
+                        })
+                    }) {
+                        "out_of_domain"
+                    } else {
+                        "missing_complete_initialization_bundle"
+                    };
+                    *power_bindings.entry(binding.into()).or_default() += 1;
+                    // A separate isolated probe must not be counted as reaching
+                    // CheckCasterAuras through a failed/unbound CheckPower.
+                    let result = value.check_caster_auras(t, &mut suffix);
+                    isolated_caster_auras.record(&result);
+                    let next_if_passed =
+                        match value.check_cast_power_suffix(t, false, true, &mut suffix) {
+                            Err(error) => error.id,
+                            Ok(R::Ok) => SpellCall::PrepareTriggerData.missing_owner().id,
+                            Ok(result) => format!("SPELL_FAILED_{result:?}"),
+                        };
+                    *post_aura_next.entry(next_if_passed).or_default() += 1;
+                }
+                power.merge(suffix.power);
+                caster_auras.merge(suffix.caster_auras);
                 items_reached += suffix.items_reached;
                 items_passed += suffix.items_passed;
                 for (name, count) in suffix.items_refused {
@@ -417,7 +539,22 @@ fn catalog04_spell_area_and_first_cast_location_census() {
             "before":{"reaches_check":6850,"passes_check":0,
                 "execution.spells.f6_Spell_CheckRange_owner":6850},
             "undefined_operations_reached":0},
+        "check_power":{"after":power,
+            "before":{"reaches_check":6850,"passes_check":0,
+                "execution.spells.Unit_GetPower_CheckPower_owner":6850},
+            "caster_power_state":"unbound; no complete real-catalog initialization bundle; no current power inferred from raw rows",
+            "resolver_powered":0,"binding_columns":power_bindings,
+            "undefined_operations_reached":0},
+        "check_caster_auras":{"after":caster_auras,
+            "before":{"reaches_check":0,"passes_check":0},
+            "isolated_no_control_flags_no_auras":isolated_caster_auras,
+            "basis":"isolated probe bypasses unbound power only for counting, never counted as a suffix pass or live execution",
+            "undefined_operations_reached":0},
+        "next_if_power_and_caster_auras_pass":{"basis":"conditional direct suffix probe, not a reached cast check",
+            "next":post_aura_next},
         "undefined_operand_candidates":{"gender":gender_ub,"abs":abs_candidates},
+        "school_domain_static":{"templates":s.templates().len(),
+            "school_gt_6":school_gt_6,"school_ge_32":school_ge_32},
         "actual_stock_executions":0,"format":91,
     });
     println!("F5_LOCATION {evidence}");

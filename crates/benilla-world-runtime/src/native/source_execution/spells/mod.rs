@@ -3,11 +3,15 @@
 use super::*;
 use std::collections::BTreeMap;
 mod callers;
+mod caster_auras;
 mod checks;
 mod items;
 mod location;
+mod power;
 mod range;
+pub use caster_auras::*;
 pub use location::*;
+pub use power::*;
 pub use range::*;
 mod db_callers;
 mod events;
@@ -21,11 +25,15 @@ pub use start::*;
 pub use state::*;
 pub use unit_event_owner::*;
 #[cfg(test)]
+mod caster_auras_tests;
+#[cfg(test)]
 mod census_tests;
 #[cfg(test)]
 mod geometry_tests;
 #[cfg(test)]
 mod items_tests;
+#[cfg(test)]
+mod power_tests;
 #[cfg(test)]
 mod range_tests;
 #[cfg(test)]
@@ -113,8 +121,7 @@ impl SpellCheck {
             Self::Items => "Unit_check_operands",
             Self::Focus => "f6_Cell_VisitGridObjects_spell_focus",
             Self::Range(_) => "f3_WorldObject_range",
-            Self::Power(_) => "Unit_GetPower_CheckPower",
-            Self::CasterAuras => "f5_12_Unit_GetAurasByType_CheckCasterAuras",
+            Self::Power(_) | Self::CasterAuras => "f3_WorldObject_power",
             Self::Effect(_) => "Spell_CheckCast_effect_operands",
             Self::Aura(_) => "f5_12_Spell_CheckCast_aura_operands",
             Self::Trade => "f5_25_Player_GetTradeData",
@@ -185,6 +192,79 @@ impl SpellCall {
 }
 /// External state queries are fallible. An unbound query never becomes false/OK.
 pub trait SpellExecutionOwner {
+    fn power_objects(&mut self) -> Result<&SourceObjects> {
+        Err(refuse("execution.spells.f3_WorldObject_power_owner"))
+    }
+    fn power_is_unit(&mut self, caster: ObjectHandle) -> Result<bool> {
+        Ok(matches!(
+            self.power_objects()?.get(caster)?.kind,
+            SourceObjectKind::Player | SourceObjectKind::Creature | SourceObjectKind::Pet
+        ))
+    }
+    fn power_context(&mut self) -> Result<SpellPowerContext<'_>> {
+        Err(refuse("execution.spells.Unit_GetPower_fields_owner"))
+    }
+    fn power_health(&mut self, caster: ObjectHandle) -> Result<u32> {
+        self.power_context()?.health(caster)
+    }
+    fn power_current(&mut self, caster: ObjectHandle, ty: u32) -> Result<u32> {
+        self.power_context()?.current(caster, ty)
+    }
+    fn power_maximum(&mut self, caster: ObjectHandle, ty: u32) -> Result<u32> {
+        self.power_context()?.maximum(caster, ty)
+    }
+    fn power_level(&mut self, _caster: ObjectHandle) -> Result<u32> {
+        Err(refuse("execution.spells.CreatureStats_GetLevel_owner"))
+    }
+    fn power_rank(&mut self, caster: ObjectHandle, t: &SpellTemplate) -> Result<u32> {
+        if self.power_objects()?.get(caster)?.kind == SourceObjectKind::Player {
+            return Err(refuse("execution.spells.Player_GetSpellRank_skill_owner"));
+        }
+        Ok(creature_power_rank(self.power_level(caster)?, t))
+    }
+    fn power_create_health(&mut self, _caster: ObjectHandle) -> Result<u32> {
+        Err(refuse(
+            "execution.spells.CreatureStats_GetCreateHealth_owner",
+        ))
+    }
+    fn power_create_mana(&mut self, _caster: ObjectHandle) -> Result<u32> {
+        Err(refuse("execution.spells.CreatureStats_GetCreateMana_owner"))
+    }
+    fn power_flat_modifier(&mut self, _caster: ObjectHandle, _school: u32) -> Result<i32> {
+        Err(refuse(
+            "execution.spells.UNIT_FIELD_POWER_COST_MODIFIER_owner",
+        ))
+    }
+    fn power_mod_owner(&mut self, _caster: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        Err(refuse("execution.spells.Unit_GetSpellModOwner_cost_owner"))
+    }
+    fn apply_cost_mod(
+        &mut self,
+        _player: ObjectHandle,
+        _spell: u32,
+        _cost: i32,
+        _final_use: bool,
+    ) -> Result<i32> {
+        Err(refuse("execution.spells.Player_ApplySpellMod_COST_owner"))
+    }
+    fn power_multiplier(&mut self, _caster: ObjectHandle, _school: u32) -> Result<u32> {
+        Err(refuse(
+            "execution.spells.UNIT_FIELD_POWER_COST_MULTIPLIER_owner",
+        ))
+    }
+    fn caster_aura_flags(&mut self, caster: ObjectHandle) -> Result<u32> {
+        let c = self.power_context()?;
+        Ok(c.units.get(c.objects, caster)?.flags)
+    }
+    fn caster_charmer(&mut self, caster: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        let c = self.power_context()?;
+        Ok(c.units.get(c.objects, caster)?.charmer)
+    }
+    fn caster_auras(&mut self, _caster: ObjectHandle, _ty: u32) -> Result<&[SpellCasterAura]> {
+        Err(refuse(
+            "execution.spells.Unit_GetAurasByType_CheckCasterAuras_owner",
+        ))
+    }
     /// F3 objects supply actual identity, kind, map and pose.
     fn range_objects(&mut self) -> Result<&SourceObjects> {
         Err(refuse("execution.spells.f3_WorldObject_range_owner"))
@@ -285,6 +365,12 @@ pub trait SpellExecutionOwner {
         }
         if let SpellCheck::Range(strict) = check {
             return spell.check_range(t, strict, self);
+        }
+        if let SpellCheck::Power(strict) = check {
+            return spell.check_power(t, strict, self);
+        }
+        if check == SpellCheck::CasterAuras {
+            return spell.check_caster_auras(t, self);
         }
         Err(check.missing_owner())
     }

@@ -63,6 +63,14 @@ pub enum SpellCastResult {
     TooClose,
     UnitNotInfront,
     LineOfSight,
+    NoPower,
+    Charmed,
+    Stunned,
+    Silenced,
+    Pacified,
+    Fleeing,
+    Confused,
+    PreventedByMechanic,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SpellTargets {
@@ -155,6 +163,9 @@ pub struct SourceSpell {
     pub cast_time: i32,
     /// Spell.cpp:6275, binary32 bits, assigned only after CheckRange succeeds.
     pub max_range: u32,
+    /// Spell.cpp:6379 and :6051-6053, transient cost and cast-result parameter.
+    pub power_cost: u32,
+    pub param1: u32,
     pub timer: u32,
     pub delay_start: u64,
     pub delay_moment: u64,
@@ -211,6 +222,8 @@ impl SourceSpell {
             base_points,
             cast_time: 0,
             max_range: 0,
+            power_cost: 0,
+            param1: 0,
             timer: 0,
             delay_start: 0,
             delay_moment: 0,

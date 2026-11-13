@@ -1340,3 +1340,52 @@ fn unit_event_census_relation_gate_rejects_unlisted_tables() {
 }
 #[path = "db_scripts.rs"]
 mod db_scripts;
+
+#[cfg(test)]
+fn spell_power_census_relation(table: &str) -> Result<()> {
+    check(
+        table == "creature_template",
+        "scripts.spell_power_census_relation",
+    )
+}
+#[cfg(test)]
+impl VerifiedCatalog {
+    /// SQLStorages.cpp:21-22,45; Creature.h:89-94, Entry/MinLevel/MaxLevel are uint32.
+    pub(crate) fn spell_power_census_levels(&mut self, table: &str) -> Result<Vec<[u32; 3]>> {
+        spell_power_census_relation(table)?;
+        let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
+        let cols = columns(&schema, table)?;
+        let indices = ["Entry", "MinLevel", "MaxLevel"]
+            .map(|name| position(cols, name))
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?;
+        let mut rows = Vec::new();
+        self.scan(table, 0, 256, |row| {
+            let values = cells(&row)?;
+            let mut words = [0; 3];
+            for (word, &index) in words.iter_mut().zip(&indices) {
+                *word = spawns::uint(values[index])?;
+            }
+            rows.push(words);
+            Ok(())
+        })?;
+        Ok(rows)
+    }
+}
+#[cfg(test)]
+#[test]
+fn spell_power_census_relation_rejects_other_tables() {
+    spell_power_census_relation("creature_template").unwrap();
+    for table in [
+        "creature",
+        "spell_template",
+        "creature_template_classlevelstats",
+        "spawn_group",
+        "",
+    ] {
+        assert_eq!(
+            spell_power_census_relation(table).unwrap_err().id,
+            "scripts.spell_power_census_relation"
+        );
+    }
+}

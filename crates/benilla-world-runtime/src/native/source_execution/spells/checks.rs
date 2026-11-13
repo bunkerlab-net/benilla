@@ -268,9 +268,25 @@ impl SourceSpell {
         }
         if !self.flags.ignore_costs() && !self.flags.old_triggered() {
             check!(SpellCheck::Power(strict));
-            if !self.flags.ignore_caster_aura() {
-                check!(SpellCheck::CasterAuras);
-            }
+            check!(SpellCheck::CasterAuras);
+        }
+        self.check_cast_power_suffix(t, player, strict, owner)
+    }
+    // Spell.cpp:5163 onward. Also used for explicitly conditional census counts.
+    pub(super) fn check_cast_power_suffix(
+        &mut self,
+        t: &SpellTemplate,
+        player: bool,
+        strict: bool,
+        owner: &mut (impl SpellExecutionOwner + ?Sized),
+    ) -> Result<R> {
+        macro_rules! check {
+            ($c:expr) => {{
+                let r = owner.check(self, t, $c)?;
+                if r != R::Ok {
+                    return Ok(r);
+                }
+            }};
         }
         if self.flags.channel_only() {
             self.partial_application_mask = 7;

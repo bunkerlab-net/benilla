@@ -2428,3 +2428,28 @@ map-only substitute. Cast, target filling, and effects remain distinct
 named refusals. The catalog census reports static definition readiness
 separately from actual executions and never supplies fixture Units.
 Native format 91, NativeCapability, and frozen F1 evidence are unchanged.
+
+## Source spell power and caster auras
+
+`CheckCast` runs `CheckPower` before `CheckCasterAuras`,
+`Spell.cpp:5151-5161`. Power costs preserve unsigned SQL arithmetic,
+create-health/create-mana percentages, current-power comparisons, school
+modifiers, spellmods, binary32 scaling, and the final negative-cost clamp,
+`:6311-6401`. Signed flat-add overflow and undefined float-to-int
+conversions refuse at the operation.
+
+`SpellPowerContext` reads current health, mana, and energy from `SourceUnits`.
+`initialize_supported_creature` populates those fields through the existing
+SelectLevel resolver. Create values come from `InitializedCreature::stats`.
+Live rage, focus, and happiness lack native fields and refuse by name.
+Unbound level, spellmods, and school-cost aura modifiers also refuse.
+
+Caster checks preserve charm, stun, silence, pacify, fear, and confuse order,
+including empty-list cancellation and mechanic error parameters,
+`Spell.cpp:6005-6154`. Aura cancellation uses definition operands,
+`SpellMgr.h:399-439`, not supplied immunity results. The unused
+`mechanicCheck` lambda at `Spell.cpp:6039-6076` executes no checks.
+Missing aura lists never imply no auras. Catalog suffix counts distinguish
+reaches, passes, missing initialization bundles, and isolated no-aura probes.
+They are not live executions. Added spell fields are transient; format 91
+and the uninhabited NativeCapability remain unchanged.
