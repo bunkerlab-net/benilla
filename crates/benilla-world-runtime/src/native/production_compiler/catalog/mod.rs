@@ -34,6 +34,7 @@ pub use dbc::{diagnose_catalog_dbc, DbcView as CatalogDbcView};
 mod scripts;
 pub use scripts::diagnose_catalog_scripts;
 pub(crate) use scripts::{CatalogCreatureAiTemplate, CatalogScriptAiBinding};
+mod spell_areas;
 mod spells;
 pub use spells::diagnose_catalog_spells;
 mod content;

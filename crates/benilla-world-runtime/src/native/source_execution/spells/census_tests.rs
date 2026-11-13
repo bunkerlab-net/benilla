@@ -185,3 +185,134 @@ fn catalog04_spell_start_static_readiness_and_undefined_operands() {
         std::fs::write(path, serde_json::to_vec_pretty(&evidence).unwrap()).unwrap();
     }
 }
+#[test]
+fn catalog04_spell_area_and_first_cast_location_census() {
+    use SpellCastResult as R;
+    struct Missing;
+    impl SpellLoaderOwner for Missing {}
+    impl SpellLocationOwner for Missing {}
+    let Some(root) = std::env::var_os("BENILLA_F5_AI_CATALOG") else {
+        eprintln!("SKIP spell location census: BENILLA_F5_AI_CATALOG absent");
+        return;
+    };
+    let mut catalog = VerifiedCatalog::open(Path::new(&root), false).unwrap();
+    let s = SourceSpellStores::load(&mut catalog, &mut Missing).unwrap();
+    let mut loaded = 0;
+    let mut dropped = BTreeMap::<String, usize>::new();
+    let mut unresolved = BTreeMap::<String, usize>::new();
+    for row in &s.loads()["spell_area"] {
+        match &row.disposition {
+            SpellRowDisposition::Loaded => loaded += 1,
+            SpellRowDisposition::Skipped(reason) => {
+                *dropped.entry(reason.clone()).or_default() += 1
+            }
+            SpellRowDisposition::Refused(error) => {
+                *unresolved.entry(error.id.clone()).or_default() += 1
+            }
+        }
+    }
+    let config = EventAiLoaderConfig::recorded(
+        Path::new(
+            &std::env::var_os("BENILLA_F5_EVENT_AI_CONFIG").expect("recorded config required"),
+        ),
+        &Sha256Id::parse("321f2dc486e38f77037366bf84fb0ce8d09ed823ffa4524082ab01a8b0b79244")
+            .unwrap(),
+    )
+    .unwrap();
+    let rows = catalog_event_ai_rows(&mut catalog).unwrap();
+    let mut loader = EventAiCatalog::new(&mut catalog, config);
+    let mut total = 0;
+    let mut passed = 0;
+    let mut rejected = BTreeMap::<String, usize>::new();
+    let mut refused = BTreeMap::<String, usize>::new();
+    let mut next = BTreeMap::<String, usize>::new();
+    for row in rows {
+        let Ok(EventAiLoad {
+            disposition: EventAiDisposition::Loaded(e),
+            ..
+        }) = load_event_ai_row(&mut loader, row)
+        else {
+            continue;
+        };
+        let Some(action) = e.actions.iter().find(|a| [11, 52, 60].contains(&a.kind)) else {
+            continue;
+        };
+        if action.kind != 11 {
+            continue;
+        }
+        let id = action.params.unwrap()[0];
+        if s.script_binding(SpellScriptKind::Spell, id)
+            .and_then(|_| s.script_binding(SpellScriptKind::Aura, id))
+            .is_err()
+        {
+            continue;
+        }
+        let Some(t) = s.template(id) else { continue };
+        total += 1;
+        // Only definition-independent null-player paths are classified. No live
+        // pose, map or beneficiary is fabricated for these EventAI rows.
+        if s.areas(id).is_ok_and(|bounds| {
+            bounds.iter().any(|a| {
+                a.condition == 0
+                    && a.gender == 2
+                    && a.race_mask == 0
+                    && a.quest_start == 0
+                    && a.quest_end == 0
+                    && a.area != 0
+            })
+        }) {
+            *refused.entry("live_zone_area_required".into()).or_default() += 1;
+            continue;
+        }
+        match s.allowed_in_location(t, 0, 0, 0, None, &mut Missing) {
+            Ok(R::Ok) => {
+                passed += 1;
+                struct Suffix;
+                impl SpellExecutionOwner for Suffix {}
+                let p = action.params.unwrap();
+                // UnitAI.cpp:211-224; callers.rs maps these flags identically.
+                let mut flags = u32::from(p[2] & 2 != 0) | if p[2] & 0x40 != 0 { 4 } else { 0 };
+                if flags == 0 {
+                    flags = 0x100;
+                }
+                // Authored allocation only. The real suffix, not an assumed
+                // next check, classifies this conditional null-player path.
+                let caster = ObjectHandle {
+                    thread: 1,
+                    construction: 1,
+                };
+                let mut value =
+                    SourceSpell::new(1, t, caster, SpellTriggerFlags(flags), 0).unwrap();
+                value.script_present = s
+                    .script_binding(SpellScriptKind::Spell, id)
+                    .unwrap()
+                    .is_some();
+                let name = match value.check_cast_location_suffix(t, true, false, &mut Suffix) {
+                    Err(error) => error.id,
+                    Ok(R::Ok) => SpellCall::PrepareTriggerData.missing_owner().id,
+                    Ok(result) => panic!("unexpected static suffix result {result:?} for {id}"),
+                };
+                *next.entry(name).or_default() += 1;
+            }
+            Ok(result) => *rejected.entry(format!("{result:?}")).or_default() += 1,
+            Err(error) => *refused.entry(error.id).or_default() += 1,
+        }
+    }
+    assert_eq!(total, 7542);
+    let raw = catalog.execution_spell_area_rows("spell_area").unwrap();
+    let gender_ub = raw.iter().filter(|r| r.words[8] > 3).count();
+    let abs_candidates = raw.iter().filter(|r| r.words[6] == 0x80000000).count();
+    assert_eq!((gender_ub, abs_candidates), (0, 0));
+    let evidence = json!({
+        "basis":"static ownerless uncharmed creature/null beneficiary, not live cast execution",
+        "spell_area":{"rows":raw.len(),"loaded":loaded,"dropped":dropped,"unresolved":unresolved},
+        "first_cast_rows":total,"location_pass":passed,"source_rejected":rejected,
+        "location_refused":refused,"next":next,
+        "undefined_operand_candidates":{"gender":gender_ub,"abs":abs_candidates},
+        "actual_stock_executions":0,"format":91,
+    });
+    println!("F5_LOCATION {evidence}");
+    if let Some(path) = std::env::var_os("BENILLA_F5_SPELL_LOCATION_CENSUS") {
+        std::fs::write(path, serde_json::to_vec_pretty(&evidence).unwrap()).unwrap();
+    }
+}

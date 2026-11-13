@@ -48,6 +48,8 @@ pub enum SpellCastResult {
     TargetsDead,
     NotOnTaxi,
     NotMounted,
+    RequiresArea,
+    OnlyBattlegrounds,
     RequiresSpellFocus,
     Rooted,
     TargetNoWeapons,

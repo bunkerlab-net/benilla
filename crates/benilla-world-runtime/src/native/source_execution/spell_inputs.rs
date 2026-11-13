@@ -519,7 +519,6 @@ impl SourceSpellStores {
             "spell_proc_event",
             "spell_proc_item_enchant",
             "spell_script_target",
-            "spell_area",
             "spell_elixir",
             "spell_affect",
             "spell_learn_spell",
@@ -546,7 +545,25 @@ impl SourceSpellStores {
             stores.record("spell_scripts", ordinal, id, result);
             Ok(())
         })?;
+        // World.cpp:1140 runs this after quest/condition loading. External
+        // owners are queried here, not replaced by raw catalog membership.
+        stores.load_spell_areas(catalog, owner)?;
         Ok(stores)
+    }
+    /// SpellMgr.cpp:2078-2288, World.cpp:1140. Reuses the loaded area owner.
+    /// Call only after the external quest and condition owners are ready.
+    fn load_spell_areas(
+        &mut self,
+        catalog: &mut VerifiedCatalog,
+        owner: &mut impl SpellLoaderOwner,
+    ) -> Result<()> {
+        for row in catalog.execution_spell_area_rows("spell_area")? {
+            let values = row.words.map(serde_json::Value::from);
+            self.load_row("spell_area", row.ordinal, &values, owner);
+        }
+        // An empty query is still a loaded, complete negative owner.
+        self.loads.entry("spell_area").or_default();
+        Ok(())
     }
     pub(super) fn insert_template(&mut self, template: SpellTemplate) -> Result<()> {
         // SQLStorageImpl.h:317,394; SQLStorage.h:124-126. A wrapped extent
@@ -1028,3 +1045,7 @@ mod auxiliary;
 #[cfg(test)]
 #[path = "spell_inputs_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "spell_location_tests.rs"]
+mod location_tests;

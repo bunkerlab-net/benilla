@@ -1884,6 +1884,30 @@ Its validator checks retained chain order. These definitions are not
 serialized live Spell/Aura continuation. Native format 91, NativeCapability
 and frozen-unsealed F1 are unchanged.
 
+## Source spell location checks
+
+`SourceSpellStores` loads `spell_area` through a dedicated fixed-relation
+reader, after the other spell definitions. The existing loader preserves
+validation, duplicate and autocast-chain order, `SpellMgr.cpp:2078-2288`.
+External quest and condition owners must be ready at this late startup call,
+`World.cpp:1119-1120,1139-1140`; unresolved rows remain typed refusals.
+Catalog order is not evidence of a recorded SQL query order.
+
+`allowed_in_location` checks area alternatives before battleground attributes
+and special IDs, `SpellMgr.cpp:2290-2338`. Requirements preserve condition
+replacement, legacy gender/race/quest checks, area and signed aura order,
+`SpellMgr.cpp:2796-2854`. Missing live reads refuse at the reached call.
+`SpellLocationContext` binds the existing SpellCheck to the loaded stores
+and live objects/units. Unbound contexts retain the prior refusal.
+
+The player argument is a beneficiary, not always the caster,
+`Spell.cpp:5100-5101`, `Unit.cpp:6482-6493`. Ownerless, uncharmed creatures
+pass null. Charmer and owner lookups still refuse,
+`Unit.cpp:6714-6717`. The census reports static null-beneficiary readiness,
+not executed stock casts. Gender conversion and signed absolute-value
+undefined domains retain their guards, `SpellMgr.cpp:2115,2203`.
+No native format, NativeCapability or frozen F1 change is made.
+
 ## Source SpellTargetMgr
 
 `SourceSpellTargetMgr::initialize` consumes loaded `SourceSpellStores` after

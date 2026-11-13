@@ -4,6 +4,8 @@ use super::*;
 use std::collections::BTreeMap;
 mod callers;
 mod checks;
+mod location;
+pub use location::*;
 mod db_callers;
 mod events;
 mod start;
@@ -181,11 +183,18 @@ pub trait SpellExecutionOwner {
     }
     fn check(
         &mut self,
-        _spell: &mut SourceSpell,
-        _t: &SpellTemplate,
+        spell: &mut SourceSpell,
+        t: &SpellTemplate,
         check: SpellCheck,
     ) -> Result<SpellCastResult> {
+        if let SpellCheck::AllowedInLocation(location) = check {
+            return self.location_context()?.check(t, spell.caster, location);
+        }
         Err(check.missing_owner())
+    }
+    /// Spell.cpp:5100-5101. The binding supplies real Unit ownership state.
+    fn location_context(&mut self) -> Result<SpellLocationContext<'_>> {
+        Err(SpellCheck::AllowedInLocation([0; 2]).missing_owner())
     }
     fn call(&mut self, _spell: &mut SourceSpell, call: SpellCall) -> Result<()> {
         Err(call.missing_owner())

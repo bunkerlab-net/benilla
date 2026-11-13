@@ -226,7 +226,25 @@ impl SourceSpell {
                 r
             });
         }
-        if c.player {
+        self.check_cast_location_suffix(t, strict, c.player, owner)
+    }
+    // Shared by CheckCast and the definition-only post-location census.
+    pub(super) fn check_cast_location_suffix(
+        &mut self,
+        t: &SpellTemplate,
+        strict: bool,
+        player: bool,
+        owner: &mut (impl SpellExecutionOwner + ?Sized),
+    ) -> Result<R> {
+        macro_rules! check {
+            ($c:expr) => {{
+                let r = owner.check(self, t, $c)?;
+                if r != R::Ok {
+                    return Ok(r);
+                }
+            }};
+        }
+        if player {
             let live = owner.unit(self.caster)?;
             if live.mounted && !self.flags.old_triggered() && t.attributes & 0x01000040 == 0 {
                 return Ok(if live.taxi {
@@ -278,7 +296,7 @@ impl SourceSpell {
         if self.targets.mask & 0x1000 != 0 {
             check!(SpellCheck::Trade);
         }
-        if c.player && t.attributesex2 & 0x10000 != 0 {
+        if player && t.attributesex2 & 0x10000 != 0 {
             check!(SpellCheck::NoActivePets);
         }
         match t.id {
