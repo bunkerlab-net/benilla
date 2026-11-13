@@ -609,7 +609,7 @@
 - `test_catalog_scripts.py` — Authored script catalog and registration input cases for the CI suite.""" import hashlib import json from pathlib import Path import tempfile import t…
 - `test_catalog_spells.py` — Authored global spell/condition cases, imported by the exporter CI entrypoint.""" import tempfile from pathlib import Path import unittest from classi…
 - `verify-f05-privacy.py` — Compile actual F05 misuse probes in a disposable, offline checkout; never run tests."""
-- `verify-libtest-output.py` — Verify one serial, pretty-format libtest run from its stdout, not merged stderr."""
+- `verify-libtest-output.py` — Verify exact libtest output or classify Cargo's abnormal test-process exits."""
 - `verify-source-retention.py` — Fail closed unless the uploaded source artifact outlives the player download.
 - `vplsum.py` — Read a `vpl`/`bub` overlay trace and say where the motion came from: projection, solve or snap.
 - `api-coverage.sh` — Addon-API coverage: how much of the 1.12.1 client's global surface benilla's UI VM presents.

@@ -271,6 +271,8 @@ impl<'a> Owner<'a> {
             return Err(error);
         }
         if self.mode == Mode::RefusalsHistory && epoch == 5 && !retry {
+            let battery_start = Instant::now();
+            let phase_start = Instant::now();
             ledger
                 .probe_generated_flat_bindings_for_test(
                     provider,
@@ -283,8 +285,18 @@ impl<'a> Owner<'a> {
             eprintln!(
                 "resident generated-support source-only identity probes: decoded-context=Binding distinct-attempt-root=Binding native-terminal-mismatch=refused no-candidate=true no-scene=true"
             );
+            eprintln!(
+                "resident finite fifth timing: phase=identity elapsed-ms={}",
+                phase_start.elapsed().as_millis()
+            );
+            let phase_start = Instant::now();
             fixture::assert_source_order(ledger, provider, request, ticket);
             assert_eq!(ledger.diagnostic(), *self.root.as_ref().unwrap());
+            eprintln!(
+                "resident finite fifth timing: phase=source-order elapsed-ms={}",
+                phase_start.elapsed().as_millis()
+            );
+            let phase_start = Instant::now();
             super::source_route_resident_supported_clearance::probe(
                 ledger,
                 geometry,
@@ -295,6 +307,11 @@ impl<'a> Owner<'a> {
                 request,
             );
             assert_eq!(ledger.diagnostic(), *self.root.as_ref().unwrap());
+            eprintln!(
+                "resident finite fifth timing: phase=clearance elapsed-ms={} battery-elapsed-ms={}",
+                phase_start.elapsed().as_millis(),
+                battery_start.elapsed().as_millis()
+            );
         }
         if self.mode == Mode::RefusalsHistory && epoch == 6 && !retry {
             ledger

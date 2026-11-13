@@ -30,7 +30,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-const WAIT: Duration = Duration::from_secs(120);
+// Bound a deadlocked fixture owner, not the duration of its diagnostic battery.
+const OWNER_HANG_GUARD: Duration = Duration::from_secs(30 * 60);
 const CONFIG: Option<ResidentInitializationConfiguration> =
     Some(ResidentInitializationConfiguration::VmapHeightEnabled);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -98,13 +99,29 @@ impl Bridge {
         &self,
         make: impl FnOnce(Sender<Result<T, NativeError>>) -> Message,
     ) -> Result<T, NativeError> {
+        let hang_deadline = Instant::now() + OWNER_HANG_GUARD;
         let (send, receive) = bounded(1);
         self.0
-            .send_timeout(make(send), WAIT)
-            .map_err(|_| NativeError::AuthorityUnavailable("resident owner pump disconnected"))?;
-        receive
-            .recv_timeout(WAIT)
-            .map_err(|_| NativeError::AuthorityUnavailable("resident owner pump timed out"))?
+            .send_deadline(make(send), hang_deadline)
+            .map_err(|error| {
+                NativeError::AuthorityUnavailable(match error {
+                    crossbeam_channel::SendTimeoutError::Timeout(_) => {
+                        "resident owner pump hang guard"
+                    }
+                    crossbeam_channel::SendTimeoutError::Disconnected(_) => {
+                        "resident owner pump disconnected"
+                    }
+                })
+            })?;
+        // Owner unwind drops its reply sender, so disconnection still ends the exchange.
+        receive.recv_deadline(hang_deadline).map_err(|error| {
+            NativeError::AuthorityUnavailable(match error {
+                crossbeam_channel::RecvTimeoutError::Timeout => "resident owner pump hang guard",
+                crossbeam_channel::RecvTimeoutError::Disconnected => {
+                    "resident owner reply disconnected"
+                }
+            })
+        })?
     }
 }
 impl Authority for Bridge {
