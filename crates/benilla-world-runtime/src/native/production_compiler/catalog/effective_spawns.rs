@@ -223,36 +223,7 @@ impl VerifiedCatalog {
     ) -> Result<Vec<crate::native::source_execution::InstanceTemplateRow>> {
         use crate::native::source_execution::InstanceTemplateRow;
         let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
-        let mut names = BTreeSet::new();
-        let spec = &catalog_schema::POLICY["loaders"]["AI/ScriptDevAI/ScriptDevAIMgr:480"];
-        for relation in spec["relations"]
-            .as_array()
-            .ok_or_else(|| fail("scripts.query"))?
-        {
-            let table = relation.as_str().ok_or_else(|| fail("scripts.query"))?;
-            let index = position(&columns(&schema, table)?, "ScriptName")?;
-            self.scan(table, 0, 256, |row| {
-                let mut cells = [None; 256];
-                fill(&row, &mut cells)?;
-                if let Some(name) = cells[index].filter(|v| !v.is_empty()) {
-                    check(name.is_ascii(), "scripts.name_collation")?;
-                    names.insert(name.to_vec());
-                    check(names.len() * 256 <= DECODED, "scripts.view_limit")?;
-                }
-                Ok(())
-            })?;
-        }
-        let normalized: BTreeSet<_> = names
-            .iter()
-            .map(|v| v.trim_ascii_end().to_ascii_lowercase())
-            .collect();
-        check(normalized.len() == names.len(), "scripts.name_collation")?;
-        // ScriptDevAIMgr.cpp:479,515,532-544: empty name is zero; byte-sorted names follow.
-        let ids: BTreeMap<_, _> = names
-            .into_iter()
-            .enumerate()
-            .map(|(i, name)| (name, (i + 1) as u32))
-            .collect();
+        let ids = self.execution_script_name_ids(&schema)?;
         let cols = columns(&schema, "instance_template")?;
         // SQLStorages.cpp:34-35 defines this exact 11-column SELECT * layout.
         check(cols.len() == 11, "instance_templates.sql_layout")?;
@@ -288,5 +259,84 @@ impl VerifiedCatalog {
             )
         })?;
         Ok(output)
+    }
+    fn execution_script_name_ids(&mut self, schema: &Value) -> Result<BTreeMap<Vec<u8>, u32>> {
+        let mut names = BTreeSet::new();
+        let spec = &catalog_schema::POLICY["loaders"]["AI/ScriptDevAI/ScriptDevAIMgr:480"];
+        for relation in spec["relations"]
+            .as_array()
+            .ok_or_else(|| fail("scripts.query"))?
+        {
+            let table = relation.as_str().ok_or_else(|| fail("scripts.query"))?;
+            let index = position(&columns(schema, table)?, "ScriptName")?;
+            self.scan(table, 0, 256, |row| {
+                let mut cells = [None; 256];
+                fill(&row, &mut cells)?;
+                if let Some(name) = cells[index].filter(|v| !v.is_empty()) {
+                    check(name.is_ascii(), "scripts.name_collation")?;
+                    names.insert(name.to_vec());
+                    check(names.len() * 256 <= DECODED, "scripts.view_limit")?;
+                }
+                Ok(())
+            })?;
+        }
+        let normalized: BTreeSet<_> = names
+            .iter()
+            .map(|v| v.trim_ascii_end().to_ascii_lowercase())
+            .collect();
+        check(normalized.len() == names.len(), "scripts.name_collation")?;
+        // ScriptDevAIMgr.cpp:479,515,532-544: empty name is zero; byte-sorted names follow.
+        let ids: BTreeMap<_, _> = names
+            .into_iter()
+            .enumerate()
+            .map(|(i, name)| (name, (i + 1) as u32))
+            .collect();
+        Ok(ids)
+    }
+
+    /// SQLWorldLoader, ObjectMgr.cpp:5458-5481; map validity is checked by the caller.
+    pub(crate) fn execution_world_templates(&mut self) -> Result<Vec<(u32, u32)>> {
+        let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
+        let ids = self.execution_script_name_ids(&schema)?;
+        let cols = columns(&schema, "world_template")?;
+        let map = position(&cols, "map")?;
+        let script = position(&cols, "ScriptName")?;
+        let mut output = Vec::new();
+        self.scan("world_template", 0, 256, |row| {
+            let mut c = [None; 256];
+            fill(&row, &mut c)?;
+            let name = c[script]
+                .unwrap_or_default()
+                .split(|b| *b == 0)
+                .next()
+                .unwrap_or_default();
+            let id = if name.is_empty() {
+                0
+            } else {
+                *ids.get(name)
+                    .ok_or_else(|| fail("world_templates.script_name_owner"))?
+            };
+            output.push((uint(c[map])?, id));
+            check(output.len() <= DECODED / 8, "world_templates.view_limit")
+        })?;
+        Ok(output)
+    }
+
+    /// ObjectMgr.cpp:6789-6793,6808-6812. SQL MAX over an empty table yields NULL -> uint32 zero.
+    pub(crate) fn execution_continent_guid_maximum(&mut self, table: &str) -> Result<u32> {
+        check(
+            matches!(table, "creature" | "gameobject"),
+            "continents.operand_relation",
+        )?;
+        let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
+        let guid = position(&columns(&schema, table)?, "guid")?;
+        let mut maximum = 0;
+        self.scan(table, 0, 256, |row| {
+            let mut c = [None; 256];
+            fill(&row, &mut c)?;
+            maximum = maximum.max(uint(c[guid])?);
+            Ok(())
+        })?;
+        Ok(maximum)
     }
 }

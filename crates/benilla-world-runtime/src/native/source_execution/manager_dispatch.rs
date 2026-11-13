@@ -6,8 +6,6 @@ use super::*;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum MissingManagerOwner {
     F3SourceCutover,
-    /// MapManager.cpp:99 calls WorldMap before launching Map::Initialize at :106.
-    F3ContinentConstruction,
     F5MapSessions,
     F5PlayerUpdate,
     F5ScriptInitialization,
@@ -20,9 +18,6 @@ impl MissingManagerOwner {
     pub fn refusal(self) -> Refusal {
         refuse(match self {
             Self::F3SourceCutover => "execution.managers.f3_13.source_cutover_owner",
-            Self::F3ContinentConstruction => {
-                "execution.managers.f3_13.continent_construction_owner"
-            }
             Self::F5MapSessions => "execution.managers.f5.map_sessions_owner",
             Self::F5PlayerUpdate => "execution.managers.f5.player_update_owner",
             Self::F5ScriptInitialization => "execution.managers.f5.script_initialization_owner",
@@ -184,7 +179,7 @@ impl SourceManagerStartup {
     }
 }
 /// The caller is the real MapManager initializer job, not a new scheduler.
-/// The prelude (GUID seeds, grids, visibility and terrain AddRef) belongs to F3.13.
+/// SourceContinents owns the GUID/grid/visibility/TerrainInfo prelude before this phase dispatcher.
 pub struct SourceMapManagerStartup {
     map: MapIdentity,
     started: bool,

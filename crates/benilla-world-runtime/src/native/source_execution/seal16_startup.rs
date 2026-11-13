@@ -95,6 +95,14 @@ fn tm(p: &[&str]) -> Tm {
     }
 }
 #[derive(Default)]
+struct MapThreadEvidence {
+    initial: Option<benilla_sim::source_rng::MtState>,
+    first_word: Option<(u64, u64, u64)>,
+    before_sql: Vec<(u64, u64, u64)>,
+    sql_line: Option<u64>,
+    total_words: usize,
+}
+#[derive(Default)]
 pub(super) struct Inputs {
     query: Vec<u8>,
     pointer: String,
@@ -113,8 +121,46 @@ pub(super) struct Inputs {
     expected_sql: Vec<String>,
     map_births: usize,
     persistent_creations: Vec<(u32, u32)>,
+    map_identities: BTreeMap<u64, (u64, String)>,
+    map_bindings: BTreeMap<u32, (u64, u64, u64)>,
+    map_threads: BTreeMap<u64, MapThreadEvidence>,
 }
 impl Inputs {
+    pub(super) fn observe_thread(&mut self, thread: u64, line: u64, kind: &str, p: &[&str]) {
+        if kind == "logical_birth" && p[1] == "map" {
+            self.map_identities
+                .insert(p[0].parse().unwrap(), (line, p[4].into()));
+        }
+        if kind == "constructor_persistent_state" && p[1] == "used_map_binding" {
+            self.map_bindings
+                .insert(p[2].parse().unwrap(), (thread, p[4].parse().unwrap(), line));
+        }
+        if !matches!(thread, 6 | 7) {
+            return;
+        }
+        let evidence = self.map_threads.entry(thread).or_default();
+        match kind {
+            "mt_state" => {
+                assert!(evidence.initial.is_none());
+                evidence.initial = Some(benilla_sim::source_rng::MtState {
+                    words: std::array::from_fn(|i| p[i + 1].parse().unwrap()),
+                    index: p[625].parse().unwrap(),
+                });
+            }
+            "mt_raw" => {
+                let word = (line, p[1].parse().unwrap(), p[2].parse().unwrap());
+                evidence.first_word.get_or_insert(word);
+                if evidence.sql_line.is_none() {
+                    evidence.before_sql.push(word);
+                }
+                evidence.total_words += 1;
+            }
+            "sql_request_bytes" => {
+                evidence.sql_line.get_or_insert(line);
+            }
+            _ => (),
+        }
+    }
     pub(super) fn observe(&mut self, kind: &str, p: &[&str]) {
         match kind {
             "logical_birth" if p[1] == "map" => self.map_births += 1,
@@ -334,13 +380,6 @@ struct Owner<'a> {
     engine: &'a mut Mt19937,
     cursor: &'a mut DrawCursor,
     raw: Vec<(u64, u64)>,
-}
-impl Owner<'_> {
-    fn initialize_continents(&mut self) -> Result<()> {
-        // World.cpp:1389 -> MapManager.cpp:99. F3.13 owns the missing Map constructor/prelude.
-        // MapManager.cpp:106 runs later InitPools on each async thread, never this world RNG.
-        Err(MissingManagerOwner::F3ContinentConstruction.refusal())
-    }
 }
 impl GameEventOwner for Owner<'_> {
     fn clock(&mut self, site: EventClockSite) -> Result<ClockSample> {
@@ -691,6 +730,7 @@ pub(super) fn continue_startup(
     pools: SourcePoolManager,
     event_occurrences: &Path,
     mut observed: Inputs,
+    geometry: &mut SourceTerrainManager,
     engine: &mut Mt19937,
     cursor: &mut DrawCursor,
     next_word: (u64, u64),
@@ -871,23 +911,100 @@ pub(super) fn continue_startup(
             &mut persistent,
         )
         .unwrap();
-    // Refuse the first unavailable call before World.cpp:1416 can initialize events.
-    if let Err(refusal) = owner.initialize_continents() {
+    let config = std::fs::read(recording.join("mangosd.conf")).unwrap();
+    let continent_config = ContinentConfig::parse(&config).unwrap();
+    let definitions = ContinentDefinitions::load(catalog, &inputs.maps, &config).unwrap();
+    let temporary_starts = definitions.temporary_starts;
+    let script_ids = &definitions.script_ids;
+    let mut ignore_constructor_trace = |_| {};
+    let mut random = SourceRandom::new(
+        1,
+        &mut *owner.engine,
+        &mut *owner.cursor,
+        &mut ignore_constructor_trace,
+    )
+    .unwrap();
+    let mut continents = SourceContinents::construct(
+        definitions.entries,
+        GuidMaximum::Value(initial.maximum_instance_id()),
+        geometry,
+        &continent_config,
+        &mut random,
+    )
+    .unwrap();
+    assert_eq!(random.cursor().raw, 8712); // Both TerrainInfo objects already exist.
+    assert_eq!(continents.max_instance_id, 0); // MAX(id) is NULL at trace:60100919.
+    for map in &continents.maps {
+        assert!(owner
+            .loaded_maps
+            .insert((map.identity.map, 0), map.identity)
+            .is_none());
+    }
+    assert_eq!(owner.loaded_maps.len(), observed.map_births);
+    assert_eq!(observed.map_births, 2);
+    assert_eq!(observed.map_bindings[&0], (6, 4294967667, 60101188));
+    assert_eq!(observed.map_bindings[&1], (7, 4294967669, 60117267));
+    assert_eq!(observed.map_identities[&4294967667].0, 60100929);
+    assert_eq!(observed.map_identities[&4294967669].0, 60100933);
+    // These independent preludes commute. No script, SQL, pool, MMap lock or shared-manager
+    // mutation is executed in either job. This is not an ordering of the two initializers.
+    for map in &mut continents.maps {
+        map.initialize_prelude(temporary_starts, geometry, &continent_config)
+            .unwrap();
+        assert!(map.prelude_complete());
+        assert_eq!(map.visibility.to_bits(), 100.0f32.to_bits());
+        assert_eq!(geometry.terrain(map.identity.map).unwrap().references(), 1);
+        assert!(map.persistent.is_none() && map.variables.is_empty() && !map.spawn_updated);
+        for y in 0..64 {
+            for x in 0..64 {
+                assert!(!map.grid_loaded(x, y).unwrap());
+                assert!(map.cells.grids.identity(x, y).is_none());
+            }
+        }
+    }
+    assert_eq!(
+        observed.map_threads[&6].before_sql,
+        [(60100952, 0, 2440933613), (60100962, 1, 3174165029)]
+    );
+    assert!(observed.map_threads[&7].before_sql.is_empty());
+    assert_eq!(observed.map_threads[&6].sql_line, Some(60100980));
+    assert_eq!(observed.map_threads[&7].sql_line, Some(60101153));
+    for (slot, thread, first_line, first_word) in
+        [(0, 6, 60100952, 2440933613), (1, 7, 60117712, 159038541)]
+    {
+        let evidence = &observed.map_threads[&thread];
+        let stream = Mt19937::from_state(evidence.initial.clone().unwrap()).unwrap();
+        let mut cursor = DrawCursor::default();
+        let mut trace = Vec::new();
+        let mut sink = |event| trace.push(event);
+        let mut engine = stream;
+        let random = SourceRandom::new(thread, &mut engine, &mut cursor, &mut sink).unwrap();
+        let script_id = script_ids[&(slot as u32)];
+        assert_ne!(script_id, 0);
+        let refusal = continents.maps[slot]
+            .create_instance_data(script_id)
+            .unwrap_err();
         assert_eq!(
-            refusal.id,
-            "execution.managers.f3_13.continent_construction_owner"
+            refusal,
+            MissingManagerOwner::F5InstanceInitialization.refusal()
         );
+        assert_eq!(random.cursor().raw, 0);
+        assert!(trace.is_empty());
+        assert_eq!(evidence.first_word, Some((first_line, 0, first_word)));
+        // Clone-only stream projection, not execution of the missing script/pool caller.
+        assert_eq!(u64::from(engine.clone().next_u32()), first_word);
+    }
+    if continents.maps.iter().any(|map| map.script_id != 0) {
+        let refusal = MissingManagerOwner::F5InstanceInitialization.refusal();
         assert!(!events.inventory().initialized);
-        assert!(owner.loaded_maps.is_empty());
-        assert!(owner.sql.is_empty());
-        assert!(owner.raw.is_empty());
+        assert!(owner.sql.is_empty() && owner.raw.is_empty());
         assert_eq!(owner.cursor.raw, 8712);
-        assert_eq!(owner.cursor.raw, next_word.0);
-        println!("F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} event_definition_rows={} event_creature_rows={} event_gameobject_rows={} pool_shuffles=0 pool_results=0 event_initialization_reached=false next_owner={} next_source=MapManager.cpp:99 caller=World.cpp:1389 planned_next_raw={} planned_next_word={} clone_next_word_checked=false",owner.cursor.raw,event_load_counts[1],event_load_counts[2],event_load_counts[3],refusal.id,next_word.0,next_word.1);
+        assert_eq!(next_word, (8712, 3411341330));
+        assert_eq!(u64::from(owner.engine.clone().next_u32()), next_word.1);
+        println!("F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} maps_born=2 maps=[0,1] map_birth_lines=[60100929,60100933] map_threads=[6,7] matched_map_thread_words=[0,0] prelude_complete=[true,true] matched_map_sql=0 matched_status_writes=0 pool_shuffles=0 pool_results=0 event_initialization_reached=false next_owner={} next_source=Map.cpp:1679 caller=Map.cpp:190 next_raw={} next_word={} clone_next_word_checked=true",owner.cursor.raw,refusal.id,next_word.0,next_word.1);
         return;
     }
     let initial_status = owner.status.iter().copied().collect::<Vec<_>>();
-    let config = std::fs::read(recording.join("mangosd.conf")).unwrap();
     let announce = super::super::spawn_loader_config::assignment(&config, "Event.Announce")
         .unwrap()
         .1
@@ -938,4 +1055,26 @@ pub(super) fn continue_startup(
     assert_eq!(next, next_word.1);
     let refusal = refuse("execution.world_state.startup_owner");
     println!("F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} event_definitions={} event7_clock_bound=true actual_sine_dispatch_bound=true event27_active=false pool_shuffles=0 pool_results=0 matched_status_writes={} persistent_states={} event_delay_ms={delay} next_raw={} next_word={next} next_owner={} next_source=WorldState.cpp:605",owner.cursor.raw,events.inventory().definitions.len(),owner.sql.len(),owner.states.inventories().len(),next_word.0,refusal.id);
+}
+
+#[test]
+fn map_thread_evidence_keeps_raw_positions_and_pre_sql_boundaries_independent() {
+    let mut inputs = Inputs::default();
+    inputs.observe_thread(6, 11, "mt_raw", &["engine6", "0", "42"]);
+    inputs.observe_thread(7, 12, "sql_request_bytes", &[]);
+    inputs.observe_thread(7, 13, "mt_raw", &["engine7", "0", "19"]);
+    inputs.observe_thread(6, 14, "mt_raw", &["engine6", "1", "99"]);
+    inputs.observe_thread(6, 15, "sql_request_bytes", &[]);
+    inputs.observe_thread(6, 16, "mt_raw", &["engine6", "2", "3"]);
+    assert_eq!(
+        inputs.map_threads[&6].before_sql,
+        [(11, 0, 42), (14, 1, 99)]
+    );
+    assert!(inputs.map_threads[&7].before_sql.is_empty());
+    assert_eq!(inputs.map_threads[&6].first_word, Some((11, 0, 42)));
+    assert_eq!(inputs.map_threads[&7].first_word, Some((13, 0, 19)));
+    assert_eq!(inputs.map_threads[&6].total_words, 3);
+    assert_eq!(inputs.map_threads[&7].total_words, 1);
+    assert_eq!(inputs.map_threads[&6].sql_line, Some(15));
+    assert_eq!(inputs.map_threads[&7].sql_line, Some(12));
 }

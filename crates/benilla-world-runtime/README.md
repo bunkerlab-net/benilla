@@ -2340,16 +2340,21 @@ independently, `benilla-config/pool-startup/seal16-event-order-analysis.json`.
 
 The comparison loads persistent state from the hash-checked reset snapshot,
 using captured database-clock inputs for cleanup. It matches 5,324 spawn
-selections and all 8,712 world-thread words, then refuses
-`execution.managers.f3_13.continent_construction_owner` at
-`World.cpp:1389 -> MapManager.cpp:99`. F3.13 still owns WorldMap construction
-and the map initializer prelude, `manager_dispatch.rs:186-187`.
-`MapManager.cpp:106` launches initialization on separate async threads;
-their pool draws must never consume the continuing world-thread engine.
-The frozen comparison no longer reaches event initialization at
-`World.cpp:1416`, event-27/status/quest comparisons, map-birth comparisons,
-or the planned WorldState refusal and clone-only next-word check
-`(8712,3411341330)`. Those checks remain after the named cutoff.
+selections and all 8,712 world-thread words. `SourceContinents` constructs
+maps 0 and 1, then runs their independent GUID/grid/visibility/TerrainInfo
+preludes, `Map.cpp:155-189`. Both TerrainInfo objects already exist, so the
+constructors draw nothing. Each map references its terrain once.
+The map births match trace lines 60100929 and 60100933.
+
+Both initializers refuse `execution.managers.f5.instance_initialization_owner`
+at `Map.cpp:190,1679`. No script, map-thread RNG, SQL, pool initialization,
+MMap lock, or later manager step runs. Thread 6 belongs to map 0 and has two
+captured script words before SQL. Thread 7 belongs to map 1 and has none.
+Their captured streams remain independent at cursor zero. The comparison
+does not assign an order to the two initializers.
+The world-thread clone-only next-word check matches `(8712,3411341330)`.
+Event initialization, status/quest comparisons, and the WorldState cutoff
+remain beyond the reached F5 refusal. Seal8 keeps its earlier lunar refusal.
 These comparisons do not admit gameplay or create sealed F1 lineage.
 
 The shared AREA

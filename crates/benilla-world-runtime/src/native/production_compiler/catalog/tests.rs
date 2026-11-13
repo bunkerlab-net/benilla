@@ -678,3 +678,59 @@ fn waypoint_reader_rejects_relations_outside_its_own_loader_list() {
         "scripts.event_ai_relation"
     );
 }
+
+#[test]
+fn continent_maximum_reader_is_raw_bounded_and_does_not_widen_other_readers() {
+    for table in ["creature", "gameobject"] {
+        let fixture = Fixture::named(
+            table,
+            "guid",
+            vec![
+                (b"4".to_vec(), None),
+                (b"91".to_vec(), None),
+                (b"7".to_vec(), None),
+            ],
+        );
+        let mut catalog = fixture.open().unwrap();
+        assert_eq!(catalog.execution_continent_guid_maximum(table).unwrap(), 91);
+        assert_eq!(
+            catalog
+                .execution_continent_guid_maximum("world_template")
+                .unwrap_err()
+                .id,
+            "continents.operand_relation"
+        );
+        assert_eq!(
+            catalog
+                .execution_effective_spawn_operands::<1>(table, ["guid"])
+                .unwrap_err()
+                .id,
+            "effective_spawns.operand_relation"
+        );
+        let empty = Fixture::named(table, "guid", Vec::new());
+        assert_eq!(
+            empty
+                .open()
+                .unwrap()
+                .execution_continent_guid_maximum(table)
+                .unwrap(),
+            0
+        );
+    }
+}
+
+#[test]
+fn continent_definition_binding_refuses_missing_maps_before_catalog_reads() {
+    use crate::native::source_execution::ContinentDefinitions;
+    let fixture = Fixture::named("creature", "guid", Vec::new());
+    let mut catalog = fixture.open().unwrap();
+    for maps in [BTreeMap::new(), BTreeMap::from([(0, 0)])] {
+        assert_eq!(
+            ContinentDefinitions::load(&mut catalog, &maps, b"")
+                .err()
+                .unwrap()
+                .id,
+            "execution.continents.map_entry_missing"
+        );
+    }
+}

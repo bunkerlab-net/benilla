@@ -225,6 +225,10 @@ impl<'a> ManagerInitialInputs<'a> {
     pub fn instance(&self, id: u32) -> Option<&InitialInstanceRow> {
         self.rows.instances.get(&id)
     }
+    /// MapManager.cpp:265-273, SELECT MAX(id) FROM instance. SQL NULL converts to zero.
+    pub fn maximum_instance_id(&self) -> u32 {
+        self.rows.instances.keys().next_back().copied().unwrap_or(0)
+    }
     #[cfg(test)]
     pub(super) fn authored(raw: &[u8], binding: ManagerExecutionBinding) -> Result<Self> {
         let rows = CharacterRelations::parse(raw)?;
@@ -360,6 +364,14 @@ pub(super) mod tests {
                 1062,
                 "MapPersistentStateManager::LoadGameobjectRespawnTimes",
             ),
+        }
+    }
+    #[test]
+    fn maximum_instance_id_uses_the_bound_snapshot_and_empty_max_converts_to_zero() {
+        for (rows, expected) in [("", 0), ("(3,0,0,0,''),(42,1,0,0,''),(7,0,0,0,'')", 42)] {
+            let raw = snapshot("", "", rows);
+            let inputs = ManagerInitialInputs::authored(&raw, binding()).unwrap();
+            assert_eq!(inputs.maximum_instance_id(), expected);
         }
     }
     #[test]

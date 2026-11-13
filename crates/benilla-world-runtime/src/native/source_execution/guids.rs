@@ -185,13 +185,7 @@ impl GlobalGuidAllocators {
             map.creation_generation > 0 && self.created_maps.insert(map),
             "execution.guid_map_generation",
         )?;
-        Ok(MapGuidAllocators {
-            map,
-            creatures: GuidGenerator::new(HighGuid::Creature, self.temporary_creature),
-            gameobjects: GuidGenerator::new(HighGuid::GameObject, self.temporary_gameobject),
-            dynamic_objects: GuidGenerator::new(HighGuid::DynamicObject, 1),
-            pets: GuidGenerator::new(HighGuid::Pet, 1),
-        })
+        MapGuidAllocators::from_temporary_starts(map, self.temporary_starts())
     }
 }
 pub struct MapGuidAllocators {
@@ -202,6 +196,17 @@ pub struct MapGuidAllocators {
     pets: GuidGenerator,
 }
 impl MapGuidAllocators {
+    /// ObjectMgr's first temporary GUIDs, copied by Map.cpp:172-173 without incrementing.
+    pub fn from_temporary_starts(map: MapIdentity, starts: (u32, u32)) -> Result<Self> {
+        require(map.creation_generation > 0, "execution.guid_map_generation")?;
+        Ok(Self {
+            map,
+            creatures: GuidGenerator::new(HighGuid::Creature, starts.0),
+            gameobjects: GuidGenerator::new(HighGuid::GameObject, starts.1),
+            dynamic_objects: GuidGenerator::new(HighGuid::DynamicObject, 1),
+            pets: GuidGenerator::new(HighGuid::Pet, 1),
+        })
+    }
     pub fn map(&self) -> MapIdentity {
         self.map
     }

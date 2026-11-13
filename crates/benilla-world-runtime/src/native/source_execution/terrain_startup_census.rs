@@ -172,14 +172,17 @@ fn frozen_startup(later: bool) {
     let mut next_rng = None;
     let next_rng_word;
     let mut line = String::new();
+    let mut trace_line = 0;
     loop {
         line.clear();
         assert!(
             reader.read_line(&mut line).unwrap() != 0,
             "missing WorldState boundary"
         );
+        trace_line += 1;
         let mut fields = line.trim_end().splitn(4, '\t');
-        if fields.next() != Some("1") {
+        let thread = fields.next().unwrap().parse::<u64>().unwrap();
+        if thread != 1 && !(later && matches!(thread, 6 | 7)) {
             continue;
         }
         let _seq = fields.next().unwrap();
@@ -189,6 +192,12 @@ fn frozen_startup(later: bool) {
             .unwrap()
             .split_whitespace()
             .collect::<Vec<_>>();
+        if later {
+            event_inputs.observe_thread(thread, trace_line, kind, &p);
+        }
+        if thread != 1 {
+            continue;
+        }
         if later {
             event_inputs.observe(kind, &p);
         }
@@ -546,6 +555,7 @@ fn frozen_startup(later: bool) {
             pools,
             Path::new(&event_occurrences),
             event_inputs,
+            &mut geometry,
             &mut mt,
             &mut cursor,
             next_rng_word.unwrap(),
