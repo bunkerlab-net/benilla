@@ -718,7 +718,12 @@ fn real_catalog_spell_census_or_explicit_absence() {
     let evidence = json!({"catalog_sha256":catalog.execution_identity()["catalog_sha256"],"stores":summary,"guards":guards,"inventory":s.inventory(),"proc_roots_adding":adding_roots,"event_ai":{"dependent":dependent,"met":met,"blocked":blocked}});
     if let Some(path) = std::env::var_os("BENILLA_F5_SPELL_CENSUS_OUTPUT") {
         let path = Path::new(&path);
-        assert!(path.starts_with("/home/robbie/Work/benilla/benilla-config/"));
+        let private_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .unwrap()
+            .join("benilla-config");
+        assert!(path.starts_with(private_root));
         std::fs::write(path, serde_json::to_vec_pretty(&evidence).unwrap()).unwrap();
     }
 }

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 from pathlib import Path
 
-ASSIGNED = Path('/home/robbie/Work/benilla/benilla-config/full-server/f6/trig-fma')
+ASSIGNED = Path(__file__).resolve().parents[3] / 'benilla-config/full-server/f6/trig-fma'
 
 
 def create_evidence(child, assigned):

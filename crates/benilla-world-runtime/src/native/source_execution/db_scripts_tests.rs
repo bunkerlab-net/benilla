@@ -702,7 +702,12 @@ fn retained_catalog_db_scripts_counts_or_explicit_absence() {
     );
     if let Some(path) = std::env::var_os("BENILLA_F5_DB_SCRIPT_CENSUS_OUTPUT") {
         let path = Path::new(&path);
-        assert!(path.starts_with("/home/robbie/Work/benilla/benilla-config/"));
+        let private_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .unwrap()
+            .join("benilla-config");
+        assert!(path.starts_with(private_root));
         std::fs::write(path, serde_json::to_vec_pretty(&census).unwrap()).unwrap();
     }
 }

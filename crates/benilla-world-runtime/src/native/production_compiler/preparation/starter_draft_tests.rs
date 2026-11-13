@@ -97,7 +97,11 @@ fn private_human_mage_starter_draft_and_python_parity() {
     let dbc_path = path("BENILLA_STARTER_DBC");
     let preparation_path = path("BENILLA_STARTER_PREPARATION");
     let evidence_path = path("BENILLA_STARTER_EVIDENCE");
-    let private_root = PathBuf::from("/home/robbie/Work/benilla/benilla-config")
+    let private_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .unwrap()
+        .join("benilla-config")
         .canonicalize()
         .unwrap();
     assert!(evidence_path
