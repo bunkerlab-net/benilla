@@ -10,6 +10,7 @@ use std::{
     sync::Arc,
     time::Instant,
 };
+mod creature_level;
 mod reader;
 mod spawns;
 mod startup_items;

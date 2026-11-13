@@ -193,6 +193,10 @@ impl<'a, E: RawGenerator, S: FnMut(TraceEvent)> SourceRandom<'a, E, S> {
             parent: None,
         })
     }
+    /// Logical source thread owning this continuing engine and cursor.
+    pub fn stream(&self) -> u64 {
+        self.stream
+    }
 
     pub fn cursor(&self) -> DrawCursor {
         *self.cursor

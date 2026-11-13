@@ -241,6 +241,9 @@ impl CreatureConstruction {
 }
 /// Borrow the calling engine without result inputs; Util.cpp:68-96.
 pub trait CreatureRandom {
+    fn creature_stream(&self) -> Result<u64> {
+        Err(refuse("execution.creature.SelectLevel_urand_thread_owner"))
+    }
     fn creature_irand(&mut self, min: i32, max: i32) -> Result<i32>;
     fn creature_urand(&mut self, min: u32, max: u32) -> Result<u32>;
     fn creature_urand_default(&mut self) -> Result<u32> {
@@ -248,6 +251,9 @@ pub trait CreatureRandom {
     }
 }
 impl<E: RawGenerator, S: FnMut(TraceEvent)> CreatureRandom for SourceRandom<'_, E, S> {
+    fn creature_stream(&self) -> Result<u64> {
+        Ok(self.stream())
+    }
     fn creature_irand(&mut self, min: i32, max: i32) -> Result<i32> {
         self.irand(min, max)
             .map_err(|_| refuse("execution.creature.irand"))
@@ -632,9 +638,15 @@ where
     )?;
     let [min, max] = state.template.levels;
     state.level = if min == max {
-        min
+        draw_source_creature_level([min, max], None)?
     } else {
-        factory.creature_random()?.creature_urand(min, max)?
+        let thread = factory.creature_thread();
+        let random = factory.creature_random()?;
+        require(
+            random.creature_stream()? == thread,
+            "execution.creature.SelectLevel_urand_thread_mismatch",
+        )?;
+        draw_source_creature_level([min, max], Some(random))?
     };
     state.rolls.level = (min != max).then_some(state.level);
     factory.creature_phase(CreaturePhase::SelectLevelStats, &mut state, context)?;

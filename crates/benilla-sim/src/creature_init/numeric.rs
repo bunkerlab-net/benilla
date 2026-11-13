@@ -4,6 +4,9 @@ use super::*;
 use crate::npc_melee::{creature_damage_range, CreatureDamageInputs};
 use rustc_apfloat::{ieee::Single, Float, Round, Status, StatusAnd};
 const R: Round = Round::NearestTiesToEven;
+#[path = "source_level.rs"]
+mod source_level;
+pub use source_level::*;
 fn checked<T>(value: StatusAnd<T>) -> Result<T> {
     if !(value.status & !Status::INEXACT).is_empty() {
         return Err(InitError::Numeric("software binary32 exception"));
@@ -92,6 +95,20 @@ fn nonnegative(value: SpellFloat, name: &'static str) -> Result<()> {
 fn bonus(value: Single, coefficient: u32) -> Result<Single> {
     let base = value.min(n(20)?);
     add(base, mul(sub(value, base)?, n(coefficient)?)?)
+}
+// StatSystem.cpp:812-817,195-200. Both creation paths share the source
+// expression order; their integer-domain guards remain separate.
+fn initial_max_health(health: u32, multiplier: Single, stamina_bonus: Single) -> Result<Single> {
+    round(
+        add(
+            mul(n(health)?, multiplier)?,
+            mul(stamina_bonus, multiplier)?,
+        )?
+        .max(n(1)?),
+    )
+}
+fn initial_max_mana(mana: u32, multiplier: Single, intellect_bonus: Single) -> Result<Single> {
+    round(mul(add(n(mana)?, intellect_bonus)?, multiplier)?)
 }
 fn interpolate(level: u8, t: &Template, a: u32, b: u32) -> Result<u32> {
     let relative = if t.minimum_level == t.maximum_level {
@@ -224,12 +241,10 @@ pub(super) fn stats(
     };
     let create_health = uint(mul(n(health)?, sf(rates.normal_health))?)?.max(1);
     let stamina_bonus = sub(bonus(n(attrs[2])?, 10)?, bonus(sf(create[2]), 10)?)?;
-    let max_health = uint(round(
-        add(
-            mul(n(create_health)?, health_multiplier)?,
-            mul(stamina_bonus, health_multiplier)?,
-        )?
-        .max(n(1)?),
+    let max_health = uint(initial_max_health(
+        create_health,
+        health_multiplier,
+        stamina_bonus,
     )?)?;
     let intellect_bonus = if mana > 0 {
         bonus(n(attrs[3])?, 15)?
@@ -242,10 +257,7 @@ pub(super) fn stats(
     } else {
         n(1)?
     };
-    let max_mana = uint(round(mul(
-        add(n(mana)?, intellect_bonus)?,
-        mana_multiplier,
-    )?)?)?;
+    let max_mana = uint(initial_max_mana(mana, mana_multiplier, intellect_bonus)?)?;
     let effective_armor = uint(add(armor, mul(n(attrs[1])?, n(2)?)?)?)?;
     // UpdateAllStats first visits strength while a fresh creature's agility is
     // still zero. Reject a negative/overflowed transient rogue AP cast even if

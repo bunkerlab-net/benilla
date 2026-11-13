@@ -15,6 +15,44 @@ respawn draw/corpse cap. `regenerate_out_of_combat` is a narrowly named live-sta
 projection; a caller must enforce its alive/out-of-combat/no-modifier domain.
 These helpers do not mutate world state, consume an RNG or perform I/O.
 
+## Source construction level and vitals
+
+`load_source_class_level` executes `ObjectMgr.cpp:763-782` once per loaded row.
+`select_level_stats` then executes `Creature.cpp:1265-1489` without the ordinary
+kernel's rank, flight, level-20, or one-million-integer restrictions.
+It shares software binary32 arithmetic with `numeric.rs`.
+It preserves independent damage and armor fallbacks, unsigned health/mana
+sentinels, and the integer-division order for forced legacy levels.
+Undefined conversions and array accesses refuse at named source operations.
+The existing ordinary-kernel policy and its serialized receipts do not change.
+
+The runtime `CreatureLevelDefinitions` reads only `creature_template` and
+`creature_template_classlevelstats` through its own fixed relation reader.
+Template levels and classes follow `ObjectMgr.cpp:453-480`.
+Rank HP and damage rates come from a hash-verified recorded configuration,
+`Creature.cpp:1492-1527`, not hard-coded normal-rank rates.
+`SourceLevelStats::apply_spawn` applies `Creature.cpp:526-536`.
+Current health and mana clamp to their computed maxima.
+
+`CreatureFactoryOwner` executes model and gender selection before
+`SelectLevel`, `Creature.cpp:346-353,523,1279`.
+The level draw borrows the existing calling thread's engine and cursor.
+Its stream must match `creature_thread()` before the draw.
+Equal levels request no stream and consume no words.
+Varying levels preserve all `SourceRandom` rejection words.
+Flight does not change SelectLevel arithmetic.
+The earlier levitation and swimming calls still require their real owners,
+`Creature.cpp:435-452`.
+
+Event/group selection, model selection, equipment, and terrain execute before
+the level callback, `Creature.cpp:320-452,1602-1610,1637-1676`.
+The resolver uses the construction's effective entry and consumed level.
+It does not manufacture those earlier callbacks from SQL rows.
+The catalog census measures arithmetic alternatives, not completed constructions
+or current resources for an unbound EventAI caster.
+
+## Bounded initialization receipts
+
 `Plan::resolve_with_model_receipt` returns the same public arithmetic result plus
 an immutable, Serialize-only `ModelSelectionReceipt`; existing `resolve` delegates
 and discards the receipt. Its model-only projection retains raw template choices

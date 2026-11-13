@@ -8,6 +8,12 @@ mod addon;
 mod equipment;
 mod model_receipt;
 mod numeric;
+pub use numeric::{
+    load_source_class_level, select_level_stats, SourceClassLevelRow, SourceLevelRates,
+    SourceLevelStats, SourceLevelTemplate,
+};
+#[cfg(test)]
+mod select_level_tests;
 #[cfg(test)]
 mod source_retention_tests;
 mod strings;

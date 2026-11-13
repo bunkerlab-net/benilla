@@ -80,6 +80,8 @@ mod clock;
 mod compare;
 mod creatures;
 pub use creatures::*;
+mod creature_level;
+pub use creature_level::*;
 mod seal8_creatures;
 pub use seal8_creatures::{
     compare_seal8_unsealed_creatures, CreatureConstructorDifference, Seal8CreatureReport,

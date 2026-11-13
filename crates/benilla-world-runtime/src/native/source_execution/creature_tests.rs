@@ -80,6 +80,7 @@ struct Random {
     mt: Mt19937,
     cursor: DrawCursor,
     events: Vec<TraceEvent>,
+    stream: Option<u64>,
 }
 impl Random {
     fn new() -> Self {
@@ -87,21 +88,32 @@ impl Random {
             mt: Mt19937::from_seed(5489),
             cursor: DrawCursor::default(),
             events: vec![],
+            stream: Some(2),
         }
     }
 }
 impl CreatureRandom for Random {
+    fn creature_stream(&self) -> Result<u64> {
+        self.stream
+            .ok_or_else(|| refuse("execution.creature.SelectLevel_urand_thread_owner"))
+    }
     fn creature_irand(&mut self, min: i32, max: i32) -> Result<i32> {
-        SourceRandom::new(1, &mut self.mt, &mut self.cursor, &mut |e| {
-            self.events.push(e)
-        })
+        SourceRandom::new(
+            self.creature_stream()?,
+            &mut self.mt,
+            &mut self.cursor,
+            &mut |e| self.events.push(e),
+        )
         .unwrap()
         .creature_irand(min, max)
     }
     fn creature_urand(&mut self, min: u32, max: u32) -> Result<u32> {
-        SourceRandom::new(1, &mut self.mt, &mut self.cursor, &mut |e| {
-            self.events.push(e)
-        })
+        SourceRandom::new(
+            self.creature_stream()?,
+            &mut self.mt,
+            &mut self.cursor,
+            &mut |e| self.events.push(e),
+        )
         .unwrap()
         .creature_urand(min, max)
     }
@@ -147,6 +159,12 @@ struct Factory {
     health: BTreeMap<ObjectHandle, u32>,
     kernel: Option<benilla_sim::creature_init::Input>,
     initialized: BTreeMap<ObjectHandle, benilla_sim::creature_init::InitializedCreature>,
+    source_level: Option<(
+        CreatureLevelDefinitions,
+        CreatureLevelConfig,
+        benilla_sim::creature_init::SpawnTemplate,
+    )>,
+    source_initialized: BTreeMap<ObjectHandle, benilla_sim::creature_init::SourceLevelStats>,
     ai_registry: SourceAiRegistry,
     selected_ai: Option<SelectedCreatureAi>,
     event_ai_definitions: Option<std::sync::Arc<EventAiDefinitions>>,
@@ -201,6 +219,8 @@ impl Factory {
             health: BTreeMap::new(),
             kernel: None,
             initialized: BTreeMap::new(),
+            source_level: None,
+            source_initialized: BTreeMap::new(),
             ai_registry: SourceAiRegistry::builtin(),
             selected_ai: None,
             event_ai_definitions: None,
@@ -527,6 +547,12 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
                 self.health.insert(state.object, 1);
             }
             CreaturePhase::SelectLevelStats => {
+                if let Some((definitions, config, spawn)) = &self.source_level {
+                    let initialized = definitions.resolve(state, config, spawn, true)?;
+                    self.health.insert(state.object, initialized.health);
+                    self.source_initialized.insert(state.object, initialized);
+                    return Ok(());
+                }
                 if let Some(input) = &self.kernel {
                     let initialized = resolve_supported_creature_kernel(input, state)?;
                     self.health
@@ -1895,3 +1921,6 @@ fn selected_builtin_factory_dispatch_retains_real_bodies_and_named_refusals() {
         }
     }
 }
+
+#[path = "creature_level_factory_tests.rs"]
+mod creature_level_factory_tests;

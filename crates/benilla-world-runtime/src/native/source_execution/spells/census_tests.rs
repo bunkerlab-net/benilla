@@ -258,6 +258,12 @@ fn catalog04_spell_area_and_first_cast_location_census() {
             .unwrap(),
     )
     .unwrap();
+    let level_config = CreatureLevelConfig::recorded(
+        Path::new(&std::env::var_os("BENILLA_F5_EVENT_AI_CONFIG").unwrap()),
+        &config.sha256,
+    )
+    .unwrap();
+    let level_definitions = CreatureLevelDefinitions::load(&mut catalog).unwrap();
     let rows = catalog_event_ai_rows(&mut catalog).unwrap();
     let level_rows = catalog
         .spell_power_census_levels("creature_template")
@@ -266,18 +272,14 @@ fn catalog04_spell_area_and_first_cast_location_census() {
     for [entry, low, high] in level_rows {
         levels.entry(entry).or_default().push([low, high]);
     }
-    let mut templates = BTreeMap::<u32, Vec<CreatureAiTemplateOperands>>::new();
-    for row in catalog_creature_ai_census_inputs(&mut catalog).unwrap() {
-        templates.entry(row.entry).or_default().push(row);
-    }
     let mut power = PowerStageCensus::default();
     let mut caster_auras = PowerStageCensus::default();
     let mut isolated_caster_auras = PowerStageCensus::default();
     let mut power_bindings = [
         "resolver_powered",
         "level_draw_unbound",
-        "missing_complete_initialization_bundle",
-        "out_of_domain",
+        "InitEntry_prefix_unbound",
+        "SelectLevel_numeric_refusal",
     ]
     .map(|name| (name.to_owned(), 0usize))
     .into_iter()
@@ -462,26 +464,21 @@ fn catalog04_spell_area_and_first_cast_location_census() {
                 };
                 *next.entry(name).or_default() += 1;
                 if suffix.power.reaches_check != 0 {
-                    // F5UnitAi's resolver needs a complete initialization bundle.
-                    // Raw rank/level candidates cannot prove that bundle exists.
+                    // Diagnostic arithmetic closure does not bind a construction,
+                    // its calling thread, or current resources to this EventAI row.
                     let binding = if levels
                         .get(&e.entry)
                         .is_some_and(|v| v.iter().any(|[lo, hi]| lo != hi))
                     {
                         "level_draw_unbound"
-                    } else if templates.get(&e.entry).is_some_and(|v| {
-                        v.iter().all(|t| {
-                            t.rank != 0
-                                || t.inhabit_type & 4 != 0
-                                || (f32::from_bits(t.stats_multipliers[2]) >= 0.0
-                                    && t.stats_multipliers[..2]
-                                        .iter()
-                                        .any(|bits| f32::from_bits(*bits) < 0.0))
-                        })
+                    } else if level_definitions.template(e.entry).is_ok_and(|t| {
+                        level_definitions
+                            .stats(e.entry, t.levels[0], false, &level_config)
+                            .is_ok()
                     }) {
-                        "out_of_domain"
+                        "InitEntry_prefix_unbound"
                     } else {
-                        "missing_complete_initialization_bundle"
+                        "SelectLevel_numeric_refusal"
                     };
                     *power_bindings.entry(binding.into()).or_default() += 1;
                     // A separate isolated probe must not be counted as reaching
@@ -542,7 +539,7 @@ fn catalog04_spell_area_and_first_cast_location_census() {
         "check_power":{"after":power,
             "before":{"reaches_check":6850,"passes_check":0,
                 "execution.spells.Unit_GetPower_CheckPower_owner":6850},
-            "caster_power_state":"unbound; no complete real-catalog initialization bundle; no current power inferred from raw rows",
+            "caster_power_state":"unbound; arithmetic closure is diagnostic, never injected as current resources",
             "resolver_powered":0,"binding_columns":power_bindings,
             "undefined_operations_reached":0},
         "check_caster_auras":{"after":caster_auras,
