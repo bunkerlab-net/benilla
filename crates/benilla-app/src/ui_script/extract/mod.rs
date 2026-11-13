@@ -1972,12 +1972,12 @@ mod align_tests {
         let a = align_entries(&was, &now);
         assert!(a.dropped.is_empty(), "nothing left the list");
         assert_eq!(a.source[at], None, "the new entry is the one conversion");
-        for j in 0..at {
-            assert_eq!(a.source[j], Some(j), "the head is untouched");
+        for (j, source) in a.source[..at].iter().enumerate() {
+            assert_eq!(*source, Some(j), "the head is untouched");
         }
-        for j in at + 1..now.len() {
+        for (j, source) in a.source[..now.len()].iter().enumerate().skip(at + 1) {
             assert_eq!(
-                a.source[j],
+                *source,
                 Some(j - 1),
                 "entry {j} keeps the quads it had at {}, one place back",
                 j - 1
@@ -2002,8 +2002,8 @@ mod align_tests {
             a.source.iter().all(Option::is_some),
             "a deletion converts nothing"
         );
-        for j in at..now.len() {
-            assert_eq!(a.source[j], Some(j + 1), "the tail shifts back one");
+        for (j, source) in a.source[..now.len()].iter().enumerate().skip(at) {
+            assert_eq!(*source, Some(j + 1), "the tail shifts back one");
         }
     }
 

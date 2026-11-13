@@ -559,9 +559,9 @@ mod tests {
         let half = 127.0 / 255.0;
         assert_eq!(s.lines[4].alpha, half);
         assert_eq!(s.lines[3].alpha, half);
-        for hidden in 0..3 {
-            assert_eq!(s.lines[hidden].alpha, 1.0, "l{hidden} is out of view");
-            assert_eq!(s.lines[hidden].fade_left, 4.0);
+        for (hidden, line) in s.lines.range(..3).enumerate() {
+            assert_eq!(line.alpha, 1.0, "l{hidden} is out of view");
+            assert_eq!(line.fade_left, 4.0);
         }
         s.relayout(8); // the window grew: all five tick from where each stopped
         s.tick(2.0);

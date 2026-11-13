@@ -381,13 +381,8 @@ fn source_wmo_rejects_nonfinite_vertices_indices_and_invalid_hierarchies() {
         let vertex = range.start + chunk(bytes, b"VERT") + 12;
         let triangle = range.start + chunk(bytes, b"TRIM") + 12;
         let mesh = range.start + chunk(bytes, b"MBIH") + 4;
-        for axis in 0..3 {
-            for value in [
-                f32::NAN,
-                f32::INFINITY,
-                f32::NEG_INFINITY,
-                group.bounds.high[axis].next_up(),
-            ] {
+        for (axis, high) in group.bounds.high.iter().enumerate() {
+            for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, high.next_up()] {
                 mutations.push((vertex + axis * 4, value.to_bits()));
             }
         }

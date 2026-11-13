@@ -206,7 +206,7 @@ fn main() -> anyhow::Result<()> {
                     }
                     let acc = kinds.entry(format!("{kind:?}")).or_default();
                     acc.blocks += 1;
-                    for n in 0..GRID * GRID {
+                    for (n, vertex) in block.vertices.iter().take(GRID * GRID).enumerate() {
                         let (row, col) = (n / GRID, n % GRID);
                         // Only verts that corner a wet cell carry a real height and a real byte.
                         let touches = [
@@ -220,7 +220,7 @@ fn main() -> anyhow::Result<()> {
                         if !touches {
                             continue;
                         }
-                        let h = block.vertices[n].height;
+                        let h = vertex.height;
                         if !h.is_finite() || h.abs() >= HEIGHT_SENTINEL {
                             continue;
                         }
@@ -229,7 +229,7 @@ fn main() -> anyhow::Result<()> {
                         // Nudge off the lattice so the terrain lookup lands inside a triangle.
                         let ground = terrain_height_at(&mesh.chunks, [x - 0.01, y - 0.01, 0.0]);
                         let yards = ground.map(|g| h - g).filter(|d| *d > 0.0 && *d < 500.0);
-                        let byte = block.vertices[n].depth_byte();
+                        let byte = vertex.depth_byte();
                         // Mid-ramp pins, the only band where the divisor shows on screen.
                         if (40..=200).contains(&byte)
                             && acc.pins.len() < 64

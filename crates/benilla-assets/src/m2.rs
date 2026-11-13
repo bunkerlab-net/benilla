@@ -431,32 +431,32 @@ impl AssetLoader for M2ModelLoader {
             // with one animates only that arm.
             let arm_roots = arm_subtree_roots(&skeleton_raw, &attachments);
             if let Some((right_root, left_root)) = arm_roots {
-                for i in 0..skeleton_raw.bones.len() {
+                for (i, mask) in pose.bone_masks.iter_mut().enumerate() {
                     let target = bone_target_id(i as u16);
                     if !in_subtree(&skeleton_raw, i, right_root) {
                         graph.add_target_to_mask_group(target, 0);
-                        pose.bone_masks[i] |= 1 << 0;
+                        *mask |= 1 << 0;
                     }
                     if !in_subtree(&skeleton_raw, i, left_root) {
                         graph.add_target_to_mask_group(target, 1);
-                        pose.bone_masks[i] |= 1 << 1;
+                        *mask |= 1 << 1;
                     }
                 }
             }
             // Group 2 holds every joint outside the upper body: the legs and the pelvis.
             let upper_root = upper_subtree_root(&skeleton_raw);
             if let Some(upper_root) = upper_root {
-                for i in 0..skeleton_raw.bones.len() {
+                for (i, mask) in pose.bone_masks.iter_mut().enumerate() {
                     if !in_subtree(&skeleton_raw, i, upper_root) {
                         graph.add_target_to_mask_group(bone_target_id(i as u16), 2);
-                        pose.bone_masks[i] |= 1 << 2;
+                        *mask |= 1 << 2;
                     }
                 }
             }
             // Groups 3 and 4 hold every joint outside the right and the left fingers, for the
             // weapon grip (`CloseHand`, `0x479660`).
             let finger_roots = finger_subtree_roots(&skeleton_raw);
-            for i in 0..skeleton_raw.bones.len() {
+            for (i, mask) in pose.bone_masks.iter_mut().enumerate() {
                 let target = bone_target_id(i as u16);
                 if !finger_roots[0].is_empty()
                     && !finger_roots[0]
@@ -464,7 +464,7 @@ impl AssetLoader for M2ModelLoader {
                         .any(|&r| in_subtree(&skeleton_raw, i, r))
                 {
                     graph.add_target_to_mask_group(target, 3);
-                    pose.bone_masks[i] |= 1 << 3;
+                    *mask |= 1 << 3;
                 }
                 if !finger_roots[1].is_empty()
                     && !finger_roots[1]
@@ -472,7 +472,7 @@ impl AssetLoader for M2ModelLoader {
                         .any(|&r| in_subtree(&skeleton_raw, i, r))
                 {
                     graph.add_target_to_mask_group(target, 4);
-                    pose.bone_masks[i] |= 1 << 4;
+                    *mask |= 1 << 4;
                 }
             }
             // Read before the clip walk: the loader-idle seed resolves through it.

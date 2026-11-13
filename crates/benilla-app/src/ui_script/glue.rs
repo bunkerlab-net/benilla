@@ -567,10 +567,7 @@ mod tests {
                     called.insert(name);
                     return false;
                 }
-                if INSTALL_WARNINGS.contains(&e.as_str()) {
-                    return false;
-                }
-                true
+                !INSTALL_WARNINGS.contains(&e.as_str())
             })
             .collect();
         assert!(
