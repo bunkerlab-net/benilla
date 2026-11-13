@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
-//! MapManager.cpp:50-110 construction and independent Map.cpp:172-190 preludes.
+//! MapManager.cpp:50-110 construction, Map.cpp:137-194 spawn gates and independent preludes.
 use super::*;
 use benilla_sim::source_rng::{RawGenerator, SourceRandom, TraceEvent};
 use std::collections::BTreeMap;
@@ -211,13 +211,30 @@ impl SourceContinent {
         self.instance_data_complete = true;
         Ok(())
     }
-    /// Map.cpp:192-194, MapPersistentStateMgr.cpp:198-205.
-    pub fn initialize_persistent_pools(
+    /// Map.cpp:137-144. The null-info call replaces 0/0 with ObjectMgr spawn coordinates.
+    pub fn can_spawn(
+        &self,
+        kind: SourceObjectKind,
+        guid: u32,
+        links: &SourceCreatureLinking,
+        objects: &SourceObjects,
+        state: &SourcePersistentState,
+        owner: &mut impl LinkingGateOwner,
+    ) -> Result<bool> {
+        match kind {
+            SourceObjectKind::Creature | SourceObjectKind::Pet => self
+                .linking
+                .can_spawn_guid(links, objects, state, owner, guid),
+            SourceObjectKind::GameObject | SourceObjectKind::Transport => Ok(true),
+            _ => Ok(false),
+        }
+    }
+    /// Map.cpp:192-193. Bind the persistent state before any pool predicate runs.
+    pub fn attach_persistent_state(
         &mut self,
         states: &mut SourceManagers,
-        pools: &mut SourcePoolManager,
-        work: &mut (impl PoolWork + PersistentEffects),
-    ) -> Result<()> {
+        work: &mut impl PersistentEffects,
+    ) -> Result<PersistentStateIdentity> {
         require(
             self.instance_data_complete,
             "execution.continents.instance_initialization_incomplete",
@@ -225,6 +242,32 @@ impl SourceContinent {
         let state = states.create_state(self.entry, 0, 0, self.entry.dungeon(), false, 0, work)?;
         self.persistent = Some(state);
         states.bind_map(state, Some(self.identity), work)?;
+        Ok(state)
+    }
+    /// Map.cpp:192-194, MapPersistentStateMgr.cpp:198-205.
+    pub fn initialize_persistent_pools(
+        &mut self,
+        states: &mut SourceManagers,
+        pools: &mut SourcePoolManager,
+        work: &mut (impl PoolWork + PersistentEffects),
+    ) -> Result<()> {
+        self.attach_persistent_state(states, work)?;
+        self.initialize_pools(states, pools, work)
+    }
+    /// MapPersistentStateMgr.cpp:198-205, after the map binding is installed.
+    pub fn initialize_pools(
+        &self,
+        states: &mut SourceManagers,
+        pools: &mut SourcePoolManager,
+        work: &mut impl PoolWork,
+    ) -> Result<()> {
+        let state = self
+            .persistent
+            .ok_or_else(|| refuse("execution.continents.persistent_state_owner"))?;
+        require(
+            states.state(state)?.map_binding() == Some(self.identity),
+            "execution.continents.persistent_map_binding",
+        )?;
         if !states.state(state)?.pools().initialized() {
             states.state_mut(state)?.pools_mut().mark_initialized();
             pools.initialize(states, state, work)?;

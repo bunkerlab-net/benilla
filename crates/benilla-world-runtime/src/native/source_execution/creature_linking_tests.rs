@@ -806,5 +806,37 @@ fn retained_catalog04_query_streams_or_explicit_absence() {
     println!("Unsealed diagnostic catalog-04 linking query rows verified: {templates} templates, {guids} GUIDs; no effective-manager or F1 acceptance");
 }
 
+#[test]
+fn map_null_info_gate_reads_spawn_xy_without_mutating_holder_or_persistent_state() {
+    // Map.cpp:140 passes nullptr,0,0; CreatureLinkingMgr.cpp:701-714 replaces both coordinates.
+    let links = loaded(
+        vec![template(7, 0, 8, LINKING_BOSS_DEAD, 10)],
+        vec![],
+        &mut Definitions::default(),
+    );
+    let mut s = Scene::new();
+    let master = s.actor(8, 2, 2, 104.0, false, false);
+    s.holder.add_master(&links, &s.objects, master, 8).unwrap();
+    let mut gate = Gate {
+        spawns: BTreeMap::from([(1, spawn(7, 0, 100.0))]),
+        ..Gate::default()
+    };
+    let holder = s.holder.inventory();
+    let state = s.state.inventory();
+    assert!(!s
+        .holder
+        .can_spawn_guid(&links, &s.objects, &s.state, &mut gate, 1)
+        .unwrap());
+    assert_eq!(gate.calls, [Call::Data(1)]);
+    assert_eq!(s.holder.inventory(), holder);
+    assert_eq!(s.state.inventory(), state);
+    // With the caller's 0/0 retained, the dead master would be out of range and permit spawn.
+    gate.spawns.insert(1, spawn(7, 0, 0.0));
+    assert!(s
+        .holder
+        .can_spawn_guid(&links, &s.objects, &s.state, &mut gate, 1)
+        .unwrap());
+}
+
 #[path = "creature_linking_event_tests.rs"]
 mod event_tests;

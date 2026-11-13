@@ -597,3 +597,210 @@ fn incomplete_instance_refuses_before_attach_and_empty_pools_reach_next_event_ow
         .initialized());
     assert!(!map.spawn_updated);
 }
+
+struct MapGate {
+    reads: Vec<u32>,
+}
+impl MapGate {
+    fn data(guid: u32) -> Option<LinkingSpawnData> {
+        (guid == 1 || guid == 2).then_some(LinkingSpawnData {
+            entry: guid + 10,
+            map: 0,
+            respawn_xy: [25.0_f32.to_bits(), 30.0_f32.to_bits()],
+        })
+    }
+}
+impl LinkingLoadOwner for MapGate {
+    fn template_exists(&mut self, _: u32) -> Result<bool> {
+        Ok(true)
+    }
+    fn map_exists(&mut self, map: u32) -> Result<bool> {
+        Ok(map == 0)
+    }
+    fn creature_data(&mut self, guid: u32) -> Result<Option<LinkingSpawnData>> {
+        Ok(Self::data(guid))
+    }
+    fn query_unique_master(&mut self, _: u32, _: u32) -> Result<LinkingMasterQuery> {
+        panic!("GUID linking must not query a unique entry master")
+    }
+}
+impl LinkingGateOwner for MapGate {
+    fn creature_data(&mut self, guid: u32) -> Result<Option<LinkingSpawnData>> {
+        self.reads.push(guid);
+        Ok(Self::data(guid))
+    }
+    fn wall_time(&mut self, _: MapIdentity, _: u32) -> Result<ClockSample> {
+        panic!("zero deadline short circuits time(nullptr)")
+    }
+    fn creature_pool(&mut self, guid: u32) -> Result<Option<u16>> {
+        assert_eq!(guid, 2);
+        Ok(None)
+    }
+    fn encounter_in_progress(&mut self, _: MapIdentity) -> Result<Option<bool>> {
+        panic!("BOSS_ALIVE must not query InstanceData")
+    }
+}
+struct GuidLink(Option<LinkingGuidRow>);
+impl LinkingRows for GuidLink {
+    fn next_template(&mut self) -> Result<Option<LinkingTemplateRow>> {
+        Ok(None)
+    }
+    fn next_guid(&mut self) -> Result<Option<LinkingGuidRow>> {
+        Ok(self.0.take())
+    }
+}
+struct BoundMapWork<'a> {
+    map: &'a SourceContinent,
+    links: &'a SourceCreatureLinking,
+    objects: SourceObjects,
+    gate: MapGate,
+    base: PoolEffects,
+    effects: Vec<PoolLeafEffect>,
+    results: Vec<bool>,
+}
+impl PoolWork for BoundMapWork<'_> {
+    fn engine_access(&mut self) -> Result<()> {
+        self.base.engine_access()
+    }
+    fn chance(&mut self) -> Result<f64> {
+        self.base.chance()
+    }
+    fn shuffle(&mut self, indices: &mut [usize]) -> Result<()> {
+        self.base.shuffle(indices)
+    }
+    fn can_spawn(
+        &mut self,
+        _: &mut SourcePoolManager,
+        states: &mut SourceManagers,
+        state: PersistentStateIdentity,
+        kind: PoolKind,
+        guid: u32,
+    ) -> Result<bool> {
+        let kind = match kind {
+            PoolKind::Creature => SourceObjectKind::Creature,
+            PoolKind::GameObject => SourceObjectKind::GameObject,
+            PoolKind::Child => panic!("child bypasses map"),
+        };
+        let before = self.map.linking.inventory();
+        let persistent = states.state(state)?.inventory();
+        let result = self.map.can_spawn(
+            kind,
+            guid,
+            self.links,
+            &self.objects,
+            states.state(state)?,
+            &mut self.gate,
+        )?;
+        assert_eq!(before, self.map.linking.inventory());
+        assert_eq!(persistent, states.state(state)?.inventory());
+        self.results.push(result);
+        Ok(result)
+    }
+    fn leaf_effect(
+        &mut self,
+        _: &mut SourcePoolManager,
+        states: &mut SourceManagers,
+        effect: PoolLeafEffect,
+    ) -> Result<()> {
+        assert!(states
+            .state(effect.state)?
+            .pools()
+            .contains(match effect.kind {
+                PoolKind::Creature => PoolMember::Creature(effect.guid),
+                PoolKind::GameObject => PoolMember::GameObject(effect.guid),
+                PoolKind::Child => panic!("child is not a leaf"),
+            }));
+        self.effects.push(effect);
+        Ok(())
+    }
+    fn observe(&mut self, _: PoolOperation) -> Result<()> {
+        Ok(())
+    }
+}
+#[test]
+fn map_can_spawn_runs_linking_but_pool_discards_false_and_null_map_skips_it() {
+    // Map.cpp:137-144, PoolManager.cpp:369-381, CreatureLinkingMgr.cpp:663-750.
+    for loaded in [false, true] {
+        for slot in [2, 4] {
+            let mut maps = ready();
+            let map = &mut maps.maps[0];
+            create_data(map, 0).unwrap();
+            let mut states = SourceManagers::default();
+            let state = map
+                .attach_persistent_state(&mut states, &mut PoolEffects::new(6))
+                .unwrap();
+            if !loaded {
+                states
+                    .bind_map(state, None, &mut PoolEffects::new(6))
+                    .unwrap();
+            }
+            let mut links = SourceCreatureLinking::default();
+            links
+                .load(
+                    &mut GuidLink(Some(LinkingGuidRow {
+                        ordinal: 0,
+                        slave: 1,
+                        master: 2,
+                        flags: LINKING_BOSS_ALIVE,
+                    })),
+                    &mut MapGate { reads: Vec::new() },
+                )
+                .unwrap();
+            let mut pools = SourcePoolManager::default();
+            pools
+                .load(
+                    &mut PoolInputs {
+                        template: Some(PoolTemplateRow {
+                            ordinal: 0,
+                            id: 1,
+                            limit: 1,
+                            description: Vec::new(),
+                        }),
+                        members: [PoolMembershipRow {
+                            ordinal: 0,
+                            guid: 1,
+                            pool: 1,
+                            chance: 0.0,
+                        }]
+                        .into(),
+                        slot,
+                    },
+                    &mut PoolDefinitions(0),
+                )
+                .unwrap();
+            let mut work = BoundMapWork {
+                map,
+                links: &links,
+                objects: SourceObjects::default(),
+                gate: MapGate { reads: Vec::new() },
+                base: PoolEffects::new(6),
+                effects: Vec::new(),
+                results: Vec::new(),
+            };
+            pools
+                .spawn_pool(&mut states, state, 1, true, &mut work)
+                .unwrap();
+            assert_eq!(work.effects.len(), 1);
+            assert_eq!(work.base.cursor.raw, 0);
+            assert_eq!(work.results, if loaded { vec![slot == 4] } else { vec![] });
+            assert_eq!(
+                work.gate.reads,
+                if loaded && slot == 2 {
+                    vec![1, 2]
+                } else {
+                    vec![]
+                }
+            );
+            assert!(!map
+                .can_spawn(
+                    SourceObjectKind::Player,
+                    1,
+                    &links,
+                    &work.objects,
+                    states.state(state).unwrap(),
+                    &mut work.gate
+                )
+                .unwrap());
+        }
+    }
+}
