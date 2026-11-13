@@ -27,6 +27,29 @@ fn construct(terrain: &mut SourceTerrainManager, maximum: GuidMaximum) -> (Sourc
     (maps, cursor.raw)
 }
 
+fn create_data(map: &mut SourceContinent, script_id: u32) -> Result<()> {
+    let mut mt = Mt19937::from_seed(7);
+    let mut cursor = DrawCursor::default();
+    let mut sink = |_| {};
+    let mut random = SourceRandom::new(6, &mut mt, &mut cursor, &mut sink).unwrap();
+    map.create_instance_data(
+        script_id,
+        "unimplemented",
+        true,
+        &mut random,
+        &mut UnreachedStorage,
+    )
+}
+struct UnreachedStorage;
+impl WorldInstanceStorage for UnreachedStorage {
+    fn query(&mut self, _: u32, _: &str) -> Result<WorldInstanceRow<'_>> {
+        panic!("script lookup must precede SQL")
+    }
+    fn insert(&mut self, _: u32) -> Result<()> {
+        panic!("script lookup must precede SQL")
+    }
+}
+
 #[test]
 fn constructors_create_both_world_maps_and_reuse_existing_terrain_without_draws() {
     let mut terrain = SourceTerrainManager::default();
@@ -128,7 +151,7 @@ fn instance_data_refuses_only_the_reached_script_call_after_both_preludes() {
     let (mut maps, _) = construct(&mut terrain, GuidMaximum::NoResult);
     let cfg = ContinentConfig::parse(&config("120", "1", 300000)).unwrap();
     assert_eq!(
-        maps.maps[0].create_instance_data(9).unwrap_err().id,
+        create_data(&mut maps.maps[0], 9).unwrap_err().id,
         "execution.continents.prelude_missing"
     );
     for map in &mut maps.maps {
@@ -136,9 +159,9 @@ fn instance_data_refuses_only_the_reached_script_call_after_both_preludes() {
             .unwrap();
     }
     for map in &mut maps.maps {
-        map.create_instance_data(0).unwrap(); // Map.cpp:1676-1677 returns without F5.
+        create_data(map, 0).unwrap(); // Map.cpp:1676-1677 returns without F5.
         assert_eq!(
-            map.create_instance_data(9).unwrap_err(),
+            create_data(map, 9).unwrap_err(),
             MissingManagerOwner::F5InstanceInitialization.refusal()
         );
         assert_eq!(map.script_id, 9);
@@ -246,10 +269,13 @@ fn missing_terrain_refuses_at_addref_after_guid_grid_and_visibility_steps() {
         81
     );
     assert_eq!(
-        map.create_instance_data(9).unwrap_err().id,
+        create_data(map, 9).unwrap_err().id,
         "execution.continents.prelude_missing"
     );
     assert_eq!(map.dynamic_tree_rebalance_ms, 200);
     assert_eq!(map.dynamic_tree_unbalanced, 0);
     // Cold dynamic-tree fields provide no collision query or clear-line-of-sight result.
 }
+
+#[path = "world_scripts_tests.rs"]
+mod world_scripts;

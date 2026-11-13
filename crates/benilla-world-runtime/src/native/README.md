@@ -7,6 +7,16 @@ validates the source closure and every critical semantic dependency. That is an
 implementation condition, not a requirement that developers possess game assets.
 A complete compiler should issue a capability from each user's validated local data.
 
+`source_execution::SourceContinent` constructs the two pinned world scripts and
+executes their `Initialize` calls on each map's RNG stream. Its load path reads
+the reset-bound character snapshot. An absent world row submits
+`PersistentSql::CreateWorld` through `PersistentEffects::sql`, without changing
+the snapshot or claiming write completion. A later read of that pending row
+refuses. Persistent-state binding and pool initialization follow in source order;
+the map-bound pool eligibility owner remains required before any selected leaf.
+The source calls are `Map.cpp:1660-1713,192-194` and
+`MapPersistentStateMgr.cpp:198-205` at CMaNGOS Classic `8ec338a1`.
+
 `diagnose_production_inputs` is the read-only Rust input verifier. Its implementation
 lives in the private `production_compiler` module. Supply fixed local paths for
 the source-v2 bundle, explicit selection, completed v4 or v5 DBC directory, preparation

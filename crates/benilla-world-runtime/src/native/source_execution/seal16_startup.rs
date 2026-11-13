@@ -99,7 +99,12 @@ struct MapThreadEvidence {
     initial: Option<benilla_sim::source_rng::MtState>,
     first_word: Option<(u64, u64, u64)>,
     before_sql: Vec<(u64, u64, u64)>,
+    words: Vec<(u64, u64, u64)>,
     sql_line: Option<u64>,
+    sql_statements: Vec<Vec<u8>>,
+    first_shuffle: Option<String>,
+    shuffle_before: Vec<u32>,
+    shuffle_after: Vec<u32>,
     total_words: usize,
 }
 #[derive(Default)]
@@ -149,14 +154,43 @@ impl Inputs {
             }
             "mt_raw" => {
                 let word = (line, p[1].parse().unwrap(), p[2].parse().unwrap());
+                evidence.words.push(word);
                 evidence.first_word.get_or_insert(word);
                 if evidence.sql_line.is_none() {
                     evidence.before_sql.push(word);
                 }
                 evidence.total_words += 1;
             }
-            "sql_request_bytes" => {
-                evidence.sql_line.get_or_insert(line);
+            "sql_request_bytes" | "sql_write_bytes" => {
+                if evidence.sql_statements.len() < 2 {
+                    assert_eq!(p[4], "0");
+                    let bytes = p[5]
+                        .as_bytes()
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|pair| {
+                            u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap()
+                        })
+                        .collect::<Vec<_>>();
+                    assert_eq!(bytes.len(), p[3].parse::<usize>().unwrap());
+                    evidence.sql_statements.push(bytes);
+                }
+                if kind == "sql_request_bytes" {
+                    evidence.sql_line.get_or_insert(line);
+                }
+            }
+            "rng_shuffle_begin" if evidence.first_shuffle.is_none() => {
+                evidence.first_shuffle = Some(p[0].into());
+            }
+            "rng_shuffle_member" if evidence.first_shuffle.as_deref() == Some(p[0]) => {
+                let values = if p[1] == "before" {
+                    &mut evidence.shuffle_before
+                } else {
+                    &mut evidence.shuffle_after
+                };
+                assert_eq!(values.len(), p[2].parse::<usize>().unwrap());
+                values.push(p[3].parse().unwrap());
             }
             _ => (),
         }
@@ -324,6 +358,7 @@ impl PersistentDefinitions for Definitions<'_> {
 struct InitialEffects<'a> {
     initial: &'a ManagerInitialInputs<'a>,
     operations: Vec<PersistentOperation>,
+    outbound: Vec<PersistentSql>,
     cleaned: [bool; 2],
 }
 impl PersistentEffects for InitialEffects<'_> {
@@ -338,6 +373,9 @@ impl PersistentEffects for InitialEffects<'_> {
                 "execution.persistent.cleanup_clock",
             )?;
             self.cleaned[usize::from(kind == GridSpawnKind::GameObject)] = true;
+            Ok(())
+        } else if matches!(sql, PersistentSql::CreateWorld { .. }) {
+            self.outbound.push(sql);
             Ok(())
         } else {
             Err(refuse("execution.persistent.initial_write_owner"))
@@ -721,6 +759,67 @@ impl PoolLeafOwner for Owner<'_> {
     }
 }
 
+/// Independent map-job projection. Only RNG calls change stream; dependent owners stay real.
+struct MapPoolWork<'a, 'b, 'r, S: FnMut(TraceEvent)> {
+    world: &'a mut Owner<'b>,
+    random: &'a mut SourceRandom<'r, Mt19937, S>,
+    shuffles: Vec<Vec<usize>>,
+    persistent: Vec<PersistentOperation>,
+}
+impl<S: FnMut(TraceEvent)> PoolWork for MapPoolWork<'_, '_, '_, S> {
+    fn engine_access(&mut self) -> Result<()> {
+        self.world.engine_access()
+    }
+    fn chance(&mut self) -> Result<f64> {
+        self.random
+            .rand_chance()
+            .map_err(|_| refuse("execution.pool.rand_chance"))
+    }
+    fn shuffle(&mut self, values: &mut [usize]) -> Result<()> {
+        self.random
+            .shuffle(values)
+            .map_err(|_| refuse("execution.pool.shuffle"))?;
+        self.shuffles.push(values.to_vec());
+        Ok(())
+    }
+    fn can_spawn(
+        &mut self,
+        manager: &mut SourcePoolManager,
+        states: &mut SourceManagers,
+        state: PersistentStateIdentity,
+        kind: PoolKind,
+        guid: u32,
+    ) -> Result<bool> {
+        self.world.can_spawn(manager, states, state, kind, guid)
+    }
+    fn leaf_effect(
+        &mut self,
+        manager: &mut SourcePoolManager,
+        states: &mut SourceManagers,
+        effect: PoolLeafEffect,
+    ) -> Result<()> {
+        self.world.leaf_effect(manager, states, effect)
+    }
+    fn observe(&mut self, operation: PoolOperation) -> Result<()> {
+        PoolWork::observe(self.world, operation)
+    }
+}
+impl<S: FnMut(TraceEvent)> PersistentEffects for MapPoolWork<'_, '_, '_, S> {
+    fn sql(&mut self, operation: PersistentSql) -> Result<()> {
+        PersistentEffects::sql(self.world, operation)
+    }
+    fn query_respawns(&mut self, kind: GridSpawnKind) -> Result<CharacterQueryStatus> {
+        self.world.query_respawns(kind)
+    }
+    fn observe(&mut self, operation: PersistentOperation) -> Result<()> {
+        self.persistent.push(operation);
+        Ok(())
+    }
+    fn dungeon_reset(&mut self, entry: PersistentMapEntry) -> Result<i64> {
+        self.world.dungeon_reset(entry)
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn continue_startup(
     recording: &Path,
@@ -899,6 +998,7 @@ pub(super) fn continue_startup(
         initial: &initial,
         operations: Vec::new(),
         cleaned: [false; 2],
+        outbound: Vec::new(),
     };
     owner
         .states
@@ -916,6 +1016,7 @@ pub(super) fn continue_startup(
     let definitions = ContinentDefinitions::load(catalog, &inputs.maps, &config).unwrap();
     let temporary_starts = definitions.temporary_starts;
     let script_ids = &definitions.script_ids;
+    let script_names = &definitions.script_names;
     let mut ignore_constructor_trace = |_| {};
     let mut random = SourceRandom::new(
         1,
@@ -946,8 +1047,7 @@ pub(super) fn continue_startup(
     assert_eq!(observed.map_bindings[&1], (7, 4294967669, 60117267));
     assert_eq!(observed.map_identities[&4294967667].0, 60100929);
     assert_eq!(observed.map_identities[&4294967669].0, 60100933);
-    // These independent preludes commute. No script, SQL, pool, MMap lock or shared-manager
-    // mutation is executed in either job. This is not an ordering of the two initializers.
+    // Execute each job's local prelude independently. No cross-thread order is claimed.
     for map in &mut continents.maps {
         map.initialize_prelude(temporary_starts, geometry, &continent_config)
             .unwrap();
@@ -969,6 +1069,8 @@ pub(super) fn continue_startup(
     assert!(observed.map_threads[&7].before_sql.is_empty());
     assert_eq!(observed.map_threads[&6].sql_line, Some(60100980));
     assert_eq!(observed.map_threads[&7].sql_line, Some(60101153));
+    let mut matched_map_words = [0u64; 2];
+    let mut matched_map_sql = 0;
     for (slot, thread, first_line, first_word) in
         [(0, 6, 60100952, 2440933613), (1, 7, 60117712, 159038541)]
     {
@@ -978,30 +1080,149 @@ pub(super) fn continue_startup(
         let mut trace = Vec::new();
         let mut sink = |event| trace.push(event);
         let mut engine = stream;
-        let random = SourceRandom::new(thread, &mut engine, &mut cursor, &mut sink).unwrap();
+        let mut random = SourceRandom::new(thread, &mut engine, &mut cursor, &mut sink).unwrap();
         let script_id = script_ids[&(slot as u32)];
         assert_ne!(script_id, 0);
-        let refusal = continents.maps[slot]
-            .create_instance_data(script_id)
-            .unwrap_err();
+        let mut map_effects = InitialEffects {
+            initial: &initial,
+            operations: Vec::new(),
+            cleaned: [false; 2],
+            outbound: Vec::new(),
+        };
+        let mut storage = SnapshotWorldStorage {
+            initial: &initial,
+            effects: &mut map_effects,
+            pending: BTreeSet::new(),
+            issued: Vec::new(),
+        };
+        continents.maps[slot]
+            .create_instance_data(
+                script_id,
+                &script_names[&(slot as u32)],
+                true,
+                &mut random,
+                &mut storage,
+            )
+            .unwrap();
+        assert_eq!(random.cursor().raw, [2, 0][slot]);
+        assert_eq!(storage.issued.len(), 2);
+        for (statement, recorded) in storage.issued.iter().zip(&evidence.sql_statements) {
+            assert_eq!(statement.as_bytes(), recorded);
+        }
+        assert_eq!(evidence.sql_statements.len(), 2);
+        matched_map_sql += 2;
+        assert!(storage.pending.contains(&(slot as u32)));
         assert_eq!(
-            refusal,
-            MissingManagerOwner::F5InstanceInitialization.refusal()
+            initial.world_data(slot as u32).unwrap(),
+            WorldInstanceRow::Missing
         );
-        assert_eq!(random.cursor().raw, 0);
-        assert!(trace.is_empty());
+        assert_eq!(
+            map_effects.outbound,
+            [PersistentSql::CreateWorld { map: slot as u32 }]
+        );
+        assert!(continents.maps[slot].instance_data.is_some());
+        assert!(continents.maps[slot].persistent.is_none() && !continents.maps[slot].spawn_updated);
+        if slot == 0 {
+            assert_eq!(
+                continents.maps[slot].variables,
+                BTreeMap::from([(330001, 1), (330002, 1)])
+            );
+        } else {
+            assert!(continents.maps[slot].variables.is_empty());
+            assert_eq!(random.cursor().raw, 0);
+        }
+        // Only the loaded definitions are forked for two independent diagnostic prefixes.
+        // A refused job's stopped flag must not invent a scheduling dependency on its peer.
+        let mut pools = owner.pools.clone();
+        let mut states = std::mem::take(&mut owner.states);
+        let shuffles = {
+            let mut work = MapPoolWork {
+                world: &mut owner,
+                random: &mut random,
+                shuffles: Vec::new(),
+                persistent: Vec::new(),
+            };
+            let refusal = continents.maps[slot]
+                .initialize_persistent_pools(&mut states, &mut pools, &mut work)
+                .unwrap_err();
+            assert_eq!(refusal.id, "execution.pool.map_can_spawn_owner");
+            assert!(
+                matches!(work.persistent.last(), Some(PersistentOperation::Binding { after: Some(map), .. }) if *map == continents.maps[slot].identity)
+            );
+            work.shuffles
+        };
+        matched_map_words[slot] = random.cursor().raw;
+        assert_eq!(matched_map_words[slot], [6, 1][slot]);
+        let state = continents.maps[slot].persistent.unwrap();
+        assert_eq!(
+            states.state(state).unwrap().map_binding(),
+            Some(continents.maps[slot].identity)
+        );
+        assert!(states.state(state).unwrap().pools().initialized());
+        assert!(!continents.maps[slot].spawn_updated);
+        let inventory = pools.inventory();
+        let frame = inventory.frames.last().unwrap();
+        let kind_index = match frame.kind {
+            PoolKind::Child => 0,
+            PoolKind::GameObject => 1,
+            PoolKind::Creature => 2,
+        };
+        let members = &inventory.templates[usize::from(frame.pool)].groups[kind_index].equal;
+        assert_eq!(
+            members.iter().map(|member| member.guid).collect::<Vec<_>>(),
+            evidence.shuffle_before
+        );
+        assert_eq!(shuffles.len(), 1);
+        assert_eq!(
+            shuffles[0]
+                .iter()
+                .map(|&index| members[index].guid)
+                .collect::<Vec<_>>(),
+            evidence.shuffle_after
+        );
+        owner.states = states;
+        let raw = trace
+            .iter()
+            .filter_map(|event: &TraceEvent| {
+                if let EventKind::Raw { position, word, .. } = event.kind {
+                    Some((position, word))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            &raw[..evidence.before_sql.len()],
+            evidence
+                .before_sql
+                .iter()
+                .map(|&(_, position, word)| (position, word))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            raw,
+            evidence.words[..matched_map_words[slot] as usize]
+                .iter()
+                .map(|&(_, position, word)| (position, word))
+                .collect::<Vec<_>>()
+        );
+        assert!(trace.iter().all(|event| event.stream == thread));
         assert_eq!(evidence.first_word, Some((first_line, 0, first_word)));
-        // Clone-only stream projection, not execution of the missing script/pool caller.
-        assert_eq!(u64::from(engine.clone().next_u32()), first_word);
+        // Initial-state projection remains independent of the now-executed script draws.
+        let mut initial_engine = Mt19937::from_state(evidence.initial.clone().unwrap()).unwrap();
+        assert_eq!(u64::from(initial_engine.next_u32()), first_word);
     }
     if continents.maps.iter().any(|map| map.script_id != 0) {
-        let refusal = MissingManagerOwner::F5InstanceInitialization.refusal();
+        let refusal = refuse("execution.pool.map_can_spawn_owner");
         assert!(!events.inventory().initialized);
         assert!(owner.sql.is_empty() && owner.raw.is_empty());
         assert_eq!(owner.cursor.raw, 8712);
         assert_eq!(next_word, (8712, 3411341330));
         assert_eq!(u64::from(owner.engine.clone().next_u32()), next_word.1);
-        println!("F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} maps_born=2 maps=[0,1] map_birth_lines=[60100929,60100933] map_threads=[6,7] matched_map_thread_words=[0,0] prelude_complete=[true,true] matched_map_sql=0 matched_status_writes=0 pool_shuffles=0 pool_results=0 event_initialization_reached=false next_owner={} next_source=Map.cpp:1679 caller=Map.cpp:190 next_raw={} next_word={} clone_next_word_checked=true",owner.cursor.raw,refusal.id,next_word.0,next_word.1);
+        assert_eq!(matched_map_words, [6, 1]);
+        assert_eq!(matched_map_sql, 4);
+        assert!(owner.pool_operations.is_empty());
+        println!("F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} maps_born=2 maps=[0,1] map_birth_lines=[60100929,60100933] map_threads=[6,7] matched_map_thread_words=[6,1] consumed_map_thread_words=[6,1] script_words=[2,0] prelude_complete=[true,true] persistent_bound=[true,true] matched_map_sql=4 world_insert_submissions=2 world_insert_completions_claimed=0 matched_status_writes=0 pool_shuffles=2 pool_results=0 event_initialization_reached=false next_owner={} next_source=PoolManager.cpp:372,380 caller=Map.cpp:194 next_raw={} next_word={} clone_next_word_checked=true",owner.cursor.raw,refusal.id,next_word.0,next_word.1);
         return;
     }
     let initial_status = owner.status.iter().copied().collect::<Vec<_>>();
@@ -1061,10 +1282,20 @@ pub(super) fn continue_startup(
 fn map_thread_evidence_keeps_raw_positions_and_pre_sql_boundaries_independent() {
     let mut inputs = Inputs::default();
     inputs.observe_thread(6, 11, "mt_raw", &["engine6", "0", "42"]);
-    inputs.observe_thread(7, 12, "sql_request_bytes", &[]);
+    inputs.observe_thread(
+        7,
+        12,
+        "sql_request_bytes",
+        &["db", "0", "0", "1", "0", "42"],
+    );
     inputs.observe_thread(7, 13, "mt_raw", &["engine7", "0", "19"]);
     inputs.observe_thread(6, 14, "mt_raw", &["engine6", "1", "99"]);
-    inputs.observe_thread(6, 15, "sql_request_bytes", &[]);
+    inputs.observe_thread(
+        6,
+        15,
+        "sql_request_bytes",
+        &["db", "0", "0", "1", "0", "41"],
+    );
     inputs.observe_thread(6, 16, "mt_raw", &["engine6", "2", "3"]);
     assert_eq!(
         inputs.map_threads[&6].before_sql,

@@ -278,7 +278,7 @@ impl DbScriptLoaderOwner for SourcePoolMaximum {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct SourcePoolManager {
     maximum: u16,
     templates: Vec<PoolTemplate>,

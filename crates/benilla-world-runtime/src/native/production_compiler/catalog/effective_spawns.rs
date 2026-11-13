@@ -295,7 +295,7 @@ impl VerifiedCatalog {
     }
 
     /// SQLWorldLoader, ObjectMgr.cpp:5458-5481; map validity is checked by the caller.
-    pub(crate) fn execution_world_templates(&mut self) -> Result<Vec<(u32, u32)>> {
+    pub(crate) fn execution_world_templates(&mut self) -> Result<Vec<(u32, u32, String)>> {
         let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
         let ids = self.execution_script_name_ids(&schema)?;
         let cols = columns(&schema, "world_template")?;
@@ -316,8 +316,11 @@ impl VerifiedCatalog {
                 *ids.get(name)
                     .ok_or_else(|| fail("world_templates.script_name_owner"))?
             };
-            output.push((uint(c[map])?, id));
-            check(output.len() <= DECODED / 8, "world_templates.view_limit")
+            let name = std::str::from_utf8(name)
+                .map_err(|_| fail("world_templates.script_name_encoding"))?
+                .to_owned();
+            output.push((uint(c[map])?, id, name));
+            check(output.len() <= DECODED / 32, "world_templates.view_limit")
         })?;
         Ok(output)
     }

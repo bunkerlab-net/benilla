@@ -52,6 +52,8 @@ struct CharacterRelations {
     creatures: Vec<InitialRespawnRow>,
     gameobjects: Vec<InitialRespawnRow>,
     instances: BTreeMap<u32, InitialInstanceRow>,
+    world: BTreeMap<u32, Option<Vec<u8>>>,
+    world_available: bool,
 }
 /// Non-serializable, immutable and permanently non-admitting until F1/F7 integration.
 pub struct ManagerInitialInputs<'a> {
@@ -225,6 +227,19 @@ impl<'a> ManagerInitialInputs<'a> {
     pub fn instance(&self, id: u32) -> Option<&InitialInstanceRow> {
         self.rows.instances.get(&id)
     }
+    /// Map.cpp:1690. An absent relation is not evidence of an empty query.
+    pub fn world_data(&self, map: u32) -> Result<WorldInstanceRow<'_>> {
+        self.check()?;
+        require(
+            self.rows.world_available,
+            "execution.world_script.character_world_query_owner",
+        )?;
+        Ok(match self.rows.world.get(&map) {
+            None => WorldInstanceRow::Missing,
+            Some(None) => WorldInstanceRow::Null,
+            Some(Some(data)) => WorldInstanceRow::Data(data),
+        })
+    }
     /// MapManager.cpp:265-273, SELECT MAX(id) FROM instance. SQL NULL converts to zero.
     pub fn maximum_instance_id(&self) -> u32 {
         self.rows.instances.keys().next_back().copied().unwrap_or(0)
@@ -386,7 +401,7 @@ pub(super) mod tests {
             inputs.require_sealed_execution().unwrap_err().id,
             "execution.f1_binding_pending"
         );
-        for table in TABLES {
+        for table in &TABLES[..3] {
             let text = String::from_utf8(empty.clone()).unwrap();
             let start = text.find(&format!("CREATE TABLE `{table}` (")).unwrap();
             let end =
@@ -891,38 +906,48 @@ impl CharacterRelations {
         parser.finish()
     }
 }
-const TABLES: [&str; 3] = ["creature_respawn", "gameobject_respawn", "instance"];
-const COLUMNS: [&[&str]; 3] = [
+const TABLES: [&str; 4] = [
+    "creature_respawn",
+    "gameobject_respawn",
+    "instance",
+    "world",
+];
+const COLUMNS: [&[&str]; 4] = [
     &["guid", "respawntime", "instance"],
     &["guid", "respawntime", "instance"],
     &["id", "map", "resettime", "encountersMask", "data"],
+    &["map", "data"],
 ];
-const CREATE: [&[u8]; 3] = [
+const CREATE: [&[u8]; 4] = [
     b"CREATE TABLE `creature_respawn` (",
     b"CREATE TABLE `gameobject_respawn` (",
     b"CREATE TABLE `instance` (",
+    b"CREATE TABLE `world` (",
 ];
-const LOCK: [&[u8]; 3] = [
+const LOCK: [&[u8]; 4] = [
     b"LOCK TABLES `creature_respawn` WRITE;",
     b"LOCK TABLES `gameobject_respawn` WRITE;",
     b"LOCK TABLES `instance` WRITE;",
+    b"LOCK TABLES `world` WRITE;",
 ];
-const INSERT: [&[u8]; 3] = [
+const INSERT: [&[u8]; 4] = [
     b"INSERT INTO `creature_respawn` VALUES",
     b"INSERT INTO `gameobject_respawn` VALUES",
     b"INSERT INTO `instance` VALUES",
+    b"INSERT INTO `world` VALUES",
 ];
-const INSERT_TABLE: [&[u8]; 3] = [
+const INSERT_TABLE: [&[u8]; 4] = [
     b"INSERT INTO `creature_respawn`",
     b"INSERT INTO `gameobject_respawn`",
     b"INSERT INTO `instance`",
+    b"INSERT INTO `world`",
 ];
 #[derive(Default)]
 struct SnapshotParser {
     rows: CharacterRelations,
-    created: [bool; 3],
-    locked: [bool; 3],
-    unlocked: [bool; 3],
+    created: [bool; 4],
+    locked: [bool; 4],
+    unlocked: [bool; 4],
     schema: Option<(usize, usize)>,
     current: Option<usize>,
     insert_table: Option<usize>,
@@ -1079,6 +1104,23 @@ impl SnapshotParser {
                     "execution.managers.snapshot_row_limit",
                 )?;
                 rows.push(row);
+            } else if table == 3 {
+                let map = narrow(0)?;
+                require(
+                    matches!(values[1], None | Some(Cow::Owned(_))),
+                    "execution.managers.snapshot_string",
+                )?;
+                require(
+                    !self.rows.world.contains_key(&map),
+                    "execution.managers.snapshot_duplicate_key",
+                )?;
+                require(
+                    self.rows.world.len() < 2_000_000,
+                    "execution.managers.snapshot_row_limit",
+                )?;
+                self.rows
+                    .world
+                    .insert(map, values[1].take().map(Cow::into_owned));
             } else {
                 require(
                     matches!(values[4], None | Some(Cow::Owned(_))),
@@ -1112,16 +1154,19 @@ impl SnapshotParser {
         }
         Ok(())
     }
-    fn finish(self) -> Result<CharacterRelations> {
+    fn finish(mut self) -> Result<CharacterRelations> {
         require(
-            self.created.iter().all(|v| *v)
-                && self.locked.iter().all(|v| *v)
-                && self.unlocked.iter().all(|v| *v)
+            self.created[..3].iter().all(|v| *v)
+                && self.locked[..3].iter().all(|v| *v)
+                && self.unlocked[..3].iter().all(|v| *v)
+                && ((!self.created[3] && !self.locked[3] && !self.unlocked[3])
+                    || (self.created[3] && self.locked[3] && self.unlocked[3]))
                 && self.schema.is_none()
                 && self.current.is_none()
                 && self.insert_table.is_none(),
             "execution.managers.character_relation_absent",
         )?;
+        self.rows.world_available = self.created[3];
         Ok(self.rows)
     }
 }

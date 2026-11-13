@@ -5,11 +5,16 @@ use super::*;
 use benilla_sim::source_rng::{RawGenerator, SourceRandom, TraceEvent};
 use std::collections::BTreeMap;
 
+#[path = "world_scripts.rs"]
+mod world_scripts;
+pub use world_scripts::*;
+
 /// Catalog operands only. No recorded map births, script results or selected pool members.
 pub struct ContinentDefinitions {
     pub entries: [PersistentMapEntry; 2],
     pub temporary_starts: (u32, u32),
     pub script_ids: BTreeMap<u32, u32>,
+    pub script_names: BTreeMap<u32, String>,
 }
 impl ContinentDefinitions {
     pub fn load(
@@ -43,15 +48,20 @@ impl ContinentDefinitions {
                 .wrapping_add(1)
                 .wrapping_add(reserve("GuidReserveSize.GameObject")?),
         );
-        let script_ids = catalog
-            .execution_world_templates()?
-            .into_iter()
-            .filter(|(id, _)| maps.get(id).is_some_and(|ty| !matches!(ty, 1..=3)))
-            .collect();
+        let templates = catalog.execution_world_templates()?;
+        let mut script_ids = BTreeMap::new();
+        let mut script_names = BTreeMap::new();
+        for (id, script, name) in templates {
+            if maps.get(&id).is_some_and(|ty| !matches!(ty, 1..=3)) {
+                script_ids.insert(id, script);
+                script_names.insert(id, name);
+            }
+        }
         Ok(Self {
             entries,
             temporary_starts,
             script_ids,
+            script_names,
         })
     }
 }
@@ -112,6 +122,7 @@ pub struct SourceContinent {
     pub guids: Option<MapGuidAllocators>,
     pub persistent: Option<PersistentStateIdentity>,
     pub script_id: u32,
+    pub instance_data: Option<SourceWorldScript>,
     pub variables: BTreeMap<i32, i32>,
     pub spawn_updated: bool,
     /// DynamicTree.cpp:60-64. Cold fields only; this does not expose a collision query.
@@ -120,6 +131,7 @@ pub struct SourceContinent {
     grids_initialized: bool,
     loaded_grids: [u64; 64],
     terrain_referenced: bool,
+    instance_data_complete: bool,
 }
 impl SourceContinent {
     /// Map.cpp:172-189. Call independently for each async job; no RNG is requested here.
@@ -156,17 +168,70 @@ impl SourceContinent {
         )?;
         Ok(self.loaded_grids[usize::from(y)] & (1 << x) != 0)
     }
-    /// Map.cpp:1662-1679. An absent/zero script returns before the F5 call.
-    pub fn create_instance_data(&mut self, script_id: u32) -> Result<()> {
+    /// Map.cpp:1662-1713. Constructor Initialize precedes the load query.
+    pub fn create_instance_data<E: RawGenerator, S: FnMut(TraceEvent)>(
+        &mut self,
+        script_id: u32,
+        script_name: &str,
+        load: bool,
+        random: &mut SourceRandom<'_, E, S>,
+        storage: &mut impl WorldInstanceStorage,
+    ) -> Result<()> {
         require(
             self.prelude_complete(),
             "execution.continents.prelude_missing",
         )?;
-        self.script_id = script_id;
-        if script_id == 0 {
+        if self.instance_data.is_some() {
             return Ok(());
         }
-        Err(MissingManagerOwner::F5InstanceInitialization.refusal())
+        self.script_id = script_id;
+        if script_id == 0 {
+            self.instance_data_complete = true;
+            return Ok(());
+        }
+        self.instance_data = Some(SourceWorldScript::construct(
+            self.identity,
+            script_name,
+            &mut self.variables,
+            random,
+        )?);
+        if load {
+            let query = format!("SELECT data FROM world WHERE map = '{}'", self.identity.map);
+            match storage.query(self.identity.map, &query)? {
+                WorldInstanceRow::Missing => storage.insert(self.identity.map)?,
+                // Both derived scripts inherit InstanceData.h:64's empty Load.
+                WorldInstanceRow::Null | WorldInstanceRow::Data(_) => {}
+            }
+        } else {
+            self.instance_data
+                .as_mut()
+                .unwrap()
+                .initialize(&mut self.variables, random)?;
+        }
+        self.instance_data_complete = true;
+        Ok(())
+    }
+    /// Map.cpp:192-194, MapPersistentStateMgr.cpp:198-205.
+    pub fn initialize_persistent_pools(
+        &mut self,
+        states: &mut SourceManagers,
+        pools: &mut SourcePoolManager,
+        work: &mut (impl PoolWork + PersistentEffects),
+    ) -> Result<()> {
+        require(
+            self.instance_data_complete,
+            "execution.continents.instance_initialization_incomplete",
+        )?;
+        let state = states.create_state(self.entry, 0, 0, self.entry.dungeon(), false, 0, work)?;
+        self.persistent = Some(state);
+        states.bind_map(state, Some(self.identity), work)?;
+        if !states.state(state)?.pools().initialized() {
+            states.state_mut(state)?.pools_mut().mark_initialized();
+            pools.initialize(states, state, work)?;
+            // The per-map GameEventMgr::Initialize call is after PoolMgr::Initialize.
+            return Err(refuse("execution.continents.map_event_pool_owner"));
+        }
+        Ok(())
     }
 }
 
@@ -214,6 +279,7 @@ impl SourceContinents {
                 guids: None,
                 persistent: None,
                 script_id: 0,
+                instance_data: None,
                 variables: BTreeMap::new(),
                 spawn_updated: false, // SpawnManager.h:54, before Initialize at Map.cpp:200.
                 dynamic_tree_rebalance_ms: 200,
@@ -221,6 +287,7 @@ impl SourceContinents {
                 grids_initialized: false,
                 loaded_grids: [0; 64],
                 terrain_referenced: false,
+                instance_data_complete: false,
             })
         };
         require(

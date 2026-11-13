@@ -37,6 +37,10 @@ pub enum PersistentSql {
         reset: u64,
         encounters: u32,
     },
+    /// Map.cpp:1706 submits a write; this is not a completion acknowledgement.
+    CreateWorld {
+        map: u32,
+    },
 }
 /// No default SQL, reset scheduler, observation or successful callback implementation.
 pub trait PersistentEffects {
