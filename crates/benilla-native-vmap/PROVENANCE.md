@@ -122,10 +122,44 @@ also applies. The new source decoder retains source tree/group/triangle order,
 strict triangle intervals and independent area floor/metadata writes,
 `WorldModel.cpp:35-85,379-390,428-513`, `ModelInstance.cpp:35-153`.
 
-Basic operations use separate native IEEE RNE arithmetic on x86-64. A
-read-only MXCSR check refuses other rounding modes, FTZ and DAZ. No host
-transcendental function supplies an answer. Signed-zero Euler identities are
-exact. All nonzero rotations remain refused, not approximated.
+Basic operations use separate native IEEE RNE arithmetic on x86-64 and
+aarch64. The read-only MXCSR gate is unchanged. The aarch64 gate reads
+FPCR and requires RMode[23:22]=0, FZ[24]=0, AH[1]=0 and FIZ[0]=0.
+The [Arm ARM FPCR field definitions](https://developer.arm.com/documentation/ddi0601/latest/AArch64-Registers/FPCR--Floating-point-Control-Register)
+define these rounding, underflow and alternate-handling controls.
+FZ16[19] affects half precision only, which this code does not use.
+DN[25] changes NaN propagation, not ordered comparisons or `is_nan`.
+Other architectures remain refused. No host transcendental function
+supplies an answer. Signed-zero Euler identities are exact. All nonzero
+rotations remain refused, not approximated.
+
+Rust [primitive floating-point arithmetic](https://doc.rust-lang.org/std/primitive.f32.html)
+rounds each addition, subtraction, multiplication and division to nearest,
+ties to even. Contracting `a*b+c` into one FMA would violate that rule;
+this code uses neither `mul_add` nor algebraic operators.
+Rust [`f32::sqrt`](https://doc.rust-lang.org/std/primitive.f32.html#method.sqrt)
+guarantees the rounded infinite-precision IEEE `squareRoot` result on
+both supported architectures.
+
+The live NaN audit distinguishes internal unordered comparisons from
+observable results. `live/mod.rs` rejects nonfinite product floats;
+`live/bih.rs` rejects nonfinite point/ray inputs and NaN distances.
+Parallel-clip NaNs feed only ordered comparisons, never sign/bit tests.
+`live/math.rs` writes triangle distance only inside its strict positive
+interval. Its box sign test sees only a negative sentinel or an outside
+plane distance, never a NaN. Its square root feeds an infinity comparison.
+Only signed-zero rotations reach stored inverse matrices. The unchecked
+`to_internal` helper retains its existing nonfinite-input behaviour.
+
+Finite liquid heights can overflow during interpolation and produce a NaN
+returned to `LiquidOutput.level`. Hit-position modification can also
+produce returned NaN coordinates. On non-x86-64 these operations refuse
+with `LiquidInterpolationNaN` and `HitPositionNaN`, respectively; x86-64
+keeps its source behaviour. Tests retain normal results on both platforms,
+pin x86-64 NaN results, and assert the aarch64 refusals only on aarch64.
+No signalling NaN enters from product bytes. Public NaN operands either
+reach existing input gates or hit-position modification's result refusal;
+no quiet/signalling operand pair can change a later sign/bit decision.
 
 The component kernel is now
 [`benilla_sim::source_trig_fma`](../benilla-sim/SOURCE-TRIG-FMA.md).

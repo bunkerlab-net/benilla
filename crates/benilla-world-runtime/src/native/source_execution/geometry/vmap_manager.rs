@@ -36,6 +36,8 @@ pub(super) fn vmap_error(error: live::Error) -> Refusal {
         live::Error::NumericBinding => "execution.vmap.glibc236_fma_rotation_binding",
         live::Error::RotationDomain => "execution.vmap.rotation_outside_bound_domain",
         live::Error::ArithmeticEnvironment => "execution.vmap.arithmetic_environment",
+        live::Error::LiquidInterpolationNaN => "execution.vmap.liquid_interpolation_nan",
+        live::Error::HitPositionNaN => "execution.vmap.hit_position_nan",
         live::Error::StaleGeneration => "execution.vmap.stale_generation",
         live::Error::InvalidMap => "execution.vmap.thread_unsafe_map_assertion",
     })

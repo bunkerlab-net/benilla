@@ -2,6 +2,76 @@
 //! Authored products only. No install assets or recorded answers.
 use super::*;
 use std::time::Duration;
+
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+#[test]
+fn default_arithmetic_environment_matches_source_profile() {
+    assert_eq!(arithmetic_environment(), Ok(()));
+}
+
+#[test]
+fn liquid_interpolation_nan_is_native_on_x86_and_refused_on_aarch64() {
+    for overflow in [false, true] {
+        let mut m = Manager::new();
+        present(&mut m, b"000.vmtree", tree(true, 1, &[]));
+        let mut bytes = model(&[(1, 0.0)], true);
+        if overflow {
+            let liquid = bytes.windows(4).position(|v| v == b"LIQU").unwrap();
+            for (i, height) in [-f32::MAX, -f32::MAX, f32::MAX, -f32::MAX]
+                .into_iter()
+                .enumerate()
+            {
+                let start = liquid + 32 + i * 4;
+                bytes[start..start + 4].copy_from_slice(&height.to_le_bytes());
+            }
+        }
+        present(&mut m, b"test.wmo.vmo", bytes);
+        load(&mut m, 1, 2, &[spawn(0, 4, 1, 2, 0.0)]);
+        let mut out = LiquidOutput {
+            level: 99.0,
+            floor: 98.0,
+            kind: 97,
+        };
+        let result = m.liquid_level(0, [0.0, 0.0, 10.0], 0, &mut out, deadline());
+        if overflow {
+            #[cfg(target_arch = "x86_64")]
+            {
+                assert_eq!(result, Ok(true));
+                assert!(out.level.is_nan());
+            }
+            #[cfg(target_arch = "aarch64")]
+            {
+                assert_eq!(result, Err(Error::LiquidInterpolationNaN));
+                assert_eq!(out.level, 99.0);
+            }
+        } else {
+            assert_eq!(result, Ok(true));
+            assert_eq!(out.level, 3.0);
+        }
+    }
+}
+
+#[test]
+fn hit_position_nan_is_native_on_x86_and_refused_on_aarch64() {
+    let mut m = fixture(1, &[(1, 0.0)], false);
+    load(&mut m, 1, 2, &[spawn(0, 4, 1, 2, 0.0)]);
+    for modify in [f32::NAN, f32::INFINITY] {
+        let result = m.hit_position(0, [0.0, 0.0, 10.0], [0.0, 0.0, -5.0], modify, deadline());
+        #[cfg(target_arch = "x86_64")]
+        {
+            let (hit, position) = result.unwrap();
+            assert!(hit);
+            assert!(position[0].is_nan());
+            assert!(position[1].is_nan());
+        }
+        #[cfg(target_arch = "aarch64")]
+        assert_eq!(result, Err(Error::HitPositionNaN));
+        assert_eq!(
+            m.hit_position(0, [0.0, 0.0, 10.0], [0.0, 0.0, 5.0], modify, deadline()),
+            Ok((false, [0.0, 0.0, 5.0]))
+        );
+    }
+}
 fn word(b: &mut Vec<u8>, w: u32) {
     b.extend_from_slice(&w.to_le_bytes());
 }

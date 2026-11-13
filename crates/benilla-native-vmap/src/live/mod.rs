@@ -30,6 +30,8 @@ pub enum Error {
     NumericBinding,
     RotationDomain,
     ArithmeticEnvironment,
+    LiquidInterpolationNaN,
+    HitPositionNaN,
     StaleGeneration,
     InvalidMap,
 }
@@ -43,8 +45,8 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 const MAX_TREE_WORDS: usize = 16_777_216;
 const MAX_OBJECT_WORDS: usize = 1_048_576;
 
-/// Native IEEE basic operations are separate, unfused, RNE with gradual underflow.
-/// No host transcendental function is used. Nonzero Euler angles remain refused.
+/// Separate, unfused IEEE RNE operations with gradual underflow on x86-64 MXCSR
+/// and aarch64 FPCR. Other architectures and nonzero Euler angles remain refused.
 fn arithmetic_environment() -> Result<()> {
     #[cfg(target_arch = "x86_64")]
     {
@@ -58,7 +60,22 @@ fn arithmetic_environment() -> Result<()> {
         }
         Ok(())
     }
-    #[cfg(not(target_arch = "x86_64"))]
+    #[cfg(target_arch = "aarch64")]
+    {
+        let fpcr: u64;
+        // Arm ARM FPCR: RMode[23:22], FZ[24], AH[1], FIZ[0].
+        // https://developer.arm.com/documentation/ddi0601/latest/AArch64-Registers/FPCR--Floating-point-Control-Register
+        // FZ16[19] affects only f16, not our f32/f64. DN[25] cannot change
+        // comparisons; observable NaN arithmetic is refused at its operation.
+        unsafe {
+            core::arch::asm!("mrs {}, fpcr", out(reg) fpcr, options(nomem, nostack, preserves_flags));
+        }
+        if fpcr & ((3 << 22) | (1 << 24) | (1 << 1) | 1) != 0 {
+            return Err(Error::ArithmeticEnvironment);
+        }
+        Ok(())
+    }
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
     {
         Err(Error::ArithmeticEnvironment)
     }

@@ -237,7 +237,13 @@ impl Liquid {
                 h(i.wrapping_add(row))? - h(i)?,
             )
         };
-        Ok(Some(h(i)? + dx * sx + dy * sy))
+        let height = h(i)? + dx * sx + dy * sy;
+        // Arm and SSE generate different NaN bits on finite-height overflow.
+        #[cfg(not(target_arch = "x86_64"))]
+        if height.is_nan() {
+            return Err(Error::LiquidInterpolationNaN);
+        }
+        Ok(Some(height))
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -412,6 +418,11 @@ impl Manager {
                 }
             } else {
                 position = std::array::from_fn(|a| position[a] + direction[a] * modify);
+            }
+            // Preserve x86 source results; other hosts cannot promise its NaN bits.
+            #[cfg(not(target_arch = "x86_64"))]
+            if position.iter().any(|v| v.is_nan()) {
+                return Err(Error::HitPositionNaN);
             }
         }
         Ok((hit, to_internal(position)))
