@@ -430,7 +430,7 @@ fn verify_stream(
 
 pub(crate) struct PoolCatalogTemplate {
     pub ordinal: u64,
-    pub id: u16,
+    pub id: u32,
     pub limit: u32,
     pub description: Vec<u8>,
 }
@@ -439,6 +439,7 @@ pub(crate) struct PoolCatalogMember {
     pub guid: u32,
     pub pool: u16,
     pub chance: f32,
+    pub template_id: Option<u32>,
 }
 /// Retains checked raw SQL occurrences, never F2 candidate dispositions.
 pub(crate) struct PoolCatalogRows {
@@ -545,7 +546,7 @@ impl PoolCatalogRows {
         fill(&row, &mut cells)?;
         Ok(Some(PoolCatalogTemplate {
             ordinal: row.ordinal,
-            id: uint(cells[0])? as u16,
+            id: uint(cells[0])?,
             limit: uint(cells[1])?,
             description: cells[2].unwrap_or_default().to_vec(),
         }))
@@ -562,6 +563,7 @@ impl PoolCatalogRows {
             guid: uint(cells[0])?,
             pool: uint(cells[1])? as u16,
             chance: floating(cells[2])?,
+            template_id: matches!(slot, 3 | 5).then(|| uint(cells[3])).transpose()?,
         }))
     }
 }

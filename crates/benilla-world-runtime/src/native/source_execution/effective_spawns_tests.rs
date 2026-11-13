@@ -85,6 +85,51 @@ fn loaded(
     s
 }
 #[test]
+fn pool_definitions_use_objectmgr_map_fields_without_promoting_source_skips() {
+    let mut r = row();
+    r.map = 99;
+    let i = inputs();
+    let spawns = loaded(GridSpawnKind::Creature, r, &i);
+    assert_eq!(
+        spawns
+            .complete_data(key(GridSpawnKind::Creature))
+            .unwrap_err()
+            .id,
+        "execution.effective_spawns.source_skipped_post_insert_owner"
+    );
+    let mut owner = EffectivePoolDefinitions {
+        spawns: &spawns,
+        maps: &i.maps,
+    };
+    assert_eq!(owner.spawn_map(PoolKind::Creature, 7).unwrap(), Some(99));
+    assert_eq!(owner.spawn_map(PoolKind::GameObject, 7).unwrap(), None);
+    assert!(!owner.map_exists(99).unwrap());
+    assert!(owner.map_exists(2).unwrap());
+    assert_eq!(
+        owner.spawn_map(PoolKind::Child, 7).unwrap_err().id,
+        "execution.pool.child_spawn_definition"
+    );
+}
+
+#[test]
+fn pool_definitions_propagate_unfinished_spawn_owners() {
+    let mut r = row();
+    r.entry = 0;
+    let mut i = inputs();
+    i.random
+        .insert(key(GridSpawnKind::Creature), (false, vec![10, 11]));
+    let mut spawns = SourceEffectiveSpawns::default();
+    let error = spawns
+        .inspect_row(GridSpawnKind::Creature, r, &i, &mut Unbound)
+        .unwrap_err();
+    let mut owner = EffectivePoolDefinitions {
+        spawns: &spawns,
+        maps: &i.maps,
+    };
+    assert_eq!(owner.spawn_map(PoolKind::Creature, 7).unwrap_err(), error);
+}
+
+#[test]
 fn fixed_conditional_and_single_entry_random_keep_source_draws_and_reset_order() {
     let mut i = inputs();
     let k = key(GridSpawnKind::Creature);

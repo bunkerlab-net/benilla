@@ -6,6 +6,8 @@ use super::*;
 use benilla_sim::{source_calendar, source_moon, source_time::IntervalTimer};
 use std::collections::{BTreeMap, BTreeSet};
 const FAR_FUTURE: i64 = 4_102_444_800;
+#[path = "game_events_catalog.rs"]
+mod catalog;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct GameEventDefinition {
@@ -236,6 +238,7 @@ pub trait GameEventOwner {
     fn set_quest_active(&mut self, quest: u32, active: bool) -> Result<()>;
     fn check_pool_event(
         &mut self,
+        pools: &SourcePoolManager,
         pool: u16,
         event: i16,
         creatures: &BTreeMap<u32, i16>,
@@ -321,8 +324,21 @@ impl SourceGameEventManager {
     ) -> Result<()> {
         self.run(|this| {
             let binding = VerifiedCatalog::execution_event_initial(snapshot, environment)?;
-            let mut rows: EventCatalogRows = catalog.execution_event_rows(occurrences)?;
             this.state.initial_binding = Some(binding);
+            this.load_catalog_definitions(catalog, occurrences, pools, owner)
+        })
+    }
+    /// World.cpp:1109 loads definitions before the later character-status query at :1416.
+    pub fn load_catalog_definitions(
+        &mut self,
+        catalog: &mut VerifiedCatalog,
+        occurrences: &Path,
+        pools: &mut SourcePoolManager,
+        owner: &mut impl GameEventOwner,
+    ) -> Result<()> {
+        self.run(|this| {
+            let mut rows =
+                catalog::StartupEventRows::new(catalog.execution_event_rows(occurrences)?);
             this.load(&mut rows, pools, owner)
         })
     }
@@ -713,7 +729,7 @@ impl SourceGameEventManager {
                 }
             }
             for (pool, event) in pool_events {
-                owner.check_pool_event(pool, event, &creature_events, &object_events)?;
+                owner.check_pool_event(pools, pool, event, &creature_events, &object_events)?;
             }
             this.state.substitutions.resize_with(count, Vec::new);
             while let Some(row) = rows.substitution()? {

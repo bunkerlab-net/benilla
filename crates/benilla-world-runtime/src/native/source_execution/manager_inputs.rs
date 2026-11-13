@@ -55,7 +55,7 @@ struct CharacterRelations {
 }
 /// Non-serializable, immutable and permanently non-admitting until F1/F7 integration.
 pub struct ManagerInitialInputs<'a> {
-    binding: ManagerExecutionBinding,
+    queries: [CharacterQueryOccurrence; 2],
     rows: CharacterRelations,
     held: Vec<ExecutionFile>,
     execution: Option<&'a VerifiedExecutionInputs>,
@@ -72,9 +72,9 @@ impl<'a> ManagerInitialInputs<'a> {
             .open(path.parent().unwrap_or_else(|| Path::new(".")), 1_048_576)?;
         Self::validate_identity(&binding, inputs.identity(), inputs.binding())?;
         let rows = CharacterRelations::read(inputs.manager_snapshot()?)?;
-        Self::validate_queries(&binding, &rows)?;
+        Self::validate_queries(&binding.creature, &binding.gameobject, &rows)?;
         Ok(Self {
-            binding,
+            queries: [binding.creature, binding.gameobject],
             rows,
             held: vec![held, configuration],
             execution: Some(inputs),
@@ -107,18 +107,19 @@ impl<'a> ManagerInitialInputs<'a> {
         )
     }
     fn validate_queries(
-        binding: &ManagerExecutionBinding,
+        creature: &CharacterQueryOccurrence,
+        gameobject: &CharacterQueryOccurrence,
         rows: &CharacterRelations,
     ) -> Result<()> {
         for (query, rows, line, function) in [
             (
-                &binding.creature,
+                creature,
                 &rows.creatures,
                 997,
                 "MapPersistentStateManager::LoadCreatureRespawnTimes",
             ),
             (
-                &binding.gameobject,
+                gameobject,
                 &rows.gameobjects,
                 1062,
                 "MapPersistentStateManager::LoadGameobjectRespawnTimes",
@@ -157,8 +158,8 @@ impl<'a> ManagerInitialInputs<'a> {
             )?;
         }
         require(
-            binding.creature.owner.thread == binding.gameobject.owner.thread
-                && binding.creature.owner.occurrence < binding.gameobject.owner.occurrence,
+            creature.owner.thread == gameobject.owner.thread
+                && creature.owner.occurrence < gameobject.owner.occurrence,
             "execution.managers.query_order",
         )
     }
@@ -205,8 +206,8 @@ impl<'a> ManagerInitialInputs<'a> {
     }
     pub fn query(&self, kind: GridSpawnKind) -> &CharacterQueryOccurrence {
         match kind {
-            GridSpawnKind::Creature => &self.binding.creature,
-            GridSpawnKind::GameObject => &self.binding.gameobject,
+            GridSpawnKind::Creature => &self.queries[0],
+            GridSpawnKind::GameObject => &self.queries[1],
         }
     }
     pub fn row(&self, kind: GridSpawnKind, ordinal: u64) -> Result<InitialRespawnRow> {
@@ -227,13 +228,51 @@ impl<'a> ManagerInitialInputs<'a> {
     #[cfg(test)]
     pub(super) fn authored(raw: &[u8], binding: ManagerExecutionBinding) -> Result<Self> {
         let rows = CharacterRelations::parse(raw)?;
-        Self::validate_queries(&binding, &rows)?;
+        Self::validate_queries(&binding.creature, &binding.gameobject, &rows)?;
         Ok(Self {
-            binding,
+            queries: [binding.creature, binding.gameobject],
             rows,
             held: Vec::new(),
             execution: None,
         })
+    }
+    /// Frozen diagnostic inputs have no synthetic F1 identity or production admission.
+    #[cfg(test)]
+    pub(super) fn frozen_snapshot(
+        raw: &[u8],
+        mut queries: [CharacterQueryOccurrence; 2],
+    ) -> Result<Self> {
+        let rows = CharacterRelations::parse(raw)?;
+        for (query, values) in queries.iter_mut().zip([&rows.creatures, &rows.gameobjects]) {
+            query.ordinals = values
+                .iter()
+                .enumerate()
+                .filter(|(_, row)| i128::from(row.deadline) > i128::from(query.database_seconds))
+                .map(|(ordinal, _)| ordinal as u64)
+                .collect();
+        }
+        Self::validate_queries(&queries[0], &queries[1], &rows)?;
+        Ok(Self {
+            queries,
+            rows,
+            held: Vec::new(),
+            execution: None,
+        })
+    }
+    #[cfg(test)]
+    pub(super) fn frozen_query_result(&self, kind: GridSpawnKind) -> CharacterQueryStatus {
+        let rows = match kind {
+            GridSpawnKind::Creature => &self.rows.creatures,
+            GridSpawnKind::GameObject => &self.rows.gameobjects,
+        };
+        if rows
+            .iter()
+            .any(|row| i128::from(row.deadline) > i128::from(self.query(kind).database_seconds))
+        {
+            CharacterQueryStatus::Rows
+        } else {
+            CharacterQueryStatus::Empty
+        }
     }
 }
 

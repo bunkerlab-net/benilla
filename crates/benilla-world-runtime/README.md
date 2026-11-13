@@ -1171,6 +1171,18 @@ selection remain unchanged.
 `PoolLoadOwner` must resolve the effective ObjectMgr spawn set and Map.dbc.
 The retained catalog adapter supplies raw query occurrences, including template
 expansions, not F2 preparation dispositions or effective spawn acceptance.
+`EffectivePoolDefinitions` binds those lookups to assigned ObjectMgr map fields
+without treating a post-insert source skip as a complete spawn.
+The startup adapter orders templates and direct members by primary key.
+Template expansions use template ID, then joined spawn GUID.
+The recorded reset restores a dump made with `--order-by-primary`,
+`full-server/f1/db-snapshot.py:9`; the retained pool table statuses have
+`Data_free=0`, `benilla-config/spawn-row-order/pool_*-status.tsv:2`.
+All 28,865 independently ordered query rows match the recording, field for
+field, `benilla-config/pool-startup/order-analysis.json:5-45`.
+[INFERENCE] These are MyISAM ALL scans over restored primary-key insertion
+order, not an engine ordering guarantee. EXPLAIN blocked by tool policy
+remains a pending evidence item, as accepted by the owner on 2026-11-13.
 
 The port derives from CMaNGOS Classic
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`, under GPL-2.0-or-later.
@@ -2295,15 +2307,51 @@ execution. Expected observations never order rows or supply selections.
 The comparison reports the first identity or result divergence by name.
 Frozen products remain diagnostic inputs with unsealed producer lineage.
 The spawn boundary is 5,324 selections and 8,713 raw words, positions 0 through
-8712. The diagnostic then names `execution.pool.random_owner` at the next
-startup shuffle, recorded at `PoolManager.cpp:248`, reached from
-`World.cpp:1095`. It verifies that the trace assigns word `2637113002` to raw
-position 8713 there without consuming it through an unbound pool owner.
-F4.04 already ports the shuffle and compares numeric results with observed
-before-lists, `source_execution/seal8_pools.rs:219-225`. That projection does
-not bind independently loaded pool members or persistent-map transitions,
-`:280-301`. Startup must connect those lists and states, eligibility and leaf
-effects to the continuing world-thread stream through `PoolWork`.
+8712. The comparison then independently loads pool templates and memberships
+through `SourcePoolManager`, using the effective ObjectMgr map fields.
+Pool loading makes no draws, `PoolManager.cpp:604-1047`.
+The next reached loader is `GameEventMgr::LoadFromDB`, `World.cpp:1109`.
+Its event 7 Lunar Festival schedule needs wall time and the calendar/sine owners,
+`GameEventMgr.cpp:149-157`. The diagnostic binds its captured wall-clock input,
+then refuses `execution.event.lunar_reference_dispatch_unbound`.
+Seal8 has no actual-process CPU/libm dispatch receipt. A later recording's
+dispatch does not retroactively establish seal8's. No further random word is
+consumed.
+
+The later recorded shuffle at raw position 8713, word `2637113002`, belongs to
+event 27, Nights, activating creature pool 1163 on map 0. Its independently
+loaded members are `[28458, 134022, 160354]`, creature entry 572, Leprithus.
+Event startup runs at `World.cpp:1416`; `GameEventMgr.cpp:744-751,873-876`
+dispatches pool spawning. This is not `PoolManager::Initialize`.
+`InitWorldMaps` only creates non-instanceable persistent states,
+`MapPersistentStateMgr.cpp:981-988`; `Map.cpp:194` calls `InitPools` later.
+F4.04's observed-before-list projection remains separate from independently
+executed startup selections, `source_execution/seal8_pools.rs:280-301`.
+
+A second comparison uses `seal16-full-01/run/trace.tsv` beside the canonical
+recorded config. It keeps its own initial MT state and spawn observations.
+It binds event clocks in recorded site/occurrence order and authenticates
+seal16's actual-process sine receipt against its acquisition, schema,
+instrumentation and binary sidecar hashes. The lunar algorithm computes its
+calendar requests and checks them against the captured external inputs.
+Event queries use restored primary-key order; all 15,636 query rows match
+independently, `benilla-config/pool-startup/seal16-event-order-analysis.json`.
+[INFERENCE] The event scan mechanism has the same unmeasured-plan limitation.
+
+The comparison loads persistent state from the hash-checked reset snapshot,
+using captured database-clock inputs for cleanup. It matches 5,324 spawn
+selections and all 8,712 world-thread words, then refuses
+`execution.managers.f3_13.continent_construction_owner` at
+`World.cpp:1389 -> MapManager.cpp:99`. F3.13 still owns WorldMap construction
+and the map initializer prelude, `manager_dispatch.rs:186-187`.
+`MapManager.cpp:106` launches initialization on separate async threads;
+their pool draws must never consume the continuing world-thread engine.
+The frozen comparison no longer reaches event initialization at
+`World.cpp:1416`, event-27/status/quest comparisons, map-birth comparisons,
+or the planned WorldState refusal and clone-only next-word check
+`(8712,3411341330)`. Those checks remain after the named cutoff.
+These comparisons do not admit gameplay or create sealed F1 lineage.
+
 The shared AREA
 reader and DBC flag-selection kernel live in `benilla-native-terrain::grid_area`;
 the app keeps its stricter component framing and query-budget contract.

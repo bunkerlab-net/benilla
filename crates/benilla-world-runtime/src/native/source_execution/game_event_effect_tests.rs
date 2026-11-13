@@ -145,6 +145,7 @@ impl GameEventOwner for Host {
     }
     fn check_pool_event(
         &mut self,
+        _: &SourcePoolManager,
         _: u16,
         _: i16,
         _: &BTreeMap<u32, i16>,

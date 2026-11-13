@@ -1003,6 +1003,6 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 #### native
 
 - Preserve the raw u32 event number, because C++ leaves the non-fixed AIEventType enum indeterminate outside 0..1023 (AIDefines.h:22-56) and the owner chose intent on 2026-11-12 so scourge\_invasion.cpp:956-965's 7166 reaches its receiver unchanged; ScriptMgr.cpp:2759-2775. ([`src/native/source_execution/assistance.rs:8`](../crates/benilla-world-runtime/src/native/source_execution/assistance.rs#L8))
-- Pin never-assigned scheduleType to recorded F1 round-15 zero because CMaNGOS GameEventMgr.h:53-71 leaves it indeterminate. ([`src/native/source_execution/game_events.rs:12`](../crates/benilla-world-runtime/src/native/source_execution/game_events.rs#L12))
+- Pin never-assigned scheduleType to recorded F1 round-15 zero because CMaNGOS GameEventMgr.h:53-71 leaves it indeterminate. ([`src/native/source_execution/game_events.rs:14`](../crates/benilla-world-runtime/src/native/source_execution/game_events.rs#L14))
 - Synchronize global pet numbers because ObjectMgr.cpp:119-127 and ObjectMgr.h:826,1247 race across SpellEffects.cpp:2372,3288; owner approved 2026-11-06. ([`src/native/source_execution/guids.rs:164`](../crates/benilla-world-runtime/src/native/source_execution/guids.rs#L164))
 

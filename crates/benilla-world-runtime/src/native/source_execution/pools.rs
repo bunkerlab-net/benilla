@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 mod effects;
 mod maps;
 pub use effects::*;
+mod catalog;
 pub use maps::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -59,7 +60,7 @@ impl PoolRows for PoolCatalogRows {
     fn template(&mut self) -> Result<Option<PoolTemplateRow>> {
         Ok(self.template()?.map(|v| PoolTemplateRow {
             ordinal: v.ordinal,
-            id: v.id,
+            id: v.id as u16,
             limit: v.limit,
             description: v.description,
         }))
@@ -77,6 +78,28 @@ impl PoolRows for PoolCatalogRows {
 pub trait PoolLoadOwner {
     fn spawn_map(&mut self, kind: PoolKind, guid: u32) -> Result<Option<u32>>;
     fn map_exists(&mut self, map: u32) -> Result<bool>;
+}
+
+/// PoolManager.cpp:680-697,818-835 reads assigned ObjectMgr map fields, including post-insert skips.
+pub struct EffectivePoolDefinitions<'a> {
+    pub spawns: &'a SourceEffectiveSpawns,
+    pub maps: &'a BTreeMap<u32, u32>,
+}
+impl PoolLoadOwner for EffectivePoolDefinitions<'_> {
+    fn spawn_map(&mut self, kind: PoolKind, guid: u32) -> Result<Option<u32>> {
+        let kind = match kind {
+            PoolKind::Creature => GridSpawnKind::Creature,
+            PoolKind::GameObject => GridSpawnKind::GameObject,
+            PoolKind::Child => return Err(refuse("execution.pool.child_spawn_definition")),
+        };
+        Ok(self
+            .spawns
+            .pre_terrain_data(SpawnKey { kind, guid })?
+            .map(|data| data.row.map))
+    }
+    fn map_exists(&mut self, map: u32) -> Result<bool> {
+        Ok(self.maps.contains_key(&map))
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum PoolEffectAction {
@@ -370,7 +393,7 @@ impl SourcePoolManager {
         owner: &mut impl PoolLoadOwner,
     ) -> Result<()> {
         self.run(|this| {
-            let mut rows = catalog.execution_pool_rows(occurrences)?;
+            let mut rows = catalog::StartupPoolRows::new(catalog.execution_pool_rows(occurrences)?);
             this.load(&mut rows, owner)
         })
     }

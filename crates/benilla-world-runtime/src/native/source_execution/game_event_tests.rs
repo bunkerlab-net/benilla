@@ -106,6 +106,7 @@ impl GameEventOwner for Owner<'_> {
     }
     fn check_pool_event(
         &mut self,
+        _: &SourcePoolManager,
         pool: u16,
         event: i16,
         creatures: &BTreeMap<u32, i16>,
