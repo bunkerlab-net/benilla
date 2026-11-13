@@ -332,6 +332,7 @@ fn frozen_startup(later: bool) {
         super::super::production_compiler::VerifiedCatalog::open(Path::new(&root), false).unwrap();
     let mut geometry =
         SourceTerrainManager::new(files, SourceTerrainDbc::catalog(&mut catalog).unwrap());
+    geometry.liquid_dbc = SourceLiquidDbc::catalog(&mut catalog).unwrap();
     let narrowed = geometry
         .dbc
         .areas

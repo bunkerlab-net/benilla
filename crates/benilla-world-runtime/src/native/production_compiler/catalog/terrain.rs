@@ -26,6 +26,15 @@ impl VerifiedCatalog {
         let fields = wmo_fields(name)?;
         self.execution_geometry_dbc_fields(name, fields)
     }
+    /// Complete liquid and area override operands, DBCStructure.h:40-57,546-552.
+    pub(crate) fn execution_liquid_dbc(&mut self, name: &str) -> Result<Vec<Vec<u32>>> {
+        let fields: &[u32] = match name {
+            "LiquidType.dbc" => &[0, 2],
+            "AreaTable.dbc" => &[0, 2, 24],
+            _ => return Err(fail("terrain.liquid_dbc_not_allowed")),
+        };
+        self.execution_geometry_dbc_fields(name, fields)
+    }
     fn execution_geometry_dbc_fields(
         &mut self,
         name: &str,

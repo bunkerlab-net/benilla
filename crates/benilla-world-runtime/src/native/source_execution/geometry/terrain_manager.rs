@@ -100,18 +100,21 @@ impl SourceTerrainDbc {
         self.location(map, flag)[0]
     }
     pub fn location(&self, map: u32, flag: u16) -> [u32; 2] {
+        self.entry(map, flag)
+            .map_or([0, 0], |a| [if a.zone != 0 { a.zone } else { a.id }, a.id])
+    }
+    pub fn entry(&self, map: u32, flag: u16) -> Option<SourceAreaEntry> {
         let mut search = FlagSearch::new(flag, map);
         for area in self.areas.values().copied() {
             if let Some(area) = search.visit(area, area.flag, area.map) {
-                return [if area.zone != 0 { area.zone } else { area.id }, area.id];
+                return Some(area);
             }
         }
-        let area = search.wrong_map().or_else(|| {
+        search.wrong_map().or_else(|| {
             self.linked_zones
                 .get(&map)
                 .and_then(|id| self.areas.get(id).copied())
-        });
-        area.map_or([0, 0], |a| [if a.zone != 0 { a.zone } else { a.id }, a.id])
+        })
     }
 }
 
@@ -122,12 +125,8 @@ pub struct SourceGridMap {
     pub load_success: bool,
     areas: AreaData,
     heights: HeightData,
+    pub liquid: benilla_native_terrain::grid_liquid::GridLiquid,
     pub holes: [u16; 256],
-    pub liquid_entry: u16,
-    pub liquid_flags: u8,
-    pub liquid_offset: [u8; 2],
-    pub liquid_size: [u8; 2],
-    pub liquid_level: f32,
 }
 impl Default for SourceGridMap {
     fn default() -> Self {
@@ -136,12 +135,8 @@ impl Default for SourceGridMap {
             load_success: true,
             areas: AreaData::default(),
             heights: HeightData::default(),
+            liquid: benilla_native_terrain::grid_liquid::GridLiquid::default(),
             holes: [0; 256],
-            liquid_entry: 0,
-            liquid_flags: 0,
-            liquid_offset: [0; 2],
-            liquid_size: [0; 2],
-            liquid_level: -200_000.0,
         }
     }
 }
@@ -207,18 +202,17 @@ impl SourceGridMap {
         }
         let liquid = word(bytes, 24)? as usize;
         if liquid != 0 {
-            let header = bytes
-                .get(liquid..liquid + 16)
-                .ok_or_else(|| refuse("execution.terrain.liquid_header_read_undefined"))?;
-            if &header[..4] != b"MLIQ" {
-                grid.load_success = false;
-                return Ok(grid);
-            }
-            grid.liquid_entry = u16::from_le_bytes([header[6], header[7]]);
-            grid.liquid_flags = header[5];
-            grid.liquid_offset = [header[8], header[9]];
-            grid.liquid_size = [header[10], header[11]];
-            grid.liquid_level = f32::from_bits(word(header, 12)?);
+            grid.liquid = match benilla_native_terrain::grid_liquid::GridLiquid::decode(
+                Arc::clone(bytes),
+                liquid,
+            ) {
+                Ok(liquid) => liquid,
+                Err(benilla_native_terrain::grid_liquid::Error::Magic) => {
+                    grid.load_success = false;
+                    return Ok(grid);
+                }
+                Err(error) => return Err(error.into()),
+            };
         }
         Ok(grid)
     }
@@ -299,6 +293,7 @@ pub struct SourceTerrainManager {
     pub files: SourceTerrainFiles,
     pub dbc: SourceTerrainDbc,
     pub wmo_areas: vmap_scene::SourceWmoAreas,
+    pub liquid_dbc: SourceLiquidDbc,
 }
 impl SourceTerrainManager {
     pub fn new(files: SourceTerrainFiles, dbc: SourceTerrainDbc) -> Self {
@@ -358,6 +353,10 @@ impl SourceTerrainManager {
         Ok(self.zone_and_area(map, pose)?[0])
     }
     pub fn zone_and_area(&mut self, map: u32, pose: [f32; 3]) -> Result<[u32; 2]> {
+        let flag = self.area_flag(map, pose)?;
+        Ok(self.dbc.location(map, flag))
+    }
+    pub fn area_flag(&mut self, map: u32, pose: [f32; 3]) -> Result<u16> {
         require(self.terrain(map).is_some(), "execution.terrain.info_owner")?;
         if let Some(area) = self.vmap.area_info(map, pose)? {
             // GridMap.cpp:904-918 calls full GetGrid before terrain occlusion.
@@ -366,13 +365,13 @@ impl SourceTerrainManager {
             let height = grid.height(pose[0], pose[1])?;
             if !vmap_scene::area_hidden_by_terrain(pose[2], height, area.floor) {
                 if let Some(flag) = self.wmo_areas.flag(area, &self.dbc.areas, map)? {
-                    return Ok(self.dbc.location(map, flag));
+                    return Ok(flag);
                 }
             }
         }
         let tile = self.query_grid(map, pose, true)?;
         let grid = self.terrain(map).unwrap().grid(tile.x, tile.y).unwrap();
-        Ok(self.dbc.location(map, grid.area(pose[0], pose[1])?))
+        grid.area(pose[0], pose[1])
     }
     pub fn query_grid(
         &mut self,
@@ -535,3 +534,7 @@ fn height_query_error(error: HeightQueryError) -> Refusal {
 #[cfg(test)]
 #[path = "terrain_height_tests.rs"]
 mod height_tests;
+
+#[path = "environment.rs"]
+mod environment;
+pub use environment::SourceLiquidDbc;

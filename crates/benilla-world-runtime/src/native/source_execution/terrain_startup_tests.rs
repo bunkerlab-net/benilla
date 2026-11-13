@@ -169,10 +169,10 @@ fn absent_source_file_has_real_defaults_but_missing_acquisition_and_partial_area
     );
     assert_eq!(grid.holes, [0; 256]);
     assert_eq!(
-        (grid.liquid_entry, grid.liquid_flags, grid.liquid_size),
+        (grid.liquid.entry, grid.liquid.flags, grid.liquid.size),
         (0, 0, [0, 0])
     );
-    assert_eq!(grid.liquid_level.to_bits(), (-200000.0f32).to_bits());
+    assert_eq!(grid.liquid.level.to_bits(), (-200000.0f32).to_bits());
     assert_eq!(
         manager
             .original_zone(1, [0.0; 3], &mut random)

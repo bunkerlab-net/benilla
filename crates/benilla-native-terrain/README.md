@@ -19,6 +19,12 @@ It is a historical source version, not a live-install lease.
 defined uint16 narrowing and indexed DBC flag selection with the app and runtime.
 It does not load collision, validate producer lineage or admit gameplay.
 
+`grid_liquid` shares the source MLIQ reader, raw GridMap predicates, TerrainInfo
+VMap selection, area overrides, and water wrappers. It retains short-read bytes
+and refuses only when a query reads an indeterminate sample or executes an
+undefined type shift. Runtime calls keep the full GetGrid/MMap dependency;
+these component queries do not admit gameplay or change native format 91.
+
 `mbx +stable run --locked -p benilla-native-terrain --bin benilla-native-location --`
 accepts `--data`, `--map`, repeated `--tile X,Y` and a fresh `--output` directory.
 The private export contains complete catalogs, generated terrain and numeric grids.
