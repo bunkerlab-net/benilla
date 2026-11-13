@@ -108,4 +108,22 @@ impl SourceVMapManager {
             .area_info(map, pose, Instant::now() + Duration::from_secs(30))
             .map_err(vmap_error)
     }
+    /// VMapManager2.cpp:187-202. Dynamic models belong to Map's later query.
+    pub fn line_of_sight(
+        &self,
+        map: u32,
+        from: [f32; 3],
+        to: [f32; 3],
+        ignore_m2: bool,
+    ) -> Result<bool> {
+        self.collision
+            .line_of_sight(
+                map,
+                from,
+                to,
+                ignore_m2,
+                Instant::now() + Duration::from_secs(30),
+            )
+            .map_err(vmap_error)
+    }
 }

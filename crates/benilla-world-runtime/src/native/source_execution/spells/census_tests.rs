@@ -229,6 +229,10 @@ fn catalog04_spell_area_and_first_cast_location_census() {
     let mut items_reached = 0;
     let mut items_passed = 0;
     let mut items_refused = BTreeMap::<String, usize>::new();
+    let mut range_reached = 0;
+    let mut range_passed = 0;
+    let mut range_refused = BTreeMap::<String, usize>::new();
+    let mut range_rejected = BTreeMap::<String, usize>::new();
     for row in rows {
         let Ok(EventAiLoad {
             disposition: EventAiDisposition::Loaded(e),
@@ -270,19 +274,55 @@ fn catalog04_spell_area_and_first_cast_location_census() {
         match s.allowed_in_location(t, 0, 0, 0, None, &mut Missing) {
             Ok(R::Ok) => {
                 passed += 1;
-                #[derive(Default)]
-                struct Suffix {
+                struct Suffix<'a> {
+                    stores: &'a SourceSpellStores,
+                    range: super::range_tests::RangeFixture,
+                    range_reached: usize,
+                    range_passed: usize,
+                    range_refused: BTreeMap<String, usize>,
+                    range_rejected: BTreeMap<String, usize>,
                     items_reached: usize,
                     items_passed: usize,
                     items_refused: BTreeMap<String, usize>,
                 }
-                impl SpellExecutionOwner for Suffix {
+                impl SpellExecutionOwner for Suffix<'_> {
+                    fn range_objects(&mut self) -> Result<&SourceObjects> {
+                        self.range.range_objects()
+                    }
+                    fn range_stores(&mut self) -> Result<&SourceSpellStores> {
+                        Ok(self.stores)
+                    }
+                    fn combat_reach(&mut self, _: ObjectHandle) -> Result<f32> {
+                        // Conditional authored creature reach, not a stock model lookup.
+                        Ok(1.5)
+                    }
+                    fn range_mod_owner(&mut self, _: ObjectHandle) -> Result<Option<ObjectHandle>> {
+                        // Object.h:1156, ordinary creature, not Pet/Totem/Player.
+                        Ok(None)
+                    }
                     fn check(
                         &mut self,
                         spell: &mut SourceSpell,
                         t: &SpellTemplate,
                         check: SpellCheck,
                     ) -> Result<R> {
+                        if let SpellCheck::Range(strict) = check {
+                            self.range_reached += 1;
+                            let result = spell.check_range(t, strict, self);
+                            match &result {
+                                Ok(R::Ok) => self.range_passed += 1,
+                                Ok(result) => {
+                                    *self
+                                        .range_rejected
+                                        .entry(format!("{result:?}"))
+                                        .or_default() += 1
+                                }
+                                Err(error) => {
+                                    *self.range_refused.entry(error.id.clone()).or_default() += 1
+                                }
+                            }
+                            return result;
+                        }
                         if check != SpellCheck::Items {
                             return Err(check.missing_owner());
                         }
@@ -319,17 +359,35 @@ fn catalog04_spell_area_and_first_cast_location_census() {
                     .script_binding(SpellScriptKind::Spell, id)
                     .unwrap()
                     .is_some();
-                let mut suffix = Suffix::default();
+                let mut suffix = Suffix {
+                    stores: &s,
+                    range: super::range_tests::RangeFixture::new(),
+                    range_reached: 0,
+                    range_passed: 0,
+                    range_refused: BTreeMap::new(),
+                    range_rejected: BTreeMap::new(),
+                    items_reached: 0,
+                    items_passed: 0,
+                    items_refused: BTreeMap::new(),
+                };
                 let name = match value.check_cast_location_suffix(t, true, false, &mut suffix) {
                     Err(error) => error.id,
                     Ok(R::Ok) => SpellCall::PrepareTriggerData.missing_owner().id,
-                    Ok(result) => panic!("unexpected static suffix result {result:?} for {id}"),
+                    Ok(result) => format!("SPELL_FAILED_{result:?}"),
                 };
                 *next.entry(name).or_default() += 1;
                 items_reached += suffix.items_reached;
                 items_passed += suffix.items_passed;
                 for (name, count) in suffix.items_refused {
                     *items_refused.entry(name).or_default() += count;
+                }
+                range_reached += suffix.range_reached;
+                range_passed += suffix.range_passed;
+                for (name, count) in suffix.range_refused {
+                    *range_refused.entry(name).or_default() += count;
+                }
+                for (name, count) in suffix.range_rejected {
+                    *range_rejected.entry(name).or_default() += count;
                 }
             }
             Ok(result) => *rejected.entry(format!("{result:?}")).or_default() += 1,
@@ -352,6 +410,12 @@ fn catalog04_spell_area_and_first_cast_location_census() {
             "refused":items_refused,"source_rejected":0,
             "before":{"reaches_check":7032,"passes_check":0,
                 "execution.spells.f5_25_Spell_CheckItems_owner":7032},
+            "undefined_operations_reached":0},
+        "check_range":{"reaches_check":range_reached,"passes_check":range_passed,
+            "refused":range_refused,"source_rejected":range_rejected,
+            "basis":"conditional ordinary creature at (0,0,0), no unit/GO/corpse/point targets, combat reach 1.5 for melee self reach, no spellmod owner; not live execution",
+            "before":{"reaches_check":6850,"passes_check":0,
+                "execution.spells.f6_Spell_CheckRange_owner":6850},
             "undefined_operations_reached":0},
         "undefined_operand_candidates":{"gender":gender_ub,"abs":abs_candidates},
         "actual_stock_executions":0,"format":91,

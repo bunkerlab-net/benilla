@@ -59,11 +59,16 @@ pub enum SpellCastResult {
     ItemGone,
     EquippedItemClass,
     CantBeDisenchanted,
+    OutOfRange,
+    TooClose,
+    UnitNotInfront,
+    LineOfSight,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SpellTargets {
     pub unit: Option<ObjectHandle>,
     pub gameobject: Option<ObjectHandle>,
+    pub corpse: Option<ObjectHandle>,
     pub item_guid: u64,
     pub item: Option<ObjectHandle>,
     pub mask: u32,
@@ -148,6 +153,8 @@ pub struct SourceSpell {
     pub jump_radius: u32,
     pub filtering_scheme: Option<[[u32; 2]; 3]>,
     pub cast_time: i32,
+    /// Spell.cpp:6275, binary32 bits, assigned only after CheckRange succeeds.
+    pub max_range: u32,
     pub timer: u32,
     pub delay_start: u64,
     pub delay_moment: u64,
@@ -203,6 +210,7 @@ impl SourceSpell {
             triggered_by_spell_reagent: None,
             base_points,
             cast_time: 0,
+            max_range: 0,
             timer: 0,
             delay_start: 0,
             delay_moment: 0,

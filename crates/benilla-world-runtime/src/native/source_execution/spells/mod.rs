@@ -6,7 +6,9 @@ mod callers;
 mod checks;
 mod items;
 mod location;
+mod range;
 pub use location::*;
+pub use range::*;
 mod db_callers;
 mod events;
 mod start;
@@ -24,6 +26,8 @@ mod census_tests;
 mod geometry_tests;
 #[cfg(test)]
 mod items_tests;
+#[cfg(test)]
+mod range_tests;
 #[cfg(test)]
 mod tests;
 
@@ -108,7 +112,7 @@ impl SpellCheck {
             Self::AllowedInLocation(_) => "SpellMgr_GetSpellAllowedInLocationError",
             Self::Items => "Unit_check_operands",
             Self::Focus => "f6_Cell_VisitGridObjects_spell_focus",
-            Self::Range(_) => "f6_Spell_CheckRange",
+            Self::Range(_) => "f3_WorldObject_range",
             Self::Power(_) => "Unit_GetPower_CheckPower",
             Self::CasterAuras => "f5_12_Unit_GetAurasByType_CheckCasterAuras",
             Self::Effect(_) => "Spell_CheckCast_effect_operands",
@@ -181,6 +185,88 @@ impl SpellCall {
 }
 /// External state queries are fallible. An unbound query never becomes false/OK.
 pub trait SpellExecutionOwner {
+    /// F3 objects supply actual identity, kind, map and pose.
+    fn range_objects(&mut self) -> Result<&SourceObjects> {
+        Err(refuse("execution.spells.f3_WorldObject_range_owner"))
+    }
+    fn range_stores(&mut self) -> Result<&SourceSpellStores> {
+        Err(refuse("execution.spells.f5_07_spell_stores_range_owner"))
+    }
+    fn range_entry(&mut self, index: u32) -> Result<Option<SpellRangeEntry>> {
+        self.range_stores()?.range_entry(index)
+    }
+    fn range_facing(&mut self, spell: u32) -> Result<u32> {
+        Ok(self.range_stores()?.facing(spell))
+    }
+    fn combat_reach(&mut self, _object: ObjectHandle) -> Result<f32> {
+        Err(refuse("execution.spells.WorldObject_GetCombatReach_owner"))
+    }
+    fn moving_forward(&mut self, _object: ObjectHandle) -> Result<bool> {
+        Err(refuse("execution.spells.Unit_IsMovingForward_owner"))
+    }
+    fn walking(&mut self, _object: ObjectHandle) -> Result<bool> {
+        Err(refuse("execution.spells.Unit_IsWalking_owner"))
+    }
+    fn range_corpse(&mut self, spell: &SourceSpell) -> Result<bool> {
+        Ok(spell.targets.corpse.is_some())
+    }
+    fn ranged_mod_range(&mut self, _caster: ObjectHandle) -> Result<Option<f32>> {
+        Err(refuse(
+            "execution.spells.Player_GetWeaponForAttack_RangedModRange_owner",
+        ))
+    }
+    fn range_mod_owner(&mut self, _caster: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        Err(refuse("execution.spells.Unit_GetSpellModOwner_range_owner"))
+    }
+    fn apply_range_mod(&mut self, _player: ObjectHandle, _spell: u32, _range: f32) -> Result<f32> {
+        Err(refuse("execution.spells.Player_ApplySpellMod_RANGE_owner"))
+    }
+    fn range_pet(&mut self, _caster: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        Err(refuse("execution.spells.Unit_GetPet_range_owner"))
+    }
+    fn range_charm(&mut self, _caster: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        Err(refuse("execution.spells.Unit_GetCharm_range_owner"))
+    }
+    fn range_collision_height(&mut self, _caster: ObjectHandle) -> Result<f32> {
+        Err(refuse(
+            "execution.spells.WorldObject_GetCollisionHeight_owner",
+        ))
+    }
+    fn range_vmap(&mut self) -> Result<&SourceVMapManager> {
+        Err(refuse(
+            "execution.spells.f6_VMapManager_IsInLineOfSight_owner",
+        ))
+    }
+    fn range_dynamic_los(
+        &mut self,
+        _caster: ObjectHandle,
+        _from: [f32; 3],
+        _to: [f32; 3],
+    ) -> Result<bool> {
+        Err(refuse(
+            "execution.spells.Map_dynamic_tree_isInLineOfSight_owner",
+        ))
+    }
+    /// Object.cpp:1387-1391; Map.cpp:2668-2672, static query before dynamic.
+    fn range_point_los(&mut self, caster: ObjectHandle, end: [f32; 3]) -> Result<bool> {
+        let object = self.range_objects()?.get(caster)?;
+        let from: [u32; 3] = object
+            .pose
+            .ok_or_else(|| refuse("execution.spells.WorldObject_position_owner"))?
+            .0[..3]
+            .try_into()
+            .unwrap();
+        let map = object
+            .map
+            .ok_or_else(|| refuse("execution.spells.WorldObject_GetMap_owner"))?
+            .map;
+        let mut origin = from.map(f32::from_bits);
+        origin[2] += self.range_collision_height(caster)?;
+        if !self.range_vmap()?.line_of_sight(map, origin, end, false)? {
+            return Ok(false);
+        }
+        self.range_dynamic_los(caster, origin, end)
+    }
     fn unit(&mut self, _unit: ObjectHandle) -> Result<SpellUnitState> {
         Err(refuse("execution.spells.Unit_check_operands_owner"))
     }
@@ -196,6 +282,9 @@ pub trait SpellExecutionOwner {
         if check == SpellCheck::Items {
             let player = self.unit(spell.caster)?.player;
             return spell.check_items(t, player, self);
+        }
+        if let SpellCheck::Range(strict) = check {
+            return spell.check_range(t, strict, self);
         }
         Err(check.missing_owner())
     }
