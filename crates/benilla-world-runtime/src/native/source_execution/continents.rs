@@ -123,6 +123,7 @@ pub struct SourceContinent {
     pub persistent: Option<PersistentStateIdentity>,
     pub script_id: u32,
     pub instance_data: Option<SourceWorldScript>,
+    pub graveyards: SourceGraveyardManager,
     pub variables: BTreeMap<i32, i32>,
     pub spawn_updated: bool,
     /// DynamicTree.cpp:60-64. Cold fields only; this does not expose a collision query.
@@ -244,7 +245,7 @@ impl SourceContinent {
         states.bind_map(state, Some(self.identity), work)?;
         Ok(state)
     }
-    /// Map.cpp:192-196, MapPersistentStateMgr.cpp:198-207.
+    /// Map.cpp:192-194, MapPersistentStateMgr.cpp:198-207.
     pub fn initialize_persistent_pools(
         &mut self,
         states: &mut SourceManagers,
@@ -255,7 +256,7 @@ impl SourceContinent {
         self.attach_persistent_state(states, work)?;
         self.initialize_pools(states, pools, events, work)
     }
-    /// Map.cpp:194-196, after the map binding is installed.
+    /// Map.cpp:194, after the map binding is installed.
     pub fn initialize_pools(
         &self,
         states: &mut SourceManagers,
@@ -275,7 +276,25 @@ impl SourceContinent {
             pools.initialize(states, state, work)?;
             events.initialize_state(states, state, pools, work)?;
         }
-        Err(refuse("execution.continents.graveyard_init_owner")) // Map.cpp:196.
+        Ok(())
+    }
+    /// Map.cpp:196-198. The world owner must have run at World.cpp:1158.
+    pub fn initialize_after_pools(
+        &mut self,
+        states: &SourceManagers,
+        world_graveyards: &SourceGraveyardManager,
+    ) -> Result<()> {
+        let state = self
+            .persistent
+            .ok_or_else(|| refuse("execution.continents.persistent_state_owner"))?;
+        require(
+            states.state(state)?.pools().initialized(),
+            "execution.continents.pools_uninitialized",
+        )?;
+        self.graveyards.init(world_graveyards)?;
+        // WorldStateVariableManager.cpp:30-32 first needs the loaded ObjectMgr
+        // dungeon-encounter bounds. Do not skip to SpawnManager or navigation.
+        Err(refuse(DUNGEON_ENCOUNTER_BOUNDS_OWNER))
     }
 }
 
@@ -324,6 +343,7 @@ impl SourceContinents {
                 persistent: None,
                 script_id: 0,
                 instance_data: None,
+                graveyards: SourceGraveyardManager::default(),
                 variables: BTreeMap::new(),
                 spawn_updated: false, // SpawnManager.h:54, before Initialize at Map.cpp:200.
                 dynamic_tree_rebalance_ms: 200,

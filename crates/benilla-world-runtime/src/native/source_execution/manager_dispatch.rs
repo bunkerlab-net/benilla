@@ -45,13 +45,14 @@ pub enum ManagerStartupPhase {
     PersistentMaps,
     CreatureRespawns,
     GameObjectRespawns,
+    Graveyards,
     Corpses,
     Scripts,
     WorldTimers,
     MapSystem,
     EventInitialization,
 }
-pub const MANAGER_STARTUP_PHASES: [ManagerStartupPhase; 17] = [
+pub const MANAGER_STARTUP_PHASES: [ManagerStartupPhase; 18] = [
     ManagerStartupPhase::TransportAnimations,
     ManagerStartupPhase::Linking,
     ManagerStartupPhase::Pools,
@@ -64,6 +65,7 @@ pub const MANAGER_STARTUP_PHASES: [ManagerStartupPhase; 17] = [
     ManagerStartupPhase::PersistentMaps,
     ManagerStartupPhase::CreatureRespawns,
     ManagerStartupPhase::GameObjectRespawns,
+    ManagerStartupPhase::Graveyards,
     ManagerStartupPhase::Corpses,
     ManagerStartupPhase::Scripts,
     ManagerStartupPhase::WorldTimers,
@@ -86,6 +88,7 @@ impl ManagerStartupPhase {
             Self::PersistentMaps => 1130,
             Self::CreatureRespawns => 1134,
             Self::GameObjectRespawns => 1137,
+            Self::Graveyards => 1158,
             Self::Corpses => 1196,
             Self::Scripts => 1333,
             Self::WorldTimers => 1345,

@@ -137,9 +137,31 @@ pub(super) struct Inputs {
     map_threads: BTreeMap<u64, MapThreadEvidence>,
     event_initialize_line: Option<u64>,
     event_status_writes: Vec<(u64, String)>,
+    graveyard_query_line: Option<u64>,
+    graveyard_rows: Vec<[u32; 4]>,
+    graveyard_last_field_line: Option<u64>,
+    world_raw_words: u64,
+    graveyard_raw_start: Option<u64>,
+    graveyard_raw_end: Option<u64>,
 }
 impl Inputs {
     pub(super) fn observe_thread(&mut self, thread: u64, line: u64, kind: &str, p: &[&str]) {
+        if thread == 1 && kind == "mt_raw" {
+            self.world_raw_words += 1;
+        }
+        if kind == "sql_query" && unhex(p.last().unwrap()) == GRAVEYARD_QUERY.as_bytes() {
+            assert_eq!(thread, 1);
+            assert!(self.graveyard_query_line.replace(line).is_none());
+            self.graveyard_raw_start = Some(self.world_raw_words);
+        }
+        if thread == 1
+            && kind == "sql_field"
+            && p[0] == self.pointer
+            && self.query == GRAVEYARD_QUERY.as_bytes()
+        {
+            self.graveyard_last_field_line = Some(line);
+            self.graveyard_raw_end = Some(self.world_raw_words);
+        }
         if kind == "sql_query" && unhex(p.last().unwrap()) == b"SELECT event FROM game_event_status"
         {
             self.event_initialize_line.get_or_insert(line);
@@ -270,6 +292,17 @@ impl Inputs {
                         });
                     }
                 }
+            }
+            "sql_field" if p[0] == self.pointer && self.query == GRAVEYARD_QUERY.as_bytes() => {
+                let column = p[1].parse::<usize>().unwrap();
+                if column == 0 {
+                    self.graveyard_rows.push([0; 4]);
+                }
+                self.graveyard_rows.last_mut().unwrap()[column] =
+                    std::str::from_utf8(&unhex(p.last().unwrap()))
+                        .unwrap()
+                        .parse()
+                        .unwrap();
             }
             "sql_field"
                 if p[0] == self.pointer
@@ -1199,6 +1232,33 @@ pub(super) fn continue_startup(
             &mut persistent,
         )
         .unwrap();
+    // World.cpp:1134/1137 respawns precede :1158; map jobs start only at :1389.
+    // These bounded diagnostics do not claim to port intervening World loaders.
+    let graveyard_cursor = *owner.cursor;
+    let (graveyard_rows, graveyard_references) = catalog.execution_graveyard_operands().unwrap();
+    assert_eq!(graveyard_rows, observed.graveyard_rows);
+    assert_eq!(
+        graveyard_rows
+            .iter()
+            .map(|row| [row[0], row[1], row[2]])
+            .collect::<BTreeSet<_>>()
+            .len(),
+        190,
+    );
+    let mut world_graveyards = SourceGraveyardManager::default();
+    let graveyard_census =
+        world_graveyards.load_zones(Some(&graveyard_rows), &graveyard_references);
+    assert_eq!(
+        (graveyard_census.visited, graveyard_census.inserted),
+        (190, 190)
+    );
+    assert!(graveyard_census.skipped.is_empty());
+    assert_eq!(*owner.cursor, graveyard_cursor);
+    assert_eq!(observed.graveyard_query_line, Some(46242412));
+    assert_eq!(observed.graveyard_last_field_line, Some(46245670));
+    assert_eq!(observed.graveyard_raw_start, observed.graveyard_raw_end);
+    assert_eq!(observed.graveyard_raw_start, Some(owner.cursor.raw));
+    println!("F6_GRAVEYARDS query_line={} last_field_line={} rows={} loaded={} skipped={:?} additional_raw_words=0", observed.graveyard_query_line.unwrap(), observed.graveyard_last_field_line.unwrap(), graveyard_census.visited, graveyard_census.inserted, graveyard_census.skipped);
     let config = std::fs::read(recording.join("mangosd.conf")).unwrap();
     let continent_config = ContinentConfig::parse(&config).unwrap();
     let definitions = ContinentDefinitions::load(catalog, &inputs.maps, &config).unwrap();
@@ -1353,12 +1413,28 @@ pub(super) fn continue_startup(
                 shuffles: Vec::new(),
                 persistent: Vec::new(),
             };
-            let refusal = continents.maps[slot]
+            continents.maps[slot]
                 .initialize_pools(&mut states, &mut pools, &events, &mut work)
-                .unwrap_err();
-            assert_eq!(refusal.id, "execution.continents.graveyard_init_owner");
+                .unwrap();
             work.shuffles
         };
+        let after_pools_cursor = random.cursor().raw;
+        let refusal = continents.maps[slot]
+            .initialize_after_pools(&states, &world_graveyards)
+            .unwrap_err();
+        assert_eq!(refusal.id, DUNGEON_ENCOUNTER_BOUNDS_OWNER);
+        assert_eq!(continents.maps[slot].graveyards, world_graveyards);
+        assert_eq!(
+            continents.maps[slot]
+                .graveyards
+                .entries()
+                .values()
+                .map(Vec::len)
+                .sum::<usize>(),
+            190
+        );
+        assert!(!continents.maps[slot].spawn_updated);
+        assert_eq!(random.cursor().raw, after_pools_cursor);
         matched_map_words[slot] = random.cursor().raw;
         assert_eq!(
             matched_map_words[slot] as usize,
@@ -1418,7 +1494,7 @@ pub(super) fn continue_startup(
             serde_json::to_value(states.state(state).unwrap().pools()).unwrap(),
             expected
         );
-        println!("F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} next_owner=execution.continents.graveyard_init_owner next_source=Maps/Map.cpp:196", matched_map_words[slot], evidence.pool_members.iter().map(BTreeSet::len).sum::<usize>(), evidence.pool_counts.len(), shuffles.len(), evidence.pool_snapshot_line.unwrap());
+        println!("F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 next_owner={DUNGEON_ENCOUNTER_BOUNDS_OWNER} next_source=WorldStateVariableManager.cpp:32", matched_map_words[slot], evidence.pool_members.iter().map(BTreeSet::len).sum::<usize>(), evidence.pool_counts.len(), shuffles.len(), evidence.pool_snapshot_line.unwrap());
         owner.states = states;
         let raw = trace
             .iter()
@@ -1452,7 +1528,7 @@ pub(super) fn continue_startup(
         assert_eq!(u64::from(initial_engine.next_u32()), first_word);
     }
     if continents.maps.iter().any(|map| map.script_id != 0) {
-        let refusal = refuse("execution.continents.graveyard_init_owner");
+        let refusal = refuse(DUNGEON_ENCOUNTER_BOUNDS_OWNER);
         assert!(!events.inventory().initialized);
         assert!(owner.sql.is_empty() && owner.raw.is_empty());
         assert_eq!(owner.cursor.raw, 8712);
@@ -1465,7 +1541,7 @@ pub(super) fn continue_startup(
             .filter(|operation| matches!(operation, PoolOperation::Selected { add: true, .. }))
             .count();
         assert!(results > 0);
-        println!("F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} matched_map_thread_words={matched_map_words:?} matched_map_sql=4 pool_results={results} event_initialization_reached=false next_owner={} next_source=Maps/Map.cpp:196 next_raw={} next_word={} clone_next_word_checked=true",owner.cursor.raw,refusal.id,next_word.0,next_word.1);
+        println!("F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} matched_map_thread_words={matched_map_words:?} matched_map_sql=4 matched_graveyard_sql=1 pool_results={results} event_initialization_reached=false next_owner={} next_source=WorldStateVariableManager.cpp:32 next_raw={} next_word={} clone_next_word_checked=true",owner.cursor.raw,refusal.id,next_word.0,next_word.1);
         return;
     }
     let initial_status = owner.status.iter().copied().collect::<Vec<_>>();

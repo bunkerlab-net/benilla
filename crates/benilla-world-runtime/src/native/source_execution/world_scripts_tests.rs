@@ -2,7 +2,7 @@
 use super::*;
 use crate::native::source_execution::manager_inputs::tests::{binding, snapshot};
 use benilla_sim::source_rng::EventKind;
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 
 #[derive(Default)]
 struct Outbound {
@@ -622,7 +622,7 @@ fn persistent_attach_and_pool_shuffle_precede_map_eligibility_refusal_on_each_ma
 }
 
 #[test]
-fn incomplete_instance_refuses_before_attach_and_empty_events_reach_graveyard_owner() {
+fn incomplete_instance_refuses_before_attach_and_empty_events_reach_encounter_bounds_owner() {
     let mut maps = ready();
     let map = &mut maps.maps[0];
     let mut states = SourceManagers::default();
@@ -652,12 +652,28 @@ fn incomplete_instance_refuses_before_attach_and_empty_events_reach_graveyard_ow
         )
         .unwrap();
     let events = empty_events(&mut pools);
+    map.initialize_persistent_pools(&mut states, &mut pools, &events, &mut work)
+        .unwrap();
+    let references = GraveyardReferences {
+        safe_locations: BTreeSet::from([4, 10]),
+        areas: BTreeSet::from([12]),
+        maps: BTreeSet::from([0, 1]),
+    };
+    let mut world_graveyards = SourceGraveyardManager::default();
+    let rows = [[4, 12, 0, 469], [10, 1, 1, 67]];
     assert_eq!(
-        map.initialize_persistent_pools(&mut states, &mut pools, &events, &mut work)
+        world_graveyards
+            .load_zones(Some(&rows), &references)
+            .inserted,
+        2
+    );
+    assert_eq!(
+        map.initialize_after_pools(&states, &world_graveyards)
             .unwrap_err()
             .id,
-        "execution.continents.graveyard_init_owner"
+        DUNGEON_ENCOUNTER_BOUNDS_OWNER,
     );
+    assert_eq!(map.graveyards, world_graveyards);
     assert_eq!(work.cursor.raw, 0);
     assert!(states
         .state(map.persistent.unwrap())

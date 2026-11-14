@@ -100,6 +100,8 @@ pub use grids::*;
 mod seal8_grids;
 pub use seal8_grids::{compare_seal8_unsealed_grids, Seal8GridReport};
 mod continents;
+mod graveyards;
+pub use graveyards::*;
 #[cfg(test)]
 mod grid_tests;
 mod inputs;

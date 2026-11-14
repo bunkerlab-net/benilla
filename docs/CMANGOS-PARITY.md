@@ -250,6 +250,15 @@ is meaningful without a bounded content/mechanics inventory.
   counter and acknowledgements; ghost/graveyard release and resurrection are absent.
   A separate pure corpse-reclaim component evaluates source guards and returns
   unexecuted resurrection/bones callbacks; it does not connect those missing paths.
+  The diagnostic startup owner loads graveyard links in source validation order
+  and copies the complete multimap into each continent, including links for other maps.
+  This ports `World.cpp:2644-2728` and `GraveyardManager.cpp:130-135`.
+  Catalog rows follow the frozen reset's primary-key insertion order, not export
+  ordinal order. `full-server/f1/db-snapshot.py:9` uses `--order-by-primary`;
+  `sql/base/mangos.sql:1853-1859` defines the MyISAM composite key.
+  This order describes the reference environment, not a SQL engine guarantee.
+  Initialization then refuses at the missing dungeon-encounter bounds owner,
+  `WorldStateVariableManager.cpp:32`, before variable or spawn initialization.
   Creature initialization translates explicit raw classlevel/model/spawn inputs,
   with source loader preprocessing and no fabricated missing stats.
   Optional [per-life creature ownership](../crates/benilla-world-runtime/CREATURE-GENERATION.md)
