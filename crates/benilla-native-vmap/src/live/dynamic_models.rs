@@ -412,9 +412,9 @@ fn transform(
             };
         }
     }
-    for i in 0..3 {
-        bounds.low[i] += position[i];
-        bounds.high[i] += position[i];
+    for (i, value) in position.into_iter().enumerate() {
+        bounds.low[i] += value;
+        bounds.high[i] += value;
     }
     Ok((inverse, bounds))
 }

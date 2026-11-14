@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! CMaNGOS 8ec338a1 src/game/vmap/{RegularGrid.h,BIHWrap.h,DynamicTree.cpp}.
+use super::super::bih::{BihBuildError, SourceBih};
 use super::*;
 use benilla_sim::source_time::ShortTimeTracker;
 const CELL_SIZE: f32 = (533.333_3_f32 * 64.0) / 64.0;
@@ -223,11 +224,11 @@ impl Node {
             .iter()
             .map(|h| models.bounds(h).map(|b| [b.low, b.high]))
             .collect::<DynamicResult<Vec<_>>>()?;
-        let built = crate::SourceBih::build(&bounds, 3, || false).map_err(|e| {
+        let built = SourceBih::build(&bounds, 3, || false).map_err(|e| {
             DynamicError::Vmap(match e {
-                crate::BihBuildError::Cancelled => Error::Deadline,
-                crate::BihBuildError::Limit | crate::BihBuildError::Allocation => Error::Budget,
-                crate::BihBuildError::Bounds | crate::BihBuildError::Numeric => Error::Unsupported,
+                BihBuildError::Cancelled => Error::Deadline,
+                BihBuildError::Limit | BihBuildError::Allocation => Error::Budget,
+                BihBuildError::Bounds | BihBuildError::Numeric => Error::Unsupported,
             })
         })?;
         let (bounds, tree, objects) = built.into_parts();

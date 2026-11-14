@@ -1,4 +1,7 @@
 #![cfg(test)]
+#[allow(dead_code)] // The live owner uses the shared builder, not its serialization API.
+#[path = "../../benilla-native-vmap/src/bih.rs"]
+mod bih;
 #[path = "../../benilla-app/src/net/p2p/world/native_geometry/core.rs"]
 mod core;
 #[allow(dead_code)] // Engine-only CoverageError variants are public in the world crate.
