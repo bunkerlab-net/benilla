@@ -34,7 +34,8 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 - [benilla-blp](#benilla-blp): 1
 - [benilla-formats](#benilla-formats): 25
 - [benilla-lua](#benilla-lua): 11
-- [benilla-native-nav](#benilla-native-nav): 1
+- [benilla-native-nav](#benilla-native-nav): 2
+- [benilla-native-vmap](#benilla-native-vmap): 1
 - [benilla-native-vmap-source](#benilla-native-vmap-source): 2
 - [benilla-protocol](#benilla-protocol): 29
 - [benilla-sim](#benilla-sim): 1
@@ -662,9 +663,18 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 - benilla's scratch registers above a frame's `c_maxstack` (`Proto::maxstack`) stay on the stack; the client has none, and halves. ([`src/vm.rs:2354`](../crates/benilla-lua/src/vm.rs#L2354))
 ### benilla-native-nav
 
+#### live_pathfinder
+
+- PathFinder.cpp:410,717,830,1400 use absent cmangos-pathfinder-distance-intent-v1 priors until a source write because the original locals are unwritten, not defined reference bytes. ([`src/live_pathfinder.rs:22`](../crates/benilla-native-nav/src/live_pathfinder.rs#L22))
+
 #### warm_cache
 
 - PathFinder.cpp:364 reads unwritten :412 storage in the observed build (:362/:410 at the pin); native keeps the nearest polygon because absent distance requires source intent, not undefined bytes. ([`src/warm_cache.rs:562`](../crates/benilla-native-nav/src/warm_cache.rs#L562))
+### benilla-native-vmap
+
+#### live
+
+- Check finite negative coordinates before conversion because the sealed GCC 12.2.0 binary compares first despite WorldModel.cpp:159/163 cast order. tx: 0x86907f/0x869082 before 0x869088; ty: 0x8690a6/0x8690a9 before 0x8690af. Evidence: benilla-config/pathfinder-ctor/{wmo-liquid-seal16.disasm,pathfinder-ub-evidence.json}. ([`src/live/scene.rs:204`](../crates/benilla-native-vmap/src/live/scene.rs#L204))
 ### benilla-native-vmap-source
 
 #### producer_policy

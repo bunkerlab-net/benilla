@@ -71,8 +71,14 @@ struct Owner {
     delta: i32,
     ai_path: u32,
     formation: Option<u32>,
+    geometry: Option<SourceTerrainManager>,
 }
 impl MotionExecutionOwner for Owner {
+    fn pathfinder_geometry(&mut self) -> Result<&mut SourceTerrainManager> {
+        self.geometry
+            .as_mut()
+            .ok_or_else(|| refuse("execution.pathfinder.live_geometry_owner"))
+    }
     fn waypoint_paths(&mut self) -> Result<Rc<SourceWaypointPaths>> {
         self.paths
             .clone()
@@ -423,7 +429,12 @@ fn default_constructor_initializes_before_loading_and_stops_at_first_f6_query() 
 fn initial_delay_does_not_defer_first_path_send_and_single_node_delay_stays_zero() {
     // cpp:70-82 copies modNode; cpp:95,102,130-131 still sends immediately.
     let (g, p) = loaded(&[(1, 0, 0)]);
-    let (objects, mut units, mut master) = setup();
+    let (mut objects, mut units, mut master) = setup();
+    objects.get_mut(master.unit).unwrap().map = Some(MapIdentity {
+        map: 0,
+        instance: 7,
+        creation_generation: 1,
+    });
     let mut c = MotionContext {
         objects: &objects,
         units: &mut units,
@@ -431,6 +442,7 @@ fn initial_delay_does_not_defer_first_path_send_and_single_node_delay_stays_zero
     let mut owner = Owner {
         paths: Some(p.clone()),
         spline: Some(true),
+        geometry: Some(pathfinder::tests::geometry(0, 0)),
         ..Default::default()
     };
     assert_eq!(
@@ -445,7 +457,15 @@ fn initial_delay_does_not_defer_first_path_send_and_single_node_delay_stays_zero
         )
         .unwrap_err()
         .id,
-        "execution.waypoint.f6_pathfinder_constructor_owner"
+        "execution.waypoint.f6_pathfinder_calculate_owner"
+    );
+    assert_eq!(
+        owner
+            .geometry
+            .as_ref()
+            .unwrap()
+            .pathfinder_constructor_completions,
+        1
     );
     assert_eq!(g.progress().wait, 500);
     assert_eq!(

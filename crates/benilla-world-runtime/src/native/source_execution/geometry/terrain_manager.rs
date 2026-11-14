@@ -303,6 +303,8 @@ pub struct SourceTerrainManager {
     pub liquid_dbc: SourceLiquidDbc,
     #[cfg(test)]
     pub grid_product_steps: Vec<&'static str>,
+    /// Diagnostic actual completions, never inferred from query availability.
+    pub pathfinder_constructor_completions: u64,
 }
 impl SourceTerrainManager {
     pub fn new(files: SourceTerrainFiles, dbc: SourceTerrainDbc) -> Self {

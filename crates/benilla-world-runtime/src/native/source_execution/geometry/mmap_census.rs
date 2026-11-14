@@ -161,6 +161,10 @@ fn frozen_products_load_or_name_each_refusal_and_real_no_nav_branch() {
             2_931
         );
     }
+    let query_capacity = manager
+        .query_capacity(0, &manager.query(0, 0).unwrap())
+        .unwrap();
+    let constructors = pathfinder::census::run(root, &manifest, manager);
     println!(
         "F6_MMAP_CENSUS {}",
         serde_json::json!({
@@ -169,10 +173,10 @@ fn frozen_products_load_or_name_each_refusal_and_real_no_nav_branch() {
             "real_no_nav_tiles":absent,"first_no_nav":first_absent,
             "undefined_short_params":short_params,"undefined_partial_headers":short_headers,
             "undefined_config_atoi":0,
-            "query_capacity":manager.query_capacity(0, &manager.query(0,0).unwrap()).unwrap(),
+            "query_capacity":query_capacity,
             "raw_query_availability_not_constructor_execution":availability,
-            "pathfinder_constructor_completions_before_after":[0,0],
-            "next_owner":"F6.08a PathFinder::createFilter and actual motion constructor binding",
+            "pathfinder_constructor_execution":constructors,
+            "next_owner":"F6.08b calculate or Wander initialization dependencies before F6.08c",
             "home_recorded_constructor_opportunities":"unavailable; no call stream is inferred from static spawns",
         })
     );

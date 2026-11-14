@@ -30,6 +30,12 @@ pub struct SourceUnitFields {
     pub static_flags: [u32; 4],
     pub has_ai: bool,
     pub can_fly: bool,
+    #[serde(skip)]
+    pub can_walk: bool,
+    #[serde(skip)]
+    pub can_swim: bool,
+    #[serde(skip)]
+    pub mmap_extra_flags: u32,
     pub neutral_to_all: Option<bool>,
     pub can_aggro: Option<bool>,
     pub force_attacking: bool,
@@ -79,6 +85,9 @@ impl SourceUnitFields {
             static_flags: template.static_flags,
             has_ai: false,
             can_fly: template.inhabit_type & 4 != 0,
+            can_walk: template.inhabit_type & 1 != 0,
+            can_swim: template.inhabit_type & 2 != 0,
+            mmap_extra_flags: template.extra_flags & 0x6000,
             neutral_to_all: None,
             can_aggro: None,
             force_attacking: template.extra_flags & 0x80000 != 0,

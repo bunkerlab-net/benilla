@@ -1754,6 +1754,10 @@ NativeCapability and frozen-unsealed F1 are unchanged.
 
 ## Source MotionMaster, Wander, waypoint and Home
 
+F6.08a supersedes the historical PathFinder constructor stops below.
+Bound geometry now constructs before the next named operation, as described
+in [Source PathFinder construction](#source-pathfinder-construction).
+
 `SourceMotionMaster` owns the source stack, not priority slots,
 `MotionMaster.h:96-100`. Initialize, Clear, expiry, deferred destruction,
 Interrupt, Reset and static Idle follow `MotionMaster.cpp:57-277,599-620`.
@@ -2484,3 +2488,24 @@ Missing aura lists never imply no auras. Catalog suffix counts distinguish
 reaches, passes, missing initialization bundles, and isolated no-aura probes.
 They are not live executions. Added spell fields are transient; format 91
 and the uninhabited NativeCapability remain unchanged.
+
+## Source PathFinder construction
+
+`SourcePathFinder` executes the per-instance query lookup and live liquid
+filter before any destination RNG, `PathFinder.cpp:35-54,1030-1120`.
+Wander retains it before client-control, melee-stop and spline dependencies.
+Waypoint and Home construct before their named calculate refusal.
+Pets and players retain named capability/water refusals.
+Disabled pathfinding retains an unwritten default-query state and refuses
+only when that pointer is read. Constructor counts and raw query availability
+are separate diagnostics, not recorded motion executions.
+
+The mutable map query executes active, tail, 5-unit and 10-unit nearest
+lookup with strict ties and retained cache storage, `PathFinder.cpp:306-383`.
+All five scalar locals at four declarations use
+`cmangos-pathfinder-distance-intent-v1`, `:410,717,830,1400`.
+Defined zero and positive priors retain the source append predicate.
+No post-deviation whole-gameplay equality or new persisted state is claimed.
+Native format remains 91.
+`nearest_poly` requires an explicitly selected live current query.
+Construction leaves that query null, `PathFinder.cpp:39,81-99`.

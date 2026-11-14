@@ -164,7 +164,7 @@ fn initialize_pushes_wander_and_sets_roaming_before_first_f6_call() {
     let mut owner = Lifecycle::default();
     assert_eq!(
         master.initialize(&mut c, &mut owner).unwrap_err().id,
-        "execution.motion.f6_wander_pathfinder_constructor_owner"
+        "execution.pathfinder.live_geometry_owner"
     );
     assert_eq!(master.current_type(), 1);
     assert_eq!(master.len(), 1);
@@ -198,7 +198,7 @@ fn initialize_zero_and_negative_radius_still_construct_without_loader_repairs() 
         };
         assert_eq!(
             master.initialize(&mut c, &mut Unbound).unwrap_err().id,
-            "execution.motion.f6_wander_pathfinder_constructor_owner"
+            "execution.pathfinder.live_geometry_owner"
         );
         assert_eq!(master.current_type(), 1);
     }
@@ -219,7 +219,7 @@ fn reset_zeroes_timer_before_roaming_and_f6_without_clearing_motion() {
             .reset(&mut master, &mut c, &mut Unbound)
             .unwrap_err()
             .id,
-        "execution.motion.f6_wander_pathfinder_constructor_owner"
+        "execution.pathfinder.live_geometry_owner"
     );
     assert_eq!(generator.timer().expiry(), 0);
     assert_eq!(

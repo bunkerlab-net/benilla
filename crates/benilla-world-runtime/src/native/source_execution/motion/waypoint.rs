@@ -354,7 +354,9 @@ impl SourceWaypointGenerator {
             ));
         }
         // cpp:264 constructs PathFinder before calculate/launch or RNG draws.
-        Err(refuse("execution.waypoint.f6_pathfinder_constructor_owner"))
+        let _path =
+            SourcePathFinder::construct(owner.pathfinder_geometry()?, master.unit, context, true)?;
+        Err(refuse("execution.waypoint.f6_pathfinder_calculate_owner"))
     }
     fn arrived(
         &self,

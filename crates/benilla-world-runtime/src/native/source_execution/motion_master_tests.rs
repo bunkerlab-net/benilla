@@ -632,7 +632,7 @@ fn home_empty_target_ignores_orientation_and_falls_back_before_f6_path() {
     };
     assert_eq!(
         master.move_home(false, &mut c, &mut owner).unwrap_err().id,
-        "execution.motion.f6_home_pathfinder_constructor_owner"
+        "execution.pathfinder.live_geometry_owner"
     );
     assert_eq!(owner.targets, [[1.; 4]]);
     assert_eq!(master.len(), 1);
@@ -656,7 +656,7 @@ fn home_prefers_previous_generators_reset_position() {
         home.initialize(&mut master, &mut c, &mut owner)
             .unwrap_err()
             .id,
-        "execution.motion.f6_home_pathfinder_constructor_owner"
+        "execution.pathfinder.live_geometry_owner"
     );
     assert_eq!(owner.targets, [[3.; 4]]);
 }
@@ -717,7 +717,7 @@ fn home_exact_far_threshold_still_requires_path() {
             )
             .unwrap_err()
             .id,
-        "execution.motion.f6_home_pathfinder_constructor_owner"
+        "execution.pathfinder.live_geometry_owner"
     );
 }
 #[test]
@@ -918,7 +918,7 @@ fn home_far_in_dungeon_still_requires_real_path() {
             )
             .unwrap_err()
             .id,
-        "execution.motion.f6_home_pathfinder_constructor_owner"
+        "execution.pathfinder.live_geometry_owner"
     );
     assert_eq!(owner.calls, [MotionCall::SetActive(true)]);
 }

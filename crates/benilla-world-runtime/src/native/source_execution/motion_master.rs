@@ -45,6 +45,16 @@ pub trait MotionExecutionOwner {
     ) -> Result<()> {
         Err(call.missing_owner())
     }
+    fn pathfinder_geometry(&mut self) -> Result<&mut SourceTerrainManager> {
+        Err(refuse("execution.pathfinder.live_geometry_owner"))
+    }
+    fn wander_melee_attack_stop(
+        &mut self,
+        _unit: ObjectHandle,
+        _context: &mut MotionContext<'_>,
+    ) -> Result<()> {
+        Err(refuse("execution.motion.wander_melee_attack_stop_owner"))
+    }
     fn combat_start_position(&mut self, _unit: ObjectHandle) -> Result<[f32; 4]> {
         Err(refuse("execution.motion.combat_start_position_owner"))
     }
@@ -170,13 +180,14 @@ pub enum MotionCall {
     InterruptMoving,
     StopMovingForced,
     RestoreClientControl(ObjectHandle),
+    RemoveClientControl(ObjectHandle),
     RestoreWalk(bool),
 }
 impl MotionCall {
     pub fn missing_owner(self) -> Refusal {
         refuse(match self {
             Self::StopSpline => "execution.motion.f6_spline_stop_owner",
-            Self::HomePathfinder { .. } => "execution.motion.f6_home_pathfinder_constructor_owner",
+            Self::HomePathfinder { .. } => "execution.motion.f6_home_pathfinder_calculate_owner",
             Self::SetActive(_) => "execution.motion.active_residency_owner",
             Self::ClearTemporaryFaction => "execution.motion.temporary_faction_owner",
             Self::LoadAddon => "execution.creature.addon_owner",
@@ -188,7 +199,9 @@ impl MotionCall {
             Self::SendRoot(_) => "execution.motion.root_movement_info_output_owner",
             Self::InterruptMoving => "execution.motion.f6_interrupt_moving_owner",
             Self::StopMovingForced => "execution.motion.f6_stop_moving_forced_owner",
-            Self::RestoreClientControl(_) => "execution.motion.client_control_output_owner",
+            Self::RestoreClientControl(_) | Self::RemoveClientControl(_) => {
+                "execution.motion.client_control_output_owner"
+            }
             Self::RestoreWalk(_) => "execution.motion.walk_movement_info_output_owner",
         })
     }

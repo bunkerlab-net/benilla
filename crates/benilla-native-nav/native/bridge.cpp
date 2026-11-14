@@ -182,6 +182,16 @@ void benilla_live_slot(const void* raw, unsigned index, unsigned* out) {
     out[1] = tile->header ? 1 : 0;
     out[2] = tile->next ? static_cast<unsigned>(tile->next - mesh->getTile(0)) : UINT_MAX;
 }
+unsigned benilla_live_warm_scan(void* raw, dtPolyRef reference, const float* point,
+    BenillaWarmScan* scan) {
+    return benilla_source_warm_scan(static_cast<dtNavMeshQuery*>(raw), reference, point, scan);
+}
+void benilla_live_warm_reset(BenillaWarmScan* scan) { benilla_source_warm_scan_reset(scan); }
+unsigned benilla_live_warm_nearest(void* raw, const float* point, float extent,
+    unsigned short include, unsigned short exclude, dtPolyRef* reference, float* distance) {
+    return benilla_source_warm_nearest(static_cast<dtNavMeshQuery*>(raw),
+        point, extent, include, exclude, reference, distance);
+}
 // The bounded loader remains a separate ABI; source query capacity is never relabeled.
 void* benilla_nav_create(const unsigned char* params) { return create_nav(params, 512); }
 // MoveMap.cpp::loadMapInstance initializes the retained map-instance query with 1024.

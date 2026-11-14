@@ -128,10 +128,7 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
                             units: &mut units,
                         };
                         let failure = master.initialize(&mut context, &mut Unbound).unwrap_err();
-                        assert_eq!(
-                            failure.id,
-                            "execution.motion.f6_wander_pathfinder_constructor_owner"
-                        );
+                        assert_eq!(failure.id, "execution.pathfinder.live_geometry_owner");
                         assert_eq!(master.current_type(), 1);
                         assert_eq!(
                             context.units.get(&objects, unit).unwrap().state & WANDER_ACTIVE,
@@ -141,7 +138,7 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
                     }
                     wander_constructed_spawns.push(*guid);
                     spawn_refusals
-                        .entry("execution.motion.f6_wander_pathfinder_constructor_owner".into())
+                        .entry("execution.pathfinder.live_geometry_owner".into())
                         .or_default()
                         .push(*guid);
                 }

@@ -49,7 +49,8 @@ impl SourceHomeGenerator {
             owner.motion_call(master, MotionCall::ForcedDespawnOne, context)?;
             return Ok(());
         }
-        // Home.cpp:64; PathFinder.cpp:47-53 already queries F6 before calculate.
+        let _path =
+            SourcePathFinder::construct(owner.pathfinder_geometry()?, master.unit, context, false)?;
         Err(MotionCall::HomePathfinder {
             target,
             run: self.run,

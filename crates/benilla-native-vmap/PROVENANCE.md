@@ -201,6 +201,8 @@ Model handles bind to their live canonical name allocation and generation.
 Matching filename bytes and counters from another manager do not authorise
 a query. A retained handle keeps name bytes alive, not collision geometry.
 
+Live liquid casts follow the sealed GCC 12.2.0 compare-first binary at `WorldModel.cpp:159/163`, returning no liquid for finite negative coordinates while retaining undefined-conversion refusals; evidence is in `benilla-config/pathfinder-ctor/wmo-liquid-seal16.disasm` and `pathfinder-ub-evidence.json`.
+
 ## Live dynamic models
 
 `live::DynamicModels` and `DynamicMapTree` port

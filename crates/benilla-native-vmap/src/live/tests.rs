@@ -735,8 +735,8 @@ fn native_model_validation_failure_never_becomes_a_source_null_model() {
     assert!(m.tree_inventory()[0].slots.is_empty());
 }
 #[test]
-fn liquid_float_to_unsigned_refuses_undefined_conversion_before_negative_check() {
-    // WorldModel.cpp:158-161 casts before checking tx_f < 0.
+fn liquid_negative_coordinates_follow_sealed_compare_before_conversion() {
+    // Sealed WorldModel.cpp:159/163 compares negative coordinates before conversion.
     let mut m = fixture(1, &[(1, 0.0)], true);
     load(&mut m, 1, 2, &[spawn(0, 4, 1, 2, 0.0)]);
     let mut out = LiquidOutput {
@@ -747,10 +747,9 @@ fn liquid_float_to_unsigned_refuses_undefined_conversion_before_negative_check()
     assert!(!m
         .liquid_level(0, [5.0, 2.0, 10.0], 0, &mut out, deadline())
         .unwrap());
-    assert_eq!(
-        m.liquid_level(0, [5.25, 2.0, 10.0], 0, &mut out, deadline()),
-        Err(Error::UndefinedRead)
-    );
+    assert!(!m
+        .liquid_level(0, [5.25, 2.0, 10.0], 0, &mut out, deadline())
+        .unwrap());
 }
 #[test]
 fn source_model_read_failure_and_ignored_gmod_chunk_are_distinct() {

@@ -113,11 +113,11 @@ impl SourceMMapFiles {
         Ok(())
     }
     #[cfg(test)]
-    fn map_bytes(&mut self, map: u32, bytes: Vec<u8>) {
+    pub(super) fn map_bytes(&mut self, map: u32, bytes: Vec<u8>) {
         self.maps.insert(map, Product::Authored(bytes));
     }
     #[cfg(test)]
-    fn tile_bytes(&mut self, map: u32, x: u16, y: u16, bytes: Vec<u8>) {
+    pub(super) fn tile_bytes(&mut self, map: u32, x: u16, y: u16, bytes: Vec<u8>) {
         self.tiles.insert((map, x, y), Product::Authored(bytes));
     }
 }

@@ -201,7 +201,10 @@ impl Liquid {
     fn height(&self, p: Vector) -> Result<Option<f32>> {
         let size = 533.333_f32 / 128.0;
         let tx = (p[0] - self.corner[0]) / size;
-        // The source converts before checking negative coordinates, including UB.
+        // Deviation: check finite negative coordinates before conversion because the sealed
+        // GCC 12.2.0 binary compares first despite WorldModel.cpp:159/163 cast order.
+        // tx: 0x86907f/0x869082 before 0x869088; ty: 0x8690a6/0x8690a9 before 0x8690af.
+        // Evidence: benilla-config/pathfinder-ctor/{wmo-liquid-seal16.disasm,pathfinder-ub-evidence.json}.
         let cast = |f: f32| {
             if f.is_finite() && f > -1.0 && f < 4_294_967_296.0 {
                 Ok(f as u32)
@@ -209,11 +212,17 @@ impl Liquid {
                 Err(Error::UndefinedRead)
             }
         };
+        if tx.is_finite() && tx < 0.0 {
+            return Ok(None);
+        }
         let x = cast(tx)?;
         if tx < 0.0 || x >= self.x {
             return Ok(None);
         }
         let ty = (p[1] - self.corner[1]) / size;
+        if ty.is_finite() && ty < 0.0 {
+            return Ok(None);
+        }
         let y = cast(ty)?;
         if ty < 0.0 || y >= self.y {
             return Ok(None);
@@ -620,6 +629,36 @@ impl Manager {
             Ok(true)
         } else {
             Ok(false)
+        }
+    }
+}
+
+#[cfg(test)]
+mod liquid_cast_tests {
+    use super::*;
+
+    #[test]
+    fn sealed_liquid_cast_domain_keeps_nonfinite_and_overflow_refusals() {
+        let liquid = Liquid {
+            x: 1,
+            y: 1,
+            corner: [0.0; 3],
+            kind: 0,
+            heights: vec![0.0; 4],
+            flags: vec![0],
+        };
+        let size = 533.333_f32 / 128.0;
+        for axis in [0, 1] {
+            for coordinate in [-9.0, -1.0, -0.5] {
+                let mut point = [0.0; 3];
+                point[axis] = coordinate * size;
+                assert_eq!(liquid.height(point), Ok(None));
+            }
+            for coordinate in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 4_294_967_296.0] {
+                let mut point = [0.0; 3];
+                point[axis] = coordinate * size;
+                assert_eq!(liquid.height(point), Err(Error::UndefinedRead));
+            }
         }
     }
 }

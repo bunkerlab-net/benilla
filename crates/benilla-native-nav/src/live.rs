@@ -115,6 +115,11 @@ impl MapMesh {
         })
     }
     pub fn query_capacity(&self, handle: &QueryHandle) -> Result<u32, LiveError> {
+        let query = self.checked_query(handle)?;
+        // SAFETY: both allocations remain owned and the handle was authenticated.
+        Ok(unsafe { ffi::benilla_live_query_capacity(self.raw.as_ptr(), query.raw.as_ptr()) })
+    }
+    fn checked_query(&self, handle: &QueryHandle) -> Result<&Query, LiveError> {
         let query = self
             .queries
             .get(&handle.instance)
@@ -123,8 +128,7 @@ impl MapMesh {
         {
             return Err(LiveError::StaleQuery);
         }
-        // SAFETY: both allocations remain owned and the handle was authenticated above.
-        Ok(unsafe { ffi::benilla_live_query_capacity(self.raw.as_ptr(), query.raw.as_ptr()) })
+        Ok(query)
     }
     /// DT64 references encode salt:12, slot:21, polygon:31, DetourNavMesh.h:43-45.
     pub fn tile_reference(&self, grid: [u8; 2]) -> Option<u64> {
@@ -309,6 +313,10 @@ mod ffi {
     }
     pub unsafe fn benilla_live_slot(_: *const c_void, _: u32, _: *mut u32) {}
 }
+
+#[path = "live_pathfinder.rs"]
+mod pathfinder;
+pub use pathfinder::{DistanceDeclaration, PathCache, PathDistance};
 
 #[cfg(all(test, benilla_native_detour))]
 #[path = "live_tests.rs"]

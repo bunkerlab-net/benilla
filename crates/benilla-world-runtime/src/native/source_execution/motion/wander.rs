@@ -4,6 +4,7 @@ use super::super::*;
 use benilla_sim::source_rng::{RawGenerator, SourceRandom, TraceEvent};
 use benilla_sim::source_time::ShortTimeTracker;
 use std::cell::Cell;
+use std::cell::RefCell;
 
 pub const WANDER_ACTIVE: u32 = 0x8000;
 pub const WANDER_MOVING: u32 = 0x10000;
@@ -112,6 +113,7 @@ pub struct WanderParameters {
 pub struct SourceWanderGenerator {
     parameters: WanderParameters,
     timer: Cell<SourceWanderTimer>,
+    pathfinder: RefCell<Option<SourcePathFinder>>,
 }
 impl SourceWanderGenerator {
     /// Explicit-location constructor, RandomMovementGenerator.cpp:165-175.
@@ -131,6 +133,7 @@ impl SourceWanderGenerator {
                 random_run,
             },
             timer: Cell::new(SourceWanderTimer::default()),
+            pathfinder: RefCell::new(None),
         }
     }
     /// RandomMovementGenerator.cpp:177-182; GetRespawnCoord, Creature.cpp:2493-2506.
@@ -176,6 +179,9 @@ impl SourceWanderGenerator {
     pub fn timer(&self) -> SourceWanderTimer {
         self.timer.get()
     }
+    pub fn pathfinder(&self) -> std::cell::Ref<'_, Option<SourcePathFinder>> {
+        self.pathfinder.borrow()
+    }
     pub fn add_to_random_pause_time(&self, delta: i32, force: bool) {
         let mut timer = self.timer.get();
         timer.add_pause(delta, force);
@@ -209,14 +215,31 @@ impl SourceMovementGenerator for SourceWanderGenerator {
         &self,
         master: &mut SourceMotionMaster,
         context: &mut MotionContext<'_>,
-        _: &mut dyn MotionExecutionOwner,
+        owner: &mut dyn MotionExecutionOwner,
     ) -> Result<()> {
         context.units.get_mut(context.objects, master.unit)?.state |= WANDER_ACTIVE;
-        // RandomMovementGenerator.cpp:29; PathFinder.cpp:47-53 queries F6 already.
-        // Do not draw or execute the later client-control/target/spline operations.
-        Err(refuse(
-            "execution.motion.f6_wander_pathfinder_constructor_owner",
-        ))
+        *self.pathfinder.borrow_mut() = Some(SourcePathFinder::construct(
+            owner.pathfinder_geometry()?,
+            master.unit,
+            context,
+            false,
+        )?);
+        // RandomMovementGenerator.cpp:32-48 follows construction without destination draws.
+        if let Some(player) = owner.client_controlling(master.unit)? {
+            owner.motion_call(master, MotionCall::RemoveClientControl(player), context)?;
+        } else if context.units.get(context.objects, master.unit)?.has_ai {
+            context.units.get_mut(context.objects, master.unit)?.target = None;
+            owner.wander_melee_attack_stop(master.unit, context)?;
+        }
+        if !owner.spline_finalized(master.unit)? {
+            let call = if owner.client_controlled(master.unit)? {
+                MotionCall::StopMovingForced
+            } else {
+                MotionCall::InterruptMoving
+            };
+            owner.motion_call(master, call, context)?;
+        }
+        Ok(())
     }
     fn reset(
         &self,

@@ -11,6 +11,13 @@ pub struct SourceLiquidDbc {
     areas: Option<BTreeMap<u32, Area>>,
 }
 impl SourceLiquidDbc {
+    #[cfg(test)]
+    pub(in crate::native::source_execution) fn authored() -> Self {
+        Self {
+            types: Some(BTreeMap::from([(21, 0), (22, 1), (23, 2), (24, 3)])),
+            areas: Some(BTreeMap::new()),
+        }
+    }
     /// Complete catalog stores, never an authored subset inferred from reached IDs.
     pub fn catalog(
         catalog: &mut super::super::super::production_compiler::VerifiedCatalog,
