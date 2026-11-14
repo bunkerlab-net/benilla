@@ -38,6 +38,7 @@ const CONFIG: Option<ResidentInitializationConfiguration> =
 enum Mode {
     Accept,
     RecipeCapture,
+    DropRouteReceiver,
     RejectBeforeApply,
     DropAfterApply,
     ExpireBeforeAck,
@@ -93,7 +94,7 @@ enum Message {
     Notice(RouteCommitNotice, Sender<Result<(), NativeError>>),
 }
 #[derive(Clone)]
-struct Bridge(Sender<Message>);
+struct Bridge(Sender<Message>, bool);
 impl Bridge {
     fn exchange<T>(
         &self,
@@ -126,6 +127,14 @@ impl Bridge {
 }
 impl Authority for Bridge {
     fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
+        if self.1 && matches!(request.query, Query::SourceMotion(MotionQuery::Route(_))) {
+            let (reply, receive) = bounded(1);
+            drop(receive);
+            self.0
+                .send(Message::Resolve(request.clone(), reply))
+                .unwrap();
+            return Err(NativeError::AuthorityUnavailable("dropped resident reply"));
+        }
         self.exchange(|reply| Message::Resolve(request.clone(), reply))
     }
     fn observe_derived(&mut self, reply: &AuthorityReply) -> Result<(), NativeError> {
@@ -402,7 +411,7 @@ fn run(mode: Mode) {
             let mut authored = n::synthetic_motion_fixture::SyntheticMotionAuthority::default();
             let callbacks = Arc::new(AtomicUsize::new(0));
             let routes = Arc::new(AtomicUsize::new(0));
-            let (send, receive) = bounded(1);
+            let (send, receive) = bounded(usize::from(mode != Mode::DropRouteReceiver));
             let mut captured: Option<RouteCommitNotice> = None;
             let mut attempts: Vec<(AuthorityRequest, Instant)> = vec![];
             let mut deliveries = 0;
@@ -432,7 +441,7 @@ fn run(mode: Mode) {
             let worker_routes = routes.clone();
             std::thread::scope(|scope| {
                 let worker = scope.spawn(move || {
-                    let bridge = Bridge(send);
+                    let bridge = Bridge(send, mode == Mode::DropRouteReceiver);
                     let mut driver = if mode == Mode::RecipeCapture {
                         fixture.open_recipe_initialized(world, bridge.clone()).unwrap()
                     } else {
@@ -454,6 +463,15 @@ fn run(mode: Mode) {
                         let before = driver.checkpoint();
                         let before_records = driver.records().to_vec();
                         let mut out = driver.pump_one();
+                        if let (Mode::DropRouteReceiver, Some(pause)) = (mode, &out.pause) {
+                            assert_eq!(pause.kind, PauseKind::Authority);
+                            assert_eq!(out.ticks, 0);
+                            assert!(out.events.is_empty());
+                            assert_eq!(driver.checkpoint(), before);
+                            assert_eq!(driver.records(), before_records);
+                            assert!(!driver.route_pending());
+                            return ((tick, 0, 0), None, None, None);
+                        }
                         if mode == Mode::RollbackRetry
                             && out
                                 .pause
@@ -596,6 +614,7 @@ fn run(mode: Mode) {
                 // Dropping this receiver on any panic disconnects all bounded worker sends;
                 // per-message replies also drop on unwind. Scoped join cannot wait forever.
                 let receive: Receiver<Message> = receive;
+                // Reply loss stops this owner before any later commit notice can acknowledge facts.
                 while !worker.is_finished() {
                     let message = match receive.recv_timeout(Duration::from_millis(100)) {
                         Ok(message) => message,
@@ -608,7 +627,9 @@ fn run(mode: Mode) {
                             assert_ne!(boundary.session(), foreign.session());
                             binding_error(ledger.initialize(&boundary)).unwrap();
                             initialized = true;
-                            reply.send(Ok(())).unwrap();
+                            if reply.send(Ok(())).is_err() {
+                                return;
+                            }
                         }
                         Message::Resolve(request, reply) => {
                             callbacks.fetch_add(1, Ordering::SeqCst);
@@ -629,7 +650,7 @@ fn run(mode: Mode) {
                                 );
                                 late_failure_armed = false;
                                 late_failures += 1;
-                                reply
+                                if reply
                                     .send(Err(NativeError::AuthorityUnavailable(
                                         if mode.finite_loop().is_some() {
                                             super::source_route_resident_finite_loop::LATER_FAILURE
@@ -639,7 +660,10 @@ fn run(mode: Mode) {
                                             "resident controller deliberate later callback failure"
                                         },
                                     )))
-                                    .unwrap();
+                                    .is_err()
+                                {
+                                    return;
+                                }
                                 continue;
                             }
                             if let Some(owner) = pair.as_mut() {
@@ -655,7 +679,9 @@ fn run(mode: Mode) {
                                             &request,
                                         )
                                         .map(|facts| AuthorityReply { request, facts });
-                                    reply.send(result).unwrap();
+                                    if reply.send(result).is_err() {
+                                        return;
+                                    }
                                     continue;
                                 }
                             }
@@ -690,9 +716,12 @@ fn run(mode: Mode) {
                                     match result {
                                         Ok((facts, arm)) => {
                                             late_failure_armed = arm;
-                                            reply
+                                            if reply
                                                 .send(Ok(AuthorityReply { request, facts }))
-                                                .unwrap();
+                                                .is_err()
+                                            {
+                                                return;
+                                            }
                                         }
                                         Err(error) => {
                                             // Only explicit old-policy boundary modes return
@@ -706,7 +735,9 @@ fn run(mode: Mode) {
                                                         | super::source_route_resident_finite_loop::Mode::StrictSourceSplineBoundary
                                                     ))
                                             );
-                                            reply.send(Err(error)).unwrap();
+                                            if reply.send(Err(error)).is_err() {
+                                                return;
+                                            }
                                         }
                                     }
                                     continue;
@@ -786,11 +817,14 @@ fn run(mode: Mode) {
                                 );
                                 retained_witness = Some((request.clone(), before));
                                 assert_eq!(routes.fetch_add(1, Ordering::SeqCst), 2);
-                                reply
+                                if reply
                                     .send(Err(NativeError::AuthorityUnavailable(
                                         super::source_route_resident_repeated::REFUSAL,
                                     )))
-                                    .unwrap();
+                                    .is_err()
+                                {
+                                    return;
+                                }
                                 continue;
                             }
                             if mode == Mode::RetainedDispatch
@@ -856,11 +890,14 @@ fn run(mode: Mode) {
                                 );
                                 retained_witness = Some((request.clone(), before));
                                 assert_eq!(routes.fetch_add(1, Ordering::SeqCst), 1);
-                                reply
+                                if reply
                                     .send(Err(NativeError::AuthorityUnavailable(
                                         super::source_route_resident_continuation::REFUSAL,
                                     )))
-                                    .unwrap();
+                                    .is_err()
+                                {
+                                    return;
+                                }
                                 continue;
                             }
                             if let Some(third_mode) = mode.three_epoch() {
@@ -1018,7 +1055,9 @@ fn run(mode: Mode) {
                                     {
                                         late_failure_armed = true;
                                     }
-                                    reply.send(Ok(AuthorityReply { request, facts })).unwrap();
+                                    if reply.send(Ok(AuthorityReply { request, facts })).is_err() {
+                                        return;
+                                    }
                                     continue;
                                 }
                             }
@@ -1170,7 +1209,9 @@ fn run(mode: Mode) {
                                     {
                                         late_failure_armed = true;
                                     }
-                                    reply.send(Ok(AuthorityReply { request, facts })).unwrap();
+                                    if reply.send(Ok(AuthorityReply { request, facts })).is_err() {
+                                        return;
+                                    }
                                     continue;
                                 }
                             }
@@ -1385,7 +1426,15 @@ fn run(mode: Mode) {
                                     }
                                 }
                             };
-                            reply.send(Ok(AuthorityReply { request, facts })).unwrap();
+                            if reply.send(Ok(AuthorityReply { request, facts })).is_err() {
+                                if mode == Mode::DropRouteReceiver {
+                                    assert_eq!(ledger.counts(), (1, 0));
+                                    assert_eq!(routes.load(Ordering::SeqCst), 1);
+                                    assert_eq!(deliveries, 0);
+                                    assert!(captured.is_none());
+                                }
+                                return;
+                            }
                         }
                         Message::Derived(derived, reply) => {
                             callbacks.fetch_add(1, Ordering::SeqCst);
@@ -1403,7 +1452,7 @@ fn run(mode: Mode) {
                                 );
                                 late_failure_armed = false;
                                 late_failures += 1;
-                                reply.send(Err(NativeError::AuthorityUnavailable(
+                                if reply.send(Err(NativeError::AuthorityUnavailable(
                                     if mode.finite_loop().is_some() {
                                         super::source_route_resident_finite_loop::LATER_FAILURE
                                     } else if mode.three_epoch().is_some() {
@@ -1411,11 +1460,15 @@ fn run(mode: Mode) {
                                     } else {
                                         "resident controller deliberate later derived callback failure"
                                     }
-                                ))).unwrap();
+                                ))).is_err() {
+                                    return;
+                                }
                                 continue;
                             }
                             authored.observe_derived(&derived).unwrap();
-                            reply.send(Ok(())).unwrap();
+                            if reply.send(Ok(())).is_err() {
+                                return;
+                            }
                         }
                         Message::Notice(notice, reply) => {
                             if notice.routes().is_empty() {
@@ -1439,13 +1492,17 @@ fn run(mode: Mode) {
                                             && ledger.counts() == (1, 1)
                                 );
                                 binding_error(ledger.acknowledge(&notice)).unwrap();
-                                reply.send(Ok(())).unwrap();
+                                if reply.send(Ok(())).is_err() {
+                                    return;
+                                }
                                 continue;
                             }
                             if let Some(owner) = pair.as_mut() {
                                 if matches!(&notice.routes()[0].request.query, Query::SourceMotion(MotionQuery::Route(route)) if route.request.prior_cache.is_some())
                                 {
-                                    reply.send(owner.notice(&mut ledger, &notice)).unwrap();
+                                    if reply.send(owner.notice(&mut ledger, &notice)).is_err() {
+                                        return;
+                                    }
                                     continue;
                                 }
                             }
@@ -1463,7 +1520,9 @@ fn run(mode: Mode) {
                                         &notice,
                                         late_failures,
                                     );
-                                    reply.send(result).unwrap();
+                                    if reply.send(result).is_err() {
+                                        return;
+                                    }
                                     continue;
                                 }
                             }
@@ -1626,9 +1685,13 @@ fn run(mode: Mode) {
                                     ) && !fault_delivered
                                     {
                                         fault_delivered = true;
-                                        reply.send(Err(NativeError::AuthorityUnavailable("deliberately lost third ACK after resident ledger application"))).unwrap();
+                                        if reply.send(Err(NativeError::AuthorityUnavailable("deliberately lost third ACK after resident ledger application"))).is_err() {
+                                            return;
+                                        }
                                     } else {
-                                        reply.send(Ok(())).unwrap();
+                                        if reply.send(Ok(())).is_err() {
+                                            return;
+                                        }
                                     }
                                     continue;
                                 }
@@ -1783,9 +1846,13 @@ fn run(mode: Mode) {
                                     ) && !fault_delivered
                                     {
                                         fault_delivered = true;
-                                        reply.send(Err(NativeError::AuthorityUnavailable("deliberately lost warm ACK after resident ledger application"))).unwrap();
+                                        if reply.send(Err(NativeError::AuthorityUnavailable("deliberately lost warm ACK after resident ledger application"))).is_err() {
+                                            return;
+                                        }
                                     } else {
-                                        reply.send(Ok(())).unwrap();
+                                        if reply.send(Ok(())).is_err() {
+                                            return;
+                                        }
                                     }
                                     continue;
                                 }
@@ -1852,7 +1919,9 @@ fn run(mode: Mode) {
                                 assert_eq!(ledger.counts(), (1, 0));
                                 assert_eq!(ledger.diagnostic(), prior);
                                 fault_delivered = true;
-                                reply.send(Err(NativeError::AuthorityBinding)).unwrap();
+                                if reply.send(Err(NativeError::AuthorityBinding)).is_err() {
+                                    return;
+                                }
                                 continue;
                             }
                             if mode == Mode::ExpireBeforeAck {
@@ -1906,13 +1975,18 @@ fn run(mode: Mode) {
                                 && !fault_delivered
                             {
                                 fault_delivered = true;
-                                reply
+                                if reply
                                     .send(Err(NativeError::AuthorityUnavailable(
                                         "deliberately lost ACK after resident ledger application",
                                     )))
-                                    .unwrap();
+                                    .is_err()
+                                {
+                                    return;
+                                }
                             } else {
-                                reply.send(Ok(())).unwrap();
+                                if reply.send(Ok(())).is_err() {
+                                    return;
+                                }
                             }
                         }
                     }
@@ -2255,4 +2329,9 @@ pub(super) fn two_owner_retained_probe(mode: super::source_route_resident_pair::
 #[test]
 fn resident_controller_recipe_captures_cold_and_first_retained_through_real_save_barrier() {
     run(Mode::RecipeCapture);
+}
+
+#[test]
+fn resident_controller_receiver_loss_stops_without_acknowledging_facts() {
+    run(Mode::DropRouteReceiver);
 }
