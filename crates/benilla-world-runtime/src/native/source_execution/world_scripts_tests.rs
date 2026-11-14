@@ -71,7 +71,8 @@ fn eastern_constructor_and_initialize_draw_in_order_and_retain_base_stores() {
     let mut trace = Vec::new();
     let mut sink = |event| trace.push(event);
     let mut random = SourceRandom::new(6, &mut engine, &mut cursor, &mut sink).unwrap();
-    let mut vars = BTreeMap::from([(7, 9)]);
+    let mut vars = SourceWorldStateVariables::default();
+    vars.set(7, 9).unwrap();
     let mut script = SourceWorldScript::construct(
         identity(0),
         "world_map_eastern_kingdoms",
@@ -82,11 +83,17 @@ fn eastern_constructor_and_initialize_draw_in_order_and_retain_base_stores() {
     assert_eq!(script.map, identity(0));
     assert_eq!(script.state, WorldScriptState::EasternKingdoms);
     assert_eq!(script.stores, WorldScriptStores::default());
-    assert_eq!(vars, BTreeMap::from([(7, 9), (330001, 0), (330002, 1)]));
+    assert_eq!(
+        vars.values(),
+        BTreeMap::from([(7, 9), (330001, 0), (330002, 1)])
+    );
     assert_eq!(random.cursor().raw, 2);
     script.stores.creatures.insert(42, 100);
     script.initialize(&mut vars, &mut random).unwrap();
-    assert_eq!(vars, BTreeMap::from([(7, 9), (330001, 1), (330002, 0)]));
+    assert_eq!(
+        vars.values(),
+        BTreeMap::from([(7, 9), (330001, 1), (330002, 0)])
+    );
     assert_eq!(script.stores.creatures[&42], 100);
     assert_eq!(random.cursor().raw, 4);
     assert!(trace.iter().all(|event| event.stream == 6));
@@ -107,7 +114,8 @@ fn kalimdor_constructor_and_initialize_clear_every_derived_member_without_draws(
     let mut trace = Vec::new();
     let mut sink = |event| trace.push(event);
     let mut random = SourceRandom::new(7, &mut engine, &mut cursor, &mut sink).unwrap();
-    let mut vars = BTreeMap::from([(7, 9)]);
+    let mut vars = SourceWorldStateVariables::default();
+    vars.set(7, 9).unwrap();
     let mut script =
         SourceWorldScript::construct(identity(1), "world_map_kalimdor", &mut vars, &mut random)
             .unwrap();
@@ -144,7 +152,7 @@ fn kalimdor_constructor_and_initialize_clear_every_derived_member_without_draws(
         WorldScriptState::Kalimdor(KalimdorWorldState::default())
     );
     assert_eq!(script.stores.gameobjects[&44], 45);
-    assert_eq!(vars, BTreeMap::from([(7, 9)]));
+    assert_eq!(vars.values(), BTreeMap::from([(7, 9)]));
     assert_eq!(random.cursor().raw, 0);
     assert!(trace.is_empty());
 }
@@ -167,7 +175,7 @@ fn load_false_runs_initialize_again_after_the_constructor_for_both_scripts() {
         assert_eq!(random.cursor().raw, words);
         if slot == 0 {
             assert_eq!(
-                maps.maps[slot].variables,
+                maps.maps[slot].variables.values(),
                 BTreeMap::from([(330001, 1), (330002, 1)])
             );
         }
@@ -203,7 +211,7 @@ fn load_true_uses_snapshot_rows_and_inherited_empty_load_for_null_empty_and_none
             assert_eq!(random.cursor().raw, [2, 0][slot]);
             if slot == 0 {
                 assert_eq!(
-                    maps.maps[slot].variables,
+                    maps.maps[slot].variables.values(),
                     BTreeMap::from([(330001, 0), (330002, 1)])
                 );
             } else {
@@ -334,7 +342,7 @@ fn eastern_second_draw_failure_preserves_first_variable_and_refuses_before_sql()
         .id,
         "execution.world_script.urand"
     );
-    assert_eq!(map.variables, BTreeMap::from([(330001, 1)]));
+    assert_eq!(map.variables.values(), BTreeMap::from([(330001, 1)]));
     assert!(map.instance_data.is_none());
 }
 
@@ -668,12 +676,19 @@ fn incomplete_instance_refuses_before_attach_and_empty_events_reach_encounter_bo
         2
     );
     assert_eq!(
-        map.initialize_after_pools(&states, &world_graveyards)
+        map.initialize_after_pools(&states, &world_graveyards, None)
             .unwrap_err()
             .id,
         DUNGEON_ENCOUNTER_BOUNDS_OWNER,
     );
     assert_eq!(map.graveyards, world_graveyards);
+    let encounters = LoadedInstanceEncounters::default();
+    assert_eq!(
+        map.initialize_after_pools(&states, &world_graveyards, Some(&encounters))
+            .unwrap_err()
+            .id,
+        SPAWN_INITIALIZE_CLOCK_OWNER,
+    );
     assert_eq!(work.cursor.raw, 0);
     assert!(states
         .state(map.persistent.unwrap())

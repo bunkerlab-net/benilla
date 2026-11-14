@@ -49,7 +49,7 @@ impl SourceWorldScript {
     pub fn construct<E: RawGenerator, S: FnMut(TraceEvent)>(
         map: MapIdentity,
         name: &str,
-        variables: &mut BTreeMap<i32, i32>,
+        variables: &mut SourceWorldStateVariables,
         random: &mut SourceRandom<'_, E, S>,
     ) -> Result<Self> {
         let state = match name {
@@ -68,7 +68,7 @@ impl SourceWorldScript {
     }
     pub fn initialize<E: RawGenerator, S: FnMut(TraceEvent)>(
         &mut self,
-        variables: &mut BTreeMap<i32, i32>,
+        variables: &mut SourceWorldStateVariables,
         random: &mut SourceRandom<'_, E, S>,
     ) -> Result<()> {
         match &mut self.state {
@@ -78,11 +78,11 @@ impl SourceWorldScript {
                 let first = random
                     .urand(0, 1)
                     .map_err(|_| refuse("execution.world_script.urand"))?;
-                variables.insert(330001, first as i32);
+                variables.set(330001, first as i32)?;
                 let second = random
                     .urand(0, 1)
                     .map_err(|_| refuse("execution.world_script.urand"))?;
-                variables.insert(330002, second as i32);
+                variables.set(330002, second as i32)?;
             }
             WorldScriptState::Kalimdor(state) => {
                 // world_kalimdor.cpp:57-67, in source assignment order. No random calls.

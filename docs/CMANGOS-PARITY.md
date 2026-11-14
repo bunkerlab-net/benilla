@@ -257,8 +257,15 @@ is meaningful without a bounded content/mechanics inventory.
   ordinal order. `full-server/f1/db-snapshot.py:9` uses `--order-by-primary`;
   `sql/base/mangos.sql:1853-1859` defines the MyISAM composite key.
   This order describes the reference environment, not a SQL engine guarantee.
-  Initialization then refuses at the missing dungeon-encounter bounds owner,
-  `WorldStateVariableManager.cpp:32`, before variable or spawn initialization.
+  Loaded encounter owners port `ObjectMgr.cpp:9491-9494,5286-5356` and the
+  SQLStorage queries at `SQLStorageImpl.h:309,321,328`. Instance reload clears
+  only the credit-entry map. Both multimaps retain equivalent-key insertion order.
+  `WorldStateVariableManager.cpp:30-41,60-68,134-138` initializes default variables,
+  uses unsigned fallback IDs, and refuses the signed shift at encounter index 31
+  or greater before evaluating it. Changed send-enabled variables refuse the
+  unported broadcast at `WorldStateVariableManager.cpp:99`.
+  Continent startup next refuses `SpawnManager.cpp:52`'s clock operand, called
+  by `Map.cpp:200`. Initialize adds no SQL or RNG draws.
   Creature initialization translates explicit raw classlevel/model/spawn inputs,
   with source loader preprocessing and no fabricated missing stats.
   Optional [per-life creature ownership](../crates/benilla-world-runtime/CREATURE-GENERATION.md)

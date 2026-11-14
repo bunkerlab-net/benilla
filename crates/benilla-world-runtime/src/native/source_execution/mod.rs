@@ -102,6 +102,8 @@ pub use seal8_grids::{compare_seal8_unsealed_grids, Seal8GridReport};
 mod continents;
 mod graveyards;
 pub use graveyards::*;
+mod encounters;
+pub use encounters::*;
 #[cfg(test)]
 mod grid_tests;
 mod inputs;

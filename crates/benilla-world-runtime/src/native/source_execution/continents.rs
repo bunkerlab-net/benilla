@@ -124,7 +124,7 @@ pub struct SourceContinent {
     pub script_id: u32,
     pub instance_data: Option<SourceWorldScript>,
     pub graveyards: SourceGraveyardManager,
-    pub variables: BTreeMap<i32, i32>,
+    pub variables: SourceWorldStateVariables,
     pub spawn_updated: bool,
     pub dynamic_tree: SourceDynamicMap,
     grids_initialized: bool,
@@ -281,6 +281,7 @@ impl SourceContinent {
         &mut self,
         states: &SourceManagers,
         world_graveyards: &SourceGraveyardManager,
+        encounters: Option<&LoadedInstanceEncounters>,
     ) -> Result<()> {
         let state = self
             .persistent
@@ -290,9 +291,13 @@ impl SourceContinent {
             "execution.continents.pools_uninitialized",
         )?;
         self.graveyards.init(world_graveyards)?;
-        // WorldStateVariableManager.cpp:30-32 first needs the loaded ObjectMgr
-        // dungeon-encounter bounds. Do not skip to SpawnManager or navigation.
-        Err(refuse(DUNGEON_ENCOUNTER_BOUNDS_OWNER))
+        self.variables.initialize(
+            self.identity.map,
+            states.state(state)?.completed_encounters,
+            encounters,
+        )?;
+        // Map.cpp:200 enters SpawnManager.cpp:52's time(nullptr) first.
+        Err(refuse(SPAWN_INITIALIZE_CLOCK_OWNER))
     }
 }
 
@@ -342,7 +347,7 @@ impl SourceContinents {
                 script_id: 0,
                 instance_data: None,
                 graveyards: SourceGraveyardManager::default(),
-                variables: BTreeMap::new(),
+                variables: SourceWorldStateVariables::default(),
                 spawn_updated: false, // SpawnManager.h:54, before Initialize at Map.cpp:200.
                 dynamic_tree: SourceDynamicMap::new(identity),
                 grids_initialized: false,
