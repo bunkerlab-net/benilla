@@ -571,3 +571,67 @@ fn install_authored_wmo(vmap: &mut SourceVMapManager) {
     }
     assert_eq!(vmap.load_map(0, 32, 32).unwrap(), LoadResult::Ok);
 }
+
+#[test]
+fn grid_products_retain_before_gridmap_vmap_mmap_and_preserve_refusals() {
+    let map = MapIdentity {
+        map: 0,
+        instance: 0,
+        creation_generation: 1,
+    };
+    let coordinates = ProductCoordinates { x: 32, y: 32 };
+    for (present, vmap_disabled, expected, steps) in [
+        (
+            false,
+            false,
+            "execution.terrain.map_product_unavailable",
+            vec!["gridmap"],
+        ),
+        (
+            true,
+            false,
+            "execution.vmap.product_unavailable",
+            vec!["gridmap", "vmap"],
+        ),
+        (
+            true,
+            true,
+            "execution.mmap.load_map_without_mesh",
+            vec!["gridmap", "vmap", "mmap"],
+        ),
+    ] {
+        let mut manager = SourceTerrainManager::default();
+        let mut mt = Mt19937::from_seed(5489);
+        let mut cursor = DrawCursor::default();
+        let mut sink = |_| {};
+        let mut random = SourceRandom::new(1, &mut mt, &mut cursor, &mut sink).unwrap();
+        manager.load_terrain(0, &mut random).unwrap();
+        if present {
+            manager.files.retain_source_absence(0, 32, 32);
+        }
+        if vmap_disabled {
+            let config = b"vmap.enableLOS = 0\nvmap.enableHeight = 0\n";
+            manager
+                .vmap
+                .initialize_recorded_world([0], config, &Sha256Id::of(config))
+                .unwrap();
+        }
+        assert_eq!(
+            GridProductOwner::load(&mut manager, map, coordinates)
+                .unwrap_err()
+                .id,
+            expected
+        );
+        assert_eq!(manager.grid_product_steps, steps);
+        assert_eq!(
+            manager
+                .terrain(0)
+                .unwrap()
+                .residency
+                .reference_count(32, 32)
+                .unwrap(),
+            1
+        );
+        assert_eq!(random.cursor().raw, 1);
+    }
+}

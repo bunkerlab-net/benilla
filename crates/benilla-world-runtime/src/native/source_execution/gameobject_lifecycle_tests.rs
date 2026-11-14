@@ -228,13 +228,17 @@ impl SpawnWork for Factory {
             spawn_mask: 1,
         }))
     }
-    fn linking_can_spawn(&mut self, _: u32) -> Result<bool> {
+    fn linking_can_spawn(&mut self, _: &SourcePersistentState, _: u32) -> Result<bool> {
         Ok(true)
     }
     fn groups(&mut self) -> Result<Arc<BTreeMap<u32, DynamicSpawnGroup>>> {
         Ok(Arc::new(BTreeMap::new()))
     }
-    fn create_group(&mut self, _: DynamicSpawnGroup) -> Result<SpawnGroupHandle> {
+    fn create_group(
+        &mut self,
+        _: &mut SourceManagers,
+        _: DynamicSpawnGroup,
+    ) -> Result<SpawnGroupHandle> {
         panic!("no groups")
     }
     fn update_group(

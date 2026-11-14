@@ -44,6 +44,10 @@ pub struct SourceWorldScript {
     pub state: WorldScriptState,
 }
 impl SourceWorldScript {
+    /// Neither continent overrides InstanceData.h:75's inherited query.
+    pub fn encounter_in_progress(&self) -> bool {
+        false
+    }
     /// ScriptDevAIMgr.cpp:405-410 dispatches the registered factory by script ID/name.
     /// Registration: world_eastern_kingdoms.cpp:135-145; world_kalimdor.cpp:392-402.
     pub fn construct<E: RawGenerator, S: FnMut(TraceEvent)>(

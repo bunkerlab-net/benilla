@@ -2361,8 +2361,28 @@ At continent startup the set is empty: `World.cpp:1389` precedes global
 event initialization at `:1416`. Recorded map pool snapshots at trace lines
 60295941 and 60367581 precede the event-status query at 61722965.
 Event 7's earlier calendar samples do not activate it.
-Both jobs refuse `execution.continents.graveyard_init_owner` at `Map.cpp:196`.
-Graveyards and all later map managers remain unexecuted.
+Both jobs copy all 190 graveyards, initialize loaded encounter variables,
+and run the existing `SourceSpawnManager`, `Map.cpp:196-200`.
+Its clock binds thread 6 trace line 60379860 or thread 7 line 60306683
+before dynamic GUID lookup, `SpawnManager.cpp:52-53`.
+Strict respawn expiry, linking and spawn-mask gates, and spawn-group
+construction follow `SpawnManager.cpp:58-109`. The comparison checks the
+complete initialized group-ID sets and all six loader SQL statements.
+An independent catalog census and frozen mixed-entry selections give map 0
+445 creatures, 41 gameobjects, 486 grid calls and 623 groups; map 1 has
+2,015 creatures, 41 gameobjects, 2,056 grid calls and 458 groups.
+Neither map schedules a respawn. The hash-checked `cf538fd2` characters
+snapshot has no respawns or corpses; the initial corpse query matches
+`World.cpp:1196`, `ObjectMgr.cpp:7371-7375`.
+Grid expiry and unloading use the recorded configuration, including
+`GridUnload=1`, before the first real grid constructor, `Map.cpp:340`.
+The live MMap owner executes `Map.cpp:202-212`; recorded preload is off.
+Active traversal uses the loaded lists and real grid/terrain owners,
+`ObjectMgr.cpp:9145-9156`, `Map.cpp:146-153,336-353,419-427`.
+Map 0's first grid stops before GO factory template selection,
+`GameObject.cpp:109`; map 1 stops at `Creature.cpp:1655`.
+The missing owners are the complete loaded `GameObjectInfo` and
+`CreatureInfo` stores, not the existing construction component engines.
 The world-thread clone-only next-word check matches `(8712,3411341330)`.
 Global event/status/quest comparisons and WorldState remain beyond the map
 refusal. Seal8 keeps its earlier lunar refusal. Native format 91 is unchanged.

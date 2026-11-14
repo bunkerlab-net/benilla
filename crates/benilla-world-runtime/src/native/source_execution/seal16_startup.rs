@@ -5,6 +5,20 @@ use crate::native::production_compiler::VerifiedCatalog;
 use benilla_sim::{source_calendar::Tm, source_moon as moon};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+#[path = "seal16_active_init.rs"]
+mod active_init;
+#[path = "seal16_spawn_init.rs"]
+mod spawn_init;
+
+const GROUP_QUERIES: [&str; 6] = [
+    "SELECT Id, Name, Type, MaxCount, WorldState, WorldStateExpression, Flags, StringId, RespawnOverrideMin, RespawnOverrideMax FROM spawn_group",
+    "SELECT Id, FormationType, FormationSpread, FormationOptions, PathId, MovementType, Comment FROM spawn_group_formation",
+    "SELECT Id, Guid, SlotId, Chance FROM spawn_group_spawn",
+    "SELECT Id, Entry, MinCount, MaxCount, Chance FROM spawn_group_entry",
+    "SELECT Id, LinkedId FROM spawn_group_linked_group",
+    "SELECT Id, SquadId, Guid, Entry FROM spawn_group_squad",
+];
+
 fn retained_f1_file(root: &Path, recorded: &Path, expected: &Sha256Id) -> Result<Vec<u8>> {
     let prefix = recorded
         .ancestors()
@@ -112,6 +126,13 @@ struct MapThreadEvidence {
     pool_shuffles: Option<usize>,
     pool_members: [BTreeSet<u32>; 2],
     pool_counts: BTreeMap<u32, u32>,
+    spawn_clock_site: bool,
+    spawn_clock: Option<(u64, i64, usize)>,
+    collecting_spawn_groups: bool,
+    spawn_groups: BTreeSet<u32>,
+    first_grid: Option<(u64, u16, u16)>,
+    first_candidate: Option<(u64, u32, u32, u16, u16)>,
+    first_mmap_query: Option<(u64, u32)>,
 }
 #[derive(Default)]
 pub(super) struct Inputs {
@@ -146,14 +167,25 @@ pub(super) struct Inputs {
     encounter_sql: BTreeMap<String, Vec<Vec<Vec<u8>>>>,
     encounter_queries: Vec<(u64, String)>,
     encounter_raw: BTreeMap<String, (u64, u64)>,
+    group_queries: Vec<(u64, String)>,
+    corpse_query_line: Option<u64>,
 }
 impl Inputs {
     pub(super) fn observe_thread(&mut self, thread: u64, line: u64, kind: &str, p: &[&str]) {
+        if thread == 1
+            && kind == "sql_request_bytes"
+            && unhex(p.last().unwrap()) == CORPSE_LOAD_QUERY.as_bytes()
+        {
+            assert!(self.corpse_query_line.replace(line).is_none());
+        }
         if thread == 1 && kind == "mt_raw" {
             self.world_raw_words += 1;
         }
         if thread == 1 && kind == "sql_query" {
             let query = String::from_utf8(unhex(p.last().unwrap())).unwrap();
+            if GROUP_QUERIES.contains(&query.as_str()) {
+                self.group_queries.push((line, query.clone()));
+            }
             if ENCOUNTER_QUERIES.contains(&query.as_str()) {
                 self.encounter_queries.push((line, query.clone()));
                 assert!(self
@@ -213,6 +245,43 @@ impl Inputs {
         }
         let evidence = self.map_threads.entry(thread).or_default();
         match kind {
+            "state_spawn_state" if p[1] == "initialize_end" => {
+                evidence.collecting_spawn_groups = true;
+            }
+            "state_spawn_group" if evidence.collecting_spawn_groups && p[1] == "id" => {
+                assert!(evidence.spawn_groups.insert(p[2].parse().unwrap()));
+            }
+            "operation_end" => evidence.collecting_spawn_groups = false,
+            "geometry_detour_query_binding" if evidence.first_mmap_query.is_none() => {
+                assert_eq!(p[1], "0");
+                evidence.first_mmap_query = Some((line, p[4].parse().unwrap()));
+            }
+            "grid_create" if evidence.first_grid.is_none() => {
+                evidence.first_grid = Some((line, p[2].parse().unwrap(), p[3].parse().unwrap()));
+            }
+            "constructor_loader_candidate" if evidence.first_candidate.is_none() => {
+                evidence.first_candidate = Some((
+                    line,
+                    p[0].parse().unwrap(),
+                    p[1].parse().unwrap(),
+                    p[4].parse().unwrap(),
+                    p[5].parse().unwrap(),
+                ));
+            }
+            "clock_callsite" => {
+                // Frozen ELF time@plt return PC 0x6f33d8; the instrumented line is :82.
+                evidence.spawn_clock_site = p[0] == "1"
+                    && p[1] == "3678789157770927477"
+                    && p[2] == "7287768"
+                    && p[3].ends_with("/bin/mangosd");
+            }
+            "clock_time" if evidence.spawn_clock_site => {
+                assert!(evidence
+                    .spawn_clock
+                    .replace((line, p[0].parse().unwrap(), evidence.total_words))
+                    .is_none());
+                evidence.spawn_clock_site = false;
+            }
             "mt_state" => {
                 assert!(evidence.initial.is_none());
                 evidence.initial = Some(benilla_sim::source_rng::MtState {
@@ -898,6 +967,7 @@ impl LinkingLoadOwner for LinkingDefinitions<'_> {
 struct MapLinkingGate<'a> {
     spawns: &'a SourceEffectiveSpawns,
     pools: &'a SourcePoolManager,
+    script: Option<&'a SourceWorldScript>,
 }
 impl LinkingGateOwner for MapLinkingGate<'_> {
     fn creature_data(&mut self, guid: u32) -> Result<Option<LinkingSpawnData>> {
@@ -909,8 +979,13 @@ impl LinkingGateOwner for MapLinkingGate<'_> {
     fn creature_pool(&mut self, guid: u32) -> Result<Option<u16>> {
         Ok(Some(self.pools.part_of(PoolKind::Creature, guid)?))
     }
-    fn encounter_in_progress(&mut self, _: MapIdentity) -> Result<Option<bool>> {
-        Err(refuse("execution.linking.instance_encounter_owner"))
+    fn encounter_in_progress(&mut self, map: MapIdentity) -> Result<Option<bool>> {
+        self.script
+            .map(|script| {
+                require(script.map == map, "execution.linking.instance_map_binding")?;
+                Ok(script.encounter_in_progress())
+            })
+            .transpose()
     }
 }
 /// Independent map-job projection. Only RNG calls change stream; dependent owners stay real.
@@ -961,6 +1036,7 @@ impl<S: FnMut(TraceEvent)> PoolWork for MapPoolWork<'_, '_, '_, S> {
             &mut MapLinkingGate {
                 spawns: self.world.spawns,
                 pools: manager,
+                script: self.map.instance_data.as_ref(),
             },
         )
     }
@@ -1064,6 +1140,37 @@ pub(super) fn continue_startup(
     cursor: &mut DrawCursor,
     next_word: (u64, u64),
 ) {
+    let config = std::fs::read(recording.join("mangosd.conf")).unwrap();
+    spawn_init::bind_mmap_world(recording, &config, &mut geometry.mmap).unwrap();
+    let mut corpses = active_init::frozen_corpses(recording).unwrap();
+    println!(
+        "F6_CORPSES loaded=0 matched_sql=1 query_line={}",
+        observed.corpse_query_line.unwrap()
+    );
+    assert_eq!(
+        observed
+            .group_queries
+            .iter()
+            .map(|(_, query)| query.as_str())
+            .collect::<Vec<_>>(),
+        GROUP_QUERIES
+    );
+    println!(
+        "F6_SPAWN_GROUP_SQL matched_sql=6 query_lines={:?}",
+        observed.group_queries
+    );
+    let mut groups = SourceSpawnGroups::default();
+    groups
+        .load_effective_catalog(
+            catalog,
+            Path::new(&std::env::var_os("BENILLA_F2_GROUP_OCCURRENCES").unwrap()),
+            spawns,
+            super::super::spawn_loader_config::assignment(&config, "Autoload.Active")
+                .unwrap()
+                .1
+                == "1",
+        )
+        .unwrap();
     let mut dynamic = BTreeMap::<u32, [Vec<u32>; 2]>::new();
     for ((map, kind), guids) in std::mem::take(&mut spawns.dynamic_guids) {
         dynamic.entry(map).or_default()[usize::from(kind == GridSpawnKind::GameObject)] = guids;
@@ -1366,7 +1473,6 @@ pub(super) fn continue_startup(
     println!("F6_ENCOUNTERS dungeon={} visited={} loaded={} skipped={:?} shift_census={:?} matched_sql=4 additional_raw_words=0 query_lines={:?}", dungeon_store.rows().len(), encounter_census.visited, encounter_census.loaded, encounter_census.skipped, encounters.shift_census(), observed.encounter_queries);
     assert!(observed.encounter_queries[2].0 < observed.graveyard_query_line.unwrap());
     assert!(observed.graveyard_last_field_line.unwrap() < observed.encounter_queries[3].0);
-    let config = std::fs::read(recording.join("mangosd.conf")).unwrap();
     let continent_config = ContinentConfig::parse(&config).unwrap();
     let definitions = ContinentDefinitions::load(catalog, &inputs.maps, &config).unwrap();
     let temporary_starts = definitions.temporary_starts;
@@ -1526,10 +1632,160 @@ pub(super) fn continue_startup(
             work.shuffles
         };
         let after_pools_cursor = random.cursor().raw;
-        let refusal = continents.maps[slot]
+        continents.maps[slot]
             .initialize_after_pools(&states, &world_graveyards, Some(&encounters))
-            .unwrap_err();
-        assert_eq!(refusal.id, SPAWN_INITIALIZE_CLOCK_OWNER);
+            .unwrap();
+        let state = continents.maps[slot].persistent.unwrap();
+        let mut spawn_manager =
+            SourceSpawnManager::new(continents.maps[slot].identity, state).unwrap();
+        let mut formations = SourceFormations::default();
+        let clock = evidence.spawn_clock;
+        let mut spawn_work = spawn_init::Initialize {
+            thread,
+            clock,
+            spawns: owner.spawns,
+            effects: &owner.effects,
+            map: &continents.maps[slot],
+            pools: &pools,
+            links: &links,
+            objects: &objects,
+            groups: &mut groups,
+            formations: &mut formations,
+            operations: Vec::new(),
+            persistent: Vec::new(),
+            visits: [0; 2],
+        };
+        let spawn_result = spawn_manager.initialize(&mut states, &mut spawn_work);
+        println!("F6_SPAWN_INIT map={slot} clock={clock:?} dynamic={:?} result={:?} active={} grid_operations={} groups={}", spawn_work.visits, spawn_result, spawn_manager.inventory().active.len(), spawn_work.persistent.len(), spawn_manager.inventory().groups.len());
+        spawn_result.unwrap();
+        assert_eq!(
+            clock,
+            Some((
+                if slot == 0 { 60379860 } else { 60306683 },
+                1794314190,
+                after_pools_cursor as usize
+            ))
+        );
+        assert!(spawn_work.clock.is_none());
+        assert!(spawn_manager.inventory().initialized);
+        assert_eq!(
+            spawn_manager
+                .inventory()
+                .groups
+                .keys()
+                .copied()
+                .collect::<BTreeSet<_>>(),
+            evidence.spawn_groups
+        );
+        // Independent catalog 757dcfb8 census: map 0 has 433+12 creatures; map 1 has 2015.
+        // Trace irand lines 37001780-37595457 resolve 19 mixed lists for comparison only.
+        // All GO masks are 1. Reset cf538fd2 has no respawns; masters 44251/43201
+        // have no links or pools, so CreatureLinkingMgr.cpp:663-672,699-732 allows all.
+        let expected_dynamic = if slot == 0 { [445, 41] } else { [2015, 41] };
+        assert_eq!(spawn_work.visits, expected_dynamic);
+        assert!(spawn_manager.inventory().active.is_empty());
+        let overlays =
+            [GridSpawnKind::Creature, GridSpawnKind::GameObject].map(|wanted| {
+                spawn_work.persistent.iter().filter(|operation| matches!(operation,
+                PersistentOperation::Overlay { kind, insert: true, .. } if *kind == wanted
+            )).count()
+            });
+        assert_eq!(overlays, expected_dynamic);
+        assert_eq!(
+            spawn_work.persistent.len(),
+            expected_dynamic.iter().sum::<usize>()
+        );
+        geometry
+            .mmap
+            .initialize_map(continents.maps[slot].identity)
+            .unwrap();
+        assert!(geometry.mmap.enabled());
+        assert_eq!(
+            super::super::spawn_loader_config::assignment(&config, "mmap.preload")
+                .unwrap()
+                .1,
+            "0"
+        );
+        let query = geometry.mmap.query(slot as u32, 0).unwrap();
+        assert_eq!(
+            geometry.mmap.query_capacity(slot as u32, &query).unwrap(),
+            1024
+        );
+        assert_eq!(
+            evidence.first_mmap_query,
+            Some((if slot == 0 { 60382080 } else { 60310114 }, 1024))
+        );
+        let mut active_objects = SourceObjects::default();
+        let active_init::ActivePrefixReport {
+            refusal,
+            attempt,
+            candidates,
+            entry,
+            lookups,
+        } = active_init::load_first(
+            &mut continents.maps[slot],
+            owner.spawns,
+            inputs,
+            &events,
+            &groups,
+            &mut states,
+            geometry,
+            &mut active_objects,
+            &mut corpses,
+            thread,
+            &config,
+        )
+        .unwrap();
+        assert_eq!(
+            lookups,
+            if slot == 0 {
+                vec!["factory_go_data", "factory_go_template"]
+            } else {
+                vec![
+                    "creature_data",
+                    "existing_creature",
+                    "spawn_group",
+                    "conditional_skipped_nonzero_entry",
+                    "random_skipped_nonzero_entry",
+                    "active_event",
+                    "creature_template",
+                ]
+            }
+        );
+        assert_eq!(
+            refusal.id,
+            if slot == 0 {
+                active_init::GO_TEMPLATE_OWNER
+            } else {
+                active_init::CREATURE_TEMPLATE_OWNER
+            }
+        );
+        assert_eq!(
+            (attempt.grid.x, attempt.grid.y),
+            if slot == 0 { (7, 32) } else { (29, 34) }
+        );
+        assert_eq!(
+            evidence.first_grid,
+            Some((
+                if slot == 0 { 60382091 } else { 60310123 },
+                attempt.grid.x,
+                attempt.grid.y
+            ))
+        );
+        assert_eq!(attempt.guid, if slot == 0 { 18 } else { 28044 });
+        assert_eq!(candidates, usize::from(slot == 1));
+        assert_eq!(entry, if slot == 0 { 3211 } else { 4692 });
+        assert_eq!(
+            evidence.first_candidate,
+            Some((
+                if slot == 0 { 60382119 } else { 60310149 },
+                u32::from(attempt.kind == GridSpawnKind::GameObject),
+                attempt.guid,
+                attempt.cell.x(),
+                attempt.cell.y(),
+            ))
+        );
+        println!("F6_ACTIVE_PREFIX map={slot} first_grid={:?} candidate_guid={} entry={entry} candidate_allocations={candidates} completed_objects=0 next_owner={}", evidence.first_grid, attempt.guid, refusal.id);
         assert_eq!(continents.maps[slot].graveyards, world_graveyards);
         assert_eq!(
             continents.maps[slot]
@@ -1601,7 +1857,7 @@ pub(super) fn continue_startup(
             serde_json::to_value(states.state(state).unwrap().pools()).unwrap(),
             expected
         );
-        println!("F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={} next_owner={SPAWN_INITIALIZE_CLOCK_OWNER} next_source=SpawnManager.cpp:52", matched_map_words[slot], evidence.pool_members.iter().map(BTreeSet::len).sum::<usize>(), evidence.pool_counts.len(), shuffles.len(), evidence.pool_snapshot_line.unwrap(), encounters.by_map(slot as u32).len());
+        println!("F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={} next_owner={} next_source={}", matched_map_words[slot], evidence.pool_members.iter().map(BTreeSet::len).sum::<usize>(), evidence.pool_counts.len(), shuffles.len(), evidence.pool_snapshot_line.unwrap(), encounters.by_map(slot as u32).len(), refusal.id, if slot == 0 { "GameObject.cpp:109" } else { "Creature.cpp:1655" });
         owner.states = states;
         let raw = trace
             .iter()
@@ -1635,7 +1891,7 @@ pub(super) fn continue_startup(
         assert_eq!(u64::from(initial_engine.next_u32()), first_word);
     }
     if continents.maps.iter().any(|map| map.script_id != 0) {
-        let refusal = refuse(SPAWN_INITIALIZE_CLOCK_OWNER);
+        let refusal = refuse(active_init::GO_TEMPLATE_OWNER);
         assert!(!events.inventory().initialized);
         assert!(owner.sql.is_empty() && owner.raw.is_empty());
         assert_eq!(owner.cursor.raw, 8712);
@@ -1648,7 +1904,7 @@ pub(super) fn continue_startup(
             .filter(|operation| matches!(operation, PoolOperation::Selected { add: true, .. }))
             .count();
         assert!(results > 0);
-        println!("F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} matched_map_thread_words={matched_map_words:?} matched_map_sql=4 matched_graveyard_sql=1 matched_encounter_sql=4 pool_results={results} event_initialization_reached=false next_owner={} next_source=SpawnManager.cpp:52 next_raw={} next_word={} clone_next_word_checked=true",owner.cursor.raw,refusal.id,next_word.0,next_word.1);
+        println!("F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} matched_map_thread_words={matched_map_words:?} matched_map_sql=4 matched_graveyard_sql=1 matched_encounter_sql=4 matched_group_sql=6 pool_results={results} event_initialization_reached=false next_owner_map0={} next_owner_map1={} next_raw={} next_word={} clone_next_word_checked=true",owner.cursor.raw,refusal.id,active_init::CREATURE_TEMPLATE_OWNER,next_word.0,next_word.1);
         return;
     }
     let initial_status = owner.status.iter().copied().collect::<Vec<_>>();
@@ -1734,4 +1990,31 @@ fn map_thread_evidence_keeps_raw_positions_and_pre_sql_boundaries_independent() 
     assert_eq!(inputs.map_threads[&7].total_words, 1);
     assert_eq!(inputs.map_threads[&6].sql_line, Some(15));
     assert_eq!(inputs.map_threads[&7].sql_line, Some(12));
+}
+
+#[test]
+fn initialize_clock_binding_keeps_map_threads_and_callsite_identity_separate() {
+    let mut inputs = Inputs::default();
+    let site = [
+        "1",
+        "3678789157770927477",
+        "7287768",
+        "/recorded/bin/mangosd",
+    ];
+    inputs.observe_thread(6, 10, "clock_callsite", &site);
+    inputs.observe_thread(7, 11, "clock_time", &["100", "ptr"]);
+    assert!(inputs.map_threads[&7].spawn_clock.is_none());
+    inputs.observe_thread(6, 12, "clock_time", &["101", "ptr"]);
+    assert_eq!(inputs.map_threads[&6].spawn_clock, Some((12, 101, 0)));
+    inputs.observe_thread(
+        7,
+        13,
+        "clock_callsite",
+        &["1", "wrong-image", "7287768", "/recorded/bin/mangosd"],
+    );
+    inputs.observe_thread(7, 14, "clock_time", &["102", "ptr"]);
+    assert!(inputs.map_threads[&7].spawn_clock.is_none());
+    inputs.observe_thread(7, 15, "clock_callsite", &site);
+    inputs.observe_thread(7, 16, "clock_time", &["103", "ptr"]);
+    assert_eq!(inputs.map_threads[&7].spawn_clock, Some((16, 103, 0)));
 }

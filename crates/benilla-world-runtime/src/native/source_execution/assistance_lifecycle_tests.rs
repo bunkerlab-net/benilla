@@ -100,14 +100,18 @@ impl SpawnWork for Bound<'_> {
     fn definition(&mut self, key: SpawnKey) -> Result<Option<DynamicSpawnDefinition>> {
         self.host.definition(key)
     }
-    fn linking_can_spawn(&mut self, guid: u32) -> Result<bool> {
-        self.host.linking_can_spawn(guid)
+    fn linking_can_spawn(&mut self, state: &SourcePersistentState, guid: u32) -> Result<bool> {
+        self.host.linking_can_spawn(state, guid)
     }
     fn groups(&mut self) -> Result<Arc<BTreeMap<u32, DynamicSpawnGroup>>> {
         self.host.groups()
     }
-    fn create_group(&mut self, group: DynamicSpawnGroup) -> Result<SpawnGroupHandle> {
-        self.host.create_group(group)
+    fn create_group(
+        &mut self,
+        states: &mut SourceManagers,
+        group: DynamicSpawnGroup,
+    ) -> Result<SpawnGroupHandle> {
+        self.host.create_group(states, group)
     }
     fn update_group(
         &mut self,

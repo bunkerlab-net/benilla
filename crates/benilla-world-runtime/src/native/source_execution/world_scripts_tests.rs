@@ -64,6 +64,26 @@ fn ready() -> SourceContinents {
 }
 
 #[test]
+fn continent_encounter_query_inherits_false_even_with_script_encounter_state() {
+    // ScriptedMap has no override of InstanceData.h:75.
+    let mut engine = Words([0, 0].into());
+    let mut cursor = DrawCursor::default();
+    let mut sink = |_| {};
+    let mut random = SourceRandom::new(6, &mut engine, &mut cursor, &mut sink).unwrap();
+    for (map, name) in [(0, "world_map_eastern_kingdoms"), (1, "world_map_kalimdor")] {
+        let mut variables = SourceWorldStateVariables::default();
+        let mut script =
+            SourceWorldScript::construct(identity(map), name, &mut variables, &mut random).unwrap();
+        assert!(!script.encounter_in_progress());
+        if let WorldScriptState::Kalimdor(state) = &mut script.state {
+            state.encounters.fill(1);
+        }
+        assert!(!script.encounter_in_progress());
+    }
+    assert_eq!(random.cursor().raw, 2);
+}
+
+#[test]
 fn eastern_constructor_and_initialize_draw_in_order_and_retain_base_stores() {
     // world_eastern_kingdoms.cpp:30-38; both outcomes of each urand(0,1).
     let mut engine = Words([0, u32::MAX as u64, u32::MAX as u64, 0].into());
@@ -683,12 +703,8 @@ fn incomplete_instance_refuses_before_attach_and_empty_events_reach_encounter_bo
     );
     assert_eq!(map.graveyards, world_graveyards);
     let encounters = LoadedInstanceEncounters::default();
-    assert_eq!(
-        map.initialize_after_pools(&states, &world_graveyards, Some(&encounters))
-            .unwrap_err()
-            .id,
-        SPAWN_INITIALIZE_CLOCK_OWNER,
-    );
+    map.initialize_after_pools(&states, &world_graveyards, Some(&encounters))
+        .unwrap();
     assert_eq!(work.cursor.raw, 0);
     assert!(states
         .state(map.persistent.unwrap())

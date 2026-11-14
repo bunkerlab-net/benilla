@@ -198,9 +198,13 @@ pub trait SpawnWork: PersistentEffects {
     fn world_game_seconds(&mut self) -> Result<i64>;
     fn dynamic_guids(&mut self, map: u32, kind: GridSpawnKind) -> Result<Arc<[u32]>>;
     fn definition(&mut self, key: SpawnKey) -> Result<Option<DynamicSpawnDefinition>>;
-    fn linking_can_spawn(&mut self, guid: u32) -> Result<bool>;
+    fn linking_can_spawn(&mut self, state: &SourcePersistentState, guid: u32) -> Result<bool>;
     fn groups(&mut self) -> Result<Arc<BTreeMap<u32, DynamicSpawnGroup>>>;
-    fn create_group(&mut self, group: DynamicSpawnGroup) -> Result<SpawnGroupHandle>;
+    fn create_group(
+        &mut self,
+        states: &mut SourceManagers,
+        group: DynamicSpawnGroup,
+    ) -> Result<SpawnGroupHandle>;
     fn update_group(
         &mut self,
         manager: &mut SourceSpawnManager,
@@ -447,7 +451,9 @@ impl SourceSpawnManager {
                             .definition(key)?
                             .ok_or_else(|| refuse("execution.spawn.initial_definition_absent"))?;
                         let allowed = match kind {
-                            GridSpawnKind::Creature => work.linking_can_spawn(guid)?,
+                            GridSpawnKind::Creature => {
+                                work.linking_can_spawn(persistent.state(this.persistent())?, guid)?
+                            }
                             GridSpawnKind::GameObject => data.spawn_mask != 0,
                         };
                         if allowed {
@@ -479,7 +485,7 @@ impl SourceSpawnManager {
                 if data.map != this.map().map {
                     continue;
                 }
-                let handle = work.create_group(group)?;
+                let handle = work.create_group(persistent, group)?;
                 require(
                     handle.generation > 0 && handle.id == group.id,
                     "execution.spawn.group_binding",

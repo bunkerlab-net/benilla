@@ -152,6 +152,21 @@ impl GroupLoadOwner for CatalogGroupLoadOwner<'_> {
     }
 }
 impl SourceSpawnGroups {
+    /// Loaded ObjectMgr products are returned even if group loading refuses.
+    pub fn load_effective_catalog(
+        &mut self,
+        catalog: &mut VerifiedCatalog,
+        occurrences: &Path,
+        spawns: &mut SourceEffectiveSpawns,
+        autoload: bool,
+    ) -> Result<()> {
+        let mut rows = catalog.execution_spawn_group_rows(occurrences)?;
+        let mut owner = CatalogGroupLoadOwner::with_pre_terrain(catalog, std::mem::take(spawns));
+        owner.autoload = Some(autoload);
+        let result = self.load(&mut rows, &mut owner);
+        *spawns = owner.pre_terrain.take().unwrap();
+        result
+    }
     /// Source query order is templates, formations, members, entries, links,
     /// squads, then finalization. ObjectMgr.cpp:1125,1192,1250,1355,1398,1426,1466.
     pub fn load_bound_catalog<'a>(

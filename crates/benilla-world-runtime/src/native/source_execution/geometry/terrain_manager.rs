@@ -301,6 +301,8 @@ pub struct SourceTerrainManager {
     pub dbc: SourceTerrainDbc,
     pub wmo_areas: vmap_scene::SourceWmoAreas,
     pub liquid_dbc: SourceLiquidDbc,
+    #[cfg(test)]
+    pub grid_product_steps: Vec<&'static str>,
 }
 impl SourceTerrainManager {
     pub fn new(files: SourceTerrainFiles, dbc: SourceTerrainDbc) -> Self {
@@ -484,6 +486,69 @@ impl SourceTerrainManager {
             info.residency.cleanup(diff, &mut cleanup)?;
         }
         Ok(())
+    }
+}
+
+// Map.cpp:146-153,353 and GridMap.cpp:726-742 retain a grid before loading products.
+impl GridProductOwner for SourceTerrainManager {
+    fn load(&mut self, map: MapIdentity, coordinates: ProductCoordinates) -> Result<bool> {
+        let info = self
+            .terrains
+            .get_mut(u64::from(map.map))
+            .ok_or_else(|| refuse("execution.terrain.info_owner"))?;
+        let mut owner = GridGeometryProducts {
+            grids: &mut info.grids,
+            files: &self.files,
+            vmap: &mut self.vmap,
+            mmap: &mut self.mmap,
+            #[cfg(test)]
+            steps: &mut self.grid_product_steps,
+        };
+        SourceTerrainProducts {
+            terrain: &mut info.residency,
+            owner: &mut owner,
+        }
+        .load(map, coordinates)
+    }
+}
+struct GridGeometryProducts<'a> {
+    grids: &'a mut BTreeMap<(u16, u16), SourceGridMap>,
+    files: &'a SourceTerrainFiles,
+    vmap: &'a mut SourceVMapManager,
+    mmap: &'a mut SourceMMapManager,
+    #[cfg(test)]
+    steps: &'a mut Vec<&'static str>,
+}
+impl GridProductOwner for GridGeometryProducts<'_> {
+    fn load(&mut self, map: MapIdentity, c: ProductCoordinates) -> Result<bool> {
+        // GridMap.cpp:1243-1247 precedes allocation, then :1253-1270 loads GridMap.
+        if self.vmap.is_tile_loaded(map.map, c.x, c.y)
+            && self.mmap.is_tile_loaded(map.map, c.x, c.y)
+        {
+            return Ok(self.grids.contains_key(&(c.x, c.y)));
+        }
+        if let std::collections::btree_map::Entry::Vacant(entry) = self.grids.entry((c.x, c.y)) {
+            #[cfg(test)]
+            self.steps.push("gridmap");
+            entry.insert(SourceGridMap::load(self.files.read((map.map, c.x, c.y))?)?);
+        }
+        // GridMap.cpp:1278-1302 ignores source false, not native refusals.
+        if !self.vmap.is_tile_loaded(map.map, c.x, c.y) {
+            #[cfg(test)]
+            self.steps.push("vmap");
+            self.vmap.load_map(map.map, c.x, c.y)?;
+        }
+        if !self.mmap.is_tile_loaded(map.map, c.x, c.y) {
+            #[cfg(test)]
+            self.steps.push("mmap");
+            self.mmap.load_tile(map.map, c.x, c.y)?;
+        }
+        Ok(true)
+    }
+}
+impl TerrainResidencyOwner for GridGeometryProducts<'_> {
+    fn terrain_cleanup(&mut self, _: TerrainTileIdentity, _: TerrainCleanupPhase) -> Result<()> {
+        Err(refuse("execution.terrain.grid_load_cleanup_owner"))
     }
 }
 struct ColdCleanup<'a> {

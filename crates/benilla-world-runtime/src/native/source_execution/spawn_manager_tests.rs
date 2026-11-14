@@ -39,6 +39,9 @@ struct Work {
     invalid_group: bool,
     fail_sql: bool,
     fail_observation: bool,
+    roster_calls: Vec<GridSpawnKind>,
+    missing_clock: bool,
+    linking_error: bool,
 }
 enum Action {
     Add(u32),
@@ -82,6 +85,7 @@ impl SpawnWork for Work {
     }
     fn wall_seconds(&mut self, call: SpawnClockCall) -> Result<ClockSample> {
         self.wall_calls.push(call);
+        require(!self.missing_clock, SPAWN_INITIALIZE_CLOCK_OWNER)?;
         Ok(ClockSample::authored(
             self.wall_kind.unwrap_or(ClockKind::WallSeconds),
             self.wall,
@@ -94,6 +98,7 @@ impl SpawnWork for Work {
         Ok(100)
     }
     fn dynamic_guids(&mut self, _: u32, kind: GridSpawnKind) -> Result<Arc<[u32]>> {
+        self.roster_calls.push(kind);
         Ok(self
             .rosters
             .get(&kind)
@@ -102,7 +107,8 @@ impl SpawnWork for Work {
     fn definition(&mut self, key: SpawnKey) -> Result<Option<DynamicSpawnDefinition>> {
         Ok(self.definitions.get(&key).copied())
     }
-    fn linking_can_spawn(&mut self, guid: u32) -> Result<bool> {
+    fn linking_can_spawn(&mut self, _: &SourcePersistentState, guid: u32) -> Result<bool> {
+        require(!self.linking_error, "authored.linking_owner")?;
         Ok(!self.blocked.contains(&guid))
     }
     fn groups(&mut self) -> Result<Arc<BTreeMap<u32, DynamicSpawnGroup>>> {
@@ -119,7 +125,11 @@ impl SpawnWork for Work {
         self.group_updates.push(group.id);
         Ok(())
     }
-    fn create_group(&mut self, group: DynamicSpawnGroup) -> Result<SpawnGroupHandle> {
+    fn create_group(
+        &mut self,
+        _: &mut SourceManagers,
+        group: DynamicSpawnGroup,
+    ) -> Result<SpawnGroupHandle> {
         Ok(SpawnGroupHandle {
             id: group.id,
             generation: u64::from(!self.invalid_group),
@@ -551,6 +561,100 @@ fn initial_linking_and_go_mask_gates_do_not_schedule_rejected_guids() {
     );
     assert!(manager.inventory().active.is_empty());
     assert!(work.attempts.is_empty());
+}
+
+#[test]
+fn initialize_empty_lists_still_bind_time_then_visit_creatures_before_gameobjects() {
+    let (mut manager, mut persistent, mut work) = world();
+    manager.initialize(&mut persistent, &mut work).unwrap();
+    assert_eq!(work.wall_calls, [SpawnClockCall::Initialize]);
+    assert_eq!(
+        work.roster_calls,
+        [GridSpawnKind::Creature, GridSpawnKind::GameObject]
+    );
+    assert!(manager.inventory().initialized);
+    assert!(manager.inventory().active.is_empty());
+    assert!(work.attempts.is_empty());
+}
+
+#[test]
+fn initialize_missing_time_and_linking_owner_never_visit_later_work() {
+    let (mut manager, mut persistent, mut work) = world();
+    work.missing_clock = true;
+    assert_eq!(
+        manager
+            .initialize(&mut persistent, &mut work)
+            .unwrap_err()
+            .id,
+        SPAWN_INITIALIZE_CLOCK_OWNER
+    );
+    assert!(work.roster_calls.is_empty());
+    assert!(!manager.inventory().initialized);
+    let (mut manager, mut persistent, mut work) = world();
+    work.rosters.insert(GridSpawnKind::Creature, vec![7]);
+    work.rosters.insert(GridSpawnKind::GameObject, vec![8]);
+    work.definitions.insert(key(7), definition());
+    work.linking_error = true;
+    assert_eq!(
+        manager
+            .initialize(&mut persistent, &mut work)
+            .unwrap_err()
+            .id,
+        "authored.linking_owner"
+    );
+    assert_eq!(work.roster_calls, [GridSpawnKind::Creature]);
+    assert!(manager.inventory().active.is_empty());
+    assert!(!manager.inventory().initialized);
+    assert!(persistent
+        .state_mut(manager.persistent())
+        .unwrap()
+        .cell_guids(definition().cell)
+        .creatures
+        .is_empty());
+}
+
+#[test]
+fn initialize_gameobject_expiry_is_strict_and_preserves_creature_first_schedule() {
+    let (mut manager, mut persistent, mut work) = world();
+    work.rosters.insert(GridSpawnKind::Creature, vec![9]);
+    work.rosters.insert(GridSpawnKind::GameObject, vec![7, 8]);
+    for (kind, guid, deadline) in [
+        (GridSpawnKind::Creature, 9, 100),
+        (GridSpawnKind::GameObject, 7, 99),
+        (GridSpawnKind::GameObject, 8, 100),
+    ] {
+        let key = SpawnKey { kind, guid };
+        work.definitions.insert(key, definition());
+        persistent
+            .save_respawn(manager.persistent(), kind, guid, deadline, 0, &mut work)
+            .unwrap();
+    }
+    manager.initialize(&mut persistent, &mut work).unwrap();
+    assert_eq!(
+        manager
+            .inventory()
+            .active
+            .iter()
+            .map(|info| info.key)
+            .collect::<Vec<_>>(),
+        [
+            key(9),
+            SpawnKey {
+                kind: GridSpawnKind::GameObject,
+                guid: 8
+            }
+        ]
+    );
+    assert_eq!(
+        work.roster_calls,
+        [GridSpawnKind::Creature, GridSpawnKind::GameObject]
+    );
+    assert!(persistent
+        .state_mut(manager.persistent())
+        .unwrap()
+        .cell_guids(definition().cell)
+        .gameobjects
+        .contains(&7));
 }
 #[test]
 fn group_map_order_filters_and_first_string_alias_are_literal() {

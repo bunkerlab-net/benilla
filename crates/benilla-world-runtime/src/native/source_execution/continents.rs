@@ -296,8 +296,7 @@ impl SourceContinent {
             states.state(state)?.completed_encounters,
             encounters,
         )?;
-        // Map.cpp:200 enters SpawnManager.cpp:52's time(nullptr) first.
-        Err(refuse(SPAWN_INITIALIZE_CLOCK_OWNER))
+        Ok(())
     }
 }
 
