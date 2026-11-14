@@ -1,0 +1,1389 @@
+{
+  "cases": [
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [
+        "00000000",
+        "3f800000"
+      ],
+      "connection_count": 1,
+      "connection_refs": [
+        4503599627370496
+      ],
+      "name": "normal_positive_below",
+      "overlap_slabs": true,
+      "side": 4,
+      "source_a_bits": [
+        "3c23d709",
+        "00000000",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "3c23d709",
+        "00000000",
+        "3f800000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "00000000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "00000000",
+        "3f800000"
+      ],
+      "target_climb_bits": "3f800000",
+      "target_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "target_min_bits": [
+        "00000000",
+        "00000000"
+      ]
+    },
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [
+        "00000000",
+        "3f800000"
+      ],
+      "connection_count": 1,
+      "connection_refs": [
+        4503599627370496
+      ],
+      "name": "normal_positive_equal",
+      "overlap_slabs": true,
+      "side": 4,
+      "source_a_bits": [
+        "3c23d70a",
+        "00000000",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "3c23d70a",
+        "00000000",
+        "3f800000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "00000000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "00000000",
+        "3f800000"
+      ],
+      "target_climb_bits": "3f800000",
+      "target_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "target_min_bits": [
+        "00000000",
+        "00000000"
+      ]
+    },
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [],
+      "connection_count": 0,
+      "connection_refs": [],
+      "name": "normal_positive_above",
+      "overlap_slabs": true,
+      "side": 4,
+      "source_a_bits": [
+        "3c23d70b",
+        "00000000",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "3c23d70b",
+        "00000000",
+        "3f800000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "00000000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "00000000",
+        "3f800000"
+      ],
+      "target_climb_bits": "3f800000",
+      "target_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "target_min_bits": [
+        "00000000",
+        "00000000"
+      ]
+    },
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [
+        "00000000",
+        "3f800000"
+      ],
+      "connection_count": 1,
+      "connection_refs": [
+        4503599627370496
+      ],
+      "name": "normal_negative_below",
+      "overlap_slabs": true,
+      "side": 4,
+      "source_a_bits": [
+        "bc23d709",
+        "00000000",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "bc23d709",
+        "00000000",
+        "3f800000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "00000000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "00000000",
+        "3f800000"
+      ],
+      "target_climb_bits": "3f800000",
+      "target_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "target_min_bits": [
+        "00000000",
+        "00000000"
+      ]
+    },
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [
+        "00000000",
+        "3f800000"
+      ],
+      "connection_count": 1,
+      "connection_refs": [
+        4503599627370496
+      ],
+      "name": "normal_negative_equal",
+      "overlap_slabs": true,
+      "side": 4,
+      "source_a_bits": [
+        "bc23d70a",
+        "00000000",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "bc23d70a",
+        "00000000",
+        "3f800000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "00000000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "00000000",
+        "3f800000"
+      ],
+      "target_climb_bits": "3f800000",
+      "target_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "target_min_bits": [
+        "00000000",
+        "00000000"
+      ]
+    },
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [],
+      "connection_count": 0,
+      "connection_refs": [],
+      "name": "normal_negative_above",
+      "overlap_slabs": true,
+      "side": 4,
+      "source_a_bits": [
+        "bc23d70b",
+        "00000000",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "bc23d70b",
+        "00000000",
+        "3f800000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "00000000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "00000000",
+        "3f800000"
+      ],
+      "target_climb_bits": "3f800000",
+      "target_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "target_min_bits": [
+        "00000000",
+        "00000000"
+      ]
+    },
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [],
+      "connection_count": 0,
+      "connection_refs": [],
+      "name": "horizontal_touching",
+      "overlap_slabs": false,
+      "side": 4,
+      "source_a_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "00000000",
+        "00000000",
+        "3f800000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "00000000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "00000000",
+        "3f800000"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "00000000",
+        "40000000"
+      ],
+      "target_climb_bits": "3f800000",
+      "target_max_bits": [
+        "40000000",
+        "00000000"
+      ],
+      "target_min_bits": [
+        "3f800000",
+        "00000000"
+      ]
+    },
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [
+        "3f7ae147",
+        "3f800000"
+      ],
+      "connection_count": 1,
+      "connection_refs": [
+        4503599627370496
+      ],
+      "name": "horizontal_shrink_below",
+      "overlap_slabs": true,
+      "side": 4,
+      "source_a_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "00000000",
+        "00000000",
+        "3f800000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "00000000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "00000000",
+        "3f7ae147"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "00000000",
+        "40000000"
+      ],
+      "target_climb_bits": "3f800000",
+      "target_max_bits": [
+        "40000000",
+        "00000000"
+      ],
+      "target_min_bits": [
+        "3f7ae147",
+        "00000000"
+      ]
+    },
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [
+        "3f7ae148",
+        "3f800000"
+      ],
+      "connection_count": 1,
+      "connection_refs": [
+        4503599627370496
+      ],
+      "name": "horizontal_shrink_equal",
+      "overlap_slabs": true,
+      "side": 4,
+      "source_a_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "00000000",
+        "00000000",
+        "3f800000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "00000000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "00000000",
+        "3f7ae148"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "00000000",
+        "40000000"
+      ],
+      "target_climb_bits": "3f800000",
+      "target_max_bits": [
+        "40000000",
+        "00000000"
+      ],
+      "target_min_bits": [
+        "3f7ae148",
+        "00000000"
+      ]
+    },
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [],
+      "connection_count": 0,
+      "connection_refs": [],
+      "name": "horizontal_shrink_above",
+      "overlap_slabs": false,
+      "side": 4,
+      "source_a_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "00000000",
+        "00000000",
+        "3f800000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "00000000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "00000000",
+        "3f7ae149"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "00000000",
+        "40000000"
+      ],
+      "target_climb_bits": "3f800000",
+      "target_max_bits": [
+        "40000000",
+        "00000000"
+      ],
+      "target_min_bits": [
+        "3f7ae149",
+        "00000000"
+      ]
+    },
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [
+        "00000000",
+        "3f800000"
+      ],
+      "connection_count": 1,
+      "connection_refs": [
+        4503599627370496
+      ],
+      "name": "vertical_positive_below",
+      "overlap_slabs": true,
+      "side": 4,
+      "source_a_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "00000000",
+        "00000000",
+        "3f800000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "00000000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "3fffffff",
+        "00000000"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "3fffffff",
+        "3f800000"
+      ],
+      "target_climb_bits": "3f800000",
+      "target_max_bits": [
+        "3f800000",
+        "3fffffff"
+      ],
+      "target_min_bits": [
+        "00000000",
+        "3fffffff"
+      ]
+    },
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [
+        "00000000",
+        "3f800000"
+      ],
+      "connection_count": 1,
+      "connection_refs": [
+        4503599627370496
+      ],
+      "name": "vertical_positive_equal",
+      "overlap_slabs": true,
+      "side": 4,
+      "source_a_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "00000000",
+        "00000000",
+        "3f800000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "00000000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "40000000",
+        "00000000"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "40000000",
+        "3f800000"
+      ],
+      "target_climb_bits": "3f800000",
+      "target_max_bits": [
+        "3f800000",
+        "40000000"
+      ],
+      "target_min_bits": [
+        "00000000",
+        "40000000"
+      ]
+    },
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [],
+      "connection_count": 0,
+      "connection_refs": [],
+      "name": "vertical_positive_above",
+      "overlap_slabs": false,
+      "side": 4,
+      "source_a_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "00000000",
+        "00000000",
+        "3f800000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "00000000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "40000001",
+        "00000000"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "40000001",
+        "3f800000"
+      ],
+      "target_climb_bits": "3f800000",
+      "target_max_bits": [
+        "3f800000",
+        "40000001"
+      ],
+      "target_min_bits": [
+        "00000000",
+        "40000001"
+      ]
+    },
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [
+        "00000000",
+        "3f800000"
+      ],
+      "connection_count": 1,
+      "connection_refs": [
+        4503599627370496
+      ],
+      "name": "vertical_negative_below",
+      "overlap_slabs": true,
+      "side": 4,
+      "source_a_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "00000000",
+        "00000000",
+        "3f800000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "00000000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "bfffffff",
+        "00000000"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "bfffffff",
+        "3f800000"
+      ],
+      "target_climb_bits": "3f800000",
+      "target_max_bits": [
+        "3f800000",
+        "bfffffff"
+      ],
+      "target_min_bits": [
+        "00000000",
+        "bfffffff"
+      ]
+    },
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [
+        "00000000",
+        "3f800000"
+      ],
+      "connection_count": 1,
+      "connection_refs": [
+        4503599627370496
+      ],
+      "name": "vertical_negative_equal",
+      "overlap_slabs": true,
+      "side": 4,
+      "source_a_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "00000000",
+        "00000000",
+        "3f800000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "00000000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "c0000000",
+        "00000000"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "c0000000",
+        "3f800000"
+      ],
+      "target_climb_bits": "3f800000",
+      "target_max_bits": [
+        "3f800000",
+        "c0000000"
+      ],
+      "target_min_bits": [
+        "00000000",
+        "c0000000"
+      ]
+    },
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [],
+      "connection_count": 0,
+      "connection_refs": [],
+      "name": "vertical_negative_above",
+      "overlap_slabs": false,
+      "side": 4,
+      "source_a_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "00000000",
+        "00000000",
+        "3f800000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "00000000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "c0000001",
+        "00000000"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "c0000001",
+        "3f800000"
+      ],
+      "target_climb_bits": "3f800000",
+      "target_max_bits": [
+        "3f800000",
+        "c0000001"
+      ],
+      "target_min_bits": [
+        "00000000",
+        "c0000001"
+      ]
+    },
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [],
+      "connection_count": 0,
+      "connection_refs": [],
+      "name": "target_climb_one_rejects",
+      "overlap_slabs": false,
+      "side": 4,
+      "source_a_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "00000000",
+        "00000000",
+        "3f800000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "00000000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "40400000",
+        "00000000"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "40400000",
+        "3f800000"
+      ],
+      "target_climb_bits": "3f800000",
+      "target_max_bits": [
+        "3f800000",
+        "40400000"
+      ],
+      "target_min_bits": [
+        "00000000",
+        "40400000"
+      ]
+    },
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [
+        "00000000",
+        "3f800000"
+      ],
+      "connection_count": 1,
+      "connection_refs": [
+        4503599627370496
+      ],
+      "name": "target_climb_two_accepts_reverse",
+      "overlap_slabs": true,
+      "side": 4,
+      "source_a_bits": [
+        "00000000",
+        "40400000",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "00000000",
+        "40400000",
+        "3f800000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "40400000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "40400000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "00000000",
+        "3f800000"
+      ],
+      "target_climb_bits": "40000000",
+      "target_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "target_min_bits": [
+        "00000000",
+        "00000000"
+      ]
+    },
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [
+        "00000000",
+        "3f800000"
+      ],
+      "connection_count": 1,
+      "connection_refs": [
+        4503599627370496
+      ],
+      "name": "crossing_slopes",
+      "overlap_slabs": true,
+      "side": 4,
+      "source_a_bits": [
+        "00000000",
+        "c0800000",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "00000000",
+        "40800000",
+        "3f800000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "40800000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "c0800000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "40800000",
+        "00000000"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "c0800000",
+        "3f800000"
+      ],
+      "target_climb_bits": "00000000",
+      "target_max_bits": [
+        "3f800000",
+        "c0800000"
+      ],
+      "target_min_bits": [
+        "00000000",
+        "40800000"
+      ]
+    },
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [
+        "00000000",
+        "3f800000"
+      ],
+      "connection_count": 1,
+      "connection_refs": [
+        4503599627370496
+      ],
+      "name": "reversed_source",
+      "overlap_slabs": true,
+      "side": 4,
+      "source_a_bits": [
+        "00000000",
+        "40800000",
+        "3f800000"
+      ],
+      "source_b_bits": [
+        "00000000",
+        "c0800000",
+        "00000000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "40800000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "c0800000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "40800000",
+        "00000000"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "c0800000",
+        "3f800000"
+      ],
+      "target_climb_bits": "00000000",
+      "target_max_bits": [
+        "3f800000",
+        "c0800000"
+      ],
+      "target_min_bits": [
+        "00000000",
+        "40800000"
+      ]
+    },
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [
+        "00000000",
+        "3f800000"
+      ],
+      "connection_count": 1,
+      "connection_refs": [
+        4503599627370496
+      ],
+      "name": "reversed_target",
+      "overlap_slabs": true,
+      "side": 4,
+      "source_a_bits": [
+        "00000000",
+        "c0800000",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "00000000",
+        "40800000",
+        "3f800000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "40800000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "c0800000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "c0800000",
+        "3f800000"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "40800000",
+        "00000000"
+      ],
+      "target_climb_bits": "00000000",
+      "target_max_bits": [
+        "3f800000",
+        "c0800000"
+      ],
+      "target_min_bits": [
+        "00000000",
+        "40800000"
+      ]
+    },
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [
+        "00000000",
+        "3f800000"
+      ],
+      "connection_count": 1,
+      "connection_refs": [
+        4503599627370496
+      ],
+      "name": "reversed_both",
+      "overlap_slabs": true,
+      "side": 4,
+      "source_a_bits": [
+        "00000000",
+        "40800000",
+        "3f800000"
+      ],
+      "source_b_bits": [
+        "00000000",
+        "c0800000",
+        "00000000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "40800000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "c0800000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "c0800000",
+        "3f800000"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "40800000",
+        "00000000"
+      ],
+      "target_climb_bits": "00000000",
+      "target_max_bits": [
+        "3f800000",
+        "c0800000"
+      ],
+      "target_min_bits": [
+        "00000000",
+        "40800000"
+      ]
+    },
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [
+        "00000000",
+        "3f800000"
+      ],
+      "connection_count": 1,
+      "connection_refs": [
+        4503599627370496
+      ],
+      "name": "side_zero",
+      "overlap_slabs": true,
+      "side": 0,
+      "source_a_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "00000000",
+        "00000000",
+        "3f800000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "00000000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "00000000",
+        "3f800000"
+      ],
+      "target_climb_bits": "3f800000",
+      "target_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "target_min_bits": [
+        "00000000",
+        "00000000"
+      ]
+    },
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [
+        "00000000",
+        "3f800000"
+      ],
+      "connection_count": 1,
+      "connection_refs": [
+        4503599627370496
+      ],
+      "name": "side_two",
+      "overlap_slabs": true,
+      "side": 2,
+      "source_a_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "3f800000",
+        "00000000",
+        "00000000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "00000000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "target_b_bits": [
+        "3f800000",
+        "00000000",
+        "00000000"
+      ],
+      "target_climb_bits": "3f800000",
+      "target_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "target_min_bits": [
+        "00000000",
+        "00000000"
+      ]
+    },
+    {
+      "bounded_finite_scope": true,
+      "connection_area_bits": [
+        "00000000",
+        "3f800000"
+      ],
+      "connection_count": 1,
+      "connection_refs": [
+        4503599627370496
+      ],
+      "name": "side_six_reversed",
+      "overlap_slabs": true,
+      "side": 6,
+      "source_a_bits": [
+        "3f800000",
+        "00000000",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "00000000"
+      ],
+      "target_a_bits": [
+        "3f800000",
+        "00000000",
+        "00000000"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "target_climb_bits": "3f800000",
+      "target_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "target_min_bits": [
+        "00000000",
+        "00000000"
+      ]
+    },
+    {
+      "bounded_finite_scope": false,
+      "connection_area_bits": [],
+      "connection_count": 0,
+      "connection_refs": [],
+      "name": "unsupported_vertical_overflow",
+      "overlap_slabs": false,
+      "side": 4,
+      "source_a_bits": [
+        "00000000",
+        "ff7fffff",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "00000000",
+        "7f7fffff",
+        "3f800000"
+      ],
+      "source_max_bits": [
+        "3f800000",
+        "7f7fffff"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "ff7fffff"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "00000000",
+        "3f800000"
+      ],
+      "target_climb_bits": "3f800000",
+      "target_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "target_min_bits": [
+        "00000000",
+        "00000000"
+      ]
+    },
+    {
+      "bounded_finite_scope": false,
+      "connection_area_bits": [],
+      "connection_count": 0,
+      "connection_refs": [],
+      "name": "unsupported_zero_width",
+      "overlap_slabs": false,
+      "side": 4,
+      "source_a_bits": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "source_b_bits": [
+        "00000000",
+        "3f800000",
+        "00000000"
+      ],
+      "source_max_bits": [
+        "00000000",
+        "00000000"
+      ],
+      "source_min_bits": [
+        "00000000",
+        "3f800000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "00000000",
+        "bf800000"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "00000000",
+        "3f800000"
+      ],
+      "target_climb_bits": "3f800000",
+      "target_max_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "target_min_bits": [
+        "bf800000",
+        "00000000"
+      ]
+    },
+    {
+      "bounded_finite_scope": false,
+      "connection_area_bits": [
+        "ff7fffff",
+        "7f7fffff"
+      ],
+      "connection_count": 1,
+      "connection_refs": [
+        4503599627370496
+      ],
+      "name": "unsupported_horizontal_overflow",
+      "overlap_slabs": true,
+      "side": 4,
+      "source_a_bits": [
+        "00000000",
+        "00000000",
+        "ff7fffff"
+      ],
+      "source_b_bits": [
+        "00000000",
+        "3f800000",
+        "7f7fffff"
+      ],
+      "source_max_bits": [
+        "7f7fffff",
+        "3f800000"
+      ],
+      "source_min_bits": [
+        "ff7fffff",
+        "00000000"
+      ],
+      "target_a_bits": [
+        "00000000",
+        "00000000",
+        "ff7fffff"
+      ],
+      "target_b_bits": [
+        "00000000",
+        "00000000",
+        "7f7fffff"
+      ],
+      "target_climb_bits": "3f800000",
+      "target_max_bits": [
+        "7f7fffff",
+        "00000000"
+      ],
+      "target_min_bits": [
+        "ff7fffff",
+        "00000000"
+      ]
+    }
+  ],
+  "schema": 1,
+  "scope": "Authored edge predicate structs only; no fabricated MMTile or path"
+}

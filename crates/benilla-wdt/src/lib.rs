@@ -5,6 +5,7 @@
 //! marks a map with no terrain, whose whole world is the one building the `MODF` places: 20 of the
 //! 43 shipped maps, every WMO dungeon, each with an empty `MAIN`.
 
+use sha2::{Digest, Sha256};
 use std::io::{Read, Seek, SeekFrom};
 
 /// The client generation; 1.12.1 is the only one.
@@ -88,6 +89,11 @@ pub struct WdtFile {
     /// `has_adt` per tile, indexed `y * 64 + x` (the on-disk MAIN order).
     has_adt: Vec<bool>,
     global_wmo: Option<GlobalWmo>,
+    native_coverage_safe: bool,
+    native_source_digest: [u8; 32],
+    /// `MPHD` dword 0 bit 0 alone: the client's map-is-one-object flag (`[0xc9e384]`, `0x694810`
+    /// to `0x694904`), set with or without a usable placement.
+    one_object: bool,
 }
 
 impl WdtFile {
@@ -102,9 +108,26 @@ impl WdtFile {
         })
     }
 
+    /// Whether `MPHD` bit 0 is set: the flag the client's area query tests (`0x6703a4`), which
+    /// makes the map's `Map.dbc` area the answer for every entity.
+    pub fn is_one_object(&self) -> bool {
+        self.one_object
+    }
+
     /// The map's one building, on a WMO-only map (`MPHD` bit 0).
     pub fn global_wmo(&self) -> Option<&GlobalWmo> {
         self.global_wmo.as_ref()
+    }
+
+    /// Strict raw-source evidence for the terrain-only native subset, before display parsing
+    /// drops incomplete global-WMO declarations. Missing, duplicate and malformed records fail.
+    pub fn native_terrain_coverage_safe(&self) -> bool {
+        self.native_coverage_safe
+    }
+
+    /// SHA-256 of the exact WDT bytes read, including records ignored by the display parser.
+    pub fn native_source_digest(&self) -> [u8; 32] {
+        self.native_source_digest
     }
 }
 
@@ -141,6 +164,21 @@ impl<R: Read + Seek> WdtReader<R> {
         let start = self.reader.stream_position()?;
         let stream_end = self.reader.seek(SeekFrom::End(0))?;
         self.reader.seek(SeekFrom::Start(start))?;
+        // Hash with bounded scratch space rather than buffering arbitrarily large unknown
+        // records. The rendering parser below keeps its existing compatibility behavior.
+        let mut hash = Sha256::new();
+        let mut buffer = [0u8; 8192];
+        loop {
+            let read = self.reader.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            hash.update(&buffer[..read]);
+        }
+        let native_source_digest = hash.finalize().into();
+        self.reader.seek(SeekFrom::Start(start))?;
+        let mut native_coverage_safe = true;
+        let mut native_seen = 0u8;
         let mut has_adt: Option<Vec<bool>> = None;
         let mut wmo_only = false;
         let mut wmo_path: Option<String> = None;
@@ -152,6 +190,34 @@ impl<R: Read + Seek> WdtReader<R> {
             }
             // Chunk magics are stored reversed on disk: MAIN is "NIAM".
             let size = u32::from_le_bytes([hdr[4], hdr[5], hdr[6], hdr[7]]) as u64;
+            let payload_start = self.reader.stream_position()?;
+            let payload_end = payload_start.checked_add(size);
+            native_coverage_safe &= payload_end.is_some_and(|end| end <= stream_end);
+            let bit = match &hdr[..4] {
+                b"REVM" => 1,
+                b"DHPM" => 2,
+                b"NIAM" => 4,
+                b"OMWM" | b"FDOM" if size == 0 => 0,
+                _ => {
+                    native_coverage_safe = false;
+                    0
+                }
+            };
+            native_coverage_safe &= native_seen & bit == 0;
+            native_seen |= bit;
+            native_coverage_safe &= match bit {
+                1 => size == 4,
+                2 => size == 32,
+                4 => size == (MAP_SIZE * MAP_SIZE * 8) as u64,
+                _ => true,
+            };
+            if native_coverage_safe && (bit == 1 || bit == 2) {
+                let mut word = [0; 4];
+                self.reader.read_exact(&mut word)?;
+                let word = u32::from_le_bytes(word);
+                native_coverage_safe &= if bit == 1 { word == 18 } else { word == 0 };
+                self.reader.seek(SeekFrom::Start(payload_start))?;
+            }
             match &hdr[0..4] {
                 // MPHD: the reference reads only dword 0 bit 0, the no-terrain flag (`0x694810`).
                 b"DHPM" if size >= 4 => {
@@ -194,11 +260,13 @@ impl<R: Read + Seek> WdtReader<R> {
                     self.reader.seek(SeekFrom::Current(size as i64))?;
                 }
             }
+            native_coverage_safe &= payload_end == Some(self.reader.stream_position()?);
         }
         let has_adt = has_adt.ok_or_else(|| {
             std::io::Error::new(std::io::ErrorKind::InvalidData, "WDT missing MAIN chunk")
         })?;
         // The flag and a placement, or no global WMO: a stray header bit must not hide the grid.
+        let one_object = wmo_only;
         let global_wmo = match (wmo_only, wmo_path, modf) {
             (true, Some(model), Some(e)) => Some(GlobalWmo {
                 model,
@@ -214,6 +282,9 @@ impl<R: Read + Seek> WdtReader<R> {
         Ok(WdtFile {
             has_adt,
             global_wmo,
+            native_coverage_safe: native_coverage_safe && native_seen == 7,
+            native_source_digest,
+            one_object,
         })
     }
 }
@@ -243,7 +314,7 @@ fn read_full<R: Read>(reader: &mut R, buf: &mut [u8]) -> std::io::Result<bool> {
                         std::io::ErrorKind::UnexpectedEof,
                         "truncated WDT chunk header",
                     ))
-                }
+                };
             }
             Ok(n) => filled += n,
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
@@ -342,9 +413,70 @@ mod tests {
         // Nor a file with the bit but no placement,
         let half = parse(synth_wmo_only_wdt(true, false)).expect("parses");
         assert!(half.global_wmo().is_none());
+        assert!(half.is_one_object(), "the client's flag is the bit alone");
         // nor one with the placement but no bit.
         let unflagged = parse(synth_wmo_only_wdt(false, true)).expect("parses");
         assert!(unflagged.global_wmo().is_none());
+        assert!(!unflagged.is_one_object());
+        assert!(!wdt.is_one_object());
+    }
+
+    #[test]
+    fn native_coverage_requires_complete_raw_terrain_map() {
+        let bytes = synth_wdt(&[(30, 30)], false);
+        let wdt = parse(bytes.clone()).unwrap();
+        assert!(wdt.native_terrain_coverage_safe());
+        assert_eq!(
+            wdt.native_source_digest(),
+            <[u8; 32]>::from(Sha256::digest(&bytes))
+        );
+        // Display compatibility deliberately omits an incomplete global building. That
+        // omission cannot serve as native collision-absence evidence, even with ADT tiles.
+        let mut flagged = bytes.clone();
+        flagged[12 + 8] = 1;
+        let wdt = parse(flagged).unwrap();
+        assert!(wdt.global_wmo().is_none());
+        assert!(wdt.get_tile(30, 30).unwrap().has_adt);
+        assert!(!wdt.native_terrain_coverage_safe());
+        for incomplete in [
+            synth_wmo_only_wdt(true, false),
+            synth_wmo_only_wdt(false, true),
+            bytes[12..].to_vec(),                  // missing MVER
+            [&bytes[..12], &bytes[52..]].concat(), // missing MPHD
+            synth_wdt(&[(30, 30)], true),          // unrecognized source record
+        ] {
+            let wdt = parse(incomplete).unwrap();
+            assert!(wdt.global_wmo().is_none());
+            assert!(!wdt.native_terrain_coverage_safe());
+        }
+    }
+
+    #[test]
+    fn native_coverage_rejects_framing_and_duplicate_map_declarations() {
+        let bytes = synth_wdt(&[(30, 30)], false);
+        let mut short_main = bytes.clone();
+        short_main[52 + 4..52 + 8].copy_from_slice(&4u32.to_le_bytes());
+        let mut duplicate_header = bytes.clone();
+        duplicate_header.extend_from_slice(&bytes[12..52]);
+        let mut overflow = bytes.clone();
+        overflow.extend_from_slice(b"FOOB");
+        overflow.extend_from_slice(&u32::MAX.to_le_bytes());
+        let mut wrong_version = bytes.clone();
+        wrong_version[8..12].copy_from_slice(&17u32.to_le_bytes());
+        for malformed in [short_main, duplicate_header, overflow, wrong_version] {
+            let wdt = parse(malformed).unwrap();
+            assert!(
+                wdt.get_tile(30, 30).unwrap().has_adt,
+                "render behavior retained"
+            );
+            assert!(!wdt.native_terrain_coverage_safe());
+        }
+        let mut replacement = bytes.clone();
+        replacement[52 + 8] = 1; // another tile changes the actual map snapshot
+        let first = parse(bytes).unwrap();
+        let next = parse(replacement).unwrap();
+        assert!(next.native_terrain_coverage_safe());
+        assert_ne!(first.native_source_digest(), next.native_source_digest());
     }
 
     #[test]

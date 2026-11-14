@@ -1,0 +1,34 @@
+{
+  "image": "sha256:7f8acd0cd855b63046cfdf49f21ed319ae6b981758f5fafe2100aed8b4ef21e8",
+  "libm_sha256": "7f2ca87f652f56b094462474b076749e90e689d0ecb9cb63c7679820b271b4e7",
+  "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+  "exhaustive": true,
+  "stream_layout": "For each u32 input ascending: oracle sine, oracle cosine, Rust sine, Rust cosine as four little-endian u32 words; streamed, not retained.",
+  "fma": {
+    "count": 4294967296,
+    "sin_differences": 0,
+    "cos_differences": 0,
+    "sinf_offset": "0x73720",
+    "cosf_offset": "0x73280",
+    "stream_sha256": "a25d780e4bb26e24ff393b2fde06781a8d8928a98e04e61c9cab4c43743e2e47",
+    "stream_bytes": 68719476736
+  },
+  "masked": {
+    "count": 4294967296,
+    "sin_differences": 12,
+    "cos_differences": 22,
+    "sinf_offset": "0x72810",
+    "cosf_offset": "0x72250",
+    "stream_sha256": "d403a466db137e59cfeb555fd325d1b39a1b733bfa8fc3be65dd814e27f0a348",
+    "stream_bytes": 68719476736
+  },
+  "authored_inputs_sha256": "43df0531868771ef35396c99f0b8b30f32ec162ecd3cea68ec3caf5a7a48df37",
+  "authored_expected_sha256": "912b89a1c005d38bf0b5726409ae007facb362aa2b0bbefa8bd2097dd02ffcf8",
+  "production_source_sha256": {
+    "crates/benilla-sim/src/source_trig_fma/core.rs": "78c0f0e705f6863a79ff32cd44675f6da91e34ed58f7da223dec34fe5727a913",
+    "crates/benilla-sim/src/source_trig_fma/mod.rs": "79612d6704cd426175b5ced8becb003f13f13944e45b69da7d6e9d90d3bcc8aa",
+    "crates/benilla-sim/src/source_trig_fma/native.rs": "13c7f458a2e7c5e8bd0e55e1fa4f7ab9227c3e899c8613d8bcfdcf1deafbc27c"
+  },
+  "private_receipt_sha256": "e62a6e53e6911290feeb08a1b6fae7b88cdbd46c895157e495632d7bdb00b8f3",
+  "private_receipt": "benilla-config/full-server/f6/trig-fma/rustc-1.100/full-domain/receipt.json"
+}

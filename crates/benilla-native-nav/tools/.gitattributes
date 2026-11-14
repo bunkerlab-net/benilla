@@ -1,0 +1,38 @@
+# Preserve exact original source whitespace and LF oracle text across checkouts.
+smoothing_source_fragments.test-fixture text eol=lf -whitespace
+fixtures/smoothing/cases.test-fixture text eol=lf
+fixtures/smoothing/fixup.test-fixture text eol=lf
+fixtures/smoothing/range.test-fixture text eol=lf
+# Independent direct-corridor oracle: exact LF text and opaque numeric products.
+direct_corridor_*.py text eol=lf
+direct_corridor_*.cpp text eol=lf
+direct_corridor_README.md text eol=lf
+direct_corridor_*.sha256 text eol=lf
+direct_corridor_source_fragments.test-fixture text eol=lf -whitespace
+fixtures/direct-corridor/*.test-fixture -text
+fixtures/direct-corridor/cases.test-fixture text eol=lf
+# Independent original-source warm-cache observer, exact LF and opaque numeric product.
+warm_cache_*.py text eol=lf
+warm_cache_*.cpp text eol=lf
+warm_cache_README.md text eol=lf
+warm_cache_*.sha256 text eol=lf
+warm_cache_source_fragments.test-fixture text eol=lf -whitespace
+fixtures/warm-cache/*.test-fixture -text
+fixtures/warm-cache/cases.test-fixture text eol=lf
+fixtures/warm-cache/lookups.test-fixture text eol=lf
+fixtures/warm-cache/scans.test-fixture text eol=lf
+fixtures/warm-cache/traces.test-fixture text eol=lf
+# Original loaded warm-to-point-path and raw postprocess controls, exact LF products.
+point_path_*.py text eol=lf
+point_path_*.cpp text eol=lf
+point_path_README.md text eol=lf
+point_path_*.sha256 text eol=lf
+point_path_source_fragments.test-fixture text eol=lf -whitespace
+fixtures/point-path/*.test-fixture text eol=lf
+# Original warm straight-line ray/sampling observer, exact LF source and products.
+straight_path_*.py text eol=lf
+straight_path_*.cpp text eol=lf
+straight_path_README.md text eol=lf
+straight_path_*.sha256 text eol=lf
+straight_path_source_fragments.test-fixture text eol=lf -whitespace
+fixtures/straight-path/*.test-fixture text eol=lf

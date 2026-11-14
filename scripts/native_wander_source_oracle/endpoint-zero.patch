@@ -1,0 +1,11 @@
+--- ComputePathToRandomPoint.original.inc
++++ ComputePathToRandomPoint.patched.inc
+@@ -47,7 +47,7 @@
+         return;
+     }
+ 
+-    float distanceToPoly;
++    float distanceToPoly = 0.0f;
+     dtPolyRef centerPoly = getPolyByLocation(randomPoint, &distanceToPoly);
+     bool fail = true;
+     if (centerPoly != INVALID_POLYREF)

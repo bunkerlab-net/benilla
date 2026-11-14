@@ -1,0 +1,36 @@
+[package]
+name = "benilla-world-runtime"
+version.workspace = true
+edition.workspace = true
+license = "GPL-3.0-or-later"
+description = "Deterministic solo-first runtime for the original bounded world slice"
+
+[lints]
+workspace = true
+
+[dependencies]
+benilla-sim = { path = "../benilla-sim" }
+benilla-native-terrain = { path = "../benilla-native-terrain" }
+benilla-native-vmap = { path = "../benilla-native-vmap" }
+# Only the launcher's explicit dev feature may enable source-tree path resolution.
+benilla-formats = { path = "../benilla-formats", default-features = false }
+benilla-world-data = { path = "../benilla-world-data" }
+benilla-native-nav = { path = "../benilla-native-nav" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["arbitrary_precision"] }
+sha2 = "0.10"
+rustc_apfloat = "=0.2.3"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+rustix = { version = "1.1.4", features = ["fs"] }
+
+[target.'cfg(windows)'.dependencies]
+winapi-util = "=0.1.11"
+
+[target.'cfg(windows)'.dev-dependencies]
+tokio = { version = "=1.53.2", default-features = false, features = ["net", "rt"] }
+
+[features]
+# Explicit test harness only. Never enables native raw-content admission or app startup.
+synthetic-native-tests = []

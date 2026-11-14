@@ -19,10 +19,12 @@
 //! the facing. What a build leaves behind for Lua to see is kept here too: the facing reset and
 //! the build counter that gates `SetCharacterSelectFacing`.
 
+mod local_delete;
+
 use mlua::{Lua, MultiValue, Value};
 
 use super::binding_abi::{flag, number_arg, string_arg};
-use super::glue_core::{call, glue_status_key, leading_int, GlueCall};
+use super::glue_core::{call, glue_status_key, GlueCall};
 use super::{check_char_name, Model, ScriptValue, CHAR_NAME_SUCCESS};
 
 /// The record flag a server sets on a character it wants renamed (`[rec+0xfc]` bit `0x4000`,
@@ -102,6 +104,17 @@ pub struct GlueScenePane {
     /// The pane is the create screen's customize frame (`[0xb420f0]`), whose scene the preview
     /// character stands in.
     pub create: bool,
+    /// The root inputs the paint places the scene by (`0x76d1a0`): `SetModelScale`, the frame's
+    /// effective scale, `SetPosition` in layout units and `SetFacing` in radians.
+    pub model_scale: f32,
+    pub layout_scale: f32,
+    pub position: [f32; 3],
+    pub facing: f32,
+    /// The camera the scene is aimed by: the installed one ([`crate::widget::InstalledCamera`]),
+    /// or while one is pending (`+0x320`) that index of the file the pane holds, which installs
+    /// it once ready (`0x76ce49`). `None` is the NULL camera an index past the table installs
+    /// (`0x76cf08`), the orthographic leg.
+    pub camera: Option<crate::widget::InstalledCamera>,
 }
 
 /// A record of the array: the character and whether `+0x110`, the built composite, is set.
@@ -112,8 +125,11 @@ struct Record {
 }
 
 /// The roster and the select screen's cells the verbs read.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct GlueRoster {
+    // Fork-only confirmation provenance: every roster/selection replacement invalidates it.
+    delete_identity: std::rc::Rc<()>,
+    local_delete_guard: bool,
     records: Vec<Record>,
     cells: GlueSelectCells,
     /// `[0xb42174]`: the name of the model frame `SetCharSelectModelFrame` found.
@@ -128,6 +144,7 @@ pub(super) const RAD_TO_DEG: f32 = f32::from_bits(0x4265_2ee1);
 impl GlueRoster {
     /// `0x473700` on every record and the count to 0 (`0x4723ff`, `0x4725af`).
     fn clear(&mut self) {
+        self.delete_identity = std::rc::Rc::new(());
         self.records.clear();
     }
 
@@ -140,6 +157,7 @@ impl GlueRoster {
     /// test and not gated), and a record with no composite yet that has a model gets one, which is
     /// the one place the build counter rises (`0x472fb2`).
     fn select(&mut self, index: i32) -> i32 {
+        self.delete_identity = std::rc::Rc::new(());
         let clamped = if index < 0 { 0 } else { index };
         let stored = if (clamped as usize) < self.records.len() {
             clamped
@@ -174,7 +192,9 @@ impl super::UiScript {
 
     /// Carry the selection cells over from the last glue VM.
     pub fn set_glue_select_cells(&mut self, cells: GlueSelectCells) {
-        self.model_mut().glue.roster.cells = cells;
+        let mut model = self.model_mut();
+        model.glue.roster.delete_identity = std::rc::Rc::new(());
+        model.glue.roster.cells = cells;
     }
 
     /// The file `SetCharSelectBackground` gave the model frame, while its scene still holds it: a
@@ -297,9 +317,7 @@ impl super::UiScript {
     /// otherwise the cell is set to 0 (`0x472556`), the `lastCharacterIndex` CVar's integer is
     /// selected (`0x472550`-`0x472563`) and `CHARACTER_LIST_UPDATE` fires.
     pub fn load_glue_roster(&mut self, roster: Vec<GlueCharacter>) -> bool {
-        let last = self
-            .cvar("lastCharacterIndex")
-            .map_or(0, |v| i32::try_from(leading_int(&v)).unwrap_or(0));
+        let last = self.cvar_int("lastCharacterIndex").unwrap_or(0);
         let count = roster.len();
         {
             let mut model = self.model_mut();
@@ -377,8 +395,7 @@ fn scene_pane(model: &Model, h: crate::widget::FrameHandle) -> Option<GlueSceneP
     Some(GlueScenePane {
         handle: h,
         rect: model
-            .resolved
-            .get(&h)
+            .frame_rect(h)
             .filter(|_| sw > 0.0 && sh > 0.0)
             .map(|r| {
                 [
@@ -393,6 +410,17 @@ fn scene_pane(model: &Model, h: crate::widget::FrameHandle) -> Option<GlueSceneP
         fog: m.scene_fog(),
         select: model_frame_handle(model) == Some(h),
         create: super::glue_create::create_frame_handle(model) == Some(h),
+        model_scale: m.scale,
+        layout_scale: f.effective_scale,
+        position: m.position.into(),
+        facing: m.facing,
+        camera: match m.camera_pending {
+            Some(idx) => u32::try_from(idx)
+                .ok()
+                .zip(m.path.clone())
+                .map(|(index, file)| crate::widget::InstalledCamera { file, index }),
+            None => m.camera.clone(),
+        },
     })
 }
 
@@ -566,7 +594,9 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                     .map(|r| r.character.guid)
             };
             if let Some(guid) = guid.filter(|&g| g != 0) {
-                call(lua, GlueCall::DeleteCharacter(guid));
+                if !model(lua).glue.roster.local_delete_guard {
+                    call(lua, GlueCall::DeleteCharacter(guid));
+                }
             }
             Ok(MultiValue::new())
         })?,
@@ -597,7 +627,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
             if name.is_empty() {
                 return Ok(MultiValue::new());
             }
-            let (guid, old, lists) = {
+            let (guid, old, lists, charsets) = {
                 let m = model(lua);
                 let Some(record) = usize::try_from(index)
                     .ok()
@@ -609,7 +639,8 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                 (
                     record.character.guid,
                     record.character.name.clone(),
-                    m.glue.name_lists(),
+                    m.name_lists(),
+                    m.name_charsets(),
                 )
             };
             let force_rename = |key: &str| {
@@ -625,7 +656,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
             }
             // `0x46b340`: a zero guid sends nothing and answers 1 (`0x46b355`).
             if guid != 0 {
-                let status = check_char_name(Some(&name), &*lists);
+                let status = check_char_name(Some(&name), &*lists, charsets);
                 if status != CHAR_NAME_SUCCESS {
                     force_rename(glue_status_key(i32::from(status)));
                     return Ok(MultiValue::from_vec(vec![Value::Nil]));
@@ -1059,7 +1090,7 @@ mod tests {
         s.run("High:SetPoint('TOPLEFT', 256, -192) High:SetWidth(512) High:SetHeight(384)")
             .unwrap();
         s.resolve();
-        assert_eq!(
+        crate::assert_near!(
             s.glue_scene().unwrap().rect,
             Some([0.25, 0.75, 0.25, 0.75]),
             "the rect as screen fractions from the top-left"
@@ -1091,6 +1122,53 @@ mod tests {
         assert_eq!(s.glue_standing_guid(), None);
     }
 
+    /// The scene pane carries the camera `SetCamera` chose: pending until the file is ready
+    /// (`0x76cf16`), then installed by raw index (`0x76ceef`), or the NULL camera past the table
+    /// (`0x76cf08`). `SetModel` keeps it (`0x76cd30`): the next file's ready hook installs nothing
+    /// while none is pending (`0x76ce44`-`0x76ce47`).
+    #[test]
+    fn the_scene_pane_carries_the_chosen_camera_across_set_model() {
+        let mut s = vm(three());
+        let facts = |cameras| crate::widget::ModelFileFacts {
+            sequences: Vec::new(),
+            bbox: ([0.0; 3], [1.0; 3]),
+            cameras,
+        };
+        let camera = |s: &UiScript| {
+            s.glue_scene()
+                .expect("the shown pane")
+                .camera
+                .map(|c| (c.file, c.index))
+        };
+        let on = |file: &str, index| Some((file.to_string(), index));
+        s.run("CreateFrame('ModelFFX', 'Scene'):SetModel('a.mdx')")
+            .unwrap();
+        assert_eq!(camera(&s), on("a.mdx", 0), "the ctor's pending camera 0");
+        s.run("Scene:SetCamera(1)").unwrap();
+        assert_eq!(
+            camera(&s),
+            on("a.mdx", 1),
+            "pending until the file is ready"
+        );
+        s.set_model_facts("a.mdx", facts(2));
+        assert_eq!(camera(&s), on("a.mdx", 1));
+        s.set_model_facts("b.mdx", facts(3));
+        s.run("Scene:SetModel('b.mdx')").unwrap();
+        assert_eq!(
+            camera(&s),
+            on("a.mdx", 1),
+            "a new file keeps the old file's camera"
+        );
+        s.run("Scene:SetCamera(2)").unwrap();
+        assert_eq!(
+            camera(&s),
+            on("b.mdx", 2),
+            "the next SetCamera resolves on b"
+        );
+        s.run("Scene:SetCamera(3)").unwrap();
+        assert_eq!(camera(&s), None, "past the table, the NULL camera");
+    }
+
     /// `0x472580` ends with the model frame's `SetCamera(0)` (`0x4725d7`).
     #[test]
     fn the_teardown_puts_the_model_frame_back_on_camera_zero() {
@@ -1112,7 +1190,7 @@ mod tests {
             let model = s.model_ref();
             let h = model.arena.lookup("Scene").unwrap();
             match &model.arena.frame(h).unwrap().kind_state {
-                crate::widget::KindState::Model(m) => m.camera,
+                crate::widget::KindState::Model(m) => m.camera.as_ref().map(|c| c.index),
                 _ => unreachable!(),
             }
         };
@@ -1181,6 +1259,18 @@ mod tests {
         s.set_cvar_engine("lastCharacterIndex", "-3");
         assert!(!s.load_glue_roster(three()));
         assert_eq!(fired(&s)[0], "UPDATE_SELECTED_CHARACTER 1");
+        // The record's integer is `SStrToInt` (`0x472560` reads `+0x28`): no whitespace skip and
+        // no `+`, so these read 0, and the 32-bit wrap makes `4294967298` 2.
+        for (text, picked) in [(" 2", "1"), ("+2", "1"), ("2x", "3"), ("4294967298", "3")] {
+            s.run("FIRED = {}").unwrap();
+            s.set_cvar_engine("lastCharacterIndex", text);
+            assert!(!s.load_glue_roster(three()));
+            assert_eq!(
+                fired(&s)[0],
+                format!("UPDATE_SELECTED_CHARACTER {picked}"),
+                "{text:?}"
+            );
+        }
     }
 
     /// A VM over `three()` with Bravo flagged for a rename, `FIRED` also logging
@@ -1275,12 +1365,20 @@ mod tests {
     fn rename_character_with_a_failing_name_fires_the_checks_key() {
         struct Reserved;
         impl super::super::NameLists for Reserved {
-            fn matches(&self, name: &str) -> bool {
+            fn names_profanity(&self, _: &str) -> bool {
+                false
+            }
+
+            fn chat_profanity(&self, _: &str) -> bool {
+                false
+            }
+
+            fn names_reserved(&self, name: &str) -> bool {
                 name.eq_ignore_ascii_case("thrall")
             }
         }
         let mut s = rename_vm();
-        s.set_glue_name_lists(std::rc::Rc::new(Reserved));
+        s.set_name_lists(std::rc::Rc::new(Reserved));
         for (call, key) in [
             ("RenameCharacter(2, 'X')", "CHAR_NAME_TOO_SHORT"),
             ("RenameCharacter(2, 'Abc1')", "CHAR_NAME_INVALID_CHARACTER"),
@@ -1336,6 +1434,51 @@ mod tests {
                 ] if a == "Newname" && b == "Zoë"
             ),
             "{queued:?}"
+        );
+    }
+
+    /// The rename's check holds the name to the client's charsets (`0x46b36f` → `0x5abd50`): a
+    /// Hangul name is the host's on a koKR client and invalid on an enUS one, and a `Region` of
+    /// 2 gives enUS the same Hangul pair.
+    #[test]
+    fn rename_character_checks_the_clients_charsets() {
+        let hangul = "RenameCharacter(2, '한글')";
+        let key = |s: &mut super::super::UiScript| {
+            s.run("FIRED = {}").unwrap();
+            s.eval::<f64>(&format!(
+                "local function n(...) return arg.n end return n({hangul})"
+            ))
+            .unwrap();
+            fired(s)
+        };
+        let mut s = rename_vm();
+        assert_eq!(
+            key(&mut s),
+            ["FORCE_RENAME_CHARACTER CHAR_NAME_INVALID_CHARACTER"]
+        );
+        assert!(s.take_glue_calls().is_empty());
+
+        s.set_locale(1);
+        assert!(key(&mut s).is_empty(), "koKR takes Hangul");
+        assert!(matches!(
+            s.take_glue_calls().as_slice(),
+            [GlueCall::RenameCharacter { guid: 2, name }] if name == "한글"
+        ));
+
+        s.set_locale(0);
+        s.set_client_region(2);
+        assert!(
+            key(&mut s).is_empty(),
+            "Region 2 takes Hangul on any locale"
+        );
+        assert_eq!(s.take_glue_calls().len(), 1);
+
+        s.set_client_region(1);
+        s.set_locale(1);
+        assert_eq!(
+            key(&mut s),
+            ["FORCE_RENAME_CHARACTER CHAR_NAME_INVALID_CHARACTER"],
+            "Region 1 is Latin even on koKR"
         );
     }
 

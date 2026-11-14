@@ -1,0 +1,2 @@
+# count	xorshift32_seed	sha256(le_u32 x,y,distance,raw_angle,result_x,result_y)
+32768	4e504642	e199b777c39364e3366fac35322fb01662643d99ba45fb955b058f5212190a9d

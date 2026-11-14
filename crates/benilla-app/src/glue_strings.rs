@@ -26,12 +26,6 @@ impl GlueStrings {
         Self(map)
     }
 
-    /// The pairs back out, for a test that has to alter one key and re-resolve.
-    #[cfg(test)]
-    pub(crate) fn into_map(self) -> HashMap<String, String> {
-        self.0
-    }
-
     pub(crate) fn get(&self, key: &str) -> Option<&str> {
         self.0.get(key).map(String::as_str)
     }

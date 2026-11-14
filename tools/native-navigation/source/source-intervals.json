@@ -1,0 +1,58 @@
+[
+  {
+    "source": "contrib/mmap/src/MapBuilder.cpp",
+    "first_byte": 0,
+    "last_byte_exclusive": 47784,
+    "first_line": 1,
+    "last_line": 1255,
+    "sha256": "80ac2aecd8d38cdd2718ae6dfaa645cf0f8e371c1d9a783dfed40e5289e7ddb0"
+  },
+  {
+    "source": "contrib/mmap/src/TerrainBuilder.cpp",
+    "first_byte": 0,
+    "last_byte_exclusive": 34836,
+    "first_line": 1,
+    "last_line": 861,
+    "sha256": "53b7237cd6acf9fca456802cebfec9d733b0ba0840f503120069f242fc99047e"
+  },
+  {
+    "source": "contrib/mmap/src/VMapExtensions.cpp",
+    "first_byte": 0,
+    "last_byte_exclusive": 2336,
+    "first_line": 1,
+    "last_line": 72,
+    "sha256": "f55663df606246174985d71528bf073281de31af582165ada6a536b42537ddd6"
+  },
+  {
+    "source": "contrib/mmap/src/MapBuilder.h",
+    "first_byte": 0,
+    "last_byte_exclusive": 9435,
+    "first_line": 1,
+    "last_line": 254,
+    "sha256": "4bb4c06c0ced9685c7a5d5c3afc6b72ede35b2af8b92431904e69677002c0e18"
+  },
+  {
+    "source": "contrib/mmap/src/TerrainBuilder.h",
+    "first_byte": 0,
+    "last_byte_exclusive": 5283,
+    "first_line": 1,
+    "last_line": 138,
+    "sha256": "e0d42405735f03d5e04c5b8ffeb366c28fc8a1864e81e38fecfbf3d34592ec4e"
+  },
+  {
+    "source": "contrib/extractor_scripts/config.json",
+    "first_byte": 0,
+    "last_byte_exclusive": 1460,
+    "first_line": 1,
+    "last_line": 57,
+    "sha256": "507a5dc67b16c9e34e46bb6b1ff0f4cfc8613a08d78ff71b42905a119e0171f6"
+  },
+  {
+    "source": "contrib/extractor_scripts/offmesh.txt",
+    "first_byte": 0,
+    "last_byte_exclusive": 886,
+    "first_line": 1,
+    "last_line": 8,
+    "sha256": "f4fa20bb5d3b2968cae640ba6868c894af691723490e401e508bb4472c366a5d"
+  }
+]

@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// CMaNGOS 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f
+// Existing straight/cold packages and licenses are unchanged and hash-bound by provenance.
+// Original uninitialized cold prefix is review-only; only selected +0 cold policy executes.
+// ORIGINAL CONSTRUCTOR CACHE PROJECTION
+struct ConstructorCache {
+            uint32         m_pointPathLimit;   // limit point path size; min(this, MAX_POINT_PATH_LENGTH)
+        std::vector<float> m_cachedPoints; // caching for BuildPointPath - must be after m_pointPathLimit
+
+        std::vector<dtPolyRef> m_pathPolyRefs;       // array of detour polygon references
+        uint32         m_polyLength;                 // number of polygons in the path
+        std::vector<dtPolyRef> m_smoothPathPolyRefs; // caching for findSmoothPath
+
+
+    ConstructorCache() :
+        m_pointPathLimit(MAX_POINT_PATH_LENGTH), // TODO: Fix legitimate long paths
+    m_cachedPoints(m_pointPathLimit * VERTEX_SIZE), m_pathPolyRefs(m_pointPathLimit), m_polyLength(0),
+    m_smoothPathPolyRefs(m_pointPathLimit)
+    {}
+};
+struct ColdEvidence {
+    dtPolyRef start=0,end=0;
+    float startDistance=0,endDistance=0;
+    std::vector<dtPolyRef> afterStart,afterLookup;
+};
+// COLD COMPATIBILITY METHOD (existing guarded projection, unchanged)
+void PathFinder::compatibility_same_polygon(const Vector3& startPos,const Vector3& endPos,
+    ColdEvidence& evidence) {
+        float distToStartPoly = 0.0f, distToEndPoly = 0.0f;
+    float startPoint[VERTEX_SIZE] = {startPos.y, startPos.z, startPos.x};
+    float endPoint[VERTEX_SIZE] = {endPos.y, endPos.z, endPos.x};
+
+    dtPolyRef startPoly = getPolyByLocation(startPoint, &distToStartPoly);
+    evidence.afterStart = m_pathPolyRefs;
+    dtPolyRef endPoly = getPolyByLocation(endPoint, &distToEndPoly);
+
+
+    evidence.start=startPoly;evidence.end=endPoly;
+    evidence.startDistance=distToStartPoly;evidence.endDistance=distToEndPoly;
+    evidence.afterLookup=m_pathPolyRefs;
+        bool farFromPoly = (distToStartPoly > 7.0f || distToEndPoly > 7.0f);
+
+    require(startPoly&&endPoly&&startPoly==endPoly&&!farFromPoly,
+        "only valid near same-polygon endpoints admitted");
+        // start and end are on same polygon
+    // just need to move in straight line
+    if (startPoly == endPoly)
+    {
+        DEBUG_FILTER_LOG(LOG_FILTER_PATHFINDING, "++ BuildPolyPath :: (startPoly == endPoly)\n");
+
+        BuildShortcut(); // todo move in straight line is different than build shortcut!
+
+        m_pathPolyRefs[0] = startPoly;
+        m_polyLength = 1;
+
+        m_type = farFromPoly ? PATHFIND_INCOMPLETE : PATHFIND_NORMAL;
+        DEBUG_FILTER_LOG(LOG_FILTER_PATHFINDING, "++ BuildPolyPath :: path type %d\n", m_type);
+        return;
+    }
+
+
+    fail("same-polygon original return not taken");
+}
+// ORIGINAL DEFINED RETAINED PREFIX
+    float distToStartPoly, distToEndPoly;
+    float startPoint[VERTEX_SIZE] = {startPos.y, startPos.z, startPos.x};
+    float endPoint[VERTEX_SIZE] = {endPos.y, endPos.z, endPos.x};
+
+    dtPolyRef startPoly = getPolyByLocation(startPoint, &distToStartPoly);
+    dtPolyRef endPoly = getPolyByLocation(endPoint, &distToEndPoly);
+
+
+// ORIGINAL FAR PREDICATE
+    bool farFromPoly = (distToStartPoly > 7.0f || distToEndPoly > 7.0f);

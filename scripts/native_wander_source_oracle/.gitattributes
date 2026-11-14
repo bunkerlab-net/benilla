@@ -1,0 +1,5 @@
+* text eol=lf
+# Retain byte-exact pinned source whitespace and unified-diff context lines.
+source_excerpts.test-fixture -whitespace
+endpoint-zero.patch -whitespace
+fixtures/*.test-fixture -text

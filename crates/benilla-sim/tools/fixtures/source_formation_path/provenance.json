@@ -1,0 +1,27 @@
+{
+  "image": "sha256:7f8acd0cd855b63046cfdf49f21ed319ae6b981758f5fafe2100aed8b4ef21e8",
+  "revision": "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f",
+  "source_sha256": "eaa569e520a7b7a37d3011822e0381d41ab49b9f2dc6ffa1e43d6344bc14ff15",
+  "compile_command": [
+    "g++",
+    "-std=c++17",
+    "-O3",
+    "-DNDEBUG",
+    "-ffp-contract=off",
+    "-fno-fast-math",
+    "-fno-omit-frame-pointer",
+    "-g",
+    "-I/source/dep/g3dlite",
+    "/evidence/oracle.cpp",
+    "-ldl",
+    "-o",
+    "/evidence/oracle"
+  ],
+  "oracle_sha256": "c747d4d340f2734231ff0c40b2f96d0804596d6af0518acfdaeffb64b762e1b1",
+  "inputs_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "output_sha256": "142229a6271fc01b50fa67c6b0649560a3db973483502cb54a49de6e60676c44",
+  "binary_sha256": "dcf9a32457c694dba0d419516059fa1c7fad25d6786e1f82bb35d50e3be3c4b4",
+  "cases": 8,
+  "rows": 8,
+  "scope": "Authored source-numeric components, not sealed F1 execution"
+}

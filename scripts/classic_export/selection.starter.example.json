@@ -1,0 +1,9 @@
+{
+  "format_version": 2,
+  "map_id": 0,
+  "min_milliunits": [-10000, -10000, -10000],
+  "max_milliunits": [10000, 10000, 10000],
+  "quest_ids": [],
+  "spell_ids": [],
+  "starter": {"race": 1, "class": 1, "level_cap": 3}
+}

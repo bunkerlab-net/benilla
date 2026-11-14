@@ -1,0 +1,654 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//! Authored generic contracts through the real learning path, never a Human capture.
+use super::*;
+use crate::starter_init::{
+    initial_cast_phases::{tests::authored, InitialPhaseEvent},
+    Attributes, DefaultSkill, LearnSpell, LiveTraining, SkillAbilityRow, SkillLineRow,
+    SkillRaceClassRow,
+};
+fn input(ids: &[u32]) -> StarterInput {
+    StarterInput {
+        race: 1,
+        class: 8,
+        gender: 0,
+        level: 1,
+        class_power_type: 0,
+        create_attributes: Attributes([17, 23, 29, 31, 37]),
+        create_health: 41,
+        create_mana: 59,
+        default_skills: Rows::Complete(vec![]),
+        default_spells: Rows::Complete(ids.to_vec()),
+        skill_lines: vec![],
+        skill_race_class: Rows::Complete(vec![]),
+        skill_tiers: vec![],
+        skill_abilities: Rows::Complete(vec![]),
+        spells: ids
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .map(|id| authored(id).row)
+            .collect(),
+        active_support: vec![],
+        item_grants: Rows::Complete(vec![]),
+        items: vec![],
+        item_creation_hooks: false,
+    }
+}
+fn dependencies(input: &StarterInput, ids: &[u32]) -> StarterInitialDependencies {
+    let mut ids = ids.to_vec();
+    ids.sort_unstable();
+    ids.dedup();
+    StarterInitialDependencies {
+        source_identity: input.source_identity(),
+        store_identity: [12; 32],
+        hook_scope_identity: [23; 32],
+        queried_spell_ids: ids.clone(),
+        rows: Rows::Complete(
+            ids.into_iter()
+                .map(|id| {
+                    let fixture = authored(id);
+                    let p = fixture.prerequisites.unwrap();
+                    let row = input.spells.iter().find(|r| r.id == id).unwrap();
+                    StarterInitialDependency {
+                        spell_id: id,
+                        source_hash: row.source_hash(),
+                        // These tuples are explicitly authored test evidence, not inferred DBC data.
+                        cast_time: InitialSpellLookup::Found(SpellCastTimeSource {
+                            id: row.words[18],
+                            base_ms: 0,
+                            per_level_ms: 0,
+                            minimum_ms: 0,
+                        }),
+                        duration: InitialSpellLookup::Found(SpellDurationSource {
+                            id: row.words[30],
+                            base_ms: row.duration_ms.unwrap(),
+                            per_level_ms: 0,
+                            maximum_ms: row.duration_ms.unwrap(),
+                        }),
+                        server_side: p.server_side,
+                        server_attributes: p.server_attributes,
+                        bonus_coefficients: p.effect_bonus_coefficient_bits,
+                        attack_power_coefficients: p.effect_bonus_coefficient_from_ap_bits,
+                    }
+                })
+                .collect(),
+        ),
+    }
+}
+fn order(ids: &[u16]) -> StarterCastOrder {
+    StarterCastOrder {
+        creation: InitialCastOrderEvidence::Authored { identity: [34; 32] },
+        first_entry: InitialCastOrderEvidence::Authored { identity: [45; 32] },
+        entry_skill_order: Some(ids.to_vec()),
+    }
+}
+fn rows(d: &mut StarterInitialDependencies) -> &mut Vec<StarterInitialDependency> {
+    let Rows::Complete(rows) = &mut d.rows else {
+        panic!("test rows")
+    };
+    rows
+}
+fn skill(input: &mut StarterInput, id: u16, spell: u32) {
+    let Rows::Complete(defaults) = &mut input.default_skills else {
+        panic!("defaults")
+    };
+    defaults.push(DefaultSkill { id, step: 0 });
+    input.skill_lines.push(SkillLineRow { id, category: 6 });
+    let Rows::Complete(info) = &mut input.skill_race_class else {
+        panic!("info")
+    };
+    info.push(SkillRaceClassRow {
+        row_id: id.into(),
+        skill: id,
+        race_mask: 1,
+        class_mask: 128,
+        flags: 0,
+        tier: 0,
+    });
+    let Rows::Complete(abilities) = &mut input.skill_abilities else {
+        panic!("abilities")
+    };
+    abilities.push(SkillAbilityRow {
+        row_id: id.into(),
+        skill: id,
+        spell,
+        forward_spell_id: 0,
+        race_mask: 0,
+        class_mask: 0,
+        required_value: 1,
+        learn_on_get_skill: 1,
+        max_value: 0,
+    });
+}
+fn casts(plan: &InitialCastPlan) -> Vec<u32> {
+    plan.occurrences().iter().map(|c| c.row().id).collect()
+}
+#[test]
+fn canonical_entry_trains_normalized_skills_and_retains_cast_occurrences() {
+    let mut input = input(&[81, 3050, 20598]);
+    skill(&mut input, 95, 81);
+    skill(&mut input, 8, 3050);
+    let d = dependencies(&input, &[81, 3050, 20598]);
+    let prepared = prepare_starter(&input, &d, &StarterCastOrder::canonical()).unwrap();
+    assert_eq!(casts(prepared.creation_plan()), [81, 3050, 20598]);
+    assert_eq!(casts(prepared.first_entry_plan()), [3050, 81, 20598]);
+    let trained: Vec<_> = prepared
+        .first_entry()
+        .trace
+        .iter()
+        .filter_map(|event| {
+            if let InitEvent::TrainLoadedSkill { skill, .. } = event {
+                Some(*skill)
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(trained, [8, 95]);
+    assert_eq!(prepared.creation_plan().draw_requests().len(), 1);
+    assert_eq!(prepared.first_entry_plan().draw_requests().len(), 1);
+    prepared.validate_against(&input).unwrap();
+    let mut forged = StarterCastOrder::canonical();
+    forged.entry_skill_order = Some(vec![95, 8]);
+    assert!(prepare_starter(&input, &d, &forged).is_err());
+    let mut missing = input.clone();
+    missing.skill_race_class = Rows::Missing;
+    assert!(prepare_starter(
+        &missing,
+        &dependencies(&missing, &[81, 3050, 20598]),
+        &StarterCastOrder::canonical()
+    )
+    .is_err());
+}
+
+#[test]
+fn genuine_learning_retains_pending_and_detect_without_fake_completion() {
+    let input = input(&[81, 3050, 81, 20597, 20598, 20599, 20864]);
+    let dependencies = dependencies(&input, &[81, 3050, 20597, 20598, 20599, 20864]);
+    let prepared = prepare_starter(&input, &dependencies, &order(&[])).unwrap();
+    assert!(super::super::initialize_mage(&input).is_err());
+    assert!(super::super::first_entry(&input, prepared.created()).is_err());
+    assert_eq!(
+        casts(prepared.creation_plan()),
+        [81, 3050, 20597, 20598, 20599, 20864]
+    );
+    assert_eq!(prepared.creation_plan().draw_requests().len(), 1);
+    assert_eq!(prepared.first_entry_plan().draw_requests().len(), 1);
+    assert_ne!(
+        prepared.creation_plan().identity(),
+        prepared.first_entry_plan().identity()
+    );
+    assert_eq!(prepared.created().initial_auras.len(), 6);
+    assert!(prepared.created().can_dodge);
+    assert!(
+        prepared.created().skills.is_empty(),
+        "skill auras never grant absent skills"
+    );
+    assert!(prepared.created().trace.iter().any(|e| matches!(
+        e,
+        InitEvent::PendingInitialAmount {
+            spell: 81,
+            low: 0,
+            high: 6,
+            ..
+        }
+    )));
+    assert!(!prepared.created().trace.iter().any(|e| matches!(
+        e,
+        InitEvent::EffectApplied {
+            spell: 81 | 3050,
+            ..
+        }
+    )));
+    for roll in 0..=6 {
+        let evaluated = prepared
+            .first_entry_plan()
+            .evaluate(&[roll], prepared.first_entry_initial_masks())
+            .unwrap();
+        assert!(evaluated
+            .events()
+            .iter()
+            .any(|e| matches!(e, InitialPhaseEvent::CastComplete { spell_id: 3050, .. })));
+        assert!(!evaluated
+            .events()
+            .iter()
+            .any(|e| matches!(e, InitialPhaseEvent::Dispatch { occurrence: 1, .. })));
+        prepared
+            .first_entry_plan()
+            .verify_evaluation(&evaluated)
+            .unwrap();
+    }
+    prepared.validate_against(&input).unwrap();
+    assert_eq!(
+        prepare_starter(&input, &dependencies, &order(&[])).unwrap(),
+        prepared
+    );
+}
+#[test]
+fn loaded_skill_permutation_drives_actual_recursive_order_and_known_suppression() {
+    let mut input = input(&[81, 3050, 203]);
+    skill(&mut input, 95, 81);
+    skill(&mut input, 162, 3050);
+    let dependencies = dependencies(&input, &[81, 3050, 203]);
+    let prepared = prepare_starter(&input, &dependencies, &order(&[162, 95])).unwrap();
+    assert_eq!(casts(prepared.creation_plan()), [81, 3050, 203]);
+    assert_eq!(casts(prepared.first_entry_plan()), [3050, 81, 203]);
+    assert_eq!(prepared.first_entry_plan().draw_requests()[0].occurrence, 1);
+    let traversal: Vec<_> = prepared
+        .first_entry()
+        .trace
+        .iter()
+        .filter_map(|e| match e {
+            InitEvent::TrainLoadedSkill { skill, .. } => Some(*skill),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(traversal, [162, 95]);
+    let canonical = prepare_starter(&input, &dependencies, &order(&[95, 162])).unwrap();
+    assert_ne!(prepared.identity(), canonical.identity());
+    assert_eq!(prepared.created(), canonical.created());
+    for invalid in [vec![95], vec![95, 95], vec![95, 163], vec![95, 162, 163]] {
+        assert!(prepare_starter(&input, &dependencies, &order(&invalid)).is_err());
+    }
+}
+#[test]
+fn recursive_order_is_collected_at_learning_transition_not_default_list_filter() {
+    let mut input = input(&[81, 3050]);
+    let mut parent = authored(203).row;
+    parent.id = 900_000_001;
+    parent.words = [0; 173];
+    parent.words[0] = parent.id;
+    parent.words[58] = u32::MAX;
+    parent.learned_spells = Rows::Complete(vec![
+        LearnSpell {
+            spell_id: 3050,
+            active: true,
+            auto_learned: false,
+        },
+        LearnSpell {
+            spell_id: 81,
+            active: true,
+            auto_learned: false,
+        },
+    ]);
+    input.default_spells = Rows::Complete(vec![parent.id, 81, 3050]);
+    input.spells.push(parent);
+    let prepared =
+        prepare_starter(&input, &dependencies(&input, &[81, 3050]), &order(&[])).unwrap();
+    assert_eq!(casts(prepared.creation_plan()), [3050, 81]);
+    assert_eq!(casts(prepared.first_entry_plan()), [3050, 81]);
+    assert_eq!(prepared.first_entry_plan().draw_requests().len(), 1);
+}
+#[test]
+fn indexed_lookup_presence_and_complete_scope_are_not_zero_defaults() {
+    let input = input(&[81, 3050]);
+    let original = dependencies(&input, &[81, 3050]);
+    let a = prepare_starter(&input, &original, &order(&[])).unwrap();
+    let mut missing = original.clone();
+    for r in rows(&mut missing) {
+        r.duration = InitialSpellLookup::Missing { index: 0 };
+    }
+    let b = prepare_starter(&input, &missing, &order(&[])).unwrap();
+    assert_ne!(a.identity(), b.identity());
+    assert_eq!(a.created(), b.created());
+    assert_ne!(
+        LiveTraining::from_prepared(&input, &a).unwrap().identity(),
+        LiveTraining::from_prepared(&input, &b).unwrap().identity()
+    );
+    let mut conflict = original.clone();
+    rows(&mut conflict)[0].duration = InitialSpellLookup::Missing { index: 0 };
+    assert!(prepare_starter(&input, &conflict, &order(&[])).is_err());
+    for edit in 0..8 {
+        let mut d = original.clone();
+        match edit {
+            0 => rows(&mut d)[0].cast_time = InitialSpellLookup::Unknown,
+            1 => rows(&mut d)[1].duration = InitialSpellLookup::Unknown,
+            2 => rows(&mut d)[0].cast_time = InitialSpellLookup::Missing { index: 1 },
+            3 => {
+                rows(&mut d)[0].cast_time = InitialSpellLookup::Found(SpellCastTimeSource {
+                    id: 0,
+                    base_ms: 1,
+                    per_level_ms: 0,
+                    minimum_ms: 0,
+                })
+            }
+            4 => {
+                rows(&mut d).pop();
+            }
+            5 => rows(&mut d)[0].source_hash[0] ^= 1,
+            6 => d.rows = Rows::Missing,
+            _ => d.queried_spell_ids.reverse(),
+        }
+        assert!(
+            prepare_starter(&input, &d, &order(&[])).is_err(),
+            "edit {edit}"
+        );
+    }
+    let racial = input_for_racial();
+    let mut d = dependencies(&racial, &[20598]);
+    rows(&mut d)[0].duration = InitialSpellLookup::Missing { index: 21 };
+    assert!(prepare_starter(&racial, &d, &order(&[])).is_err());
+}
+fn input_for_racial() -> StarterInput {
+    input(&[20598])
+}
+#[test]
+fn order_tags_input_and_no_dispatch_occurrences_all_bind_identity() {
+    let input = input(&[81, 3050, 203]);
+    let d = dependencies(&input, &[81, 3050, 203]);
+    let a = prepare_starter(&input, &d, &order(&[])).unwrap();
+    for evidence in [
+        InitialCastOrderEvidence::Unknown,
+        InitialCastOrderEvidence::ProvenProjectionEquivalent {
+            proof_identity: [1; 32],
+        },
+    ] {
+        let mut o = order(&[]);
+        o.first_entry = evidence;
+        assert!(prepare_starter(&input, &d, &o).is_err());
+    }
+    let mut observed = order(&[]);
+    observed.first_entry = InitialCastOrderEvidence::ObservedLoadedOrder {
+        capture_identity: [45; 32],
+        loader_identity: [56; 32],
+    };
+    let b = prepare_starter(&input, &d, &observed).unwrap();
+    assert_ne!(a.identity(), b.identity());
+    let mut changed = input.clone();
+    changed.default_spells = Rows::Complete(vec![3050, 81, 203]);
+    let b = prepare_starter(
+        &changed,
+        &dependencies(&changed, &[81, 3050, 203]),
+        &order(&[]),
+    )
+    .unwrap();
+    assert_ne!(a.identity(), b.identity());
+    assert!(a.validate_against(&changed).is_err());
+    assert!(LiveTraining::from_prepared(&changed, &a).is_err());
+    changed.default_spells = Rows::Complete(vec![81, 203]);
+    let b = prepare_starter(&changed, &dependencies(&changed, &[81, 203]), &order(&[])).unwrap();
+    assert_ne!(a.identity(), b.identity());
+    assert_eq!(
+        a.first_entry_plan().draw_requests(),
+        b.first_entry_plan().draw_requests()
+    );
+    assert_eq!(
+        a.created().effective_attributes,
+        b.created().effective_attributes
+    );
+}
+#[test]
+fn altered_dodge_targets_rng_handlers_hooks_and_missing_closure_stay_closed() {
+    for (cell, value) in [
+        (61, 21),
+        (64, 7),
+        (67, 1),
+        (73, 1),
+        (76, 1),
+        (82, 1),
+        (109, 203),
+        (112, 1),
+    ] {
+        let mut input = input(&[81]);
+        input.spells[0].words[cell] = value;
+        assert!(prepare_starter(&input, &dependencies(&input, &[81]), &order(&[])).is_err());
+    }
+    let mut input = input(&[81]);
+    input.spells[0].external_initial_hooks = true;
+    assert!(prepare_starter(&input, &dependencies(&input, &[81]), &order(&[])).is_err());
+    input.spells[0].external_initial_hooks = false;
+    input.spells[0].learned_spells = Rows::Missing;
+    assert!(prepare_starter(&input, &dependencies(&input, &[81]), &order(&[])).is_err());
+}
+#[test]
+fn prepared_training_is_cross_bound_and_no_rng_or_completion_is_hidden() {
+    let input = input(&[81]);
+    let prepared = prepare_starter(&input, &dependencies(&input, &[81]), &order(&[])).unwrap();
+    let live = LiveTraining::from_prepared(&input, &prepared).unwrap();
+    assert_eq!(live.source_identity(), input.source_identity());
+    assert_eq!(live.preparation_identity(), Some(prepared.identity()));
+    assert_ne!(live.identity(), live.source_identity());
+    assert_eq!(live.snapshot().version, 2);
+    assert_eq!(
+        serde_json::to_value(&prepared).unwrap(),
+        serde_json::to_value(prepared.identity()).unwrap()
+    );
+}
+
+mod numeric_source;
+
+#[test]
+fn draft_runs_actual_epochs_without_claiming_hook_absence_or_sampling() {
+    let mut input = input(&[81, 3050, 20597, 20598, 20599, 20864]);
+    skill(&mut input, 95, 81);
+    skill(&mut input, 8, 3050);
+    for row in &mut input.spells {
+        row.external_initial_hooks = true;
+    }
+    let dependencies = dependencies(&input, &[81, 3050, 20597, 20598, 20599, 20864]);
+    let Rows::Complete(numeric) = dependencies.rows.clone() else {
+        panic!("numeric")
+    };
+    let draft = draft_starter(&input, dependencies.store_identity, numeric.clone()).unwrap();
+    assert_eq!(
+        casts(draft.creation_plan()),
+        [81, 3050, 20597, 20598, 20599, 20864]
+    );
+    assert_eq!(
+        casts(draft.first_entry_plan()),
+        [3050, 81, 20597, 20598, 20599, 20864]
+    );
+    assert_eq!(
+        draft.pending_learning_hooks(),
+        [81, 3050, 20597, 20598, 20599, 20864]
+    );
+    assert_eq!(draft.reached_dependencies(), numeric);
+    assert_eq!(draft.creation_plan().draw_requests().len(), 1);
+    assert_eq!(draft.first_entry_plan().draw_requests().len(), 1);
+    let masks = InitialProficiencyMasks {
+        weapon: 0,
+        armor: 0,
+    };
+    assert_eq!(
+        draft.creation_plan().evaluate(&[0], masks).unwrap_err(),
+        InitError::Invalid("pending reached initial hook binding")
+    );
+    assert!(super::super::initialize_mage(&input).is_err());
+    assert!(prepare_starter(&input, &dependencies, &StarterCastOrder::canonical()).is_err());
+    assert_eq!(draft.projected_creation().initial_auras.len(), 6);
+    assert_eq!(
+        draft
+            .projected_first_entry()
+            .skills
+            .keys()
+            .copied()
+            .collect::<Vec<_>>(),
+        [8, 95]
+    );
+    let mut bound = input.clone();
+    for row in &mut bound.spells {
+        row.external_initial_hooks = false;
+    }
+    let mut bound_dependencies = dependencies.clone();
+    bound_dependencies.source_identity = bound.source_identity();
+    bound_dependencies.rows = Rows::Complete(dependencies_for_draft(&bound));
+    let prepared =
+        prepare_starter(&bound, &bound_dependencies, &StarterCastOrder::canonical()).unwrap();
+    assert_eq!(draft.projected_creation(), prepared.created());
+    assert_eq!(draft.projected_first_entry(), prepared.first_entry());
+    assert_ne!(
+        draft.creation_plan().identity(),
+        prepared.creation_plan().identity()
+    );
+    let mut unsupported = input.clone();
+    unsupported.spells[0].words[61] = 999;
+    let bad = dependencies_for_draft(&unsupported);
+    assert!(draft_starter(&unsupported, [12; 32], bad).is_err());
+    assert!(draft_starter(&input, [0; 32], numeric).is_err());
+}
+
+fn dependencies_for_draft(input: &StarterInput) -> Vec<StarterInitialDependency> {
+    let ids: Vec<_> = input.spells.iter().map(|row| row.id).collect();
+    let Rows::Complete(rows) = dependencies(input, &ids).rows else {
+        panic!("numeric")
+    };
+    rows
+}
+
+#[test]
+fn draft_queries_only_reached_numeric_dependencies_and_keeps_noncasts_guarded() {
+    let mut input = input(&[81]);
+    let mut active = input.spells[0].clone();
+    active.id = 900001;
+    active.words = [0; 173];
+    active.words[0] = active.id;
+    input.default_spells = Rows::Complete(vec![81, active.id]);
+    input.spells.push(active);
+    for row in &mut input.spells {
+        row.external_initial_hooks = true;
+    }
+    let Rows::Complete(numeric) = dependencies(&input, &[81]).rows else {
+        panic!("numeric")
+    };
+    let draft = draft_starter(&input, [12; 32], numeric).unwrap();
+    assert_eq!(draft.pending_learning_hooks(), [81, 900001]);
+    assert_eq!(casts(draft.creation_plan()), [81]);
+    assert_eq!(
+        draft
+            .reached_dependencies()
+            .iter()
+            .map(|row| row.spell_id)
+            .collect::<Vec<_>>(),
+        [81]
+    );
+    let missing = vec![];
+    assert!(matches!(
+        draft_starter(&input, [12; 32], missing),
+        Err(InitError::Missing {
+            table: "initial numeric dependency",
+            id: 81
+        })
+    ));
+}
+
+#[test]
+fn draft_skips_unusable_default_then_cloth_learning_adds_the_actual_skill() {
+    let mut input = input(&[9078]);
+    skill(&mut input, 415, 9078);
+    input.skill_lines[0].category = 7;
+    let Rows::Complete(infos) = &mut input.skill_race_class else {
+        panic!("info")
+    };
+    infos[0].flags = 0x80;
+    let Rows::Complete(abilities) = &mut input.skill_abilities else {
+        panic!("abilities")
+    };
+    abilities[0].learn_on_get_skill = 2;
+    input.spells[0].external_initial_hooks = true;
+    let project =
+        |input: &StarterInput| draft_starter(input, [12; 32], dependencies_for_draft(input));
+    let draft = project(&input).unwrap();
+    let created = draft.projected_creation();
+    assert_eq!(
+        (created.skills[&415].value, created.skills[&415].maximum),
+        (1, 1)
+    );
+    let learned = created
+        .trace
+        .iter()
+        .position(|event| matches!(event, InitEvent::SpellLearned { spell: 9078 }))
+        .unwrap();
+    let inserted = created
+        .trace
+        .iter()
+        .position(|event| matches!(event, InitEvent::SkillSet { skill: 415, .. }))
+        .unwrap();
+    assert!(learned < inserted);
+    assert!(draft.projected_first_entry().skills.contains_key(&415));
+    let mut no_cloth = input.clone();
+    no_cloth.default_spells = Rows::Complete(vec![]);
+    assert!(!project(&no_cloth)
+        .unwrap()
+        .projected_creation()
+        .skills
+        .contains_key(&415));
+    let mut missing = input.clone();
+    missing.skill_race_class = Rows::Missing;
+    assert!(matches!(
+        project(&missing),
+        Err(InitError::Missing {
+            table: "SkillRaceClassInfo",
+            ..
+        })
+    ));
+    let mut tier = input.clone();
+    let Rows::Complete(infos) = &mut tier.skill_race_class else {
+        panic!("info")
+    };
+    infos[0].tier = 999;
+    assert_eq!(
+        project(&tier),
+        Err(InitError::Missing {
+            table: "SkillTiers",
+            id: 999
+        })
+    );
+    let mut missing_cloth = input;
+    missing_cloth.skill_race_class = Rows::Complete(vec![]);
+    assert_eq!(
+        project(&missing_cloth),
+        Err(InitError::Missing {
+            table: "spell-trained SkillRaceClassInfo",
+            id: 415
+        })
+    );
+}
+
+#[test]
+fn checked_hook_rebuild_preserves_both_occurrence_streams_without_sampling_creation() {
+    let mut guarded = input(&[81, 3050]);
+    for row in &mut guarded.spells {
+        row.external_initial_hooks = true;
+    }
+    let draft = draft_starter(&guarded, [12; 32], dependencies_for_draft(&guarded)).unwrap();
+    assert_eq!(casts(draft.creation_plan()), [81, 3050]);
+    assert_eq!(casts(draft.first_entry_plan()), [81, 3050]);
+    assert_eq!(draft.creation_plan().draw_requests().len(), 1);
+    let mut checked = guarded.clone();
+    for row in &mut checked.spells {
+        row.external_initial_hooks = false; // Authored absent-hook fixture evidence.
+    }
+    assert_ne!(guarded.source_identity(), checked.source_identity());
+    let stale = dependencies(&guarded, &[81, 3050]);
+    assert!(prepare_starter(&checked, &stale, &StarterCastOrder::canonical()).is_err());
+    let prepared = prepare_starter(
+        &checked,
+        &dependencies(&checked, &[81, 3050]),
+        &StarterCastOrder::canonical(),
+    )
+    .unwrap();
+    assert_eq!(
+        casts(prepared.creation_plan()),
+        casts(draft.creation_plan())
+    );
+    assert_eq!(
+        casts(prepared.first_entry_plan()),
+        casts(draft.first_entry_plan())
+    );
+    assert_eq!(prepared.creation_plan().draw_requests().len(), 1);
+    assert_eq!(prepared.first_entry_plan().draw_requests().len(), 1);
+    assert_ne!(
+        prepared.creation_plan().identity(),
+        draft.creation_plan().identity()
+    );
+    assert_eq!(
+        prepared,
+        prepare_starter(
+            &checked,
+            &dependencies(&checked, &[81, 3050]),
+            &StarterCastOrder::canonical()
+        )
+        .unwrap()
+    );
+}

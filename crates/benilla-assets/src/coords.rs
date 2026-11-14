@@ -7,6 +7,7 @@ use bevy::math::{Mat3, Quat, Vec3};
 use bevy::transform::components::Transform;
 
 /// WoW `[x, y, z]` to Bevy.
+#[inline]
 pub fn wow_to_bevy(p: [f32; 3]) -> Vec3 {
     Vec3::new(-p[1], p[2], -p[0])
 }

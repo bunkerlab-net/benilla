@@ -1,0 +1,556 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//! TerrainManager and TerrainInfo with live VMap lifetime, not geometry admission.
+use super::identity_table::IdentityTable;
+use super::*;
+use benilla_native_terrain::grid_area::{AreaData, AreaReadError, FlagSearch};
+use benilla_native_terrain::grid_height::{
+    self, HeightData, HeightQueryError, HeightReadError, HeightValue,
+};
+use benilla_sim::source_rng::{RawGenerator, SourceRandom, TraceEvent};
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+type TileKey = (u32, u16, u16);
+
+/// Immutable acquired bytes or an observed source fopen absence. An index miss is unknown.
+#[derive(Default)]
+pub struct SourceTerrainFiles {
+    files: BTreeMap<TileKey, Option<Arc<[u8]>>>,
+}
+impl SourceTerrainFiles {
+    pub fn retain_present(
+        &mut self,
+        map: u32,
+        x: u16,
+        y: u16,
+        path: &Path,
+        expected: &Sha256Id,
+    ) -> Result<()> {
+        let file = ExecutionFile::open(path, 16 * 1024 * 1024)?;
+        let mut bytes = vec![0; file.len() as usize];
+        file.read_into(0, &mut bytes)?;
+        file.check()?;
+        require(
+            Sha256Id::of(&bytes) == *expected,
+            "execution.terrain.product_identity",
+        )?;
+        self.files.insert((map, x, y), Some(bytes.into()));
+        Ok(())
+    }
+    /// Only a source absence observation may call this, never an acquisition miss.
+    /// This component input does not certify source lineage or admit gameplay.
+    pub fn retain_source_absence(&mut self, map: u32, x: u16, y: u16) {
+        self.files.insert((map, x, y), None);
+    }
+    fn read(&self, key: TileKey) -> Result<Option<Arc<[u8]>>> {
+        self.files
+            .get(&key)
+            .cloned()
+            .ok_or_else(|| refuse("execution.terrain.map_product_unavailable"))
+    }
+    #[cfg(test)]
+    pub(super) fn bytes(&mut self, map: u32, x: u16, y: u16, bytes: Vec<u8>) {
+        self.files.insert((map, x, y), Some(bytes.into()));
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SourceAreaEntry {
+    pub id: u32,
+    pub map: u32,
+    pub zone: u32,
+    pub flag: u32,
+}
+#[derive(Default)]
+pub struct SourceTerrainDbc {
+    pub areas: BTreeMap<u32, SourceAreaEntry>,
+    pub linked_zones: BTreeMap<u32, u32>,
+}
+impl SourceTerrainDbc {
+    pub fn catalog(
+        catalog: &mut super::super::production_compiler::VerifiedCatalog,
+    ) -> Result<Self> {
+        let areas = catalog
+            .execution_terrain_dbc("AreaTable.dbc")?
+            .into_iter()
+            .map(|r| {
+                (
+                    r[0],
+                    SourceAreaEntry {
+                        id: r[0],
+                        map: r[1],
+                        zone: r[2],
+                        flag: r[3],
+                    },
+                )
+            })
+            .collect();
+        let linked_zones = catalog
+            .execution_terrain_dbc("Map.dbc")?
+            .into_iter()
+            .map(|r| (r[0], r[1]))
+            .collect();
+        Ok(Self {
+            areas,
+            linked_zones,
+        })
+    }
+    /// DBCStores.cpp:676-704 and GridMap.cpp:1406-1412. No parent lookup.
+    pub fn zone(&self, map: u32, flag: u16) -> u32 {
+        self.location(map, flag)[0]
+    }
+    pub fn location(&self, map: u32, flag: u16) -> [u32; 2] {
+        self.entry(map, flag)
+            .map_or([0, 0], |a| [if a.zone != 0 { a.zone } else { a.id }, a.id])
+    }
+    pub fn entry(&self, map: u32, flag: u16) -> Option<SourceAreaEntry> {
+        let mut search = FlagSearch::new(flag, map);
+        for area in self.areas.values().copied() {
+            if let Some(area) = search.visit(area, area.flag, area.map) {
+                return Some(area);
+            }
+        }
+        search.wrong_map().or_else(|| {
+            self.linked_zones
+                .get(&map)
+                .and_then(|id| self.areas.get(id).copied())
+        })
+    }
+}
+
+/// GridMap.cpp:43-69. Default storage is real even when fopen fails.
+#[derive(Debug)]
+pub struct SourceGridMap {
+    pub bytes: Option<Arc<[u8]>>,
+    pub load_success: bool,
+    areas: AreaData,
+    heights: HeightData,
+    pub liquid: benilla_native_terrain::grid_liquid::GridLiquid,
+    pub holes: [u16; 256],
+}
+impl Default for SourceGridMap {
+    fn default() -> Self {
+        Self {
+            bytes: None,
+            load_success: true,
+            areas: AreaData::default(),
+            heights: HeightData::default(),
+            liquid: benilla_native_terrain::grid_liquid::GridLiquid::default(),
+            holes: [0; 256],
+        }
+    }
+}
+fn word(bytes: &[u8], at: usize) -> Result<u32> {
+    Ok(u32::from_le_bytes(
+        bytes
+            .get(at..at + 4)
+            .ok_or_else(|| refuse("execution.terrain.map_header_read_undefined"))?
+            .try_into()
+            .unwrap(),
+    ))
+}
+impl SourceGridMap {
+    fn load(bytes: Option<Arc<[u8]>>) -> Result<Self> {
+        let mut grid = Self {
+            bytes,
+            ..Self::default()
+        };
+        let Some(bytes) = &grid.bytes else {
+            return Ok(grid);
+        };
+        require(
+            bytes.len() >= 40,
+            "execution.terrain.map_header_read_undefined",
+        )?;
+        if &bytes[..8] != b"MAPSz1.4" {
+            grid.load_success = false;
+            return Ok(grid);
+        }
+        let area = word(bytes, 8)? as usize;
+        if area != 0 {
+            grid.areas = match AreaData::decode(bytes.get(area..).unwrap_or_default()) {
+                Ok(area) => area,
+                Err(AreaReadError::Magic) => {
+                    grid.load_success = false;
+                    return Ok(grid);
+                }
+                Err(AreaReadError::Truncated) => {
+                    return Err(refuse("execution.terrain.area_partial_read_owner"))
+                }
+            };
+        }
+        // Retain partial-loader state and source order, GridMap.cpp:104-126.
+        let holes = word(bytes, 32)? as usize;
+        if holes != 0 {
+            let raw = bytes
+                .get(holes..holes + 512)
+                .ok_or_else(|| refuse("execution.terrain.holes_partial_read_owner"))?;
+            for (hole, pair) in grid.holes.iter_mut().zip(raw.as_chunks::<2>().0) {
+                *hole = u16::from_le_bytes(*pair);
+            }
+        }
+        let height = word(bytes, 16)? as usize;
+        if height != 0 {
+            grid.heights = match HeightData::decode(Arc::clone(bytes), height) {
+                Ok(heights) => heights,
+                Err(HeightReadError::Magic) => {
+                    grid.load_success = false;
+                    return Ok(grid);
+                }
+                Err(error) => return Err(height_read_error(error)),
+            };
+        }
+        let liquid = word(bytes, 24)? as usize;
+        if liquid != 0 {
+            grid.liquid = match benilla_native_terrain::grid_liquid::GridLiquid::decode(
+                Arc::clone(bytes),
+                liquid,
+            ) {
+                Ok(liquid) => liquid,
+                Err(benilla_native_terrain::grid_liquid::Error::Magic) => {
+                    grid.load_success = false;
+                    return Ok(grid);
+                }
+                Err(error) => return Err(error.into()),
+            };
+        }
+        Ok(grid)
+    }
+    /// GridMap.h:116, dispatch selected by loadHeightData.
+    pub fn height(&self, x: f32, y: f32) -> Result<f32> {
+        match self
+            .heights
+            .get(x, y, &self.holes)
+            .map_err(height_query_error)?
+        {
+            HeightValue::Height(height) => Ok(height),
+            HeightValue::Hole => Ok(grid_height::INVALID_HEIGHT_VALUE),
+        }
+    }
+    pub fn area(&self, x: f32, y: f32) -> Result<u16> {
+        self.areas
+            .get(x, y)
+            .ok_or_else(|| refuse("execution.terrain.area_coordinate_conversion_undefined"))
+    }
+}
+
+pub struct SourceTerrainInfo {
+    pub residency: SourceTerrainResidency,
+    // GridMap.h:122-140 uses atomic_long, with defined LP64 atomic wrapping.
+    references: i64,
+    grids: BTreeMap<(u16, u16), SourceGridMap>,
+}
+impl SourceTerrainInfo {
+    pub fn references(&self) -> i64 {
+        self.references
+    }
+    pub fn grid(&self, x: u16, y: u16) -> Option<&SourceGridMap> {
+        self.grids.get(&(x, y))
+    }
+    fn query(
+        &mut self,
+        map: u32,
+        pose: [f32; 3],
+        map_only: bool,
+        files: &SourceTerrainFiles,
+        vmap: &mut SourceVMapManager,
+        mmap: &mut SourceMMapManager,
+    ) -> Result<TerrainTileIdentity> {
+        let grids = &mut self.grids;
+        self.residency
+            .query_terrain_at([pose[0].to_bits(), pose[1].to_bits()], map_only, |c| {
+                // GridMap.cpp:1243-1247 checks both loaders before allocation,
+                // even for mapOnly when no GridMap exists yet.
+                if !(map_only && grids.contains_key(&(c.x, c.y)))
+                    && vmap.is_tile_loaded(map, c.x, c.y)
+                    && mmap.is_tile_loaded(map, c.x, c.y)
+                {
+                    return Ok(TerrainQueryLoad {
+                        present: grids.contains_key(&(c.x, c.y)),
+                        fully_loaded: grids.contains_key(&(c.x, c.y)),
+                    });
+                }
+                if let std::collections::btree_map::Entry::Vacant(entry) = grids.entry((c.x, c.y)) {
+                    entry.insert(SourceGridMap::load(files.read((map, c.x, c.y))?)?);
+                }
+                if !map_only {
+                    if !vmap.is_tile_loaded(map, c.x, c.y) {
+                        vmap.load_map(map, c.x, c.y)?;
+                    }
+                    if !mmap.is_tile_loaded(map, c.x, c.y) {
+                        // The source ignores false, but native validation never becomes absence.
+                        mmap.load_tile(map, c.x, c.y)?;
+                    }
+                }
+                Ok(TerrainQueryLoad {
+                    present: true,
+                    fully_loaded: !map_only,
+                })
+            })?
+            .ok_or_else(|| refuse("execution.terrain.grid_allocation_owner"))
+    }
+}
+
+#[derive(Default)]
+pub struct SourceTerrainManager {
+    terrains: IdentityTable<SourceTerrainInfo>,
+    next_generation: u64,
+    pub vmap: SourceVMapManager,
+    pub mmap: SourceMMapManager,
+    pub files: SourceTerrainFiles,
+    pub dbc: SourceTerrainDbc,
+    pub wmo_areas: vmap_scene::SourceWmoAreas,
+    pub liquid_dbc: SourceLiquidDbc,
+}
+impl SourceTerrainManager {
+    pub fn new(files: SourceTerrainFiles, dbc: SourceTerrainDbc) -> Self {
+        Self {
+            files,
+            dbc,
+            ..Self::default()
+        }
+    }
+    pub fn len(&self) -> usize {
+        self.terrains.len()
+    }
+    pub fn bucket_count(&self) -> usize {
+        self.terrains.bucket_count()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+    pub fn terrain(&self, map: u32) -> Option<&SourceTerrainInfo> {
+        self.terrains.get(u64::from(map))
+    }
+    /// GridMap.cpp:1348-1359. No sorted-map eager construction.
+    pub fn load_terrain<E: RawGenerator, S: FnMut(TraceEvent)>(
+        &mut self,
+        map: u32,
+        random: &mut SourceRandom<'_, E, S>,
+    ) -> Result<&mut SourceTerrainInfo> {
+        let key = u64::from(map);
+        if self.terrains.get(key).is_none() {
+            let generation = self
+                .next_generation
+                .checked_add(1)
+                .ok_or_else(|| refuse("execution.terrain.generation_overflow"))?;
+            let residency = SourceTerrainResidency::new(map, generation, random)?;
+            // The singleton is obtained only after the successful draw and timer assignments.
+            self.vmap.created = true;
+            self.terrains.insert(
+                key,
+                SourceTerrainInfo {
+                    residency,
+                    references: 0,
+                    grids: BTreeMap::new(),
+                },
+                65_536,
+            )?;
+            self.next_generation = generation;
+        }
+        Ok(self.terrains.get_mut(key).unwrap())
+    }
+    pub fn original_zone<E: RawGenerator, S: FnMut(TraceEvent)>(
+        &mut self,
+        map: u32,
+        pose: [f32; 3],
+        random: &mut SourceRandom<'_, E, S>,
+    ) -> Result<u32> {
+        self.load_terrain(map, random)?;
+        Ok(self.zone_and_area(map, pose)?[0])
+    }
+    pub fn zone_and_area(&mut self, map: u32, pose: [f32; 3]) -> Result<[u32; 2]> {
+        let flag = self.area_flag(map, pose)?;
+        Ok(self.dbc.location(map, flag))
+    }
+    pub fn area_flag(&mut self, map: u32, pose: [f32; 3]) -> Result<u16> {
+        require(self.terrain(map).is_some(), "execution.terrain.info_owner")?;
+        if let Some(area) = self.vmap.area_info(map, pose)? {
+            // GridMap.cpp:904-918 calls full GetGrid before terrain occlusion.
+            let tile = self.query_grid(map, pose, false)?;
+            let grid = self.terrain(map).unwrap().grid(tile.x, tile.y).unwrap();
+            let height = grid.height(pose[0], pose[1])?;
+            if !vmap_scene::area_hidden_by_terrain(pose[2], height, area.floor) {
+                if let Some(flag) = self.wmo_areas.flag(area, &self.dbc.areas, map)? {
+                    return Ok(flag);
+                }
+            }
+        }
+        let tile = self.query_grid(map, pose, true)?;
+        let grid = self.terrain(map).unwrap().grid(tile.x, tile.y).unwrap();
+        grid.area(pose[0], pose[1])
+    }
+    pub fn query_grid(
+        &mut self,
+        map: u32,
+        pose: [f32; 3],
+        map_only: bool,
+    ) -> Result<TerrainTileIdentity> {
+        self.terrains
+            .get_mut(u64::from(map))
+            .ok_or_else(|| refuse("execution.terrain.info_owner"))?
+            .query(
+                map,
+                pose,
+                map_only,
+                &self.files,
+                &mut self.vmap,
+                &mut self.mmap,
+            )
+    }
+    /// GridMap.cpp:828-884. GetGrid's full upgrade precedes every height query,
+    /// including useVmaps=false and disabled height calculation.
+    pub fn height_static(
+        &mut self,
+        map: u32,
+        pose: [f32; 3],
+        use_vmaps: bool,
+        max_search: f32,
+    ) -> Result<f32> {
+        let tile = self.query_grid(map, pose, false)?;
+        let map_height = self
+            .terrain(map)
+            .unwrap()
+            .grid(tile.x, tile.y)
+            .unwrap()
+            .height(pose[0], pose[1])?;
+        grid_height::select_height(
+            map_height,
+            pose[2],
+            use_vmaps,
+            self.vmap.settings()[1],
+            max_search,
+            |z, search| {
+                self.vmap
+                    .collision
+                    .height(
+                        map,
+                        [pose[0], pose[1], z],
+                        search,
+                        std::time::Instant::now() + std::time::Duration::from_secs(30),
+                    )
+                    .map_err(vmap_manager::vmap_error)
+            },
+        )
+    }
+    pub fn add_ref(&mut self, map: u32) -> Result<()> {
+        let info = self
+            .terrains
+            .get_mut(u64::from(map))
+            .ok_or_else(|| refuse("execution.terrain.info_owner"))?;
+        info.references = info.references.wrapping_add(1);
+        Ok(())
+    }
+    pub fn release(&mut self, map: u32) -> Result<bool> {
+        let info = self
+            .terrains
+            .get_mut(u64::from(map))
+            .ok_or_else(|| refuse("execution.terrain.info_owner"))?;
+        info.references = info.references.wrapping_sub(1);
+        Ok(info.references < 1)
+    }
+    fn destroy(&mut self, map: u32) -> Result<()> {
+        // GridMap.cpp:716-724 destroys GridMaps before releasing map geometry.
+        self.terrains.get_mut(u64::from(map)).unwrap().grids.clear();
+        self.vmap.unload_map(map);
+        self.terrains.erase(u64::from(map));
+        // GridMap.cpp:716-724 releases shared mesh only after VMap teardown.
+        self.mmap.unload_map(map)?;
+        Ok(())
+    }
+    pub fn unload_terrain(&mut self, map: u32, grid_unload: bool) -> Result<()> {
+        if grid_unload && self.terrain(map).is_some_and(|info| info.references <= 0) {
+            self.destroy(map)?;
+        }
+        Ok(())
+    }
+    pub fn unload_all(&mut self) -> Result<()> {
+        while let Some(map) = self.terrains.first_key() {
+            self.destroy(map as u32)?;
+        }
+        Ok(())
+    }
+    /// World.cpp:1701, GridMap.cpp:1382-1387. Preserve source hash iteration.
+    pub fn update(&mut self, diff: u32) -> Result<()> {
+        let mut key = self.terrains.first_key();
+        while let Some(map) = key {
+            key = self.terrains.next_key(map);
+            let info = self.terrains.get_mut(map).unwrap();
+            let mut cleanup = ColdCleanup {
+                grids: &mut info.grids,
+                vmap: &mut self.vmap,
+                mmap: &mut self.mmap,
+            };
+            info.residency.cleanup(diff, &mut cleanup)?;
+        }
+        Ok(())
+    }
+}
+struct ColdCleanup<'a> {
+    grids: &'a mut BTreeMap<(u16, u16), SourceGridMap>,
+    vmap: &'a mut SourceVMapManager,
+    mmap: &'a mut SourceMMapManager,
+}
+impl GridProductOwner for ColdCleanup<'_> {
+    fn load(&mut self, _: MapIdentity, _: ProductCoordinates) -> Result<bool> {
+        Err(refuse("execution.terrain.full_grid_load_owner"))
+    }
+}
+impl TerrainResidencyOwner for ColdCleanup<'_> {
+    fn terrain_cleanup(
+        &mut self,
+        tile: TerrainTileIdentity,
+        phase: TerrainCleanupPhase,
+    ) -> Result<()> {
+        match phase {
+            TerrainCleanupPhase::UnloadData => {
+                self.grids
+                    .get_mut(&(tile.x, tile.y))
+                    .ok_or_else(|| refuse("execution.terrain.grid_allocation_owner"))?
+                    .areas
+                    .unload_cells();
+            }
+            TerrainCleanupPhase::DeleteGridMap => {
+                self.grids.remove(&(tile.x, tile.y));
+            }
+            TerrainCleanupPhase::UnloadVMap => self.vmap.unload_tile(tile.map, tile.x, tile.y)?,
+            TerrainCleanupPhase::UnloadMMap => {
+                self.mmap.unload_tile(tile.map, tile.x, tile.y)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+fn height_read_error(error: HeightReadError) -> Refusal {
+    refuse(match error {
+        HeightReadError::HeaderReadUndefined => "execution.terrain.height_header_read_undefined",
+        HeightReadError::Magic => unreachable!(),
+        HeightReadError::InvalidHeaderFlags(_) => "execution.terrain.height_invalid_header_flags",
+    })
+}
+
+fn height_query_error(error: HeightQueryError) -> Refusal {
+    refuse(match error {
+        HeightQueryError::CoordinateConversionUndefined => {
+            "execution.terrain.height_coordinate_conversion_undefined"
+        }
+        HeightQueryError::FloatSampleReadUndefined => {
+            "execution.terrain.height_float_sample_read_undefined"
+        }
+        HeightQueryError::Uint8SampleReadUndefined => {
+            "execution.terrain.height_uint8_sample_read_undefined"
+        }
+        HeightQueryError::Uint16SampleReadUndefined => {
+            "execution.terrain.height_uint16_sample_read_undefined"
+        }
+    })
+}
+
+#[cfg(test)]
+#[path = "terrain_height_tests.rs"]
+mod height_tests;
+
+#[path = "environment.rs"]
+mod environment;
+pub use environment::SourceLiquidDbc;

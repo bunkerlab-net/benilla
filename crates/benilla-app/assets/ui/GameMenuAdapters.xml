@@ -6,16 +6,505 @@
         character-select AddOns screen is the only addon UI.
     -->
 
-    <!-- The era's header font, which 1.12's Fonts.xml lacks. -->
-    <Font name="BenillaGameFontNormalMed1" inherits="GameFontNormal" virtual="true">
+    <!-- The era's header font, which 1.12's Fonts.xml lacks. Its own font= carries the height:
+         1.12 reads a <FontHeight> only beside one. -->
+    <Font name="BenillaGameFontNormalMed1" inherits="GameFontNormal" font="Fonts\FRIZQT__.TTF"
+          virtual="true">
         <FontHeight><AbsValue val="13"/></FontHeight>
     </Font>
 
     <Script><![CDATA[
-        -- ══ The frame: the era layout, 28+144+28 wide, 32 top, 28 bottom, 7 rungs of 21 and
+        -- Fork deviation requested for local-world administration. Every widget uses stock
+        -- 1.12 templates/art. The Rust interface is an untrusted-input boundary, never a GM chat command.
+        local actions = {
+            { "item", "Items / Bags", "Grant Item", "Search the validated Classic item catalog by name or item ID, including all bag sizes. Granting an item does not imply every use or equip effect is supported.", "Count (1-200)", "1" },
+            { "gold", "Gold", "Grant Gold", "Classic money: 1 gold = 10,000 copper. The authority checks the character's balance and commits the grant atomically.", "Gold (1-10,000)", "1" },
+            { "mount", "Mounts", "Grant Mount", "Choose a supported mount from this world's catalog. This grants the real supported mount; it does not swap the character's appearance.", nil, "" },
+            { "speed", "Movement Speed", "Set Speed", "Movement changes require the world's authoritative movement and acknowledgement path. 100% restores the normal admin speed setting.", "Speed % (100-300)", "100" },
+            { "teleport", "City Teleport", "Teleport", "Choose a major city supported by this world. The authority validates its map, destination and current session before moving the character.", nil, "" },
+            { "level", "Level +1", "Gain +1 Level", "Instantly gain exactly one level, up to this world's supported Classic maximum. The authority applies the full level-up state changes.", nil, "" },
+            { "xp", "XP Gain", "", "On: receive XP normally. Off: keep current XP and level, but receive no further XP from any source. The setting must persist with the character.", nil, "" },
+            { "reputation", "Reputation", "Adjust Reputation", "Choose a supported faction. Positive points increase reputation; negative points decrease it. The authority validates faction rules and limits.", "Points (-42,999 to +42,999; nonzero)", "100" },
+            { "honor", "Honor Points", "Grant Honor", "Classic honor contribution is tracked by day and week. Honorable kills and PvP rank are separate. Requires a durable, authorized honor backend.", "Contribution points (1-100,000)", "1" },
+            { "time", "Time of Day", "Set World Time", "Set the world clock for all participants, in 24-hour time. Enter auto to return to the automatic world clock. This is not a local lighting override.", "HH:MM (00:00-23:59), or auto", "12:00" },
+            { "weather", "Weather", "Set Weather", "Choose a validated weather option for your current location, including Automatic to restore normal weather. The world authority rechecks location and applies it consistently.", nil, "" },
+        }
+        local catalogActions = { item = 1, mount = 1, teleport = 1, reputation = 1, weather = 1 }
+        local selected, page, cursor = 1, 1, 1
+        local currentView, results, choice, lastQuery, lastAction, lastGeneration
+        local browsing = false
+
+        local function setEnabled(button, enabled)
+            if enabled then button:Enable() else button:Disable() end
+        end
+
+        local function clearSelection()
+            choice, page, cursor, browsing = nil, 1, 1, false
+            if GameTooltip then GameTooltip:Hide() end
+        end
+
+        function BenillaAdmin_Select(index)
+            selected = index
+            clearSelection()
+            lastAction = nil
+            BenillaAdminFrameSearch:SetText("")
+            BenillaAdminFrameAmount:SetText(actions[index][6])
+            BenillaAdminFrameSearch:ClearFocus()
+            BenillaAdminFrameAmount:ClearFocus()
+            BenillaAdmin_Refresh()
+        end
+
+        function BenillaAdmin_Page(direction)
+            BenillaAdmin_Refresh()
+            if not results or results.pages == 0 then return end
+            page = math.max(1, math.min(results.pages, page + direction))
+            choice, cursor = nil, 1
+            BenillaAdmin_Refresh()
+        end
+
+        function BenillaAdmin_Browse()
+            BenillaAdmin_Refresh()
+            BenillaAdminFrameSearch:ClearFocus()
+            browsing = true
+            BenillaAdmin_Refresh()
+        end
+
+        function BenillaAdmin_Choose(index)
+            -- Recheck the row being clicked, rather than choosing a replacement from a newer
+            -- world, query or page that happened to occupy the same screen position.
+            local oldResults = results
+            local old = oldResults and oldResults.entries[index]
+            local query = BenillaAdminFrameSearch:GetText()
+            local oldQuery = lastQuery
+            BenillaAdmin_Refresh()
+            local entry = results and results.entries[index]
+            if not old or not entry or query ~= oldQuery or old.id ~= entry.id
+                or oldResults.generation ~= results.generation then return end
+            choice, cursor, browsing = entry, index, false
+            BenillaAdminFrameSearch:ClearFocus()
+            BenillaAdmin_Refresh()
+        end
+
+        function BenillaAdmin_Key(key)
+            if key == "ESCAPE" then ToggleGameMenu(); return end
+            if not catalogActions[actions[selected][1]] then return end
+            if key == "TAB" then
+                browsing = false
+                BenillaAdminFrameSearch:SetFocus()
+            elseif browsing and (key == "LEFT" or key == "RIGHT") then
+                BenillaAdmin_Page(key == "LEFT" and -1 or 1)
+            elseif browsing and (key == "UP" or key == "DOWN") then
+                BenillaAdmin_Refresh()
+                local direction = key == "UP" and -1 or 1
+                local next = cursor + direction
+                if results and next > table.getn(results.entries) and page < results.pages then
+                    BenillaAdmin_Page(1)
+                elseif next < 1 and page > 1 then
+                    BenillaAdmin_Page(-1)
+                    cursor = table.getn(results.entries)
+                elseif results then
+                    cursor = math.max(1, math.min(table.getn(results.entries), next))
+                end
+                BenillaAdmin_Refresh()
+            elseif browsing and key == "ENTER" then
+                BenillaAdmin_Choose(cursor)
+            end
+        end
+
+        function BenillaAdmin_Tooltip(index)
+            local entry = results and results.entries[index]
+            if not entry or not GameTooltip then return end
+            GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+            GameTooltip:SetText(entry.label, 1, 1, 1, 1)
+            GameTooltip:AddLine("Catalog ID: " .. entry.id, 1, 0.82, 0, 1)
+            GameTooltip:AddLine("Catalog visibility does not guarantee this entry's gameplay support. Apply rechecks readiness and permissions.", 1, 1, 1, 1)
+            GameTooltip:Show()
+        end
+
+        function BenillaAdmin_Refresh()
+            if not BenillaAdminFrameApply then return end
+            local spec = actions[selected]
+            currentView = BenillaAdminGetView and BenillaAdminGetView() or {
+                identity = "No verified world admin", status = "Admin gameplay backend unavailable in this session.", message = "", generation = "",
+            }
+            local capability = currentView[spec[1]] or {
+                enabled = false, reason = "Admin gameplay backend unavailable in this session.",
+            }
+            local query = BenillaAdminFrameSearch:GetText()
+            if lastQuery ~= query or lastAction ~= selected or lastGeneration ~= currentView.generation then
+                clearSelection()
+            end
+            lastQuery, lastAction, lastGeneration = query, selected, currentView.generation
+            local catalog = catalogActions[spec[1]]
+            results = catalog and BenillaAdminSearch and BenillaAdminSearch(spec[1], query, page) or {
+                entries = {}, page = 0, pages = 0, total = 0, reason = "", generation = currentView.generation,
+            }
+            -- A backend may change between the view and search snapshots. Never keep a choice
+            -- from either prior generation; the next refresh will acquire matching capabilities.
+            if results.generation ~= currentView.generation then clearSelection() end
+            page = math.max(1, results.page)
+            cursor = math.max(1, math.min(cursor, table.getn(results.entries)))
+            BenillaAdminFrameIdentity:SetText(currentView.identity)
+            BenillaAdminFrameContext:SetText(currentView.status)
+            BenillaAdminFrameOperationTitle:SetText(spec[2])
+            BenillaAdminFrameHelp:SetText(spec[4])
+            local reason = capability.reason
+            if reason == "" and currentView.pending then reason = "Waiting for the pending request's authoritative result." end
+            if reason == "" and results.reason ~= "" then reason = results.reason end
+            if reason == "" then
+                reason = catalog and "Choose an entry, then use the action button. The backend rechecks support and admin permission."
+                    or "Available to the verified world admin"
+            end
+            BenillaAdminFrameReason:SetText(reason)
+            BenillaAdminFrameResult:SetText(currentView.message)
+            for i = 1, table.getn(actions) do
+                getglobal("BenillaAdminAction" .. i):SetButtonState(i == selected and "PUSHED" or "NORMAL", i == selected)
+            end
+            for _, widget in ipairs({ BenillaAdminFrameSearch, BenillaAdminFrameSearchLabel,
+                BenillaAdminFrameChoice, BenillaAdminFramePageCount, BenillaAdminFrameBrowseHelp,
+                BenillaAdminFramePrevious, BenillaAdminFrameNext }) do
+                if catalog then widget:Show() else widget:Hide() end
+            end
+            for i = 1, 5 do
+                local row = getglobal("BenillaAdminResult" .. i)
+                local entry = results.entries[i]
+                if catalog and entry then
+                    row:SetText(entry.display_label .. " [" .. entry.id .. "]")
+                    local active = choice and choice.id == entry.id or browsing and cursor == i
+                    row:SetButtonState(active and "PUSHED" or "NORMAL", active)
+                    row:Show()
+                else row:Hide() end
+            end
+            BenillaAdminFrameChoice:SetText(choice and ("Selected: " .. choice.display_label .. " [" .. choice.id .. "]")
+                or (results.total > 0 and "Select a result to prepare this action" or "No matching entries in this world's catalog"))
+            local first = results.total > 0 and ((page - 1) * results.page_size + 1) or 0
+            local last = results.total > 0 and (first + table.getn(results.entries) - 1) or 0
+            BenillaAdminFramePageCount:SetText("Page " .. results.page .. " / " .. results.pages .. "   |   " .. first .. "-" .. last .. " of " .. results.total)
+            setEnabled(BenillaAdminFramePrevious, page > 1)
+            setEnabled(BenillaAdminFrameNext, page < results.pages)
+            if spec[5] then
+                BenillaAdminFrameAmountLabel:SetText(spec[5])
+                BenillaAdminFrameAmountLabel:Show()
+                BenillaAdminFrameAmount:Show()
+            else
+                BenillaAdminFrameAmountLabel:Hide()
+                BenillaAdminFrameAmount:Hide()
+            end
+            local label = spec[3]
+            if spec[1] == "xp" then
+                if currentView.xp_enabled == nil then label = "XP Control Unavailable"
+                elseif currentView.xp_enabled then label = "Turn XP Gain Off"
+                else label = "Turn XP Gain On" end
+            elseif spec[1] == "level" and currentView.current_level then
+                label = "Gain +1 Level (" .. currentView.current_level .. "/" .. currentView.max_level .. ")"
+            end
+            BenillaAdminFrameApply:SetText(label)
+            setEnabled(BenillaAdminFrameApply, capability.enabled and results.reason == "" and (not catalog or choice))
+        end
+
+        function BenillaAdmin_Apply()
+            BenillaAdmin_Refresh()
+            local spec = actions[selected]
+            local capability = currentView and currentView[spec[1]]
+            if not capability or not capability.enabled or not BenillaAdminSubmit
+                or results.reason ~= "" or (catalogActions[spec[1]] and not choice) then return end
+            local amount = BenillaAdminFrameAmount:GetText()
+            if spec[1] == "xp" then amount = currentView.xp_enabled and "off" or "on" end
+            BenillaAdminSubmit(spec[1], choice and choice.id or "", amount, currentView.generation)
+            BenillaAdminFrameAmount:ClearFocus()
+            BenillaAdmin_Refresh()
+        end
+
+        function BenillaAdmin_OnLoad()
+            UIPanelWindows["BenillaAdminFrame"] = { area = "center", pushable = 0, whileDead = 1 }
+            for index, spec in ipairs(actions) do
+                local row = CreateFrame("Button", "BenillaAdminAction" .. index, this, "UIPanelButtonTemplate")
+                row:SetWidth(134)
+                row:SetHeight(22)
+                row:SetPoint("TOPLEFT", this, "TOPLEFT", 20, -77 - (index - 1) * 27)
+                row:SetText(spec[2])
+                row:SetID(index)
+                row:SetScript("OnClick", function() BenillaAdmin_Select(this:GetID()) end)
+            end
+            for index = 1, 5 do
+                local row = CreateFrame("Button", "BenillaAdminResult" .. index, this, "UIPanelButtonTemplate")
+                row:SetWidth(380)
+                row:SetHeight(22)
+                row:SetPoint("TOPLEFT", this, "TOPLEFT", 176, -218 - (index - 1) * 24)
+                row:SetID(index)
+                row:SetScript("OnClick", function() BenillaAdmin_Choose(this:GetID()) end)
+                row:SetScript("OnEnter", function() BenillaAdmin_Tooltip(this:GetID()) end)
+                row:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+            end
+        end
+    ]]></Script>
+    <!-- The stock dialog frame art, fonts, edit box and red button templates are read from the
+         player's own FrameXML/MPQs. No stock interface code or assets are bundled here. -->
+    <Frame name="BenillaAdminFrame" parent="UIParent" frameStrata="DIALOG" toplevel="true" enableMouse="true" hidden="true">
+        <Size><AbsDimension x="584" y="648"/></Size>
+        <Anchors><Anchor point="CENTER"/></Anchors>
+        <Backdrop bgFile="Interface\DialogFrame\UI-DialogBox-Background" edgeFile="Interface\DialogFrame\UI-DialogBox-Border" tile="true">
+            <TileSize><AbsValue val="32"/></TileSize><EdgeSize><AbsValue val="32"/></EdgeSize>
+            <BackgroundInsets><AbsInset left="11" right="12" top="12" bottom="11"/></BackgroundInsets>
+        </Backdrop>
+        <Layers>
+            <Layer level="ARTWORK">
+                <Texture name="$parentHeader" file="Interface\DialogFrame\UI-DialogBox-Header">
+                    <Size><AbsDimension x="256" y="64"/></Size>
+                    <Anchors><Anchor point="TOP"><Offset><AbsDimension x="0" y="12"/></Offset></Anchor></Anchors>
+                </Texture>
+            </Layer>
+            <Layer level="OVERLAY">
+                <FontString inherits="GameFontNormal" text="Admin"><Anchors><Anchor point="TOP"><Offset><AbsDimension x="0" y="-2"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentIdentity" inherits="GameFontNormal" justifyH="LEFT"><Size><AbsDimension x="530" y="18"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="24" y="-35"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentContext" inherits="GameFontHighlightSmall" justifyH="LEFT"><Size><AbsDimension x="530" y="22"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="24" y="-53"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentOperationTitle" inherits="GameFontNormalLarge" justifyH="LEFT"><Size><AbsDimension x="380" y="22"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="176" y="-80"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentHelp" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP"><Size><AbsDimension x="380" y="58"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="176" y="-110"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentSearchLabel" inherits="GameFontNormalSmall" justifyH="LEFT" text="Search name or ID; leave empty to browse"><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="176" y="-174"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentPageCount" inherits="GameFontHighlightSmall" justifyH="CENTER"><Size><AbsDimension x="208" y="22"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="262" y="-344"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentBrowseHelp" inherits="GameFontHighlightSmall" justifyH="LEFT" text="Tab: browse results; arrows: move/page; Enter: select. Hover for details."><Size><AbsDimension x="380" y="30"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="176" y="-374"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentChoice" inherits="GameFontHighlightSmall" justifyH="LEFT"><Size><AbsDimension x="380" y="32"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="176" y="-409"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentAmountLabel" inherits="GameFontNormalSmall" justifyH="LEFT"><Size><AbsDimension x="380" y="18"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="176" y="-446"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentReason" inherits="GameFontNormalSmall" justifyH="LEFT" justifyV="TOP"><Size><AbsDimension x="380" y="42"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="176" y="-498"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentResult" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP"><Size><AbsDimension x="530" y="42"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="24" y="-590"/></Offset></Anchor></Anchors></FontString>
+            </Layer>
+        </Layers>
+        <Frames>
+            <Button name="$parentCloseButton" inherits="UIPanelCloseButton"><Anchors><Anchor point="TOPRIGHT"><Offset><AbsDimension x="-5" y="-5"/></Offset></Anchor></Anchors><Scripts><OnClick>HideUIPanel(BenillaAdminFrame)</OnClick></Scripts></Button>
+            <EditBox name="$parentSearch" inherits="InputBoxTemplate" autoFocus="false" letters="80">
+                <Size><AbsDimension x="366" y="20"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="184" y="-191"/></Offset></Anchor></Anchors>
+                <Scripts><OnTextChanged>BenillaAdmin_Refresh()</OnTextChanged><OnTabPressed>BenillaAdmin_Browse()</OnTabPressed><OnEnterPressed>BenillaAdmin_Choose(1)</OnEnterPressed><OnEscapePressed>this:ClearFocus(); ToggleGameMenu()</OnEscapePressed></Scripts>
+            </EditBox>
+            <EditBox name="$parentAmount" inherits="InputBoxTemplate" autoFocus="false" letters="10">
+                <Size><AbsDimension x="110" y="20"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="184" y="-467"/></Offset></Anchor></Anchors>
+                <Scripts><OnEscapePressed>this:ClearFocus(); ToggleGameMenu()</OnEscapePressed><OnEnterPressed>this:ClearFocus()</OnEnterPressed></Scripts>
+            </EditBox>
+            <Button name="$parentPrevious" inherits="UIPanelButtonTemplate" text="Previous"><Size><AbsDimension x="80" y="22"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="176" y="-344"/></Offset></Anchor></Anchors><Scripts><OnClick>BenillaAdmin_Page(-1)</OnClick></Scripts></Button>
+            <Button name="$parentNext" inherits="UIPanelButtonTemplate" text="Next"><Size><AbsDimension x="80" y="22"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="476" y="-344"/></Offset></Anchor></Anchors><Scripts><OnClick>BenillaAdmin_Page(1)</OnClick></Scripts></Button>
+            <Button name="$parentApply" inherits="UIPanelButtonTemplate"><Size><AbsDimension x="230" y="24"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="176" y="-553"/></Offset></Anchor></Anchors><Scripts><OnClick>BenillaAdmin_Apply()</OnClick></Scripts></Button>
+            <Button name="$parentWorldSetup" inherits="UIPanelButtonTemplate" text="Local World Setup"><Size><AbsDimension x="134" y="24"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-405"/></Offset></Anchor></Anchors><Scripts><OnClick>BenillaWorldSetup_Open()</OnClick></Scripts></Button>
+            <Button name="$parentDone" inherits="UIPanelButtonTemplate" text="CLOSE"><Size><AbsDimension x="134" y="24"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-553"/></Offset></Anchor></Anchors><Scripts><OnClick>HideUIPanel(BenillaAdminFrame)</OnClick></Scripts></Button>
+        </Frames>
+        <Scripts>
+            <OnLoad>BenillaAdmin_OnLoad()</OnLoad>
+            <OnKeyDown>BenillaAdmin_Key(arg1)</OnKeyDown>
+            <OnShow>
+                local scale = math.min(1, GetScreenWidth() / 604, GetScreenHeight() / 668)
+                this:SetScale(scale)
+                BenillaAdmin_Select(1)
+                if UpdateMicroButtons then UpdateMicroButtons() end
+                PlaySound("igMainMenuOpen")
+            </OnShow>
+            <OnUpdate>
+                this.adminElapsed = (this.adminElapsed or 0) + arg1
+                if this.adminElapsed &gt;= 0.25 then this.adminElapsed = 0; BenillaAdmin_Refresh() end
+            </OnUpdate>
+            <OnHide>if GameTooltip then GameTooltip:Hide() end; BenillaAdminFrameSearch:ClearFocus(); BenillaAdminFrameAmount:ClearFocus(); if UpdateMicroButtons then UpdateMicroButtons() end; PlaySound("igMainMenuClose")</OnHide>
+        </Scripts>
+    </Frame>
+
+    <Script><![CDATA[
+        -- Fork-only profile-signed local-world setup. Saving or selecting a declaration never
+        -- attaches a gameplay backend or turns this form into an authorization credential.
+        local setupView, setupContext, setupRevision
+        local setupMode, setupPage, setupChoice = "saved", 1, nil
+        local setupNotice = ""
+        local function setupEnabled(button, enabled)
+            if enabled then button:Enable() else button:Disable() end
+        end
+        local function setupVisible(widget, visible)
+            if visible then widget:Show() else widget:Hide() end
+        end
+        local function setupFields()
+            local label = string.gsub(BenillaWorldSetupFrameName:GetText(), "^%s*(.-)%s*$", "%1")
+            if string.len(label) == 0 or string.len(label) > 40 or string.find(label, "[^A-Za-z0-9 _%-]") then
+                return nil, "Enter a name with 1-40 ASCII letters, numbers, spaces, hyphens or underscores."
+            end
+            local seen, count = {}, 0
+            for id in string.gfind(BenillaWorldSetupFrameAdmins:GetText(), "[^,%s]+") do
+                id = string.lower(id)
+                if string.len(id) ~= 32 or string.find(id, "[^0-9a-f]") or id == string.rep("0", 32) then
+                    return nil, "Each additional admin owner ID must contain exactly 32 hexadecimal characters and cannot be all zeroes."
+                end
+                if id == setupView.owner_id then return nil, "The current owner already has permission. Leave their ID out of the additional list." end
+                if seen[id] then return nil, "An additional admin ID is repeated. Enter each owner ID once." end
+                seen[id], count = true, count + 1
+                if count > 64 then return nil, "At most 64 additional admin owner IDs can be saved." end
+            end
+            return count, ""
+        end
+        function BenillaWorldSetup_Mode(mode)
+            setupMode, setupChoice, setupNotice = mode, nil, ""
+            BenillaWorldSetupFrameName:ClearFocus()
+            BenillaWorldSetupFrameAdmins:ClearFocus()
+            BenillaWorldSetup_Refresh()
+            if mode == "new" then BenillaWorldSetupFrameName:SetFocus() end
+        end
+        function BenillaWorldSetup_Page(direction)
+            BenillaWorldSetup_Refresh()
+            setupPage = math.max(1, math.min(math.max(1, math.ceil(table.getn(setupView.worlds) / 5)), setupPage + direction))
+            setupChoice = nil
+            BenillaWorldSetup_Refresh()
+        end
+        function BenillaWorldSetup_Choose(index)
+            local oldView = setupView
+            local world = oldView and oldView.worlds[(setupPage - 1) * 5 + index]
+            BenillaWorldSetup_Refresh()
+            if not world or oldView.context ~= setupView.context or oldView.revision ~= setupView.revision then return end
+            setupChoice = world
+            BenillaWorldSetup_Refresh()
+        end
+        function BenillaWorldSetup_Save()
+            local context, revision = setupContext, setupRevision
+            BenillaWorldSetup_Refresh()
+            local count = setupFields()
+            if not setupView.available or setupView.pending or not count or table.getn(setupView.worlds) >= 16
+                or context ~= setupContext or revision ~= setupRevision or not BenillaWorldSetupCreate then return end
+            BenillaWorldSetupCreate(BenillaWorldSetupFrameName:GetText(), BenillaWorldSetupFrameAdmins:GetText(), context, revision)
+            BenillaWorldSetupFrameName:ClearFocus()
+            BenillaWorldSetupFrameAdmins:ClearFocus()
+            BenillaWorldSetup_Refresh()
+        end
+        function BenillaWorldSetup_Use()
+            local context, revision, world = setupContext, setupRevision, setupChoice
+            BenillaWorldSetup_Refresh()
+            if not setupView.available or setupView.pending or not setupChoice or setupChoice.selected or world ~= setupChoice
+                or context ~= setupContext or revision ~= setupRevision or not BenillaWorldSetupSelect then return end
+            BenillaWorldSetupSelect(world.id, context, revision)
+            BenillaWorldSetup_Refresh()
+        end
+        function BenillaWorldSetup_Refresh()
+            if not BenillaWorldSetupFrameSave then return end
+            setupView = BenillaWorldSetupGetView and BenillaWorldSetupGetView() or {
+                available = false, pending = false, message = "", status = "Local-world setup backend unavailable in this session.",
+                owner_id = "", context = "", revision = "0", worlds = {}, selected_id = "",
+            }
+            if setupContext ~= setupView.context or setupRevision ~= setupView.revision then
+                if setupContext then setupNotice = "Setup changed. Review the current owner and saved worlds before continuing." end
+                setupChoice, setupPage = nil, 1
+                BenillaWorldSetupFrameName:SetText("")
+                BenillaWorldSetupFrameAdmins:SetText("")
+            end
+            setupContext, setupRevision = setupView.context, setupView.revision
+            local creating = setupMode == "new"
+            local total = math.min(16, table.getn(setupView.worlds))
+            local pages = math.ceil(total / 5)
+            setupPage = math.max(1, math.min(math.max(1, pages), setupPage))
+            BenillaWorldSetupFrameOwner:SetText(setupView.owner_id ~= "" and ("Current profile owner: " .. setupView.owner_id) or "No current profile owner")
+            BenillaWorldSetupFrameStatus:SetText(setupView.status)
+            BenillaWorldSetupFrameSavedTab:SetButtonState(creating and "NORMAL" or "PUSHED", not creating)
+            BenillaWorldSetupFrameNewTab:SetButtonState(creating and "PUSHED" or "NORMAL", creating)
+            for i = 1, 5 do
+                local row = getglobal("BenillaWorldSetupRow" .. i)
+                local world = setupView.worlds[(setupPage - 1) * 5 + i]
+                if world and not creating then
+                    row:SetText(world.label .. (world.selected and " (saved selection)" or ""))
+                    local chosen = setupChoice and setupChoice.id == world.id
+                    row:SetButtonState(chosen and "PUSHED" or "NORMAL", chosen)
+                    row:Show()
+                else row:Hide() end
+            end
+            for _, widget in ipairs({ BenillaWorldSetupFrameNameLabel, BenillaWorldSetupFrameName,
+                BenillaWorldSetupFrameAdminsLabel, BenillaWorldSetupFrameAdmins, BenillaWorldSetupFrameAdminsHelp,
+                BenillaWorldSetupFrameReview, BenillaWorldSetupFrameSave }) do setupVisible(widget, creating) end
+            for _, widget in ipairs({ BenillaWorldSetupFramePrevious, BenillaWorldSetupFrameNext,
+                BenillaWorldSetupFramePageCount, BenillaWorldSetupFrameChoice, BenillaWorldSetupFrameUse }) do setupVisible(widget, not creating) end
+            BenillaWorldSetupFramePageCount:SetText("Page " .. (total == 0 and 0 or setupPage) .. " / " .. pages .. "   |   " .. total .. " saved worlds")
+            setupEnabled(BenillaWorldSetupFramePrevious, setupPage > 1)
+            setupEnabled(BenillaWorldSetupFrameNext, setupPage < pages)
+            BenillaWorldSetupFrameChoice:SetText(setupChoice and (setupChoice.label .. "\nWorld: " .. setupChoice.id .. "\nOwner: " .. setupChoice.owner_id .. "\nAdditional admins: " .. table.getn(setupChoice.allowlist))
+                or (total == 0 and "No local worlds saved. Choose New World to prepare one." or "Choose a saved world, then Select Saved World."))
+            local count, validation = setupFields()
+            BenillaWorldSetupFrameReview:SetText(count and ("Save and select a new local world owned by " .. setupView.owner_id .. "; " .. count .. " other admins.\n\nThis immutable setup cannot be edited. Gameplay and grants remain unavailable.") or validation)
+            local reason = setupNotice
+            if not setupView.available then reason = setupView.status
+            elseif setupView.pending then reason = "Waiting for the durable setup result. Closing this window does not cancel it."
+            elseif creating and total >= 16 then reason = "The 16-world save limit has been reached."
+            elseif creating and not count then reason = validation end
+            BenillaWorldSetupFrameReason:SetText(reason)
+            BenillaWorldSetupFrameResult:SetText(setupView.message)
+            setupEnabled(BenillaWorldSetupFrameSave, setupView.available and not setupView.pending and count ~= nil and total < 16)
+            setupEnabled(BenillaWorldSetupFrameUse, setupView.available and not setupView.pending and setupChoice ~= nil and not setupChoice.selected)
+        end
+        function BenillaWorldSetup_OnLoad()
+            UIPanelWindows["BenillaWorldSetupFrame"] = { area = "center", pushable = 0, whileDead = 1 }
+            for i = 1, 5 do
+                local row = CreateFrame("Button", "BenillaWorldSetupRow" .. i, this, "UIPanelButtonTemplate")
+                row:SetWidth(530); row:SetHeight(22)
+                row:SetPoint("TOPLEFT", this, "TOPLEFT", 24, -126 - (i - 1) * 24)
+                row:SetID(i)
+                row:SetScript("OnClick", function() BenillaWorldSetup_Choose(this:GetID()) end)
+            end
+        end
+        function BenillaWorldSetup_Open()
+            HideUIPanel(BenillaAdminFrame)
+            ShowUIPanel(BenillaWorldSetupFrame)
+        end
+        function BenillaWorldSetup_Back()
+            HideUIPanel(BenillaWorldSetupFrame)
+            ShowUIPanel(BenillaAdminFrame)
+        end
+        function BenillaWorldSetup_OnShow()
+            this:SetScale(math.min(1, GetScreenWidth() / 604, GetScreenHeight() / 624))
+            setupContext, setupRevision, setupNotice = nil, nil, ""
+            setupMode, setupPage, setupChoice = "saved", 1, nil
+            BenillaWorldSetup_Refresh()
+            if UpdateMicroButtons then UpdateMicroButtons() end
+            PlaySound("igMainMenuOpen")
+        end
+    ]]></Script>
+    <Frame name="BenillaWorldSetupFrame" parent="UIParent" frameStrata="DIALOG" toplevel="true" enableMouse="true" hidden="true">
+        <Size><AbsDimension x="584" y="600"/></Size>
+        <Anchors><Anchor point="CENTER"/></Anchors>
+        <Backdrop bgFile="Interface\DialogFrame\UI-DialogBox-Background" edgeFile="Interface\DialogFrame\UI-DialogBox-Border" tile="true">
+            <TileSize><AbsValue val="32"/></TileSize><EdgeSize><AbsValue val="32"/></EdgeSize>
+            <BackgroundInsets><AbsInset left="11" right="12" top="12" bottom="11"/></BackgroundInsets>
+        </Backdrop>
+        <Layers>
+            <Layer level="ARTWORK">
+                <Texture name="$parentHeader" file="Interface\DialogFrame\UI-DialogBox-Header"><Size><AbsDimension x="256" y="64"/></Size><Anchors><Anchor point="TOP"><Offset><AbsDimension x="0" y="12"/></Offset></Anchor></Anchors></Texture>
+            </Layer>
+            <Layer level="OVERLAY">
+                <FontString inherits="GameFontNormal" text="Local World Setup"><Anchors><Anchor point="TOP"><Offset><AbsDimension x="0" y="-2"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentOwner" inherits="GameFontNormalSmall" justifyH="LEFT"><Size><AbsDimension x="530" y="18"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="24" y="-35"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentStatus" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP"><Size><AbsDimension x="530" y="32"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="24" y="-57"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentPageCount" inherits="GameFontHighlightSmall" justifyH="CENTER"><Size><AbsDimension x="354" y="22"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="114" y="-250"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentChoice" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP"><Size><AbsDimension x="530" y="80"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="24" y="-282"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentNameLabel" inherits="GameFontNormalSmall" text="New world name (1-40 characters)" justifyH="LEFT"><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="24" y="-126"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentAdminsLabel" inherits="GameFontNormalSmall" text="Additional admin owner IDs (optional)" justifyH="LEFT"><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="24" y="-185"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentAdminsHelp" inherits="GameFontHighlightSmall" text="Enter up to 64 distinct 32-character owner IDs, separated by commas or spaces. The current profile owner already has permission in this saved declaration." justifyH="LEFT" justifyV="TOP"><Size><AbsDimension x="530" y="40"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="24" y="-236"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentReview" inherits="GameFontHighlight" justifyH="LEFT" justifyV="TOP"><Size><AbsDimension x="530" y="80"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="24" y="-286"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentReason" inherits="GameFontNormalSmall" justifyH="LEFT" justifyV="TOP"><Size><AbsDimension x="530" y="42"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="24" y="-374"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentDisclaimer" inherits="GameFontNormalSmall" text="Saved setup only. Gameplay and grants remain unavailable until this world can start. The group passphrase does not grant admin permission." justifyH="LEFT" justifyV="TOP"><Size><AbsDimension x="530" y="36"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="24" y="-464"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentResult" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP"><Size><AbsDimension x="530" y="40"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="24" y="-505"/></Offset></Anchor></Anchors></FontString>
+            </Layer>
+        </Layers>
+        <Frames>
+            <Button name="$parentCloseButton" inherits="UIPanelCloseButton"><Anchors><Anchor point="TOPRIGHT"><Offset><AbsDimension x="-5" y="-5"/></Offset></Anchor></Anchors><Scripts><OnClick>HideUIPanel(BenillaWorldSetupFrame)</OnClick></Scripts></Button>
+            <Button name="$parentSavedTab" inherits="UIPanelButtonTemplate" text="Saved Worlds"><Size><AbsDimension x="255" y="22"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="24" y="-92"/></Offset></Anchor></Anchors><Scripts><OnClick>BenillaWorldSetup_Mode("saved")</OnClick></Scripts></Button>
+            <Button name="$parentNewTab" inherits="UIPanelButtonTemplate" text="New World"><Size><AbsDimension x="255" y="22"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="299" y="-92"/></Offset></Anchor></Anchors><Scripts><OnClick>BenillaWorldSetup_Mode("new")</OnClick></Scripts></Button>
+            <EditBox name="$parentName" inherits="InputBoxTemplate" autoFocus="false" letters="40"><Size><AbsDimension x="514" y="20"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="32" y="-149"/></Offset></Anchor></Anchors><Scripts><OnTextChanged>BenillaWorldSetup_Refresh()</OnTextChanged><OnTabPressed>this:ClearFocus(); BenillaWorldSetupFrameAdmins:SetFocus()</OnTabPressed><OnEnterPressed>this:ClearFocus()</OnEnterPressed><OnEscapePressed>this:ClearFocus(); ToggleGameMenu()</OnEscapePressed></Scripts></EditBox>
+            <EditBox name="$parentAdmins" inherits="InputBoxTemplate" autoFocus="false" letters="2176"><Size><AbsDimension x="514" y="20"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="32" y="-207"/></Offset></Anchor></Anchors><Scripts><OnTextChanged>BenillaWorldSetup_Refresh()</OnTextChanged><OnTabPressed>this:ClearFocus(); BenillaWorldSetupFrameName:SetFocus()</OnTabPressed><OnEnterPressed>this:ClearFocus()</OnEnterPressed><OnEscapePressed>this:ClearFocus(); ToggleGameMenu()</OnEscapePressed></Scripts></EditBox>
+            <Button name="$parentPrevious" inherits="UIPanelButtonTemplate" text="Previous"><Size><AbsDimension x="80" y="22"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="24" y="-250"/></Offset></Anchor></Anchors><Scripts><OnClick>BenillaWorldSetup_Page(-1)</OnClick></Scripts></Button>
+            <Button name="$parentNext" inherits="UIPanelButtonTemplate" text="Next"><Size><AbsDimension x="80" y="22"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="474" y="-250"/></Offset></Anchor></Anchors><Scripts><OnClick>BenillaWorldSetup_Page(1)</OnClick></Scripts></Button>
+            <Button name="$parentSave" inherits="UIPanelButtonTemplate" text="Save &amp; Select New World"><Size><AbsDimension x="230" y="24"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="24" y="-426"/></Offset></Anchor></Anchors><Scripts><OnClick>BenillaWorldSetup_Save()</OnClick></Scripts></Button>
+            <Button name="$parentUse" inherits="UIPanelButtonTemplate" text="Select Saved World"><Size><AbsDimension x="230" y="24"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="24" y="-426"/></Offset></Anchor></Anchors><Scripts><OnClick>BenillaWorldSetup_Use()</OnClick></Scripts></Button>
+            <Button name="$parentBack" inherits="UIPanelButtonTemplate" text="Back to Admin"><Size><AbsDimension x="170" y="24"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="24" y="-558"/></Offset></Anchor></Anchors><Scripts><OnClick>BenillaWorldSetup_Back()</OnClick></Scripts></Button>
+            <Button name="$parentDone" inherits="UIPanelButtonTemplate" text="CLOSE"><Size><AbsDimension x="134" y="24"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="420" y="-558"/></Offset></Anchor></Anchors><Scripts><OnClick>HideUIPanel(BenillaWorldSetupFrame)</OnClick></Scripts></Button>
+        </Frames>
+        <Scripts>
+            <OnLoad>BenillaWorldSetup_OnLoad()</OnLoad>
+            <OnShow>BenillaWorldSetup_OnShow()</OnShow>
+            <OnUpdate>this.setupElapsed = (this.setupElapsed or 0) + arg1; if this.setupElapsed &gt;= 0.25 then this.setupElapsed = 0; BenillaWorldSetup_Refresh() end</OnUpdate>
+            <OnHide>BenillaWorldSetupFrameName:ClearFocus(); BenillaWorldSetupFrameAdmins:ClearFocus(); if UpdateMicroButtons then UpdateMicroButtons() end; PlaySound("igMainMenuClose")</OnHide>
+        </Scripts>
+    </Frame>
+
+    <Script><![CDATA[
+        -- ══ The frame: the era layout, 28+144+28 wide, 32 top, 28 bottom, 8 rungs of 21 and
         -- three gaps of 20 ═══════════════════════════════════════════════════════════════════════
         GameMenuFrame:SetWidth(200)
-        GameMenuFrame:SetHeight(267)
+        GameMenuFrame:SetHeight(288)
 
         -- The stock title (`GameMenuFrame.xml:36`) has no name: found as addons find it.
         for _, region in ipairs({ GameMenuFrame:GetRegions() }) do
@@ -62,17 +551,34 @@
         -- (ShaguTweaks) moves them down as it moves the stock rungs.
         GameMenuButtonKeybindings:Hide()
 
-        -- The era's Edit Mode and Support, with nothing behind them yet: disabled.
+        -- Fork-only Admin rung, using the same stock button template as the game menu.
+        local admin = CreateFrame("Button", "BenillaGameMenuButtonAdmin", GameMenuFrame,
+            "GameMenuButtonTemplate")
+        admin:SetPoint("TOP", GameMenuButtonKeybindings, "TOP", 0, -19)
+        admin:SetText("Admin")
+        admin:SetScript("OnClick", function()
+            PlaySound("igMainMenuOption")
+            HideUIPanel(GameMenuFrame)
+            ShowUIPanel(BenillaAdminFrame)
+        end)
+
+        -- The era's Edit Mode, with nothing behind it yet: disabled.
         local editMode = CreateFrame("Button", "BenillaGameMenuButtonEditMode", GameMenuFrame,
             "GameMenuButtonTemplate")
-        editMode:SetPoint("TOP", GameMenuButtonKeybindings, "TOP", 0, -19)
+        editMode:SetPoint("TOP", admin, "BOTTOM", 0, 0)
         editMode:SetText("Edit Mode")
         editMode:Disable()
         local support = CreateFrame("Button", "BenillaGameMenuButtonSupport", GameMenuFrame,
             "GameMenuButtonTemplate")
         support:SetPoint("TOP", editMode, "BOTTOM", 0, 0)
         support:SetText("Support")
-        support:Disable()
+        -- The era's Support opens the help window, which 1.12 opens from its "?" micro button
+        -- (`MainMenuBarMicroButtons.xml:217`); closing the menu first, as the Macros rung does.
+        support:SetScript("OnClick", function()
+            PlaySound("igMainMenuOption")
+            HideUIPanel(GameMenuFrame)
+            ToggleHelpFrame()
+        end)
 
         GameMenuButtonMacros:SetPoint("TOP", support, "BOTTOM", 0, 0)
         GameMenuButtonLogout:SetPoint("TOP", GameMenuButtonMacros, "BOTTOM", 0, -20)
@@ -92,6 +598,8 @@
 
         -- `UIParent.lua:996`: a yes keeps the ESC sweep off the centre panel, which our window is.
         function IsOptionFrameOpen()
+            if BenillaWorldSetupFrame:IsVisible() then return 1 end
+            if BenillaAdminFrame:IsVisible() then return 1 end
             if BenillaOptions_IsOpen() then
                 return 1
             end
@@ -102,6 +610,8 @@
         -- ladder. Our Close click is the discard-and-hide of the reference's `OptionsFrameCancel`.
         function ToggleGameMenu(clicked)
             if clicked then
+                if BenillaWorldSetupFrame:IsVisible() then HideUIPanel(BenillaWorldSetupFrame) end
+                if BenillaAdminFrame:IsVisible() then HideUIPanel(BenillaAdminFrame) end
                 -- As the reference's `clicked` arm: close an options window, then toggle.
                 if BenillaOptions_IsOpen() then
                     BenillaOptionsFrameCloseButton:Click()
@@ -109,6 +619,14 @@
                 return Ref_ToggleGameMenu(clicked)
             end
             if StaticPopup_EscapePressed() then
+                return
+            end
+            if BenillaWorldSetupFrame:IsVisible() then
+                HideUIPanel(BenillaWorldSetupFrame)
+                return
+            end
+            if BenillaAdminFrame:IsVisible() then
+                HideUIPanel(BenillaAdminFrame)
                 return
             end
             if BenillaOptions_IsOpen() then
@@ -124,7 +642,7 @@
             if Ref_UpdateMicroButtons then
                 Ref_UpdateMicroButtons()
             end
-            if MainMenuMicroButton and BenillaOptions_IsOpen() then
+            if MainMenuMicroButton and (BenillaOptions_IsOpen() or BenillaAdminFrame:IsVisible() or BenillaWorldSetupFrame:IsVisible()) then
                 MainMenuMicroButton:SetButtonState("PUSHED", 1)
             end
         end

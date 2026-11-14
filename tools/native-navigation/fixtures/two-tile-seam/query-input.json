@@ -1,0 +1,96 @@
+{
+  "point_source": "Exact original single-tile nearest points, queried again with scalar half-extents 5",
+  "queries": [
+    {
+      "end_bits": [
+        "449071c8",
+        "40eeeeed",
+        "42b1c71c"
+      ],
+      "name": "row_1_forward",
+      "neighbor_source_query_index": 0,
+      "selected_source_query_index": 4,
+      "start_bits": [
+        "447471c6",
+        "40ecccc9",
+        "42b1c71c"
+      ]
+    },
+    {
+      "end_bits": [
+        "447471c6",
+        "40ecccc9",
+        "42b1c71c"
+      ],
+      "name": "row_1_reverse",
+      "neighbor_source_query_index": 0,
+      "selected_source_query_index": 4,
+      "start_bits": [
+        "449071c8",
+        "40eeeeed",
+        "42b1c71c"
+      ]
+    },
+    {
+      "end_bits": [
+        "449071c8",
+        "40c44443",
+        "43855555"
+      ],
+      "name": "row_3_forward",
+      "neighbor_source_query_index": 10,
+      "selected_source_query_index": 14,
+      "start_bits": [
+        "447471c6",
+        "40c66662",
+        "43855555"
+      ]
+    },
+    {
+      "end_bits": [
+        "447471c6",
+        "40c66662",
+        "43855555"
+      ],
+      "name": "row_3_reverse",
+      "neighbor_source_query_index": 10,
+      "selected_source_query_index": 14,
+      "start_bits": [
+        "449071c8",
+        "40c44443",
+        "43855555"
+      ]
+    },
+    {
+      "end_bits": [
+        "449071c8",
+        "409b05ad",
+        "43de38e3"
+      ],
+      "name": "row_5_forward",
+      "neighbor_source_query_index": 20,
+      "selected_source_query_index": 24,
+      "start_bits": [
+        "447471c6",
+        "4098e389",
+        "43de38e3"
+      ]
+    },
+    {
+      "end_bits": [
+        "447471c6",
+        "4098e389",
+        "43de38e3"
+      ],
+      "name": "row_5_reverse",
+      "neighbor_source_query_index": 20,
+      "selected_source_query_index": 24,
+      "start_bits": [
+        "449071c8",
+        "409b05ad",
+        "43de38e3"
+      ]
+    }
+  ],
+  "schema": 1
+}

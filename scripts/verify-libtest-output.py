@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+"""Verify exact libtest output or classify Cargo's abnormal test-process exits."""
+
+import argparse
+from pathlib import Path
+import re
+import sys
+
+
+def verify(output: str, names: list[str]) -> None:
+    if not names or len(names) != len(set(names)):
+        raise ValueError("expected test names must be nonempty and unique")
+    count = len(names)
+    lines = output.splitlines()
+    headers = [i for i, line in enumerate(lines) if line.startswith("running ")]
+    summaries = [i for i, line in enumerate(lines) if line.startswith("test result:")]
+    header = f"running {count} test{'s' if count != 1 else ''}"
+    if len(headers) != 1 or lines[headers[0]] != header:
+        raise ValueError(f"expected exactly one {header!r} header")
+    if len(summaries) != 1:
+        raise ValueError("expected exactly one test result summary")
+    start, end = headers[0], summaries[0]
+    if any(lines[:start]) or any(lines[end + 1 :]):
+        raise ValueError("unexpected stdout outside the libtest run")
+    expected = {f"test {name} ... ok" for name in names}
+    results = lines[start + 1 : start + 1 + count]
+    if end <= start + count or len(results) != count or set(results) != expected:
+        raise ValueError("expected each named test to pass exactly once after the header")
+    if any(line.startswith("test ") for line in lines[start + count + 1 : end]):
+        raise ValueError("unexpected or duplicate test result")
+    summary = (
+        rf"test result: ok\. {count} passed; 0 failed; 0 ignored; "
+        r"0 measured; \d+ filtered out; finished in \d+(?:\.\d+)?s"
+    )
+    if re.fullmatch(summary, lines[end]) is None:
+        raise ValueError("test summary does not prove the exact passing count")
+
+
+def needs_crash_rerun(output: str) -> bool:
+    """Cargo reports abnormal test exits separately from ordinary FAILED summaries."""
+    failed_test = False
+    for line in output.splitlines():
+        line = re.sub(r"\x1b\[[0-9;]*m", "", line).strip()
+        if line.startswith("error:"):
+            failed_test = line.startswith("error: test failed, to rerun pass ")
+        elif line.startswith(("Running ", "Doc-tests ")):
+            failed_test = False
+        elif failed_test and line.startswith("process didn't exit successfully:"):
+            return True
+    return False
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("log", type=Path)
+    parser.add_argument("names", nargs="*")
+    parser.add_argument("--needs-crash-rerun", action="store_true")
+    args = parser.parse_args()
+    try:
+        output = args.log.read_text(encoding="utf-8")
+        if args.needs_crash_rerun:
+            print(str(needs_crash_rerun(output)).lower())
+        else:
+            verify(output, args.names)
+    except (OSError, UnicodeError, ValueError) as error:
+        print(f"libtest verification failed: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -17,7 +17,7 @@ use crate::dbc::{parse, str_at, u32_at};
 pub const EMOTE_FLAG_INTERACTION: u32 = 0x2000;
 
 /// The joined emote tables.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct EmoteSoundCatalog {
     /// Uppercased `EmotesText.Name` ("WAVE") to text-emote id.
     by_name: HashMap<String, u32>,
@@ -47,6 +47,11 @@ impl EmoteSoundCatalog {
         self.by_name.get(&name.to_ascii_uppercase()).copied()
     }
 
+    /// Whether this install defines the text emote, including chat-only rows.
+    pub fn contains_text(&self, text_id: u32) -> bool {
+        self.text_emote.contains_key(&text_id)
+    }
+
     /// The voice kit for a performer of the given race/sex (`sex`: 0 male, 1 female).
     pub fn voice(&self, text_id: u32, race: u32, sex: u32) -> Option<u32> {
         self.voice.get(&(text_id, race, sex)).copied()
@@ -74,6 +79,32 @@ impl EmoteSoundCatalog {
     pub fn with_row(mut self, emote_id: u32, anim_id: u32, flags: u32) -> Self {
         self.anim.insert(emote_id, anim_id);
         self.emote_flags.insert(emote_id, flags);
+        self
+    }
+
+    /// A synthetic text/emote pair for isolated presentation tests.
+    #[doc(hidden)]
+    pub fn with_text_row(mut self, text_id: u32, emote_id: u32, spec_proc: u32) -> Self {
+        self.text_emote.insert(text_id, emote_id);
+        self.spec_proc.insert(emote_id, spec_proc);
+        self
+    }
+
+    /// A catalog whose `Emotes.dbc` row `emote_id` is a stand-state emote (`EmoteSpecProc` 1) of
+    /// `state`, for tests of what reads it.
+    #[doc(hidden)]
+    pub fn with_posture(mut self, emote_id: u32, state: u32) -> Self {
+        self.spec_proc.insert(emote_id, 1);
+        self.spec_proc_param.insert(emote_id, state);
+        self
+    }
+
+    /// A catalog holding one `EmotesText.dbc` row: its name, id and the `Emotes.dbc` id it plays,
+    /// for tests of what reads them.
+    #[doc(hidden)]
+    pub fn with_text_emote(mut self, name: &str, text_id: u32, emote_id: u32) -> Self {
+        self.by_name.insert(name.to_ascii_uppercase(), text_id);
+        self.text_emote.insert(text_id, emote_id);
         self
     }
 

@@ -2,7 +2,8 @@
 name = "benilla"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+# Combined package links the GPL-covered synthetic simulation; original file grants remain.
+license = "GPL-3.0-or-later"
 description = "The launcher: build.rs stamps the git build id and main() hands it to benilla-app, so a new commit rebuilds this package and not the app crate"
 
 [lints]

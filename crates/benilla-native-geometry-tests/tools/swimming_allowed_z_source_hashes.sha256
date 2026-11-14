@@ -1,0 +1,4 @@
+52c6d22fbe9f275196a44bf4f9b39da527071e3c81f7460a4ac03a3c9107b85d  src/game/Maps/GridMap.cpp
+accbf9ecc6f436b952d3d38ee2e506fe3d331a7367c048745334160705760c4d  src/game/Maps/GridMap.h
+3a901f22b6d65edae74a93b5cd2be793ebc5c3884eb2c0aa06a37265ef53e54e  src/game/Maps/GridMapDefines.h
+5226e3265f3fed67140a908e52d4d8005028602fdbe2192adc9e9838fa778336  src/game/vmap/IVMapManager.h

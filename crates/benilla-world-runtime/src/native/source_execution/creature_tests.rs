@@ -1,0 +1,1926 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//! Authored executable callback host, not a production AI/geometry implementation.
+use super::*;
+use benilla_sim::creature_init::DisplayChoice;
+use benilla_sim::resident_map::{compute_cell_pair, CellPair};
+use benilla_sim::source_rng::{DrawCursor, Mt19937, SourceRandom, TraceEvent};
+use std::collections::BTreeMap;
+fn map() -> MapIdentity {
+    MapIdentity {
+        map: 0,
+        instance: 0,
+        creation_generation: 1,
+    }
+}
+fn cell(x: f32) -> CellPair {
+    compute_cell_pair(x.to_bits(), 0_f32.to_bits()).unwrap()
+}
+fn spawn(guid: u32, x: f32) -> CreatureSpawn {
+    CreatureSpawn {
+        database_guid: guid,
+        entry: 7,
+        position: [x, 0.0, 4.0, 0.0],
+        model: 0,
+        respawn_seconds: [100, 100],
+        respawn_radius: 5.0,
+        relay: 0,
+    }
+}
+fn template(entry: u32) -> CreatureTemplate {
+    CreatureTemplate {
+        entry,
+        dynamic_guid: false,
+        active: false,
+        count_spawns: false,
+        displays: [
+            DisplayChoice {
+                id: 11,
+                probability: 1,
+            },
+            DisplayChoice {
+                id: 0,
+                probability: 0,
+            },
+            DisplayChoice {
+                id: 0,
+                probability: 0,
+            },
+            DisplayChoice {
+                id: 0,
+                probability: 0,
+            },
+        ],
+        levels: [5, 5],
+        corpse_seconds: 120,
+        can_fly: false,
+    }
+}
+struct Definitions(BTreeMap<u32, CreatureSpawn>);
+impl GridDefinitions for Definitions {
+    type Row = CreatureSpawn;
+    fn read(&mut self, attempt: GridLoadAttempt) -> Result<CreatureSpawn> {
+        require(
+            attempt.catalog_ordinal == u64::from(attempt.guid),
+            "authored.ordinal",
+        )?;
+        self.0.get(&attempt.guid).cloned().ok_or_else(|| Refusal {
+            id: "authored.spawn_missing".into(),
+        })
+    }
+}
+#[derive(Default)]
+struct Products(usize);
+impl GridProductOwner for Products {
+    fn load(&mut self, _: MapIdentity, _: ProductCoordinates) -> Result<bool> {
+        self.0 += 1;
+        Ok(true)
+    }
+}
+struct Random {
+    mt: Mt19937,
+    cursor: DrawCursor,
+    events: Vec<TraceEvent>,
+    stream: Option<u64>,
+}
+impl Random {
+    fn new() -> Self {
+        Self {
+            mt: Mt19937::from_seed(5489),
+            cursor: DrawCursor::default(),
+            events: vec![],
+            stream: Some(2),
+        }
+    }
+}
+impl CreatureRandom for Random {
+    fn creature_stream(&self) -> Result<u64> {
+        self.stream
+            .ok_or_else(|| refuse("execution.creature.SelectLevel_urand_thread_owner"))
+    }
+    fn creature_irand(&mut self, min: i32, max: i32) -> Result<i32> {
+        SourceRandom::new(
+            self.creature_stream()?,
+            &mut self.mt,
+            &mut self.cursor,
+            &mut |e| self.events.push(e),
+        )
+        .unwrap()
+        .creature_irand(min, max)
+    }
+    fn creature_urand(&mut self, min: u32, max: u32) -> Result<u32> {
+        SourceRandom::new(
+            self.creature_stream()?,
+            &mut self.mt,
+            &mut self.cursor,
+            &mut |e| self.events.push(e),
+        )
+        .unwrap()
+        .creature_urand(min, max)
+    }
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Observation {
+    Construct(ObjectHandle),
+    Phase(u32, CreaturePhase),
+    LoaderView(u32),
+    LoaderBg(u32),
+    Entry(CreatureEntryOwner),
+    EventGuid(u32),
+    Persistent(u32),
+    Clock,
+    Save(u32, i64),
+    Destroy(ObjectHandle),
+    Complete(u32),
+    Residency(ResidencyEvent),
+    ResidencyPhase(ObjectHandle, ResidencyPhase),
+}
+struct Factory {
+    guids: MapGuidAllocators,
+    random: Random,
+    templates: BTreeMap<u32, CreatureTemplate>,
+    models: BTreeMap<u32, CreatureModel>,
+    observations: Vec<Observation>,
+    states: BTreeMap<ObjectHandle, CreatureConstruction>,
+    group: Option<CreatureGroup>,
+    entries: [u32; 3],
+    event: Option<CreatureEventData>,
+    event_guid: bool,
+    dynamic: bool,
+    saved_time: i64,
+    now: i64,
+    linked: bool,
+    can_spawn: bool,
+    linked_checks: usize,
+    linking_trigger: bool,
+    active: bool,
+    nested: Option<CellPair>,
+    relay_formation: Option<bool>,
+    refuse: Option<CreaturePhase>,
+    health: BTreeMap<ObjectHandle, u32>,
+    kernel: Option<benilla_sim::creature_init::Input>,
+    initialized: BTreeMap<ObjectHandle, benilla_sim::creature_init::InitializedCreature>,
+    source_level: Option<(
+        CreatureLevelDefinitions,
+        CreatureLevelConfig,
+        benilla_sim::creature_init::SpawnTemplate,
+    )>,
+    source_initialized: BTreeMap<ObjectHandle, benilla_sim::creature_init::SourceLevelStats>,
+    ai_registry: SourceAiRegistry,
+    selected_ai: Option<SelectedCreatureAi>,
+    event_ai_definitions: Option<std::sync::Arc<EventAiDefinitions>>,
+    builtin_dispatch_name: Option<String>,
+    units: SourceUnits,
+    base_ais: SourceCreatureAis,
+    combat: SourceCombat,
+    threats: SourceThreats,
+}
+impl Factory {
+    fn new() -> Self {
+        let mut global = GlobalGuidAllocators::from_seed_rows(GuidSeedRows {
+            player: GuidMaximum::NoResult,
+            item: GuidMaximum::NoResult,
+            corpse: GuidMaximum::NoResult,
+            pet_number: GuidMaximum::NoResult,
+            creature: GuidMaximum::Value(99),
+            gameobject: GuidMaximum::NoResult,
+            creature_reserve: 10,
+            gameobject_reserve: 10,
+        });
+        Self {
+            guids: global.map_allocators(map()).unwrap(),
+            random: Random::new(),
+            templates: [(7, template(7)), (8, template(8))].into(),
+            models: [(
+                11,
+                CreatureModel {
+                    id: 11,
+                    gender: 0,
+                    other_gender: 0,
+                },
+            )]
+            .into(),
+            observations: vec![],
+            states: BTreeMap::new(),
+            group: None,
+            entries: [0; 3],
+            event: None,
+            event_guid: false,
+            dynamic: false,
+            saved_time: 0,
+            now: 1000,
+            linked: false,
+            can_spawn: true,
+            linked_checks: 0,
+            linking_trigger: false,
+            active: false,
+            nested: None,
+            relay_formation: None,
+            refuse: None,
+            health: BTreeMap::new(),
+            kernel: None,
+            initialized: BTreeMap::new(),
+            source_level: None,
+            source_initialized: BTreeMap::new(),
+            ai_registry: SourceAiRegistry::builtin(),
+            selected_ai: None,
+            event_ai_definitions: None,
+            builtin_dispatch_name: None,
+            units: SourceUnits::default(),
+            base_ais: SourceCreatureAis::default(),
+            combat: SourceCombat::default(),
+            threats: SourceThreats::default(),
+        }
+    }
+}
+impl GridObjectFactory<Definitions, Products> for Factory {
+    fn load_from_db(
+        &mut self,
+        a: GridLoadAttempt,
+        row: CreatureSpawn,
+        context: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<GridCandidateOutcome> {
+        context.load_creature(self, a, row)
+    }
+    fn viewpoint_added(
+        &mut self,
+        object: ObjectHandle,
+        _: CellIdentity,
+        context: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<()> {
+        self.observations.push(Observation::LoaderView(
+            context.objects.get(object)?.database_guid,
+        ));
+        Ok(())
+    }
+    fn battleground_db_load(
+        &mut self,
+        object: ObjectHandle,
+        context: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<()> {
+        self.observations.push(Observation::LoaderBg(
+            context.objects.get(object)?.database_guid,
+        ));
+        Ok(())
+    }
+    fn cell_corpses(
+        &mut self,
+        _: CellPair,
+        _: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<()> {
+        Ok(())
+    }
+    fn resurrectable_corpses(
+        &mut self,
+        _: CellPair,
+        _: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<()> {
+        Ok(())
+    }
+}
+impl CreatureFactoryOwner<Definitions, Products> for Factory {
+    fn creature_thread(&self) -> u64 {
+        2
+    }
+    fn creature_construct_candidate(
+        &mut self,
+        object: ObjectHandle,
+        context: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<()> {
+        self.observations.push(Observation::Construct(object));
+        self.health.insert(object, 0);
+        context
+            .objects
+            .bind_source_allocation(object, object.construction * 256, 128, 0)?;
+        Ok(())
+    }
+    fn creature_spawn(
+        &mut self,
+        _: GridLoadAttempt,
+        row: CreatureSpawn,
+    ) -> Result<Option<CreatureSpawn>> {
+        Ok(Some(row))
+    }
+    fn creature_event_guid(&mut self, guid: u32) -> Result<bool> {
+        self.observations.push(Observation::EventGuid(guid));
+        Ok(self.event_guid)
+    }
+    fn creature_force_dynamic(&mut self) -> Result<bool> {
+        Ok(self.dynamic)
+    }
+    fn creature_force_load_map(&mut self) -> Result<bool> {
+        Ok(false)
+    }
+    fn creature_group(&mut self, _: u32) -> Result<Option<CreatureGroup>> {
+        Ok(self.group)
+    }
+    fn creature_current_group(&mut self, _: ObjectHandle) -> Result<Option<CreatureGroup>> {
+        Ok(self.group)
+    }
+    fn creature_entry(&mut self, _: u32, owner: CreatureEntryOwner) -> Result<u32> {
+        self.observations.push(Observation::Entry(owner));
+        Ok(self.entries[match owner {
+            CreatureEntryOwner::Group(_) => 0,
+            CreatureEntryOwner::Conditional => 1,
+            CreatureEntryOwner::Random { .. } => 2,
+        }])
+    }
+    fn creature_event(&mut self, _: u32) -> Result<Option<CreatureEventData>> {
+        Ok(self.event)
+    }
+    fn creature_template(&mut self, entry: u32) -> Result<Option<CreatureTemplate>> {
+        Ok(self.templates.get(&entry).cloned())
+    }
+    fn creature_model(&mut self, model: u32) -> Result<Option<CreatureModel>> {
+        Ok(self.models.get(&model).copied())
+    }
+    fn creature_guids(&mut self) -> &mut MapGuidAllocators {
+        &mut self.guids
+    }
+    fn creature_random(&mut self) -> Result<&mut dyn CreatureRandom> {
+        Ok(&mut self.random)
+    }
+    fn creature_respawn_time(&mut self, guid: u32) -> Result<i64> {
+        self.observations.push(Observation::Persistent(guid));
+        Ok(self.saved_time)
+    }
+    fn creature_save_respawn_time(&mut self, guid: u32, time: i64) -> Result<()> {
+        self.observations.push(Observation::Save(guid, time));
+        self.saved_time = time;
+        Ok(())
+    }
+    fn creature_wall_time(&mut self, _: ObjectHandle) -> Result<ClockSample> {
+        self.observations.push(Observation::Clock);
+        Ok(ClockSample::authored(ClockKind::WallSeconds, self.now))
+    }
+    fn creature_spawned_by_linked_mob(&mut self, _: &CreatureConstruction) -> Result<bool> {
+        Ok(self.linked)
+    }
+    fn creature_linked_can_spawn(&mut self, _: &CreatureConstruction) -> Result<bool> {
+        self.linked_checks += 1;
+        Ok(self.can_spawn)
+    }
+    fn creature_dead_flying_height(&mut self, _: &CreatureConstruction) -> Result<f32> {
+        Ok(2.0)
+    }
+    fn creature_ai_inputs(&mut self, state: &CreatureConstruction) -> Result<CreatureAiInputs> {
+        Ok(CreatureAiInputs {
+            effective_entry: state.template.entry,
+            ai_name: self.builtin_dispatch_name.clone().unwrap_or_default(),
+            script_name: String::new(),
+            control: CreatureAiControl::default(),
+            guard: false,
+            no_aggro_on_sight: false,
+            neutral_to_all: false,
+        })
+    }
+    fn creature_ai_registry(&self) -> Result<&SourceAiRegistry> {
+        Ok(&self.ai_registry)
+    }
+    fn creature_builtin_ai_owners(&mut self) -> Result<(&mut SourceUnits, &SourceCreatureAis)> {
+        Ok((&mut self.units, &self.base_ais))
+    }
+    fn creature_summoned_ai_owners(
+        &mut self,
+        event: &SourceEventAi,
+    ) -> Result<(&mut SourceUnits, &mut SourceCreatureAis, Option<u32>)> {
+        // The constructor must build the actual EventAI base before this missing binding.
+        assert_eq!(Some(&event.selected), self.selected_ai.as_ref());
+        assert!(event.holders.is_empty());
+        assert_eq!(event.clock.remaining, 0);
+        assert_eq!(event.phase, 0);
+        Err(refuse(
+            "execution.summoned_ai.live_unit_and_base_binding_owner",
+        ))
+    }
+    fn creature_base_ai_instances(&self) -> Result<&SourceCreatureAis> {
+        Ok(&self.base_ais)
+    }
+    fn creature_event_ai_definitions(&self) -> Result<std::sync::Arc<EventAiDefinitions>> {
+        self.event_ai_definitions
+            .clone()
+            .ok_or_else(|| refuse("execution.event_ai.loaded_definitions_owner"))
+    }
+    fn creature_event_ai_build(&self) -> Result<EventAiBuild> {
+        Ok(EventAiBuild::Release)
+    }
+    fn creature_ai_construct(
+        &mut self,
+        state: &mut CreatureConstruction,
+        context: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<()> {
+        let selected = state.selected_ai().unwrap();
+        self.selected_ai = Some(selected.clone());
+        if self.refuse == Some(CreaturePhase::SelectAi) {
+            return Err(selected.constructor_refusal(context.objects)?);
+        }
+        if let Some(definitions) = &self.event_ai_definitions {
+            struct Dependencies;
+            impl UnitAiExecutionOwner for Dependencies {}
+            let template = CreatureAiTemplateOperands {
+                ordinal: 0,
+                entry: state.template.entry,
+                faction: 0,
+                extra_flags: 0,
+                unit_flags: 0,
+                type_flags: 0,
+                static_flags: [0; 4],
+                rank: 0,
+                inhabit_type: 1,
+                stats_multipliers: [0x3f800000; 3],
+                civilian: false,
+                pursuit_ms: 15000,
+                call_for_help: 0,
+                creature_type: 0,
+                ai_name: "EventAI".into(),
+                script_name: String::new(),
+            };
+            let config = EventAiLoaderConfig::parse(
+                b"LogFilter_EventAiDev=1",
+                Sha256Id::of(b"LogFilter_EventAiDev=1"),
+            )?;
+            self.units.register(
+                context.objects,
+                state.object,
+                SourceUnitFields::creature(&template),
+            )?;
+            self.units.bind_ai_selection(context.objects, selected)?;
+            if self.builtin_dispatch_name.as_deref() != Some("PossessedAI") {
+                let base = SourceCreatureAi::construct(
+                    context.objects,
+                    state.object,
+                    &mut self.units,
+                    &template,
+                    false,
+                    0,
+                    &config,
+                    &mut Dependencies,
+                )?;
+                self.base_ais
+                    .install(context.objects, &mut self.units, base, &mut self.combat)?;
+            }
+            self.threats.register(state.object)?;
+            if self.builtin_dispatch_name.is_some() {
+                construct_source_creature_ai(self, state, context)?;
+                return self.creature_phase(CreaturePhase::SelectAi, state, context);
+            }
+            state.construct_event_ai(
+                context.objects,
+                definitions.clone(),
+                EventAiBuild::Release,
+                &self.base_ais,
+            )?;
+        }
+        // The existing F4 tests use authored callbacks, not a production AI body.
+        self.creature_phase(CreaturePhase::SelectAi, state, context)
+    }
+    fn creature_phase(
+        &mut self,
+        phase: CreaturePhase,
+        state: &mut CreatureConstruction,
+        context: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<()> {
+        if self.builtin_dispatch_name.is_some() && phase == CreaturePhase::InitEntryBase {
+            assert_eq!(
+                construct_source_creature_ai(self, state, context)
+                    .unwrap_err()
+                    .id,
+                "execution.ai.selection_absent"
+            );
+        }
+        if self.refuse == Some(phase) {
+            return Err(phase.missing_owner());
+        }
+        self.observations
+            .push(Observation::Phase(state.spawn.database_guid, phase));
+        match phase {
+            CreaturePhase::AiSpellListChanged | CreaturePhase::AiJustRespawned
+                if self
+                    .builtin_dispatch_name
+                    .as_deref()
+                    .is_some_and(|name| name != "EventAI") =>
+            {
+                assert!(state.builtin_ai().is_some());
+                assert!(state.event_ai().is_none());
+                if phase == CreaturePhase::AiJustRespawned {
+                    state
+                        .builtin_ai_mut()
+                        .unwrap()
+                        .just_respawned(context.objects, &mut self.base_ais)?;
+                }
+            }
+            CreaturePhase::AiSpellListChanged if self.event_ai_definitions.is_some() => {
+                assert!(state.event_ai().unwrap().holders.is_empty());
+            }
+            CreaturePhase::AiJustRespawned if self.event_ai_definitions.is_some() => {
+                struct Dependencies;
+                impl UnitAiExecutionOwner for Dependencies {}
+                impl CreatureRandom for Dependencies {
+                    fn creature_irand(&mut self, _: i32, _: i32) -> Result<i32> {
+                        Err(refuse("authored.unexpected_base_draw"))
+                    }
+                    fn creature_urand(&mut self, _: u32, _: u32) -> Result<u32> {
+                        Err(refuse("authored.unexpected_base_draw"))
+                    }
+                }
+                let mut dependencies = Dependencies;
+                let mut execution = SourceAiExecution {
+                    queries: SourceUnitQueries {
+                        objects: context.objects,
+                        units: &mut self.units,
+                    },
+                    ais: &mut self.base_ais,
+                    threats: &mut self.threats,
+                    owner: &mut dependencies,
+                };
+                state.event_ai_mut().unwrap().just_respawned(
+                    context.objects,
+                    EventAiRespawnSettings {
+                        no_aggro_on_sight: false,
+                        spawn_defensive: false,
+                        ignore_combat: false,
+                    },
+                    &mut self.random,
+                    &mut EventAiDispatcher(&mut execution),
+                )?;
+            }
+            CreaturePhase::InitEntryBase => {
+                self.health.insert(state.object, 1);
+            }
+            CreaturePhase::SelectLevelStats => {
+                if let Some((definitions, config, spawn)) = &self.source_level {
+                    let initialized = definitions.resolve(state, config, spawn, true)?;
+                    self.health.insert(state.object, initialized.health);
+                    self.source_initialized.insert(state.object, initialized);
+                    return Ok(());
+                }
+                if let Some(input) = &self.kernel {
+                    let initialized = resolve_supported_creature_kernel(input, state)?;
+                    self.health
+                        .insert(state.object, initialized.stats.resources.health);
+                    self.initialized.insert(state.object, initialized);
+                } else {
+                    self.health.insert(state.object, state.level * 10);
+                }
+            }
+            CreaturePhase::SetDeadAndZeroHealth => {
+                self.health.insert(state.object, 0);
+            }
+            CreaturePhase::LinkingRegistration => {
+                state.linking_trigger = self.linking_trigger;
+            }
+            CreaturePhase::LoadAddon => {
+                context.set_active_object_state(state.object, self.active, self)?;
+            }
+            CreaturePhase::AddToSpawnCount => {
+                let object = context.objects.get(state.object)?;
+                if object.active {
+                    assert_eq!(
+                        context
+                            .cells
+                            .grids()
+                            .active_lock_count(object.current_cell.unwrap().grid)?,
+                        1
+                    );
+                }
+            }
+            CreaturePhase::MapAddViewpoint => {
+                assert!(context.objects.get(state.object)?.in_world);
+                assert!(context.cells.registered_cell(state.object).is_some());
+                if context.objects.get(state.object)?.active {
+                    assert!(context
+                        .cells
+                        .active()
+                        .members()
+                        .any(|object| object == state.object));
+                }
+            }
+            CreaturePhase::Relay(_) => {
+                if let Some(present) = self.relay_formation {
+                    self.group.as_mut().unwrap().has_formation = present;
+                }
+                if let Some(nested) = self.nested.take() {
+                    context.load_grid(nested, GridLoadTrigger::Enter, self)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+    fn creature_created(
+        &mut self,
+        state: CreatureConstruction,
+        _: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<()> {
+        self.observations
+            .push(Observation::Complete(state.spawn.database_guid));
+        self.states.insert(state.object, state);
+        Ok(())
+    }
+    fn creature_destroy_candidate(
+        &mut self,
+        object: ObjectHandle,
+        _: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<()> {
+        self.observations.push(Observation::Destroy(object));
+        self.health.remove(&object);
+        Ok(())
+    }
+    fn creature_dynamic_spawn_allowed(
+        &mut self,
+        database: u32,
+        row: &CreatureSpawn,
+    ) -> Result<bool> {
+        Ok(row.database_guid == database && self.can_spawn)
+    }
+}
+struct World {
+    definitions: Definitions,
+    products: Products,
+    sets: GridSpawnSets,
+    objects: SourceObjects,
+    cells: SourceCells,
+}
+impl World {
+    fn new(spawns: Vec<CreatureSpawn>) -> Self {
+        let mut sets = GridSpawnSets::new(map());
+        for row in &spawns {
+            sets.register(
+                cell(row.position[0]),
+                GridSpawnKind::Creature,
+                GridSpawnOrigin::Static,
+                row.database_guid,
+                u64::from(row.database_guid),
+            )
+            .unwrap();
+        }
+        let mut cells = SourceCells::new(map()).unwrap();
+        cells.configure_grids(300000, true).unwrap();
+        Self {
+            definitions: Definitions(spawns.into_iter().map(|s| (s.database_guid, s)).collect()),
+            products: Products::default(),
+            sets,
+            objects: SourceObjects::default(),
+            cells,
+        }
+    }
+    fn context(&mut self) -> GridFactoryContext<'_, Definitions, Products> {
+        GridFactoryContext {
+            definitions: &mut self.definitions,
+            products: &mut self.products,
+            sets: &mut self.sets,
+            objects: &mut self.objects,
+            cells: &mut self.cells,
+        }
+    }
+    fn load(&mut self, x: f32, factory: &mut Factory) -> Result<()> {
+        self.context()
+            .load_grid(cell(x), GridLoadTrigger::Enter, factory)
+            .map(|_| ())
+    }
+}
+#[test]
+fn startup_loader_constructs_before_player_entry_and_equal_model_draws_skip_equal_level() {
+    let mut world = World::new(vec![spawn(40, 0.0)]);
+    let mut factory = Factory::new();
+    world.load(0.0, &mut factory).unwrap();
+    let (&handle, state) = factory.states.first_key_value().unwrap();
+    assert_eq!(
+        handle,
+        ObjectHandle {
+            thread: 2,
+            construction: 1
+        }
+    );
+    assert_eq!(state.level, 5);
+    assert_eq!(state.respawn_delay, 100);
+    assert_eq!(state.corpse_delay, 90);
+    assert_eq!(factory.random.cursor.raw, 2);
+    let raw: Vec<_> = factory
+        .random
+        .events
+        .iter()
+        .filter_map(|event| {
+            if let benilla_sim::source_rng::EventKind::Raw { word, .. } = event.kind {
+                Some(word)
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(raw, [3_499_211_612, 581_869_302]);
+    assert_eq!(
+        world.objects.get(handle).unwrap().guid.unwrap().raw(),
+        0xf130_0000_0700_0028
+    );
+    let player = world
+        .objects
+        .construct(2, SourceObjectKind::Player)
+        .unwrap();
+    assert_eq!(player.construction, 2);
+    let view = factory
+        .observations
+        .iter()
+        .position(|o| *o == Observation::Phase(40, CreaturePhase::MapAddViewpoint))
+        .unwrap();
+    let motion = factory
+        .observations
+        .iter()
+        .position(|o| *o == Observation::Phase(40, CreaturePhase::MotionInitialize))
+        .unwrap();
+    let loader = factory
+        .observations
+        .iter()
+        .position(|o| *o == Observation::LoaderView(40))
+        .unwrap();
+    assert!(view < motion && motion < loader);
+}
+#[test]
+fn duplicate_alive_skip_constructs_and_destroys_without_draws_or_entry_queries() {
+    let mut world = World::new(vec![spawn(40, 0.0)]);
+    let mut factory = Factory::new();
+    world.load(0.0, &mut factory).unwrap();
+    world
+        .sets
+        .register(
+            cell(0.0),
+            GridSpawnKind::Creature,
+            GridSpawnOrigin::Persistent,
+            40,
+            40,
+        )
+        .unwrap();
+    let grid = world
+        .cells
+        .grids()
+        .identity(cell(0.0).grid_x(), cell(0.0).grid_y())
+        .unwrap();
+    let attempt = GridLoadAttempt {
+        grid,
+        cell: cell(0.0),
+        kind: GridSpawnKind::Creature,
+        origin: GridSpawnOrigin::Persistent,
+        guid: 40,
+        catalog_ordinal: 40,
+    };
+    let before = factory.random.cursor.raw;
+    factory.observations.clear();
+    let outcome = world
+        .context()
+        .load_creature(&mut factory, attempt, spawn(40, 0.0))
+        .unwrap();
+    let failed = ObjectHandle {
+        thread: 2,
+        construction: 2,
+    };
+    assert_eq!(outcome, GridCandidateOutcome::FailedAndDestroyed(failed));
+    assert!(world.objects.get(failed).is_err());
+    assert_eq!(factory.random.cursor.raw, before);
+    assert_eq!(
+        factory.observations,
+        [
+            Observation::Construct(failed),
+            Observation::EventGuid(40),
+            Observation::Destroy(failed)
+        ]
+    );
+}
+#[test]
+fn zero_entry_group_conditional_random_and_event_precedence_preserves_zero_db_lookup() {
+    let group = CreatureGroup {
+        id: 1,
+        string_id: 2,
+        has_formation: false,
+    };
+    for (entries, expected_queries, expected_original) in [
+        ([7, 0, 0], 1, 7),
+        ([0, 7, 0], 2, 7),
+        ([0, 0, 7], 3, 7),
+        ([0, 0, 0], 3, 8),
+    ] {
+        let mut row = spawn(40, 0.0);
+        row.entry = 0;
+        let mut world = World::new(vec![row]);
+        let mut factory = Factory::new();
+        factory.group = Some(group);
+        factory.entries = entries;
+        factory.event = Some(CreatureEventData {
+            entry: 8,
+            ..Default::default()
+        });
+        world.load(0.0, &mut factory).unwrap();
+        let state = factory.states.values().next().unwrap();
+        assert_eq!(state.original_entry, expected_original);
+        assert_eq!(state.template.entry, 8);
+        assert_eq!(state.selected_ai().unwrap().inputs().effective_entry, 8);
+        let queries: Vec<_> = factory
+            .observations
+            .iter()
+            .filter_map(|o| {
+                if let Observation::Entry(e) = o {
+                    Some(*e)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(queries.len(), expected_queries);
+        if expected_queries == 3 {
+            assert_eq!(
+                queries[2],
+                CreatureEntryOwner::Random {
+                    lookup_database_guid: 0
+                }
+            );
+        }
+        assert_eq!(
+            world
+                .objects
+                .get(state.object)
+                .unwrap()
+                .guid
+                .unwrap()
+                .entry(),
+            expected_original
+        );
+    }
+}
+#[test]
+fn static_extra_dynamic_group_event_and_forced_maps_use_exact_guid_branch() {
+    for (extra, group, event, forced, expected) in [
+        (false, false, false, false, 40),
+        (true, false, false, false, 110),
+        (false, true, false, false, 110),
+        (false, false, true, false, 110),
+        (false, false, false, true, 110),
+    ] {
+        let mut world = World::new(vec![spawn(40, 0.0)]);
+        let mut factory = Factory::new();
+        factory.templates.get_mut(&7).unwrap().dynamic_guid = extra;
+        factory.group = group.then_some(CreatureGroup {
+            id: 1,
+            string_id: 0,
+            has_formation: false,
+        });
+        factory.event_guid = event;
+        factory.dynamic = forced;
+        world.load(0.0, &mut factory).unwrap();
+        let state = factory.states.values().next().unwrap();
+        assert_eq!(
+            world
+                .objects
+                .get(state.object)
+                .unwrap()
+                .guid
+                .unwrap()
+                .counter(),
+            expected
+        );
+    }
+}
+#[test]
+fn failed_missing_model_keeps_display_draw_and_dynamic_allocation_before_destruction() {
+    let mut world = World::new(vec![spawn(40, 0.0)]);
+    let mut factory = Factory::new();
+    factory.event_guid = true;
+    factory.models.clear();
+    world.load(0.0, &mut factory).unwrap();
+    assert!(factory.states.is_empty());
+    assert_eq!(factory.random.cursor.raw, 1);
+    let object = ObjectHandle {
+        thread: 2,
+        construction: 1,
+    };
+    assert!(world.objects.get(object).is_err());
+    assert_eq!(
+        factory.observations.last(),
+        Some(&Observation::Destroy(object))
+    );
+    assert_eq!(
+        factory
+            .guids
+            .allocate(map(), HighGuid::Creature)
+            .unwrap()
+            .counter,
+        111
+    );
+}
+#[test]
+fn future_respawn_static_dead_dynamic_without_group_fails_and_group_dead_survives() {
+    for (dynamic, grouped, loaded) in [
+        (false, false, true),
+        (true, false, false),
+        (true, true, true),
+    ] {
+        let mut world = World::new(vec![spawn(40, 0.0)]);
+        let mut factory = Factory::new();
+        factory.dynamic = dynamic;
+        factory.group = grouped.then_some(CreatureGroup {
+            id: 1,
+            string_id: 0,
+            has_formation: false,
+        });
+        factory.saved_time = 1001;
+        factory.templates.get_mut(&7).unwrap().can_fly = true;
+        factory.linked = true;
+        factory.can_spawn = false;
+        world.load(0.0, &mut factory).unwrap();
+        assert_eq!(factory.random.cursor.raw, 2);
+        assert_eq!(factory.states.len(), usize::from(loaded));
+        assert_eq!(factory.linked_checks, 0);
+        if loaded {
+            let state = factory.states.values().next().unwrap();
+            assert!(!world.objects.get(state.object).unwrap().alive);
+            assert_eq!(state.position[2], 2.0);
+            assert_eq!(factory.health[&state.object], 0);
+            assert_eq!(state.respawn_time, 1001);
+        }
+        assert!(!factory
+            .observations
+            .iter()
+            .any(|o| matches!(o, Observation::Save(..))));
+    }
+}
+#[test]
+fn expired_respawn_including_threshold_equality_saves_zero_before_map_add() {
+    for saved in [1, 999, 1000] {
+        let mut world = World::new(vec![spawn(40, 0.0)]);
+        let mut factory = Factory::new();
+        factory.saved_time = saved;
+        world.load(0.0, &mut factory).unwrap();
+        let state = factory.states.values().next().unwrap();
+        assert_eq!(state.respawn_time, 0);
+        let save = factory
+            .observations
+            .iter()
+            .position(|o| *o == Observation::Save(40, 0))
+            .unwrap();
+        let add = factory
+            .observations
+            .iter()
+            .position(|o| *o == Observation::Phase(40, CreaturePhase::MapAddToWorld))
+            .unwrap();
+        assert!(save < add);
+        assert!(world.objects.get(state.object).unwrap().alive);
+    }
+}
+#[test]
+fn relay_reenters_real_loader_and_finishes_child_before_parent_link_group_callbacks() {
+    let mut parent = spawn(40, 0.0);
+    parent.relay = 9;
+    let mut world = World::new(vec![parent, spawn(41, 600.0)]);
+    let mut factory = Factory::new();
+    factory.nested = Some(cell(600.0));
+    factory.group = Some(CreatureGroup {
+        id: 1,
+        string_id: 2,
+        has_formation: true,
+    });
+    factory.linking_trigger = true;
+    world.load(0.0, &mut factory).unwrap();
+    assert_eq!(factory.states.len(), 2);
+    assert_eq!(factory.random.cursor.raw, 4);
+    let filtered: Vec<_> = factory
+        .observations
+        .iter()
+        .filter(|o| {
+            matches!(
+                o,
+                Observation::Phase(40, CreaturePhase::Relay(_))
+                    | Observation::Complete(41)
+                    | Observation::Phase(
+                        40,
+                        CreaturePhase::LinkingRespawn
+                            | CreaturePhase::FormationSlot
+                            | CreaturePhase::GroupRespawn
+                    )
+                    | Observation::Complete(40)
+            )
+        })
+        .cloned()
+        .collect();
+    assert_eq!(
+        filtered,
+        [
+            Observation::Phase(40, CreaturePhase::Relay(9)),
+            Observation::Complete(41),
+            Observation::Phase(40, CreaturePhase::LinkingRespawn),
+            Observation::Phase(40, CreaturePhase::FormationSlot),
+            Observation::Phase(40, CreaturePhase::GroupRespawn),
+            Observation::Complete(40)
+        ]
+    );
+}
+#[test]
+fn second_grid_load_reconstructs_static_guid_with_new_construction_and_continuing_rng() {
+    let mut world = World::new(vec![spawn(40, 0.0)]);
+    let mut factory = Factory::new();
+    world.load(0.0, &mut factory).unwrap();
+    let old = factory.states.keys().next().copied().unwrap();
+    let old_guid = world.objects.get(old).unwrap().guid.unwrap();
+    let grid = world
+        .cells
+        .grids()
+        .identity(cell(0.0).grid_x(), cell(0.0).grid_y())
+        .unwrap();
+    natural_unload(&mut world, &mut factory, grid);
+    assert!(factory.states.is_empty());
+    world.load(0.0, &mut factory).unwrap();
+    let next = factory.states.keys().next().copied().unwrap();
+    assert_ne!(old, next);
+    assert_eq!(next.construction, 2);
+    assert_eq!(factory.random.cursor.raw, 4);
+    assert_eq!(world.objects.get(next).unwrap().guid.unwrap(), old_guid);
+    assert!(world.objects.get(old).is_err());
+}
+#[test]
+fn unavailable_reached_ai_owner_refuses_after_map_add_without_fake_destruction_or_callbacks() {
+    let mut world = World::new(vec![spawn(40, 0.0)]);
+    let mut factory = Factory::new();
+    factory.refuse = Some(CreaturePhase::SelectAi);
+    let refusal = world.load(0.0, &mut factory).unwrap_err();
+    assert_eq!(refusal.id, "execution.ai.event_ai_constructor_owner");
+    let selected = factory.selected_ai.as_ref().unwrap();
+    assert_eq!(selected.inputs().effective_entry, 7);
+    assert_eq!(selected.branch(), AiSelectionBranch::Permit);
+    assert_eq!(
+        selected.executable().builtin_kind(),
+        Some(BuiltinCreatureAi::Event)
+    );
+    assert_eq!(factory.random.cursor.raw, 2);
+    assert!(factory.states.is_empty());
+    assert!(
+        world
+            .objects
+            .get(ObjectHandle {
+                thread: 2,
+                construction: 1
+            })
+            .unwrap()
+            .in_world
+    );
+    assert!(!factory
+        .observations
+        .iter()
+        .any(|o| matches!(o, Observation::Destroy(_) | Observation::LoaderView(_))));
+    assert_eq!(world.load(0.0, &mut factory).unwrap_err(), refusal);
+}
+#[test]
+fn missing_gender_alternate_preserves_original_after_gender_draw_and_varied_level_draw() {
+    let mut world = World::new(vec![spawn(40, 0.0)]);
+    let mut factory = Factory::new();
+    factory.models.get_mut(&11).unwrap().other_gender = 12;
+    factory.templates.get_mut(&7).unwrap().levels = [5, 6];
+    world.load(0.0, &mut factory).unwrap();
+    let state = factory.states.values().next().unwrap();
+    assert_eq!(state.model.unwrap().id, 11);
+    assert!((5..=6).contains(&state.level));
+    assert_eq!(factory.random.cursor.raw, 4);
+}
+
+#[test]
+fn supported_kernel_reuses_consumed_source_rolls_at_select_level_without_extra_rng() {
+    use benilla_sim::creature_init as init;
+    let input = super::super::synthetic_creature_generation_fixture::source(40, 5, 6).input;
+    let mut row = spawn(40, 0.0);
+    row.entry = input.template.entry;
+    let mut world = World::new(vec![row]);
+    let mut factory = Factory::new();
+    let mut template = template(input.template.entry);
+    template.displays = input.template.displays;
+    template.levels = [5, 6];
+    template.corpse_seconds = input.template.corpse_delay_seconds;
+    factory.templates.insert(template.entry, template);
+    let init::Rows::Complete(models) = &input.models else {
+        unreachable!()
+    };
+    factory.models = models
+        .iter()
+        .map(|model| {
+            (
+                model.id,
+                CreatureModel {
+                    id: model.id,
+                    gender: model.gender,
+                    other_gender: model.other_gender_id,
+                },
+            )
+        })
+        .collect();
+    factory.kernel = Some(input);
+    world.load(0.0, &mut factory).unwrap();
+    let state = factory.states.values().next().unwrap();
+    let initialized = &factory.initialized[&state.object];
+    assert_eq!(initialized.entry, 60001);
+    assert_eq!(u32::from(initialized.level), state.level);
+    assert_eq!(initialized.model.display_id, state.model.unwrap().id);
+    assert_eq!(factory.health[&state.object], 1);
+    assert_eq!(factory.random.cursor.raw, 4);
+    let mut wrong = factory.kernel.as_ref().unwrap().clone();
+    wrong.spawn_id = 41;
+    assert_eq!(
+        resolve_supported_creature_kernel(&wrong, state)
+            .unwrap_err()
+            .id,
+        "execution.creature.kernel_operands"
+    );
+    assert_eq!(factory.random.cursor.raw, 4);
+    let input = factory.kernel.as_ref().unwrap();
+    let t = &input.template;
+    let fields_template = CreatureAiTemplateOperands {
+        ordinal: 0,
+        entry: t.entry,
+        faction: t.faction,
+        extra_flags: t.extra_flags,
+        unit_flags: t.unit_flags,
+        type_flags: t.type_flags,
+        static_flags: t.static_flags,
+        rank: t.rank,
+        inhabit_type: 1,
+        stats_multipliers: [
+            t.health_multiplier.bits(),
+            t.power_multiplier.bits(),
+            t.armor_multiplier.bits(),
+        ],
+        civilian: false,
+        pursuit_ms: 15000,
+        call_for_help: 0,
+        creature_type: 0,
+        ai_name: "EventAI".into(),
+        script_name: String::new(),
+    };
+    let mut units = SourceUnits::default();
+    units
+        .register(
+            &world.objects,
+            state.object,
+            SourceUnitFields::creature(&fields_template),
+        )
+        .unwrap();
+    let bytes = b"LogFilter_EventAiDev=1\nRate.Creature.Normal.HP=1\nRate.Creature.Normal.Damage=1\nCorpse.Decay.NORMAL=83\n";
+    let config = EventAiLoaderConfig::parse(bytes, Sha256Id::of(bytes)).unwrap();
+    units
+        .initialize_supported_creature(&world.objects, state, input, &config)
+        .unwrap();
+    let unit = units.event_unit(&world.objects, state.object).unwrap();
+    assert_eq!(unit.health, 1);
+    assert_eq!(unit.max_health, initialized.stats.resources.max_health);
+    assert_eq!(factory.random.cursor.raw, 4);
+}
+
+#[test]
+fn zero_entry_missing_templates_and_post_draw_invalid_position_destroy_at_source_failure() {
+    for branch in 0..3 {
+        let mut world = World::new(vec![spawn(40, 0.0)]);
+        let mut factory = Factory::new();
+        match branch {
+            0 => {
+                world.definitions.0.get_mut(&40).unwrap().entry = 0;
+            }
+            1 => {
+                factory.templates.clear();
+            }
+            2 => {
+                world.definitions.0.get_mut(&40).unwrap().position[2] = f32::NAN;
+            }
+            _ => unreachable!(),
+        }
+        world.load(0.0, &mut factory).unwrap();
+        assert!(factory.states.is_empty());
+        assert!(world
+            .objects
+            .get(ObjectHandle {
+                thread: 2,
+                construction: 1
+            })
+            .is_err());
+        assert_eq!(factory.random.cursor.raw, if branch == 2 { 1 } else { 0 });
+    }
+}
+
+#[test]
+fn event_model_overrides_spawn_model_without_display_draw_and_missing_override_template_fails_after_guid(
+) {
+    let mut row = spawn(40, 0.0);
+    row.model = 99;
+    let mut world = World::new(vec![row]);
+    let mut factory = Factory::new();
+    factory.event = Some(CreatureEventData {
+        entry: 8,
+        model: 11,
+        equipment: 0,
+        ..Default::default()
+    });
+    world.load(0.0, &mut factory).unwrap();
+    let state = factory.states.values().next().unwrap();
+    assert_eq!(state.template.entry, 8);
+    assert_eq!(state.original_entry, 7);
+    assert_eq!(factory.random.cursor.raw, 1);
+    assert_eq!(state.rolls.model, None);
+    let mut world = World::new(vec![spawn(40, 0.0)]);
+    let mut factory = Factory::new();
+    factory.event_guid = true;
+    factory.event = Some(CreatureEventData {
+        entry: 99,
+        ..Default::default()
+    });
+    world.load(0.0, &mut factory).unwrap();
+    assert!(factory.states.is_empty());
+    assert_eq!(factory.random.cursor.raw, 0);
+    assert_eq!(
+        factory
+            .guids
+            .allocate(map(), HighGuid::Creature)
+            .unwrap()
+            .counter,
+        111
+    );
+}
+
+#[test]
+fn display_fallback_keeps_equal_bound_draw_and_respawn_cap_keeps_uint32_wrap() {
+    let mut world = World::new(vec![spawn(40, 0.0)]);
+    let mut factory = Factory::new();
+    factory.templates.get_mut(&7).unwrap().displays = [DisplayChoice {
+        id: 0,
+        probability: 0,
+    }; 4];
+    let mut fallback = template(1);
+    fallback.displays[0].id = 11;
+    factory.templates.insert(1, fallback);
+    world.definitions.0.get_mut(&40).unwrap().respawn_seconds = [u32::MAX; 2];
+    factory.templates.get_mut(&7).unwrap().corpse_seconds = u32::MAX;
+    world.load(0.0, &mut factory).unwrap();
+    let state = factory.states.values().next().unwrap();
+    assert_eq!(state.model.unwrap().id, 11);
+    assert_eq!(state.respawn_delay, u32::MAX);
+    assert_eq!(state.corpse_delay, 429_496_728);
+    assert_eq!(factory.random.cursor.raw, 2);
+}
+
+#[test]
+fn linking_denial_kills_before_add_and_active_add_does_not_recurse_into_loaded_grid() {
+    let mut world = World::new(vec![spawn(40, 0.0)]);
+    let mut factory = Factory::new();
+    factory.linked = true;
+    factory.can_spawn = false;
+    factory.linking_trigger = true;
+    factory.active = true;
+    world.load(0.0, &mut factory).unwrap();
+    let state = factory.states.values().next().unwrap();
+    assert_eq!(factory.linked_checks, 1);
+    assert!(state.spawning_linked);
+    assert!(!world.objects.get(state.object).unwrap().alive);
+    assert_eq!(state.respawn_position, [0.0, 0.0, 4.0, 0.0]);
+    assert_eq!(state.spawn.respawn_radius, 5.0);
+    assert_eq!(world.products.0, 1);
+    let death = factory
+        .observations
+        .iter()
+        .position(|o| *o == Observation::Phase(40, CreaturePhase::SetDeadAndZeroHealth))
+        .unwrap();
+    let view = factory
+        .observations
+        .iter()
+        .position(|o| *o == Observation::Phase(40, CreaturePhase::MapAddViewpoint))
+        .unwrap();
+    assert!(death < view);
+    assert_eq!(
+        world.cells.active().members().collect::<Vec<_>>(),
+        [state.object]
+    );
+    let grid = world
+        .objects
+        .get(state.object)
+        .unwrap()
+        .current_cell
+        .unwrap()
+        .grid;
+    assert_eq!(world.cells.grids().active_lock_count(grid).unwrap(), 1);
+    assert!(!factory
+        .observations
+        .contains(&Observation::Phase(40, CreaturePhase::LinkingRespawn)));
+}
+
+#[test]
+fn template_active_runs_in_world_set_then_map_add_and_keeps_both_spawn_lock_increments() {
+    let mut world = World::new(vec![spawn(40, 0.0)]);
+    let mut factory = Factory::new();
+    factory.templates.get_mut(&7).unwrap().active = true;
+    factory.templates.get_mut(&7).unwrap().count_spawns = true;
+    world.load(0.0, &mut factory).unwrap();
+    let state = factory.states.values().next().unwrap();
+    let object = world.objects.get(state.object).unwrap();
+    assert!(object.active);
+    assert_eq!(
+        world.cells.active().members().collect::<Vec<_>>(),
+        [state.object]
+    );
+    assert_eq!(
+        world
+            .cells
+            .grids()
+            .active_lock_count(object.current_cell.unwrap().grid)
+            .unwrap(),
+        2
+    );
+}
+
+// These adapters remain inside this #[cfg(test)] module.
+impl ResidencyProductOwner for Products {
+    fn release_grid_products(&mut self, _: MapIdentity, _: ProductCoordinates) -> Result<()> {
+        assert!(self.0 > 0);
+        Ok(())
+    }
+}
+impl ActiveRelocationOwner<Definitions, Products> for Factory {}
+impl ResidencyOwner<Definitions, Products> for Factory {
+    fn residency_observe(&mut self, event: ResidencyEvent) -> Result<()> {
+        self.observations.push(Observation::Residency(event));
+        Ok(())
+    }
+    fn residency_phase(
+        &mut self,
+        object: ObjectHandle,
+        phase: ResidencyPhase,
+        _: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<()> {
+        self.observations
+            .push(Observation::ResidencyPhase(object, phase));
+        if phase == ResidencyPhase::Destructor {
+            self.states.remove(&object);
+            self.health.remove(&object);
+            self.initialized.remove(&object);
+        }
+        Ok(())
+    }
+}
+fn natural_unload(world: &mut World, factory: &mut Factory, grid: GridIdentity) {
+    let driver = SourceResidency::new(
+        map(),
+        ResidencyConfig {
+            visibility: 0.0,
+            save_respawn_immediately: true,
+            battleground: false,
+        },
+    )
+    .unwrap();
+    let draws = factory.random.cursor.raw;
+    driver.update(30000, &mut world.context(), factory).unwrap();
+    assert_eq!(world.cells.grids().phase(grid).unwrap(), NGridPhase::Idle);
+    driver.update(1, &mut world.context(), factory).unwrap();
+    assert_eq!(
+        world.cells.grids().phase(grid).unwrap(),
+        NGridPhase::Removal
+    );
+    driver
+        .update(300000, &mut world.context(), factory)
+        .unwrap();
+    assert!(world.cells.grids().identity(grid.x, grid.y).is_none());
+    assert_eq!(factory.random.cursor.raw, draws);
+}
+
+#[test]
+fn natural_reload_reconstructs_static_and_dynamic_creatures_without_resetting_rng_or_allocator() {
+    let mut dynamic = spawn(41, 0.0);
+    dynamic.entry = 8;
+    let mut world = World::new(vec![spawn(40, 0.0), dynamic]);
+    let mut factory = Factory::new();
+    factory.templates.get_mut(&8).unwrap().dynamic_guid = true;
+    world.load(0.0, &mut factory).unwrap();
+    let old: Vec<_> = factory.states.keys().copied().collect();
+    let static_guid = world.objects.get(old[0]).unwrap().guid.unwrap();
+    let dynamic_guid = world.objects.get(old[1]).unwrap().guid.unwrap();
+    assert_eq!(dynamic_guid.counter(), 110);
+    assert_eq!(factory.random.cursor.raw, 4);
+    let grid = world
+        .objects
+        .get(old[0])
+        .unwrap()
+        .current_cell
+        .unwrap()
+        .grid;
+    factory.observations.clear();
+    natural_unload(&mut world, &mut factory, grid);
+    assert!(factory.states.is_empty());
+    for object in &old {
+        assert!(world.objects.get(*object).is_err());
+    }
+    let phases: Vec<_> = factory
+        .observations
+        .iter()
+        .filter_map(|observation| {
+            if let Observation::ResidencyPhase(object, phase) = observation {
+                Some((*object, *phase))
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(
+        phases,
+        [
+            (old[1], ResidencyPhase::CombatStop),
+            (old[1], ResidencyPhase::RemoveDynamicObjects),
+            (old[0], ResidencyPhase::CombatStop),
+            (old[0], ResidencyPhase::RemoveDynamicObjects),
+            (old[1], ResidencyPhase::RemoveFromWorld),
+            (old[1], ResidencyPhase::CleanupBeforeDelete),
+            (old[1], ResidencyPhase::RemoveFromWorld),
+            (old[1], ResidencyPhase::Destructor),
+            (old[0], ResidencyPhase::RemoveFromWorld),
+            (old[0], ResidencyPhase::CleanupBeforeDelete),
+            (old[0], ResidencyPhase::RemoveFromWorld),
+            (old[0], ResidencyPhase::Destructor),
+        ]
+    );
+    let events: Vec<_> = factory
+        .observations
+        .iter()
+        .filter_map(|observation| {
+            if let Observation::Residency(event) = observation {
+                Some(*event)
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(
+        events,
+        [
+            ResidencyEvent::GridVisit(grid, NGridPhase::Active),
+            ResidencyEvent::GridVisit(grid, NGridPhase::Idle),
+            ResidencyEvent::GridVisit(grid, NGridPhase::Removal),
+            ResidencyEvent::Stop(grid),
+            ResidencyEvent::Drain(1),
+            ResidencyEvent::MoveToRespawn(grid),
+            ResidencyEvent::Drain(2),
+            ResidencyEvent::UnloadObjects(grid),
+            ResidencyEvent::Drain(3),
+            ResidencyEvent::DeleteGrid(grid),
+            ResidencyEvent::ReleaseProducts(grid),
+        ]
+    );
+    world.load(0.0, &mut factory).unwrap();
+    let new: Vec<_> = factory.states.keys().copied().collect();
+    assert_eq!(
+        new.iter()
+            .map(|object| object.construction)
+            .collect::<Vec<_>>(),
+        [3, 4]
+    );
+    assert_eq!(
+        world.objects.get(new[0]).unwrap().guid.unwrap(),
+        static_guid
+    );
+    assert_eq!(
+        world.objects.get(new[1]).unwrap().guid.unwrap().counter(),
+        111
+    );
+    assert_ne!(new[0], old[0]);
+    assert_ne!(new[1], old[1]);
+    assert_eq!(factory.random.cursor.raw, 8);
+    let raw: Vec<_> = factory
+        .random
+        .events
+        .iter()
+        .filter_map(|event| {
+            if let benilla_sim::source_rng::EventKind::Raw { word, .. } = event.kind {
+                Some(word)
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(
+        raw,
+        [
+            3499211612, 581869302, 3890346734, 3586334585, 545404204, 4161255391, 3922919429,
+            949333985
+        ]
+    );
+    assert!(
+        world
+            .cells
+            .grids()
+            .identity(grid.x, grid.y)
+            .unwrap()
+            .generation
+            > grid.generation
+    );
+}
+
+#[test]
+fn dynamic_spawn_uses_zero_requested_guid_without_changing_grid_loads() {
+    // Object.cpp:2191-2212 versus ObjectGridLoader.cpp:120-140.
+    let mut world = World::new(vec![spawn(40, 0.0)]);
+    let mut factory = Factory::new();
+    world.load(0.0, &mut factory).unwrap();
+    let static_object = world
+        .objects
+        .lookup_database(map(), DatabaseLookupKind::Creature, 40)
+        .unwrap();
+    assert_eq!(
+        world
+            .objects
+            .get(static_object)
+            .unwrap()
+            .guid
+            .unwrap()
+            .counter(),
+        40
+    );
+    let mut world = World::new(vec![spawn(40, 0.0)]);
+    let mut factory = Factory::new();
+    let pair = cell(0.0);
+    let grid = world
+        .context()
+        .load_grid(pair, GridLoadTrigger::TerrainOnly, &mut factory)
+        .unwrap()
+        .unwrap();
+    let attempt = GridLoadAttempt {
+        grid,
+        cell: pair,
+        kind: GridSpawnKind::Creature,
+        origin: GridSpawnOrigin::Persistent,
+        guid: 40,
+        catalog_ordinal: 40,
+    };
+    let request = DynamicSpawnRequest {
+        map: map(),
+        thread: 2,
+        key: SpawnKey {
+            kind: GridSpawnKind::Creature,
+            guid: 40,
+        },
+    };
+    assert!(request
+        .spawn_creature(&mut factory, attempt, spawn(40, 0.0), &mut world.context())
+        .unwrap());
+    let dynamic_object = world
+        .objects
+        .lookup_database(map(), DatabaseLookupKind::Creature, 40)
+        .unwrap();
+    assert_eq!(
+        world
+            .objects
+            .get(dynamic_object)
+            .unwrap()
+            .guid
+            .unwrap()
+            .counter(),
+        110
+    );
+    assert!(!factory
+        .observations
+        .iter()
+        .any(|event| matches!(event, Observation::EventGuid(_))));
+    let mut world = World::new(vec![spawn(40, 0.0)]);
+    let mut factory = Factory::new();
+    factory.can_spawn = false;
+    assert!(!request
+        .spawn_creature(&mut factory, attempt, spawn(40, 0.0), &mut world.context())
+        .unwrap());
+    assert!(factory.observations.is_empty());
+    let wrong_thread = DynamicSpawnRequest {
+        thread: 99,
+        ..request
+    };
+    assert_eq!(
+        wrong_thread
+            .spawn_creature(&mut factory, attempt, spawn(40, 0.0), &mut world.context())
+            .unwrap_err()
+            .id,
+        "execution.spawn.constructor_binding"
+    );
+    let mut world = World::new(vec![spawn(40, 0.0)]);
+    let mut factory = Factory::new();
+    factory.templates.clear();
+    assert!(!request
+        .spawn_creature(&mut factory, attempt, spawn(40, 0.0), &mut world.context())
+        .unwrap());
+    assert!(factory.states.is_empty());
+    assert!(factory
+        .observations
+        .iter()
+        .any(|event| matches!(event, Observation::Destroy(_))));
+}
+
+#[test]
+fn group_constructor_forwards_forced_entry_and_preserves_zero_fallback() {
+    // Object.cpp:2193-2207 and Creature.cpp:1630,1652-1653.
+    for (forced, expected) in [(0, 7), (8, 8)] {
+        let mut world = World::new(vec![spawn(40, 0.0)]);
+        let mut factory = Factory::new();
+        let pair = cell(0.0);
+        let grid = world
+            .context()
+            .load_grid(pair, GridLoadTrigger::TerrainOnly, &mut factory)
+            .unwrap()
+            .unwrap();
+        let attempt = GridLoadAttempt {
+            grid,
+            cell: pair,
+            kind: GridSpawnKind::Creature,
+            origin: GridSpawnOrigin::Persistent,
+            guid: 40,
+            catalog_ordinal: 40,
+        };
+        let request = GroupSpawnRequest {
+            map: map(),
+            thread: 2,
+            key: SpawnKey {
+                kind: GridSpawnKind::Creature,
+                guid: 40,
+            },
+            entry: forced,
+        };
+        assert!(request
+            .spawn_creature(&mut factory, attempt, spawn(40, 0.0), &mut world.context())
+            .unwrap());
+        for invalid in [
+            GroupSpawnRequest {
+                thread: 99,
+                ..request
+            },
+            GroupSpawnRequest {
+                map: MapIdentity {
+                    creation_generation: 2,
+                    ..map()
+                },
+                ..request
+            },
+            GroupSpawnRequest {
+                key: SpawnKey {
+                    kind: GridSpawnKind::GameObject,
+                    guid: 40,
+                },
+                ..request
+            },
+            GroupSpawnRequest {
+                key: SpawnKey {
+                    guid: 99,
+                    ..request.key
+                },
+                ..request
+            },
+        ] {
+            assert_eq!(
+                invalid
+                    .spawn_creature(&mut factory, attempt, spawn(40, 0.0), &mut world.context())
+                    .unwrap_err()
+                    .id,
+                "execution.group.constructor_binding"
+            );
+        }
+        let state = factory.states.values().next().unwrap();
+        assert_eq!(state.original_entry, expected);
+        assert_eq!(state.template.entry, expected);
+        assert_eq!(
+            world
+                .objects
+                .get(state.object)
+                .unwrap()
+                .guid
+                .unwrap()
+                .entry(),
+            expected
+        );
+        assert_eq!(
+            world
+                .objects
+                .get(state.object)
+                .unwrap()
+                .guid
+                .unwrap()
+                .counter(),
+            110
+        );
+    }
+}
+
+#[path = "creature_lifecycle_tests.rs"]
+mod creature_lifecycle_tests;
+
+#[test]
+fn pool_constructor_uses_static_guid_and_destroys_failed_load_without_a_redraw() {
+    for fail in [false, true] {
+        let mut world = World::new(vec![]);
+        let mut factory = Factory::new();
+        factory.event_guid = true;
+        if fail {
+            factory.templates.clear();
+        }
+        let pair = cell(0.0);
+        let grid = world
+            .context()
+            .load_grid(pair, GridLoadTrigger::TerrainOnly, &mut factory)
+            .unwrap()
+            .unwrap();
+        let attempt = GridLoadAttempt {
+            grid,
+            cell: pair,
+            kind: GridSpawnKind::Creature,
+            origin: GridSpawnOrigin::Persistent,
+            guid: 40,
+            catalog_ordinal: 40,
+        };
+        let request = PoolLoadRequest {
+            state: PersistentStateIdentity {
+                map: 0,
+                instance: 0,
+                generation: 1,
+            },
+            map: map(),
+            key: SpawnKey {
+                kind: GridSpawnKind::Creature,
+                guid: 40,
+            },
+        };
+        let before = factory.random.cursor.raw;
+        let outcome = request
+            .load_creature(&mut factory, attempt, spawn(40, 0.0), &mut world.context())
+            .unwrap();
+        assert!(!factory.observations.contains(&Observation::EventGuid(40)));
+        match outcome {
+            GridCandidateOutcome::FailedAndDestroyed(object) => {
+                assert!(fail);
+                assert!(world.objects.get(object).is_err());
+                assert!(factory.observations.contains(&Observation::Destroy(object)));
+                assert_eq!(factory.random.cursor.raw, before);
+            }
+            GridCandidateOutcome::Loaded(object) => {
+                assert!(!fail);
+                assert_eq!(
+                    world.objects.get(object).unwrap().guid.unwrap().counter(),
+                    40
+                );
+                assert_eq!(factory.random.cursor.raw, before + 2);
+            }
+        }
+    }
+}
+
+#[test]
+fn constructor_event_spells_keep_the_reached_f5_refusal() {
+    // Creature.cpp:617-619 applies event spells during UpdateEntry before map construction finishes.
+    let mut world = World::new(vec![spawn(40, 0.0)]);
+    let mut factory = Factory::new();
+    factory.event = Some(CreatureEventData {
+        start_spell: 15,
+        end_spell: 16,
+        ..Default::default()
+    });
+    factory.refuse = Some(CreaturePhase::ApplyEventSpells);
+    assert_eq!(
+        world.load(0.0, &mut factory).unwrap_err().id,
+        "execution.event.f5_spell_owner"
+    );
+    assert!(!factory.observations.iter().any(|observation| matches!(
+        observation,
+        Observation::Phase(_, CreaturePhase::MapAddToWorld)
+    )));
+}
+
+#[test]
+fn constructor_rechecks_live_formation_after_relay_before_group_respawn() {
+    // Creature.cpp:1742-1754 re-reads formation ownership after script/link callbacks.
+    for (before, after) in [(false, true), (true, false)] {
+        let mut row = spawn(40, 0.0);
+        row.relay = 55;
+        let mut world = World::new(vec![row]);
+        let mut factory = Factory::new();
+        factory.group = Some(CreatureGroup {
+            id: 10,
+            string_id: 0,
+            has_formation: before,
+        });
+        factory.entries[0] = 7;
+        factory.relay_formation = Some(after);
+        world.load(0.0, &mut factory).unwrap();
+        assert_eq!(
+            factory
+                .observations
+                .contains(&Observation::Phase(40, CreaturePhase::FormationSlot)),
+            after
+        );
+        assert!(factory
+            .observations
+            .contains(&Observation::Phase(40, CreaturePhase::GroupRespawn)));
+        assert_eq!(
+            factory
+                .states
+                .first_key_value()
+                .unwrap()
+                .1
+                .group
+                .unwrap()
+                .has_formation,
+            after
+        );
+    }
+}
+
+#[test]
+fn selected_eventai_constructs_then_copies_holders_after_spell_list_changed() {
+    // Creature.cpp:880-887; CreatureEventAI.cpp:1384-1385.
+    let mut definitions = EventAiDefinitions::default();
+    definitions.insert(EventAiDefinition {
+        ordinal: 0,
+        id: 711,
+        entry: 7,
+        guid: 0,
+        kind: 1,
+        inverse_phase: 0,
+        chance: 100,
+        flags: 1,
+        params: [10, 10, 20, 20, 0, 0],
+        actions: std::array::from_fn(|_| EventAiAction {
+            kind: 0,
+            params: Some([0; 3]),
+        }),
+        friendly_hp_target_self: None,
+    });
+    let mut world = World::new(vec![spawn(40, 0.0), spawn(41, 0.0)]);
+    let mut factory = Factory::new();
+    factory.event_ai_definitions = Some(std::sync::Arc::new(definitions));
+    world.load(0.0, &mut factory).unwrap();
+    assert_eq!(factory.states.len(), 2);
+    for state in factory.states.values() {
+        let event_ai = state.event_ai().unwrap();
+        assert_eq!(event_ai.holders.len(), 1);
+        assert_eq!(
+            (event_ai.holders[0].event.id, event_ai.holders[0].timer),
+            (711, 10)
+        );
+        assert_eq!(event_ai.selected.object(), state.object);
+        assert!(factory.base_ais.get(&world.objects, state.object).is_ok());
+    }
+}
+
+#[test]
+fn selected_builtin_factory_dispatch_retains_real_bodies_and_named_refusals() {
+    for (name, missing) in [
+        ("NullAI", None),
+        ("GuardAI", None),
+        ("PossessedAI", None),
+        ("EventAI", None),
+        ("PetAI", Some("execution.ai.pet_constructor_owner")),
+        (
+            "GuardianAI",
+            Some("execution.summoned_ai.live_unit_and_base_binding_owner"),
+        ),
+        (
+            "TotemAI",
+            Some("execution.summoned_ai.live_unit_and_base_binding_owner"),
+        ),
+    ] {
+        let mut world = World::new(vec![spawn(40, 0.)]);
+        let mut factory = Factory::new();
+        factory.builtin_dispatch_name = Some(name.into());
+        factory.event_ai_definitions = Some(std::sync::Arc::new(EventAiDefinitions::default()));
+        let result = world.load(0., &mut factory);
+        if let Some(id) = missing {
+            assert_eq!(result.unwrap_err().id, id);
+            if matches!(name, "GuardianAI" | "TotemAI") {
+                let selected = factory.selected_ai.as_ref().unwrap();
+                assert_eq!(selected.executable().builtin_kind().unwrap().key(), name);
+                assert!(factory
+                    .base_ais
+                    .get(&world.objects, selected.object())
+                    .is_ok());
+            }
+            assert!(factory.states.is_empty());
+            continue;
+        }
+        result.unwrap();
+        let (&unit, state) = factory.states.first_key_value().unwrap();
+        if name == "EventAI" {
+            assert!(state.event_ai().is_some());
+            assert!(state.builtin_ai().is_none());
+        } else {
+            assert_eq!(
+                state
+                    .builtin_ai()
+                    .unwrap()
+                    .selected()
+                    .executable()
+                    .builtin_kind()
+                    .unwrap()
+                    .key(),
+                name
+            );
+            assert!(state.event_ai().is_none());
+            assert_eq!(
+                factory
+                    .units
+                    .get(&world.objects, unit)
+                    .unwrap()
+                    .can_enter_combat,
+                name != "NullAI"
+            );
+        }
+    }
+}
+
+#[path = "creature_level_factory_tests.rs"]
+mod creature_level_factory_tests;

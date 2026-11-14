@@ -1,0 +1,4542 @@
+{
+  "schema_version": 1,
+  "source_revision": "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f",
+  "receiver_coverage": "explicitly authored selected GUIDs; no real Cell traversal, eligibility, geometry, or production admission proof",
+  "cases": [
+    {
+      "name": "first_entry_positive_radius",
+      "input": {
+        "raw_extra_flags": 2,
+        "call_for_help_bits": 1084227584,
+        "fallback_radius_bits": 1092616192,
+        "delay_ms": 5,
+        "initial_queue_clock": 0,
+        "initial_map_clock": 0,
+        "initial_already_called": false,
+        "authored_receivers": [],
+        "operations": [
+          "entry",
+          "update 4",
+          "update 1"
+        ]
+      },
+      "observations": [
+        {
+          "phase": "initial",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": false,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "entry",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "update 4",
+          "map_clock": 4,
+          "queue_clock": 4,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "update 1",
+          "map_clock": 5,
+          "queue_clock": 5,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [
+            true
+          ],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [
+            1,
+            2
+          ],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [
+            {
+              "id": 1,
+              "can_check_for_help": true
+            },
+            {
+              "id": 2,
+              "can_check_for_help": true
+            }
+          ],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "repeated_hit_no_new_pair",
+      "input": {
+        "raw_extra_flags": 2,
+        "call_for_help_bits": 1084227584,
+        "fallback_radius_bits": 1092616192,
+        "delay_ms": 5,
+        "initial_queue_clock": 0,
+        "initial_map_clock": 0,
+        "initial_already_called": false,
+        "authored_receivers": [],
+        "operations": [
+          "entry",
+          "entry",
+          "update 5"
+        ]
+      },
+      "observations": [
+        {
+          "phase": "initial",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": false,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "entry",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "entry",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "update 5",
+          "map_clock": 5,
+          "queue_clock": 5,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [
+            true
+          ],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [
+            1,
+            2
+          ],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [
+            {
+              "id": 1,
+              "can_check_for_help": true
+            },
+            {
+              "id": 2,
+              "can_check_for_help": true
+            }
+          ],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "saved_false_authored_receivers",
+      "input": {
+        "raw_extra_flags": 2,
+        "call_for_help_bits": 1084227584,
+        "fallback_radius_bits": 1092616192,
+        "delay_ms": 5,
+        "initial_queue_clock": 0,
+        "initial_map_clock": 0,
+        "initial_already_called": false,
+        "authored_receivers": [
+          101,
+          102
+        ],
+        "operations": [
+          "entry",
+          "update 5"
+        ]
+      },
+      "observations": [
+        {
+          "phase": "initial",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": false,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "entry",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "update 5",
+          "map_clock": 5,
+          "queue_clock": 5,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [
+            true
+          ],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [
+            1,
+            2
+          ],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [
+            {
+              "id": 1,
+              "can_check_for_help": true
+            },
+            {
+              "id": 2,
+              "can_check_for_help": true
+            }
+          ],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "saved_true_authored_receivers",
+      "input": {
+        "raw_extra_flags": 2,
+        "call_for_help_bits": 1084227584,
+        "fallback_radius_bits": 1092616192,
+        "delay_ms": 5,
+        "initial_queue_clock": 0,
+        "initial_map_clock": 0,
+        "initial_already_called": true,
+        "authored_receivers": [
+          101,
+          102
+        ],
+        "operations": [
+          "entry",
+          "update 5"
+        ]
+      },
+      "observations": [
+        {
+          "phase": "initial",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "entry",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "update 5",
+          "map_clock": 5,
+          "queue_clock": 5,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [
+            true
+          ],
+          "receiver_ai_events": [
+            101,
+            102
+          ],
+          "receiver_assistance_calls": [
+            101,
+            102
+          ],
+          "executed": [
+            1,
+            2
+          ],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [
+            {
+              "id": 1,
+              "can_check_for_help": true
+            },
+            {
+              "id": 2,
+              "can_check_for_help": true
+            }
+          ],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "saved_true_empty_receivers",
+      "input": {
+        "raw_extra_flags": 2,
+        "call_for_help_bits": 1084227584,
+        "fallback_radius_bits": 1092616192,
+        "delay_ms": 5,
+        "initial_queue_clock": 0,
+        "initial_map_clock": 0,
+        "initial_already_called": true,
+        "authored_receivers": [],
+        "operations": [
+          "entry",
+          "update 5"
+        ]
+      },
+      "observations": [
+        {
+          "phase": "initial",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "entry",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "update 5",
+          "map_clock": 5,
+          "queue_clock": 5,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [
+            true
+          ],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [
+            1,
+            2
+          ],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [
+            {
+              "id": 1,
+              "can_check_for_help": true
+            },
+            {
+              "id": 2,
+              "can_check_for_help": true
+            }
+          ],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no_call_assist_saved_false",
+      "input": {
+        "raw_extra_flags": 2050,
+        "call_for_help_bits": 1084227584,
+        "fallback_radius_bits": 1092616192,
+        "delay_ms": 5,
+        "initial_queue_clock": 0,
+        "initial_map_clock": 0,
+        "initial_already_called": false,
+        "authored_receivers": [
+          101
+        ],
+        "operations": [
+          "entry",
+          "update 5"
+        ]
+      },
+      "observations": [
+        {
+          "phase": "initial",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": false,
+          "can_call_assistance": false,
+          "queued": [],
+          "scheduled": [],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "entry",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": false,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "update 5",
+          "map_clock": 5,
+          "queue_clock": 5,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": false,
+          "queued": [],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [
+            true
+          ],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [
+            1,
+            2
+          ],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [
+            {
+              "id": 1,
+              "can_check_for_help": true
+            },
+            {
+              "id": 2,
+              "can_check_for_help": true
+            }
+          ],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no_call_assist_saved_true",
+      "input": {
+        "raw_extra_flags": 2050,
+        "call_for_help_bits": 1084227584,
+        "fallback_radius_bits": 1092616192,
+        "delay_ms": 5,
+        "initial_queue_clock": 0,
+        "initial_map_clock": 0,
+        "initial_already_called": true,
+        "authored_receivers": [
+          101
+        ],
+        "operations": [
+          "entry",
+          "update 5"
+        ]
+      },
+      "observations": [
+        {
+          "phase": "initial",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": false,
+          "queued": [],
+          "scheduled": [],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "entry",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": false,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "update 5",
+          "map_clock": 5,
+          "queue_clock": 5,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": false,
+          "queued": [],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [
+            true
+          ],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [
+            1,
+            2
+          ],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [
+            {
+              "id": 1,
+              "can_check_for_help": true
+            },
+            {
+              "id": 2,
+              "can_check_for_help": true
+            }
+          ],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "zero_help_uses_fallback",
+      "input": {
+        "raw_extra_flags": 2,
+        "call_for_help_bits": 0,
+        "fallback_radius_bits": 1092616192,
+        "delay_ms": 5,
+        "initial_queue_clock": 0,
+        "initial_map_clock": 0,
+        "initial_already_called": false,
+        "authored_receivers": [],
+        "operations": [
+          "entry",
+          "update 5"
+        ]
+      },
+      "observations": [
+        {
+          "phase": "initial",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": false,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "entry",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1092616192
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "update 5",
+          "map_clock": 5,
+          "queue_clock": 5,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1092616192
+          ],
+          "enemy_lookup_results": [
+            true
+          ],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [
+            1,
+            2
+          ],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [
+            {
+              "id": 1,
+              "can_check_for_help": true
+            },
+            {
+              "id": 2,
+              "can_check_for_help": true
+            }
+          ],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "negative_help_uses_fallback",
+      "input": {
+        "raw_extra_flags": 2,
+        "call_for_help_bits": 3212836864,
+        "fallback_radius_bits": 1092616192,
+        "delay_ms": 5,
+        "initial_queue_clock": 0,
+        "initial_map_clock": 0,
+        "initial_already_called": false,
+        "authored_receivers": [],
+        "operations": [
+          "entry",
+          "update 5"
+        ]
+      },
+      "observations": [
+        {
+          "phase": "initial",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": false,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "entry",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1092616192
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "update 5",
+          "map_clock": 5,
+          "queue_clock": 5,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1092616192
+          ],
+          "enemy_lookup_results": [
+            true
+          ],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [
+            1,
+            2
+          ],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [
+            {
+              "id": 1,
+              "can_check_for_help": true
+            },
+            {
+              "id": 2,
+              "can_check_for_help": true
+            }
+          ],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "zero_delay_waits_for_update",
+      "input": {
+        "raw_extra_flags": 2,
+        "call_for_help_bits": 1084227584,
+        "fallback_radius_bits": 1092616192,
+        "delay_ms": 0,
+        "initial_queue_clock": 0,
+        "initial_map_clock": 0,
+        "initial_already_called": false,
+        "authored_receivers": [],
+        "operations": [
+          "entry",
+          "update 0"
+        ]
+      },
+      "observations": [
+        {
+          "phase": "initial",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": false,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "entry",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 0
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 0
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 0
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 0
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "update 0",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 0
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 0
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [
+            true
+          ],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [
+            1,
+            2
+          ],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [
+            {
+              "id": 1,
+              "can_check_for_help": true
+            },
+            {
+              "id": 2,
+              "can_check_for_help": true
+            }
+          ],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "callback_entry_zero_delay_source_only",
+      "input": {
+        "raw_extra_flags": 2,
+        "call_for_help_bits": 1084227584,
+        "fallback_radius_bits": 1092616192,
+        "delay_ms": 0,
+        "initial_queue_clock": 0,
+        "initial_map_clock": 0,
+        "initial_already_called": false,
+        "authored_receivers": [],
+        "operations": [
+          "callback_entry",
+          "update 7"
+        ]
+      },
+      "observations": [
+        {
+          "phase": "initial",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": false,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "callback_entry",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": false,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "EntryCallback",
+              "add_clock": 0,
+              "deadline": 0
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "EntryCallback",
+              "add_clock": 0,
+              "deadline": 0
+            }
+          ],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "update 7",
+          "map_clock": 7,
+          "queue_clock": 7,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "EntryCallback",
+              "add_clock": 0,
+              "deadline": 0
+            },
+            {
+              "id": 2,
+              "kind": "ReenableHelp",
+              "add_clock": 7,
+              "deadline": 7
+            },
+            {
+              "id": 3,
+              "kind": "AggroLinking",
+              "add_clock": 7,
+              "deadline": 7
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [
+            true
+          ],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [
+            1,
+            2,
+            3
+          ],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [
+            {
+              "id": 1,
+              "can_check_for_help": false
+            },
+            {
+              "id": 2,
+              "can_check_for_help": true
+            },
+            {
+              "id": 3,
+              "can_check_for_help": true
+            }
+          ],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "captured_receivers_missing_at_execution",
+      "input": {
+        "raw_extra_flags": 2,
+        "call_for_help_bits": 1084227584,
+        "fallback_radius_bits": 1092616192,
+        "delay_ms": 5,
+        "initial_queue_clock": 0,
+        "initial_map_clock": 0,
+        "initial_already_called": true,
+        "authored_receivers": [
+          101
+        ],
+        "operations": [
+          "entry",
+          "receivers_present 0",
+          "update 5"
+        ]
+      },
+      "observations": [
+        {
+          "phase": "initial",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "entry",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "receivers_present 0",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "update 5",
+          "map_clock": 5,
+          "queue_clock": 5,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [
+            true
+          ],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [
+            1,
+            2
+          ],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [
+            {
+              "id": 1,
+              "can_check_for_help": true
+            },
+            {
+              "id": 2,
+              "can_check_for_help": true
+            }
+          ],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "prior_equal_deadline_keeps_order",
+      "input": {
+        "raw_extra_flags": 2,
+        "call_for_help_bits": 1084227584,
+        "fallback_radius_bits": 1092616192,
+        "delay_ms": 5,
+        "initial_queue_clock": 0,
+        "initial_map_clock": 0,
+        "initial_already_called": false,
+        "authored_receivers": [],
+        "operations": [
+          "sentinel",
+          "entry",
+          "update 5"
+        ]
+      },
+      "observations": [
+        {
+          "phase": "initial",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": false,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "sentinel",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": false,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "PriorEvent",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "PriorEvent",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "entry",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "PriorEvent",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 3,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "PriorEvent",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 3,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "update 5",
+          "map_clock": 5,
+          "queue_clock": 5,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "PriorEvent",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 3,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [
+            true
+          ],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [
+            1,
+            2,
+            3
+          ],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [
+            {
+              "id": 1,
+              "can_check_for_help": false
+            },
+            {
+              "id": 2,
+              "can_check_for_help": true
+            },
+            {
+              "id": 3,
+              "can_check_for_help": true
+            }
+          ],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "queue_clock_lags_map_clock",
+      "input": {
+        "raw_extra_flags": 2,
+        "call_for_help_bits": 1084227584,
+        "fallback_radius_bits": 1092616192,
+        "delay_ms": 5,
+        "initial_queue_clock": 17,
+        "initial_map_clock": 1000,
+        "initial_already_called": false,
+        "authored_receivers": [],
+        "operations": [
+          "entry",
+          "map_advance 100",
+          "update 4",
+          "update 1"
+        ]
+      },
+      "observations": [
+        {
+          "phase": "initial",
+          "map_clock": 1000,
+          "queue_clock": 17,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": false,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "entry",
+          "map_clock": 1000,
+          "queue_clock": 17,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 17,
+              "deadline": 22
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 17,
+              "deadline": 22
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 17,
+              "deadline": 22
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 17,
+              "deadline": 22
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "map_advance 100",
+          "map_clock": 1100,
+          "queue_clock": 17,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 17,
+              "deadline": 22
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 17,
+              "deadline": 22
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 17,
+              "deadline": 22
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 17,
+              "deadline": 22
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "update 4",
+          "map_clock": 1104,
+          "queue_clock": 21,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 17,
+              "deadline": 22
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 17,
+              "deadline": 22
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 17,
+              "deadline": 22
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 17,
+              "deadline": 22
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "update 1",
+          "map_clock": 1105,
+          "queue_clock": 22,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 17,
+              "deadline": 22
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 17,
+              "deadline": 22
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [
+            true
+          ],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [
+            1,
+            2
+          ],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [
+            {
+              "id": 1,
+              "can_check_for_help": true
+            },
+            {
+              "id": 2,
+              "can_check_for_help": true
+            }
+          ],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "missing_enemy_at_execution",
+      "input": {
+        "raw_extra_flags": 2,
+        "call_for_help_bits": 1084227584,
+        "fallback_radius_bits": 1092616192,
+        "delay_ms": 5,
+        "initial_queue_clock": 0,
+        "initial_map_clock": 0,
+        "initial_already_called": true,
+        "authored_receivers": [
+          101
+        ],
+        "operations": [
+          "entry",
+          "enemy_present 0",
+          "update 5"
+        ]
+      },
+      "observations": [
+        {
+          "phase": "initial",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "entry",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "enemy_present 0",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "update 5",
+          "map_clock": 5,
+          "queue_clock": 5,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [
+            false
+          ],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [
+            1,
+            2
+          ],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [
+            {
+              "id": 1,
+              "can_check_for_help": true
+            },
+            {
+              "id": 2,
+              "can_check_for_help": true
+            }
+          ],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "combat_stop_before_execution",
+      "input": {
+        "raw_extra_flags": 2,
+        "call_for_help_bits": 1084227584,
+        "fallback_radius_bits": 1092616192,
+        "delay_ms": 5,
+        "initial_queue_clock": 0,
+        "initial_map_clock": 0,
+        "initial_already_called": true,
+        "authored_receivers": [
+          101
+        ],
+        "operations": [
+          "entry",
+          "combat_stop",
+          "update 5"
+        ]
+      },
+      "observations": [
+        {
+          "phase": "initial",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "entry",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "combat_stop",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": false,
+          "already_called": false,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat",
+            "combat_stop"
+          ]
+        },
+        {
+          "phase": "update 5",
+          "map_clock": 5,
+          "queue_clock": 5,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": false,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [
+            true
+          ],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [
+            1,
+            2
+          ],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [
+            {
+              "id": 1,
+              "can_check_for_help": true
+            },
+            {
+              "id": 2,
+              "can_check_for_help": true
+            }
+          ],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat",
+            "combat_stop"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "stop_reentry_old_saved_true_survives",
+      "input": {
+        "raw_extra_flags": 2,
+        "call_for_help_bits": 1084227584,
+        "fallback_radius_bits": 1092616192,
+        "delay_ms": 5,
+        "initial_queue_clock": 0,
+        "initial_map_clock": 0,
+        "initial_already_called": true,
+        "authored_receivers": [
+          101
+        ],
+        "operations": [
+          "entry",
+          "combat_stop",
+          "entry",
+          "update 5"
+        ]
+      },
+      "observations": [
+        {
+          "phase": "initial",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "entry",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "combat_stop",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": false,
+          "already_called": false,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat",
+            "combat_stop"
+          ]
+        },
+        {
+          "phase": "entry",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 3,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 4,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 3,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 4,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 2,
+          "query_radius_bits": [
+            1084227584,
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat",
+            "combat_stop",
+            "combat_start",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "update 5",
+          "map_clock": 5,
+          "queue_clock": 5,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 3,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 4,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 2,
+          "query_radius_bits": [
+            1084227584,
+            1084227584
+          ],
+          "enemy_lookup_results": [
+            true,
+            true
+          ],
+          "receiver_ai_events": [
+            101
+          ],
+          "receiver_assistance_calls": [
+            101
+          ],
+          "executed": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [
+            {
+              "id": 1,
+              "can_check_for_help": true
+            },
+            {
+              "id": 2,
+              "can_check_for_help": true
+            },
+            {
+              "id": 3,
+              "can_check_for_help": true
+            },
+            {
+              "id": 4,
+              "can_check_for_help": true
+            }
+          ],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat",
+            "combat_stop",
+            "combat_start",
+            "enter_combat"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "corpse_advances_events",
+      "input": {
+        "raw_extra_flags": 2,
+        "call_for_help_bits": 1084227584,
+        "fallback_radius_bits": 1092616192,
+        "delay_ms": 5,
+        "initial_queue_clock": 0,
+        "initial_map_clock": 0,
+        "initial_already_called": true,
+        "authored_receivers": [
+          101
+        ],
+        "operations": [
+          "entry",
+          "die",
+          "update 5"
+        ]
+      },
+      "observations": [
+        {
+          "phase": "initial",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "entry",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "die",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "corpse",
+          "owner_in_combat": false,
+          "can_check_for_help": false,
+          "already_called": false,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat",
+            "combat_stop",
+            "combat_stop"
+          ]
+        },
+        {
+          "phase": "update 5",
+          "map_clock": 5,
+          "queue_clock": 5,
+          "death_state": "corpse",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": false,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [
+            true
+          ],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [
+            1,
+            2
+          ],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [
+            {
+              "id": 1,
+              "can_check_for_help": true
+            },
+            {
+              "id": 2,
+              "can_check_for_help": true
+            }
+          ],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat",
+            "combat_stop",
+            "combat_stop"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "dead_freezes_respawn_retains",
+      "input": {
+        "raw_extra_flags": 2,
+        "call_for_help_bits": 1084227584,
+        "fallback_radius_bits": 1092616192,
+        "delay_ms": 5,
+        "initial_queue_clock": 0,
+        "initial_map_clock": 0,
+        "initial_already_called": true,
+        "authored_receivers": [
+          101
+        ],
+        "operations": [
+          "entry",
+          "die",
+          "remove_corpse",
+          "update 100",
+          "respawn",
+          "entry",
+          "update 5"
+        ]
+      },
+      "observations": [
+        {
+          "phase": "initial",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "entry",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "die",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "corpse",
+          "owner_in_combat": false,
+          "can_check_for_help": false,
+          "already_called": false,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat",
+            "combat_stop",
+            "combat_stop"
+          ]
+        },
+        {
+          "phase": "remove_corpse",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "dead",
+          "owner_in_combat": false,
+          "can_check_for_help": false,
+          "already_called": false,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat",
+            "combat_stop",
+            "combat_stop",
+            "combat_stop",
+            "corpse_removed"
+          ]
+        },
+        {
+          "phase": "update 100",
+          "map_clock": 100,
+          "queue_clock": 0,
+          "death_state": "dead",
+          "owner_in_combat": false,
+          "can_check_for_help": false,
+          "already_called": false,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat",
+            "combat_stop",
+            "combat_stop",
+            "combat_stop",
+            "corpse_removed"
+          ]
+        },
+        {
+          "phase": "respawn",
+          "map_clock": 100,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": false,
+          "already_called": false,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat",
+            "combat_stop",
+            "combat_stop",
+            "combat_stop",
+            "corpse_removed",
+            "respawn_notify_shim_excluded_from_queue",
+            "just_respawned",
+            "map_add_respawn"
+          ]
+        },
+        {
+          "phase": "entry",
+          "map_clock": 100,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 3,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 4,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 3,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 4,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 2,
+          "query_radius_bits": [
+            1084227584,
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat",
+            "combat_stop",
+            "combat_stop",
+            "combat_stop",
+            "corpse_removed",
+            "respawn_notify_shim_excluded_from_queue",
+            "just_respawned",
+            "map_add_respawn",
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "update 5",
+          "map_clock": 105,
+          "queue_clock": 5,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 3,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 4,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 2,
+          "query_radius_bits": [
+            1084227584,
+            1084227584
+          ],
+          "enemy_lookup_results": [
+            true,
+            true
+          ],
+          "receiver_ai_events": [
+            101
+          ],
+          "receiver_assistance_calls": [
+            101
+          ],
+          "executed": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [
+            {
+              "id": 1,
+              "can_check_for_help": true
+            },
+            {
+              "id": 2,
+              "can_check_for_help": true
+            },
+            {
+              "id": 3,
+              "can_check_for_help": true
+            },
+            {
+              "id": 4,
+              "can_check_for_help": true
+            }
+          ],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat",
+            "combat_stop",
+            "combat_stop",
+            "combat_stop",
+            "corpse_removed",
+            "respawn_notify_shim_excluded_from_queue",
+            "just_respawned",
+            "map_add_respawn",
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "teardown_force_aborts_without_execute",
+      "input": {
+        "raw_extra_flags": 2,
+        "call_for_help_bits": 1084227584,
+        "fallback_radius_bits": 1092616192,
+        "delay_ms": 5,
+        "initial_queue_clock": 0,
+        "initial_map_clock": 0,
+        "initial_already_called": false,
+        "authored_receivers": [],
+        "operations": [
+          "entry",
+          "teardown 1"
+        ]
+      },
+      "observations": [
+        {
+          "phase": "initial",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": false,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "entry",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "teardown 1",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [
+            1,
+            2
+          ],
+          "destroyed_without_execute": [
+            1,
+            2
+          ],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "teardown_normal_aborts_without_execute",
+      "input": {
+        "raw_extra_flags": 2,
+        "call_for_help_bits": 1084227584,
+        "fallback_radius_bits": 1092616192,
+        "delay_ms": 5,
+        "initial_queue_clock": 0,
+        "initial_map_clock": 0,
+        "initial_already_called": false,
+        "authored_receivers": [],
+        "operations": [
+          "entry",
+          "teardown 0"
+        ]
+      },
+      "observations": [
+        {
+          "phase": "initial",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": false,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "entry",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "teardown 0",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [
+            1,
+            2
+          ],
+          "destroyed_without_execute": [
+            1,
+            2
+          ],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "due_abort_does_not_execute",
+      "input": {
+        "raw_extra_flags": 2,
+        "call_for_help_bits": 1084227584,
+        "fallback_radius_bits": 1092616192,
+        "delay_ms": 5,
+        "initial_queue_clock": 0,
+        "initial_map_clock": 0,
+        "initial_already_called": false,
+        "authored_receivers": [],
+        "operations": [
+          "entry",
+          "mark_abort",
+          "update 5"
+        ]
+      },
+      "observations": [
+        {
+          "phase": "initial",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": false,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "entry",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "mark_abort",
+          "map_clock": 0,
+          "queue_clock": 0,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "update 5",
+          "map_clock": 5,
+          "queue_clock": 5,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 0,
+              "deadline": 5
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 0,
+              "deadline": 5
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [
+            1,
+            2
+          ],
+          "destroyed_without_execute": [
+            1,
+            2
+          ],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "wide_queue_clock",
+      "input": {
+        "raw_extra_flags": 2,
+        "call_for_help_bits": 1084227584,
+        "fallback_radius_bits": 1092616192,
+        "delay_ms": 5,
+        "initial_queue_clock": 4294967296,
+        "initial_map_clock": 9000000000,
+        "initial_already_called": false,
+        "authored_receivers": [],
+        "operations": [
+          "entry",
+          "update 5"
+        ]
+      },
+      "observations": [
+        {
+          "phase": "initial",
+          "map_clock": 9000000000,
+          "queue_clock": 4294967296,
+          "death_state": "alive",
+          "owner_in_combat": false,
+          "can_check_for_help": true,
+          "already_called": false,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [],
+          "query_count": 0,
+          "query_radius_bits": [],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": []
+        },
+        {
+          "phase": "entry",
+          "map_clock": 9000000000,
+          "queue_clock": 4294967296,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": false,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 4294967296,
+              "deadline": 4294967301
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 4294967296,
+              "deadline": 4294967301
+            }
+          ],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 4294967296,
+              "deadline": 4294967301
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 4294967296,
+              "deadline": 4294967301
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        },
+        {
+          "phase": "update 5",
+          "map_clock": 9000000005,
+          "queue_clock": 4294967301,
+          "death_state": "alive",
+          "owner_in_combat": true,
+          "can_check_for_help": true,
+          "already_called": true,
+          "can_call_assistance": true,
+          "queued": [],
+          "scheduled": [
+            {
+              "id": 1,
+              "kind": "ReenableHelp",
+              "add_clock": 4294967296,
+              "deadline": 4294967301
+            },
+            {
+              "id": 2,
+              "kind": "AggroLinking",
+              "add_clock": 4294967296,
+              "deadline": 4294967301
+            }
+          ],
+          "query_count": 1,
+          "query_radius_bits": [
+            1084227584
+          ],
+          "enemy_lookup_results": [
+            true
+          ],
+          "receiver_ai_events": [],
+          "receiver_assistance_calls": [],
+          "executed": [
+            1,
+            2
+          ],
+          "aborted": [],
+          "destroyed_without_execute": [],
+          "help_after_execute": [
+            {
+              "id": 1,
+              "can_check_for_help": true
+            },
+            {
+              "id": 2,
+              "can_check_for_help": true
+            }
+          ],
+          "hooks": [
+            "combat_start",
+            "abort_initial_notify",
+            "enter_combat"
+          ]
+        }
+      ]
+    }
+  ]
+}

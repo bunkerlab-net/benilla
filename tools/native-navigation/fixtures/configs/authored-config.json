@@ -1,0 +1,13 @@
+{
+  "1": {
+    "123": {
+      "maxSimplificationError": 1.25,
+      "walkableRadius": 3.9
+    },
+    "ignored_object": {
+      "x": 1
+    },
+    "minRegionArea": 9,
+    "walkableClimb": 7.9
+  }
+}

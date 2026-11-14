@@ -1,0 +1,11 @@
+Preserved from the pinned CMaNGOS src/game/vmap/BIH.h:
+
+/** Bounding Interval Hierarchy Class.
+    Building and Ray-Intersection functions based on BIH from
+    Sunflow, a Java Raytracer, released under MIT/X11 License
+    http://sunflow.sourceforge.net/
+    Copyright (c) 2003-2007 Christopher Kulla
+*/
+
+CMaNGOS's GPL-2.0-or-later notice is retained in ../CMANGOS-NOTICE.txt.
+The source-derived Rust port and authored tests are GPL-3.0-or-later.

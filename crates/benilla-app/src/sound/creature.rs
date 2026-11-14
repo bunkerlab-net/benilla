@@ -21,8 +21,8 @@ use benilla_world::schedule::WorldStage;
 
 use super::kit::{
     bark_chance_pass, object_sound_playing, play_kit, play_kit_ext, source_kit_playing,
-    stop_source_kit, stop_unit_voice, unit_voice_state, KitRef, Latch, PlayExtras, SoundCategory,
-    SoundKits, STAND_CHANCE, STAND_COOLDOWN,
+    stop_source_kit, stop_unit_voice, unit_voice_state, FollowSource, KitRef, Latch, PlayExtras,
+    SoundCategory, SoundKits, STAND_CHANCE, STAND_COOLDOWN,
 };
 use super::{AudioListener, SoundConfig, SoundOutput};
 
@@ -115,6 +115,7 @@ fn play_bark(
         SoundCategory::Sfx,
         PlayExtras {
             source: Some(unit),
+            follow: Some(FollowSource::Origin),
             latch: Latch::Voice(state),
             ..default()
         },
@@ -236,7 +237,7 @@ fn ai_reaction_vocals(
         if net.kind != EntityKind::Player && object_sound_playing(&out, r.unit) {
             continue;
         }
-        if let Err(e) = play_kit(
+        if let Err(e) = play_kit_ext(
             &mut kits,
             &assets,
             &mut out,
@@ -245,6 +246,11 @@ fn ai_reaction_vocals(
             KitRef::Id(voice.alert),
             Some(transform.translation),
             SoundCategory::Sfx,
+            PlayExtras {
+                source: Some(r.unit),
+                follow: Some(FollowSource::Origin),
+                ..default()
+            },
         ) {
             warn!("alert vocal (kit {}): {e:#}", voice.alert);
         }
@@ -493,7 +499,7 @@ fn creature_anim_vocals(
         if kit == 0 {
             continue;
         }
-        if let Err(e) = play_kit(
+        if let Err(e) = play_kit_ext(
             &mut kits,
             &assets,
             &mut out,
@@ -502,10 +508,21 @@ fn creature_anim_vocals(
             KitRef::Id(kit),
             Some(transform.translation()),
             SoundCategory::Sfx,
+            PlayExtras {
+                source: creature_event_follow(ev.ident).map(|_| ev.entity),
+                follow: creature_event_follow(ev.ident),
+                ..default()
+            },
         ) {
             warn!("creature vocal (kit {kit}): {e:#}");
         }
     }
+}
+
+/// Fidgets and stand vocals belong to the creature. Wing flap/glide events remain fixed SFX.
+fn creature_event_follow(ident: [u8; 4]) -> Option<FollowSource> {
+    matches!(&ident, b"$FD1" | b"$FD2" | b"$FD3" | b"$FD4" | b"$FDX")
+        .then_some(FollowSource::WorldOrigin)
 }
 
 /// The hard-landing grunt: the reference's landing predictor `0x602d00` voices a landing past the
@@ -548,7 +565,7 @@ fn fall_landing_vocals(
         if kit == 0 {
             continue;
         }
-        if let Err(e) = play_kit(
+        if let Err(e) = play_kit_ext(
             &mut kits,
             &assets,
             &mut out,
@@ -557,6 +574,11 @@ fn fall_landing_vocals(
             KitRef::Id(kit),
             Some(transform.translation),
             SoundCategory::Sfx,
+            PlayExtras {
+                source: Some(l.entity),
+                follow: Some(FollowSource::Origin),
+                ..default()
+            },
         ) {
             warn!("fall-landing vocal (kit {kit}): {e:#}");
         }
@@ -585,6 +607,19 @@ pub(super) fn plugin(app: &mut App) {
 mod tests {
     use super::super::kit::occupies_voice_slot;
     use super::*;
+
+    #[test]
+    fn creature_vocals_follow_but_wing_and_unknown_events_stay_fixed() {
+        for event in [*b"$FD1", *b"$FD2", *b"$FD3", *b"$FD4", *b"$FDX"] {
+            assert_eq!(
+                creature_event_follow(event),
+                Some(FollowSource::WorldOrigin)
+            );
+        }
+        for event in [*b"$WNG", *b"$WGG", *b"$FD5", *b"$SND"] {
+            assert_eq!(creature_event_follow(event), None);
+        }
+    }
 
     /// Every `SMSG_AI_REACTION` HOSTILE arrival for a bear pet in one traced session, in seconds
     /// from the first: 63 inside 19 s, the rate vmangos sends by design.

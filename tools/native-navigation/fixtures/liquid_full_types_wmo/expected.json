@@ -1,0 +1,593 @@
+{
+  "bounds_max_bits": [
+    "44855555",
+    "41540000",
+    "44055555"
+  ],
+  "bounds_min_bits": [
+    "44055555",
+    "3f800000",
+    "00000000"
+  ],
+  "combined_triangles": 1,
+  "combined_vertices_before_clean": 3,
+  "config": {
+    "borderSize": 5,
+    "detailSampleDist": 4.266665458679199,
+    "detailSampleMaxError": 0.26666659116744995,
+    "liquidFlagMergeThreshold": 0.0,
+    "maxEdgeLen": 81,
+    "maxSimplificationError": 1.7999999523162842,
+    "mergeRegionArea": 50,
+    "minRegionArea": 60,
+    "walkableClimb": 4,
+    "walkableHeight": 6,
+    "walkableRadius": 2,
+    "walkableSlopeAngle": 60.0
+  },
+  "liquid_triangle_areas": {
+    "8": 4736,
+    "9": 28032
+  },
+  "liquid_triangles": 32768,
+  "liquid_vertices": 16641,
+  "output": {
+    "add_tile_status": 1073741824,
+    "areas": {
+      "8": 228,
+      "9": 770
+    },
+    "bv_node_count": 1996,
+    "detail_tri_count": 1938,
+    "detail_vert_count": 0,
+    "emitted": true,
+    "max_polys": -2147483648,
+    "max_tiles": 1,
+    "merged_polygons": 998,
+    "mesh_init_status": 1073741824,
+    "params_origin_bits": [
+      "44055555",
+      "00800000",
+      "00000000"
+    ],
+    "paths": [],
+    "poly_count": 998,
+    "polygon_flags": {
+      "4": 770,
+      "8": 228
+    },
+    "queries": [
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "441b8e38",
+          "41640000",
+          "42b1c71c"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      },
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "4431c71c",
+          "41640000",
+          "42b1c71c"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      },
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "44480000",
+          "41640000",
+          "42b1c71c"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      },
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "445e38e3",
+          "41640000",
+          "42b1c71c"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      },
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "447471c6",
+          "41640000",
+          "42b1c71c"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      },
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "441b8e38",
+          "41640000",
+          "4331c71c"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      },
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "4431c71c",
+          "41640000",
+          "4331c71c"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      },
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "44480000",
+          "41640000",
+          "4331c71c"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      },
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "445e38e3",
+          "41640000",
+          "4331c71c"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      },
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "447471c6",
+          "41640000",
+          "4331c71c"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      },
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "441b8e38",
+          "41640000",
+          "43855555"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      },
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "4431c71c",
+          "41640000",
+          "43855555"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      },
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "44480000",
+          "41640000",
+          "43855555"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      },
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "445e38e3",
+          "41640000",
+          "43855555"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      },
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "447471c6",
+          "41640000",
+          "43855555"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      },
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "441b8e38",
+          "41640000",
+          "43b1c71c"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      },
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "4431c71c",
+          "41640000",
+          "43b1c71c"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      },
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "44480000",
+          "41640000",
+          "43b1c71c"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      },
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "445e38e3",
+          "41640000",
+          "43b1c71c"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      },
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "447471c6",
+          "41640000",
+          "43b1c71c"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      },
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "441b8e38",
+          "41640000",
+          "43de38e3"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      },
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "4431c71c",
+          "41640000",
+          "43de38e3"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      },
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "44480000",
+          "41640000",
+          "43de38e3"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      },
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "445e38e3",
+          "41640000",
+          "43de38e3"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      },
+      {
+        "extents_bits": [
+          "40a00000",
+          "461c4000",
+          "40a00000"
+        ],
+        "nearest_bits": [
+          "00000000",
+          "00000000",
+          "00000000"
+        ],
+        "point_bits": [
+          "447471c6",
+          "41640000",
+          "43de38e3"
+        ],
+        "poly_ref": 0,
+        "status": 1073741824
+      }
+    ],
+    "query_filter": {
+      "exclude_flags": 0,
+      "include_flags": 1
+    },
+    "query_init_status": 1073741824,
+    "tile_bmax_bits": [
+      "44855555",
+      "41540000",
+      "44055555"
+    ],
+    "tile_bmin_bits": [
+      "44055555",
+      "3f800000",
+      "00000000"
+    ],
+    "tile_x": 0,
+    "tile_y": 0,
+    "vert_count": 1029
+  },
+  "solid_triangles": 1,
+  "solid_vertices": 3,
+  "terrain_file_events": [
+    {
+      "basename": "0003130.map",
+      "mode": "rb",
+      "opened": true
+    },
+    {
+      "basename": "0003131.map",
+      "mode": "rb",
+      "opened": false
+    },
+    {
+      "basename": "0003129.map",
+      "mode": "rb",
+      "opened": false
+    },
+    {
+      "basename": "0003230.map",
+      "mode": "rb",
+      "opened": false
+    },
+    {
+      "basename": "0003030.map",
+      "mode": "rb",
+      "opened": false
+    }
+  ],
+  "terrain_triangles": 0,
+  "terrain_vertices_before_clean": 0,
+  "tile_union": [
+    [
+      30,
+      31
+    ]
+  ],
+  "vmap_loaded": true
+}

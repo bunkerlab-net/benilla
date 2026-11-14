@@ -1,0 +1,57 @@
+{
+  "project": "CMaNGOS Classic",
+  "revision": "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f",
+  "source_license": "GPL-2.0-or-later",
+  "normalization": "CRLF to LF only",
+  "files": {
+    "InhabitType.inc": {
+      "source_path": "src/game/Entities/Creature.h",
+      "source_file_sha256": "a92b0e95e5bf7827389fcca0acc0edaba48a1a083efbf5a01a752a4d171664fc",
+      "license_header_lines": 17,
+      "start_line": 403,
+      "end_line": 409,
+      "body_sha256": "779c6e0363385437b25f1ebbedb1bdce8095d3625237091a571ea87472012091",
+      "file_sha256": "e00fc6f3ce785cfe2562febeac60eecea5ccb43a18f3f4986f6118f0c74060c6"
+    },
+    "CreatureCapabilities.inc": {
+      "source_path": "src/game/Entities/Creature.h",
+      "source_file_sha256": "a92b0e95e5bf7827389fcca0acc0edaba48a1a083efbf5a01a752a4d171664fc",
+      "license_header_lines": 17,
+      "start_line": 643,
+      "end_line": 646,
+      "body_sha256": "243d9eb5563003a837933da0c7a7fb11c74a1fd077d04958525b6641a191ebc7",
+      "file_sha256": "6491dfc10a26ddf4835564de4df3a3a7b5adfc1516fec02091724485b5e2afc0"
+    },
+    "MovementFlags.inc": {
+      "source_path": "src/game/Entities/Object.h",
+      "source_file_sha256": "259cdb1a061258d6a8c3e977c743c8c83848c763353b504ca3e617580f58c128",
+      "license_header_lines": 17,
+      "start_line": 701,
+      "end_line": 737,
+      "body_sha256": "2135996853f31f87074cb997595bb003c4d8d067531480bce0f85b12b9e2d3e0",
+      "file_sha256": "5fe8cae831fcaebba1dc6a4bbe79d71e1e88cf5e40fefcb7760f68bc97b38cb9"
+    },
+    "HasMovementFlag.inc": {
+      "source_path": "src/game/Entities/Object.h",
+      "source_file_sha256": "259cdb1a061258d6a8c3e977c743c8c83848c763353b504ca3e617580f58c128",
+      "license_header_lines": 17,
+      "start_line": 763,
+      "end_line": 763,
+      "body_sha256": "07acf5cc2018200f666625c1549982af9bf1bbc59fc7914c15579036e7cc37ea",
+      "file_sha256": "36ba01cfa06d1c420075b0d0e6fc38893b5277bc97b6367e1fe3f7d8ab2e7901"
+    },
+    "RepairInhabitType.inc": {
+      "source_path": "src/game/Globals/ObjectMgr.cpp",
+      "source_file_sha256": "dd27915ca363f81885d20783fc4f6c0392df20c4e3dfa031faa1a30df7a4b78b",
+      "license_header_lines": 17,
+      "start_line": 520,
+      "end_line": 524,
+      "body_sha256": "57cc24a2f86b5aea0a0a09021ed491a7dcd114d57b816dca298ad200fba8ec19",
+      "file_sha256": "8b2794bdbfc1ef10207e69602d93ea60e344fdda1555c2dd74cfc7e21c2a66a0"
+    }
+  },
+  "reviewed_runtime_sources": {
+    "src/game/Entities/Creature.cpp": "27ae75c9e90febd0827fd60f9c9fe27bfeeab34e476d10ac784ab1039d4b8302",
+    "src/game/Entities/Unit.cpp": "03b67a4b6226f1f463e71be3694d3c950fc9b915a6e921407a98e4ff82fc21d0"
+  }
+}
