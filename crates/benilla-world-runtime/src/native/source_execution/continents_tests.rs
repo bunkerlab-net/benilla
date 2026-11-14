@@ -272,9 +272,8 @@ fn missing_terrain_refuses_at_addref_after_guid_grid_and_visibility_steps() {
         create_data(map, 9).unwrap_err().id,
         "execution.continents.prelude_missing"
     );
-    assert_eq!(map.dynamic_tree_rebalance_ms, 200);
-    assert_eq!(map.dynamic_tree_unbalanced, 0);
-    // Cold dynamic-tree fields provide no collision query or clear-line-of-sight result.
+    assert_eq!(map.dynamic_tree.tree.timer_ms(), 200);
+    assert_eq!(map.dynamic_tree.tree.unbalanced(), 0);
 }
 
 #[path = "world_scripts_tests.rs"]

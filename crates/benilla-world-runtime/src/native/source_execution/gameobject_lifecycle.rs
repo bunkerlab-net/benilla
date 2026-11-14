@@ -19,7 +19,7 @@ pub enum GameObjectLifecyclePending {
 impl GameObjectLifecyclePending {
     pub fn refusal(self) -> Refusal {
         refuse(match self {
-            Self::DynamicModel => "execution.dynamic_collision_owner_unavailable",
+            Self::DynamicModel => "execution.dynamic_collision.gameobject_world_geometry_owner",
             Self::PoolEffects => "execution.gameobject_lifecycle.f4_09_pool_effects_pending",
             Self::GroupEffects => "execution.gameobject_lifecycle.group_dispatch_owner",
             Self::Events => "execution.gameobject_lifecycle.f5_events_pending",

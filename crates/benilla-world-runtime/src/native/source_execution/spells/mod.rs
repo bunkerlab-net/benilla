@@ -317,15 +317,33 @@ pub trait SpellExecutionOwner {
             "execution.spells.f6_VMapManager_IsInLineOfSight_owner",
         ))
     }
+    fn range_dynamic_geometry(
+        &mut self,
+        _map: MapIdentity,
+    ) -> Result<(
+        &mut SourceDynamicMap,
+        &SourceDynamicModels,
+        &SourceVMapManager,
+    )> {
+        Err(refuse("execution.dynamic_collision.spell_map_tree_owner"))
+    }
     fn range_dynamic_los(
         &mut self,
-        _caster: ObjectHandle,
-        _from: [f32; 3],
-        _to: [f32; 3],
+        caster: ObjectHandle,
+        from: [f32; 3],
+        to: [f32; 3],
     ) -> Result<bool> {
-        Err(refuse(
-            "execution.spells.Map_dynamic_tree_isInLineOfSight_owner",
-        ))
+        let map = self
+            .range_objects()?
+            .get(caster)?
+            .map
+            .ok_or_else(|| refuse("execution.spells.WorldObject_GetMap_owner"))?;
+        let (dynamic, models, vmap) = self.range_dynamic_geometry(map)?;
+        require(
+            dynamic.map() == map,
+            "execution.dynamic_collision.cross_map_binding",
+        )?;
+        dynamic.line_of_sight(models, vmap, from, to, false)
     }
     /// Object.cpp:1387-1391; Map.cpp:2668-2672, static query before dynamic.
     fn range_point_los(&mut self, caster: ObjectHandle, end: [f32; 3]) -> Result<bool> {

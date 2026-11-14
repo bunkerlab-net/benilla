@@ -330,6 +330,14 @@ impl GameObjectLifecycleOwner<Definitions, Products> for Factory {
         phase: Phase,
         _c: &mut GameObjectLifecycleContext<'_, '_, Definitions, Products>,
     ) -> Result<()> {
+        if matches!(phase, Phase::LootStateChange(_)) {
+            if let Some((models, _, _)) = &self.real_dynamic {
+                assert_eq!(
+                    models.models.inventory()[0].enabled,
+                    self.objects.get(object)?.collision_enabled()
+                );
+            }
+        }
         self.life().events.push(Event::Phase(object, phase));
         if self.life().refuse_phase == Some(phase) {
             return Err(phase.missing_owner());
@@ -1610,3 +1618,99 @@ fn go_group_removal_calls_real_overlay_owner_without_instance_callback() {
 
 #[path = "transports_elevator_tests.rs"]
 mod elevator_tests;
+
+#[test]
+fn dynamic_real_door_lifecycle_preserves_add_enable_loot_replace_and_move_order() {
+    let h = ObjectHandle {
+        thread: 1,
+        construction: 1,
+    };
+    let mut fixture = Fixture::with(spawn(), false, |factory| {
+        factory.templates.insert(100, template(100, 0));
+        let mut geometry = dynamic_models::tests::fixture();
+        geometry.0.bind_allocation(h, 0x1000, 128).unwrap();
+        factory.real_dynamic = Some(geometry);
+    });
+    assert_eq!(fixture.object, h);
+    let operations: Vec<_> = fixture
+        .factory
+        .actions
+        .iter()
+        .filter_map(|a| match a {
+            Action::Model(_, op) => Some(*op),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        operations,
+        [Op::ConstructAndInsert, Op::Insert, Op::Enable(true)]
+    );
+    let (models, map, _) = fixture.factory.real_dynamic.as_ref().unwrap();
+    assert_eq!(map.tree.size(), 8);
+    assert!(models.models.inventory()[0].enabled);
+    // A zero respawn delay keeps even a scheduled door spawned, GameObject.h:763-767.
+    fixture.factory.objects.get_mut(h).unwrap().respawn_delay = 30;
+    fixture.factory.objects.get_mut(h).unwrap().respawn_time = 1;
+    assert!(!fixture.go().is_spawned());
+    fixture
+        .apply(|o, h, c| set_source_gameobject_loot_state(o, h, 0, None, c))
+        .unwrap();
+    assert!(
+        !fixture
+            .factory
+            .real_dynamic
+            .as_ref()
+            .unwrap()
+            .0
+            .models
+            .inventory()[0]
+            .enabled
+    );
+    assert!(matches!(
+        fixture.factory.life().events.last(),
+        Some(Event::Phase(_, Phase::LootStateChange(None)))
+    ));
+    let old = fixture
+        .factory
+        .real_dynamic
+        .as_ref()
+        .unwrap()
+        .0
+        .handle(h)
+        .unwrap()
+        .clone();
+    fixture.factory.objects.get_mut(h).unwrap().display = 124;
+    fixture
+        .factory
+        .real_dynamic
+        .as_mut()
+        .unwrap()
+        .0
+        .bind_allocation(h, 0x2000, 128)
+        .unwrap();
+    update_source_gameobject_model(&mut fixture.factory, h, &mut fixture.world.context()).unwrap();
+    let geometry = fixture.factory.real_dynamic.as_mut().unwrap();
+    assert_ne!(geometry.0.handle(h).unwrap(), &old);
+    assert!(geometry.0.models.inventory()[0].enabled);
+    assert_eq!(
+        geometry.0.models.enable(&old, true),
+        Err(benilla_native_vmap::live::DynamicError::StaleModel)
+    );
+    let pose = SourcePose([0, 0, 20f32.to_bits(), 0]);
+    fixture.world.objects.set_pose(h, pose).unwrap();
+    fixture.factory.objects.get_mut(h).unwrap().position_bits = pose.0;
+    update_source_gameobject_model_position(&mut fixture.factory, h, &mut fixture.world.context())
+        .unwrap();
+    let geometry = fixture.factory.real_dynamic.as_mut().unwrap();
+    assert_eq!(geometry.0.models.inventory()[0].position, [0.0, 0.0, 20.0]);
+    assert!(geometry
+        .1
+        .line_of_sight(
+            &geometry.0,
+            &geometry.2,
+            [0.0, 0.0, 10.0],
+            [0.0, 0.0, -5.0],
+            false
+        )
+        .unwrap());
+}

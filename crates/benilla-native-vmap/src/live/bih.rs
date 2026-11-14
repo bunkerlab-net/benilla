@@ -11,8 +11,8 @@ const MAX_DEPTH: usize = 63;
 #[derive(Debug)]
 pub(super) struct Bih {
     pub(super) bounds: Bounds,
-    tree: Box<[u32]>,
-    objects: Box<[u32]>,
+    pub(super) tree: Box<[u32]>,
+    pub(super) objects: Box<[u32]>,
 }
 
 #[derive(Clone, Copy, Default)]

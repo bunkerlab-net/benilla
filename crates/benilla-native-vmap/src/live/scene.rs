@@ -56,7 +56,13 @@ impl WorldModel {
             tree: Some(tree),
         })
     }
-    fn ray(&self, ray: Ray, d: &mut f32, b: &mut QueryBudget, stop: bool) -> Result<bool> {
+    pub(super) fn ray(
+        &self,
+        ray: Ray,
+        d: &mut f32,
+        b: &mut QueryBudget,
+        stop: bool,
+    ) -> Result<bool> {
         if self.groups.len() == 1 {
             return self.groups[0].ray(ray, d, b, stop);
         }

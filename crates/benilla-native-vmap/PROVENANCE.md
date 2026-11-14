@@ -200,3 +200,29 @@ short-circuits a map-only call. The predicate is not assumed false.
 Model handles bind to their live canonical name allocation and generation.
 Matching filename bytes and counters from another manager do not authorise
 a query. A retained handle keeps name bytes alive, not collision geometry.
+
+## Live dynamic models
+
+`live::DynamicModels` and `DynamicMapTree` port
+`src/game/vmap/GameObjectModel.cpp:30-205`, `RegularGrid.h:53-256`,
+`BIHWrap.h:58-113`, and `DynamicTree.cpp:51-277` at the same pin.
+GO rotation consumes radians through the bound FMA kernel. Resources share
+the static manager's WorldModel references without resetting existing flags.
+Rotation refusals retain the acquired constructor resource and earlier fields,
+`src/game/vmap/GameObjectModel.cpp:91-103`. Relocation retains its earlier position
+write with the previous inverse and bounds, `GameObjectModel.cpp:183-193`.
+
+Bound allocations use G3D pointer hashes, bucket-head insertion, rehashing,
+and ascending-bucket enumeration, `dep/g3dlite/G3D/Table.h:209-243,741-810,872-881`.
+The source never fills `BIHWrap::m_obj2Idx`. Set enumeration replaces the
+object array, `dep/g3dlite/G3D/Set.h:97-99`, rather than appending to it.
+Queries retain first-hit traversal and the `did_hit` overwrite,
+`src/game/vmap/BIHWrap.h:105`, `DynamicTree.cpp:147`.
+
+Missing allocation addresses don't prevent construction, insertion, or timer
+updates. Such nodes mark their bucket history unbound and build in native
+generation order. Queries accept that order only for singleton or bit-identical
+callbacks, which don't observe object identity. Other visited nodes refuse
+`GameObjectModel_allocation_owner`. Permutation tests cover exact ties and
+cross-cell traversal. Inventories retain binding state, memberships, pending
+arrays, BIHs, model generations, and transforms. They aren't F7 restore support.

@@ -34,17 +34,31 @@ pub trait MoTransportOwner {
         handle: ObjectHandle,
         objects: &mut SourceObjects,
     ) -> Result<()>;
+    fn transport_geometry(
+        &mut self,
+        _handle: ObjectHandle,
+    ) -> Result<(
+        &mut SourceDynamicModels,
+        &mut SourceDynamicMap,
+        &mut SourceVMapManager,
+    )> {
+        Err(refuse(
+            "execution.dynamic_collision.transport_world_geometry_owner",
+        ))
+    }
     fn transport_model(
         &mut self,
-        _transport: &SourceMoTransport,
+        transport: &SourceMoTransport,
         operation: GameObjectModelOperation,
     ) -> Result<bool> {
-        Err(refuse(match operation {
-            GameObjectModelOperation::ConstructAndInsert => {
-                "execution.transport.f6_dynamic_model_construct_insert_owner"
-            }
-            _ => "execution.transport.f6_dynamic_model_relocate_owner",
-        }))
+        let object = DynamicGameObject {
+            handle: transport.handle,
+            display: transport.display,
+            pose: transport.position,
+            scale_bits: transport.template.scale_bits,
+        };
+        let (models, dynamic, vmap) = self.transport_geometry(transport.handle)?;
+        models.operation(dynamic, vmap, object, operation)
     }
     fn passenger_effect(
         &mut self,

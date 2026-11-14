@@ -4,11 +4,15 @@
 #[allow(dead_code)]
 // The shared app reader additionally validates bounds and uses nearest-hit wrappers.
 mod bih;
+mod dynamic_models;
+mod dynamic_tree;
 mod math;
 mod scene;
 mod store;
 mod trig;
 use bih::Bih;
+pub use dynamic_models::*;
+pub use dynamic_tree::*;
 use math::*;
 pub use scene::{AreaInfo, LiquidOutput, LocationInfo};
 use std::{collections::BTreeMap, sync::Arc, time::Instant};
@@ -356,6 +360,16 @@ impl Manager {
     pub fn validate_model(&self, handle: &ModelGeneration) -> Result<()> {
         self.model(handle).map(|_| ())
     }
+    /// GameObjectModel acquisition does not reset an already shared World's flags.
+    pub fn acquire_model(&mut self, name: &Arc<[u8]>) -> Result<Option<ModelGeneration>> {
+        let flags = self.models.get(name).map_or(0, |m| m.flags);
+        self.acquire(name, flags)
+    }
+    pub fn release_model(&mut self, handle: &ModelGeneration) -> Result<()> {
+        self.validate_model(handle)?;
+        self.release(&handle.name);
+        Ok(())
+    }
     fn model(&self, h: &ModelGeneration) -> Result<&SharedModel> {
         self.models
             .get(&h.name)
@@ -576,5 +590,7 @@ pub fn to_internal(p: [f32; 3]) -> [f32; 3] {
     const MID: f32 = 0.5 * 64.0 * 533.333_3;
     [MID - p[0], MID - p[1], p[2]]
 }
+#[cfg(test)]
+mod dynamic_tests;
 #[cfg(test)]
 mod tests;

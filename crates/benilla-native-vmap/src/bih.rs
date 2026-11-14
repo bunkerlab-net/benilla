@@ -41,6 +41,9 @@ impl SourceBih {
     pub fn objects(&self) -> &[u32] {
         &self.objects
     }
+    pub(crate) fn into_parts(self) -> (BihBounds, Vec<u32>, Vec<u32>) {
+        (self.bounds, self.tree, self.objects)
+    }
     pub fn build(
         input: &[BihBounds],
         leaf_size: u32,

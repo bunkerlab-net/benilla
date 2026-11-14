@@ -301,8 +301,19 @@ pub trait MapManagerWork:
     fn calendar(&mut self, _map: MapIdentity) -> Result<()> {
         Err(MissingManagerOwner::F3SourceCutover.refusal())
     }
-    fn collision_tree(&mut self, _map: MapIdentity, _diff: u32) -> Result<()> {
+    fn dynamic_geometry(
+        &mut self,
+        _map: MapIdentity,
+    ) -> Result<(&mut SourceDynamicMap, &SourceDynamicModels)> {
         Err(MissingManagerOwner::F6DynamicCollisionTree.refusal())
+    }
+    fn collision_tree(&mut self, map: MapIdentity, diff: u32) -> Result<()> {
+        let (dynamic, models) = self.dynamic_geometry(map)?;
+        require(
+            dynamic.map() == map,
+            "execution.dynamic_collision.cross_map_binding",
+        )?;
+        dynamic.update(models, diff)
     }
     fn sessions(&mut self, _context: &mut MapManagerContext<'_>, _diff: u32) -> Result<()> {
         Err(MissingManagerOwner::F5MapSessions.refusal())

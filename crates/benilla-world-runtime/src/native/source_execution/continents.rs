@@ -126,9 +126,7 @@ pub struct SourceContinent {
     pub graveyards: SourceGraveyardManager,
     pub variables: BTreeMap<i32, i32>,
     pub spawn_updated: bool,
-    /// DynamicTree.cpp:60-64. Cold fields only; this does not expose a collision query.
-    pub dynamic_tree_rebalance_ms: i64,
-    pub dynamic_tree_unbalanced: i32,
+    pub dynamic_tree: SourceDynamicMap,
     grids_initialized: bool,
     loaded_grids: [u64; 64],
     terrain_referenced: bool,
@@ -346,8 +344,7 @@ impl SourceContinents {
                 graveyards: SourceGraveyardManager::default(),
                 variables: BTreeMap::new(),
                 spawn_updated: false, // SpawnManager.h:54, before Initialize at Map.cpp:200.
-                dynamic_tree_rebalance_ms: 200,
-                dynamic_tree_unbalanced: 0,
+                dynamic_tree: SourceDynamicMap::new(identity),
                 grids_initialized: false,
                 loaded_grids: [0; 64],
                 terrain_referenced: false,

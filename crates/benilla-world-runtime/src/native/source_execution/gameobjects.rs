@@ -228,13 +228,23 @@ pub trait GameObjectFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     fn gameobject_save_respawn(&mut self, guid: u32, time: i64) -> Result<()>;
     fn gameobject_calendar(&mut self) -> Result<i64>;
     fn gameobject_rotation(&mut self, orientation_bits: u32) -> Result<[u32; 2]>;
+    fn gameobject_geometry(
+        &mut self,
+        _map: MapIdentity,
+    ) -> Result<(
+        &mut SourceDynamicModels,
+        &mut SourceDynamicMap,
+        &mut SourceVMapManager,
+    )> {
+        Err(GameObjectLifecyclePending::DynamicModel.refusal())
+    }
     fn gameobject_model(
         &mut self,
-        _handle: ObjectHandle,
-        _operation: GameObjectModelOperation,
-        _context: &mut GridFactoryContext<'_, D, P>,
+        handle: ObjectHandle,
+        operation: GameObjectModelOperation,
+        context: &mut GridFactoryContext<'_, D, P>,
     ) -> Result<bool> {
-        Err(GameObjectLifecyclePending::DynamicModel.refusal())
+        execute_source_gameobject_model(self, handle, operation, context)
     }
     fn gameobject_callback(
         &mut self,
@@ -249,6 +259,35 @@ pub trait GameObjectFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     ) -> Result<Option<Arc<SourceTransportAnimation>>> {
         Err(refuse("execution.transport.animation_owner"))
     }
+}
+pub(super) fn execute_source_gameobject_model<
+    D: GridDefinitions,
+    P: GridProductOwner,
+    F: GameObjectFactoryOwner<D, P>,
+>(
+    owner: &mut F,
+    handle: ObjectHandle,
+    operation: GameObjectModelOperation,
+    context: &mut GridFactoryContext<'_, D, P>,
+) -> Result<bool> {
+    let value = owner.gameobjects().get(handle)?;
+    let object = DynamicGameObject {
+        handle,
+        display: value.display,
+        pose: context.objects.pose(handle)?,
+        scale_bits: value.template.scale_bits,
+    };
+    let map = context
+        .objects
+        .get(handle)?
+        .map
+        .ok_or_else(|| refuse("execution.dynamic_collision.GameObject_GetMap_owner"))?;
+    let (models, dynamic, vmap) = owner.gameobject_geometry(map)?;
+    require(
+        dynamic.map() == map,
+        "execution.dynamic_collision.cross_map_binding",
+    )?;
+    models.operation(dynamic, vmap, object, operation)
 }
 
 // Spawn lists draw signed irand even for one entry, and a zero result does not override; ObjectMgr.h:600-604, GameObject.cpp:907-908.

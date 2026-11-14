@@ -224,8 +224,13 @@ fn missing_model_and_model_not_in_tree_skip_only_source_guarded_operations() {
     }
 }
 #[test]
-fn absent_f6_creation_refuses_before_set_membership_and_poison_is_sticky() {
-    struct Missing;
+fn unbound_geometry_prerequisite_refuses_before_model_and_membership() {
+    struct Missing {
+        geometry_calls: usize,
+        models: SourceDynamicModels,
+        dynamic: SourceDynamicMap,
+        vmap: SourceVMapManager,
+    }
     impl MoTransportOwner for Missing {
         fn transport_template(&mut self, e: u32) -> Result<Option<GameObjectTemplate>> {
             Ok(Some(definition(e)))
@@ -233,18 +238,38 @@ fn absent_f6_creation_refuses_before_set_membership_and_poison_is_sticky() {
         fn transport_allocation(&mut self, h: ObjectHandle, o: &mut SourceObjects) -> Result<()> {
             o.bind_source_allocation(h, 0x1000, 128, 0)
         }
+        fn transport_geometry(
+            &mut self,
+            _: ObjectHandle,
+        ) -> Result<(
+            &mut SourceDynamicModels,
+            &mut SourceDynamicMap,
+            &mut SourceVMapManager,
+        )> {
+            self.geometry_calls += 1;
+            Err(refuse(
+                "execution.dynamic_collision.transport_world_geometry_owner",
+            ))
+        }
     }
     let t = templates(&[(42, 0)]);
     let mut m = SourceMoTransports::default();
     let mut c = SourceCells::new(map(0)).unwrap();
     let mut o = SourceObjects::default();
+    let (models, dynamic, vmap) = dynamic_models::tests::fixture();
+    let mut owner = Missing {
+        geometry_calls: 0,
+        models,
+        dynamic,
+        vmap,
+    };
     let e = m
         .initialize_map(
             &t,
             &mut MoTransportContext {
                 cells: &mut c,
                 objects: &mut o,
-                owner: &mut Missing,
+                owner: &mut owner,
             },
             1,
             0,
@@ -252,11 +277,17 @@ fn absent_f6_creation_refuses_before_set_membership_and_poison_is_sticky() {
         .unwrap_err();
     assert_eq!(
         e.id,
-        "execution.transport.f6_dynamic_model_construct_insert_owner"
+        "execution.dynamic_collision.transport_world_geometry_owner"
     );
+    // Transports.cpp:138,177 binds and uses the map before SetDisplayId at :186.
+    assert_eq!(owner.geometry_calls, 1);
+    assert!(owner.models.models.inventory().is_empty());
+    assert!(owner.models.models.construction_inventory().is_empty());
+    assert!(owner.vmap.collision.model_inventory().is_empty());
+    assert_eq!(owner.dynamic.tree.size(), 0);
     assert_eq!(m.members(map(0)).count(), 0);
     assert_eq!(
-        m.update_map(&t, map(0), 100, 1, &mut o, &mut Missing)
+        m.update_map(&t, map(0), 100, 1, &mut o, &mut owner)
             .unwrap_err()
             .id,
         "execution.transport.update_state"
@@ -421,7 +452,7 @@ fn retained_stock_creation_reaches_missing_f6_for_each_transport_or_skips() {
             .unwrap_err();
         assert_eq!(
             error.id,
-            "execution.transport.f6_dynamic_model_construct_insert_owner"
+            "execution.dynamic_collision.transport_world_geometry_owner"
         );
         println!(
             "Raw stock transport {entry}: creation={}, movement=not reached, zero-period guard=0",

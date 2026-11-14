@@ -142,6 +142,12 @@ pub use vmap_manager::*;
 #[path = "geometry/vmap_scene.rs"]
 mod vmap_scene;
 pub use vmap_scene::*;
+#[path = "geometry/dynamic_models.rs"]
+mod dynamic_models;
+pub use dynamic_models::*;
+#[path = "geometry/dynamic_tree.rs"]
+mod dynamic_tree;
+pub use dynamic_tree::*;
 #[cfg(test)]
 mod terrain_startup_census;
 #[cfg(test)]

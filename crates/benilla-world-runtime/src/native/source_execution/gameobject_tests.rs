@@ -89,6 +89,7 @@ struct Factory {
     lifecycle: Option<gameobject_lifecycle_tests::HostState>,
     animations: SourceTransportTemplates,
     passengers: SourcePassengers,
+    real_dynamic: Option<(SourceDynamicModels, SourceDynamicMap, SourceVMapManager)>,
 }
 impl Factory {
     fn new() -> Self {
@@ -123,6 +124,7 @@ impl Factory {
             lifecycle: None,
             animations,
             passengers: SourcePassengers::default(),
+            real_dynamic: None,
         }
     }
 }
@@ -248,15 +250,38 @@ impl GameObjectFactoryOwner<Definitions, Products> for Factory {
             })
         }
     }
+    fn gameobject_geometry(
+        &mut self,
+        _: MapIdentity,
+    ) -> Result<(
+        &mut SourceDynamicModels,
+        &mut SourceDynamicMap,
+        &mut SourceVMapManager,
+    )> {
+        let (models, map, vmap) = self.real_dynamic.as_mut().unwrap();
+        Ok((models, map, vmap))
+    }
     fn gameobject_model(
         &mut self,
         handle: ObjectHandle,
         op: GameObjectModelOperation,
         context: &mut GridFactoryContext<'_, Definitions, Products>,
     ) -> Result<bool> {
+        if self.real_dynamic.is_some() {
+            self.actions.push(Action::Model(handle, op));
+            if context.objects.get(handle)?.source_allocation.is_none() {
+                context.objects.bind_source_allocation(
+                    handle,
+                    handle.construction * 256,
+                    128,
+                    0,
+                )?;
+            }
+            return gameobjects::execute_source_gameobject_model(self, handle, op, context);
+        }
         if !self.collision_available {
             return Err(Refusal {
-                id: "execution.dynamic_collision_owner_unavailable".into(),
+                id: "execution.dynamic_collision.gameobject_world_geometry_owner".into(),
             });
         }
         if self.lifecycle.is_some() {
@@ -659,7 +684,7 @@ fn missing_collision_refuses_before_create_callbacks_or_world_membership() {
     factory.collision_available = false;
     assert_eq!(
         world.load(&mut factory, spawn()).unwrap_err().id,
-        "execution.dynamic_collision_owner_unavailable"
+        "execution.dynamic_collision.gameobject_world_geometry_owner"
     );
     let object = world
         .objects

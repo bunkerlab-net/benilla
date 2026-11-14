@@ -260,7 +260,7 @@ fn model_constructor_refuses_after_guid_rotation_and_transport_flags_before_anim
     factory.collision_available = false;
     assert_eq!(
         world.load(&mut factory, spawn()).unwrap_err().id,
-        "execution.dynamic_collision_owner_unavailable"
+        "execution.dynamic_collision.gameobject_world_geometry_owner"
     );
     let h = ObjectHandle {
         thread: 1,
@@ -406,7 +406,7 @@ fn relocation_model_refusal_retains_earlier_pose_and_progress_without_moving_pas
         f.apply(|o, h, c| update_source_gameobject(o, h, 100, c))
             .unwrap_err()
             .id,
-        "execution.dynamic_collision_owner_unavailable"
+        "execution.dynamic_collision.gameobject_world_geometry_owner"
     );
     assert_eq!(state(&f).progress, 333);
     assert_eq!(f.world.objects.pose(f.object).unwrap(), expected(2));
@@ -617,7 +617,7 @@ fn retained_raw_stock_pre_model_operands_reach_f6_for_every_elevator_spawn() {
         let guid = input.database_guid;
         assert_eq!(
             world.load(&mut factory, input).unwrap_err().id,
-            "execution.dynamic_collision_owner_unavailable",
+            "execution.dynamic_collision.gameobject_world_geometry_owner",
             "map {} guid {guid}",
             identity.map
         );

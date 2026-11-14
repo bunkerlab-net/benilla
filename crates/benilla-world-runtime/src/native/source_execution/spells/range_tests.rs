@@ -17,6 +17,8 @@ pub(super) struct RangeFixture {
     pub charm: Option<ObjectHandle>,
     pub trace: Vec<&'static str>,
     pub vmap: SourceVMapManager,
+    pub dynamic_models: SourceDynamicModels,
+    pub dynamic_map: SourceDynamicMap,
 }
 impl RangeFixture {
     pub fn new() -> Self {
@@ -44,6 +46,12 @@ impl RangeFixture {
             charm: None,
             trace: Vec::new(),
             vmap: SourceVMapManager::default(),
+            dynamic_models: SourceDynamicModels::default(),
+            dynamic_map: SourceDynamicMap::new(MapIdentity {
+                map: 0,
+                instance: 0,
+                creation_generation: 1,
+            }),
         }
     }
     pub fn spell(&self) -> (SpellTemplate, SourceSpell) {
@@ -114,6 +122,17 @@ impl SpellExecutionOwner for RangeFixture {
     fn range_vmap(&mut self) -> Result<&SourceVMapManager> {
         self.trace.push("vmap");
         Ok(&self.vmap)
+    }
+    fn range_dynamic_geometry(
+        &mut self,
+        _: MapIdentity,
+    ) -> Result<(
+        &mut SourceDynamicMap,
+        &SourceDynamicModels,
+        &SourceVMapManager,
+    )> {
+        self.trace.push("dynamic");
+        Ok((&mut self.dynamic_map, &self.dynamic_models, &self.vmap))
     }
 }
 #[test]
@@ -496,7 +515,7 @@ fn bind_map(f: &mut RangeFixture) {
         .unwrap();
 }
 #[test]
-fn range_los_static_block_short_circuits_dynamic_but_clear_refuses() {
+fn range_los_static_block_short_circuits_dynamic_but_clear_consults_tree() {
     let mut f = RangeFixture::new();
     bind_map(&mut f);
     blocking_vmap(&mut f.vmap);
@@ -505,10 +524,8 @@ fn range_los_static_block_short_circuits_dynamic_but_clear_refuses() {
         .unwrap();
     assert!(!f.range_point_los(f.caster, [0.0, 0.0, -5.0]).unwrap());
     assert_eq!(f.trace, ["height", "vmap"]);
-    assert_eq!(
-        f.range_point_los(f.caster, [0.0, 0.0, 5.0]).unwrap_err().id,
-        "execution.spells.Map_dynamic_tree_isInLineOfSight_owner"
-    );
+    assert!(f.range_point_los(f.caster, [0.0, 0.0, 5.0]).unwrap());
+    assert_eq!(f.trace, ["height", "vmap", "height", "vmap", "dynamic"]);
 }
 #[test]
 fn range_dest_and_source_los_failures_and_ignore_attributes() {
@@ -529,17 +546,16 @@ fn range_dest_and_source_los_failures_and_ignore_attributes() {
         // z=-1 becomes zero after +1.f. The caster eye starts at z=5.
         s.targets.source = Some([0, 0, 0]);
         s.targets.destination = s.targets.source;
-        assert_eq!(
-            s.check_range(&t, true, &mut f).unwrap_err().id,
-            "execution.spells.Map_dynamic_tree_isInLineOfSight_owner"
-        );
+        assert_eq!(s.check_range(&t, true, &mut f).unwrap(), R::Ok);
         for id in [8733, 8735, 24742] {
             t.id = id;
             assert_eq!(s.check_range(&t, true, &mut f).unwrap(), R::Ok);
         }
         t.id = 7;
         t.rangeindex = 13;
-        assert!(s.check_range(&t, true, &mut f).is_err());
+        f.trace.clear();
+        assert_eq!(s.check_range(&t, true, &mut f).unwrap(), R::Ok);
+        assert!(f.trace.ends_with(&["height", "vmap", "dynamic"]));
         t.attributesex2 = 4;
         assert_eq!(s.check_range(&t, true, &mut f).unwrap(), R::Ok);
     }
@@ -636,4 +652,47 @@ fn range_negative_y_arc_source_rounding_trace() {
         ]
     );
     assert!(!(folded >= lower && folded <= half));
+}
+
+#[test]
+fn range_los_closed_door_blocks_and_open_door_allows_the_same_spell() {
+    let mut f = RangeFixture::new();
+    bind_map(&mut f);
+    let (models, map, vmap) = dynamic_models::tests::fixture();
+    f.dynamic_models = models;
+    f.dynamic_map = map;
+    f.vmap = vmap;
+    let door = f
+        .objects
+        .construct(1, SourceObjectKind::GameObject)
+        .unwrap();
+    f.dynamic_models.bind_allocation(door, 0x1000, 128).unwrap();
+    f.dynamic_models
+        .operation(
+            &mut f.dynamic_map,
+            &mut f.vmap,
+            dynamic_models::tests::object(door),
+            GameObjectModelOperation::ConstructAndInsert,
+        )
+        .unwrap();
+    f.objects
+        .set_pose(f.caster, SourcePose([0, 0, 3f32.to_bits(), 0]))
+        .unwrap();
+    let (t, mut s) = f.spell();
+    s.targets.unit = None;
+    s.targets.mask = 0x40;
+    s.targets.destination = Some([0, 0, (-5f32).to_bits()]);
+    assert_eq!(s.check_range(&t, true, &mut f).unwrap(), R::LineOfSight);
+    assert_eq!(s.max_range, 123);
+    assert!(f.trace.ends_with(&["height", "vmap", "dynamic"]));
+    f.dynamic_models
+        .operation(
+            &mut f.dynamic_map,
+            &mut f.vmap,
+            dynamic_models::tests::object(door),
+            GameObjectModelOperation::Enable(false),
+        )
+        .unwrap();
+    assert_eq!(s.check_range(&t, true, &mut f).unwrap(), R::Ok);
+    assert_eq!(s.max_range, 10f32.to_bits());
 }

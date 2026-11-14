@@ -105,7 +105,7 @@ fn world_bounds() -> (Vector, Vector) {
         [mid[0] + 10.0, mid[1] + 10.0, 20.0],
     )
 }
-fn model(groups: &[(u32, f32)], wet: bool) -> Vec<u8> {
+pub(super) fn model(groups: &[(u32, f32)], wet: bool) -> Vec<u8> {
     let mut b = b"VMAP_7.0WMOD".to_vec();
     word(&mut b, 8);
     word(&mut b, 17);
@@ -191,7 +191,7 @@ fn tile(spawns: &[Vec<u8>]) -> Vec<u8> {
     }
     b
 }
-fn present(m: &mut Manager, name: impl AsRef<[u8]>, bytes: Vec<u8>) {
+pub(super) fn present(m: &mut Manager, name: impl AsRef<[u8]>, bytes: Vec<u8>) {
     m.files
         .observe(name, FileState::Present(bytes.into()))
         .unwrap();
@@ -202,7 +202,7 @@ fn fixture(slots: u32, groups: &[(u32, f32)], wet: bool) -> Manager {
     present(&mut m, b"test.wmo.vmo", model(groups, wet));
     m
 }
-fn deadline() -> Instant {
+pub(super) fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(30)
 }
 fn load(m: &mut Manager, x: u32, y: u32, spawns: &[Vec<u8>]) {
@@ -541,7 +541,7 @@ fn undefined_slot_boundary_and_unbound_rotations_refuse_at_the_actual_operation(
     }
 }
 
-fn rotation_binding() -> benilla_sim::source_trig_fma::DispatchBinding {
+pub(super) fn rotation_binding() -> benilla_sim::source_trig_fma::DispatchBinding {
     use benilla_sim::{source_sine::*, source_trig_fma as fma};
     let acquisition = AcquisitionBinding {
         manifest: "2".repeat(64),

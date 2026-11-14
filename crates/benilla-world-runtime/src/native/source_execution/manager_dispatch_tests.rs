@@ -25,6 +25,8 @@ struct Work {
     create_on_players: bool,
     created: Option<ObjectHandle>,
     reject: Option<MissingManagerOwner>,
+    dynamic_models: SourceDynamicModels,
+    dynamic_maps: BTreeMap<MapIdentity, SourceDynamicMap>,
 }
 impl ManagerStartupWork for Work {
     fn startup(&mut self, phase: ManagerStartupPhase) -> Result<()> {
@@ -216,12 +218,20 @@ impl MapManagerWork for Work {
         self.calls.push("calendar");
         Ok(())
     }
-    fn collision_tree(&mut self, _: MapIdentity, _: u32) -> Result<()> {
+    fn dynamic_geometry(
+        &mut self,
+        map: MapIdentity,
+    ) -> Result<(&mut SourceDynamicMap, &SourceDynamicModels)> {
         if self.reject == Some(MissingManagerOwner::F6DynamicCollisionTree) {
             return Err(MissingManagerOwner::F6DynamicCollisionTree.refusal());
         }
         self.calls.push("collision");
-        Ok(())
+        Ok((
+            self.dynamic_maps
+                .entry(map)
+                .or_insert_with(|| SourceDynamicMap::new(map)),
+            &self.dynamic_models,
+        ))
     }
     fn sessions(&mut self, _: &mut MapManagerContext<'_>, _: u32) -> Result<()> {
         if self.reject == Some(MissingManagerOwner::F5MapSessions) {
@@ -808,4 +818,34 @@ fn event_allocator_and_formation_foreign_owners_cannot_be_omitted() {
             .id,
         "execution.managers.group_formation_owner"
     );
+}
+
+#[test]
+fn default_map_collision_dispatch_runs_the_real_tree_timer() {
+    let (mut models, mut dynamic, mut vmap) = dynamic_models::tests::fixture();
+    let object = ObjectHandle {
+        thread: 1,
+        construction: 1,
+    };
+    models.bind_allocation(object, 0x1000, 128).unwrap();
+    models
+        .operation(
+            &mut dynamic,
+            &mut vmap,
+            dynamic_models::tests::object(object),
+            GameObjectModelOperation::ConstructAndInsert,
+        )
+        .unwrap();
+    let mut work = Work {
+        dynamic_models: models,
+        dynamic_maps: BTreeMap::from([(map(0), dynamic)]),
+        ..Default::default()
+    };
+    work.collision_tree(map(0), 199).unwrap();
+    assert_eq!(work.dynamic_maps[&map(0)].tree.timer_ms(), 1);
+    assert_eq!(work.dynamic_maps[&map(0)].tree.unbalanced(), 1);
+    work.collision_tree(map(0), 1).unwrap();
+    assert_eq!(work.dynamic_maps[&map(0)].tree.timer_ms(), 200);
+    assert_eq!(work.dynamic_maps[&map(0)].tree.unbalanced(), 0);
+    assert_eq!(work.calls, ["collision", "collision"]);
 }
