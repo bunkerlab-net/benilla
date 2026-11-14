@@ -2460,12 +2460,13 @@ impl Mailbox {
             #[cfg(test)]
             if staged_route {
                 eprintln!(
-                    "native geometry Route job timing: tick={} ticket={} phase={} disposition={:?} elapsed={:?}",
+                    "native geometry Route job timing: tick={} ticket={} phase={} disposition={:?} elapsed={:?} request_age={:?}",
                     timing.2,
                     timing.1,
                     phase,
                     disposition,
                     timing.0.elapsed(),
+                    WAIT.saturating_sub(timing.5.saturating_duration_since(timing.0)),
                 );
             }
             #[cfg(test)]

@@ -11,12 +11,28 @@ use super::super::{
     Service,
 };
 use crate::net::p2p::world::loaded;
-use benilla_world_runtime::native::{AuthorityReply, NativeError};
+use benilla_world_runtime::native::{Authority, AuthorityReply, AuthorityRequest, NativeError};
 use std::{
     collections::BTreeMap,
     sync::mpsc::{self, Receiver, SyncSender},
     time::{Duration, Instant},
 };
+
+// Observe the real transport without extending its deadline or substituting facts.
+struct TimedAuthority(core::LocalAuthority);
+impl Authority for TimedAuthority {
+    fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
+        let started = Instant::now();
+        let result = self.0.resolve(request);
+        eprintln!(
+            "loaded quest request timing: tick={} elapsed={:?} error={:?}",
+            request.binding.tick,
+            started.elapsed(),
+            result.as_ref().err()
+        );
+        result
+    }
+}
 
 struct Inspection {
     boundary: RouteCommitBoundary,
@@ -184,7 +200,7 @@ fn installed(hostile: u64, giver: u64, order: [u64; 2], faults: bool) {
     let inspect = Inspect(send);
     let observed = loaded::Observed::default();
     let worker = std::thread::spawn(move || {
-        let authority = loaded::Authority::new(local, observed.clone());
+        let authority = loaded::Authority::new(TimedAuthority(local), observed.clone());
         let sink = CheckedSink {
             inner: sink,
             session,

@@ -157,6 +157,12 @@ Repeatedly oversized work may still exhaust the original 500ms lifetime; retries
 are bounded availability attempts, not guaranteed progress. Generic retry alone
 does not make native work resumable; the selected Route and primary NearPoint
 continuations retain only the explicitly completed immutable stages described below.
+
+Installed quest-loop tests exercise the production 500 ms request lifetime and
+2 ms execution slice; host scheduling can exhaust either budget. Test-only request
+and phase diagnostics measure that elapsed time without extending deadlines or
+substituting geometry facts.
+
 No provider witness or partial Route is reused as completed authority. Other generic
 callbacks keep their prior successful-result semantics: the slice limits scheduling,
 while the original job expiry and cancellation fence still govern delivery. Only an
