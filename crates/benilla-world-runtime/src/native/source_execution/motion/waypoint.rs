@@ -353,10 +353,23 @@ impl SourceWaypointGenerator {
                 "execution.waypoint.f6_spline_compute_position_owner",
             ));
         }
-        // cpp:264 constructs PathFinder before calculate/launch or RNG draws.
-        let _path =
+        // WaypointMovementGenerator.cpp:261-262 reads movement speed before construction.
+        let _speed = owner.waypoint_speed(master.unit)?;
+        let mut pathfinder =
             SourcePathFinder::construct(owner.pathfinder_geometry()?, master.unit, context, true)?;
-        Err(refuse("execution.waypoint.f6_pathfinder_calculate_owner"))
+        let pose = context.objects.pose(master.unit)?.0.map(f32::from_bits);
+        let node = &path[&self.cursor.get().unwrap()];
+        owner.calculate_pathfinder(
+            &mut pathfinder,
+            context,
+            [pose[0], pose[1], pose[2]],
+            node.position,
+        )?;
+        Err(refuse(if pathfinder.points.len() > 1 {
+            "execution.waypoint.travel_time_numeric_owner_278"
+        } else {
+            "execution.waypoint.travel_time_numeric_owner_283"
+        }))
     }
     fn arrived(
         &self,

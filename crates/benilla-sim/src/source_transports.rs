@@ -36,6 +36,37 @@ fn finite(bits: u32) -> Result<S> {
 fn scalar(value: S) -> Result<u32> {
     finite(value.raw()).map(S::raw)
 }
+
+/// Correctly rounded binary32 square root, sharing the source transport kernel.
+pub fn sqrt_single_bits(bits: u32) -> Result<u32> {
+    numeric::sqrt_single(S::bits(bits)).map(S::raw)
+}
+
+#[cfg(test)]
+mod sqrt_export_tests {
+    use super::*;
+    #[test]
+    fn public_square_root_preserves_the_internal_boundary_results() {
+        for bits in [
+            0,
+            0x8000_0000,
+            1,
+            0x007f_ffff,
+            0x0080_0000,
+            1f32.to_bits(),
+            0x7f7f_ffff,
+            0x7f80_0000,
+            0x7fc0_0001,
+            0xbf80_0000,
+            0x8000_0001,
+        ] {
+            assert_eq!(
+                sqrt_single_bits(bits),
+                numeric::sqrt_single(S::bits(bits)).map(S::raw)
+            );
+        }
+    }
+}
 fn integer(value: u32) -> S {
     use rustc_apfloat::{ieee::Single, Float, Round};
     S::bits(

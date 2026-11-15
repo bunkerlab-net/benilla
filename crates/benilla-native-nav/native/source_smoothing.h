@@ -11,10 +11,15 @@ struct BenillaSourceStep {
 BenillaSourceSmoothing* benilla_source_create(dtNavMeshQuery* query,
     const float* start, const float* end, const dtPolyRef* path, uint32_t count,
     uint32_t limit, unsigned short include, unsigned short exclude);
+BenillaSourceSmoothing* benilla_source_create_live(dtNavMeshQuery* query,
+    const float* start, const float* end, const dtPolyRef* path, uint32_t count,
+    uint32_t limit, unsigned short include, unsigned short exclude, dtPolyRef* scratch, float* points);
 extern "C" {
 void benilla_source_free(BenillaSourceSmoothing* state);
 uint32_t benilla_source_step(BenillaSourceSmoothing* state, BenillaSourceStep* result);
 void benilla_source_copy(const BenillaSourceSmoothing* state, float* points,
+    dtPolyRef* path, uint32_t* count);
+void benilla_source_copy_live(const BenillaSourceSmoothing* state, float* points,
     dtPolyRef* path, uint32_t* count);
 // Numeric-only source helpers: these references are never used to query a mesh.
 uint32_t benilla_source_fixup(dtPolyRef* path, uint32_t count, uint32_t capacity,

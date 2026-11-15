@@ -1182,3 +1182,21 @@ bounds at `540-543,687-690`, coarse/detail index bounds at `646-648,705-708`,
 cardinal portal sides at `76-112,306-307,337`, and a selectable detail boundary
 before the null-endpoint fallback at `673`.
 No source bytes, serialized state, profile, digest or native format changes.
+
+## Live PathFinder query operations
+
+`live::PathQuery` borrows the authenticated mutable map-instance allocation.
+It calls pinned Detour `findPath`, `raycast`, `findStraightPath`,
+`closestPointOnPoly`, and `getPolyHeight` directly. It preserves raw status
+details for `PathFinder.cpp:763-789`, rather than requiring exact success.
+Source-owned active refs and tail storage survive subrange reuse at `:563-573`.
+
+The live entry to the existing smoothing kernel supports the dungeon maximum
+of 296 points, `PathFinder.cpp:400-408,1233-1235`. The older bounded entry
+retains its 74-point and filter guards. Their copy functions have distinct
+capacities. Both use the same source step implementation. Offmesh transitions
+retain the source's original start/end argument copies, `:1302-1334`.
+The shared point optimiser also accepts the live owner's retained output
+slots, `:880-939`; its older wrapper still refuses absent prior-slot history.
+Neither query API supplies a movement route or serialized state.
+

@@ -20,6 +20,7 @@ pub(in super::super) fn run(
     geometry.mmap = mmap;
     geometry.dbc = SourceTerrainDbc::catalog(&mut catalog).unwrap();
     geometry.liquid_dbc = SourceLiquidDbc::catalog(&mut catalog).unwrap();
+    geometry.bind_pathfinder_maps(&mut catalog).unwrap();
     let config =
         std::fs::read(root.join("sealing/source-choice/seal16-full-01/mangosd.conf")).unwrap();
     geometry
@@ -76,6 +77,7 @@ pub(in super::super) fn run(
         .collect::<BTreeMap<_, _>>();
     let mut census = BTreeMap::<String, BTreeMap<String, usize>>::new();
     let mut unwritten = BTreeMap::<String, usize>::new();
+    let mut pending_calculations = Vec::new();
     let mut mt = Mt19937::from_seed(5489);
     let mut cursor = DrawCursor::default();
     let mut sink = |_| {};
@@ -124,12 +126,22 @@ pub(in super::super) fn run(
                 let reason = if family == "wander" {
                     "execution.motion.client_controlling_owner"
                 } else {
-                    "execution.waypoint.f6_pathfinder_calculate_owner"
+                    "diagnostic.calculate_queued"
                 };
                 *row.entry(format!("after_constructor:{reason}"))
                     .or_default() += 1;
                 if matches!(path.default_query, SourceDefaultQuery::Unwritten) {
                     *unwritten.entry(family.into()).or_default() += 1;
+                }
+                if family == "waypoint" {
+                    pending_calculations.push((
+                        spawn.guid,
+                        spawn.entry,
+                        spawn.pose,
+                        objects,
+                        units,
+                        path,
+                    ));
                 }
             }
             Err(error) => {
@@ -149,10 +161,92 @@ pub(in super::super) fn run(
             .sum::<usize>();
         assert_eq!(complete + failed, row["opportunities"]);
     }
+    let mut raw_paths = Vec::new();
+    for name in [
+        "creature_movement",
+        "creature_movement_template",
+        "waypoint_path",
+    ] {
+        let mut paths = BTreeMap::<u32, BTreeMap<u32, [f32; 3]>>::new();
+        for row in catalog.execution_waypoint_rows(name).unwrap() {
+            let key = if name == "creature_movement" {
+                row.owner
+            } else if name == "creature_movement_template" {
+                row.owner.wrapping_shl(8).wrapping_add(row.path)
+            } else {
+                row.owner
+            };
+            paths
+                .entry(key)
+                .or_default()
+                .insert(row.point, row.node.position);
+        }
+        raw_paths.push(paths);
+    }
+    let mut calculations = BTreeMap::<String, usize>::new();
+    for (guid, entry, pose, objects, mut units, mut path) in pending_calculations {
+        *calculations
+            .entry("constructed_opportunities".into())
+            .or_default() += 1;
+        let target = raw_paths[0]
+            .get(&guid)
+            .or_else(|| raw_paths[1].get(&entry.wrapping_shl(8)))
+            .or_else(|| raw_paths[2].get(&entry.wrapping_shl(8)))
+            .and_then(|p| p.first_key_value().map(|(_, p)| *p));
+        let Some(target) = target else {
+            *calculations
+                .entry("diagnostic.raw_default_waypoint_absent".into())
+                .or_default() += 1;
+            continue;
+        };
+        let context = MotionContext {
+            objects: &objects,
+            units: &mut units,
+        };
+        let result = path.calculate(
+            &mut geometry,
+            &context,
+            Ok(None),
+            [pose[0], pose[1], pose[2]],
+            target,
+            true,
+            false,
+        );
+        let key = match result {
+            Ok(true) => format!("complete:path_type_{}", path.path_type),
+            Ok(false) => "source_invalid_coordinates".into(),
+            Err(error) => error.id,
+        };
+        *calculations.entry(key).or_default() += 1;
+    }
+    assert_eq!(
+        calculations
+            .iter()
+            .filter(|(key, _)| key.as_str() != "constructed_opportunities")
+            .map(|(_, count)| count)
+            .sum::<usize>(),
+        calculations
+            .get("constructed_opportunities")
+            .copied()
+            .unwrap_or(0),
+    );
+    assert_eq!(
+        calculations
+            .iter()
+            .filter(|(key, _)| key.starts_with("complete:"))
+            .map(|(_, count)| *count as u64)
+            .sum::<u64>(),
+        geometry.pathfinder_calculate_completions,
+    );
     serde_json::json!({"scope":"raw template/pose constructor probes with frozen products and diagnostic TerrainInfo birth/order; not effective spawn selection, recorded motion calls, or F1 equality",
         "before":{"wander_constructed":0,"waypoint_constructed":0},"after":census,
         "distance_intent":SourcePathFinder::DISTANCE_INTENT,
-        "completed_with_unwritten_default_query":unwritten,"undefined_default_query_reads_reached":0,
+        "raw_calculate_nontransport_probes":calculations,
+        "actual_waypoint_before_constructor":"execution.waypoint.movement_speed_owner_261",
+        "completed_with_unwritten_default_query":unwritten,
+        "undefined_default_query_reads_reached":calculations.get("execution.pathfinder.undefined_default_query_read").copied().unwrap_or(0),
+        "undefined_step_count_refusals":calculations.get("execution.pathfinder.step_count_conversion_undefined_813").copied().unwrap_or(0),
+        "raw_calculate_straight_line":false,
         "home":"recorded opportunities unavailable; authored Home constructor only",
         "constructor_completions":geometry.pathfinder_constructor_completions})
 }

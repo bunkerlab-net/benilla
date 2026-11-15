@@ -72,12 +72,25 @@ struct Owner {
     ai_path: u32,
     formation: Option<u32>,
     geometry: Option<SourceTerrainManager>,
+    speed: Option<f32>,
+    speed_reads: usize,
+    passengers: Option<SourcePassengers>,
 }
 impl MotionExecutionOwner for Owner {
     fn pathfinder_geometry(&mut self) -> Result<&mut SourceTerrainManager> {
         self.geometry
             .as_mut()
             .ok_or_else(|| refuse("execution.pathfinder.live_geometry_owner"))
+    }
+    fn waypoint_speed(&mut self, _: ObjectHandle) -> Result<f32> {
+        self.speed_reads += 1;
+        self.speed
+            .ok_or_else(|| refuse("execution.waypoint.movement_speed_owner_261"))
+    }
+    fn pathfinder_passengers(&self) -> Result<&SourcePassengers> {
+        self.passengers
+            .as_ref()
+            .ok_or_else(|| refuse("execution.pathfinder.transport_owner"))
     }
     fn waypoint_paths(&mut self) -> Result<Rc<SourceWaypointPaths>> {
         self.paths
@@ -460,7 +473,7 @@ fn initial_delay_does_not_defer_first_path_send_and_single_node_delay_stays_zero
         )
         .unwrap_err()
         .id,
-        "execution.waypoint.f6_pathfinder_calculate_owner"
+        "execution.waypoint.movement_speed_owner_261"
     );
     assert_eq!(
         owner
@@ -468,8 +481,9 @@ fn initial_delay_does_not_defer_first_path_send_and_single_node_delay_stays_zero
             .as_ref()
             .unwrap()
             .pathfinder_constructor_completions,
-        1
+        0
     );
+    assert_eq!(owner.speed_reads, 1);
     assert_eq!(g.progress().wait, 500);
     assert_eq!(
         p.select(901, 7, 0, WaypointOrigin::None)
@@ -1001,4 +1015,75 @@ fn missing_default_path_preserves_the_previous_origin_and_node() {
     assert!(g.path().unwrap().is_none());
     assert_eq!(g.progress().origin, WaypointOrigin::Guid);
     assert_eq!(g.progress().current, 8);
+}
+
+#[test]
+fn bound_speed_and_passengers_calculate_before_travel_time_262_278() {
+    if !cfg!(target_arch = "x86_64") {
+        assert!(matches!(
+            benilla_native_nav::live::MapMesh::new(include_bytes!(
+                "../../../../../benilla-native-nav/tools/fixtures/authored.mmap"
+            )),
+            Err(benilla_native_nav::live::LiveError::NumericBinding)
+        ));
+        return;
+    }
+    let (g, p) = loaded(&[(1, 0, 0)]);
+    let (mut objects, mut units, mut master) = setup();
+    objects.get_mut(master.unit).unwrap().map = Some(MapIdentity {
+        map: 0,
+        instance: 7,
+        creation_generation: 1,
+    });
+    let mut geometry = pathfinder::tests::geometry(0, 0);
+    let config=b"mmap.enabled = 1\nmmap.ignoreMapIds = \"\"\nmmap.preload = 0\nPathFinder.NormalizeZ = 0\n";
+    geometry
+        .mmap
+        .initialize_recorded_world(config, &Sha256Id::of(config))
+        .unwrap();
+    let mut passengers = SourcePassengers::default();
+    passengers
+        .bind_unit(
+            master.unit,
+            PassengerMovement {
+                transport: None,
+                guid: 0,
+                time: 0,
+                offset: SourcePose([0; 4]),
+                on_transport: false,
+                movement_pose: objects.pose(master.unit).unwrap(),
+                ghost: false,
+                pet: None,
+                mini_pet: None,
+            },
+            &objects,
+        )
+        .unwrap();
+    let mut owner = Owner {
+        paths: Some(p),
+        spline: Some(true),
+        geometry: Some(geometry),
+        speed: Some(2.5),
+        passengers: Some(passengers),
+        ..Default::default()
+    };
+    let mut context = MotionContext {
+        objects: &objects,
+        units: &mut units,
+    };
+    assert_eq!(
+        g.initialize_path(
+            &mut master,
+            &mut context,
+            &mut owner,
+            WaypointPathRequest::default()
+        )
+        .unwrap_err()
+        .id,
+        "execution.waypoint.travel_time_numeric_owner_278"
+    );
+    assert_eq!(owner.speed_reads, 1);
+    let geometry = owner.geometry.as_ref().unwrap();
+    assert_eq!(geometry.pathfinder_constructor_completions, 1);
+    assert_eq!(geometry.pathfinder_calculate_completions, 1);
 }

@@ -305,6 +305,8 @@ pub struct SourceTerrainManager {
     pub grid_product_steps: Vec<&'static str>,
     /// Diagnostic actual completions, never inferred from query availability.
     pub pathfinder_constructor_completions: u64,
+    pub pathfinder_calculate_completions: u64,
+    pub pathfinder_map_types: Option<BTreeMap<u32, u32>>,
 }
 impl SourceTerrainManager {
     pub fn new(files: SourceTerrainFiles, dbc: SourceTerrainDbc) -> Self {

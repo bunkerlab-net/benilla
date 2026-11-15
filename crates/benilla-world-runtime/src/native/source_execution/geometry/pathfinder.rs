@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! PathFinder.cpp:35-54,1030-1120. No calculate, transport selection or RNG.
+//! PathFinder.cpp:35-54,1030-1120. Query ownership and liquid filtering.
 use super::*;
 use benilla_native_nav::{
     live::{PathCache, PathDistance, QueryHandle},
@@ -18,6 +18,13 @@ pub enum SourceDefaultQuery {
     Unwritten,
     Lookup(Option<QueryHandle>),
 }
+/// Explicit attachment ownership, never inferred from a world pose.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourcePathTransport {
+    Unbound,
+    None,
+    Attached,
+}
 #[derive(Debug)]
 pub struct SourcePathFinder {
     pub unit: ObjectHandle,
@@ -35,6 +42,13 @@ pub struct SourcePathFinder {
     pub use_straight_path: bool,
     pub force_destination: bool,
     pub straight_line: bool,
+    pub transport: SourcePathTransport,
+    pub start: [f32; 3],
+    pub end: [f32; 3],
+    pub actual_end: [f32; 3],
+    /// Unit model-derived width, bound only by its concrete shape owner.
+    pub collision_width: Option<f32>,
+    attachment: Option<Result<Option<ObjectHandle>>>,
 }
 impl SourcePathFinder {
     pub const DISTANCE_INTENT: (&'static str, u32, &'static str) = (
@@ -100,6 +114,12 @@ impl SourcePathFinder {
             use_straight_path: false,
             force_destination: false,
             straight_line: false,
+            transport: SourcePathTransport::Unbound,
+            start: [0.; 3],
+            end: [0.; 3],
+            actual_end: [0.; 3],
+            collision_width: None,
+            attachment: None,
         };
         result.update_filter(geometry, context.objects)?;
         geometry.pathfinder_constructor_completions += 1;
@@ -188,3 +208,6 @@ pub(super) mod tests;
 #[cfg(test)]
 #[path = "pathfinder_census.rs"]
 pub(super) mod census;
+
+#[path = "pathfinder_path.rs"]
+mod path;

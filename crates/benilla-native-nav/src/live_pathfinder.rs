@@ -236,3 +236,7 @@ fn native_lookup(
 #[cfg(all(test, benilla_native_detour))]
 #[path = "live_pathfinder_tests.rs"]
 mod tests;
+
+#[path = "live_path.rs"]
+mod path;
+pub use path::{PathQuery, PolyResult};

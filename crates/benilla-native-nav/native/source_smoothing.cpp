@@ -59,13 +59,15 @@ struct BenillaSourceSmoothing {
     dtNavMeshQuery* query;
     dtQueryFilter filter;
     float start[3], end[3], iter[3], target[3], steer[3], move[3], result[3];
-    float points[74 * 3];
-    dtPolyRef path[74], visited[16];
+    float pointStorage[74 * 3], *points;
+    dtPolyRef pathStorage[74], *path, visited[16];
     uint32_t npolys, nvisited, limit, count, phase, iterations;
     unsigned char steerFlag;
+    dtPolyRef steerRef;
+    bool live;
     BenillaSourceSmoothing(): query(nullptr), start{}, end{}, iter{}, target{}, steer{},
-        move{}, result{}, points{}, path{}, visited{}, npolys(0), nvisited(0),
-        limit(0), count(0), phase(0), iterations(0), steerFlag(0) {}
+        move{}, result{}, pointStorage{}, points(pointStorage), pathStorage{}, path(pathStorage), visited{}, npolys(0), nvisited(0),
+        limit(0), count(0), phase(0), iterations(0), steerFlag(0), steerRef(0), live(true) {}
 };
 static bool finite_point(const float* p) {
     for (int i=0;i<3;++i) if (!dtMathIsfinite(p[i]) || fabsf(p[i]) > 100000.0f) return false;
@@ -76,12 +78,23 @@ BenillaSourceSmoothing* benilla_source_create(dtNavMeshQuery* query,
     uint32_t limit, unsigned short include, unsigned short exclude) {
     if (!query || count == 0 || count > limit || limit < 2 || limit > 74 || (include != 1 && include != 13) || exclude != 0)
         return nullptr;
+    auto* s = benilla_source_create_live(query,start,end,path,count,limit,include,exclude,nullptr,nullptr);
+    if (s) s->live=false;
+    return s;
+}
+BenillaSourceSmoothing* benilla_source_create_live(dtNavMeshQuery* query,
+    const float* start, const float* end, const dtPolyRef* path, uint32_t count,
+    uint32_t limit, unsigned short include, unsigned short exclude, dtPolyRef* scratch, float* points) {
+    if (!query || count == 0 || count > limit || limit < 2 || limit > 296 ||
+        (include & ~15u) || exclude || (limit > 74 && (!scratch || !points))) return nullptr;
     BenillaSourceSmoothing* s = new(std::nothrow) BenillaSourceSmoothing;
     if (!s) return nullptr;
     s->query = query;
     s->filter.setIncludeFlags(include);
     s->filter.setExcludeFlags(exclude);
     dtVcopy(s->start,start); dtVcopy(s->end,end);
+    if (scratch) s->path=scratch;
+    if (points) s->points=points;
     std::memcpy(s->path,path,count * sizeof(dtPolyRef));
     s->npolys=count; s->limit=limit;
     return s;
@@ -127,12 +140,12 @@ extern "C" uint32_t benilla_source_step(BenillaSourceSmoothing* s, BenillaSource
         dtVcopy(s->steer,&steerPath[ns*3]);
         s->steer[1]=s->iter[1];
         s->steerFlag=flags[ns];
-        // Off-mesh products are excluded by validation; do not emulate their owner branch.
-        if (!finite_point(s->steer) || (s->steerFlag & ~3u) != 0) return 2;
+        s->steerRef=refs[ns];
+        if (!finite_point(s->steer) || (s->steerFlag & ~(s->live ? 7u : 3u)) != 0) return 2;
         const bool endOfPath=(s->steerFlag & DT_STRAIGHTPATH_END)!=0;
         float delta[3]; dtVsub(delta,s->steer,s->iter);
         float len=dtMathSqrtf(dtVdot(delta,delta));
-        if (endOfPath && len < 4.0f) len=1.0f;
+        if ((endOfPath || (s->steerFlag & DT_STRAIGHTPATH_OFFMESH_CONNECTION)) && len < 4.0f) len=1.0f;
         else len=4.0f/len;
         dtVmad(s->move,s->iter,delta,len);
         if (!finite_point(s->move)) return 2;
@@ -149,7 +162,7 @@ extern "C" uint32_t benilla_source_step(BenillaSourceSmoothing* s, BenillaSource
             nvisited < 0 || nvisited > 16 || !finite_point(s->result)) return 2;
         s->nvisited=uint32_t(nvisited);
         s->npolys=benilla_source_fixup(s->path,s->npolys,s->limit,s->visited,s->nvisited);
-        if (s->npolys == 0 || s->npolys > 74) return 2;
+        if (s->npolys == 0 || s->npolys > s->limit) return 2;
         s->phase=4;
         return 0;
     }
@@ -168,8 +181,29 @@ extern "C" uint32_t benilla_source_step(BenillaSourceSmoothing* s, BenillaSource
             dtVcopy(&s->points[s->count*3],s->iter); ++s->count;
             return complete(s,out,1);
         }
-        dtVcopy(&s->points[s->count*3],s->iter); ++s->count;
-        if (s->count >= s->limit) return complete(s,out,3);
+        if ((s->steerFlag & DT_STRAIGHTPATH_OFFMESH_CONNECTION) &&
+            benilla_source_in_range(s->iter,s->steer,0.3f,1.0f)) {
+            // PathFinder.cpp:1326,1330 copies the original arguments, not the connection endpoints.
+            dtPolyRef prevRef=0, polyRef=s->path[0];
+            uint32_t npos=0;
+            while (npos<s->npolys && polyRef!=s->steerRef) {
+                prevRef=polyRef; polyRef=s->path[npos]; ++npos;
+            }
+            for (uint32_t i=npos;i<s->npolys;++i) s->path[i-npos]=s->path[i];
+            s->npolys-=npos;
+            float newStart[3],newEnd[3];
+            out->status=s->query->getAttachedNavMesh()->getOffMeshConnectionPolyEndPoints(
+                prevRef,polyRef,newStart,newEnd);
+            if (dtStatusSucceed(out->status)) {
+                if (s->count<s->limit) { dtVcopy(&s->points[s->count*3],s->start); ++s->count; }
+                dtVcopy(s->iter,s->end);
+                s->query->getPolyHeight(s->path[0],s->iter,&s->iter[1]);
+                s->iter[1]+=0.5f;
+                if (!finite_point(s->iter)) return 2;
+            }
+        }
+        if (s->count<s->limit) { dtVcopy(&s->points[s->count*3],s->iter); ++s->count; }
+        if (!s->npolys || s->count >= s->limit) return complete(s,out,3);
         s->phase=2;
         return 0;
     }
@@ -177,7 +211,13 @@ extern "C" uint32_t benilla_source_step(BenillaSourceSmoothing* s, BenillaSource
 }
 extern "C" void benilla_source_copy(const BenillaSourceSmoothing* s, float* points,
                                     dtPolyRef* path, uint32_t* count) {
-    std::memcpy(points,s->points,sizeof(s->points));
-    std::memcpy(path,s->path,sizeof(s->path));
+    std::memcpy(points,s->points,74 * 3 * sizeof(float));
+    std::memcpy(path,s->path,74 * sizeof(dtPolyRef));
+    *count=s->npolys;
+}
+extern "C" void benilla_source_copy_live(const BenillaSourceSmoothing* s, float* points,
+                                    dtPolyRef* path, uint32_t* count) {
+    if (points != s->points) std::memcpy(points,s->points,s->count * 3 * sizeof(float));
+    if (path != s->path) std::memcpy(path,s->path,s->limit * sizeof(dtPolyRef));
     *count=s->npolys;
 }

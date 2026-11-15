@@ -300,7 +300,7 @@ fn wander_and_home_prove_construction_before_the_next_named_refusal() {
             .initialize(&mut master, &mut context, &mut owner)
             .unwrap_err()
             .id,
-        "execution.motion.f6_home_pathfinder_calculate_owner"
+        "execution.pathfinder.transport_owner"
     );
     assert_eq!(owner.geometry.pathfinder_constructor_completions, 2);
 }

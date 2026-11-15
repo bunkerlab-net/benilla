@@ -48,6 +48,50 @@ pub trait MotionExecutionOwner {
     fn pathfinder_geometry(&mut self) -> Result<&mut SourceTerrainManager> {
         Err(refuse("execution.pathfinder.live_geometry_owner"))
     }
+    /// The same Unit movement state used by transport boarding and disembarking.
+    fn pathfinder_passengers(&self) -> Result<&SourcePassengers> {
+        Err(refuse("execution.pathfinder.transport_owner"))
+    }
+    /// HomeMovementGenerator.cpp:66 uses local movement offsets only when attached.
+    fn home_pathfinder_position(
+        &self,
+        context: &MotionContext<'_>,
+        unit: ObjectHandle,
+    ) -> Result<[f32; 3]> {
+        let movement = self.pathfinder_passengers()?.movement(unit)?;
+        let pose = if movement.transport.is_some() {
+            movement.offset
+        } else {
+            context.objects.pose(unit)?
+        };
+        let p = pose.0.map(f32::from_bits);
+        Ok([p[0], p[1], p[2]])
+    }
+    fn calculate_pathfinder(
+        &mut self,
+        path: &mut SourcePathFinder,
+        context: &MotionContext<'_>,
+        start: [f32; 3],
+        end: [f32; 3],
+    ) -> Result<bool> {
+        let attachment = self
+            .pathfinder_passengers()
+            .and_then(|passengers| passengers.movement(path.unit).map(|state| state.transport))
+            .map_err(|_| refuse("execution.pathfinder.transport_owner"));
+        path.calculate(
+            self.pathfinder_geometry()?,
+            context,
+            attachment,
+            start,
+            end,
+            true,
+            false,
+        )
+    }
+    /// WaypointMovementGenerator.cpp:261-262 reads movement flags before speed.
+    fn waypoint_speed(&mut self, _unit: ObjectHandle) -> Result<f32> {
+        Err(refuse("execution.waypoint.movement_speed_owner_261"))
+    }
     fn wander_melee_attack_stop(
         &mut self,
         _unit: ObjectHandle,
@@ -168,7 +212,6 @@ pub struct MotionContext<'a> {
 pub enum MotionCall {
     StopSpline,
     SetActive(bool),
-    HomePathfinder { target: [f32; 4], run: bool },
     ClearTemporaryFaction,
     LoadAddon,
     TriggerHome,
@@ -187,7 +230,6 @@ impl MotionCall {
     pub fn missing_owner(self) -> Refusal {
         refuse(match self {
             Self::StopSpline => "execution.motion.f6_spline_stop_owner",
-            Self::HomePathfinder { .. } => "execution.motion.f6_home_pathfinder_calculate_owner",
             Self::SetActive(_) => "execution.motion.active_residency_owner",
             Self::ClearTemporaryFaction => "execution.motion.temporary_faction_owner",
             Self::LoadAddon => "execution.creature.addon_owner",

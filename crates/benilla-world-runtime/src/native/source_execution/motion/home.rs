@@ -16,6 +16,9 @@ impl SourceHomeGenerator {
             run,
         }
     }
+    pub fn runs_home(&self) -> bool {
+        self.run
+    }
     fn target(
         &self,
         master: &mut SourceMotionMaster,
@@ -49,13 +52,12 @@ impl SourceHomeGenerator {
             owner.motion_call(master, MotionCall::ForcedDespawnOne, context)?;
             return Ok(());
         }
-        let _path =
+        let mut path =
             SourcePathFinder::construct(owner.pathfinder_geometry()?, master.unit, context, false)?;
-        Err(MotionCall::HomePathfinder {
-            target,
-            run: self.run,
-        }
-        .missing_owner())
+        let start = owner.home_pathfinder_position(context, master.unit)?;
+        owner.calculate_pathfinder(&mut path, context, start, [target[0], target[1], target[2]])?;
+        // HomeMovementGenerator.cpp:70 constructs MoveSplineInit only after calculate.
+        Err(refuse("execution.motion.f6_home_move_spline_init_owner_70"))
     }
 }
 impl SourceMovementGenerator for SourceHomeGenerator {

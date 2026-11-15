@@ -130,6 +130,7 @@ pub struct SourceMMapManager {
     pub configuration: Option<(Sha256Id, [usize; 3])>,
     maps: BTreeMap<u32, MapMesh>,
     pub files: SourceMMapFiles,
+    recorded_config: Option<std::sync::Arc<[u8]>>,
 }
 impl Default for SourceMMapManager {
     fn default() -> Self {
@@ -141,6 +142,7 @@ impl Default for SourceMMapManager {
             configuration: None,
             maps: BTreeMap::new(),
             files: SourceMMapFiles::default(),
+            recorded_config: None,
         }
     }
 }
@@ -187,7 +189,21 @@ impl SourceMMapManager {
         self.preload = boolean(&preload);
         self.ignored.extend(ids);
         self.configuration = Some((approved.clone(), [enabled_line, ignored_line, preload_line]));
+        self.recorded_config = Some(bytes.into());
         Ok(())
+    }
+    /// World.cpp:837-838 is consumed only at the reached PathFinder config read.
+    pub fn pathfinder_setting(&self, key: &str) -> Result<bool> {
+        require(
+            matches!(key, "PathFinder.OptimizePath" | "PathFinder.NormalizeZ"),
+            "execution.pathfinder.config_key",
+        )?;
+        let bytes = self
+            .recorded_config
+            .as_ref()
+            .ok_or_else(|| refuse("execution.pathfinder.config_owner"))?;
+        let (_, value) = spawn_loader_config::assignment(bytes, key)?;
+        Ok(value == "1" || value.eq_ignore_ascii_case("true") || value.eq_ignore_ascii_case("yes"))
     }
     /// MoveMap.cpp:64-83. Forced does not override the global enabled switch.
     pub fn pathfinding_enabled(&self, map: u32, forcing: MMapForcing) -> Result<bool> {
@@ -388,6 +404,11 @@ pub(super) fn mmap_error(error: LiveError) -> Refusal {
         LiveError::StaleQuery => "execution.mmap.stale_query",
         LiveError::StaleTile => "execution.mmap.stale_tile",
         LiveError::Native(_) => "execution.mmap.remove_tile_assertion",
+        LiveError::PathOperation(3) => {
+            "execution.pathfinder.move_along_surface_output_undefined_1283"
+        }
+        LiveError::PathOperation(924) => "execution.pathfinder.optimize_index_undefined_924",
+        LiveError::PathOperation(_) => "execution.pathfinder.smoothing_numeric_owner",
     })
 }
 

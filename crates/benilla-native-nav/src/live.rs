@@ -13,6 +13,7 @@ pub enum LiveError {
     StaleQuery,
     StaleTile,
     Native(u32),
+    PathOperation(u32),
 }
 impl From<Error> for LiveError {
     fn from(value: Error) -> Self {
@@ -300,7 +301,7 @@ mod ffi {
 
 #[path = "live_pathfinder.rs"]
 mod pathfinder;
-pub use pathfinder::{DistanceDeclaration, PathCache, PathDistance};
+pub use pathfinder::{DistanceDeclaration, PathCache, PathDistance, PathQuery, PolyResult};
 
 #[cfg(all(test, benilla_native_detour))]
 #[path = "live_tests.rs"]

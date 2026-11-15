@@ -2615,3 +2615,40 @@ No post-deviation whole-gameplay equality or new persisted state is claimed.
 Native format remains 91.
 `nearest_poly` requires an explicitly selected live current query.
 Construction leaves that query null, `PathFinder.cpp:39,81-99`.
+
+## Source PathFinder calculation
+
+`SourcePathFinder::calculate` follows coordinate checks, current-query selection,
+endpoint tile checks, liquid filter updates, and polygon construction,
+`PathFinder.cpp:122-179`. `SourcePassengers::movement` supplies attachment state.
+An unbound passenger state is not an off-transport observation. Attached model
+queries retain their named dependency at `:87`.
+
+Polygon reuse, direct search, raycast, point generation, and terminal types
+follow `:386-986`. Every Detour operation uses the existing pinned bridge and
+the actual map-instance query. Partial, truncated, and out-of-nodes statuses
+remain source inputs. Dungeon limits retain the source's strict 100/200/300
+comparisons. The shared optimiser preserves zero sentinels and prior point
+slots, `:880-939`. Source square roots reuse the exact integer transport kernel.
+Offmesh smoothing retains the original argument copies at `:1326,1330`.
+
+The caller still supplies concrete model-derived collision width at `:723`.
+Active normalisation stops at the missing Unit allowed-Z owner at `:999`.
+Neither operation receives invented geometry or Unit state. Recorded
+`PathFinder.OptimizePath` and `PathFinder.NormalizeZ` use the existing
+hash-approved configuration parser, `World.cpp:837-838`.
+
+The calculate owner replaces the constructor section's calculate stops.
+Waypoint first requires its actual movement speed, before construction,
+`WaypointMovementGenerator.cpp:261-264`. With that state bound, its next
+dependent operation after calculation is travel-time arithmetic at `:278`.
+Home reads transport-relative position at `HomeMovementGenerator.cpp:66`,
+calculates at `:68`, and then requires `MoveSplineInit` at `:70`.
+Wander retains its separate client-control stop.
+
+The opt-in frozen census reports constructor probes separately from first-raw-
+waypoint, explicitly nontransport calculate probes. It does not execute the
+speed, waypoint-loader, or recorded motion owners. Stock Home invocation
+opportunities remain unavailable. No F1 equality, gameplay admission, or
+persisted-state change is claimed. Native format remains 91.
+

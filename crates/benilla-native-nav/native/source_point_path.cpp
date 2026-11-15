@@ -46,6 +46,36 @@ void shortcut(BenillaSourcePointPath* out, const Point& start, const Point& actu
     store(out->points[1], actual);
     out->path_type = 2; // PATHFIND_SHORTCUT; overwritten by each calling branch below.
 }
+uint32_t optimize_points(Point* points, uint32_t* count, uint32_t optimize, float* out, bool strict) {
+    if (*count > 2 && optimize) {
+        uint32_t tempPointCounter = 2;
+        uint8_t cutLimit = 0;
+        for (uint32_t i = 1; i < *count - 1; ++i) {
+            const Point p = points[i], p1 = points[i - 1], p2 = points[i + 1];
+            const float lineLen = (p1.y - p2.y) * p.x + (p2.x - p1.x) * p.y +
+                (p1.x * p2.y - p2.x * p1.y);
+            if (fabs(lineLen) < 0.5f && cutLimit < 6) {
+                points[i] = {0.0f, 0.0f, 0.0f};
+                ++cutLimit;
+            } else {
+                ++tempPointCounter;
+                cutLimit = 0;
+            }
+        }
+        uint32_t pointPos = 0;
+        for (uint32_t i = 0; i < *count; ++i) {
+            if (!zero(points[i])) {
+                if (pointPos >= tempPointCounter) return 0;
+                store(out + 3 * pointPos++, points[i]);
+            }
+        }
+        if (strict && pointPos != tempPointCounter) return 0;
+        *count = tempPointCounter;
+    } else {
+        for (uint32_t i = 0; i < *count; ++i) store(out + 3 * i, points[i]);
+    }
+    return 1;
+}
 }
 extern "C" uint32_t benilla_source_point_path(const float* yzx, uint32_t count,
     uint32_t limit, uint32_t status, uint32_t path_type, const float* start_xyz,
@@ -66,33 +96,7 @@ extern "C" uint32_t benilla_source_point_path(const float* yzx, uint32_t count,
     *out = {};
     out->path_type = path_type;
     Point actual = end; // calculate/setEndPosition precedes BuildPolyPath in this domain.
-    if (count > 2 && optimize) {
-        uint32_t tempPointCounter = 2;
-        uint8_t cutLimit = 0;
-        for (uint32_t i = 1; i < count - 1; ++i) {
-            const Point p = points[i], p1 = points[i - 1], p2 = points[i + 1];
-            const float lineLen = (p1.y - p2.y) * p.x + (p2.x - p1.x) * p.y +
-                (p1.x * p2.y - p2.x * p1.y);
-            if (fabs(lineLen) < 0.5f && cutLimit < 6) {
-                points[i] = {0.0f, 0.0f, 0.0f};
-                ++cutLimit;
-            } else {
-                ++tempPointCounter;
-                cutLimit = 0;
-            }
-        }
-        uint32_t pointPos = 0;
-        for (uint32_t i = 0; i < count; ++i) {
-            if (!zero(points[i])) {
-                if (pointPos >= tempPointCounter) return 0;
-                store(out->points[pointPos++], points[i]);
-            }
-        }
-        if (pointPos != tempPointCounter) return 0;
-        count = tempPointCounter;
-    } else {
-        for (uint32_t i = 0; i < count; ++i) store(out->points[i], points[i]);
-    }
+    if (!optimize_points(points,&count,optimize,out->points[0],true)) return 0;
     out->point_count = count;
     // Source tests failure AFTER optimization, and before its optimized-count SHORT check.
     if (count < 2 || (status & (1u << 31))) {
@@ -116,5 +120,17 @@ extern "C" uint32_t benilla_source_point_path(const float* yzx, uint32_t count,
         }
     }
     store(out->actual_end, actual);
+    return 1;
+}
+extern "C" uint32_t benilla_live_convert_points(const float* yzx, uint32_t count,
+    uint32_t optimize, float* xyz, uint32_t* final_count) {
+    if (count > 296 || optimize > 1) return 0;
+    Point points[296];
+    for (uint32_t i=0;i<count;++i) {
+        points[i]={yzx[i*3+2],yzx[i*3],yzx[i*3+1]};
+        if (!finite(points[i])) return 0;
+    }
+    if (!optimize_points(points,&count,optimize,xyz,false)) return 2;
+    *final_count=count;
     return 1;
 }
