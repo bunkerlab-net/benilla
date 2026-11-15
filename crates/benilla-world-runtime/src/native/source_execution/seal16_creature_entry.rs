@@ -42,6 +42,8 @@ pub(in crate::native::source_execution) struct EntryFields {
     pub requested_spell_list: u32,
     pub spell_list_disabled: Option<bool>,
     pub spell_list: Option<CreatureSpellList>,
+    pub immunities: CreatureImmunityState,
+    pub chain_immune: bool,
 }
 fn uint_config(config: &[u8], key: &str) -> Result<u32> {
     super::super::super::super::spawn_loader_config::assignment(config, key)?
@@ -136,6 +138,8 @@ fn model_fields(template: &LoadedCreatureInfo, model: [u32; 8]) -> EntryFields {
         requested_spell_list: 0,
         spell_list_disabled: None,
         spell_list: None,
+        immunities: CreatureImmunityState::default(),
+        chain_immune: false,
     }
 }
 pub(super) fn continue_entry(
@@ -326,9 +330,24 @@ pub(super) fn continue_entry(
             prefix.lookups.push("creature_spell_list_copy_availability");
         }
     }
+    prefix.lookups.push("creature_immunity_set_lookup");
+    fields
+        .immunities
+        .update(template.words[0], 0, Some(prefix.creature_immunities))?;
+    prefix.lookups.push("creature_immunity_set_updated");
+    fields.chain_immune = template.words[16] == 8; // Creature.h:624, Unit.h:2073.
+    prefix.lookups.push("creature_critter_chain_immunity");
+    let next = if event.is_some() {
+        // Creature.cpp:618-619 calls even when both spell IDs are zero.
+        "execution.creature.loaded_game_event_spells_owner"
+    } else if template.words[91] != 0 || template.words[92] != 0 || spawn.string_id != 0 {
+        "execution.creature.loaded_string_id_owner"
+    } else {
+        prefix.lookups.push("creature_event_and_string_gates");
+        CREATURE_NEXT_OWNER // Creature.cpp:631, CreatureSettings.cpp:29.
+    };
     prefix.creature_entry = Some(fields);
-    // Creature.cpp:145 initializes m_immunitySet to UINT32_MAX, so :2464 does not return.
-    Err(refuse(CREATURE_NEXT_OWNER))
+    Err(refuse(next))
 }
 #[cfg(test)]
 mod tests {

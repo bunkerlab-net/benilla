@@ -99,13 +99,24 @@ impl<D: GridDefinitions<Row = SpawnKey>> GameObjectFactoryOwner<D, SourceTerrain
     fn gameobject_urand(&mut self, min: u32, max: u32) -> Result<u32> {
         self.random.creature_urand(min, max)
     }
-    fn gameobject_saved_respawn(&mut self, _: u32) -> Result<i64> {
-        Err(refuse(
-            "execution.gameobject.loaded_persistent_respawn_owner",
-        ))
+    fn gameobject_read_persistent_respawn(
+        &mut self,
+        guid: u32,
+        context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
+    ) -> Result<i64> {
+        let saved = context.saved_respawn(GridSpawnKind::GameObject, guid)?;
+        self.lookups.push("go_persistent_respawn_read");
+        Ok(saved)
     }
-    fn gameobject_save_respawn(&mut self, _: u32, _: i64) -> Result<()> {
-        Err(refuse("execution.gameobject.loaded_save_respawn_owner"))
+    fn gameobject_write_persistent_respawn(
+        &mut self,
+        _: u32,
+        _: i64,
+        _: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
+    ) -> Result<()> {
+        Err(refuse(
+            "execution.gameobject.loaded_save_respawn_effects_owner",
+        ))
     }
     fn gameobject_calendar(&mut self) -> Result<i64> {
         Err(refuse("execution.gameobject.loaded_respawn_calendar_owner"))

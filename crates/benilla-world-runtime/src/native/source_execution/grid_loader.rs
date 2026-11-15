@@ -101,6 +101,13 @@ impl GridSpawnSets {
 pub trait GridDefinitions {
     type Row;
     fn read(&mut self, attempt: GridLoadAttempt) -> Result<Self::Row>;
+    /// The context borrows the live state owner rather than copying deadlines.
+    fn persistent_state(
+        &mut self,
+        _map: MapIdentity,
+    ) -> Result<(&mut SourceManagers, PersistentStateIdentity)> {
+        Err(refuse("execution.persistent.grid_state_owner"))
+    }
     /// Existing explicit component sets are not an authoritative persistent owner.
     fn persistent_next(
         &mut self,
@@ -130,6 +137,16 @@ impl<D: PersistentGridLookup> GridDefinitions for PersistentGridDefinitions<'_, 
     type Row = D::Row;
     fn read(&mut self, attempt: GridLoadAttempt) -> Result<Self::Row> {
         self.definitions.read(attempt)
+    }
+    fn persistent_state(
+        &mut self,
+        map: MapIdentity,
+    ) -> Result<(&mut SourceManagers, PersistentStateIdentity)> {
+        require(
+            self.managers.state(self.state)?.map_binding() == Some(map),
+            "execution.persistent.grid_map_binding",
+        )?;
+        Ok((&mut *self.managers, self.state))
     }
     fn persistent_next(
         &mut self,
@@ -211,6 +228,21 @@ pub struct GridFactoryContext<'a, D, P> {
     pub cells: &'a mut SourceCells,
 }
 impl<D: GridDefinitions, P: GridProductOwner> GridFactoryContext<'_, D, P> {
+    pub fn saved_respawn(&mut self, kind: GridSpawnKind, guid: u32) -> Result<i64> {
+        let (managers, state) = self.definitions.persistent_state(self.sets.map)?;
+        Ok(managers.state(state)?.respawn(kind, guid))
+    }
+    pub fn save_respawn(
+        &mut self,
+        kind: GridSpawnKind,
+        guid: u32,
+        deadline: i64,
+        world_seconds: i64,
+        effects: &mut impl PersistentEffects,
+    ) -> Result<()> {
+        let (managers, state) = self.definitions.persistent_state(self.sets.map)?;
+        managers.save_respawn(state, kind, guid, deadline, world_seconds, effects)
+    }
     // Creature factories run LoadFromDB before the loader's second viewpoint callback; ObjectGridLoader.cpp:138-154.
     pub fn load_creature<F: CreatureFactoryOwner<D, P>>(
         &mut self,

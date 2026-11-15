@@ -82,6 +82,8 @@ mod creatures;
 pub use creatures::*;
 mod loaded_creature_models;
 pub use loaded_creature_models::*;
+mod creature_immunities;
+pub use creature_immunities::*;
 mod creature_spell_lists;
 pub use creature_spell_lists::*;
 mod creature_level;

@@ -1018,3 +1018,86 @@ fn left_join_missing_instance_uses_source_null_to_zero_conversion_not_inner_join
         200
     );
 }
+
+#[test]
+fn grid_context_respawns_borrow_the_live_state_for_reads_and_writes() {
+    let (mut managers, state, mut effects) = world();
+    let map = MapIdentity {
+        map: 0,
+        instance: 0,
+        creation_generation: 1,
+    };
+    managers.bind_map(state, Some(map), &mut effects).unwrap();
+    let mut definitions = PersistentGridDefinitions {
+        definitions: GridDefinitionsFixture,
+        managers: &mut managers,
+        state,
+    };
+    let mut products = ProductsFixture;
+    let mut sets = GridSpawnSets::new(map);
+    let mut objects = SourceObjects::default();
+    let mut cells = SourceCells::new(map).unwrap();
+    let mut context = GridFactoryContext {
+        definitions: &mut definitions,
+        products: &mut products,
+        sets: &mut sets,
+        objects: &mut objects,
+        cells: &mut cells,
+    };
+    assert_eq!(
+        context.saved_respawn(GridSpawnKind::GameObject, 7).unwrap(),
+        0
+    );
+    context
+        .save_respawn(GridSpawnKind::GameObject, 7, 101, 100, &mut effects)
+        .unwrap();
+    assert_eq!(
+        context.saved_respawn(GridSpawnKind::GameObject, 7).unwrap(),
+        101
+    );
+    assert_eq!(
+        context.saved_respawn(GridSpawnKind::Creature, 7).unwrap(),
+        0
+    );
+    effects.sql.clear();
+    context
+        .save_respawn(GridSpawnKind::GameObject, 7, 0, 100, &mut effects)
+        .unwrap();
+    assert_eq!(
+        context.saved_respawn(GridSpawnKind::GameObject, 7).unwrap(),
+        0
+    );
+    assert_eq!(
+        effects.sql,
+        [
+            PersistentSql::Begin,
+            PersistentSql::Delete {
+                kind: GridSpawnKind::GameObject,
+                guid: 7,
+                instance: 0
+            },
+            PersistentSql::Commit
+        ]
+    );
+    let wrong = MapIdentity {
+        creation_generation: 2,
+        ..map
+    };
+    assert_eq!(
+        context
+            .definitions
+            .persistent_state(wrong)
+            .err()
+            .unwrap()
+            .id,
+        "execution.persistent.grid_map_binding"
+    );
+    assert_eq!(
+        GridDefinitionsFixture
+            .persistent_state(map)
+            .err()
+            .unwrap()
+            .id,
+        "execution.persistent.grid_state_owner"
+    );
+}

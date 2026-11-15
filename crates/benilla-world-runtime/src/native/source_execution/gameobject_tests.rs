@@ -228,11 +228,20 @@ impl GameObjectFactoryOwner<Definitions, Products> for Factory {
                 id: "authored.random".into(),
             })
     }
-    fn gameobject_saved_respawn(&mut self, _: u32) -> Result<i64> {
+    fn gameobject_read_persistent_respawn(
+        &mut self,
+        _: u32,
+        _: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<i64> {
         self.actions.push(Action::RespawnRead);
         Ok(self.saved)
     }
-    fn gameobject_save_respawn(&mut self, guid: u32, time: i64) -> Result<()> {
+    fn gameobject_write_persistent_respawn(
+        &mut self,
+        guid: u32,
+        time: i64,
+        _: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<()> {
         self.actions.push(Action::Save(guid, time));
         self.saved = time;
         Ok(())

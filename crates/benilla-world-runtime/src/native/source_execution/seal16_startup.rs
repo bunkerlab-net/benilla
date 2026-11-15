@@ -11,6 +11,8 @@ mod active_init;
 mod creature_models;
 #[path = "seal16_gameobject_models.rs"]
 mod gameobject_models;
+#[path = "seal16_immunities.rs"]
+mod immunities;
 #[path = "seal16_spawn_data.rs"]
 mod spawn_data;
 #[path = "seal16_spawn_init.rs"]
@@ -187,6 +189,7 @@ pub(super) struct Inputs {
     spawn_data: spawn_data::Evidence,
     creature_models: creature_models::Evidence,
     spell_lists: spell_lists::Evidence,
+    immunities: immunities::Evidence,
     loaded_spawn_templates: Option<LoadedCreatureSpawnTemplates>,
 }
 impl Inputs {
@@ -216,6 +219,7 @@ impl Inputs {
                 .observe(line, kind, p, self.world_raw_words);
             self.spell_lists
                 .observe(line, kind, p, self.world_raw_words);
+            self.immunities.observe(line, kind, p, self.world_raw_words);
         }
         if thread == 1 && kind == "sql_query" {
             let query = String::from_utf8(unhex(p.last().unwrap())).unwrap();
@@ -1217,6 +1221,8 @@ pub(super) fn continue_startup(
             std::mem::take(&mut observed.creature_models),
             geometry,
         );
+    let creature_immunities =
+        std::mem::take(&mut observed.immunities).load(catalog, &creature_templates);
     let creature_spell_lists =
         std::mem::take(&mut observed.spell_lists).load(catalog, &creature_templates);
     spell_list_reach::census(catalog, &creature_templates, spawns, &creature_spell_lists);
@@ -1860,6 +1866,7 @@ pub(super) fn continue_startup(
             &gameobject_templates,
             &spawn_templates,
             &creature_models,
+            &creature_immunities,
             &mut random,
             &mut dynamic_models,
             trig_dispatch,
@@ -1894,6 +1901,9 @@ pub(super) fn continue_startup(
                     "go_instance_data",
                     "go_instance_on_object_create",
                     "go_large_object_predicate",
+                    "go_persistent_respawn_read",
+                    "go_model", // GameObject.cpp:126 inserts the model during AddToWorld.
+                    "go_model", // GameObject.cpp:131 enables collision after world membership.
                 ]
             } else {
                 vec![
@@ -1919,6 +1929,10 @@ pub(super) fn continue_startup(
                     "creature_update_entry_flags_stats_pvp",
                     "creature_map_spell_list_lookup",
                     "creature_spell_list_copy_availability",
+                    "creature_immunity_set_lookup",
+                    "creature_immunity_set_updated",
+                    "creature_critter_chain_immunity",
+                    "creature_event_and_string_gates",
                 ]
             }
         );
@@ -1967,6 +1981,16 @@ pub(super) fn continue_startup(
             );
             assert!(object.has_model);
             assert_eq!(object.respawn_delay, 900);
+            assert_eq!(object.respawn_time, 0);
+            assert!(object.spawned_by_default && object.spawn.is_some());
+            assert_eq!(
+                states
+                    .state(continents.maps[slot].persistent.unwrap())
+                    .unwrap()
+                    .respawn(GridSpawnKind::GameObject, attempt.guid),
+                0
+            );
+            assert!(active_objects.get(candidate).unwrap().in_world);
             assert_eq!(
                 evidence.first_candidate_rng,
                 [("urand".into(), 601, 900, 900, Some(900))]
@@ -2094,6 +2118,11 @@ pub(super) fn continue_startup(
                 .spells
                 .values()
                 .all(|spell| !spell.has_written_combat_condition()));
+            assert!(!fields.chain_immune);
+            assert_eq!(template.words[16], 1);
+            assert!(creature_immunities.get(entry, 0).is_none());
+            assert_eq!(fields.immunities.set, u32::MAX);
+            assert_eq!(&template.words[91..93], &[0, 0]);
             assert_eq!(
                 evidence.first_candidate_rng,
                 [
@@ -2212,7 +2241,7 @@ pub(super) fn continue_startup(
             serde_json::to_value(states.state(state).unwrap().pools()).unwrap(),
             expected
         );
-        println!("F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={} next_owner={} next_source={}", matched_map_words[slot], evidence.pool_members.iter().map(BTreeSet::len).sum::<usize>(), evidence.pool_counts.len(), shuffles.len(), evidence.pool_snapshot_line.unwrap(), encounters.by_map(slot as u32).len(), refusal.id, if slot == 0 { "GameObject.cpp:949" } else { "Creature.cpp:2467" });
+        println!("F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={} next_owner={} next_source={}", matched_map_words[slot], evidence.pool_members.iter().map(BTreeSet::len).sum::<usize>(), evidence.pool_counts.len(), shuffles.len(), evidence.pool_snapshot_line.unwrap(), encounters.by_map(slot as u32).len(), refusal.id, if slot == 0 { "Map.cpp:501" } else { "Creature.cpp:631" });
         owner.states = states;
         let raw = trace
             .iter()
@@ -2302,7 +2331,7 @@ pub(super) fn continue_startup(
             .filter(|operation| matches!(operation, PoolOperation::Selected { add: true, .. }))
             .count();
         assert!(results > 0);
-        println!("F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} matched_map_thread_words={matched_map_words:?} matched_map_sql=4 matched_template_sql=6 matched_creature_model_sql=3 matched_creature_spell_list_sql=5 matched_spawn_data_sql=2 matched_graveyard_sql=1 matched_encounter_sql=4 matched_group_sql=6 pool_results={results} event_initialization_reached=false next_owner_map0={} next_owner_map1={} next_raw={} next_word={} clone_next_word_checked=true",owner.cursor.raw,refusal.id,active_init::CREATURE_NEXT_OWNER,next_word.0,next_word.1);
+        println!("F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} matched_map_thread_words={matched_map_words:?} matched_map_sql=4 matched_template_sql=6 matched_creature_model_sql=3 matched_creature_immunity_sql=1 matched_creature_spell_list_sql=5 matched_spawn_data_sql=2 matched_graveyard_sql=1 matched_encounter_sql=4 matched_group_sql=6 pool_results={results} event_initialization_reached=false next_owner_map0={} next_owner_map1={} next_raw={} next_word={} clone_next_word_checked=true",owner.cursor.raw,refusal.id,active_init::CREATURE_NEXT_OWNER,next_word.0,next_word.1);
         return;
     }
     let initial_status = owner.status.iter().copied().collect::<Vec<_>>();

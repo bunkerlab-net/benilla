@@ -2703,3 +2703,19 @@ invented radius. This diagnostic is not a recorded movement stream or F1
 equality. The movement component is excluded from inventory serialization.
 Native format remains 91.
 
+## Loaded creature immunities and grid respawns
+
+`LoadedCreatureImmunities` ports `ObjectMgr.cpp:945-976` with the fixed
+`Entry, SetId, Type, Value` projection. Rows follow the unsigned composite
+primary key, `sql/base/mangos.sql:1463`. Invalid entries and types retain the
+source's ordered rejection branches. `CreatureImmunityState::update` ports
+the same-set return, absent-set return, and old-set removal before application,
+`Creature.cpp:2462-2480`, using the null-aura rules in `Unit.cpp:7680-7708`.
+
+GO factory callbacks borrow persistent state through `GridFactoryContext`.
+Reads use the live manager's respawn map, `MapPersistentStateMgr.h:90-94`;
+writes reuse the existing save owner, `MapPersistentStateMgr.cpp:98-120`.
+The frozen comparison matches the immunity query between creature templates
+and unit conditions, `World.cpp:1021-1027`. These owners do not alter saved
+bytes or native format 91.
+

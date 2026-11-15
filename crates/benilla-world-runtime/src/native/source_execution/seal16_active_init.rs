@@ -4,8 +4,8 @@ use super::*;
 use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
-pub(super) const CREATURE_NEXT_OWNER: &str = "execution.creature.loaded_immunity_set_store_owner";
-pub(super) const GO_NEXT_OWNER: &str = "execution.gameobject.loaded_persistent_respawn_owner";
+pub(super) const CREATURE_NEXT_OWNER: &str = "execution.creature.loaded_reset_static_flags_owner";
+pub(super) const GO_NEXT_OWNER: &str = "execution.gameobject.loaded_map_viewpoint_owner";
 #[path = "seal16_creature_entry.rs"]
 mod creature_entry;
 #[path = "seal16_gameobject_init.rs"]
@@ -49,6 +49,7 @@ pub(super) struct Prefix<'a> {
     pub spawn_templates: &'a LoadedCreatureSpawnTemplates,
     pub creature_models: &'a LoadedCreatureModels,
     pub creature_spells: Option<&'a CreatureSpellMapData>,
+    pub creature_immunities: &'a LoadedCreatureImmunities,
     pub outdoor_pvp: &'a SourceOutdoorPvp,
     pub instance_data: Option<&'a mut SourceWorldScript>,
     pub random: &'a mut dyn CreatureRandom,
@@ -275,6 +276,7 @@ pub(super) fn load_first(
     gameobject_templates: &LoadedGameObjectTemplates,
     spawn_templates: &LoadedCreatureSpawnTemplates,
     creature_models: &LoadedCreatureModels,
+    creature_immunities: &LoadedCreatureImmunities,
     random: &mut dyn CreatureRandom,
     dynamic_models: &mut SourceDynamicModels,
     trig_dispatch: benilla_sim::source_trig_fma::DispatchBinding,
@@ -337,6 +339,7 @@ pub(super) fn load_first(
         spawn_templates,
         creature_models,
         creature_spells: map.creature_spells.as_ref(),
+        creature_immunities,
         outdoor_pvp,
         instance_data: map.instance_data.as_mut(),
         random,

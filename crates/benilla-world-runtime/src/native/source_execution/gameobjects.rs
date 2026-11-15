@@ -239,8 +239,17 @@ pub trait GameObjectFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     fn gameobject_random_entries(&mut self, guid: u32) -> Result<Option<Arc<[u32]>>>;
     fn gameobject_irand(&mut self, min: i32, max: i32) -> Result<i32>;
     fn gameobject_urand(&mut self, min: u32, max: u32) -> Result<u32>;
-    fn gameobject_saved_respawn(&mut self, guid: u32) -> Result<i64>;
-    fn gameobject_save_respawn(&mut self, guid: u32, time: i64) -> Result<()>;
+    fn gameobject_read_persistent_respawn(
+        &mut self,
+        guid: u32,
+        context: &mut GridFactoryContext<'_, D, P>,
+    ) -> Result<i64>;
+    fn gameobject_write_persistent_respawn(
+        &mut self,
+        guid: u32,
+        time: i64,
+        context: &mut GridFactoryContext<'_, D, P>,
+    ) -> Result<()>;
     fn gameobject_calendar(&mut self) -> Result<i64>;
     fn gameobject_rotation(&mut self, orientation_bits: u32) -> Result<[u32; 2]>;
     fn gameobject_geometry(
@@ -739,13 +748,12 @@ where
     } else if spawn.respawn_min >= 0 {
         let delay = factory.gameobject_urand(spawn.respawn_min as u32, spawn.respawn_max as u32)?;
         factory.gameobjects().get_mut(handle)?.respawn_delay = delay;
-        let mut saved = factory.gameobject_saved_respawn(spawn.database_guid)?;
+        let saved = factory.gameobject_read_persistent_respawn(spawn.database_guid, context)?;
+        factory.gameobjects().get_mut(handle)?.respawn_time = saved;
         if saved != 0 && saved <= factory.gameobject_calendar()? {
-            saved = 0;
-            factory.gameobject_save_respawn(spawn.database_guid, 0)?;
+            factory.gameobjects().get_mut(handle)?.respawn_time = 0;
+            factory.gameobject_write_persistent_respawn(spawn.database_guid, 0, context)?;
         }
-        let object = factory.gameobjects().get_mut(handle)?;
-        object.respawn_time = saved;
     } else {
         let delay = spawn
             .respawn_min
