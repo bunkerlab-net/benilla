@@ -24,7 +24,7 @@ mod spell_list_reach;
 #[path = "seal16_spell_lists.rs"]
 mod spell_lists;
 #[path = "seal16_templates.rs"]
-mod templates;
+pub(super) mod templates;
 
 const GROUP_QUERIES: [&str; 6] = [
     "SELECT Id, Name, Type, MaxCount, WorldState, WorldStateExpression, Flags, StringId, RespawnOverrideMin, RespawnOverrideMax FROM spawn_group",

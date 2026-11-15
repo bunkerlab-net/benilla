@@ -13,7 +13,7 @@ const QUERIES: [&str; 6] = [
     "SELECT COUNT(*) FROM creature_template",
     "SELECT * FROM creature_template",
 ];
-pub(super) fn sql_storage_field(p: &[&str]) -> Vec<u8> {
+pub(crate) fn sql_storage_field(p: &[&str]) -> Vec<u8> {
     if p[3] == "NULL" {
         assert_eq!(p.len(), 4);
         return Vec::new(); // Field.h:45-59 converts SQL NULL to empty strings or numeric zero.

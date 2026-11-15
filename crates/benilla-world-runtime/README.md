@@ -15,6 +15,15 @@ The current `NATIVE_FORMAT_VERSION` rejects previous profiles, states, and
 checkpoints even when their outer hashes are recomputed. The retained combat
 policy binds later host changes as well as the initial configuration.
 
+The diagnostic `LoadedCreatureAddons` owner ports `ObjectMgr.cpp:582-717`
+and the GUID-first, pet-safe lookup in `Creature.cpp:2296-2303` at CMaNGOS
+Classic `8ec338a1`. It uses both fixed `iibbiis` SQLStorage layouts and
+existing loaded spell, creature-template, and spawn owners. The restored
+MyISAM reference environment reads each table in primary-key order,
+`sql/base/mangos.sql:758,1352`. Missing prerequisites and reached undefined
+conversions refuse by name. This does not apply auras or wire seal16 startup,
+and it does not change native format 91.
+
 A pure-Rust, GPL-3.0-or-later, solo-first runtime for the original world-data
 fixture. One selected owner/character starts and ticks immediately, without peer
 configuration or quorum. No game install, realm, Bevy, browser, network, private

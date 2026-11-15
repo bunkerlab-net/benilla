@@ -91,6 +91,8 @@ mod creatures;
 pub use creatures::*;
 mod loaded_creature_models;
 pub use loaded_creature_models::*;
+mod creature_addons;
+pub use creature_addons::*;
 mod creature_immunities;
 pub use creature_immunities::*;
 mod collision_height;

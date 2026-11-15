@@ -1,0 +1,313 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+use super::*;
+use std::collections::BTreeMap;
+fn row(key: u32, text: &[u8]) -> CreatureAddonRow {
+    SqlTemplateRow {
+        ordinal: u64::from(key),
+        words: [key, 0, 0, 0, 0, 0, 0],
+        strings: [text.to_vec()],
+    }
+}
+#[derive(Default)]
+struct Owner {
+    rows: [Vec<CreatureAddonRow>; 2],
+    spells: BTreeMap<u32, SpellTemplate>,
+    times: BTreeMap<u32, i32>,
+    filtered: bool,
+    calls: Vec<String>,
+}
+impl CreatureAddonLoaderOwner for Owner {
+    fn rows(&mut self, table: CreatureAddonTable) -> Result<Vec<CreatureAddonRow>> {
+        self.calls.push(table.name().into());
+        Ok(std::mem::take(&mut self.rows[table as usize]))
+    }
+    fn display(&mut self, id: u32) -> Result<bool> {
+        self.calls.push(format!("display:{id}"));
+        Ok(id == 1)
+    }
+    fn emote(&mut self, id: u32) -> Result<bool> {
+        self.calls.push(format!("emote:{id}"));
+        Ok(id == 0)
+    }
+    fn spell(&mut self, id: u32) -> Result<Option<&SpellTemplate>> {
+        self.calls.push(format!("spell:{id}"));
+        Ok(self.spells.get(&id))
+    }
+    fn cast_time(&mut self, id: u32) -> Result<Option<i32>> {
+        self.calls.push(format!("time:{id}"));
+        Ok(self.times.get(&id).copied())
+    }
+    fn strict_check_filtered(&mut self) -> Result<bool> {
+        self.calls.push("filter".into());
+        Ok(self.filtered)
+    }
+    fn creature_template(&mut self, id: u32) -> Result<bool> {
+        self.calls.push(format!("entry:{id}"));
+        Ok(id == 1)
+    }
+    fn creature_guid(&mut self, id: u32) -> Result<bool> {
+        self.calls.push(format!("guid:{id}"));
+        Ok(id == 7)
+    }
+}
+fn spell(id: u32, effect: u32) -> SpellTemplate {
+    SpellTemplate {
+        id,
+        effect1: effect,
+        effectimplicittargeta1: 1,
+        ..SpellTemplate::default()
+    }
+}
+#[test]
+fn addon_loader_keeps_log_only_rows_mutates_mount_emote_and_compacts_auras() {
+    let mut template = row(1, b"99 1 2 3 4 5 5 6");
+    template.words[1] = 9;
+    template.words[3] = 255;
+    template.words[4] = 9;
+    let mut owner = Owner {
+        rows: [vec![template, row(2, b"")], vec![row(7, b"5")]],
+        ..Owner::default()
+    };
+    owner.spells = BTreeMap::from([
+        (1, spell(1, 2)),
+        (2, spell(2, 6)),
+        (3, spell(3, 6)),
+        (4, spell(4, 6)),
+        (5, spell(5, 3)),
+        (6, spell(6, 77)),
+    ]);
+    owner.spells.get_mut(&2).unwrap().castingtimeindex = 1;
+    owner.spells.get_mut(&3).unwrap().effectimplicittargeta1 = 6;
+    owner.spells.get_mut(&4).unwrap().effectimplicittargetb1 = 6;
+    owner.times.insert(1, 1);
+    let loaded = LoadedCreatureAddons::load(&mut owner).unwrap();
+    let addon = loaded.get(HighGuid::Creature, 8, 1).unwrap();
+    assert_eq!(addon.mount, 0);
+    assert_eq!(addon.emote, 0);
+    assert_eq!(addon.sheath_state, 255);
+    assert_eq!(addon.auras, CreatureAddonAuras::Spells(vec![5, 6, 0]));
+    assert_eq!(
+        loaded.notices.iter().map(|n| n.line).collect::<Vec<_>>(),
+        [680, 686, 690, 625, 632, 640, 648, 648, 654, 708]
+    );
+    assert_eq!(loaded.record_counts, [2, 1]);
+    let entry_check = owner.calls.iter().position(|c| c == "entry:2").unwrap();
+    let guid_load = owner
+        .calls
+        .iter()
+        .position(|c| c == "creature_addon")
+        .unwrap();
+    assert!(entry_check < guid_load);
+    assert_eq!(loaded.get(HighGuid::Creature, 7, 1).unwrap().key, 7);
+    assert_eq!(loaded.get(HighGuid::Pet, 7, 1).unwrap().key, 1);
+    assert!(loaded.get(HighGuid::Pet, 7, 99).is_none());
+}
+#[test]
+fn addon_source_tokenizer_preserves_tabs_leading_spaces_and_zero_key_bypass() {
+    assert_eq!(aura_values(b" 1  2\t3 4 ").unwrap(), [1, 2, 4]);
+    assert_eq!(aura_values(b" ").unwrap(), [0]);
+    assert_eq!(aura_values(b"1\t2").unwrap(), [1]);
+    for whitespace in *b"\t\n\x0b\x0c\r " {
+        assert_eq!(aura_values(&[whitespace, b'1']).unwrap(), [1]);
+    }
+    assert!(aura_values(b"").unwrap().is_empty());
+    let mut owner = Owner {
+        rows: [vec![row(0, b"2147483648"), row(1, b"")], vec![]],
+        ..Owner::default()
+    };
+    let loaded = LoadedCreatureAddons::load(&mut owner).unwrap();
+    assert_eq!(
+        loaded.get(HighGuid::Pet, 9, 0).unwrap().auras,
+        CreatureAddonAuras::Raw(b"2147483648".to_vec())
+    );
+    assert_eq!(
+        loaded.get(HighGuid::Pet, 9, 1).unwrap().auras,
+        CreatureAddonAuras::Empty
+    );
+    assert!(!owner.calls.iter().any(|c| c == "entry:0"));
+}
+#[test]
+fn addon_atoi_and_effect_enum_refuse_both_undefined_boundaries_only_when_reached() {
+    assert_eq!(
+        aura_values(b"2147483647 -2147483648").unwrap(),
+        [i32::MAX as u32, i32::MIN as u32]
+    );
+    for text in [b"2147483648".as_slice(), b"-2147483649"] {
+        assert_eq!(
+            aura_values(text).unwrap_err().id,
+            "execution.creature_addons.ObjectMgr_595_600.atoi_int_undefined"
+        );
+    }
+    assert!(!has_effect([255, 0, 0], 3).unwrap());
+    assert_eq!(
+        has_effect([256, 0, 0], 3).unwrap_err().id,
+        "execution.creature_addons.SpellMgr_72.SpellEffects_enum_undefined"
+    );
+    assert!(has_effect([3, 256, 0], 3).unwrap());
+    let mut owner = Owner {
+        rows: [vec![row(1, b"1")], vec![]],
+        spells: BTreeMap::from([(1, spell(1, 6))]),
+        ..Owner::default()
+    };
+    owner.spells.get_mut(&1).unwrap().effect2 = 256;
+    LoadedCreatureAddons::load(&mut owner).unwrap();
+    let mut owner = Owner {
+        rows: [vec![row(u32::MAX - 1, b"")], vec![]],
+        ..Owner::default()
+    };
+    LoadedCreatureAddons::load(&mut owner).unwrap();
+    owner.rows[0] = vec![row(u32::MAX, b"")];
+    assert_eq!(
+        LoadedCreatureAddons::load(&mut owner).unwrap_err().id,
+        "execution.creature_addons.SQLStorageImpl_317.max_entry_index_undefined"
+    );
+}
+#[test]
+fn addon_self_targeting_keeps_early_empty_effect_and_filter_short_circuit() {
+    assert!(only_self([0, 6, 0], [0, 6, 0], [0; 3]));
+    assert!(only_self([6, 6, 6], [1; 3], [0, 1, 0]));
+    assert!(!only_self([6, 0, 0], [6, 0, 0], [0; 3]));
+    assert!(!only_self([6, 0, 0], [1, 0, 0], [6, 0, 0]));
+    let mut s = spell(1, 6);
+    s.effectimplicittargeta1 = 6;
+    let mut owner = Owner {
+        rows: [vec![row(1, b"1")], vec![]],
+        filtered: true,
+        spells: BTreeMap::from([(1, s)]),
+        ..Owner::default()
+    };
+    assert_eq!(
+        LoadedCreatureAddons::load(&mut owner)
+            .unwrap()
+            .get(HighGuid::Pet, 0, 1)
+            .unwrap()
+            .auras,
+        CreatureAddonAuras::Spells(vec![1, 0])
+    );
+    assert_eq!(
+        owner
+            .calls
+            .iter()
+            .filter(|c| c.as_str() == "filter")
+            .count(),
+        1
+    );
+}
+#[test]
+fn addon_missing_owners_refuse_at_source_calls_not_before_earlier_checks() {
+    struct Missing {
+        calls: Vec<&'static str>,
+    }
+    impl CreatureAddonLoaderOwner for Missing {
+        fn rows(&mut self, _: CreatureAddonTable) -> Result<Vec<CreatureAddonRow>> {
+            self.calls.push("rows");
+            Ok(vec![row(1, b"1")])
+        }
+        fn emote(&mut self, _: u32) -> Result<bool> {
+            self.calls.push("emote");
+            Ok(false)
+        }
+    }
+    let mut owner = Missing { calls: vec![] };
+    assert_eq!(
+        LoadedCreatureAddons::load(&mut owner).unwrap_err().id,
+        "execution.creature_addons.ObjectMgr_622.spell_template_owner"
+    );
+    assert_eq!(owner.calls, ["rows", "emote"]);
+    struct Empty;
+    impl CreatureAddonLoaderOwner for Empty {}
+    assert_eq!(
+        LoadedCreatureAddons::load(&mut Empty).unwrap_err().id,
+        "execution.creature_addons.ObjectMgr_667.creature_template_addon_owner"
+    );
+    assert_eq!(
+        get_creature_addon(None, HighGuid::Creature, 7, 1)
+            .unwrap_err()
+            .id,
+        "execution.creature.loaded_creature_addon_store_owner"
+    );
+}
+#[test]
+fn addon_aura_predicates_accept_each_defined_aura_dummy_script_and_trigger_kind() {
+    for effect in [3, 6, 27, 35, 64, 77, 119] {
+        let mut owner = Owner {
+            rows: [vec![row(1, b"1")], vec![]],
+            spells: BTreeMap::from([(1, spell(1, effect))]),
+            ..Owner::default()
+        };
+        assert_eq!(
+            LoadedCreatureAddons::load(&mut owner)
+                .unwrap()
+                .get(HighGuid::Pet, 0, 1)
+                .unwrap()
+                .auras,
+            CreatureAddonAuras::Spells(vec![1, 0]),
+            "effect {effect}"
+        );
+    }
+}
+
+#[test]
+fn addon_missing_prerequisites_name_each_exact_source_site() {
+    struct Missing;
+    impl CreatureAddonLoaderOwner for Missing {}
+    let mut owner = Missing;
+    let results = [
+        owner.display(1).unwrap_err().id,
+        owner.emote(0).unwrap_err().id,
+        owner.spell(1).unwrap_err().id,
+        owner.cast_time(0).unwrap_err().id,
+        owner.strict_check_filtered().unwrap_err().id,
+        owner.creature_template(1).unwrap_err().id,
+        owner.creature_guid(1).unwrap_err().id,
+        owner.rows(CreatureAddonTable::Guid).unwrap_err().id,
+    ];
+    assert_eq!(
+        results,
+        [
+            "execution.creature_addons.ObjectMgr_678.creature_display_info_owner",
+            "execution.creature_addons.ObjectMgr_688.emotes_owner",
+            "execution.creature_addons.ObjectMgr_622.spell_template_owner",
+            "execution.creature_addons.ObjectMgr_636.spell_cast_times_owner",
+            "execution.creature_addons.ObjectMgr_646.db_strict_log_filter_owner",
+            "execution.creature_addons.ObjectMgr_707.loaded_creature_templates_owner",
+            "execution.creature_addons.ObjectMgr_715.loaded_creature_data_owner",
+            "execution.creature_addons.ObjectMgr_667.creature_addon_owner",
+        ]
+    );
+}
+
+#[test]
+fn addon_loader_retains_missing_guid_and_all_dropped_auras_with_terminator() {
+    let mut mounted = row(1, b"1 2");
+    mounted.words[1] = 1;
+    mounted.words[2] = 255;
+    mounted.words[3] = 2;
+    mounted.words[5] = u32::MAX;
+    let mut owner = Owner {
+        rows: [vec![mounted], vec![row(99, b"123")]],
+        spells: BTreeMap::from([(1, spell(1, 6)), (2, spell(2, 6))]),
+        times: BTreeMap::from([(0, -1)]),
+        ..Owner::default()
+    };
+    let loaded = LoadedCreatureAddons::load(&mut owner).unwrap();
+    let template = loaded.get(HighGuid::Pet, 99, 1).unwrap();
+    assert_eq!(
+        (
+            template.mount,
+            template.stand_state,
+            template.sheath_state,
+            template.move_flags
+        ),
+        (1, 255, 2, u32::MAX)
+    );
+    assert_eq!(template.auras, CreatureAddonAuras::Spells(vec![1, 2, 0]));
+    assert_eq!(
+        loaded.get(HighGuid::Creature, 99, 1).unwrap().auras,
+        CreatureAddonAuras::Spells(vec![0])
+    );
+    assert_eq!(
+        loaded.notices.iter().map(|n| n.line).collect::<Vec<_>>(),
+        [625, 716]
+    );
+}

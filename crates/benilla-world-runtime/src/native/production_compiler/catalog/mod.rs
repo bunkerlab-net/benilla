@@ -10,6 +10,7 @@ use std::{
     sync::Arc,
     time::Instant,
 };
+mod creature_addons;
 mod creature_immunities;
 mod creature_level;
 mod creature_models;

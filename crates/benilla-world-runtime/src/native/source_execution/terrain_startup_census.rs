@@ -7,6 +7,7 @@ use benilla_sim::source_rng::{
 use std::io::{BufRead, BufReader};
 #[path = "seal16_startup.rs"]
 mod seal16;
+pub(super) use seal16::templates::sql_storage_field;
 
 #[derive(Default)]
 struct PendingEventStartup {
@@ -454,6 +455,11 @@ fn frozen_startup(later: bool) {
     };
     let mut spawns = SourceEffectiveSpawns::default();
     let result = spawns.load_rows(&mut rows, &inputs, &addons, &mut owner);
+    {
+        if result.is_ok() {
+            super::creature_addons::census::assert_loaded_guid_census(&mut catalog, &spawns);
+        }
+    }
     let refusal = result.as_ref().err().map(|e| e.id.as_str());
     println!("F6_CATALOG_DIAGNOSTIC before_terrain_unique=92977 before_terrain_occurrences=93321 before_selections=5324 after_complete={} pre_terrain={} selections={} creature_selections={} go_selections={} refusal={refusal:?} last={:?} area_integer_narrowing_rows={narrowed}",spawns.complete_count(),spawns.pre_terrain_map().len(),spawns.draws_needed,spawns.random_rows[0],spawns.random_rows[1],spawns.records.last());
     let completed = |keys: &[SpawnKey]| {
