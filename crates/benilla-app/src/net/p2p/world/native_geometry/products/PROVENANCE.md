@@ -83,15 +83,21 @@ this list does not prove all polygons of any route have been covered.
 
 ## Exact implemented subset
 
-- `MAPS` / `z1.4`: exact 40-byte header and contiguous AREA/MHGT/optional MLIQ/hole sections from the
-  pinned `ad -f 0` writer; flat or float ground heights bounded to ±1,000,000;
-  liquid arrays retain all finite source floats, including `FLT_MAX` boundary data
-  read unchanged by `GridMap.cpp:252-255`. Unknown flags, packed heights, offset
-  aliases, gaps, extra bytes and nonfinite liquid samples reject
-- Point height: pinned binary32 expression order, tile ownership and four center-fan
-  triangles; float mode checks the source hole mask. Pinned flat dispatch bypasses holes
-  and is deliberately preserved. `Height(-100000)` remains a raw height in flat mode,
-  whereas float holes return the typed `Hole` result. Neither is a support certificate
+- `MAPS` / `z1.4`: exact 40-byte header and contiguous AREA/optional MHGT/optional MLIQ/hole
+  sections from the pinned writer. Shared `benilla-native-terrain` reads absent, flat, float,
+  uint8 and uint16 heights per `GridMap.cpp:51-56,173-214,292-508`. Ground values are
+  bounded to ±1,000,000. Derived height, area, liquid, consumed-source height and navigation
+  keys bind the admitted profile set; the raw Native91 inventory identity is unchanged.
+  These readers retain answers in memory, not an on-disk answer cache. Stale query
+  policies refuse before evaluation. Packed mesh vertices use the shared expansion per
+  `TerrainBuilder.cpp:132-159`. Unknown/combined height flags, short arrays, offset aliases,
+  gaps, extra bytes and nonfinite samples reject by name.
+  Liquid arrays retain finite source floats, including `FLT_MAX` per `GridMap.cpp:252-255`.
+  Only float heights consult holes. Absent MHGT returns -200000; flat and packed
+  dispatch bypass holes. These raw heights do not certify body support.
+  Navigation alone preserves `TerrainBuilder.cpp:100-104,146-158`'s absent-MHGT
+  header reread at file offset zero. It expands filled uint16 samples from offset 16,
+  and names the exact first unfilled sample rather than using GridMap's default.
 - `VMAP_7.0`: tiled exterior tree framing, bounded BIH byte extents, spawn framing and
   direct model-name closure, bounded model/group/vertex/triangle framing and finite
   transforms. Worldspawn flags, unknown spawn flags and liquid models reject. MOGP flags,

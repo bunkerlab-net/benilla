@@ -6,6 +6,24 @@ use super::super::{
 use super::*;
 use std::{collections::BTreeMap, time::Duration};
 
+#[test]
+fn packed_height_policy_invalidates_wet_liquid_answers() {
+    let (spec, files) = fixture();
+    let products = load(spec, &files).unwrap();
+    let snapshot = Dbcs::empty().snapshot(&products).unwrap();
+    let mut legacy = Sha256::new();
+    legacy.update(POLICY);
+    legacy.update(height::POLICY);
+    legacy.update(snapshot.liquid.binding().policy);
+    legacy.update(snapshot.area.binding().policy);
+    legacy.update(snapshot.types.digest());
+    let legacy: Hash = legacy.finalize().into();
+    assert_ne!(snapshot.binding().policy, legacy);
+    let mut stale = request(&snapshot);
+    stale.snapshot.policy = legacy;
+    assert_eq!(snapshot.query(stale, deadline()), Err(Error::Identity));
+}
+
 pub(super) fn remap(
     mut spec: InventorySpec,
     mut files: BTreeMap<String, Vec<u8>>,

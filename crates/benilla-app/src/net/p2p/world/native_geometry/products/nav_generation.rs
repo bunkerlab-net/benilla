@@ -103,6 +103,7 @@ impl<'terrain, 'bundle, 'source> PreparedNavigationInput<'terrain, 'bundle, 'sou
         let mut union = BTreeSet::new();
         let mut digest = Sha256::new();
         digest.update(POLICY);
+        digest.update(super::terrain::HEIGHT_POLICY);
         digest.update(terrain.source_epoch().as_bytes());
         digest.update(source.map().source_binding());
         digest.update(terrain.map_id().to_le_bytes());

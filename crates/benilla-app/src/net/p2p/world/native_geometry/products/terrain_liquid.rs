@@ -81,6 +81,7 @@ impl InventoriedProducts {
         let source = vmap.binding();
         let mut policy = Sha256::new();
         policy.update(POLICY);
+        policy.update(super::terrain::HEIGHT_POLICY);
         policy.update(height::POLICY);
         policy.update(source.policy);
         policy.update(vmap.location_binding().policy);

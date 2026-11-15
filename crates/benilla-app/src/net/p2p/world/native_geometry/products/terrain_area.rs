@@ -203,6 +203,7 @@ impl<'a> TerrainAreaSnapshot<'a> {
         let source = raw.binding();
         let mut policy = Sha256::new();
         policy.update(POLICY);
+        policy.update(super::terrain::HEIGHT_POLICY);
         policy.update(source.policy);
         policy.update(areas.digest());
         policy.update(wmo_areas.digest());

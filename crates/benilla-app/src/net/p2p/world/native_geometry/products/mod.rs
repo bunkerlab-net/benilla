@@ -58,6 +58,10 @@ pub(crate) enum Error {
     Hash,
     Io,
     OutsideTile,
+    TerrainHeightHeader,
+    TerrainHeightFlags(u32),
+    TerrainHeightSamples,
+    TerrainBuilderUint16SampleReadUndefined(usize),
 }
 
 /// A terrain point result, never composite height or continuous body support.
@@ -170,7 +174,6 @@ pub(crate) struct Compatibility {
     pub detour_poly_bytes: u16,
     pub detour_link_bytes: u16,
     pub playerbots: bool,
-    pub float_terrain: bool,
     pub small_vmap: bool,
 }
 impl Compatibility {
@@ -189,7 +192,6 @@ impl Compatibility {
             detour_poly_bytes: 32,
             detour_link_bytes: 16,
             playerbots: false,
-            float_terrain: true,
             small_vmap: true,
         }
     }

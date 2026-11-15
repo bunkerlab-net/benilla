@@ -4,6 +4,25 @@ use super::super::{tests as products, vmap, InventorySpec, PointHeight, ProductI
 use super::*;
 use std::{collections::BTreeMap, time::Duration};
 
+#[test]
+fn packed_height_policy_invalidates_dry_vmap_liquid_answers() {
+    let (spec, files) = fixture();
+    let products = products::load(spec, &files).unwrap();
+    let snapshot = products.load_terrain_liquid(&dbc(&[])).unwrap();
+    let mut legacy = Sha256::new();
+    legacy.update(POLICY);
+    legacy.update(height::POLICY);
+    legacy.update(snapshot.vmap.binding().policy);
+    legacy.update(snapshot.vmap.location_binding().policy);
+    legacy.update(snapshot.types.digest());
+    legacy.update([0]);
+    let legacy: Hash = legacy.finalize().into();
+    assert_ne!(snapshot.binding().policy, legacy);
+    let mut stale = request(&snapshot);
+    stale.snapshot.policy = legacy;
+    assert_eq!(snapshot.query(stale, deadline()), Err(Error::Identity));
+}
+
 pub(super) fn fixture() -> (InventorySpec, BTreeMap<String, Vec<u8>>) {
     let (mut spec, mut files) = vmap::location_fixture();
     let old = spec.tiles[0];
@@ -131,9 +150,10 @@ fn dry_location_replaces_static_ceiling_but_keeps_raw_gridmap_depth() {
         height.query(height_request, deadline()).unwrap().height,
         6f32.to_bits()
     );
-    // The factor preserves the existing standalone height policy byte-for-byte.
+    // GridMap.cpp:173-214's expanded reader profile changes only the answer key.
     let mut policy = Sha256::new();
     policy.update(b"cmangos-8ec338a1-static-height-enabled-complete-dry-vmap-v1");
+    policy.update(super::super::terrain::HEIGHT_POLICY);
     policy.update(snapshot.vmap.binding().policy);
     assert_eq!(height.binding().policy, Hash::from(policy.finalize()));
     let mut budget = QueryBudget::new(deadline());

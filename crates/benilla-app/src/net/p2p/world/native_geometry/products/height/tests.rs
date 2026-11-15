@@ -6,6 +6,21 @@ use super::super::{
 use super::*;
 use std::{collections::BTreeMap, time::Duration};
 
+#[test]
+fn packed_height_policy_invalidates_static_height_answers() {
+    let (spec, files) = fixture();
+    let products = products::load(spec, &files).unwrap();
+    let snapshot = products.load_static_height().unwrap();
+    let mut legacy = Sha256::new();
+    legacy.update(POLICY);
+    legacy.update(snapshot.static_vmap().binding().policy);
+    let legacy: Hash = legacy.finalize().into();
+    assert_ne!(snapshot.binding().policy, legacy);
+    let mut stale = request(&snapshot, 10.0);
+    stale.snapshot.policy = legacy;
+    assert_eq!(snapshot.query(stale, deadline()), Err(Error::Identity));
+}
+
 pub(in super::super) fn fixture() -> (InventorySpec, BTreeMap<String, Vec<u8>>) {
     terrain_coverage(vmap_tests::fixture())
 }

@@ -4,6 +4,29 @@ use super::super::{height::tests::fixture, tests as products, ProductId, TileId}
 use super::*;
 use std::time::Duration;
 
+#[test]
+fn packed_height_policy_invalidates_inherited_ground_answers() {
+    let (spec, files) = fixture();
+    let products = products::load(spec, &files).unwrap();
+    let proof = NonRenderParticipants::authored_fixture(products.content, products.map);
+    let config = config(&products);
+    let snapshot = products.load_map_height(config, Some(&proof)).unwrap();
+    let mut legacy_height = Sha256::new();
+    legacy_height.update(height::POLICY);
+    legacy_height.update(snapshot.static_vmap().binding().policy);
+    let mut legacy = Sha256::new();
+    legacy.update(POLICY);
+    legacy.update(legacy_height.finalize());
+    legacy.update(snapshot.dry_liquid().binding().policy);
+    legacy.update(config.effective_config);
+    legacy.update([1]);
+    let legacy: Hash = legacy.finalize().into();
+    assert_ne!(snapshot.binding().policy, legacy);
+    let mut stale = request(&snapshot, 10.0);
+    stale.snapshot.policy = legacy;
+    assert_eq!(snapshot.query(stale, deadline()), Err(Error::Identity));
+}
+
 pub(in super::super) fn config(products: &InventoriedProducts) -> SourceHeightConfiguration {
     SourceHeightConfiguration {
         map: products.map,

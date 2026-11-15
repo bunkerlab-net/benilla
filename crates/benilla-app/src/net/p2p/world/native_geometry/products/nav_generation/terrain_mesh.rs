@@ -47,7 +47,7 @@ pub(in super::super) struct Mesh {
     pub liquid_areas: Vec<u8>,
 }
 
-/// Append precisely the float/flat TerrainBuilder mesh before cleanVertices.
+/// Append precisely the TerrainBuilder mesh before cleanVertices.
 /// The caller validates TerrainTile and obtains bytes from genuine PreparedTerrain;
 /// arbitrary bytes accepted here are never evidence of either source or coverage.
 /// Source tile arguments are the loadMap pair, whose filename writes Y before X.
@@ -104,12 +104,22 @@ fn append_validated(
     let liquid_base = mesh.liquid_vertices.len() as u32;
     let x_offset = (f32::from(tile_x) - 32.0) * GRID_SIZE;
     let y_offset = (f32::from(tile_y) - 32.0) * GRID_SIZE;
-    if let Some(heights) = map.heights {
+    if let Some(heights) = &map.heights {
         for i in 0..V9 + V8 {
             if i % 128 == 0 {
                 check_cancelled(cancelled)?;
             }
-            let height = number(heights, i * 4)?;
+            let height = match heights {
+                HeightVertices::Float(values) => number(values, i * 4)?,
+                HeightVertices::Packed(values) => {
+                    values.get(i).map_err(|_| Error::TerrainHeightSamples)?
+                }
+                // TerrainBuilder.cpp:150-155 ignores fread's return value.
+                // Refuse only when expansion first reads an unfilled element.
+                HeightVertices::Absent(values) => values
+                    .get(i)
+                    .map_err(|_| Error::TerrainBuilderUint16SampleReadUndefined(i))?,
+            };
             let (index, size, center) = if i < V9 {
                 (i, 129, false)
             } else {
@@ -288,8 +298,14 @@ fn liquid_triangles(square: usize, base: u32) -> [[u32; 3]; 2] {
     ]
 }
 
+enum HeightVertices<'a> {
+    Float(&'a [u8]),
+    Packed(benilla_native_terrain::grid_height::PackedVertices<'a>),
+    Absent(benilla_native_terrain::grid_height::PackedVertices<'a>),
+}
+
 struct MapView<'a> {
-    heights: Option<&'a [u8]>,
+    heights: Option<HeightVertices<'a>>,
     holes: &'a [u8],
     liquid: Option<LiquidView<'a>>,
 }
@@ -310,10 +326,16 @@ impl<'a> MapView<'a> {
         let holes_at = u32_at(bytes, 32)? as usize;
         let holes_len = u32_at(bytes, 36)? as usize;
         let height_end = height_at.checked_add(height_len).ok_or(Error::Framing)?;
+        let height_end = if height_len == 0 {
+            40 + area_len
+        } else {
+            height_end
+        };
         let liquid_end = height_end.checked_add(liquid_len).ok_or(Error::Framing)?;
         if area_at != 40
             || !matches!(area_len, 8 | 520)
-            || height_at != 40 + area_len
+            || (height_len == 0 && height_at != 0)
+            || (height_len != 0 && height_at != 40 + area_len)
             || (liquid_at == 0) != (liquid_len == 0)
             || (liquid_len > 0 && liquid_at != height_end)
             || holes_at != liquid_end
@@ -322,7 +344,7 @@ impl<'a> MapView<'a> {
         {
             return Err(Error::Framing);
         }
-        let area = bytes.get(area_at..height_at).ok_or(Error::Framing)?;
+        let area = bytes.get(area_at..40 + area_len).ok_or(Error::Framing)?;
         if area.get(..4) != Some(b"AREA") {
             return Err(Error::Format);
         }
@@ -331,36 +353,36 @@ impl<'a> MapView<'a> {
             (0 | 1, _) => return Err(Error::Framing),
             _ => return Err(Error::Unsupported),
         }
-        let height = bytes.get(height_at..height_end).ok_or(Error::Framing)?;
-        if height.get(..4) != Some(b"MHGT") {
-            return Err(Error::Format);
-        }
-        let flags = u32_at(height, 4)?;
-        if flags > 1 {
-            // Current admitted producer uses -f 0. Quantized heights need independent evidence.
-            return Err(Error::Unsupported);
-        }
-        let low = number(height, 8)?;
-        let high = number(height, 12)?;
-        if low > high {
-            return Err(Error::Format);
-        }
-        let heights = match (flags, height_len) {
-            (1, 16) if low == high => None,
-            (0, n) if n == 16 + (V9 + V8) * 4 => {
-                let values = height.get(16..).ok_or(Error::Framing)?;
-                for i in 0..V9 + V8 {
-                    if i % 128 == 0 {
-                        check_cancelled(cancelled)?;
-                    }
-                    let value = number(values, i * 4)?;
-                    if value < low || value > high {
-                        return Err(Error::Format);
-                    }
-                }
-                Some(values)
+        let heights = if height_len == 0 {
+            // TerrainBuilder.cpp:100-104 rereads MAPSz1.4 at offset zero,
+            // unlike GridMap.cpp:51-56's absent-height default. Its version
+            // bytes select INT16. Retain every fread-filled sample prefix.
+            Some(HeightVertices::Absent(
+                benilla_native_terrain::grid_height::PackedVertices::new(
+                    &bytes[16..],
+                    true,
+                    f32::from_bits(u32_at(bytes, 8)?),
+                    f32::from_bits(u32_at(bytes, 12)?),
+                ),
+            ))
+        } else {
+            let height = bytes
+                .get(height_at..height_end)
+                .ok_or(Error::TerrainHeightSamples)?;
+            let flags = super::super::terrain::validate_height_section(height)?;
+            check_cancelled(cancelled)?;
+            match flags {
+                1 => None,
+                0 => Some(HeightVertices::Float(&height[16..])),
+                _ => Some(HeightVertices::Packed(
+                    benilla_native_terrain::grid_height::PackedVertices::new(
+                        &height[16..],
+                        flags == 2,
+                        number(height, 8)?,
+                        number(height, 12)?,
+                    ),
+                )),
             }
-            _ => return Err(Error::Framing),
         };
         let liquid = if liquid_len == 0 {
             None
@@ -519,6 +541,83 @@ mod tests {
                 ".map"
             ))
         };
+    }
+
+    #[test]
+    fn packed_profiles_expand_vertices() {
+        for (flags, width, maximum, center) in
+            [(4u32, 1usize, 262.0f32, 255u16), (2, 2, 65542.0, 65535)]
+        {
+            let mut bytes = super::super::super::tests::terrain_bytes(0);
+            let end = 64 + (V9 + V8) * width;
+            bytes.splice(64..64, vec![0; (V9 + V8) * width]);
+            for (at, value) in [
+                (20, (16 + (V9 + V8) * width) as u32),
+                (32, end as u32),
+                (52, flags),
+                (60, maximum.to_bits()),
+            ] {
+                bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+            }
+            let at = 64 + V9 * width;
+            bytes[at..at + width].copy_from_slice(&center.to_le_bytes()[..width]);
+            let mut mesh = Mesh::default();
+            assert!(append_map(&mut mesh, 31, 30, &bytes, Portion::Entire, &|| false).unwrap());
+            assert_eq!(mesh.solid_vertices.len(), V9 + V8);
+            assert_eq!(mesh.solid_vertices[0][1].to_bits(), 7.0f32.to_bits());
+            assert_eq!(mesh.solid_vertices[V9][1].to_bits(), maximum.to_bits());
+            assert_eq!(mesh.solid_triangles.len(), V8 * 4);
+        }
+    }
+
+    #[test]
+    fn absent_mesh_header_reread_keeps_filled_prefix_and_refuses_first_unfilled_sample() {
+        let mut absent = super::super::super::tests::terrain_bytes(0);
+        absent.drain(48..64);
+        absent[16..24].fill(0);
+        absent[32..36].copy_from_slice(&48u32.to_le_bytes());
+        let map = MapView::decode(&absent, &|| false).unwrap();
+        let Some(HeightVertices::Absent(samples)) = map.heights else {
+            panic!("absent reread")
+        };
+        let filled = (absent.len() - 16) / 2;
+        for index in 0..filled {
+            assert_eq!(samples.get(index).unwrap().to_bits(), 40);
+        }
+        let mut mesh = Mesh::default();
+        let checks = Cell::new(0);
+        assert_eq!(
+            append_map(&mut mesh, 31, 30, &absent, Portion::Entire, &|| {
+                checks.set(checks.get() + 1);
+                false
+            }),
+            Err(Error::TerrainBuilderUint16SampleReadUndefined(filled))
+        );
+        assert_eq!(checks.get(), 4); // Initial check, then vertices 0,128,256.
+        assert!(mesh.solid_vertices.is_empty());
+
+        // Complete defined reread, with bytes supplied by a real MLIQ section.
+        let liquid_len = 16 + V9 * 4;
+        let mut liquid = b"MLIQ".to_vec();
+        liquid.extend([1, 1, 0, 0, 0, 0, 129, 129]);
+        liquid.extend(8.0f32.to_le_bytes());
+        for _ in 0..V9 {
+            liquid.extend(8.0f32.to_le_bytes());
+        }
+        absent.splice(48..48, liquid);
+        for (at, value) in [
+            (24, 48),
+            (28, liquid_len as u32),
+            (32, (48 + liquid_len) as u32),
+        ] {
+            absent[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        assert!(append_map(&mut mesh, 31, 30, &absent, Portion::Entire, &|| false).unwrap());
+        assert_eq!(mesh.solid_vertices.len(), V9 + V8);
+        assert!(mesh
+            .solid_vertices
+            .iter()
+            .all(|vertex| vertex[1].to_bits() == 40));
     }
 
     #[test]
@@ -878,7 +977,11 @@ mod tests {
     fn unsupported_framing_and_nonfinite_inputs_leave_mesh_unchanged() {
         let original = terrain_fixture!("varied");
         let height_at = u32_at(original, 16).unwrap() as usize;
-        for flag in [2u32, 4, 8] {
+        for (flag, expected) in [
+            (2u32, Error::TerrainHeightSamples),
+            (4, Error::TerrainHeightSamples),
+            (8, Error::TerrainHeightFlags(8)),
+        ] {
             let mut bytes = original.to_vec();
             bytes[height_at + 4..height_at + 8].copy_from_slice(&flag.to_le_bytes());
             assert_eq!(
@@ -890,7 +993,7 @@ mod tests {
                     Portion::Entire,
                     &|| false
                 ),
-                Err(Error::Unsupported)
+                Err(expected)
             );
         }
         let mut nonfinite = original.to_vec();

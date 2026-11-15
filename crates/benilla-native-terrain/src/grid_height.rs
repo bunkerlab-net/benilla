@@ -60,6 +60,14 @@ impl Default for HeightData {
     }
 }
 impl HeightData {
+    /// GridMap.cpp:181,211-212 stores flat header values without sample arrays.
+    pub fn flat(base: f32, maximum: f32) -> Self {
+        Self {
+            base,
+            maximum,
+            ..Self::default()
+        }
+    }
     /// GridMap.cpp:173-214 ignores the declared section size and reads V9 before V8.
     /// Known combined bits retain source NO_HEIGHT > INT16 > INT8 precedence.
     /// Unknown bits have no producer meaning and are explicitly outside this reader.
@@ -82,10 +90,18 @@ impl HeightData {
             (Samples::Flat, 0.0, false)
         } else if flags & 2 != 0 {
             // GridMap.cpp:184-191: subtraction rounds before division by 65535.
-            (Samples::Uint16, (maximum - base) / 65535.0, true)
+            (
+                Samples::Uint16,
+                packed_multiplier(base, maximum, true),
+                true,
+            )
         } else if flags & 4 != 0 {
             // GridMap.cpp:193-200: subtraction rounds before division by 255.
-            (Samples::Uint8, (maximum - base) / 255.0, true)
+            (
+                Samples::Uint8,
+                packed_multiplier(base, maximum, false),
+                true,
+            )
         } else {
             (Samples::Float, 0.0, true)
         };
@@ -148,6 +164,50 @@ impl HeightData {
     }
 }
 
+fn packed_multiplier(base: f32, maximum: f32, sixteen_bit: bool) -> f32 {
+    (maximum - base) / if sixteen_bit { 65535.0 } else { 255.0 }
+}
+
+/// TerrainBuilder.cpp:132-159 expands individual packed vertices, not interpolants.
+/// Borrows the consecutive V9/V8 samples and computes the multiplier once.
+pub struct PackedVertices<'a> {
+    bytes: &'a [u8],
+    sixteen_bit: bool,
+    base: f32,
+    multiplier: f32,
+}
+impl<'a> PackedVertices<'a> {
+    pub fn new(bytes: &'a [u8], sixteen_bit: bool, base: f32, maximum: f32) -> Self {
+        Self {
+            bytes,
+            sixteen_bit,
+            base,
+            multiplier: packed_multiplier(base, maximum, sixteen_bit),
+        }
+    }
+
+    pub fn get(&self, index: usize) -> Result<f32, HeightQueryError> {
+        let value = if self.sixteen_bit {
+            let at = index
+                .checked_mul(2)
+                .ok_or(HeightQueryError::Uint16SampleReadUndefined)?;
+            let raw = self
+                .bytes
+                .get(at..at.saturating_add(2))
+                .ok_or(HeightQueryError::Uint16SampleReadUndefined)?;
+            f32::from(u16::from_le_bytes(raw.try_into().unwrap()))
+        } else {
+            f32::from(
+                *self
+                    .bytes
+                    .get(index)
+                    .ok_or(HeightQueryError::Uint8SampleReadUndefined)?,
+            )
+        };
+        Ok(value * self.multiplier + self.base)
+    }
+}
+
 /// GridMap.cpp:295-303,380-388,448-456. Truncate before masking, not floor.
 pub fn coordinates(x: f32, y: f32) -> Result<([f32; 2], [usize; 2]), HeightQueryError> {
     fn axis(value: f32) -> Result<(f32, usize), HeightQueryError> {
@@ -167,20 +227,6 @@ pub fn coordinates(x: f32, y: f32) -> Result<([f32; 2], [usize; 2]), HeightQuery
 pub fn is_hole(holes: &[u16; 256], [row, col]: [usize; 2]) -> bool {
     let mask = 1 << (row % 8 / 2 * 4 + col % 8 / 2);
     holes[row / 8 * 16 + col / 8] & mask != 0
-}
-
-/// Shared float kernel for the app's separately restricted float/flat reader.
-pub fn float_height(v9: &[f32], v8: &[f32], local: [f32; 2], cell: [usize; 2]) -> f32 {
-    let index = cell[0] * 129 + cell[1];
-    let center = cell[0] * 128 + cell[1];
-    let (a, b, c) = coefficients::<_, std::convert::Infallible>(
-        local,
-        |i| Ok(v9[index + i]),
-        || Ok(2.0 * v8[center]),
-    )
-    .unwrap();
-    // GridMap.cpp:372. Do not replace with bilinear interpolation or mul_add.
-    a * local[0] + b * local[1] + c
 }
 
 fn coefficients<T, E>(

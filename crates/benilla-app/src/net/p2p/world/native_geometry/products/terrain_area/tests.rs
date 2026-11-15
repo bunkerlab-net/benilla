@@ -7,6 +7,23 @@ use super::super::{
 use super::*;
 use std::{collections::BTreeMap, time::Duration};
 
+#[test]
+fn packed_height_policy_invalidates_area_answers() {
+    let products = products(7.0, 5);
+    let snapshot = dbcs().snapshot(&products);
+    let mut legacy = Sha256::new();
+    legacy.update(POLICY);
+    legacy.update(snapshot.raw.binding().policy);
+    legacy.update(snapshot.areas.digest());
+    legacy.update(snapshot.wmo_areas.digest());
+    legacy.update(snapshot.maps.digest());
+    let legacy: Hash = legacy.finalize().into();
+    assert_ne!(snapshot.binding().policy, legacy);
+    let mut stale = request(&snapshot);
+    stale.snapshot.policy = legacy;
+    assert_eq!(snapshot.query(stale, deadline()), Err(Error::Identity));
+}
+
 macro_rules! native {
     ($path:literal) => {
         include_bytes!(concat!(

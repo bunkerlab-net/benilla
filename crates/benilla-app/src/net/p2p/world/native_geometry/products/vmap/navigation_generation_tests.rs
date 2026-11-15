@@ -118,6 +118,62 @@ fn assert_original_routes(mesh: &mut benilla_native_nav::Mesh, expected: &serde_
 }
 
 #[test]
+fn packed_height_policy_invalidates_navigation_input_cache() {
+    use sha2::{Digest, Sha256};
+    let install = Install::new(&ridge_entries());
+    let terrain = benilla_native_terrain::prepare(
+        &install.0,
+        0,
+        &[benilla_native_terrain::Tile {
+            x: TILE.x,
+            y: TILE.y,
+        }],
+    )
+    .unwrap();
+    let capture = source::prepare(&install.0, 0, || false).unwrap();
+    let bundle = capture
+        .assemble_map_bundle(profile(), || false)
+        .unwrap()
+        .unwrap();
+    let input = PreparedNavigationInput::from_source(&terrain, &bundle, TILE, || false).unwrap();
+    let mut legacy = Sha256::new();
+    legacy.update(b"benilla-source-extraction-inventory-navigation-v2-stable-bv-v1");
+    legacy.update(terrain.source_epoch().as_bytes());
+    legacy.update(bundle.map().source_binding());
+    legacy.update(terrain.map_id().to_le_bytes());
+    legacy.update([TILE.x, TILE.y]);
+    let mut union = std::collections::BTreeSet::new();
+    for (tile, bytes) in terrain.tiles() {
+        union.insert((tile.y, tile.x));
+        legacy.update([tile.x, tile.y]);
+        legacy.update((bytes.len() as u64).to_le_bytes());
+        legacy.update(bytes);
+    }
+    for tile in bundle.map().tiles() {
+        let (x, y) = tile.coordinates();
+        union.insert((x as u8, y as u8));
+    }
+    for (x, y) in union {
+        legacy.update([x, y]);
+    }
+    legacy.update([1]);
+    for (x, y) in [
+        (i16::from(TILE.y) + 1, i16::from(TILE.x)),
+        (i16::from(TILE.y) - 1, i16::from(TILE.x)),
+        (i16::from(TILE.y), i16::from(TILE.x) + 1),
+        (i16::from(TILE.y), i16::from(TILE.x) - 1),
+    ] {
+        legacy.update(x.to_le_bytes());
+        legacy.update(y.to_le_bytes());
+        legacy.update([0]);
+    }
+    legacy.update(benilla_native_nav_generator::SOURCE_CONFIG_JSON);
+    legacy.update(benilla_native_nav_generator::SOURCE_OFFMESH);
+    let legacy: [u8; 32] = legacy.finalize().into();
+    assert_ne!(input.summary().unwrap().revision, legacy);
+}
+
+#[test]
 fn captured_ridge_and_wmo_generate_original_bytes_and_load_production_queries() {
     if !benilla_native_nav::SUPPORTED_ABI {
         return;

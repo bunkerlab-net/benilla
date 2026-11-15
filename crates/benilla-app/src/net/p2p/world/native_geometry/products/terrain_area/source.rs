@@ -64,6 +64,7 @@ impl TerrainAreaSnapshot<'static> {
         epoch.update(collision.map().source_binding());
         let mut policy = Sha256::new();
         policy.update(CAPTURE_POLICY);
+        policy.update(super::super::terrain::HEIGHT_POLICY);
         policy.update(raw.binding().policy);
         policy.update(areas.digest());
         policy.update(wmo_areas.digest());

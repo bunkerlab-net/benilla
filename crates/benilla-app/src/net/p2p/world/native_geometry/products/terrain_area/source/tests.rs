@@ -58,11 +58,25 @@ fn genuine_captures_feed_existing_location_reader_and_refuse_uncaptured_tile() {
         .unwrap()
         .unwrap();
     let snapshot = TerrainAreaSnapshot::from_source(capture, &source, [9; 32]).unwrap();
+    let mut legacy = Sha256::new();
+    legacy.update(CAPTURE_POLICY);
+    legacy.update(snapshot.raw.binding().policy);
+    legacy.update(snapshot.areas.digest());
+    legacy.update(snapshot.wmo_areas.digest());
+    legacy.update(snapshot.maps.digest());
+    let legacy: Hash = legacy.finalize().into();
+    assert_ne!(snapshot.binding().policy, legacy);
     let query = TerrainAreaRequest {
         snapshot: snapshot.binding(),
         ticket: 1,
         position: [-4276.0f32, -4276., fixture::HEIGHT].map(f32::to_bits),
     };
+    let mut stale = query;
+    stale.snapshot.policy = legacy;
+    assert_eq!(
+        snapshot.query_location(stale, Instant::now() + Duration::from_secs(10)),
+        Err(Error::Identity)
+    );
     let reply = snapshot
         .query_location(query, Instant::now() + Duration::from_secs(10))
         .unwrap();

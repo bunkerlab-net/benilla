@@ -282,6 +282,7 @@ fn prepare_terrain(
     selected.try_reserve_exact(9).map_err(|_| Error::Budget)?;
     let mut digest = Sha256::new();
     digest.update(POLICY);
+    digest.update(super::terrain::HEIGHT_POLICY);
     digest.update(terrain.map_id().to_le_bytes());
     digest.update(terrain.source_epoch().as_bytes());
     for (tile, bytes) in terrain.tiles() {

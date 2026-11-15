@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Bounded translation of pinned CMaNGOS GridMap's float/flat height and liquid readers.
+//! Bounded translation of pinned CMaNGOS GridMap's height and liquid readers.
 //! This is not TerrainInfo/Map height selection, support, collision, or movement.
 //! Upstream authors, grants and exact source hashes: PROVENANCE.md.
 use super::{u16_at, u32_at, Error, PointHeight, TileId};
+use benilla_native_terrain::grid_height::{HeightData, HeightValue};
+use std::sync::Arc;
 mod area;
 mod liquid;
 pub(super) use area::AreaEntry;
@@ -17,17 +19,13 @@ const V8: usize = 128 * 128;
 pub(super) const GRID_SIZE: f32 = 533.333_3; // SIZE_OF_GRIDS = 533.33333f, same binary32.
 const MAX_HEIGHT: f32 = 1_000_000.0; // Local finite arithmetic bound, not a source game rule.
 
-#[derive(Debug)]
-enum Heights {
-    Flat(f32),
-    Float { v9: Box<[f32]>, v8: Box<[f32]> },
-}
+pub(super) const HEIGHT_POLICY: &[u8] = b"cmangos-gridmap-float-flat-absent-u8-u16-v2";
 
-/// Owns decoded numbers; cannot be retargeted, mutated, or loaded lazily from disk.
+/// Owns immutable decoded products; never loads lazily from disk.
 #[derive(Debug)]
 pub(crate) struct TerrainTile {
     id: TileId,
-    heights: Heights,
+    heights: HeightData,
     areas: area::GridAreas,
     holes: [u16; 256],
     liquid: Option<liquid::GridLiquid>,
@@ -39,8 +37,8 @@ impl TerrainTile {
         if bytes.get(..8) != Some(b"MAPSz1.4") {
             return Err(Error::Format);
         }
-        // The pinned -f 0 writer emits consecutive AREA, MHGT, optional MLIQ, holes.
-        // No offset gaps/aliases, absent area/heights/holes, or trailing data.
+        // The pinned writer emits consecutive AREA, optional MHGT/MLIQ, holes.
+        // No offset gaps/aliases, absent area/holes, or trailing data.
         let area_offset = u32_at(bytes, 8)? as usize;
         let area_len = u32_at(bytes, 12)? as usize;
         let height_offset = u32_at(bytes, 16)? as usize;
@@ -52,12 +50,17 @@ impl TerrainTile {
         let height_end = height_offset
             .checked_add(height_len)
             .ok_or(Error::Framing)?;
+        let height_end = if height_len == 0 {
+            HEADER + area_len
+        } else {
+            height_end
+        };
         let liquid_end = height_end.checked_add(liquid_len).ok_or(Error::Framing)?;
         let file_end = holes_offset.checked_add(holes_len).ok_or(Error::Framing)?;
         if area_offset != HEADER
             || !matches!(area_len, 8 | 520)
-            || height_offset != HEADER + area_len
-            || !matches!(height_len, 16 | 132116)
+            || (height_len == 0 && height_offset != 0)
+            || (height_len != 0 && height_offset != HEADER + area_len)
             || !matches!((liquid_offset, liquid_len), (0, 0))
                 && (liquid_offset != height_end || liquid_len == 0)
             || holes_offset != liquid_end
@@ -66,40 +69,23 @@ impl TerrainTile {
         {
             return Err(Error::Framing);
         }
-        let areas = area::GridAreas::decode(&bytes[area_offset..height_offset])?;
-        let height = &bytes[height_offset..height_end];
-        if &height[..4] != b"MHGT" {
-            return Err(Error::Format);
-        }
-        let low = height_number(height, 8)?;
-        let high = height_number(height, 12)?;
-        if low > high {
-            return Err(Error::Format);
-        }
-        let heights = match u32_at(height, 4)? {
-            1 if height_len == 16 && low == high => Heights::Flat(low),
-            0 if height_len == 16 + (V9 + V8) * 4 => {
-                // Exact count/framing checked before either allocation. The inventory's
-                // 64-tile limit separately bounds decoded storage to 64 * 132100 bytes.
-                let values = |start, count| {
-                    (start..start + count)
-                        .map(|i| {
-                            let value = height_number(height, 16 + i * 4)?;
-                            if value < low || value > high {
-                                return Err(Error::Format);
-                            }
-                            Ok(value)
-                        })
-                        .collect::<Result<Vec<_>, _>>()
-                        .map(Vec::into_boxed_slice)
-                };
-                Heights::Float {
-                    v9: values(0, V9)?,
-                    v8: values(V9, V8)?,
-                }
+        let areas = area::GridAreas::decode(
+            bytes
+                .get(area_offset..HEADER + area_len)
+                .ok_or(Error::Framing)?,
+        )?;
+        let heights = if height_len == 0 {
+            HeightData::default()
+        } else {
+            let height = bytes
+                .get(height_offset..height_end)
+                .ok_or(Error::TerrainHeightSamples)?;
+            let flags = validate_height_section(height)?;
+            if flags == 1 {
+                HeightData::flat(height_number(height, 8)?, height_number(height, 12)?)
+            } else {
+                HeightData::decode(Arc::from(height), 0).map_err(|_| Error::TerrainHeightHeader)?
             }
-            0 | 1 => return Err(Error::Framing),
-            _ => return Err(Error::Unsupported),
         };
         let mut holes = [0; 256];
         for (i, hole) in holes.iter_mut().enumerate() {
@@ -135,19 +121,15 @@ impl TerrainTile {
     /// Exact pinned float-operation order, guarded against wrong tile/NaN/overflow.
     /// Pinned flat-height dispatch bypasses holes; this is deliberately NOT support proof.
     pub(crate) fn point_height(&self, world_x: f32, world_y: f32) -> Result<PointHeight, Error> {
-        let (x, y, ix, iy) = self.coordinates(world_x, world_y)?;
-        let Heights::Float { v9, v8 } = &self.heights else {
-            let Heights::Flat(height) = self.heights else {
-                unreachable!()
-            };
-            return Ok(PointHeight::Height(height));
-        };
-        if self.is_hole(ix, iy) {
-            return Ok(PointHeight::Hole);
+        self.coordinates(world_x, world_y)?;
+        match self
+            .heights
+            .get(world_x, world_y, &self.holes)
+            .map_err(|_| Error::TerrainHeightSamples)?
+        {
+            HeightValue::Height(height) => Ok(PointHeight::Height(height)),
+            HeightValue::Hole => Ok(PointHeight::Hole),
         }
-        Ok(PointHeight::Height(
-            benilla_native_terrain::grid_height::float_height(v9, v8, [x, y], [ix, iy]),
-        ))
     }
 
     fn coordinates(&self, x: f32, y: f32) -> Result<(f32, f32, usize, usize), Error> {
@@ -164,10 +146,40 @@ impl TerrainTile {
         let iy = y as usize;
         Ok((x - ix as f32, y - iy as f32, ix & 127, iy & 127))
     }
+}
 
-    fn is_hole(&self, row: usize, col: usize) -> bool {
-        benilla_native_terrain::grid_height::is_hole(&self.holes, [row, col])
+/// Bounded producer admission, before shared GridMap arithmetic reads any samples.
+pub(super) fn validate_height_section(height: &[u8]) -> Result<u32, Error> {
+    if height.len() < 16 || height.get(..4) != Some(b"MHGT") {
+        return Err(Error::TerrainHeightHeader);
     }
+    let flags = u32_at(height, 4)?;
+    if !matches!(flags, 0 | 1 | 2 | 4) {
+        return Err(Error::TerrainHeightFlags(flags));
+    }
+    let low = height_number(height, 8)?;
+    let high = height_number(height, 12)?;
+    if low > high {
+        return Err(Error::Format);
+    }
+    let width = match flags {
+        1 => 0,
+        2 => 2,
+        4 => 1,
+        _ => 4,
+    };
+    if height.len() != 16 + (V9 + V8) * width {
+        return Err(Error::TerrainHeightSamples);
+    }
+    if flags == 0 {
+        for at in (16..height.len()).step_by(4) {
+            let value = height_number(height, at)?;
+            if value < low || value > high {
+                return Err(Error::Format);
+            }
+        }
+    }
+    Ok(flags)
 }
 
 fn height_number(bytes: &[u8], at: usize) -> Result<f32, Error> {

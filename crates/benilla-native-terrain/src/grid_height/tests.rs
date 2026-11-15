@@ -1,6 +1,37 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+#[test]
+fn packed_vertices_expand_source_samples_and_name_short_reads() {
+    for (sixteen_bit, maximum, samples) in [
+        (false, 262.0, vec![0, 128, 255]),
+        (true, 65542.0, vec![0, 32768, 65535]),
+    ] {
+        let bytes: Vec<u8> = samples
+            .iter()
+            .flat_map(|&sample| {
+                let raw = (sample as u16).to_le_bytes();
+                raw[..if sixteen_bit { 2 } else { 1 }].to_vec()
+            })
+            .collect();
+        let vertices = PackedVertices::new(&bytes, sixteen_bit, 7.0, maximum);
+        assert_eq!(vertices.get(0).unwrap().to_bits(), 7.0f32.to_bits());
+        assert_eq!(
+            vertices.get(1).unwrap().to_bits(),
+            if sixteen_bit { 32775.0f32 } else { 135.0f32 }.to_bits()
+        );
+        assert_eq!(vertices.get(2).unwrap().to_bits(), maximum.to_bits());
+        assert_eq!(
+            vertices.get(3),
+            Err(if sixteen_bit {
+                HeightQueryError::Uint16SampleReadUndefined
+            } else {
+                HeightQueryError::Uint8SampleReadUndefined
+            })
+        );
+    }
+}
+
 fn section(flags: u32, base: f32, maximum: f32, samples: &[u32]) -> Arc<[u8]> {
     let mut bytes = b"MHGT".to_vec();
     for word in [flags, base.to_bits(), maximum.to_bits()] {

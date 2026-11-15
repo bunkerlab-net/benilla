@@ -404,6 +404,33 @@ fn revision_binds_source_configuration_expected_coverage_bytes_and_dependency_ed
 }
 
 #[test]
+fn terrain_height_malformed_sections_refuse_by_name() {
+    let tile = TileId { x: 32, y: 32 };
+    for (at, value, expected) in [
+        (48, 0, Error::TerrainHeightHeader),
+        (52, 3, Error::TerrainHeightFlags(3)),
+        (52, 5, Error::TerrainHeightFlags(5)),
+        (52, 6, Error::TerrainHeightFlags(6)),
+        (52, 7, Error::TerrainHeightFlags(7)),
+        (52, 8, Error::TerrainHeightFlags(8)),
+        (52, 2, Error::TerrainHeightSamples),
+        (52, 4, Error::TerrainHeightSamples),
+    ] {
+        let mut bytes = terrain_bytes(0);
+        replace(&mut bytes, at, value);
+        assert_eq!(TerrainTile::decode(tile, &bytes).unwrap_err(), expected);
+    }
+    let mut short_header = terrain_bytes(0);
+    short_header.drain(56..64);
+    replace(&mut short_header, 20, 8);
+    replace(&mut short_header, 32, 56);
+    assert_eq!(
+        TerrainTile::decode(tile, &short_header).unwrap_err(),
+        Error::TerrainHeightHeader
+    );
+}
+
+#[test]
 fn exact_native_envelopes_reject_bad_versions_flags_lengths_and_missing_model_edges() {
     let tile = TileId { x: 32, y: 30 };
     for (id, at, value, error) in [
@@ -413,7 +440,12 @@ fn exact_native_envelopes_reject_bad_versions_flags_lengths_and_missing_model_ed
         (ProductId::MmapTile(tile), 72, 1, Error::Unsupported),
         (ProductId::MmapParams, 24, 1024, Error::Format),
         (ProductId::VmapTile(tile), 12, 8, Error::Unsupported),
-        (ProductId::Terrain(tile), 52, 8, Error::Unsupported),
+        (
+            ProductId::Terrain(tile),
+            52,
+            8,
+            Error::TerrainHeightFlags(8),
+        ),
     ] {
         let (mut spec, mut files) = fixture();
         mutate(&mut spec, &mut files, &id, |b| replace(b, at, value));

@@ -103,6 +103,44 @@ fn assert_original_products(terrain: &PreparedTerrain, bundle: &AssembledSourceM
     assert_original_collision(bundle);
 }
 
+#[test]
+fn packed_height_policy_invalidates_source_height_answers() {
+    use sha2::{Digest, Sha256};
+    let install = Install::new(&shared_entries());
+    let terrain = terrain(&install);
+    let capture = source::prepare(&install.0, 0, || false).unwrap();
+    let bundle = capture
+        .assemble_map_bundle(profile(), || false)
+        .unwrap()
+        .unwrap();
+    let view = PreparedSourceHeight::from_source(&terrain, &bundle, || false).unwrap();
+    let mut legacy = Sha256::new();
+    legacy.update(b"benilla-compatible-consumed-source-static-height-observation-v1");
+    legacy.update(terrain.map_id().to_le_bytes());
+    legacy.update(terrain.source_epoch().as_bytes());
+    for (tile, bytes) in terrain.tiles() {
+        legacy.update([tile.x, tile.y]);
+        legacy.update((bytes.len() as u64).to_le_bytes());
+        legacy.update(bytes);
+    }
+    let collision = PreparedTileCollision::from_source(
+        &bundle,
+        &[super::super::super::TileId {
+            x: SELECTED.x,
+            y: SELECTED.y,
+        }],
+        || false,
+    )
+    .unwrap();
+    legacy.update(collision.binding().inventory);
+    legacy.update(collision.source_version());
+    let legacy: [u8; 32] = legacy.finalize().into();
+    assert_ne!(view.binding().revision, legacy);
+    let mut stale = request(&view, 20.0, 50.0);
+    stale.binding.revision = legacy;
+    assert_eq!(view.query(stale, deadline()), Err(Error::Identity));
+}
+
 fn assert_original_collision(bundle: &AssembledSourceMap<'_>) {
     assert_eq!(bundle.map().map_id(), 0);
     assert_eq!(bundle.map().tiles().len(), 1);

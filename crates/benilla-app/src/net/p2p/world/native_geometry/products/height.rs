@@ -99,6 +99,7 @@ impl<'a> StaticHeightSnapshot<'a> {
         let source = vmap.binding();
         let mut policy = Sha256::new();
         policy.update(POLICY);
+        policy.update(super::terrain::HEIGHT_POLICY);
         policy.update(source.policy);
         Self {
             binding: SnapshotBinding {

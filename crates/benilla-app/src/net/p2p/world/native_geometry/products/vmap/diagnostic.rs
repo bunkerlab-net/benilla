@@ -579,6 +579,12 @@ fn validation_code(error: super::super::Error) -> &'static str {
         Error::Hash => "collision.hash",
         Error::Io => "collision.io",
         Error::OutsideTile => "collision.outside_tile",
+        Error::TerrainHeightHeader => "collision.terrain_height_header",
+        Error::TerrainHeightFlags(_) => "collision.terrain_height_flags",
+        Error::TerrainHeightSamples => "collision.terrain_height_samples",
+        Error::TerrainBuilderUint16SampleReadUndefined(_) => {
+            "collision.terrain_builder_uint16_sample_read_undefined"
+        }
     }
 }
 

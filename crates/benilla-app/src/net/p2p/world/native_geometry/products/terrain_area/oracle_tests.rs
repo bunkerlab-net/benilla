@@ -103,7 +103,7 @@ fn complete_original_source_area_chain_matches_all_supported_loaded_byte_profile
     let mut parents = 0;
     let mut missing = 0;
     let mut hole_heights = 0;
-    let mut source_only = 0;
+    let mut packed_rows = [[0; 3]; 2];
     for reverse in [false, true] {
         let dataset = if reverse {
             "scopedarea/reverse"
@@ -112,19 +112,6 @@ fn complete_original_source_area_chain_matches_all_supported_loaded_byte_profile
         };
         for (profile, bytes) in MAPS.iter().enumerate() {
             let (spec, files) = super::tests::fixture(reverse, bytes);
-            if matches!(profile, 16..=18) {
-                // Source-only absent, uint8 and uint16 MHGT profiles are not the
-                // admitted float/flat parser. Never broaden its domain for this oracle.
-                assert!(
-                    super::tests::load(spec, &files).is_err(),
-                    "profile {profile}"
-                );
-                source_only += rows
-                    .iter()
-                    .filter(|row| row[0] == dataset && number(row[2]) as usize == profile)
-                    .count();
-                continue;
-            }
             let products = super::tests::load(spec, &files).unwrap();
             for (store, dbcs) in STORES.iter().enumerate() {
                 let snapshot = products
@@ -230,17 +217,21 @@ fn complete_original_source_area_chain_matches_all_supported_loaded_byte_profile
                         (zone_id, area_id)
                     );
                     count += 1;
+                    if (16..=18).contains(&profile) {
+                        packed_rows[usize::from(reverse)][profile - 16] += 1;
+                    }
                 }
             }
         }
     }
-    assert_eq!(count, 25_440);
-    assert_eq!(raw_hits, 8_640);
-    assert_eq!(accepted, 6_564);
-    assert_eq!(rejected, 2_076);
-    assert_eq!(parents, 8_689);
-    assert_eq!(missing, 2_061);
-    assert_eq!(hole_heights, 2_016);
-    assert_eq!(source_only, 3_024);
-    assert_eq!(count as usize + source_only, rows.len());
+    // GridMap.cpp:51-56,173-214 admits absent, uint8 and uint16 MHGT.
+    assert_eq!(packed_rows, [[504; 3]; 2]);
+    assert_eq!(count, 28_464);
+    assert_eq!(raw_hits, 10_152);
+    assert_eq!(accepted, 7_116);
+    assert_eq!(rejected, 3_036);
+    assert_eq!(parents, 8_905);
+    assert_eq!(missing, 2_097);
+    assert_eq!(hole_heights, 3_024);
+    assert_eq!(count as usize, rows.len());
 }

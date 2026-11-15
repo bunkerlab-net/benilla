@@ -121,6 +121,7 @@ impl<'a> TerrainLiquidSnapshot<'a> {
         }
         let mut policy = Sha256::new();
         policy.update(POLICY);
+        policy.update(super::terrain::HEIGHT_POLICY);
         policy.update(height::POLICY);
         policy.update(source.policy);
         policy.update(area_source.policy);
