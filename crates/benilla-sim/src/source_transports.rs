@@ -140,34 +140,16 @@ impl TransportSpline {
             return Err(Error::SourceUndefined("spline_index"));
         }
         let t = finite(bits)?;
-        let one = S::bits(0x3f80_0000);
-        let times = if derivative {
-            [integer(3) * t * t, integer(2) * t, one, S::ZERO]
-        } else {
-            [t * t * t, t * t, t, one]
-        };
-        let coefficients = [
-            [0xbf00_0000, 0x3fc0_0000, 0xbfc0_0000, 0x3f00_0000],
-            [0x3f80_0000, 0xc020_0000, 0x4000_0000, 0xbf00_0000],
-            [0xbf00_0000, 0, 0x3f00_0000, 0],
-            [0, 0x3f80_0000, 0, 0],
-        ];
-        // Vector4.cpp:121-129 starts each dot product at +0 and adds all four terms.
-        let mut weights = [S::ZERO; 4];
-        for i in 0..4 {
-            for j in 0..4 {
-                weights[i] = weights[i] + times[j] * S::bits(coefficients[j][i]);
+        for point in &self.points[index - 1..=index + 2] {
+            for axis in point {
+                finite(*axis)?;
             }
         }
-        let mut out = [0; 3];
-        for (axis, output) in out.iter_mut().enumerate() {
-            let p = |n: usize| finite(self.points[index - 1 + n][axis]);
-            *output = scalar(
-                ((p(0)? * weights[0] + p(1)? * weights[1]) + p(2)? * weights[2])
-                    + p(3)? * weights[3],
-            )?;
+        let result = crate::source_spline::catmull_evaluate(&self.points, index, t, derivative);
+        for axis in result {
+            scalar(S::bits(axis))?;
         }
-        Ok(out)
+        Ok(result)
     }
     /// Source segment t is deliberately not clamped, including outside [0,1].
     pub fn evaluate(&self, index: usize, t: u32) -> Result<[u32; 3]> {

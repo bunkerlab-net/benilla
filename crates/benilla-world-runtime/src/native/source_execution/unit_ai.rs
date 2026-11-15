@@ -77,6 +77,9 @@ pub struct SourceUnitFields {
     pub call_for_help: u32,
     pub critter: bool,
     pub linking_event_trigger: Option<bool>,
+    /// Unit.cpp:320-321 constructs MoveSpline; MoveSpline.cpp:159-162 starts it done.
+    #[serde(skip)]
+    pub movespline: benilla_sim::source_spline::MoveSpline,
 }
 impl SourceUnitFields {
     /// Unit.cpp:330,423-425; Creature.cpp:541-579. Spawn overrides belong to UpdateEntry.
@@ -145,6 +148,7 @@ impl SourceUnitFields {
             call_for_help: template.call_for_help,
             critter: template.creature_type == 8,
             linking_event_trigger: None,
+            movespline: benilla_sim::source_spline::MoveSpline::default(),
         }
     }
     pub fn in_combat(&self) -> bool {
@@ -330,6 +334,7 @@ impl SourceUnits {
         }
         Ok(
             serde_json::json!({"version":1,"units":self.fields.iter().collect::<Vec<_>>(),
+            "splines":self.fields.iter().map(|(unit,fields)| (unit,&fields.movespline)).collect::<Vec<_>>(),
             "restore":"execution.unit.f7_restore_owner"}),
         )
     }

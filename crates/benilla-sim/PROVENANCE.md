@@ -1673,3 +1673,36 @@ Pure `ThreatValue` reducers retain IEEE binary32 bits, including subnormals
 and infinities, with software round-to-nearest-even after each operation.
 The existing bounded solo HostileReferences and its persisted policy are
 unchanged. Runtime owns multiple live references and dependent callbacks.
+
+## Source MoveSpline numerical state
+
+`source_spline` translates `Movement/spline.cpp:99-127,136-179,205-219,241-272,287-292`,
+`spline.impl.h:21-95`, `spline.h:188-215`, and
+`MoveSpline.cpp:31-162,210-281,304-329` at the pinned CMaNGOS commit above.
+`MoveSpline.h:84-138` supplies the state readers and update loop.
+`Movement/util.cpp:24-56,84-98` supplies the called fall overloads.
+The CMaNGOS contributors' GPL-2.0-or-later grant and preserved notices apply.
+The Rust translation and authored harness are GPL-3.0-or-later.
+The shared Catmull-Rom evaluator also retains the G3D notice in
+`licenses/G3D-NOTICE.cpp.txt`. Existing TransportSpline signatures and arithmetic
+are unchanged. The older creature_motion::LinearSpline is not migrated.
+
+`tools/source_spline_generate.py` extracts the unchanged numerical bodies into
+the pinned glibc 2.36 builder. The header changes only access visibility.
+`tools/fixtures/source_spline/provenance.json` records every source hash,
+compiler arguments, image identity and fixture digest.
+The authored corpus has 32 cases and 202 state/evaluation rows.
+Eight additional UBSan probes execute float-to-int duration/length overflow,
+NaN/infinity conversion, signed path-index addition and stopped-cycle modulo zero.
+An ASan probe covers the two-control enter-cycle virtual-point overread at
+`spline.cpp:262`. Its Rust refusal occurs at that same virtual-control read.
+Rust refuses these at their actual operations rather than saturating.
+Outer arithmetic reuses software IEEE RNE, the integer sqrtf kernel and
+the bound atan2f port. No host transcendental function is called.
+
+The runtime's fresh Unit state follows `Entities/Unit.cpp:320-321` and
+`MoveSpline.cpp:159-162`. Its skipped field appears separately in component
+inventory, has no deserializer, and remains behind the F7 continuation refusal.
+MoveSplineInit, packets, transport conversion and Unit relocation are not
+implemented here. These component fixtures do not establish sealed F1 parity
+or native gameplay admission. Saved, hashed and recorded format 91 is unchanged.

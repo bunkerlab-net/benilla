@@ -1,0 +1,89 @@
+{
+  "image": "sha256:7f8acd0cd855b63046cfdf49f21ed319ae6b981758f5fafe2100aed8b4ef21e8",
+  "core_revision": "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f",
+  "source_sha256": {
+    "src/game/Movement/typedefs.h": "aa559d277bf28b5b0b13a1485a954a7d31f4967ce7161f53180d8823b5e75b04",
+    "src/game/Movement/spline.h": "8ad5607f2d2ec4953badd9fccd5df95e497399a225aab8d96ec433fce3191ebe",
+    "src/game/Movement/spline.impl.h": "9ce12bd8c7f34d067c5af71dd9ea581c9f7d085a0518943a9444c6dd6d2f55ef",
+    "src/game/Movement/MoveSplineInitArgs.h": "208d04b71cd4a293238fcecb1055dded216e924892f0cc1cfc8620611167c461",
+    "src/game/Movement/MoveSplineFlag.h": "8b82e9e6160b448c9dfcd55133989f41729e80c2a9415f21d22c526cdeb2435e",
+    "src/game/Movement/MoveSpline.h": "4f458dcb94b9c18a4c124b6778ffce0eae6d71cf79f674205d6f6c53a0977954",
+    "src/game/Movement/spline.cpp": "7e8340b710694f360e4582c6c509c133b7a360edbfcb6673e76dcfad71e27c70",
+    "src/game/Movement/MoveSpline.cpp": "fcd3a74dc4f8b49a9ff11c268a550815fd4a41c755cfc66c27530e4b73397c08",
+    "src/game/Movement/util.cpp": "28e59f145ccbbcf91d18f95b5c4801311f1e493053ee0c81995aba1009995c5d",
+    "dep/g3dlite/Vector4.cpp": "f3f725b43dfaeec67c1dc225fa074eb1f44408a4de4b488b1c0b82fb34064d1f",
+    "dep/g3dlite/Matrix4.cpp": "ec71009c5258e22d5b26c65dcd79a5c719a4db3e428e6946984ef2077f7d90a6",
+    "dep/g3dlite/G3D/Vector3.h": "75b8fa263ade1337c4a06d5e6918aa0a7d28bcb107ed405487e62235838125e2",
+    "dep/g3dlite/G3D/Vector4.h": "dc17cec5d74f622fe61fd215da3e27d0664ce90666b94987f1d31da2cdfce6bb",
+    "dep/g3dlite/G3D/Matrix4.h": "9db0803131f0b01307611e9b38b5817135c7898764f3ada3491b80bf24f5fcc0"
+  },
+  "compile_command": [
+    "g++",
+    "-std=c++17",
+    "-O3",
+    "-DNDEBUG",
+    "-ffp-contract=off",
+    "-fno-fast-math",
+    "-fno-omit-frame-pointer",
+    "-g",
+    "-I/evidence",
+    "-I/source/dep/g3dlite",
+    "/evidence/oracle.cpp",
+    "-o",
+    "/evidence/oracle"
+  ],
+  "oracle_sha256": "23352b8bb014d4169b8934ee65bb7c9b4f0165541a0c92cc149f089f7850ac50",
+  "inputs_sha256": "a46e04a5f670b1bcb64bf803933c6b6706d62abb9e8f4da2e88559ff492daf48",
+  "output_sha256": "9458b9b0375e22e275c9a448e5e41b53a097f14a4c1af85dde6faf71e4538ba2",
+  "binary_sha256": "ab0ad80b7a921cbe75c79e0a32913c951f8eddef35204f630942f2e66fcb4e0a",
+  "cases": 32,
+  "rows": 202,
+  "ubsan": [
+    {
+      "case": 0,
+      "returncode": 1,
+      "stderr": "/evidence/oracle.cpp:465:18: runtime error: inf is outside the range of representable values of type 'int'\n"
+    },
+    {
+      "case": 1,
+      "returncode": 1,
+      "stderr": "/evidence/oracle.cpp:465:18: runtime error: nan is outside the range of representable values of type 'int'\n"
+    },
+    {
+      "case": 2,
+      "returncode": 1,
+      "stderr": "/evidence/oracle.cpp:465:18: runtime error: inf is outside the range of representable values of type 'int'\n"
+    },
+    {
+      "case": 3,
+      "returncode": 1,
+      "stderr": "/evidence/oracle.cpp:449:92: runtime error: 3.32513e+09 is outside the range of representable values of type 'int'\n"
+    },
+    {
+      "case": 4,
+      "returncode": 1,
+      "stderr": "/evidence/oracle.cpp:641:40: runtime error: signed integer overflow: 2147483647 + 1 cannot be represented in type 'int'\n"
+    },
+    {
+      "case": 5,
+      "returncode": 1,
+      "stderr": "/evidence/spline.impl.h:86:20: runtime error: 2.14748e+09 is outside the range of representable values of type 'int'\n"
+    },
+    {
+      "case": 6,
+      "returncode": 1,
+      "stderr": "/evidence/oracle.cpp:641:86: runtime error: signed integer overflow: 2147483647 + 1 cannot be represented in type 'int'\n"
+    },
+    {
+      "case": 7,
+      "returncode": 1,
+      "stderr": "/evidence/oracle.cpp:643:27: runtime error: division by zero\n"
+    }
+  ],
+  "asan": {
+    "case": 8,
+    "returncode": 1,
+    "kind": "heap-buffer-overflow"
+  },
+  "scope": "Authored source numerical components, not sealed F1 execution"
+}

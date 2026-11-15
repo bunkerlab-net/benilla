@@ -128,3 +128,6 @@ pub mod source_weather;
 
 /// Pinned transport template generation and noncyclic spline numerics.
 pub mod source_transports;
+
+/// Retained source MoveSpline numerical state; launch and relocation remain separate.
+pub mod source_spline;

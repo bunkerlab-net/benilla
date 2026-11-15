@@ -799,3 +799,49 @@ fn help_predicate_uses_source_guid_high_not_the_object_kind() {
         .unwrap();
     assert!(owner.calls.is_empty());
 }
+
+#[test]
+fn fresh_move_spline_is_done_inventory_only_and_cannot_restore_a_unit() {
+    use benilla_sim::source_spline::Args;
+    let (objects, mut units, ai) = setup(0);
+    let fields = units.get(&objects, ai.unit).unwrap();
+    assert!(fields.movespline.finalized());
+    assert!(!fields.movespline.initialized());
+    assert_eq!(
+        serde_json::to_value(&fields.movespline).unwrap()["facing"],
+        serde_json::json!([0, 0, null])
+    );
+    let before = serde_json::to_vec(fields).unwrap();
+    assert!(!serde_json::to_value(fields)
+        .unwrap()
+        .as_object()
+        .unwrap()
+        .contains_key("movespline"));
+    let args = Args {
+        path: vec![[0; 3], [1f32.to_bits(), 0, 0]],
+        flags: 0,
+        facing: [0; 3],
+        path_index_offset: 0,
+        velocity: 1f32.to_bits(),
+        spline_id: 9,
+    };
+    let spline = &mut units.get_mut(&objects, ai.unit).unwrap().movespline;
+    spline.initialize(&args).unwrap();
+    spline.update_state(7, |_| {}).unwrap();
+    assert_eq!(
+        serde_json::to_vec(units.get(&objects, ai.unit).unwrap()).unwrap(),
+        before
+    );
+    let inventory = units.inventory(&objects).unwrap();
+    assert_eq!(inventory["splines"][0][1]["time_passed"], 7);
+    assert_eq!(inventory["restore"], "execution.unit.f7_restore_owner");
+    // SourceUnitFields and MoveSpline have no Deserialize implementation. The
+    // enclosing source manager also refuses durable continuation before restore.
+    assert_eq!(
+        SourceManagers::default()
+            .require_durable_checkpoint()
+            .unwrap_err()
+            .id,
+        "execution.managers.f7_continuation_owner"
+    );
+}
