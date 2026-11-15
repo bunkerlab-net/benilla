@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+#[test]
+fn default_mailbox_request_lifetime_is_production_500_ms() {
+    let (authority, _) = mailbox(session()).unwrap();
+    assert_eq!(WAIT, Duration::from_millis(500));
+    assert_eq!(authority.request_lifetime, Duration::from_millis(500));
+}
+
 fn work(service: &Mailbox, ticket: u64, deadline: Instant) -> (Work, Receiver<Reply>) {
     let (reply, rx) = bounded(1);
     (

@@ -1565,6 +1565,8 @@ struct RouteCommitReply {
 /// The controller owns this separately from its proposal-only Authority. Its unique
 /// transport and cancellation fence belong to exactly one mailbox installation.
 pub(crate) struct MailboxRouteCommitSink {
+    #[cfg(test)]
+    request_lifetime: Duration,
     #[cfg(all(test, not(benilla_headless_geometry)))]
     resident: Option<Arc<ResidentTransportSelection>>,
     session: Session,
@@ -1580,6 +1582,8 @@ pub(crate) struct MailboxRouteCommitSink {
 /// A timeout leaves NativeWorld::step uncommitted; retry the same input/tick or pause explicitly.
 /// Do not call resolve from a Bevy system: it deliberately waits for the main-thread service.
 pub(crate) struct LocalAuthority {
+    #[cfg(test)]
+    request_lifetime: Duration,
     session: Session,
     tx: Sender<Work>,
     ticket: u64,
@@ -1648,6 +1652,8 @@ fn mailbox_selected(
     let route_selected = route_selected || resident.is_some();
     let route_ready = Arc::new(AtomicBool::new(!route_selected));
     let route_commit = route_selected.then(|| MailboxRouteCommitSink {
+        #[cfg(test)]
+        request_lifetime: WAIT,
         #[cfg(all(test, not(benilla_headless_geometry)))]
         resident: resident.clone(),
         session: session.clone(),
@@ -1660,6 +1666,8 @@ fn mailbox_selected(
     });
     Ok((
         LocalAuthority {
+            #[cfg(test)]
+            request_lifetime: WAIT,
             session: session.clone(),
             tx: tx.clone(),
             ticket: 0,
@@ -1683,6 +1691,16 @@ fn mailbox_selected(
         },
     ))
 }
+#[cfg(test)]
+pub(crate) fn set_request_lifetime_for_test(
+    authority: &mut LocalAuthority,
+    sink: &mut MailboxRouteCommitSink,
+    lifetime: Duration,
+) {
+    authority.request_lifetime = lifetime;
+    sink.request_lifetime = lifetime;
+}
+
 impl Authority for LocalAuthority {
     fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
         self.check_active()?;
@@ -1694,7 +1712,10 @@ impl Authority for LocalAuthority {
         self.session.body(request).map_err(Failure::native)?;
         self.ticket = self.ticket.checked_add(1).ok_or(NativeError::Limit)?;
         let (tx, rx) = bounded(1);
+        #[cfg(not(test))]
         let deadline = Instant::now() + WAIT;
+        #[cfg(test)]
+        let deadline = Instant::now() + self.request_lifetime;
         self.tx
             .try_send(Work::new(
                 self.ticket,
@@ -1813,7 +1834,10 @@ impl MailboxRouteCommitSink {
         .map_err(Failure::native)?;
         self.ticket = self.ticket.checked_add(1).ok_or(NativeError::Limit)?;
         let (reply, rx) = bounded(1);
+        #[cfg(not(test))]
         let deadline = Instant::now() + WAIT;
+        #[cfg(test)]
+        let deadline = Instant::now() + self.request_lifetime;
         self.tx
             .try_send(RouteCommitWork {
                 ticket: self.ticket,
@@ -2460,13 +2484,13 @@ impl Mailbox {
             #[cfg(test)]
             if staged_route {
                 eprintln!(
-                    "native geometry Route job timing: tick={} ticket={} phase={} disposition={:?} elapsed={:?} request_age={:?}",
+                    "native geometry Route job timing: tick={} ticket={} phase={} disposition={:?} elapsed={:?} request_remaining={:?}",
                     timing.2,
                     timing.1,
                     phase,
                     disposition,
                     timing.0.elapsed(),
-                    WAIT.saturating_sub(timing.5.saturating_duration_since(timing.0)),
+                    timing.5.saturating_duration_since(timing.0),
                 );
             }
             #[cfg(test)]

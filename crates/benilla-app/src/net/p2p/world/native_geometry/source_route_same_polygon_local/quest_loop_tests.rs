@@ -18,7 +18,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-// Observe the real transport without extending its deadline or substituting facts.
+// Observe the real transport without substituting geometry facts.
 struct TimedAuthority(core::LocalAuthority);
 impl Authority for TimedAuthority {
     fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
@@ -188,7 +188,7 @@ fn installed(hostile: u64, giver: u64, order: [u64; 2], faults: bool) {
             .unwrap(),
     );
     super::super::plugin(&mut geometry.app);
-    let (local, sink) = super::super::install_with_same_polygon(
+    let (mut local, mut sink) = super::super::install_with_same_polygon(
         geometry.app.world_mut(),
         session.clone(),
         &profile,
@@ -196,6 +196,8 @@ fn installed(hostile: u64, giver: u64, order: [u64; 2], faults: bool) {
         products,
     )
     .unwrap();
+    // Five seconds exceeds measured 700 ms starvation while staying below the 20 s/90 s fixture waits.
+    core::set_request_lifetime_for_test(&mut local, &mut sink, Duration::from_secs(5));
     let (send, receive) = mpsc::sync_channel(0);
     let inspect = Inspect(send);
     let observed = loaded::Observed::default();
