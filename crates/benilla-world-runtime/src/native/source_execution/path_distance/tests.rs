@@ -286,9 +286,10 @@ fn actual_native_near_and_far_mesh_results_match_the_authored_predicate_report()
 fn retained_round5_storage_stream_or_clean_absence() {
     let explicit = std::env::var_os("BENILLA_F1_DISTANCE_STORAGE");
     let path = explicit.clone().map(std::path::PathBuf::from).unwrap_or_else(|| {
-        Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(3).unwrap()
+        Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap()
             .join("benilla-config/full-server/f1/sealing/source-choice/stop-full-05/initial-storage-input.jsonl")
     });
+    eprintln!("Round-5 storage inputs: {}", path.display());
     if explicit.is_none() && !path.try_exists().unwrap() {
         eprintln!("SKIP round-5 storage inputs: set BENILLA_F1_DISTANCE_STORAGE");
         return;
@@ -334,10 +335,11 @@ fn retained_seal8_distance_report_or_clean_absence() {
         .unwrap_or_else(|| {
             Path::new(env!("CARGO_MANIFEST_DIR"))
                 .ancestors()
-                .nth(3)
+                .nth(2)
                 .unwrap()
                 .join("benilla-config/full-server/f1/sealing/source-choice/seal8-full-framing-08")
         });
+    eprintln!("Seal8 distance projection: {}", path.display());
     if explicit.is_none() && !path.try_exists().unwrap() {
         eprintln!("SKIP seal8 distance projection: set BENILLA_F1_SEAL8_FRAMING");
         return;
