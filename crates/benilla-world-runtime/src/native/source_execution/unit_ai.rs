@@ -433,6 +433,21 @@ pub enum UnitAiSightQuery {
     Accessible,
 }
 pub trait UnitAiExecutionOwner {
+    fn pet_control_guid(
+        &mut self,
+        _unit: ObjectHandle,
+        field: PetControlField,
+    ) -> Result<SourceGuid> {
+        Err(refuse(match field {
+            PetControlField::Charmer => "execution.pet_ai.UNIT_FIELD_CHARMEDBY_owner",
+            PetControlField::Creator => "execution.pet_ai.UNIT_FIELD_CREATEDBY_owner",
+        }))
+    }
+    fn pet_is_loading(&mut self, _unit: ObjectHandle) -> Result<bool> {
+        Err(refuse(
+            "execution.pet_ai.Unit_GetCharmer_GetCreator_out_of_world_loading_owner",
+        ))
+    }
     fn spell_context(&mut self) -> Result<SpellStartContext<'_>> {
         Err(refuse("execution.spells.live_SpellStart_context_owner"))
     }

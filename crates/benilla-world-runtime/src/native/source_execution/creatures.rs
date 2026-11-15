@@ -203,6 +203,25 @@ impl CreatureConstruction {
         )?);
         Ok(())
     }
+    pub fn construct_pet_ai(
+        &mut self,
+        objects: &SourceObjects,
+        owners: PetAiConstructionOwners<'_>,
+    ) -> Result<()> {
+        require(
+            self.builtin_ai.is_none(),
+            "execution.builtin_ai.already_constructed",
+        )?;
+        let selected = self
+            .selected_ai()
+            .ok_or_else(|| refuse("execution.ai.selection_absent"))?;
+        self.builtin_ai = Some(SourceBuiltinAi::construct_pet(
+            selected.clone(),
+            objects,
+            owners,
+        )?);
+        Ok(())
+    }
     pub fn construct_event_ai(
         &mut self,
         objects: &SourceObjects,
@@ -355,6 +374,13 @@ pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
         Err(refuse(
             "execution.builtin_ai.live_unit_and_base_binding_owner",
         ))
+    }
+    /// None is explicitly unwritten UNIT_CREATED_BY_SPELL, never an inferred spell zero.
+    fn creature_pet_ai_owners(
+        &mut self,
+        _selected: &SelectedCreatureAi,
+    ) -> Result<PetAiConstructionOwners<'_>> {
+        Err(refuse("execution.pet_ai.live_unit_and_base_binding_owner"))
     }
     /// Bind the live Unit/base registries and UNIT_CREATED_BY_SPELL, not a default spell.
     fn creature_summoned_ai_owners(
@@ -776,6 +802,10 @@ where
         .selected_ai()
         .ok_or_else(|| refuse("execution.ai.selection_absent"))?;
     selected.validate(context.objects)?;
+    if selected.executable().builtin_kind() == Some(BuiltinCreatureAi::Pet) {
+        let owners = factory.creature_pet_ai_owners(selected)?;
+        return state.construct_pet_ai(context.objects, owners);
+    }
     if matches!(
         selected.executable().builtin_kind(),
         Some(BuiltinCreatureAi::Null | BuiltinCreatureAi::Guard | BuiltinCreatureAi::Possessed)

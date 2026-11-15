@@ -392,6 +392,20 @@ impl SourceObjects {
         self.get_mut(handle)?.global_player_registered = false;
         Ok(())
     }
+    // ObjectAccessor.cpp:102-111. Global FindPlayer defaults to inWorld=true.
+    pub(super) fn find_player(&self, guid: SourceGuid) -> Result<Option<ObjectHandle>> {
+        if guid.raw() == 0 {
+            return Ok(None);
+        }
+        let Some(handle) = self
+            .lookup
+            .get(&(None, LiveLookupKind::Player, guid))
+            .copied()
+        else {
+            return Ok(None);
+        };
+        Ok(self.get(handle)?.in_world.then_some(handle))
+    }
     // Typed/DB lookup precedes base world membership; Creature.cpp:173-202, GameObject.cpp:115-131.
     pub fn register_world_lookup(&mut self, handle: ObjectHandle) -> Result<()> {
         let object = self.get(handle)?;
@@ -689,5 +703,24 @@ impl SourceObjects {
         } else {
             PoseObservation::DifferentCell(handle)
         }
+    }
+}
+
+#[cfg(test)]
+mod player_lookup_tests {
+    use super::*;
+
+    #[test]
+    fn pet_find_player_refuses_unavailable_registered_player_world_membership() {
+        let mut objects = SourceObjects::default();
+        let player = objects.construct(1, SourceObjectKind::Player).unwrap();
+        let guid = SourceGuid::without_entry(HighGuid::Player, 1);
+        objects.assign_guid(player, 0, guid).unwrap();
+        objects.register_player_lookup(player).unwrap();
+        objects.objects.remove(&player);
+        assert_eq!(
+            objects.find_player(guid).unwrap_err().id,
+            "execution.stale_object_handle"
+        );
     }
 }

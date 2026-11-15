@@ -15,6 +15,7 @@ pub use power::*;
 pub use range::*;
 mod db_callers;
 mod events;
+mod pet_callers;
 mod start;
 mod state;
 mod unit_event_owner;
@@ -192,6 +193,15 @@ impl SpellCall {
 }
 /// External state queries are fallible. An unbound query never becomes false/OK.
 pub trait SpellExecutionOwner {
+    fn pet_has_in_arc(&mut self, _caster: ObjectHandle, _target: ObjectHandle) -> Result<bool> {
+        Err(refuse("execution.pet_ai.WorldObject_HasInArc_owner"))
+    }
+    fn pet_face_target(&mut self, _caster: ObjectHandle, _target: ObjectHandle) -> Result<()> {
+        Err(refuse("execution.pet_ai.Unit_SetFacingToObject_owner"))
+    }
+    fn pet_check_learning(&mut self, _caster: ObjectHandle, _spell: u32) -> Result<()> {
+        Err(refuse("execution.pet_ai.Pet_CheckLearning_owner"))
+    }
     fn power_objects(&mut self) -> Result<&SourceObjects> {
         Err(refuse("execution.spells.f3_WorldObject_power_owner"))
     }

@@ -1864,7 +1864,10 @@ fn selected_builtin_factory_dispatch_retains_real_bodies_and_named_refusals() {
         ("GuardAI", None),
         ("PossessedAI", None),
         ("EventAI", None),
-        ("PetAI", Some("execution.ai.pet_constructor_owner")),
+        (
+            "PetAI",
+            Some("execution.pet_ai.live_unit_and_base_binding_owner"),
+        ),
         (
             "GuardianAI",
             Some("execution.summoned_ai.live_unit_and_base_binding_owner"),
@@ -1881,6 +1884,26 @@ fn selected_builtin_factory_dispatch_retains_real_bodies_and_named_refusals() {
         let result = world.load(0., &mut factory);
         if let Some(id) = missing {
             assert_eq!(result.unwrap_err().id, id);
+            if name == "PetAI" {
+                let selected = factory.selected_ai.as_ref().unwrap();
+                assert_eq!(
+                    selected.executable().builtin_kind(),
+                    Some(BuiltinCreatureAi::Pet)
+                );
+                match selected.executable() {
+                    AiExecutable::Builtin(binding) => {
+                        assert_eq!(binding.key, "PetAI");
+                        assert!(binding.registration > 0);
+                    }
+                    _ => panic!("PetAI must retain its builtin registration"),
+                }
+                let base = factory
+                    .base_ais
+                    .get(&world.objects, selected.object())
+                    .unwrap();
+                assert_eq!((base.follow_angle, base.follow_distance), (0.0, 0.0));
+                assert!(factory.units.get(&world.objects, selected.object()).is_ok());
+            }
             if matches!(name, "GuardianAI" | "TotemAI") {
                 let selected = factory.selected_ai.as_ref().unwrap();
                 assert_eq!(selected.executable().builtin_kind().unwrap().key(), name);

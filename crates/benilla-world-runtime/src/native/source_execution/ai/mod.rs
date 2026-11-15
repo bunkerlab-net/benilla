@@ -4,6 +4,8 @@
 use super::*;
 mod guard;
 mod null;
+mod pet;
+pub use pet::*;
 mod possessed;
 mod summoned;
 pub use summoned::*;
@@ -17,6 +19,7 @@ enum BuiltinBody {
     Null,
     Guard,
     Possessed(SourceUnitAi),
+    Pet(SourcePetAi),
 }
 #[derive(Clone, Debug)]
 pub struct SourceBuiltinAi {
@@ -107,6 +110,44 @@ impl SourceBuiltinAi {
         units.get_mut(objects, unit)?.has_ai = true;
         Ok(Self { selected, body })
     }
+    /// PetAI.cpp:41-65 requires writable base state and a real created-by-spell field.
+    pub fn construct_pet(
+        selected: SelectedCreatureAi,
+        objects: &SourceObjects,
+        owners: PetAiConstructionOwners<'_>,
+    ) -> Result<Self> {
+        selected.validate(objects)?;
+        let PetAiConstructionOwners {
+            units,
+            ais,
+            created_by_spell,
+            config,
+            attack_from_behind,
+            execution,
+        } = owners;
+        require(
+            selected.executable().builtin_kind() == Some(BuiltinCreatureAi::Pet),
+            "execution.pet_ai.selection_mismatch",
+        )?;
+        let body = BuiltinBody::Pet(SourcePetAi::construct(
+            &selected,
+            objects,
+            ais,
+            created_by_spell,
+            config,
+            attack_from_behind,
+            execution,
+        )?);
+        units.bind_ai_selection(objects, &selected)?;
+        units.get_mut(objects, selected.object())?.has_ai = true;
+        Ok(Self { selected, body })
+    }
+    pub fn pet(&self) -> Option<&SourcePetAi> {
+        match &self.body {
+            BuiltinBody::Pet(pet) => Some(pet),
+            _ => None,
+        }
+    }
     pub fn selected(&self) -> &SelectedCreatureAi {
         &self.selected
     }
@@ -131,9 +172,11 @@ impl SourceBuiltinAi {
             _ => serde_json::to_value(ais.get(objects, self.selected.object())?)
                 .map_err(|_| refuse("execution.builtin_ai.inventory"))?,
         };
-        Ok(
-            serde_json::json!({"version":1,"selected":self.selected,"base":base,"restore":"execution.builtin_ai.f7_restore_owner"}),
-        )
+        let mut inventory = serde_json::json!({"version":1,"selected":self.selected,"base":base,"restore":"execution.builtin_ai.f7_restore_owner"});
+        if let BuiltinBody::Pet(pet) = &self.body {
+            inventory["pet"] = pet.inventory();
+        }
+        Ok(inventory)
     }
     pub fn update(
         &mut self,
@@ -147,6 +190,7 @@ impl SourceBuiltinAi {
         match &mut self.body {
             BuiltinBody::Null => Ok(()), // NullCreatureAI.h:37.
             BuiltinBody::Possessed(base) => possessed::update(base, objects, units, owner),
+            BuiltinBody::Pet(pet) => pet.update(diff, objects, units, ais, owner),
             BuiltinBody::Guard => guard::update(
                 ais.get_mut(objects, self.selected.object())?,
                 diff,
@@ -168,6 +212,7 @@ impl SourceBuiltinAi {
         self.validate(objects, ais)?;
         match &mut self.body {
             BuiltinBody::Null => Ok(()), // NullCreatureAI.h:30.
+            BuiltinBody::Pet(_) => Err(refuse("execution.pet_ai.Unit_GetCharmInfo_owner")),
             BuiltinBody::Guard => guard::move_in_line_of_sight(
                 ais.get_mut(objects, self.selected.object())?,
                 who,
@@ -208,6 +253,7 @@ impl SourceBuiltinAi {
         self.validate(objects, ais)?;
         match &mut self.body {
             BuiltinBody::Null => Ok(()), // NullCreatureAI.h:31.
+            BuiltinBody::Pet(pet) => pet.attack_start(target, objects, units, ais, owner),
             BuiltinBody::Guard => ais
                 .get_mut(objects, self.selected.object())?
                 .attack_start(target, objects, units, owner),
@@ -225,6 +271,7 @@ impl SourceBuiltinAi {
         self.validate(objects, ais)?;
         match &mut self.body {
             BuiltinBody::Null => Ok(()), // NullCreatureAI.h:32.
+            BuiltinBody::Pet(_) => Err(refuse("execution.pet_ai.Unit_GetCharmInfo_owner")),
             BuiltinBody::Guard => ais
                 .get_mut(objects, self.selected.object())?
                 .attacked_by(attacker, objects, units, owner),
@@ -241,6 +288,7 @@ impl SourceBuiltinAi {
         self.validate(objects, ais)?;
         match &mut self.body {
             BuiltinBody::Null => Ok(()), // NullCreatureAI.h:33.
+            BuiltinBody::Pet(_) => Err(refuse("execution.pet_ai.Unit_GetCharmInfo_owner")),
             BuiltinBody::Guard => ais
                 .get_mut(objects, self.selected.object())?
                 .enter_evade(objects, units, owner),
@@ -260,7 +308,12 @@ impl SourceBuiltinAi {
             BuiltinBody::Possessed(base) => base,
             _ => &mut ais.get_mut(objects, self.selected.object())?.base,
         };
-        base.just_died(objects, units, owner)
+        base.just_died(objects, units, owner)?;
+        if matches!(self.body, BuiltinBody::Pet(_)) {
+            // PetAI.cpp:598-599 evaluates GetOwnerGuid even with no requested follower.
+            owner.pet_control_guid(self.selected.object(), PetControlField::Creator)?;
+        }
+        Ok(())
     }
     pub fn just_respawned(
         &mut self,
@@ -268,6 +321,10 @@ impl SourceBuiltinAi {
         ais: &mut SourceCreatureAis,
     ) -> Result<()> {
         self.validate(objects, ais)?;
+        if matches!(self.body, BuiltinBody::Pet(_)) {
+            // PetAI.cpp:604, UnitAI.h:478. CanHandleCharm is false for this class.
+            return Ok(());
+        }
         if !matches!(self.body, BuiltinBody::Possessed(_)) {
             // CreatureAI.cpp:124-128 versus the empty UnitAI.h:260 callback.
             let ai = ais.get_mut(objects, self.selected.object())?;
@@ -277,8 +334,12 @@ impl SourceBuiltinAi {
         Ok(())
     }
     pub fn on_unsummon(&self, objects: &SourceObjects, ais: &SourceCreatureAis) -> Result<()> {
-        // All three inherit the actual empty UnitAI.h:425 callback.
-        self.validate(objects, ais)
+        self.validate(objects, ais)?;
+        if matches!(self.body, BuiltinBody::Pet(_)) {
+            // PetAI.cpp:592-593. This legacy callback has no raw field owner binding.
+            return Err(refuse("execution.pet_ai.UNIT_FIELD_CREATEDBY_owner"));
+        }
+        Ok(()) // UnitAI.h:425 is empty for the other classes.
     }
     pub fn on_heartbeat(&self, objects: &SourceObjects, ais: &SourceCreatureAis) -> Result<()> {
         // All three inherit the actual empty UnitAI.h:415 callback.

@@ -71,6 +71,7 @@ pub enum SpellCastResult {
     Fleeing,
     Confused,
     PreventedByMechanic,
+    SpellInProgress,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SpellTargets {

@@ -1223,3 +1223,233 @@ fn area_enum_boundary_is_checked_after_short_circuited_target_table_lookup() {
         "execution.spells.SpellTarget_enum_undefined"
     );
 }
+
+mod pet_ai_caller_tests {
+    use super::*;
+    #[derive(Default)]
+    struct PetFixture {
+        inner: Fixture,
+        arc: Option<bool>,
+        face: bool,
+        learn: bool,
+    }
+    impl SpellExecutionOwner for PetFixture {
+        fn unit(&mut self, u: ObjectHandle) -> Result<SpellUnitState> {
+            self.inner.unit(u)
+        }
+        fn check(&mut self, s: &mut SourceSpell, t: &SpellTemplate, c: SpellCheck) -> Result<R> {
+            self.inner.check(s, t, c)
+        }
+        fn call(&mut self, s: &mut SourceSpell, c: SpellCall) -> Result<()> {
+            self.inner.call(s, c)
+        }
+        fn map_time(&mut self, u: ObjectHandle) -> Result<u32> {
+            self.inner.map_time(u)
+        }
+        fn targeting_data(&mut self, s: u32) -> Result<[[u32; 2]; 3]> {
+            self.inner.targeting_data(s)
+        }
+        fn cast_time(&mut self, s: &mut SourceSpell, t: &SpellTemplate) -> Result<i32> {
+            self.inner.cast_time(s, t)
+        }
+        fn add_gcd(&mut self, s: &SourceSpell, t: &SpellTemplate) -> Result<()> {
+            self.inner.add_gcd(s, t)
+        }
+        fn set_current(&mut self, s: &mut SourceSpell, t: &SpellTemplate) -> Result<()> {
+            self.inner.set_current(s, t)
+        }
+        fn indoor_policy(&mut self) -> Result<bool> {
+            Ok(false)
+        }
+        fn zone_area(&mut self, u: ObjectHandle) -> Result<[u32; 2]> {
+            self.inner.zone_area(u)
+        }
+        fn pet_has_in_arc(&mut self, _: ObjectHandle, _: ObjectHandle) -> Result<bool> {
+            self.inner.trace.push("PetHasInArc".into());
+            self.arc
+                .ok_or_else(|| refuse("execution.pet_ai.WorldObject_HasInArc_owner"))
+        }
+        fn pet_face_target(&mut self, _: ObjectHandle, _: ObjectHandle) -> Result<()> {
+            self.inner.trace.push("PetSetFacing".into());
+            if self.face {
+                Ok(())
+            } else {
+                Err(refuse("execution.pet_ai.Unit_SetFacingToObject_owner"))
+            }
+        }
+        fn pet_check_learning(&mut self, _: ObjectHandle, spell: u32) -> Result<()> {
+            assert_eq!(spell, 7);
+            self.inner.trace.push("PetCheckLearning".into());
+            if self.learn {
+                Ok(())
+            } else {
+                Err(refuse("execution.pet_ai.Pet_CheckLearning_owner"))
+            }
+        }
+    }
+    #[test]
+    fn pet_spell_exists_before_facing_learning_and_spell_event() {
+        let stores = stores();
+        let mut starts = SourceSpellStarts::default();
+        let mut events = SourceUnitEvents::default();
+        let mut owner = PetFixture::default();
+        for (arc, face, expected) in [
+            (None, false, "execution.pet_ai.WorldObject_HasInArc_owner"),
+            (
+                Some(false),
+                false,
+                "execution.pet_ai.Unit_SetFacingToObject_owner",
+            ),
+            (
+                Some(true),
+                false,
+                "execution.pet_ai.Pet_CheckLearning_owner",
+            ),
+        ] {
+            owner.arc = arc;
+            owner.face = face;
+            assert_eq!(
+                SpellStartContext {
+                    stores: &stores,
+                    starts: &mut starts,
+                    events: &mut events,
+                    owner: &mut owner
+                }
+                .pet_cast(unit(), 7, Some(unit()), true, true)
+                .unwrap_err()
+                .id,
+                expected
+            );
+            assert!(events.inventory().queued.is_empty());
+            let spell = starts.spells.last_key_value().unwrap().1;
+            assert_eq!(spell.state, SourceSpellState::Created);
+            assert_eq!(spell.flags, SpellTriggerFlags(0x180));
+            assert!(spell.event.is_none());
+        }
+        assert_eq!(starts.spells.len(), 3);
+        assert_eq!(
+            owner
+                .inner
+                .trace
+                .iter()
+                .filter(|s| s.as_str() == "PetCheckLearning")
+                .count(),
+            1
+        );
+    }
+    #[test]
+    fn pet_spell_start_uses_real_checks_events_targets_and_opener_flags() {
+        for (opener, pet, arc, facing) in [
+            (false, false, true, false),
+            (false, true, false, true),
+            (true, true, true, false),
+        ] {
+            let stores = stores();
+            let mut starts = SourceSpellStarts::default();
+            let mut events = SourceUnitEvents::default();
+            let mut owner = PetFixture {
+                arc: Some(arc),
+                face: true,
+                learn: true,
+                ..Default::default()
+            };
+            assert!(SpellStartContext {
+                stores: &stores,
+                starts: &mut starts,
+                events: &mut events,
+                owner: &mut owner
+            }
+            .pet_cast(unit(), 7, Some(unit()), opener, pet)
+            .unwrap());
+            let spell = &starts.spells[&1];
+            assert_eq!(spell.state, SourceSpellState::Casting);
+            assert_eq!(
+                spell.flags,
+                SpellTriggerFlags(if opener { 0x180 } else { 0x100 })
+            );
+            assert_eq!(spell.targets.unit, Some(unit()));
+            assert_eq!(spell.targets.mask, 2);
+            assert_eq!(spell.targets.destination, Some([0; 3]));
+            assert_eq!(events.inventory().queued.len(), 1);
+            assert_eq!(owner.inner.trace.contains(&"PetSetFacing".into()), facing);
+            assert_eq!(owner.inner.trace.contains(&"PetCheckLearning".into()), pet);
+            if pet {
+                let learn = owner
+                    .inner
+                    .trace
+                    .iter()
+                    .position(|s| s == "PetCheckLearning")
+                    .unwrap();
+                let check = owner
+                    .inner
+                    .trace
+                    .iter()
+                    .position(|s| s == "IsSpellReady")
+                    .unwrap();
+                assert!(learn < check);
+            }
+        }
+    }
+    #[test]
+    fn pet_targetless_start_keeps_nonzero_target_flags_out_of_unit_cast_wrapper() {
+        let mut stores = stores();
+        let mut t = template();
+        t.id = 10;
+        t.targets = 0x40;
+        stores.insert_template(t).unwrap();
+        let mut starts = SourceSpellStarts::default();
+        let mut events = SourceUnitEvents::default();
+        let mut owner = PetFixture::default();
+        assert!(SpellStartContext {
+            stores: &stores,
+            starts: &mut starts,
+            events: &mut events,
+            owner: &mut owner
+        }
+        .pet_cast(unit(), 10, None, false, false)
+        .unwrap());
+        assert_eq!(starts.spells[&1].targets.mask, 0);
+        assert_eq!(events.inventory().queued.len(), 1);
+        assert!(!owner.inner.trace.iter().any(|s| s.starts_with("Pet")));
+    }
+    #[test]
+    fn pet_failed_check_retains_real_spell_event_before_failure() {
+        let stores = stores();
+        let mut starts = SourceSpellStarts::default();
+        let mut events = SourceUnitEvents::default();
+        let mut owner = PetFixture::default();
+        owner.inner.unit.has_ai = true;
+        owner.inner.fail = Some((SpellCheck::IsSpellReady, R::NotReady));
+        assert!(!SpellStartContext {
+            stores: &stores,
+            starts: &mut starts,
+            events: &mut events,
+            owner: &mut owner
+        }
+        .pet_cast(unit(), 7, None, false, false)
+        .unwrap());
+        assert_eq!(starts.spells[&1].state, SourceSpellState::Finished);
+        assert_eq!(events.inventory().queued.len(), 1);
+        assert_eq!(
+            owner.inner.trace,
+            ["IsSpellReady", "SendResult(NotReady)", "AiCastState(false)"]
+        );
+    }
+    #[test]
+    fn pet_default_foreign_owners_remain_distinct_refusals() {
+        struct Unbound;
+        impl SpellExecutionOwner for Unbound {}
+        assert_eq!(
+            Unbound.pet_has_in_arc(unit(), unit()).unwrap_err().id,
+            "execution.pet_ai.WorldObject_HasInArc_owner"
+        );
+        assert_eq!(
+            Unbound.pet_face_target(unit(), unit()).unwrap_err().id,
+            "execution.pet_ai.Unit_SetFacingToObject_owner"
+        );
+        assert_eq!(
+            Unbound.pet_check_learning(unit(), 7).unwrap_err().id,
+            "execution.pet_ai.Pet_CheckLearning_owner"
+        );
+    }
+}

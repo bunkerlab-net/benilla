@@ -524,7 +524,7 @@ immutable executable binding. Selection alone implements no AI body.
 The factory retains EventAI lifecycle state for that executable and constructs
 NullAI, GuardAI and PossessedAI through `SourceBuiltinAi`. `SourceSummonedAi`
 constructs TotemAI and GuardianAI with the same EventAI loader and holders.
-PetAI keeps its named construction refusal.
+The PetAI factory uses `SourceBuiltinAi::construct_pet` with explicit live owners.
 
 ScriptDev runs first for eligible creatures. A nonnull `GetAI` slot stops at
 `execution.ai.scriptdev_get_ai_constructor_owner`; its unknown return cannot
@@ -1963,14 +1963,28 @@ Death inherits combat-only-root removal for all three classes,
 All three inherit the empty heartbeat callback, `UnitAI.h:415`; the dispatcher
 validates the live selected class before returning.
 Missing melee, spell/aura, motion, assistance and spatial operations retain
-typed refusals at the reached call. PetAI, GuardianAI and TotemAI still require
-their concrete ports. EventAI remains the existing separate implementation.
+typed refusals at the reached call. PetAI has a separate constructor binding;
+GuardianAI and TotemAI use `SourceSummonedAi`. EventAI remains separate.
 
 The builtin catalog test counts ordinary uncontrolled raw-template alternatives,
 not spawned classes or F1 parity. It uses the same retained catalog, ScriptDev
 registry and recorded configuration as the earlier AI censuses. Invented-ID
 tests cover selection, lifecycle and missing-owner order. The version-one
 builtin inventory joins the existing live base state without serialized fields.
+
+PetAI preserves the constructor's follow defaults and imp override,
+`PetAI.cpp:41-65`. Controlled pets read recorded `PetAttackFromBehind` before
+requesting follow data, `World.cpp:736`, `PetAI.cpp:49-53`. Missing spell provenance
+stops at `PetAI.cpp:56`; non-guards then stop at `GetCharmInfo`, `:64`.
+Updates resolve raw charmer and creator GUIDs before timers; missing fields stop
+at `PetAI.cpp:146`, `Unit.cpp:6582,6611`. Authored bindings reach the timer,
+pet-action, and CharmInfo branches, `PetAI.cpp:154-167`, without hostile-target
+selection. Spell selection stops at its first opener read, `:270`.
+Effect-indexed aura checks, pet cast checks, and the real Spell creation
+and SpellStart path have authored tests only, `:429-545,564-587`; the census
+reports them as ported, not reached. The runtime-only inventory includes
+`m_inCombat`; F7 restore still refuses. Native format 91 and persisted bytes
+are unchanged.
 
 ## Source Unit events and heartbeat
 

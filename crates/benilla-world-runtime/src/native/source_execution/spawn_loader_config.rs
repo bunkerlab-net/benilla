@@ -14,6 +14,40 @@ pub struct InstanceResetConfig {
     pub line: usize,
     rate: f32,
 }
+/// World.cpp:736; Config.cpp:117-124. Missing key uses the source false default.
+#[derive(Clone, Debug)]
+pub struct PetAttackFromBehindConfig {
+    pub sha256: Sha256Id,
+    pub line: Option<usize>,
+    enabled: bool,
+}
+impl PetAttackFromBehindConfig {
+    pub fn recorded(path: &Path, approved: &Sha256Id) -> Result<Self> {
+        Self::parse(&recorded_bytes(path, approved)?)
+    }
+    pub fn parse(bytes: &[u8]) -> Result<Self> {
+        let (line, enabled) = match assignment(bytes, "PetAttackFromBehind") {
+            Ok((line, value)) => (
+                Some(line),
+                value == "1"
+                    || value.eq_ignore_ascii_case("true")
+                    || value.eq_ignore_ascii_case("yes"),
+            ),
+            Err(e) if e.id == "execution.spawn_loader.config_missing.PetAttackFromBehind" => {
+                (None, false)
+            }
+            Err(e) => return Err(e),
+        };
+        Ok(Self {
+            sha256: Sha256Id::of(bytes),
+            line,
+            enabled,
+        })
+    }
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+}
 pub(super) fn assignment(bytes: &[u8], key: &str) -> Result<(usize, String)> {
     let text =
         std::str::from_utf8(bytes).map_err(|_| refuse("execution.spawn_loader.config_encoding"))?;
