@@ -164,9 +164,7 @@ impl VerifiedCatalog {
                 "creature_spawn_entry"
                     | "gameobject_spawn_entry"
                     | "creature_conditional_spawn"
-                    | "creature_spawn_data_template"
                     | "gameobject_template"
-                    | "gameobject_addon"
                     | "string_id"
             ),
             "effective_spawns.operand_relation",

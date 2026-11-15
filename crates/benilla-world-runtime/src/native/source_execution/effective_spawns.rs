@@ -347,6 +347,7 @@ impl SourceEffectiveSpawns {
             validation_entry,
             spawn_template: inputs.spawn_templates.contains(&0).then_some(0),
             original_zone: None,
+            // ObjectMgr.cpp:2164 and GameObject.h:695 define the animation default.
             animprogress: 100,
             go_state: -1,
             string_id: 0,

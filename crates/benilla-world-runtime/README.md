@@ -2426,14 +2426,43 @@ Grid expiry and unloading use the recorded configuration, including
 The live MMap owner executes `Map.cpp:202-212`; recorded preload is off.
 Active traversal uses the loaded lists and real grid/terrain owners,
 `ObjectMgr.cpp:9145-9156`, `Map.cpp:146-153,336-353,419-427`.
-Map 0 constructs its first GO candidate, then refuses the missing loaded
-spawn `animprogress` at `GameObject.cpp:896`. Map 1 binds its first creature
-GUID and InitEntry fields, then refuses loaded spawn-template `modelId`
-at `Creature.cpp:666`. Each map has one candidate and no completed objects.
+Map 0 reads its first GO's loaded animation and spawn-group operands, then
+refuses `execution.gameobject.loaded_create_owner` at `GameObject.cpp:923`.
+Map 1 reads its first creature's bound spawn-template model and sums the
+template model probabilities, then refuses
+`execution.creature.loaded_choose_display_id_random_owner` at
+`Creature.cpp:678`. Each map has one candidate and no completed objects.
 The world-thread clone-only next-word check matches `(8712,3411341330)`.
 Global event/status/quest comparisons and WorldState remain beyond the map
 refusal. Seal8 keeps its earlier lunar refusal. Native format 91 is unchanged.
 These comparisons do not admit gameplay or create sealed F1 lineage.
+
+`LoadedCreatureSpawnTemplates` executes `ObjectMgr.cpp:1758-1824`.
+It preserves every assigned override, logs empty names, and clears unknown
+string IDs. `World.cpp:959,1060,1066,1072` orders string IDs, spawn templates,
+creatures, and GOs. Creature spawns bind template 0 at `ObjectMgr.cpp:1971`;
+a valid positive override replaces it at `:2020-2025`. An unknown override
+logs and retains template 0. A missing template 0 remains null and refuses
+at its actual dereference, `Creature.cpp:666`, rather than inventing a model.
+The map value's unused `CreatureSpawnTemplate::entry` is not assigned by
+`ObjectMgr.cpp:1806-1816`; the loaded owner indexes templates by their map key.
+
+GO spawns start with animation 100 and state -1,
+`ObjectMgr.cpp:2164-2165`, `GameObject.h:695`.
+The same loader overlays animation, state, and string ID from
+`gameobject_addon`, `ObjectMgr.cpp:2252-2282`. It checks the previous state,
+not the incoming state, after writing animation. An invalid previous state
+logs and skips the other writes. Unknown string IDs clear to zero.
+An empty addon query dereferences null at `:2255` and has a named refusal.
+Both new catalog readers have fixed relation and column projections.
+The spawn-template reader uses the complete composite primary key, including
+signed flags and equipment. Equal `Entry` rows overwrite the same loaded
+template in that order, `ObjectMgr.cpp:1806-1816`.
+Their restored primary-key order is reference-environment behaviour,
+following `seal16_template_order.rs:86-118`, not an SQL ordering guarantee.
+Seal16 compares both SQL requests and every converted field in row order.
+Neither loader consumes RNG. The stock census prints effective template
+bindings, fallback counts, addon/default counts, diagnostics, and UB reach.
 
 The shared AREA
 reader and DBC flag-selection kernel live in `benilla-native-terrain::grid_area`;

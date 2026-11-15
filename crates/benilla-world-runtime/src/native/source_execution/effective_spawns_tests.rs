@@ -832,3 +832,94 @@ fn loaded_instance_owner_precedes_orientation_validation_and_never_uses_raw_ids(
     );
     assert!(s.records.iter().any(|r| r.reason == "respawn_max_raised"));
 }
+
+#[test]
+fn loaded_spawn_templates_bind_default_explicit_fallback_and_null_at_model_read() {
+    let template = |entry, model| CreatureSpawnTemplateRow {
+        values: [entry, 0, 0, 0, model, 0, 0, 0, 0, 0, 0],
+        name: b"named".to_vec(),
+    };
+    let owner =
+        LoadedCreatureSpawnTemplates::load([template(0, 11), template(5, 22)], &BTreeSet::new());
+    let mut i = inputs();
+    owner.bind_effective_spawns(&mut i);
+    for (requested, binding, model, warning) in [
+        (0, Some(0), 11, false),
+        (5, Some(5), 22, false),
+        (99, Some(0), 11, true),
+    ] {
+        let mut r = row();
+        r.spawn_template = requested;
+        let spawns = loaded(GridSpawnKind::Creature, r, &i);
+        let data = spawns
+            .complete_data(key(GridSpawnKind::Creature))
+            .unwrap()
+            .unwrap();
+        assert_eq!(data.spawn_template, binding);
+        assert_eq!(owner.model_id(data).unwrap(), model);
+        assert_eq!(
+            spawns.records.iter().any(|record| record.line == 2025),
+            warning
+        );
+    }
+    let missing = LoadedCreatureSpawnTemplates::load([template(5, 22)], &BTreeSet::new());
+    missing.bind_effective_spawns(&mut i);
+    let spawns = loaded(GridSpawnKind::Creature, row(), &i);
+    let data = spawns
+        .complete_data(key(GridSpawnKind::Creature))
+        .unwrap()
+        .unwrap();
+    assert_eq!(data.spawn_template, None);
+    assert_eq!(spawns.complete_count(), 1);
+    assert_eq!(
+        missing.model_id(data).unwrap_err().id,
+        "execution.creature.spawn_template_null_dereference_undefined"
+    );
+    let mut r = row();
+    r.spawn_template = 5;
+    let spawns = loaded(GridSpawnKind::Creature, r, &i);
+    assert_eq!(
+        missing
+            .model_id(
+                spawns
+                    .complete_data(key(GridSpawnKind::Creature))
+                    .unwrap()
+                    .unwrap()
+            )
+            .unwrap(),
+        22
+    );
+}
+
+#[test]
+fn gameobject_spawn_defaults_and_all_addon_fields_follow_source_order() {
+    let key = key(GridSpawnKind::GameObject);
+    let mut spawns = loaded(key.kind, row(), &inputs());
+    let fields = |spawns: &SourceEffectiveSpawns| {
+        let data = spawns.complete_data(key).unwrap().unwrap();
+        (data.animprogress, data.go_state, data.string_id)
+    };
+    assert_eq!(fields(&spawns), (100, -1, 0));
+    spawns
+        .apply_gameobject_addons(&[[999, 4, 2, 9]], &BTreeSet::new())
+        .unwrap();
+    assert_eq!(fields(&spawns), (100, -1, 0));
+    spawns
+        .apply_gameobject_addons(&[[7, 255, 3, 9]], &BTreeSet::from([9]))
+        .unwrap();
+    assert_eq!(fields(&spawns), (255, 3, 9));
+    assert!(!spawns.records.iter().any(|record| record.line == 2269));
+    spawns
+        .apply_gameobject_addons(&[[7, 256, 0, 0]], &BTreeSet::new())
+        .unwrap();
+    assert_eq!(fields(&spawns), (256, 3, 9));
+    assert!(spawns.records.iter().any(|record| record.line == 2269));
+    for state in [(-2i32) as u32, (-1i32) as u32, 0, 1, 2] {
+        let mut spawns = loaded(key.kind, row(), &inputs());
+        spawns
+            .apply_gameobject_addons(&[[7, 0, state, 999]], &BTreeSet::new())
+            .unwrap();
+        assert_eq!(fields(&spawns), (0, state as i32, 0));
+        assert!(spawns.records.iter().any(|record| record.line == 2276));
+    }
+}

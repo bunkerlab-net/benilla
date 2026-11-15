@@ -4,10 +4,9 @@ use super::*;
 use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
-pub(super) const CREATURE_SPAWN_MODEL_OWNER: &str =
-    "execution.object_mgr.loaded_creature_spawn_data_template_owner";
-pub(super) const GO_ANIMPROGRESS_OWNER: &str =
-    "execution.effective_spawns.gameobject_animprogress_owner";
+pub(super) const CREATURE_DISPLAY_RANDOM_OWNER: &str =
+    "execution.creature.loaded_choose_display_id_random_owner";
+pub(super) const GO_CREATE_OWNER: &str = "execution.gameobject.loaded_create_owner";
 
 struct Definitions<'a>(&'a SourceEffectiveSpawns);
 impl GridDefinitions for Definitions<'_> {
@@ -44,6 +43,10 @@ pub(super) struct Prefix<'a> {
     pub groups: &'a SourceSpawnGroups,
     pub creature_templates: &'a LoadedCreatureTemplates,
     pub gameobject_templates: &'a LoadedGameObjectTemplates,
+    pub spawn_templates: &'a LoadedCreatureSpawnTemplates,
+    pub inputs: &'a EffectiveSpawnInputs,
+    pub go_animprogress: Option<u32>,
+    pub creature_display_chance: Option<u32>,
     pub guids: &'a mut MapGuidAllocators,
     pub init_entry_fields: Option<(u32, u32, [u8; 2])>,
     pub go_load_operands: Option<(u32, [u32; 4], [u32; 4])>,
@@ -104,8 +107,39 @@ impl<D: GridDefinitions<Row = SpawnKey>, P: GridProductOwner> GridObjectFactory<
                 data.row.rotation.map(f32::to_bits),
             ));
             self.lookups.push("go_position_rotation");
-            // ObjectMgrSpawnRow does not retain GameObjectData::animprogress, GameObject.cpp:896.
-            return Err(refuse(GO_ANIMPROGRESS_OWNER));
+            self.go_animprogress = Some(data.animprogress);
+            self.lookups.push("go_animprogress");
+            let group = self.groups.gameobject_group(attempt.grid.map, key.guid)?;
+            self.lookups.push("go_spawn_group");
+            let mut entry = data.row.entry;
+            if let Some(group) = group {
+                if entry == 0 {
+                    let identity = self
+                        .groups
+                        .group_for(attempt.grid.map, key)?
+                        .ok_or_else(|| refuse("execution.group.constructor_group_absent"))?;
+                    require(identity.handle.id == group.id, "execution.group.identity")?;
+                    entry = self.groups.guid_entry(identity, key.guid)?;
+                }
+            }
+            self.lookups.push("go_group_entry");
+            if self.inputs.random.contains_key(&key) {
+                return Err(refuse("execution.gameobject.loaded_random_entry_owner"));
+            }
+            self.lookups.push("go_random_entry_absent");
+            let info = self.gameobject_templates.get(entry);
+            let allocation = self.guids.spawn_counter(SpawnGuidRequest {
+                high: HighGuid::GameObject,
+                database: key.guid,
+                requested: key.guid,
+                force_dynamic: matches!(attempt.grid.map.map, 533 | 543),
+                extra_dynamic: info.is_some_and(|info| info.words[7] & 2 != 0),
+                group: group.is_some(),
+            })?;
+            require(!allocation.stop_now, "execution.gameobject.guid_stop_now")?;
+            self.lookups.push("go_guid");
+            self.entry = Some(entry);
+            return Err(refuse(GO_CREATE_OWNER));
         }
         // Creature.cpp:136 and :1603-1658. No selected model, stats or AI is supplied before this lookup.
         let object = context
@@ -199,7 +233,22 @@ impl<D: GridDefinitions<Row = SpawnKey>, P: GridProductOwner> GridObjectFactory<
                 "execution.creature.loaded_model_random_gender_owner",
             ));
         }
-        Err(refuse(CREATURE_SPAWN_MODEL_OWNER))
+        let model_id = self.spawn_templates.model_id(data)?;
+        self.lookups.push("creature_spawn_template_model");
+        if model_id != 0 {
+            return Err(refuse(
+                "execution.creature.loaded_model_random_gender_owner",
+            ));
+        }
+        let mut chance = 0u32;
+        for index in 0..4 {
+            if template.words[5 + index] != 0 {
+                chance = chance.wrapping_add(template.words[9 + index]);
+            }
+        }
+        self.creature_display_chance = Some(chance);
+        self.lookups.push("creature_display_chance");
+        Err(refuse(CREATURE_DISPLAY_RANDOM_OWNER))
     }
     fn viewpoint_added(
         &mut self,
@@ -236,6 +285,8 @@ pub(super) struct ActivePrefixReport {
     pub bound_guid: Option<SourceGuid>,
     pub go_load_operands: Option<(u32, [u32; 4], [u32; 4])>,
     pub go_factory_elevator: Option<bool>,
+    pub go_animprogress: Option<u32>,
+    pub creature_display_chance: Option<u32>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -247,6 +298,7 @@ pub(super) fn load_first(
     groups: &SourceSpawnGroups,
     creature_templates: &LoadedCreatureTemplates,
     gameobject_templates: &LoadedGameObjectTemplates,
+    spawn_templates: &LoadedCreatureSpawnTemplates,
     states: &mut SourceManagers,
     products: &mut SourceTerrainManager,
     objects: &mut SourceObjects,
@@ -294,6 +346,10 @@ pub(super) fn load_first(
         groups,
         creature_templates,
         gameobject_templates,
+        spawn_templates,
+        inputs,
+        go_animprogress: None,
+        creature_display_chance: None,
         guids: map
             .guids
             .as_mut()
@@ -402,6 +458,8 @@ pub(super) fn load_first(
         bound_guid,
         go_load_operands: factory.go_load_operands,
         go_factory_elevator: factory.go_factory_elevator,
+        go_animprogress: factory.go_animprogress,
+        creature_display_chance: factory.creature_display_chance,
     })
 }
 

@@ -47,16 +47,16 @@ impl EffectiveSpawnInputs {
             );
         }
         drop(displays);
-        this.spawn_templates = catalog
-            .execution_effective_spawn_operands("creature_spawn_data_template", ["Entry"])?
-            .into_iter()
-            .map(|[id]| id)
-            .collect();
         this.strings = catalog
             .execution_effective_spawn_operands("string_id", ["id"])?
             .into_iter()
             .map(|[id]| id)
             .collect();
+        LoadedCreatureSpawnTemplates::load(
+            catalog.execution_creature_spawn_templates()?,
+            &this.strings,
+        )
+        .bind_effective_spawns(&mut this);
         // The conditional postprocessor logs absent templates but retains rows, :1747-1751.
         this.conditional = catalog
             .execution_effective_spawn_operands(
@@ -137,10 +137,7 @@ impl SourceEffectiveSpawns {
         // This query executes after all GO rows, including rows skipped post-insert.
         // Its prerequisite emptiness is audited, but post-terrain addon state stays private.
         if gameobjects_seen {
-            let addons = catalog.execution_effective_spawn_operands(
-                "gameobject_addon",
-                ["guid", "animprogress", "state", "stringId"],
-            )?;
+            let addons = catalog.execution_gameobject_addons()?;
             this.apply_gameobject_addons(&addons, &inputs.strings)?;
         }
         Ok(this)

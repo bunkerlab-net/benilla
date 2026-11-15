@@ -15,6 +15,7 @@ mod encounters;
 mod graveyards;
 mod loaded_templates;
 mod reader;
+mod spawn_data;
 mod spawns;
 mod startup_items;
 mod template_equipment;

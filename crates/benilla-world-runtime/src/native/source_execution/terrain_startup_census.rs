@@ -394,12 +394,11 @@ fn frozen_startup(later: bool) {
     let instances = LoadedInstanceTemplates::catalog_diagnostic(&mut catalog, &reset).unwrap();
     let mut inputs = EffectiveSpawnInputs::catalog_diagnostic(&mut catalog).unwrap();
     instances.bind_effective_spawns(&mut inputs);
-    let addons = catalog
-        .execution_effective_spawn_operands(
-            "gameobject_addon",
-            ["guid", "animprogress", "state", "stringId"],
-        )
-        .unwrap();
+    let addons = if later {
+        event_inputs.bind_spawn_data(&mut catalog, &mut inputs)
+    } else {
+        catalog.execution_gameobject_addons().unwrap()
+    };
     let mut rows = SelectionOccurrences {
         rows: super::super::production_compiler::ObjectMgrSpawnRows::open(
             &mut catalog,
@@ -553,6 +552,7 @@ fn frozen_startup(later: bool) {
             &mut catalog,
             &mut spawns,
             &inputs,
+            &addons,
             pools,
             Path::new(&event_occurrences),
             event_inputs,

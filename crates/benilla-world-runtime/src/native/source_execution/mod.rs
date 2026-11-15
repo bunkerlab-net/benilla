@@ -268,6 +268,8 @@ mod seal8_corpses;
 pub use seal8_corpses::{compare_seal8_unsealed_corpses, Seal8CorpseReport};
 mod loaded_templates;
 pub use loaded_templates::*;
+mod loaded_spawn_data;
+pub use loaded_spawn_data::*;
 
 use super::production_compiler::{json, ExecutionFile};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
