@@ -4,8 +4,10 @@ use super::*;
 use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
-pub(super) const CREATURE_NEXT_OWNER: &str = "execution.creature.loaded_reset_static_flags_owner";
-pub(super) const GO_NEXT_OWNER: &str = "execution.gameobject.loaded_map_viewpoint_owner";
+pub(super) const CREATURE_NEXT_OWNER: &str = "execution.creature.loaded_creature_addon_store_owner";
+pub(super) const GO_NEXT_OWNER: &str = "execution.gameobject.loaded_script_registry_owner";
+#[path = "seal16_creature_create.rs"]
+mod creature_create;
 #[path = "seal16_creature_entry.rs"]
 mod creature_entry;
 #[path = "seal16_gameobject_init.rs"]
@@ -53,6 +55,12 @@ pub(super) struct Prefix<'a> {
     pub creature_spells: Option<&'a CreatureSpellMapData>,
     pub creature_immunities: &'a LoadedCreatureImmunities,
     pub outdoor_pvp: &'a SourceOutdoorPvp,
+    pub linking: &'a SourceCreatureLinking,
+    pub map_visibility_bits: u32,
+    pub visibility: SourceVisibilityCensus,
+    pub creature_battleground: Option<bool>,
+    pub creature_zone: Option<u32>,
+    pub creature_linking_trigger: bool,
     pub instance_data: Option<&'a mut SourceWorldScript>,
     pub random: &'a mut dyn CreatureRandom,
     pub dynamic_models: &'a mut SourceDynamicModels,
@@ -86,6 +94,7 @@ pub(super) struct Prefix<'a> {
     pub map_entry: PersistentMapEntry,
     pub go_battleground: Option<bool>,
     pub go_zone: Option<u32>,
+    pub go_script_id: Option<u32>,
 }
 impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManager> for Prefix<'_> {
     fn load_from_db(
@@ -230,15 +239,22 @@ impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManag
             model.words,
             context.products,
             attempt.grid.map.map,
-        )
+            context.objects,
+        )?;
+        creature_create::continue_create(self, object, data, template, context)
     }
     fn viewpoint_added(
         &mut self,
-        _: ObjectHandle,
-        _: CellIdentity,
-        _: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
+        object: ObjectHandle,
+        cell: CellIdentity,
+        context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
     ) -> Result<()> {
-        Err(refuse("execution.grid.loaded_viewpoint_owner"))
+        self.lookups.push("grid_viewpoint_added");
+        context
+            .objects
+            .viewpoint_added_to_world(object, cell, context.cells, |_, _, _| {
+                Err(refuse("execution.camera.Camera_104.added_to_world_owner"))
+            })
     }
     fn battleground_db_load(
         &mut self,
@@ -276,6 +292,11 @@ pub(super) struct ActivePrefixReport {
     pub completed: usize,
     pub go_battleground: Option<bool>,
     pub go_zone: Option<u32>,
+    pub go_script_id: Option<u32>,
+    pub visibility: SourceVisibilityCensus,
+    pub creature_battleground: Option<bool>,
+    pub creature_zone: Option<u32>,
+    pub creature_linking_trigger: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -299,6 +320,7 @@ pub(super) fn load_first(
     encounters: &LoadedInstanceEncounters,
     faction_flags: &BTreeMap<u32, u32>,
     outdoor_pvp: &SourceOutdoorPvp,
+    linking: &SourceCreatureLinking,
     states: &mut SourceManagers,
     products: &mut SourceTerrainManager,
     objects: &mut SourceObjects,
@@ -357,6 +379,12 @@ pub(super) fn load_first(
         creature_spells: map.creature_spells.as_ref(),
         creature_immunities,
         outdoor_pvp,
+        linking,
+        map_visibility_bits: map.visibility.to_bits(),
+        visibility: SourceVisibilityCensus::default(),
+        creature_battleground: None,
+        creature_zone: None,
+        creature_linking_trigger: false, // Unit.cpp:419.
         instance_data: map.instance_data.as_mut(),
         random,
         dynamic_models,
@@ -393,6 +421,7 @@ pub(super) fn load_first(
         map_entry: map.entry,
         go_battleground: None,
         go_zone: None,
+        go_script_id: None,
     };
     let autoload =
         super::super::super::spawn_loader_config::assignment(config, "Autoload.Active")?.1 == "1";
@@ -494,6 +523,11 @@ pub(super) fn load_first(
         completed: factory.completed,
         go_battleground: factory.go_battleground,
         go_zone: factory.go_zone,
+        go_script_id: factory.go_script_id,
+        visibility: factory.visibility,
+        creature_battleground: factory.creature_battleground,
+        creature_zone: factory.creature_zone,
+        creature_linking_trigger: factory.creature_linking_trigger,
     })
 }
 

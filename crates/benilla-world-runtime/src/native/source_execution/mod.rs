@@ -76,6 +76,13 @@ pub use seal8_active::{compare_seal8_unsealed_active, Seal8ActiveDifference, Sea
 #[cfg(test)]
 mod active_tests;
 mod cells;
+mod visibility;
+use visibility::WorldVisibility;
+pub use visibility::{SourceVisibilityCensus, SourceVisibilityDistance, SourceVisibilityUpdate};
+mod creature_settings;
+#[cfg(test)]
+use creature_settings::{ControlledLookup, FreshCreatureControl};
+pub use creature_settings::{CreatureStaticFlagApplication, SourceCreatureSettings};
 mod clock;
 mod compare;
 mod creatures;

@@ -44,6 +44,8 @@ pub(in crate::native::source_execution) struct EntryFields {
     pub spell_list: Option<CreatureSpellList>,
     pub immunities: CreatureImmunityState,
     pub chain_immune: bool,
+    pub settings: SourceCreatureSettings,
+    pub control: FreshCreatureControl,
 }
 fn uint_config(config: &[u8], key: &str) -> Result<u32> {
     super::super::super::super::spawn_loader_config::assignment(config, key)?
@@ -140,6 +142,8 @@ fn model_fields(template: &LoadedCreatureInfo, model: [u32; 8]) -> EntryFields {
         spell_list: None,
         immunities: CreatureImmunityState::default(),
         chain_immune: false,
+        settings: SourceCreatureSettings::default(),
+        control: FreshCreatureControl::default(),
     }
 }
 #[allow(clippy::too_many_arguments)]
@@ -153,7 +157,8 @@ pub(super) fn continue_entry(
     model: [u32; 8],
     terrain: &mut SourceTerrainManager,
     map: u32,
-) -> Result<GridCandidateOutcome> {
+    objects: &mut SourceObjects,
+) -> Result<()> {
     // Unit.cpp:330,429-430,8514-8531; MotionMaster.cpp:692-698 has no generators before AIM_Initialize.
     require(
         prefix
@@ -361,17 +366,78 @@ pub(super) fn continue_entry(
     prefix.lookups.push("creature_immunity_set_updated");
     fields.chain_immune = template.words[16] == 8; // Creature.h:624, Unit.h:2073.
     prefix.lookups.push("creature_critter_chain_immunity");
-    let next = if event.is_some() {
-        // Creature.cpp:618-619 calls even when both spell IDs are zero.
-        "execution.creature.loaded_game_event_spells_owner"
-    } else if template.words[91] != 0 || template.words[92] != 0 || spawn.string_id != 0 {
-        "execution.creature.loaded_string_id_owner"
-    } else {
-        prefix.lookups.push("creature_event_and_string_gates");
-        CREATURE_NEXT_OWNER // Creature.cpp:631, CreatureSettings.cpp:29.
-    };
+    if event.is_some() {
+        prefix.creature_entry = Some(fields);
+        return Err(refuse("execution.creature.loaded_game_event_spells_owner"));
+    }
+    if template.words[91] != 0 || template.words[92] != 0 || spawn.string_id != 0 {
+        prefix.creature_entry = Some(fields);
+        return Err(refuse("execution.creature.loaded_string_id_owner"));
+    }
+    prefix.lookups.push("creature_event_and_string_gates");
+    // Creature.cpp:631 writes all settings before any effects, CreatureSettings.cpp:31-49.
+    let result = fields
+        .settings
+        .reset(template.words[25..29].try_into().unwrap(), |application| {
+            match application {
+                CreatureStaticFlagApplication::Visibility(distance) => {
+                    objects.set_visibility_distance_override(object, distance)?
+                }
+                CreatureStaticFlagApplication::UnitFlag(mask) => fields.unit_flags |= mask,
+                CreatureStaticFlagApplication::ImmuneToPlayer
+                | CreatureStaticFlagApplication::ImmuneToNpc => {
+                    let mask = if application == CreatureStaticFlagApplication::ImmuneToPlayer {
+                        0x100
+                    } else {
+                        0x200
+                    };
+                    fields.control.set_immune(
+                        mask,
+                        &mut fields.unit_flags,
+                        objects.get(object)?.in_world,
+                        |kind, guid| {
+                            let Some(map) = objects.get(object)?.map else {
+                                return Ok(None);
+                            };
+                            let found = objects.lookup_world_object(map, guid).filter(|&handle| {
+                                let kind_found = objects.get(handle).unwrap().kind;
+                                if matches!(
+                                    kind,
+                                    ControlledLookup::Pet | ControlledLookup::Guardian
+                                ) {
+                                    kind_found == SourceObjectKind::Pet
+                                } else {
+                                    matches!(
+                                        kind_found,
+                                        SourceObjectKind::Player
+                                            | SourceObjectKind::Creature
+                                            | SourceObjectKind::Pet
+                                    )
+                                }
+                            });
+                            if kind == ControlledLookup::Totem && found.is_some() {
+                                return Err(refuse(
+                                    "execution.creature_settings.Unit_6854.totem_fields_owner",
+                                ));
+                            }
+                            Ok(found)
+                        },
+                        |_, mask| {
+                            Err(refuse(if mask == 0x100 {
+                                "execution.creature_settings.Unit_10704.controlled_flags_owner"
+                            } else {
+                                "execution.creature_settings.Unit_10685.controlled_flags_owner"
+                            }))
+                        },
+                    )?;
+                }
+            }
+            Ok(())
+        });
     prefix.creature_entry = Some(fields);
-    Err(refuse(next))
+    result?;
+    prefix.lookups.push("creature_static_flags_reset");
+    Ok(())
 }
 #[cfg(test)]
 mod tests {

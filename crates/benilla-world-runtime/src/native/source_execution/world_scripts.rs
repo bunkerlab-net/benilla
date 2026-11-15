@@ -48,6 +48,27 @@ impl SourceWorldScript {
     pub fn encounter_in_progress(&self) -> bool {
         false
     }
+    /// world_eastern_kingdoms.cpp:69-86; world_kalimdor.cpp:70-87.
+    pub fn creature_create(&mut self, entry: u32, guid: u64) {
+        if entry == 16421 {
+            self.stores
+                .creature_collections
+                .entry(entry)
+                .or_default()
+                .push(guid);
+        }
+        let store = match &self.state {
+            WorldScriptState::EasternKingdoms => {
+                matches!(entry, 466 | 1747 | 1748 | 1749 | 12580 | 5635 | 14508)
+            }
+            WorldScriptState::Kalimdor(_) => {
+                matches!(entry, 6019 | 10323 | 15467 | 14464 | 14457 | 14454 | 14461)
+            }
+        };
+        if store {
+            self.stores.creatures.insert(entry, guid);
+        }
+    }
     /// world_eastern_kingdoms.cpp:100-108; world_kalimdor.cpp:173-200.
     /// True requests the caller's SetActiveObjectState at world_kalimdor.cpp:179.
     pub fn gameobject_create(&mut self, entry: u32, guid: u64) -> bool {
@@ -176,5 +197,49 @@ impl WorldInstanceStorage for SnapshotWorldStorage<'_> {
         self.issued
             .push(format!("INSERT INTO world VALUES ('{map}', '')"));
         Ok(())
+    }
+}
+
+#[test]
+fn world_creature_create_uses_continent_keys_and_preserves_collection_order() {
+    let map = MapIdentity {
+        map: 0,
+        instance: 0,
+        creation_generation: 1,
+    };
+    for (state, keys) in [
+        (
+            WorldScriptState::EasternKingdoms,
+            [466, 1747, 1748, 1749, 12580, 5635, 14508],
+        ),
+        (
+            WorldScriptState::Kalimdor(KalimdorWorldState::default()),
+            [6019, 10323, 15467, 14464, 14457, 14454, 14461],
+        ),
+    ] {
+        let mut script = SourceWorldScript {
+            map,
+            stores: WorldScriptStores::default(),
+            state,
+        };
+        script.creature_create(4692, 99);
+        assert!(script.stores.creatures.is_empty());
+        for entry in keys {
+            script.creature_create(entry, u64::from(entry) + 1000);
+        }
+        assert_eq!(
+            script
+                .stores
+                .creatures
+                .keys()
+                .copied()
+                .collect::<std::collections::BTreeSet<_>>(),
+            keys.into_iter().collect::<std::collections::BTreeSet<_>>()
+        );
+        script.creature_create(keys[0], 17);
+        assert_eq!(script.stores.creatures[&keys[0]], 17);
+        script.creature_create(16421, 9);
+        script.creature_create(16421, 10);
+        assert_eq!(script.stores.creature_collections[&16421], [9, 10]);
     }
 }

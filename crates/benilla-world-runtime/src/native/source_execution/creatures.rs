@@ -901,7 +901,7 @@ where
     factory.creature_phase(CreaturePhase::MapAddViewpoint, state, context)?;
     factory.creature_phase(CreaturePhase::MapAddVisibility, state, context)
 }
-fn valid_position(position: [f32; 4]) -> bool {
+pub(super) fn valid_position(position: [f32; 4]) -> bool {
     // Position validity has a half-yard margin, unlike cell conversion; GridDefines.h:177-194.
     const LIMIT: f64 = (533.333_3_f32 * 64.0 / 2.0) as f64 - 0.5;
     position.iter().all(|v| v.is_finite())

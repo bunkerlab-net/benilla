@@ -195,11 +195,61 @@ impl<D: GridDefinitions<Row = SpawnKey>> GameObjectFactoryOwner<D, SourceTerrain
         }
         if callback == GameObjectCallback::LargeVisibility {
             self.lookups.push("go_large_object_predicate");
-            return if self.gameobjects.get(handle)?.template.large() {
-                Err(refuse("execution.gameobject.loaded_large_visibility_owner"))
-            } else {
-                Ok(())
-            };
+            if self.gameobjects.get(handle)?.template.large() {
+                context
+                    .objects
+                    .set_visibility_distance_override(handle, SourceVisibilityDistance::Large)?;
+            }
+            return Ok(());
+        }
+        if callback == GameObjectCallback::MapViewpoint {
+            self.lookups.push("go_map_viewpoint_added");
+            let cell = context
+                .cells
+                .registered_cell(handle)
+                .ok_or_else(|| refuse("execution.visibility.map_add_cell_binding"))?;
+            context
+                .objects
+                .viewpoint_added_to_world(handle, cell, context.cells, |_, _, _| {
+                    Err(refuse("execution.camera.Camera_104.added_to_world_owner"))
+                })?;
+            return Ok(());
+        }
+        if callback == GameObjectCallback::MapVisibility {
+            self.lookups.push("go_map_visibility_traversal");
+            context.objects.map_add_visibility(
+                SourceVisibilityUpdate {
+                    object: handle,
+                    map_distance_bits: self.map_visibility_bits,
+                    // GameObject.cpp:2209-2212; ObjectDefines.h:42, not model bounds.
+                    bounding_radius_bits: 0x3ec7_2b02,
+                },
+                context.cells,
+                &mut self.visibility,
+                |_, _, _, _| {
+                    Err(refuse(
+                        "execution.visibility.GridNotifiers_36.camera_update_owner",
+                    ))
+                },
+                |_, _, _, _| Err(refuse("execution.visibility.Map_1348.player_update_owner")),
+            )?;
+            self.lookups.push("go_map_visibility_complete");
+            return Ok(());
+        }
+        if callback == GameObjectCallback::InitializeAi {
+            self.lookups.push("go_ai_script_factory_lookup");
+            // GameObject.cpp:2530 -> ScriptDevAIMgr.cpp:375 evaluates GetScriptId before GetScript.
+            self.lookups.push("go_ai_gameobject_info");
+            let entry = self.gameobjects.get(handle)?.template.entry;
+            self.go_script_id = Some(
+                self.gameobject_templates
+                    .get(entry)
+                    .ok_or_else(|| refuse("execution.gameobject.template_binding"))?
+                    .words[37],
+            );
+            self.lookups.push("go_ai_script_registry_lookup");
+            // ScriptDevAIMgr.cpp:438-439 reads m_scripts[0] even for ID0, not an assumed null.
+            return Err(refuse(GO_NEXT_OWNER));
         }
         Err(refuse(match callback {
             GameObjectCallback::TemplateString(_) | GameObjectCallback::GroupString(_) => {
@@ -211,13 +261,11 @@ impl<D: GridDefinitions<Row = SpawnKey>> GameObjectFactoryOwner<D, SourceTerrain
             GameObjectCallback::CreateInstance => {
                 "execution.gameobject.loaded_instance_create_owner"
             }
-            GameObjectCallback::LargeVisibility => {
-                "execution.gameobject.loaded_large_visibility_owner"
-            }
             GameObjectCallback::BindGroup(_) => "execution.gameobject.loaded_bind_group_owner",
-            GameObjectCallback::MapViewpoint => "execution.gameobject.loaded_map_viewpoint_owner",
-            GameObjectCallback::MapVisibility => "execution.gameobject.loaded_map_visibility_owner",
-            GameObjectCallback::InitializeAi => "execution.gameobject.loaded_ai_initialize_owner",
+            GameObjectCallback::LargeVisibility
+            | GameObjectCallback::MapViewpoint
+            | GameObjectCallback::MapVisibility
+            | GameObjectCallback::InitializeAi => unreachable!("handled above"),
             GameObjectCallback::RemoveOutdoorAndOwner => "execution.gameobject.loaded_remove_owner",
         }))
     }

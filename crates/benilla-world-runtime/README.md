@@ -2736,3 +2736,22 @@ census counts only constructed creatures that reach this call. Raw-pose
 waypoint diagnostics still refuse without a selected display and remain
 separate from constructed execution. Native format remains 91.
 
+## Source map-add visibility and creature settings
+
+`SourceCreatureSettings::reset` stores all four flags before applying effects
+in source order, `CreatureSettings.cpp:29-49`. Visibility overrides retain
+the last write. Clearing a static flag does not undo a previous effect.
+The fresh creature prefix traverses its constructor-owned control GUIDs and
+sets, `Unit.h:2674-2706`, before continuing static relocation and continent
+creation callbacks, `Creature.cpp:906-932`.
+
+World objects retain their viewpoint cell and attached camera list,
+`Camera.h:89-115`. Map-add visibility traverses actual loaded camera cell
+lists with NoCreate, `Map.cpp:1335-1350`, including the copied unvisited
+recipient set. It does not special-case player absence. Receiver callbacks
+retain named refusals until their player owners exist. A camera callback
+that invalidates its current intrusive reference refuses at the following
+source iterator increment, `GridNotifiers.cpp:34-37`.
+The new-object flag remains set on a refused update, `Map.cpp:502-504`.
+These unsaved owners do not change native format 91.
+

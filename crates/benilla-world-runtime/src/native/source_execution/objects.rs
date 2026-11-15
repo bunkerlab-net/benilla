@@ -96,6 +96,8 @@ pub struct SourceObject {
     pub database_spawn_data: bool,
     // Cache UpdateZone callbacks separately from terrain GetZoneId; Player.cpp:505,6854.
     pub zone_update_id: u32,
+    pub is_new_object: bool,
+    pub(super) visibility: Option<WorldVisibility>,
     // Corpse GridReference can differ from SetMap; ObjectAccessor.cpp:203-221.
     pub(super) corpse_grid_reference: Option<CellIdentity>,
     pub(super) source_allocation: Option<u64>,
@@ -158,6 +160,12 @@ impl SourceObjects {
                 respawn_pose: None,
                 database_spawn_data: false,
                 zone_update_id: 0,
+                is_new_object: false, // Object.cpp:48.
+                visibility: (!matches!(
+                    kind,
+                    SourceObjectKind::Camera | SourceObjectKind::Item | SourceObjectKind::Container
+                ))
+                .then(WorldVisibility::default),
                 corpse_grid_reference: None,
                 source_allocation: None,
                 allocation_base: None,

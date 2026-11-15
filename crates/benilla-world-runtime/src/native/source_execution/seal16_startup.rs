@@ -1858,6 +1858,11 @@ pub(super) fn continue_startup(
             completed,
             go_battleground,
             go_zone,
+            go_script_id,
+            visibility,
+            creature_battleground,
+            creature_zone,
+            creature_linking_trigger,
         } = active_init::load_first(
             &mut continents.maps[slot],
             owner.spawns,
@@ -1878,6 +1883,7 @@ pub(super) fn continue_startup(
             &encounters,
             &faction_flags,
             &outdoor_pvp,
+            &links,
             &mut states,
             geometry,
             &mut active_objects,
@@ -1911,6 +1917,12 @@ pub(super) fn continue_startup(
                     "go_persistent_respawn_read",
                     "go_model", // GameObject.cpp:126 inserts the model during AddToWorld.
                     "go_model", // GameObject.cpp:131 enables collision after world membership.
+                    "go_map_viewpoint_added",
+                    "go_map_visibility_traversal",
+                    "go_map_visibility_complete",
+                    "go_ai_script_factory_lookup",
+                    "go_ai_gameobject_info",
+                    "go_ai_script_registry_lookup",
                 ]
             } else {
                 vec![
@@ -1940,6 +1952,18 @@ pub(super) fn continue_startup(
                     "creature_immunity_set_updated",
                     "creature_critter_chain_immunity",
                     "creature_event_and_string_gates",
+                    "creature_static_flags_reset",
+                    "creature_select_final_point_static",
+                    "creature_final_position_relocated_valid",
+                    "creature_create_battleground",
+                    "creature_create_zone",
+                    "creature_outdoor_pvp_get_script",
+                    "creature_instance_data",
+                    "creature_instance_on_creature_create",
+                    "creature_linking_slave_lookup",
+                    "creature_linking_trigger_lookup",
+                    "creature_load_addon",
+                    "creature_db_addon_lookup",
                 ]
             }
         );
@@ -1998,6 +2022,25 @@ pub(super) fn continue_startup(
                 0
             );
             assert!(active_objects.get(candidate).unwrap().in_world);
+            assert!(!active_objects.get(candidate).unwrap().is_new_object);
+            assert_eq!(
+                active_objects.viewpoint_cell(candidate).unwrap(),
+                continents.maps[slot].cells.registered_cell(candidate)
+            );
+            assert!(visibility.considered_cells > 0 && visibility.loaded_cells > 0);
+            assert_eq!(
+                (
+                    visibility.cameras,
+                    visibility.unvisited_guids,
+                    visibility.residual_players
+                ),
+                (0, 0, 0)
+            );
+            assert_eq!(
+                go_script_id,
+                Some(gameobject_templates.get(entry).unwrap().words[37])
+            );
+            assert_eq!(go_script_id, Some(0));
             assert_eq!(
                 evidence.first_candidate_rng,
                 [("urand".into(), 601, 900, 900, Some(900))]
@@ -2136,6 +2179,29 @@ pub(super) fn continue_startup(
             assert!(creature_immunities.get(entry, 0).is_none());
             assert_eq!(fields.immunities.set, u32::MAX);
             assert_eq!(&template.words[91..93], &[0, 0]);
+            assert_eq!(fields.settings.flags, template.words[25..29]);
+            assert_eq!(
+                active_objects.visibility_override_bits(candidate).unwrap(),
+                0
+            );
+            assert_eq!(creature_battleground, Some(false));
+            assert!(![139, 1377].contains(&creature_zone.unwrap()));
+            assert!(!creature_linking_trigger);
+            assert!(links.lookup(entry, attempt.guid, slot as u32).is_none());
+            assert!(!links.event_trigger(entry, attempt.guid, slot as u32));
+            assert!(continents.maps[slot]
+                .instance_data
+                .as_ref()
+                .unwrap()
+                .stores
+                .creatures
+                .is_empty());
+            assert_eq!(
+                active_objects.pose(candidate).unwrap(),
+                active_objects.get(candidate).unwrap().respawn_pose.unwrap()
+            );
+            assert!(!active_objects.get(candidate).unwrap().in_world);
+            println!("F6_CREATURE_CREATE map={slot} static_flags={:?} unit_flags={} visibility_override_bits={} zone={creature_zone:?} linking_trigger={creature_linking_trigger}",fields.settings.flags,fields.unit_flags,active_objects.visibility_override_bits(candidate).unwrap());
             assert_eq!(
                 evidence.first_candidate_rng,
                 [
@@ -2182,6 +2248,7 @@ pub(super) fn continue_startup(
             ))
         );
         assert_eq!(completed, 0);
+        println!("F6_VISIBILITY map={slot} census={visibility:?} invalidated_camera_iterator_stock_reach={}",visibility.cameras);
         println!("F6_ACTIVE_PREFIX map={slot} first_grid={:?} candidate_guid={} entry={entry} candidate_allocations={candidates} completed_objects={completed} next_owner={}", evidence.first_grid, attempt.guid, refusal.id);
         assert_eq!(continents.maps[slot].graveyards, world_graveyards);
         assert_eq!(
@@ -2254,7 +2321,7 @@ pub(super) fn continue_startup(
             serde_json::to_value(states.state(state).unwrap().pools()).unwrap(),
             expected
         );
-        println!("F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={} next_owner={} next_source={}", matched_map_words[slot], evidence.pool_members.iter().map(BTreeSet::len).sum::<usize>(), evidence.pool_counts.len(), shuffles.len(), evidence.pool_snapshot_line.unwrap(), encounters.by_map(slot as u32).len(), refusal.id, if slot == 0 { "Map.cpp:501" } else { "Creature.cpp:631" });
+        println!("F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={} next_owner={} next_source={}", matched_map_words[slot], evidence.pool_members.iter().map(BTreeSet::len).sum::<usize>(), evidence.pool_counts.len(), shuffles.len(), evidence.pool_snapshot_line.unwrap(), encounters.by_map(slot as u32).len(), refusal.id, if slot == 0 { "ScriptDevAIMgr.cpp:439" } else { "Creature.cpp:2299" });
         owner.states = states;
         let raw = trace
             .iter()
