@@ -3,6 +3,7 @@
 use crate::{Error, TileInput};
 use std::collections::{BTreeMap, BTreeSet};
 pub(crate) const GRID: f32 = 533.3333;
+pub(crate) mod live;
 // Eight-seed/selector maximum 12,386 polygons; next power of two leaves 32.3% headroom.
 pub(crate) const MAX_POLYS: usize = 1 << 14;
 // The two selector tiles total 22,802 polygons and 80,718 detail items; round each up.
@@ -17,7 +18,6 @@ pub(crate) struct Validated<'a> {
     pub tiles: Vec<&'a [u8]>,
     pub origin: [f32; 3],
     pub agent: [f32; 3],
-    live: LiveTileValidation,
 }
 fn bad() -> Error {
     Error::Format
@@ -88,76 +88,6 @@ struct Portal {
     b: [f32; 3],
 }
 
-/// Cached insertion checks. Query restrictions remain identical to `decode`.
-pub(crate) struct LiveTileValidation {
-    work: Vec<TileWork>,
-    portals: Vec<Portal>,
-}
-impl LiveTileValidation {
-    pub(crate) fn coordinates(&self) -> [i32; 2] {
-        self.work[0].xy
-    }
-    pub(crate) fn connecting<'a>(
-        &self,
-        neighbours: impl Iterator<Item = &'a Self>,
-    ) -> Result<(), Error> {
-        // Layer zero and unique tile locations bound this stack to eight neighbours.
-        let empty = TileWork {
-            xy: [0; 2],
-            edges: 0,
-            portals: [0; 8],
-        };
-        let mut work = [empty; 9];
-        work[0] = self.work[0];
-        let mut len = 1;
-        for other in neighbours {
-            if len == work.len() {
-                return Err(Error::Identity);
-            }
-            work[len] = other.work[0];
-            len += 1;
-            if self
-                .portals
-                .len()
-                .saturating_mul(other.portals.len())
-                .saturating_mul(2)
-                > 1_048_576
-            {
-                return Err(Error::Budget);
-            }
-            // Only the new/old pair can acquire new links. No resident tile is reparsed.
-            for (from, to) in [
-                (&self.portals, &other.portals),
-                (&other.portals, &self.portals),
-            ] {
-                for a in from {
-                    let mut matches = 0;
-                    for b in to {
-                        let delta = match a.side {
-                            0 => [1, 0],
-                            2 => [0, 1],
-                            4 => [-1, 0],
-                            6 => [0, -1],
-                            _ => return Err(Error::Unsupported),
-                        };
-                        if b.tile == [a.tile[0] + delta[0], a.tile[1] + delta[1]]
-                            && b.side == (a.side + 4) % 8
-                            && source_portals_connect(a, b)?
-                        {
-                            matches += 1;
-                            if matches > 1 {
-                                return Err(Error::Unsupported);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        native_load_work(&work[..len])?;
-        Ok(())
-    }
-}
-
 pub(crate) fn live_params(params: &[u8]) -> Result<(), Error> {
     if params.len() != 28 {
         return Err(Error::Framing);
@@ -173,9 +103,6 @@ pub(crate) fn live_params(params: &[u8]) -> Result<(), Error> {
     Ok(())
 }
 
-pub(crate) fn live_tile(params: &[u8], input: TileInput<'_>) -> Result<LiveTileValidation, Error> {
-    Ok(Validated::decode(params, &[input])?.live)
-}
 impl<'a> Validated<'a> {
     pub fn decode(params: &'a [u8], inputs: &'a [TileInput<'a>]) -> Result<Self, Error> {
         if params.len() != 28 {
@@ -503,10 +430,6 @@ impl<'a> Validated<'a> {
             tiles,
             origin,
             agent,
-            live: LiveTileValidation {
-                work: load_tiles,
-                portals: all_portals,
-            },
         })
     }
 }

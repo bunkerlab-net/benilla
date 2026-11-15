@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Mutable MoveMap mesh. No sliced search, route, or PathFinder filter is constructed.
+pub use crate::validate::live::UndefinedTile;
 use crate::{validate, Error, TileInput};
 use std::{collections::BTreeMap, ffi::c_void, ptr::NonNull, rc::Rc};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LiveError {
     NumericBinding,
-    OffMeshNumericBinding,
+    UndefinedTile(UndefinedTile),
     Validation(Error),
     Allocation,
     StaleQuery,
@@ -49,7 +50,6 @@ impl Drop for Query {
 }
 struct Tile {
     reference: u64,
-    validation: validate::LiveTileValidation,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SlotState {
@@ -170,22 +170,12 @@ impl MapMesh {
             if word(24) != 7 {
                 return Err(LiveError::Native(0x8000_0002));
             }
-            if bytes.len() >= 76 && word(72) != 0 {
-                // DetourNavMesh.cpp:561-610 reaches closestPointOnPoly and sqrt.
-                return Err(LiveError::OffMeshNumericBinding);
-            }
         }
         let grid = input.grid;
-        let validation = validate::live_tile(&self.params, input)?;
-        let xy = validation.coordinates();
-        validation.connecting(self.tiles.values().filter_map(|tile| {
-            let other = tile.validation.coordinates();
-            ((other[0] - xy[0]).abs() <= 1 && (other[1] - xy[1]).abs() <= 1)
-                .then_some(&tile.validation)
-        }))?;
+        validate::live::tile(input)?;
         let mut reference = 0;
-        // SAFETY: complete existing tile validation plus all new cross-tile checks.
-        // No offmesh polygon is admitted. Portal roundf has finite inputs in [0,255].
+        // SAFETY: all sections, indices and undefined native dependencies were checked.
+        // Pinned addTile owns topology, portal matching and offmesh squared distances.
         let status = unsafe {
             ffi::benilla_live_add(
                 self.raw.as_ptr(),
@@ -195,13 +185,7 @@ impl MapMesh {
             )
         };
         native(status)?;
-        self.tiles.insert(
-            grid,
-            Tile {
-                reference,
-                validation,
-            },
-        );
+        self.tiles.insert(grid, Tile { reference });
         Ok(reference)
     }
     pub fn remove_tile(&mut self, grid: [u8; 2]) -> Result<bool, LiveError> {
@@ -321,3 +305,7 @@ pub use pathfinder::{DistanceDeclaration, PathCache, PathDistance};
 #[cfg(all(test, benilla_native_detour))]
 #[path = "live_tests.rs"]
 mod tests;
+
+#[cfg(all(test, benilla_native_detour))]
+#[path = "live_admission_tests.rs"]
+mod admission_tests;

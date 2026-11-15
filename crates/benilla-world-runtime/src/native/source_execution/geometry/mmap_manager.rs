@@ -357,10 +357,26 @@ impl SourceMMapManager {
     }
 }
 pub(super) fn mmap_error(error: LiveError) -> Refusal {
-    use benilla_native_nav::Error;
+    use benilla_native_nav::{live::UndefinedTile, Error};
     refuse(match error {
         LiveError::NumericBinding => "execution.mmap.reference_cpu_fp_binding",
-        LiveError::OffMeshNumericBinding => "execution.mmap.offmesh_nearest_numeric_owner",
+        LiveError::UndefinedTile(error) => match error {
+            UndefinedTile::ZeroMaxLinks => "execution.mmap.undefined_zero_max_links",
+            UndefinedTile::PolygonVertexCount => "execution.mmap.undefined_polygon_vertex_count",
+            UndefinedTile::CoarseVertexIndex => "execution.mmap.undefined_coarse_vertex_index",
+            UndefinedTile::InternalPolygonIndex => {
+                "execution.mmap.undefined_internal_polygon_index"
+            }
+            UndefinedTile::DetailRange => "execution.mmap.undefined_detail_range",
+            UndefinedTile::DetailVertexIndex => "execution.mmap.undefined_detail_vertex_index",
+            UndefinedTile::NonCardinalPortal => "execution.mmap.undefined_noncardinal_portal",
+            UndefinedTile::MissingDetailBoundary => {
+                "execution.mmap.undefined_missing_detail_boundary"
+            }
+            UndefinedTile::BvIndex => "execution.mmap.undefined_bv_index",
+            UndefinedTile::BvEscape => "execution.mmap.undefined_bv_escape",
+            UndefinedTile::OffMeshPolygonIndex => "execution.mmap.undefined_offmesh_polygon_index",
+        },
         LiveError::Validation(Error::Format) => "execution.mmap.tile_format",
         LiveError::Validation(Error::Framing) => "execution.mmap.tile_framing",
         LiveError::Validation(Error::Unsupported) => {

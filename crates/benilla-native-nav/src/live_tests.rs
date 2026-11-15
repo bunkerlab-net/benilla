@@ -107,13 +107,13 @@ fn free_slot_salts_and_links_keep_source_history_after_failed_validation() {
 }
 
 #[test]
-fn detour_header_failures_keep_source_status_and_offmesh_numerics_are_not_approximated() {
+fn detour_header_failures_and_truncated_offmesh_sections_preserve_state() {
     let mut mesh = MapMesh::new(PARAMS).unwrap();
     let before = mesh.slots().collect::<Vec<_>>();
     for (offset, word, expected) in [
         (20, 0, LiveError::Native(0x8000_0001)),
         (24, 8, LiveError::Native(0x8000_0002)),
-        (72, 1, LiveError::OffMeshNumericBinding),
+        (72, 1, LiveError::Validation(Error::Framing)),
     ] {
         let mut bytes = A.to_vec();
         bytes[offset..offset + 4].copy_from_slice(&u32::to_le_bytes(word));

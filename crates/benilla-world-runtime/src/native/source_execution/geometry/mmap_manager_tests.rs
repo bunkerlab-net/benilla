@@ -218,3 +218,58 @@ fn map_startup_navigation_dispatch_uses_concrete_owner_and_ignored_maps_still_lo
     assert!(work.0.unload_instance(0, 7));
     assert_eq!(work.0.mesh_count(), 1);
 }
+
+#[test]
+fn live_tile_admission_names_undefined_reads_without_mutating_manager_state() {
+    // DetourNavMesh.cpp:1004,540-543,646-648,673,705-708 and :76-112.
+    let ps = 120 + 14 * 12;
+    let ts = ps + 4 * 32 + 18 * 16 + 4 * 12;
+    let mut cases = Vec::new();
+    let mut bytes = A.to_vec();
+    bytes[52..56].copy_from_slice(&0u32.to_le_bytes());
+    cases.push((bytes, "execution.mmap.undefined_zero_max_links"));
+    let mut bytes = A.to_vec();
+    bytes[ps + 30] = 7;
+    cases.push((bytes, "execution.mmap.undefined_polygon_vertex_count"));
+    let mut bytes = A.to_vec();
+    bytes[ps + 4..ps + 6].copy_from_slice(&14u16.to_le_bytes());
+    cases.push((bytes, "execution.mmap.undefined_coarse_vertex_index"));
+    let mut bytes = A.to_vec();
+    bytes[ts] = 4;
+    cases.push((bytes, "execution.mmap.undefined_detail_vertex_index"));
+    let mut bytes = A.to_vec();
+    bytes[ps + 16..ps + 18].copy_from_slice(&0x8001u16.to_le_bytes());
+    cases.push((bytes, "execution.mmap.undefined_noncardinal_portal"));
+    let mut bytes = A.to_vec();
+    bytes[ts + 3] = 0;
+    bytes[ts + 7] = 0;
+    cases.push((bytes, "execution.mmap.undefined_missing_detail_boundary"));
+    for (bytes, id) in cases {
+        let mut manager = configured();
+        mesh(&mut manager);
+        let query = manager.query(0, 0).unwrap();
+        manager.files.tile_bytes(0, 32, 32, bytes);
+        assert_eq!(manager.load_tile(0, 32, 32).unwrap_err().id, id);
+        assert_eq!(manager.tile_count(), 0);
+        assert!(query.same_query(&manager.query(0, 0).unwrap()));
+        manager.files.tile_bytes(0, 32, 32, A.to_vec());
+        assert_eq!(manager.load_tile(0, 32, 32).unwrap(), MMapLoad::Loaded);
+    }
+}
+
+#[test]
+fn live_magma_and_unused_outer_metadata_load_through_source_framing() {
+    // MoveMap.cpp:235-267 ignores outer dtVersion/usesLiquids and trailing file bytes.
+    let mut manager = configured();
+    mesh(&mut manager);
+    let mut bytes = A.to_vec();
+    let ps = 120 + 14 * 12;
+    bytes[ps + 28..ps + 30].copy_from_slice(&8u16.to_le_bytes());
+    bytes[ps + 31] = 8;
+    bytes[4..8].copy_from_slice(&99u32.to_le_bytes());
+    bytes[16..20].copy_from_slice(&42u32.to_le_bytes());
+    bytes.extend_from_slice(b"ignored after the declared payload");
+    manager.files.tile_bytes(0, 32, 32, bytes);
+    assert_eq!(manager.load_tile(0, 32, 32).unwrap(), MMapLoad::Loaded);
+    assert_eq!(manager.tile_count(), 1);
+}

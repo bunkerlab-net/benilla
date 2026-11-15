@@ -1121,8 +1121,8 @@ acceptance or production gameplay authority; those require separate live proofs.
 ## Live mutable map meshes
 
 `live::MapMesh` shares one pinned Detour mesh across distinct 1024-node
-map-instance queries. It uses the existing source query profile and complete
-tile validator. It does not use the bounded 512-node sliced-search path or
+map-instance queries. It uses the existing source query profile and live
+structural reader. It does not use the bounded 512-node sliced-search path or
 convert immutable `SourceMapQuery` leases into manager-owned queries.
 
 The runtime `SourceMMapManager` ports `src/game/MotionGenerators/MoveMap.cpp:45-83,102-163,198-278,356-509`
@@ -1138,10 +1138,9 @@ Queries use `DetourNavMeshQuery.cpp:171-223`. The bridge owns aligned
 serialized buffers separately from Detour, as the existing immutable bridge
 does. It frees buffers only after successful removal or mesh destruction.
 
-The live loader caches validated topology and checks only new neighbouring
-connections. Existing polygon, detail, byte, work, and one-to-one portal
-restrictions remain refusals, not repaired products. Offmesh insertion refuses
-before `baseOffMeshLinks` reaches unbound nearest/detail-height arithmetic.
+The live loader validates structural and index safety without reconstructing
+polygon, detail-edge or portal topology. The bounded loader's seed limits
+remain separate.
 Supported insertion uses x86-64 IEEE arithmetic with RNE and FTZ/DAZ disabled;
 portal `roundf` arguments are finite and bounded to `[0,255]`.
 No trigonometric or approximate libm implementation supplies geometry.
@@ -1159,3 +1158,27 @@ A partial element of one through 19 bytes refuses under C11 7.21.8.1p2,
 because its value is indeterminate. A complete 20-byte header follows the
 normal source branches. Short `dtNavMeshParams` reads remain refused, including
 zero bytes, because that object has no constructor.
+
+## Live tile admission
+
+The mutable `live::MapMesh` uses a separate structural reader. The bounded
+`Mesh` and `SourceMapQuery` retain the restricted validator above.
+`MoveMap.cpp:232-278` checks the outer magic, MMap version, complete payload read
+and Detour failure bit. `DetourNavMesh.cpp:913-970` checks native magic/version,
+occupied coordinates and free slots. Its DT64 build has no seed polygon cap.
+
+Live insertion preserves serialized vertex positions, triangle winding and
+boundary flags, repeated edges, magma/slime and offmesh connections.
+`DetourCommon.cpp:214-225` handles both determinant signs;
+`DetourNavMesh.cpp:632-674` scans serialized detail edges without reconstructing
+their topology. Multiple portal matches, four-match truncation and link-pool
+exhaustion follow the original native code at `339-347,415-449`.
+Offmesh insertion at `568-615,760-805` uses squared distances, not `sqrtf`.
+The existing bridge performs every connection and owns aligned buffers.
+
+Structural/index validation precedes native reads. Named undefined-tile errors
+retain the zero-link guard at `DetourNavMesh.cpp:1004`, fixed polygon-array
+bounds at `540-543,687-690`, coarse/detail index bounds at `646-648,705-708`,
+cardinal portal sides at `76-112,306-307,337`, and a selectable detail boundary
+before the null-endpoint fallback at `673`.
+No source bytes, serialized state, profile, digest or native format changes.
