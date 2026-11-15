@@ -82,6 +82,8 @@ mod creatures;
 pub use creatures::*;
 mod loaded_creature_models;
 pub use loaded_creature_models::*;
+mod creature_spell_lists;
+pub use creature_spell_lists::*;
 mod creature_level;
 pub use creature_level::*;
 mod seal8_creatures;
@@ -104,6 +106,8 @@ pub use seal8_grids::{compare_seal8_unsealed_grids, Seal8GridReport};
 mod continents;
 mod graveyards;
 pub use graveyards::*;
+mod outdoor_pvp;
+pub use outdoor_pvp::*;
 mod encounters;
 pub use encounters::*;
 #[cfg(test)]

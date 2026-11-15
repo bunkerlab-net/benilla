@@ -2652,3 +2652,13 @@ speed, waypoint-loader, or recorded motion owners. Stock Home invocation
 opportunities remain unavailable. No F1 equality, gameplay admission, or
 persisted-state change is claimed. Native format remains 91.
 
+## Loaded outdoor PvP and creature spell lists
+
+The source-execution owners port `InitOutdoorPvP` and `GetScript`,
+`OutdoorPvPMgr.cpp:50-72`, and the ordered modern, cooldown and legacy spell-list
+loaders, `World.cpp:1030-1036`. Maps retain their loaded spell-list container.
+`Creature::SetSpellList`, `Creature.cpp:2426-2460`, copies it before availability
+rolls on the map thread. Legacy `CombatCondition` remains explicitly unwritten
+until a value read, `ObjectMgr.cpp:9797-9815`, `UnitAI.cpp:1213`. These diagnostic
+owners do not change native format91 or open gameplay admission.
+

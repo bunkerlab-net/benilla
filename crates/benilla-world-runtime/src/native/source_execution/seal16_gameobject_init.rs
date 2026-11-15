@@ -162,7 +162,33 @@ impl<D: GridDefinitions<Row = SpawnKey>> GameObjectFactoryOwner<D, SourceTerrain
                 .zone_and_area(self.map_entry.id, position)?[0];
             self.go_zone = Some(zone);
             self.lookups.push("go_zone");
-            return Err(refuse(GO_NEXT_OWNER));
+            self.lookups.push("go_outdoor_pvp_get_script");
+            if self.outdoor_pvp.get_script(zone)?.is_some() {
+                return Err(refuse(
+                    "execution.gameobject.loaded_outdoor_pvp_create_owner",
+                ));
+            }
+            return Ok(());
+        }
+        if callback == GameObjectCallback::CreateInstance {
+            self.lookups.push("go_instance_data");
+            if let Some(script) = self.instance_data.as_mut() {
+                self.lookups.push("go_instance_on_object_create");
+                let entry = self.gameobjects.get(handle)?.template.entry;
+                let guid = context.objects.get(handle)?.guid.unwrap().raw();
+                if script.gameobject_create(entry, guid) {
+                    context.set_active_object_state(handle, true, self)?;
+                }
+            }
+            return Ok(());
+        }
+        if callback == GameObjectCallback::LargeVisibility {
+            self.lookups.push("go_large_object_predicate");
+            return if self.gameobjects.get(handle)?.template.large() {
+                Err(refuse("execution.gameobject.loaded_large_visibility_owner"))
+            } else {
+                Ok(())
+            };
         }
         Err(refuse(match callback {
             GameObjectCallback::TemplateString(_) | GameObjectCallback::GroupString(_) => {

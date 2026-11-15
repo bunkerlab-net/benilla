@@ -45,6 +45,7 @@ pub struct EventAiCatalog<'a> {
     ids: BTreeMap<EventAiLookup, BTreeSet<u32>>,
     spells: Option<BTreeMap<u32, EventAiSpell>>,
     config: EventAiLoaderConfig,
+    spell_lists: Option<&'a LoadedCreatureSpellLists>,
 }
 impl<'a> EventAiCatalog<'a> {
     pub fn new(catalog: &'a mut VerifiedCatalog, config: EventAiLoaderConfig) -> Self {
@@ -53,7 +54,11 @@ impl<'a> EventAiCatalog<'a> {
             ids: BTreeMap::new(),
             spells: None,
             config,
+            spell_lists: None,
         }
+    }
+    pub fn bind_spell_lists(&mut self, lists: &'a LoadedCreatureSpellLists) {
+        self.spell_lists = Some(lists);
     }
     fn ids(&mut self, domain: EventAiLookup) -> Result<&BTreeSet<u32>> {
         use EventAiLookup::*;
@@ -92,9 +97,7 @@ impl<'a> EventAiCatalog<'a> {
                     TextTemplate => {
                         return Err(refuse("execution.event_ai.loader.text_template_owner"))
                     }
-                    SpellList => {
-                        return Err(refuse("execution.event_ai.loader.spell_list_store_owner"))
-                    }
+                    SpellList => unreachable!("loaded spell lists are resolved in contains"),
                     ImmunitySet => {
                         return Err(refuse("execution.event_ai.loader.immunity_store_owner"))
                     }
@@ -111,6 +114,13 @@ impl<'a> EventAiCatalog<'a> {
 }
 impl EventAiLoaderOwner for EventAiCatalog<'_> {
     fn contains(&mut self, domain: EventAiLookup, id: u32, _entry: u32) -> Result<bool> {
+        if domain == EventAiLookup::SpellList {
+            return Ok(self
+                .spell_lists
+                .ok_or_else(|| refuse("execution.event_ai.loader.spell_list_store_owner"))?
+                .get(id)
+                .is_some());
+        }
         Ok(self.ids(domain)?.contains(&id))
     }
     fn spell(&mut self, id: u32) -> Result<Option<EventAiSpell>> {

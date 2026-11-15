@@ -12,6 +12,8 @@ use std::{
 };
 mod creature_level;
 mod creature_models;
+mod creature_spell_lists;
+pub(crate) use creature_spell_lists::CreatureSpellCatalogRows;
 mod encounters;
 mod graveyards;
 mod loaded_templates;

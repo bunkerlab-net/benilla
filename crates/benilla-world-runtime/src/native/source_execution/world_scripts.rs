@@ -48,6 +48,39 @@ impl SourceWorldScript {
     pub fn encounter_in_progress(&self) -> bool {
         false
     }
+    /// world_eastern_kingdoms.cpp:100-108; world_kalimdor.cpp:173-200.
+    /// True requests the caller's SetActiveObjectState at world_kalimdor.cpp:179.
+    pub fn gameobject_create(&mut self, entry: u32, guid: u64) -> bool {
+        if entry == 181136 {
+            self.stores
+                .gameobject_collections
+                .entry(entry)
+                .or_default()
+                .push(guid);
+        }
+        if let WorldScriptState::Kalimdor(state) = &mut self.state {
+            match entry {
+                177746 => {
+                    state.ghost_events.push(GhostOPlasmEvent {
+                        guid,
+                        despawn_timer: 0,
+                        phase_counter: 0,
+                        summoned_magrami: Vec::new(),
+                    });
+                    return true;
+                }
+                180875 => {
+                    self.stores.gameobjects.insert(entry, guid);
+                }
+                179664 => state.elemental_rifts[0].push(guid),
+                179665 => state.elemental_rifts[3].push(guid),
+                179666 => state.elemental_rifts[2].push(guid),
+                179667 => state.elemental_rifts[1].push(guid),
+                _ => {}
+            }
+        }
+        false
+    }
     /// ScriptDevAIMgr.cpp:405-410 dispatches the registered factory by script ID/name.
     /// Registration: world_eastern_kingdoms.cpp:135-145; world_kalimdor.cpp:392-402.
     pub fn construct<E: RawGenerator, S: FnMut(TraceEvent)>(

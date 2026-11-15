@@ -41,6 +41,13 @@ pub struct SourceGraveyardManager {
     // among equivalent keys. A Vec per key preserves that order, not safeLocId order.
     entries: BTreeMap<u32, Vec<GraveyardData>>,
 }
+/// SQL remains an explicit pending effect until the calling message owner submits it.
+#[must_use]
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct GraveyardTeamChange {
+    pub missing_link_error: bool,
+    pub insert_sql: Option<String>,
+}
 impl SourceGraveyardManager {
     pub fn entries(&self) -> &BTreeMap<u32, Vec<GraveyardData>> {
         &self.entries
@@ -98,6 +105,43 @@ impl SourceGraveyardManager {
         self.entries.clone_from(&world.entries);
         self.loaded = true;
         Ok(())
+    }
+    /// GraveyardManager.cpp:254-280, including AddGraveYardLink's default inDB=true.
+    pub fn set_link_team(
+        &mut self,
+        id: u32,
+        location_key: u32,
+        team: u32,
+    ) -> Result<GraveyardTeamChange> {
+        require(self.loaded, "execution.world.load_graveyard_zones_owner")?;
+        if let Some(data) = self
+            .entries
+            .get_mut(&location_key)
+            .and_then(|rows| rows.iter_mut().find(|data| data.safe_location == id))
+        {
+            data.team = team;
+            return Ok(GraveyardTeamChange::default());
+        }
+        if team == 1 {
+            return Ok(GraveyardTeamChange::default());
+        }
+        // :275-279 passes the masked high bit as linkKind, not a normalized bool.
+        let location = location_key & 0x7fff_ffff;
+        let kind = location_key & 0x8000_0000;
+        let key = location | kind.wrapping_shl(31);
+        let rows = self.entries.entry(key).or_default();
+        let mut change = GraveyardTeamChange {
+            missing_link_error: true,
+            insert_sql: None,
+        };
+        if !rows.iter().any(|row| row.safe_location == id) {
+            rows.push(GraveyardData {
+                safe_location: id,
+                team,
+            });
+            change.insert_sql = Some(format!("INSERT INTO game_graveyard_zone (id, ghost_loc, link_kind, faction) VALUES ('{id}', '{location}','{kind}', '{team}')"));
+        }
+        Ok(change)
     }
     pub fn load_catalog(
         &mut self,

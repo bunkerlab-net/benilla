@@ -488,7 +488,10 @@ pub trait UnitAiExecutionOwner {
     fn c_rand(&mut self) -> Result<u32> {
         Err(refuse("execution.unit_ai.process_c_rng_owner"))
     }
-    fn spell_list_has_spells(&mut self, _unit: ObjectHandle) -> Result<bool> {
+    fn spell_list_has_spells(&mut self, unit: ObjectHandle) -> Result<bool> {
+        Ok(self.creature_spell_list(unit)?.ai_has_spells())
+    }
+    fn creature_spell_list(&mut self, _unit: ObjectHandle) -> Result<&CreatureSpellList> {
         Err(refuse("execution.unit_ai.spell_list_owner"))
     }
     fn reachable(&mut self, _unit: ObjectHandle) -> Result<bool> {

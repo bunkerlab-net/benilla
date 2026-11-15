@@ -24,6 +24,11 @@ pub enum SourceMessage {
     AttachTransport {
         transfer: TransportTransfer,
     },
+    SetGraveyardTeam {
+        id: u32,
+        location_key: u32,
+        team: u32,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MessageEnvelope {
@@ -76,6 +81,14 @@ pub trait MessageWork {
     ) -> Result<()> {
         Err(refuse("execution.transport.map_message_dispatch_owner"))
     }
+    fn graveyard_manager(&mut self, _owner: MessageOwner) -> Result<&mut SourceGraveyardManager> {
+        Err(refuse("execution.outdoor_pvp.graveyard_message_owner"))
+    }
+    fn graveyard_sql(&mut self, _owner: MessageOwner, _statement: &str) -> Result<()> {
+        Err(refuse(
+            "execution.graveyard.GraveyardManager_247.insert_sql_owner",
+        ))
+    }
 }
 
 pub struct SourceMessager {
@@ -105,6 +118,7 @@ impl MessageInventory {
                 matches!(
                     (&self.owner, &message.payload),
                     (MessageOwner::World, SourceMessage::ForwardGameEvent { .. })
+                        | (_, SourceMessage::SetGraveyardTeam { .. })
                         | (
                             MessageOwner::Map(_),
                             SourceMessage::MapGameEvent { .. }
@@ -149,6 +163,7 @@ impl SourceMessager {
         let correct_owner = matches!(
             (&self.owner, &message.payload),
             (MessageOwner::World, SourceMessage::ForwardGameEvent { .. })
+                | (_, SourceMessage::SetGraveyardTeam { .. })
                 | (
                     MessageOwner::Map(_),
                     SourceMessage::MapGameEvent { .. }
@@ -160,6 +175,28 @@ impl SourceMessager {
         self.last_id = message.id;
         self.queue.push(message);
         Ok(())
+    }
+    /// OutdoorPvP.cpp:34-35 queues work without reading or changing a graveyard.
+    pub fn enqueue_graveyard_team(
+        &mut self,
+        cause: u64,
+        id: u32,
+        location_key: u32,
+        team: u32,
+    ) -> Result<()> {
+        let next = self
+            .last_id
+            .checked_add(1)
+            .ok_or_else(|| refuse("execution.message_identity_exhausted"))?;
+        self.enqueue(MessageEnvelope {
+            id: next,
+            cause,
+            payload: SourceMessage::SetGraveyardTeam {
+                id,
+                location_key,
+                team,
+            },
+        })
     }
     // Detach under the queue borrow before any handler executes; Messager.h:35-43.
     pub fn take_batch(&mut self, owner: MessageOwner) -> Result<MessageBatch> {
@@ -233,6 +270,22 @@ impl MessageBatch {
                 }
                 (MessageOwner::Map(map), SourceMessage::AttachTransport { transfer }) => {
                     work.attach_transport(thread, map, transfer)?;
+                    MessageOutcome::Executed
+                }
+                (
+                    owner,
+                    SourceMessage::SetGraveyardTeam {
+                        id,
+                        location_key,
+                        team,
+                    },
+                ) => {
+                    let change =
+                        work.graveyard_manager(owner)?
+                            .set_link_team(id, location_key, team)?;
+                    if let Some(sql) = change.insert_sql {
+                        work.graveyard_sql(owner, &sql)?;
+                    }
                     MessageOutcome::Executed
                 }
                 _ => return Err(refuse("execution.message_owner")),

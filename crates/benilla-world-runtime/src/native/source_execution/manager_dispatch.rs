@@ -327,6 +327,14 @@ pub trait MapManagerWork:
     fn players(&mut self, _context: &mut MapManagerContext<'_>, _diff: u32) -> Result<()> {
         Err(MissingManagerOwner::F5PlayerUpdate.refusal())
     }
+    fn graveyard_manager(&mut self, _map: MapIdentity) -> Result<&mut SourceGraveyardManager> {
+        Err(refuse("execution.outdoor_pvp.graveyard_message_owner"))
+    }
+    fn graveyard_sql(&mut self, _map: MapIdentity, _statement: &str) -> Result<()> {
+        Err(refuse(
+            "execution.graveyard.GraveyardManager_247.insert_sql_owner",
+        ))
+    }
     fn begin_map_message(&mut self, message: &MessageEnvelope) -> Result<()>;
 }
 struct MapMessages<'a, 'b, W> {
@@ -383,6 +391,22 @@ impl<W: MapManagerWork> MessageWork for MapMessages<'_, '_, W> {
             self.context.objects,
             self.work,
         )
+    }
+    fn graveyard_manager(&mut self, owner: MessageOwner) -> Result<&mut SourceGraveyardManager> {
+        match owner {
+            MessageOwner::Map(map) if map == self.context.cells.map() => {
+                self.work.graveyard_manager(map)
+            }
+            _ => Err(refuse("execution.message_owner")),
+        }
+    }
+    fn graveyard_sql(&mut self, owner: MessageOwner, statement: &str) -> Result<()> {
+        match owner {
+            MessageOwner::Map(map) if map == self.context.cells.map() => {
+                self.work.graveyard_sql(map, statement)
+            }
+            _ => Err(refuse("execution.message_owner")),
+        }
     }
 }
 #[derive(Default)]

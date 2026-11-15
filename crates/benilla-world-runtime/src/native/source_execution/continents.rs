@@ -124,6 +124,7 @@ pub struct SourceContinent {
     pub script_id: u32,
     pub instance_data: Option<SourceWorldScript>,
     pub graveyards: SourceGraveyardManager,
+    pub creature_spells: Option<CreatureSpellMapData>,
     pub variables: SourceWorldStateVariables,
     pub spawn_updated: bool,
     pub dynamic_tree: SourceDynamicMap,
@@ -346,6 +347,7 @@ impl SourceContinents {
                 script_id: 0,
                 instance_data: None,
                 graveyards: SourceGraveyardManager::default(),
+                creature_spells: None,
                 variables: SourceWorldStateVariables::default(),
                 spawn_updated: false, // SpawnManager.h:54, before Initialize at Map.cpp:200.
                 dynamic_tree: SourceDynamicMap::new(identity),

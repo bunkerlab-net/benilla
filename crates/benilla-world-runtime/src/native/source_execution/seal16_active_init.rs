@@ -4,8 +4,8 @@ use super::*;
 use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
-pub(super) const CREATURE_NEXT_OWNER: &str = "execution.creature.loaded_spell_list_store_owner";
-pub(super) const GO_NEXT_OWNER: &str = "execution.gameobject.loaded_outdoor_pvp_script_owner";
+pub(super) const CREATURE_NEXT_OWNER: &str = "execution.creature.loaded_immunity_set_store_owner";
+pub(super) const GO_NEXT_OWNER: &str = "execution.gameobject.loaded_persistent_respawn_owner";
 #[path = "seal16_creature_entry.rs"]
 mod creature_entry;
 #[path = "seal16_gameobject_init.rs"]
@@ -48,6 +48,9 @@ pub(super) struct Prefix<'a> {
     pub gameobject_templates: &'a LoadedGameObjectTemplates,
     pub spawn_templates: &'a LoadedCreatureSpawnTemplates,
     pub creature_models: &'a LoadedCreatureModels,
+    pub creature_spells: Option<&'a CreatureSpellMapData>,
+    pub outdoor_pvp: &'a SourceOutdoorPvp,
+    pub instance_data: Option<&'a mut SourceWorldScript>,
     pub random: &'a mut dyn CreatureRandom,
     pub dynamic_models: &'a mut SourceDynamicModels,
     pub dynamic_map: SourceDynamicMap,
@@ -279,6 +282,7 @@ pub(super) fn load_first(
     level_config: &CreatureLevelConfig,
     encounters: &LoadedInstanceEncounters,
     faction_flags: &BTreeMap<u32, u32>,
+    outdoor_pvp: &SourceOutdoorPvp,
     states: &mut SourceManagers,
     products: &mut SourceTerrainManager,
     objects: &mut SourceObjects,
@@ -332,6 +336,9 @@ pub(super) fn load_first(
         gameobject_templates,
         spawn_templates,
         creature_models,
+        creature_spells: map.creature_spells.as_ref(),
+        outdoor_pvp,
+        instance_data: map.instance_data.as_mut(),
         random,
         dynamic_models,
         dynamic_map: SourceDynamicMap::new(map.identity),

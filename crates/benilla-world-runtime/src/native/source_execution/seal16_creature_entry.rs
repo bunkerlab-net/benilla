@@ -40,7 +40,8 @@ pub(in crate::native::source_execution) struct EntryFields {
     pub can_modify_stats: bool,
     pub pvp: bool,
     pub requested_spell_list: u32,
-    pub spell_list_disabled: bool,
+    pub spell_list_disabled: Option<bool>,
+    pub spell_list: Option<CreatureSpellList>,
 }
 fn uint_config(config: &[u8], key: &str) -> Result<u32> {
     super::super::super::super::spawn_loader_config::assignment(config, key)?
@@ -133,7 +134,8 @@ fn model_fields(template: &LoadedCreatureInfo, model: [u32; 8]) -> EntryFields {
         can_modify_stats: false,
         pvp: false,
         requested_spell_list: 0,
-        spell_list_disabled: false,
+        spell_list_disabled: None,
+        spell_list: None,
     }
 }
 pub(super) fn continue_entry(
@@ -305,14 +307,28 @@ pub(super) fn continue_entry(
         .get(&fields.faction)
         .is_some_and(|flags| flags & 0x1000 != 0);
     prefix.lookups.push("creature_update_entry_flags_stats_pvp");
-    let Some(key) = spell_list_key(template.words[0], template.words[89]) else {
-        fields.spell_list_disabled = true;
-        prefix.creature_entry = Some(fields);
-        return Err(refuse("execution.creature.loaded_immunity_set_store_owner"));
-    };
+    let key = spell_list_key(template.words[0], template.words[89]).unwrap_or(0);
     fields.requested_spell_list = key;
+    if key == 0 {
+        fields.spell_list_disabled = Some(true);
+        prefix.lookups.push("creature_spell_list_disabled_zero");
+    } else {
+        let map = prefix
+            .creature_spells
+            .ok_or_else(|| refuse("execution.creature.loaded_spell_list_store_owner"))?;
+        prefix.lookups.push("creature_map_spell_list_lookup");
+        if let Some(list) = map.get(key) {
+            let mut live = list.clone();
+            // The source copy is private to this creature; Availability draws use its map stream.
+            live.filter_availability(prefix.random)?;
+            fields.spell_list_disabled = Some(live.disabled);
+            fields.spell_list = Some(live);
+            prefix.lookups.push("creature_spell_list_copy_availability");
+        }
+    }
     prefix.creature_entry = Some(fields);
-    Err(refuse("execution.creature.loaded_spell_list_store_owner"))
+    // Creature.cpp:145 initializes m_immunitySet to UINT32_MAX, so :2464 does not return.
+    Err(refuse(CREATURE_NEXT_OWNER))
 }
 #[cfg(test)]
 mod tests {

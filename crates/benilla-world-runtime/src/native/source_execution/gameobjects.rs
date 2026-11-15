@@ -27,6 +27,21 @@ impl GameObjectTemplate {
             _ => 0,
         }
     }
+    /// GameObject.h:516-530 reads the type-specific union field.
+    pub fn large(&self) -> bool {
+        match self.kind {
+            1 => self.data[5] != 0,
+            2 => self.data[9] != 0,
+            5 => self.data[3] != 0,
+            6 => self.data[10] != 0,
+            8 => self.data[5] != 0,
+            10 => self.data[13] != 0,
+            11 => true,
+            22 => self.data[4] != 0,
+            29 => self.data[18] != 0,
+            _ => false,
+        }
+    }
     fn permanent(&self) -> bool {
         let no_damage_immune = match self.kind {
             0 => self.data[3],
@@ -723,13 +738,13 @@ where
         object.respawn_delay = 0;
     } else if spawn.respawn_min >= 0 {
         let delay = factory.gameobject_urand(spawn.respawn_min as u32, spawn.respawn_max as u32)?;
+        factory.gameobjects().get_mut(handle)?.respawn_delay = delay;
         let mut saved = factory.gameobject_saved_respawn(spawn.database_guid)?;
         if saved != 0 && saved <= factory.gameobject_calendar()? {
             saved = 0;
             factory.gameobject_save_respawn(spawn.database_guid, 0)?;
         }
         let object = factory.gameobjects().get_mut(handle)?;
-        object.respawn_delay = delay;
         object.respawn_time = saved;
     } else {
         let delay = spawn

@@ -15,6 +15,10 @@ mod gameobject_models;
 mod spawn_data;
 #[path = "seal16_spawn_init.rs"]
 mod spawn_init;
+#[path = "seal16_spell_list_reach.rs"]
+mod spell_list_reach;
+#[path = "seal16_spell_lists.rs"]
+mod spell_lists;
 #[path = "seal16_templates.rs"]
 mod templates;
 
@@ -182,6 +186,7 @@ pub(super) struct Inputs {
     templates: templates::Evidence,
     spawn_data: spawn_data::Evidence,
     creature_models: creature_models::Evidence,
+    spell_lists: spell_lists::Evidence,
     loaded_spawn_templates: Option<LoadedCreatureSpawnTemplates>,
 }
 impl Inputs {
@@ -208,6 +213,8 @@ impl Inputs {
             self.templates.observe(line, kind, p, self.world_raw_words);
             self.spawn_data.observe(line, kind, p, self.world_raw_words);
             self.creature_models
+                .observe(line, kind, p, self.world_raw_words);
+            self.spell_lists
                 .observe(line, kind, p, self.world_raw_words);
         }
         if thread == 1 && kind == "sql_query" {
@@ -309,9 +316,9 @@ impl Inputs {
                 ));
             }
             "rng_call"
-                if thread == 7
+                if matches!(thread, 6 | 7)
                     && evidence.first_candidate.is_some()
-                    && evidence.first_candidate_rng.len() < 2 =>
+                    && evidence.first_candidate_rng.len() < if thread == 6 { 1 } else { 2 } =>
             {
                 evidence.first_candidate_rng.push((
                     p[0].into(),
@@ -321,7 +328,7 @@ impl Inputs {
                     None,
                 ));
             }
-            "rng_result" if thread == 7 && evidence.first_candidate.is_some() => {
+            "rng_result" if matches!(thread, 6 | 7) && evidence.first_candidate.is_some() => {
                 if let Some(last) = evidence.first_candidate_rng.last_mut() {
                     if last.4.is_none() {
                         assert_eq!(last.0, p[0]);
@@ -1210,6 +1217,9 @@ pub(super) fn continue_startup(
             std::mem::take(&mut observed.creature_models),
             geometry,
         );
+    let creature_spell_lists =
+        std::mem::take(&mut observed.spell_lists).load(catalog, &creature_templates);
+    spell_list_reach::census(catalog, &creature_templates, spawns, &creature_spell_lists);
     let spawn_templates = observed.loaded_spawn_templates.take().unwrap();
     spawn_data::census(spawns, &spawn_templates, gameobject_addons);
     creature_models::entry_census(spawns, &creature_templates);
@@ -1554,6 +1564,27 @@ pub(super) fn continue_startup(
     println!("F6_ENCOUNTERS dungeon={} visited={} loaded={} skipped={:?} shift_census={:?} matched_sql=4 additional_raw_words=0 query_lines={:?}", dungeon_store.rows().len(), encounter_census.visited, encounter_census.loaded, encounter_census.skipped, encounters.shift_census(), observed.encounter_queries);
     assert!(observed.encounter_queries[2].0 < observed.graveyard_query_line.unwrap());
     assert!(observed.graveyard_last_field_line.unwrap() < observed.encounter_queries[3].0);
+    let mut outdoor_pvp = SourceOutdoorPvp::default();
+    let mut outdoor_messages = SourceMessager::new(MessageOwner::World);
+    // The current registry is empty before MapManager::Initialize, not a recorded result.
+    assert!(owner.loaded_maps.is_empty());
+    let mut current_maps = owner
+        .loaded_maps
+        .values()
+        .map(|&map| (map, SourceMessager::new(MessageOwner::Map(map))))
+        .collect();
+    let outdoor_census = outdoor_pvp
+        .initialize(
+            SourceOutdoorPvp::config(&config).unwrap(),
+            1,
+            &mut outdoor_messages,
+            &mut current_maps,
+        )
+        .unwrap();
+    assert_eq!(outdoor_census.maps_visited, 0);
+    assert_eq!(outdoor_census.scripts, 2);
+    assert_eq!(outdoor_messages.pending(), 1);
+    println!("F6_OUTDOOR_PVP scripts={} current_maps_visited={} world_messages_queued={} graveyard_team_before_world_drain={:?}", outdoor_census.scripts, outdoor_census.maps_visited, outdoor_messages.pending(), world_graveyards.entries().get(&139));
     let continent_config = ContinentConfig::parse(&config).unwrap();
     let definitions = ContinentDefinitions::load(catalog, &inputs.maps, &config).unwrap();
     let temporary_starts = definitions.temporary_starts;
@@ -1577,7 +1608,10 @@ pub(super) fn continue_startup(
     .unwrap();
     assert_eq!(random.cursor().raw, 8712); // Both TerrainInfo objects already exist.
     assert_eq!(continents.max_instance_id, 0); // MAX(id) is NULL at trace:60100919.
-    for map in &continents.maps {
+    for map in &mut continents.maps {
+        map.creature_spells = Some(CreatureSpellMapData(std::sync::Arc::clone(
+            &creature_spell_lists,
+        )));
         assert!(owner
             .loaded_maps
             .insert((map.identity.map, 0), map.identity)
@@ -1833,6 +1867,7 @@ pub(super) fn continue_startup(
             &level_config,
             &encounters,
             &faction_flags,
+            &outdoor_pvp,
             &mut states,
             geometry,
             &mut active_objects,
@@ -1855,6 +1890,10 @@ pub(super) fn continue_startup(
                     "go_model",
                     "go_battleground",
                     "go_zone",
+                    "go_outdoor_pvp_get_script",
+                    "go_instance_data",
+                    "go_instance_on_object_create",
+                    "go_large_object_predicate",
                 ]
             } else {
                 vec![
@@ -1878,6 +1917,8 @@ pub(super) fn continue_startup(
                     "creature_init_entry_remainder",
                     "creature_level_stats_spawn",
                     "creature_update_entry_flags_stats_pvp",
+                    "creature_map_spell_list_lookup",
+                    "creature_spell_list_copy_availability",
                 ]
             }
         );
@@ -1925,6 +1966,11 @@ pub(super) fn continue_startup(
                 (1, 100, 9)
             );
             assert!(object.has_model);
+            assert_eq!(object.respawn_delay, 900);
+            assert_eq!(
+                evidence.first_candidate_rng,
+                [("urand".into(), 601, 900, 900, Some(900))]
+            );
             assert_eq!(go_battleground, Some(false));
             assert_eq!(
                 go_battleground,
@@ -2038,7 +2084,16 @@ pub(super) fn continue_startup(
             assert_eq!(template.words[89], 0);
             assert_eq!(fields.requested_spell_list, 469200);
             assert_ne!(fields.requested_spell_list, 0);
-            assert!(!fields.spell_list_disabled);
+            assert_eq!(fields.spell_list_disabled, Some(true));
+            let live_list = fields.spell_list.as_ref().unwrap();
+            assert_eq!(Some(live_list), creature_spell_lists.get(469200));
+            assert!(live_list.disabled);
+            assert_eq!(live_list.spells.len(), 1);
+            assert_eq!(live_list.spells[&0].spell_id, 5708);
+            assert!(live_list
+                .spells
+                .values()
+                .all(|spell| !spell.has_written_combat_condition()));
             assert_eq!(
                 evidence.first_candidate_rng,
                 [
@@ -2099,7 +2154,7 @@ pub(super) fn continue_startup(
         assert!(!continents.maps[slot].spawn_updated);
         assert_eq!(
             random.cursor().raw,
-            after_pools_cursor + if slot == 0 { 0 } else { 2 }
+            after_pools_cursor + if slot == 0 { 1 } else { 2 }
         );
         matched_map_words[slot] = random.cursor().raw;
         assert_eq!(after_pools_cursor as usize, evidence.pool_raw_end.unwrap());
@@ -2157,7 +2212,7 @@ pub(super) fn continue_startup(
             serde_json::to_value(states.state(state).unwrap().pools()).unwrap(),
             expected
         );
-        println!("F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={} next_owner={} next_source={}", matched_map_words[slot], evidence.pool_members.iter().map(BTreeSet::len).sum::<usize>(), evidence.pool_counts.len(), shuffles.len(), evidence.pool_snapshot_line.unwrap(), encounters.by_map(slot as u32).len(), refusal.id, if slot == 0 { "GameObject.cpp:289" } else { "Creature.cpp:2439" });
+        println!("F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={} next_owner={} next_source={}", matched_map_words[slot], evidence.pool_members.iter().map(BTreeSet::len).sum::<usize>(), evidence.pool_counts.len(), shuffles.len(), evidence.pool_snapshot_line.unwrap(), encounters.by_map(slot as u32).len(), refusal.id, if slot == 0 { "GameObject.cpp:949" } else { "Creature.cpp:2467" });
         owner.states = states;
         let raw = trace
             .iter()
@@ -2186,7 +2241,7 @@ pub(super) fn continue_startup(
         );
         assert!(trace.iter().all(|event| event.stream == thread));
         assert_eq!(evidence.first_word, Some((first_line, 0, first_word)));
-        if slot == 1 {
+        {
             use benilla_sim::source_rng::{Operation, Value};
             let calls = trace
                 .iter()
@@ -2211,14 +2266,21 @@ pub(super) fn continue_startup(
                     .iter()
                     .map(|(_, at, operation, args)| (*at, *operation, *args))
                     .collect::<Vec<_>>(),
-                [
-                    (11895, Operation::Irand, [0, 99, 0]),
-                    (11896, Operation::Urand, [32, 33, 0])
-                ]
+                if slot == 0 {
+                    vec![(26567, Operation::Urand, [900, 900, 0])]
+                } else {
+                    vec![
+                        (11895, Operation::Irand, [0, 99, 0]),
+                        (11896, Operation::Urand, [32, 33, 0]),
+                    ]
+                }
             );
-            for ((span, _, _, _), expected) in
-                calls.into_iter().zip([Value::I64(93), Value::U64(33)])
-            {
+            let results = if slot == 0 {
+                vec![Value::U64(900)]
+            } else {
+                vec![Value::I64(93), Value::U64(33)]
+            };
+            for ((span, _, _, _), expected) in calls.into_iter().zip(results) {
                 assert!(trace.iter().any(|event| matches!(event.kind, EventKind::End { span: end_span, result: Ok(result), .. } if span == end_span && result == expected)));
             }
         }
@@ -2240,7 +2302,7 @@ pub(super) fn continue_startup(
             .filter(|operation| matches!(operation, PoolOperation::Selected { add: true, .. }))
             .count();
         assert!(results > 0);
-        println!("F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} matched_map_thread_words={matched_map_words:?} matched_map_sql=4 matched_template_sql=6 matched_creature_model_sql=3 matched_spawn_data_sql=2 matched_graveyard_sql=1 matched_encounter_sql=4 matched_group_sql=6 pool_results={results} event_initialization_reached=false next_owner_map0={} next_owner_map1={} next_raw={} next_word={} clone_next_word_checked=true",owner.cursor.raw,refusal.id,active_init::CREATURE_NEXT_OWNER,next_word.0,next_word.1);
+        println!("F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} matched_map_thread_words={matched_map_words:?} matched_map_sql=4 matched_template_sql=6 matched_creature_model_sql=3 matched_creature_spell_list_sql=5 matched_spawn_data_sql=2 matched_graveyard_sql=1 matched_encounter_sql=4 matched_group_sql=6 pool_results={results} event_initialization_reached=false next_owner_map0={} next_owner_map1={} next_raw={} next_word={} clone_next_word_checked=true",owner.cursor.raw,refusal.id,active_init::CREATURE_NEXT_OWNER,next_word.0,next_word.1);
         return;
     }
     let initial_status = owner.status.iter().copied().collect::<Vec<_>>();
