@@ -4,9 +4,12 @@ use super::*;
 use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
-pub(super) const CREATURE_DISPLAY_RANDOM_OWNER: &str =
-    "execution.creature.loaded_choose_display_id_random_owner";
-pub(super) const GO_CREATE_OWNER: &str = "execution.gameobject.loaded_create_owner";
+pub(super) const CREATURE_NEXT_OWNER: &str = "execution.creature.loaded_spell_list_store_owner";
+pub(super) const GO_NEXT_OWNER: &str = "execution.gameobject.loaded_outdoor_pvp_script_owner";
+#[path = "seal16_creature_entry.rs"]
+mod creature_entry;
+#[path = "seal16_gameobject_init.rs"]
+mod gameobject_init;
 
 struct Definitions<'a>(&'a SourceEffectiveSpawns);
 impl GridDefinitions for Definitions<'_> {
@@ -44,6 +47,19 @@ pub(super) struct Prefix<'a> {
     pub creature_templates: &'a LoadedCreatureTemplates,
     pub gameobject_templates: &'a LoadedGameObjectTemplates,
     pub spawn_templates: &'a LoadedCreatureSpawnTemplates,
+    pub creature_models: &'a LoadedCreatureModels,
+    pub random: &'a mut dyn CreatureRandom,
+    pub dynamic_models: &'a mut SourceDynamicModels,
+    pub dynamic_map: SourceDynamicMap,
+    pub trig_dispatch: benilla_sim::source_trig_fma::DispatchBinding,
+    pub gameobjects: SourceGameObjects,
+    pub creature_model: Option<[u32; 8]>,
+    pub creature_entry: Option<creature_entry::EntryFields>,
+    pub level_definitions: &'a CreatureLevelDefinitions,
+    pub level_config: &'a CreatureLevelConfig,
+    pub encounters: &'a LoadedInstanceEncounters,
+    pub faction_flags: &'a BTreeMap<u32, u32>,
+    pub config: &'a [u8],
     pub inputs: &'a EffectiveSpawnInputs,
     pub go_animprogress: Option<u32>,
     pub creature_display_chance: Option<u32>,
@@ -54,92 +70,29 @@ pub(super) struct Prefix<'a> {
     pub thread: u64,
     pub attempts: Vec<GridLoadAttempt>,
     pub candidates: Vec<ObjectHandle>,
+    pub completed: usize,
     pub motions: BTreeMap<ObjectHandle, SourceMotionMaster>,
     pub entry: Option<u32>,
     pub lookups: Vec<&'static str>,
     pub corpses: &'a mut SourceCorpseRegistry,
     pub corpse_transfers: FrozenCorpseTransfers,
     pub instanceable: bool,
+    pub map_entry: PersistentMapEntry,
+    pub go_battleground: Option<bool>,
+    pub go_zone: Option<u32>,
 }
-impl<D: GridDefinitions<Row = SpawnKey>, P: GridProductOwner> GridObjectFactory<D, P>
-    for Prefix<'_>
-{
+impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManager> for Prefix<'_> {
     fn load_from_db(
         &mut self,
         attempt: GridLoadAttempt,
         key: SpawnKey,
-        context: &mut GridFactoryContext<'_, D, P>,
+        context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
     ) -> Result<GridCandidateOutcome> {
         self.attempts.push(attempt);
         if key.kind == GridSpawnKind::GameObject {
-            // ObjectGridLoader.cpp:123-129, GameObject.cpp:107-112 reads the template before allocation.
-            let data = self
-                .spawns
-                .complete_data(key)?
-                .ok_or_else(|| refuse("execution.grid.effective_spawn_absent"))?;
-            self.lookups.push("factory_go_data");
-            self.entry = Some(data.row.entry);
-            self.lookups.push("factory_go_template");
-            let template = self.gameobject_templates.get(data.row.entry);
-            self.go_factory_elevator = Some(template.is_some_and(|row| row.words[1] == 11));
-            let object = context
-                .objects
-                .construct(self.thread, SourceObjectKind::GameObject)?;
-            self.candidates.push(object);
-            self.lookups.push("go_construct");
-            let data = self
-                .spawns
-                .complete_data(key)?
-                .ok_or_else(|| refuse("execution.grid.effective_spawn_absent"))?;
-            self.lookups.push("go_data");
-            if !context.objects.candidate_allowed(
-                attempt.grid.map,
-                DatabaseLookupKind::GameObject,
-                key.guid,
-            ) {
-                context.objects.destroy(object, context.cells)?;
-                return Ok(GridCandidateOutcome::FailedAndDestroyed(object));
-            }
-            self.lookups.push("existing_gameobject");
-            self.go_load_operands = Some((
-                data.row.entry,
-                data.row.pose.map(f32::to_bits),
-                data.row.rotation.map(f32::to_bits),
-            ));
-            self.lookups.push("go_position_rotation");
-            self.go_animprogress = Some(data.animprogress);
-            self.lookups.push("go_animprogress");
-            let group = self.groups.gameobject_group(attempt.grid.map, key.guid)?;
-            self.lookups.push("go_spawn_group");
-            let mut entry = data.row.entry;
-            if let Some(group) = group {
-                if entry == 0 {
-                    let identity = self
-                        .groups
-                        .group_for(attempt.grid.map, key)?
-                        .ok_or_else(|| refuse("execution.group.constructor_group_absent"))?;
-                    require(identity.handle.id == group.id, "execution.group.identity")?;
-                    entry = self.groups.guid_entry(identity, key.guid)?;
-                }
-            }
-            self.lookups.push("go_group_entry");
-            if self.inputs.random.contains_key(&key) {
-                return Err(refuse("execution.gameobject.loaded_random_entry_owner"));
-            }
-            self.lookups.push("go_random_entry_absent");
-            let info = self.gameobject_templates.get(entry);
-            let allocation = self.guids.spawn_counter(SpawnGuidRequest {
-                high: HighGuid::GameObject,
-                database: key.guid,
-                requested: key.guid,
-                force_dynamic: matches!(attempt.grid.map.map, 533 | 543),
-                extra_dynamic: info.is_some_and(|info| info.words[7] & 2 != 0),
-                group: group.is_some(),
-            })?;
-            require(!allocation.stop_now, "execution.gameobject.guid_stop_now")?;
-            self.lookups.push("go_guid");
-            self.entry = Some(entry);
-            return Err(refuse(GO_CREATE_OWNER));
+            let outcome = load_source_gameobject(self, attempt, key, context)?;
+            self.completed += usize::from(matches!(outcome, GridCandidateOutcome::Loaded(_)));
+            return Ok(outcome);
         }
         // Creature.cpp:136 and :1603-1658. No selected model, stats or AI is supplied before this lookup.
         let object = context
@@ -228,40 +181,53 @@ impl<D: GridDefinitions<Row = SpawnKey>, P: GridProductOwner> GridObjectFactory<
         self.init_entry_fields =
             Some((effective, template.words[14], [0, template.words[36] as u8]));
         self.lookups.push("init_entry_fields");
-        if event.is_some_and(|event| event.model != 0) {
-            return Err(refuse(
-                "execution.creature.loaded_model_random_gender_owner",
-            ));
+        let mut display = event.map_or(0, |event| event.model);
+        if display == 0 {
+            display = self.spawn_templates.model_id(data)?;
+            self.lookups.push("creature_spawn_template_model");
         }
-        let model_id = self.spawn_templates.model_id(data)?;
-        self.lookups.push("creature_spawn_template_model");
-        if model_id != 0 {
-            return Err(refuse(
-                "execution.creature.loaded_model_random_gender_owner",
-            ));
-        }
-        let mut chance = 0u32;
-        for index in 0..4 {
-            if template.words[5 + index] != 0 {
-                chance = chance.wrapping_add(template.words[9 + index]);
+        if display == 0 {
+            let choices = std::array::from_fn(|index| benilla_sim::creature_init::DisplayChoice {
+                id: template.words[5 + index],
+                probability: template.words[9 + index],
+            });
+            let chance = choices
+                .iter()
+                .filter(|choice| choice.id != 0)
+                .fold(0u32, |sum, choice| sum.wrapping_add(choice.probability));
+            self.creature_display_chance = Some(chance);
+            self.lookups.push("creature_display_chance");
+            display = draw_source_creature_display(choices, self.random)?.0;
+            self.lookups.push("creature_display_draw");
+            if display == 0 {
+                display = self.creature_templates.get(1).map_or(0, |row| row.words[5]);
+                self.lookups.push("creature_display_fallback_template");
             }
         }
-        self.creature_display_chance = Some(chance);
-        self.lookups.push("creature_display_chance");
-        Err(refuse(CREATURE_DISPLAY_RANDOM_OWNER))
+        if display == 0 {
+            context.objects.destroy(object, context.cells)?;
+            return Ok(GridCandidateOutcome::FailedAndDestroyed(object));
+        }
+        let Some(model) = self.creature_models.random_gender(display, self.random)? else {
+            context.objects.destroy(object, context.cells)?;
+            return Ok(GridCandidateOutcome::FailedAndDestroyed(object));
+        };
+        self.creature_model = Some(model.words);
+        self.lookups.push("creature_model_random_gender");
+        creature_entry::continue_entry(self, object, data, original, template, event, model.words)
     }
     fn viewpoint_added(
         &mut self,
         _: ObjectHandle,
         _: CellIdentity,
-        _: &mut GridFactoryContext<'_, D, P>,
+        _: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
     ) -> Result<()> {
         Err(refuse("execution.grid.loaded_viewpoint_owner"))
     }
     fn battleground_db_load(
         &mut self,
         _: ObjectHandle,
-        _: &mut GridFactoryContext<'_, D, P>,
+        _: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
     ) -> Result<()> {
         Err(refuse("execution.grid.loaded_battleground_owner"))
     }
@@ -287,6 +253,12 @@ pub(super) struct ActivePrefixReport {
     pub go_factory_elevator: Option<bool>,
     pub go_animprogress: Option<u32>,
     pub creature_display_chance: Option<u32>,
+    pub creature_model: Option<[u32; 8]>,
+    pub gameobjects: SourceGameObjects,
+    pub creature_entry: Option<creature_entry::EntryFields>,
+    pub completed: usize,
+    pub go_battleground: Option<bool>,
+    pub go_zone: Option<u32>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -299,6 +271,14 @@ pub(super) fn load_first(
     creature_templates: &LoadedCreatureTemplates,
     gameobject_templates: &LoadedGameObjectTemplates,
     spawn_templates: &LoadedCreatureSpawnTemplates,
+    creature_models: &LoadedCreatureModels,
+    random: &mut dyn CreatureRandom,
+    dynamic_models: &mut SourceDynamicModels,
+    trig_dispatch: benilla_sim::source_trig_fma::DispatchBinding,
+    level_definitions: &CreatureLevelDefinitions,
+    level_config: &CreatureLevelConfig,
+    encounters: &LoadedInstanceEncounters,
+    faction_flags: &BTreeMap<u32, u32>,
     states: &mut SourceManagers,
     products: &mut SourceTerrainManager,
     objects: &mut SourceObjects,
@@ -306,6 +286,10 @@ pub(super) fn load_first(
     thread: u64,
     config: &[u8],
 ) -> Result<ActivePrefixReport> {
+    require(
+        random.creature_stream()? == thread,
+        "execution.creature.loaded_rng_thread_mismatch",
+    )?;
     // World.cpp:485-494, World.h:524. The frozen configuration has no forced maps.
     let forced =
         super::super::super::spawn_loader_config::assignment(config, "LoadAllGridsOnMaps")?.1;
@@ -347,6 +331,19 @@ pub(super) fn load_first(
         creature_templates,
         gameobject_templates,
         spawn_templates,
+        creature_models,
+        random,
+        dynamic_models,
+        dynamic_map: SourceDynamicMap::new(map.identity),
+        trig_dispatch,
+        gameobjects: SourceGameObjects::default(),
+        creature_model: None,
+        creature_entry: None,
+        level_definitions,
+        level_config,
+        encounters,
+        faction_flags,
+        config,
         inputs,
         go_animprogress: None,
         creature_display_chance: None,
@@ -360,12 +357,16 @@ pub(super) fn load_first(
         thread,
         attempts: Vec::new(),
         candidates: Vec::new(),
+        completed: 0,
         motions: BTreeMap::new(),
         entry: None,
         lookups: Vec::new(),
         corpses,
         corpse_transfers: FrozenCorpseTransfers,
         instanceable: map.entry.instanceable(),
+        map_entry: map.entry,
+        go_battleground: None,
+        go_zone: None,
     };
     let autoload =
         super::super::super::spawn_loader_config::assignment(config, "Autoload.Active")?.1 == "1";
@@ -460,6 +461,12 @@ pub(super) fn load_first(
         go_factory_elevator: factory.go_factory_elevator,
         go_animprogress: factory.go_animprogress,
         creature_display_chance: factory.creature_display_chance,
+        creature_model: factory.creature_model,
+        gameobjects: factory.gameobjects,
+        creature_entry: factory.creature_entry,
+        completed: factory.completed,
+        go_battleground: factory.go_battleground,
+        go_zone: factory.go_zone,
     })
 }
 

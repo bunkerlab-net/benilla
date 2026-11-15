@@ -11,6 +11,7 @@ use std::{
     time::Instant,
 };
 mod creature_level;
+mod creature_models;
 mod encounters;
 mod graveyards;
 mod loaded_templates;

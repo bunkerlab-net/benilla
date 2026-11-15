@@ -2426,12 +2426,21 @@ Grid expiry and unloading use the recorded configuration, including
 The live MMap owner executes `Map.cpp:202-212`; recorded preload is off.
 Active traversal uses the loaded lists and real grid/terrain owners,
 `ObjectMgr.cpp:9145-9156`, `Map.cpp:146-153,336-353,419-427`.
-Map 0 reads its first GO's loaded animation and spawn-group operands, then
-refuses `execution.gameobject.loaded_create_owner` at `GameObject.cpp:923`.
-Map 1 reads its first creature's bound spawn-template model and sums the
-template model probabilities, then refuses
-`execution.creature.loaded_choose_display_id_random_owner` at
-`Creature.cpp:678`. Each map has one candidate and no completed objects.
+Map 0 executes the shared GO constructor, model lifecycle, state and animation,
+`GameObject.cpp:178-285,2083-2105`. Its real Map.dbc entry is not a battleground.
+The live terrain query at `GameObject.cpp:289` resolves zone 33, then
+`sOutdoorPvPMgr.GetScript` refuses
+`execution.gameobject.loaded_outdoor_pvp_script_owner` at that line.
+No allocation addresses are invented for the address-independent singleton model.
+Map 1 executes display choice, gender lookup, initial display
+and speed fields, the remaining InitEntry steps, and the existing level/stat
+owner, `Creature.cpp:346-612`, `ObjectMgr.cpp:1615-1632`,
+`Unit.cpp:10199-10275`. It refuses
+`execution.creature.loaded_spell_list_store_owner` at `Creature.cpp:2439`.
+Entry 4692 requests legacy list 469200, so the zero-list branch at `:2428`
+does not apply. Its `irand(0,99)=93` and level `urand(32,33)=33` match
+raw words 11895 and 11896 on thread 7. The map prefixes match 26,567 and
+11,897 words respectively. Each map has one candidate and no completed objects.
 The world-thread clone-only next-word check matches `(8712,3411341330)`.
 Global event/status/quest comparisons and WorldState remain beyond the map
 refusal. Seal8 keeps its earlier lunar refusal. Native format 91 is unchanged.
@@ -2463,6 +2472,31 @@ following `seal16_template_order.rs:86-118`, not an SQL ordering guarantee.
 Seal16 compares both SQL requests and every converted field in row order.
 Neither loader consumes RNG. The stock census prints effective template
 bindings, fallback counts, addon/default counts, diagnostics, and UB reach.
+
+`LoadedCreatureModels` executes `ObjectMgr.cpp:1635-1731`, including the
+byte-width gender conversion, display diagnostics, gender/link repairs,
+and playable-race radius fixes in female-before-male order.
+Its separate catalog reader accepts only the eight `creature_model_info`
+columns in `SQLStorages.cpp:26,47`. The restored primary-key scan and all
+converted fields match the three frozen SQLStorage queries.
+The loader runs at `World.cpp:1012`, between GO templates at `:962` and
+creature templates at `:1021`, without RNG draws. `World.cpp:965-966`
+loads the existing GO model-list owner from authenticated retained products.
+
+The display helper preserves unsigned probability accumulation, signed
+comparison and unsigned subtraction, `Creature.cpp:674-690`.
+The named signed-subtraction refusal at `:678`, model-index overflow at
+`SQLStorageImpl.h:317`, race shift at `ObjectMgr.cpp:1691`, and movement/school
+enum conversions at `Creature.cpp:453,458` have both-side tests and stock
+reach censuses. No source default is replaced by a recorded result.
+
+The next creature owner is `ObjectMgr::LoadCreatureSpellLists`,
+`ObjectMgr.cpp:979-1117`, followed by legacy template spells at
+`:9754`, `World.cpp:1030,1036`. `MapDataContainer.cpp:29-33` retains the
+loaded container and `:46-52` performs the first reached lookup.
+The next GO owner is `OutdoorPvPMgr::InitOutdoorPvP`,
+`World.cpp:1384-1385`, before map initialization at `:1387-1389`.
+
 
 The shared AREA
 reader and DBC flag-selection kernel live in `benilla-native-terrain::grid_area`;

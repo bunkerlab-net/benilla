@@ -13,7 +13,7 @@ const QUERIES: [&str; 6] = [
     "SELECT COUNT(*) FROM creature_template",
     "SELECT * FROM creature_template",
 ];
-fn sql_storage_field(p: &[&str]) -> Vec<u8> {
+pub(super) fn sql_storage_field(p: &[&str]) -> Vec<u8> {
     if p[3] == "NULL" {
         assert_eq!(p.len(), 4);
         return Vec::new(); // Field.h:45-59 converts SQL NULL to empty strings or numeric zero.
@@ -64,7 +64,14 @@ impl Evidence {
         self,
         catalog: &mut VerifiedCatalog,
         recording: &Path,
-    ) -> (LoadedGameObjectTemplates, LoadedCreatureTemplates) {
+        model_evidence: super::creature_models::Evidence,
+        geometry: &mut SourceTerrainManager,
+    ) -> (
+        LoadedGameObjectTemplates,
+        LoadedCreatureTemplates,
+        LoadedCreatureModels,
+        SourceDynamicModels,
+    ) {
         assert_eq!(
             self.queries
                 .iter()
@@ -96,6 +103,8 @@ impl Evidence {
         );
         let go =
             LoadedGameObjectTemplates::load(go_rows, &mut TemplateCatalog::new(catalog)).unwrap();
+        let dynamic_models = super::gameobject_models::load(recording, catalog, geometry);
+        let models = model_evidence.load(catalog, self.queries[2].0, self.queries[3].0);
         let creature_rows =
             restored::bind_rows(catalog.execution_loaded_creature_rows().unwrap(), &order[1])
                 .unwrap();
@@ -123,7 +132,7 @@ impl Evidence {
             go.transport_displays()
         );
         println!("F6_TEMPLATE_SQL matched_sql=6 gameobject_rows={} creature_rows={} loader_words=0 query_lines={:?}",go.rows().len(),creatures.rows().len(),self.queries.iter().map(|(line,_,_)|line).collect::<Vec<_>>());
-        (go, creatures)
+        (go, creatures, models, dynamic_models)
     }
 }
 

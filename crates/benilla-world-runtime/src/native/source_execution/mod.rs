@@ -80,6 +80,8 @@ mod clock;
 mod compare;
 mod creatures;
 pub use creatures::*;
+mod loaded_creature_models;
+pub use loaded_creature_models::*;
 mod creature_level;
 pub use creature_level::*;
 mod seal8_creatures;

@@ -267,6 +267,36 @@ impl<E: RawGenerator, S: FnMut(TraceEvent)> CreatureRandom for SourceRandom<'_, 
             .map_err(|_| refuse("execution.creature.urand_default"))
     }
 }
+
+/// Creature.cpp:670-690 retains uint32 accumulation and signed comparison/subtraction.
+pub fn draw_source_creature_display(
+    choices: [DisplayChoice; 4],
+    random: &mut dyn CreatureRandom,
+) -> Result<(u32, i32)> {
+    let total = choices
+        .iter()
+        .filter(|choice| choice.id != 0)
+        .fold(0u32, |total, choice| total.wrapping_add(choice.probability));
+    let upper = (total as i32)
+        .checked_sub(1)
+        .ok_or_else(|| refuse("execution.creature.display_signed_overflow"))?
+        .max(0);
+    let initial = random.creature_irand(0, upper)?;
+    let mut roll = initial;
+    for choice in choices {
+        if choice.id != 0 {
+            if roll < choice.probability as i32 {
+                return Ok((choice.id, initial));
+            }
+            roll = (roll as u32).wrapping_sub(choice.probability) as i32;
+        }
+    }
+    Ok((0, initial))
+}
+
+#[cfg(test)]
+#[path = "creature_display_tests.rs"]
+mod display_tests;
 /// Execute reached owners through the reentrant factory; Creature.cpp:898-934,1738-1765.
 pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     GridObjectFactory<D, P>
@@ -586,28 +616,10 @@ where
         display = state.spawn.model;
     }
     if display == 0 {
-        let mut total = 0_u32;
-        for choice in state.template.displays {
-            if choice.id != 0 {
-                total = total.wrapping_add(choice.probability);
-            }
-        }
-        // Signed subtraction is undefined only at INT32_MIN; Creature.cpp:678.
-        let upper = (total as i32)
-            .checked_sub(1)
-            .ok_or_else(|| refuse("execution.creature.display_signed_overflow"))?
-            .max(0);
-        let mut roll = factory.creature_random()?.creature_irand(0, upper)?;
+        let (chosen, roll) =
+            draw_source_creature_display(state.template.displays, factory.creature_random()?)?;
+        display = chosen;
         state.rolls.model = Some(roll as u32);
-        for choice in state.template.displays {
-            if choice.id != 0 {
-                if roll < choice.probability as i32 {
-                    display = choice.id;
-                    break;
-                }
-                roll = (roll as u32).wrapping_sub(choice.probability) as i32;
-            }
-        }
         if display == 0 {
             display = factory
                 .creature_template(1)?
