@@ -657,6 +657,7 @@ jobs:
             net::p2p::native_geometry::source_route_resident_controller::resident_controller_historical_ack_survives_original_source_expiry \
             net::p2p::native_geometry::source_route_resident_controller::resident_controller_retry_ack_selects_fresh_live_candidate_not_failed_ancestor \
             net::p2p::native_geometry::source_route_resident_controller::resident_controller_two_owner_notice_is_atomic_before_publication \
+            net::p2p::native_geometry::source_route_resident_controller::resident_controller_receiver_loss_stops_without_acknowledging_facts \
             net::p2p::native_geometry::source_route_resident_controller::resident_controller_recipe_captures_cold_and_first_retained_through_real_save_barrier
       - name: Verify resident retained dispatch refusal
         shell: bash
