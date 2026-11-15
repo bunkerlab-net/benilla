@@ -142,6 +142,7 @@ fn model_fields(template: &LoadedCreatureInfo, model: [u32; 8]) -> EntryFields {
         chain_immune: false,
     }
 }
+#[allow(clippy::too_many_arguments)]
 pub(super) fn continue_entry(
     prefix: &mut Prefix<'_>,
     object: ObjectHandle,
@@ -150,6 +151,8 @@ pub(super) fn continue_entry(
     template: &LoadedCreatureInfo,
     event: Option<CreatureEventData>,
     model: [u32; 8],
+    terrain: &mut SourceTerrainManager,
+    map: u32,
 ) -> Result<GridCandidateOutcome> {
     // Unit.cpp:330,429-430,8514-8531; MotionMaster.cpp:692-698 has no generators before AIM_Initialize.
     require(
@@ -206,8 +209,29 @@ pub(super) fn continue_entry(
     }
     prefix.lookups.push("creature_equipment_name_cast_levitate");
     if template.words[17] & 2 != 0 && template.words[23] & 0x8000 == 0 {
-        prefix.creature_entry = Some(fields);
-        return Err(refuse("execution.creature.loaded_collision_height_owner"));
+        // Creature.cpp:338 and Object.cpp:128-130 wrote this scale before ChooseDisplayId.
+        let scale = prefix
+            .init_entry_fields
+            .ok_or_else(|| refuse("execution.creature.initial_object_scale_binding"))?
+            .1;
+        let result = prefix.collision_models.init_entry_swimming(
+            fields.native_display,
+            f32::from_bits(scale),
+            &mut fields.movement_flags,
+            |height| {
+                terrain.is_swimmable(
+                    map,
+                    [data.row.pose[0], data.row.pose[1], data.row.pose[2]],
+                    height,
+                    None,
+                )
+            },
+            &mut prefix.swimming_census,
+        );
+        if let Err(error) = result {
+            prefix.creature_entry = Some(fields);
+            return Err(error);
+        }
     }
     if spawn.spawn_flags & 1 != 0 {
         fields.movement_flags &= !MOVEFLAG_WALK_MODE;

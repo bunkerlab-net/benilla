@@ -48,6 +48,8 @@ pub(super) struct Prefix<'a> {
     pub gameobject_templates: &'a LoadedGameObjectTemplates,
     pub spawn_templates: &'a LoadedCreatureSpawnTemplates,
     pub creature_models: &'a LoadedCreatureModels,
+    pub collision_models: &'a SourceCollisionModels,
+    pub swimming_census: SourceCreatureSwimmingCensus,
     pub creature_spells: Option<&'a CreatureSpellMapData>,
     pub creature_immunities: &'a LoadedCreatureImmunities,
     pub outdoor_pvp: &'a SourceOutdoorPvp,
@@ -218,7 +220,17 @@ impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManag
         };
         self.creature_model = Some(model.words);
         self.lookups.push("creature_model_random_gender");
-        creature_entry::continue_entry(self, object, data, original, template, event, model.words)
+        creature_entry::continue_entry(
+            self,
+            object,
+            data,
+            original,
+            template,
+            event,
+            model.words,
+            context.products,
+            attempt.grid.map.map,
+        )
     }
     fn viewpoint_added(
         &mut self,
@@ -260,6 +272,7 @@ pub(super) struct ActivePrefixReport {
     pub creature_model: Option<[u32; 8]>,
     pub gameobjects: SourceGameObjects,
     pub creature_entry: Option<creature_entry::EntryFields>,
+    pub swimming_census: SourceCreatureSwimmingCensus,
     pub completed: usize,
     pub go_battleground: Option<bool>,
     pub go_zone: Option<u32>,
@@ -277,6 +290,7 @@ pub(super) fn load_first(
     spawn_templates: &LoadedCreatureSpawnTemplates,
     creature_models: &LoadedCreatureModels,
     creature_immunities: &LoadedCreatureImmunities,
+    collision_models: &SourceCollisionModels,
     random: &mut dyn CreatureRandom,
     dynamic_models: &mut SourceDynamicModels,
     trig_dispatch: benilla_sim::source_trig_fma::DispatchBinding,
@@ -338,6 +352,8 @@ pub(super) fn load_first(
         gameobject_templates,
         spawn_templates,
         creature_models,
+        collision_models,
+        swimming_census: SourceCreatureSwimmingCensus::default(),
         creature_spells: map.creature_spells.as_ref(),
         creature_immunities,
         outdoor_pvp,
@@ -474,6 +490,7 @@ pub(super) fn load_first(
         creature_model: factory.creature_model,
         gameobjects: factory.gameobjects,
         creature_entry: factory.creature_entry,
+        swimming_census: factory.swimming_census,
         completed: factory.completed,
         go_battleground: factory.go_battleground,
         go_zone: factory.go_zone,

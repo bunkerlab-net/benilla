@@ -84,6 +84,8 @@ mod loaded_creature_models;
 pub use loaded_creature_models::*;
 mod creature_immunities;
 pub use creature_immunities::*;
+mod collision_height;
+pub use collision_height::*;
 mod creature_spell_lists;
 pub use creature_spell_lists::*;
 mod creature_level;

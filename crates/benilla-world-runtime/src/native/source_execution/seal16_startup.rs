@@ -1232,6 +1232,7 @@ pub(super) fn continue_startup(
     let level_definitions = CreatureLevelDefinitions::load(catalog).unwrap();
     let level_config = CreatureLevelConfig::parse(&config, Sha256Id::of(&config)).unwrap();
     let faction_flags = creature_models::faction_flags(catalog);
+    let collision_models = SourceCollisionModels::load(catalog).unwrap();
     spawn_init::bind_mmap_world(recording, &config, &mut geometry.mmap).unwrap();
     let mut corpses = active_init::frozen_corpses(recording).unwrap();
     println!(
@@ -1852,6 +1853,7 @@ pub(super) fn continue_startup(
             creature_display_chance,
             creature_model,
             creature_entry,
+            swimming_census,
             gameobjects,
             completed,
             go_battleground,
@@ -1867,6 +1869,7 @@ pub(super) fn continue_startup(
             &spawn_templates,
             &creature_models,
             &creature_immunities,
+            &collision_models,
             &mut random,
             &mut dynamic_models,
             trig_dispatch,
@@ -1883,6 +1886,10 @@ pub(super) fn continue_startup(
             &config,
         )
         .unwrap();
+        println!("F6_CONSTRUCTED_COLLISION_HEIGHT map={slot} reached_441={} swimming_set={} swimming_not_set={} display_assert_11952={} model_assert_11954={} scope=recorded_startup_prefix_only",
+            swimming_census.reached_441, swimming_census.swimming_set,
+            swimming_census.swimming_not_set, swimming_census.display_assert_11952,
+            swimming_census.model_assert_11954);
         assert_eq!(
             lookups,
             if slot == 0 {
@@ -2047,6 +2054,12 @@ pub(super) fn continue_startup(
             assert_eq!(spawn_templates.model_id(data).unwrap(), 0);
             assert_eq!(creature_display_chance, Some(100));
             let template = creature_templates.get(entry).unwrap();
+            assert_eq!(entry, 4692);
+            assert_eq!((template.words[17], template.words[23]), (1, 0));
+            assert_eq!(template.words[17] & 2, 0, "Creature.cpp:439 short-circuits");
+            assert_eq!(swimming_census, SourceCreatureSwimmingCensus::default());
+            println!("F6_CONSTRUCTED_COLLISION_SHORT_CIRCUIT entry={entry} template_ordinal={} inhabit_type={} extra_flags={} source_line=439 GetCollisionHeight_calls=0 IsSwimmable_calls=0",
+                template.ordinal, template.words[17], template.words[23]);
             assert_eq!(
                 init_entry_fields,
                 Some((entry, template.words[14], [0, template.words[36] as u8]))

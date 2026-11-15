@@ -2719,3 +2719,20 @@ The frozen comparison matches the immunity query between creature templates
 and unit conditions, `World.cpp:1021-1027`. These owners do not alter saved
 bytes or native format 91.
 
+## Constructed creature collision height
+
+`SourceCollisionModels` reuses the pinned `VerifiedCatalog::dbc_view` layouts.
+It consumes CreatureDisplayInfo fields 0/1 and CreatureModelData fields 0/15,
+`DBCStructure.h:223-224,263-278`. `Unit.cpp:11932,11951-11957` multiplies the
+object scale by the native model's raw height. Either signed-zero product
+selects `DEFAULT_COLLISION_HEIGHT`, `ObjectDefines.h:47`. Missing display/model
+rows refuse at the two source assertions, `Unit.cpp:11952,11954`.
+
+The constructed InitEntry path uses its actual scale setter and selected
+native display, `Creature.cpp:338,346-362`, before querying the existing
+terrain IsSwimmable owner, `GridMap.cpp:1147-1160`, at `Creature.cpp:439-442`.
+It then continues the existing creation owners in source order. The startup
+census counts only constructed creatures that reach this call. Raw-pose
+waypoint diagnostics still refuse without a selected display and remain
+separate from constructed execution. Native format remains 91.
+
