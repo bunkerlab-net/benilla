@@ -11,7 +11,7 @@ pub struct SourceLiquidDbc {
     areas: Option<BTreeMap<u32, Area>>,
 }
 impl SourceLiquidDbc {
-    #[cfg(test)]
+    #[cfg(all(test, target_arch = "x86_64"))]
     pub(in crate::native::source_execution) fn authored() -> Self {
         Self {
             types: Some(BTreeMap::from([(21, 0), (22, 1), (23, 2), (24, 3)])),
