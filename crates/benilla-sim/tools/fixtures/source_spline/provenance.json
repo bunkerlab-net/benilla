@@ -15,7 +15,11 @@
     "dep/g3dlite/Matrix4.cpp": "ec71009c5258e22d5b26c65dcd79a5c719a4db3e428e6946984ef2077f7d90a6",
     "dep/g3dlite/G3D/Vector3.h": "75b8fa263ade1337c4a06d5e6918aa0a7d28bcb107ed405487e62235838125e2",
     "dep/g3dlite/G3D/Vector4.h": "dc17cec5d74f622fe61fd215da3e27d0664ce90666b94987f1d31da2cdfce6bb",
-    "dep/g3dlite/G3D/Matrix4.h": "9db0803131f0b01307611e9b38b5817135c7898764f3ada3491b80bf24f5fcc0"
+    "dep/g3dlite/G3D/Matrix4.h": "9db0803131f0b01307611e9b38b5817135c7898764f3ada3491b80bf24f5fcc0",
+    "dep/g3dlite/G3D/g3dmath.h": "61503fbfe922cceaab848ba6571a67f9001ae1023684ad6625cb173e42f17b2f",
+    "src/shared/Util/ByteBuffer.h": "4130fd296bb013c4c41c57687dc1ea6f725ada6b2b62cf9ffaf248de662f9245",
+    "src/game/Entities/Unit.cpp": "03b67a4b6226f1f463e71be3694d3c950fc9b915a6e921407a98e4ff82fc21d0",
+    "src/shared/Common.h": "5d07c692b1a729cf8e4045812c5633e096c8d47c81b2530c641b2ee4c0aefc32"
   },
   "compile_command": [
     "g++",
@@ -32,37 +36,37 @@
     "-o",
     "/evidence/oracle"
   ],
-  "oracle_sha256": "23352b8bb014d4169b8934ee65bb7c9b4f0165541a0c92cc149f089f7850ac50",
-  "inputs_sha256": "a46e04a5f670b1bcb64bf803933c6b6706d62abb9e8f4da2e88559ff492daf48",
-  "output_sha256": "9458b9b0375e22e275c9a448e5e41b53a097f14a4c1af85dde6faf71e4538ba2",
-  "binary_sha256": "ab0ad80b7a921cbe75c79e0a32913c951f8eddef35204f630942f2e66fcb4e0a",
-  "cases": 32,
-  "rows": 202,
+  "oracle_sha256": "6568c59ff2d0ac5d6a0873e628a2aa5ba4a0fcdb9c958fe4270e5a73b047bdea",
+  "inputs_sha256": "e58514e29c7a98b4672df29ea37d721b34577ba9da7de47c1e13f50b7fdcb9ff",
+  "output_sha256": "da2888f7438d0c47c9323974dea9b9397df00516028fc0778518b37ddc0f7091",
+  "binary_sha256": "6dd5e157864424bfdb8ab2f1713a99437b0e628dc121b2002bb46c00f073452a",
+  "cases": 34,
+  "rows": 220,
   "ubsan": [
     {
       "case": 0,
       "returncode": 1,
-      "stderr": "/evidence/oracle.cpp:465:18: runtime error: inf is outside the range of representable values of type 'int'\n"
+      "stderr": "/evidence/oracle.cpp:485:18: runtime error: inf is outside the range of representable values of type 'int'\n"
     },
     {
       "case": 1,
       "returncode": 1,
-      "stderr": "/evidence/oracle.cpp:465:18: runtime error: nan is outside the range of representable values of type 'int'\n"
+      "stderr": "/evidence/oracle.cpp:485:18: runtime error: nan is outside the range of representable values of type 'int'\n"
     },
     {
       "case": 2,
       "returncode": 1,
-      "stderr": "/evidence/oracle.cpp:465:18: runtime error: inf is outside the range of representable values of type 'int'\n"
+      "stderr": "/evidence/oracle.cpp:485:18: runtime error: inf is outside the range of representable values of type 'int'\n"
     },
     {
       "case": 3,
       "returncode": 1,
-      "stderr": "/evidence/oracle.cpp:449:92: runtime error: 3.32513e+09 is outside the range of representable values of type 'int'\n"
+      "stderr": "/evidence/oracle.cpp:469:92: runtime error: 3.32513e+09 is outside the range of representable values of type 'int'\n"
     },
     {
       "case": 4,
       "returncode": 1,
-      "stderr": "/evidence/oracle.cpp:641:40: runtime error: signed integer overflow: 2147483647 + 1 cannot be represented in type 'int'\n"
+      "stderr": "/evidence/oracle.cpp:661:40: runtime error: signed integer overflow: 2147483647 + 1 cannot be represented in type 'int'\n"
     },
     {
       "case": 5,
@@ -72,18 +76,46 @@
     {
       "case": 6,
       "returncode": 1,
-      "stderr": "/evidence/oracle.cpp:641:86: runtime error: signed integer overflow: 2147483647 + 1 cannot be represented in type 'int'\n"
+      "stderr": "/evidence/oracle.cpp:661:86: runtime error: signed integer overflow: 2147483647 + 1 cannot be represented in type 'int'\n"
     },
     {
       "case": 7,
       "returncode": 1,
-      "stderr": "/evidence/oracle.cpp:643:27: runtime error: division by zero\n"
+      "stderr": "/evidence/oracle.cpp:663:27: runtime error: division by zero\n"
+    },
+    {
+      "case": 9,
+      "returncode": 1,
+      "stderr": "/source/dep/g3dlite/G3D/g3dmath.h:577:23: runtime error: 2.14748e+09 is outside the range of representable values of type 'int'\n"
+    },
+    {
+      "case": 10,
+      "returncode": 1,
+      "stderr": "/evidence/oracle.cpp:19:32: runtime error: 2.14748e+09 is outside the range of representable values of type 'int'\n"
+    },
+    {
+      "case": 11,
+      "returncode": 1,
+      "stderr": "/evidence/oracle.cpp:19:32: runtime error: -2.14748e+09 is outside the range of representable values of type 'int'\n"
+    },
+    {
+      "case": 12,
+      "returncode": 1,
+      "stderr": "/source/dep/g3dlite/G3D/g3dmath.h:577:23: runtime error: nan is outside the range of representable values of type 'int'\n"
     }
   ],
   "asan": {
     "case": 8,
     "returncode": 1,
     "kind": "heap-buffer-overflow"
+  },
+  "init_arithmetic_rows": 14,
+  "init_arithmetic_sha256": "cbebc666592ff469b9d7e768cabdd835adc275e65041bc394385f11150e849de",
+  "unit_orientation_binding": {
+    "overload": "float atan2(float,float)",
+    "callee": "atan2f",
+    "addition": "binary32 addss",
+    "disassembly": "73b0:\tf3 0f 10 5f 04       \tmovss  0x4(%rdi),%xmm3\n    73b5:\tf3 0f 10 27          \tmovss  (%rdi),%xmm4\n    73b9:\t0f 28 d0             \tmovaps %xmm0,%xmm2\n    73bc:\t0f 2e cb             \tucomiss %xmm3,%xmm1\n    73bf:\t7a 0f                \tjp     73d0 <UnitFacingOracle::run(float, float)+0x20>\n    73c1:\t75 0d                \tjne    73d0 <UnitFacingOracle::run(float, float)+0x20>\n    73c3:\t0f 2e c4             \tucomiss %xmm4,%xmm0\n    73c6:\t7a 08                \tjp     73d0 <UnitFacingOracle::run(float, float)+0x20>\n    73c8:\t75 06                \tjne    73d0 <UnitFacingOracle::run(float, float)+0x20>\n    73ca:\tf3 0f 10 47 08       \tmovss  0x8(%rdi),%xmm0\n    73cf:\tc3                   \tret\n    73d0:\tf3 0f 5c cb          \tsubss  %xmm3,%xmm1\n    73d4:\t55                   \tpush   %rbp\n    73d5:\tf3 0f 5c d4          \tsubss  %xmm4,%xmm2\n    73d9:\t0f 28 c1             \tmovaps %xmm1,%xmm0\n    73dc:\t48 89 e5             \tmov    %rsp,%rbp\n    73df:\t0f 28 ca             \tmovaps %xmm2,%xmm1\n    73e2:\te8 99 ad ff ff       \tcall   2180 <atan2f@plt>\n    73e7:\t66 0f ef c9          \tpxor   %xmm1,%xmm1\n    73eb:\t0f 2f c1             \tcomiss %xmm1,%xmm0\n    73ee:\t72 08                \tjb     73f8 <UnitFacingOracle::run(float, float)+0x48>\n    73f0:\t5d                   \tpop    %rbp\n    73f1:\tc3                   \tret\n    73f2:\t66 0f 1f 44 00 00    \tnopw   0x0(%rax,%rax,1)\n    73f8:\tf3 0f 58 05 cc 0d 00 \taddss  0xdcc(%rip),%xmm0        # 81cc <_IO_stdin_used+0x1cc>\n    73ff:\t00 \n    7400:\t5d                   \tpop    %rbp\n    7401:\tc3                   \tret\n    7402:\t66 2e 0f 1f 84 00 00 \tcs nopw 0x0(%rax,%rax,1)\n    7409:\t00 00 00 \n    740c:\t0f 1f 40 00          \tnopl   0x0(%rax)"
   },
   "scope": "Authored source numerical components, not sealed F1 execution"
 }

@@ -16,12 +16,20 @@ const FACING: u32 = FINAL_POINT | FINAL_TARGET | FINAL_ANGLE;
 #[derive(Clone, Debug)]
 pub struct Args {
     pub path: Vec<Point>,
-    /// FacingInfo union storage. Target facing deliberately reads none of these words.
-    pub facing: [u32; 3],
+    /// FacingInfo union words, including indeterminate bytes from its constructors.
+    pub facing: [Option<u32>; 3],
     pub flags: u32,
     pub path_index_offset: i32,
     pub velocity: u32,
     pub spline_id: u32,
+}
+/// MoveSplineInitArgs.h:40. The float constructor defines only the angle word.
+pub fn facing_from_angle(angle: u32) -> [Option<u32>; 3] {
+    [Some(angle), None, None]
+}
+/// MoveSplineInitArgs.h:41-42. The target/default constructors define two words.
+pub fn facing_from_target(target: u64) -> [Option<u32>; 3] {
+    [Some(target as u32), Some((target >> 32) as u32), None]
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
@@ -92,7 +100,7 @@ impl MoveSpline {
     /// MoveSpline.cpp:141-157. A stop clears only the spline, retaining speed and raw index.
     pub fn initialize(&mut self, args: &Args) -> Result<()> {
         self.flags = args.flags;
-        self.facing = args.facing.map(Some);
+        self.facing = args.facing;
         self.id = args.spline_id;
         self.point_index_offset = args.path_index_offset;
         self.time_passed = 0;
@@ -165,6 +173,17 @@ impl MoveSpline {
     }
     pub fn flags(&self) -> u32 {
         self.flags
+    }
+    /// packet_builder.cpp:49-64 reads the active FacingInfo union member.
+    pub fn facing_words(&self) -> [Option<u32>; 3] {
+        self.facing
+    }
+    pub fn facing_word(&self, index: usize) -> Result<u32> {
+        self.facing
+            .get(index)
+            .copied()
+            .flatten()
+            .ok_or(Error("spline_facing_union_read_undefined"))
     }
     pub fn speed(&self) -> u32 {
         self.speed
@@ -319,9 +338,7 @@ impl MoveSpline {
             self.flags &= !ENTER_CYCLE;
             let mut args = Args {
                 path: self.spline.points[self.spline.first + 1..self.spline.last].to_vec(),
-                facing: self
-                    .facing
-                    .map(|word| word.expect("Initialize supplied FacingInfo")),
+                facing: self.facing,
                 flags: self.flags,
                 path_index_offset: self.point_index_offset,
                 velocity: integer(1).raw(),

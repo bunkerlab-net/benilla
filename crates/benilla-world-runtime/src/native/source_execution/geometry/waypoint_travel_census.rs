@@ -110,7 +110,7 @@ pub(super) fn run(
                     source_waypoint_append_path(generated, &pf.points, end, speed)
                 },
             )?;
-            Err::<(), _>(refuse("execution.waypoint.move_spline_init_owner_396"))
+            SourceMoveSplineInit::construct(pathfinder.unit, &context).map(|_| ())
         })();
         let id = result.unwrap_err().id;
         if !first_complete {
@@ -124,7 +124,7 @@ pub(super) fn run(
         "creation_dependencies":first.iter().filter(|(id,_)| id.starts_with("execution.movement.") || id.starts_with("execution.object_mgr.") || id.starts_with("diagnostic.")).collect::<BTreeMap<_,_>>(),
         "build_int_path_complete":first.get("complete").copied().unwrap_or(0),
         "lookahead_cycle":next.get("execution.waypoint.minimum_path_time_nonterminating_cycle_370").copied().unwrap_or(0),
-        "reached_move_spline_init":next.get("execution.waypoint.move_spline_init_owner_396").copied().unwrap_or(0),
+        "spline_constructor_flags_refusal":next.get("execution.spline.movement_info_owner_176").copied().unwrap_or(0),
         "ub_279": next.get("execution.waypoint.travel_conversion_undefined_279").copied().unwrap_or(0),
         "ub_284": next.get("execution.waypoint.travel_conversion_undefined_284").copied().unwrap_or(0),
         "zero_speed_279": next.get("execution.waypoint.zero_speed_conversion_undefined_279").copied().unwrap_or(0),

@@ -243,6 +243,12 @@ fn catalog04_fixed_and_linear_defaults_and_raw_prefixes_or_explicit_absence() {
         "after":{"templates_defined":10384,"spawns_defined":66436,"missing_constructors":0,"global_loader_refusal":global_refusal.id,"global_loader_reached_f6":0,"global_loader_blocked_spawns":373},
         "raw_template_reasons":template_reasons,"raw_alternative_reasons":reasons,"raw_spawn_sets_nonexclusive":spawn_sets,"undefined_prefix_rows":undefined,"raw_one_node_linear_paths":one_node_linear_paths,
         "later_undefined_sites":"linear --begin at WaypointMovementGenerator.cpp:624; returning ++begin end dereference :639,252; fixed offset iterator :84,100 and signed index addition :159,168,198. Arrival live reach requires F6 and is not claimed.",
+        "launch_census":{"scope":"raw prefixes, no constructed stock units or live dispatch",
+            "fixed":{"total":38,"constructor_flags_refusal":spawn_sets.get(&3).and_then(|r|r.get("execution.spline.movement_info_owner_176")).map_or(0,BTreeSet::len),"reached_launch":0,"completed_launch":0,"next_source":"MoveSplineInit.cpp:176"},
+            "linear":{"total":335,"reached_launch":0,"completed_launch":0,"next_source":"WaypointMovementGenerator.cpp:261"},
+            "waypoint":{"total":2931,"reached_launch":0,"completed_launch":0,"next_source":"WaypointMovementGenerator.cpp:261"},
+            "wander":{"total":43119,"reached_launch":0,"completed_launch":0,"next_source":"RandomMovementGenerator.cpp:181, PathFinder.cpp:49"},
+            "home":{"stock_opportunities":null,"reached_launch":null,"completed_launch":null,"next_source":"HomeMovementGenerator.cpp:64"}},
         "format":91,"persisted_state_changed":false,"F1":"frozen unsealed"
     });
     if let Some(path) = std::env::var_os("BENILLA_F5_FIXED_PATH_CENSUS") {

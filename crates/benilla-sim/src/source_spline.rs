@@ -33,6 +33,55 @@ fn signed(value: i32) -> S {
 fn truncate(value: S, id: &'static str) -> Result<i32> {
     value.double().truncate_i32().ok_or(Error(id))
 }
+
+/// MoveSplineInit.cpp:188; G3D g3dmath.h:468-477,576-577.
+pub fn wrap_facing(angle: u32) -> Result<u32> {
+    let value = S::bits(angle);
+    let tau = S::bits(0x40c9_0fdb);
+    if value >= S::ZERO && value < tau {
+        return Ok(angle);
+    }
+    let quotient = value / tau;
+    let mut floor = truncate(quotient, "facing_wrap_floor_conversion_undefined")?;
+    if signed(floor) > quotient {
+        floor = floor
+            .checked_sub(1)
+            .ok_or(Error("facing_wrap_floor_conversion_undefined"))?;
+    }
+    Ok((value - tau * signed(floor)).raw())
+}
+
+/// ByteBuffer.h:421-427. Casts truncate toward zero before the integer masks.
+pub fn pack_xyz(point: Point) -> Result<u32> {
+    let mut packed = 0u32;
+    for (i, value) in point.into_iter().enumerate() {
+        let value = truncate(
+            S::bits(value) / S::bits(0x3e80_0000),
+            "packet_xyz_conversion_undefined",
+        )?;
+        packed |= (value as u32 & if i == 2 { 0x3ff } else { 0x7ff }) << (i * 11);
+    }
+    Ok(packed)
+}
+
+/// Unit.cpp:11068-11073; Common.h:28,213 selects float atan2 and float 2*pi.
+pub fn relocation_orientation(old: [u32; 4], new: [u32; 4]) -> Result<u32> {
+    let old = old.map(S::bits);
+    let new = new.map(S::bits);
+    if new[1] == old[1] && new[0] == old[0] {
+        return Ok(old[3].raw());
+    }
+    let angle = S::bits(
+        crate::facing::atan2_bits((new[1] - old[1]).raw(), (new[0] - old[0]).raw())
+            .map_err(|_| Error("relocation_atan2_numeric_domain_11072"))?,
+    );
+    Ok(if angle >= S::ZERO {
+        angle
+    } else {
+        S::bits(0x40c9_0fdb) + angle
+    }
+    .raw())
+}
 fn sqrt(value: S) -> S {
     // Reuse the integer sqrtf kernel; IEEE nonfinite results reach the source conversion.
     let bits = value.raw();

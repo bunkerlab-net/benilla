@@ -37,13 +37,77 @@ pub fn source_default_motion(movement_type: u32, player_owner: bool) -> Result<u
 
 /// Foreign operations execute synchronously, including mutations from callbacks.
 pub trait MotionExecutionOwner {
+    fn spline_thread(&mut self) -> Result<&mut SourceSplineThread> {
+        Err(refuse("execution.spline.thread_local_counter_owner_102"))
+    }
+    fn send_spline(
+        &mut self,
+        _packet: &SplineOutbound,
+        _context: &MotionContext<'_>,
+    ) -> Result<()> {
+        Err(refuse("execution.spline.client_guids_i_am_at_owner_11216"))
+    }
+    fn spline_debug_spawn(
+        &mut self,
+        _unit: ObjectHandle,
+        _point: [u32; 3],
+        _waypoint_id: u32,
+        _context: &mut MotionContext<'_>,
+    ) -> Result<()> {
+        Err(refuse("execution.spline.debug_waypoint_summon_owner_49"))
+    }
+    fn spline_passengers_mut(&mut self) -> Result<&mut SourcePassengers> {
+        Err(refuse(
+            "execution.spline.transport_movement_info_owner_11038",
+        ))
+    }
+    /// Object.h:794 updates only t_pos in the existing passenger movement owner.
+    fn spline_transport_offset(&mut self, unit: ObjectHandle, pose: SourcePose) -> Result<()> {
+        self.spline_passengers_mut()?.movement_mut(unit)?.offset = pose;
+        Ok(())
+    }
+    fn spline_get_angle(
+        &mut self,
+        _unit: ObjectHandle,
+        _point: [f32; 2],
+        _context: &MotionContext<'_>,
+    ) -> Result<f32> {
+        Err(refuse("execution.spline.world_object_angle_owner_11049"))
+    }
+    /// Map.cpp:83-85 reads the existing World TimePoint, not a fresh clock sample.
+    fn spline_current_clock_ms(
+        &mut self,
+        _unit: ObjectHandle,
+        _context: &MotionContext<'_>,
+    ) -> Result<i64> {
+        Err(refuse("execution.spline.map_current_clock_owner_11077"))
+    }
+    fn spline_relocate(
+        &mut self,
+        _relocation: SplineRelocation,
+        _context: &mut MotionContext<'_>,
+    ) -> Result<()> {
+        Err(refuse(if _relocation.relocate_only {
+            "execution.spline.plain_relocate_owner_11081"
+        } else {
+            "execution.spline.f3_creature_relocation_context_owner_11088"
+        }))
+    }
     fn motion_call(
         &mut self,
         _master: &mut SourceMotionMaster,
         call: MotionCall,
         _context: &mut MotionContext<'_>,
     ) -> Result<()> {
-        Err(call.missing_owner())
+        match call {
+            MotionCall::StopSpline => SourceMoveSplineInit::construct(_master.unit, _context)?
+                .stop(_master.unit, false, _context, self),
+            MotionCall::StopMovingForced => source_stop_moving(_master.unit, true, _context, self),
+            MotionCall::InterruptMoving => {
+                source_interrupt_moving(_master.unit, false, _context, self)
+            }
+            _ => Err(call.missing_owner()),
+        }
     }
     fn pathfinder_geometry(&mut self) -> Result<&mut SourceTerrainManager> {
         Err(refuse("execution.pathfinder.live_geometry_owner"))

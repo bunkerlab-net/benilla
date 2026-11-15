@@ -976,7 +976,7 @@ fn top_down_destruction_does_not_finalize() {
 }
 
 #[test]
-fn initialize_stops_before_clear_and_refuses_spline_at_actual_call() {
+fn initialize_stops_before_clear_and_refuses_constructor_flags_at_actual_call() {
     let (mut objects, mut units, mut master) = setup();
     objects.get_mut(master.unit).unwrap().in_world = true;
     units.get_mut(&objects, master.unit).unwrap().state = 0x10000;
@@ -991,10 +991,12 @@ fn initialize_stops_before_clear_and_refuses_spline_at_actual_call() {
     log.borrow_mut().clear();
     assert_eq!(
         master.initialize(&mut c, &mut Unbound).unwrap_err().id,
-        "execution.motion.f6_spline_stop_owner"
+        "execution.spline.movement_info_owner_176"
     );
     assert!(log.borrow().is_empty());
     assert_eq!(master.len(), 2);
+    assert_eq!(c.units.get(&objects, master.unit).unwrap().state, 0);
+    assert!(c.spline_finalized(master.unit).unwrap());
 }
 
 #[test]

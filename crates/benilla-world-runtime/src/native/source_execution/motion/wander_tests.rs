@@ -229,7 +229,7 @@ fn reset_zeroes_timer_before_roaming_and_f6_without_clearing_motion() {
 }
 
 #[test]
-fn interrupt_refuses_before_clearing_motion_without_real_interrupt_owner() {
+fn interrupt_clears_motion_before_missing_walk_owner_on_fresh_spline() {
     let (objects, mut units, mut master) = setup();
     units.get_mut(&objects, master.unit).unwrap().state = WANDER_ACTIVE | WANDER_MOVING;
     let mut c = MotionContext {
@@ -242,12 +242,20 @@ fn interrupt_refuses_before_clearing_motion_without_real_interrupt_owner() {
             .interrupt(&mut master, &mut c, &mut Unbound)
             .unwrap_err()
             .id,
-        "execution.motion.f6_interrupt_moving_owner"
+        "execution.motion.walk_movement_info_output_owner"
     );
     assert_eq!(
         c.units.get(&objects, master.unit).unwrap().state,
-        WANDER_ACTIVE | WANDER_MOVING
+        WANDER_ACTIVE
     );
+    assert!(c.spline_finalized(master.unit).unwrap());
+    assert!(!c.spline(master.unit).unwrap().initialized());
+    assert!(c
+        .units
+        .get(&objects, master.unit)
+        .unwrap()
+        .spline_outbound
+        .is_empty());
 }
 
 #[test]

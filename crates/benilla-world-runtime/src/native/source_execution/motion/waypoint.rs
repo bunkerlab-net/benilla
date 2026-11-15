@@ -367,7 +367,7 @@ impl SourceWaypointGenerator {
             context,
             owner,
         )?;
-        source_waypoint_lookahead(
+        let next = source_waypoint_lookahead(
             &path,
             cursor,
             &mut generated,
@@ -376,8 +376,33 @@ impl SourceWaypointGenerator {
             |cursor, looped| self.node_after(cursor, looped),
             |generated, end| self.build_int_path(generated, end, master, context, owner),
         )?;
-        // cpp:396 is the next foreign call, before MovebyPath/SetFacing/SetWalk/Launch.
-        Err(refuse("execution.waypoint.move_spline_init_owner_396"))
+        let node = path[&next];
+        let mut init = SourceMoveSplineInit::construct(master.unit, context)?;
+        init.move_by_path(&generated, 0);
+        if node.delay != 0 {
+            if let Some(angle) = node.orientation {
+                init.set_facing(angle)?;
+            }
+        }
+        let running = context.units.get(context.objects, master.unit)?.state & 0x0400_0000 != 0;
+        init.set_walk(match self.forced_movement.get() {
+            1 => true,
+            2 => false,
+            _ => !running,
+        });
+        let mut p = self.progress.get();
+        p.path_duration = init.launch(master.unit, context, owner)?;
+        self.progress.set(p);
+        if node.delay == 0 {
+            // uint32 PreSendTime converts the compound subtraction to unsigned.
+            p.path_duration = (p.path_duration as u32).wrapping_sub(1500) as i32;
+            self.progress.set(p);
+        }
+        if path.len() == 1 {
+            p.last_reached = 0;
+            self.progress.set(p);
+        }
+        Ok(())
     }
     fn build_int_path(
         &self,

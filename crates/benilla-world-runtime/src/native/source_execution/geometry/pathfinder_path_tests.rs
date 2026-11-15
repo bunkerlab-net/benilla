@@ -450,7 +450,7 @@ fn home_consumes_bound_passenger_state_and_calculates_before_spline_init_66_70()
             .initialize(&mut master, &mut context, &mut owner)
             .unwrap_err()
             .id,
-        "execution.motion.f6_home_move_spline_init_owner_70"
+        "execution.spline.movement_info_owner_176"
     );
     assert_eq!(owner.geometry.pathfinder_constructor_completions, 1);
     assert_eq!(owner.geometry.pathfinder_calculate_completions, 1);

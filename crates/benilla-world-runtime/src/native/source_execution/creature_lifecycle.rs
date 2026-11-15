@@ -151,6 +151,13 @@ pub trait CreatureLifecycleOwner<D: GridDefinitions, P: ResidencyProductOwner>:
     ) -> Result<()> {
         Err(refuse("execution.assistance.lifecycle_live_binding_owner"))
     }
+    fn lifecycle_spline_owners(
+        &mut self,
+    ) -> Result<(&mut SourceUnits, &mut dyn MotionExecutionOwner)> {
+        Err(refuse(
+            "execution.unit_update.f6_spline_live_unit_binding_owner",
+        ))
+    }
     fn lifecycle_unit_call(
         &mut self,
         call: UnitUpdateCall,
@@ -158,7 +165,16 @@ pub trait CreatureLifecycleOwner<D: GridDefinitions, P: ResidencyProductOwner>:
         _creature: &mut SourceCreatureLifecycle,
         _context: &mut CreatureLifecycleContext<'_, '_, D, P>,
     ) -> Result<()> {
-        Err(call.missing_owner())
+        if call == UnitUpdateCall::SplineMovement {
+            let (units, motion) = self.lifecycle_spline_owners()?;
+            let mut context = MotionContext {
+                objects: _context.grid.objects,
+                units,
+            };
+            source_update_spline_movement(_creature.object(), _diff, &mut context, motion)
+        } else {
+            Err(call.missing_owner())
+        }
     }
     fn lifecycle_unit_has_ai(
         &mut self,

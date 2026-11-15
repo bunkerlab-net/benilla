@@ -24,8 +24,31 @@ static void state(std::string const& name, int sample, Movement::MoveSpline cons
 }
 int main(int argc, char** argv) {
     if (std::fegetround()!=FE_TONEAREST || (_mm_getcsr() & ((1u<<15)|(1u<<6)))) return 2;
+    if (argc == 2 && std::string(argv[1]) == "--init-arithmetic") {
+        for (uint32 v : {0u,0x80000000u,0xbf800000u,0x40c90fdbu,0x50490fdau,0xd0490fdau}) {
+            std::cout << "wrap " << v << ' ' << word(G3D::wrap(real(v),0.f,float(G3D::twoPi()))) << '\n';
+        }
+        for (uint32 v : {0u,0x3f800000u,0xbf800000u,0x4dffffffu,0xce000000u}) {
+            PackedOracle b; b.appendPackXYZ(real(v),0.f,0.f);
+            std::cout << "pack " << v << ' ' << b.result << '\n';
+        }
+        for (auto xy : {std::pair<float,float>{4,6},{4,-2},{1,2}}) {
+            UnitFacingOracle u{1,2,0.75f};
+            std::cout << "orientation " << word(u.x) << ' ' << word(u.y) << ' ' << word(u.o)
+                      << ' ' << word(xy.first) << ' ' << word(xy.second) << ' ' << word(u.run(xy.first,xy.second)) << '\n';
+        }
+        return 0;
+    }
     if (argc == 3 && std::string(argv[1]) == "--ub") {
         int which = std::stoi(argv[2]);
+        if (which == 9 || which == 12) {
+            std::cout << G3D::wrap(real(which == 9 ? 0x50490fdbu : 0x7fc00000u),0.f,float(G3D::twoPi()));
+            return 0;
+        }
+        if (which == 10 || which == 11) {
+            PackedOracle b; b.appendPackXYZ(real(which == 10 ? 0x4e000000u : 0xce000001u),0.f,0.f);
+            std::cout << b.result; return 0;
+        }
         Movement::MoveSplineInitArgs args;
         args.path = {Vector3(0,0,0), Vector3(1,0,0)};
         args.velocity = 1;

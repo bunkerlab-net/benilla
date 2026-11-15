@@ -1003,7 +1003,7 @@ fn external_start_and_finished_callbacks_precede_f6_and_can_end_the_send() {
 }
 
 #[test]
-fn interrupt_refusal_preserves_roaming_state_after_capturing_position() {
+fn interrupt_captures_position_then_clears_roaming_before_missing_walk_owner() {
     struct MissingInterrupt;
     impl MotionExecutionOwner for MissingInterrupt {
         fn waypoint_position(&mut self, _: ObjectHandle) -> Result<[f32; 4]> {
@@ -1021,13 +1021,18 @@ fn interrupt_refusal_preserves_roaming_state_after_capturing_position() {
         g.interrupt(&mut master, &mut c, &mut MissingInterrupt)
             .unwrap_err()
             .id,
-        "execution.motion.f6_interrupt_moving_owner"
+        "execution.motion.walk_movement_info_output_owner"
     );
-    assert_eq!(
-        c.units.get(&objects, master.unit).unwrap().state,
-        WANDER_ACTIVE | WANDER_MOVING
-    );
+    assert_eq!(c.units.get(&objects, master.unit).unwrap().state, 0);
     assert_eq!(g.reset_position(), Some([9.; 4]));
+    assert!(c.spline_finalized(master.unit).unwrap());
+    assert!(!c.spline(master.unit).unwrap().initialized());
+    assert!(c
+        .units
+        .get(&objects, master.unit)
+        .unwrap()
+        .spline_outbound
+        .is_empty());
 }
 
 #[test]
@@ -1123,7 +1128,7 @@ fn bound_speed_and_passengers_calculate_before_lookahead_and_spline_init() {
             )
             .unwrap_err()
             .id,
-        "execution.waypoint.move_spline_init_owner_396"
+        "execution.spline.movement_info_owner_176"
     );
     assert_eq!(owner.speed_reads, 3);
     let geometry = owner.geometry.as_ref().unwrap();
@@ -1131,7 +1136,7 @@ fn bound_speed_and_passengers_calculate_before_lookahead_and_spline_init() {
     assert_eq!(geometry.pathfinder_calculate_completions, 3);
     let args = benilla_sim::source_spline::Args {
         path: vec![[0; 3], [3f32.to_bits(), 4f32.to_bits(), 0]],
-        facing: [0; 3],
+        facing: [Some(0); 3],
         flags: 0,
         path_index_offset: 0,
         velocity: 5f32.to_bits(),
@@ -1151,7 +1156,7 @@ fn bound_speed_and_passengers_calculate_before_lookahead_and_spline_init() {
             .send_next(&mut master, &mut context, &mut owner)
             .unwrap_err()
             .id,
-        "execution.waypoint.move_spline_init_owner_396"
+        "execution.spline.movement_info_owner_176"
     );
     assert_eq!(
         owner.path_starts.last().unwrap(),
@@ -1185,7 +1190,7 @@ fn real_current_path_index_pops_one_pending_node_before_arrival() {
         .movespline
         .initialize(&benilla_sim::source_spline::Args {
             path: vec![[0; 3], [3f32.to_bits(), 4f32.to_bits(), 0]],
-            facing: [0; 3],
+            facing: [Some(0); 3],
             flags: 0,
             path_index_offset: 23,
             velocity: 5f32.to_bits(),

@@ -56,8 +56,17 @@ impl SourceHomeGenerator {
             SourcePathFinder::construct(owner.pathfinder_geometry()?, master.unit, context, false)?;
         let start = owner.home_pathfinder_position(context, master.unit)?;
         owner.calculate_pathfinder(&mut path, context, start, [target[0], target[1], target[2]])?;
-        // HomeMovementGenerator.cpp:70 constructs MoveSplineInit only after calculate.
-        Err(refuse("execution.motion.f6_home_move_spline_init_owner_70"))
+        let mut init = SourceMoveSplineInit::construct(master.unit, context)?;
+        init.move_by_path(&path.points, 0);
+        init.set_walk(!self.run);
+        init.set_facing(target[3])?;
+        if path.path_type & (0x8 | 0x2) != 0 {
+            init.set_velocity(400.);
+        }
+        init.launch(master.unit, context, owner)?;
+        self.arrived.set(false);
+        context.units.get_mut(context.objects, master.unit)?.state &= 0x1d00_0000;
+        Ok(())
     }
 }
 impl SourceMovementGenerator for SourceHomeGenerator {

@@ -47,6 +47,8 @@ def cases():
     add('fall_cycle_repair', path=[[1,2,3]]*3, flags=0x100002, steps=[[0,0],[0,999],[0,1],[0,1]])
     add('fall_upward', path=[[0,0,10],[1,0,11],[2,0,12]], flags=2)
     add('signed_duration_valid', path=[[0,0,0],[2147483520,0,0]], speed=1000, steps=[[0,1],[0,0xffffffff]])
+    add('infinite_velocity', path=[[0,0,0],[3,4,0]], speed=float('inf'))
+    add('maximum_velocity', path=[[0,0,0],[3,4,0]], speed=3.4028234663852886e38)
     for flags in (0,0x200,0x100000,0x300200):
         add(f'spline_{flags}', flags=flags, kind='S', steps=[bits(x) for x in (0,0.125,0.25,0.5,0.75,1)])
     add('spline_exact_boundary', path=[[0,0,0],[5,0,0],[10,0,0]], kind='S', steps=[bits(x) for x in (0,0.5,1)])
@@ -96,6 +98,12 @@ namespace Movement { using G3D::Vector2; using G3D::Vector3; using G3D::Vector4;
     matrix = source('dep/g3dlite/Matrix4.cpp')
     for name in ('Vector3','Vector4','Matrix4'):
         source('dep/g3dlite/G3D/'+name+'.h')
+    source('dep/g3dlite/G3D/g3dmath.h')
+    buffer = source('src/shared/Util/ByteBuffer.h')
+    unit = source('src/game/Entities/Unit.cpp')
+    start = unit.index('        if (pos.y == GetPositionY() && pos.x == GetPositionX())')
+    fallback = unit[start:unit.index('\n    }\n\n    m_lastMoveTime', start)]
+    source('src/shared/Common.h')
     body = '''#include "Common.h"
 #include <G3D/Vector3.h>
 #include <G3D/Vector4.h>
@@ -111,6 +119,8 @@ using namespace G3D;
 struct Unit { std::string GetGuidStr() { return "oracle"; } };
 struct Log { template<class... T> void outError(T...) {} } sLog;
 '''
+    body += 'struct PackedOracle { uint32 result=0; void operator<<(uint32 v) { result=v; }\n' + method(buffer,'void appendPackXYZ(') + '\n};\n'
+    body += '#define M_PI_F float(M_PI)\nstruct UnitFacingOracle { float x,y,o; float GetPositionX(){return x;} float GetPositionY(){return y;} float GetOrientation(){return o;} __attribute__((noinline)) float run(float nx,float ny) { struct {float x,y,o;} pos{nx,ny,0};\n' + fallback + '\nreturn pos.o; }};\n'
     body += 'namespace G3D {\n' + method(vector,'Vector4 Vector4::operator*(const Matrix4& M) const') + '\n' + method(matrix,'Matrix4::Matrix4(\n    float r1c1') + '\n}\n'
     body += spline + util
     body += move[move.index('namespace Movement'):move.index('/// ============================================================================================')]+ '\n}\n'
@@ -137,12 +147,16 @@ struct Log { template<class... T> void outError(T...) {} } sLog;
                '-fno-omit-frame-pointer','-g','-I/evidence','-I/source/dep/g3dlite','/evidence/oracle.cpp','-o','/evidence/oracle']
     subprocess.run(base+command,check=True)
     result = subprocess.check_output(base+['/evidence/oracle'],input=inputs)
+    arithmetic = subprocess.check_output(base+['/evidence/oracle','--init-arithmetic'])
+    assembly = subprocess.check_output(['objdump','-dC',str(work/'oracle')],text=True)
+    facing_assembly = assembly.split('<UnitFacingOracle::run(float, float)>:',1)[1].split('\n\n',1)[0]
+    assert 'atan2f@plt' in facing_assembly and 'addss' in facing_assembly
     expected_rows = sum(len(c['steps'])+(2 if c['kind']=='M' else 0) for c in corpus)
     assert len(result.splitlines()) == expected_rows
     sanitizer = command[:-2] + ['-fsanitize=undefined,float-cast-overflow','-fno-sanitize-recover=all','-o','/evidence/oracle-ubsan']
     subprocess.run(base+sanitizer,check=True)
     ub = []
-    for case in range(8):
+    for case in [*range(8), 9, 10, 11, 12]:
         run = subprocess.run(base+['/evidence/oracle-ubsan','--ub',str(case)],capture_output=True,text=True)
         assert run.returncode != 0 and 'runtime error:' in run.stderr, (case,run)
         ub.append(dict(case=case,returncode=run.returncode,stderr=run.stderr))
@@ -155,10 +169,14 @@ struct Log { template<class... T> void outError(T...) {} } sLog;
     fixture.mkdir(parents=True,exist_ok=True)
     (fixture/'cases.json').write_text(json.dumps(corpus,separators=(',',':'))+'\n')
     (fixture/'expected.tsv').write_bytes(result)
+    (fixture/'init_arithmetic.tsv').write_bytes(arithmetic)
     receipt = dict(image=IMAGE,core_revision=PIN,source_sha256=hashes,compile_command=command,
                    oracle_sha256=hashlib.sha256(body.encode()).hexdigest(),inputs_sha256=hashlib.sha256(inputs).hexdigest(),
                    output_sha256=hashlib.sha256(result).hexdigest(),binary_sha256=hashlib.sha256((work/'oracle').read_bytes()).hexdigest(),
-                   cases=len(corpus),rows=expected_rows,ubsan=ub,asan=asan,scope='Authored source numerical components, not sealed F1 execution')
+                   cases=len(corpus),rows=expected_rows,ubsan=ub,asan=asan,
+                   init_arithmetic_rows=len(arithmetic.splitlines()),init_arithmetic_sha256=hashlib.sha256(arithmetic).hexdigest(),
+                   unit_orientation_binding=dict(overload='float atan2(float,float)',callee='atan2f',addition='binary32 addss',disassembly=facing_assembly.strip()),
+                   scope='Authored source numerical components, not sealed F1 execution')
     (fixture/'provenance.json').write_text(json.dumps(receipt,indent=2)+'\n')
     print(json.dumps(receipt))
 

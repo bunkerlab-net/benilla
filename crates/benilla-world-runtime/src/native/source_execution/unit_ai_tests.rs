@@ -820,7 +820,7 @@ fn fresh_move_spline_is_done_inventory_only_and_cannot_restore_a_unit() {
     let args = Args {
         path: vec![[0; 3], [1f32.to_bits(), 0, 0]],
         flags: 0,
-        facing: [0; 3],
+        facing: [Some(0); 3],
         path_index_offset: 0,
         velocity: 1f32.to_bits(),
         spline_id: 9,

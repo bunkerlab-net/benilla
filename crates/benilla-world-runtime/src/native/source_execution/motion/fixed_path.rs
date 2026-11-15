@@ -218,6 +218,50 @@ impl SourceFixedPathGenerator {
         // Owner checks unit AI and the temporary creature/pet summoner AI, cpp:212-223.
         owner.fixed_path_inform(master, context, 3, index)
     }
+    fn launch(
+        &self,
+        master: &mut SourceMotionMaster,
+        context: &mut MotionContext<'_>,
+        owner: &mut dyn MotionExecutionOwner,
+    ) -> Result<bool> {
+        let mut init = SourceMoveSplineInit::construct(master.unit, context)?;
+        init.move_by_path(&self.spline.borrow(), 0);
+        let running = context.units.get(context.objects, master.unit)?.state & 0x0400_0000 != 0;
+        init.set_walk(match self.options.forced_movement {
+            1 => true,
+            2 => false,
+            _ => !running,
+        });
+        if self.options.flying {
+            init.set_fly();
+        } else {
+            if !context.spline_finalized(master.unit)? {
+                source_update_spline_position(master.unit, true, context, owner)?;
+            }
+            let passengers = owner.pathfinder_passengers()?;
+            let movement = passengers.movement(master.unit)?;
+            // Object.h:877 returns the retained local offset, not an inverse transform.
+            let pose = if movement.transport.is_some() {
+                movement.offset.0
+            } else {
+                context.objects.pose(master.unit)?.0
+            };
+            init.args.path[0] = [pose[0], pose[1], pose[2]];
+            // cpp:291 logs an out-of-bounds path but still calls Launch.
+            let _ = init.check_bounds();
+        }
+        if let Some(angle) = self.progress.get().orientation {
+            init.set_facing(angle)?;
+        }
+        if self.options.speed != 0. {
+            init.set_velocity(self.options.speed);
+        }
+        if self.progress.get().cyclic {
+            init.set_cyclic();
+        }
+        init.args.path_index_offset = self.progress.get().index;
+        Ok(init.launch(master.unit, context, owner)? != 0)
+    }
 }
 impl SourceMovementGenerator for SourceFixedPathGenerator {
     fn kind(&self) -> u32 {
@@ -231,10 +275,12 @@ impl SourceMovementGenerator for SourceFixedPathGenerator {
     ) -> Result<()> {
         context.units.get_mut(context.objects, master.unit)?.state |= WANDER_ACTIVE;
         self.abstract_initialize(master, context, owner)?;
-        if !self.spline.borrow().is_empty() {
-            // cpp:274 constructs MoveSplineInit before any path/flag/facing setup.
-            // MoveSplineInit.cpp:173-178 reads live movementInfo flags.
-            return Err(refuse("execution.fixed_path.f6_move_spline_init_owner"));
+        if !self.spline.borrow().is_empty() && self.launch(master, context, owner)? {
+            let mut p = self.progress.get();
+            p.first_cycle = true;
+            p.start_point = p.index as u32;
+            self.progress.set(p);
+            context.units.get_mut(context.objects, master.unit)?.state |= WANDER_MOVING;
         }
         Ok(())
     }

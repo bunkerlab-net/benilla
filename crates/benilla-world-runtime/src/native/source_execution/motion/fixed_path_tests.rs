@@ -262,7 +262,7 @@ fn initialize_stops_previous_spline_before_preparing_and_refuses_before_launch()
             g.initialize(&mut master, &mut context, &mut owner)
                 .unwrap_err()
                 .id,
-            "execution.fixed_path.f6_move_spline_init_owner"
+            "execution.spline.movement_info_owner_176"
         );
         assert_eq!(owner.log, ["finalized", expected]);
         assert_eq!(
@@ -347,7 +347,7 @@ fn finalized_noncyclic_arrival_runs_script_before_ai_and_waits_before_next_segme
         g.update(&mut master, 1, &mut context, &mut owner)
             .unwrap_err()
             .id,
-        "execution.fixed_path.f6_move_spline_init_owner"
+        "execution.spline.movement_info_owner_176"
     );
 }
 #[test]
@@ -380,7 +380,7 @@ fn completed_path_returns_false_after_timer_and_destination_tampering_expires() 
         g.update(&mut master, 0, &mut context, &mut owner)
             .unwrap_err()
             .id,
-        "execution.fixed_path.f6_move_spline_init_owner"
+        "execution.spline.movement_info_owner_176"
     );
 }
 #[test]
@@ -477,7 +477,7 @@ fn motion_master_default_pushes_fixed_before_first_spline_query() {
     };
     assert_eq!(
         master.initialize(&mut context, &mut owner).unwrap_err().id,
-        "execution.fixed_path.f6_move_spline_init_owner"
+        "execution.spline.movement_info_owner_176"
     );
     assert_eq!((master.current_type(), master.len()), (3, 1));
     master
@@ -534,7 +534,7 @@ fn explicit_path_selection_and_point_entrypoint_obey_motionmaster_mutation_order
             )
             .unwrap_err()
             .id,
-        "execution.fixed_path.f6_move_spline_init_owner"
+        "execution.spline.movement_info_owner_176"
     );
     // Mutate initializes before pushing, unlike default construction.
     assert!(master.is_empty());
@@ -552,7 +552,7 @@ fn different_unfinished_destination_returns_before_undefined_index_read() {
     spline
         .initialize(&benilla_sim::source_spline::Args {
             path: vec![[0; 3], [3f32.to_bits(), 4f32.to_bits(), 0]],
-            facing: [0; 3],
+            facing: [Some(0); 3],
             flags: 0,
             path_index_offset: i32::MAX,
             velocity: 5f32.to_bits(),
@@ -626,7 +626,7 @@ fn index_loop_rereads_real_state_after_callbacks_and_finalized_short_circuits() 
                 [1f32.to_bits(), 2f32.to_bits(), 3f32.to_bits()],
                 [2f32.to_bits(), 2f32.to_bits(), 3f32.to_bits()],
             ],
-            facing: [0; 3],
+            facing: [Some(0); 3],
             flags: if cyclic {
                 benilla_sim::source_spline::CYCLIC
             } else {

@@ -80,6 +80,17 @@ pub struct SourceUnitFields {
     /// Unit.cpp:320-321 constructs MoveSpline; MoveSpline.cpp:159-162 starts it done.
     #[serde(skip)]
     pub movespline: benilla_sim::source_spline::MoveSpline,
+    /// WorldObject constructor, Object.cpp:1173.
+    #[serde(skip)]
+    pub spline_debug_path: bool,
+    #[serde(skip)]
+    pub spline_outbound: Vec<SplineOutbound>,
+    /// ShortTimeTracker constructor, Timer.h:145-158.
+    #[serde(skip)]
+    pub spline_position_expiry: u32,
+    /// Common.h:59, Unit.h:2654. The default TimePoint is the epoch.
+    #[serde(skip)]
+    pub spline_last_move_ms: i64,
 }
 impl SourceUnitFields {
     /// Unit.cpp:330,423-425; Creature.cpp:541-579. Spawn overrides belong to UpdateEntry.
@@ -149,6 +160,10 @@ impl SourceUnitFields {
             critter: template.creature_type == 8,
             linking_event_trigger: None,
             movespline: benilla_sim::source_spline::MoveSpline::default(),
+            spline_debug_path: false,
+            spline_outbound: Vec::new(),
+            spline_position_expiry: 0,
+            spline_last_move_ms: 0,
         }
     }
     pub fn in_combat(&self) -> bool {
@@ -335,6 +350,7 @@ impl SourceUnits {
         Ok(
             serde_json::json!({"version":1,"units":self.fields.iter().collect::<Vec<_>>(),
             "splines":self.fields.iter().map(|(unit,fields)| (unit,&fields.movespline)).collect::<Vec<_>>(),
+            "spline_updates":self.fields.iter().map(|(unit,fields)| (unit,fields.spline_position_expiry,fields.spline_debug_path,fields.spline_last_move_ms,&fields.spline_outbound)).collect::<Vec<_>>(),
             "restore":"execution.unit.f7_restore_owner"}),
         )
     }

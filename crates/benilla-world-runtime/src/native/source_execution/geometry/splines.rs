@@ -16,12 +16,9 @@ impl MotionContext<'_> {
     pub fn spline_finalized(&self, unit: ObjectHandle) -> Result<bool> {
         Ok(self.spline(unit)?.finalized())
     }
+    /// MoveSpline.cpp:33 and spline.h:86 still assert on uninitialized evaluation.
     pub fn spline_position(&self, unit: ObjectHandle) -> Result<[f32; 4]> {
         let spline = self.spline(unit)?;
-        require(
-            spline.initialized(),
-            "execution.waypoint.f6_spline_compute_position_owner",
-        )?;
         Ok(spline
             .compute_position()
             .map_err(spline_error)?
@@ -29,18 +26,10 @@ impl MotionContext<'_> {
     }
     pub fn spline_current_index(&self, unit: ObjectHandle) -> Result<i32> {
         let spline = self.spline(unit)?;
-        require(
-            spline.initialized(),
-            "execution.waypoint.f6_spline_current_index_owner",
-        )?;
         spline.current_path_index().map_err(spline_error)
     }
     pub fn fixed_path_spline(&self, unit: ObjectHandle) -> Result<FixedPathSplineState> {
         let spline = self.spline(unit)?;
-        require(
-            spline.initialized(),
-            "execution.fixed_path.f6_spline_state_owner",
-        )?;
         Ok(FixedPathSplineState {
             destination: spline.final_destination().map(f32::from_bits),
             finalized: spline.finalized(),
@@ -48,10 +37,6 @@ impl MotionContext<'_> {
     }
     pub fn fixed_path_current_index(&self, unit: ObjectHandle) -> Result<i32> {
         let spline = self.spline(unit)?;
-        require(
-            spline.initialized(),
-            "execution.fixed_path.f6_spline_state_owner",
-        )?;
         spline.current_path_index().map_err(spline_error)
     }
     /// The transform's result is discarded by source cpp:359, but the call still executes.
@@ -77,7 +62,7 @@ mod tests {
     struct Bound;
     impl MotionExecutionOwner for Bound {}
     #[test]
-    fn constructor_reads_are_owned_but_launched_reads_still_refuse() {
+    fn fresh_and_launched_reads_use_the_retained_spline_state() {
         let mut objects = SourceObjects::default();
         let unit = objects.construct(1, SourceObjectKind::Creature).unwrap();
         let mut units = SourceUnits::default();
@@ -95,19 +80,16 @@ mod tests {
         assert!(Bound.spline_finalized(unit, &c).unwrap());
         assert_eq!(
             Bound.spline_compute_position(unit, &c).unwrap_err().id,
-            "execution.waypoint.f6_spline_compute_position_owner"
+            "execution.spline.spline_position_initialized_assertion"
         );
-        assert_eq!(
-            Bound.spline_current_index(unit, &c).unwrap_err().id,
-            "execution.waypoint.f6_spline_current_index_owner"
-        );
-        assert_eq!(
-            Bound.fixed_path_spline(unit, &c).unwrap_err().id,
-            "execution.fixed_path.f6_spline_state_owner"
-        );
+        assert_eq!(Bound.spline_current_index(unit, &c).unwrap(), 1);
+        let fresh = Bound.fixed_path_spline(unit, &c).unwrap();
+        assert_eq!(fresh.destination, [0.; 3]);
+        assert!(fresh.finalized);
+        assert_eq!(Bound.fixed_path_current_index(unit, &c).unwrap(), 1);
         let args = Args {
             path: vec![[0; 3], [3f32.to_bits(), 4f32.to_bits(), 0]],
-            facing: [9f32.to_bits(), 0, 0],
+            facing: [Some(9f32.to_bits()), Some(0), Some(0)],
             flags: FINAL_POINT,
             velocity: 5f32.to_bits(),
             spline_id: 17,

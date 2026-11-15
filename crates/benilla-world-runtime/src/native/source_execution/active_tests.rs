@@ -773,3 +773,117 @@ fn active_lock_count_wraps_at_source_uint16_width_and_zero_decrement_stays_zero(
     world.remove(creature);
     assert_eq!(world.cells.grids().active_lock_count(grid).unwrap(), 0);
 }
+
+#[test]
+fn spline_clock_precedes_plain_relocate_or_actual_f3_cell_relocation() {
+    struct Bound {
+        passengers: SourcePassengers,
+        pending: Option<SplineRelocation>,
+    }
+    impl MotionExecutionOwner for Bound {
+        fn pathfinder_passengers(&self) -> Result<&SourcePassengers> {
+            Ok(&self.passengers)
+        }
+        fn spline_current_clock_ms(
+            &mut self,
+            _: ObjectHandle,
+            _: &MotionContext<'_>,
+        ) -> Result<i64> {
+            Ok(987654)
+        }
+        fn spline_relocate(
+            &mut self,
+            effect: SplineRelocation,
+            context: &mut MotionContext<'_>,
+        ) -> Result<()> {
+            assert_eq!(
+                context
+                    .units
+                    .get(context.objects, effect.unit)?
+                    .spline_last_move_ms,
+                987654
+            );
+            self.pending = Some(effect);
+            // The immutable MotionContext cannot own the mutable F3 grid borrow.
+            Err(refuse("authored.spline.relocation_context_boundary"))
+        }
+    }
+    for relocate_only in [true, false] {
+        let mut world = World::new(true);
+        let origin = pose(0., 0.);
+        let target = pose(1200., 0.);
+        let unit = world.actor(origin, origin, SourceObjectKind::Creature, 40, 1000);
+        world.load(target, GridLoadTrigger::Enter);
+        let old_cell = world.objects.get(unit).unwrap().current_cell.unwrap();
+        let mut fields = SourceUnitFields::creature(&super::motion_master_tests::template());
+        fields
+            .movespline
+            .initialize(&benilla_sim::source_spline::Args {
+                path: vec![
+                    [origin.0[0], origin.0[1], origin.0[2]],
+                    [target.0[0], target.0[1], target.0[2]],
+                ],
+                facing: [Some(0); 3],
+                flags: 0,
+                path_index_offset: 0,
+                velocity: 1200f32.to_bits(),
+                spline_id: 1,
+            })
+            .unwrap();
+        fields.movespline.update_state(1001, |_| {}).unwrap();
+        let mut units = SourceUnits::default();
+        units.register(&world.objects, unit, fields).unwrap();
+        let mut owner = Bound {
+            passengers: SourcePassengers::default(),
+            pending: None,
+        };
+        owner
+            .passengers
+            .bind_unit(
+                unit,
+                PassengerMovement {
+                    transport: None,
+                    guid: 0,
+                    time: 0,
+                    offset: SourcePose([0; 4]),
+                    on_transport: false,
+                    movement_pose: origin,
+                    ghost: false,
+                    pet: None,
+                    mini_pet: None,
+                },
+                &world.objects,
+            )
+            .unwrap();
+        let mut context = MotionContext {
+            objects: &world.objects,
+            units: &mut units,
+        };
+        assert_eq!(
+            source_update_spline_position(unit, relocate_only, &mut context, &mut owner)
+                .unwrap_err()
+                .id,
+            "authored.spline.relocation_context_boundary"
+        );
+        assert_eq!(
+            units.get(&world.objects, unit).unwrap().spline_last_move_ms,
+            987654
+        );
+        assert_eq!(world.objects.pose(unit).unwrap(), origin);
+        let effect = owner.pending.take().unwrap();
+        assert_eq!(effect.pose, target);
+        let (mut context, factory) = world.context();
+        effect.creature(&mut context, factory).unwrap();
+        assert_eq!(world.objects.pose(unit).unwrap(), target);
+        let cell = world.objects.get(unit).unwrap().current_cell.unwrap();
+        assert_eq!(world.cells.registered_cell(unit), Some(cell));
+        if relocate_only {
+            assert_eq!(cell, old_cell);
+            assert!(world.factory.phases.is_empty());
+        } else {
+            assert_ne!(cell, old_cell);
+            assert_eq!(cell, world.cells.cell(target.cell().unwrap()).unwrap());
+            assert_eq!(world.factory.notified, vec![unit]);
+        }
+    }
+}

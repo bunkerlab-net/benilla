@@ -78,7 +78,7 @@ fn pinned_cpp_move_spline_and_spline_outputs_match_every_bit() {
     for c in &cases {
         let args = Args {
             path: c.path.clone(),
-            facing: c.facing,
+            facing: c.facing.map(Some),
             flags: c.flags,
             velocity: c.velocity,
             spline_id: c.id,
@@ -164,13 +164,13 @@ fn pinned_cpp_move_spline_and_spline_outputs_match_every_bit() {
     .unwrap();
     assert_eq!(receipt["cases"], cases.len());
     assert_eq!(receipt["rows"], rows.len());
-    assert_eq!(receipt["ubsan"].as_array().unwrap().len(), 8);
+    assert_eq!(receipt["ubsan"].as_array().unwrap().len(), 12);
     assert_eq!(receipt["asan"]["kind"], "heap-buffer-overflow");
 }
 fn args(path: Vec<Point>) -> Args {
     Args {
         path,
-        facing: [0; 3],
+        facing: [Some(0); 3],
         flags: 0,
         velocity: 1f32.to_bits(),
         spline_id: 1,
@@ -310,4 +310,70 @@ fn enter_cycle_needs_the_source_virtual_control_after_its_wrap_point() {
     );
     a.path.push([2f32.to_bits(), 0, 0]);
     assert!(MoveSpline::default().initialize(&a).is_ok());
+}
+
+#[test]
+fn pinned_cpp_init_facing_and_packet_arithmetic_match_every_bit() {
+    let fixture = include_str!("../../tools/fixtures/source_spline/init_arithmetic.tsv");
+    let mut count = 0;
+    for line in fixture.lines() {
+        let mut columns = line.split_whitespace();
+        let kind = columns.next().unwrap();
+        let values = columns
+            .map(|v| v.parse::<u32>().unwrap())
+            .collect::<Vec<_>>();
+        let actual = match kind {
+            "orientation" => {
+                assert_eq!(values.len(), 6);
+                relocation_orientation(
+                    [values[0], values[1], 0, values[2]],
+                    [values[3], values[4], 0, 0],
+                )
+                .unwrap()
+            }
+            "wrap" => {
+                assert_eq!(values.len(), 2);
+                wrap_facing(values[0]).unwrap()
+            }
+            "pack" => {
+                assert_eq!(values.len(), 2);
+                pack_xyz([values[0], 0, 0]).unwrap()
+            }
+            _ => panic!("unknown oracle operation"),
+        };
+        assert_eq!(actual, *values.last().unwrap(), "{line}");
+        count += 1;
+    }
+    assert_eq!(count, 14);
+}
+
+#[test]
+fn facing_constructors_preserve_defined_words_and_refuse_each_indeterminate_read() {
+    let angle = 0xbf80_0000;
+    let target = 0x1234_5678_9abc_def0;
+    let cases = [
+        (facing_from_angle(angle), [Some(angle), None, None]),
+        (
+            facing_from_target(target),
+            [Some(0x9abc_def0), Some(0x1234_5678), None],
+        ),
+        (facing_from_target(0), [Some(0), Some(0), None]),
+    ];
+    for (facing, expected) in cases {
+        assert_eq!(facing, expected);
+        let mut a = args(vec![[0; 3], [1f32.to_bits(), 0, 0], [2f32.to_bits(), 0, 0]]);
+        a.facing = facing;
+        a.flags = CYCLIC | ENTER_CYCLE;
+        let mut s = MoveSpline::default();
+        s.initialize(&a).unwrap();
+        assert_eq!(s.facing_words(), expected);
+        for (index, word) in expected.into_iter().enumerate() {
+            assert_eq!(
+                s.facing_word(index),
+                word.ok_or(Error("spline_facing_union_read_undefined"))
+            );
+        }
+        s.update_state(10000, |_| {}).unwrap();
+        assert_eq!(s.facing_words(), expected);
+    }
 }

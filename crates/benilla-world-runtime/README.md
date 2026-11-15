@@ -2755,3 +2755,41 @@ source iterator increment, `GridNotifiers.cpp:34-37`.
 The new-object flag remains set on a refused update, `Map.cpp:502-504`.
 These unsaved owners do not change native format 91.
 
+## Source spline launch and relocation
+
+`SourceMoveSplineInit` uses the retained numerical spline and the existing
+`SourceCreatureMovement` and `SourcePassengers` components. It ports construction,
+Launch, Stop, facing, validation, and bounds checks in
+`MoveSplineInit.cpp:27-190`, `MoveSplineInit.h:69-140`, and
+`MoveSpline.cpp:166-207` at CMaNGOS Classic `8ec338a1`.
+Each recorded execution thread must bind one `SourceSplineThread`.
+Invalid or rooted launches return zero without committing movement flags.
+An empty path follows the source repair and can launch while rooted.
+
+FacingInfo constructors preserve indeterminate words, `MoveSplineInitArgs.h:31-43`.
+Angle construction defines one word; target and default construction define two.
+Copies and cyclic continuation retain that state. An actual read of an
+indeterminate word refuses rather than supplying a zero.
+
+Fresh spline reads use the modelled constructors rather than launch guards:
+the current path index is one, the final destination is zero, and Finalized is
+true, `spline.h:90`, `MoveSpline.cpp:159-162,311-329`. A rooted zero-duration
+launch retains that state. Position and evaluation still refuse on an
+uninitialized spline, `MoveSpline.cpp:33`, `spline.h:86`.
+
+`SplineOutbound` retains the exact GUIDs, exclusion argument, and packet body,
+`packet_builder.cpp:35-146`. No recipient set is invented. An in-world send
+requires the actual client GUID set at `Unit.cpp:11216`; an out-of-world send
+returns without visiting recipients. Unit spline updates disable movement before
+relocation, `Unit.cpp:11000-11099`. `SplineRelocation::creature` routes through
+the existing F3 grid and cell owner. Clock, facing-query, transport-write, and
+relocation bindings refuse separately where reached.
+
+Fixed, waypoint, linear, and Home generators now call this launch owner.
+Raw fixed-path probes still lack construction-bound movement state and refuse
+at `MoveSplineInit.cpp:176`. They do not reach Launch. Raw waypoint and linear
+probes retain their earlier speed dependency at
+`WaypointMovementGenerator.cpp:261`. Authored component tests do not establish
+stock motion or F1 equality. All new state remains component-only and excluded
+from native checkpoints. Native format remains 91.
+

@@ -102,6 +102,9 @@ impl SourceCreatureMovement {
         let flags = self
             .flags
             .ok_or_else(|| refuse("execution.waypoint.movement_flags_owner_261"))?;
+        self.speed_for_flags(flags)
+    }
+    pub fn speed_for_flags(&self, flags: u32) -> Result<f32> {
         let kind = source_movement_speed_type(flags);
         let rate =
             self.rates[kind].ok_or_else(|| refuse("execution.waypoint.speed_rate_owner_262"))?;

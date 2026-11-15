@@ -155,8 +155,14 @@ pub use mmap_manager::*;
 #[path = "geometry/pathfinder.rs"]
 mod pathfinder;
 pub use pathfinder::*;
+#[path = "geometry/spline_init.rs"]
+mod spline_init;
 #[path = "geometry/splines.rs"]
 mod splines;
+pub use spline_init::*;
+#[path = "geometry/spline_update.rs"]
+mod spline_update;
+pub use spline_update::*;
 #[path = "geometry/terrain_manager.rs"]
 mod terrain_manager;
 pub use terrain_manager::*;
