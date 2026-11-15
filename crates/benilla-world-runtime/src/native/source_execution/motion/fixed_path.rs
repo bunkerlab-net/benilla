@@ -28,7 +28,6 @@ pub struct FixedPathProgress {
 pub struct FixedPathSplineState {
     pub destination: [f32; 3],
     pub finalized: bool,
-    pub index: i32,
 }
 pub struct SourceFixedPathGenerator {
     // Source copies the loaded map because WaypointManager may reload it, cpp:44-47.
@@ -183,7 +182,7 @@ impl SourceFixedPathGenerator {
         context: &mut MotionContext<'_>,
         owner: &mut dyn MotionExecutionOwner,
     ) -> Result<()> {
-        if !owner.spline_finalized(master.unit)? {
+        if !owner.spline_finalized(master.unit, context)? {
             let call = if owner.client_controlled(master.unit)? {
                 MotionCall::StopMovingForced
             } else {
@@ -282,7 +281,7 @@ impl SourceMovementGenerator for SourceFixedPathGenerator {
     ) -> Result<bool> {
         let destination = self.spline.borrow().last().copied();
         if let Some(destination) = destination {
-            let state = owner.fixed_path_spline(master.unit)?;
+            let state = owner.fixed_path_spline(master.unit, context)?;
             if state.destination != destination {
                 if state.finalized {
                     self.initialize(master, context, owner)?;
@@ -291,7 +290,9 @@ impl SourceMovementGenerator for SourceFixedPathGenerator {
                 }
             }
             if self.progress.get().cyclic {
-                while self.progress.get().index != owner.fixed_path_spline(master.unit)?.index {
+                while self.progress.get().index
+                    != owner.fixed_path_current_index(master.unit, context)?
+                {
                     let p = self.progress.get();
                     if !p.first_cycle || p.index != 0 {
                         self.movement_inform(master, context, owner)?;
@@ -303,7 +304,7 @@ impl SourceMovementGenerator for SourceFixedPathGenerator {
                         .ok_or_else(|| refuse("execution.fixed_path.index_addition_undefined"))?;
                     p.index = ((next as usize) % (self.path.len() + 1)) as i32;
                     self.progress.set(p);
-                    if owner.spline_finalized(master.unit)? {
+                    if owner.spline_finalized(master.unit, context)? {
                         return Ok(true);
                     }
                 }
@@ -313,7 +314,9 @@ impl SourceMovementGenerator for SourceFixedPathGenerator {
                     self.progress.set(p);
                 }
             } else {
-                while self.progress.get().index < owner.fixed_path_spline(master.unit)?.index {
+                while self.progress.get().index
+                    < owner.fixed_path_current_index(master.unit, context)?
+                {
                     self.movement_inform(master, context, owner)?;
                     let mut p = self.progress.get();
                     p.index = p
@@ -323,7 +326,7 @@ impl SourceMovementGenerator for SourceFixedPathGenerator {
                     self.progress.set(p);
                 }
             }
-            if !owner.spline_finalized(master.unit)? {
+            if !owner.spline_finalized(master.unit, context)? {
                 if self.progress.get().speed_changed {
                     self.initialize(master, context, owner)?;
                 }

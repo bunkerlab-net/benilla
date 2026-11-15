@@ -9,7 +9,9 @@ mod passengers;
 use crate::facing::soft::{D, S};
 pub use elevators::elevator_position;
 pub use movement::{segment_position, TransportMotion, TransportStep};
-pub use passengers::{passenger_offset, passenger_position, passenger_tangent};
+pub use passengers::{
+    passenger_offset, passenger_position, passenger_position_xyz, passenger_tangent,
+};
 use serde::Serialize;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

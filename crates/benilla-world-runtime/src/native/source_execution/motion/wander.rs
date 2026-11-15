@@ -231,7 +231,7 @@ impl SourceMovementGenerator for SourceWanderGenerator {
             context.units.get_mut(context.objects, master.unit)?.target = None;
             owner.wander_melee_attack_stop(master.unit, context)?;
         }
-        if !owner.spline_finalized(master.unit)? {
+        if !owner.spline_finalized(master.unit, context)? {
             let call = if owner.client_controlled(master.unit)? {
                 MotionCall::StopMovingForced
             } else {
@@ -279,7 +279,7 @@ impl SourceMovementGenerator for SourceWanderGenerator {
         } {
             owner.motion_call(master, MotionCall::RestoreClientControl(player), context)?;
         }
-        if !owner.spline_finalized(master.unit)? {
+        if !owner.spline_finalized(master.unit, context)? {
             let call = if owner.client_controlled(master.unit)? {
                 MotionCall::StopMovingForced
             } else {
@@ -307,7 +307,7 @@ impl SourceMovementGenerator for SourceWanderGenerator {
             fields.state &= !WANDER_MOVING;
             return Ok(true);
         }
-        if owner.spline_finalized(master.unit)? {
+        if owner.spline_finalized(master.unit, context)? {
             let mut timer = self.timer.get();
             timer.update(diff);
             self.timer.set(timer);

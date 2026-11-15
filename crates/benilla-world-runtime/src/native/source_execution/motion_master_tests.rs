@@ -522,7 +522,7 @@ impl MotionExecutionOwner for HomeOwner {
     fn dungeon(&mut self, _: ObjectHandle) -> Result<bool> {
         Ok(self.dungeon)
     }
-    fn spline_finalized(&mut self, _: ObjectHandle) -> Result<bool> {
+    fn spline_finalized(&mut self, _: ObjectHandle, _: &MotionContext<'_>) -> Result<bool> {
         Ok(self.done)
     }
     fn restore_faction_at_home(&mut self, _: ObjectHandle) -> Result<bool> {
@@ -721,7 +721,7 @@ fn home_exact_far_threshold_still_requires_path() {
     );
 }
 #[test]
-fn lost_control_prevents_home_clear_and_missing_spline_refuses_on_update() {
+fn lost_control_prevents_home_clear_and_owned_spline_reaches_home_order() {
     let (objects, mut units, mut master) = setup();
     units.get_mut(&objects, master.unit).unwrap().state = 0x40;
     master
@@ -743,10 +743,20 @@ fn lost_control_prevents_home_clear_and_missing_spline_refuses_on_update() {
     master
         .move_home(true, &mut c, &mut HomeOwner::default())
         .unwrap();
+    assert!(c
+        .units
+        .get(&objects, master.unit)
+        .unwrap()
+        .movespline
+        .finalized());
+    c.units.get_mut(&objects, master.unit).unwrap().evade_timer = 999;
     assert_eq!(
         master.update(1, &mut c, &mut Unbound).unwrap_err().id,
-        "execution.motion.f6_spline_finalized_owner"
+        "execution.motion.base_ai_order_owner"
     );
+    // Home::Finalize ran after the real Finalized read, before the refused AI order.
+    assert_eq!(c.units.get(&objects, master.unit).unwrap().evade_timer, 0);
+    assert!(c.units.get(&objects, master.unit).unwrap().evade_home);
 }
 #[test]
 fn immobilization_preserves_other_root_and_refuses_missing_output_after_state_change() {

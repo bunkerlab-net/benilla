@@ -364,7 +364,7 @@ fn bound_initialization_executes_target_drop_before_melee_owner_and_random_updat
         fn client_controlling(&mut self, _: ObjectHandle) -> Result<Option<ObjectHandle>> {
             Ok(None)
         }
-        fn spline_finalized(&mut self, _: ObjectHandle) -> Result<bool> {
+        fn spline_finalized(&mut self, _: ObjectHandle, _: &MotionContext<'_>) -> Result<bool> {
             Ok(true)
         }
     }

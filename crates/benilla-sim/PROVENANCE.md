@@ -1703,6 +1703,11 @@ the bound atan2f port. No host transcendental function is called.
 The runtime's fresh Unit state follows `Entities/Unit.cpp:320-321` and
 `MoveSpline.cpp:159-162`. Its skipped field appears separately in component
 inventory, has no deserializer, and remains behind the F7 continuation refusal.
-MoveSplineInit, packets, transport conversion and Unit relocation are not
-implemented here. These component fixtures do not establish sealed F1 parity
+Motion reads bind to this same owner. Unlaunched position, current-index and
+fixed-path reads retain their named refusals. Waypoint cpp:357-359 executes
+the existing passenger transform before replacing its result with ComputePosition.
+The shared transform's null-orientation branch follows Transports.cpp:567-575
+and reuses source_trig_fma. Existing transform signatures and tests are unchanged.
+MoveSplineInit, packets and Unit relocation remain unported.
+These component fixtures do not establish sealed F1 parity
 or native gameplay admission. Saved, hashed and recorded format 91 is unchanged.

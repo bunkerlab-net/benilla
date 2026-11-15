@@ -98,10 +98,11 @@ impl SourceMovementGenerator for SourceHomeGenerator {
         &self,
         master: &mut SourceMotionMaster,
         _: u32,
-        _: &mut MotionContext<'_>,
+        context: &mut MotionContext<'_>,
         owner: &mut dyn MotionExecutionOwner,
     ) -> Result<bool> {
-        self.arrived.set(owner.spline_finalized(master.unit)?);
+        self.arrived
+            .set(owner.spline_finalized(master.unit, context)?);
         Ok(!self.arrived.get())
     }
     fn finalize(

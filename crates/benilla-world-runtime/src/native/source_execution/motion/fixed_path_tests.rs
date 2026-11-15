@@ -189,19 +189,25 @@ impl MotionExecutionOwner for Owner {
             .clone()
             .ok_or_else(|| refuse("execution.waypoint.loaded_waypoint_manager_owner"))
     }
-    fn spline_finalized(&mut self, _: ObjectHandle) -> Result<bool> {
+    fn spline_finalized(&mut self, _: ObjectHandle, _: &MotionContext<'_>) -> Result<bool> {
         self.log.push("finalized".into());
         Ok(self.finalized)
     }
     fn client_controlled(&mut self, _: ObjectHandle) -> Result<bool> {
         Ok(self.client)
     }
-    fn fixed_path_spline(&mut self, _: ObjectHandle) -> Result<FixedPathSplineState> {
+    fn fixed_path_spline(
+        &mut self,
+        _: ObjectHandle,
+        _: &MotionContext<'_>,
+    ) -> Result<FixedPathSplineState> {
         Ok(FixedPathSplineState {
             destination: self.destination,
             finalized: self.finalized,
-            index: self.index,
         })
+    }
+    fn fixed_path_current_index(&mut self, _: ObjectHandle, _: &MotionContext<'_>) -> Result<i32> {
+        Ok(self.index)
     }
     fn motion_call(
         &mut self,
@@ -532,4 +538,127 @@ fn explicit_path_selection_and_point_entrypoint_obey_motionmaster_mutation_order
     );
     // Mutate initializes before pushing, unlike default construction.
     assert!(master.is_empty());
+}
+
+#[test]
+fn different_unfinished_destination_returns_before_undefined_index_read() {
+    // PathMovementGenerator.cpp:145-168 reads currentPathIdx only at the loop tests.
+    struct Bound;
+    impl MotionExecutionOwner for Bound {}
+    let (objects, mut units, mut master) = setup();
+    let g = SourceFixedPathGenerator::from_path(Some(&path(&[0, 0])), FixedPathOptions::default());
+    g.prepare_spline().unwrap();
+    let spline = &mut units.get_mut(&objects, master.unit).unwrap().movespline;
+    spline
+        .initialize(&benilla_sim::source_spline::Args {
+            path: vec![[0; 3], [3f32.to_bits(), 4f32.to_bits(), 0]],
+            facing: [0; 3],
+            flags: 0,
+            path_index_offset: i32::MAX,
+            velocity: 5f32.to_bits(),
+            spline_id: 9,
+        })
+        .unwrap();
+    let mut context = MotionContext {
+        objects: &objects,
+        units: &mut units,
+    };
+    assert!(!g.update(&mut master, 1, &mut context, &mut Bound).unwrap());
+    // The same real owner refuses when the source actually reaches the index read.
+    *g.spline.borrow_mut().last_mut().unwrap() = [3., 4., 0.];
+    assert_eq!(
+        g.update(&mut master, 1, &mut context, &mut Bound)
+            .unwrap_err()
+            .id,
+        "execution.spline.spline_path_index_addition_undefined"
+    );
+    assert_eq!(g.progress().index, 0);
+}
+
+#[test]
+fn index_loop_rereads_real_state_after_callbacks_and_finalized_short_circuits() {
+    // PathMovementGenerator.cpp:145-168, especially the per-iteration reads at 155/168.
+    struct Callback {
+        args: benilla_sim::source_spline::Args,
+        interrupt: bool,
+        calls: usize,
+    }
+    impl MotionExecutionOwner for Callback {
+        fn fixed_path_inform(
+            &mut self,
+            master: &mut SourceMotionMaster,
+            context: &mut MotionContext<'_>,
+            _: u32,
+            _: u32,
+        ) -> Result<()> {
+            self.calls += 1;
+            self.args.path_index_offset = if self.interrupt { i32::MAX } else { 0 };
+            let spline = &mut context
+                .units
+                .get_mut(context.objects, master.unit)?
+                .movespline;
+            spline
+                .initialize(&self.args)
+                .map_err(super::super::super::splines::spline_error)?;
+            if self.interrupt {
+                spline.interrupt();
+            }
+            Ok(())
+        }
+    }
+    for (cyclic, interrupt, calls) in [(false, false, 1), (true, false, 4), (true, true, 1)] {
+        let (objects, mut units, mut master) = setup();
+        let g = SourceFixedPathGenerator::from_path(
+            Some(&path(&[0, 0, 0])),
+            FixedPathOptions {
+                cyclic,
+                ..Default::default()
+            },
+        );
+        g.prepare_spline().unwrap();
+        let mut progress = g.progress();
+        progress.first_cycle = false;
+        g.progress.set(progress);
+        let args = benilla_sim::source_spline::Args {
+            path: vec![
+                [0; 3],
+                [0, 2f32.to_bits(), 3f32.to_bits()],
+                [1f32.to_bits(), 2f32.to_bits(), 3f32.to_bits()],
+                [2f32.to_bits(), 2f32.to_bits(), 3f32.to_bits()],
+            ],
+            facing: [0; 3],
+            flags: if cyclic {
+                benilla_sim::source_spline::CYCLIC
+            } else {
+                0
+            },
+            path_index_offset: 2,
+            velocity: 5f32.to_bits(),
+            spline_id: 9,
+        };
+        units
+            .get_mut(&objects, master.unit)
+            .unwrap()
+            .movespline
+            .initialize(&args)
+            .unwrap();
+        let mut owner = Callback {
+            args,
+            interrupt,
+            calls: 0,
+        };
+        let mut context = MotionContext {
+            objects: &objects,
+            units: &mut units,
+        };
+        assert!(g.update(&mut master, 1, &mut context, &mut owner).unwrap());
+        assert_eq!(owner.calls, calls);
+        if interrupt {
+            assert!(context.spline_finalized(master.unit).unwrap());
+            assert_eq!(
+                context.spline_current_index(master.unit).unwrap_err().id,
+                "execution.spline.spline_path_index_addition_undefined"
+            );
+        }
+    }
 }

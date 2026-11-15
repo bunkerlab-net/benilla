@@ -250,7 +250,7 @@ fn linear_arrival_reuses_script_timer_and_waypoint_notification_order() {
             self.0.push("position".into());
             Ok([1.; 4])
         }
-        fn spline_finalized(&mut self, _: ObjectHandle) -> Result<bool> {
+        fn spline_finalized(&mut self, _: ObjectHandle, _: &MotionContext<'_>) -> Result<bool> {
             Ok(true)
         }
     }

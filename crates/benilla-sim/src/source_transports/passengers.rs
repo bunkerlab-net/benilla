@@ -106,13 +106,22 @@ pub fn passenger_offset(world: [u32; 4], transport: [u32; 4]) -> Result<[u32; 4]
 }
 /// Ordinary float rotation with normalized orientation; Transports.cpp:567-575.
 pub fn passenger_position(offset: [u32; 4], transport: [u32; 4]) -> Result<[u32; 4]> {
-    let [x, y, z, o] = offset.map(S::bits);
+    let [x, y, z] = passenger_position_xyz([offset[0], offset[1], offset[2]], transport)?;
+    Ok([
+        x,
+        y,
+        z,
+        normalize(S::bits(transport[3]) + S::bits(offset[3]))?,
+    ])
+}
+/// CalculatePassengerPosition with a null orientation pointer, Transports.cpp:567-575.
+pub fn passenger_position_xyz(offset: [u32; 3], transport: [u32; 4]) -> Result<[u32; 3]> {
+    let [x, y, z] = offset.map(S::bits);
     let [tx, ty, tz, to] = transport.map(S::bits);
     let [s, c] = trig(to.raw())?;
     Ok([
         scalar(tx + x * c - y * s)?,
         scalar(ty + y * c + x * s)?,
         scalar(tz + z)?,
-        normalize(to + o)?,
     ])
 }

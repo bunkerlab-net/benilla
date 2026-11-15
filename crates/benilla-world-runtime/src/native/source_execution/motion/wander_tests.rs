@@ -60,7 +60,7 @@ impl MotionExecutionOwner for Lifecycle {
             .push((call, context.units.get(context.objects, master.unit)?.state));
         Ok(())
     }
-    fn spline_finalized(&mut self, _: ObjectHandle) -> Result<bool> {
+    fn spline_finalized(&mut self, _: ObjectHandle, _: &MotionContext<'_>) -> Result<bool> {
         self.queries.push("finalized");
         Ok(self.finalized)
     }
@@ -338,7 +338,7 @@ fn finalize_finished_spline_skips_stop_and_control_query_but_not_walk() {
 }
 
 #[test]
-fn finalize_missing_spline_owner_refuses_after_state_clearing() {
+fn finalize_owned_finished_spline_reaches_walk_after_state_clearing() {
     let (objects, mut units, mut master) = setup();
     units.get_mut(&objects, master.unit).unwrap().state = WANDER_ACTIVE | WANDER_MOVING;
     let mut c = MotionContext {
@@ -346,12 +346,13 @@ fn finalize_missing_spline_owner_refuses_after_state_clearing() {
         units: &mut units,
     };
     let generator = SourceWanderGenerator::new([0.; 3], 5., 0., true, false);
+    assert!(Unbound.spline_finalized(master.unit, &c).unwrap());
     assert_eq!(
         generator
             .finalize(&mut master, &mut c, &mut Unbound)
             .unwrap_err()
             .id,
-        "execution.motion.f6_spline_finalized_owner"
+        "execution.motion.walk_movement_info_output_owner"
     );
     assert_eq!(c.units.get(&objects, master.unit).unwrap().state, 0);
 }

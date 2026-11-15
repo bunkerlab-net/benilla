@@ -306,7 +306,7 @@ impl SourceWaypointGenerator {
             || fields.immobilized()
             || owner.waypoint_casting_for_movement(master.unit)?
         {
-            if !owner.spline_finalized(master.unit)? {
+            if !owner.spline_finalized(master.unit, context)? {
                 let call = if owner.client_controlled(master.unit)? {
                     MotionCall::StopMovingForced
                 } else {
@@ -346,16 +346,19 @@ impl SourceWaypointGenerator {
             }
         }
         // cpp:354 obtains live world pose before the first spline query.
-        context.objects.pose(master.unit)?;
-        if !owner.spline_finalized(master.unit)? {
-            // cpp:357-359 needs transport transform and ComputePosition first.
-            return Err(refuse(
-                "execution.waypoint.f6_spline_compute_position_owner",
-            ));
-        }
         let pose = context.objects.pose(master.unit)?.0.map(f32::from_bits);
+        let mut start = [pose[0], pose[1], pose[2]];
+        if !owner.spline_finalized(master.unit, context)? {
+            context.transform_waypoint_spline_start(
+                master.unit,
+                start,
+                owner.pathfinder_passengers()?,
+            )?;
+            let position = owner.spline_compute_position(master.unit, context)?;
+            start = [position[0], position[1], position[2]];
+        }
         let mut generated = Vec::with_capacity(20);
-        generated.push([pose[0], pose[1], pose[2]]);
+        generated.push(start);
         let cursor = self.cursor.get().unwrap();
         let travel = self.build_int_path(
             &mut generated,
@@ -443,7 +446,10 @@ impl SourceWaypointGenerator {
         if wait > 0 {
             context.units.get_mut(context.objects, master.unit)?.state &= !WANDER_MOVING;
             self.stop(wait as u32);
-            if !owner.spline_finalized(master.unit)? && node.delay == 0 && p.script_time != 0 {
+            if !owner.spline_finalized(master.unit, context)?
+                && node.delay == 0
+                && p.script_time != 0
+            {
                 owner.motion_call(master, MotionCall::StopSpline, context)?;
             }
         } else if wait == 0 && node.delay != 0 {
@@ -550,7 +556,7 @@ impl SourceMovementGenerator for SourceWaypointGenerator {
             return Ok(true);
         }
         if self.stopped(fields.state) || self.progress.get().speed_changed {
-            if !owner.spline_finalized(master.unit)? {
+            if !owner.spline_finalized(master.unit, context)? {
                 owner.motion_call(master, MotionCall::StopSpline, context)?;
             }
             let state = context.units.get(context.objects, master.unit)?.state;
@@ -562,7 +568,7 @@ impl SourceMovementGenerator for SourceWaypointGenerator {
                 return Ok(true);
             }
             self.stop(1000);
-        } else if owner.spline_finalized(master.unit)? {
+        } else if owner.spline_finalized(master.unit, context)? {
             self.arrived(master, context, owner)?;
             if !self.stopped(context.units.get(context.objects, master.unit)?.state) {
                 self.send_next(master, context, owner)?;
@@ -583,8 +589,12 @@ impl SourceMovementGenerator for SourceWaypointGenerator {
                 p.path_duration = (p.path_duration as u32).wrapping_sub(diff) as i32;
                 self.progress.set(p);
             }
-            if !self.node_indexes.borrow().is_empty() {
-                return Err(refuse("execution.waypoint.f6_spline_current_index_owner"));
+            let reached = self.node_indexes.borrow().front().copied();
+            if let Some(index) = reached {
+                if owner.spline_current_index(master.unit, context)? >= index {
+                    self.node_indexes.borrow_mut().pop_front();
+                    self.arrived(master, context, owner)?;
+                }
             }
         }
         Ok(true)

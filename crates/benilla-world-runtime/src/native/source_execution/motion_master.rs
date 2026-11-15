@@ -114,8 +114,26 @@ pub trait MotionExecutionOwner {
     fn dungeon(&mut self, _unit: ObjectHandle) -> Result<bool> {
         Err(refuse("execution.motion.map_dungeon_binding"))
     }
-    fn spline_finalized(&mut self, _unit: ObjectHandle) -> Result<bool> {
-        Err(refuse("execution.motion.f6_spline_finalized_owner"))
+    fn spline_finalized(
+        &mut self,
+        unit: ObjectHandle,
+        context: &MotionContext<'_>,
+    ) -> Result<bool> {
+        context.spline_finalized(unit)
+    }
+    fn spline_compute_position(
+        &mut self,
+        unit: ObjectHandle,
+        context: &MotionContext<'_>,
+    ) -> Result<[f32; 4]> {
+        context.spline_position(unit)
+    }
+    fn spline_current_index(
+        &mut self,
+        unit: ObjectHandle,
+        context: &MotionContext<'_>,
+    ) -> Result<i32> {
+        context.spline_current_index(unit)
     }
     fn restore_faction_at_home(&mut self, _unit: ObjectHandle) -> Result<bool> {
         Err(refuse("execution.motion.temporary_faction_owner"))
@@ -184,8 +202,20 @@ pub trait MotionExecutionOwner {
     fn linear_waypoint_endpoint(&mut self, _unit: ObjectHandle, _returning: bool) -> Result<()> {
         Err(refuse("execution.waypoint.formation_linear_endpoint_owner"))
     }
-    fn fixed_path_spline(&mut self, _unit: ObjectHandle) -> Result<FixedPathSplineState> {
-        Err(refuse("execution.fixed_path.f6_spline_state_owner"))
+    fn fixed_path_spline(
+        &mut self,
+        unit: ObjectHandle,
+        context: &MotionContext<'_>,
+    ) -> Result<FixedPathSplineState> {
+        context.fixed_path_spline(unit)
+    }
+    /// PathMovementGenerator.cpp:155,168 re-evaluates the index on every loop test.
+    fn fixed_path_current_index(
+        &mut self,
+        unit: ObjectHandle,
+        context: &MotionContext<'_>,
+    ) -> Result<i32> {
+        context.fixed_path_current_index(unit)
     }
     /// Includes optional unit AI and temporary-summoner AI notifications.
     fn fixed_path_inform(

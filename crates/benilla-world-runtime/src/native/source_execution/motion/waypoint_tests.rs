@@ -75,6 +75,7 @@ struct Owner {
     speed: Option<f32>,
     speed_reads: usize,
     passengers: Option<SourcePassengers>,
+    path_starts: Vec<[f32; 3]>,
 }
 impl MotionExecutionOwner for Owner {
     fn pathfinder_geometry(&mut self) -> Result<&mut SourceTerrainManager> {
@@ -92,6 +93,28 @@ impl MotionExecutionOwner for Owner {
             .as_ref()
             .ok_or_else(|| refuse("execution.pathfinder.transport_owner"))
     }
+    fn calculate_pathfinder(
+        &mut self,
+        path: &mut SourcePathFinder,
+        context: &MotionContext<'_>,
+        start: [f32; 3],
+        end: [f32; 3],
+    ) -> Result<bool> {
+        self.path_starts.push(start);
+        let attachment = self
+            .pathfinder_passengers()
+            .and_then(|passengers| passengers.movement(path.unit).map(|state| state.transport))
+            .map_err(|_| refuse("execution.pathfinder.transport_owner"));
+        path.calculate(
+            self.pathfinder_geometry()?,
+            context,
+            attachment,
+            start,
+            end,
+            true,
+            false,
+        )
+    }
     fn waypoint_paths(&mut self) -> Result<Rc<SourceWaypointPaths>> {
         self.paths
             .clone()
@@ -103,7 +126,7 @@ impl MotionExecutionOwner for Owner {
     fn waypoint_casting_for_movement(&mut self, _: ObjectHandle) -> Result<bool> {
         Ok(false)
     }
-    fn spline_finalized(&mut self, _: ObjectHandle) -> Result<bool> {
+    fn spline_finalized(&mut self, _: ObjectHandle, _: &MotionContext<'_>) -> Result<bool> {
         self.log.push("spline".into());
         self.spline
             .ok_or_else(|| refuse("execution.motion.f6_spline_finalized_owner"))
@@ -1106,4 +1129,89 @@ fn bound_speed_and_passengers_calculate_before_lookahead_and_spline_init() {
     let geometry = owner.geometry.as_ref().unwrap();
     assert_eq!(geometry.pathfinder_constructor_completions, 3);
     assert_eq!(geometry.pathfinder_calculate_completions, 3);
+    let args = benilla_sim::source_spline::Args {
+        path: vec![[0; 3], [3f32.to_bits(), 4f32.to_bits(), 0]],
+        facing: [0; 3],
+        flags: 0,
+        path_index_offset: 0,
+        velocity: 5f32.to_bits(),
+        spline_id: 9,
+    };
+    let spline = &mut context
+        .units
+        .get_mut(&objects, master.unit)
+        .unwrap()
+        .movespline;
+    spline.initialize(&args).unwrap();
+    spline.update_state(500, |_| {}).unwrap();
+    let computed = spline.compute_position().unwrap().map(f32::from_bits);
+    owner.spline = Some(false);
+    assert_eq!(
+        delayed
+            .send_next(&mut master, &mut context, &mut owner)
+            .unwrap_err()
+            .id,
+        "execution.waypoint.move_spline_init_owner_396"
+    );
+    assert_eq!(
+        owner.path_starts.last().unwrap(),
+        &[computed[0], computed[1], computed[2]]
+    );
+    assert_ne!(*owner.path_starts.last().unwrap(), [1.; 3]);
+    assert_eq!(owner.speed_reads, 4);
+    assert_eq!(
+        owner
+            .geometry
+            .as_ref()
+            .unwrap()
+            .pathfinder_calculate_completions,
+        4
+    );
+}
+
+#[test]
+fn real_current_path_index_pops_one_pending_node_before_arrival() {
+    struct BoundPosition<'a>(&'a SourceObjects);
+    impl MotionExecutionOwner for BoundPosition<'_> {
+        fn waypoint_position(&mut self, unit: ObjectHandle) -> Result<[f32; 4]> {
+            Ok(self.0.pose(unit)?.0.map(f32::from_bits))
+        }
+    }
+    let (g, _) = loaded(&[(1, 0, 0), (2, 0, 0)]);
+    let (objects, mut units, mut master) = setup();
+    let fields = units.get_mut(&objects, master.unit).unwrap();
+    fields.state = WANDER_MOVING;
+    fields
+        .movespline
+        .initialize(&benilla_sim::source_spline::Args {
+            path: vec![[0; 3], [3f32.to_bits(), 4f32.to_bits(), 0]],
+            facing: [0; 3],
+            flags: 0,
+            path_index_offset: 23,
+            velocity: 5f32.to_bits(),
+            spline_id: 9,
+        })
+        .unwrap();
+    let mut progress = g.progress.get();
+    progress.current = 1;
+    progress.path_duration = 500;
+    g.progress.set(progress);
+    g.cursor.set(Some(1));
+    g.node_indexes.borrow_mut().extend([23, 24]);
+    let mut context = MotionContext {
+        objects: &objects,
+        units: &mut units,
+    };
+    assert!(g
+        .update(&mut master, 1, &mut context, &mut BoundPosition(&objects))
+        .unwrap());
+    assert_eq!(*g.node_indexes.borrow(), [24]);
+    assert_eq!(g.progress.get().last_reached, 1);
+    assert_eq!(g.progress.get().path_duration, 499);
+    assert!(!context
+        .units
+        .get(&objects, master.unit)
+        .unwrap()
+        .movespline
+        .finalized());
 }
