@@ -1691,7 +1691,7 @@ fn mailbox_selected(
         },
     ))
 }
-#[cfg(test)]
+#[cfg(all(test, not(benilla_headless_geometry)))]
 pub(crate) fn set_request_lifetime_for_test(
     authority: &mut LocalAuthority,
     sink: &mut MailboxRouteCommitSink,
