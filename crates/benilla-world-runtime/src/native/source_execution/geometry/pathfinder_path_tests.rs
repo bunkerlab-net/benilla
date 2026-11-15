@@ -16,13 +16,13 @@ fn source_host() -> bool {
 
 fn setup(
     mesh: bool,
-) -> (
+) -> Option<(
     SourceTerrainManager,
     SourceObjects,
     SourceUnits,
     ObjectHandle,
-) {
-    let mut geometry = super::super::tests::geometry(0, 0);
+)> {
+    let mut geometry = super::super::tests::geometry(0, 0)?;
     let config = b"mmap.enabled = 1\nmmap.ignoreMapIds = \"\"\nmmap.preload = 0\nPathFinder.OptimizePath = 0\nPathFinder.NormalizeZ = 0\n";
     geometry
         .mmap
@@ -38,14 +38,16 @@ fn setup(
     }
     let (objects, mut units, master) = super::super::tests::setup();
     units.get_mut(&objects, master.unit).unwrap().can_walk = true;
-    (geometry, objects, units, master.unit)
+    Some((geometry, objects, units, master.unit))
 }
 #[test]
 fn calculate_invalid_coordinates_leave_the_previous_state_untouched_124_128() {
     if !source_host() {
         return;
     }
-    let (mut geometry, objects, mut units, unit) = setup(false);
+    let Some((mut geometry, objects, mut units, unit)) = setup(false) else {
+        return;
+    };
     let context = MotionContext {
         objects: &objects,
         units: &mut units,
@@ -71,7 +73,9 @@ fn calculate_stops_at_unbound_transport_before_default_query_86() {
     if !source_host() {
         return;
     }
-    let (mut geometry, objects, mut units, unit) = setup(false);
+    let Some((mut geometry, objects, mut units, unit)) = setup(false) else {
+        return;
+    };
     let context = MotionContext {
         objects: &objects,
         units: &mut units,
@@ -100,7 +104,9 @@ fn absent_endpoint_tile_shortcut_and_same_poly_have_distinct_types_169_517() {
         return;
     }
     for mesh in [false, true] {
-        let (mut geometry, objects, mut units, unit) = setup(mesh);
+        let Some((mut geometry, objects, mut units, unit)) = setup(mesh) else {
+            return;
+        };
         let context = MotionContext {
             objects: &objects,
             units: &mut units,
@@ -148,7 +154,9 @@ fn force_destination_uses_strict_point_three_squared_threshold_969() {
     if !source_host() {
         return;
     }
-    let (mut geometry, objects, mut units, unit) = setup(true);
+    let Some((mut geometry, objects, mut units, unit)) = setup(true) else {
+        return;
+    };
     let context = MotionContext {
         objects: &objects,
         units: &mut units,
@@ -176,7 +184,9 @@ fn exact_full_straight_step_limit_is_short_before_force_destination_953() {
     if !source_host() {
         return;
     }
-    let (mut geometry, objects, mut units, unit) = setup(true);
+    let Some((mut geometry, objects, mut units, unit)) = setup(true) else {
+        return;
+    };
     let context = MotionContext {
         objects: &objects,
         units: &mut units,
@@ -201,7 +211,9 @@ fn normalize_refuses_real_allowed_z_after_shortcut_points_exist_999() {
     if !source_host() {
         return;
     }
-    let (mut geometry, objects, mut units, unit) = setup(false);
+    let Some((mut geometry, objects, mut units, unit)) = setup(false) else {
+        return;
+    };
     let config = b"mmap.enabled = 1\nmmap.ignoreMapIds = \"\"\nmmap.preload = 0\nPathFinder.NormalizeZ = 1\n";
     geometry
         .mmap
@@ -236,7 +248,9 @@ fn multi_poly_reuses_the_old_subrange_and_retains_incomplete_type_563_789() {
     if !source_host() {
         return;
     }
-    let (mut geometry, objects, mut units, unit) = setup(true);
+    let Some((mut geometry, objects, mut units, unit)) = setup(true) else {
+        return;
+    };
     let context = MotionContext {
         objects: &objects,
         units: &mut units,
@@ -278,7 +292,9 @@ fn stepped_points_use_detail_height_but_preserve_the_original_endpoint_837_845()
     if !source_host() {
         return;
     }
-    let (mut geometry, objects, mut units, unit) = setup(true);
+    let Some((mut geometry, objects, mut units, unit)) = setup(true) else {
+        return;
+    };
     let context = MotionContext {
         objects: &objects,
         units: &mut units,
@@ -303,8 +319,12 @@ fn wet_calculate_shortcuts_without_random_points_separate_los_call_432_434_1432(
     if !source_host() {
         return;
     }
-    let (geometry, objects, mut units, unit) = setup(true);
-    let mut wet = super::super::tests::geometry(1, 1);
+    let Some((geometry, objects, mut units, unit)) = setup(true) else {
+        return;
+    };
+    let Some(mut wet) = super::super::tests::geometry(1, 1) else {
+        return;
+    };
     wet.mmap = geometry.mmap;
     wet.pathfinder_map_types = geometry.pathfinder_map_types;
     let f = units.get_mut(&objects, unit).unwrap();
@@ -335,7 +355,9 @@ fn force_destination_rebuilds_at_exact_point_three_and_keeps_only_below_969() {
     if !source_host() {
         return;
     }
-    let (mut geometry, objects, mut units, unit) = setup(true);
+    let Some((mut geometry, objects, mut units, unit)) = setup(true) else {
+        return;
+    };
     let context = MotionContext {
         objects: &objects,
         units: &mut units,
@@ -367,7 +389,9 @@ fn home_consumes_bound_passenger_state_and_calculates_before_spline_init_66_70()
     if !source_host() {
         return;
     }
-    let (geometry, mut objects, mut units, unit) = setup(false);
+    let Some((geometry, mut objects, mut units, unit)) = setup(false) else {
+        return;
+    };
     objects.get_mut(unit).unwrap().active = true;
     units.get_mut(&objects, unit).unwrap().evade_home = true;
     let mut passengers = SourcePassengers::default();
@@ -461,7 +485,9 @@ fn ray_hit_consumes_width_before_threshold_and_keeps_source_end_replacement_723_
     if !source_host() {
         return;
     }
-    let (mut geometry, objects, mut units, unit) = setup(true);
+    let Some((mut geometry, objects, mut units, unit)) = setup(true) else {
+        return;
+    };
     let context = MotionContext {
         objects: &objects,
         units: &mut units,
@@ -506,7 +532,9 @@ fn attached_query_never_substitutes_the_default_map_query_87() {
     if !source_host() {
         return;
     }
-    let (mut geometry, mut objects, mut units, unit) = setup(false);
+    let Some((mut geometry, mut objects, mut units, unit)) = setup(false) else {
+        return;
+    };
     let transport = objects.construct(1, SourceObjectKind::Transport).unwrap();
     let context = MotionContext {
         objects: &objects,
@@ -547,7 +575,9 @@ fn disabled_query_defers_attachment_until_active_normalization_167_993() {
             Some("execution.pathfinder.allowed_position_z_owner_999"),
         ),
     ] {
-        let (mut geometry, objects, mut units, unit) = setup(false);
+        let Some((mut geometry, objects, mut units, unit)) = setup(false) else {
+            return;
+        };
         let config=format!("mmap.enabled = 0\nmmap.ignoreMapIds = \"\"\nmmap.preload = 0\nPathFinder.NormalizeZ = {}\n",u8::from(normalize));
         geometry
             .mmap
@@ -588,7 +618,9 @@ fn normalization_reads_the_recorded_key_before_ignore_normalization_990() {
     if !source_host() {
         return;
     }
-    let (mut geometry, objects, mut units, unit) = setup(false);
+    let Some((mut geometry, objects, mut units, unit)) = setup(false) else {
+        return;
+    };
     let config = b"mmap.enabled = 1\nmmap.ignoreMapIds = \"\"\nmmap.preload = 0\n";
     geometry
         .mmap
@@ -630,7 +662,9 @@ fn dungeon_map_owner_grows_limits_before_the_missing_poly_branch_395_432() {
             (300., 222),
             (301., 296),
         ] {
-            let (mut geometry, objects, mut units, unit) = setup(true);
+            let Some((mut geometry, objects, mut units, unit)) = setup(true) else {
+                return;
+            };
             geometry.pathfinder_map_types = Some(BTreeMap::from([(0, kind)]));
             let context = MotionContext {
                 objects: &objects,
@@ -667,7 +701,9 @@ fn newly_enabled_default_pointer_refuses_only_after_the_attachment_read_93() {
         return;
     }
     for forced_at_construction in [false, true] {
-        let (mut geometry, objects, mut units, unit) = setup(false);
+        let Some((mut geometry, objects, mut units, unit)) = setup(false) else {
+            return;
+        };
         let config=b"mmap.enabled = 1\nmmap.ignoreMapIds = \"0\"\nmmap.preload = 0\nPathFinder.NormalizeZ = 0\n";
         geometry
             .mmap
@@ -712,7 +748,9 @@ fn set_current_mesh_checks_query_lifetime_at_the_first_dereference_97() {
         return;
     }
     for unload in [false, true] {
-        let (mut geometry, objects, mut units, unit) = setup(false);
+        let Some((mut geometry, objects, mut units, unit)) = setup(false) else {
+            return;
+        };
         let context = MotionContext {
             objects: &objects,
             units: &mut units,

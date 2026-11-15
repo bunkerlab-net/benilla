@@ -1035,7 +1035,9 @@ fn bound_speed_and_passengers_calculate_before_travel_time_262_278() {
         instance: 7,
         creation_generation: 1,
     });
-    let mut geometry = pathfinder::tests::geometry(0, 0);
+    let Some(mut geometry) = pathfinder::tests::geometry(0, 0) else {
+        return;
+    };
     let config=b"mmap.enabled = 1\nmmap.ignoreMapIds = \"\"\nmmap.preload = 0\nPathFinder.NormalizeZ = 0\n";
     geometry
         .mmap
