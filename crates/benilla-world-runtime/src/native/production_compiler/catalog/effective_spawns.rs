@@ -260,7 +260,10 @@ impl VerifiedCatalog {
         })?;
         Ok(output)
     }
-    fn execution_script_name_ids(&mut self, schema: &Value) -> Result<BTreeMap<Vec<u8>, u32>> {
+    pub(in crate::native::production_compiler::catalog) fn execution_script_name_ids(
+        &mut self,
+        schema: &Value,
+    ) -> Result<BTreeMap<Vec<u8>, u32>> {
         let mut names = BTreeSet::new();
         let spec = &catalog_schema::POLICY["loaders"]["AI/ScriptDevAI/ScriptDevAIMgr:480"];
         for relation in spec["relations"]

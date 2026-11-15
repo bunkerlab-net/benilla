@@ -52,6 +52,27 @@ fn effective_words(catalog: &mut VerifiedCatalog, file: &str) -> Result<Vec<(u32
         .collect()
 }
 impl VerifiedCatalog {
+    /// DBCStores.cpp:484-508 allocates paths by TaxiPath max ID, then inserts nonzero node IDs.
+    pub(crate) fn execution_template_taxi_paths(
+        &mut self,
+    ) -> Result<std::collections::BTreeSet<u32>> {
+        let count = effective_words(self, "TaxiPath.dbc")?
+            .iter()
+            .map(|(_, words)| words[0])
+            .max()
+            .unwrap_or(0)
+            .checked_add(1)
+            .ok_or_else(|| fail("templates.taxi_path_overflow"))?;
+        let mut paths = std::collections::BTreeSet::new();
+        for (_, words) in effective_words(self, "TaxiPathNode.dbc")? {
+            if words[0] == 0 {
+                continue;
+            }
+            check(words[1] < count, "templates.taxi_path_index_undefined")?;
+            paths.insert(words[1]);
+        }
+        Ok(paths)
+    }
     pub(crate) fn execution_transport_animations(
         &mut self,
     ) -> Result<(String, Vec<TransportAnimationRecord>)> {

@@ -174,6 +174,12 @@ impl CreatureLevelDefinitions {
             .get(&entry)
             .ok_or_else(|| refuse("execution.creature.SelectLevel_template_owner"))
     }
+    /// ObjectMgr.cpp:791-798 tests the loaded class array, not raw row existence.
+    pub fn has_loader_stats(&self, level: u32, class: u32) -> bool {
+        self.classes
+            .get(&(class_index(class), level))
+            .is_some_and(init::SourceClassLevelRow::has_loader_stats)
+    }
     pub fn stats(
         &self,
         entry: u32,

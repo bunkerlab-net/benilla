@@ -9,6 +9,8 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 mod active_init;
 #[path = "seal16_spawn_init.rs"]
 mod spawn_init;
+#[path = "seal16_templates.rs"]
+mod templates;
 
 const GROUP_QUERIES: [&str; 6] = [
     "SELECT Id, Name, Type, MaxCount, WorldState, WorldStateExpression, Flags, StringId, RespawnOverrideMin, RespawnOverrideMax FROM spawn_group",
@@ -133,6 +135,7 @@ struct MapThreadEvidence {
     first_grid: Option<(u64, u16, u16)>,
     first_candidate: Option<(u64, u32, u32, u16, u16)>,
     first_mmap_query: Option<(u64, u32)>,
+    first_created_guid: Option<(u64, u32, u32, u32, u16)>,
 }
 #[derive(Default)]
 pub(super) struct Inputs {
@@ -169,6 +172,7 @@ pub(super) struct Inputs {
     encounter_raw: BTreeMap<String, (u64, u64)>,
     group_queries: Vec<(u64, String)>,
     corpse_query_line: Option<u64>,
+    templates: templates::Evidence,
 }
 impl Inputs {
     pub(super) fn observe_thread(&mut self, thread: u64, line: u64, kind: &str, p: &[&str]) {
@@ -180,6 +184,9 @@ impl Inputs {
         }
         if thread == 1 && kind == "mt_raw" {
             self.world_raw_words += 1;
+        }
+        if thread == 1 {
+            self.templates.observe(line, kind, p, self.world_raw_words);
         }
         if thread == 1 && kind == "sql_query" {
             let query = String::from_utf8(unhex(p.last().unwrap())).unwrap();
@@ -266,6 +273,17 @@ impl Inputs {
                     p[1].parse().unwrap(),
                     p[4].parse().unwrap(),
                     p[5].parse().unwrap(),
+                ));
+            }
+            "object_identity"
+                if evidence.first_candidate.is_some() && evidence.first_created_guid.is_none() =>
+            {
+                evidence.first_created_guid = Some((
+                    line,
+                    p[1].parse().unwrap(),
+                    p[2].parse().unwrap(),
+                    p[3].parse().unwrap(),
+                    p[4].parse().unwrap(),
                 ));
             }
             "clock_callsite" => {
@@ -1141,6 +1159,8 @@ pub(super) fn continue_startup(
     next_word: (u64, u64),
 ) {
     let config = std::fs::read(recording.join("mangosd.conf")).unwrap();
+    let (gameobject_templates, creature_templates) =
+        std::mem::take(&mut observed.templates).load(catalog, recording);
     spawn_init::bind_mmap_world(recording, &config, &mut geometry.mmap).unwrap();
     let mut corpses = active_init::frozen_corpses(recording).unwrap();
     println!(
@@ -1720,14 +1740,21 @@ pub(super) fn continue_startup(
             refusal,
             attempt,
             candidates,
+            candidate,
             entry,
             lookups,
+            init_entry_fields,
+            bound_guid,
+            go_load_operands,
+            go_factory_elevator,
         } = active_init::load_first(
             &mut continents.maps[slot],
             owner.spawns,
             inputs,
             &events,
             &groups,
+            &creature_templates,
+            &gameobject_templates,
             &mut states,
             geometry,
             &mut active_objects,
@@ -1739,7 +1766,14 @@ pub(super) fn continue_startup(
         assert_eq!(
             lookups,
             if slot == 0 {
-                vec!["factory_go_data", "factory_go_template"]
+                vec![
+                    "factory_go_data",
+                    "factory_go_template",
+                    "go_construct",
+                    "go_data",
+                    "existing_gameobject",
+                    "go_position_rotation",
+                ]
             } else {
                 vec![
                     "creature_data",
@@ -1749,15 +1783,19 @@ pub(super) fn continue_startup(
                     "random_skipped_nonzero_entry",
                     "active_event",
                     "creature_template",
+                    "creature_guid",
+                    "creature_create_from_proto",
+                    "init_entry_template",
+                    "init_entry_fields",
                 ]
             }
         );
         assert_eq!(
             refusal.id,
             if slot == 0 {
-                active_init::GO_TEMPLATE_OWNER
+                active_init::GO_ANIMPROGRESS_OWNER
             } else {
-                active_init::CREATURE_TEMPLATE_OWNER
+                active_init::CREATURE_SPAWN_MODEL_OWNER
             }
         );
         assert_eq!(
@@ -1773,8 +1811,67 @@ pub(super) fn continue_startup(
             ))
         );
         assert_eq!(attempt.guid, if slot == 0 { 18 } else { 28044 });
-        assert_eq!(candidates, usize::from(slot == 1));
+        assert_eq!(candidates, 1);
         assert_eq!(entry, if slot == 0 { 3211 } else { 4692 });
+        if slot == 0 {
+            assert_eq!(init_entry_fields, None);
+            assert_eq!(bound_guid, None);
+            let data = owner
+                .spawns
+                .complete_data(SpawnKey {
+                    kind: GridSpawnKind::GameObject,
+                    guid: attempt.guid,
+                })
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                go_load_operands,
+                Some((
+                    entry,
+                    data.row.pose.map(f32::to_bits),
+                    data.row.rotation.map(f32::to_bits)
+                ))
+            );
+            assert_eq!(
+                go_factory_elevator,
+                Some(gameobject_templates.get(entry).unwrap().words[1] == 11)
+            );
+        } else {
+            assert_eq!(go_load_operands, None);
+            assert_eq!(go_factory_elevator, None);
+            let template = creature_templates.get(entry).unwrap();
+            assert_eq!(
+                init_entry_fields,
+                Some((entry, template.words[14], [0, template.words[36] as u8]))
+            );
+            assert_eq!(
+                evidence.first_created_guid,
+                Some((
+                    60310195,
+                    attempt.guid,
+                    bound_guid.unwrap().counter(),
+                    entry,
+                    bound_guid.unwrap().high()
+                ))
+            );
+            let object = candidate;
+            assert_eq!(
+                active_objects.get(object).unwrap().respawn_pose,
+                Some(SourcePose(
+                    owner
+                        .spawns
+                        .complete_data(SpawnKey {
+                            kind: GridSpawnKind::Creature,
+                            guid: attempt.guid
+                        })
+                        .unwrap()
+                        .unwrap()
+                        .row
+                        .pose
+                        .map(f32::to_bits)
+                ))
+            );
+        }
         assert_eq!(
             evidence.first_candidate,
             Some((
@@ -1857,7 +1954,7 @@ pub(super) fn continue_startup(
             serde_json::to_value(states.state(state).unwrap().pools()).unwrap(),
             expected
         );
-        println!("F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={} next_owner={} next_source={}", matched_map_words[slot], evidence.pool_members.iter().map(BTreeSet::len).sum::<usize>(), evidence.pool_counts.len(), shuffles.len(), evidence.pool_snapshot_line.unwrap(), encounters.by_map(slot as u32).len(), refusal.id, if slot == 0 { "GameObject.cpp:109" } else { "Creature.cpp:1655" });
+        println!("F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={} next_owner={} next_source={}", matched_map_words[slot], evidence.pool_members.iter().map(BTreeSet::len).sum::<usize>(), evidence.pool_counts.len(), shuffles.len(), evidence.pool_snapshot_line.unwrap(), encounters.by_map(slot as u32).len(), refusal.id, if slot == 0 { "GameObject.cpp:896" } else { "Creature.cpp:666" });
         owner.states = states;
         let raw = trace
             .iter()
@@ -1891,7 +1988,7 @@ pub(super) fn continue_startup(
         assert_eq!(u64::from(initial_engine.next_u32()), first_word);
     }
     if continents.maps.iter().any(|map| map.script_id != 0) {
-        let refusal = refuse(active_init::GO_TEMPLATE_OWNER);
+        let refusal = refuse(active_init::GO_ANIMPROGRESS_OWNER);
         assert!(!events.inventory().initialized);
         assert!(owner.sql.is_empty() && owner.raw.is_empty());
         assert_eq!(owner.cursor.raw, 8712);
@@ -1904,7 +2001,7 @@ pub(super) fn continue_startup(
             .filter(|operation| matches!(operation, PoolOperation::Selected { add: true, .. }))
             .count();
         assert!(results > 0);
-        println!("F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} matched_map_thread_words={matched_map_words:?} matched_map_sql=4 matched_graveyard_sql=1 matched_encounter_sql=4 matched_group_sql=6 pool_results={results} event_initialization_reached=false next_owner_map0={} next_owner_map1={} next_raw={} next_word={} clone_next_word_checked=true",owner.cursor.raw,refusal.id,active_init::CREATURE_TEMPLATE_OWNER,next_word.0,next_word.1);
+        println!("F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} matched_map_thread_words={matched_map_words:?} matched_map_sql=4 matched_template_sql=6 matched_graveyard_sql=1 matched_encounter_sql=4 matched_group_sql=6 pool_results={results} event_initialization_reached=false next_owner_map0={} next_owner_map1={} next_raw={} next_word={} clone_next_word_checked=true",owner.cursor.raw,refusal.id,active_init::CREATURE_SPAWN_MODEL_OWNER,next_word.0,next_word.1);
         return;
     }
     let initial_status = owner.status.iter().copied().collect::<Vec<_>>();

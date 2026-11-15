@@ -13,9 +13,11 @@ use std::{
 mod creature_level;
 mod encounters;
 mod graveyards;
+mod loaded_templates;
 mod reader;
 mod spawns;
 mod startup_items;
+mod template_equipment;
 mod terrain;
 pub use spawns::{diagnose_catalog_spawns, SpawnViews};
 pub use spawns::{ObjectMgrSpawnRow, ObjectMgrSpawnRows};

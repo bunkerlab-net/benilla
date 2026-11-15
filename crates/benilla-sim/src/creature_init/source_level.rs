@@ -28,6 +28,13 @@ pub struct SourceLevelRates {
 /// ObjectMgr.cpp:763-782. Preprocessing runs once, not on every construction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SourceClassLevelRow(ClassLevelRow);
+impl SourceClassLevelRow {
+    /// ObjectMgr.cpp:795 requires health or stamina and damage above 0.1.
+    pub fn has_loader_stats(&self) -> bool {
+        (self.0.base_health != 0 || self.0.attributes[2] > 0)
+            && sf(self.0.base_damage) > Single::from_bits(0x3dcc_cccd)
+    }
+}
 pub fn load_source_class_level(mut row: ClassLevelRow) -> Result<SourceClassLevelRow> {
     let mana_bonus = source_uint(
         bonus(n(row.attributes[3])?, 15)?,

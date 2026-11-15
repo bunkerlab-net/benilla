@@ -2186,6 +2186,49 @@ The F7 in-memory inventory adds assistance latches, help eligibility, template
 help radius, and each queued capture. It adds no native serialized state.
 Format 91, NativeCapability, and frozen-unsealed F1 remain unchanged.
 
+## Source loaded creature and gameobject templates
+
+`LoadedGameObjectTemplates` ports `ObjectMgr::LoadGameobjectInfo`,
+`ObjectMgr.cpp:6926-7194`, at pinned revision `8ec338a1`.
+`LoadedCreatureTemplates` ports `LoadCreatureTemplates` at `:391-575`
+and `GetTypeFlagsFromStaticFlags` at `:801-868`.
+World startup loads gameobjects before creatures, `World.cpp:962,1021`.
+
+The fixed readers enforce both complete column layouts and SQLStorage
+formats, `SQLStorages.cpp:21-30,45,61`. Float words retain binary32 bits.
+Script names use the existing sorted name-ID owner,
+`ScriptDevAIMgr.cpp:477-515,532-544`.
+Creatures use an entry-indexed array and validate ascending nonzero IDs.
+Gameobjects use hash lookup and validate raw stored rows, preserving the
+transport display vector order, `ObjectMgr.cpp:406,7019,7134-7147,7194`.
+
+Both owners retain each source fixup and log-only diagnostic separately.
+Disabled spell checks remain disabled, `ObjectMgr.cpp:7078-7081,7113-7116,7151-7154`.
+Dependency checks reuse loaded class statistics, DBC stores, and retained
+existence views. Missing dependencies refuse at the first source lookup.
+UnitClass zero short-circuits the shift. Values above 32 refuse at
+`ObjectMgr.cpp:477`, `FlagConvertibleEnum.h:56-58`.
+Static-flag enums have fixed uint32 domains,
+`CreatureDefines.h:27,65,103,141,282`, so every retained word is defined.
+
+Neither loader draws world RNG, `ObjectMgr.cpp:400-580,7011-7195`.
+Each SQLStorage load submits MAX, COUNT, then SELECT *,
+`SQLStorageImpl.h:309-329`. The seal16 comparison checks all six queries,
+their row operands and order, and zero loader words.
+
+Catalog diagnostics retain export ordinals, not a recorded SQL order.
+The seal16 adapter binds both SELECT row orders to the hash-checked
+primary-ordered reset snapshot, `f1/db-snapshot.py:9`,
+`seal16-full-01/reset.json:5-7`, SHA-256
+`31c558ac2cc3e48ec5b64117c7fbc70bb4a8c9f0e56c11d0b48dfc5a9ed8e403`.
+Both tables have entry primary keys, `sql/base/mangos.sql:1325,2116`.
+This is reference-environment behaviour, not an SQL engine guarantee.
+The GO loader still visits the supplied raw record array,
+`ObjectMgr.cpp:7019`, `SQLStorage.h:171`, not hash-table iteration.
+
+The immutable owners add no serialized fields or gameplay admission.
+Native format 91 remains unchanged.
+
 ## Source effective spawn loading
 
 `SourceEffectiveSpawns` ports the creature and gameobject loader branches at
@@ -2383,10 +2426,10 @@ Grid expiry and unloading use the recorded configuration, including
 The live MMap owner executes `Map.cpp:202-212`; recorded preload is off.
 Active traversal uses the loaded lists and real grid/terrain owners,
 `ObjectMgr.cpp:9145-9156`, `Map.cpp:146-153,336-353,419-427`.
-Map 0's first grid stops before GO factory template selection,
-`GameObject.cpp:109`; map 1 stops at `Creature.cpp:1655`.
-The missing owners are the complete loaded `GameObjectInfo` and
-`CreatureInfo` stores, not the existing construction component engines.
+Map 0 constructs its first GO candidate, then refuses the missing loaded
+spawn `animprogress` at `GameObject.cpp:896`. Map 1 binds its first creature
+GUID and InitEntry fields, then refuses loaded spawn-template `modelId`
+at `Creature.cpp:666`. Each map has one candidate and no completed objects.
 The world-thread clone-only next-word check matches `(8712,3411341330)`.
 Global event/status/quest comparisons and WorldState remain beyond the map
 refusal. Seal8 keeps its earlier lunar refusal. Native format 91 is unchanged.
