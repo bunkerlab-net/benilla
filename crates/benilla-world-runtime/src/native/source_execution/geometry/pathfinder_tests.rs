@@ -2,7 +2,7 @@
 use super::*;
 use benilla_sim::source_rng::{DrawCursor, Mt19937, SourceRandom};
 
-pub(in super::super) fn geometry(entry: u16, flags: u8) -> SourceTerrainManager {
+pub(in super::super) fn geometry(entry: u16, flags: u8) -> Option<SourceTerrainManager> {
     let mut geometry = SourceTerrainManager::default();
     let config = b"mmap.enabled = 1\nmmap.ignoreMapIds = \"\"\nmmap.preload = 0\nvmap.enableLOS = 1\nvmap.enableHeight = 1\n";
     geometry
@@ -13,50 +13,67 @@ pub(in super::super) fn geometry(entry: u16, flags: u8) -> SourceTerrainManager 
         0,
         include_bytes!("../../../../../benilla-native-nav/tools/fixtures/authored.mmap").to_vec(),
     );
-    geometry.mmap.load_map_instance(0, 7).unwrap();
-    for x in [31, 32] {
-        for y in [31, 32] {
-            geometry.mmap.files.source_tile_absent(0, x, y).unwrap();
+    let result = geometry.mmap.load_map_instance(0, 7);
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        let _ = (entry, flags);
+        assert_eq!(
+            result.unwrap_err().id,
+            "execution.mmap.reference_cpu_fp_binding"
+        );
+        assert_eq!(geometry.mmap.mesh_count(), 0);
+        assert_eq!(geometry.mmap.tile_count(), 0);
+        assert!(geometry.mmap.query(0, 7).is_none());
+        assert_eq!(geometry.pathfinder_constructor_completions, 0);
+        None
+    }
+    #[cfg(target_arch = "x86_64")]
+    {
+        result.unwrap();
+        for x in [31, 32] {
+            for y in [31, 32] {
+                geometry.mmap.files.source_tile_absent(0, x, y).unwrap();
+            }
         }
-    }
-    geometry
-        .vmap
-        .initialize_recorded_world([0], config, &Sha256Id::of(config))
-        .unwrap();
-    geometry
-        .vmap
-        .collision
-        .files
-        .observe(b"000.vmtree", benilla_native_vmap::live::FileState::Absent)
-        .unwrap();
-    let mut bytes = vec![0; 40];
-    bytes[..8].copy_from_slice(b"MAPSz1.4");
-    bytes[16..20].copy_from_slice(&40u32.to_le_bytes());
-    bytes.extend(b"MHGT");
-    bytes.extend(1u32.to_le_bytes());
-    bytes.extend(0f32.to_le_bytes());
-    bytes.extend(0f32.to_le_bytes());
-    if flags != 0 {
-        bytes[24..28].copy_from_slice(&56u32.to_le_bytes());
-        bytes.extend(b"MLIQ");
-        bytes.extend([3, flags]);
-        bytes.extend(entry.to_le_bytes());
-        bytes.extend([0, 0, 128, 128]);
-        bytes.extend(8f32.to_le_bytes());
-    }
-    for x in [31, 32] {
-        for y in [31, 32] {
-            geometry.files.bytes(0, x, y, bytes.clone());
+        geometry
+            .vmap
+            .initialize_recorded_world([0], config, &Sha256Id::of(config))
+            .unwrap();
+        geometry
+            .vmap
+            .collision
+            .files
+            .observe(b"000.vmtree", benilla_native_vmap::live::FileState::Absent)
+            .unwrap();
+        let mut bytes = vec![0; 40];
+        bytes[..8].copy_from_slice(b"MAPSz1.4");
+        bytes[16..20].copy_from_slice(&40u32.to_le_bytes());
+        bytes.extend(b"MHGT");
+        bytes.extend(1u32.to_le_bytes());
+        bytes.extend(0f32.to_le_bytes());
+        bytes.extend(0f32.to_le_bytes());
+        if flags != 0 {
+            bytes[24..28].copy_from_slice(&56u32.to_le_bytes());
+            bytes.extend(b"MLIQ");
+            bytes.extend([3, flags]);
+            bytes.extend(entry.to_le_bytes());
+            bytes.extend([0, 0, 128, 128]);
+            bytes.extend(8f32.to_le_bytes());
         }
+        for x in [31, 32] {
+            for y in [31, 32] {
+                geometry.files.bytes(0, x, y, bytes.clone());
+            }
+        }
+        geometry.liquid_dbc = SourceLiquidDbc::authored();
+        let mut mt = Mt19937::from_seed(5489);
+        let mut cursor = DrawCursor::default();
+        let mut sink = |_| {};
+        let mut random = SourceRandom::new(1, &mut mt, &mut cursor, &mut sink).unwrap();
+        geometry.load_terrain(0, &mut random).unwrap();
+        assert_eq!(random.cursor().raw, 1);
+        Some(geometry)
     }
-    geometry.liquid_dbc = SourceLiquidDbc::authored();
-    let mut mt = Mt19937::from_seed(5489);
-    let mut cursor = DrawCursor::default();
-    let mut sink = |_| {};
-    let mut random = SourceRandom::new(1, &mut mt, &mut cursor, &mut sink).unwrap();
-    geometry.load_terrain(0, &mut random).unwrap();
-    assert_eq!(random.cursor().raw, 1);
-    geometry
 }
 pub(in super::super) fn setup() -> (SourceObjects, SourceUnits, SourceMotionMaster) {
     let mut objects = SourceObjects::default();
@@ -91,7 +108,9 @@ pub(in super::super) fn setup() -> (SourceObjects, SourceUnits, SourceMotionMast
 }
 #[test]
 fn constructor_keeps_real_instance_query_defaults_and_consumes_no_rng() {
-    let mut geometry = geometry(0, 0);
+    let Some(mut geometry) = geometry(0, 0) else {
+        return;
+    };
     let (objects, mut units, master) = setup();
     let mut mt = Mt19937::from_seed(5489);
     let mut cursor = DrawCursor::default();
@@ -122,7 +141,9 @@ fn constructor_keeps_real_instance_query_defaults_and_consumes_no_rng() {
 #[test]
 fn live_wet_query_precedes_destination_draws_and_or_is_retained() {
     for (entry, flags, expected) in [(21, 1, 4), (22, 2, 4), (23, 4, 8), (24, 8, 8), (21, 17, 1)] {
-        let mut geometry = geometry(entry, flags);
+        let Some(mut geometry) = geometry(entry, flags) else {
+            return;
+        };
         let (mut objects, mut units, master) = setup();
         let f = units.get_mut(&objects, master.unit).unwrap();
         f.can_walk = false;
@@ -148,7 +169,9 @@ fn live_wet_query_precedes_destination_draws_and_or_is_retained() {
         p.clear();
         assert!(p.points.is_empty());
     }
-    let mut geometry = geometry(21, 1);
+    let Some(mut geometry) = geometry(21, 1) else {
+        return;
+    };
     geometry.liquid_dbc = SourceLiquidDbc::default();
     let (objects, mut units, master) = setup();
     let g = SourceWanderGenerator::new([0.; 3], 5., 0., true, false);
@@ -174,7 +197,9 @@ fn capability_masks_and_disabled_unwritten_query_refuse_only_at_read() {
         (false, true, 12),
         (true, true, 13),
     ] {
-        let mut geometry = geometry(0, 0);
+        let Some(mut geometry) = geometry(0, 0) else {
+            return;
+        };
         let (objects, mut units, master) = setup();
         let f = units.get_mut(&objects, master.unit).unwrap();
         f.can_walk = walk;
@@ -193,7 +218,9 @@ fn capability_masks_and_disabled_unwritten_query_refuse_only_at_read() {
         assert!(p.read_default_query().unwrap().is_some());
     }
     for extra in [0x4000, 0x6000] {
-        let mut geometry = geometry(0, 0);
+        let Some(mut geometry) = geometry(0, 0) else {
+            return;
+        };
         let (objects, mut units, master) = setup();
         let f = units.get_mut(&objects, master.unit).unwrap();
         f.mmap_extra_flags = extra;
@@ -214,7 +241,9 @@ fn capability_masks_and_disabled_unwritten_query_refuse_only_at_read() {
             "execution.pathfinder.undefined_default_query_read"
         );
     }
-    let mut geometry = geometry(0, 0);
+    let Some(mut geometry) = geometry(0, 0) else {
+        return;
+    };
     geometry.mmap.unload_instance(0, 7);
     let (objects, mut units, master) = setup();
     let p = SourcePathFinder::construct(
@@ -231,7 +260,9 @@ fn capability_masks_and_disabled_unwritten_query_refuse_only_at_read() {
 }
 #[test]
 fn wander_and_home_prove_construction_before_the_next_named_refusal() {
-    let mut geometry = geometry(0, 0);
+    let Some(mut geometry) = geometry(0, 0) else {
+        return;
+    };
     let (mut objects, mut units, mut master) = setup();
     objects.get_mut(master.unit).unwrap().active = true;
     // CombatManager.cpp:161-176: this constructor fixture is already active and evading.
@@ -283,7 +314,9 @@ fn forcing_overrides_map_ignore_but_not_global_disable_and_fields_are_transient(
             (0, true, true),
             (0x6000, true, false),
         ] {
-            let mut geometry = geometry(0, 0);
+            let Some(mut geometry) = geometry(0, 0) else {
+                return;
+            };
             let config = format!(
                 "mmap.enabled = {}\nmmap.ignoreMapIds = \"0\"\nmmap.preload = 0\n",
                 u8::from(enabled)
@@ -336,9 +369,10 @@ fn bound_initialization_executes_target_drop_before_melee_owner_and_random_updat
         }
     }
     let (objects, mut units, mut master) = setup();
-    let mut owner = Owner {
-        geometry: geometry(0, 0),
+    let Some(geometry) = geometry(0, 0) else {
+        return;
     };
+    let mut owner = Owner { geometry };
     let mut context = MotionContext {
         objects: &objects,
         units: &mut units,
@@ -381,7 +415,9 @@ fn pet_and_player_overrides_refuse_by_name_instead_of_borrowing_creature_capabil
             "execution.pathfinder.player_water_owner",
         ),
     ] {
-        let mut geometry = geometry(0, 0);
+        let Some(mut geometry) = geometry(0, 0) else {
+            return;
+        };
         let (mut objects, mut units, master) = setup();
         objects.get_mut(master.unit).unwrap().kind = kind;
         assert_eq!(
@@ -405,7 +441,9 @@ fn pet_and_player_overrides_refuse_by_name_instead_of_borrowing_creature_capabil
 #[test]
 fn nearest_binds_constructor_filter_cache_and_real_selected_instance_query() {
     use benilla_native_nav::live::DistanceDeclaration;
-    let mut geometry = geometry(0, 0);
+    let Some(mut geometry) = geometry(0, 0) else {
+        return;
+    };
     geometry.mmap.unload_map(0).unwrap();
     geometry.mmap.files.map_bytes(
         0,

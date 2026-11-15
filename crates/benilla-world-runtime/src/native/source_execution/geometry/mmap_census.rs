@@ -41,7 +41,18 @@ fn frozen_products_load_or_name_each_refusal_and_real_no_nav_branch() {
             let map = name[..3].parse().unwrap();
             short_params += usize::from(std::fs::metadata(&path).unwrap().len() < 28);
             manager.files.retain_map(map, &path, hash).unwrap();
-            assert_eq!(manager.load_map_instance(map, 0).unwrap(), MMapLoad::Loaded);
+            let result = manager.load_map_instance(map, 0);
+            if cfg!(not(target_arch = "x86_64")) {
+                assert_eq!(
+                    result.unwrap_err().id,
+                    "execution.mmap.reference_cpu_fp_binding"
+                );
+                assert_eq!(manager.mesh_count(), 0);
+                assert_eq!(manager.tile_count(), 0);
+                assert!(manager.query(map, 0).is_none());
+                return;
+            }
+            assert_eq!(result.unwrap(), MMapLoad::Loaded);
             meshes += 1;
         } else if !name.starts_with("go") {
             let map = name[..3].parse::<u32>().unwrap();

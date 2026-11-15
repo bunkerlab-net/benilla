@@ -22,6 +22,10 @@ fn insert(bytes: &[u8]) -> Result<MapMesh, LiveError> {
 }
 #[test]
 fn live_detail_winding_preserves_both_source_determinant_signs() {
+    if cfg!(not(target_arch = "x86_64")) {
+        assert_eq!(MapMesh::new(PARAMS).err(), Some(LiveError::NumericBinding));
+        return;
+    }
     // DetourCommon.cpp:214-225 normalizes negative determinants before interpolation.
     let mut bytes = TILE.to_vec();
     let at = triangles(&bytes);
@@ -65,6 +69,10 @@ fn assert_undefined(bytes: &[u8], expected: UndefinedTile) {
 
 #[test]
 fn live_structural_ub_guards_preserve_slots_and_accept_the_safe_side() {
+    if cfg!(not(target_arch = "x86_64")) {
+        assert_eq!(MapMesh::new(PARAMS).err(), Some(LiveError::NumericBinding));
+        return;
+    }
     // DetourNavMesh.cpp:1004,540-543,646-648,673,705-708,829-855.
     let ps = polys(TILE);
     let ds = details(TILE);
@@ -114,6 +122,10 @@ fn live_structural_ub_guards_preserve_slots_and_accept_the_safe_side() {
 
 #[test]
 fn live_preserves_reflex_and_repeated_coarse_indices() {
+    if cfg!(not(target_arch = "x86_64")) {
+        assert_eq!(MapMesh::new(PARAMS).err(), Some(LiveError::NumericBinding));
+        return;
+    }
     // DetourNavMesh.cpp:524-557 connects indices; DetourCommon.cpp:238-251 uses parity.
     let ps = polys(TILE);
     for indices in [[0, 2, 1, 3], [0, 0, 2, 3]] {
@@ -136,6 +148,10 @@ fn live_preserves_reflex_and_repeated_coarse_indices() {
 
 #[test]
 fn live_preserves_finite_vertices_outside_the_header_enclosure() {
+    if cfg!(not(target_arch = "x86_64")) {
+        assert_eq!(MapMesh::new(PARAMS).err(), Some(LiveError::NumericBinding));
+        return;
+    }
     // DetourNavMesh.cpp:989-996 retains vertices; :822-834 clamps the query box only.
     let mut bytes = TILE.to_vec();
     bytes[124..128].copy_from_slice(&21f32.to_le_bytes());
@@ -149,6 +165,10 @@ fn live_preserves_finite_vertices_outside_the_header_enclosure() {
 
 #[test]
 fn live_scans_duplicate_flagged_and_disconnected_detail_edges_without_repair() {
+    if cfg!(not(target_arch = "x86_64")) {
+        assert_eq!(MapMesh::new(PARAMS).err(), Some(LiveError::NumericBinding));
+        return;
+    }
     // DetourNavMesh.cpp:632-674 scans each triangle and its own boundary flags.
     let ts = triangles(TILE);
     for pair in [
@@ -175,6 +195,10 @@ fn live_scans_duplicate_flagged_and_disconnected_detail_edges_without_repair() {
 
 #[test]
 fn live_magma_and_ignored_outer_metadata_follow_source() {
+    if cfg!(not(target_arch = "x86_64")) {
+        assert_eq!(MapMesh::new(PARAMS).err(), Some(LiveError::NumericBinding));
+        return;
+    }
     // MoveMapSharedDefines.h:48,60; MoveMap.cpp:235-267 never checks these metadata.
     let mut bytes = TILE.to_vec();
     let ps = polys(&bytes);
@@ -247,6 +271,10 @@ fn repeated_tile(
 
 #[test]
 fn live_uses_payload_counts_not_bounded_seed_polygon_and_detail_caps() {
+    if cfg!(not(target_arch = "x86_64")) {
+        assert_eq!(MapMesh::new(PARAMS).err(), Some(LiveError::NumericBinding));
+        return;
+    }
     // DetourNavMesh.cpp:918-923 excludes the polygon cap under DT64; :979-986 uses counts.
     for n in [16384, 16385] {
         assert!(insert(&repeated_tile(TILE, 0, n, 1, 0, n * 2)).is_ok());
@@ -264,6 +292,10 @@ fn live_uses_payload_counts_not_bounded_seed_polygon_and_detail_caps() {
 
 #[test]
 fn live_native_portals_keep_four_match_truncation_dropped_links_and_large_load_work() {
+    if cfg!(not(target_arch = "x86_64")) {
+        assert_eq!(MapMesh::new(PARAMS).err(), Some(LiveError::NumericBinding));
+        return;
+    }
     // DetourNavMesh.cpp:339-347 caps at four; :418-419 skips exhausted link pools.
     const RIGHT: &[u8] = include_bytes!("../tools/fixtures/0003231.mmtile");
     for n in [1, 6, 1000, 1500] {
@@ -338,6 +370,10 @@ fn offmesh_tile() -> Vec<u8> {
 
 #[test]
 fn live_offmesh_uses_pinned_squared_nearest_and_rejects_out_of_range_connections() {
+    if cfg!(not(target_arch = "x86_64")) {
+        assert_eq!(MapMesh::new(PARAMS).err(), Some(LiveError::NumericBinding));
+        return;
+    }
     // DetourNavMesh.cpp:568-615,760-805 connects both endpoints without sqrt.
     let mut bytes = offmesh_tile();
     let mesh = insert(&bytes).unwrap();

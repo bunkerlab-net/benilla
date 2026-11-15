@@ -439,10 +439,13 @@ fn initial_delay_does_not_defer_first_path_send_and_single_node_delay_stays_zero
         objects: &objects,
         units: &mut units,
     };
+    let Some(geometry) = pathfinder::tests::geometry(0, 0) else {
+        return;
+    };
     let mut owner = Owner {
         paths: Some(p.clone()),
         spline: Some(true),
-        geometry: Some(pathfinder::tests::geometry(0, 0)),
+        geometry: Some(geometry),
         ..Default::default()
     };
     assert_eq!(

@@ -9,6 +9,10 @@ fn tile(grid: [u8; 2], bytes: &[u8]) -> TileInput<'_> {
 
 #[test]
 fn source_order_assigns_slots_and_remove_reinsert_increments_salt() {
+    if cfg!(not(target_arch = "x86_64")) {
+        assert_eq!(MapMesh::new(PARAMS).err(), Some(LiveError::NumericBinding));
+        return;
+    }
     // DetourNavMesh.cpp:246-251,931-938; DT64 bit widths in DetourNavMesh.h:43-45.
     let mut ab = MapMesh::new(PARAMS).unwrap();
     let a = ab.add_tile(tile([32, 32], A)).unwrap();
@@ -31,6 +35,10 @@ fn source_order_assigns_slots_and_remove_reinsert_increments_salt() {
 }
 #[test]
 fn instances_share_mesh_not_query_and_unload_fences_stale_allocations() {
+    if cfg!(not(target_arch = "x86_64")) {
+        assert_eq!(MapMesh::new(PARAMS).err(), Some(LiveError::NumericBinding));
+        return;
+    }
     let mut mesh = MapMesh::new(PARAMS).unwrap();
     assert!(mesh.query(1).is_none());
     mesh.load_instance(1).unwrap();
@@ -55,6 +63,10 @@ fn instances_share_mesh_not_query_and_unload_fences_stale_allocations() {
 }
 #[test]
 fn malformed_duplicate_and_full_mesh_loads_preserve_links_and_free_slots() {
+    if cfg!(not(target_arch = "x86_64")) {
+        assert_eq!(MapMesh::new(PARAMS).err(), Some(LiveError::NumericBinding));
+        return;
+    }
     let mut params = PARAMS.to_vec();
     params[20..24].copy_from_slice(&1u32.to_le_bytes());
     let mut mesh = MapMesh::new(&params).unwrap();
@@ -80,6 +92,10 @@ fn malformed_duplicate_and_full_mesh_loads_preserve_links_and_free_slots() {
 
 #[test]
 fn free_slot_salts_and_links_keep_source_history_after_failed_validation() {
+    if cfg!(not(target_arch = "x86_64")) {
+        assert_eq!(MapMesh::new(PARAMS).err(), Some(LiveError::NumericBinding));
+        return;
+    }
     let mut mesh = MapMesh::new(PARAMS).unwrap();
     assert_eq!(
         mesh.slots().next(),
@@ -108,6 +124,10 @@ fn free_slot_salts_and_links_keep_source_history_after_failed_validation() {
 
 #[test]
 fn detour_header_failures_and_truncated_offmesh_sections_preserve_state() {
+    if cfg!(not(target_arch = "x86_64")) {
+        assert_eq!(MapMesh::new(PARAMS).err(), Some(LiveError::NumericBinding));
+        return;
+    }
     let mut mesh = MapMesh::new(PARAMS).unwrap();
     let before = mesh.slots().collect::<Vec<_>>();
     for (offset, word, expected) in [

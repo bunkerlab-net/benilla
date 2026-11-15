@@ -12,9 +12,21 @@ fn configured() -> SourceMMapManager {
         .unwrap();
     manager
 }
-fn mesh(manager: &mut SourceMMapManager) {
+fn mesh(manager: &mut SourceMMapManager) -> bool {
     manager.files.map_bytes(0, PARAMS.to_vec());
-    assert_eq!(manager.load_map_instance(0, 0).unwrap(), MMapLoad::Loaded);
+    let result = manager.load_map_instance(0, 0);
+    if cfg!(not(target_arch = "x86_64")) {
+        assert_eq!(
+            result.unwrap_err().id,
+            "execution.mmap.reference_cpu_fp_binding"
+        );
+        assert_eq!(manager.mesh_count(), 0);
+        assert_eq!(manager.tile_count(), 0);
+        assert!(manager.query(0, 0).is_none());
+        return false;
+    }
+    assert_eq!(result.unwrap(), MMapLoad::Loaded);
+    true
 }
 #[test]
 fn source_load_false_branches_are_not_native_refusals_and_preserve_state() {
@@ -25,7 +37,9 @@ fn source_load_false_branches_are_not_native_refusals_and_preserve_state() {
         MMapLoad::MapAbsent
     );
     assert_eq!(manager.mesh_count(), 0);
-    mesh(&mut manager);
+    if !mesh(&mut manager) {
+        return;
+    }
     let query = manager.query(0, 0).unwrap();
     manager.files.source_tile_absent(0, 1, 1).unwrap();
     assert_eq!(manager.load_tile(0, 1, 1).unwrap(), MMapLoad::TileAbsent);
@@ -91,7 +105,9 @@ fn missing_expected_products_and_unknown_acquisition_never_become_source_absence
             .id,
         "execution.mmap.expected_tile_product_unavailable"
     );
-    mesh(&mut manager);
+    if !mesh(&mut manager) {
+        return;
+    }
     assert_eq!(
         manager.load_tile(0, 1, 1).unwrap_err().id,
         "execution.mmap.tile_product_unavailable"
@@ -152,7 +168,9 @@ fn short_params_and_partial_headers_refuse_but_empty_keeps_constructor_defaults(
         );
     }
     manager.files.map_bytes(0, PARAMS.to_vec());
-    manager.load_map_instance(0, 0).unwrap();
+    if !mesh(&mut manager) {
+        return;
+    }
     for length in 1..20 {
         manager.files.tile_bytes(0, 32, 32, A[..length].to_vec());
         assert_eq!(
@@ -182,7 +200,9 @@ fn map_only_upgrades_in_place_and_source_no_nav_false_still_marks_fully_loaded()
     manager.load_terrain(0, &mut random).unwrap();
     let tile = manager.query_grid(0, [0.0; 3], true).unwrap();
     assert!(!manager.mmap.created());
-    mesh(&mut manager.mmap);
+    if !mesh(&mut manager.mmap) {
+        return;
+    }
     manager.mmap.files.source_tile_absent(0, 32, 32).unwrap();
     assert_eq!(manager.query_grid(0, [0.0; 3], false).unwrap(), tile);
     assert!(manager.mmap.created());
@@ -208,8 +228,18 @@ fn map_startup_navigation_dispatch_uses_concrete_owner_and_ignored_maps_still_lo
         instance: 7,
         creation_generation: 1,
     };
-    work.initialize_map(map, MapManagerStartupPhase::Navigation)
-        .unwrap();
+    let result = work.initialize_map(map, MapManagerStartupPhase::Navigation);
+    if cfg!(not(target_arch = "x86_64")) {
+        assert_eq!(
+            result.unwrap_err().id,
+            "execution.mmap.reference_cpu_fp_binding"
+        );
+        assert_eq!(work.0.mesh_count(), 0);
+        assert_eq!(work.0.tile_count(), 0);
+        assert!(work.0.query(0, 7).is_none());
+        return;
+    }
+    result.unwrap();
     let query = work.0.query(0, 7).unwrap();
     assert_eq!(work.0.query_capacity(0, &query).unwrap(), 1024);
     work.initialize_map(map, MapManagerStartupPhase::Navigation)
@@ -246,7 +276,9 @@ fn live_tile_admission_names_undefined_reads_without_mutating_manager_state() {
     cases.push((bytes, "execution.mmap.undefined_missing_detail_boundary"));
     for (bytes, id) in cases {
         let mut manager = configured();
-        mesh(&mut manager);
+        if !mesh(&mut manager) {
+            return;
+        }
         let query = manager.query(0, 0).unwrap();
         manager.files.tile_bytes(0, 32, 32, bytes);
         assert_eq!(manager.load_tile(0, 32, 32).unwrap_err().id, id);
@@ -261,7 +293,9 @@ fn live_tile_admission_names_undefined_reads_without_mutating_manager_state() {
 fn live_magma_and_unused_outer_metadata_load_through_source_framing() {
     // MoveMap.cpp:235-267 ignores outer dtVersion/usesLiquids and trailing file bytes.
     let mut manager = configured();
-    mesh(&mut manager);
+    if !mesh(&mut manager) {
+        return;
+    }
     let mut bytes = A.to_vec();
     let ps = 120 + 14 * 12;
     bytes[ps + 28..ps + 30].copy_from_slice(&8u16.to_le_bytes());

@@ -1,17 +1,25 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
-fn mesh() -> MapMesh {
-    let mut mesh = MapMesh::new(include_bytes!(
+fn mesh() -> Option<MapMesh> {
+    let result = MapMesh::new(include_bytes!(
         "../tools/fixtures/direct-corridor/params.test-fixture"
-    ))
-    .unwrap();
-    mesh.load_instance(7).unwrap();
-    mesh.add_tile(TileInput {
-        grid: [31, 31],
-        bytes: include_bytes!("../tools/fixtures/warm-cache/precision.test-fixture"),
-    })
-    .unwrap();
-    mesh
+    ));
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        assert_eq!(result.err(), Some(LiveError::NumericBinding));
+        None
+    }
+    #[cfg(target_arch = "x86_64")]
+    {
+        let mut mesh = result.unwrap();
+        mesh.load_instance(7).unwrap();
+        mesh.add_tile(TileInput {
+            grid: [31, 31],
+            bytes: include_bytes!("../tools/fixtures/warm-cache/precision.test-fixture"),
+        })
+        .unwrap();
+        Some(mesh)
+    }
 }
 const FIRST: u64 = 0x0010_0000_0000_0000;
 fn lookup(
@@ -35,7 +43,9 @@ fn lookup(
 }
 #[test]
 fn all_five_scalars_at_four_declarations_use_absence_and_near_then_far_boxes() {
-    let mesh = mesh();
+    let Some(mesh) = mesh() else {
+        return;
+    };
     for site in [
         DistanceDeclaration::BuildPolyStart,
         DistanceDeclaration::BuildPolyEnd,
@@ -61,7 +71,9 @@ fn all_five_scalars_at_four_declarations_use_absence_and_near_then_far_boxes() {
 }
 #[test]
 fn defined_priors_and_retained_loop_lifetime_preserve_source_append_predicate() {
-    let mesh = mesh();
+    let Some(mesh) = mesh() else {
+        return;
+    };
     for (prior, appended) in [
         (0., true),
         (-0., true),
@@ -100,7 +112,9 @@ fn defined_priors_and_retained_loop_lifetime_preserve_source_append_predicate() 
 }
 #[test]
 fn active_then_tail_ties_and_clear_keep_real_storage() {
-    let mesh = mesh();
+    let Some(mesh) = mesh() else {
+        return;
+    };
     let mut cache = PathCache::new();
     cache.install_prefix(&[FIRST, FIRST + 1]).unwrap();
     let mut distance = PathDistance::new(DistanceDeclaration::BuildPolyStart);
@@ -129,7 +143,9 @@ fn active_then_tail_ties_and_clear_keep_real_storage() {
 }
 #[test]
 fn per_instance_identity_and_removed_polygon_refs_are_not_reconstituted() {
-    let mut mesh = mesh();
+    let Some(mut mesh) = mesh() else {
+        return;
+    };
     let old = mesh.query(7).unwrap();
     mesh.unload_instance(7);
     mesh.load_instance(7).unwrap();
@@ -156,7 +172,9 @@ fn per_instance_identity_and_removed_polygon_refs_are_not_reconstituted() {
 
 #[test]
 fn nearest_ties_keep_source_visit_order_and_use_the_actual_filter() {
-    let mesh = mesh();
+    let Some(mesh) = mesh() else {
+        return;
+    };
     let mut cache = PathCache::new();
     let mut distance = PathDistance::new(DistanceDeclaration::BuildPolyStart);
     let found = lookup(&mesh, &mut cache, 10., 0., &mut distance).unwrap();
