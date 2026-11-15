@@ -82,7 +82,7 @@ impl MotionExecutionOwner for Owner {
             .as_mut()
             .ok_or_else(|| refuse("execution.pathfinder.live_geometry_owner"))
     }
-    fn waypoint_speed(&mut self, _: ObjectHandle) -> Result<f32> {
+    fn waypoint_speed(&mut self, _: ObjectHandle, _: &MotionContext<'_>) -> Result<f32> {
         self.speed_reads += 1;
         self.speed
             .ok_or_else(|| refuse("execution.waypoint.movement_speed_owner_261"))
@@ -1018,7 +1018,7 @@ fn missing_default_path_preserves_the_previous_origin_and_node() {
 }
 
 #[test]
-fn bound_speed_and_passengers_calculate_before_travel_time_262_278() {
+fn bound_speed_and_passengers_calculate_before_lookahead_and_spline_init() {
     if !cfg!(target_arch = "x86_64") {
         assert!(matches!(
             benilla_native_nav::live::MapMesh::new(include_bytes!(
@@ -1082,10 +1082,28 @@ fn bound_speed_and_passengers_calculate_before_travel_time_262_278() {
         )
         .unwrap_err()
         .id,
-        "execution.waypoint.travel_time_numeric_owner_278"
+        "execution.waypoint.minimum_path_time_nonterminating_cycle_370"
     );
-    assert_eq!(owner.speed_reads, 1);
+    assert_eq!(owner.speed_reads, 2);
     let geometry = owner.geometry.as_ref().unwrap();
-    assert_eq!(geometry.pathfinder_constructor_completions, 1);
-    assert_eq!(geometry.pathfinder_calculate_completions, 1);
+    assert_eq!(geometry.pathfinder_constructor_completions, 2);
+    assert_eq!(geometry.pathfinder_calculate_completions, 2);
+    let (delayed, paths) = loaded(&[(1, 1, 0)]);
+    owner.paths = Some(paths);
+    assert_eq!(
+        delayed
+            .initialize_path(
+                &mut master,
+                &mut context,
+                &mut owner,
+                WaypointPathRequest::default()
+            )
+            .unwrap_err()
+            .id,
+        "execution.waypoint.move_spline_init_owner_396"
+    );
+    assert_eq!(owner.speed_reads, 3);
+    let geometry = owner.geometry.as_ref().unwrap();
+    assert_eq!(geometry.pathfinder_constructor_completions, 3);
+    assert_eq!(geometry.pathfinder_calculate_completions, 3);
 }

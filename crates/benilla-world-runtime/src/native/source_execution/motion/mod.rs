@@ -9,6 +9,8 @@ mod waypoint_inputs;
 pub use waypoint_inputs::*;
 mod waypoint;
 pub use waypoint::*;
+mod waypoint_travel;
+pub use waypoint_travel::*;
 mod fixed_path;
 pub use fixed_path::*;
 #[cfg(test)]

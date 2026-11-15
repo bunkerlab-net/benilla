@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// CMaNGOS Classic 8ec338a1; WaypointMovementGenerator.cpp:35-254,305-614.
+// CMaNGOS Classic 8ec338a1; WaypointMovementGenerator.cpp:35-415,417-614.
 use super::super::*;
 use benilla_sim::source_time::ShortTimeTracker;
 use std::cell::{Cell, RefCell};
@@ -353,23 +353,45 @@ impl SourceWaypointGenerator {
                 "execution.waypoint.f6_spline_compute_position_owner",
             ));
         }
-        // WaypointMovementGenerator.cpp:261-262 reads movement speed before construction.
-        let _speed = owner.waypoint_speed(master.unit)?;
+        let pose = context.objects.pose(master.unit)?.0.map(f32::from_bits);
+        let mut generated = Vec::with_capacity(20);
+        generated.push([pose[0], pose[1], pose[2]]);
+        let cursor = self.cursor.get().unwrap();
+        let travel = self.build_int_path(
+            &mut generated,
+            path[&cursor].position,
+            master,
+            context,
+            owner,
+        )?;
+        source_waypoint_lookahead(
+            &path,
+            cursor,
+            &mut generated,
+            travel,
+            &mut self.node_indexes.borrow_mut(),
+            |cursor, looped| self.node_after(cursor, looped),
+            |generated, end| self.build_int_path(generated, end, master, context, owner),
+        )?;
+        // cpp:396 is the next foreign call, before MovebyPath/SetFacing/SetWalk/Launch.
+        Err(refuse("execution.waypoint.move_spline_init_owner_396"))
+    }
+    fn build_int_path(
+        &self,
+        generated: &mut Vec<[f32; 3]>,
+        end: [f32; 3],
+        master: &SourceMotionMaster,
+        context: &MotionContext<'_>,
+        owner: &mut dyn MotionExecutionOwner,
+    ) -> Result<u32> {
+        let start = *generated
+            .last()
+            .ok_or_else(|| refuse("execution.waypoint.path_back_undefined_259"))?;
+        let speed = owner.waypoint_speed(master.unit, context)?;
         let mut pathfinder =
             SourcePathFinder::construct(owner.pathfinder_geometry()?, master.unit, context, true)?;
-        let pose = context.objects.pose(master.unit)?.0.map(f32::from_bits);
-        let node = &path[&self.cursor.get().unwrap()];
-        owner.calculate_pathfinder(
-            &mut pathfinder,
-            context,
-            [pose[0], pose[1], pose[2]],
-            node.position,
-        )?;
-        Err(refuse(if pathfinder.points.len() > 1 {
-            "execution.waypoint.travel_time_numeric_owner_278"
-        } else {
-            "execution.waypoint.travel_time_numeric_owner_283"
-        }))
+        owner.calculate_pathfinder(&mut pathfinder, context, start, end)?;
+        source_waypoint_append_path(generated, &pathfinder.points, end, speed)
     }
     fn arrived(
         &self,

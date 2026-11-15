@@ -89,8 +89,14 @@ pub trait MotionExecutionOwner {
         )
     }
     /// WaypointMovementGenerator.cpp:261-262 reads movement flags before speed.
-    fn waypoint_speed(&mut self, _unit: ObjectHandle) -> Result<f32> {
-        Err(refuse("execution.waypoint.movement_speed_owner_261"))
+    fn waypoint_speed(&mut self, unit: ObjectHandle, context: &MotionContext<'_>) -> Result<f32> {
+        context
+            .units
+            .get(context.objects, unit)?
+            .movement
+            .as_ref()
+            .ok_or_else(|| refuse("execution.waypoint.movement_speed_owner_261"))?
+            .speed()
     }
     fn wander_melee_attack_stop(
         &mut self,

@@ -3,6 +3,8 @@
 use super::*;
 use benilla_sim::source_rng::{DrawCursor, Mt19937, SourceRandom};
 use std::collections::BTreeMap;
+#[path = "waypoint_travel_census.rs"]
+mod waypoint_travel;
 pub(in super::super) fn run(
     root: &Path,
     manifest: &[serde_json::Value],
@@ -162,12 +164,14 @@ pub(in super::super) fn run(
         assert_eq!(complete + failed, row["opportunities"]);
     }
     let mut raw_paths = Vec::new();
+    let mut raw_travel_paths = Vec::new();
     for name in [
         "creature_movement",
         "creature_movement_template",
         "waypoint_path",
     ] {
         let mut paths = BTreeMap::<u32, BTreeMap<u32, [f32; 3]>>::new();
+        let mut travel_paths = BTreeMap::<u32, SourceWaypointPath>::new();
         for row in catalog.execution_waypoint_rows(name).unwrap() {
             let key = if name == "creature_movement" {
                 row.owner
@@ -176,14 +180,20 @@ pub(in super::super) fn run(
             } else {
                 row.owner
             };
+            travel_paths
+                .entry(key)
+                .or_default()
+                .insert(row.point, row.node);
             paths
                 .entry(key)
                 .or_default()
                 .insert(row.point, row.node.position);
         }
         raw_paths.push(paths);
+        raw_travel_paths.push(travel_paths);
     }
     let mut calculations = BTreeMap::<String, usize>::new();
+    let mut travel_probes = Vec::new();
     for (guid, entry, pose, objects, mut units, mut path) in pending_calculations {
         *calculations
             .entry("constructed_opportunities".into())
@@ -213,7 +223,11 @@ pub(in super::super) fn run(
             false,
         );
         let key = match result {
-            Ok(true) => format!("complete:path_type_{}", path.path_type),
+            Ok(true) => {
+                let key = format!("complete:path_type_{}", path.path_type);
+                travel_probes.push((guid, entry, pose, objects, units, path));
+                key
+            }
             Ok(false) => "source_invalid_coordinates".into(),
             Err(error) => error.id,
         };
@@ -238,10 +252,20 @@ pub(in super::super) fn run(
             .sum::<u64>(),
         geometry.pathfinder_calculate_completions,
     );
+    let raw_calculate_completions = geometry.pathfinder_calculate_completions;
+    let travel = waypoint_travel::run(
+        &mut geometry,
+        &mut catalog,
+        &templates,
+        &raw_travel_paths,
+        travel_probes,
+    );
     serde_json::json!({"scope":"raw template/pose constructor probes with frozen products and diagnostic TerrainInfo birth/order; not effective spawn selection, recorded motion calls, or F1 equality",
         "before":{"wander_constructed":0,"waypoint_constructed":0},"after":census,
         "distance_intent":SourcePathFinder::DISTANCE_INTENT,
         "raw_calculate_nontransport_probes":calculations,
+        "raw_waypoint_travel":travel,
+        "raw_first_calculate_completions":raw_calculate_completions,
         "actual_waypoint_before_constructor":"execution.waypoint.movement_speed_owner_261",
         "completed_with_unwritten_default_query":unwritten,
         "undefined_default_query_reads_reached":calculations.get("execution.pathfinder.undefined_default_query_read").copied().unwrap_or(0),

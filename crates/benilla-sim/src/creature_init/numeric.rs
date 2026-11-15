@@ -328,6 +328,25 @@ pub(super) fn stats(
         },
     })
 }
+fn model_base_rates(t: &Template, row: &ModelRow) -> [SpellFloat; 2] {
+    let walk = if t.speed_walk.bits() & 0x7fff_ffff != 0 {
+        t.speed_walk
+    } else {
+        row.speed_walk
+    };
+    let run = if t.speed_run.bits() & 0x7fff_ffff != 0 {
+        t.speed_run
+    } else {
+        row.speed_run
+    };
+    [walk, run]
+}
+/// Creature.cpp:2888-2917 and Unit.cpp:8492-8494, shared with model resolution.
+pub fn model_speed_rates(t: &Template, row: &ModelRow) -> Result<[SpellFloat; 2]> {
+    let [walk, run] = model_base_rates(t, row);
+    let minimum = Single::from_bits(0x3c23d70a);
+    Ok([out(sf(walk).max(minimum))?, out(sf(run).max(minimum))?])
+}
 pub(super) fn model(t: &Template, row: &ModelRow, scale: SpellFloat) -> Result<Model> {
     if row.gender > 2 {
         return Err(InitError::Unsupported("model gender loader repair"));
@@ -348,30 +367,19 @@ pub(super) fn model(t: &Template, row: &ModelRow, scale: SpellFloat) -> Result<M
         row.bounding_radius,
         "zero model radius may require ChrRaces repair",
     )?;
-    let walk_rate = if t.speed_walk.bits() & 0x7fff_ffff != 0 {
-        t.speed_walk
-    } else {
-        row.speed_walk
-    };
-    let run_rate = if t.speed_run.bits() & 0x7fff_ffff != 0 {
-        t.speed_run
-    } else {
-        row.speed_run
-    };
-    positive(walk_rate, "zero native walk speed")?;
-    positive(run_rate, "zero native run speed")?;
-    // Unit::SetSpeedRate clamps the selected rate before GetSpeed multiplies it.
-    let minimum_rate = Single::from_bits(0x3c23d70a); // 0.01f
-    let walk_rate = sf(walk_rate).max(minimum_rate);
-    let run_rate = sf(run_rate).max(minimum_rate);
+    // Preserve this bounded kernel's existing admission, separate from the source clamp.
+    let [walk, run] = model_base_rates(t, row);
+    positive(walk, "zero native walk speed")?;
+    positive(run, "zero native run speed")?;
+    let [walk_rate, run_rate] = model_speed_rates(t, row)?;
     Ok(Model {
         display_id: row.id,
         gender: row.gender,
         scale,
         bounding_radius: row.bounding_radius,
         combat_reach: row.combat_reach,
-        walk_speed: out(mul(walk_rate, Single::from_bits(0x40200000))?)?,
-        run_speed: out(mul(run_rate, n(7)?)?)?,
+        walk_speed: out(mul(sf(walk_rate), Single::from_bits(0x40200000))?)?,
+        run_speed: out(mul(sf(run_rate), n(7)?)?)?,
     })
 }
 pub(super) fn mana_regen(maximum: u32) -> Result<u32> {

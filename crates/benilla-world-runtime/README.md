@@ -2662,3 +2662,30 @@ rolls on the map thread. Legacy `CombatCondition` remains explicitly unwritten
 until a value read, `ObjectMgr.cpp:9797-9815`, `UnitAI.cpp:1213`. These diagnostic
 owners do not change native format91 or open gameplay admission.
 
+## Source waypoint travel
+
+This owner supersedes the travel-arithmetic stops above.
+`SourceCreatureMovement` retains only source constructor and creation writes:
+`Object.h:753`, `Unit.cpp:412-413`, and `Creature.cpp:155,435-452,2781-2798`.
+Factories must bind that component and the reached swimmable query; unbound
+flags or selected rates refuse at `WaypointMovementGenerator.cpp:261-262`.
+Bounded model rates reuse `creature_init::model_speed_rates`, shared with
+model resolution. MovementInfo speed selection preserves swimming precedence,
+`Object.h:769-777`; GetSpeed uses `Unit.cpp:63-71,8439-8441`.
+
+BuildIntPath preserves the fixed first point, each compound-assignment
+conversion, and the final overwritten travel time, `:257-286`. IEEE infinity
+and NaN refuse only at the uint32 conversion, `:279,284`, including zero-speed
+division. Lookahead wraps and accumulates until a delay or 6000 milliseconds,
+`:367-394`. A bitwise repeated cursor, last point, travel time, and loop state
+proves that the reference keeps growing its containers until allocation fails.
+That cycle refuses by name without an iteration cap. Finite lookahead stops at
+the next unported call, `MoveSplineInit`, `:396`, before spline setup or launch.
+
+The frozen diagnostic also counts first BuildIntPath completion and lookahead
+refusals using raw selected paths and owned creation operands. Swimming needs
+selected-model collision height at `Creature.cpp:441`; it never receives an
+invented radius. This diagnostic is not a recorded movement stream or F1
+equality. The movement component is excluded from inventory serialization.
+Native format remains 91.
+

@@ -43,6 +43,8 @@ pub struct SourceUnitFields {
     pub flags: u32,
     pub state: u32,
     pub vitals: Option<SourceUnitVitals>,
+    #[serde(skip)]
+    pub movement: Option<SourceCreatureMovement>,
     pub victim: Option<ObjectHandle>,
     pub target: Option<ObjectHandle>,
     pub attackers: Vec<ObjectHandle>,
@@ -110,6 +112,7 @@ impl SourceUnitFields {
                 },
             state: 0,
             vitals: None,
+            movement: None,
             victim: None,
             target: None,
             attackers: Vec::new(),
@@ -309,6 +312,16 @@ impl SourceUnits {
         fields.faction = value.faction;
         fields.flags = value.unit_flags;
         fields.apply_initialized(&value);
+        if let Some(movement) = &mut fields.movement {
+            let benilla_sim::creature_init::Rows::Complete(models) = &input.models else {
+                return Err(refuse("execution.movement.selected_model_rates_owner"));
+            };
+            let model = models
+                .iter()
+                .find(|row| row.id == value.model.display_id)
+                .ok_or_else(|| refuse("execution.movement.selected_model_rates_owner"))?;
+            movement.bind_model_rates(&input.template, model)?;
+        }
         Ok(())
     }
     pub fn inventory(&self, objects: &SourceObjects) -> Result<serde_json::Value> {

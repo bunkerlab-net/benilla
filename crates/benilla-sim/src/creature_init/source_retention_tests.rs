@@ -840,3 +840,41 @@ fn exact_string_name_budget_is_aggregate_and_counts_utf8_bytes() {
         Err(InitError::Invalid("source retention byte bound"))
     );
 }
+
+#[test]
+fn shared_model_speed_rates_preserve_template_precedence_and_clamp() {
+    let mut i = input();
+    let model = rows_mut(&mut i.models)[0];
+    assert_eq!(
+        model_speed_rates(&i.template, &model).unwrap(),
+        [SpellFloat::ONE; 2]
+    );
+    i.template.speed_walk = SpellFloat::from_bits(0x3b800000).unwrap();
+    i.template.speed_run = SpellFloat::from_bits(0x40000000).unwrap();
+    let rates = model_speed_rates(&i.template, &model).unwrap();
+    assert_eq!(rates.map(SpellFloat::bits), [0x3c23d70a, 0x40000000]);
+    let resolved = prepare(&i).unwrap().resolve(rolls()).unwrap();
+    assert_eq!(resolved.model.walk_speed.bits(), 0x3ccccccc);
+    assert_eq!(resolved.model.run_speed.bits(), 14f32.to_bits());
+}
+
+#[test]
+fn source_rate_clamp_does_not_inherit_bounded_model_admission() {
+    let mut i = input();
+    let mut model = rows_mut(&mut i.models)[0];
+    model.speed_walk = SpellFloat::ZERO;
+    model.speed_run = SpellFloat::from_bits(0xbf800000).unwrap();
+    assert_eq!(
+        model_speed_rates(&i.template, &model)
+            .unwrap()
+            .map(SpellFloat::bits),
+        [0x3c23d70a; 2]
+    );
+    let mut movement_model = model;
+    movement_model.speed_run = SpellFloat::ZERO;
+    rows_mut(&mut i.models)[0] = movement_model;
+    assert!(matches!(
+        prepare(&i),
+        Err(InitError::Invalid("zero native walk speed"))
+    ));
+}
