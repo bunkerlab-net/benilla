@@ -9,8 +9,8 @@ mod equipment;
 mod model_receipt;
 mod numeric;
 pub use numeric::{
-    load_source_class_level, model_speed_rates, select_level_stats, SourceClassLevelRow,
-    SourceLevelRates, SourceLevelStats, SourceLevelTemplate,
+    load_source_class_level, model_speed_rates, select_level_stats, source_speed_rate_bits,
+    SourceClassLevelRow, SourceLevelRates, SourceLevelStats, SourceLevelTemplate,
 };
 #[cfg(test)]
 mod select_level_tests;

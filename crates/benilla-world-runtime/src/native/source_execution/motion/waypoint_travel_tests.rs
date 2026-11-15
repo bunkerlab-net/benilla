@@ -327,3 +327,24 @@ fn defined_ieee_and_fractional_negative_results_are_not_rejected_early() {
         );
     }
 }
+
+#[test]
+fn shared_rate_clamp_preserves_nan_until_each_travel_conversion() {
+    for bits in [0x7fc12345, 0x7f812345] {
+        let mut movement = SourceCreatureMovement::construct();
+        movement.set_speed_rate(0, f32::from_bits(bits));
+        assert_eq!(movement.rates[0].unwrap().to_bits(), bits);
+        let speed = movement.speed().unwrap();
+        assert!(speed.is_nan());
+        for (generated, site) in [(vec![], 284), (vec![[0.; 3], [1., 0., 0.]], 279)] {
+            let mut path = vec![[0.; 3]];
+            assert_eq!(
+                source_waypoint_append_path(&mut path, &generated, [1., 0., 0.], speed)
+                    .unwrap_err()
+                    .id,
+                format!("execution.waypoint.travel_conversion_undefined_{site}")
+            );
+            assert_eq!(path, [[0.; 3]]);
+        }
+    }
+}

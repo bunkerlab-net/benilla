@@ -19,7 +19,9 @@ impl SourceCreatureMovement {
     }
     /// Unit.cpp:8492-8499. std::max preserves a NaN first argument.
     pub fn set_speed_rate(&mut self, kind: usize, rate: f32) {
-        self.rates[kind] = Some(if rate < 0.01 { 0.01 } else { rate });
+        self.rates[kind] = Some(f32::from_bits(
+            benilla_sim::creature_init::source_speed_rate_bits(rate.to_bits()),
+        ));
     }
     pub fn set_walk(&mut self, walk: bool) -> Result<()> {
         let flags = self

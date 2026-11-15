@@ -341,11 +341,26 @@ fn model_base_rates(t: &Template, row: &ModelRow) -> [SpellFloat; 2] {
     };
     [walk, run]
 }
+fn source_speed_rate(rate: Single) -> Single {
+    let minimum = Single::from_bits(0x3c23d70a);
+    // Unit.cpp:8494 uses std::max, not IEEE maxNum. Unordered returns rate.
+    if rate < minimum {
+        minimum
+    } else {
+        rate
+    }
+}
+/// Unit::SetSpeedRate's clamp accepts raw IEEE inputs, including NaN payloads.
+pub fn source_speed_rate_bits(bits: u32) -> u32 {
+    source_speed_rate(Single::from_bits(u128::from(bits))).to_bits() as u32
+}
 /// Creature.cpp:2888-2917 and Unit.cpp:8492-8494, shared with model resolution.
 pub fn model_speed_rates(t: &Template, row: &ModelRow) -> Result<[SpellFloat; 2]> {
     let [walk, run] = model_base_rates(t, row);
-    let minimum = Single::from_bits(0x3c23d70a);
-    Ok([out(sf(walk).max(minimum))?, out(sf(run).max(minimum))?])
+    Ok([
+        out(source_speed_rate(sf(walk)))?,
+        out(source_speed_rate(sf(run)))?,
+    ])
 }
 pub(super) fn model(t: &Template, row: &ModelRow, scale: SpellFloat) -> Result<Model> {
     if row.gender > 2 {

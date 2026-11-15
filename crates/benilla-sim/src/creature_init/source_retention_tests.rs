@@ -878,3 +878,18 @@ fn source_rate_clamp_does_not_inherit_bounded_model_admission() {
         Err(InitError::Invalid("zero native walk speed"))
     ));
 }
+
+#[test]
+fn source_speed_rate_matches_std_max_for_unordered_and_threshold_inputs() {
+    for bits in [0x7fc12345, 0x7f812345, 0xffc12345] {
+        assert_eq!(source_speed_rate_bits(bits), bits);
+        assert!(SpellFloat::from_bits(bits).is_err());
+    }
+    for (bits, expected) in [
+        (0x80000000, 0x3c23d70a),
+        (0.005f32.to_bits(), 0x3c23d70a),
+        (0x3c23d70a, 0x3c23d70a),
+    ] {
+        assert_eq!(source_speed_rate_bits(bits), expected);
+    }
+}
