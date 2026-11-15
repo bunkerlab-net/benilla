@@ -24,6 +24,13 @@ MyISAM reference environment reads each table in primary-key order,
 conversions refuse by name. This does not apply auras or wire seal16 startup,
 and it does not change native format 91.
 
+The seal16 construction adapter binds that loaded store and applies addon
+fields in `Creature.cpp:2306-2346` order. `Mount` at line 2313 and `CastSpell`
+at line 2343 retain named execution owners. After a completed `Create`,
+the adapter executes respawn setup and the callsite-checked recorded `time`
+input at `Creature.cpp:1687-1698`. It enters `AddToWorld` and stops at the
+unported AI-notify event constructor, `Unit.cpp:10961`. Native format stays 91.
+
 A pure-Rust, GPL-3.0-or-later, solo-first runtime for the original world-data
 fixture. One selected owner/character starts and ticks immediately, without peer
 configuration or quorum. No game install, realm, Bevy, browser, network, private

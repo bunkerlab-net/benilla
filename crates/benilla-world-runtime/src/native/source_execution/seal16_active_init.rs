@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Loaded active traversal stops at the first unowned spawn field.
+//! Loaded active traversal stops at the first unowned source call.
 use super::*;
 use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
-pub(super) const CREATURE_NEXT_OWNER: &str = "execution.creature.loaded_creature_addon_store_owner";
+pub(super) const CREATURE_NEXT_OWNER: &str =
+    "execution.creature.Unit_10961.UnitVisitObjectsInRangeNotifyEvent_constructor_owner";
+#[path = "seal16_active_clocks.rs"]
+mod clocks;
+pub(super) use clocks::{ActiveClock, ActiveClocks};
 #[path = "seal16_creature_create.rs"]
 mod creature_create;
 #[path = "seal16_creature_entry.rs"]
@@ -46,6 +50,8 @@ pub(super) struct Prefix<'a> {
     pub events: &'a SourceGameEventManager,
     pub groups: &'a SourceSpawnGroups,
     pub creature_templates: &'a LoadedCreatureTemplates,
+    pub creature_addons: &'a LoadedCreatureAddons,
+    pub clocks: &'a mut ActiveClocks,
     pub scripts: &'a SourceScriptRegistry,
     pub gameobject_templates: &'a LoadedGameObjectTemplates,
     pub spawn_templates: &'a LoadedCreatureSpawnTemplates,
@@ -352,6 +358,8 @@ pub(super) fn load_first(
     events: &SourceGameEventManager,
     groups: &SourceSpawnGroups,
     creature_templates: &LoadedCreatureTemplates,
+    creature_addons: &LoadedCreatureAddons,
+    clocks: &mut ActiveClocks,
     gameobject_templates: &LoadedGameObjectTemplates,
     scripts: &SourceScriptRegistry,
     spawn_templates: &LoadedCreatureSpawnTemplates,
@@ -417,6 +425,8 @@ pub(super) fn load_first(
         events,
         groups,
         creature_templates,
+        creature_addons,
+        clocks,
         gameobject_templates,
         scripts,
         spawn_templates,

@@ -369,3 +369,7 @@ mod recording_tests;
 #[cfg(test)]
 #[path = "creature_addons_tests.rs"]
 mod tests;
+
+#[path = "creature_addon_application.rs"]
+mod application;
+pub use application::*;

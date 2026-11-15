@@ -24,7 +24,12 @@ pub(in crate::native::source_execution) struct EntryFields {
     pub detection: u32,
     pub corpse_delay: u32,
     pub interaction_pause: u32,
-    pub sheath: u8,
+    pub addon: CreatureAddonState,
+    pub respawn_radius: Option<u32>,
+    pub respawn_delay: Option<u32>,
+    pub respawn_time: Option<i64>,
+    pub respawn_clock: Option<(u64, u64, i64)>,
+    pub notify_delay: Option<u32>,
     pub misc_flags: u8,
     pub level: Option<benilla_sim::creature_init::SourceLevelStats>,
     pub faction: u32,
@@ -122,7 +127,12 @@ fn model_fields(template: &LoadedCreatureInfo, model: [u32; 8]) -> EntryFields {
         detection: 20f32.to_bits(),
         corpse_delay: 60,
         interaction_pause: 0,
-        sheath: 0,
+        addon: CreatureAddonState::default(),
+        respawn_radius: None,
+        respawn_delay: None,
+        respawn_time: None,
+        respawn_clock: None,
+        notify_delay: None,
         misc_flags: 0,
         level: None,
         faction: 0,
@@ -289,7 +299,7 @@ pub(super) fn continue_entry(
         uint_config(prefix.config, "InteractionPauseTimer")?
     };
     prefix.lookups.push("creature_init_entry_remainder");
-    fields.sheath = 1;
+    fields.addon.sheath = 1;
     fields.misc_flags = 0x10;
     let level =
         draw_source_creature_level([template.words[3], template.words[4]], Some(prefix.random))?;

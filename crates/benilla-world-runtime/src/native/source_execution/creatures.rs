@@ -263,6 +263,9 @@ pub trait CreatureRandom {
     fn creature_stream(&self) -> Result<u64> {
         Err(refuse("execution.creature.SelectLevel_urand_thread_owner"))
     }
+    fn creature_raw_position(&self) -> Result<u64> {
+        Err(refuse("execution.creature.raw_position_owner"))
+    }
     fn creature_irand(&mut self, min: i32, max: i32) -> Result<i32>;
     fn creature_urand(&mut self, min: u32, max: u32) -> Result<u32>;
     fn creature_urand_default(&mut self) -> Result<u32> {
@@ -272,6 +275,9 @@ pub trait CreatureRandom {
 impl<E: RawGenerator, S: FnMut(TraceEvent)> CreatureRandom for SourceRandom<'_, E, S> {
     fn creature_stream(&self) -> Result<u64> {
         Ok(self.stream())
+    }
+    fn creature_raw_position(&self) -> Result<u64> {
+        Ok(self.cursor().raw)
     }
     fn creature_irand(&mut self, min: i32, max: i32) -> Result<i32> {
         self.irand(min, max)
