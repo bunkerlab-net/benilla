@@ -2755,6 +2755,48 @@ source iterator increment, `GridNotifiers.cpp:34-37`.
 The new-object flag remains set on a refused update, `Map.cpp:502-504`.
 These unsaved owners do not change native format 91.
 
+## Source ScriptDev registry
+
+`SourceScriptRegistry` executes the registry-only projection of
+`LoadScriptNames`, `Initialize`, `RegisterSelf`, `AddScript`, `GetScript`,
+and `CheckScriptNames`, `ScriptDevAIMgr.cpp:148-158,426-544`.
+World startup loads names at `World.cpp:927`, initializes at `:1333`,
+checks at `:1341`, and creates continents at `:1389`.
+The existing fixed name reader supplies SQL names. F2.7 supplies ordered
+registration definitions and all 22 symbolic callback slots, not observed
+IDs or a prefilled registry. Nonnull callbacks still require executable owners.
+The final captured registration occurs later at `World.cpp:1338`,
+`SpellScript.cpp:73`, and `Shaman.cpp:234-239`, before the name check.
+It is not included in the `AddScripts` phase.
+
+The independent calls remain explicitly unexecuted. `LoadDatabase` calls
+the four loaders at `ScriptDevAIMgr.cpp:25-32`. Text loaders call
+`LoadMangosStrings`, `system.cpp:45-61`, which writes ObjectMgr's string
+and locale stores, `ObjectMgr.cpp:8424-8554`. Waypoints write the external
+WaypointMgr store, `system.cpp:63-128`. `FillSpellSummary` writes only
+`SpellSummary`, `sc_creature.cpp:189-270`. None writes the private registry
+fields or draws RNG. The frozen comparison independently retains the
+world-thread match through 8712 words. Their outputs remain unavailable
+under five named prerequisite refusals, and their observed SQL positions
+do not count as matched execution.
+
+`Script` construction only clears callback slots,
+`ScriptDevAIMgr.h:80-90`; registration resolves the name and stores the
+definition without invoking those callbacks, `ScriptDevAIMgr.cpp:148-158`.
+The captured registration sites contain only Script allocation, field
+assignments, registration, and independent spell registrations. The latter
+write separate maps, `SpellScript.h:163-177`, not registry fields.
+No script text, waypoint, gossip, or spell-summary output populates this owner.
+The empty-vector ID0 lookup and unchecked registration/check indices have
+named UB refusals. Native format remains 91.
+
+The frozen map-0 path completes `LoadFromDB` including its null-AI branch,
+`GameObject.cpp:966-969,2528-2534`, and grid insertion,
+`ObjectGridLoader.cpp:138-159`, for GO GUIDs 18, 22, 67, and 8999.
+It then reaches creature GUID 1996, entry 687, and refuses at the unowned
+addon store, `Creature.cpp:2299`. Map 1 retains the same addon-store stop
+for entry 4692. Unexecuted SD2 outputs do not count as matched SQL.
+
 ## Source spline launch and relocation
 
 `SourceMoveSplineInit` uses the retained numerical spline and the existing
@@ -2792,4 +2834,5 @@ probes retain their earlier speed dependency at
 `WaypointMovementGenerator.cpp:261`. Authored component tests do not establish
 stock motion or F1 equality. All new state remains component-only and excluded
 from native checkpoints. Native format remains 91.
+
 

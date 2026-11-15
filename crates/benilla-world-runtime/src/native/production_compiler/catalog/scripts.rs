@@ -2,7 +2,7 @@
 //! Complete script inputs, never executable manager state or admission.
 use super::*;
 use std::collections::{BTreeSet, VecDeque};
-const SLOTS: &[&str] = &[
+pub(super) const SLOTS: &[&str] = &[
     "pGossipHello",
     "pGossipHelloGO",
     "pGossipSelect",
@@ -993,6 +993,10 @@ impl VerifiedCatalog {
         &self,
         report: &Path,
     ) -> Result<Vec<CatalogScriptAiBinding>> {
+        let value = self.execution_script_report(report)?;
+        script_ai_bindings(&value["registrations"]["registry"])
+    }
+    pub(super) fn execution_script_report(&self, report: &Path) -> Result<Value> {
         let mut value = input_json(report, CHUNK)?;
         let digest = value
             .as_object_mut()
@@ -1005,7 +1009,7 @@ impl VerifiedCatalog {
                 && value["catalog_sha256"] == self.manifest["catalog_sha256"],
             "scripts.ai_report_catalog",
         )?;
-        script_ai_bindings(&value["registrations"]["registry"])
+        Ok(value)
     }
 }
 fn script_ai_bindings(registry: &Value) -> Result<Vec<CatalogScriptAiBinding>> {

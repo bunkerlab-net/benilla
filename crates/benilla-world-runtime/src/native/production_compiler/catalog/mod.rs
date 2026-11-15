@@ -41,6 +41,8 @@ pub use dbc::transport_inputs::{
     TransportAnimationRecord, TransportGameObject, TransportIntegrityRow, TransportSqlRow,
 };
 pub use dbc::{diagnose_catalog_dbc, DbcView as CatalogDbcView};
+#[cfg(test)]
+mod script_registry;
 mod scripts;
 pub use scripts::diagnose_catalog_scripts;
 pub(crate) use scripts::{CatalogCreatureAiTemplate, CatalogScriptAiBinding};

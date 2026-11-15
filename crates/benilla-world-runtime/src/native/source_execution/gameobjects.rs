@@ -155,6 +155,8 @@ pub struct SourceGameObject {
     pub unique_users: std::collections::BTreeSet<SourceGuid>,
     pub skillup_users: std::collections::BTreeSet<SourceGuid>,
     pub elevator: Option<SourceElevator>,
+    /// GameObject.h:950 default-constructs an empty unique_ptr; AIM_Initialize resets it.
+    pub has_ai: bool,
     pub(super) lifecycle_stopped: bool,
 }
 impl SourceGameObject {
@@ -432,6 +434,7 @@ where
             skillup_users: std::collections::BTreeSet::new(),
             lifecycle_stopped: false,
             elevator: None,
+            has_ai: false,
             has_model: false,
         },
     );

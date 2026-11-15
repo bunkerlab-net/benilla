@@ -248,8 +248,12 @@ impl<D: GridDefinitions<Row = SpawnKey>> GameObjectFactoryOwner<D, SourceTerrain
                     .words[37],
             );
             self.lookups.push("go_ai_script_registry_lookup");
-            // ScriptDevAIMgr.cpp:438-439 reads m_scripts[0] even for ID0, not an assumed null.
-            return Err(refuse(GO_NEXT_OWNER));
+            self.scripts.gameobject_ai(self.go_script_id.unwrap())?;
+            self.gameobjects.get_mut(handle)?.has_ai = false; // GameObject.cpp:2530.
+            self.lookups.push("go_ai_reset_null");
+            // GameObject.cpp:2532 skips JustSpawned for the returned null AI.
+            self.lookups.push("go_ai_just_spawned_skipped");
+            return Ok(());
         }
         Err(refuse(match callback {
             GameObjectCallback::TemplateString(_) | GameObjectCallback::GroupString(_) => {

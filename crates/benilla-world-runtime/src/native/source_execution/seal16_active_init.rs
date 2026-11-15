@@ -5,7 +5,6 @@ use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: &str = "execution.creature.loaded_creature_addon_store_owner";
-pub(super) const GO_NEXT_OWNER: &str = "execution.gameobject.loaded_script_registry_owner";
 #[path = "seal16_creature_create.rs"]
 mod creature_create;
 #[path = "seal16_creature_entry.rs"]
@@ -47,6 +46,7 @@ pub(super) struct Prefix<'a> {
     pub events: &'a SourceGameEventManager,
     pub groups: &'a SourceSpawnGroups,
     pub creature_templates: &'a LoadedCreatureTemplates,
+    pub scripts: &'a SourceScriptRegistry,
     pub gameobject_templates: &'a LoadedGameObjectTemplates,
     pub spawn_templates: &'a LoadedCreatureSpawnTemplates,
     pub creature_models: &'a LoadedCreatureModels,
@@ -85,6 +85,8 @@ pub(super) struct Prefix<'a> {
     pub attempts: Vec<GridLoadAttempt>,
     pub candidates: Vec<ObjectHandle>,
     pub completed: usize,
+    pub completed_objects: Vec<ObjectHandle>,
+    pub first_go: Option<FirstGo>,
     pub motions: BTreeMap<ObjectHandle, SourceMotionMaster>,
     pub entry: Option<u32>,
     pub lookups: Vec<&'static str>,
@@ -106,7 +108,23 @@ impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManag
         self.attempts.push(attempt);
         if key.kind == GridSpawnKind::GameObject {
             let outcome = load_source_gameobject(self, attempt, key, context)?;
-            self.completed += usize::from(matches!(outcome, GridCandidateOutcome::Loaded(_)));
+            if let GridCandidateOutcome::Loaded(candidate) = outcome {
+                if self.first_go.is_none() {
+                    self.first_go = Some(FirstGo {
+                        attempt,
+                        candidate,
+                        entry: self.entry.unwrap(),
+                        lookups: self.lookups.clone(),
+                        load_operands: self.go_load_operands,
+                        factory_elevator: self.go_factory_elevator,
+                        animprogress: self.go_animprogress,
+                        battleground: self.go_battleground,
+                        zone: self.go_zone,
+                        script_id: self.go_script_id,
+                        visibility: self.visibility.clone(),
+                    });
+                }
+            }
             return Ok(outcome);
         }
         // Creature.cpp:136 and :1603-1658. No selected model, stats or AI is supplied before this lookup.
@@ -258,10 +276,21 @@ impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManag
     }
     fn battleground_db_load(
         &mut self,
-        _: ObjectHandle,
-        _: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
+        object: ObjectHandle,
+        context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
     ) -> Result<()> {
-        Err(refuse("execution.grid.loaded_battleground_owner"))
+        // ObjectGridLoader.cpp:117,156-159; the base Map::GetBG is null, Map.h:378.
+        if self.map_entry.battleground() {
+            return Err(refuse("execution.grid.loaded_battleground_owner"));
+        }
+        self.lookups.push("grid_battleground_null");
+        require(
+            context.cells.registered_cell(object).is_some(),
+            "execution.grid_candidate_not_registered",
+        )?;
+        self.completed_objects.push(object);
+        self.completed += 1;
+        Ok(())
     }
     fn corpse_bindings(&mut self) -> Result<CorpseGridBindings<'_>> {
         Ok(CorpseGridBindings {
@@ -272,8 +301,24 @@ impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManag
     }
 }
 
+pub(super) struct FirstGo {
+    pub attempt: GridLoadAttempt,
+    pub candidate: ObjectHandle,
+    pub entry: u32,
+    pub lookups: Vec<&'static str>,
+    pub load_operands: Option<(u32, [u32; 4], [u32; 4])>,
+    pub factory_elevator: Option<bool>,
+    pub animprogress: Option<u32>,
+    pub battleground: Option<bool>,
+    pub zone: Option<u32>,
+    pub script_id: Option<u32>,
+    pub visibility: SourceVisibilityCensus,
+}
+
 pub(super) struct ActivePrefixReport {
     pub refusal: Refusal,
+    pub first_go: Option<FirstGo>,
+    pub completed_objects: Vec<ObjectHandle>,
     pub attempt: GridLoadAttempt,
     pub candidates: usize,
     pub candidate: ObjectHandle,
@@ -308,6 +353,7 @@ pub(super) fn load_first(
     groups: &SourceSpawnGroups,
     creature_templates: &LoadedCreatureTemplates,
     gameobject_templates: &LoadedGameObjectTemplates,
+    scripts: &SourceScriptRegistry,
     spawn_templates: &LoadedCreatureSpawnTemplates,
     creature_models: &LoadedCreatureModels,
     creature_immunities: &LoadedCreatureImmunities,
@@ -372,6 +418,7 @@ pub(super) fn load_first(
         groups,
         creature_templates,
         gameobject_templates,
+        scripts,
         spawn_templates,
         creature_models,
         collision_models,
@@ -412,6 +459,8 @@ pub(super) fn load_first(
         attempts: Vec::new(),
         candidates: Vec::new(),
         completed: 0,
+        completed_objects: Vec::new(),
+        first_go: None,
         motions: BTreeMap::new(),
         entry: None,
         lookups: Vec::new(),
@@ -500,6 +549,8 @@ pub(super) fn load_first(
         .flatten();
     Ok(ActivePrefixReport {
         refusal,
+        first_go: factory.first_go,
+        completed_objects: factory.completed_objects,
         attempt,
         candidates: factory.candidates.len(),
         candidate: *factory

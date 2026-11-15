@@ -13,6 +13,8 @@ mod creature_models;
 mod gameobject_models;
 #[path = "seal16_immunities.rs"]
 mod immunities;
+#[path = "seal16_script_registry.rs"]
+mod script_registry;
 #[path = "seal16_spawn_data.rs"]
 mod spawn_data;
 #[path = "seal16_spawn_init.rs"]
@@ -190,6 +192,7 @@ pub(super) struct Inputs {
     creature_models: creature_models::Evidence,
     spell_lists: spell_lists::Evidence,
     immunities: immunities::Evidence,
+    script_registry: script_registry::Evidence,
     loaded_spawn_templates: Option<LoadedCreatureSpawnTemplates>,
 }
 impl Inputs {
@@ -220,6 +223,8 @@ impl Inputs {
             self.spell_lists
                 .observe(line, kind, p, self.world_raw_words);
             self.immunities.observe(line, kind, p, self.world_raw_words);
+            self.script_registry
+                .observe(line, kind, p, self.world_raw_words);
         }
         if thread == 1 && kind == "sql_query" {
             let query = String::from_utf8(unhex(p.last().unwrap())).unwrap();
@@ -1233,6 +1238,12 @@ pub(super) fn continue_startup(
     let level_config = CreatureLevelConfig::parse(&config, Sha256Id::of(&config)).unwrap();
     let faction_flags = creature_models::faction_flags(catalog);
     let collision_models = SourceCollisionModels::load(catalog).unwrap();
+    // World.cpp:927,1333,1341 precedes CreateContinents at :1389.
+    let scripts = std::mem::take(&mut observed.script_registry).load(
+        catalog,
+        &creature_templates,
+        &gameobject_templates,
+    );
     spawn_init::bind_mmap_world(recording, &config, &mut geometry.mmap).unwrap();
     let mut corpses = active_init::frozen_corpses(recording).unwrap();
     println!(
@@ -1840,6 +1851,8 @@ pub(super) fn continue_startup(
         let mut active_objects = SourceObjects::default();
         let active_init::ActivePrefixReport {
             refusal,
+            completed_objects,
+            first_go,
             attempt,
             candidates,
             candidate,
@@ -1871,6 +1884,7 @@ pub(super) fn continue_startup(
             &groups,
             &creature_templates,
             &gameobject_templates,
+            &scripts,
             &spawn_templates,
             &creature_models,
             &creature_immunities,
@@ -1892,6 +1906,106 @@ pub(super) fn continue_startup(
             &config,
         )
         .unwrap();
+        println!("F6_NEXT_CANDIDATE map={slot} guid={} kind={:?} entry={entry} allocations={candidates} completed={completed} refusal={} lookups={lookups:?}", attempt.guid, attempt.kind, refusal.id);
+        assert_eq!(completed_objects.len(), completed);
+        assert_eq!(
+            lookups
+                .iter()
+                .filter(|lookup| **lookup == "grid_battleground_null")
+                .count(),
+            completed
+        );
+        if slot == 0 {
+            assert_eq!(
+                (attempt.guid, entry, attempt.kind),
+                (1996, 687, GridSpawnKind::Creature)
+            );
+            assert_eq!((attempt.cell.x(), attempt.cell.y()), (112, 525));
+            assert!(lookups.ends_with(&["creature_load_addon", "creature_db_addon_lookup"]));
+            assert_eq!(
+                bound_guid,
+                Some(SourceGuid::with_entry(HighGuid::Creature, 687, 1996))
+            );
+            assert_eq!(
+                completed_objects
+                    .iter()
+                    .map(|handle| active_objects.get(*handle).unwrap().database_guid)
+                    .collect::<Vec<_>>(),
+                [18, 22, 67, 8999]
+            );
+            for handle in &completed_objects {
+                let object = active_objects.get(*handle).unwrap();
+                assert!(object.in_world);
+                assert_eq!(
+                    continents.maps[slot]
+                        .cells
+                        .registered_cell(*handle)
+                        .unwrap()
+                        .grid,
+                    attempt.grid
+                );
+                assert!(!gameobjects.get(*handle).unwrap().has_ai);
+            }
+        } else {
+            assert!(completed_objects.is_empty());
+        }
+        let (
+            attempt,
+            candidate,
+            entry,
+            lookups,
+            go_load_operands,
+            go_factory_elevator,
+            go_animprogress,
+            go_battleground,
+            go_zone,
+            go_script_id,
+            visibility,
+            init_entry_fields,
+            bound_guid,
+            creature_model,
+            creature_entry,
+            creature_display_chance,
+        ) = if let Some(first) = first_go {
+            let bound = active_objects.get(first.candidate).unwrap().guid;
+            (
+                first.attempt,
+                first.candidate,
+                first.entry,
+                first.lookups,
+                first.load_operands,
+                first.factory_elevator,
+                first.animprogress,
+                first.battleground,
+                first.zone,
+                first.script_id,
+                first.visibility,
+                None,
+                bound,
+                None,
+                None,
+                None,
+            )
+        } else {
+            (
+                attempt,
+                candidate,
+                entry,
+                lookups,
+                go_load_operands,
+                go_factory_elevator,
+                go_animprogress,
+                go_battleground,
+                go_zone,
+                go_script_id,
+                visibility,
+                init_entry_fields,
+                bound_guid,
+                creature_model,
+                creature_entry,
+                creature_display_chance,
+            )
+        };
         println!("F6_CONSTRUCTED_COLLISION_HEIGHT map={slot} reached_441={} swimming_set={} swimming_not_set={} display_assert_11952={} model_assert_11954={} scope=recorded_startup_prefix_only",
             swimming_census.reached_441, swimming_census.swimming_set,
             swimming_census.swimming_not_set, swimming_census.display_assert_11952,
@@ -1923,6 +2037,8 @@ pub(super) fn continue_startup(
                     "go_ai_script_factory_lookup",
                     "go_ai_gameobject_info",
                     "go_ai_script_registry_lookup",
+                    "go_ai_reset_null",
+                    "go_ai_just_spawned_skipped",
                 ]
             } else {
                 vec![
@@ -1967,14 +2083,7 @@ pub(super) fn continue_startup(
                 ]
             }
         );
-        assert_eq!(
-            refusal.id,
-            if slot == 0 {
-                active_init::GO_NEXT_OWNER
-            } else {
-                active_init::CREATURE_NEXT_OWNER
-            }
-        );
+        assert_eq!(refusal.id, active_init::CREATURE_NEXT_OWNER);
         assert_eq!(
             (attempt.grid.x, attempt.grid.y),
             if slot == 0 { (7, 32) } else { (29, 34) }
@@ -1988,7 +2097,7 @@ pub(super) fn continue_startup(
             ))
         );
         assert_eq!(attempt.guid, if slot == 0 { 18 } else { 28044 });
-        assert_eq!(candidates, 1);
+        assert_eq!(candidates, if slot == 0 { 5 } else { 1 });
         assert_eq!(entry, if slot == 0 { 3211 } else { 4692 });
         if slot == 0 {
             assert_eq!(init_entry_fields, None);
@@ -2011,6 +2120,7 @@ pub(super) fn continue_startup(
                 (1, 100, 9)
             );
             assert!(object.has_model);
+            assert!(!object.has_ai);
             assert_eq!(object.respawn_delay, 900);
             assert_eq!(object.respawn_time, 0);
             assert!(object.spawned_by_default && object.spawn.is_some());
@@ -2247,7 +2357,7 @@ pub(super) fn continue_startup(
                 attempt.cell.y(),
             ))
         );
-        assert_eq!(completed, 0);
+        assert_eq!(completed, if slot == 0 { 4 } else { 0 });
         println!("F6_VISIBILITY map={slot} census={visibility:?} invalidated_camera_iterator_stock_reach={}",visibility.cameras);
         println!("F6_ACTIVE_PREFIX map={slot} first_grid={:?} candidate_guid={} entry={entry} candidate_allocations={candidates} completed_objects={completed} next_owner={}", evidence.first_grid, attempt.guid, refusal.id);
         assert_eq!(continents.maps[slot].graveyards, world_graveyards);
@@ -2263,7 +2373,7 @@ pub(super) fn continue_startup(
         assert!(!continents.maps[slot].spawn_updated);
         assert_eq!(
             random.cursor().raw,
-            after_pools_cursor + if slot == 0 { 1 } else { 2 }
+            after_pools_cursor + if slot == 0 { 6 } else { 2 }
         );
         matched_map_words[slot] = random.cursor().raw;
         assert_eq!(after_pools_cursor as usize, evidence.pool_raw_end.unwrap());
@@ -2321,7 +2431,7 @@ pub(super) fn continue_startup(
             serde_json::to_value(states.state(state).unwrap().pools()).unwrap(),
             expected
         );
-        println!("F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={} next_owner={} next_source={}", matched_map_words[slot], evidence.pool_members.iter().map(BTreeSet::len).sum::<usize>(), evidence.pool_counts.len(), shuffles.len(), evidence.pool_snapshot_line.unwrap(), encounters.by_map(slot as u32).len(), refusal.id, if slot == 0 { "ScriptDevAIMgr.cpp:439" } else { "Creature.cpp:2299" });
+        println!("F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={} next_owner={} next_source=Creature.cpp:2299", matched_map_words[slot], evidence.pool_members.iter().map(BTreeSet::len).sum::<usize>(), evidence.pool_counts.len(), shuffles.len(), evidence.pool_snapshot_line.unwrap(), encounters.by_map(slot as u32).len(), refusal.id);
         owner.states = states;
         let raw = trace
             .iter()
@@ -2376,7 +2486,14 @@ pub(super) fn continue_startup(
                     .map(|(_, at, operation, args)| (*at, *operation, *args))
                     .collect::<Vec<_>>(),
                 if slot == 0 {
-                    vec![(26567, Operation::Urand, [900, 900, 0])]
+                    vec![
+                        (26567, Operation::Urand, [900, 900, 0]),
+                        (26568, Operation::Urand, [900, 900, 0]),
+                        (26569, Operation::Urand, [900, 900, 0]),
+                        (26570, Operation::Urand, [300, 300, 0]),
+                        (26571, Operation::Irand, [0, 99, 0]),
+                        (26572, Operation::Urand, [40, 41, 0]),
+                    ]
                 } else {
                     vec![
                         (11895, Operation::Irand, [0, 99, 0]),
@@ -2385,7 +2502,14 @@ pub(super) fn continue_startup(
                 }
             );
             let results = if slot == 0 {
-                vec![Value::U64(900)]
+                vec![
+                    Value::U64(900),
+                    Value::U64(900),
+                    Value::U64(900),
+                    Value::U64(300),
+                    Value::I64(6),
+                    Value::U64(40),
+                ]
             } else {
                 vec![Value::I64(93), Value::U64(33)]
             };
@@ -2398,7 +2522,7 @@ pub(super) fn continue_startup(
         assert_eq!(u64::from(initial_engine.next_u32()), first_word);
     }
     if continents.maps.iter().any(|map| map.script_id != 0) {
-        let refusal = refuse(active_init::GO_NEXT_OWNER);
+        let refusal = refuse(active_init::CREATURE_NEXT_OWNER);
         assert!(!events.inventory().initialized);
         assert!(owner.sql.is_empty() && owner.raw.is_empty());
         assert_eq!(owner.cursor.raw, 8712);
@@ -2411,7 +2535,7 @@ pub(super) fn continue_startup(
             .filter(|operation| matches!(operation, PoolOperation::Selected { add: true, .. }))
             .count();
         assert!(results > 0);
-        println!("F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} matched_map_thread_words={matched_map_words:?} matched_map_sql=4 matched_template_sql=6 matched_creature_model_sql=3 matched_creature_immunity_sql=1 matched_creature_spell_list_sql=5 matched_spawn_data_sql=2 matched_graveyard_sql=1 matched_encounter_sql=4 matched_group_sql=6 pool_results={results} event_initialization_reached=false next_owner_map0={} next_owner_map1={} next_raw={} next_word={} clone_next_word_checked=true",owner.cursor.raw,refusal.id,active_init::CREATURE_NEXT_OWNER,next_word.0,next_word.1);
+        println!("F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} matched_map_thread_words={matched_map_words:?} matched_map_sql=4 matched_script_names_sql=1 matched_template_sql=6 matched_creature_model_sql=3 matched_creature_immunity_sql=1 matched_creature_spell_list_sql=5 matched_spawn_data_sql=2 matched_graveyard_sql=1 matched_encounter_sql=4 matched_group_sql=6 pool_results={results} event_initialization_reached=false next_owner_map0={} next_owner_map1={} next_raw={} next_word={} clone_next_word_checked=true",owner.cursor.raw,refusal.id,active_init::CREATURE_NEXT_OWNER,next_word.0,next_word.1);
         return;
     }
     let initial_status = owner.status.iter().copied().collect::<Vec<_>>();

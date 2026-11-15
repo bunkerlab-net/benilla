@@ -40,7 +40,7 @@ pub struct SourceVisibilityUpdate {
     pub map_distance_bits: u32,
     pub bounding_radius_bits: u32,
 }
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SourceVisibilityCensus {
     pub considered_cells: usize,
     pub loaded_cells: usize,
