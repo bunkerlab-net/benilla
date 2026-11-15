@@ -1940,6 +1940,7 @@ pub(super) fn continue_startup(
             Some((if slot == 0 { 60382080 } else { 60310114 }, 1024))
         );
         let mut active_objects = SourceObjects::default();
+        let pathfinders_before = geometry.pathfinder_constructor_completions;
         let active_init::ActivePrefixReport {
             refusal,
             completed_objects,
@@ -2018,6 +2019,25 @@ pub(super) fn continue_startup(
         );
         assert_eq!(fields.respawn_time, Some(0));
         assert_eq!(fields.notify_delay, Some(5000));
+        // Unit.cpp:10962, EventProcessor.cpp:23,103-107,124-126: no host clock read.
+        assert_eq!(fields.unit_events.clock_millis(), 0);
+        assert!(fields.unit_events.is_ai_notify_scheduled());
+        let queued = fields.unit_events.inventory().queued;
+        assert_eq!(queued.len(), 1);
+        assert_eq!(queued[0].kind, SourceUnitEvent::AiNotify);
+        assert_eq!((queued[0].add_time_ms, queued[0].exec_time_ms), (0, 5000));
+        assert!(!queued[0].to_abort);
+        assert_eq!(fields.motion_state, Some(WANDER_ACTIVE));
+        assert!(!fields.can_aggro);
+        assert_eq!(
+            geometry.pathfinder_constructor_completions,
+            pathfinders_before + 1
+        );
+        assert_eq!(
+            active_objects.viewpoint_cell(candidate).unwrap(),
+            continents.maps[slot].cells.registered_cell(candidate)
+        );
+        assert!(!active_objects.get(candidate).unwrap().is_new_object);
         assert_eq!(
             fields.respawn_clock,
             Some((
@@ -2065,6 +2085,15 @@ pub(super) fn continue_startup(
                 "creature_world_guid_registered",
                 "creature_base_add_to_world",
                 "creature_schedule_ai_notify",
+                "creature_ai_notify_enqueued",
+                "creature_force_active_checked",
+                "creature_spawn_count_checked",
+                "creature_map_active_checked",
+                "creature_map_viewpoint_added",
+                "creature_map_visibility_complete",
+                "creature_motion_initialized",
+                "creature_ai_script_registry_lookup",
+                "creature_ai_script_null",
             ]));
             assert_eq!(
                 bound_guid,
@@ -2240,6 +2269,15 @@ pub(super) fn continue_startup(
                     "creature_world_guid_registered",
                     "creature_base_add_to_world",
                     "creature_schedule_ai_notify",
+                    "creature_ai_notify_enqueued",
+                    "creature_force_active_checked",
+                    "creature_spawn_count_checked",
+                    "creature_map_active_checked",
+                    "creature_map_viewpoint_added",
+                    "creature_map_visibility_complete",
+                    "creature_motion_initialized",
+                    "creature_ai_script_registry_lookup",
+                    "creature_ai_script_null",
                 ]
             }
         );
@@ -2605,7 +2643,7 @@ pub(super) fn continue_startup(
             expected
         );
         println!(
-            "F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={} next_owner={} next_source=Unit.cpp:10961",
+            "F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={} next_owner={} next_source=CreatureAISelector.cpp:45",
             matched_map_words[slot],
             evidence
                 .pool_members

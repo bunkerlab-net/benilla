@@ -263,6 +263,11 @@ pub(super) fn bind_mmap_world(
         .ancestors()
         .find(|path| path.ends_with("benilla-config/full-server/f1"))
         .ok_or_else(|| refuse("execution.startup.recorded_f1_path_component_missing"))?;
+    let configured = std::env::var_os("BENILLA_F6_MMAP_F1").map(std::path::PathBuf::from);
+    let root = crate::native::source_execution::vmap_manager::historical_products::selected_root(
+        root,
+        configured.as_deref(),
+    )?;
     let bytes = std::fs::read(root.join("products-manifest.json"))
         .map_err(|_| refuse("execution.mmap.products_manifest_missing"))?;
     require(
@@ -274,27 +279,10 @@ pub(super) fn bind_mmap_world(
     let manifest: Vec<serde_json::Value> = serde_json::from_slice(&bytes)
         .map_err(|_| refuse("execution.mmap.products_manifest_shape"))?;
     for row in manifest {
-        let name = row["path"]
-            .as_str()
-            .ok_or_else(|| refuse("execution.mmap.product_path"))?;
-        let Some(map) = name
-            .strip_prefix("mmaps/")
-            .and_then(|name| name.strip_suffix(".mmap"))
-        else {
-            continue;
-        };
-        let map: u32 = map
-            .parse()
-            .map_err(|_| refuse("execution.mmap.product_map"))?;
-        let hash = Sha256Id::parse(
-            row["sha256"]
-                .as_str()
-                .ok_or_else(|| refuse("execution.mmap.product_hash"))?,
-        )
-        .map_err(|_| refuse("execution.mmap.product_hash"))?;
-        manager
-            .files
-            .retain_map(map, &root.join("products").join(name), hash)?;
+        // Historical, unsealed F1 products; retain inputs without inventing tile load order.
+        crate::native::source_execution::mmap_manager::historical_products::bind_product(
+            &root, &row, manager,
+        )?;
     }
     Ok(())
 }

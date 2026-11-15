@@ -5,7 +5,7 @@ use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: &str =
-    "execution.creature.Unit_10961.UnitVisitObjectsInRangeNotifyEvent_constructor_owner";
+    "execution.creature.CreatureAISelector_45.live_ai_registry_owner";
 #[path = "seal16_active_clocks.rs"]
 mod clocks;
 pub(super) use clocks::{ActiveClock, ActiveClocks};

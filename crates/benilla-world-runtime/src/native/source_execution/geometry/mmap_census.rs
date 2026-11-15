@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Diagnostic frozen inventory, not a recorded tile insertion order or product admission.
+use super::historical_products::Product;
 use super::*;
 #[test]
 fn frozen_products_load_or_name_each_refusal_and_real_no_nav_branch() {
@@ -31,16 +32,16 @@ fn frozen_products_load_or_name_each_refusal_and_real_no_nav_branch() {
     let mut short_headers = 0;
     let mut mmap_names = BTreeSet::new();
     for row in &manifest {
-        let path = row["path"].as_str().unwrap();
-        let Some(name) = path.strip_prefix("mmaps/") else {
+        let Some(product) = historical_products::bind_product(root, row, &mut manager).unwrap()
+        else {
             continue;
         };
-        let hash = Sha256Id::parse(row["sha256"].as_str().unwrap()).unwrap();
-        let path = root.join("products").join(path);
-        if name.ends_with(".mmap") {
-            let map = name[..3].parse().unwrap();
-            short_params += usize::from(std::fs::metadata(&path).unwrap().len() < 28);
-            manager.files.retain_map(map, &path, hash).unwrap();
+        if let Product::Map {
+            map,
+            short_params: short,
+        } = product
+        {
+            short_params += usize::from(short);
             let result = manager.load_map_instance(map, 0);
             if cfg!(not(target_arch = "x86_64")) {
                 assert_eq!(
@@ -54,14 +55,15 @@ fn frozen_products_load_or_name_each_refusal_and_real_no_nav_branch() {
             }
             assert_eq!(result.unwrap(), MMapLoad::Loaded);
             meshes += 1;
-        } else if !name.starts_with("go") {
-            let map = name[..3].parse::<u32>().unwrap();
-            let x = name[3..5].parse::<u16>().unwrap();
-            let y = name[5..7].parse::<u16>().unwrap();
+        } else if let Product::Tile {
+            map,
+            x,
+            y,
+            short_header,
+        } = product
+        {
             mmap_names.insert((map, x, y));
-            let length = std::fs::metadata(&path).unwrap().len();
-            short_headers += usize::from((1..20).contains(&length));
-            manager.files.retain_tile(map, x, y, &path, hash).unwrap();
+            short_headers += usize::from(short_header);
             candidates.push((map, x, y));
         }
     }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Raw-pose diagnostic opportunities, not a recorded invocation stream or F1 acceptance.
 use super::*;
+use crate::native::source_execution::vmap_manager::historical_products::bind_dispatch;
 use benilla_sim::source_rng::{DrawCursor, Mt19937, SourceRandom};
 use std::collections::BTreeMap;
 #[path = "waypoint_travel_census.rs"]
@@ -273,40 +274,4 @@ pub(in super::super) fn run(
         "raw_calculate_straight_line":false,
         "home":"recorded opportunities unavailable; authored Home constructor only",
         "constructor_completions":geometry.pathfinder_constructor_completions})
-}
-
-fn bind_dispatch(vmap: &mut SourceVMapManager, root: &Path) {
-    let recording = root.join("sealing/source-choice/seal16-full-01");
-    let bytes = std::fs::read(recording.join("actual-process-environment.json")).unwrap();
-    assert_eq!(
-        Sha256Id::of(&bytes),
-        Sha256Id::parse("4b7d35a74a48e0829d942539b97f940f05b4d57416eae71a3caf4dd6269859b5")
-            .unwrap()
-    );
-    let receipt: benilla_sim::source_sine::ProcessReceipt = serde_json::from_slice(&bytes).unwrap();
-    for (name, expected) in [
-        (
-            "acquisition-input-manifest.json",
-            &receipt.source_acquisition_bindings.manifest,
-        ),
-        (
-            "trace-schema.json",
-            &receipt.source_acquisition_bindings.schema,
-        ),
-        (
-            "instrumentation-identity.json",
-            &receipt.source_acquisition_bindings.instrumentation,
-        ),
-        (
-            "run/trace.tsv.process-environment.bin",
-            &receipt.source_process_receipt_sha256,
-        ),
-    ] {
-        assert_eq!(
-            Sha256Id::of(&std::fs::read(recording.join(name)).unwrap()),
-            Sha256Id::parse(expected).unwrap()
-        );
-    }
-    vmap.bind_rotation_dispatch(16, &receipt.source_acquisition_bindings, &receipt)
-        .unwrap();
 }

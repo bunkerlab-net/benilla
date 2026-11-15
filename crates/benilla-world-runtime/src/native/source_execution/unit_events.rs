@@ -12,6 +12,7 @@ pub enum SourceUnitEvent {
     ForcedDespawn { only_alive: bool },
     Assistance,
     Spell { spell: u64 },
+    AiNotify,
 }
 impl EventPayload for SourceUnitEvent {
     fn validate(self) -> std::result::Result<(), EventError> {
@@ -23,6 +24,11 @@ impl EventPayload for SourceUnitEvent {
 /// Spell owners extend the typed event, not a second queue.
 pub trait UnitEventOwner {
     fn forced_despawn(&mut self, only_alive: bool) -> Result<()>;
+    fn ai_notify(&mut self) -> Result<()> {
+        Err(refuse(
+            "execution.creature.Unit_10930.GetDetectionRange_owner",
+        ))
+    }
     fn spell_event(
         &mut self,
         _spell: u64,
@@ -62,10 +68,48 @@ pub struct SourceUnitEvents {
     queue: EventProcessor<SourceUnitEvent>,
     stopped: bool,
     captures: std::collections::BTreeMap<u64, AssistanceCapture>,
+    ai_notify: Option<u64>,
 }
 impl SourceUnitEvents {
     pub fn clock_millis(&self) -> u64 {
         self.queue.clock_ms()
+    }
+    /// Unit.cpp:10957-10970; a zero delay is still an asynchronous BasicEvent.
+    pub fn schedule_ai_notify(&mut self, delay: u32, forced: bool) -> Result<()> {
+        require(!self.stopped, "execution.unit_events.stopped")?;
+        if self.is_ai_notify_scheduled() {
+            if !forced {
+                return Ok(());
+            }
+            self.kill_event(self.ai_notify.unwrap())?;
+        }
+        let id = self.queue.next_event_id();
+        self.ai_notify = Some(id);
+        let at = self
+            .queue
+            .calculate_time(u64::from(delay))
+            .map_err(event_refusal)?;
+        self.queue
+            .add_event(id, SourceUnitEvent::AiNotify, at)
+            .map_err(event_refusal)
+    }
+    /// Unit.h:2344-2345 checks/clears the pointer, not queue membership.
+    pub fn is_ai_notify_scheduled(&self) -> bool {
+        self.ai_notify.is_some()
+    }
+    pub fn ai_notify_event(&self) -> Option<u64> {
+        self.ai_notify
+    }
+    pub fn finalize_ai_notify_event(&mut self) {
+        self.ai_notify = None;
+    }
+    /// KillEvent does not call Abort, Unit.cpp:10972-10978.
+    pub fn abort_ai_notify_event(&mut self) -> Result<()> {
+        if let Some(id) = self.ai_notify {
+            self.kill_event(id)?;
+            self.finalize_ai_notify_event();
+        }
+        Ok(())
     }
     /// Nonzero scheduling only; delay zero is a synchronous Creature call.
     pub fn schedule_forced_despawn(&mut self, delay: u32, only_alive: bool) -> Result<u64> {
@@ -144,6 +188,9 @@ impl SourceUnitEvents {
                         owner.delete_spell(spell)?;
                     }
                     deletable
+                } else if due.kind == SourceUnitEvent::AiNotify {
+                    self.ai_notify = None; // Unit.cpp:10948-10950.
+                    true
                 } else {
                     true
                 };
@@ -162,6 +209,19 @@ impl SourceUnitEvents {
         let result = (|| {
             let mut transaction = self.queue.begin_update(diff).map_err(event_refusal)?;
             while let Some(due) = transaction.pop_due().map_err(event_refusal)? {
+                if due.kind == SourceUnitEvent::AiNotify {
+                    if due.callback == CallbackKind::Execute {
+                        owner.ai_notify()?;
+                    }
+                    // Execute finalizes after the visitor; Abort only finalizes.
+                    self.ai_notify = None;
+                    match due.callback {
+                        CallbackKind::Execute => transaction.finish_execute(true),
+                        CallbackKind::Abort => transaction.finish_abort(true),
+                    }
+                    .map_err(event_refusal)?;
+                    continue;
+                }
                 if let SourceUnitEvent::Spell { spell } = due.kind {
                     match due.callback {
                         CallbackKind::Execute => {
@@ -209,7 +269,7 @@ impl SourceUnitEvents {
                                 },
                             )?;
                         }
-                        SourceUnitEvent::Spell { .. } => {
+                        SourceUnitEvent::Spell { .. } | SourceUnitEvent::AiNotify => {
                             unreachable!("handled before ordinary events")
                         }
                     }

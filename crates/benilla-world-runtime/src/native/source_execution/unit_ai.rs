@@ -95,31 +95,71 @@ pub struct SourceUnitFields {
 impl SourceUnitFields {
     /// Unit.cpp:330,423-425; Creature.cpp:541-579. Spawn overrides belong to UpdateEntry.
     pub fn creature(template: &CreatureAiTemplateOperands) -> Self {
+        Self::creature_values(
+            template.entry,
+            template.faction,
+            template.static_flags,
+            template.extra_flags,
+            template.unit_flags,
+            template.inhabit_type,
+            template.pursuit_ms,
+            template.call_for_help,
+            template.creature_type,
+        )
+    }
+    /// Creature.h:90-117; bind SQLStorage fields without raw catalog alternatives.
+    #[cfg(test)]
+    pub(super) fn loaded_creature(template: &LoadedCreatureInfo) -> Self {
+        let w = &template.words;
+        Self::creature_values(
+            w[0],
+            w[13],
+            w[25..29].try_into().unwrap(),
+            w[23],
+            w[21],
+            w[17],
+            w[33],
+            w[32],
+            w[16],
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn creature_values(
+        entry: u32,
+        faction: u32,
+        static_flags: [u32; 4],
+        extra_flags: u32,
+        unit_flags: u32,
+        inhabit_type: u32,
+        pursuit_ms: u32,
+        call_for_help: u32,
+        creature_type: u32,
+    ) -> Self {
         Self {
-            entry: template.entry,
-            faction: template.faction,
-            static_flags: template.static_flags,
+            entry,
+            faction,
+            static_flags,
             has_ai: false,
-            can_fly: template.inhabit_type & 4 != 0,
-            can_walk: template.inhabit_type & 1 != 0,
-            can_swim: template.inhabit_type & 2 != 0,
-            mmap_extra_flags: template.extra_flags & 0x6000,
+            can_fly: inhabit_type & 4 != 0,
+            can_walk: inhabit_type & 1 != 0,
+            can_swim: inhabit_type & 2 != 0,
+            mmap_extra_flags: extra_flags & 0x6000,
             neutral_to_all: None,
             can_aggro: None,
-            force_attacking: template.extra_flags & 0x80000 != 0,
-            run_during_wander: template.extra_flags & 0x20 != 0,
-            flags: template.unit_flags
-                | if template.static_flags[0] & 0x200 != 0 {
+            force_attacking: extra_flags & 0x80000 != 0,
+            run_during_wander: extra_flags & 0x20 != 0,
+            flags: unit_flags
+                | if static_flags[0] & 0x200 != 0 {
                     0x0200_0000
                 } else {
                     0
                 }
-                | if template.static_flags[0] & 0x20 != 0 {
+                | if static_flags[0] & 0x20 != 0 {
                     0x100
                 } else {
                     0
                 }
-                | if template.static_flags[0] & 0x40 != 0 {
+                | if static_flags[0] & 0x40 != 0 {
                     0x200
                 } else {
                     0
@@ -149,15 +189,15 @@ impl SourceUnitFields {
             mounted: false,
             offhand: false,
             combat_timer: 0,
-            pursuit_ms: template.pursuit_ms,
+            pursuit_ms,
             last_refresh_position: None,
             combat_tick: 1200,
             damage_by_others: 0,
             already_called_assistance: false,
-            can_call_assistance: template.extra_flags & 0x800 == 0,
+            can_call_assistance: extra_flags & 0x800 == 0,
             can_check_help: true,
-            call_for_help: template.call_for_help,
-            critter: template.creature_type == 8,
+            call_for_help,
+            critter: creature_type == 8,
             linking_event_trigger: None,
             movespline: benilla_sim::source_spline::MoveSpline::default(),
             spline_debug_path: false,

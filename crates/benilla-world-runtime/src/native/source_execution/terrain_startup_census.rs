@@ -553,6 +553,13 @@ fn frozen_startup(later: bool) {
         inventory.records.iter().filter(|row| row.slot == 1).count(),
         inventory.records.iter().filter(|row| (2..=6).contains(&row.slot)).count());
     if later {
+        let configured = std::env::var_os("BENILLA_VMAP_ROTATION_F1").map(std::path::PathBuf::from);
+        let historical =
+            vmap_manager::historical_products::selected_root(frozen, configured.as_deref())
+                .unwrap();
+        // Historical, unsealed F1 products. F6.02 did not seal producer lineage.
+        vmap_manager::historical_products::bind_vmaps(&historical, &mut geometry.vmap, |_, _| {});
+        println!("F6_HISTORICAL_VMAP products=unsealed_F1 dispatch=authenticated_round16");
         seal16::continue_startup(
             trace.parent().unwrap().parent().unwrap(),
             &mut catalog,

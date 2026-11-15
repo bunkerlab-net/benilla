@@ -419,3 +419,7 @@ mod tests;
 #[cfg(test)]
 #[path = "mmap_census.rs"]
 mod census;
+
+#[cfg(test)]
+#[path = "historical_mmap_products.rs"]
+pub(super) mod historical_products;

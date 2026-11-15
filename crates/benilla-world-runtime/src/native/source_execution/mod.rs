@@ -39,6 +39,12 @@ mod unit_ai;
 pub use unit_ai::*;
 mod unit_events;
 pub use unit_events::*;
+
+// Unit.cpp:10923-10979 notify lifetime on the shared Unit queue.
+mod ai_notify;
+pub use ai_notify::*;
+#[cfg(test)]
+mod ai_notify_tests;
 mod assistance;
 pub use assistance::*;
 #[cfg(test)]

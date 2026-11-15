@@ -146,5 +146,9 @@ impl SourceVMapManager {
 }
 
 #[cfg(test)]
+#[path = "historical_vmap_products.rs"]
+pub(super) mod historical_products;
+
+#[cfg(test)]
 #[path = "vmap_rotation_tests.rs"]
 mod rotation_tests;

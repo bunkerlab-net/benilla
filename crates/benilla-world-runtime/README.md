@@ -2852,3 +2852,37 @@ stock motion or F1 equality. All new state remains component-only and excluded
 from native checkpoints. Native format remains 91.
 
 
+## Source Unit AI notifications
+
+`SourceUnitEvents` schedules AI notifications on the same queue as spells,
+assistance, and forced despawns. `ScheduleAINotify` preserves an existing event
+unless forced, and forced replacement deletes without calling `Abort`,
+`Unit.cpp:10957-10979`, `EventProcessor.cpp:88-107`. The scheduled pointer and
+queue membership remain separate, `Unit.h:2344-2345`.
+
+`CalculateTime` reads only the queue's elapsed update time. Construction sets it
+to zero and `Update` adds its supplied diff, `EventProcessor.cpp:23,35,124-126`.
+No calendar, monotonic, map, or recorded clock sample supplies that value.
+Execution sets creature aggro eligibility and visits nearby objects only after
+the event becomes due, `Unit.cpp:10928-10945`. The radius uses the loaded
+`Rate.Creature.Aggro` assignment, `World.cpp:443,2420-2427`.
+
+`SourceCreatureAiNotifyOwner` traverses loaded cells in grid-then-world order
+without loading new grids, `Cell.h:114`, `CellImpl.h:197-209`. The creature
+notifier skips itself and dead creatures. It refuses at the first unowned
+worker call, `GridNotifiersImpl.h:175-178`, or a live player's taxi predicate,
+`GridNotifiersImpl.h:156`. A refused visit does not finalize the notify pointer,
+`Unit.cpp:10944`. No event state enters native checkpoints. Format remains 91.
+
+The seal16 prefix uses the historical, unsealed F1 VMap and MMap products
+and the authenticated round-16 rotation receipt. This does not seal F6.02 producer
+lineage or establish sealed parity. The existing geometry censuses and the
+prefix share their receipt, manifest, and per-file identity checks.
+`BENILLA_VMAP_ROTATION_F1` and `BENILLA_F6_MMAP_F1`, if set, must resolve to
+the framing-selected F1 root. A conflicting root refuses rather than choosing an input.
+
+PathFinder construction reaches the full-grid upgrade through
+`PathFinder.cpp:1092`, `GridMap.cpp:1059,834,1232-1234,1284`.
+This happens during motion initialization, `Creature.cpp:882`,
+before the queued AI notification fires.
+

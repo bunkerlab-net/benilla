@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Optional diagnostic stock loading, never acquisition or gameplay admission.
 use super::*;
-use benilla_native_vmap::live::FileState;
-use benilla_sim::source_sine::ProcessReceipt;
 use std::{collections::BTreeMap, path::Path};
 
 fn word(bytes: &[u8], at: usize) -> u32 {
@@ -48,64 +46,13 @@ fn optional_stock_rotation_census_with_authenticated_round16_dispatch() {
         return;
     };
     let root = Path::new(&root);
-    let recording = root.join("sealing/source-choice/seal16-full-01");
-    let receipt_bytes = std::fs::read(recording.join("actual-process-environment.json")).unwrap();
-    assert_eq!(
-        Sha256Id::of(&receipt_bytes),
-        Sha256Id::parse("4b7d35a74a48e0829d942539b97f940f05b4d57416eae71a3caf4dd6269859b5")
-            .unwrap()
-    );
-    let receipt: ProcessReceipt = serde_json::from_slice(&receipt_bytes).unwrap();
-    for (file, expected) in [
-        (
-            "acquisition-input-manifest.json",
-            &receipt.source_acquisition_bindings.manifest,
-        ),
-        (
-            "trace-schema.json",
-            &receipt.source_acquisition_bindings.schema,
-        ),
-        (
-            "instrumentation-identity.json",
-            &receipt.source_acquisition_bindings.instrumentation,
-        ),
-        (
-            "run/trace.tsv.process-environment.bin",
-            &receipt.source_process_receipt_sha256,
-        ),
-    ] {
-        assert_eq!(
-            Sha256Id::of(&std::fs::read(recording.join(file)).unwrap()),
-            Sha256Id::parse(expected).unwrap()
-        );
-    }
-    let manifest_bytes = std::fs::read(root.join("products-manifest.json")).unwrap();
-    assert_eq!(
-        Sha256Id::of(&manifest_bytes),
-        Sha256Id::parse("5d681785ca7cbccd26b453464e5d86a178290ed41caac9bac4c890053f69559f")
-            .unwrap()
-    );
-    let manifest: Vec<serde_json::Value> = serde_json::from_slice(&manifest_bytes).unwrap();
     let mut manager = SourceVMapManager::default();
-    manager
-        .bind_rotation_dispatch(16, &receipt.source_acquisition_bindings, &receipt)
-        .unwrap();
     let mut loads = Vec::new();
     let (mut files, mut spawns, mut nonzero) = (0, 0, 0);
-    for row in manifest {
-        let path = row["path"].as_str().unwrap();
-        let Some(name) = path.strip_prefix("vmaps/") else {
-            continue;
-        };
-        let bytes = std::fs::read(root.join("products").join(path)).unwrap();
-        assert_eq!(bytes.len() as u64, row["bytes"].as_u64().unwrap());
-        assert_eq!(
-            Sha256Id::of(&bytes),
-            Sha256Id::parse(row["sha256"].as_str().unwrap()).unwrap()
-        );
+    historical_products::bind_vmaps(root, &mut manager, |name, bytes| {
         if name.ends_with(".vmtree") || name.ends_with(".vmtile") {
             let tree = name.ends_with(".vmtree");
-            let rows = angles(&bytes, tree);
+            let rows = angles(bytes, tree);
             files += 1;
             spawns += rows.len();
             let n = rows.iter().flatten().filter(|&&v| v != 0.0).count();
@@ -121,12 +68,7 @@ fn optional_stock_rotation_census_with_authenticated_round16_dispatch() {
                 loads.push((map, x, y, name.to_owned(), n));
             }
         }
-        manager
-            .collision
-            .files
-            .observe(name.as_bytes(), FileState::Present(bytes.into()))
-            .unwrap();
-    }
+    });
     assert_eq!((files, spawns, nonzero), (1292, 429016, 704524));
     let mut failures = BTreeMap::<String, usize>::new();
     let (mut loaded, mut admitted_angles) = (0, 0);

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Creature.cpp:906-934,1687-1738; Unit.cpp:9389-9395,10959-10961.
+//! Creature.cpp:906-934,1687-1740; Unit.cpp:9389-9395,10957-10970.
 use super::*;
 pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
     prefix: &mut Prefix<'_>,
@@ -197,13 +197,70 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
         .parse::<i32>()
         .map_err(|_| refuse("execution.creature.loaded_notify_delay_config"))?;
     fields.notify_delay = Some(notify_delay(delay));
+    fields
+        .unit_events
+        .schedule_ai_notify(fields.notify_delay.unwrap(), false)?;
     prefix.lookups.push("creature_schedule_ai_notify");
     require(
         context.objects.get(object)?.map == Some(map),
         "execution.creature.map_binding",
     )?;
-    Err(refuse(CREATURE_NEXT_OWNER)) // Unit.cpp:10959-10961, ctor :360 starts m_AINotifyEvent null.
+    prefix.lookups.push("creature_ai_notify_enqueued");
+    // World.cpp:485-494 was bound to the empty forced-map set in load_first.
+    if template.words[23] & 0x1000 != 0 {
+        context.set_active_object_state(object, true, prefix)?;
+    }
+    prefix.lookups.push("creature_force_active_checked");
+    if prefix.creature_entry.as_ref().unwrap().count_spawns {
+        return Err(refuse("execution.creature.Map_2995.AddToSpawnCount_owner"));
+    }
+    prefix.lookups.push("creature_spawn_count_checked");
+    if context.objects.get(object)?.active {
+        context.add_to_active(object, prefix)?;
+    }
+    prefix.lookups.push("creature_map_active_checked");
+    context
+        .objects
+        .viewpoint_added_to_world(object, cell, context.cells, |_, _, _| {
+            Err(refuse("execution.camera.Camera_104.added_to_world_owner"))
+        })?;
+    prefix.lookups.push("creature_map_viewpoint_added");
+    context.objects.map_add_visibility(
+        SourceVisibilityUpdate {
+            object,
+            map_distance_bits: prefix.map_visibility_bits,
+            bounding_radius_bits: prefix.creature_entry.as_ref().unwrap().radius,
+        },
+        context.cells,
+        &mut prefix.visibility,
+        |_, _, _, _| {
+            Err(refuse(
+                "execution.visibility.GridNotifiers_36.camera_update_owner",
+            ))
+        },
+        |_, _, _, _| Err(refuse("execution.visibility.Map_1348.player_update_owner")),
+    )?;
+    prefix.lookups.push("creature_map_visibility_complete");
+    motion_initialize::initialize(prefix, object, template, context)?;
+    prefix.lookups.push("creature_motion_initialized");
+    // Creature.cpp:883 -> CreatureAISelector.cpp:42 -> ScriptDevAIMgr.cpp:365.
+    let script = prefix.scripts.get_script(template.words[96])?;
+    prefix.lookups.push("creature_ai_script_registry_lookup");
+    if let Some(script) = script {
+        let factory = script
+            .slots
+            .get("GetAI")
+            .ok_or_else(|| refuse("execution.creature.ScriptDevAIMgr_367.GetAI_slot_owner"))?;
+        if *factory {
+            return Err(refuse("execution.creature.ScriptDevAIMgr_370.GetAI_owner"));
+        }
+    }
+    prefix.lookups.push("creature_ai_script_null");
+    Err(refuse(CREATURE_NEXT_OWNER))
 }
+
+#[path = "seal16_creature_motion.rs"]
+mod motion_initialize;
 
 fn notify_delay(value: i32) -> u32 {
     // World.cpp:704,2395-2402,2430-2437 resets negative uint32 config to its default.
