@@ -32,6 +32,9 @@ impl Drop for Directory {
 
 const REOPEN_SLICE: Duration = Duration::from_millis(500);
 
+// Functional fixtures tolerate scheduler contention seen in Windows CI job 132958953472.
+const FUNCTIONAL_REOPEN_SLICE: Duration = Duration::from_secs(5);
+
 fn recipe(world: &NativeWorld, consumer: &Consumer) -> Vec<u8> {
     consumer
         .providers
@@ -160,7 +163,7 @@ fn reopen_store(
                 pending,
                 store,
                 corridor,
-                Instant::now() + REOPEN_SLICE,
+                Instant::now() + FUNCTIONAL_REOPEN_SLICE,
             )
         })
         .unwrap();
@@ -304,7 +307,7 @@ fn expired_500ms_reopen_is_unavailable_but_tampered_recipe_is_binding() {
     ));
     let changed = change_number(&bytes, "\"version\":", |n| n + 1);
     assert!(matches!(
-        reopen_bytes(&profile, checkpoint, &changed, REOPEN_SLICE),
+        reopen_bytes(&profile, checkpoint, &changed, FUNCTIONAL_REOPEN_SLICE),
         Err(NativeError::AuthorityBinding)
     ));
 }
@@ -353,7 +356,13 @@ fn failed_bounded_reopen_keeps_disk_and_live_owner_then_fresh_retry_matches() {
     for (index, changed) in mutations.iter().enumerate() {
         serde_json::from_slice::<serde_json::Value>(changed).unwrap();
         assert!(
-            reopen_bytes(&profile, checkpoint.clone(), changed, REOPEN_SLICE).is_err(),
+            reopen_bytes(
+                &profile,
+                checkpoint.clone(),
+                changed,
+                FUNCTIONAL_REOPEN_SLICE
+            )
+            .is_err(),
             "mutation {index} must not publish a restored owner"
         );
         assert_eq!(
@@ -476,7 +485,7 @@ fn changed_loaded_corridor_revision_rejects_then_fresh_reopen_matches() {
             pending,
             &bytes,
             corridor,
-            Instant::now() + REOPEN_SLICE,
+            Instant::now() + FUNCTIONAL_REOPEN_SLICE,
         )
     });
     assert!(matches!(result, Err(NativeError::AuthorityBinding)));
@@ -484,7 +493,7 @@ fn changed_loaded_corridor_revision_rejects_then_fresh_reopen_matches() {
     assert_eq!(recipe(&world, &consumer), bytes);
     clear_journal(&mut baseline);
     let (mut resumed, mut reopened) =
-        reopen_bytes(&profile, checkpoint, &bytes, REOPEN_SLICE).unwrap();
+        reopen_bytes(&profile, checkpoint, &bytes, FUNCTIONAL_REOPEN_SLICE).unwrap();
     paired_step(
         &mut resumed,
         &mut reopened,
@@ -521,7 +530,7 @@ fn mismatched_store_checkpoint_drops_lease_then_exact_pair_reopens() {
             pending,
             store,
             corridor,
-            Instant::now() + REOPEN_SLICE,
+            Instant::now() + FUNCTIONAL_REOPEN_SLICE,
         )
     });
     assert!(matches!(result, Err(NativeError::InvalidCheckpoint)));
@@ -835,7 +844,13 @@ fn retained_minimum_distance_after_normal_reopens_current_failed_head_not_old_sp
         .1
         .clone();
     let forged_recipe = replace_last_calculation(&bytes, &latest_context, &old_context);
-    assert!(reopen_bytes(&profile, checkpoint.clone(), &forged_recipe, REOPEN_SLICE).is_err());
+    assert!(reopen_bytes(
+        &profile,
+        checkpoint.clone(),
+        &forged_recipe,
+        FUNCTIONAL_REOPEN_SLICE
+    )
+    .is_err());
     assert_eq!(world.checkpoint().unwrap(), checkpoint);
     assert_eq!(
         consumer.providers.route.committed_candidate().unwrap().1,
@@ -986,7 +1001,13 @@ fn forged_failed_heads_and_recipes_leave_disk_and_live_owner_for_each_fresh_retr
     for (index, changed) in mutations.iter().enumerate() {
         serde_json::from_slice::<serde_json::Value>(changed).unwrap();
         assert!(
-            reopen_bytes(&profile, checkpoint.clone(), changed, REOPEN_SLICE).is_err(),
+            reopen_bytes(
+                &profile,
+                checkpoint.clone(),
+                changed,
+                FUNCTIONAL_REOPEN_SLICE
+            )
+            .is_err(),
             "failed-head recipe mutation {index} must not publish a restored owner"
         );
         assert_eq!(world.checkpoint().unwrap(), checkpoint);
