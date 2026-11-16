@@ -312,6 +312,95 @@ fn expired_500ms_reopen_is_unavailable_but_tampered_recipe_is_binding() {
     ));
 }
 
+fn forced_replay_expiry_keeps_store_and_owner(stage: &'static str) {
+    use super::source_route_same_polygon::SourceSamePolygonRouteProvider;
+
+    let path = Directory::new();
+    let (mut world, mut consumer) = wander::setup_with_schedule(Some(8), None);
+    wander::step(&mut world, &mut consumer);
+    let profile = world.profile().clone();
+    let checkpoint = world.checkpoint().unwrap();
+    let bytes = recipe(&world, &consumer);
+    let (store, _) = WanderStore::create(&path.0, &mut world, &bytes).unwrap();
+    let disk = std::fs::read(path.0.join("world.checkpoint")).unwrap();
+    let recipe_disk = store.recipe().clone();
+    let committed = consumer
+        .providers
+        .route
+        .committed_candidate()
+        .unwrap()
+        .1
+        .clone();
+    let (fresh, mut reopened) = wander::setup_with_schedule(Some(8), None);
+    assert_eq!(fresh.profile(), &profile);
+    drop(fresh);
+    let pending =
+        NativeWorld::prepare_synthetic_wander_reopen(profile.clone(), checkpoint.clone()).unwrap();
+    let route = reopened.providers.route;
+    SourceSamePolygonRouteProvider::expire_next_wander_reopen_at(stage);
+    let result = reopened.geometry.with_local_corridor(|corridor| {
+        route.reopen_wander_store(
+            &reopened.session,
+            pending,
+            store,
+            corridor,
+            Instant::now() + REOPEN_SLICE,
+        )
+    });
+    SourceSamePolygonRouteProvider::assert_wander_reopen_expiry_reached();
+    assert!(matches!(
+        result,
+        Err(NativeError::AuthorityUnavailable(
+            "local geometry execution deadline exceeded"
+        ))
+    ));
+    assert_eq!(
+        std::fs::read(path.0.join("world.checkpoint")).unwrap(),
+        disk
+    );
+    assert_eq!(world.checkpoint().unwrap(), checkpoint);
+    assert_eq!(
+        consumer.providers.route.committed_candidate().unwrap().1,
+        &committed
+    );
+    let (lease, saved) = WanderStore::open(&path.0, Identity::of(&checkpoint)).unwrap();
+    assert_eq!(saved, recipe_disk);
+    drop(lease);
+
+    let changed = if stage == "observer" {
+        change_number(&bytes, "\"first_counter\":", |n| n + 1)
+    } else {
+        change_number(&bytes, "\"slot\":[", |n| n + 1)
+    };
+    assert!(matches!(
+        reopen_bytes(
+            &profile,
+            checkpoint.clone(),
+            &changed,
+            FUNCTIONAL_REOPEN_SLICE
+        ),
+        Err(NativeError::AuthorityBinding)
+    ));
+    let (_store, resumed, reopened) = reopen_store(&path, &profile, &checkpoint);
+    assert_eq!(resumed.checkpoint().unwrap(), checkpoint);
+    assert_eq!(recipe(&resumed, &reopened), bytes);
+}
+
+#[test]
+fn wander_reopen_native_entry_expiry_is_unavailable_and_identity_is_binding() {
+    forced_replay_expiry_keeps_store_and_owner("native_entry");
+}
+
+#[test]
+fn wander_reopen_observer_expiry_is_unavailable_and_draw_lineage_is_binding() {
+    forced_replay_expiry_keeps_store_and_owner("observer");
+}
+
+#[test]
+fn wander_reopen_native_final_expiry_is_unavailable_and_identity_is_binding() {
+    forced_replay_expiry_keeps_store_and_owner("native_final");
+}
+
 #[test]
 fn failed_bounded_reopen_keeps_disk_and_live_owner_then_fresh_retry_matches() {
     let path = Directory::new();

@@ -12,6 +12,90 @@ use serde::{Deserialize, Serialize};
 const MAX_RECIPE_BYTES: usize = 8 * 1024 * 1024;
 pub(super) const RECIPE_VERSION: u32 = 3;
 
+#[cfg(all(test, not(benilla_headless_geometry)))]
+std::thread_local! {
+    static REOPEN_EXPIRY: std::cell::Cell<Option<&'static str>> = const {
+        std::cell::Cell::new(None)
+    };
+}
+
+#[cfg(all(test, not(benilla_headless_geometry)))]
+fn expire_reopen_at(stage: &'static str, deadline: Instant) {
+    REOPEN_EXPIRY.with(|point| {
+        if point.get() == Some(stage) {
+            point.set(None);
+            std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+            assert!(Instant::now() >= deadline);
+        }
+    });
+}
+
+#[cfg(not(benilla_headless_geometry))]
+fn replay_failure(
+    error: benilla_native_nav::SourceWanderReconstructionError,
+    observed: Option<Failure>,
+) -> NativeError {
+    use benilla_native_nav::{SourceWanderError, SourceWanderReconstructionError};
+    let failure = match observed {
+        Some(failure) => failure,
+        None => match error {
+            SourceWanderReconstructionError::Native(SourceWanderError::Boundary(error)) => {
+                Failure::navigation(error)
+            }
+            SourceWanderReconstructionError::Native(SourceWanderError::Lookup(error)) => {
+                Failure::navigation_lookup(error)
+            }
+            _ => Failure::Binding,
+        },
+    };
+    if failure == Failure::Deadline {
+        failure.native()
+    } else {
+        NativeError::AuthorityBinding
+    }
+}
+
+#[cfg(not(benilla_headless_geometry))]
+#[test]
+fn wander_reopen_replay_failure_preserves_only_explicit_deadlines() {
+    use benilla_native_nav::{
+        Error, SourceWanderError, SourceWanderReconstructionError as ReplayError,
+        SourceWarmCacheError,
+    };
+    let boundary = ReplayError::Native(SourceWanderError::Boundary(Error::Deadline));
+    let lookup = ReplayError::Native(SourceWanderError::Lookup(SourceWarmCacheError::Boundary(
+        Error::Deadline,
+    )));
+    for error in [boundary, lookup] {
+        assert!(matches!(
+            replay_failure(error, None),
+            NativeError::AuthorityUnavailable("local geometry execution deadline exceeded")
+        ));
+        assert!(matches!(
+            replay_failure(error, Some(Failure::Binding)),
+            NativeError::AuthorityBinding
+        ));
+    }
+    assert!(matches!(
+        replay_failure(ReplayError::UnsupportedLineage, Some(Failure::Deadline)),
+        NativeError::AuthorityUnavailable("local geometry execution deadline exceeded")
+    ));
+    for error in [
+        ReplayError::Empty,
+        ReplayError::Shape,
+        ReplayError::UnsupportedLineage,
+        ReplayError::Native(SourceWanderError::Boundary(Error::Identity)),
+        ReplayError::Native(SourceWanderError::Lookup(SourceWarmCacheError::Boundary(
+            Error::Identity,
+        ))),
+    ] {
+        assert!(matches!(
+            replay_failure(error, None),
+            NativeError::AuthorityBinding
+        ));
+    }
+}
+
 #[derive(Clone, Default)]
 pub(super) struct WanderCapture {
     pub(super) native: SourceWanderWitness,
@@ -277,6 +361,20 @@ impl ReopenBoundaryProof {
 }
 
 impl SourceSamePolygonRouteProvider {
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(in super::super) fn expire_next_wander_reopen_at(stage: &'static str) {
+        assert!(matches!(
+            stage,
+            "native_entry" | "observer" | "native_final"
+        ));
+        REOPEN_EXPIRY.with(|point| assert_eq!(point.replace(Some(stage)), None));
+    }
+
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(in super::super) fn assert_wander_reopen_expiry_reached() {
+        REOPEN_EXPIRY.with(|point| assert_eq!(point.get(), None));
+    }
+
     /// Keep the exclusive store lease and its exact paired bytes owned until the
     /// fresh runtime, loaded query and commit boundary can be published together.
     #[cfg(not(benilla_headless_geometry))]
@@ -424,10 +522,19 @@ impl SourceSamePolygonRouteProvider {
                 .calculation,
         )?;
         let mut observed_failure = None;
+        #[cfg(test)]
+        expire_reopen_at("native_entry", deadline);
         let certificate = self
             .queries
             .nav_query()
             .reconstruct_wander_observed(&native, pending.challenge(), deadline, |stage| {
+                #[cfg(test)]
+                expire_reopen_at("observer", deadline);
+                #[cfg(test)]
+                let final_terminal = matches!(
+                    stage,
+                    Stage::Terminal { ordinal, .. } if ordinal + 1 == native.operation_count
+                );
                 let result: Result<(), Failure> = (|| {
                     require_time(deadline)?;
                     match stage {
@@ -523,12 +630,16 @@ impl SourceSamePolygonRouteProvider {
                     }
                     Ok(())
                 })();
+                #[cfg(test)]
+                if result.is_ok() && final_terminal {
+                    expire_reopen_at("native_final", deadline);
+                }
                 result.map_err(|error| {
                     observed_failure = Some(error);
                     benilla_native_nav::SourceWanderReconstructionError::UnsupportedLineage
                 })
             })
-            .map_err(|_| NativeError::AuthorityBinding)?;
+            .map_err(|error| replay_failure(error, observed_failure))?;
         if observed_failure.is_some() {
             return Err(NativeError::AuthorityBinding);
         }

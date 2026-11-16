@@ -975,6 +975,56 @@ fn production_replay_observers_are_ordered_read_only_and_can_reject_each_stage()
 }
 
 #[test]
+fn production_replay_deadlines_keep_entry_and_final_provenance() {
+    let source = query();
+    let mut retained = source.retain_default();
+    let terminal = execute(&mut retained, None, minimum_distance(), FILTER).unwrap();
+    let mut witness = SourceWanderWitness::default();
+    witness.record(&terminal).unwrap();
+    let recipe = witness.recipe().unwrap();
+    let challenge = SourceWanderReconstructionChallenge::new();
+    let expired =
+        SourceWanderReconstructionError::Native(SourceWanderError::Boundary(Error::Deadline));
+    let mut entry_observed = false;
+    let result = query().reconstruct_wander_observed(&recipe, &challenge, Instant::now(), |_| {
+        entry_observed = true;
+        Ok(())
+    });
+    assert!(matches!(result, Err(error) if error == expired));
+    assert!(!entry_observed);
+
+    let deadline = Instant::now() + std::time::Duration::from_millis(500);
+    let mut stages = 0;
+    let result = query().reconstruct_wander_observed(&recipe, &challenge, deadline, |stage| {
+        stages += 1;
+        if matches!(stage, SourceWanderReconstructionStage::Terminal { .. }) {
+            std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+            assert!(Instant::now() >= deadline);
+        }
+        Ok(())
+    });
+    assert!(matches!(result, Err(error) if error == expired));
+    assert_eq!(stages, 4);
+
+    let mut identity = recipe.clone();
+    identity.slot.instance_id += 1;
+    assert!(matches!(
+        query().reconstruct_wander(&identity, &challenge, until()),
+        Err(SourceWanderReconstructionError::Native(
+            SourceWanderError::Boundary(Error::Identity)
+        ))
+    ));
+    let mut redundant = recipe.clone();
+    redundant.operation_count = 2;
+    redundant.operations.push(redundant.operations[0]);
+    redundant.operations[1].ordinal = 1;
+    assert!(matches!(
+        query().reconstruct_wander(&redundant, &challenge, until()),
+        Err(SourceWanderReconstructionError::Shape)
+    ));
+}
+
+#[test]
 fn production_resume_checked_count_overflow_never_changes_witness() {
     let source = query();
     let mut retained = source.retain_default();
