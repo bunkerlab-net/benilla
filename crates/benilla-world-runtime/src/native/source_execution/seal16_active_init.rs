@@ -81,6 +81,7 @@ pub(super) struct Prefix<'a> {
     pub faction_flags: &'a BTreeMap<u32, u32>,
     pub ai_registry: &'a SourceAiRegistry,
     pub ai_factions: &'a CreatureAiFactions,
+    pub selected_ai: Option<SelectedCreatureAi>,
     pub config: &'a [u8],
     pub inputs: &'a EffectiveSpawnInputs,
     pub go_animprogress: Option<u32>,
@@ -350,6 +351,7 @@ pub(super) struct ActivePrefixReport {
     pub creature_battleground: Option<bool>,
     pub creature_zone: Option<u32>,
     pub creature_linking_trigger: bool,
+    pub selected_ai: Option<SelectedCreatureAi>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -477,6 +479,7 @@ pub(super) fn load_first(
         completed: 0,
         completed_objects: Vec::new(),
         first_go: None,
+        selected_ai: None,
         motions: BTreeMap::new(),
         entry: None,
         lookups: Vec::new(),
@@ -595,6 +598,7 @@ pub(super) fn load_first(
         creature_battleground: factory.creature_battleground,
         creature_zone: factory.creature_zone,
         creature_linking_trigger: factory.creature_linking_trigger,
+        selected_ai: factory.selected_ai,
     })
 }
 

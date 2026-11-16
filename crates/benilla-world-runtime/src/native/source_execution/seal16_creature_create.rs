@@ -294,6 +294,7 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
         selected.branch(),
         selected.executable()
     );
+    prefix.selected_ai = Some(selected);
     Err(refuse(CREATURE_NEXT_OWNER))
 }
 

@@ -1971,6 +1971,7 @@ pub(super) fn continue_startup(
             creature_battleground,
             creature_zone,
             creature_linking_trigger,
+            selected_ai,
         } = active_init::load_first(
             &mut continents.maps[slot],
             owner.spawns,
@@ -2024,6 +2025,42 @@ pub(super) fn continue_startup(
         );
         assert_eq!(fields.respawn_time, Some(0));
         assert_eq!(fields.notify_delay, Some(5000));
+        let selected_ai = selected_ai.unwrap();
+        let template = creature_templates
+            .get(if slot == 0 { 687 } else { 4692 })
+            .unwrap();
+        // catalog/loaded_templates.rs:5 fixes ExtraFlags at column 23; :47-49
+        // copies that integer cell to words[23]. Creature.h:640-641 reads these bits.
+        let extra_flags = template.words[23];
+        let ai_name = std::str::from_utf8(&template.strings[2]).unwrap();
+        let guard = extra_flags & 0x400 != 0;
+        let no_aggro = extra_flags & 2 != 0;
+        assert_eq!(fields.faction, template.words[13]);
+        // Unit.cpp:6228-6238 and DBCStructure.h:441-446 use the retained DBCs.
+        let neutral = ai_factions.neutral_to_all(template.words[13]);
+        assert!(!guard && !no_aggro && !neutral);
+        assert_eq!(selected_ai.inputs().effective_entry, template.words[0]);
+        assert_eq!(selected_ai.inputs().ai_name, ai_name);
+        assert_eq!(selected_ai.inputs().guard, guard);
+        assert_eq!(selected_ai.inputs().no_aggro_on_sight, no_aggro);
+        assert_eq!(selected_ai.inputs().neutral_to_all, neutral);
+        // CreatureAISelector.cpp:63-83; CreatureEventAI.cpp:51-60:
+        // empty-name proactive EventAI scores 200, above NullAI's 1; other
+        // factories reject this ordinary non-pet/non-totem/non-guard creature.
+        let (expected_branch, expected_key) = if ai_name.is_empty() {
+            assert_eq!(slot, 0);
+            (AiSelectionBranch::Permit, "EventAI")
+        } else {
+            assert_eq!(slot, 1);
+            (AiSelectionBranch::ExplicitName, ai_name)
+        };
+        assert_eq!(selected_ai.branch(), expected_branch);
+        let AiExecutable::Builtin(binding) = selected_ai.executable() else {
+            panic!("the loaded creature must select a registered builtin factory");
+        };
+        assert_eq!(binding.key, expected_key);
+        // CreatureAIRegistry.cpp:41 registers EventAI to CreatureEventAI.
+        assert_eq!(binding.kind, BuiltinCreatureAi::Event);
         // Unit.cpp:10962, EventProcessor.cpp:23,103-107,124-126: no host clock read.
         assert_eq!(fields.unit_events.clock_millis(), 0);
         assert!(fields.unit_events.is_ai_notify_scheduled());
