@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Source active membership, lock ownership and executable relocation boundaries.
+//! Identity active membership, bound-pointer traversal, grid locks and relocation boundaries.
 use super::*;
 use benilla_sim::resident_map::{compute_cell_pair, compute_grid_pair, CellPair};
 use std::collections::BTreeMap;
@@ -15,16 +15,22 @@ impl SourcePose {
 }
 #[derive(Default)]
 pub struct SourceActive {
-    members: BTreeMap<u64, ObjectHandle>,
-    cursor: Option<u64>,
+    members: BTreeMap<ObjectHandle, Option<u64>>,
+    ordered: BTreeMap<u64, ObjectHandle>,
+    cursor: Option<ObjectHandle>,
     walking: bool,
 }
 impl SourceActive {
-    pub(super) fn contains_source_pointer(&self, pointer: u64) -> bool {
-        self.members.contains_key(&pointer)
+    pub(super) fn contains(&self, object: ObjectHandle) -> bool {
+        self.members.contains_key(&object)
     }
+    // Identity enumeration is only for order-independent consumers; EntitiesMgr.h:43.
     pub fn members(&self) -> impl Iterator<Item = ObjectHandle> + '_ {
-        self.members.values().copied()
+        self.ordered.values().copied().chain(
+            self.members
+                .iter()
+                .filter_map(|(&object, pointer)| pointer.is_none().then_some(object)),
+        )
     }
     pub fn len(&self) -> usize {
         self.members.len()
@@ -32,39 +38,74 @@ impl SourceActive {
     pub fn is_empty(&self) -> bool {
         self.members.is_empty()
     }
-    fn insert(&mut self, pointer: u64, object: ObjectHandle) -> Result<bool> {
-        require(
-            self.members.get(&pointer).is_none_or(|old| *old == object),
-            "execution.active.pointer_lifetime",
-        )?;
-        Ok(self.members.insert(pointer, object).is_none())
-    }
-    fn following(&self, pointer: u64) -> Option<u64> {
-        self.members
-            .range((Excluded(pointer), Unbounded))
-            .next()
-            .map(|(&key, _)| key)
-    }
-    fn remove(&mut self, pointer: u64) -> bool {
-        if self.cursor == Some(pointer) {
-            self.cursor = self.following(pointer);
+    fn insert(&mut self, object: ObjectHandle, pointer: Option<u64>) -> Result<bool> {
+        if self.members.contains_key(&object) {
+            return Ok(false);
         }
-        self.members.remove(&pointer).is_some()
+        // An unknown insertion rank can change this live walk; Map.cpp:945-952.
+        require(
+            !self.walking
+                || (pointer.is_some()
+                    && (self.cursor.is_none() || self.members.len() == self.ordered.len())),
+            "execution.map.active_pointer_order_owner",
+        )?;
+        if let Some(pointer) = pointer {
+            require(
+                !self.ordered.contains_key(&pointer),
+                "execution.active.pointer_lifetime",
+            )?;
+            self.ordered.insert(pointer, object);
+        }
+        self.members.insert(object, pointer);
+        Ok(true)
     }
-    // Advance before callbacks; erasing the next member advances the stored iterator; Map.cpp:945-952,1609-1618.
+    fn following(&self, object: ObjectHandle) -> Option<ObjectHandle> {
+        self.members[&object].and_then(|pointer| {
+            self.ordered
+                .range((Excluded(pointer), Unbounded))
+                .next()
+                .map(|(_, &object)| object)
+        })
+    }
+    fn remove(&mut self, object: ObjectHandle) -> Result<bool> {
+        // Erasing find(end) with a live non-end cursor is undefined; Map.cpp:1612-1615.
+        require(
+            self.cursor.is_none() || self.members.contains_key(&object),
+            "execution.map.active_erase_end_undefined",
+        )?;
+        if self.cursor == Some(object) {
+            self.cursor = self.following(object);
+        }
+        let Some(pointer) = self.members.remove(&object) else {
+            return Ok(false);
+        };
+        if let Some(pointer) = pointer {
+            self.ordered.remove(&pointer);
+        }
+        Ok(true)
+    }
+    // Unknown pointer rank matters only with multiple members; Map.cpp:945-952.
     pub fn begin_visit(&mut self) -> Result<()> {
         require(!self.walking, "execution.active.nested_traversal")?;
+        require(
+            self.members.len() <= 1 || self.members.len() == self.ordered.len(),
+            "execution.map.active_pointer_order_owner",
+        )?;
         self.walking = true;
-        self.cursor = self.members.first_key_value().map(|(&key, _)| key);
+        self.cursor = self
+            .ordered
+            .first_key_value()
+            .map(|(_, &object)| object)
+            .or_else(|| self.members.first_key_value().map(|(&object, _)| object));
         Ok(())
     }
     pub fn next_member(&mut self) -> Result<Option<ObjectHandle>> {
         require(self.walking, "execution.active.traversal_not_started")?;
-        let Some(pointer) = self.cursor else {
+        let Some(object) = self.cursor else {
             return Ok(None);
         };
-        let object = self.members[&pointer];
-        self.cursor = self.following(pointer);
+        // Advance before callbacks; removing the next member advances again; Map.cpp:952,1613-1614.
+        self.cursor = self.following(object);
         Ok(Some(object))
     }
     pub fn finish_visit(&mut self) {
@@ -151,7 +192,7 @@ impl SourceCells {
         let range = range as u32 + 1;
         let low = [u32::from(x) * 16, u32::from(y) * 16].map(|v| v.saturating_sub(range));
         let high = [u32::from(x) * 16 + 16, u32::from(y) * 16 + 16].map(|v| (v + range).min(1023));
-        for object in objects.map_players(self.map()).chain(self.active.members()) {
+        for object in objects.map_players(self.map()) {
             let pair = objects.pose(object)?.cell()?;
             if low[0] <= u32::from(pair.x())
                 && u32::from(pair.x()) <= high[0]
@@ -161,7 +202,16 @@ impl SourceCells {
                 return Ok(true);
             }
         }
-        Ok(false)
+        // Validate every active coordinate before returning an order-free existential; Map.cpp:1568-1574.
+        let mut near = false;
+        for object in self.active.members() {
+            let pair = objects.pose(object)?.cell()?;
+            near |= low[0] <= u32::from(pair.x())
+                && u32::from(pair.x()) <= high[0]
+                && low[1] <= u32::from(pair.y())
+                && u32::from(pair.y()) <= high[1];
+        }
+        Ok(near)
     }
     fn active_lock(
         &mut self,
@@ -200,11 +250,8 @@ impl<D: GridDefinitions, P: GridProductOwner> GridFactoryContext<'_, D, P> {
             value.map == Some(self.cells.map()) && value.kind != SourceObjectKind::Player,
             "execution.active.object_map_kind",
         )?;
-        let pointer = value
-            .source_allocation
-            .ok_or_else(|| refuse("execution.active.source_allocation_owner"))?;
+        let membership_changed = self.cells.active.insert(object, value.source_allocation)?;
         let pair = self.objects.pose(object)?.cell()?;
-        let membership_changed = self.cells.active.insert(pointer, object)?;
         self.load_grid(pair, GridLoadTrigger::ActiveObject, factory)?;
         let lock = self.cells.active_lock(self.objects, object, true)?;
         Ok(ActiveChange {
@@ -219,10 +266,7 @@ impl<D: GridDefinitions, P: GridProductOwner> GridFactoryContext<'_, D, P> {
             value.map == Some(self.cells.map()) && value.kind != SourceObjectKind::Player,
             "execution.active.object_map_kind",
         )?;
-        let pointer = value
-            .source_allocation
-            .ok_or_else(|| refuse("execution.active.source_allocation_owner"))?;
-        let membership_changed = self.cells.active.remove(pointer);
+        let membership_changed = self.cells.active.remove(object)?;
         let lock = self.cells.active_lock(self.objects, object, false)?;
         Ok(ActiveChange {
             membership_changed,

@@ -231,6 +231,18 @@ impl World {
         self.objects.add_to_world(object).unwrap();
         object
     }
+    fn unbound_actor(&mut self, current: SourcePose) -> ObjectHandle {
+        let object = self
+            .objects
+            .construct(2, SourceObjectKind::Creature)
+            .unwrap();
+        self.objects.bind_map(object, map(), &self.cells).unwrap();
+        self.objects.set_pose(object, current).unwrap();
+        self.objects
+            .set_respawn_definition(object, current, true)
+            .unwrap();
+        object
+    }
     fn add(&mut self, object: ObjectHandle) -> ActiveChange {
         let (mut context, factory) = self.context();
         context.add_to_active(object, factory).unwrap()
@@ -668,7 +680,7 @@ fn preload_eligibility_preserves_loader_occurrence_order_and_go_dynamic_branch()
     );
 }
 #[test]
-fn allocation_binding_refuses_overlap_and_missing_identity_never_sorts_by_guid() {
+fn allocation_binding_refuses_overlap_but_active_membership_uses_object_identity() {
     let mut world = World::new(true);
     let origin = pose(0.0, 0.0);
     let creature = world.actor(origin, origin, SourceObjectKind::Creature, 40, 1000);
@@ -689,14 +701,27 @@ fn allocation_binding_refuses_overlap_and_missing_identity_never_sorts_by_guid()
             .id,
         "execution.active.allocation_overlap"
     );
-    {
-        let (mut context, factory) = world.context();
-        assert_eq!(
-            context.add_to_active(unbound, factory).unwrap_err().id,
-            "execution.active.source_allocation_owner"
-        );
-    }
+    world
+        .objects
+        .set_respawn_definition(unbound, origin, true)
+        .unwrap();
+    assert!(world.add(unbound).membership_changed);
+    assert!(!world.add(unbound).membership_changed);
+    let grid = world.cells.grids().identity(32, 32).unwrap();
+    assert_eq!(world.cells.grids().active_lock_count(grid).unwrap(), 2);
     world.add(creature);
+    world.objects.remove_from_world(unbound).unwrap();
+    assert_eq!(
+        world
+            .objects
+            .destroy(unbound, &mut world.cells)
+            .unwrap_err()
+            .id,
+        "execution.destroy_registered_object"
+    );
+    assert!(world.remove(unbound).membership_changed);
+    assert!(!world.remove(unbound).membership_changed);
+    assert_eq!(world.cells.grids().active_lock_count(grid).unwrap(), 1);
     world.objects.remove_from_world(creature).unwrap();
     assert_eq!(
         world
@@ -712,6 +737,167 @@ fn allocation_binding_refuses_overlap_and_missing_identity_never_sorts_by_guid()
         .objects
         .bind_source_allocation(unbound, 1000, 128, 0)
         .unwrap();
+}
+
+#[test]
+fn active_neighbourhood_is_independent_of_identity_and_allocation_order() {
+    for reverse in [false, true] {
+        let mut world = World::new(true);
+        let near = pose(34.0, 0.0);
+        let far = pose(3000.0, 3000.0);
+        let positions = if reverse { [far, near] } else { [near, far] };
+        let a = world.actor(
+            positions[0],
+            positions[0],
+            SourceObjectKind::Creature,
+            90,
+            3000,
+        );
+        let b = world.actor(
+            positions[1],
+            positions[1],
+            SourceObjectKind::Creature,
+            80,
+            1000,
+        );
+        world.add(b);
+        world.add(a);
+        assert!(world
+            .cells
+            .active_objects_near_grid(31, 32, 0.0, &world.objects)
+            .unwrap());
+        assert!(!world
+            .cells
+            .active_objects_near_grid(20, 20, 0.0, &world.objects)
+            .unwrap());
+        world.objects.set_pose(a, pose(f32::NAN, 0.0)).unwrap();
+        assert_eq!(
+            world
+                .cells
+                .active_objects_near_grid(31, 32, 0.0, &world.objects)
+                .unwrap_err()
+                .id,
+            "execution.active.position_coordinates"
+        );
+    }
+}
+
+#[test]
+fn single_unbound_active_member_walks_and_erasing_next_advances_to_end() {
+    let mut world = World::new(true);
+    let object = world.unbound_actor(pose(0.0, 0.0));
+    assert!(world.add(object).membership_changed);
+    assert!(world.cells.active().contains(object));
+    world.cells.active_mut().begin_visit().unwrap();
+    assert_eq!(
+        world.cells.active_mut().next_member().unwrap(),
+        Some(object)
+    );
+    assert_eq!(world.cells.active_mut().next_member().unwrap(), None);
+    world.cells.active_mut().finish_visit();
+    world.cells.active_mut().begin_visit().unwrap();
+    assert!(world.remove(object).membership_changed);
+    assert!(!world.cells.active().contains(object));
+    assert_eq!(world.cells.active_mut().next_member().unwrap(), None);
+    world.cells.active_mut().finish_visit();
+}
+
+#[test]
+fn active_walk_refuses_unknown_pointer_rank_before_selecting_or_inserting() {
+    let mut world = World::new(true);
+    let origin = pose(0.0, 0.0);
+    let a = world.unbound_actor(origin);
+    let b = world.unbound_actor(origin);
+    world.add(a);
+    world.add(b);
+    assert_eq!(
+        world.cells.active_mut().begin_visit().unwrap_err().id,
+        "execution.map.active_pointer_order_owner"
+    );
+    assert_eq!(
+        world.cells.active_mut().next_member().unwrap_err().id,
+        "execution.active.traversal_not_started"
+    );
+    world.remove(b);
+    let bound = world.actor(origin, origin, SourceObjectKind::Creature, 80, 1000);
+    world.add(bound);
+    assert_eq!(
+        world.cells.active_mut().begin_visit().unwrap_err().id,
+        "execution.map.active_pointer_order_owner"
+    );
+    world.remove(a);
+    world.cells.active_mut().begin_visit().unwrap();
+    let (mut context, factory) = world.context();
+    assert_eq!(
+        context.add_to_active(b, factory).unwrap_err().id,
+        "execution.map.active_pointer_order_owner"
+    );
+    assert!(!context.cells.active().contains(b));
+    assert_eq!(
+        context.cells.active_mut().next_member().unwrap(),
+        Some(bound)
+    );
+    context.cells.active_mut().finish_visit();
+}
+
+#[test]
+fn active_remove_missing_member_refuses_source_erase_end_with_live_cursor() {
+    let mut world = World::new(true);
+    let a = world.unbound_actor(pose(0.0, 0.0));
+    let b = world.unbound_actor(pose(0.0, 0.0));
+    world.add(a);
+    world.cells.active_mut().begin_visit().unwrap();
+    let (mut context, _) = world.context();
+    assert_eq!(
+        context.remove_from_active(b).unwrap_err().id,
+        "execution.map.active_erase_end_undefined"
+    );
+    assert_eq!(context.cells.active_mut().next_member().unwrap(), Some(a));
+    context.cells.active_mut().finish_visit();
+}
+
+#[test]
+fn unbound_duplicate_add_still_loads_grid_before_incrementing_spawn_lock() {
+    let mut world = World::new(true);
+    let object = world.unbound_actor(pose(0.0, 0.0));
+    let first = world.add(object);
+    let ActiveLockOutcome::Changed { grid, count: 1 } = first.lock else {
+        panic!("first active insertion must lock the spawn grid");
+    };
+    world
+        .objects
+        .set_pose(object, pose(3000.0, 3000.0))
+        .unwrap();
+    world.products.fail = true;
+    let (mut context, factory) = world.context();
+    assert_eq!(
+        context.add_to_active(object, factory).unwrap_err().id,
+        "authored.products_missing"
+    );
+    assert!(context.cells.active().contains(object));
+    assert_eq!(context.cells.active().len(), 1);
+    assert_eq!(context.cells.grids().active_lock_count(grid).unwrap(), 1);
+}
+
+#[test]
+fn unbound_duplicate_add_keeps_one_member_and_increments_lock_twice() {
+    let mut world = World::new(true);
+    let object = world.unbound_actor(pose(0.0, 0.0));
+    // Map.cpp:1581,1596; trace60348289/60348298 inserts, :60348296/:60348300 lock counts.
+    let first = world.add(object);
+    let ActiveLockOutcome::Changed { grid, count: 1 } = first.lock else {
+        panic!("first active insertion must lock the spawn grid once");
+    };
+    assert!(first.membership_changed);
+    assert_eq!(
+        world.add(object),
+        ActiveChange {
+            membership_changed: false,
+            lock: ActiveLockOutcome::Changed { grid, count: 2 },
+        }
+    );
+    assert_eq!(world.cells.active().members().collect::<Vec<_>>(), [object]);
+    assert_eq!(world.objects.get(object).unwrap().source_allocation, None);
 }
 
 #[test]

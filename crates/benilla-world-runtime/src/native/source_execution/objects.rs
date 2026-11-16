@@ -658,9 +658,7 @@ impl SourceObjects {
             !object.in_world
                 && !object.global_player_registered
                 && !object.player_map_linked
-                && !object
-                    .source_allocation
-                    .is_some_and(|pointer| cells.active().contains_source_pointer(pointer)),
+                && !cells.active().contains(handle),
             "execution.destroy_registered_object",
         )?;
         require(

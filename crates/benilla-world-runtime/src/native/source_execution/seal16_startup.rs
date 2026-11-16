@@ -155,6 +155,8 @@ struct MapThreadEvidence {
     first_candidate_rng: Vec<(String, u32, i64, i64, Option<i64>)>,
     candidate_requests: Vec<(usize, String, i64, i64, Option<i64>)>,
     first_created_guid: Option<(u64, u32, u32, u32, u16)>,
+    active_adds: Vec<(u64, u32, String, u32)>,
+    active_locks: Vec<(u64, u16)>,
 }
 #[derive(Default)]
 pub(super) struct Inputs {
@@ -335,6 +337,17 @@ impl Inputs {
             }
             "grid_create" if evidence.first_grid.is_none() => {
                 evidence.first_grid = Some((line, p[2].parse().unwrap(), p[3].parse().unwrap()));
+            }
+            "active_add" if evidence.active_adds.len() < 2 => {
+                evidence.active_adds.push((
+                    line,
+                    p[0].parse().unwrap(),
+                    p[1].into(),
+                    p[2].parse().unwrap(),
+                ));
+            }
+            "grid_lock_inc" if evidence.active_locks.len() < 2 => {
+                evidence.active_locks.push((line, p[1].parse().unwrap()));
             }
             "constructor_loader_candidate" if evidence.first_candidate.is_none() => {
                 evidence.first_candidate = Some((
@@ -2166,9 +2179,46 @@ pub(super) fn continue_startup(
         )
         .unwrap();
         println!(
-            "F6_NEXT_CANDIDATE map={slot} guid={} kind={:?} entry={entry} allocations={candidates} completed={completed} refusal={} lookups={lookups:?}",
-            attempt.guid, attempt.kind, refusal.id
+            "F6_NEXT_CANDIDATE map={slot} guid={} kind={:?} entry={entry} allocations={candidates} completed={completed} active_members={} refusal={} lookups={lookups:?}",
+            attempt.guid, attempt.kind, continents.maps[slot].cells.active().len(), refusal.id
         );
+        assert_eq!(
+            continents.maps[slot].cells.active().len(),
+            usize::from(slot == 1)
+        );
+        if slot == 1 {
+            // Map.cpp:1581,1596; trace60348289/60348298 inserts twice, :60348296/:60348300 locks 1 then 2.
+            assert_eq!(
+                evidence
+                    .active_adds
+                    .iter()
+                    .map(|(line, map, _, guid)| (*line, *map, *guid))
+                    .collect::<Vec<_>>(),
+                [(60348289, 1, 27280), (60348298, 1, 27280)]
+            );
+            assert_eq!(evidence.active_adds[0].2, evidence.active_adds[1].2);
+            assert_eq!(evidence.active_locks, [(60348296, 1), (60348300, 2)]);
+            let active = continents.maps[slot]
+                .cells
+                .active()
+                .members()
+                .next()
+                .unwrap();
+            let object = active_objects.get(active).unwrap();
+            assert_eq!(object.database_guid, 27280);
+            assert!(object.active && object.in_world);
+            assert_eq!(object.source_allocation, None);
+            assert!(completed_objects.contains(&active));
+            assert!(units.get(&active_objects, active).unwrap().has_ai);
+            assert_eq!(
+                continents.maps[slot]
+                    .cells
+                    .grids()
+                    .active_lock_count(object.current_cell.unwrap().grid)
+                    .unwrap(),
+                2
+            );
+        }
         let completed_marks = lookups
             .iter()
             .filter(|lookup| **lookup == "grid_battleground_null")
@@ -2325,7 +2375,8 @@ pub(super) fn continue_startup(
         assert!(!fields.can_aggro);
         assert_eq!(
             geometry.pathfinder_constructor_completions,
-            pathfinders_before + motion_initializations
+            // GUID27280 uses static Idle without a PathFinder; MotionMaster.cpp:79-81.
+            pathfinders_before + motion_initializations - u64::from(slot == 1)
         );
         assert_eq!(
             active_objects.viewpoint_cell(candidate).unwrap(),
@@ -2433,7 +2484,7 @@ pub(super) fn continue_startup(
                     .collect::<Vec<_>>(),
                 [
                     28044, 28249, 87282, 27655, 28005, 28828, 29163, 28064, 29147, 6253, 28201,
-                    27984, 28210, 30207, 28239, 28020, 28353, 28008,
+                    27984, 28210, 30207, 28239, 28020, 28353, 28008, 27280,
                 ]
             );
         }
@@ -2624,7 +2675,7 @@ pub(super) fn continue_startup(
             ))
         );
         assert_eq!(attempt.guid, if slot == 0 { 18 } else { 28044 });
-        assert_eq!(candidates, if slot == 0 { 11 } else { 19 });
+        assert_eq!(candidates, if slot == 0 { 11 } else { 20 });
         assert_eq!(entry, if slot == 0 { 3211 } else { 4692 });
         if slot == 0 {
             assert_eq!(init_entry_fields, None);
@@ -2905,7 +2956,7 @@ pub(super) fn continue_startup(
                 attempt.cell.y(),
             ))
         );
-        assert_eq!(completed, if slot == 0 { 10 } else { 18 });
+        assert_eq!(completed, if slot == 0 { 10 } else { 19 });
         println!(
             "F6_VISIBILITY map={slot} census={visibility:?} invalidated_camera_iterator_stock_reach={}",
             visibility.cameras
@@ -2927,7 +2978,7 @@ pub(super) fn continue_startup(
         assert!(!continents.maps[slot].spawn_updated);
         assert_eq!(
             random.cursor().raw,
-            after_pools_cursor + if slot == 0 { 47 } else { 117 }
+            after_pools_cursor + if slot == 0 { 47 } else { 122 }
         );
         matched_map_words[slot] = random.cursor().raw;
         assert_eq!(after_pools_cursor as usize, evidence.pool_raw_end.unwrap());
@@ -2986,7 +3037,7 @@ pub(super) fn continue_startup(
             expected
         );
         println!(
-            "F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={} next_owner={} next_source={}",
+            "F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={} next_owner={} next_source=Creature.cpp:401",
             matched_map_words[slot],
             evidence
                 .pool_members
@@ -2998,7 +3049,6 @@ pub(super) fn continue_startup(
             evidence.pool_snapshot_line.unwrap(),
             encounters.by_map(slot as u32).len(),
             refusal.id,
-            if slot == 0 { "Creature.cpp:401" } else { "Map.cpp:1581" }
         );
         owner.states = states;
         let raw = trace
