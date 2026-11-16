@@ -2880,6 +2880,7 @@ lineage or establish sealed parity. The existing geometry censuses and the
 prefix share their receipt, manifest, and per-file identity checks.
 `BENILLA_VMAP_ROTATION_F1` and `BENILLA_F6_MMAP_F1`, if set, must resolve to
 the framing-selected F1 root. A conflicting root refuses rather than choosing an input.
+The MMap binder refuses malformed names, bad hashes, and metadata failures by name.
 
 PathFinder construction reaches the full-grid upgrade through
 `PathFinder.cpp:1092`, `GridMap.cpp:1059,834,1232-1234,1284`.
