@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Real service budgets for the authored loaded Home scene. Only geometry callbacks
-//! cross the app mailbox; visitor membership and visibility remain authored inputs.
+//! Real service slices for the authored loaded Home scene. Only geometry callbacks
+//! cross the app mailbox; functional requests allow scheduler load, expiry uses 500 ms.
 use super::{
     core::{self, JobLease, ServiceQuery, ServiceStep},
     route_commit::{RouteCommitBoundary, RouteCommitNotice, RouteCommitSink},
@@ -21,6 +21,7 @@ use std::{
 };
 
 const LATE_FAILURE: &str = "authored Home resolved-route rollback";
+const FUNCTIONAL_REQUEST_LIFETIME: Duration = Duration::from_secs(20);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Stop {
@@ -191,11 +192,11 @@ struct Observed {
     stopped: bool,
 }
 impl Observed {
-    fn job(&mut self, lease: JobLease, deadline: Instant) {
+    fn job(&mut self, lease: JobLease, deadline: Instant, lifetime: Duration) {
         let now = Instant::now();
         assert!(deadline <= now + Duration::from_millis(2));
         assert!(deadline <= lease.deadline());
-        assert!(lease.deadline() <= now + Duration::from_millis(500));
+        assert!(lease.deadline() <= now + lifetime);
         let ticket = lease.ticket();
         if is_home(lease.request()) && !self.home_tickets.contains(&ticket) {
             self.home_tickets.push(ticket);
@@ -218,7 +219,7 @@ impl Observed {
     }
 }
 
-fn run(stop: Stop) {
+fn run(stop: Stop) -> (core::Session, JobLease) {
     let (world, consumer) = scene::setup_with_profile(Some(0), Some(800), |profile| {
         profile.player.start = ai::Point::new(12., 12., 0.).unwrap();
         profile.npcs[0].ai.pursuit_ms = 1;
@@ -233,11 +234,12 @@ fn run(stop: Stop) {
         ..
     } = consumer;
     let (mut local, mailbox) = core::mailbox(session.clone()).unwrap();
-    let sink = local.take_route_commit_sink().unwrap();
+    let mut sink = local.take_route_commit_sink().unwrap();
+    core::set_request_lifetime_for_test(&mut local, &mut sink, FUNCTIONAL_REQUEST_LIFETIME);
     let mut mailbox = Some(mailbox);
     let worker = std::thread::spawn(move || drive(world, local, sink, boundary, other, stop));
     let mut observed = Observed::default();
-    let watchdog = Instant::now() + Duration::from_secs(30);
+    let watchdog = Instant::now() + Duration::from_secs(60);
     while !worker.is_finished() && Instant::now() < watchdog {
         if observed.stopped {
             std::thread::sleep(Duration::from_millis(1));
@@ -326,8 +328,8 @@ fn run(stop: Stop) {
                     match query {
                         ServiceQuery::Route(job) => {
                             let lease = job.lease();
-                            observed.job(lease.clone(), deadline);
                             let home = is_home(job.request());
+                            observed.job(lease.clone(), deadline, FUNCTIONAL_REQUEST_LIFETIME);
                             let request = job.request().clone();
                             let prepare = matches!(&request.query,
                             Query::SourceMotion(MotionQuery::Route(route))
@@ -399,7 +401,7 @@ fn run(stop: Stop) {
                         }
                         ServiceQuery::NearPoint(job) => {
                             let lease = job.lease();
-                            observed.job(lease.clone(), deadline);
+                            observed.job(lease.clone(), deadline, FUNCTIONAL_REQUEST_LIFETIME);
                             if !observed.near_point_tickets.contains(&lease.ticket()) {
                                 observed.near_point_tickets.push(lease.ticket());
                             }
@@ -496,6 +498,8 @@ fn run(stop: Stop) {
         assert!(!observed.home_acked);
         assert_eq!(observed.home_tickets.len(), 1);
     }
+    let home = observed.jobs.remove(&observed.home_tickets[0]).unwrap().0;
+    (session, home)
 }
 
 #[test]
@@ -508,5 +512,27 @@ fn home_mailbox_cancellation_rolls_back_and_reaps_original_work() {
 }
 #[test]
 fn home_mailbox_original_500ms_lease_expires_without_renewal() {
-    run(Stop::Expire);
+    let (session, home) = run(Stop::Expire);
+    // Reuse this run's real Home dispatch with a fresh production-lifetime Work.
+    let (_local, mailbox) = core::mailbox(session).unwrap();
+    let (lease, reply) = mailbox
+        .enqueue_service_test_request(1, home.request().clone())
+        .unwrap();
+    let deadline = lease.deadline();
+    let mut observed = Observed::default();
+    observed.job(lease.clone(), Instant::now(), Duration::from_millis(500));
+    std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+    observed.job(lease.clone(), deadline, Duration::from_millis(500));
+    assert!(
+        !lease.is_active(),
+        "the original lease expires even while the mailbox stays attached"
+    );
+    assert_eq!(
+        mailbox.serve_service_queries_until(1, true, |_, _| panic!("expired Home executed")),
+        1
+    );
+    assert!(
+        reply.try_result().is_err(),
+        "expired Home cannot publish facts"
+    );
 }
