@@ -571,6 +571,80 @@ impl<O: UnitAiExecutionOwner + CreatureRandom> EventAiExecutionOwner for SourceA
     }
 }
 
+impl<O: UnitAiExecutionOwner + CreatureRandom> SourceAiExecution<'_, O> {
+    /// UnitAI.cpp:1155-1179 resets main spells before scanning the live spell list.
+    pub fn spell_list_changed(
+        &mut self,
+        state: &mut SourceEventAi,
+        disabled: Option<bool>,
+        spells: Option<&CreatureSpellList>,
+    ) -> Result<()> {
+        let unit = state.selected.object();
+        let ai = &mut self.ais.get_mut(self.queries.objects, unit)?.base;
+        ai.main_spell_id = 0;
+        ai.main_spell_cost = 0;
+        ai.main_spell_min_range = 0.;
+        ai.main_attack_mask = 0;
+        ai.main_spell_info = None;
+        state.main_spell_id = 0;
+        state.main_spells.clear();
+        // Deviation: CreatureSpellList.h:84-91 leaves Disabled unwritten; the owner permits UnitAI.cpp:1165 because both branches do nothing for empty spells outside combat.
+        if disabled.is_none() {
+            if spells.is_none_or(|list| list.spells.is_empty())
+                && !self
+                    .queries
+                    .units
+                    .get(self.queries.objects, unit)?
+                    .in_combat()
+            {
+                return Ok(());
+            }
+            return Err(refuse(
+                "execution.creature_spell_lists.UnitAI_1165.unwritten_disabled",
+            ));
+        }
+        if disabled == Some(true) {
+            return Ok(());
+        }
+        let spells = spells.ok_or_else(|| refuse("execution.unit_ai.live_spell_list_binding"))?;
+        for spell in spells.spells.values() {
+            if spell.flags & 2 != 0 {
+                if state.main_spell_id == 0 {
+                    state.main_spell_id = spell.spell_id;
+                    self.lifecycle(state, EventAiCallback::CalculateMainSpell(spell.spell_id))?;
+                }
+                state.main_spells.insert(spell.spell_id);
+            }
+        }
+        if !spells.spells.is_empty() {
+            self.ais
+                .get_mut(self.queries.objects, unit)?
+                .base
+                .spell_list_cooldown = false;
+        }
+        if self
+            .queries
+            .units
+            .get(self.queries.objects, unit)?
+            .in_combat()
+        {
+            // UnitAI.cpp:1359-1370 draws even equal initial bounds before AddCooldown.
+            for spell in spells.spells.values() {
+                let cooldown = self.creature_urand(spell.initial[0], spell.initial[1])?;
+                if cooldown != 0 {
+                    let context = self.owner.spell_context()?;
+                    require(
+                        context.stores.template(spell.spell_id).is_some(),
+                        "execution.unit_ai.UnitAI_1368.null_spell_undefined",
+                    )?;
+                    return Err(refuse("execution.unit_ai.UnitAI_1368.AddCooldown_owner"));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 impl<O: BuiltinAiExecutionOwner + HostileTargetExecutionOwner + CreatureRandom>
     SourceAiExecution<'_, O>
 {

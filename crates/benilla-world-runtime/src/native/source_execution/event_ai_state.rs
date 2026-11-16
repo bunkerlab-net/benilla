@@ -264,6 +264,12 @@ impl SourceEventAi {
         self.holders.clear();
         let guid = objects.get(self.selected.object())?.database_guid;
         let definitions = Arc::clone(&self.definitions);
+        #[cfg(test)]
+        definitions.check_spawn_availability(
+            self.selected.inputs().effective_entry,
+            guid,
+            self.build == EventAiBuild::MangosDebug,
+        )?;
         for event in definitions.for_spawn(self.selected.inputs().effective_entry, guid) {
             if self.build == EventAiBuild::Release && event.flags & 0x80 != 0 {
                 continue;

@@ -1742,6 +1742,17 @@ component. Registry installation resets the existing SourceCombat latch.
 Threat GUID rebinding uses F3's object lookup, including an NPC registered
 before base world membership, `Map.cpp:2331-2340,2371-2376`.
 
+`SourceAiExecution::spell_list_changed` follows `UnitAI.cpp:1155-1179`.
+It clears main-spell state before reading the live list's `Disabled` field.
+The owner's 2026-11-16 decision permits an unwritten `Disabled` only when
+both source branches agree. At `UnitAI.cpp:1165`, empty spells outside combat
+do nothing on either branch. Nonempty spells or combat still refuse by name.
+At `UnitAI.cpp:106`, empty spells make either branch false; nonempty spells
+still refuse. `CreatureSpellList.h:84-91` has no field initialiser,
+`Creature.cpp:136-156` leaves the list default-initialised, and the missing-list
+return at `Creature.cpp:2439-2441` preserves that indeterminate value.
+The zero-list branch at `:2428-2434` and copied lists at `:2443` are defined.
+
 Evade removes auras before combat stop and the home decision,
 `UnitAI.cpp:113-130`. Aura, controlled-unit combat stop, combat-entry callbacks,
 home/chase, spells and geometry still require their reached dependent owners.
@@ -2461,21 +2472,23 @@ Grid expiry and unloading use the recorded configuration, including
 The live MMap owner executes `Map.cpp:202-212`; recorded preload is off.
 Active traversal uses the loaded lists and real grid/terrain owners,
 `ObjectMgr.cpp:9145-9156`, `Map.cpp:146-153,336-353,419-427`.
-Map 0 executes the shared GO constructor, model lifecycle, state and animation,
-`GameObject.cpp:178-285,2083-2105`. Its real Map.dbc entry is not a battleground.
-The live terrain query at `GameObject.cpp:289` resolves zone 33, then
-`sOutdoorPvPMgr.GetScript` refuses
-`execution.gameobject.loaded_outdoor_pvp_script_owner` at that line.
-No allocation addresses are invented for the address-independent singleton model.
-Map 1 executes display choice, gender lookup, initial display
-and speed fields, the remaining InitEntry steps, and the existing level/stat
-owner, `Creature.cpp:346-612`, `ObjectMgr.cpp:1615-1632`,
-`Unit.cpp:10199-10275`. It refuses
-`execution.creature.loaded_spell_list_store_owner` at `Creature.cpp:2439`.
-Entry 4692 requests legacy list 469200, so the zero-list branch at `:2428`
-does not apply. Its `irand(0,99)=93` and level `urand(32,33)=33` match
-raw words 11895 and 11896 on thread 7. The map prefixes match 26,567 and
-11,897 words respectively. Each map has one candidate and no completed objects.
+The shared creature continuation executes AI construction, SpellListChanged,
+JustRespawned and InitAI, `Creature.cpp:882-895`, `CreatureEventAI.cpp:1382-1422`.
+Only the two continent script classes use the inherited empty
+OnCreatureRespawn, `InstanceData.h:102`, through `sc_instance.h:27,82`.
+It then checks CREATOR_LOOT, the remaining LoadFromDB gates and outer grid
+insertion, `Creature.cpp:1742-1768`, `ObjectGridLoader.cpp:117,156-159`.
+The full EventAI projection matches 11,469 SQL rows: 11,126 loaded,
+zero C++ skips and 343 unrepresented rows across 244 selector keys.
+Unrepresented source-loaded definitions retain their named missing owner.
+The first map1 timer is 5,376 at raw11902, after four real zero-range
+TimerAI constructor/reset draws, `TimerAI.cpp:23,47`, `CreatureEventAI.cpp:40`.
+Map0 completes four gameobjects and six creatures before GUID636 entry14508
+needs the equipment owner at `Creature.cpp:401`.
+Map1 completes three gameobjects and fifteen creatures before GUID27280
+entry11564 needs the live allocation owner before `Map.cpp:1581`.
+The map prefixes match 26,614 and 12,012 raw words. Recorded allocation
+addresses are never supplied as execution inputs.
 The world-thread clone-only next-word check matches `(8712,3411341330)`.
 Global event/status/quest comparisons and WorldState remain beyond the map
 refusal. Seal8 keeps its earlier lunar refusal. Native format 91 is unchanged.
@@ -2525,12 +2538,10 @@ The named signed-subtraction refusal at `:678`, model-index overflow at
 enum conversions at `Creature.cpp:453,458` have both-side tests and stock
 reach censuses. No source default is replaced by a recorded result.
 
-The next creature owner is `ObjectMgr::LoadCreatureSpellLists`,
-`ObjectMgr.cpp:979-1117`, followed by legacy template spells at
-`:9754`, `World.cpp:1030,1036`. `MapDataContainer.cpp:29-33` retains the
-loaded container and `:46-52` performs the first reached lookup.
-The next GO owner is `OutdoorPvPMgr::InitOutdoorPvP`,
-`World.cpp:1384-1385`, before map initialization at `:1387-1389`.
+The loaded spell-list stores follow `ObjectMgr.cpp:979-1117,9754`,
+`World.cpp:1030,1036`; `MapDataContainer.cpp:46-52` binds each live list.
+The OutdoorPvP initializer precedes map construction,
+`World.cpp:1384-1389`; reached callbacks still require their actual owners.
 
 
 The shared AREA

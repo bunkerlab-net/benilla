@@ -1002,3 +1002,95 @@ impl<E: benilla_sim::source_rng::RawGenerator, S: FnMut(benilla_sim::source_rng:
     HostileTargetExecutionOwner for benilla_sim::source_rng::SourceRandom<'_, E, S>
 {
 }
+
+#[test]
+fn init_refuses_unrepresented_rows_after_respawn_reset_and_holder_clear() {
+    let mut definitions = EventAiDefinitions::default();
+    definitions.insert(definition(1, 21));
+    definitions.mark_unavailable(
+        901,
+        2,
+        0,
+        refuse("execution.event_ai.loader.relay_store_owner"),
+    );
+    assert!(serde_json::to_value(&definitions)
+        .unwrap()
+        .get("unavailable")
+        .is_none());
+    let mut objects = SourceObjects::default();
+    let mut state = state(
+        &mut objects,
+        Arc::new(definitions),
+        77,
+        EventAiBuild::Release,
+    );
+    state.holders.push(EventAiHolder {
+        event: definition(99, 0),
+        timer: 9,
+        enabled: true,
+        in_progress: false,
+        event_target: None,
+    });
+    state.phase = 7;
+    let mut random = Host::default();
+    let mut owner = Host::default();
+    let error = state
+        .just_respawned(
+            &objects,
+            EventAiRespawnSettings {
+                no_aggro_on_sight: false,
+                spawn_defensive: false,
+                ignore_combat: false,
+            },
+            &mut random,
+            &mut owner,
+        )
+        .unwrap_err();
+    assert_eq!(
+        error.id,
+        "execution.event_ai.CreatureEventAI_150.entry_901.key_901.event_2.execution.event_ai.loader.relay_store_owner"
+    );
+    assert!(state.holders.is_empty());
+    assert_eq!(state.phase, 7);
+    assert_eq!(
+        owner.calls,
+        [
+            "ResetAllBaseTimers",
+            "RestoreRangedModeAndAttackDistance",
+            "SetAiOrderNone",
+            "ClearCombatScriptStatus",
+            "ClearCombatOnlyRoot",
+        ]
+    );
+    assert!(random.draws.is_empty());
+}
+
+#[test]
+fn init_accepts_clean_cpp_skipped_and_release_filtered_rows() {
+    let (skipped, results) =
+        EventAiDefinitions::load(&mut Loader::default(), vec![row(2, 901, 43)]).unwrap();
+    assert!(matches!(
+        results[0].disposition,
+        EventAiDisposition::Skipped { line: 260 }
+    ));
+    let mut clean = EventAiDefinitions::default();
+    clean.insert(definition(1, 21));
+    let mut debug = clean.clone();
+    debug.mark_unavailable(
+        901,
+        3,
+        0x80,
+        refuse("execution.event_ai.loader.relay_store_owner"),
+    );
+    for (definitions, holders) in [(clean, 1), (skipped, 0), (debug, 1)] {
+        let mut objects = SourceObjects::default();
+        let mut state = state(
+            &mut objects,
+            Arc::new(definitions),
+            77,
+            EventAiBuild::Release,
+        );
+        state.init(&objects, &mut Host::default()).unwrap();
+        assert_eq!(state.holders.len(), holders);
+    }
+}

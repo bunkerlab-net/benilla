@@ -31,13 +31,24 @@ pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
     live.faction = fields.faction;
     live.static_flags = fields.settings.flags;
     live.linking_event_trigger = Some(prefix.creature_linking_trigger);
+    let level = fields.level.as_ref().unwrap();
+    live.vitals = Some(SourceUnitVitals {
+        health: level.health,
+        max_health: level.maximum_health,
+        mana: level.power[0],
+        max_mana: level.maximum_power[0],
+        has_mana: fields.power == 0,
+        energy: level.power[3],
+        max_energy: level.maximum_power[3],
+    });
+    live.can_aggro = Some(fields.can_aggro);
     let mut owner = MotionOwner {
         geometry: context.products,
         flags: live.flags,
         charmer: live.charmer,
     };
-    let mut units = SourceUnits::default();
-    units.register(context.objects, object, live)?;
+    prefix.units.register(context.objects, object, live)?;
+    prefix.threats.register(object)?;
     // Only the empty constructor master exists before AIM_Initialize.
     require(
         prefix.motions.get(&object).unwrap().is_empty(),
@@ -54,11 +65,11 @@ pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
     let result = master.initialize(
         &mut MotionContext {
             objects: context.objects,
-            units: &mut units,
+            units: &mut prefix.units,
         },
         &mut owner,
     );
-    fields.motion_state = Some(units.get(context.objects, object)?.state);
+    fields.motion_state = Some(prefix.units.get(context.objects, object)?.state);
     prefix.motions.insert(object, master);
     result
 }

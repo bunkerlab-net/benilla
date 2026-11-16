@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
-//! World-script construction only. Live callbacks remain separate F5 owners.
+//! World-script construction and the two continents' inherited empty respawn callback.
 use super::*;
 
 /// ScriptedInstance's four default-constructed stores, sc_instance.h:74-78.
@@ -47,6 +47,22 @@ impl SourceWorldScript {
     /// Neither continent overrides InstanceData.h:75's inherited query.
     pub fn encounter_in_progress(&self) -> bool {
         false
+    }
+    /// InstanceData.h:102; world_kalimdor.cpp:40 and world_eastern_kingdoms.cpp:28 inherit this empty callback.
+    pub fn creature_respawn(&mut self) -> Result<()> {
+        Self::respawn_for_class(match self.state {
+            WorldScriptState::EasternKingdoms => "world_map_eastern_kingdoms",
+            WorldScriptState::Kalimdor(_) => "world_map_kalimdor",
+        })
+    }
+    fn respawn_for_class(class: &str) -> Result<()> {
+        if matches!(class, "world_map_eastern_kingdoms" | "world_map_kalimdor") {
+            Ok(())
+        } else {
+            Err(Refusal {
+                id: format!("execution.world_script.{class}.OnCreatureRespawn_override_owner"),
+            })
+        }
     }
     /// world_eastern_kingdoms.cpp:69-86; world_kalimdor.cpp:70-87.
     pub fn creature_create(&mut self, entry: u32, guid: u64) {
@@ -223,6 +239,8 @@ fn world_creature_create_uses_continent_keys_and_preserves_collection_order() {
             state,
         };
         script.creature_create(4692, 99);
+        script.creature_respawn().unwrap();
+        assert_eq!(script.stores, WorldScriptStores::default());
         assert!(script.stores.creatures.is_empty());
         for entry in keys {
             script.creature_create(entry, u64::from(entry) + 1000);
@@ -242,4 +260,14 @@ fn world_creature_create_uses_continent_keys_and_preserves_collection_order() {
         script.creature_create(16421, 10);
         assert_eq!(script.stores.creature_collections[&16421], [9, 10]);
     }
+}
+
+#[test]
+fn overriding_instance_respawn_requires_its_own_callback() {
+    assert_eq!(
+        SourceWorldScript::respawn_for_class("instance_blackwing_lair")
+            .unwrap_err()
+            .id,
+        "execution.world_script.instance_blackwing_lair.OnCreatureRespawn_override_owner"
+    );
 }

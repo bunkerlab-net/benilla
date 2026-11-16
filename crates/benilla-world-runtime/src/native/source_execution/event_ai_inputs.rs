@@ -674,8 +674,54 @@ fn validate_action(
 pub struct EventAiDefinitions {
     entries: BTreeMap<u32, Vec<EventAiDefinition>>,
     guids: BTreeMap<u32, Vec<EventAiDefinition>>,
+    #[cfg(test)]
+    #[serde(skip)]
+    unavailable: BTreeMap<i32, Vec<UnavailableEventAiRow>>,
+}
+#[cfg(test)]
+#[derive(Clone, Debug)]
+struct UnavailableEventAiRow {
+    id: u32,
+    flags: u32,
+    error: Refusal,
 }
 impl EventAiDefinitions {
+    #[cfg(test)]
+    pub(super) fn mark_unavailable(&mut self, key: i32, id: u32, flags: u32, error: Refusal) {
+        self.unavailable
+            .entry(key)
+            .or_default()
+            .push(UnavailableEventAiRow { id, flags, error });
+    }
+    #[cfg(test)]
+    pub(super) fn check_spawn_availability(
+        &self,
+        entry: u32,
+        guid: u32,
+        debug: bool,
+    ) -> Result<()> {
+        let entry_key = i32::try_from(entry).ok().filter(|key| *key > 0);
+        let guid_key = i32::try_from(-i64::from(guid)).ok();
+        for key in entry_key.into_iter().chain(guid_key) {
+            if let Some(row) = self
+                .unavailable
+                .get(&key)
+                .into_iter()
+                .flatten()
+                .find(|row| debug || row.flags & 0x80 == 0)
+            {
+                return Err(Refusal {
+                    id: format!(
+                        "execution.event_ai.CreatureEventAI_{}.entry_{entry}.key_{key}.event_{}.{}",
+                        if key > 0 { 150 } else { 157 },
+                        row.id,
+                        row.error.id
+                    ),
+                });
+            }
+        }
+        Ok(())
+    }
     pub fn load(
         owner: &mut impl EventAiLoaderOwner,
         mut rows: Vec<EventAiRow>,

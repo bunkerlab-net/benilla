@@ -958,3 +958,218 @@ fn generic_timer_constructor_and_all_reset_consume_exact_mt_words() {
         [(0, true), (41, false)]
     );
 }
+
+#[test]
+fn spell_list_changed_clears_main_state_before_disabled_or_empty_returns() {
+    for (disabled, combat) in [
+        (Some(true), true),
+        (Some(false), false),
+        (Some(false), true),
+        (None, false),
+        (None, true),
+    ] {
+        let (objects, mut units, base) = setup(0);
+        let mut owner = Authored::default();
+        owner.words.extend([0, 0]);
+        let ai = SourceCreatureAi::construct(
+            &objects,
+            base.unit,
+            &mut units,
+            &template(),
+            false,
+            0,
+            &config(),
+            &mut owner,
+        )
+        .unwrap();
+        let mut ais = SourceCreatureAis::default();
+        ais.install(&objects, &mut units, ai, &mut SourceCombat::default())
+            .unwrap();
+        if combat {
+            units.get_mut(&objects, base.unit).unwrap().flags |= UNIT_FLAG_COMBAT;
+        }
+        let mut state = super::event_ai_dispatch_tests::state();
+        state.main_spell_id = 7;
+        state.main_spells.insert(7);
+        let mut threats = SourceThreats::default();
+        let mut execution = SourceAiExecution {
+            queries: SourceUnitQueries {
+                objects: &objects,
+                units: &mut units,
+            },
+            ais: &mut ais,
+            threats: &mut threats,
+            owner: &mut owner,
+        };
+        let base = &mut execution.ais.get_mut(&objects, base.unit).unwrap().base;
+        base.main_spell_id = 7;
+        base.main_spell_cost = 99;
+        base.main_spell_min_range = 4.;
+        base.main_spell_info = Some(7);
+        base.main_attack_mask = 2;
+        let list = disabled.map(|disabled| CreatureSpellList {
+            disabled,
+            ..CreatureSpellList::default()
+        });
+        let result = execution.spell_list_changed(
+            &mut state,
+            disabled,
+            if disabled == Some(true) {
+                None
+            } else {
+                list.as_ref()
+            },
+        );
+        if disabled.is_none() && combat {
+            assert_eq!(
+                result.unwrap_err().id,
+                "execution.creature_spell_lists.UnitAI_1165.unwritten_disabled"
+            );
+        } else {
+            result.unwrap();
+        }
+        assert_eq!(state.main_spell_id, 0);
+        assert!(state.main_spells.is_empty());
+        let base = &execution
+            .ais
+            .get(&objects, state.selected.object())
+            .unwrap()
+            .base;
+        assert_eq!(
+            (
+                base.main_spell_id,
+                base.main_spell_cost,
+                base.main_attack_mask
+            ),
+            (0, 0, 0)
+        );
+        assert_eq!(base.main_spell_min_range, 0.);
+        assert_eq!(base.main_spell_info, None);
+        assert!(base.spell_list_cooldown);
+    }
+}
+
+#[test]
+fn spell_list_changed_uses_ranged_flag_two_and_keeps_first_spell_on_refusal() {
+    for (flags, combat, cooldown) in [
+        (0, false, 0),
+        (1, false, 0),
+        (2, false, 0),
+        (0, true, 0),
+        (0, true, 5),
+    ] {
+        let (objects, mut units, base) = setup(0);
+        let mut owner = Authored::default();
+        owner.words.extend([0, 0]);
+        let ai = SourceCreatureAi::construct(
+            &objects,
+            base.unit,
+            &mut units,
+            &template(),
+            false,
+            0,
+            &config(),
+            &mut owner,
+        )
+        .unwrap();
+        let mut ais = SourceCreatureAis::default();
+        ais.install(&objects, &mut units, ai, &mut SourceCombat::default())
+            .unwrap();
+        if combat {
+            units.get_mut(&objects, base.unit).unwrap().flags |= UNIT_FLAG_COMBAT;
+            owner.words.push_back(cooldown);
+        }
+        let (lists, census) = LoadedCreatureSpellLists::load(
+            vec![SqlTemplateRow {
+                ordinal: 0,
+                words: [1, 0, 0, 0, 0, u32::MAX],
+                strings: [b"current".to_vec()],
+            }],
+            vec![SqlTemplateRow {
+                ordinal: 0,
+                words: [1, 100, 100],
+                strings: [b"list".to_vec()],
+            }],
+            vec![SqlTemplateRow {
+                ordinal: 0,
+                words: [
+                    1,
+                    0,
+                    10,
+                    flags,
+                    u32::MAX,
+                    1,
+                    0,
+                    100,
+                    0,
+                    cooldown,
+                    cooldown,
+                    0,
+                    0,
+                ],
+                strings: [],
+            }],
+            &std::collections::BTreeMap::from([(10, 0)]),
+        );
+        assert_eq!(census.loaded, [1, 1, 1]);
+        let mut state = super::event_ai_dispatch_tests::state();
+        let mut threats = SourceThreats::default();
+        let mut execution = SourceAiExecution {
+            queries: SourceUnitQueries {
+                objects: &objects,
+                units: &mut units,
+            },
+            ais: &mut ais,
+            threats: &mut threats,
+            owner: &mut owner,
+        };
+        assert_eq!(
+            execution
+                .spell_list_changed(&mut state, None, Some(&lists.lists[&1]))
+                .unwrap_err()
+                .id,
+            "execution.creature_spell_lists.UnitAI_1165.unwritten_disabled"
+        );
+        let result = execution.spell_list_changed(&mut state, Some(false), Some(&lists.lists[&1]));
+        let base = &execution
+            .ais
+            .get(&objects, state.selected.object())
+            .unwrap()
+            .base;
+        if flags == 2 {
+            assert_eq!(
+                result.unwrap_err().id,
+                "execution.event_ai.f5_07_main_spell_state_owner"
+            );
+            assert_eq!((base.main_spell_id, state.main_spell_id), (10, 10));
+            assert!(base.spell_list_cooldown);
+        } else if combat && cooldown != 0 {
+            assert_eq!(
+                result.unwrap_err().id,
+                "execution.spells.live_SpellStart_context_owner"
+            );
+            assert_eq!((base.main_spell_id, state.main_spell_id), (0, 0));
+            assert!(!base.spell_list_cooldown);
+        } else {
+            result.unwrap();
+            assert_eq!((base.main_spell_id, state.main_spell_id), (0, 0));
+            assert!(!base.spell_list_cooldown);
+        }
+        assert!(state.main_spells.is_empty());
+        assert!(execution.owner.words.is_empty());
+    }
+}
+
+#[test]
+fn empty_unwritten_spell_list_combat_branches_agree() {
+    use super::unit_ai::spell_list_combat_predicate;
+    for disabled in [Some(true), Some(false), None] {
+        assert!(!spell_list_combat_predicate(disabled, false).unwrap());
+    }
+    assert!(!spell_list_combat_predicate(Some(true), true).unwrap());
+    assert!(spell_list_combat_predicate(Some(false), true).unwrap());
+    assert_eq!(
+        spell_list_combat_predicate(None, true).unwrap_err().id,
+        "execution.creature_spell_lists.UnitAI_106.unwritten_disabled"
+    );
+}

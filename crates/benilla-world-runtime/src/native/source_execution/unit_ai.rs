@@ -493,6 +493,17 @@ pub enum UnitAiSightQuery {
     AttackOnSight,
     Accessible,
 }
+pub fn spell_list_combat_predicate(disabled: Option<bool>, nonempty: bool) -> Result<bool> {
+    // Deviation: CreatureSpellList.h:84-91 leaves Disabled unwritten; the owner permits UnitAI.cpp:106 because both branches are false when Spells is empty.
+    match disabled {
+        Some(disabled) => Ok(!disabled && nonempty),
+        None if !nonempty => Ok(false),
+        None => Err(refuse(
+            "execution.creature_spell_lists.UnitAI_106.unwritten_disabled",
+        )),
+    }
+}
+
 pub trait UnitAiExecutionOwner {
     fn pet_control_guid(
         &mut self,
@@ -578,7 +589,8 @@ pub trait UnitAiExecutionOwner {
         Err(refuse("execution.unit_ai.process_c_rng_owner"))
     }
     fn spell_list_has_spells(&mut self, unit: ObjectHandle) -> Result<bool> {
-        Ok(self.creature_spell_list(unit)?.ai_has_spells())
+        let list = self.creature_spell_list(unit)?;
+        spell_list_combat_predicate(Some(list.disabled), !list.spells.is_empty())
     }
     fn creature_spell_list(&mut self, _unit: ObjectHandle) -> Result<&CreatureSpellList> {
         Err(refuse("execution.unit_ai.spell_list_owner"))

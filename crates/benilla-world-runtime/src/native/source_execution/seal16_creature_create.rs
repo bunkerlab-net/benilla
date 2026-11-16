@@ -295,9 +295,38 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
         selected.executable()
     );
     prefix.selected_ai = Some(selected);
-    Err(refuse(CREATURE_NEXT_OWNER))
+    ai_initialize::initialize(prefix, object, context)?;
+    if prefix.spawn_templates.rows()[&data.spawn_template.unwrap()].relay_id != 0 {
+        return Err(refuse(
+            "execution.creature.Creature_1743.ScriptsStart_owner",
+        ));
+    }
+    prefix.lookups.push("creature_spawn_relay_checked");
+    if prefix.creature_linking_trigger && context.objects.get(object)?.alive {
+        return Err(refuse(
+            "execution.creature.Creature_1747.DoCreatureLinkingEvent_owner",
+        ));
+    }
+    if prefix.groups.creature_group(map, data.row.guid)?.is_some() {
+        return Err(refuse(
+            "execution.creature.Creature_1751.GetFormationData_owner",
+        ));
+    }
+    prefix.lookups.push("creature_respawn_group_checked");
+    let rabbit_day =
+        super::super::super::super::spawn_loader_config::assignment(prefix.config, "RabbitDay")?
+            .1
+            .parse::<u32>()
+            .map_err(|_| refuse("execution.creature.rabbit_day_config"))?;
+    if context.objects.get(object)?.alive && rabbit_day != 0 {
+        return Err(refuse("execution.creature.Creature_1761.localtime_owner"));
+    }
+    prefix.lookups.push("creature_load_from_db_return");
+    Ok(GridCandidateOutcome::Loaded(object))
 }
 
+#[path = "seal16_creature_ai.rs"]
+mod ai_initialize;
 #[path = "seal16_creature_motion.rs"]
 mod motion_initialize;
 

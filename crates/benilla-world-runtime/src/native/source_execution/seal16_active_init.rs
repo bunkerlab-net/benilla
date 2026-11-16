@@ -4,8 +4,10 @@ use super::*;
 use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
-pub(super) const CREATURE_NEXT_OWNER: &str =
-    "execution.creature.CreatureAISelector_90.live_ai_constructor_owner";
+pub(super) const CREATURE_NEXT_OWNER: [&str; 2] = [
+    "execution.creature.loaded_equipment_template_owner",
+    "execution.active.source_allocation_owner",
+];
 #[path = "seal16_active_clocks.rs"]
 mod clocks;
 pub(super) use clocks::{ActiveClock, ActiveClocks};
@@ -82,6 +84,14 @@ pub(super) struct Prefix<'a> {
     pub ai_registry: &'a SourceAiRegistry,
     pub ai_factions: &'a CreatureAiFactions,
     pub selected_ai: Option<SelectedCreatureAi>,
+    pub ai_templates: &'a BTreeMap<u32, CreatureAiTemplateOperands>,
+    pub ai_config: &'a EventAiLoaderConfig,
+    pub event_definitions: std::sync::Arc<EventAiDefinitions>,
+    pub units: SourceUnits,
+    pub ais: SourceCreatureAis,
+    pub threats: SourceThreats,
+    pub combat: SourceCombat,
+    pub event_ais: BTreeMap<ObjectHandle, SourceEventAi>,
     pub config: &'a [u8],
     pub inputs: &'a EffectiveSpawnInputs,
     pub go_animprogress: Option<u32>,
@@ -95,6 +105,7 @@ pub(super) struct Prefix<'a> {
     pub candidates: Vec<ObjectHandle>,
     pub completed: usize,
     pub completed_objects: Vec<ObjectHandle>,
+    pub first_creature: Option<FirstCreature>,
     pub first_go: Option<FirstGo>,
     pub motions: BTreeMap<ObjectHandle, SourceMotionMaster>,
     pub entry: Option<u32>,
@@ -299,6 +310,31 @@ impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManag
         )?;
         self.completed_objects.push(object);
         self.completed += 1;
+        if self.first_creature.is_none()
+            && context.objects.get(object)?.kind == SourceObjectKind::Creature
+        {
+            self.first_creature = Some(FirstCreature {
+                attempt: *self.attempts.last().unwrap(),
+                candidate: object,
+                entry: self.entry.unwrap(),
+                lookups: self.lookups.clone(),
+                fields: self.creature_entry.take().unwrap(),
+                model: self.creature_model,
+                display_chance: self.creature_display_chance,
+                init_entry_fields: self.init_entry_fields,
+                selected_ai: self.selected_ai.take(),
+                visibility: self.visibility.clone(),
+                battleground: self.creature_battleground,
+                zone: self.creature_zone,
+                linking_trigger: self.creature_linking_trigger,
+                go_load_operands: self.go_load_operands,
+                go_factory_elevator: self.go_factory_elevator,
+                go_animprogress: self.go_animprogress,
+                go_battleground: self.go_battleground,
+                go_zone: self.go_zone,
+                go_script_id: self.go_script_id,
+            });
+        }
         Ok(())
     }
     fn corpse_bindings(&mut self) -> Result<CorpseGridBindings<'_>> {
@@ -308,6 +344,27 @@ impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManag
             instanceable: self.instanceable,
         })
     }
+}
+pub(super) struct FirstCreature {
+    pub attempt: GridLoadAttempt,
+    pub candidate: ObjectHandle,
+    pub entry: u32,
+    pub lookups: Vec<&'static str>,
+    pub fields: creature_entry::EntryFields,
+    pub model: Option<[u32; 8]>,
+    pub display_chance: Option<u32>,
+    pub init_entry_fields: Option<(u32, u32, [u8; 2])>,
+    pub selected_ai: Option<SelectedCreatureAi>,
+    pub visibility: SourceVisibilityCensus,
+    pub battleground: Option<bool>,
+    pub zone: Option<u32>,
+    pub linking_trigger: bool,
+    pub go_load_operands: Option<(u32, [u32; 4], [u32; 4])>,
+    pub go_factory_elevator: Option<bool>,
+    pub go_animprogress: Option<u32>,
+    pub go_battleground: Option<bool>,
+    pub go_zone: Option<u32>,
+    pub go_script_id: Option<u32>,
 }
 
 pub(super) struct FirstGo {
@@ -325,6 +382,7 @@ pub(super) struct FirstGo {
 }
 
 pub(super) struct ActivePrefixReport {
+    pub first_creature: Option<FirstCreature>,
     pub refusal: Refusal,
     pub first_go: Option<FirstGo>,
     pub completed_objects: Vec<ObjectHandle>,
@@ -352,6 +410,9 @@ pub(super) struct ActivePrefixReport {
     pub creature_zone: Option<u32>,
     pub creature_linking_trigger: bool,
     pub selected_ai: Option<SelectedCreatureAi>,
+    pub units: SourceUnits,
+    pub ais: SourceCreatureAis,
+    pub event_ais: BTreeMap<ObjectHandle, SourceEventAi>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -379,6 +440,9 @@ pub(super) fn load_first(
     faction_flags: &BTreeMap<u32, u32>,
     ai_registry: &SourceAiRegistry,
     ai_factions: &CreatureAiFactions,
+    ai_templates: &BTreeMap<u32, CreatureAiTemplateOperands>,
+    ai_config: &EventAiLoaderConfig,
+    event_definitions: std::sync::Arc<EventAiDefinitions>,
     outdoor_pvp: &SourceOutdoorPvp,
     linking: &SourceCreatureLinking,
     states: &mut SourceManagers,
@@ -462,6 +526,14 @@ pub(super) fn load_first(
         faction_flags,
         ai_registry,
         ai_factions,
+        ai_templates,
+        ai_config,
+        event_definitions,
+        units: SourceUnits::default(),
+        ais: SourceCreatureAis::default(),
+        threats: SourceThreats::default(),
+        combat: SourceCombat::default(),
+        event_ais: BTreeMap::new(),
         config,
         inputs,
         go_animprogress: None,
@@ -477,6 +549,7 @@ pub(super) fn load_first(
         attempts: Vec::new(),
         candidates: Vec::new(),
         completed: 0,
+        first_creature: None,
         completed_objects: Vec::new(),
         first_go: None,
         selected_ai: None,
@@ -570,6 +643,7 @@ pub(super) fn load_first(
         refusal,
         first_go: factory.first_go,
         completed_objects: factory.completed_objects,
+        first_creature: factory.first_creature,
         attempt,
         candidates: factory.candidates.len(),
         candidate: *factory
@@ -599,6 +673,9 @@ pub(super) fn load_first(
         creature_zone: factory.creature_zone,
         creature_linking_trigger: factory.creature_linking_trigger,
         selected_ai: factory.selected_ai,
+        units: factory.units,
+        ais: factory.ais,
+        event_ais: factory.event_ais,
     })
 }
 
