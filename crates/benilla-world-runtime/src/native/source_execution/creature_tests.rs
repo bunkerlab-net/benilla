@@ -76,14 +76,14 @@ impl GridProductOwner for Products {
         Ok(true)
     }
 }
-struct Random {
+pub(super) struct Random {
     mt: Mt19937,
-    cursor: DrawCursor,
-    events: Vec<TraceEvent>,
+    pub(super) cursor: DrawCursor,
+    pub(super) events: Vec<TraceEvent>,
     stream: Option<u64>,
 }
 impl Random {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             mt: Mt19937::from_seed(5489),
             cursor: DrawCursor::default(),
@@ -92,6 +92,8 @@ impl Random {
         }
     }
 }
+impl UnitAiExecutionOwner for Random {}
+impl MotionExecutionOwner for Random {}
 impl CreatureRandom for Random {
     fn creature_stream(&self) -> Result<u64> {
         self.stream
@@ -116,6 +118,15 @@ impl CreatureRandom for Random {
         )
         .unwrap()
         .creature_urand(min, max)
+    }
+}
+pub(super) struct MissingRandom;
+impl CreatureRandom for MissingRandom {
+    fn creature_irand(&mut self, _: i32, _: i32) -> Result<i32> {
+        Err(refuse("execution.timer_ai.thread_rng_owner"))
+    }
+    fn creature_urand(&mut self, _: u32, _: u32) -> Result<u32> {
+        Err(refuse("execution.timer_ai.thread_rng_owner"))
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -376,8 +387,14 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
     fn creature_ai_registry(&self) -> Result<&SourceAiRegistry> {
         Ok(&self.ai_registry)
     }
-    fn creature_builtin_ai_owners(&mut self) -> Result<(&mut SourceUnits, &SourceCreatureAis)> {
-        Ok((&mut self.units, &self.base_ais))
+    fn creature_builtin_ai_owners(
+        &mut self,
+    ) -> Result<(
+        &mut SourceUnits,
+        &SourceCreatureAis,
+        &mut dyn CreatureRandom,
+    )> {
+        Ok((&mut self.units, &self.base_ais, &mut self.random))
     }
     fn creature_summoned_ai_owners(
         &mut self,
@@ -414,8 +431,6 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
             return Err(selected.constructor_refusal(context.objects)?);
         }
         if let Some(definitions) = &self.event_ai_definitions {
-            struct Dependencies;
-            impl UnitAiExecutionOwner for Dependencies {}
             let template = CreatureAiTemplateOperands {
                 ordinal: 0,
                 entry: state.template.entry,
@@ -453,7 +468,7 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
                     false,
                     0,
                     &config,
-                    &mut Dependencies,
+                    &mut self.random,
                 )?;
                 self.base_ais
                     .install(context.objects, &mut self.units, base, &mut self.combat)?;
@@ -502,27 +517,29 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
                 assert!(state.builtin_ai().is_some());
                 assert!(state.event_ai().is_none());
                 if phase == CreaturePhase::AiJustRespawned {
-                    state
-                        .builtin_ai_mut()
-                        .unwrap()
-                        .just_respawned(context.objects, &mut self.base_ais)?;
+                    state.builtin_ai_mut().unwrap().just_respawned(
+                        context.objects,
+                        &mut self.base_ais,
+                        &mut self.random,
+                    )?;
                 }
             }
             CreaturePhase::AiSpellListChanged if self.event_ai_definitions.is_some() => {
                 assert!(state.event_ai().unwrap().holders.is_empty());
             }
             CreaturePhase::AiJustRespawned if self.event_ai_definitions.is_some() => {
-                struct Dependencies;
-                impl UnitAiExecutionOwner for Dependencies {}
-                impl CreatureRandom for Dependencies {
-                    fn creature_irand(&mut self, _: i32, _: i32) -> Result<i32> {
-                        Err(refuse("authored.unexpected_base_draw"))
+                let cell = std::cell::RefCell::new(&mut self.random);
+                struct Shared<'a, 'b>(&'a std::cell::RefCell<&'b mut Random>);
+                impl CreatureRandom for Shared<'_, '_> {
+                    fn creature_irand(&mut self, min: i32, max: i32) -> Result<i32> {
+                        self.0.borrow_mut().creature_irand(min, max)
                     }
-                    fn creature_urand(&mut self, _: u32, _: u32) -> Result<u32> {
-                        Err(refuse("authored.unexpected_base_draw"))
+                    fn creature_urand(&mut self, min: u32, max: u32) -> Result<u32> {
+                        self.0.borrow_mut().creature_urand(min, max)
                     }
                 }
-                let mut dependencies = Dependencies;
+                impl UnitAiExecutionOwner for Shared<'_, '_> {}
+                let mut dependencies = Shared(&cell);
                 let mut execution = SourceAiExecution {
                     queries: SourceUnitQueries {
                         objects: context.objects,
@@ -539,7 +556,7 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
                         spawn_defensive: false,
                         ignore_combat: false,
                     },
-                    &mut self.random,
+                    &mut Shared(&cell),
                     &mut EventAiDispatcher(&mut execution),
                 )?;
             }

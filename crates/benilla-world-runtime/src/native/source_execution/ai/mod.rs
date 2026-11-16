@@ -88,6 +88,7 @@ impl SourceBuiltinAi {
         objects: &SourceObjects,
         units: &mut SourceUnits,
         ais: &SourceCreatureAis,
+        random: &mut dyn CreatureRandom,
     ) -> Result<Self> {
         selected.validate(objects)?;
         let unit = selected.object();
@@ -102,7 +103,7 @@ impl SourceBuiltinAi {
                 BuiltinBody::Guard // GuardAI.cpp:32-34 has no derived constructor actions.
             }
             Some(BuiltinCreatureAi::Possessed) => {
-                BuiltinBody::Possessed(SourceUnitAi::construct(objects, unit, 0)?)
+                BuiltinBody::Possessed(SourceUnitAi::construct(objects, unit, 0, random)?)
             }
             _ => return Err(selected.constructor_refusal(objects)?),
         };
@@ -319,6 +320,7 @@ impl SourceBuiltinAi {
         &mut self,
         objects: &SourceObjects,
         ais: &mut SourceCreatureAis,
+        random: &mut dyn CreatureRandom,
     ) -> Result<()> {
         self.validate(objects, ais)?;
         if matches!(self.body, BuiltinBody::Pet(_)) {
@@ -328,7 +330,7 @@ impl SourceBuiltinAi {
         if !matches!(self.body, BuiltinBody::Possessed(_)) {
             // CreatureAI.cpp:124-128 versus the empty UnitAI.h:260 callback.
             let ai = ais.get_mut(objects, self.selected.object())?;
-            ai.reset_timers(true)?;
+            ai.reset_timers(true, random)?;
             ai.reset();
         }
         Ok(())

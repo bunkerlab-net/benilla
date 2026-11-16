@@ -1,3 +1,4 @@
+use super::creature_tests::Random;
 use super::*;
 use std::collections::BTreeSet;
 
@@ -72,7 +73,7 @@ fn fixture() -> Fixture {
         false,
         0,
         &config(),
-        &mut Unbound,
+        &mut Random::new(),
     )
     .unwrap();
     units.get_mut(&objects, unit).unwrap().has_ai = true;
@@ -743,7 +744,9 @@ fn guard_update_uses_real_selection_and_completes_empty_out_of_combat_update() {
     let mut ais = SourceCreatureAis::default();
     ais.install(&f.objects, &mut f.units, f.ai, &mut SourceCombat::default())
         .unwrap();
-    let mut builtin = SourceBuiltinAi::construct(selected, &f.objects, &mut f.units, &ais).unwrap();
+    let mut builtin =
+        SourceBuiltinAi::construct(selected, &f.objects, &mut f.units, &ais, &mut Random::new())
+            .unwrap();
     let base = &mut ais.get_mut(&f.objects, unit).unwrap().base;
     base.generic_timers[0].disabled = false;
     base.generic_timers[0].remaining = 1;
@@ -856,7 +859,7 @@ fn catalog04_guard_update_and_eventai_selection_stage_census_or_explicit_absence
             false,
             0,
             &config,
-            &mut Unbound,
+            &mut Random::new(),
         ) {
             Ok(ai) => ai,
             Err(error) => {
@@ -892,7 +895,7 @@ fn catalog04_guard_update_and_eventai_selection_stage_census_or_explicit_absence
         counts.0 += 1;
         counts.1 += n;
         let result = if kind == BuiltinCreatureAi::Guard {
-            SourceBuiltinAi::construct(selected, &objects, &mut units, &ais)
+            SourceBuiltinAi::construct(selected, &objects, &mut units, &ais, &mut Random::new())
                 .unwrap()
                 .update(
                     100,

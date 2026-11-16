@@ -1,3 +1,4 @@
+use super::super::creature_tests::Random;
 use super::*;
 use std::collections::{BTreeMap, VecDeque};
 
@@ -36,6 +37,7 @@ struct Fixture {
     ais: SourceCreatureAis,
     ai: SourceBuiltinAi,
     target: ObjectHandle,
+    random: Random,
 }
 fn fixture(name: &str) -> Fixture {
     let mut objects = SourceObjects::default();
@@ -62,6 +64,7 @@ fn fixture(name: &str) -> Fixture {
         )
         .unwrap();
     let mut ais = SourceCreatureAis::default();
+    let mut random = Random::new();
     if name != "PossessedAI" {
         let base = SourceCreatureAi::construct(
             &objects,
@@ -71,19 +74,20 @@ fn fixture(name: &str) -> Fixture {
             false,
             0,
             &config(),
-            &mut Unbound,
+            &mut random,
         )
         .unwrap();
         ais.install(&objects, &mut units, base, &mut SourceCombat::default())
             .unwrap();
     }
-    let ai = SourceBuiltinAi::construct(selected, &objects, &mut units, &ais).unwrap();
+    let ai = SourceBuiltinAi::construct(selected, &objects, &mut units, &ais, &mut random).unwrap();
     Fixture {
         objects,
         units,
         ais,
         ai,
         target,
+        random,
     }
 }
 #[derive(Default)]
@@ -208,7 +212,9 @@ fn null_missing_name_fallback_and_negative_guard_possessed_selection() {
     input.ai_name = "not_registered".into();
     let selected = registry.select(&f.objects, unit, input).unwrap();
     assert_eq!(*selected.executable(), AiExecutable::NullFallback);
-    let body = SourceBuiltinAi::construct(selected, &f.objects, &mut f.units, &f.ais).unwrap();
+    let body =
+        SourceBuiltinAi::construct(selected, &f.objects, &mut f.units, &f.ais, &mut f.random)
+            .unwrap();
     assert!(!body.is_visible(&f.objects, &f.ais).unwrap());
 }
 #[test]
@@ -510,7 +516,9 @@ fn owner_loss_does_not_invent_derived_cleanup_for_null_guard_or_possessed() {
                 ),
             )
             .unwrap();
-        f.ai = SourceBuiltinAi::construct(selected, &f.objects, &mut f.units, &f.ais).unwrap();
+        f.ai =
+            SourceBuiltinAi::construct(selected, &f.objects, &mut f.units, &f.ais, &mut f.random)
+                .unwrap();
         f.objects
             .destroy(
                 owner,
@@ -630,6 +638,7 @@ fn builtin_catalog04_constructor_census_or_explicit_absence() {
         let mut ais = SourceCreatureAis::default();
         let mut threats = SourceThreats::default();
         threats.register(unit).unwrap();
+        let mut random = Random::new();
         let result = (|| {
             if matches!(
                 selected.executable().builtin_kind(),
@@ -643,11 +652,11 @@ fn builtin_catalog04_constructor_census_or_explicit_absence() {
                     false,
                     0,
                     &config,
-                    &mut Unbound,
+                    &mut random,
                 )?;
                 ais.install(&objects, &mut units, base, &mut SourceCombat::default())?;
             }
-            SourceBuiltinAi::construct(selected, &objects, &mut units, &ais)
+            SourceBuiltinAi::construct(selected, &objects, &mut units, &ais, &mut random)
         })();
         let reason = match result {
             Ok(mut ai) => {
@@ -688,6 +697,7 @@ fn builtin_catalog04_constructor_census_or_explicit_absence() {
 fn respawn_and_unsummon_follow_the_selected_base_class() {
     for name in ["NullAI", "GuardAI", "PossessedAI"] {
         let mut f = fixture(name);
+        assert_eq!(f.random.cursor.raw, 2);
         let unit = f.ai.selected().object();
         let base = match &mut f.ai.body {
             BuiltinBody::Possessed(base) => base,
@@ -698,7 +708,12 @@ fn respawn_and_unsummon_follow_the_selected_base_class() {
         base.ranged_mode = true;
         base.current_ranged_mode = false;
         base.chase_distance = 7.;
-        f.ai.just_respawned(&f.objects, &mut f.ais).unwrap();
+        f.ai.just_respawned(&f.objects, &mut f.ais, &mut f.random)
+            .unwrap();
+        assert_eq!(
+            f.random.cursor.raw,
+            if name == "PossessedAI" { 2 } else { 4 }
+        );
         f.ai.on_unsummon(&f.objects, &f.ais).unwrap();
         f.ai.on_heartbeat(&f.objects, &f.ais).unwrap();
         let base = match &f.ai.body {
@@ -727,7 +742,8 @@ fn missing_base_or_other_selected_class_never_becomes_a_null_body() {
             selected,
             &f.objects,
             &mut f.units,
-            &SourceCreatureAis::default()
+            &SourceCreatureAis::default(),
+            &mut f.random
         )
         .unwrap_err()
         .id,
@@ -747,7 +763,7 @@ fn missing_base_or_other_selected_class_never_becomes_a_null_body() {
             )
             .unwrap();
         assert_eq!(
-            SourceBuiltinAi::construct(selected, &f.objects, &mut f.units, &f.ais)
+            SourceBuiltinAi::construct(selected, &f.objects, &mut f.units, &f.ais, &mut f.random)
                 .unwrap_err()
                 .id,
             id

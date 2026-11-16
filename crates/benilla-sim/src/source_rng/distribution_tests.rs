@@ -383,6 +383,21 @@ fn equal_integer_bounds_consume_words_and_signed_extremes_do_not_overflow() {
 }
 
 #[test]
+fn urand_zero_bounds_consume_one_word_at_both_engine_extremes() {
+    let mut engine = Script::<0, { u32::MAX as u64 }> {
+        words: &[0, u32::MAX as u64],
+        index: 0,
+    };
+    let mut cursor = DrawCursor::default();
+    let mut sink = |_| {};
+    let mut random = SourceRandom::new(1, &mut engine, &mut cursor, &mut sink).unwrap();
+    assert_eq!(random.urand(0, 0), Ok(0));
+    assert_eq!(random.cursor().raw, 1);
+    assert_eq!(random.urand(0, 0), Ok(0));
+    assert_eq!(random.cursor().raw, 2);
+}
+
+#[test]
 fn combat_rounded_zero_skips_but_nonzero_strict_threshold_draws() {
     let mut engine = Script::<0, { u32::MAX as u64 }> {
         words: &[u32::MAX as u64],

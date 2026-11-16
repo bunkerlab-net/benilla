@@ -31,6 +31,11 @@ the adapter executes respawn setup and the callsite-checked recorded `time`
 input at `Creature.cpp:1687-1698`. It enters `AddToWorld` and stops at the
 unported AI-notify event constructor, `Unit.cpp:10961`. Native format stays 91.
 
+Source AI constructors consume the caller's thread RNG for the two disabled
+generic timers, `UnitAI.cpp:60-61` and `TimerAI.cpp:22-24`. All-reset redraws
+them in timer-ID order, `TimerAI.cpp:45-49,146-156`; evade and fixed-time
+resets consume no generic timer draws. Missing streams refuse at the draw.
+
 A pure-Rust, GPL-3.0-or-later, solo-first runtime for the original world-data
 fixture. One selected owner/character starts and ticks immediately, without peer
 configuration or quorum. No game install, realm, Bevy, browser, network, private

@@ -1,3 +1,4 @@
+use super::super::creature_tests::Random;
 use super::*;
 use std::collections::BTreeMap;
 
@@ -147,7 +148,7 @@ impl Fixture {
             false,
             0,
             &config(),
-            &mut Dependencies::default(),
+            &mut Random::new(),
         )
         .unwrap();
         let mut ais = SourceCreatureAis::default();
@@ -447,7 +448,12 @@ fn pet_overrides_do_not_fall_back_to_creature_ai() {
     let mut ai = f.construct(Some(0), None).unwrap();
     let unit = f.selected.object();
     f.ais.get_mut(&f.objects, unit).unwrap().base.generic_timers[0].remaining = 100;
-    ai.just_respawned(&f.objects, &mut f.ais).unwrap();
+    ai.just_respawned(
+        &f.objects,
+        &mut f.ais,
+        &mut super::super::creature_tests::MissingRandom,
+    )
+    .unwrap();
     assert_eq!(
         f.ais.get(&f.objects, unit).unwrap().base.generic_timers[0].remaining,
         100
@@ -827,7 +833,7 @@ fn pet_catalog04_constructor_and_reach_census_or_explicit_absence() {
                 false,
                 0,
                 &config,
-                &mut Unbound,
+                &mut Random::new(),
             )?;
             ais.install(&objects, &mut units, base, &mut SourceCombat::default())?;
             // Ordinary raw-template construction does not own UNIT_CREATED_BY_SPELL.

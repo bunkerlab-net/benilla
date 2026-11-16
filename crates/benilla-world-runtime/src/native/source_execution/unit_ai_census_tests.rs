@@ -1,3 +1,4 @@
+use super::creature_tests::Random;
 use super::*;
 use std::collections::BTreeMap;
 
@@ -127,7 +128,14 @@ fn catalog04_unit_ai_readiness_census_or_explicit_absence() {
             .unwrap();
         let mut owner = Unbound;
         let base = match SourceCreatureAi::construct(
-            &objects, unit, &mut units, t, false, 0, &config, &mut owner,
+            &objects,
+            unit,
+            &mut units,
+            t,
+            false,
+            0,
+            &config,
+            &mut Random::new(),
         ) {
             Ok(base) => base,
             Err(e) => {

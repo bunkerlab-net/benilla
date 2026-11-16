@@ -1,3 +1,4 @@
+use super::creature_tests::Random;
 use super::*;
 use std::collections::BTreeMap;
 struct Unbound;
@@ -231,7 +232,7 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
                 },
             )
             .unwrap();
-        let mut missing = Unbound;
+        let mut missing = Random::new();
         let mut owner = SourceMotionDependencies {
             motions: &mut motions,
             owner: &mut missing,

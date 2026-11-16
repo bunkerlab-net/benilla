@@ -187,6 +187,7 @@ impl CreatureConstruction {
         objects: &SourceObjects,
         units: &mut SourceUnits,
         ais: &SourceCreatureAis,
+        random: &mut dyn CreatureRandom,
     ) -> Result<()> {
         require(
             self.builtin_ai.is_none(),
@@ -200,6 +201,7 @@ impl CreatureConstruction {
             objects,
             units,
             ais,
+            random,
         )?);
         Ok(())
     }
@@ -375,8 +377,15 @@ pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     fn creature_base_ai_instances(&self) -> Result<&SourceCreatureAis> {
         Err(refuse("execution.unit_ai.component_registry_binding_owner"))
     }
-    /// The two owners share one live registry; implementations split their disjoint borrows.
-    fn creature_builtin_ai_owners(&mut self) -> Result<(&mut SourceUnits, &SourceCreatureAis)> {
+    /// Split the live registries and thread RNG into disjoint borrows.
+    #[allow(clippy::type_complexity)]
+    fn creature_builtin_ai_owners(
+        &mut self,
+    ) -> Result<(
+        &mut SourceUnits,
+        &SourceCreatureAis,
+        &mut dyn CreatureRandom,
+    )> {
         Err(refuse(
             "execution.builtin_ai.live_unit_and_base_binding_owner",
         ))
@@ -816,8 +825,8 @@ where
         selected.executable().builtin_kind(),
         Some(BuiltinCreatureAi::Null | BuiltinCreatureAi::Guard | BuiltinCreatureAi::Possessed)
     ) {
-        let (units, ais) = factory.creature_builtin_ai_owners()?;
-        return state.construct_builtin_ai(context.objects, units, ais);
+        let (units, ais, random) = factory.creature_builtin_ai_owners()?;
+        return state.construct_builtin_ai(context.objects, units, ais, random);
     }
     if matches!(
         selected.executable().builtin_kind(),

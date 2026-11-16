@@ -22,13 +22,13 @@ impl SourceCreatureAi {
         charmed: bool,
         combat_actions: u32,
         config: &EventAiLoaderConfig,
-        owner: &mut impl UnitAiExecutionOwner,
+        owner: &mut (impl UnitAiExecutionOwner + CreatureRandom),
     ) -> Result<Self> {
         require(
             units.get(objects, unit)?.entry == template.entry,
             "execution.unit_ai.effective_entry",
         )?;
-        let mut base = SourceUnitAi::construct(objects, unit, combat_actions)?;
+        let mut base = SourceUnitAi::construct(objects, unit, combat_actions, owner)?;
         base.dismount_on_aggro =
             template.type_flags & 0x800 == 0 && template.static_flags[1] & 0x40000 == 0;
         base.set_melee(
@@ -163,19 +163,24 @@ impl SourceCreatureAi {
         owner: &mut impl UnitAiExecutionOwner,
     ) -> Result<()> {
         self.base.enter_evade(objects, units, owner)?;
-        self.reset_timers(false)?;
+        // TimerAI.cpp:153-156 excludes both generic TIMER_ALWAYS timers on evade.
+        self.require_combat_timer_owner()?;
         self.reset();
         Ok(())
     }
-    pub fn reset_timers(&mut self, all: bool) -> Result<()> {
+    fn require_combat_timer_owner(&self) -> Result<()> {
         // EventAI has zero combat actions and only these two disabled ALWAYS timers.
         require(
             self.base.action_count() == 0,
             "execution.unit_ai.f5_17_combat_timer_owner",
-        )?;
+        )
+    }
+    pub fn reset_timers(&mut self, all: bool, random: &mut dyn CreatureRandom) -> Result<()> {
+        self.require_combat_timer_owner()?;
         if all {
             for timer in &mut self.base.generic_timers {
-                timer.remaining = 0;
+                // TimerAI.cpp:45-49 redraws before restoring initialDisabled.
+                timer.remaining = random.creature_urand(0, 0)?;
                 timer.disabled = true;
             }
         }
@@ -446,7 +451,7 @@ impl<O: UnitAiExecutionOwner + CreatureRandom> EventAiExecutionOwner for SourceA
         let unit = state.selected.object();
         let ai = self.ais.get_mut(self.queries.objects, unit)?;
         match call {
-            EventAiCallback::ResetAllBaseTimers => ai.reset_timers(true)?,
+            EventAiCallback::ResetAllBaseTimers => ai.reset_timers(true, self.owner)?,
             EventAiCallback::RestoreRangedModeAndAttackDistance => ai.reset(),
             EventAiCallback::SetAiOrderNone => ai.base.order = 0,
             EventAiCallback::ClearCombatScriptStatus => ai.base.combat_script = false,

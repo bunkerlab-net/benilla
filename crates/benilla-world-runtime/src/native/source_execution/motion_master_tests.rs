@@ -1,3 +1,4 @@
+use super::creature_tests::Random;
 use super::*;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -1140,7 +1141,7 @@ fn eventai_action64_reaches_root_state_and_still_refuses_missing_output() {
         false,
         0,
         &config,
-        &mut Dependencies,
+        &mut Random::new(),
     )
     .unwrap();
     let mut ais = SourceCreatureAis::default();

@@ -120,7 +120,16 @@ fn setup(actions: u32) -> (SourceObjects, SourceUnits, SourceUnitAi) {
     units
         .register(&objects, unit, SourceUnitFields::creature(&template()))
         .unwrap();
-    let ai = SourceUnitAi::construct(&objects, unit, actions).unwrap();
+    let ai = SourceUnitAi::construct(
+        &objects,
+        unit,
+        actions,
+        &mut Authored {
+            words: [0, 0].into(),
+            ..Authored::default()
+        },
+    )
+    .unwrap();
     (objects, units, ai)
 }
 #[test]
@@ -163,7 +172,10 @@ fn creature_reaction_precedence_is_two_ifs_not_one_chain() {
                     false,
                     0,
                     &config,
-                    &mut Authored::default(),
+                    &mut Authored {
+                        words: [0, 0].into(),
+                        ..Authored::default()
+                    },
                 )
                 .unwrap();
                 assert_eq!(
@@ -188,6 +200,8 @@ fn creature_constructor_mount_melee_root_and_guard_precedence() {
     t.extra_flags = 0x400;
     units.get_mut(&objects, base.unit).unwrap().static_flags = t.static_flags;
     let mut owner = Authored::default();
+    owner.words.push_front(0);
+    owner.words.push_front(0);
     let ai = SourceCreatureAi::construct(
         &objects, base.unit, &mut units, &t, false, 0, &config, &mut owner,
     )
@@ -519,6 +533,8 @@ fn event_ai_reads_real_base_flags_reaction_and_threat_without_stats_default() {
         words: [0, 0].into(),
         ..Authored::default()
     };
+    owner.words.push_front(0);
+    owner.words.push_front(0);
     let ai = SourceCreatureAi::construct(
         &objects,
         base.unit,
@@ -664,6 +680,8 @@ fn threat_percent_action_mutates_live_npc_reference_using_owned_guid_fields() {
     let guid = objects.get(target).unwrap().guid.unwrap().raw();
     authored.units.get_mut(&target).unwrap().guid = guid;
     super::threat_tests::add(&mut threats, &mut authored, source, target, 100);
+    owner.words.push_front(0);
+    owner.words.push_front(0);
     let ai = SourceCreatureAi::construct(
         &objects,
         base.unit,
@@ -759,6 +777,8 @@ fn attacked_by_uses_creature_override_and_ping_precedes_passive_filter() {
     let (mut objects, mut units, base) = setup(0);
     let spawner = objects.construct(1, SourceObjectKind::Player).unwrap();
     let mut owner = Authored::default();
+    owner.words.push_front(0);
+    owner.words.push_front(0);
     let mut ai = SourceCreatureAi::construct(
         &objects,
         base.unit,
@@ -843,5 +863,98 @@ fn fresh_move_spline_is_done_inventory_only_and_cannot_restore_a_unit() {
             .unwrap_err()
             .id,
         "execution.managers.f7_continuation_owner"
+    );
+}
+
+#[test]
+fn generic_timer_constructor_and_all_reset_consume_exact_mt_words() {
+    use super::creature_tests::{MissingRandom, Random};
+    use benilla_sim::source_rng::EventKind;
+    let mut objects = SourceObjects::default();
+    let unit = objects.construct(1, SourceObjectKind::Creature).unwrap();
+    let mut units = SourceUnits::default();
+    units
+        .register(&objects, unit, SourceUnitFields::creature(&template()))
+        .unwrap();
+    let mut random = Random::new();
+    let mut ai = SourceCreatureAi::construct(
+        &objects,
+        unit,
+        &mut units,
+        &template(),
+        false,
+        0,
+        &config(),
+        &mut random,
+    )
+    .unwrap();
+    assert_eq!(random.cursor.raw, 2);
+    ai.base.generic_timers[0].remaining = 37;
+    ai.base.generic_timers[0].disabled = false;
+    ai.reset_timers(false, &mut MissingRandom).unwrap();
+    assert_eq!(ai.base.generic_timers[0].remaining, 37);
+    assert!(!ai.base.generic_timers[0].disabled);
+    ai.reset_timers(true, &mut random).unwrap();
+    assert_eq!(random.cursor.raw, 4);
+    assert_eq!(
+        ai.base
+            .generic_timers
+            .map(|t| (t.id, t.remaining, t.disabled)),
+        [(2000, 0, true), (2001, 0, true)]
+    );
+    let raw: Vec<_> = random
+        .events
+        .iter()
+        .filter_map(|e| match e.kind {
+            EventKind::Raw { position, word, .. } => Some((position, word)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        raw,
+        [
+            (0, 3499211612),
+            (1, 581869302),
+            (2, 3890346734),
+            (3, 3586334585)
+        ]
+    );
+    assert_eq!(
+        SourceUnitAi::construct(&objects, unit, 0, &mut MissingRandom)
+            .unwrap_err()
+            .id,
+        "execution.timer_ai.thread_rng_owner"
+    );
+    ai.base.generic_timers[0].remaining = 99;
+    ai.base.generic_timers[0].disabled = false;
+    assert_eq!(
+        ai.reset_timers(true, &mut MissingRandom).unwrap_err().id,
+        "execution.timer_ai.thread_rng_owner"
+    );
+    assert_eq!(ai.base.generic_timers[0].remaining, 99);
+    assert!(!ai.base.generic_timers[0].disabled);
+    struct OneDraw(bool);
+    impl CreatureRandom for OneDraw {
+        fn creature_irand(&mut self, _: i32, _: i32) -> Result<i32> {
+            panic!("unexpected signed timer draw")
+        }
+        fn creature_urand(&mut self, min: u32, max: u32) -> Result<u32> {
+            assert_eq!((min, max), (0, 0));
+            if std::mem::replace(&mut self.0, true) {
+                Err(refuse("execution.timer_ai.thread_rng_owner"))
+            } else {
+                Ok(0)
+            }
+        }
+    }
+    ai.base.generic_timers[1].remaining = 41;
+    ai.base.generic_timers[1].disabled = false;
+    assert_eq!(
+        ai.reset_timers(true, &mut OneDraw(false)).unwrap_err().id,
+        "execution.timer_ai.thread_rng_owner"
+    );
+    assert_eq!(
+        ai.base.generic_timers.map(|t| (t.remaining, t.disabled)),
+        [(0, true), (41, false)]
     );
 }

@@ -1,3 +1,4 @@
+use super::super::creature_tests::Random;
 use super::*;
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -50,10 +51,10 @@ impl BuiltinAiExecutionOwner for Unbound {}
 impl HostileTargetExecutionOwner for Unbound {}
 impl CreatureRandom for Unbound {
     fn creature_irand(&mut self, _: i32, _: i32) -> Result<i32> {
-        panic!("unexpected draw")
+        Err(refuse("execution.summoned_ai.thread_rng_owner"))
     }
     fn creature_urand(&mut self, _: u32, _: u32) -> Result<u32> {
-        panic!("unexpected draw")
+        Err(refuse("execution.summoned_ai.thread_rng_owner"))
     }
 }
 impl SummonedAiExecutionOwner for Unbound {}
@@ -274,7 +275,7 @@ fn fixture(name: &str, definition: Option<EventAiDefinition>) -> Fixture {
         false,
         0,
         &config(),
-        &mut Unbound,
+        &mut Random::new(),
     )
     .unwrap();
     let mut ais = SourceCreatureAis::default();
@@ -618,12 +619,12 @@ fn guardian_respawn_follow_owner_loss_death_and_unsummon() {
         f.run(&mut Unbound, |s, e| s.just_respawned(settings(), e))
             .unwrap_err()
             .id,
-        "execution.guardian_ai.f5_15_player_follow_data_owner"
+        "execution.summoned_ai.thread_rng_owner"
     );
     let mut host = Host::default();
     f.run(&mut host, |s, e| s.just_respawned(settings(), e))
         .unwrap();
-    assert_eq!(host.calls, ["follow-data", "follow"]);
+    assert_eq!(host.calls, ["draw", "draw", "follow-data", "follow"]);
     assert_eq!(f.state.event.clock.remaining, 500);
     assert_eq!(f.state.event.phase, 9);
     assert_eq!(
@@ -862,7 +863,7 @@ fn summoned_catalog04_constructor_and_first_update_census_or_explicit_absence() 
                 false,
                 0,
                 &config,
-                &mut Unbound,
+                &mut Random::new(),
             )?;
             ais.install(&objects, &mut units, base, &mut SourceCombat::default())?;
             let mut state = SourceSummonedAi::construct(
@@ -966,8 +967,10 @@ fn guardian_ordinary_constructor_distance_and_nonfollow_respawn_are_exact() {
     assert!(other.follow_default);
     assert_eq!(f.ais.get(&f.objects, f.unit).unwrap().follow_distance, 1.5);
     f.state.follow_default = false;
-    f.run(&mut Unbound, |s, e| s.just_respawned(settings(), e))
+    let mut host = Host::default();
+    f.run(&mut host, |s, e| s.just_respawned(settings(), e))
         .unwrap();
+    assert_eq!(host.calls, ["draw", "draw"]);
 }
 
 #[test]
@@ -1040,4 +1043,14 @@ fn totem_cached_creature_uses_map_storage_before_attackability_checks() {
             "cast",
         ]
     );
+}
+
+#[test]
+fn totem_respawn_without_owner_still_redraws_generic_timers() {
+    let mut f = fixture("TotemAI", None);
+    f.units.get_mut(&f.objects, f.unit).unwrap().owner = None;
+    let mut host = Host::default();
+    f.run(&mut host, |s, e| s.just_respawned(settings(), e))
+        .unwrap();
+    assert_eq!(host.calls, ["draw", "draw"]);
 }

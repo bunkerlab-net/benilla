@@ -628,7 +628,12 @@ pub struct SourceAiTimer {
 }
 impl SourceUnitAi {
     /// UnitAI.cpp:39-61, TimerAI.h:120 value-initializes ready bits to false.
-    pub fn construct(objects: &SourceObjects, unit: ObjectHandle, actions: u32) -> Result<Self> {
+    pub fn construct(
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+        actions: u32,
+        random: &mut dyn CreatureRandom,
+    ) -> Result<Self> {
         objects.get(unit)?;
         Ok(Self {
             unit,
@@ -661,12 +666,12 @@ impl SourceUnitAi {
             generic_timers: [
                 SourceAiTimer {
                     id: 2000,
-                    remaining: 0,
+                    remaining: random.creature_urand(0, 0)?,
                     disabled: true,
                 },
                 SourceAiTimer {
                     id: 2001,
-                    remaining: 0,
+                    remaining: random.creature_urand(0, 0)?,
                     disabled: true,
                 },
             ],
