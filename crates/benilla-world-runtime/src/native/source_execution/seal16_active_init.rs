@@ -5,7 +5,7 @@ use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: &str =
-    "execution.creature.CreatureAISelector_45.live_ai_registry_owner";
+    "execution.creature.CreatureAISelector_90.live_ai_constructor_owner";
 #[path = "seal16_active_clocks.rs"]
 mod clocks;
 pub(super) use clocks::{ActiveClock, ActiveClocks};
@@ -79,6 +79,8 @@ pub(super) struct Prefix<'a> {
     pub level_config: &'a CreatureLevelConfig,
     pub encounters: &'a LoadedInstanceEncounters,
     pub faction_flags: &'a BTreeMap<u32, u32>,
+    pub ai_registry: &'a SourceAiRegistry,
+    pub ai_factions: &'a CreatureAiFactions,
     pub config: &'a [u8],
     pub inputs: &'a EffectiveSpawnInputs,
     pub go_animprogress: Option<u32>,
@@ -373,6 +375,8 @@ pub(super) fn load_first(
     level_config: &CreatureLevelConfig,
     encounters: &LoadedInstanceEncounters,
     faction_flags: &BTreeMap<u32, u32>,
+    ai_registry: &SourceAiRegistry,
+    ai_factions: &CreatureAiFactions,
     outdoor_pvp: &SourceOutdoorPvp,
     linking: &SourceCreatureLinking,
     states: &mut SourceManagers,
@@ -454,6 +458,8 @@ pub(super) fn load_first(
         level_config,
         encounters,
         faction_flags,
+        ai_registry,
+        ai_factions,
         config,
         inputs,
         go_animprogress: None,

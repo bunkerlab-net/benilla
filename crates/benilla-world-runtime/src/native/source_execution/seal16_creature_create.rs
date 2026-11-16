@@ -256,6 +256,44 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
         }
     }
     prefix.lookups.push("creature_ai_script_null");
+    // World.cpp:1381 -> CreatureAIRegistry.cpp:35-48. Reuse F5.01's identity and
+    // std::map traversal, not a second list of factory names or scores.
+    prefix.lookups.push("creature_ai_registry_bound");
+    // Creature.h:621-623 and Unit.cpp:330,429: this DB-loaded Creature is not a Pet,
+    // temporary summon or Totem and has no charmer or owner.
+    let fields = prefix.creature_entry.as_ref().unwrap();
+    let neutral = prefix.ai_factions.neutral_to_all(fields.faction);
+    let selected = prefix.ai_registry.select_after_script(
+        context.objects,
+        object,
+        CreatureAiInputs {
+            effective_entry: template.words[0],
+            ai_name: String::from_utf8(template.strings[2].clone())
+                .map_err(|_| refuse("execution.creature.GetAIName_encoding_owner"))?,
+            script_name: String::from_utf8(
+                prefix
+                    .scripts
+                    .names()
+                    .get(template.words[96] as usize)
+                    .ok_or_else(|| refuse("execution.creature.ScriptName_index_owner"))?
+                    .clone(),
+            )
+            .map_err(|_| refuse("execution.creature.ScriptName_encoding_owner"))?,
+            control: CreatureAiControl::default(),
+            guard: template.words[23] & 0x400 != 0,
+            no_aggro_on_sight: template.words[23] & 2 != 0,
+            neutral_to_all: neutral,
+        },
+    )?;
+    prefix.lookups.push("creature_ai_selected");
+    eprintln!(
+        "F6_CREATURE_AI map={} entry={} input={:?} branch={:?} executable={:?}",
+        prefix.map_entry.id,
+        template.words[0],
+        selected.inputs(),
+        selected.branch(),
+        selected.executable()
+    );
     Err(refuse(CREATURE_NEXT_OWNER))
 }
 

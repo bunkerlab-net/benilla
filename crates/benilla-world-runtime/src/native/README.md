@@ -718,3 +718,16 @@ mbx run --locked -p benilla-world-runtime --example source_execution -- ORIGINAL
 An absent default private prefix prints `SKIP`; an explicit missing or changed
 file refuses. Neither that skip nor matching RNG families seals F1.
 
+### Loaded creature AI registry
+
+The seal16 loaded-creature prefix uses the F5.01 `SourceAiRegistry` factories
+from `CreatureAIRegistry.cpp:37-43`. Registration order differs from the
+`std::map` key order used by `FactorySelector::selectAI` permit checks.
+Selection uses the effective loaded template and source faction neutrality.
+The prefix stops at the unbound factory constructor call at
+`CreatureAISelector.cpp:90`. Selection does not complete `AIM_Initialize`,
+`LoadFromDB`, or the outer grid insertion.
+
+The same initializer registers Wander, Waypoint, FixedPath, and LinearWP movement
+factories in that order at lines 45-48; `motion_master::source_default_motion`
+owns their selection.

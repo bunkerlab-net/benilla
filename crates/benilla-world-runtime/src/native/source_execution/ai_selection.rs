@@ -313,11 +313,31 @@ impl SourceAiRegistry {
         object: ObjectHandle,
         input: CreatureAiInputs,
     ) -> Result<SelectedCreatureAi> {
+        self.select_inner(objects, object, input, false)
+    }
+    /// Continue after the live ScriptDev owner has executed the eligible null-slot check.
+    #[cfg(test)]
+    pub(super) fn select_after_script(
+        &self,
+        objects: &SourceObjects,
+        object: ObjectHandle,
+        input: CreatureAiInputs,
+    ) -> Result<SelectedCreatureAi> {
+        self.select_inner(objects, object, input, true)
+    }
+    fn select_inner(
+        &self,
+        objects: &SourceObjects,
+        object: ObjectHandle,
+        input: CreatureAiInputs,
+        script_checked: bool,
+    ) -> Result<SelectedCreatureAi> {
         validate_control(objects, object, &input.control)?;
         let source = objects.get(object)?;
         let c = &input.control;
         // ScriptDevAIMgr.cpp:363-370. A nonnull slot must run before its return is known.
-        if (c.pet != Some(CreaturePetKind::Controlled) || c.charmer.is_some())
+        if !script_checked
+            && (c.pet != Some(CreaturePetKind::Controlled) || c.charmer.is_some())
             && !input.script_name.is_empty()
         {
             require(self.scripts_loaded, "execution.ai.scriptdev_registry_owner")?;
@@ -385,5 +405,72 @@ impl SourceAiRegistry {
             branch,
             executable,
         })
+    }
+}
+
+#[cfg(test)]
+mod registry_startup_tests {
+    use super::*;
+
+    #[test]
+    fn source_registration_and_permit_traversal_orders_differ() {
+        let registry = SourceAiRegistry::builtin();
+        let mut registration: Vec<_> = registry.factories.values().collect();
+        registration.sort_by_key(|factory| factory.registration);
+        assert_eq!(
+            registration
+                .iter()
+                .map(|factory| factory.key.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "NullAI",
+                "GuardAI",
+                "PetAI",
+                "TotemAI",
+                "EventAI",
+                "GuardianAI",
+                "PossessedAI"
+            ]
+        );
+        // ObjectRegistry.h:35 uses std::map, including strict-greater tie handling.
+        assert_eq!(
+            registry
+                .factories
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            [
+                "EventAI",
+                "GuardAI",
+                "GuardianAI",
+                "NullAI",
+                "PetAI",
+                "PossessedAI",
+                "TotemAI"
+            ]
+        );
+    }
+
+    #[test]
+    fn event_permit_obeys_name_and_both_reactive_predicates() {
+        for (name, no_aggro, neutral, expected) in [
+            ("EventAI", false, false, 800),
+            ("EventAI", true, true, 800),
+            ("", false, false, 200),
+            ("", true, false, 100),
+            ("", false, true, 100),
+            ("", true, true, 100),
+        ] {
+            let input = CreatureAiInputs {
+                effective_entry: 1,
+                ai_name: name.into(),
+                script_name: String::new(),
+                control: CreatureAiControl::default(),
+                guard: false,
+                no_aggro_on_sight: no_aggro,
+                neutral_to_all: neutral,
+            };
+            assert_eq!(BuiltinCreatureAi::Event.permit(&input), expected);
+        }
     }
 }

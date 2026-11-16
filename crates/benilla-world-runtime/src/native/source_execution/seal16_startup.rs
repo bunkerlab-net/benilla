@@ -1275,6 +1275,9 @@ pub(super) fn continue_startup(
     let level_definitions = CreatureLevelDefinitions::load(catalog).unwrap();
     let level_config = CreatureLevelConfig::parse(&config, Sha256Id::of(&config)).unwrap();
     let faction_flags = creature_models::faction_flags(catalog);
+    // World.cpp:1381, before MapManager initialization at :1389. Shared F5.01 identity.
+    let ai_registry = SourceAiRegistry::builtin();
+    let ai_factions = CreatureAiFactions::load_catalog(catalog).unwrap();
     let collision_models = SourceCollisionModels::load(catalog).unwrap();
     // World.cpp:927,1333,1341 precedes CreateContinents at :1389.
     let scripts = std::mem::take(&mut observed.script_registry).load(
@@ -1990,6 +1993,8 @@ pub(super) fn continue_startup(
             &level_config,
             &encounters,
             &faction_flags,
+            &ai_registry,
+            &ai_factions,
             &outdoor_pvp,
             &links,
             &mut states,
@@ -2094,6 +2099,8 @@ pub(super) fn continue_startup(
                 "creature_motion_initialized",
                 "creature_ai_script_registry_lookup",
                 "creature_ai_script_null",
+                "creature_ai_registry_bound",
+                "creature_ai_selected",
             ]));
             assert_eq!(
                 bound_guid,
@@ -2278,6 +2285,8 @@ pub(super) fn continue_startup(
                     "creature_motion_initialized",
                     "creature_ai_script_registry_lookup",
                     "creature_ai_script_null",
+                    "creature_ai_registry_bound",
+                    "creature_ai_selected",
                 ]
             }
         );
@@ -2643,7 +2652,7 @@ pub(super) fn continue_startup(
             expected
         );
         println!(
-            "F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={} next_owner={} next_source=CreatureAISelector.cpp:45",
+            "F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={} next_owner={} next_source=CreatureAISelector.cpp:90",
             matched_map_words[slot],
             evidence
                 .pool_members
