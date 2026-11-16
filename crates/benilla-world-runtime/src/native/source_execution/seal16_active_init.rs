@@ -5,7 +5,7 @@ use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: [&str; 2] = [
-    "execution.creature.loaded_equipment_template_owner",
+    "execution.terrain.wmo_area_catalog_owner",
     "execution.creature.loaded_equipment_template_owner",
 ];
 #[path = "seal16_active_clocks.rs"]
@@ -58,6 +58,7 @@ pub(super) struct Prefix<'a> {
     pub gameobject_templates: &'a LoadedGameObjectTemplates,
     pub spawn_templates: &'a LoadedCreatureSpawnTemplates,
     pub creature_models: &'a LoadedCreatureModels,
+    pub equipment: &'a LoadedEquipmentTemplates,
     pub collision_models: &'a SourceCollisionModels,
     pub swimming_census: SourceCreatureSwimmingCensus,
     pub creature_spells: Option<&'a CreatureSpellMapData>,
@@ -429,6 +430,7 @@ pub(super) fn load_first(
     scripts: &SourceScriptRegistry,
     spawn_templates: &LoadedCreatureSpawnTemplates,
     creature_models: &LoadedCreatureModels,
+    equipment: &LoadedEquipmentTemplates,
     creature_immunities: &LoadedCreatureImmunities,
     collision_models: &SourceCollisionModels,
     random: &mut dyn CreatureRandom,
@@ -501,6 +503,7 @@ pub(super) fn load_first(
         scripts,
         spawn_templates,
         creature_models,
+        equipment,
         collision_models,
         swimming_census: SourceCreatureSwimmingCensus::default(),
         creature_spells: map.creature_spells.as_ref(),

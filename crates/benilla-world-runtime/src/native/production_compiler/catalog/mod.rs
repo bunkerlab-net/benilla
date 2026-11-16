@@ -17,6 +17,7 @@ mod creature_models;
 mod creature_spell_lists;
 pub(crate) use creature_spell_lists::CreatureSpellCatalogRows;
 mod encounters;
+mod equipment;
 mod graveyards;
 mod loaded_templates;
 mod reader;

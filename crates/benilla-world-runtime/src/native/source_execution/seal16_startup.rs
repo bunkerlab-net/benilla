@@ -9,6 +9,8 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 mod active_init;
 #[path = "seal16_creature_models.rs"]
 mod creature_models;
+#[path = "seal16_equipment.rs"]
+mod equipment;
 #[path = "seal16_gameobject_models.rs"]
 mod gameobject_models;
 #[path = "seal16_immunities.rs"]
@@ -196,6 +198,7 @@ pub(super) struct Inputs {
     templates: templates::Evidence,
     spawn_data: spawn_data::Evidence,
     creature_models: creature_models::Evidence,
+    equipment: equipment::Evidence,
     spell_lists: spell_lists::Evidence,
     immunities: immunities::Evidence,
     script_registry: script_registry::Evidence,
@@ -230,6 +233,7 @@ impl Inputs {
             self.spawn_data.observe(line, kind, p, self.world_raw_words);
             self.creature_models
                 .observe(line, kind, p, self.world_raw_words);
+            self.equipment.observe(line, kind, p, self.world_raw_words);
             self.spell_lists
                 .observe(line, kind, p, self.world_raw_words);
             self.immunities.observe(line, kind, p, self.world_raw_words);
@@ -1313,11 +1317,12 @@ pub(super) fn continue_startup(
     next_word: (u64, u64),
 ) {
     let config = std::fs::read(recording.join("mangosd.conf")).unwrap();
-    let (gameobject_templates, creature_templates, creature_models, mut dynamic_models) =
+    let (gameobject_templates, creature_templates, creature_models, equipment, mut dynamic_models) =
         std::mem::take(&mut observed.templates).load(
             catalog,
             recording,
             std::mem::take(&mut observed.creature_models),
+            std::mem::take(&mut observed.equipment),
             geometry,
         );
     let creature_immunities =
@@ -1505,6 +1510,13 @@ pub(super) fn continue_startup(
                 == "1",
         )
         .unwrap();
+    equipment::census(
+        &creature_templates,
+        spawns,
+        &spawn_templates,
+        inputs,
+        &groups,
+    );
     let mut dynamic = BTreeMap::<u32, [Vec<u32>; 2]>::new();
     for ((map, kind), guids) in std::mem::take(&mut spawns.dynamic_guids) {
         dynamic.entry(map).or_default()[usize::from(kind == GridSpawnKind::GameObject)] = guids;
@@ -2154,6 +2166,7 @@ pub(super) fn continue_startup(
             &scripts,
             &spawn_templates,
             &creature_models,
+            &equipment,
             &creature_immunities,
             &collision_models,
             &mut random,
@@ -2217,6 +2230,57 @@ pub(super) fn continue_startup(
                     .active_lock_count(object.current_cell.unwrap().grid)
                     .unwrap(),
                 2
+            );
+        }
+        println!("F6_EQUIPMENT_CONTINUATION map={slot} completed={completed} candidates={candidates} raw={} refusal={} current_equipment={:?}", random.cursor().raw, refusal.id, creature_entry.as_ref().map(|fields| (fields.equipment, fields.virtual_items, fields.virtual_item_info)));
+        if slot == 0 {
+            assert_eq!((attempt.guid, entry), (636, 14508));
+            let current = creature_entry.as_ref().unwrap();
+            // Catalog equipment14508/item2179 and pre-start-classicmangos.sql:166283,594763 independently specify these fields.
+            assert_eq!(
+                (current.equipment, current.virtual_items),
+                (14508, [7420, 0, 0])
+            );
+            assert_eq!(current.virtual_item_info, [[0x0d010702, 3], [0, 0], [0, 0]]);
+            // Creature.cpp:439-441 takes IsSwimmable, returns false, then Create reaches GetZoneId at :914.
+            let template = creature_templates.get(14508).unwrap();
+            assert_ne!(template.words[17] & 2, 0);
+            assert_eq!(template.words[23] & 0x8000, 0);
+            assert_eq!(swimming_census.reached_441, 1);
+            assert_eq!(swimming_census.swimming_not_set, 1);
+            assert_eq!(
+                current.movement_flags & benilla_sim::creature_capabilities::MOVEFLAG_SWIMMING,
+                0
+            );
+            assert!(lookups.contains(&"creature_init_entry_remainder"));
+            assert!(lookups.ends_with(&[
+                "creature_final_position_relocated_valid",
+                "creature_create_battleground"
+            ]));
+            assert_eq!((creature_battleground, creature_zone), (Some(false), None));
+            // Creature.cpp:914, Object.cpp:1229 and GridMap.cpp:1046,992 resolve the current position through WMOAreaTable.
+            assert_eq!(refusal.id, "execution.terrain.wmo_area_catalog_owner");
+            let pose = active_objects
+                .get(candidate)
+                .unwrap()
+                .pose
+                .unwrap()
+                .0
+                .map(f32::from_bits);
+            let go = first_go.as_ref().unwrap().candidate;
+            let go_pose = active_objects
+                .get(go)
+                .unwrap()
+                .pose
+                .unwrap()
+                .0
+                .map(f32::from_bits);
+            equipment::next_zone_owner(
+                catalog,
+                geometry,
+                0,
+                pose[..3].try_into().unwrap(),
+                go_pose[..3].try_into().unwrap(),
             );
         }
         let completed_marks = lookups

@@ -15,6 +15,7 @@ pub(in crate::native::source_execution) struct EntryFields {
     pub power: u8,
     pub equipment: u32,
     pub virtual_items: [u32; 3],
+    pub virtual_item_info: [[u32; 2]; 3],
     pub name: Vec<u8>,
     pub cast_speed: u32,
     pub movement_flags: u32,
@@ -121,6 +122,7 @@ fn model_fields(template: &LoadedCreatureInfo, model: [u32; 8]) -> EntryFields {
         },
         equipment: 0,
         virtual_items: [0; 3],
+        virtual_item_info: [[0; 2]; 3],
         name: Vec::new(),
         cast_speed: 0,
         movement_flags: MOVEFLAG_WALK_MODE,
@@ -196,33 +198,23 @@ pub(super) fn continue_entry(
                 .ok_or_else(|| refuse("execution.creature.spawn_template_undefined"))?,
         )
         .ok_or_else(|| refuse("execution.creature.spawn_template_undefined"))?;
-    let equipment = if let Some(event) = event {
-        if event.equipment != 0 {
-            Some((event.equipment, false))
-        } else if event.entry != 0 {
-            Some((template.words[93], true))
-        } else {
-            None
-        }
-    } else if spawn.equipment_id == -1 {
-        Some((
-            if template.words[93] == 0 {
-                original.words[93]
-            } else {
-                template.words[93]
-            },
-            template.words[93] == 0,
-        ))
-    } else if spawn.equipment_id != 0 {
-        Some((spawn.equipment_id as u32, false))
-    } else {
-        None
-    };
-    if equipment.is_some_and(|(id, _)| id != 0) {
+    let mut equipment = SourceCreatureEquipment::default();
+    // CreatureSettings.cpp:25 clears CAN_WIELD_LOOT before Creature.cpp:403 reads it, ahead of ResetStaticFlags.
+    let result = equipment.init_entry(
+        event.map(|event| (event.equipment, event.entry)),
+        Some(spawn.equipment_id),
+        original.words[93],
+        template.words[93],
+        fields.settings.flags[0] & 0x80 != 0,
+        prefix.equipment,
+    );
+    fields.equipment = equipment.id;
+    fields.virtual_items = equipment.slots.map(|slot| slot.display);
+    fields.virtual_item_info = equipment.slots.map(|slot| slot.info);
+    if let Err(error) = result {
         prefix.creature_entry = Some(fields);
-        return Err(refuse("execution.creature.loaded_equipment_template_owner"));
+        return Err(error);
     }
-    // Creature.cpp:403 uses constructor settings, before ResetStaticFlags at :631.
     fields.name = original.strings[0].clone();
     fields.cast_speed = 1f32.to_bits();
     if template.words[17] & 4 != 0 {

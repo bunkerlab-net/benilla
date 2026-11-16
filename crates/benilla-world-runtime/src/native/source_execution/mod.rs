@@ -97,6 +97,8 @@ mod creatures;
 pub use creatures::*;
 mod loaded_creature_models;
 pub use loaded_creature_models::*;
+mod equipment;
+pub use equipment::*;
 mod creature_addons;
 pub use creature_addons::*;
 mod creature_immunities;

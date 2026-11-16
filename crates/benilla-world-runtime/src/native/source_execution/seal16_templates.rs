@@ -65,11 +65,13 @@ impl Evidence {
         catalog: &mut VerifiedCatalog,
         recording: &Path,
         model_evidence: super::creature_models::Evidence,
+        equipment_evidence: super::equipment::Evidence,
         geometry: &mut SourceTerrainManager,
     ) -> (
         LoadedGameObjectTemplates,
         LoadedCreatureTemplates,
         LoadedCreatureModels,
+        LoadedEquipmentTemplates,
         SourceDynamicModels,
     ) {
         assert_eq!(
@@ -105,6 +107,7 @@ impl Evidence {
             LoadedGameObjectTemplates::load(go_rows, &mut TemplateCatalog::new(catalog)).unwrap();
         let dynamic_models = super::gameobject_models::load(recording, catalog, geometry);
         let models = model_evidence.load(catalog, self.queries[2].0, self.queries[3].0);
+        let equipment = equipment_evidence.load(catalog);
         let creature_rows =
             restored::bind_rows(catalog.execution_loaded_creature_rows().unwrap(), &order[1])
                 .unwrap();
@@ -132,7 +135,7 @@ impl Evidence {
             go.transport_displays()
         );
         println!("F6_TEMPLATE_SQL matched_sql=6 gameobject_rows={} creature_rows={} loader_words=0 query_lines={:?}",go.rows().len(),creatures.rows().len(),self.queries.iter().map(|(line,_,_)|line).collect::<Vec<_>>());
-        (go, creatures, models, dynamic_models)
+        (go, creatures, models, equipment, dynamic_models)
     }
 }
 
