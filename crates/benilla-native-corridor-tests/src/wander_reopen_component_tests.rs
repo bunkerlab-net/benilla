@@ -276,6 +276,40 @@ fn change_number(bytes: &[u8], marker: &str, change: impl FnOnce(u64) -> u64) ->
 }
 
 #[test]
+fn expired_500ms_reopen_is_unavailable_but_tampered_recipe_is_binding() {
+    let path = Directory::new();
+    let (mut world, mut consumer) = wander::setup_with_schedule(Some(8), None);
+    wander::step(&mut world, &mut consumer);
+    let profile = world.profile().clone();
+    let checkpoint = world.checkpoint().unwrap();
+    let bytes = recipe(&world, &consumer);
+    let (store, _) = WanderStore::create(&path.0, &mut world, &bytes).unwrap();
+    let (fresh, mut reopened) = wander::setup_with_schedule(Some(8), None);
+    assert_eq!(fresh.profile(), &profile);
+    drop(fresh);
+    let pending =
+        NativeWorld::prepare_synthetic_wander_reopen(profile.clone(), checkpoint.clone()).unwrap();
+    let route = reopened.providers.route;
+    let result = reopened.geometry.with_local_corridor(|corridor| {
+        let deadline = Instant::now() + REOPEN_SLICE;
+        std::thread::sleep(REOPEN_SLICE);
+        assert!(Instant::now() >= deadline);
+        route.reopen_wander_store(&reopened.session, pending, store, corridor, deadline)
+    });
+    assert!(matches!(
+        result,
+        Err(NativeError::AuthorityUnavailable(
+            "local geometry execution deadline exceeded"
+        ))
+    ));
+    let changed = change_number(&bytes, "\"version\":", |n| n + 1);
+    assert!(matches!(
+        reopen_bytes(&profile, checkpoint, &changed, REOPEN_SLICE),
+        Err(NativeError::AuthorityBinding)
+    ));
+}
+
+#[test]
 fn failed_bounded_reopen_keeps_disk_and_live_owner_then_fresh_retry_matches() {
     let path = Directory::new();
     let (mut world, mut consumer) = wander::setup_with_schedule(Some(8), None);

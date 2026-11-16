@@ -994,7 +994,7 @@ impl Failure {
             _ => Self::MissingGeometry,
         }
     }
-    fn native(self) -> NativeError {
+    pub(super) fn native(self) -> NativeError {
         match self {
             Self::UnprovenParticipants => NativeError::AuthorityUnavailable(
                 "non-render collision participants have not been excluded",

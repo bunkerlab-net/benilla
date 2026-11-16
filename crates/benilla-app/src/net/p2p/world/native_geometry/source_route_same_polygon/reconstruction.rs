@@ -321,7 +321,7 @@ impl SourceSamePolygonRouteProvider {
         deadline: Instant,
     ) -> Result<(NativeWorld, Self, RouteCommitBoundary), NativeError> {
         use benilla_native_nav::SourceWanderReconstructionStage as Stage;
-        require_time(deadline).map_err(|_| NativeError::AuthorityBinding)?;
+        require_time(deadline).map_err(Failure::native)?;
         if bytes.len() > MAX_RECIPE_BYTES {
             return Err(NativeError::TooLarge);
         }
@@ -368,12 +368,12 @@ impl SourceSamePolygonRouteProvider {
         native
             .validate()
             .map_err(|_| NativeError::InvalidCheckpoint)?;
-        require_time(deadline).map_err(|_| NativeError::AuthorityBinding)?;
+        require_time(deadline).map_err(Failure::native)?;
         session
             .reconstructed_wander_body(&pending, &saved.constructor)
             .map_err(|_| NativeError::AuthorityBinding)?;
         for operation in &saved.operations {
-            require_time(deadline).map_err(|_| NativeError::AuthorityBinding)?;
+            require_time(deadline).map_err(Failure::native)?;
             session
                 .reconstructed_wander_body(&pending, &operation.preparation)
                 .map_err(|_| NativeError::AuthorityBinding)?;

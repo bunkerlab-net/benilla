@@ -161,6 +161,8 @@ continuations retain only the explicitly completed immutable stages described be
 Installed quest-loop functional fixtures opt into a test-only 5 s request lifetime
 for geometry requests and route commits, with the unchanged 2 ms execution slice.
 Deadline tests retain the production 500 ms lifetime.
+Bounded Wander reopen entry and request-validation expiry checks return
+deadline-unavailable, not a binding mismatch.
 
 No provider witness or partial Route is reused as completed authority. Other generic
 callbacks keep their prior successful-result semantics: the slice limits scheduling,
