@@ -12,8 +12,13 @@ impl CreatureRandom for NoDraw {
     }
 }
 fn setup() -> (SourceObjects, SourceUnits, SourceCreatureAis, ObjectHandle) {
+    setup_kind(SourceObjectKind::Creature)
+}
+fn setup_kind(
+    kind: SourceObjectKind,
+) -> (SourceObjects, SourceUnits, SourceCreatureAis, ObjectHandle) {
     let mut objects = SourceObjects::default();
-    let object = objects.construct(6, SourceObjectKind::Creature).unwrap();
+    let object = objects.construct(6, kind).unwrap();
     objects.set_pose(object, SourcePose([0; 4])).unwrap();
     let template = CreatureAiTemplateOperands {
         ordinal: 1,
@@ -70,7 +75,7 @@ fn stores() -> SourceSpellStores {
 }
 #[test]
 fn live_binding_runs_once_restores_event_owner_and_preserves_saved_bytes() {
-    let (objects, mut units, ais, object) = setup();
+    let (objects, mut units, mut ais, object) = setup();
     let stores = stores();
     let targets = SourceSpellTargetMgr::initialize(&stores);
     let mut terrain = SourceTerrainManager::default();
@@ -81,10 +86,15 @@ fn live_binding_runs_once_restores_event_owner_and_preserves_saved_bytes() {
         targets: &targets,
         terrain: &mut terrain,
         world_clock: &SourceWorldClock::default(),
+        clocks: &mut ActiveClocks::default(),
+        random: &mut NoDraw,
+        creature_spells: None,
+        max_casts: 0,
+        broadcast: None,
     };
     let mut calls = 0;
     let expected = refuse("authored.callback.refusal");
-    let result: Result<()> = binding.run(&mut units, &ais, &objects, |context| {
+    let result: Result<()> = binding.run(&mut units, &mut ais, &objects, |context| {
         calls += 1;
         assert!(context.owner.unit(object)?.has_ai);
         context.events.schedule_ai_notify(5000, false)?;
@@ -97,7 +107,7 @@ fn live_binding_runs_once_restores_event_owner_and_preserves_saved_bytes() {
     assert_eq!(before, serde_json::to_vec(live).unwrap());
     assert_eq!(
         binding
-            .run(&mut units, &ais, &objects, |_| {
+            .run(&mut units, &mut ais, &objects, |_| {
                 calls += 1;
                 Ok(17)
             })
@@ -118,11 +128,16 @@ fn live_ai_cast_keeps_its_spell_after_cooldowns_before_missing_geometry() {
         targets: &targets,
         terrain: &mut terrain,
         world_clock: &SourceWorldClock::default(),
+        clocks: &mut ActiveClocks::default(),
+        random: &mut NoDraw,
+        creature_spells: None,
+        max_casts: 0,
+        broadcast: None,
     };
     // UnitAI.cpp:175 short-circuits the current-spell read during evade.
     ais.get_mut(&objects, object).unwrap().base.order = 4;
     assert!(!binding
-        .run(&mut units, &ais, &objects, |c| c.ai_cast(
+        .run(&mut units, &mut ais, &objects, |c| c.ai_cast(
             object,
             Some(object),
             10848,
@@ -139,7 +154,7 @@ fn live_ai_cast_keeps_its_spell_after_cooldowns_before_missing_geometry() {
     // The triggered branch bypasses order but still reads current-cast slots.
     ais.get_mut(&objects, object).unwrap().base.order = 4;
     binding
-        .run(&mut units, &ais, &objects, |c| {
+        .run(&mut units, &mut ais, &objects, |c| {
             assert_eq!(
                 c.owner.ai_cast_state(object, object, c.starts, 2)?,
                 (true, false)
@@ -151,7 +166,7 @@ fn live_ai_cast_keeps_its_spell_after_cooldowns_before_missing_geometry() {
     let before = serde_json::to_vec(units.get(&objects, object).unwrap()).unwrap();
     assert_eq!(
         binding
-            .run(&mut units, &ais, &objects, |c| c.ai_cast(
+            .run(&mut units, &mut ais, &objects, |c| c.ai_cast(
                 object,
                 Some(object),
                 10848,
@@ -210,7 +225,7 @@ fn live_ai_cast_keeps_its_spell_after_cooldowns_before_missing_geometry() {
 }
 #[test]
 fn live_unit_reads_current_flags_pose_auras_control_and_interrupt_slots() {
-    let (mut objects, mut units, ais, object) = setup();
+    let (mut objects, mut units, mut ais, object) = setup();
     let stores = stores();
     let targets = SourceSpellTargetMgr::initialize(&stores);
     let mut terrain = SourceTerrainManager::default();
@@ -229,9 +244,14 @@ fn live_unit_reads_current_flags_pose_auras_control_and_interrupt_slots() {
         targets: &targets,
         terrain: &mut terrain,
         world_clock: &SourceWorldClock::default(),
+        clocks: &mut ActiveClocks::default(),
+        random: &mut NoDraw,
+        creature_spells: None,
+        max_casts: 0,
+        broadcast: None,
     };
     binding
-        .run(&mut units, &ais, &objects, |c| {
+        .run(&mut units, &mut ais, &objects, |c| {
             let value = c.owner.unit(object)?;
             assert!(
                 value.has_ai
@@ -262,7 +282,7 @@ fn live_unit_reads_current_flags_pose_auras_control_and_interrupt_slots() {
     live.charmer = Some(object);
     live.combo_target = Some(object);
     binding
-        .run(&mut units, &ais, &objects, |c| {
+        .run(&mut units, &mut ais, &objects, |c| {
             assert_eq!(c.owner.unit(object)?.combo_target, Some(object));
             Ok(())
         })
@@ -297,9 +317,14 @@ fn live_slots_and_ai_order_use_persistent_spells_in_source_order() {
             targets: &targets,
             terrain: &mut terrain,
             world_clock: &SourceWorldClock::default(),
+            clocks: &mut ActiveClocks::default(),
+            random: &mut NoDraw,
+            creature_spells: None,
+            max_casts: 0,
+            broadcast: None,
         };
         binding
-            .run(&mut units, &ais, &objects, |c| {
+            .run(&mut units, &mut ais, &objects, |c| {
                 assert_eq!(
                     c.owner.ai_cast_state(object, object, c.starts, 0)?,
                     (false, !melee)
@@ -313,7 +338,7 @@ fn live_slots_and_ai_order_use_persistent_spells_in_source_order() {
             .unwrap();
         ais.get_mut(&objects, object).unwrap().base.order = 4;
         binding
-            .run(&mut units, &ais, &objects, |c| {
+            .run(&mut units, &mut ais, &objects, |c| {
                 assert_eq!(
                     c.owner.ai_cast_state(object, object, c.starts, 0)?,
                     (true, false)
@@ -395,7 +420,7 @@ fn default_context_callback_runs_once_and_preserves_refusal() {
 }
 #[test]
 fn live_cooldowns_preserve_saved_bytes_and_the_f7_refusal() {
-    let (objects, mut units, ais, object) = setup();
+    let (objects, mut units, mut ais, object) = setup();
     let stores = stores();
     let t = stores.template(10848).unwrap();
     let before = serde_json::to_vec(units.get(&objects, object).unwrap()).unwrap();
@@ -425,9 +450,14 @@ fn live_cooldowns_preserve_saved_bytes_and_the_f7_refusal() {
         targets: &targets,
         terrain: &mut terrain,
         world_clock: &SourceWorldClock::default(),
+        clocks: &mut ActiveClocks::default(),
+        random: &mut NoDraw,
+        creature_spells: None,
+        max_casts: 0,
+        broadcast: None,
     };
     binding
-        .run(&mut units, &ais, &objects, |c| {
+        .run(&mut units, &mut ais, &objects, |c| {
             let mut s = SourceSpell::new(1, t, object, SpellTriggerFlags(0), 0)?;
             assert_eq!(
                 c.owner.check(&mut s, t, SpellCheck::IsSpellReady)?,
@@ -446,7 +476,7 @@ fn live_cooldowns_preserve_saved_bytes_and_the_f7_refusal() {
         .cooldowns
         .update(10);
     binding
-        .run(&mut units, &ais, &objects, |c| {
+        .run(&mut units, &mut ais, &objects, |c| {
             let mut s = SourceSpell::new(1, t, object, SpellTriggerFlags(0), 0)?;
             assert_eq!(
                 c.owner.check(&mut s, t, SpellCheck::IsSpellReady)?,
@@ -463,7 +493,7 @@ fn live_cooldowns_preserve_saved_bytes_and_the_f7_refusal() {
 
 #[test]
 fn prepare_walk_preserves_holders_and_reaches_the_actual_ai_write() {
-    let (objects, mut units, ais, object) = setup();
+    let (objects, mut units, mut ais, object) = setup();
     let mut stores = stores();
     stores
         .insert_template(SpellTemplate {
@@ -481,6 +511,11 @@ fn prepare_walk_preserves_holders_and_reaches_the_actual_ai_write() {
             .insert(id, SourceAuraHolder::new(t, object, 0, 0, -1).unwrap());
     }
     let before = units.get(&objects, object).unwrap().auras.clone();
+    let saved = serde_json::to_vec(&ais.inventory(&objects).unwrap()).unwrap();
+    // The format-91 representation already contains a null current_spell.
+    assert!(std::str::from_utf8(&saved)
+        .unwrap()
+        .contains("\"current_spell\":null"));
     let targets = SourceSpellTargetMgr::initialize(&stores);
     let mut terrain = SourceTerrainManager::default();
     let mut binding = Binding {
@@ -489,27 +524,71 @@ fn prepare_walk_preserves_holders_and_reaches_the_actual_ai_write() {
         targets: &targets,
         terrain: &mut terrain,
         world_clock: &SourceWorldClock::default(),
+        clocks: &mut ActiveClocks::default(),
+        random: &mut NoDraw,
+        creature_spells: None,
+        max_casts: 0,
+        broadcast: None,
     };
     binding
-        .run(&mut units, &ais, &objects, |c| {
+        .run(&mut units, &mut ais, &objects, |c| {
             let t = stores.template(10848).unwrap();
             let mut s = SourceSpell::new(3, t, object, SpellTriggerFlags(0x100), 0)?;
             s.targets.unit = Some(object);
             c.owner.call(&mut s, SpellCall::RemoveCastAuras(4))?;
             assert_eq!(s.prepare_lookups[2], 2);
-            assert_eq!(
-                c.owner
-                    .call(&mut s, SpellCall::AiCastState(true))
-                    .unwrap_err()
-                    .id,
-                "execution.spells.UnitAI_429.current_spell_write_owner"
-            );
+            c.owner.call(&mut s, SpellCall::AiCastState(true))?;
             assert_eq!(&s.prepare_lookups[3..], &[1, 1, 1]);
             c.owner.call(&mut s, SpellCall::AiCastState(false))?;
+            c.starts.spells.insert(s.id, s);
             Ok(())
         })
         .unwrap();
     assert_eq!(units.get(&objects, object).unwrap().auras, before);
+    assert_eq!(
+        ais.get(&objects, object).unwrap().base.current_spell,
+        Some(3)
+    );
+    assert_eq!(
+        saved,
+        serde_json::to_vec(&ais.inventory(&objects).unwrap()).unwrap()
+    );
+    assert_eq!(
+        ais.inventory(&objects).unwrap()["restore"],
+        "execution.unit_ai.f7_restore_owner"
+    );
+
+    // Same template, different Spell key: finishing it cannot restore the combat target.
+    let live = units.get_mut(&objects, object).unwrap();
+    live.target = Some(object);
+    binding
+        .run(&mut units, &mut ais, &objects, |c| {
+            let t = stores.template(10848).unwrap();
+            let mut other = SourceSpell::new(4, t, object, SpellTriggerFlags(0x100), 0)?;
+            c.owner.call(&mut other, SpellCall::AiCastState(false))
+        })
+        .unwrap();
+    assert_eq!(units.get(&objects, object).unwrap().target, Some(object));
+    binding
+        .run(&mut units, &mut ais, &objects, |c| {
+            let s = c.starts.spells.get_mut(&3).unwrap();
+            c.owner.call(s, SpellCall::AiCastState(false))?;
+            assert_eq!(
+                c.owner
+                    .call(s, SpellCall::AiChannelState(true))
+                    .unwrap_err()
+                    .id,
+                "execution.spells.UnitAI_474.SetFacingTo_owner",
+            );
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(units.get(&objects, object).unwrap().target, None);
+    assert_eq!(ais.get(&objects, object).unwrap().base.current_spell, None);
+    assert_eq!(
+        saved,
+        serde_json::to_vec(&ais.inventory(&objects).unwrap()).unwrap()
+    );
 }
 
 #[test]
@@ -557,7 +636,7 @@ fn casting_time_reads_live_speed_and_refuses_only_the_ranged_operand() {
 
 #[test]
 fn aura_removal_and_ai_movement_refuse_at_their_source_calls() {
-    let (objects, mut units, ais, object) = setup();
+    let (objects, mut units, mut ais, object) = setup();
     let mut stores = stores();
     stores
         .insert_template(SpellTemplate {
@@ -587,9 +666,14 @@ fn aura_removal_and_ai_movement_refuse_at_their_source_calls() {
         targets: &targets,
         terrain: &mut terrain,
         world_clock: &SourceWorldClock::default(),
+        clocks: &mut ActiveClocks::default(),
+        random: &mut NoDraw,
+        creature_spells: None,
+        max_casts: 0,
+        broadcast: None,
     };
     binding
-        .run(&mut units, &ais, &objects, |c| {
+        .run(&mut units, &mut ais, &objects, |c| {
             let t = stores.template(10848).unwrap();
             let mut s = SourceSpell::new(3, t, object, SpellTriggerFlags(0), 0)?;
             assert_eq!(
@@ -637,13 +721,8 @@ fn spell_mod_owner_dispatch_refuses_pet_and_totem_for_range_power_and_cast_time(
             "execution.spells.Totem_193.GetSpellModOwner_owner",
         ),
     ] {
-        let mut objects = SourceObjects::default();
-        let object = objects.construct(6, kind).unwrap();
-        let mut fields = SourceUnitFields::constructed_creature();
-        fields.totem = totem;
-        let mut units = SourceUnits::default();
-        units.register(&objects, object, fields).unwrap();
-        let ais = SourceCreatureAis::default();
+        let (objects, mut units, mut ais, object) = setup_kind(kind);
+        units.get_mut(&objects, object).unwrap().totem = totem;
         let stores = stores();
         let targets = SourceSpellTargetMgr::initialize(&stores);
         let mut terrain = SourceTerrainManager::default();
@@ -653,9 +732,14 @@ fn spell_mod_owner_dispatch_refuses_pet_and_totem_for_range_power_and_cast_time(
             targets: &targets,
             terrain: &mut terrain,
             world_clock: &SourceWorldClock::default(),
+            clocks: &mut ActiveClocks::default(),
+            random: &mut NoDraw,
+            creature_spells: None,
+            max_casts: 0,
+            broadcast: None,
         };
         binding
-            .run(&mut units, &ais, &objects, |c| {
+            .run(&mut units, &mut ais, &objects, |c| {
                 assert_eq!(c.owner.range_mod_owner(object).unwrap_err().id, expected);
                 assert_eq!(c.owner.power_mod_owner(object).unwrap_err().id, expected);
                 let t = stores.template(10848).unwrap();

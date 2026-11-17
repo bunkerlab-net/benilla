@@ -2977,10 +2977,22 @@ Spell10848's targetA1/B0 yields an empty check mask, so
 The unit exists from construction, and late spawn population preserves its
 containers. `Unit.cpp:10270` writes live combat reach from the model and
 scale operands. `Creature.cpp:433` writes live cast speed before addon casts.
-The continuation uses the existing location, items, range and power owners.
-It enters Casting, prepares triggers and walks the live aura holders,
-`Spell.cpp:3025-3049`, `Unit.cpp:5253-5276`. The AI callback reaches its
-unowned current-spell identity write, `UnitAI.cpp:429`.
+The normal self cast uses the existing location, items, range, and power owners.
+The AI borrows its live base state and stores the same Spell key as the unit
+queue. `UnitAI.cpp:54,352,429,436` covers construction, identity comparison,
+cast start, and channel clear. The live key is absent from saved state.
+Format 91 retains the null field, and F7 restore still refuses.
+
+The normal cast sends `SMSG_SPELL_START` through `Spell.cpp:3902-3936`.
+The start and go packets traverse loaded world cells without creating grids.
+The visitor checks live camera registrations and refuses if a camera requires
+a session read, `Map.cpp:528-549`, `GridNotifiers.cpp:148-155`.
+
+Map 0 stops on EventAI event 649101, action 0, after the non-strict cast check
+and self-target effect of spell 10848. The first unowned call is
+`RemoveSpellAuraHolder` at `Unit.cpp:4757`. The existing addon holder remains
+live. The cast consumes no RNG or SQL. Its two calendar inputs occur on
+thread 6 at raw position 27087, trace lines 60478084 and 60478161.
 The stacker attribute wrapper has component coverage for
 `SpellStacking.cpp:371-387`; this cast doesn't call it.
 Cooldowns remain excluded from checkpoint bytes; native format stays 91.

@@ -6,6 +6,10 @@ use rustc_apfloat::{ieee::Single, Float, Round, Status};
 
 #[path = "seal16_addon_effects.rs"]
 mod effects;
+use crate::native::source_execution::visibility::SourceBroadcast;
+pub(super) use effects::{
+    check_cast_aura_removals, enter_cast, require_self_pointers, spell_start_packet,
+};
 pub(super) struct Execution<'a> {
     pub object: ObjectHandle,
     pub objects: &'a SourceObjects,
@@ -53,14 +57,16 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
             entry: &live.entry,
             random: self.random,
             creature_spells: self.creature_spells,
-            addon: state,
+            stand: state.stand,
+            mount: state.mount,
             unit: self.unit,
             level: self.level,
             cast_speed: &live.cast_speed,
             clocks: self.clocks,
             world_clock: self.world_clock,
-            raw: self.raw,
             max_casts: self.max_casts,
+            broadcast: None,
+            bounding_radius: live.bounding_radius,
         };
         // Creature.cpp:2343 ignores the cast result. A refusal still stops here.
         SpellStartContext {
@@ -181,29 +187,46 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
         Ok(())
     }
 }
-struct Owner<'a> {
-    object: ObjectHandle,
-    objects: &'a SourceObjects,
-    terrain: &'a mut SourceTerrainManager,
-    stores: &'a SourceSpellStores,
-    targets: &'a SourceSpellTargetMgr,
-    flags: &'a u32,
-    immunities: &'a CreatureImmunityState,
-    auras: &'a mut SourceUnitAuras,
-    cooldowns: &'a mut SourceSpellCooldowns,
-    addon: &'a mut CreatureAddonState,
-    unit: SpellUnitState,
-    level: u32,
-    cast_speed: &'a u32,
-    creature_spell_list: Option<&'a CreatureSpellList>,
-    entry: &'a u32,
-    random: &'a mut dyn CreatureRandom,
-    creature_spells: Option<&'a CreatureSpellMapData>,
-    clocks: &'a mut ActiveClocks,
-    world_clock: &'a SourceWorldClock,
-    raw: u64,
-    max_casts: u32,
+pub(super) struct Owner<'a> {
+    pub object: ObjectHandle,
+    pub objects: &'a SourceObjects,
+    pub terrain: &'a mut SourceTerrainManager,
+    pub stores: &'a SourceSpellStores,
+    pub targets: &'a SourceSpellTargetMgr,
+    pub flags: &'a u32,
+    pub immunities: &'a CreatureImmunityState,
+    pub auras: &'a mut SourceUnitAuras,
+    pub cooldowns: &'a mut SourceSpellCooldowns,
+    pub stand: u8,
+    pub mount: u32,
+    pub unit: SpellUnitState,
+    pub level: u32,
+    pub cast_speed: &'a u32,
+    pub creature_spell_list: Option<&'a CreatureSpellList>,
+    pub entry: &'a u32,
+    pub random: &'a mut dyn CreatureRandom,
+    pub creature_spells: Option<&'a CreatureSpellMapData>,
+    pub clocks: &'a mut ActiveClocks,
+    pub world_clock: &'a SourceWorldClock,
+    pub max_casts: u32,
+    pub broadcast: Option<(&'a SourceCells, u32)>,
+    pub bounding_radius: Option<u32>,
 }
+
+pub(super) fn broadcast(
+    objects: &SourceObjects,
+    object: ObjectHandle,
+    binding: Option<(&SourceCells, u32)>,
+    radius: Option<u32>,
+) -> Result<SourceBroadcast> {
+    if !objects.get(object)?.in_world {
+        return Ok(SourceBroadcast::OutOfWorld);
+    }
+    let (cells, map_distance_bits) =
+        binding.ok_or_else(|| refuse("execution.spells.Map_541.broadcast_grid_owner"))?;
+    objects.message_broadcast_without_sessions(object, cells, map_distance_bits, radius)
+}
+
 impl SourceRelationOwner for Owner<'_> {
     fn relation_flags(&self, unit: ObjectHandle) -> Result<u32> {
         require(
@@ -222,8 +245,8 @@ impl SpellExecutionOwner for Owner<'_> {
         )?;
         self.objects.get(unit)?;
         let mut value = self.unit;
-        value.standing = self.addon.stand == 0;
-        value.mounted = self.addon.mount != 0;
+        value.standing = self.stand == 0;
+        value.mounted = self.mount != 0;
         Ok(value)
     }
     fn map_time(&mut self, caster: ObjectHandle) -> Result<u32> {
@@ -273,7 +296,7 @@ impl SpellExecutionOwner for Owner<'_> {
                     );
                     assert_eq!(*self.flags, 0);
                     assert_eq!(unit_reaction_to(self.object, self.object, self)?, 4);
-                    println!("F6_RELATIONS guid=27677 flags=0 identity_exit=Relations.cpp:204 assist_exit=Relations.cpp:504 raw={} relation_words=0 relation_sql=0 relation_clock=0", self.raw);
+                    println!("F6_RELATIONS guid=27677 flags=0 identity_exit=Relations.cpp:204 assist_exit=Relations.cpp:504 raw={} relation_words=0 relation_sql=0 relation_clock=0", self.random.creature_raw_position()?);
                 }
                 Ok(result)
             }

@@ -121,8 +121,8 @@ is meaningful without a bounded content/mechanics inventory.
   The 262-spell addon census has 299 effect slots and 43 aura types. Its static
   coverage is 31 spells, with 231 using an unported effect or aura type.
   Static coverage does not establish execution; this map 0 prefix completes two.
-  EventAI spawn event 649101 next requests a normal cast of 10848 and refuses
-  at its live cast-context lookup, `CreatureEventAI.cpp:782-789`.
+  EventAI spawn event 649101 reaches spell 10848's same-caster aura replacement.
+  It refuses at `Unit.cpp:4757` before removing the addon holder.
   `execution.spells.queued_spell_event_owner` prevents load completion from
   discarding the pending cleanup events, `Spell.cpp:7127-7164`.
 - **WMO area catalog.** Startup binds all 21,115 effective WMO rows through the
@@ -676,9 +676,9 @@ An empty check mask skips the stronger-aura block,
 `SpellMgr.h:90-108,984-991`. The unit exists from construction, preserves
 its live containers through spawn population and receives model reach
 and cast speed at `Unit.cpp:10270` and `Creature.cpp:433`.
-Existing location, items, range and power owners reach preparation and
-the live aura-holder walk, `Spell.cpp:3025-3049`, `Unit.cpp:5253-5276`.
-The next owner is the AI current-spell write at `UnitAI.cpp:429`.
+EventAI borrows its live base AI and uses the unit's queued Spell key at
+`UnitAI.cpp:352,429,436`. Map 0 passes `Spell.cpp:3201` and reaches the
+immediate self effect. `Unit.cpp:4757` still needs the live aura removal owner.
 Creature cooldown sends dispatch through `Creature.cpp:3109-3162`.
 The live spell-list scan draws equal bounds, `Creature.cpp:1557-1567`;
 the loaded ObjectMgr fallback keeps NOT_FOUND, `Creature.cpp:3118-3125`.

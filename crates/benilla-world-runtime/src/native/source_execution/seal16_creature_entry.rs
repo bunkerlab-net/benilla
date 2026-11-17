@@ -196,7 +196,9 @@ pub(super) fn continue_entry(
     };
     // Unit.cpp:10270 reads the selected model and the native/current scale operands.
     let reach = (normalized * f32::from_bits(model[2])).to_bits();
-    prefix.units.get_mut(objects, object)?.combat_reach = Some(reach);
+    let live = prefix.units.get_mut(objects, object)?;
+    live.bounding_radius = Some((normalized * f32::from_bits(model[1])).to_bits());
+    live.combat_reach = Some(reach);
     assert_eq!(reach, fields.reach);
     prefix
         .lookups

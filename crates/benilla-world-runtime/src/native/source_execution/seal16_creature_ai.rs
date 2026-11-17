@@ -15,27 +15,29 @@ impl CreatureRandom for Owner<'_, '_, '_> {
         // CreatureEventAI.cpp:607,618 retains the map thread's full-width draw.
         self.0.borrow_mut().creature_urand_default()
     }
+    fn creature_raw_position(&self) -> Result<u64> {
+        self.0.borrow().creature_raw_position()
+    }
 }
 impl UnitAiExecutionOwner for Owner<'_, '_, '_> {}
 
 #[path = "seal16_ai_cast.rs"]
 mod ai_cast;
-struct LiveOwner<'a, 'b, 'c, 'd> {
-    random: Owner<'a, 'b, 'c>,
-    binding: ai_cast::Binding<'d>,
+struct LiveOwner<'a> {
+    binding: ai_cast::Binding<'a>,
 }
-impl CreatureRandom for LiveOwner<'_, '_, '_, '_> {
+impl CreatureRandom for LiveOwner<'_> {
     fn creature_irand(&mut self, min: i32, max: i32) -> Result<i32> {
-        self.random.creature_irand(min, max)
+        self.binding.random.creature_irand(min, max)
     }
     fn creature_urand(&mut self, min: u32, max: u32) -> Result<u32> {
-        self.random.creature_urand(min, max)
+        self.binding.random.creature_urand(min, max)
     }
     fn creature_urand_default(&mut self) -> Result<u32> {
-        self.random.creature_urand_default()
+        self.binding.random.creature_urand_default()
     }
 }
-impl UnitAiExecutionOwner for LiveOwner<'_, '_, '_, '_> {
+impl UnitAiExecutionOwner for LiveOwner<'_> {
     fn add_main_spell(
         &mut self,
         _unit: ObjectHandle,
@@ -55,7 +57,7 @@ impl UnitAiExecutionOwner for LiveOwner<'_, '_, '_, '_> {
     fn with_unit_spell_context<T>(
         &mut self,
         units: &mut SourceUnits,
-        ais: &SourceCreatureAis,
+        ais: &mut SourceCreatureAis,
         objects: &SourceObjects,
         run: impl FnOnce(&mut SpellStartContext<'_>) -> Result<T>,
     ) -> Result<T> {
@@ -101,13 +103,17 @@ pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
     let event = prefix.event_ais.get_mut(&object).unwrap();
     let fields = prefix.creature_entry.as_ref().unwrap();
     let mut live_owner = LiveOwner {
-        random: Owner(&random),
         binding: ai_cast::Binding {
             object,
             stores: prefix.spell_stores,
             targets: &prefix.spell_targets,
             terrain: context.products,
             world_clock: prefix.world_clock,
+            clocks: prefix.clocks,
+            random: &mut Owner(&random),
+            creature_spells: prefix.creature_spells,
+            max_casts: super::addon_cast::max_casts(prefix.config)?,
+            broadcast: Some((context.cells, prefix.map_visibility_bits)),
         },
     };
     let mut execution = SourceAiExecution {

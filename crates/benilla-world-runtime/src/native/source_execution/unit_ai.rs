@@ -142,6 +142,9 @@ pub struct SourceUnitFields {
     /// Unit.cpp:10270 writes model reach after Object.cpp:105-108 initializes update fields.
     #[serde(skip)]
     pub combat_reach: Option<u32>,
+    /// Unit.cpp:10268, Unit.h:1094. Live model operand for Cell::Visit.
+    #[serde(skip)]
+    pub bounding_radius: Option<u32>,
     /// Object.cpp:105-108 zeros the field before Creature.cpp:433 writes one.
     #[serde(skip)]
     pub cast_speed: u32,
@@ -298,6 +301,7 @@ impl SourceUnitFields {
             combo_target: None,
             cooldowns: SourceSpellCooldowns::default(),
             combat_reach: None,
+            bounding_radius: None,
             cast_speed: 0,
             spell_list: None,
             spell_list_disabled: None,
@@ -635,7 +639,7 @@ pub trait UnitAiExecutionOwner {
     fn with_unit_spell_context<T>(
         &mut self,
         _units: &mut SourceUnits,
-        _ais: &SourceCreatureAis,
+        _ais: &mut SourceCreatureAis,
         _objects: &SourceObjects,
         run: impl FnOnce(&mut SpellStartContext<'_>) -> Result<T>,
     ) -> Result<T>
@@ -753,7 +757,12 @@ pub struct SourceUnitAi {
     pub react_state: u32,
     pub combat_script: bool,
     pub order: u32,
-    pub current_spell: Option<u32>,
+    // Preserve the null field in format 91; the live identity has no restore owner.
+    #[serde(rename = "current_spell")]
+    saved_current_spell: (),
+    /// UnitAI.cpp:54,352,429,436. Key in this unit's live Spell store.
+    #[serde(skip)]
+    pub current_spell: Option<u64>,
     pub teleport_unreachable: bool,
     pub ranged_mode: bool,
     pub ranged_setting: u32,
@@ -803,6 +812,7 @@ impl SourceUnitAi {
             react_state: 2,
             combat_script: false,
             order: 0,
+            saved_current_spell: (),
             current_spell: None,
             teleport_unreachable: false,
             ranged_mode: false,

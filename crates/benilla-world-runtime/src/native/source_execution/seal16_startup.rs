@@ -2409,7 +2409,7 @@ pub(super) fn continue_startup(
                 [4, 95]
             );
             assert_eq!(auras.vis_flags, 1);
-            assert_eq!(auras.cast_counter, 0);
+            assert_eq!(auras.cast_counter, 1);
             assert!(current.addon.duplicate_aura_errors.is_empty());
             assert_eq!(live.spell_starts.spells.len(), 3);
             assert_eq!(
@@ -2453,16 +2453,17 @@ pub(super) fn continue_startup(
             assert_eq!(holder.event.flags & 0x20, 0);
             assert_eq!(first_action.params.unwrap()[2] & 0x16, 0);
             assert!(units.get(&active_objects, candidate).unwrap().has_ai);
-            println!("F6_EVENTAI_SPAWN event=649101 type=11 action_slot=0 cast=10848 target=0 flags=0 branch=normal_cast next_source=UnitAI.cpp:429");
+            println!("F6_EVENTAI_SPAWN event=649101 type=11 action_slot=0 cast=10848 target=0 flags=0 branch=normal_cast next_source=Unit.cpp:4757");
             // SpellMgr.h:90-108,984-991 skips masked aura checks for targetA1/B0.
             let ai_spell = &live.spell_starts.spells[&3];
-            assert_eq!(ai_spell.cooldown_lookups, [1, 1]);
+            // Spell.cpp:3201 repeats CheckCast in non-strict mode.
+            assert_eq!(ai_spell.cooldown_lookups, [2, 1]);
             assert_eq!(
                 (ai_spell.stacker_lookups, ai_spell.stacker_attribute_exits),
                 (0, 0)
             );
             let t = addon_spells.template(10848).unwrap();
-            assert_eq!(ai_spell.check_suffix_lookups, [1, 1, 1]);
+            assert_eq!(ai_spell.check_suffix_lookups, [2, 2, 1]);
             assert_eq!(check_effect_mask(t).unwrap(), 0);
             let range = addon_spells.range_entry(t.rangeindex).unwrap().unwrap();
             println!("F6_COOLDOWN_CONTINUATION range_index={} range_flags={} affected_mask=0 self_targeting=false stacker_lookups=0 location_items_range_power_complete=true", t.rangeindex, range.flags);
@@ -2489,7 +2490,7 @@ pub(super) fn continue_startup(
             assert!(!live.totem);
             assert_eq!(live.auras.aura_holders.first_key_value().unwrap().0, &9036);
             assert_eq!(live.auras.aura_holders[&9036].caster, candidate);
-            assert_eq!(ai_spell.power_lookups, [1, 1]);
+            assert_eq!(ai_spell.power_lookups, [2, 2]);
             assert_eq!(ai_spell.prepare_lookups, [1, 1, 2, 1, 1, 1]);
             assert_eq!(
                 (ai_spell.power_cost, ai_spell.cast_time, ai_spell.timer),
@@ -2501,12 +2502,13 @@ pub(super) fn continue_startup(
                 creature_entry.as_ref().map(|fields| fields.reach)
             );
             assert!(live.target.is_none());
-            assert!(ais
-                .get(&active_objects, candidate)
-                .unwrap()
-                .base
-                .current_spell
-                .is_none());
+            assert_eq!(
+                ais.get(&active_objects, candidate)
+                    .unwrap()
+                    .base
+                    .current_spell,
+                Some(ai_spell.id)
+            );
             assert_eq!(t.attributesex4 & 0x80, 0);
             assert_eq!(t.attributes & 0x404, 0);
             assert_eq!(t.attributesex & 0x44, 0);
@@ -2518,7 +2520,7 @@ pub(super) fn continue_startup(
                 (ai_spell.spell, ai_spell.caster, ai_spell.original_caster),
                 (10848, candidate, candidate)
             );
-            assert_eq!(ai_spell.state, SourceSpellState::Casting);
+            assert_eq!(ai_spell.state, SourceSpellState::Landing);
             assert_eq!(ai_spell.flags, SpellTriggerFlags(0x100));
             assert_eq!(
                 (ai_spell.targets.unit, ai_spell.targets.mask),
@@ -2541,7 +2543,51 @@ pub(super) fn continue_startup(
                     negative_effect_mask: 0
                 })
             );
-            assert!(!ai_spell.referenced && !ai_spell.executing);
+            assert!(ai_spell.referenced && ai_spell.executing);
+            assert_eq!(
+                ai_spell.cast_position,
+                active_objects.get(candidate).unwrap().pose.unwrap().0
+            );
+            assert_eq!(
+                live.spell_slots.current(SpellSlot::Generic),
+                Some(ai_spell.id)
+            );
+            assert_eq!(ai_spell.unique_targets.len(), 1);
+            let target = &ai_spell.unique_targets[0];
+            assert_eq!(
+                (target.unit, target.effect_mask, target.hit_mask),
+                (candidate, 1, 1)
+            );
+            assert!(target.processed && !target.missed);
+            assert!(ai_spell.spell_go.is_some());
+            assert!(ai_spell.spell_start.is_some());
+            // Map.cpp:541-548 and GridNotifiers.cpp:148-155. Both packets visit
+            // live world cells, and neither reaches a camera's session read.
+            for broadcast in [&ai_spell.start_broadcast, &ai_spell.go_broadcast] {
+                assert!(matches!(
+                    broadcast,
+                    Some(super::super::visibility::SourceBroadcast::Visited { loaded_cells })
+                        if *loaded_cells > 0
+                ));
+            }
+            assert_eq!(
+                ai_spell.creature_cooldown.result,
+                Some(CreatureCooldownMatch::Missing)
+            );
+            assert_eq!(ai_spell.creature_cooldown.fallback, Some(None));
+            assert_eq!(t.stackamount, 0);
+            // Spell.cpp:1445-1490. The replacement still belongs to the in-flight Spell.
+            let pending = ai_spell.pending_aura.as_ref().unwrap();
+            assert_eq!((pending.caster, pending.target), (candidate, candidate));
+            assert!(!pending.ready && !pending.deleted);
+            let aura = pending.effects[0].as_ref().unwrap();
+            assert!(!aura.applied);
+            assert_eq!(aura.kind, 4);
+            // seal16-full-01/run/trace.tsv:60478084,60478161.
+            assert_eq!(
+                (pending.apply_time, aura.apply_time),
+                (1794314190, 1794314190)
+            );
             assert_eq!(live.spell_slots.current(SpellSlot::Melee), None);
             assert_eq!(ais.get(&active_objects, candidate).unwrap().base.order, 0);
             let spell = &live.spell_starts.spells[&1];
@@ -2598,6 +2644,7 @@ pub(super) fn continue_startup(
             assert_eq!(evidence.words[27080], (60477501, 27080, 3988355474));
             println!("F6_ADDON_CAST guid=40520 entry=6491 completed_spells=2 types=[95,4] queued=4 cast_words=0 next_owner={}", refusal.id);
             println!("F6_ADDON_CAST_UB stock_prefix_spells=2 effect_index_out_of_bounds=0 cast_time_signed_add_overflow=0 cast_time_float_to_int=0 school_mask_shift=0 duration_abs=0 max_duration_abs=0 effect_base_sub=0 effect_float_to_int=0 aura_type_enum=0 immunity_effect_index=0");
+            println!("F6_SPELL_BROADCAST start_and_go_visited=true camera_session_reads=0 cell_float_to_int_undefined=0");
             assert_eq!(
                 zone_lookups[&SpawnKey {
                     kind: GridSpawnKind::Creature,
@@ -3900,7 +3947,7 @@ pub(super) fn continue_startup(
             evidence.pool_snapshot_line.unwrap(),
             encounters.by_map(slot as u32).len(),
             refusal.id,
-            if slot == 0 { "CreatureEventAI.cpp:789" } else { "UnitAI.cpp:965" },
+            if slot == 0 { "Unit.cpp:4757" } else { "UnitAI.cpp:965" },
         );
         owner.states = states;
         let raw = trace

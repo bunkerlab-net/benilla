@@ -159,9 +159,9 @@ pub struct SourceSpellTarget {
     pub missed: bool,
 }
 #[cfg(test)]
-/// Diagnostic copy of the temporary SMSG_SPELL_GO body, Spell.cpp:3960-3983.
+/// Diagnostic copy of an emitted spell packet body, Spell.cpp:3902-3983.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SourceSpellGo {
+pub struct SourceSpellPacket {
     pub bytes: [u8; 53],
     pub length: usize,
 }
@@ -211,8 +211,17 @@ pub struct SourceSpell {
     pub unique_targets: Vec<SourceSpellTarget>,
     pub damage_multipliers: [u32; 3],
     pub damage_per_effect: [i32; 3],
+    /// Spell.cpp:1445-1494. Ownership transfers to the unit only on insertion.
     #[cfg(test)]
-    pub spell_go: Option<SourceSpellGo>,
+    pub pending_aura: Option<SourceAuraHolder>,
+    #[cfg(test)]
+    pub spell_go: Option<SourceSpellPacket>,
+    #[cfg(test)]
+    pub spell_start: Option<SourceSpellPacket>,
+    #[cfg(test)]
+    pub(crate) start_broadcast: Option<super::super::visibility::SourceBroadcast>,
+    #[cfg(test)]
+    pub(crate) go_broadcast: Option<super::super::visibility::SourceBroadcast>,
     #[cfg(test)]
     pub proc_event_lookups: u32,
     #[cfg(test)]
@@ -299,7 +308,15 @@ impl SourceSpell {
             damage_multipliers: [0; 3],
             damage_per_effect: [0; 3],
             #[cfg(test)]
+            pending_aura: None,
+            #[cfg(test)]
             spell_go: None,
+            #[cfg(test)]
+            spell_start: None,
+            #[cfg(test)]
+            start_broadcast: None,
+            #[cfg(test)]
+            go_broadcast: None,
             #[cfg(test)]
             proc_event_lookups: 0,
             #[cfg(test)]

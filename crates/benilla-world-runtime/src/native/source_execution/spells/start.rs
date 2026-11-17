@@ -279,6 +279,50 @@ impl SourceSpellSlots {
     pub fn current(&self, slot: SpellSlot) -> Option<u64> {
         self.current[slot.index()]
     }
+    // Unit.cpp:4221-4299, with no previous Spell in the affected slots.
+    #[cfg(test)]
+    pub(crate) fn set_uncontested(
+        &mut self,
+        spell: &mut SourceSpell,
+        t: &SpellTemplate,
+    ) -> Result<()> {
+        let slot = SpellSlot::for_spell(t, spell);
+        if self.current(slot) == Some(spell.id) {
+            return Ok(());
+        }
+        require(
+            self.current(slot).is_none(),
+            "execution.spells.Unit_4226.InterruptSpell_live_owner",
+        )?;
+        if slot == SpellSlot::Generic {
+            require(
+                self.current(SpellSlot::Channel).is_none(),
+                "execution.spells.Unit_4237.channel_slot_spell_owner",
+            )?;
+            require(
+                self.current(SpellSlot::AutoRepeat).is_none(),
+                "execution.spells.Unit_4245.autorepeat_slot_spell_owner",
+            )?;
+        } else if slot == SpellSlot::Channel
+            && t.attributesex4 & 0x80 == 0
+            && !spell.flags.old_triggered()
+        {
+            require(
+                self.current(SpellSlot::AutoRepeat).is_none(),
+                "execution.spells.Unit_4259.autorepeat_slot_spell_owner",
+            )?;
+        } else if slot == SpellSlot::AutoRepeat {
+            return Err(refuse(
+                "execution.spells.Unit_4276.autorepeat_slot_reset_owner",
+            ));
+        }
+        self.reference(slot, spell);
+        Ok(())
+    }
+    fn reference(&mut self, slot: SpellSlot, spell: &mut SourceSpell) {
+        self.current[slot.index()] = Some(spell.id);
+        spell.referenced = true;
+    }
     pub fn interrupt(
         &mut self,
         slot: SpellSlot,
@@ -401,8 +445,7 @@ impl SourceSpellSlots {
                 .expect("validated current spell")
                 .referenced = false;
         }
-        self.current[slot.index()] = Some(id);
-        spells.get_mut(&id).expect("validated new spell").referenced = true;
+        self.reference(slot, spells.get_mut(&id).expect("validated new spell"));
         Ok(())
     }
     pub fn clear_finished(&mut self, spells: &mut BTreeMap<u64, SourceSpell>) -> Result<()> {

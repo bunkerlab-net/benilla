@@ -5,7 +5,7 @@ use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: [&str; 2] = [
-    "execution.spells.UnitAI_429.current_spell_write_owner",
+    "execution.spells.Unit_4757.RemoveSpellAuraHolder_owner",
     "execution.relations.GetMaster_6716_owner",
 ];
 #[path = "seal16_active_clocks.rs"]

@@ -48,6 +48,22 @@ pub struct SourceVisibilityCensus {
     pub unvisited_guids: usize,
     pub residual_players: usize,
 }
+#[cfg(test)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SourceBroadcastNotice {
+    pub line: u32,
+    pub object: ObjectHandle,
+    pub position: [u32; 2],
+}
+#[cfg(test)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum SourceBroadcast {
+    OutOfWorld,
+    InvalidCoordinates(SourceBroadcastNotice),
+    GridUnloaded,
+    Visited { loaded_cells: usize },
+}
+
 impl SourceObjects {
     fn world_visibility(&self, object: ObjectHandle) -> Result<&WorldVisibility> {
         self.get(object)?
@@ -147,6 +163,64 @@ impl SourceObjects {
         }
         Ok(())
     }
+    /// Object.cpp:1916-1921, Map.cpp:528-549. Visit only existing world cells.
+    #[cfg(test)]
+    pub(crate) fn message_broadcast_without_sessions(
+        &self,
+        object: ObjectHandle,
+        cells: &SourceCells,
+        map_distance_bits: u32,
+        radius: Option<u32>,
+    ) -> Result<SourceBroadcast> {
+        let world = self.get(object)?;
+        require(
+            world.map == Some(cells.map()),
+            "execution.spells.Map_541.broadcast_grid_owner",
+        )?;
+        let [x, y, _, _] = self.pose(object)?.0;
+        use benilla_sim::resident_map::Error;
+        let undefined = || refuse("execution.spells.GridDefines_154.cell_float_to_int_undefined");
+        let standing = match compute_cell_pair(x, y) {
+            Ok(pair) => pair,
+            Err(Error::OutsideMap) => {
+                // The source computes both axes before Map.cpp:532 tests either.
+                if compute_cell_pair(0, y) == Err(Error::Numeric) {
+                    return Err(undefined());
+                }
+                return Ok(SourceBroadcast::InvalidCoordinates(SourceBroadcastNotice {
+                    line: 534,
+                    object,
+                    position: [x, y],
+                }));
+            }
+            Err(Error::Numeric) => return Err(undefined()),
+        };
+        if !cells.object_data_loaded(standing.grid_x(), standing.grid_y()) {
+            return Ok(SourceBroadcast::GridUnloaded);
+        }
+        let override_bits = self.visibility_override_bits(object)?;
+        let distance = if f32::from_bits(override_bits) != 0. {
+            override_bits
+        } else {
+            map_distance_bits
+        };
+        let radius = radius
+            .ok_or_else(|| refuse("execution.spells.Unit_1094.UNIT_FIELD_BOUNDINGRADIUS_owner"))?;
+        let pairs = source_cell_visit(standing, x, y, distance, radius)
+            .map_err(|_| refuse("execution.spells.Cell_80.broadcast_cell_visit"))?;
+        let mut loaded_cells = 0;
+        for pair in pairs {
+            if cells.object_data_loaded(pair.grid_x(), pair.grid_y()) {
+                loaded_cells += 1;
+                require(
+                    cells.first_in_slot(cells.cell(pair)?, 7)?.is_none(),
+                    "execution.spells.GridNotifiers_152.camera_session_owner",
+                )?;
+            }
+        }
+        Ok(SourceBroadcast::Visited { loaded_cells })
+    }
+
     pub fn update_object_visibility(
         &mut self,
         request: SourceVisibilityUpdate,
@@ -269,6 +343,69 @@ mod tests {
             bounding_radius_bits: 0x3ec7_2b02,
         }
     }
+
+    #[test]
+    fn broadcast_checks_coordinates_then_grid_then_camera_sessions() {
+        let (mut objects, mut cells, object, cell) = fixture();
+        let distance = 100f32.to_bits();
+        let outside = 20_000f32.to_bits();
+        objects
+            .set_pose(object, SourcePose([outside, 0, 0, 0]))
+            .unwrap();
+        assert_eq!(
+            objects
+                .message_broadcast_without_sessions(object, &cells, distance, None)
+                .unwrap(),
+            SourceBroadcast::InvalidCoordinates(SourceBroadcastNotice {
+                line: 534,
+                object,
+                position: [outside, 0]
+            }),
+        );
+        for point in [[f32::MAX.to_bits(), 0], [outside, f32::MAX.to_bits()]] {
+            objects
+                .set_pose(object, SourcePose([point[0], point[1], 0, 0]))
+                .unwrap();
+            assert_eq!(
+                objects
+                    .message_broadcast_without_sessions(object, &cells, distance, None)
+                    .unwrap_err()
+                    .id,
+                "execution.spells.GridDefines_154.cell_float_to_int_undefined",
+            );
+        }
+        objects.set_pose(object, SourcePose([0; 4])).unwrap();
+        let camera = objects.construct(1, SourceObjectKind::Camera).unwrap();
+        let near = cells
+            .cell(CellPair::from_indices(514, 512).unwrap())
+            .unwrap();
+        cells.link(camera, SourceObjectKind::Camera, near).unwrap();
+        // A grid can exist and contain a registration before its object data is loaded.
+        assert_eq!(
+            objects
+                .message_broadcast_without_sessions(object, &cells, distance, None)
+                .unwrap(),
+            SourceBroadcast::GridUnloaded
+        );
+        cells.set_object_data_loaded(cell.grid).unwrap();
+        assert_eq!(
+            objects
+                .message_broadcast_without_sessions(object, &cells, distance, Some(0))
+                .unwrap_err()
+                .id,
+            "execution.spells.GridNotifiers_152.camera_session_owner",
+        );
+        objects
+            .set_visibility_distance_override(object, SourceVisibilityDistance::Tiny)
+            .unwrap();
+        assert!(matches!(
+            objects
+                .message_broadcast_without_sessions(object, &cells, distance, Some(0))
+                .unwrap(),
+            SourceBroadcast::Visited { loaded_cells } if loaded_cells > 0
+        ));
+    }
+
     #[test]
     fn viewpoint_registration_precedes_dispatch_and_keeps_the_preincremented_append_boundary() {
         let (mut objects, mut cells, go, cell) = fixture();
