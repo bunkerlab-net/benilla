@@ -11,6 +11,10 @@ impl CreatureRandom for Owner<'_, '_, '_> {
     fn creature_urand(&mut self, min: u32, max: u32) -> Result<u32> {
         self.0.borrow_mut().creature_urand(min, max)
     }
+    fn creature_urand_default(&mut self) -> Result<u32> {
+        // CreatureEventAI.cpp:607,618 retains the map thread's full-width draw.
+        self.0.borrow_mut().creature_urand_default()
+    }
 }
 impl UnitAiExecutionOwner for Owner<'_, '_, '_> {}
 

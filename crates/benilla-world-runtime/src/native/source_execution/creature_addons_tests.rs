@@ -1,6 +1,26 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 use std::collections::BTreeMap;
+fn addon_unit() -> SourceUnitFields {
+    SourceUnitFields::creature(&CreatureAiTemplateOperands {
+        ordinal: 1,
+        entry: 1,
+        faction: 14,
+        extra_flags: 0,
+        unit_flags: 0,
+        type_flags: 0,
+        static_flags: [0; 4],
+        rank: 0,
+        inhabit_type: 1,
+        stats_multipliers: [1f32.to_bits(); 3],
+        civilian: false,
+        pursuit_ms: 15000,
+        call_for_help: 0,
+        creature_type: 0,
+        ai_name: String::new(),
+        script_name: String::new(),
+    })
+}
 fn row(key: u32, text: &[u8]) -> CreatureAddonRow {
     SqlTemplateRow {
         ordinal: u64::from(key),
@@ -337,6 +357,7 @@ fn addon_application_guid_template_and_absent_preserve_conditional_writes() {
         .load(
             loaded.get(HighGuid::Creature, 7, 1),
             false,
+            &mut addon_unit(),
             &mut NoSpellExecution
         )
         .unwrap());
@@ -345,6 +366,7 @@ fn addon_application_guid_template_and_absent_preserve_conditional_writes() {
         .load(
             loaded.get(HighGuid::Creature, 8, 1),
             false,
+            &mut addon_unit(),
             &mut NoSpellExecution
         )
         .unwrap());
@@ -353,6 +375,7 @@ fn addon_application_guid_template_and_absent_preserve_conditional_writes() {
         .load(
             loaded.get(HighGuid::Creature, 8, 2),
             false,
+            &mut addon_unit(),
             &mut NoSpellExecution
         )
         .unwrap());
@@ -361,6 +384,7 @@ fn addon_application_guid_template_and_absent_preserve_conditional_writes() {
         .load(
             loaded.get(HighGuid::Pet, 7, 1),
             false,
+            &mut addon_unit(),
             &mut NoSpellExecution
         )
         .unwrap());
@@ -369,6 +393,22 @@ fn addon_application_guid_template_and_absent_preserve_conditional_writes() {
 
 #[test]
 fn addon_application_aura_membership_reload_and_cast_refusal_keep_source_order() {
+    let holder = || {
+        SourceAuraHolder::new(
+            &SpellTemplate {
+                id: 10,
+                ..Default::default()
+            },
+            ObjectHandle {
+                thread: 1,
+                construction: 1,
+            },
+            0,
+            0,
+            -1,
+        )
+        .unwrap()
+    };
     let mut addon = LoadedCreatureAddon {
         key: 1,
         mount: 0,
@@ -380,10 +420,11 @@ fn addon_application_aura_membership_reload_and_cast_refusal_keep_source_order()
     };
     for reload in [false, true] {
         let mut state = CreatureAddonState::default();
-        state.aura_holders.insert(10);
+        let mut unit = addon_unit();
+        unit.auras.aura_holders.insert(10, holder());
         assert_eq!(
             state
-                .load(Some(&addon), reload, &mut NoSpellExecution)
+                .load(Some(&addon), reload, &mut unit, &mut NoSpellExecution)
                 .unwrap_err()
                 .id,
             "execution.creature_addon.Creature_2343.CastSpell_owner"
@@ -393,13 +434,17 @@ fn addon_application_aura_membership_reload_and_cast_refusal_keep_source_order()
             state.duplicate_aura_errors,
             if reload { vec![] } else { vec![10] }
         );
-        assert_eq!(state.aura_holders, [10].into_iter().collect());
+        assert_eq!(
+            unit.auras.aura_holders.keys().copied().collect::<Vec<_>>(),
+            [10]
+        );
     }
     addon.auras = CreatureAddonAuras::Spells(vec![10, 0, 11]);
     let mut state = CreatureAddonState::default();
-    state.aura_holders.insert(10);
+    let mut unit = addon_unit();
+    unit.auras.aura_holders.insert(10, holder());
     assert!(state
-        .load(Some(&addon), true, &mut NoSpellExecution)
+        .load(Some(&addon), true, &mut unit, &mut NoSpellExecution)
         .unwrap());
     assert!(state.duplicate_aura_errors.is_empty());
 }
@@ -418,7 +463,12 @@ fn addon_application_mount_refuses_before_later_field_writes() {
     let mut state = CreatureAddonState::default();
     assert_eq!(
         state
-            .load(Some(&addon), false, &mut NoSpellExecution)
+            .load(
+                Some(&addon),
+                false,
+                &mut addon_unit(),
+                &mut NoSpellExecution
+            )
             .unwrap_err()
             .id,
         "execution.creature_addon.Creature_2313.Mount_owner"
@@ -426,7 +476,12 @@ fn addon_application_mount_refuses_before_later_field_writes() {
     assert_eq!(state, CreatureAddonState::default());
     addon.mount = 0;
     assert!(state
-        .load(Some(&addon), false, &mut NoSpellExecution)
+        .load(
+            Some(&addon),
+            false,
+            &mut addon_unit(),
+            &mut NoSpellExecution
+        )
         .unwrap());
     assert_eq!((state.stand, state.sheath, state.emote), (3, 2, 7));
 }
@@ -445,7 +500,12 @@ fn addon_application_checks_both_sides_of_aura_terminator_boundary() {
     let mut state = CreatureAddonState::default();
     assert_eq!(
         state
-            .load(Some(&addon), false, &mut NoSpellExecution)
+            .load(
+                Some(&addon),
+                false,
+                &mut addon_unit(),
+                &mut NoSpellExecution
+            )
             .unwrap_err()
             .id,
         "execution.creature_addon.Creature_2333.aura_terminator_out_of_bounds_undefined"
@@ -453,6 +513,11 @@ fn addon_application_checks_both_sides_of_aura_terminator_boundary() {
     assert_eq!((state.stand, state.sheath, state.emote), (3, 2, 7));
     addon.auras = CreatureAddonAuras::Spells(vec![0]);
     assert!(state
-        .load(Some(&addon), false, &mut NoSpellExecution)
+        .load(
+            Some(&addon),
+            false,
+            &mut addon_unit(),
+            &mut NoSpellExecution
+        )
         .unwrap());
 }

@@ -148,25 +148,49 @@ fn catalog04_creature_addon_branch_census_and_4692_lookup() {
         assert_eq!(rows_with_auras, [728, 462][table as usize]);
     }
     let mut effect_types = BTreeMap::<u32, usize>::new();
+    let mut aura_types = BTreeMap::<u32, usize>::new();
+    let mut effect_aura_slots = BTreeMap::<(u32, u32), usize>::new();
+    let mut static_covered = 0;
     for (&id, references) in &aura_spells {
         let spell = spells.template(id).unwrap();
+        let static_coverage = spell.effects().iter().all(|effect| {
+            effect.effect == 0 || (effect.effect == 6 && matches!(effect.aura, 4 | 95))
+        });
+        static_covered += usize::from(static_coverage);
+        for effect in spell.effects().iter().filter(|effect| effect.effect != 0) {
+            *effect_aura_slots
+                .entry((effect.effect, effect.aura))
+                .or_default() += 1;
+        }
         let effects = spell.effects().map(|effect| effect.effect);
         for &effect in effects.iter().filter(|&&effect| effect != 0) {
             *effect_types.entry(effect).or_default() += 1;
         }
-        let reached = if id == 9036 {
-            "map0_GUID40520_Spell_cast_refusal"
+        let auras = spell.effects().map(|effect| effect.aura);
+        for &aura in auras.iter().filter(|&&aura| aura != 0) {
+            *aura_types.entry(aura).or_default() += 1;
+        }
+        let reached = if matches!(id, 9036 | 10848) {
+            "GUID40520_completion_asserted_in_seal16"
         } else {
-            "not_reached_before_map0_GUID40520_first_aura"
+            "execution_not_asserted_by_GUID40520_test"
         };
-        println!("CREATURE_ADDON_AURA spell={id} references_template_guid={references:?} effects={effects:?} reached={reached}");
+        println!("CREATURE_ADDON_AURA spell={id} references_template_guid={references:?} effects={effects:?} auras={auras:?} static_coverage={static_coverage} reached={reached}");
     }
     assert_eq!(aura_spells.len(), 262);
+    assert_eq!(static_covered, 31);
+    assert_eq!(aura_types.len(), 43);
+    assert_eq!(aura_types.values().sum::<usize>(), 292);
+    assert_eq!(effect_aura_slots.values().sum::<usize>(), 299);
+    assert_eq!(effect_aura_slots[&(6, 95)], 1);
+    assert_eq!(effect_aura_slots[&(6, 4)], 33);
     assert_eq!(
         effect_types,
         BTreeMap::from([(3, 5), (6, 281), (27, 1), (35, 10), (119, 2)])
     );
     println!("CREATURE_ADDON_AURA_CENSUS rows_template_guid=[728,462] distinct={} effect_slots={effect_types:?}", aura_spells.len());
+    println!("CREATURE_ADDON_AURA_TYPES {aura_types:?}");
+    println!("CREATURE_ADDON_STATIC_COVERAGE label='static coverage, not execution' only_owned_effect_and_aura_types={static_covered} unported_effect_or_aura_type={} effect_aura_slots={effect_aura_slots:?} specific_callbacks_not_qualified=true", aura_spells.len() - static_covered);
     drop(owner);
     let mut rows = ObjectMgrSpawnRows::open(&mut catalog, Path::new(&occurrences)).unwrap();
     let mut found = 0;

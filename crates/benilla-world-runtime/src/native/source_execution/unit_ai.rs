@@ -94,6 +94,9 @@ pub struct SourceUnitFields {
     /// Common.h:59, Unit.h:2654. The default TimePoint is the epoch.
     #[serde(skip)]
     pub spline_last_move_ms: i64,
+    /// Unit.h:2487,2507; Unit.cpp:355,365-366. Live state has no restore path.
+    #[serde(skip)]
+    pub auras: SourceUnitAuras,
 }
 impl SourceUnitFields {
     /// Unit.cpp:330,423-425; Creature.cpp:541-579. Spawn overrides belong to UpdateEntry.
@@ -208,6 +211,7 @@ impl SourceUnitFields {
             spline_outbound: Vec::new(),
             spline_position_expiry: 0,
             spline_last_move_ms: 0,
+            auras: SourceUnitAuras::default(),
         }
     }
     pub fn in_combat(&self) -> bool {

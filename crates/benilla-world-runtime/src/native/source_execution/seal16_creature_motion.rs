@@ -70,13 +70,13 @@ impl MotionExecutionOwner for MotionOwner<'_> {
         Ok(None)
     }
 }
-pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
+pub(super) fn register_unit<D: GridDefinitions<Row = SpawnKey>>(
     prefix: &mut Prefix<'_>,
     object: ObjectHandle,
     template: &LoadedCreatureInfo,
     context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
 ) -> Result<()> {
-    let fields = prefix.creature_entry.as_mut().unwrap();
+    let fields = prefix.creature_entry.as_ref().unwrap();
     let mut live = SourceUnitFields::loaded_creature(template);
     live.flags = fields.unit_flags;
     live.faction = fields.faction;
@@ -101,6 +101,17 @@ pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
         *rate = Some(f32::from_bits(bits));
     }
     live.movement = Some(movement);
+    prefix.units.register(context.objects, object, live)
+}
+
+pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
+    prefix: &mut Prefix<'_>,
+    object: ObjectHandle,
+    _template: &LoadedCreatureInfo,
+    context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
+) -> Result<()> {
+    let fields = prefix.creature_entry.as_mut().unwrap();
+    let live = prefix.units.get(context.objects, object)?;
     let mut owner = MotionOwner {
         geometry: context.products,
         passengers: prefix.passengers,
@@ -115,7 +126,6 @@ pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
         flags: live.flags,
         charmer: live.charmer,
     };
-    prefix.units.register(context.objects, object, live)?;
     prefix.threats.register(object)?;
     // Only the empty constructor master exists before AIM_Initialize.
     require(

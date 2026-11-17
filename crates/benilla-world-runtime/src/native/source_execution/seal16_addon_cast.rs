@@ -4,6 +4,8 @@
 use super::*;
 use rustc_apfloat::{ieee::Single, Float, Round, Status};
 
+#[path = "seal16_addon_effects.rs"]
+mod effects;
 pub(super) struct Execution<'a> {
     pub object: ObjectHandle,
     pub objects: &'a SourceObjects,
@@ -16,9 +18,18 @@ pub(super) struct Execution<'a> {
     pub unit: SpellUnitState,
     pub level: u32,
     pub cast_speed: u32,
+    pub clocks: &'a mut ActiveClocks,
+    pub raw: u64,
+    pub max_casts: u32,
 }
 impl CreatureAddonExecutionOwner for Execution<'_> {
-    fn cast_spell(&mut self, state: &mut CreatureAddonState, spell: u32) -> Result<()> {
+    fn cast_spell(
+        &mut self,
+        state: &mut CreatureAddonState,
+        live: &mut SourceUnitFields,
+        spell: u32,
+    ) -> Result<()> {
+        let before = (spell == 9036).then(|| serde_json::to_vec(&*live).unwrap());
         let mut owner = Owner {
             object: self.object,
             objects: self.objects,
@@ -26,10 +37,14 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
             stores: self.stores,
             targets: self.targets,
             immunities: self.immunities,
-            auras: state,
+            auras: &mut live.auras,
+            addon: state,
             unit: self.unit,
             level: self.level,
             cast_speed: self.cast_speed,
+            clocks: self.clocks,
+            raw: self.raw,
+            max_casts: self.max_casts,
         };
         // Creature.cpp:2343 ignores the cast result. A refusal still stops here.
         SpellStartContext {
@@ -45,6 +60,107 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
             SpellTriggerFlags(1),
             false,
         )?;
+        if let Some(before) = before {
+            assert_eq!(
+                before,
+                serde_json::to_vec(&*live).unwrap(),
+                "applying 9036 must not change saved SourceUnitFields bytes"
+            );
+        }
+        if self.object.thread == 6 && self.objects.get(self.object)?.database_guid == 40520 {
+            assert_eq!(self.raw, 27080);
+            let id = if spell == 9036 { 1 } else { 2 };
+            assert_eq!(self.starts.spells.len(), id as usize);
+            let value = &self.starts.spells[&id];
+            assert_eq!(value.spell, if id == 1 { 9036 } else { 10848 });
+            assert_eq!(value.state, SourceSpellState::Finished);
+            assert_eq!(value.proc_event_lookups, if id == 1 { 1 } else { 4 });
+            assert_eq!(value.unique_targets.len(), 1);
+            let target = &value.unique_targets[0];
+            assert_eq!(
+                (target.unit, target.effect_mask, target.hit_mask),
+                (self.object, 1, 1)
+            );
+            assert!(target.processed && !target.missed);
+            assert_eq!((target.processed_mask, target.duration), (0, -1));
+            assert_eq!(
+                value.damage_per_effect,
+                if id == 1 { [-20, 0, 0] } else { [0; 3] }
+            );
+            assert_eq!(value.damage_multipliers, [1f32.to_bits(), 0, 0]);
+            assert!(value.spell_go.is_some());
+            let queue = self.events.inventory();
+            assert_eq!(queue.clock_ms, 0);
+            assert!(queue.detached.is_empty());
+            assert_eq!(queue.queued.len(), id as usize);
+            let event = &queue.queued[id as usize - 1];
+            assert_eq!(value.event, Some(event.event_id));
+            assert_eq!(event.kind, SourceUnitEvent::Spell { spell: id });
+            assert_eq!(
+                (event.add_time_ms, event.exec_time_ms, event.to_abort),
+                (0, 1, false)
+            );
+            let aura = &live.auras.aura_holders[&spell];
+            assert!(aura.permanent && aura.ready && aura.skip_update && !aura.deleted);
+            assert_eq!((aura.caster, aura.target), (self.object, self.object));
+            assert_eq!(
+                (aura.duration, aura.max_duration, aura.charges, aura.stack),
+                (-1, -1, 0, 1)
+            );
+            assert_eq!((aura.apply_time, aura.apply_ms), (1794314190, 0));
+            assert_eq!(aura.slot, if id == 1 { 255 } else { 0 });
+            assert_eq!(aura.passive, id == 1);
+            assert_eq!(aura.death_persistent, id == 1);
+            assert!(!aura.removed_on_shape_lost);
+            assert_eq!(aura.level, 1);
+            let effect = aura.effects[0].as_ref().unwrap();
+            assert!(effect.applied);
+            assert_eq!(effect.kind, if id == 1 { 95 } else { 4 });
+            assert_eq!(
+                (effect.amount, effect.base_points),
+                if id == 1 { (-20, -20) } else { (0, 0) }
+            );
+            assert_eq!(
+                (
+                    effect.periodic_time,
+                    effect.periodic_timer,
+                    effect.periodic_tick
+                ),
+                (0, 0, 0)
+            );
+            assert_eq!(effect.positive, id != 1);
+            assert_eq!(effect.apply_time, 1794314190);
+            assert!(aura.effects[1..].iter().all(Option::is_none));
+            assert_eq!(live.auras.vis_flags, 1);
+            assert_eq!(live.auras.cast_counter, 0);
+            assert!(!live.auras.spell_procs_happening);
+            let t = self.stores.template(spell).unwrap();
+            assert_eq!((t.procflags, t.procchance, t.proccharges), (0, 101, 0));
+            assert!(self.stores.proc_event(spell).is_none());
+            if id == 2 {
+                assert_eq!(
+                    live.auras.aura_holders.keys().copied().collect::<Vec<_>>(),
+                    [9036, 10848]
+                );
+                assert_eq!(
+                    live.auras.aura_types.keys().copied().collect::<Vec<_>>(),
+                    [4, 95]
+                );
+                assert_eq!(
+                    live.auras.aura_holders[&9036].effects[0]
+                        .as_ref()
+                        .unwrap()
+                        .amount,
+                    -20
+                );
+                assert_eq!(live.auras.aura_fields.spells[0], 10848);
+                assert!(live.auras.aura_fields.spells[1..].iter().all(|v| *v == 0));
+                assert_eq!(live.auras.aura_fields.flags[0], 5);
+                assert_eq!(live.auras.aura_fields.levels[0], self.level);
+                assert_eq!(live.auras.aura_fields.applications, [0; 12]);
+            }
+            println!("F6_ADDON_APPLIED guid=40520 spell={spell} finished=true proc_fields=[0,101,0] proc_table_lookups={} raw={} additional_words=0 additional_sql=0", value.proc_event_lookups, self.raw);
+        }
         Ok(())
     }
 }
@@ -55,10 +171,14 @@ struct Owner<'a> {
     stores: &'a SourceSpellStores,
     targets: &'a SourceSpellTargetMgr,
     immunities: &'a CreatureImmunityState,
-    auras: &'a CreatureAddonState,
+    auras: &'a mut SourceUnitAuras,
+    addon: &'a mut CreatureAddonState,
     unit: SpellUnitState,
     level: u32,
     cast_speed: u32,
+    clocks: &'a mut ActiveClocks,
+    raw: u64,
+    max_casts: u32,
 }
 impl SpellLocationOwner for Owner<'_> {}
 impl SpellExecutionOwner for Owner<'_> {
@@ -69,8 +189,8 @@ impl SpellExecutionOwner for Owner<'_> {
         )?;
         self.objects.get(unit)?;
         let mut value = self.unit;
-        value.standing = self.auras.stand == 0;
-        value.mounted = self.auras.mount != 0;
+        value.standing = self.addon.stand == 0;
+        value.mounted = self.addon.mount != 0;
         Ok(value)
     }
     fn map_time(&mut self, caster: ObjectHandle) -> Result<u32> {
@@ -150,6 +270,9 @@ impl SpellExecutionOwner for Owner<'_> {
         }
     }
     fn call(&mut self, spell: &mut SourceSpell, call: SpellCall) -> Result<()> {
+        if let SpellCall::Cast(skip) = call {
+            return self.cast_self(spell, skip);
+        }
         if call != SpellCall::PrepareTriggerData {
             return Err(call.missing_owner());
         }
@@ -261,4 +384,14 @@ fn ranged_delay_refuses_at_first_signed_overflow() {
         add_ranged_delay(i32::MAX - 499).unwrap_err().id,
         "execution.spells.SpellMgr_145.cast_time_add_overflow_undefined"
     );
+}
+
+pub(super) fn max_casts(config: &[u8]) -> Result<u32> {
+    let (_, value) = super::super::super::super::super::spawn_loader_config::assignment(
+        config,
+        "MaxSpellCastsInChain",
+    )?;
+    value
+        .parse()
+        .map_err(|_| refuse("execution.spells.MaxSpellCastsInChain_config"))
 }

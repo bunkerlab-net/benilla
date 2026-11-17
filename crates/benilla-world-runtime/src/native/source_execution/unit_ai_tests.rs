@@ -1196,3 +1196,30 @@ fn empty_unwritten_spell_list_combat_branches_agree() {
         "execution.creature_spell_lists.UnitAI_106.unwritten_disabled"
     );
 }
+
+#[test]
+fn aura_storage_is_fresh_per_unit_and_excluded_from_saved_fields() {
+    let mut first = SourceUnitFields::creature(&template());
+    let second = SourceUnitFields::creature(&template());
+    let saved = serde_json::to_vec(&first).unwrap();
+    assert_eq!(first.auras, SourceUnitAuras::default());
+    let spell = SpellTemplate {
+        id: 9036,
+        attributes: 0x2d800140,
+        attributesex3: 0x00100000,
+        ..Default::default()
+    };
+    let unit = ObjectHandle {
+        thread: 6,
+        construction: 1,
+    };
+    first.auras.aura_holders.insert(
+        9036,
+        SourceAuraHolder::new(&spell, unit, 1794314190, 0, -1).unwrap(),
+    );
+    first.auras.aura_types.insert(95, vec![9036 << 2]);
+    first.auras.vis_flags = 1;
+    assert!(first.auras.has_aura(9036) && first.auras.has_aura_type(95));
+    assert_eq!(second.auras, SourceUnitAuras::default());
+    assert_eq!(serde_json::to_vec(&first).unwrap(), saved);
+}

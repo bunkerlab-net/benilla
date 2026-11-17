@@ -286,6 +286,12 @@ impl SourceUnitEvents {
         self.stopped |= result.is_err();
         result
     }
+    #[cfg(test)]
+    pub(crate) fn owns_spell_event(&self, event: u64, spell: u64) -> bool {
+        self.queue.event(event).is_some_and(
+            |value| matches!(value.kind, SourceUnitEvent::Spell { spell: id } if id == spell),
+        )
+    }
     /// In-memory F7 inventory only. SourceUnitEvent intentionally lacks Serialize.
     pub fn inventory(&self) -> EventProcessorSnapshot<SourceUnitEvent> {
         self.queue.snapshot()

@@ -147,6 +147,24 @@ pub struct SpellTriggerData {
     pub can_trigger: bool,
     pub negative_effect_mask: u8,
 }
+/// Spell.cpp:934-948,1612-1652. Self-target execution, before any travel.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceSpellTarget {
+    pub unit: ObjectHandle,
+    pub effect_mask: u8,
+    pub hit_mask: u8,
+    pub processed_mask: u8,
+    pub processed: bool,
+    pub duration: i32,
+    pub missed: bool,
+}
+#[cfg(test)]
+/// Diagnostic copy of the temporary SMSG_SPELL_GO body, Spell.cpp:3960-3983.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceSpellGo {
+    pub bytes: [u8; 53],
+    pub length: usize,
+}
 #[derive(Clone, Debug)]
 pub struct SourceSpell {
     pub id: u64,
@@ -189,9 +207,17 @@ pub struct SourceSpell {
     pub partial_application_mask: u32,
     pub effect_skip_mask: u32,
     pub trigger_data: Option<SpellTriggerData>,
+    pub duration: i32,
+    pub unique_targets: Vec<SourceSpellTarget>,
+    pub damage_multipliers: [u32; 3],
+    pub damage_per_effect: [i32; 3],
+    #[cfg(test)]
+    pub spell_go: Option<SourceSpellGo>,
+    #[cfg(test)]
+    pub proc_event_lookups: u32,
 }
 impl SourceSpell {
-    pub(super) fn new(
+    pub(in crate::native::source_execution) fn new(
         id: u64,
         t: &SpellTemplate,
         caster: ObjectHandle,
@@ -254,6 +280,14 @@ impl SourceSpell {
             jump_radius: 10f32.to_bits(),
             filtering_scheme: None,
             trigger_data: None,
+            duration: 0,
+            unique_targets: Vec::new(),
+            damage_multipliers: [0; 3],
+            damage_per_effect: [0; 3],
+            #[cfg(test)]
+            spell_go: None,
+            #[cfg(test)]
+            proc_event_lookups: 0,
         })
     }
     pub fn deletable(&self) -> bool {

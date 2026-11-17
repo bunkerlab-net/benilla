@@ -396,27 +396,34 @@ impl Inputs {
                 ));
             }
             "rng_call"
-                if evidence.first_candidate.is_some() && matches!(p[0], "urand" | "irand") =>
+                if evidence.first_candidate.is_some()
+                    && matches!(p[0], "urand" | "irand" | "urand_default") =>
             {
+                let bounds = if p[0] == "urand_default" {
+                    [0, 0]
+                } else {
+                    [p[3].parse().unwrap(), p[4].parse().unwrap()]
+                };
                 evidence.candidate_requests.push((
                     evidence.total_words,
                     p[0].into(),
-                    p[3].parse().unwrap(),
-                    p[4].parse().unwrap(),
+                    bounds[0],
+                    bounds[1],
                     None,
                 ));
                 if evidence.first_candidate_rng.len() < if thread == 6 { 1 } else { 8 } {
                     evidence.first_candidate_rng.push((
                         p[0].into(),
                         p[2].parse().unwrap(),
-                        p[3].parse().unwrap(),
-                        p[4].parse().unwrap(),
+                        bounds[0],
+                        bounds[1],
                         None,
                     ));
                 }
             }
             "rng_result"
-                if evidence.first_candidate.is_some() && matches!(p[0], "urand" | "irand") =>
+                if evidence.first_candidate.is_some()
+                    && matches!(p[0], "urand" | "irand" | "urand_default") =>
             {
                 if let Some(last) = evidence.candidate_requests.last_mut() {
                     assert_eq!(last.1, p[0]);
@@ -2377,8 +2384,7 @@ pub(super) fn continue_startup(
         if slot == 0 {
             assert_eq!((attempt.guid, entry), (40520, 6491));
             assert_eq!(refusal.id, active_init::CREATURE_NEXT_OWNER[slot]);
-            // Creature.cpp:2333-2343 starts with 9036. The second aura 10848
-            // cannot run until 9036 has applied its effects.
+            // Creature.cpp:2333-2343 applies 10848 after 9036, without a cast RNG draw.
             assert_eq!(
                 creature_addons
                     .get(HighGuid::Creature, 40520, 6491)
@@ -2387,16 +2393,68 @@ pub(super) fn continue_startup(
                 CreatureAddonAuras::Spells(vec![9036, 10848, 0])
             );
             let current = creature_entry.as_ref().unwrap();
-            assert!(current.addon.aura_holders.is_empty());
-            assert!(current.addon.aura_types.is_empty());
+            let auras = &units.get(&active_objects, candidate).unwrap().auras;
+            assert_eq!(
+                auras.aura_holders.keys().copied().collect::<Vec<_>>(),
+                [9036, 10848]
+            );
+            assert_eq!(
+                auras.aura_types.keys().copied().collect::<Vec<_>>(),
+                [4, 95]
+            );
+            assert_eq!(auras.vis_flags, 1);
+            assert_eq!(auras.cast_counter, 0);
             assert!(current.addon.duplicate_aura_errors.is_empty());
-            assert_eq!(current.spell_starts.spells.len(), 1);
+            assert_eq!(current.spell_starts.spells.len(), 2);
+            assert_eq!(
+                (current.default_movement, current.motion_state),
+                (0, Some(0))
+            );
+            assert!(!completed_objects.contains(&candidate));
+            assert_eq!(
+                current
+                    .spell_starts
+                    .require_load_completion(&current.unit_events)
+                    .unwrap_err()
+                    .id,
+                "execution.spells.queued_spell_event_owner"
+            );
+            let ai = &event_ais[&candidate];
+            assert_eq!(ai.depth, 1);
+            assert_eq!(ai.staged[0], [0]);
+            let holder = &ai.holders[0];
+            assert!(holder.in_progress && holder.enabled);
+            // acid_classic.sql:19391; CreatureEventAI.cpp:607-620,782-789.
+            assert_eq!(
+                (
+                    holder.event.id,
+                    holder.event.kind,
+                    holder.event.chance,
+                    holder.event.flags
+                ),
+                (649101, 11, 100, 0)
+            );
+            let first_action = &holder.event.actions[0];
+            assert_eq!(
+                (first_action.kind, first_action.params),
+                (11, Some([10848, 0, 0]))
+            );
+            assert_eq!(
+                (holder.event.actions[1].kind, holder.event.actions[1].params),
+                (11, Some([9036, 0, 0]))
+            );
+            assert_eq!(holder.event.actions[2].kind, 0);
+            // Ordered actions, normal-cast lookup branch. Refusal precedes GetTargetByType.
+            assert_eq!(holder.event.flags & 0x20, 0);
+            assert_eq!(first_action.params.unwrap()[2] & 0x16, 0);
+            assert!(units.get(&active_objects, candidate).unwrap().has_ai);
+            println!("F6_EVENTAI_SPAWN event=649101 type=11 action_slot=0 cast=10848 target=0 flags=0 branch=normal_lookup next_source=CreatureEventAI.cpp:789");
             let spell = &current.spell_starts.spells[&1];
             assert_eq!(
                 (spell.spell, spell.caster, spell.original_caster),
                 (9036, candidate, candidate)
             );
-            assert_eq!(spell.state, SourceSpellState::Casting);
+            assert_eq!(spell.state, SourceSpellState::Finished);
             assert_eq!(spell.flags, SpellTriggerFlags(1));
             assert_eq!(
                 (spell.cast_time, spell.timer, spell.creation_time),
@@ -2423,7 +2481,8 @@ pub(super) fn continue_startup(
             let queue = current.unit_events.inventory();
             assert_eq!(queue.clock_ms, 0);
             assert!(queue.detached.is_empty());
-            assert_eq!(queue.queued.len(), 1);
+            assert_eq!(queue.queued.len(), 3);
+            assert_eq!(queue.queued[2].exec_time_ms, 5000);
             let event = &queue.queued[0];
             assert_eq!(spell.event, Some(event.event_id));
             assert_eq!(event.kind, SourceUnitEvent::Spell { spell: 1 });
@@ -2431,18 +2490,12 @@ pub(super) fn continue_startup(
                 (event.add_time_ms, event.exec_time_ms, event.to_abort),
                 (0, 1, false)
             );
-            // Prepare skips current-slot registration, GCD and SendSpellStart
-            // for OLD_TRIGGERED, then requests cast(true), Spell.cpp:3060-3098.
-            assert!(lookups.ends_with(&[
-                "creature_load_addon",
-                "creature_db_addon_lookup",
-                "creature_template_addon_lookup",
-            ]));
-            // Next recorded word is the later respawn draw, not an aura input.
-            assert_eq!(random.cursor().raw, 27080);
+            // The original empty-state, Casting and lookup-suffix assertions
+            // run at the same pre-cast phase in the addon owner.
+            assert_eq!(random.cursor().raw, 27087);
             assert_eq!(evidence.words[27080], (60477501, 27080, 3988355474));
-            println!("F6_ADDON_CAST guid=40520 entry=6491 spell=9036 state={:?} queued=1 next_raw=27080 next_recording_line=60477501 next_owner={}", spell.state, refusal.id);
-            println!("F6_ADDON_CAST_UB stock_prefix_spells=1 effect_index_out_of_bounds=0 cast_time_signed_add_overflow=0 cast_time_float_to_int=0 school_mask_shift=0");
+            println!("F6_ADDON_CAST guid=40520 entry=6491 completed_spells=2 types=[95,4] queued=3 cast_words=0 next_owner={}", refusal.id);
+            println!("F6_ADDON_CAST_UB stock_prefix_spells=2 effect_index_out_of_bounds=0 cast_time_signed_add_overflow=0 cast_time_float_to_int=0 school_mask_shift=0 duration_abs=0 max_duration_abs=0 effect_base_sub=0 effect_float_to_int=0 aura_type_enum=0 immunity_effect_index=0");
             assert_eq!(
                 zone_lookups[&SpawnKey {
                     kind: GridSpawnKind::Creature,
@@ -2824,8 +2877,10 @@ pub(super) fn continue_startup(
         assert_eq!(
             geometry.pathfinder_constructor_completions,
             // Recording60367004/60368544 executes two BuildIntPath calls, cpp:264.
-            // Static Idle still constructs none, MotionMaster.cpp:79-81.
-            pathfinders_before + motion_initializations - idle_count + 2 * u64::from(slot == 1)
+            // Static Idle constructs none, MotionMaster.cpp:79-81. Map 0 now
+            // initializes pending GUID40520's Idle, proved above.
+            pathfinders_before + motion_initializations - idle_count - u64::from(slot == 0)
+                + 2 * u64::from(slot == 1)
         );
         assert_eq!(
             active_objects.viewpoint_cell(candidate).unwrap(),
@@ -3441,7 +3496,7 @@ pub(super) fn continue_startup(
         assert!(!continents.maps[slot].spawn_updated);
         assert_eq!(
             random.cursor().raw,
-            after_pools_cursor + if slot == 0 { 513 } else { 217 }
+            after_pools_cursor + if slot == 0 { 520 } else { 217 }
         );
         matched_map_words[slot] = random.cursor().raw;
         assert_eq!(after_pools_cursor as usize, evidence.pool_raw_end.unwrap());
@@ -3512,7 +3567,7 @@ pub(super) fn continue_startup(
             evidence.pool_snapshot_line.unwrap(),
             encounters.by_map(slot as u32).len(),
             refusal.id,
-            if slot == 0 { "Creature.cpp:2343" } else { "Unit.cpp:11216" },
+            if slot == 0 { "CreatureEventAI.cpp:789" } else { "Unit.cpp:11216" },
         );
         owner.states = states;
         let raw = trace
@@ -3540,6 +3595,24 @@ pub(super) fn continue_startup(
                 .map(|&(_, position, word)| (position, word))
                 .collect::<Vec<_>>()
         );
+        if slot == 0 {
+            // Creature.h:313; TimerAI.cpp:23,47. CreatureEventAI::ProcessEvent
+            // draws chance at :607 and the action word at :618, even for ordered actions.
+            assert_eq!(
+                &raw[27080..27087],
+                &[
+                    (27080, 3988355474),
+                    (27081, 2106366240),
+                    (27082, 1286149830),
+                    (27083, 562578093),
+                    (27084, 1588247119),
+                    (27085, 985444834),
+                    (27086, 73362909),
+                ]
+            );
+            assert_eq!(evidence.words[27085], (60477731, 27085, 985444834));
+            assert_eq!(evidence.words[27086], (60477753, 27086, 73362909));
+        }
         if slot == 1 {
             assert_eq!(
                 &raw[11898..11903],
@@ -3587,6 +3660,7 @@ pub(super) fn continue_startup(
                         let operation = match request.1.as_str() {
                             "urand" => Operation::Urand,
                             "irand" => Operation::Irand,
+                            "urand_default" => Operation::UrandDefault,
                             other => panic!("unported recorded RNG request {other}"),
                         };
                         (
@@ -3602,7 +3676,7 @@ pub(super) fn continue_startup(
                 .iter()
                 .filter(|request| (request.0 as u64) < matched_map_words[slot])
                 .map(|request| match request.1.as_str() {
-                    "urand" => Value::U64(request.4.unwrap().try_into().unwrap()),
+                    "urand" | "urand_default" => Value::U64(request.4.unwrap().try_into().unwrap()),
                     "irand" => Value::I64(request.4.unwrap()),
                     other => panic!("unported recorded RNG result {other}"),
                 })
@@ -3766,4 +3840,35 @@ fn initialize_clock_binding_keeps_map_threads_and_callsite_identity_separate() {
     inputs.observe_thread(7, 15, "clock_callsite", &site);
     inputs.observe_thread(7, 16, "clock_time", &["103", "ptr"]);
     assert_eq!(inputs.map_threads[&7].spawn_clock, Some((16, 103, 0)));
+}
+
+#[test]
+fn candidate_rng_evidence_retains_full_width_calls_and_range_bounds() {
+    let mut inputs = Inputs::default();
+    inputs.map_threads.entry(7).or_default().first_candidate = Some((1, 0, 1, 0, 0));
+    inputs.observe_thread(
+        7,
+        10,
+        "rng_call",
+        &["urand_default", "CreatureEventAI.cpp", "607"],
+    );
+    inputs.observe_thread(7, 11, "mt_raw", &["engine7", "0", "42"]);
+    inputs.observe_thread(7, 12, "rng_result", &["urand_default", "42"]);
+    inputs.observe_thread(7, 13, "rng_call", &["irand", "source.cpp", "23", "-2", "7"]);
+    inputs.observe_thread(7, 14, "mt_raw", &["engine7", "1", "67"]);
+    inputs.observe_thread(7, 15, "rng_result", &["irand", "6"]);
+    assert_eq!(
+        inputs.map_threads[&7].candidate_requests,
+        [
+            (0, "urand_default".into(), 0, 0, Some(42)),
+            (1, "irand".into(), -2, 7, Some(6))
+        ]
+    );
+    assert_eq!(
+        inputs.map_threads[&7].first_candidate_rng,
+        [
+            ("urand_default".into(), 607, 0, 0, Some(42)),
+            ("irand".into(), 23, -2, 7, Some(6))
+        ]
+    );
 }

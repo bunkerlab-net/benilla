@@ -81,6 +81,40 @@ impl Default for CreatureImmunityState {
     }
 }
 impl CreatureImmunityState {
+    /// Creature.cpp:2008-2013; Unit.cpp:7385-7417, explicit self target.
+    pub fn immune_to_self_effect(
+        &self,
+        spell: &SpellTemplate,
+        index: usize,
+        auras: &SourceUnitAuras,
+    ) -> Result<bool> {
+        if spell.attributes & 0x2000_0000 != 0 {
+            return Ok(false);
+        }
+        require(
+            index < 3,
+            "execution.spells.Unit_7391.effect_index_undefined",
+        )?;
+        let effect = spell.effects()[index];
+        if self.spells[0].iter().any(|v| v.value == effect.effect) {
+            return Ok(true);
+        }
+        let mechanic = [
+            spell.effectmechanic1,
+            spell.effectmechanic2,
+            spell.effectmechanic3,
+        ][index];
+        if mechanic != 0 {
+            if self.spells[5].iter().any(|v| v.value == mechanic) {
+                return Ok(true);
+            }
+            require(
+                !auras.has_aura_type(147),
+                "execution.spells.Unit_7406.Aura_GetModifier_owner",
+            )?;
+        }
+        Ok(effect.aura != 0 && self.spells[1].iter().any(|v| v.value == effect.aura))
+    }
     /// Creature.cpp:1983-1997 skips template masks for self casts.
     /// Unit.cpp:7343-7383 still evaluates positivity before the school loop.
     pub fn immune_to_self_spell(
@@ -89,7 +123,7 @@ impl CreatureImmunityState {
         spell: &SpellTemplate,
         mask: u32,
         unit: ObjectHandle,
-        auras: &CreatureAddonState,
+        auras: &SourceUnitAuras,
     ) -> Result<bool> {
         if self.spells[4]
             .iter()
@@ -183,7 +217,7 @@ mod tests {
             thread: 6,
             construction: 1,
         };
-        let mut auras = CreatureAddonState::default();
+        let mut auras = SourceUnitAuras::default();
         let mut spell = SpellTemplate {
             effect1: 6,
             effectimplicittargeta1: 1,
@@ -324,4 +358,28 @@ mod tests {
             ]
         );
     }
+}
+
+#[test]
+fn effect_immunity_indexes_only_after_no_immunities_early_return() {
+    let state = CreatureImmunityState::default();
+    let auras = SourceUnitAuras::default();
+    let mut spell = SpellTemplate {
+        effect1: 6,
+        effect3: 6,
+        ..Default::default()
+    };
+    assert!(!state.immune_to_self_effect(&spell, 0, &auras).unwrap());
+    assert!(!state.immune_to_self_effect(&spell, 2, &auras).unwrap());
+    assert_eq!(
+        state
+            .immune_to_self_effect(&spell, 3, &auras)
+            .unwrap_err()
+            .id,
+        "execution.spells.Unit_7391.effect_index_undefined"
+    );
+    spell.attributes = 0x2000_0000;
+    assert!(!state
+        .immune_to_self_effect(&spell, usize::MAX, &auras)
+        .unwrap());
 }

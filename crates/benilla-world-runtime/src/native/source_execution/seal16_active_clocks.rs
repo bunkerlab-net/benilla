@@ -16,6 +16,29 @@ pub(in super::super) struct ActiveClock {
 #[derive(Clone, Default)]
 pub(in super::super) struct ActiveClocks(pub VecDeque<ActiveClock>);
 impl ActiveClocks {
+    fn aura_time(&mut self, thread: u64, raw: u64, pc: u64) -> Result<ActiveClock> {
+        let sample = self
+            .0
+            .pop_front()
+            .ok_or_else(|| refuse("execution.spells.aura_calendar_owner"))?;
+        require(
+            sample.site == [1, 3678789157770927477, pc]
+                && sample.module
+                && sample.thread == thread
+                && sample.raw == raw
+                && sample.site_line < sample.time_line,
+            "execution.spells.aura_recorded_clock_callsite_mismatch",
+        )?;
+        Ok(sample)
+    }
+    pub fn aura_holder(&mut self, thread: u64, raw: u64) -> Result<ActiveClock> {
+        // SpellAuras.cpp:5174, recording60477313/60477315, time@plt return PC.
+        self.aura_time(thread, raw, 8250845)
+    }
+    pub fn aura(&mut self, thread: u64, raw: u64) -> Result<ActiveClock> {
+        // SpellAuras.cpp:270, recording60477319/60477320, time@plt return PC.
+        self.aura_time(thread, raw, 8249833)
+    }
     pub fn creature_respawn(&mut self, thread: u64, raw: u64) -> Result<ActiveClock> {
         let sample = self.0.pop_front().ok_or_else(|| {
             refuse("execution.creature.Creature_1698.loaded_respawn_calendar_owner")
@@ -67,6 +90,44 @@ fn active_clock_consumes_matching_site_once_and_rejects_same_module_other_pc() {
                 .unwrap_err()
                 .id,
             "execution.creature.Creature_1698.recorded_clock_callsite_mismatch"
+        );
+    }
+}
+
+#[test]
+fn aura_clocks_bind_holder_then_effect_at_the_same_raw_position() {
+    let holder = ActiveClock {
+        site_line: 60477313,
+        time_line: 60477315,
+        thread: 6,
+        site: [1, 3678789157770927477, 8250845],
+        module: true,
+        seconds: 1794314190,
+        raw: 27080,
+    };
+    let mut aura = holder.clone();
+    aura.site_line = 60477319;
+    aura.time_line = 60477320;
+    aura.site[2] = 8249833;
+    let mut clocks = ActiveClocks([holder.clone(), aura.clone()].into());
+    assert_eq!(clocks.aura_holder(6, 27080).unwrap().time_line, 60477315);
+    assert_eq!(clocks.aura(6, 27080).unwrap().time_line, 60477320);
+    assert!(clocks.0.is_empty());
+    for (sample, use_holder, thread, raw) in [
+        (holder.clone(), false, 6, 27080),
+        (aura, true, 6, 27080),
+        (holder.clone(), true, 7, 27080),
+        (holder, true, 6, 27081),
+    ] {
+        let mut clocks = ActiveClocks([sample].into());
+        let result = if use_holder {
+            clocks.aura_holder(thread, raw)
+        } else {
+            clocks.aura(thread, raw)
+        };
+        assert_eq!(
+            result.unwrap_err().id,
+            "execution.spells.aura_recorded_clock_callsite_mismatch"
         );
     }
 }

@@ -2,8 +2,10 @@
 //! Live SpellStart and typed requests to the owners reached by Spell.cpp.
 use super::*;
 use std::collections::BTreeMap;
+mod auras;
 mod callers;
 mod cast_query;
+pub use auras::*;
 mod caster_auras;
 mod checks;
 mod items;

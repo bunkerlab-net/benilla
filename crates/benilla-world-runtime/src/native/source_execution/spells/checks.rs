@@ -360,7 +360,7 @@ fn caster_source_only(t: &SpellTemplate) -> bool {
             })
     })
 }
-fn area_spell(t: &SpellTemplate) -> Result<bool> {
+pub(super) fn area_spell(t: &SpellTemplate) -> Result<bool> {
     // SpellMgr.h:884-892 casts before each short-circuited predicate.
     // SpellTargetDefines.h:22-90 gives the non-fixed enum range 0..127.
     for e in t.effects() {

@@ -130,7 +130,18 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
     {
         prefix.lookups.push("creature_template_addon_lookup");
     }
+    motion_initialize::register_unit(prefix, object, template, context)?;
     let fields = prefix.creature_entry.as_mut().unwrap();
+    let live = prefix.units.get_mut(context.objects, object)?;
+    if prefix.map_entry.id == 0 && data.row.guid == 40520 {
+        assert!(live.auras.aura_holders.is_empty());
+        assert!(live.auras.aura_types.is_empty());
+        assert!(prefix.lookups.ends_with(&[
+            "creature_load_addon",
+            "creature_db_addon_lookup",
+            "creature_template_addon_lookup",
+        ]));
+    }
     // Unit.cpp:330-366; Unit.h:2487,2507 construct the aura lists empty.
     // UpdateEntry has applied its immunity set, but has not cast a spell.
     let unit = SpellUnitState {
@@ -144,7 +155,7 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
         gm: false,
         moving: fields.movement_flags & 0x0400_60cf != 0,
         falling_far: fields.movement_flags & 0x4000 != 0,
-        stealth: fields.addon.has_aura_type(16),
+        stealth: live.auras.has_aura_type(16),
         form: 0,
         class: template.words[36],
         combo_target: None,
@@ -158,6 +169,7 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
     fields.addon.load(
         addon,
         false,
+        live,
         &mut addon_cast::Execution {
             object,
             objects: context.objects,
@@ -170,6 +182,9 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
             unit,
             level: fields.level.as_ref().unwrap().level,
             cast_speed: fields.cast_speed,
+            clocks: prefix.clocks,
+            raw: prefix.random.creature_raw_position()?,
+            max_casts: addon_cast::max_casts(prefix.config)?,
         },
     )?;
     prefix.lookups.push("creature_addon_applied");

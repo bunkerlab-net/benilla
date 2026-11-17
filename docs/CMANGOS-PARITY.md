@@ -108,8 +108,23 @@ is meaningful without a bounded content/mechanics inventory.
   Fresh constructor settings leave `CAN_WIELD_LOOT` clear; its true branch
   refuses at `Creature.cpp:405`, `PrepareBodyLootState`.
   The recorded prefixes complete 87 objects on map 0 and 33 on map 1.
-  Map 0 reaches `Creature.cpp:2343`, `CastSpell` for GUID40520's addon.
+  Map 0 applies addon auras 9036 and 10848 on GUID40520 before its AI spawn callback.
   Map 1 reaches `MotionMaster.cpp:87`, the formation path owner for GUID28842.
+- **Triggered addon self-casts.** `Spell.cpp:3160-3370,934-1043,1163-1502`
+  owns the reached generic self-target cast, target masks and immediate effects.
+  `SpellEffects.cpp:1731-1748` creates the aura through
+  `SpellAuras.cpp:259-290,5155-5283` and `Unit.cpp:4687-4919`.
+  Ghost type 95 sets the live visibility flag, `SpellAuras.cpp:4401-4429`.
+  Dummy type 4 follows its generic branch, `SpellAuras.cpp:1231-1328`.
+  Both addon spells finish without RNG or SQL. Their holders belong to the unit,
+  outside its saved fields. Other effects and aura handlers refuse by name.
+  The 262-spell addon census has 299 effect slots and 43 aura types. Its static
+  coverage is 31 spells, with 231 using an unported effect or aura type.
+  Static coverage does not establish execution; this map 0 prefix completes two.
+  EventAI spawn event 649101 next requests a normal cast of 10848 and refuses
+  at its live cast-context lookup, `CreatureEventAI.cpp:782-789`.
+  `execution.spells.queued_spell_event_owner` prevents load completion from
+  discarding the pending cleanup events, `Spell.cpp:7127-7164`.
 - **WMO area catalog.** Startup binds all 21,115 effective WMO rows through the
   existing catalog owner, `World.cpp:908` and `DBCStores.cpp:555-560`.
   Ten duplicate triples retain ascending-ID order. `GridMap.cpp:992-1015`

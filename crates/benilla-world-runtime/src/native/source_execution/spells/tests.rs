@@ -1453,3 +1453,20 @@ mod pet_ai_caller_tests {
         );
     }
 }
+
+#[test]
+fn queued_finished_spell_refuses_comparison_load_completion() {
+    let mut starts = SourceSpellStarts::default();
+    let mut events = SourceUnitEvents::default();
+    events.schedule_ai_notify(5000, false).unwrap();
+    starts.require_load_completion(&events).unwrap();
+    let mut value = spell(&template(), 1);
+    value.state = SourceSpellState::Finished;
+    assert!(value.deletable());
+    value.event = Some(events.add_spell(value.id).unwrap());
+    starts.spells.insert(value.id, value);
+    assert_eq!(
+        starts.require_load_completion(&events).unwrap_err().id,
+        "execution.spells.queued_spell_event_owner"
+    );
+}
