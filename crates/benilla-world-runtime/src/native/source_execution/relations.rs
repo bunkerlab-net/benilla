@@ -39,14 +39,6 @@ impl SourceRelationOwner for SourceRelations<'_> {
             .factions
             .relation_template(self.units.get(self.objects, unit)?.faction))
     }
-    fn relation_master(&self, unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
-        let fields = self.units.get(self.objects, unit)?;
-        let master = fields.charmer.or(fields.owner);
-        if let Some(master) = master {
-            self.objects.get(master)?;
-        }
-        Ok(master)
-    }
     fn relation_persuaded(&self, unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
         Ok(self.units.get(self.objects, unit)?.persuaded)
     }

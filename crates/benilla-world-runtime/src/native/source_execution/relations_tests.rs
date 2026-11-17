@@ -64,6 +64,18 @@ fn relations_identity_precedes_all_reaction_reads_but_not_uninteractible() {
 
 #[test]
 fn relations_live_player_control_and_pvp_master_boundaries() {
+    struct AuthoredMaster<'a> {
+        flags: SourceRelations<'a>,
+        master: Option<ObjectHandle>,
+    }
+    impl SourceRelationOwner for AuthoredMaster<'_> {
+        fn relation_flags(&self, unit: ObjectHandle) -> Result<u32> {
+            self.flags.relation_flags(unit)
+        }
+        fn relation_master(&self, _: ObjectHandle) -> Result<Option<ObjectHandle>> {
+            Ok(self.master)
+        }
+    }
     let mut f = PowerFixture::new();
     let target = f.objects.construct(1, SourceObjectKind::Creature).unwrap();
     let mut fields = f.units.get(&f.objects, f.caster).unwrap().clone();
@@ -90,21 +102,43 @@ fn relations_live_player_control_and_pvp_master_boundaries() {
         (Some(f.caster), 0x100, 0x1000, false),
         (Some(f.caster), 0x1000, 0, false),
     ] {
-        f.units.get_mut(&f.objects, target).unwrap().owner = master;
         f.units.get_mut(&f.objects, target).unwrap().flags = target_flags;
         f.units.get_mut(&f.objects, f.caster).unwrap().flags = caster_flags;
-        let relations = SourceRelations {
-            objects: &f.objects,
-            units: &f.units,
-            factions: &factions,
+        let relations = AuthoredMaster {
+            flags: SourceRelations {
+                objects: &f.objects,
+                units: &f.units,
+                factions: &factions,
+            },
+            master,
         };
         assert_eq!(unit_is_pvp_ui(target, &relations).unwrap(), expected);
     }
 }
 
 #[test]
+fn relations_live_master_lookup_refuses_without_guid_accessor_owner() {
+    let mut f = PowerFixture::new();
+    let fields = f.units.get_mut(&f.objects, f.caster).unwrap();
+    fields.owner = Some(f.caster);
+    fields.charmer = Some(f.caster);
+    let factions = CreatureAiFactions::default();
+    let relations = SourceRelations {
+        objects: &f.objects,
+        units: &f.units,
+        factions: &factions,
+    };
+    assert_eq!(
+        unit_is_pvp_ui(f.caster, &relations).unwrap_err().id,
+        "execution.relations.GetMaster_6716_owner"
+    );
+}
+
+#[test]
 fn relations_persuaded_state_is_live_and_restore_still_refuses() {
     let mut f = PowerFixture::new();
+    // Object.cpp:105-108 zeros both UNIT_FIELD_PERSUADED words read by Unit.h:2578.
+    assert_eq!(f.units.get(&f.objects, f.caster).unwrap().persuaded, None);
     let before = serde_json::to_vec(f.units.get(&f.objects, f.caster).unwrap()).unwrap();
     f.units.get_mut(&f.objects, f.caster).unwrap().persuaded = Some(f.caster);
     assert_eq!(

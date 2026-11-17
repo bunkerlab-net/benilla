@@ -2121,13 +2121,16 @@ friendly NPC pairs at `:503-504`. `unit_reaction_to` uses the existing loaded
 `CreatureAiFactions` store for faction comparisons, `:100-187,255-267`.
 Controlling-player reads refuse at `:208`, `:166`, or `:487` before unowned
 duel and reputation state. The PvP helper preserves master, immunity, and
-PvP-flag read order, `:473-482`.
+PvP-flag read order, `:473-482`. Live master lookup refuses at
+`Unit.cpp:6716` until the GUID accessor owns charmer and creator resolution.
 
 Spell target filters call assistance for helpful targets and assistance
 before the unowned group lookup for party/group targets,
 `Spell.cpp:5075-5088`. Harmful filters retain their named attack-spell refusal.
 The assistance, threat, and hostile-selection delegates remain unchanged.
-Live persuasion state has no saved representation or restore owner.
+`Object.cpp:105-108` initializes the live persuasion GUID empty;
+`Unit.h:2578-2579` reads and writes its update fields. This state has no
+saved representation or restore owner.
 Native format remains 91.
 
 ## Source DB-script definitions
