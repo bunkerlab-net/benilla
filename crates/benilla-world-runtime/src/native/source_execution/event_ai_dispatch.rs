@@ -54,6 +54,12 @@ pub trait EventAiExecutionOwner: CreatureRandom {
     fn spell_context(&mut self) -> Result<SpellStartContext<'_>> {
         Err(refuse("execution.spells.live_SpellStart_context_owner"))
     }
+    fn with_spell_context<T>(
+        &mut self,
+        run: impl FnOnce(&mut SpellStartContext<'_>) -> Result<T>,
+    ) -> Result<T> {
+        run(&mut self.spell_context()?)
+    }
     fn cast_target(
         &mut self,
         _creature: ObjectHandle,

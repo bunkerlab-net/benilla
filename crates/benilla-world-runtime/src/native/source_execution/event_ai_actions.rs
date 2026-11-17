@@ -86,7 +86,7 @@ impl SourceEventAi {
                 // CreatureEventAI.cpp:784-804. Keep the source's unused masked
                 // castFlags local unused: DoCastSpellIfCan receives the original.
                 let filtered = p[2] & 0x16 == 0;
-                if filtered && !owner.spell_context()?.contains(p[0]) {
+                if filtered && !owner.with_spell_context(|context| Ok(context.contains(p[0])))? {
                     return Ok(false);
                 }
                 let target = match p[1] {
@@ -112,17 +112,15 @@ impl SourceEventAi {
                         target
                     }
                 };
-                return owner.spell_context()?.ai_cast(creature, target, p[0], p[2]);
+                return owner
+                    .with_spell_context(|context| context.ai_cast(creature, target, p[0], p[2]));
             }
             52 => {
                 require(
                     p[0] < 4,
                     "execution.spells.EventAI_interrupt_slot_index_undefined",
                 )?;
-                owner
-                    .spell_context()?
-                    .owner
-                    .interrupt_slot(creature, p[0])?;
+                owner.with_spell_context(|context| context.owner.interrupt_slot(creature, p[0]))?;
             }
             13 => {
                 if let Some(target) = self.action_target(p[1], call, event_target, owner)? {

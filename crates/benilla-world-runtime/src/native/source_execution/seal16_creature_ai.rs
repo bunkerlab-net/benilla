@@ -18,6 +18,35 @@ impl CreatureRandom for Owner<'_, '_, '_> {
 }
 impl UnitAiExecutionOwner for Owner<'_, '_, '_> {}
 
+#[path = "seal16_ai_cast.rs"]
+mod ai_cast;
+struct LiveOwner<'a, 'b, 'c, 'd> {
+    random: Owner<'a, 'b, 'c>,
+    binding: ai_cast::Binding<'d>,
+}
+impl CreatureRandom for LiveOwner<'_, '_, '_, '_> {
+    fn creature_irand(&mut self, min: i32, max: i32) -> Result<i32> {
+        self.random.creature_irand(min, max)
+    }
+    fn creature_urand(&mut self, min: u32, max: u32) -> Result<u32> {
+        self.random.creature_urand(min, max)
+    }
+    fn creature_urand_default(&mut self) -> Result<u32> {
+        self.random.creature_urand_default()
+    }
+}
+impl UnitAiExecutionOwner for LiveOwner<'_, '_, '_, '_> {
+    fn with_unit_spell_context<T>(
+        &mut self,
+        units: &mut SourceUnits,
+        ais: &SourceCreatureAis,
+        objects: &SourceObjects,
+        run: impl FnOnce(&mut SpellStartContext<'_>) -> Result<T>,
+    ) -> Result<T> {
+        self.binding.run(units, ais, objects, run)
+    }
+}
+
 pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
     prefix: &mut Prefix<'_>,
     object: ObjectHandle,
@@ -55,6 +84,15 @@ pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
     prefix.lookups.push("creature_event_ai_constructed");
     let event = prefix.event_ais.get_mut(&object).unwrap();
     let fields = prefix.creature_entry.as_ref().unwrap();
+    let mut live_owner = LiveOwner {
+        random: Owner(&random),
+        binding: ai_cast::Binding {
+            object,
+            stores: prefix.spell_stores,
+            targets: &prefix.spell_targets,
+            terrain: context.products,
+        },
+    };
     let mut execution = SourceAiExecution {
         queries: SourceUnitQueries {
             objects: context.objects,
@@ -62,7 +100,7 @@ pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
         },
         ais: &mut prefix.ais,
         threats: &mut prefix.threats,
-        owner: &mut owner,
+        owner: &mut live_owner,
     };
     execution.spell_list_changed(
         event,

@@ -478,6 +478,8 @@ pub trait SpellExecutionOwner {
         &mut self,
         _original: ObjectHandle,
         _caster: ObjectHandle,
+        _starts: &SourceSpellStarts,
+        _cast_flags: u32,
     ) -> Result<(bool, bool)> {
         Err(refuse("execution.spells.UnitAI_order_current_cast_owner"))
     }
@@ -491,7 +493,11 @@ pub trait SpellExecutionOwner {
     ) -> Result<bool> {
         Err(refuse("execution.spells.Unit_GetCreatureTypeMask_owner"))
     }
-    fn active_auto_spell(&mut self, _unit: ObjectHandle) -> Result<Option<u32>> {
+    fn active_auto_spell(
+        &mut self,
+        _unit: ObjectHandle,
+        _starts: &SourceSpellStarts,
+    ) -> Result<Option<u32>> {
         Err(refuse(
             "execution.spells.Unit_GetCurrentSpell_autorepeat_owner",
         ))

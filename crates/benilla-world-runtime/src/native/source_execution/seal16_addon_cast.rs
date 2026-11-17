@@ -12,9 +12,6 @@ pub(super) struct Execution<'a> {
     pub terrain: &'a mut SourceTerrainManager,
     pub stores: &'a SourceSpellStores,
     pub targets: &'a SourceSpellTargetMgr,
-    pub immunities: &'a CreatureImmunityState,
-    pub events: &'a mut SourceUnitEvents,
-    pub starts: &'a mut SourceSpellStarts,
     pub unit: SpellUnitState,
     pub level: u32,
     pub cast_speed: u32,
@@ -36,7 +33,7 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
             terrain: self.terrain,
             stores: self.stores,
             targets: self.targets,
-            immunities: self.immunities,
+            immunities: &live.immunities,
             auras: &mut live.auras,
             addon: state,
             unit: self.unit,
@@ -49,8 +46,8 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
         // Creature.cpp:2343 ignores the cast result. A refusal still stops here.
         SpellStartContext {
             stores: self.stores,
-            starts: self.starts,
-            events: self.events,
+            starts: &mut live.spell_starts,
+            events: &mut live.unit_events,
             owner: &mut owner,
         }
         .cast(
@@ -70,8 +67,8 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
         if self.object.thread == 6 && self.objects.get(self.object)?.database_guid == 40520 {
             assert_eq!(self.raw, 27080);
             let id = if spell == 9036 { 1 } else { 2 };
-            assert_eq!(self.starts.spells.len(), id as usize);
-            let value = &self.starts.spells[&id];
+            assert_eq!(live.spell_starts.spells.len(), id as usize);
+            let value = &live.spell_starts.spells[&id];
             assert_eq!(value.spell, if id == 1 { 9036 } else { 10848 });
             assert_eq!(value.state, SourceSpellState::Finished);
             assert_eq!(value.proc_event_lookups, if id == 1 { 1 } else { 4 });
@@ -89,7 +86,7 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
             );
             assert_eq!(value.damage_multipliers, [1f32.to_bits(), 0, 0]);
             assert!(value.spell_go.is_some());
-            let queue = self.events.inventory();
+            let queue = live.unit_events.inventory();
             assert_eq!(queue.clock_ms, 0);
             assert!(queue.detached.is_empty());
             assert_eq!(queue.queued.len(), id as usize);

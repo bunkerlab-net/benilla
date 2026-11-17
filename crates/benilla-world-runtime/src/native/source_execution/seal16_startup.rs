@@ -2393,7 +2393,8 @@ pub(super) fn continue_startup(
                 CreatureAddonAuras::Spells(vec![9036, 10848, 0])
             );
             let current = creature_entry.as_ref().unwrap();
-            let auras = &units.get(&active_objects, candidate).unwrap().auras;
+            let live = units.get(&active_objects, candidate).unwrap();
+            let auras = &live.auras;
             assert_eq!(
                 auras.aura_holders.keys().copied().collect::<Vec<_>>(),
                 [9036, 10848]
@@ -2405,16 +2406,15 @@ pub(super) fn continue_startup(
             assert_eq!(auras.vis_flags, 1);
             assert_eq!(auras.cast_counter, 0);
             assert!(current.addon.duplicate_aura_errors.is_empty());
-            assert_eq!(current.spell_starts.spells.len(), 2);
+            assert_eq!(live.spell_starts.spells.len(), 3);
             assert_eq!(
                 (current.default_movement, current.motion_state),
                 (0, Some(0))
             );
             assert!(!completed_objects.contains(&candidate));
             assert_eq!(
-                current
-                    .spell_starts
-                    .require_load_completion(&current.unit_events)
+                live.spell_starts
+                    .require_load_completion(&live.unit_events)
                     .unwrap_err()
                     .id,
                 "execution.spells.queued_spell_event_owner"
@@ -2444,12 +2444,39 @@ pub(super) fn continue_startup(
                 (11, Some([9036, 0, 0]))
             );
             assert_eq!(holder.event.actions[2].kind, 0);
-            // Ordered actions, normal-cast lookup branch. Refusal precedes GetTargetByType.
+            // CreatureEventAI.cpp:789-804 reaches UnitAI.cpp:175-223 and SpellStart.
             assert_eq!(holder.event.flags & 0x20, 0);
             assert_eq!(first_action.params.unwrap()[2] & 0x16, 0);
             assert!(units.get(&active_objects, candidate).unwrap().has_ai);
-            println!("F6_EVENTAI_SPAWN event=649101 type=11 action_slot=0 cast=10848 target=0 flags=0 branch=normal_lookup next_source=CreatureEventAI.cpp:789");
-            let spell = &current.spell_starts.spells[&1];
+            println!("F6_EVENTAI_SPAWN event=649101 type=11 action_slot=0 cast=10848 target=0 flags=0 branch=normal_cast next_source=Spell.cpp:4680");
+            // Spell.cpp:3001-3011,4679-4680. The third Spell owns a real
+            // self target and queued event before its first cooldown read.
+            let ai_spell = &live.spell_starts.spells[&3];
+            assert_eq!(
+                (ai_spell.spell, ai_spell.caster, ai_spell.original_caster),
+                (10848, candidate, candidate)
+            );
+            assert_eq!(ai_spell.state, SourceSpellState::Targeting);
+            assert_eq!(ai_spell.flags, SpellTriggerFlags(0x100));
+            assert_eq!(
+                (ai_spell.targets.unit, ai_spell.targets.mask),
+                (Some(candidate), 2)
+            );
+            assert_eq!(
+                ai_spell.targets.destination,
+                Some(
+                    active_objects.get(candidate).unwrap().pose.unwrap().0[..3]
+                        .try_into()
+                        .unwrap()
+                )
+            );
+            assert_eq!(ai_spell.creation_time, 0);
+            assert!(ai_spell.filtering_scheme.is_some());
+            assert!(ai_spell.trigger_data.is_none());
+            assert!(!ai_spell.referenced && !ai_spell.executing);
+            assert_eq!(live.spell_slots.current(SpellSlot::Melee), None);
+            assert_eq!(ais.get(&active_objects, candidate).unwrap().base.order, 0);
+            let spell = &live.spell_starts.spells[&1];
             assert_eq!(
                 (spell.spell, spell.caster, spell.original_caster),
                 (9036, candidate, candidate)
@@ -2478,11 +2505,18 @@ pub(super) fn continue_startup(
             );
             // Spell.cpp:3007-3009; recording60477107/60477109 schedules the
             // first SpellEvent at Unit queue clock0 +1, before either aura.
-            let queue = current.unit_events.inventory();
+            let queue = live.unit_events.inventory();
             assert_eq!(queue.clock_ms, 0);
             assert!(queue.detached.is_empty());
-            assert_eq!(queue.queued.len(), 3);
-            assert_eq!(queue.queued[2].exec_time_ms, 5000);
+            assert_eq!(queue.queued.len(), 4);
+            assert_eq!(queue.queued[3].exec_time_ms, 5000);
+            // recording60477768/60477770 schedules the EventAI SpellEvent at1.
+            assert_eq!(queue.queued[2].kind, SourceUnitEvent::Spell { spell: 3 });
+            assert_eq!(ai_spell.event, Some(queue.queued[2].event_id));
+            assert_eq!(
+                (queue.queued[2].add_time_ms, queue.queued[2].exec_time_ms),
+                (0, 1)
+            );
             let event = &queue.queued[0];
             assert_eq!(spell.event, Some(event.event_id));
             assert_eq!(event.kind, SourceUnitEvent::Spell { spell: 1 });
@@ -2494,7 +2528,7 @@ pub(super) fn continue_startup(
             // run at the same pre-cast phase in the addon owner.
             assert_eq!(random.cursor().raw, 27087);
             assert_eq!(evidence.words[27080], (60477501, 27080, 3988355474));
-            println!("F6_ADDON_CAST guid=40520 entry=6491 completed_spells=2 types=[95,4] queued=3 cast_words=0 next_owner={}", refusal.id);
+            println!("F6_ADDON_CAST guid=40520 entry=6491 completed_spells=2 types=[95,4] queued=4 cast_words=0 next_owner={}", refusal.id);
             println!("F6_ADDON_CAST_UB stock_prefix_spells=2 effect_index_out_of_bounds=0 cast_time_signed_add_overflow=0 cast_time_float_to_int=0 school_mask_shift=0 duration_abs=0 max_duration_abs=0 effect_base_sub=0 effect_float_to_int=0 aura_type_enum=0 immunity_effect_index=0");
             assert_eq!(
                 zone_lookups[&SpawnKey {
@@ -2575,7 +2609,7 @@ pub(super) fn continue_startup(
             assert!(active_objects.get(candidate).unwrap().alive);
             assert_eq!(live.state & 0x2000_001a, 0);
             assert!(!live.immobilized());
-            assert!(current.spell_starts.spells.is_empty());
+            assert!(live.spell_starts.spells.is_empty());
             for slot in [
                 SpellSlot::Melee,
                 SpellSlot::Generic,
@@ -2846,9 +2880,9 @@ pub(super) fn continue_startup(
                 .collect::<Vec<_>>()
         );
         // Unit.cpp:10962, EventProcessor.cpp:23,103-107,124-126: no host clock read.
-        assert_eq!(fields.unit_events.clock_millis(), 0);
-        assert!(fields.unit_events.is_ai_notify_scheduled());
-        let queued = fields.unit_events.inventory().queued;
+        assert_eq!(live.unit_events.clock_millis(), 0);
+        assert!(live.unit_events.is_ai_notify_scheduled());
+        let queued = live.unit_events.inventory().queued;
         assert_eq!(queued.len(), 1);
         assert_eq!(queued[0].kind, SourceUnitEvent::AiNotify);
         assert_eq!((queued[0].add_time_ms, queued[0].exec_time_ms), (0, 5000));
@@ -3393,7 +3427,7 @@ pub(super) fn continue_startup(
             assert!(!fields.chain_immune);
             assert_eq!(template.words[16], 1);
             assert!(creature_immunities.get(entry, 0).is_none());
-            assert_eq!(fields.immunities.set, u32::MAX);
+            assert_eq!(live.immunities.set, u32::MAX);
             assert_eq!(&template.words[91..93], &[0, 0]);
             assert_eq!(fields.settings.flags, template.words[25..29]);
             assert_eq!(

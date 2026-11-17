@@ -379,6 +379,13 @@ impl<O: UnitAiExecutionOwner + CreatureRandom> EventAiExecutionOwner for SourceA
     fn spell_context(&mut self) -> Result<SpellStartContext<'_>> {
         self.owner.spell_context()
     }
+    fn with_spell_context<T>(
+        &mut self,
+        run: impl FnOnce(&mut SpellStartContext<'_>) -> Result<T>,
+    ) -> Result<T> {
+        self.owner
+            .with_unit_spell_context(self.queries.units, self.ais, self.queries.objects, run)
+    }
     fn send_ai_event(
         &mut self,
         state: &mut SourceEventAi,

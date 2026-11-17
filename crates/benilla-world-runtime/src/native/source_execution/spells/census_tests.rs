@@ -559,3 +559,67 @@ fn catalog04_spell_area_and_first_cast_location_census() {
         std::fs::write(path, serde_json::to_vec_pretty(&evidence).unwrap()).unwrap();
     }
 }
+
+#[test]
+fn catalog04_creation_event_cast_diagnostic_and_recorded_reach() {
+    let Some(root) = std::env::var_os("BENILLA_F5_AI_CATALOG") else {
+        eprintln!("SKIP creation CAST diagnostic: BENILLA_F5_AI_CATALOG absent");
+        return;
+    };
+    let mut catalog = VerifiedCatalog::open(Path::new(&root), false).unwrap();
+    struct Missing;
+    impl SpellLoaderOwner for Missing {}
+    let stores = SourceSpellStores::load(&mut catalog, &mut Missing).unwrap();
+    for id in [9036, 10848] {
+        let t = stores.template(id).unwrap();
+        println!("F6_ADDON_COOLDOWN_CATALOG spell={id} RecoveryTime={} CategoryRecoveryTime={} StartRecoveryTime={} passive={}",
+            t.recoverytime, t.categoryrecoverytime, t.startrecoverytime, t.attributes & 0x40 != 0);
+    }
+    let rows = catalog_event_ai_rows(&mut catalog).unwrap();
+    let mut counts = BTreeMap::<String, usize>::new();
+    let mut casts = Vec::new();
+    for row in rows {
+        // CreatureEventAI.h:53 defines SPAWNED11.
+        // Raw catalog rows are diagnostic input, not executable lifecycle proof.
+        if row.words[2] != 11 {
+            continue;
+        }
+        for slot in 0..3 {
+            let base = 12 + 4 * slot;
+            if row.words[base] != 11 {
+                continue;
+            }
+            let p: [u32; 3] = row.words[base + 1..base + 4].try_into().unwrap();
+            let class = if p[2] & 2 != 0 {
+                "triggered"
+            } else if p[1] != 0 || p[2] & 0x90 != 0 {
+                "other_target"
+            } else if p[2] & 0x20 != 0 {
+                "aura_membership_dependent"
+            } else if let Some(t) = stores.template(p[0]) {
+                if t.attributes & 0x40 != 0 {
+                    "passive_skips_cooldown"
+                } else {
+                    "normal_self_cooldown_candidate"
+                }
+            } else {
+                "missing_spell"
+            };
+            *counts.entry(class.to_owned()).or_default() += 1;
+            casts.push(json!({"event": row.words[0], "slot": slot, "spell": p[0],
+                "target": p[1], "flags": p[2], "class": class}));
+        }
+    }
+    println!(
+        "F6_CREATION_CAST_DIAGNOSTIC {}",
+        json!({
+            "input": "catalog04 raw EventAI SPAWNED11 rows",
+            "counts": counts, "actions": casts,
+            "recorded_prefix_reaches_new_stop": 1,
+            "recorded_event": 649101,
+            "recorded_action_slot": 0,
+            "stop": "Spell.cpp:4680",
+            "qualification": "raw candidates do not prove execution or later action reach"
+        })
+    );
+}

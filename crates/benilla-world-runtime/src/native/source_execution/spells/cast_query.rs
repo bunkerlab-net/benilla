@@ -12,6 +12,14 @@ pub trait SourceCurrentSpells {
 }
 impl SourceCurrentSpells for () {}
 
+impl SourceCurrentSpells for SourceSpellStarts {
+    fn current_spell(&self, id: u64) -> Result<&SourceSpell> {
+        self.spells
+            .get(&id)
+            .ok_or_else(|| refuse("execution.spells.IsNonMeleeSpellCasted_current_spell_owner"))
+    }
+}
+
 #[cfg(test)]
 impl SourceCurrentSpells for BTreeMap<u64, SourceSpell> {
     fn current_spell(&self, id: u64) -> Result<&SourceSpell> {

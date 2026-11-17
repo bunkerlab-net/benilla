@@ -76,8 +76,10 @@ pub(super) fn register_unit<D: GridDefinitions<Row = SpawnKey>>(
     template: &LoadedCreatureInfo,
     context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
 ) -> Result<()> {
-    let fields = prefix.creature_entry.as_ref().unwrap();
+    let fields = prefix.creature_entry.as_mut().unwrap();
     let mut live = SourceUnitFields::loaded_creature(template);
+    live.unit_class = Some(template.words[36]);
+    live.immunities = std::mem::take(&mut fields.immunities);
     live.flags = fields.unit_flags;
     live.faction = fields.faction;
     live.static_flags = fields.settings.flags;

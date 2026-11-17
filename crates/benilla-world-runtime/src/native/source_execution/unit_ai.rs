@@ -97,6 +97,23 @@ pub struct SourceUnitFields {
     /// Unit.h:2487,2507; Unit.cpp:355,365-366. Live state has no restore path.
     #[serde(skip)]
     pub auras: SourceUnitAuras,
+    /// Unit.cpp:320,350; Spell.cpp:7127-7164. Events retain live Spells.
+    #[serde(skip)]
+    pub spell_starts: SourceSpellStarts,
+    #[serde(skip)]
+    pub unit_events: SourceUnitEvents,
+    /// Object.cpp:105-108 zeros unit bytes; Creature.cpp:344 binds class.
+    #[serde(skip)]
+    pub unit_class: Option<u32>,
+    #[serde(skip)]
+    pub shapeshift_form: u32,
+    #[serde(skip)]
+    pub stand_state: u8,
+    #[serde(skip)]
+    pub immunities: CreatureImmunityState,
+    /// Unit.h:2646; ObjectGuid.h:85 initializes the combo GUID empty.
+    #[serde(skip)]
+    pub combo_target: Option<ObjectHandle>,
 }
 impl SourceUnitFields {
     /// Unit.cpp:330,423-425; Creature.cpp:541-579. Spawn overrides belong to UpdateEntry.
@@ -212,6 +229,13 @@ impl SourceUnitFields {
             spline_position_expiry: 0,
             spline_last_move_ms: 0,
             auras: SourceUnitAuras::default(),
+            spell_starts: SourceSpellStarts::default(),
+            unit_events: SourceUnitEvents::default(),
+            unit_class: None,
+            shapeshift_form: 0,
+            stand_state: 0,
+            immunities: CreatureImmunityState::default(),
+            combo_target: None,
         }
     }
     pub fn in_combat(&self) -> bool {
@@ -530,6 +554,18 @@ pub trait UnitAiExecutionOwner {
     }
     fn spell_context(&mut self) -> Result<SpellStartContext<'_>> {
         Err(refuse("execution.spells.live_SpellStart_context_owner"))
+    }
+    fn with_unit_spell_context<T>(
+        &mut self,
+        _units: &mut SourceUnits,
+        _ais: &SourceCreatureAis,
+        _objects: &SourceObjects,
+        run: impl FnOnce(&mut SpellStartContext<'_>) -> Result<T>,
+    ) -> Result<T>
+    where
+        Self: Sized,
+    {
+        run(&mut self.spell_context()?)
     }
     fn call(
         &mut self,

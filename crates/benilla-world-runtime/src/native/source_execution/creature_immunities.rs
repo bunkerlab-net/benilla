@@ -67,7 +67,7 @@ struct SpellImmune {
     aura: Option<u64>,
     value: u32,
 }
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct CreatureImmunityState {
     pub set: u32,
     spells: [Vec<SpellImmune>; IMMUNITY_COUNT],

@@ -176,9 +176,6 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
             terrain: context.products,
             stores: prefix.spell_stores,
             targets: &prefix.spell_targets,
-            immunities: &fields.immunities,
-            events: &mut fields.unit_events,
-            starts: &mut fields.spell_starts,
             unit,
             level: fields.level.as_ref().unwrap().level,
             cast_speed: fields.cast_speed,
@@ -281,7 +278,9 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
         .parse::<i32>()
         .map_err(|_| refuse("execution.creature.loaded_notify_delay_config"))?;
     fields.notify_delay = Some(notify_delay(delay));
-    fields
+    prefix
+        .units
+        .get_mut(context.objects, object)?
         .unit_events
         .schedule_ai_notify(fields.notify_delay.unwrap(), false)?;
     prefix.lookups.push("creature_schedule_ai_notify");

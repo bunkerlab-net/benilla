@@ -121,7 +121,9 @@ impl SpellStartContext<'_> {
         } else if cast_flags & 0x90 != 0 {
             return Ok(false);
         }
-        let (evade, casting) = self.owner.ai_cast_state(original, caster)?;
+        let (evade, casting) =
+            self.owner
+                .ai_cast_state(original, caster, self.starts, cast_flags)?;
         if evade && cast_flags & 2 == 0 {
             return Ok(false);
         }
@@ -143,7 +145,7 @@ impl SpellStartContext<'_> {
                     return Ok(false);
                 }
             }
-            if is_melee(t) && self.owner.active_auto_spell(caster)? == Some(spell) {
+            if is_melee(t) && self.owner.active_auto_spell(caster, self.starts)? == Some(spell) {
                 return Ok(false);
             }
         }

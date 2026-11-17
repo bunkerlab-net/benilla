@@ -5,7 +5,7 @@ use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: [&str; 2] = [
-    "execution.spells.live_SpellStart_context_owner",
+    "execution.spells.WorldObject_IsSpellReady_cooldown_owner",
     "execution.spline.client_guids_i_am_at_owner_11216",
 ];
 #[path = "seal16_active_clocks.rs"]
@@ -323,7 +323,7 @@ impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManag
             "execution.grid_candidate_not_registered",
         )?;
         if object.thread == 6 && context.objects.get(object)?.kind == SourceObjectKind::Creature {
-            let fields = self.creature_entry.as_ref().unwrap();
+            let fields = self.units.get(context.objects, object)?;
             fields
                 .spell_starts
                 .require_load_completion(&fields.unit_events)?;

@@ -144,7 +144,13 @@ impl SpellExecutionOwner for Fixture {
         self.trace.push("ResetAutoRepeatSpells".into());
         Ok(())
     }
-    fn ai_cast_state(&mut self, _: ObjectHandle, _: ObjectHandle) -> Result<(bool, bool)> {
+    fn ai_cast_state(
+        &mut self,
+        _: ObjectHandle,
+        _: ObjectHandle,
+        _: &SourceSpellStarts,
+        _: u32,
+    ) -> Result<(bool, bool)> {
         Ok((false, false))
     }
     fn interrupt_for_ai(&mut self, _: ObjectHandle, melee: bool) -> Result<()> {

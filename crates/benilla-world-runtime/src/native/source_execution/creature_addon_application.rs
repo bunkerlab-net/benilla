@@ -70,6 +70,7 @@ impl CreatureAddonState {
         }
         if addon.stand_state != 0 {
             self.stand = addon.stand_state;
+            unit.stand_state = addon.stand_state;
         }
         self.sheath = addon.sheath_state;
         if addon.emote != 0 {
