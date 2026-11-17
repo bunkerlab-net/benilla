@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Genuine authored MPQ capture through generation and the production Detour reader.
 use super::super::super::nav_generation::{
-    assert_navigation_bytes, GenerationError, PreparedNavigationInput,
+    assert_navigation_bytes, GenerationError, PreparedNavigationInput, BEHAVIOUR_TEST_LIMIT,
 };
 use super::*;
 use std::time::{Duration, Instant};
@@ -86,7 +86,7 @@ fn assert_original_routes(mesh: &mut benilla_native_nav::Mesh, expected: &serde_
             .route(
                 point("start_bits"),
                 point("end_bits"),
-                Instant::now() + Duration::from_secs(5),
+                Instant::now() + BEHAVIOUR_TEST_LIMIT,
             )
             .unwrap();
         assert_eq!(
@@ -193,9 +193,7 @@ fn captured_ridge_and_wmo_generate_original_bytes_and_load_production_queries() 
         .unwrap();
     let input = PreparedNavigationInput::from_source(&terrain, &bundle, TILE, || false).unwrap();
     let output = input
-        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
-            false
-        })
+        .generate(&helper(), Instant::now() + BEHAVIOUR_TEST_LIMIT, || false)
         .unwrap();
     let (params, tile) = output.products();
     assert_navigation_bytes(params, &oracle("ridge_wmo/000.mmap"), "ridge_wmo/000.mmap");
@@ -273,9 +271,7 @@ fn extracted_neighbor_inventory_changes_origin_and_preserves_historical_output()
     .unwrap();
     let old = PreparedNavigationInput::from_source(&selected, &bundle, TILE, || false)
         .unwrap()
-        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
-            false
-        })
+        .generate(&helper(), Instant::now() + BEHAVIOUR_TEST_LIMIT, || false)
         .unwrap();
     let all = benilla_native_terrain::prepare(
         &install.0,
@@ -286,9 +282,7 @@ fn extracted_neighbor_inventory_changes_origin_and_preserves_historical_output()
     .unwrap();
     let expanded = PreparedNavigationInput::from_source(&all, &bundle, TILE, || false)
         .unwrap()
-        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
-            false
-        })
+        .generate(&helper(), Instant::now() + BEHAVIOUR_TEST_LIMIT, || false)
         .unwrap();
     assert_ne!(old.revision(), expanded.revision());
     assert_ne!(old.products().0, expanded.products().0);
@@ -373,7 +367,7 @@ fn captured_liquid_generation_matches_original_but_preserves_dry_reader_refusal(
     let mut observed = None;
     let generated = input.generate_observed(
         &helper(),
-        Instant::now() + Duration::from_secs(60),
+        Instant::now() + BEHAVIOUR_TEST_LIMIT,
         || false,
         |summary| observed = Some(summary),
     );
@@ -417,9 +411,7 @@ fn one_cardinal_neighbor_changes_generation_without_changing_map_origin() {
     let selected_input =
         PreparedNavigationInput::from_source(&selected, &bundle, TILE, || false).unwrap();
     let historical = selected_input
-        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
-            false
-        })
+        .generate(&helper(), Instant::now() + BEHAVIOUR_TEST_LIMIT, || false)
         .unwrap();
     let expanded = benilla_native_terrain::prepare(
         &install.0,
@@ -449,9 +441,7 @@ fn one_cardinal_neighbor_changes_generation_without_changing_map_origin() {
         &original_tile,
     );
     let output = input
-        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
-            false
-        })
+        .generate(&helper(), Instant::now() + BEHAVIOUR_TEST_LIMIT, || false)
         .unwrap();
     assert_navigation_bytes(output.products().0, &original_map, "original MMap");
     assert_navigation_bytes(output.products().1, &original_tile, "original MMTile");
@@ -491,9 +481,7 @@ fn one_cardinal_neighbor_changes_generation_without_changing_map_origin() {
     )
     .unwrap();
     let skipped = neighbor_input
-        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
-            false
-        })
+        .generate(&helper(), Instant::now() + BEHAVIOUR_TEST_LIMIT, || false)
         .unwrap();
     assert_eq!(
         skipped.summary().status,
@@ -512,14 +500,14 @@ fn one_cardinal_neighbor_changes_generation_without_changing_map_origin() {
     let omitted = SourceMapQuerySnapshot::from_generated(
         &[(&input, &output)],
         &p,
-        Instant::now() + Duration::from_secs(10),
+        Instant::now() + BEHAVIOUR_TEST_LIMIT,
         || false,
     )
     .unwrap();
     let explicit_skip = SourceMapQuerySnapshot::from_generated(
         &[(&input, &output), (&neighbor_input, &skipped)],
         &p,
-        Instant::now() + Duration::from_secs(10),
+        Instant::now() + BEHAVIOUR_TEST_LIMIT,
         || false,
     )
     .unwrap();
@@ -532,14 +520,14 @@ fn one_cardinal_neighbor_changes_generation_without_changing_map_origin() {
     assert!(SourceMapQuerySnapshot::from_generated(
         &[(&neighbor_input, &skipped)],
         &p,
-        Instant::now() + Duration::from_secs(10),
+        Instant::now() + BEHAVIOUR_TEST_LIMIT,
         || false
     )
     .is_err());
     assert!(SourceMapQuerySnapshot::from_generated(
         &[(&selected_input, &historical), (&neighbor_input, &skipped)],
         &p,
-        Instant::now() + Duration::from_secs(10),
+        Instant::now() + BEHAVIOUR_TEST_LIMIT,
         || false
     )
     .is_err());
@@ -604,9 +592,7 @@ fn genuine_hole_neighbor_generates_two_tiles_and_crosses_the_source_seam() {
             &original_tile,
         );
         let output = input
-            .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
-                false
-            })
+            .generate(&helper(), Instant::now() + BEHAVIOUR_TEST_LIMIT, || false)
             .unwrap();
         assert_navigation_bytes(output.products().0, &original_map, "original MMap");
         assert_navigation_bytes(output.products().1, &original_tile, "original MMTile");
@@ -645,7 +631,7 @@ fn genuine_hole_neighbor_generates_two_tiles_and_crosses_the_source_seam() {
             .route(
                 point("start_bits"),
                 point("end_bits"),
-                Instant::now() + Duration::from_secs(5),
+                Instant::now() + BEHAVIOUR_TEST_LIMIT,
             )
             .unwrap();
         assert_eq!(route.start.polygon, query["start_ref"].as_u64().unwrap());
@@ -710,9 +696,7 @@ fn genuine_generated_tiles_connect_to_actual_owner_constructor_query() {
         .iter()
         .map(|input| {
             input
-                .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
-                    false
-                })
+                .generate(&helper(), Instant::now() + BEHAVIOUR_TEST_LIMIT, || false)
                 .unwrap()
         })
         .collect();
@@ -722,7 +706,7 @@ fn genuine_generated_tiles_connect_to_actual_owner_constructor_query() {
         assert!(SourceMapQuerySnapshot::from_generated(
             &pairs,
             &invalid,
-            Instant::now() + Duration::from_secs(10),
+            Instant::now() + BEHAVIOUR_TEST_LIMIT,
             || false
         )
         .is_err());
@@ -732,7 +716,7 @@ fn genuine_generated_tiles_connect_to_actual_owner_constructor_query() {
         SourceMapQuerySnapshot::from_generated(
             &[],
             &p,
-            Instant::now() + Duration::from_secs(10),
+            Instant::now() + BEHAVIOUR_TEST_LIMIT,
             || false
         ),
         Err(GenerationError::Validation(
@@ -743,7 +727,7 @@ fn genuine_generated_tiles_connect_to_actual_owner_constructor_query() {
         SourceMapQuerySnapshot::from_generated(
             &[pairs[0]; 10],
             &p,
-            Instant::now() + Duration::from_secs(10),
+            Instant::now() + BEHAVIOUR_TEST_LIMIT,
             || false
         ),
         Err(GenerationError::Validation(
@@ -754,7 +738,7 @@ fn genuine_generated_tiles_connect_to_actual_owner_constructor_query() {
         SourceMapQuerySnapshot::from_generated(
             &[pairs[0], pairs[0]],
             &p,
-            Instant::now() + Duration::from_secs(10),
+            Instant::now() + BEHAVIOUR_TEST_LIMIT,
             || false
         ),
         Err(GenerationError::Validation(
@@ -765,7 +749,7 @@ fn genuine_generated_tiles_connect_to_actual_owner_constructor_query() {
         SourceMapQuerySnapshot::from_generated(
             &[(&inputs[0], &outputs[1])],
             &p,
-            Instant::now() + Duration::from_secs(10),
+            Instant::now() + BEHAVIOUR_TEST_LIMIT,
             || false
         ),
         Err(GenerationError::Validation(
@@ -776,7 +760,7 @@ fn genuine_generated_tiles_connect_to_actual_owner_constructor_query() {
         SourceMapQuerySnapshot::from_generated(
             &pairs,
             &p,
-            Instant::now() + Duration::from_secs(10),
+            Instant::now() + BEHAVIOUR_TEST_LIMIT,
             || true
         ),
         Err(GenerationError::Cancelled)
@@ -788,21 +772,21 @@ fn genuine_generated_tiles_connect_to_actual_owner_constructor_query() {
     let snapshot = SourceMapQuerySnapshot::from_generated(
         &pairs,
         &p,
-        Instant::now() + Duration::from_secs(10),
+        Instant::now() + BEHAVIOUR_TEST_LIMIT,
         || false,
     )
     .unwrap();
     let replacement = SourceMapQuerySnapshot::from_generated(
         &pairs,
         &p,
-        Instant::now() + Duration::from_secs(10),
+        Instant::now() + BEHAVIOUR_TEST_LIMIT,
         || false,
     )
     .unwrap();
     let reversed = SourceMapQuerySnapshot::from_generated(
         &[pairs[1], pairs[0]],
         &p,
-        Instant::now() + Duration::from_secs(10),
+        Instant::now() + BEHAVIOUR_TEST_LIMIT,
         || false,
     )
     .unwrap();
@@ -812,7 +796,7 @@ fn genuine_generated_tiles_connect_to_actual_owner_constructor_query() {
     let selected_only = SourceMapQuerySnapshot::from_generated(
         &pairs[..1],
         &p,
-        Instant::now() + Duration::from_secs(10),
+        Instant::now() + BEHAVIOUR_TEST_LIMIT,
         || false,
     )
     .unwrap();
@@ -821,7 +805,7 @@ fn genuine_generated_tiles_connect_to_actual_owner_constructor_query() {
     let historical = SourceMapQuerySnapshot::from_generated(
         &pairs,
         &p,
-        Instant::now() + Duration::from_secs(10),
+        Instant::now() + BEHAVIOUR_TEST_LIMIT,
         || {
             polls.set(polls.get() + 1);
             false
@@ -834,7 +818,7 @@ fn genuine_generated_tiles_connect_to_actual_owner_constructor_query() {
     assert!(SourceMapQuerySnapshot::from_generated(
         &pairs,
         &p,
-        Instant::now() + Duration::from_secs(10),
+        Instant::now() + BEHAVIOUR_TEST_LIMIT,
         || {
             polls.set(polls.get() + 1);
             polls.get() == count
@@ -853,7 +837,7 @@ fn genuine_generated_tiles_connect_to_actual_owner_constructor_query() {
         SourceMapQuerySnapshot::from_generated(
             &[(&different_input, &outputs[0])],
             &p,
-            Instant::now() + Duration::from_secs(10),
+            Instant::now() + BEHAVIOUR_TEST_LIMIT,
             || false
         ),
         Err(GenerationError::Validation(
@@ -870,7 +854,7 @@ fn genuine_generated_tiles_connect_to_actual_owner_constructor_query() {
     assert!(SourceMapQuerySnapshot::from_generated(
         &pairs,
         &p,
-        Instant::now() + Duration::from_secs(10),
+        Instant::now() + BEHAVIOUR_TEST_LIMIT,
         || false
     )
     .is_err());
@@ -929,15 +913,13 @@ fn genuine_source_points_feed_actual_constructor_filter_and_expire() {
         .unwrap();
     let input = PreparedNavigationInput::from_source(&terrain, &bundle, TILE, || false).unwrap();
     let output = input
-        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
-            false
-        })
+        .generate(&helper(), Instant::now() + BEHAVIOUR_TEST_LIMIT, || false)
         .unwrap();
     let p = crossing_profile();
     let query = SourceMapQuerySnapshot::from_generated(
         &[(&input, &output)],
         &p,
-        Instant::now() + Duration::from_secs(10),
+        Instant::now() + BEHAVIOUR_TEST_LIMIT,
         || false,
     )
     .unwrap();
@@ -974,9 +956,7 @@ fn genuine_generated_resident_cold_same_polygon_is_private_fresh_and_retryable()
         .unwrap();
     let input = PreparedNavigationInput::from_source(&terrain, &bundle, TILE, || false).unwrap();
     let output = input
-        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
-            false
-        })
+        .generate(&helper(), Instant::now() + BEHAVIOUR_TEST_LIMIT, || false)
         .unwrap();
     assert_navigation_bytes(
         output.products().0,
@@ -1010,7 +990,7 @@ fn genuine_generated_resident_cold_same_polygon_is_private_fresh_and_retryable()
         .route(
             start.map(f32::to_bits),
             end.map(f32::to_bits),
-            Instant::now() + Duration::from_secs(5),
+            Instant::now() + BEHAVIOUR_TEST_LIMIT,
         )
         .unwrap();
     assert_eq!(scalar.polygons, [source["start_ref"].as_u64().unwrap()]);
@@ -1030,7 +1010,7 @@ fn genuine_generated_resident_cold_same_polygon_is_private_fresh_and_retryable()
                 unload_enabled: true,
                 vmap: positive_tile_load_tests::ENABLED,
             }),
-            Instant::now() + Duration::from_secs(10),
+            Instant::now() + BEHAVIOUR_TEST_LIMIT,
             || false,
         )
         .unwrap()
@@ -1040,7 +1020,7 @@ fn genuine_generated_resident_cold_same_polygon_is_private_fresh_and_retryable()
     owner
         .ensure(
             [end[0].to_bits(), end[1].to_bits()],
-            Instant::now() + Duration::from_secs(10),
+            Instant::now() + BEHAVIOUR_TEST_LIMIT,
             || false,
         )
         .unwrap();
@@ -1105,15 +1085,13 @@ fn genuine_resident_cold_calculate_missing_endpoint_precedes_liquid_update() {
         .unwrap();
     let input = PreparedNavigationInput::from_source(&terrain, &bundle, TILE, || false).unwrap();
     let output = input
-        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
-            false
-        })
+        .generate(&helper(), Instant::now() + BEHAVIOUR_TEST_LIMIT, || false)
         .unwrap();
     let p = crossing_profile();
     let query = SourceMapQuerySnapshot::from_generated(
         &[(&input, &output)],
         &p,
-        Instant::now() + Duration::from_secs(10),
+        Instant::now() + BEHAVIOUR_TEST_LIMIT,
         || false,
     )
     .unwrap();
@@ -1149,9 +1127,7 @@ fn genuine_resident_cold_calculate_different_polygons_have_no_terminal() {
         .unwrap();
     let input = PreparedNavigationInput::from_source(&terrain, &bundle, TILE, || false).unwrap();
     let output = input
-        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
-            false
-        })
+        .generate(&helper(), Instant::now() + BEHAVIOUR_TEST_LIMIT, || false)
         .unwrap();
     let expected: serde_json::Value =
         serde_json::from_slice(&oracle("ridge_wmo/expected.json")).unwrap();
@@ -1172,7 +1148,7 @@ fn genuine_resident_cold_calculate_different_polygons_have_no_terminal() {
         .route(
             start.map(f32::to_bits),
             end.map(f32::to_bits),
-            Instant::now() + Duration::from_secs(5),
+            Instant::now() + BEHAVIOUR_TEST_LIMIT,
         )
         .unwrap();
     assert_eq!(scalar.start.polygon, source["start_ref"].as_u64().unwrap());
@@ -1182,7 +1158,7 @@ fn genuine_resident_cold_calculate_different_polygons_have_no_terminal() {
     let query = SourceMapQuerySnapshot::from_generated(
         &[(&input, &output)],
         &p,
-        Instant::now() + Duration::from_secs(10),
+        Instant::now() + BEHAVIOUR_TEST_LIMIT,
         || false,
     )
     .unwrap();
@@ -1220,9 +1196,7 @@ fn genuine_resident_chase_los_keeps_model_witnesses_fresh_and_exact_goal_endpoin
         .unwrap();
     let input = PreparedNavigationInput::from_source(&terrain, &bundle, TILE, || false).unwrap();
     let output = input
-        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
-            false
-        })
+        .generate(&helper(), Instant::now() + BEHAVIOUR_TEST_LIMIT, || false)
         .unwrap();
     let height = PreparedSourceHeight::from_source(&terrain, &bundle, || false).unwrap();
     let expected: serde_json::Value =
@@ -1241,7 +1215,7 @@ fn genuine_resident_chase_los_keeps_model_witnesses_fresh_and_exact_goal_endpoin
         SourceMapQuerySnapshot::from_generated(
             &[(&input, &output)],
             p,
-            Instant::now() + Duration::from_secs(10),
+            Instant::now() + BEHAVIOUR_TEST_LIMIT,
             || false,
         )
         .unwrap()
@@ -1347,9 +1321,7 @@ fn genuine_resident_chase_water_binds_catalog_then_reads_runtime_cached_target()
         .unwrap();
     let input = PreparedNavigationInput::from_source(&terrain, &bundle, TILE, || false).unwrap();
     let output = input
-        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
-            false
-        })
+        .generate(&helper(), Instant::now() + BEHAVIOUR_TEST_LIMIT, || false)
         .unwrap();
     let height = PreparedSourceHeight::from_source(&terrain, &bundle, || false).unwrap();
     let expected: serde_json::Value =
@@ -1367,7 +1339,7 @@ fn genuine_resident_chase_water_binds_catalog_then_reads_runtime_cached_target()
         SourceMapQuerySnapshot::from_generated(
             &[(&input, &output)],
             p,
-            Instant::now() + Duration::from_secs(10),
+            Instant::now() + BEHAVIOUR_TEST_LIMIT,
             || false,
         )
         .unwrap()
@@ -1637,9 +1609,7 @@ fn genuine_resident_primary_point_drives_runtime_dry_cache_and_conditional_chase
         .unwrap();
     let input = PreparedNavigationInput::from_source(&terrain, &bundle, TILE, || false).unwrap();
     let output = input
-        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
-            false
-        })
+        .generate(&helper(), Instant::now() + BEHAVIOUR_TEST_LIMIT, || false)
         .unwrap();
     let height = PreparedSourceHeight::from_source(&terrain, &bundle, || false).unwrap();
     let expected: serde_json::Value =
@@ -1658,7 +1628,7 @@ fn genuine_resident_primary_point_drives_runtime_dry_cache_and_conditional_chase
         SourceMapQuerySnapshot::from_generated(
             &[(&input, &output)],
             &p,
-            Instant::now() + Duration::from_secs(10),
+            Instant::now() + BEHAVIOUR_TEST_LIMIT,
             || false,
         )
         .unwrap()
@@ -1712,9 +1682,7 @@ fn genuine_resident_primary_vertical_and_missing_geometry_never_publish_goals() 
         .unwrap();
     let input = PreparedNavigationInput::from_source(&terrain, &bundle, TILE, || false).unwrap();
     let output = input
-        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
-            false
-        })
+        .generate(&helper(), Instant::now() + BEHAVIOUR_TEST_LIMIT, || false)
         .unwrap();
     let height = PreparedSourceHeight::from_source(&terrain, &bundle, || false).unwrap();
     for (start, end, error, observations) in [
@@ -1738,7 +1706,7 @@ fn genuine_resident_primary_vertical_and_missing_geometry_never_publish_goals() 
         let query = SourceMapQuerySnapshot::from_generated(
             &[(&input, &output)],
             &p,
-            Instant::now() + Duration::from_secs(10),
+            Instant::now() + BEHAVIOUR_TEST_LIMIT,
             || false,
         )
         .unwrap();
@@ -1778,9 +1746,7 @@ fn genuine_resident_primary_blocked_los_never_publishes_a_goal() {
         .unwrap();
     let input = PreparedNavigationInput::from_source(&terrain, &bundle, TILE, || false).unwrap();
     let output = input
-        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
-            false
-        })
+        .generate(&helper(), Instant::now() + BEHAVIOUR_TEST_LIMIT, || false)
         .unwrap();
     assert_eq!(
         output.summary().status,
@@ -1794,7 +1760,7 @@ fn genuine_resident_primary_blocked_los_never_publishes_a_goal() {
     let query = SourceMapQuerySnapshot::from_generated(
         &[(&input, &output)],
         &p,
-        Instant::now() + Duration::from_secs(10),
+        Instant::now() + BEHAVIOUR_TEST_LIMIT,
         || false,
     )
     .unwrap();

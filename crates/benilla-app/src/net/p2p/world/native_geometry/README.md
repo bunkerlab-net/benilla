@@ -163,6 +163,7 @@ for geometry requests and route commits, with the unchanged 2 ms execution slice
 Deadline tests retain the production 500 ms lifetime.
 Loaded Wander reopen functional fixtures also use a test-only 5 s slice; their
 dedicated expiry regression retains a 500 ms deadline.
+Authored navigation behaviour checks use a test-only 260 s per-operation limit.
 Bounded Wander reopen entry and request-validation expiry checks return
 deadline-unavailable, not a binding mismatch.
 

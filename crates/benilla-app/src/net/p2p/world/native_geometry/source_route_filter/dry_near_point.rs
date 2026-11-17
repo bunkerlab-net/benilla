@@ -18,6 +18,42 @@ use benilla_world_runtime::native::{
     AllowedPositionZBranch, CreatureInitializationSnapshot, Facts, MotionFacts,
 };
 
+#[cfg(test)]
+std::thread_local! {
+    static NEAR_POINT_EXPIRY: std::cell::Cell<Option<&'static str>> = const {
+        std::cell::Cell::new(None)
+    };
+}
+
+#[cfg(test)]
+pub(crate) fn expire_next_at(stage: &'static str) {
+    assert!(matches!(
+        stage,
+        "ground" | "liquid" | "allowed_z" | "ray" | "liquid_budget"
+    ));
+    NEAR_POINT_EXPIRY.with(|point| assert_eq!(point.replace(Some(stage)), None));
+}
+
+#[cfg(test)]
+pub(crate) fn assert_expiry_reached() {
+    NEAR_POINT_EXPIRY.with(|point| assert_eq!(point.get(), None));
+}
+
+#[cfg(test)]
+fn expire_at(stage: &'static str) -> Option<Instant> {
+    NEAR_POINT_EXPIRY.with(|point| {
+        if point.get() != Some(stage) {
+            return None;
+        }
+        point.set(None);
+        // core.rs:35 fixes the production request lifetime at 500 ms.
+        let deadline = Instant::now() + std::time::Duration::from_millis(500);
+        std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+        assert!(Instant::now() >= deadline);
+        Some(deadline)
+    })
+}
+
 /// Intrinsic, deliberately separate from the resident Ground-v2 policy.
 /// Configuration is fixed to enabled height/LOS; bind refuses missing/disabled.
 pub(crate) fn geometry_revision(height: source_height::Binding) -> [u8; 32] {
@@ -272,6 +308,8 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentDryNearPointProvider<'a, 'terrain, 
             request: ground_request,
             height: ground.to_bits(),
         });
+        #[cfg(test)]
+        let deadline = expire_at("ground").unwrap_or(deadline);
         poll(deadline, cancelled)?;
         // Invalid-ground continuation is outside this resident adapter's domain.
         if !valid_ground(ground) {
@@ -283,6 +321,10 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentDryNearPointProvider<'a, 'terrain, 
             position: [position[0], position[1], ground.to_bits()],
             mask: 15,
         };
+        #[cfg(test)]
+        if let Some(expired) = expire_at("liquid_budget") {
+            *budget = QueryBudget::new(expired);
+        }
         let liquid = self
             .height
             .point_no_water_with_budget(liquid_request, budget, cancelled)
@@ -291,12 +333,16 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentDryNearPointProvider<'a, 'terrain, 
             return Err(Failure::Binding.into());
         }
         observe(&Observation::Liquid(liquid));
+        #[cfg(test)]
+        let deadline = expire_at("liquid").unwrap_or(deadline);
         poll(deadline, cancelled)?;
         // Exact NoWater returns OUTER Map groundZ for both aura predicate values,
         // never the nested static height/effective floor. Strict comparisons retain
         // equal signed-zero input bits, unlike an unconditional replacement.
         let allowed_z = allowed_ground_z(f32::from_bits(position[2]), ground).to_bits();
         observe(&Observation::AllowedZ(allowed_z));
+        #[cfg(test)]
+        let deadline = expire_at("allowed_z").unwrap_or(deadline);
         poll(deadline, cancelled)?;
         if !primary::vertical_acceptance_bits(
             q.target.pose.position.z.bits(),
@@ -326,6 +372,8 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentDryNearPointProvider<'a, 'terrain, 
             )
             .map_err(ResidentFilterError::Source)?;
         observe(&Observation::Ray(ray));
+        #[cfg(test)]
+        let deadline = expire_at("ray").unwrap_or(deadline);
         poll(deadline, cancelled)?;
         if !matches!(ray.result, StaticRay::Miss) {
             return Err(Failure::UnsupportedNearPointFallback.into());

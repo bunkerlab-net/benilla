@@ -385,31 +385,33 @@ fn assert_rejected(
         );
         assert_eq!(count, stop + 1);
     }
-    for stop in 0..4 {
-        let expires = Instant::now() + Duration::from_secs(1);
+    for (stop, stage) in ["ground", "liquid", "allowed_z", "ray"]
+        .into_iter()
+        .enumerate()
+    {
+        dry_near_point::expire_next_at(stage);
         let mut count = 0;
-        let result = provider.resolve_observed(
-            s,
-            context,
-            expires,
-            || false,
-            usize::MAX,
-            |_| {
-                if count == stop {
-                    std::thread::sleep(
-                        expires.saturating_duration_since(Instant::now())
-                            + Duration::from_millis(1),
-                    );
-                }
-                count += 1;
-            },
-        );
+        let result =
+            provider.resolve_observed(s, context, deadline(), || false, usize::MAX, |_| count += 1);
+        dry_near_point::assert_expiry_reached();
         assert!(
             matches!(result, Err(ResidentFilterError::Context(Failure::Deadline))),
             "expired boundary {stop}: {result:?}"
         );
         assert_eq!(count, stop + 1);
     }
+    dry_near_point::expire_next_at("liquid_budget");
+    let mut count = 0;
+    let liquid_expiry =
+        provider.resolve_observed(s, context, deadline(), || false, usize::MAX, |_| count += 1);
+    dry_near_point::assert_expiry_reached();
+    assert!(matches!(
+        liquid_expiry,
+        Err(ResidentFilterError::Source(CompositionError::Validation(
+            Error::Deadline
+        )))
+    ));
+    assert_eq!(count, 1);
     for case in 0..5 {
         let mut wrong = s.clone();
         match case {

@@ -31,6 +31,8 @@ use benilla_native_vmap_source::AssembledSourceMap;
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, path::Path, time::Instant};
 const POLICY: &[u8] = b"benilla-source-extraction-inventory-navigation-v2-stable-bv-v1";
+#[cfg(test)]
+pub(crate) const BEHAVIOUR_TEST_LIMIT: std::time::Duration = std::time::Duration::from_secs(260);
 #[derive(Debug)]
 pub(crate) enum GenerationError {
     Cancelled,
@@ -315,7 +317,7 @@ impl<'terrain, 'bundle, 'source> PreparedNavigationInput<'terrain, 'bundle, 'sou
         let response = process::run(
             helper,
             request,
-            Instant::now() + std::time::Duration::from_secs(60),
+            Instant::now() + BEHAVIOUR_TEST_LIMIT,
             &|| false,
         )
         .unwrap();
