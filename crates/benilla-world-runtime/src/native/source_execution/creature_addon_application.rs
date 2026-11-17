@@ -13,6 +13,8 @@ pub struct CreatureAddonState {
     pub emote: u32,
     /// Unit.h:1647-1650 tests holder membership, not individual effects.
     pub aura_holders: BTreeSet<u32>,
+    /// Unit.h:2507 default-constructs every per-type AuraList empty.
+    pub aura_types: std::collections::BTreeMap<u32, Vec<u64>>,
     pub duplicate_aura_errors: Vec<u32>,
 }
 
@@ -28,6 +30,14 @@ pub trait CreatureAddonExecutionOwner {
 }
 
 impl CreatureAddonState {
+    pub fn has_aura(&self, spell: u32) -> bool {
+        self.aura_holders.contains(&spell)
+    }
+    pub fn has_aura_type(&self, kind: u32) -> bool {
+        self.aura_types
+            .get(&kind)
+            .is_some_and(|auras| !auras.is_empty())
+    }
     pub fn load(
         &mut self,
         addon: Option<&LoadedCreatureAddon>,
@@ -57,7 +67,7 @@ impl CreatureAddonState {
                     if spell == 0 {
                         return Ok(true);
                     }
-                    if self.aura_holders.contains(&spell) {
+                    if self.has_aura(spell) {
                         if !reload {
                             self.duplicate_aura_errors.push(spell);
                         }

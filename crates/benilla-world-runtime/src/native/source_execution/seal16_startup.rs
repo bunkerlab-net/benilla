@@ -2180,6 +2180,7 @@ pub(super) fn continue_startup(
             &groups,
             &creature_templates,
             &creature_addons,
+            &addon_spells,
             &mut evidence.active_clocks.clone(),
             &gameobject_templates,
             &scripts,
@@ -2297,6 +2298,72 @@ pub(super) fn continue_startup(
         if slot == 0 {
             assert_eq!((attempt.guid, entry), (40520, 6491));
             assert_eq!(refusal.id, active_init::CREATURE_NEXT_OWNER[slot]);
+            // Creature.cpp:2333-2343 starts with 9036. The second aura 10848
+            // cannot run until 9036 has applied its effects.
+            assert_eq!(
+                creature_addons
+                    .get(HighGuid::Creature, 40520, 6491)
+                    .unwrap()
+                    .auras,
+                CreatureAddonAuras::Spells(vec![9036, 10848, 0])
+            );
+            let current = creature_entry.as_ref().unwrap();
+            assert!(current.addon.aura_holders.is_empty());
+            assert!(current.addon.aura_types.is_empty());
+            assert!(current.addon.duplicate_aura_errors.is_empty());
+            assert_eq!(current.spell_starts.spells.len(), 1);
+            let spell = &current.spell_starts.spells[&1];
+            assert_eq!(
+                (spell.spell, spell.caster, spell.original_caster),
+                (9036, candidate, candidate)
+            );
+            assert_eq!(spell.state, SourceSpellState::Casting);
+            assert_eq!(spell.flags, SpellTriggerFlags(1));
+            assert_eq!(
+                (spell.cast_time, spell.timer, spell.creation_time),
+                (0, 0, 0)
+            );
+            assert_eq!(spell.targets.unit, Some(candidate));
+            assert_eq!(spell.targets.mask, 2);
+            assert_eq!(
+                spell.cast_position,
+                active_objects.get(candidate).unwrap().pose.unwrap().0
+            );
+            assert_eq!(
+                spell.trigger_data,
+                Some(SpellTriggerData {
+                    can_trigger: true,
+                    negative_effect_mask: 0
+                })
+            );
+            assert!(
+                !spell.referenced && !spell.executing && !spell.client_cast && !spell.item_cast
+            );
+            // Spell.cpp:3007-3009; recording60477107/60477109 schedules the
+            // first SpellEvent at Unit queue clock0 +1, before either aura.
+            let queue = current.unit_events.inventory();
+            assert_eq!(queue.clock_ms, 0);
+            assert!(queue.detached.is_empty());
+            assert_eq!(queue.queued.len(), 1);
+            let event = &queue.queued[0];
+            assert_eq!(spell.event, Some(event.event_id));
+            assert_eq!(event.kind, SourceUnitEvent::Spell { spell: 1 });
+            assert_eq!(
+                (event.add_time_ms, event.exec_time_ms, event.to_abort),
+                (0, 1, false)
+            );
+            // Prepare skips current-slot registration, GCD and SendSpellStart
+            // for OLD_TRIGGERED, then requests cast(true), Spell.cpp:3060-3098.
+            assert!(lookups.ends_with(&[
+                "creature_load_addon",
+                "creature_db_addon_lookup",
+                "creature_template_addon_lookup",
+            ]));
+            // Next recorded word is the later respawn draw, not an aura input.
+            assert_eq!(random.cursor().raw, 27080);
+            assert_eq!(evidence.words[27080], (60477501, 27080, 3988355474));
+            println!("F6_ADDON_CAST guid=40520 entry=6491 spell=9036 state={:?} queued=1 next_raw=27080 next_recording_line=60477501 next_owner={}", spell.state, refusal.id);
+            println!("F6_ADDON_CAST_UB stock_prefix_spells=1 effect_index_out_of_bounds=0 cast_time_signed_add_overflow=0 cast_time_float_to_int=0 school_mask_shift=0");
             assert_eq!(
                 zone_lookups[&SpawnKey {
                     kind: GridSpawnKind::Creature,

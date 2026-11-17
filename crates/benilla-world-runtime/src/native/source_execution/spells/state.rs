@@ -141,6 +141,12 @@ impl SpellTriggerFlags {
         self.0 & 0x8000 != 0
     }
 }
+/// Assigned by prepareDataForTriggerSystem, Spell.cpp:795-805.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SpellTriggerData {
+    pub can_trigger: bool,
+    pub negative_effect_mask: u8,
+}
 #[derive(Clone, Debug)]
 pub struct SourceSpell {
     pub id: u64,
@@ -182,6 +188,7 @@ pub struct SourceSpell {
     pub item_cast: bool,
     pub partial_application_mask: u32,
     pub effect_skip_mask: u32,
+    pub trigger_data: Option<SpellTriggerData>,
 }
 impl SourceSpell {
     pub(super) fn new(
@@ -246,6 +253,7 @@ impl SourceSpell {
             reflectable: None,
             jump_radius: 10f32.to_bits(),
             filtering_scheme: None,
+            trigger_data: None,
         })
     }
     pub fn deletable(&self) -> bool {

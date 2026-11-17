@@ -134,6 +134,39 @@ fn catalog04_creature_addon_branch_census_and_4692_lookup() {
         assert_eq!(existence, [[7474, 0, 0], [1672, 0, 117]][slot]);
         println!("CREATURE_ADDON_CENSUS table={} loaded={} branches_rows_mutated_hits={branches:?} empty_auras={empty} all_auras_dropped={all_dropped} row_dropped=0 zero_keys={zero_keys} zero_aura_tokens={zero_tokens} existence_valid_missing_refused={existence:?} refused={refused:?} stock_ub={undefined:?}", table.name(), loaded.record_counts[slot]);
     }
+    let mut aura_spells = BTreeMap::<u32, [usize; 2]>::new();
+    for table in [CreatureAddonTable::Template, CreatureAddonTable::Guid] {
+        let mut rows_with_auras = 0;
+        for row in loaded.table_rows(table) {
+            if let CreatureAddonAuras::Spells(auras) = &row.auras {
+                rows_with_auras += usize::from(auras.first().is_some_and(|spell| *spell != 0));
+                for &spell in auras.iter().take_while(|&&spell| spell != 0) {
+                    aura_spells.entry(spell).or_default()[table as usize] += 1;
+                }
+            }
+        }
+        assert_eq!(rows_with_auras, [728, 462][table as usize]);
+    }
+    let mut effect_types = BTreeMap::<u32, usize>::new();
+    for (&id, references) in &aura_spells {
+        let spell = spells.template(id).unwrap();
+        let effects = spell.effects().map(|effect| effect.effect);
+        for &effect in effects.iter().filter(|&&effect| effect != 0) {
+            *effect_types.entry(effect).or_default() += 1;
+        }
+        let reached = if id == 9036 {
+            "map0_GUID40520_Spell_cast_refusal"
+        } else {
+            "not_reached_before_map0_GUID40520_first_aura"
+        };
+        println!("CREATURE_ADDON_AURA spell={id} references_template_guid={references:?} effects={effects:?} reached={reached}");
+    }
+    assert_eq!(aura_spells.len(), 262);
+    assert_eq!(
+        effect_types,
+        BTreeMap::from([(3, 5), (6, 281), (27, 1), (35, 10), (119, 2)])
+    );
+    println!("CREATURE_ADDON_AURA_CENSUS rows_template_guid=[728,462] distinct={} effect_slots={effect_types:?}", aura_spells.len());
     drop(owner);
     let mut rows = ObjectMgrSpawnRows::open(&mut catalog, Path::new(&occurrences)).unwrap();
     let mut found = 0;

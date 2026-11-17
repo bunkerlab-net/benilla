@@ -5,7 +5,7 @@ use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: [&str; 2] = [
-    "execution.creature_addon.Creature_2343.CastSpell_owner",
+    "execution.spells.f5_10_Spell_cast_owner",
     "execution.waypoint.loaded_waypoint_manager_owner",
 ];
 #[path = "seal16_active_clocks.rs"]
@@ -53,6 +53,8 @@ pub(super) struct Prefix<'a> {
     pub groups: &'a SourceSpawnGroups,
     pub creature_templates: &'a LoadedCreatureTemplates,
     pub creature_addons: &'a LoadedCreatureAddons,
+    pub spell_stores: &'a SourceSpellStores,
+    pub spell_targets: SourceSpellTargetMgr,
     pub clocks: &'a mut ActiveClocks,
     pub scripts: &'a SourceScriptRegistry,
     pub gameobject_templates: &'a LoadedGameObjectTemplates,
@@ -434,6 +436,7 @@ pub(super) fn load_first(
     groups: &SourceSpawnGroups,
     creature_templates: &LoadedCreatureTemplates,
     creature_addons: &LoadedCreatureAddons,
+    spell_stores: &SourceSpellStores,
     clocks: &mut ActiveClocks,
     gameobject_templates: &LoadedGameObjectTemplates,
     scripts: &SourceScriptRegistry,
@@ -507,6 +510,8 @@ pub(super) fn load_first(
         groups,
         creature_templates,
         creature_addons,
+        spell_stores,
+        spell_targets: SourceSpellTargetMgr::initialize(spell_stores),
         clocks,
         gameobject_templates,
         scripts,

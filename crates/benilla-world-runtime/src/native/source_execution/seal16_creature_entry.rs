@@ -32,6 +32,7 @@ pub(in crate::native::source_execution) struct EntryFields {
     pub respawn_clock: Option<(u64, u64, i64)>,
     pub notify_delay: Option<u32>,
     pub unit_events: SourceUnitEvents,
+    pub spell_starts: SourceSpellStarts,
     pub motion_state: Option<u32>,
     pub can_aggro: bool,
     pub misc_flags: u8,
@@ -139,6 +140,7 @@ fn model_fields(template: &LoadedCreatureInfo, model: [u32; 8]) -> EntryFields {
         respawn_clock: None,
         notify_delay: None,
         unit_events: SourceUnitEvents::default(),
+        spell_starts: SourceSpellStarts::default(),
         motion_state: None,
         can_aggro: false, // Creature.cpp:140; only the due notify may enable it.
         misc_flags: 0,

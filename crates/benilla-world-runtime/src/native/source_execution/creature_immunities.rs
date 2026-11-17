@@ -81,6 +81,56 @@ impl Default for CreatureImmunityState {
     }
 }
 impl CreatureImmunityState {
+    /// Creature.cpp:1983-1997 skips template masks for self casts.
+    /// Unit.cpp:7343-7383 still evaluates positivity before the school loop.
+    pub fn immune_to_self_spell(
+        &self,
+        stores: &SourceSpellStores,
+        spell: &SpellTemplate,
+        mask: u32,
+        unit: ObjectHandle,
+        auras: &CreatureAddonState,
+    ) -> Result<bool> {
+        if self.spells[4]
+            .iter()
+            .any(|entry| entry.value == spell.dispel)
+        {
+            return Ok(true);
+        }
+        let mut positive = positive_unit_spell(stores, spell, mask, Some((unit, unit)))?;
+        if aura_apply_effects(spell, mask) && spell.attributes & 0x0400_0000 != 0 {
+            positive = false;
+        }
+        for entry in &self.spells[2] {
+            require(
+                spell.school < 32,
+                "execution.spells.GetSchoolMask_shift_undefined",
+            )?;
+            if entry.value & (1 << spell.school) == 0 {
+                continue;
+            }
+            if entry.aura.is_some() {
+                let _ = positive;
+                return Err(refuse("execution.spells.Unit_7365.Aura_IsPositive_owner"));
+            }
+            // CanPierceImmuneAura(nullptr), SpellMgr.h:1295-1301.
+            if spell.attributes & 0x2000_0000 == 0 {
+                return Ok(true);
+            }
+        }
+        if spell.mechanic != 0 {
+            if self.spells[5]
+                .iter()
+                .any(|entry| entry.value == spell.mechanic)
+            {
+                return Ok(true);
+            }
+            if auras.has_aura_type(147) {
+                return Err(refuse("execution.spells.Unit_7377.Aura_GetModifier_owner"));
+            }
+        }
+        Ok(false)
+    }
     // Unit::ApplySpellImmune(nullptr,...), Unit.cpp:7680-7708. Only loaded validated kinds enter here.
     fn apply(&mut self, immunity: CreatureImmunity, apply: bool) {
         let list = &mut self.spells[immunity.kind];
@@ -126,6 +176,60 @@ impl CreatureImmunityState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fresh_self_spell_immunity_uses_loaded_sets_and_keeps_aura_dependencies() {
+        let stores = SourceSpellStores::default();
+        let unit = ObjectHandle {
+            thread: 6,
+            construction: 1,
+        };
+        let mut auras = CreatureAddonState::default();
+        let mut spell = SpellTemplate {
+            effect1: 6,
+            effectimplicittargeta1: 1,
+            school: 1,
+            dispel: 7,
+            mechanic: 2,
+            ..Default::default()
+        };
+        let mut state = CreatureImmunityState::default();
+        assert!(!state
+            .immune_to_self_spell(&stores, &spell, 1, unit, &auras)
+            .unwrap());
+        let (loaded, _) =
+            LoadedCreatureImmunities::load(&[[1, 0, 4, 7], [1, 1, 2, 2], [1, 2, 5, 2]], |_| true);
+        for set in 0..3 {
+            state.update(1, set, Some(&loaded)).unwrap();
+            assert!(state
+                .immune_to_self_spell(&stores, &spell, 1, unit, &auras)
+                .unwrap());
+        }
+        state.update(1, 1, Some(&loaded)).unwrap();
+        spell.attributes = 0x2000_0000;
+        assert!(!state
+            .immune_to_self_spell(&stores, &spell, 1, unit, &auras)
+            .unwrap());
+        spell.school = 32;
+        assert_eq!(
+            state
+                .immune_to_self_spell(&stores, &spell, 1, unit, &auras)
+                .unwrap_err()
+                .id,
+            "execution.spells.GetSchoolMask_shift_undefined"
+        );
+        spell.school = 31;
+        assert!(!state
+            .immune_to_self_spell(&stores, &spell, 1, unit, &auras)
+            .unwrap());
+        auras.aura_types.insert(147, vec![1]);
+        assert_eq!(
+            state
+                .immune_to_self_spell(&stores, &spell, 1, unit, &auras)
+                .unwrap_err()
+                .id,
+            "execution.spells.Unit_7377.Aura_GetModifier_owner"
+        );
+    }
     #[test]
     fn creature_immunities_validation_keeps_source_order_and_error_precedence() {
         let (store, census) = LoadedCreatureImmunities::load(

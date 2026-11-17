@@ -130,10 +130,48 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
     {
         prefix.lookups.push("creature_template_addon_lookup");
     }
-    struct Execution;
-    impl CreatureAddonExecutionOwner for Execution {}
     let fields = prefix.creature_entry.as_mut().unwrap();
-    fields.addon.load(addon, false, &mut Execution)?;
+    // Unit.cpp:330-366; Unit.h:2487,2507 construct the aura lists empty.
+    // UpdateEntry has applied its immunity set, but has not cast a spell.
+    let unit = SpellUnitState {
+        player: false,
+        gameobject: false,
+        alive: true,
+        standing: fields.addon.stand == 0,
+        player_controlled: fields.unit_flags & 8 != 0,
+        combat: fields.unit_flags & UNIT_FLAG_COMBAT != 0,
+        battleground_wait_leave: false,
+        gm: false,
+        moving: fields.movement_flags & 0x0400_60cf != 0,
+        falling_far: fields.movement_flags & 0x4000 != 0,
+        stealth: fields.addon.has_aura_type(16),
+        form: 0,
+        class: template.words[36],
+        combo_target: None,
+        mounted: fields.addon.mount != 0,
+        taxi: fields.unit_flags & 0x0010_0000 != 0,
+        totem: false, // Generic Creature subtype, Creature.h:595,622.
+        untargetable: fields.unit_flags & 0x0001_0000 != 0,
+        has_ai: false,
+        position: context.objects.get(object)?.pose.unwrap().0,
+    };
+    fields.addon.load(
+        addon,
+        false,
+        &mut addon_cast::Execution {
+            object,
+            objects: context.objects,
+            terrain: context.products,
+            stores: prefix.spell_stores,
+            targets: &prefix.spell_targets,
+            immunities: &fields.immunities,
+            events: &mut fields.unit_events,
+            starts: &mut fields.spell_starts,
+            unit,
+            level: fields.level.as_ref().unwrap().level,
+            cast_speed: fields.cast_speed,
+        },
+    )?;
     prefix.lookups.push("creature_addon_applied");
     prefix.lookups.push("creature_create_return");
     if prefix
@@ -356,6 +394,8 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
     Ok(GridCandidateOutcome::Loaded(object))
 }
 
+#[path = "seal16_addon_cast.rs"]
+mod addon_cast;
 #[path = "seal16_creature_ai.rs"]
 mod ai_initialize;
 #[path = "seal16_creature_motion.rs"]
