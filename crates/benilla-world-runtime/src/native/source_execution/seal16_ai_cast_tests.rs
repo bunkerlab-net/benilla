@@ -622,3 +622,47 @@ fn aura_removal_and_ai_movement_refuse_at_their_source_calls() {
         1
     );
 }
+
+#[test]
+fn spell_mod_owner_dispatch_refuses_pet_and_totem_for_range_power_and_cast_time() {
+    for (kind, totem, expected) in [
+        (
+            SourceObjectKind::Pet,
+            false,
+            "execution.spells.Pet_596.GetSpellModOwner_owner",
+        ),
+        (
+            SourceObjectKind::Creature,
+            true,
+            "execution.spells.Totem_193.GetSpellModOwner_owner",
+        ),
+    ] {
+        let mut objects = SourceObjects::default();
+        let object = objects.construct(6, kind).unwrap();
+        let mut fields = SourceUnitFields::constructed_creature();
+        fields.totem = totem;
+        let mut units = SourceUnits::default();
+        units.register(&objects, object, fields).unwrap();
+        let ais = SourceCreatureAis::default();
+        let stores = stores();
+        let targets = SourceSpellTargetMgr::initialize(&stores);
+        let mut terrain = SourceTerrainManager::default();
+        let mut binding = Binding {
+            object,
+            stores: &stores,
+            targets: &targets,
+            terrain: &mut terrain,
+            world_clock: &SourceWorldClock::default(),
+        };
+        binding
+            .run(&mut units, &ais, &objects, |c| {
+                assert_eq!(c.owner.range_mod_owner(object).unwrap_err().id, expected);
+                assert_eq!(c.owner.power_mod_owner(object).unwrap_err().id, expected);
+                let t = stores.template(10848).unwrap();
+                let mut spell = SourceSpell::new(1, t, object, SpellTriggerFlags(0), 0)?;
+                assert_eq!(c.owner.cast_time(&mut spell, t).unwrap_err().id, expected);
+                Ok(())
+            })
+            .unwrap();
+    }
+}

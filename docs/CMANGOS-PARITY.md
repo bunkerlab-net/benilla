@@ -679,6 +679,12 @@ and cast speed at `Unit.cpp:10270` and `Creature.cpp:433`.
 Existing location, items, range and power owners reach preparation and
 the live aura-holder walk, `Spell.cpp:3025-3049`, `Unit.cpp:5253-5276`.
 The next owner is the AI current-spell write at `UnitAI.cpp:429`.
+Creature cooldown sends dispatch through `Creature.cpp:3109-3162`.
+The live spell-list scan draws equal bounds, `Creature.cpp:1557-1567`;
+the loaded ObjectMgr fallback keeps NOT_FOUND, `Creature.cpp:3118-3125`.
+Map 1 retains the container insert and refuses at the master read,
+`Creature.cpp:3142`. Per-unit spells and events survive later loads;
+unbound SpellEvent execution refuses at `unit_events.rs:32-38,225-229`.
 Cooldowns, reach and speed remain live-only; checkpoint
 format remains 91 and F7 restore remains unowned.
 

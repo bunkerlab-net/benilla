@@ -2984,5 +2984,15 @@ unowned current-spell identity write, `UnitAI.cpp:429`.
 The stacker attribute wrapper has component coverage for
 `SpellStacking.cpp:371-387`; this cast doesn't call it.
 Cooldowns remain excluded from checkpoint bytes; native format stays 91.
-Queued spell events still block load completion, `Spell.cpp:7127-7164`.
+Creature cooldown sends use the virtual override,
+`Spell.cpp:3516`, `Creature.cpp:3109-3162`. It scans the live unit spell list
+in map order and draws even equal repeat bounds, `Creature.cpp:1557-1567`.
+The loaded ObjectMgr fallback preserves the NOT_FOUND result,
+`Creature.cpp:3118-3125`, `ObjectMgr.h:1190-1200`. Nonzero durations enter
+the container before the unowned master read at `Creature.cpp:3142`.
+Player sends refuse at `Player.h:2199`.
+
+Spell objects and queued events remain on their unit across subsequent
+loads. Unbound event execution refuses, `unit_events.rs:32-38,225-229`;
+the thread-6 completion guard remains at `seal16_active_init.rs`.
 

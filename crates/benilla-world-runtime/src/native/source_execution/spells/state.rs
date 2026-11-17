@@ -227,6 +227,8 @@ pub struct SourceSpell {
     pub power_lookups: [u32; 2],
     #[cfg(test)]
     pub prepare_lookups: [u32; 6],
+    #[cfg(test)]
+    pub creature_cooldown: CreatureCooldownObservation,
 }
 impl SourceSpell {
     pub(in crate::native::source_execution) fn new(
@@ -312,6 +314,8 @@ impl SourceSpell {
             power_lookups: [0; 2],
             #[cfg(test)]
             prepare_lookups: [0; 6],
+            #[cfg(test)]
+            creature_cooldown: CreatureCooldownObservation::default(),
         })
     }
     pub fn deletable(&self) -> bool {

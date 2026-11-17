@@ -145,6 +145,11 @@ pub struct SourceUnitFields {
     /// Object.cpp:105-108 zeros the field before Creature.cpp:433 writes one.
     #[serde(skip)]
     pub cast_speed: u32,
+    /// CreatureSpellList.h:84-91 constructs an empty map; Creature.cpp:2426-2460 writes its copy.
+    #[serde(skip)]
+    pub spell_list: Option<CreatureSpellList>,
+    #[serde(skip)]
+    pub spell_list_disabled: Option<bool>,
 }
 impl SourceUnitFields {
     /// Unit.cpp:330,423-425; Creature.cpp:541-579. Spawn overrides belong to UpdateEntry.
@@ -294,6 +299,8 @@ impl SourceUnitFields {
             cooldowns: SourceSpellCooldowns::default(),
             combat_reach: None,
             cast_speed: 0,
+            spell_list: None,
+            spell_list_disabled: None,
         }
     }
     pub fn in_combat(&self) -> bool {
@@ -643,7 +650,7 @@ pub trait UnitAiExecutionOwner {
         spell: u32,
         ai: &mut SourceUnitAi,
         spells: &mut std::collections::BTreeSet<u32>,
-        _units: &mut SourceUnits,
+        _units: &SourceUnits,
         _objects: &SourceObjects,
     ) -> Result<()> {
         if ai.main_spell_id == 0 {

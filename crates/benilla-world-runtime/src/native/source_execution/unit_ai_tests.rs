@@ -1034,15 +1034,14 @@ fn spell_list_changed_clears_main_state_before_disabled_or_empty_returns() {
             disabled,
             ..CreatureSpellList::default()
         });
-        let result = execution.spell_list_changed(
-            &mut state,
-            disabled,
-            if disabled == Some(true) {
-                None
-            } else {
-                list.as_ref()
-            },
-        );
+        let live = execution
+            .queries
+            .units
+            .get_mut(&objects, state.selected.object())
+            .unwrap();
+        live.spell_list_disabled = disabled;
+        live.spell_list = if disabled == Some(true) { None } else { list };
+        let result = execution.spell_list_changed(&mut state);
         if disabled.is_none() && combat {
             assert_eq!(
                 result.unwrap_err().id,
@@ -1146,14 +1145,23 @@ fn spell_list_changed_uses_ranged_flag_two_and_keeps_first_spell_on_refusal() {
             threats: &mut threats,
             owner: &mut owner,
         };
+        execution
+            .queries
+            .units
+            .get_mut(&objects, state.selected.object())
+            .unwrap()
+            .spell_list = Some(lists.lists.into_values().next().unwrap());
         assert_eq!(
-            execution
-                .spell_list_changed(&mut state, None, Some(&lists.lists[&1]))
-                .unwrap_err()
-                .id,
+            execution.spell_list_changed(&mut state).unwrap_err().id,
             "execution.creature_spell_lists.UnitAI_1165.unwritten_disabled"
         );
-        let result = execution.spell_list_changed(&mut state, Some(false), Some(&lists.lists[&1]));
+        execution
+            .queries
+            .units
+            .get_mut(&objects, state.selected.object())
+            .unwrap()
+            .spell_list_disabled = Some(false);
+        let result = execution.spell_list_changed(&mut state);
         let base = &execution
             .ais
             .get(&objects, state.selected.object())

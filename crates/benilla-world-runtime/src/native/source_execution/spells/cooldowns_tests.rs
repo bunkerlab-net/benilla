@@ -168,10 +168,10 @@ fn writers_preserve_forced_duration_ignore_category_and_send_exits() {
     assert!(cd.ready_at(&t, false, 130).unwrap());
     cd.remove_spell(42);
     t.attributes = 0x40;
-    cd.send_spell_cooldown(&t, false, || unreachable!(), |_| unreachable!())
+    cd.send_world_spell_cooldown(&t, false, || unreachable!(), |_| unreachable!())
         .unwrap();
     t.attributes = 0;
-    cd.send_spell_cooldown(&t, true, || unreachable!(), |_| unreachable!())
+    cd.send_world_spell_cooldown(&t, true, || unreachable!(), |_| unreachable!())
         .unwrap();
     assert!(cd.is_empty());
 }

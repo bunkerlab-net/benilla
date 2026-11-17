@@ -54,6 +54,7 @@ pub struct CreatureSpellList {
 pub struct LoadedCreatureSpellLists {
     pub lists: BTreeMap<u32, CreatureSpellList>,
     pub targeting: BTreeMap<u32, Arc<CreatureSpellTarget>>,
+    pub cooldowns: Option<BTreeMap<(u32, u32), [u32; 2]>>,
 }
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct CreatureSpellListCensus {
@@ -99,6 +100,7 @@ impl LoadedCreatureSpellLists {
             cooldown_dropped,
             legacy,
         };
+        store.cooldowns = Some(cooldowns);
         (store, census)
     }
     pub fn load(
@@ -281,6 +283,13 @@ impl LoadedCreatureSpellLists {
             }
         }
         census
+    }
+    /// ObjectMgr.h:1190-1200 reads the loaded index before its optional urand call.
+    pub fn cooldown_range(&self, entry: u32, spell: u32) -> Result<Option<[u32; 2]>> {
+        self.cooldowns
+            .as_ref()
+            .ok_or_else(|| refuse("execution.creature.ObjectMgr_GetCreatureCooldown_owner"))
+            .map(|rows| rows.get(&(entry, spell)).copied())
     }
     pub fn get(&self, key: u32) -> Option<&CreatureSpellList> {
         self.lists.get(&key)

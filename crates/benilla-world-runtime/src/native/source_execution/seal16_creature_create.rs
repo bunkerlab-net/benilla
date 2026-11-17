@@ -170,6 +170,7 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
     if context.objects.get(object)?.database_guid == 40520 {
         assert_eq!(live.cast_speed, fields.cast_speed);
     }
+    let raw = prefix.random.creature_raw_position()?;
     fields.addon.load(
         addon,
         false,
@@ -184,7 +185,9 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
             level: fields.level.as_ref().unwrap().level,
             clocks: prefix.clocks,
             world_clock: prefix.world_clock,
-            raw: prefix.random.creature_raw_position()?,
+            random: prefix.random,
+            creature_spells: prefix.creature_spells,
+            raw,
             max_casts: addon_cast::max_casts(prefix.config)?,
         },
     )?;

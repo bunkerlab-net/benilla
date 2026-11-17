@@ -16,6 +16,8 @@ pub(super) struct Execution<'a> {
     pub level: u32,
     pub clocks: &'a mut ActiveClocks,
     pub world_clock: &'a SourceWorldClock,
+    pub random: &'a mut dyn CreatureRandom,
+    pub creature_spells: Option<&'a CreatureSpellMapData>,
     pub raw: u64,
     pub max_casts: u32,
 }
@@ -47,6 +49,10 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
             immunities: &live.immunities,
             auras: &mut live.auras,
             cooldowns: &mut live.cooldowns,
+            creature_spell_list: live.spell_list.as_ref(),
+            entry: &live.entry,
+            random: self.random,
+            creature_spells: self.creature_spells,
             addon: state,
             unit: self.unit,
             level: self.level,
@@ -189,6 +195,10 @@ struct Owner<'a> {
     unit: SpellUnitState,
     level: u32,
     cast_speed: &'a u32,
+    creature_spell_list: Option<&'a CreatureSpellList>,
+    entry: &'a u32,
+    random: &'a mut dyn CreatureRandom,
+    creature_spells: Option<&'a CreatureSpellMapData>,
     clocks: &'a mut ActiveClocks,
     world_clock: &'a SourceWorldClock,
     raw: u64,
@@ -321,6 +331,10 @@ impl SpellExecutionOwner for Owner<'_> {
         prepare_trigger_data(self.stores, spell)
     }
     fn cast_time(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<i32> {
+        require(
+            world_object_spell_mod_owner(self.objects, spell.caster, self.unit.totem)?.is_none(),
+            "execution.spells.Spell_3033.SpellModRAII_owner",
+        )?;
         fresh_cast_time(
             |index| self.stores.dbc("SpellCastTimes.dbc", index),
             spell,
@@ -448,4 +462,79 @@ pub(super) fn max_casts(config: &[u8]) -> Result<u32> {
     value
         .parse()
         .map_err(|_| refuse("execution.spells.MaxSpellCastsInChain_config"))
+}
+
+struct CooldownBinding<'a> {
+    object: ObjectHandle,
+    objects: &'a SourceObjects,
+    entry: u32,
+    list: Option<&'a CreatureSpellList>,
+    definitions: Option<&'a CreatureSpellMapData>,
+    stores: &'a SourceSpellStores,
+    random: &'a mut dyn CreatureRandom,
+    clock: &'a SourceWorldClock,
+    totem: bool,
+    observation: &'a mut CreatureCooldownObservation,
+}
+impl CreatureCooldownOwner for CooldownBinding<'_> {
+    fn caster_kind(&self) -> Result<SourceObjectKind> {
+        Ok(self.objects.get(self.object)?.kind)
+    }
+    fn spell_cooldown(&mut self, spell: u32) -> Result<CreatureCooldownMatch> {
+        self.observation.searches += 1;
+        let result = creature_spell_cooldown(self.list, spell, self.random)?;
+        self.observation.result = Some(result);
+        Ok(result)
+    }
+    fn creature_cooldown(&mut self, spell: u32) -> Result<Option<u32>> {
+        let definitions = self
+            .definitions
+            .ok_or_else(|| refuse("execution.creature.ObjectMgr_GetCreatureCooldown_owner"))?;
+        let result = match definitions.0.cooldown_range(self.entry, spell)? {
+            Some([min, max]) => Some(self.random.creature_urand(min, max)?),
+            None => None,
+        };
+        self.observation.fallback = Some(result);
+        Ok(result)
+    }
+    fn spell_mod_owner(&self) -> Result<Option<ObjectHandle>> {
+        world_object_spell_mod_owner(self.objects, self.object, self.totem)
+    }
+    fn clock(&self) -> Result<i64> {
+        self.objects
+            .get(self.object)?
+            .map
+            .ok_or_else(|| refuse("execution.spells.Creature_3138.map_clock_owner"))?;
+        Ok(self.clock.current_ms())
+    }
+    fn category_flags(&self, category: u32) -> Result<Option<u32>> {
+        Ok(self
+            .stores
+            .dbc("SpellCategory.dbc", category)?
+            .map(|row| row.words[&1]))
+    }
+    fn is_player(&self, unit: ObjectHandle) -> Result<bool> {
+        Ok(self.objects.get(unit)?.kind == SourceObjectKind::Player)
+    }
+}
+
+impl Owner<'_> {
+    fn send_spell_cooldown(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<()> {
+        self.cooldowns.send_spell_cooldown(
+            t,
+            spell.flags.channel_only(),
+            &mut CooldownBinding {
+                object: self.object,
+                objects: self.objects,
+                entry: *self.entry,
+                list: self.creature_spell_list,
+                definitions: self.creature_spells,
+                stores: self.stores,
+                random: self.random,
+                clock: self.world_clock,
+                totem: self.unit.totem,
+                observation: &mut spell.creature_cooldown,
+            },
+        )
+    }
 }

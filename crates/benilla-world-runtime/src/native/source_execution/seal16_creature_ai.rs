@@ -42,7 +42,7 @@ impl UnitAiExecutionOwner for LiveOwner<'_, '_, '_, '_> {
         spell: u32,
         ai: &mut SourceUnitAi,
         spells: &mut std::collections::BTreeSet<u32>,
-        units: &mut SourceUnits,
+        units: &SourceUnits,
         objects: &SourceObjects,
     ) -> Result<()> {
         ai.add_main_spell(
@@ -119,11 +119,7 @@ pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
         threats: &mut prefix.threats,
         owner: &mut live_owner,
     };
-    execution.spell_list_changed(
-        event,
-        fields.spell_list_disabled,
-        fields.spell_list.as_ref(),
-    )?;
+    execution.spell_list_changed(event)?;
     prefix.lookups.push("creature_ai_spell_list_changed");
     event.just_respawned(
         context.objects,

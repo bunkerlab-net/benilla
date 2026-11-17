@@ -62,18 +62,8 @@ impl Owner<'_> {
         // updateTradeSlotItem has no item target, Spell.h:158-165.
         s.duration = self.duration(t)?;
         self.fill_self_targets(s, t)?;
-        // Spell.cpp:3510-3516; Object.cpp:2632-2635 skips zero-duration writes.
-        self.cooldowns.send_spell_cooldown(
-            t,
-            s.flags.channel_only(),
-            || Ok(self.world_clock.current_ms()),
-            |category| {
-                Ok(self
-                    .stores
-                    .dbc("SpellCategory.dbc", category)?
-                    .map(|row| row.words[&1]))
-            },
-        )?;
+        // Spell.cpp:3516 dispatches Creature.cpp:3109 or the WorldObject/Player override.
+        self.send_spell_cooldown(s, t)?;
         require(
             !self.unit.has_ai,
             "execution.spells.Spell_3275.OnSpellCooldownAdded_owner",

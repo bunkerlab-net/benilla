@@ -2476,7 +2476,17 @@ pub(super) fn continue_startup(
             assert_eq!((t.effectimplicittargeta1, t.effectimplicittargetb1), (1, 0));
             assert_eq!(live.auras.aura_holders[&10848].caster, candidate);
             assert!(live.cooldowns.is_empty());
+            assert_eq!(live.spell_starts.spells[&1].creature_cooldown.searches, 0);
+            let addon_cooldown = &live.spell_starts.spells[&2].creature_cooldown;
+            assert_eq!(addon_cooldown.searches, 1);
+            assert_eq!(addon_cooldown.result, Some(CreatureCooldownMatch::Missing));
+            assert_eq!(addon_cooldown.fallback, Some(None));
             assert_eq!(live.shapeshift_form, 0);
+            assert_eq!(
+                active_objects.get(candidate).unwrap().kind,
+                SourceObjectKind::Creature
+            );
+            assert!(!live.totem);
             assert_eq!(live.auras.aura_holders.first_key_value().unwrap().0, &9036);
             assert_eq!(live.auras.aura_holders[&9036].caster, candidate);
             assert_eq!(ai_spell.power_lookups, [1, 1]);
@@ -2757,8 +2767,9 @@ pub(super) fn continue_startup(
             assert_eq!(live.spline_outbound.len(), 1);
             assert_eq!(live.spline_outbound[0].unit, candidate);
             assert_eq!(live.spline_outbound[0].transport, None);
-            // Recording60409547 belongs to GUID27002, so AddMainSpell consumes no word.
-            assert_eq!(random.cursor().raw, 12623);
+            // Recording60433815 consumes equal-bound word12623 at Creature.cpp:1563.
+            assert_eq!(random.cursor().raw, 12624);
+            assert_eq!(evidence.words[12623], (60433815, 12623, 1799183854));
             relations_evidence::assert_words(&evidence.words);
             assert_eq!(
                 &evidence.words[12405..12422],
@@ -2846,6 +2857,23 @@ pub(super) fn continue_startup(
             assert!(stopped.has_ai && active_objects.get(assisted).unwrap().in_world);
             assert!(completed_objects.contains(&assisted));
             assert_eq!(spell.state, SourceSpellState::Finished);
+            // Recording60433318 completes the later GO32518 while this unit retains its SpellEvent.
+            let later = *completed_objects.last().unwrap();
+            assert_eq!(active_objects.get(later).unwrap().database_guid, 32518);
+            assert!(
+                completed_objects
+                    .iter()
+                    .position(|&object| object == assisted)
+                    .unwrap()
+                    < completed_objects.len() - 1
+            );
+            assert!(stopped
+                .unit_events
+                .inventory()
+                .queued
+                .iter()
+                .any(|event| event.event_id == spell.event.unwrap()
+                    && event.kind == SourceUnitEvent::Spell { spell: spell.id }));
             let aura = &stopped.auras.aura_holders[&18148];
             assert!(aura.ready && aura.permanent);
             let effect = aura.effects[0].as_ref().unwrap();
@@ -2854,7 +2882,7 @@ pub(super) fn continue_startup(
                 (effect.kind, effect.periodic_time, effect.periodic_timer),
                 (23, 3000, 3000)
             );
-            // Catalog addon4636/ordinal3682 and spell7165/ordinal5721 reach Object.cpp:2635.
+            // Catalog spell7165/ordinal5721 and legacy list463600/ordinal987 precede trace60433815.
             let current = units.get(&active_objects, stopped_candidate).unwrap();
             let cast = &current.spell_starts.spells[&1];
             let battle = addon_spells.template(7165).unwrap();
@@ -2871,6 +2899,38 @@ pub(super) fn continue_startup(
             assert_eq!(cast.state, SourceSpellState::Casting);
             assert!(!current.has_ai && !active_objects.get(stopped_candidate).unwrap().in_world);
             assert!(!completed_objects.contains(&stopped_candidate));
+            assert_eq!(
+                active_objects.get(stopped_candidate).unwrap().kind,
+                SourceObjectKind::Creature
+            );
+            assert!(!current.totem);
+            let list = current.spell_list.as_ref().unwrap();
+            assert_eq!(
+                (
+                    list.spells[&0].spell_id,
+                    list.spells[&0].repeat,
+                    list.spells[&0].flags
+                ),
+                (7165, [0, 0], 0)
+            );
+            assert_eq!(cast.creature_cooldown.searches, 1);
+            assert_eq!(
+                cast.creature_cooldown.result,
+                Some(CreatureCooldownMatch::Spell(0))
+            );
+            assert_eq!(cast.creature_cooldown.fallback, None);
+            let cooldown = &current.cooldowns.spells[&7165];
+            assert_eq!(
+                (
+                    cooldown.spell_expiry,
+                    cooldown.category_expiry,
+                    cooldown.permanent
+                ),
+                (0, 180000, false)
+            );
+            assert_eq!(current.cooldowns.categories[&47], 7165);
+            assert!(current.auras.aura_holders.is_empty());
+            println!("F6_CREATURE_COOLDOWN map=1 guid=27036 spell=7165 repeat=[0,0] flags=0 raw_line=60433815 raw_index=12623 raw_value=1799183854 result=0 category_expiry=180000 next_source=Creature.cpp:3142");
             // Recording60365908 returns no group; MotionMaster.cpp:87-94
             // retains path zero/PATH_NO_PATH and enters InitializeWaypointPath.
             assert!(groups
@@ -3055,8 +3115,8 @@ pub(super) fn continue_startup(
             assert_eq!(event_ai.phase, 0);
             assert_eq!(event_ai.depth, 0);
             assert_eq!(event_ai.clock.remaining, 500);
-            assert_eq!(fields.spell_list_disabled, None);
-            assert!(fields.spell_list.is_none());
+            assert_eq!(live.spell_list_disabled, None);
+            assert!(live.spell_list.is_none());
             assert_eq!(
                 (
                     base.main_spell_id,
@@ -3083,8 +3143,8 @@ pub(super) fn continue_startup(
             "F6_AI_CONSTRUCTED map={slot} main_spell={} holders={} spell_list_disabled={:?} spells={:?} in_combat={}",
             base.main_spell_id,
             event_ai.holders.len(),
-            fields.spell_list_disabled,
-            fields
+            live.spell_list_disabled,
+            live
                 .spell_list
                 .as_ref()
                 .map(|list| list.spells.len()),
@@ -3651,8 +3711,8 @@ pub(super) fn continue_startup(
             assert_eq!(template.words[89], 0);
             assert_eq!(fields.requested_spell_list, 469200);
             assert_ne!(fields.requested_spell_list, 0);
-            assert_eq!(fields.spell_list_disabled, Some(true));
-            let live_list = fields.spell_list.as_ref().unwrap();
+            assert_eq!(live.spell_list_disabled, Some(true));
+            let live_list = live.spell_list.as_ref().unwrap();
             assert_eq!(Some(live_list), creature_spell_lists.get(469200));
             assert!(live_list.disabled);
             assert_eq!(live_list.spells.len(), 1);
@@ -3768,8 +3828,8 @@ pub(super) fn continue_startup(
         assert!(!continents.maps[slot].spawn_updated);
         assert_eq!(
             random.cursor().raw,
-            // Recording60433815 is word12623, after map1's pool cursor11895.
-            after_pools_cursor + if slot == 0 { 520 } else { 728 }
+            // Recording60433815 adds the equal-bound GetSpellCooldown word after pool cursor11895.
+            after_pools_cursor + if slot == 0 { 520 } else { 729 }
         );
         matched_map_words[slot] = random.cursor().raw;
         assert_eq!(after_pools_cursor as usize, evidence.pool_raw_end.unwrap());

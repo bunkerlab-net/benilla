@@ -49,7 +49,6 @@ pub(in crate::native::source_execution) struct EntryFields {
     pub pvp: bool,
     pub requested_spell_list: u32,
     pub spell_list_disabled: Option<bool>,
-    pub spell_list: Option<CreatureSpellList>,
     pub immunities: CreatureImmunityState,
     pub chain_immune: bool,
     pub settings: SourceCreatureSettings,
@@ -155,7 +154,6 @@ fn model_fields(template: &LoadedCreatureInfo, model: [u32; 8]) -> EntryFields {
         pvp: false,
         requested_spell_list: 0,
         spell_list_disabled: None,
-        spell_list: None,
         immunities: CreatureImmunityState::default(),
         chain_immune: false,
         settings: SourceCreatureSettings::default(),
@@ -369,6 +367,7 @@ pub(super) fn continue_entry(
     fields.requested_spell_list = key;
     if key == 0 {
         fields.spell_list_disabled = Some(true);
+        prefix.units.get_mut(objects, object)?.spell_list_disabled = Some(true);
         prefix.lookups.push("creature_spell_list_disabled_zero");
     } else {
         let map = prefix
@@ -379,8 +378,10 @@ pub(super) fn continue_entry(
             let mut live = list.clone();
             // The source copy is private to this creature; Availability draws use its map stream.
             live.filter_availability(prefix.random)?;
-            fields.spell_list_disabled = Some(live.disabled);
-            fields.spell_list = Some(live);
+            let unit = prefix.units.get_mut(objects, object)?;
+            unit.spell_list_disabled = Some(live.disabled);
+            fields.spell_list_disabled = unit.spell_list_disabled;
+            unit.spell_list = Some(live);
             prefix.lookups.push("creature_spell_list_copy_availability");
         }
     }

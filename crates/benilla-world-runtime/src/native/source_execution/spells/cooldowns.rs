@@ -134,7 +134,7 @@ impl SourceSpellCooldowns {
         }
         Ok(())
     }
-    pub fn send_spell_cooldown(
+    pub fn send_world_spell_cooldown(
         &mut self,
         t: &SpellTemplate,
         channel_only: bool,

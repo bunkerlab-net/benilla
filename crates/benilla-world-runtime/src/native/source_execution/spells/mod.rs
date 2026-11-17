@@ -10,6 +10,8 @@ mod caster_auras;
 mod checks;
 mod cooldowns;
 pub use cooldowns::*;
+mod creature_cooldowns;
+pub use creature_cooldowns::*;
 mod items;
 mod location;
 mod positivity;

@@ -402,7 +402,10 @@ impl SpellExecutionOwner for Owner<'_> {
         self.power_owner().power_multiplier(caster, school)
     }
     fn cast_time(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<i32> {
-        self.range_mod_owner(spell.caster)?;
+        require(
+            self.range_mod_owner(spell.caster)?.is_none(),
+            "execution.spells.Spell_3033.SpellModRAII_owner",
+        )?;
         let caster = spell.caster;
         let time = fresh_cast_time(
             |index| self.stores.dbc("SpellCastTimes.dbc", index),
@@ -522,12 +525,7 @@ impl SpellExecutionOwner for Owner<'_> {
     }
     fn range_mod_owner(&mut self, unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
         self.require_unit(unit)?;
-        require(
-            self.objects.get(unit)?.kind == SourceObjectKind::Creature,
-            "execution.spells.Unit_GetSpellModOwner_range_owner",
-        )?;
-        // Object.h:1156 returns null for a generic Creature.
-        Ok(None)
+        world_object_spell_mod_owner(self.objects, unit, self.live()?.totem)
     }
     fn combat_reach(&mut self, unit: ObjectHandle) -> Result<f32> {
         self.require_unit(unit)?;

@@ -313,3 +313,22 @@ fn unit_heartbeat_reaches_proc_owner_only_when_live_counter_is_nonzero() {
         "execution.unit_heartbeat.f5_14_proc_owner"
     );
 }
+
+#[test]
+fn queued_spell_execution_refuses_without_its_live_owner() {
+    let mut queue = SourceUnitEvents::default();
+    let event = queue.add_spell(41).unwrap();
+    let before = queue.inventory();
+    assert_eq!(before.queued[0].event_id, event);
+    assert_eq!(before.queued[0].kind, SourceUnitEvent::Spell { spell: 41 });
+    let mut owner = Events::default();
+    assert_eq!(
+        queue.update(1, &mut owner).unwrap_err().id,
+        "execution.spells.live_SpellEvent_owner"
+    );
+    assert!(owner.calls.is_empty());
+    assert_eq!(
+        queue.update(1, &mut owner).unwrap_err().id,
+        "execution.unit_events.stopped"
+    );
+}

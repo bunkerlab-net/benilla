@@ -586,12 +586,7 @@ impl<O: UnitAiExecutionOwner + CreatureRandom> EventAiExecutionOwner for SourceA
 
 impl<O: UnitAiExecutionOwner + CreatureRandom> SourceAiExecution<'_, O> {
     /// UnitAI.cpp:1155-1179 resets main spells before scanning the live spell list.
-    pub fn spell_list_changed(
-        &mut self,
-        state: &mut SourceEventAi,
-        disabled: Option<bool>,
-        spells: Option<&CreatureSpellList>,
-    ) -> Result<()> {
+    pub fn spell_list_changed(&mut self, state: &mut SourceEventAi) -> Result<()> {
         let unit = state.selected.object();
         let ai = &mut self.ais.get_mut(self.queries.objects, unit)?.base;
         ai.main_spell_id = 0;
@@ -601,6 +596,9 @@ impl<O: UnitAiExecutionOwner + CreatureRandom> SourceAiExecution<'_, O> {
         ai.main_spell_info = None;
         state.main_spell_id = 0;
         state.main_spells.clear();
+        let live = self.queries.units.get(self.queries.objects, unit)?;
+        let disabled = live.spell_list_disabled;
+        let spells = live.spell_list.as_ref();
         // Deviation: CreatureSpellList.h:84-91 leaves Disabled unwritten; the owner permits UnitAI.cpp:1165 because both branches do nothing for empty spells outside combat.
         if disabled.is_none() {
             if spells.is_none_or(|list| list.spells.is_empty())
@@ -625,7 +623,14 @@ impl<O: UnitAiExecutionOwner + CreatureRandom> SourceAiExecution<'_, O> {
                 if state.main_spell_id == 0 {
                     state.main_spell_id = spell.spell_id;
                 }
-                self.lifecycle(state, EventAiCallback::CalculateMainSpell(spell.spell_id))?;
+                self.owner.add_main_spell(
+                    unit,
+                    spell.spell_id,
+                    &mut self.ais.get_mut(self.queries.objects, unit)?.base,
+                    &mut state.main_spells,
+                    self.queries.units,
+                    self.queries.objects,
+                )?;
             }
         }
         if !spells.spells.is_empty() {
@@ -642,7 +647,9 @@ impl<O: UnitAiExecutionOwner + CreatureRandom> SourceAiExecution<'_, O> {
         {
             // UnitAI.cpp:1359-1370 draws even equal initial bounds before AddCooldown.
             for spell in spells.spells.values() {
-                let cooldown = self.creature_urand(spell.initial[0], spell.initial[1])?;
+                let cooldown = self
+                    .owner
+                    .creature_urand(spell.initial[0], spell.initial[1])?;
                 if cooldown != 0 {
                     let context = self.owner.spell_context()?;
                     require(
