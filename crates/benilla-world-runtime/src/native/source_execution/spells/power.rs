@@ -83,59 +83,94 @@ impl SourceSpell {
         if self.item_cast {
             return Ok(0);
         }
-        if t.attributesex & 2 != 0 {
-            return match t.powertype {
-                SPELL_POWER_HEALTH => owner.power_health(self.caster),
-                0..5 => owner.power_current(self.caster, t.powertype),
-                _ => Ok(0),
-            };
+        calculate_power_cost(
+            t,
+            self.caster,
+            Some(self.school_mask),
+            Some(final_use),
+            owner,
+        )
+    }
+}
+
+/// UnitAI.cpp:966 passes neither a Spell nor a cast item to Spell.cpp:6311.
+pub fn unit_power_cost(
+    t: &SpellTemplate,
+    caster: ObjectHandle,
+    owner: &mut (impl SpellExecutionOwner + ?Sized),
+) -> Result<u32> {
+    calculate_power_cost(t, caster, None, None, owner)
+}
+
+fn calculate_power_cost(
+    t: &SpellTemplate,
+    caster: ObjectHandle,
+    spell_school: Option<u32>,
+    final_use: Option<bool>,
+    owner: &mut (impl SpellExecutionOwner + ?Sized),
+) -> Result<u32> {
+    if t.attributesex & 2 != 0 {
+        return match t.powertype {
+            SPELL_POWER_HEALTH => owner.power_health(caster),
+            0..5 => owner.power_current(caster, t.powertype),
+            _ => Ok(0),
+        };
+    }
+    // :6331 uses unsigned usual arithmetic conversions, then the pinned
+    // int32 bit conversion. These wraps are defined, not signed-overflow UB.
+    let rank = owner.power_rank(caster, t)? as i32;
+    let delta = ((rank / 5) as u32).wrapping_sub(t.baselevel);
+    let mut cost = t
+        .manacost
+        .wrapping_add(t.manacostperlevel.wrapping_mul(delta)) as i32;
+    if t.manacostpercentage != 0 {
+        let base = match t.powertype {
+            SPELL_POWER_HEALTH => owner.power_create_health(caster)?,
+            0 => owner.power_create_mana(caster)?,
+            1..5 => owner.power_maximum(caster, t.powertype)?,
+            _ => return Ok(0),
+        };
+        cost = (cost as u32).wrapping_add(t.manacostpercentage.wrapping_mul(base) / 100) as i32;
+    }
+    // SharedDefines.h:238-244 also returns physical for an empty/high-only mask.
+    let school_mask = match spell_school {
+        Some(mask) => mask,
+        None => {
+            require(
+                t.school < 32,
+                "execution.spells.CalculatePowerCost_school_shift_undefined",
+            )?;
+            1u32 << t.school
         }
-        // :6331 uses unsigned usual arithmetic conversions, then the pinned
-        // int32 bit conversion. These wraps are defined, not signed-overflow UB.
-        let rank = owner.power_rank(self.caster, t)? as i32;
-        let delta = ((rank / 5) as u32).wrapping_sub(t.baselevel);
-        let mut cost = t
-            .manacost
-            .wrapping_add(t.manacostperlevel.wrapping_mul(delta)) as i32;
-        if t.manacostpercentage != 0 {
-            let base = match t.powertype {
-                SPELL_POWER_HEALTH => owner.power_create_health(self.caster)?,
-                0 => owner.power_create_mana(self.caster)?,
-                1..5 => owner.power_maximum(self.caster, t.powertype)?,
-                _ => return Ok(0),
-            };
-            cost = (cost as u32).wrapping_add(t.manacostpercentage.wrapping_mul(base) / 100) as i32;
-        }
-        // SharedDefines.h:238-244 also returns physical for an empty/high-only mask.
-        let school = (0..7)
-            .find(|i| self.school_mask & (1 << i) != 0)
-            .unwrap_or(0);
-        let flat = owner.power_flat_modifier(self.caster, school)?;
-        cost = cost
-            .checked_add(flat)
-            .ok_or_else(|| refuse("execution.spells.CalculatePowerCost_flat_add_undefined"))?;
-        if let Some(player) = owner.power_mod_owner(self.caster)? {
+    };
+    let school = (0..7).find(|i| school_mask & (1 << i) != 0).unwrap_or(0);
+    let flat = owner.power_flat_modifier(caster, school)?;
+    cost = cost
+        .checked_add(flat)
+        .ok_or_else(|| refuse("execution.spells.CalculatePowerCost_flat_add_undefined"))?;
+    if let Some(final_use) = final_use {
+        if let Some(player) = owner.power_mod_owner(caster)? {
             cost = owner.apply_cost_mod(player, t.id, cost, final_use)?;
         }
-        if t.attributes & 0x0008_0000 != 0 {
-            let level = owner.power_level(self.caster)?;
-            // :6364, binary32 after each operation. No host libm or FMA rewrite.
-            let denominator =
-                ((single(1.117f32.to_bits()) * integer(t.spelllevel)).value / integer(level)).value;
-            let denominator = (denominator - single(0.1327f32.to_bits())).value;
-            cost = power_signed(
-                (signed_integer(cost) / denominator).value,
-                "execution.spells.CalculatePowerCost_scaling_conversion_undefined",
-            )?;
-        }
-        let multiplier = owner.power_multiplier(self.caster, school)?;
-        let multiplier = (single(1f32.to_bits()) + single(multiplier)).value;
-        cost = power_signed(
-            (signed_integer(cost) * multiplier).value,
-            "execution.spells.CalculatePowerCost_multiplier_conversion_undefined",
-        )?;
-        Ok(cost.max(0) as u32)
     }
+    if t.attributes & 0x0008_0000 != 0 {
+        let level = owner.power_level(caster)?;
+        // :6364, binary32 after each operation. No host libm or FMA rewrite.
+        let denominator =
+            ((single(1.117f32.to_bits()) * integer(t.spelllevel)).value / integer(level)).value;
+        let denominator = (denominator - single(0.1327f32.to_bits())).value;
+        cost = power_signed(
+            (signed_integer(cost) / denominator).value,
+            "execution.spells.CalculatePowerCost_scaling_conversion_undefined",
+        )?;
+    }
+    let multiplier = owner.power_multiplier(caster, school)?;
+    let multiplier = (single(1f32.to_bits()) + single(multiplier)).value;
+    cost = power_signed(
+        (signed_integer(cost) * multiplier).value,
+        "execution.spells.CalculatePowerCost_multiplier_conversion_undefined",
+    )?;
+    Ok(cost.max(0) as u32)
 }
 fn single(bits: u32) -> Single {
     Single::from_bits(u128::from(bits))

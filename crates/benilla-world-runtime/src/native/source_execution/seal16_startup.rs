@@ -2572,8 +2572,8 @@ pub(super) fn continue_startup(
                 .is_empty());
             assert_eq!(
                 (attempt.guid, attempt.kind, entry),
-                // Recording60401150/60401173 names the next candidate.
-                (27010, GridSpawnKind::Creature, 4633)
+                // Recording60411840/60411876 names the next candidate.
+                (27677, GridSpawnKind::Creature, 11577)
             );
             // Catalog equipment11596/item3368 and pre-start-classicmangos.sql:165687,595844 specify the completed creature's fields.
             let equipment = &equipment_writes[&27923];
@@ -2614,10 +2614,52 @@ pub(super) fn continue_startup(
                 .unwrap()
                 .database_guid
                 == 32019));
-            let current = creature_entry.as_ref().unwrap();
-            assert_eq!(current.motion_state.unwrap() & WANDER_ACTIVE, WANDER_ACTIVE);
+            let main = active_objects
+                .lookup_database(
+                    continents.maps[slot].identity,
+                    DatabaseLookupKind::Creature,
+                    27010,
+                )
+                .unwrap();
+            // Recording60409483 completes the first main-spell creature.
+            assert!(completed_objects.contains(&main));
+            let main_live = units.get(&active_objects, main).unwrap();
+            assert_eq!(main_live.state & WANDER_ACTIVE, WANDER_ACTIVE);
+            assert!(main_live.has_ai && active_objects.get(main).unwrap().in_world);
+            let main_ai = &ais.get(&active_objects, main).unwrap().base;
+            // Catalog event463303/action1 and spell6660; UnitAI.cpp:966-969.
+            assert_eq!(
+                (
+                    main_ai.main_spell_id,
+                    main_ai.main_spell_info,
+                    main_ai.main_spell_cost,
+                    main_ai.main_attack_mask
+                ),
+                (6660, Some(6660), 0, 1)
+            );
+            assert_eq!(main_ai.main_spell_min_range, 5.);
+            assert_eq!(event_ais[&main].main_spells, BTreeSet::from([6660]));
+            assert_eq!(
+                event_ais[&main]
+                    .holders
+                    .iter()
+                    .map(|h| h.event.id)
+                    .collect::<Vec<_>>(),
+                [463301, 463302, 463303]
+            );
+            for guid in [27002, 29037] {
+                let completed = active_objects
+                    .lookup_database(
+                        continents.maps[slot].identity,
+                        DatabaseLookupKind::Creature,
+                        guid,
+                    )
+                    .unwrap();
+                assert!(completed_objects.contains(&completed));
+            }
             // Recording60368723 completes GUID28842 after Creature.cpp:882-895.
             assert!(completed_objects.contains(&waypoint));
+            let stopped_candidate = candidate;
             let candidate = waypoint;
             let live = units.get(&active_objects, candidate).unwrap();
             assert_eq!(live.state & WANDER_ACTIVE, WANDER_ACTIVE);
@@ -2643,7 +2685,7 @@ pub(super) fn continue_startup(
                 .spell_slots
                 .is_non_melee_spell_casted(&(), &addon_spells, false, false, true, true, false,)
                 .unwrap());
-            // Unit.cpp:11216 broadcast now returns; UnitAI.cpp:965 is next unported.
+            // Unit.cpp:11216 broadcast returns before the completed AI construction.
             // Recording60367004/60368544 proves both BuildIntPath calls before launch.
             assert_eq!(live.state & WANDER_MOVING, WANDER_MOVING);
             // The trace records no spline id here. MoveSplineInit.cpp:27,102
@@ -2657,10 +2699,31 @@ pub(super) fn continue_startup(
             assert_eq!(live.spline_outbound.len(), 1);
             assert_eq!(live.spline_outbound[0].unit, candidate);
             assert_eq!(live.spline_outbound[0].transport, None);
-            // Recording60409547 is the next unconsumed word at AddMainSpell.
-            // The complete raw trace below also checks AI's first word12112.
-            assert_eq!(random.cursor().raw, 12405);
-            assert_eq!(evidence.words[12405], (60409547, 12405, 3486520897));
+            // Recording60409547 belongs to GUID27002, so AddMainSpell consumes no word.
+            assert_eq!(random.cursor().raw, 12422);
+            assert_eq!(
+                &evidence.words[12405..12422],
+                &[
+                    (60409547, 12405, 3486520897),
+                    (60409576, 12406, 2907014274),
+                    (60409736, 12407, 4168607143),
+                    (60410464, 12408, 2255168339),
+                    (60410484, 12409, 3791256556),
+                    (60410537, 12410, 619082535),
+                    (60410557, 12411, 2227364332),
+                    (60410716, 12412, 3477793363),
+                    (60410747, 12413, 3624887212),
+                    (60410925, 12414, 784206880),
+                    (60411662, 12415, 3680951735),
+                    (60411683, 12416, 756768607),
+                    (60411734, 12417, 2693836351),
+                    (60411754, 12418, 3006033073),
+                    (60411788, 12419, 3799458557),
+                    (60411913, 12420, 1123756501),
+                    (60411944, 12421, 392296967),
+                ]
+            );
+            assert_eq!(evidence.words[12422], (60412568, 12422, 3973391667));
             assert_eq!(evidence.words[12112], (60368585, 12112, 257701202));
             assert_eq!(
                 lookups
@@ -2669,12 +2732,54 @@ pub(super) fn continue_startup(
                     .count(),
                 1
             );
-            assert!(lookups.ends_with(&[
+            // Recording60409483 completes object73 after Creature.cpp:886-895.
+            assert_eq!(completed_objects[72], main);
+            let main_calls = lookups
+                .split_inclusive(|lookup| *lookup == "grid_battleground_null")
+                .nth(72)
+                .unwrap();
+            assert!(main_calls.ends_with(&[
                 "creature_base_ai_constructed",
                 "creature_event_ai_constructed",
                 "creature_ai_spell_list_changed",
+                "creature_ai_just_respawned",
+                "creature_instance_respawn_callback",
+                "creature_creator_loot_checked",
+                "creature_aim_initialize_return",
+                "creature_spawn_relay_checked",
+                "creature_respawn_group_checked",
+                "creature_load_from_db_return",
+                "grid_viewpoint_added",
+                "grid_battleground_null",
             ]));
-            // Recording60365908 returns no group for GUID28842. MotionMaster.cpp:87-94
+            assert!(lookups.ends_with(&[
+                "creature_load_addon",
+                "creature_db_addon_lookup",
+                "creature_template_addon_lookup",
+            ]));
+            // Catalog creature_template_addon11577/ordinal5522; Spell.cpp:5086.
+            let stopped = units.get(&active_objects, stopped_candidate).unwrap();
+            let spell = &stopped.spell_starts.spells[&1];
+            assert_eq!(
+                (spell.spell, spell.caster, spell.targets.unit),
+                (18148, stopped_candidate, Some(stopped_candidate))
+            );
+            let t = addon_spells.template(18148).unwrap();
+            assert_eq!(t.effectimplicittargeta1, 21);
+            let filter = SPELL_TARGET_INFO_TABLE[21];
+            assert_eq!(
+                (filter.target_type, filter.filter, filter.enumerator),
+                (
+                    SpellTargetImplicitType::Unit,
+                    SpellTargetFilter::Helpful,
+                    SpellTargetEnumerator::Single
+                )
+            );
+            assert_eq!(spell.original_caster, stopped_candidate);
+            assert_eq!(stopped.flags & (0x0200_0000 | 8), 0);
+            assert!(!stopped.has_ai && !active_objects.get(stopped_candidate).unwrap().in_world);
+            assert!(!completed_objects.contains(&stopped_candidate));
+            // Recording60365908 returns no group; MotionMaster.cpp:87-94
             // retains path zero/PATH_NO_PATH and enters InitializeWaypointPath.
             assert!(groups
                 .creature_group(continents.maps[slot].identity, 28842)
@@ -3071,6 +3176,8 @@ pub(super) fn continue_startup(
                     28111, 28021, 28834, 28224, 28120, 6211, 28116, 29043, 27990, 27999, 28847,
                     28827, 27982, 28093, 28219, 28245, 28057, 28062, 29192, 27000, 28844, 28078,
                     28900, 29036, 28883, 27001, 28107, 28110,
+                    // Recording60409483,60410616,60411828 completes these three creatures.
+                    27010, 27002, 29037,
                 ]
             );
         }
@@ -3261,7 +3368,7 @@ pub(super) fn continue_startup(
             ))
         );
         assert_eq!(attempt.guid, if slot == 0 { 18 } else { 28044 });
-        assert_eq!(candidates, if slot == 0 { 89 } else { 73 });
+        assert_eq!(candidates, if slot == 0 { 89 } else { 76 });
         assert_eq!(entry, if slot == 0 { 3211 } else { 4692 });
         if slot == 0 {
             assert_eq!(init_entry_fields, None);
@@ -3542,8 +3649,8 @@ pub(super) fn continue_startup(
                 attempt.cell.y(),
             ))
         );
-        // Recording60401103 completes map1's 72nd object before candidate27010.
-        assert_eq!(completed, if slot == 0 { 87 } else { 72 });
+        // Recording60411828 completes map1's 75th object before candidate27677.
+        assert_eq!(completed, if slot == 0 { 87 } else { 75 });
         println!(
             "F6_VISIBILITY map={slot} census={visibility:?} invalidated_camera_iterator_stock_reach={}",
             visibility.cameras
@@ -3565,8 +3672,8 @@ pub(super) fn continue_startup(
         assert!(!continents.maps[slot].spawn_updated);
         assert_eq!(
             random.cursor().raw,
-            // Recording60409547 is word12405, after map1's pool cursor11895.
-            after_pools_cursor + if slot == 0 { 520 } else { 510 }
+            // Recording60412568 is word12422, after map1's pool cursor11895.
+            after_pools_cursor + if slot == 0 { 520 } else { 527 }
         );
         matched_map_words[slot] = random.cursor().raw;
         assert_eq!(after_pools_cursor as usize, evidence.pool_raw_end.unwrap());

@@ -40,7 +40,7 @@ mod geometry_tests;
 #[cfg(test)]
 mod items_tests;
 #[cfg(test)]
-mod power_tests;
+pub(super) mod power_tests;
 #[cfg(test)]
 mod range_tests;
 #[cfg(test)]

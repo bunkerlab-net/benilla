@@ -23,6 +23,16 @@ pub struct SourceUnitVitals {
     pub energy: u32,
     pub max_energy: u32,
 }
+/// Creature.cpp:1426-1475 retains create resources and the other power fields.
+#[derive(Clone, Debug, Serialize)]
+pub struct SourceUnitPowerFields {
+    pub level: u32,
+    pub create_health: u32,
+    pub create_mana: u32,
+    pub auxiliary_current: Option<[u32; 3]>,
+    pub auxiliary_maximum: Option<[u32; 3]>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct SourceUnitFields {
     pub entry: u32,
@@ -43,6 +53,14 @@ pub struct SourceUnitFields {
     pub flags: u32,
     pub state: u32,
     pub vitals: Option<SourceUnitVitals>,
+    /// Creature.cpp:1426-1475; live SelectLevel fields have no restore owner.
+    #[serde(skip)]
+    pub power_fields: Option<SourceUnitPowerFields>,
+    /// Object.cpp:105-108 initializes the school-indexed update fields to zero.
+    #[serde(skip)]
+    pub power_cost_modifier: [i32; 7],
+    #[serde(skip)]
+    pub power_cost_multiplier: [u32; 7],
     #[serde(skip)]
     pub movement: Option<SourceCreatureMovement>,
     /// Unit.h:2606; Unit.cpp:350 nulls all current-spell slots at construction.
@@ -188,6 +206,9 @@ impl SourceUnitFields {
                     0
                 },
             state: 0,
+            power_fields: None,
+            power_cost_modifier: [0; 7],
+            power_cost_multiplier: [0; 7],
             vitals: None,
             movement: None,
             spell_slots: SourceSpellSlots::default(),
@@ -259,6 +280,13 @@ impl SourceUnitFields {
     }
     /// The existing bounded kernel already includes UpdateMaxHealth/UpdateEntry.
     pub fn apply_initialized(&mut self, value: &benilla_sim::creature_init::InitializedCreature) {
+        self.power_fields = Some(SourceUnitPowerFields {
+            level: u32::from(value.level),
+            create_health: value.stats.create_health,
+            create_mana: value.stats.create_mana,
+            auxiliary_current: None,
+            auxiliary_maximum: None,
+        });
         self.vitals = Some(SourceUnitVitals {
             health: value.stats.resources.health,
             max_health: value.stats.resources.max_health,
@@ -422,6 +450,7 @@ impl SourceUnits {
         Ok(
             serde_json::json!({"version":1,"units":self.fields.iter().collect::<Vec<_>>(),
             "splines":self.fields.iter().map(|(unit,fields)| (unit,&fields.movespline)).collect::<Vec<_>>(),
+            "spell_power":self.fields.iter().map(|(unit,fields)| (unit,&fields.power_fields,fields.power_cost_modifier,fields.power_cost_multiplier)).collect::<Vec<_>>(),
             "spline_updates":self.fields.iter().map(|(unit,fields)| (unit,fields.spline_position_expiry,fields.spline_debug_path,fields.spline_last_move_ms,&fields.spline_outbound)).collect::<Vec<_>>(),
             "restore":"execution.unit.f7_restore_owner"}),
         )
@@ -567,6 +596,22 @@ pub trait UnitAiExecutionOwner {
     {
         run(&mut self.spell_context()?)
     }
+    fn add_main_spell(
+        &mut self,
+        _unit: ObjectHandle,
+        spell: u32,
+        ai: &mut SourceUnitAi,
+        spells: &mut std::collections::BTreeSet<u32>,
+        _units: &mut SourceUnits,
+        _objects: &SourceObjects,
+    ) -> Result<()> {
+        if ai.main_spell_id == 0 {
+            ai.main_spell_id = spell;
+            return Err(EventAiCallback::CalculateMainSpell(spell).missing_owner());
+        }
+        spells.insert(spell);
+        Ok(())
+    }
     fn call(
         &mut self,
         _unit: ObjectHandle,
@@ -666,10 +711,15 @@ pub struct SourceUnitAi {
     pub ranged_setting: u32,
     pub chase_distance: f32,
     pub current_ranged_mode: bool,
+    #[serde(skip)]
     pub main_spell_id: u32,
+    #[serde(skip)]
     pub main_spell_cost: u32,
+    #[serde(skip)]
     pub main_spell_info: Option<u32>,
+    #[serde(skip)]
     pub main_spell_min_range: f32,
+    #[serde(skip)]
     pub main_attack_mask: u32,
     pub distancing_cooldown: bool,
     pub spell_list_cooldown: bool,

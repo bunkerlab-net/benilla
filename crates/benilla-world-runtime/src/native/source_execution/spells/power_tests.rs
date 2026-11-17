@@ -3,7 +3,7 @@
 use super::*;
 use SpellCastResult as R;
 
-pub(super) struct PowerFixture {
+pub(in crate::native::source_execution) struct PowerFixture {
     pub objects: SourceObjects,
     pub units: SourceUnits,
     pub caster: ObjectHandle,

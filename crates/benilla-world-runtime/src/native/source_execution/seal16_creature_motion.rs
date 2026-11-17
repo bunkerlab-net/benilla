@@ -85,6 +85,17 @@ pub(super) fn register_unit<D: GridDefinitions<Row = SpawnKey>>(
     live.static_flags = fields.settings.flags;
     live.linking_event_trigger = Some(prefix.creature_linking_trigger);
     let level = fields.level.as_ref().unwrap();
+    live.power_fields = Some(SourceUnitPowerFields {
+        level: level.level,
+        create_health: level.create_health,
+        create_mana: level.create_mana,
+        auxiliary_current: Some([level.power[1], level.power[2], level.power[4]]),
+        auxiliary_maximum: Some([
+            level.maximum_power[1],
+            level.maximum_power[2],
+            level.maximum_power[4],
+        ]),
+    });
     live.vitals = Some(SourceUnitVitals {
         health: level.health,
         max_health: level.maximum_health,

@@ -35,6 +35,7 @@ mod threat;
 pub use threat::*;
 mod combat;
 pub use combat::*;
+mod main_spell;
 mod unit_ai;
 pub use unit_ai::*;
 mod unit_events;

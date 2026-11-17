@@ -221,10 +221,17 @@ is meaningful without a bounded content/mechanics inventory.
   Waypoint reset positions read the existing transport offset or live world
   position, `WaypointMovementGenerator.cpp:132`, `Object.h:877,1129`.
   GUID28842 completes AI construction and consumes the recorded first AI word
-  at position12112, value257701202. Map 1 then reaches GUID27010/entry4633
-  with 72 completed objects and 12405 words, before `InitAI` calls
-  `AddMainSpell`, `CreatureEventAI.cpp:140`, `UnitAI.cpp:965`.
-  Passenger, spline and broadcast owners add no saved state.
+  at position12112, value257701202. Map 1 completes GUID27010/entry4633
+  through `AddMainSpell`, `CreatureEventAI.cpp:140`, `UnitAI.cpp:960-972`.
+  Event463303/action1 supplies spell6660, with cost 0, minimum range 5 and mask 1.
+  The live Unit power owner reuses `Spell.cpp:6311-6370` without a Spell
+  argument and adds no RNG, SQL or clock reads.
+  Map 1 reaches GUID27677/entry11577 with 75 completed objects and 12422 words.
+  Its addon18148 selects target21's HELPFUL/SINGLE row, `SpellTargets.cpp:54`,
+  with the caster as its target. `Spell.cpp:5086` calls `Unit::CanAssistSpell`,
+  `Relations.cpp:1131-1133`. Its `CanAssist` call has no owner,
+  `Relations.cpp:458`.
+  Passenger, spline, main-spell and broadcast owners add no saved state.
 - **Current fork:** `benilla-app/src/net/p2p.rs` relays avatar poses, jump fields
   and chat with finite/bounded-value checks. It explicitly rejects transport
   movement in the inspected bridge. This is not replicated authoritative player

@@ -601,7 +601,10 @@ It first calls the base's virtual Reset over the previous holders,
 `CreatureAI.cpp:124-128`. Respawn does not reconstruct phase or throw-mask state.
 Each spawn owns its holders, timers, targets, and staged callback lists.
 The explicit `EventAiBuild` determines debug-only filtering, not Rust build mode.
-Main-spell power-cost/range setup refuses at its missing spell-state owner.
+Main-spell setup follows `UnitAI.cpp:960-972`, including the first-only guard,
+power cost, null-safe minimum range, school-mask addition and every ID insertion.
+It reuses the F5 power formula at `Spell.cpp:6311-6370` without a Spell argument,
+so `Spell.cpp:6359-6361` skips player spell modifiers.
 Distance-spell insertion needs no spell-state calculation.
 
 The shared update clock uses strict `< diff`, accumulated uint32 debt,
@@ -1933,9 +1936,11 @@ refuses a dereference after rehash invalidates its stored iterator,
 `SpellMgr.cpp:572,576` and `SpellMgr.h:1750`.
 
 Trigger closure retains all three slots and missing IDs. This is table
-dependency coverage, not effect execution. EventAI main-spell setup still
-refuses because `UnitAI.cpp:965-968` calls `Spell::CalculatePowerCost`, which
-consumes live Unit and modifier state at `Spell.cpp:6311-6370`.
+dependency coverage, not effect execution. EventAI main-spell setup reads
+the live level, create resources and school cost fields through SourceUnits,
+`Creature.cpp:1426-1475`, `Object.cpp:105-108`, `Spell.cpp:6331-6367`.
+Missing spell lookups refuse at `Spell.cpp:6318`; missing range rows give zero,
+`SpellMgr.h:59`. These live fields and main-spell fields have no saved bytes.
 The version-one immutable inventory binds the catalog and client identities.
 Its validator checks retained chain order. These definitions are not
 serialized live Spell/Aura continuation. Native format 91, NativeCapability

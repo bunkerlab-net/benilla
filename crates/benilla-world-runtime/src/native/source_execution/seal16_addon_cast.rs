@@ -222,6 +222,9 @@ impl SpellExecutionOwner for Owner<'_> {
     ) -> Result<SpellCastResult> {
         use SpellCastResult as R;
         match check {
+            SpellCheck::TargetFilter(index) => {
+                spell.check_target_filter(t, usize::from(index), self.objects)
+            }
             SpellCheck::PositiveImmunity(mask) => {
                 // Spell.cpp:4926 evaluates IsPositiveSpell even for an empty mask.
                 let positive =

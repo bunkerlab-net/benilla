@@ -1049,3 +1049,7 @@ mod tests;
 #[cfg(test)]
 #[path = "spell_location_tests.rs"]
 mod location_tests;
+
+#[cfg(test)]
+#[path = "main_spell_tests.rs"]
+mod main_spell_tests;

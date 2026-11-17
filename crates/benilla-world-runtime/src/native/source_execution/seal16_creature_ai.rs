@@ -36,6 +36,22 @@ impl CreatureRandom for LiveOwner<'_, '_, '_, '_> {
     }
 }
 impl UnitAiExecutionOwner for LiveOwner<'_, '_, '_, '_> {
+    fn add_main_spell(
+        &mut self,
+        _unit: ObjectHandle,
+        spell: u32,
+        ai: &mut SourceUnitAi,
+        spells: &mut std::collections::BTreeSet<u32>,
+        units: &mut SourceUnits,
+        objects: &SourceObjects,
+    ) -> Result<()> {
+        ai.add_main_spell(
+            spell,
+            spells,
+            self.binding.stores,
+            &mut main_spell::UnitPowerOwner { objects, units },
+        )
+    }
     fn with_unit_spell_context<T>(
         &mut self,
         units: &mut SourceUnits,

@@ -228,6 +228,65 @@ impl SourceSpell {
         }
         self.check_cast_location_suffix(t, strict, c.player, owner)
     }
+    /// Spell.cpp:5075-5088 selects the relation call after GetCastingObject.
+    pub fn check_target_filter(
+        &self,
+        t: &SpellTemplate,
+        index: usize,
+        objects: &SourceObjects,
+    ) -> Result<R> {
+        let ty = t.effects()[index].target_a;
+        let data = SPELL_TARGET_INFO_TABLE
+            .get(ty as usize)
+            .ok_or_else(|| refuse("execution.spells.SpellTargetInfoTable_index_undefined"))?;
+        let caster = objects.get(self.caster)?;
+        // Spell.cpp:7389-7396 returns trueCaster unless a non-GO caster has a GO/dynamic original.
+        if caster.kind != SourceObjectKind::GameObject && self.original_caster != self.caster {
+            let original = objects.get(self.original_caster)?;
+            require(
+                !matches!(
+                    original.kind,
+                    SourceObjectKind::GameObject | SourceObjectKind::DynamicObject
+                ),
+                "execution.spells.GetCastingObject_original_world_object_owner",
+            )?;
+        }
+        if data.target_type != SpellTargetImplicitType::Unit
+            || data.filter == SpellTargetFilter::Script
+            || !matches!(
+                data.enumerator,
+                SpellTargetEnumerator::Single | SpellTargetEnumerator::Chain
+            )
+        {
+            return Ok(R::Ok);
+        }
+        let Some(target) = self.targets.unit else {
+            return Ok(R::BadTargets);
+        };
+        objects.get(target)?;
+        let unit = matches!(
+            caster.kind,
+            SourceObjectKind::Creature | SourceObjectKind::Pet | SourceObjectKind::Player
+        );
+        let id = match data.filter {
+            SpellTargetFilter::Harmful if unit => {
+                "execution.relations.Unit_CanAttackSpell_1065_owner"
+            }
+            SpellTargetFilter::Harmful => "execution.relations.WorldObject_CanAttackSpell_owner",
+            SpellTargetFilter::Helpful if unit => {
+                "execution.relations.Unit_CanAssistSpell_1133_CanAssist_owner"
+            }
+            SpellTargetFilter::Helpful => "execution.relations.WorldObject_CanAssistSpell_owner",
+            SpellTargetFilter::Party | SpellTargetFilter::Group if unit => {
+                "execution.relations.Unit_CanAssistSpell_1133_CanAssist_owner"
+            }
+            SpellTargetFilter::Party | SpellTargetFilter::Group => {
+                "execution.relations.WorldObject_CanAssistSpell_owner"
+            }
+            _ => return Ok(R::Ok),
+        };
+        Err(refuse(id))
+    }
     // Shared by CheckCast and the definition-only post-location census.
     pub(super) fn check_cast_location_suffix(
         &mut self,

@@ -280,7 +280,9 @@ impl SourceCreatureAis {
             self.get(objects, *unit)?;
         }
         Ok(
-            serde_json::json!({"version":1,"instances":self.instances.iter().collect::<Vec<_>>(),"restore":"execution.unit_ai.f7_restore_owner"}),
+            serde_json::json!({"version":1,"instances":self.instances.iter().collect::<Vec<_>>(),
+            "main_spells":self.instances.iter().map(|(unit,ai)| (unit,ai.base.main_spell_id,ai.base.main_spell_cost,ai.base.main_spell_info,ai.base.main_spell_min_range.to_bits(),ai.base.main_attack_mask)).collect::<Vec<_>>(),
+            "restore":"execution.unit_ai.f7_restore_owner"}),
         )
     }
 }
@@ -476,10 +478,14 @@ impl<O: UnitAiExecutionOwner + CreatureRandom> EventAiExecutionOwner for SourceA
                     .can_enter_combat = false
             }
             EventAiCallback::CalculateMainSpell(spell) => {
-                if ai.base.main_spell_id == 0 {
-                    ai.base.main_spell_id = spell;
-                }
-                return Err(call.missing_owner());
+                self.owner.add_main_spell(
+                    unit,
+                    spell,
+                    &mut ai.base,
+                    &mut state.main_spells,
+                    self.queries.units,
+                    self.queries.objects,
+                )?;
             }
             EventAiCallback::BaseEnterCombat(enemy) => {
                 ai.enter_combat(enemy, self.queries.objects, self.queries.units, self.owner)?;
@@ -618,9 +624,8 @@ impl<O: UnitAiExecutionOwner + CreatureRandom> SourceAiExecution<'_, O> {
             if spell.flags & 2 != 0 {
                 if state.main_spell_id == 0 {
                     state.main_spell_id = spell.spell_id;
-                    self.lifecycle(state, EventAiCallback::CalculateMainSpell(spell.spell_id))?;
                 }
-                state.main_spells.insert(spell.spell_id);
+                self.lifecycle(state, EventAiCallback::CalculateMainSpell(spell.spell_id))?;
             }
         }
         if !spells.spells.is_empty() {

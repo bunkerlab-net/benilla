@@ -115,10 +115,13 @@ impl CreatureRandom for Host {
     }
 }
 impl EventAiLifecycleOwner for Host {
-    fn callback(&mut self, _state: &mut SourceEventAi, call: EventAiCallback) -> Result<()> {
+    fn callback(&mut self, state: &mut SourceEventAi, call: EventAiCallback) -> Result<()> {
         self.calls.push(format!("{call:?}"));
         if matches!(call, EventAiCallback::CalculateMainSpell(_)) && !self.main {
             return Err(call.missing_owner());
+        }
+        if let EventAiCallback::CalculateMainSpell(spell) = call {
+            state.main_spells.insert(spell);
         }
         Ok(()) // Authored callback domain, not executable base AI evidence.
     }

@@ -286,12 +286,11 @@ impl SourceEventAi {
                     .params
                     .ok_or_else(|| refuse("execution.event_ai.cast_parameters"))?;
                 if p[2] & 0x100 != 0 {
-                    // UnitAI.cpp:960-971. Set the first ID before CalculatePowerCost.
+                    // UnitAI.cpp:964 writes the first ID before the dependent reads.
                     if self.main_spell_id == 0 {
                         self.main_spell_id = p[0];
-                        owner.callback(self, EventAiCallback::CalculateMainSpell(p[0]))?;
                     }
-                    self.main_spells.insert(p[0]);
+                    owner.callback(self, EventAiCallback::CalculateMainSpell(p[0]))?;
                 }
                 if p[2] & 0x400 != 0 {
                     self.distance_spells.insert(p[0]);
