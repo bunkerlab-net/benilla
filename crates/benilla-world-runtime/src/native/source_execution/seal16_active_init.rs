@@ -6,7 +6,7 @@ use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: [&str; 2] = [
     "execution.spells.f5_10_Spell_cast_owner",
-    "execution.waypoint.loaded_waypoint_manager_owner",
+    "execution.waypoint.f5_spell_movement_cast_query_owner",
 ];
 #[path = "seal16_active_clocks.rs"]
 mod clocks;
@@ -51,6 +51,7 @@ pub(super) struct Prefix<'a> {
     pub spawns: &'a SourceEffectiveSpawns,
     pub events: &'a SourceGameEventManager,
     pub groups: &'a SourceSpawnGroups,
+    pub waypoint_paths: std::rc::Rc<SourceWaypointPaths>,
     pub creature_templates: &'a LoadedCreatureTemplates,
     pub creature_addons: &'a LoadedCreatureAddons,
     pub spell_stores: &'a SourceSpellStores,
@@ -434,6 +435,7 @@ pub(super) fn load_first(
     inputs: &EffectiveSpawnInputs,
     events: &SourceGameEventManager,
     groups: &SourceSpawnGroups,
+    waypoint_paths: std::rc::Rc<SourceWaypointPaths>,
     creature_templates: &LoadedCreatureTemplates,
     creature_addons: &LoadedCreatureAddons,
     spell_stores: &SourceSpellStores,
@@ -508,6 +510,7 @@ pub(super) fn load_first(
         spawns,
         events,
         groups,
+        waypoint_paths,
         creature_templates,
         creature_addons,
         spell_stores,

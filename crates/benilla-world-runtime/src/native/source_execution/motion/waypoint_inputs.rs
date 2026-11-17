@@ -4,6 +4,9 @@ use super::super::*;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
+#[path = "waypoint_manager.rs"]
+mod manager;
+pub use manager::*;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum WaypointOrigin {
@@ -49,11 +52,14 @@ impl WaypointScriptMaps {
     /// CheckDbscript preserves the outer-script reference in both relay loops.
     /// WaypointManager.cpp:102-115,130-141 never inspect the relay step itself.
     pub fn check(&self, node: &mut SourceWaypointNode) -> Result<()> {
+        self.check_with_notice(node).map(|_| ())
+    }
+    fn check_with_notice(&self, node: &mut SourceWaypointNode) -> Result<Option<u32>> {
         let Some(steps) = self.movement.get(&node.script) else {
-            return Ok(()); // cpp:51-55 logs but does not clear script_id.
+            return Ok(Some(54)); // Logs but does not clear script_id.
         };
         if node.delay != 0 {
-            return Ok(());
+            return Ok(None);
         }
         for step in steps {
             if step.delay != 0 {
@@ -64,7 +70,11 @@ impl WaypointScriptMaps {
                 || step.command == 25
             {
                 node.delay = 1000;
-                break;
+                return Ok(Some(match step.command {
+                    18 => 70,
+                    20 => 76,
+                    _ => 82,
+                }));
             }
             if step.command == 45 && !self.relay.contains(&step.relay) && step.relay_template != 0 {
                 // ScriptMgr.h:684 operator[] inserts an empty missing template.
@@ -76,7 +86,7 @@ impl WaypointScriptMaps {
                     .or_default();
             }
         }
-        Ok(())
+        Ok(None)
     }
 }
 #[derive(Default)]
@@ -85,6 +95,7 @@ pub struct SourceWaypointPaths {
     entry: BTreeMap<u32, Rc<SourceWaypointPath>>,
     waypoint: BTreeMap<u32, Rc<SourceWaypointPath>>,
     external: Option<BTreeMap<u32, Rc<SourceWaypointPath>>>,
+    pub report: WaypointLoadReport,
 }
 impl SourceWaypointPaths {
     #[cfg(test)]
@@ -201,35 +212,45 @@ impl SourceWaypointPaths {
         }
         self.external = Some(paths.into_iter().map(|(k, p)| (k, Rc::new(p))).collect());
     }
-    /// WaypointManager.h:69-127,169-178. A present empty GUID path wins.
-    pub fn select(
+    /// WaypointManager.h:69-91. Only the waypoint fallback unconditionally
+    /// dereferences wpOrigin. A miss preserves the caller's previous origin.
+    pub fn default_path(
+        &self,
+        entry: u32,
+        guid: u32,
+        origin: Option<&mut WaypointOrigin>,
+    ) -> Result<Option<Rc<SourceWaypointPath>>> {
+        for (selected, map, key) in [
+            (WaypointOrigin::Guid, &self.guid, guid),
+            (WaypointOrigin::Entry, &self.entry, entry.wrapping_shl(8)),
+            (
+                WaypointOrigin::WaypointPath,
+                &self.waypoint,
+                entry.wrapping_shl(8),
+            ),
+        ] {
+            if let Some(path) = map.get(&key) {
+                if let Some(origin) = origin {
+                    *origin = selected;
+                } else {
+                    require(
+                        selected != WaypointOrigin::WaypointPath,
+                        "execution.waypoint.GetDefaultPath_null_origin_undefined",
+                    )?;
+                }
+                return Ok(Some(path.clone()));
+            }
+        }
+        Ok(None)
+    }
+    /// WaypointManager.h:95-127. PATH_NO_PATH never selects an entry path.
+    pub fn path_from_origin(
         &self,
         entry: u32,
         guid: u32,
         path: i32,
         origin: WaypointOrigin,
-    ) -> Result<(WaypointOrigin, Option<Rc<SourceWaypointPath>>)> {
-        if origin == WaypointOrigin::None && path == 0 {
-            for (origin, map, key) in [
-                (WaypointOrigin::Guid, &self.guid, guid),
-                (WaypointOrigin::Entry, &self.entry, entry.wrapping_shl(8)),
-                (
-                    WaypointOrigin::WaypointPath,
-                    &self.waypoint,
-                    entry.wrapping_shl(8),
-                ),
-            ] {
-                if let Some(p) = map.get(&key) {
-                    return Ok((origin, Some(p.clone())));
-                }
-            }
-            return Ok((WaypointOrigin::None, None));
-        }
-        let origin = if origin == WaypointOrigin::None {
-            WaypointOrigin::Entry
-        } else {
-            origin
-        };
+    ) -> Result<Option<Rc<SourceWaypointPath>>> {
         let key = entry.wrapping_shl(8).wrapping_add(path as u32);
         let p = match origin {
             WaypointOrigin::Guid => self.guid.get(&guid),
@@ -243,7 +264,25 @@ impl SourceWaypointPaths {
             WaypointOrigin::WaypointPath => self.waypoint.get(&(path as u32)),
             WaypointOrigin::None => None,
         };
-        Ok((origin, p.cloned()))
+        Ok(p.cloned())
+    }
+    /// WaypointMovementGenerator.cpp:44-49 chooses the manager operation.
+    pub fn select(
+        &self,
+        entry: u32,
+        guid: u32,
+        path: i32,
+        mut origin: WaypointOrigin,
+    ) -> Result<(WaypointOrigin, Option<Rc<SourceWaypointPath>>)> {
+        let selected = if origin == WaypointOrigin::None && path == 0 {
+            self.default_path(entry, guid, Some(&mut origin))?
+        } else {
+            if origin == WaypointOrigin::None {
+                origin = WaypointOrigin::Entry;
+            }
+            self.path_from_origin(entry, guid, path, origin)?
+        };
+        Ok((origin, selected))
     }
 }
 fn valid_waypoint_coord(node: SourceWaypointNode) -> bool {

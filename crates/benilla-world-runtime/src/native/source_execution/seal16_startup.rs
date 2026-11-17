@@ -29,6 +29,8 @@ mod spell_list_reach;
 mod spell_lists;
 #[path = "seal16_templates.rs"]
 pub(super) mod templates;
+#[path = "seal16_waypoints.rs"]
+mod waypoints;
 
 const GROUP_QUERIES: [&str; 6] = [
     "SELECT Id, Name, Type, MaxCount, WorldState, WorldStateExpression, Flags, StringId, RespawnOverrideMin, RespawnOverrideMax FROM spawn_group",
@@ -197,6 +199,7 @@ pub(super) struct Inputs {
     encounter_queries: Vec<(u64, String)>,
     encounter_raw: BTreeMap<String, (u64, u64)>,
     group_queries: Vec<(u64, String)>,
+    waypoint_queries: Vec<(u64, String)>,
     corpse_query_line: Option<u64>,
     templates: templates::Evidence,
     spawn_data: spawn_data::Evidence,
@@ -272,6 +275,9 @@ impl Inputs {
             }
             if GROUP_QUERIES.contains(&query.as_str()) {
                 self.group_queries.push((line, query.clone()));
+            }
+            if WAYPOINT_MANAGER_QUERIES.contains(&query.as_str()) {
+                self.waypoint_queries.push((line, query.clone()));
             }
             if ENCOUNTER_QUERIES.contains(&query.as_str()) {
                 self.encounter_queries.push((line, query.clone()));
@@ -1534,6 +1540,59 @@ pub(super) fn continue_startup(
         &groups,
     );
     formation_path::census(spawns, &groups);
+    let db_scripts = SourceDbScriptMaps::load_catalog(
+        catalog,
+        Path::new(&std::env::var_os("BENILLA_F5_DB_SCRIPT_OCCURRENCES").unwrap()),
+        &[DbScriptType::Relay, DbScriptType::CreatureMovement],
+        Some(&addon_spells),
+        &mut groups,
+        Some(
+            filtered == "1"
+                || filtered.eq_ignore_ascii_case("true")
+                || filtered.eq_ignore_ascii_case("yes"),
+        ),
+    )
+    .unwrap();
+    let mut waypoint_trace = |_| {};
+    let mut waypoint_random =
+        SourceRandom::new(1, &mut *engine, &mut *cursor, &mut waypoint_trace).unwrap();
+    let waypoint_paths = waypoints::load(
+        catalog,
+        spawns,
+        &creature_templates,
+        &db_scripts,
+        geometry,
+        &mut waypoint_random,
+    )
+    .unwrap();
+    assert_eq!(waypoint_paths.report.statements, WAYPOINT_MANAGER_QUERIES);
+    // Snapshot tables begin at :335034,388530,861610; primary-key census.
+    assert_eq!(waypoint_paths.report.rows, [53469, 17123, 7752]);
+    assert_eq!(waypoint_paths.report.nodes, [53469, 17123, 7752]);
+    assert_eq!(waypoint_paths.report.paths, [2956, 619, 244]);
+    assert_eq!(waypoint_paths.report.missing_owner, [0; 3]);
+    assert_eq!(waypoint_paths.report.blacklisted_nodes, [0; 3]);
+    assert_eq!(
+        observed
+            .waypoint_queries
+            .iter()
+            .map(|(_, q)| q.as_str())
+            .collect::<Vec<_>>(),
+        WAYPOINT_MANAGER_QUERIES,
+    );
+    assert_eq!(
+        observed
+            .waypoint_queries
+            .iter()
+            .map(|(line, _)| *line)
+            .collect::<Vec<_>>(),
+        [54691906, 54713296, 56487193, 56491349, 57128194, 57130068, 57131519],
+    );
+    println!(
+        "F6_WAYPOINT_MANAGER_SQL matched_sql=7 lines={:?}",
+        observed.waypoint_queries
+    );
+    waypoints::census(&waypoint_paths, spawns, &groups, catalog);
     let mut dynamic = BTreeMap::<u32, [Vec<u32>; 2]>::new();
     for ((map, kind), guids) in std::mem::take(&mut spawns.dynamic_guids) {
         dynamic.entry(map).or_default()[usize::from(kind == GridSpawnKind::GameObject)] = guids;
@@ -2178,6 +2237,7 @@ pub(super) fn continue_startup(
             inputs,
             &events,
             &groups,
+            waypoint_paths.clone(),
             &creature_templates,
             &creature_addons,
             &addon_spells,
@@ -2443,7 +2503,31 @@ pub(super) fn continue_startup(
                 .creature_group(continents.maps[slot].identity, 28842)
                 .unwrap()
                 .is_none());
-            assert!(lookups.ends_with(&["creature_waypoint_default_path"]));
+            assert!(lookups.ends_with(&[
+                "creature_waypoint_default_path",
+                "creature_loaded_waypoint_manager"
+            ]));
+            // A path and its initialized first cursor are required to reach
+            // SendNextWayPointPath's spell query, cpp:94-131,305-311.
+            let (origin, path) = waypoint_paths
+                .select(4726, 28842, 0, WaypointOrigin::None)
+                .unwrap();
+            assert_eq!(origin, WaypointOrigin::Guid);
+            let path = path.unwrap();
+            // pre-start-classicmangos.sql:355066-355088 fixes all 23 nodes.
+            assert_eq!(path.len(), 23);
+            assert_eq!(path.first_key_value().unwrap().0, &1);
+            assert_eq!(
+                path[&1],
+                SourceWaypointNode {
+                    position: [-1318.92, 1068.75, 92.4753],
+                    orientation: Some(0.),
+                    delay: 0,
+                    script: 0,
+                }
+            );
+            // Trace60366140 is word12111; the next word is AI's :60368585.
+            // Loading and initializing this path introduces no draw or SQL.
             assert_eq!(
                 groups
                     .waypoint_formation_path(continents.maps[slot].identity, 28842)
@@ -3362,7 +3446,7 @@ pub(super) fn continue_startup(
             evidence.pool_snapshot_line.unwrap(),
             encounters.by_map(slot as u32).len(),
             refusal.id,
-            if slot == 0 { "Creature.cpp:2343" } else { "WaypointMovementGenerator.cpp:45" },
+            if slot == 0 { "Creature.cpp:2343" } else { "WaypointMovementGenerator.cpp:311" },
         );
         owner.states = states;
         let raw = trace

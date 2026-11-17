@@ -105,12 +105,18 @@ impl SourceFixedPathGenerator {
     ) -> Result<Self> {
         let paths = owner.waypoint_paths()?;
         let entry = context.units.get(context.objects, master.unit)?.entry;
-        let (_, path) = paths.select(
-            entry,
-            context.objects.get(master.unit)?.database_guid,
-            path_id,
-            origin,
-        )?;
+        let guid = context.objects.get(master.unit)?.database_guid;
+        // PathMovementGenerator.cpp:229-236 omits the optional origin pointer.
+        let path = if path_id == 0 && origin == WaypointOrigin::None {
+            paths.default_path(entry, guid, None)?
+        } else {
+            let origin = if origin == WaypointOrigin::None {
+                WaypointOrigin::Entry
+            } else {
+                origin
+            };
+            paths.path_from_origin(entry, guid, path_id, origin)?
+        };
         Ok(Self::from_path(path.as_deref(), options))
     }
     pub fn progress(&self) -> FixedPathProgress {

@@ -680,6 +680,47 @@ fn waypoint_reader_rejects_relations_outside_its_own_loader_list() {
 }
 
 #[test]
+fn waypoint_manager_fixed_readers_require_their_own_columns() {
+    let fixture = Fixture::named("waypoint_path_name", "PathId", vec![(b"9".to_vec(), None)]);
+    let mut catalog = fixture.open().unwrap();
+    assert_eq!(
+        catalog.execution_waypoint_names().unwrap(),
+        std::collections::BTreeSet::from([9])
+    );
+    assert_eq!(
+        catalog.execution_waypoint_repair_spawns().unwrap_err().id,
+        "catalog.schema"
+    );
+    assert_eq!(
+        catalog
+            .execution_waypoint_rows("waypoint_path_name")
+            .unwrap_err()
+            .id,
+        "scripts.waypoint_relation"
+    );
+    let fixture = Fixture::named("waypoint_path_name", "Name", vec![]);
+    assert_eq!(
+        fixture
+            .open()
+            .unwrap()
+            .execution_waypoint_names()
+            .unwrap_err()
+            .id,
+        "catalog.schema"
+    );
+    let fixture = Fixture::named("creature", "guid", vec![]);
+    assert_eq!(
+        fixture
+            .open()
+            .unwrap()
+            .execution_waypoint_repair_spawns()
+            .unwrap_err()
+            .id,
+        "catalog.schema"
+    );
+}
+
+#[test]
 fn continent_maximum_reader_is_raw_bounded_and_does_not_widen_other_readers() {
     for table in ["creature", "gameobject"] {
         let fixture = Fixture::named(

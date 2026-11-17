@@ -2186,6 +2186,23 @@ definitions load. Unvalidated definitions never become missing script IDs.
 continuation remain unavailable. The executor below consumes only complete
 loaded maps. Format 91, NativeCapability and frozen-unsealed F1 stay unchanged.
 
+The seal16 startup owner builds one `SourceWaypointPaths` manager from the
+loaded ObjectMgr and ScriptMgr containers, `World.cpp:1248` and
+`WaypointManager.cpp:157-510`. Its report retains SQL, validation branches,
+coordinate repairs, script-delay fixups, and point-zero blacklists in source
+order. Snapshot primary keys order the three waypoint tables.
+The frozen comparison checks all seven loader statements.
+`GetDefaultPath` preserves GUID, entry, and shifted waypoint-path precedence,
+`WaypointManager.h:69-91,169-178`. Its waypoint fallback with a null origin
+pointer refuses `execution.waypoint.GetDefaultPath_null_origin_undefined`.
+Fixed-path constructors pass that null pointer,
+`PathMovementGenerator.cpp:228-236`; waypoint generators pass a real origin.
+The diagnostic re-read of a disappearing creature pointer refuses at
+`WaypointManager.cpp:279`; startup borrows immutable ObjectMgr containers.
+Map 1 initializes GUID28842's path and stops at the unbound spell-casting
+query, `WaypointMovementGenerator.cpp:311`. No later spline execution is
+claimed.
+
 ## Source creature assistance
 
 `SourceAssistance` uses the existing `SourceUnitEvents` queue for aggro

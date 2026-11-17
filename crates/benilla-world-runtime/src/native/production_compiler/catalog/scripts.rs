@@ -1089,6 +1089,35 @@ pub(crate) struct MotionSpawnOperands {
 }
 
 impl VerifiedCatalog {
+    /// WaypointManager.cpp:427. Fixed-column diagnostic name membership.
+    pub(crate) fn execution_waypoint_names(&mut self) -> Result<BTreeSet<u32>> {
+        let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
+        let column = position(columns(&schema, "waypoint_path_name")?, "PathId")?;
+        let mut names = BTreeSet::new();
+        self.scan("waypoint_path_name", 0, 256, |row| {
+            names.insert(spawns::uint(cells(&row)?[column])?);
+            Ok(())
+        })?;
+        Ok(names)
+    }
+    /// WaypointManager.cpp:246. The raw SQL id can differ from effective entry.
+    pub(crate) fn execution_waypoint_repair_spawns(&mut self) -> Result<BTreeMap<u32, [u32; 2]>> {
+        let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
+        let cols = columns(&schema, "creature")?;
+        let guid = position(cols, "guid")?;
+        let entry = position(cols, "id")?;
+        let map = position(cols, "map")?;
+        let mut rows = BTreeMap::new();
+        self.scan("creature", 0, 256, |row| {
+            let v = cells(&row)?;
+            rows.insert(
+                spawns::uint(v[guid])?,
+                [spawns::uint(v[entry])?, spawns::uint(v[map])?],
+            );
+            Ok(())
+        })?;
+        Ok(rows)
+    }
     /// WaypointManager.cpp:198,329,441 and ScriptDevAI/system/system.cpp:75.
     /// Raw retained rows only. ScriptMgr validation is a separate required owner.
     pub(crate) fn execution_waypoint_rows(

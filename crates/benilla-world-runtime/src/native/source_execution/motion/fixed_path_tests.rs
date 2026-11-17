@@ -485,6 +485,59 @@ fn motion_master_default_pushes_fixed_before_first_spline_query() {
         .unwrap();
     master.unpause_waypoints(&mut context).unwrap();
 }
+
+#[test]
+fn fixed_default_path_refuses_null_origin_waypoint_fallback() {
+    let (objects, mut units, master) = setup();
+    let paths = SourceWaypointPaths::load(
+        [
+            vec![],
+            vec![],
+            vec![SourceWaypointRow {
+                ordinal: 0,
+                owner: 901 << 8,
+                path: 0,
+                point: 1,
+                node: path(&[0])[&7],
+            }],
+        ],
+        &std::collections::BTreeSet::new(),
+        &std::collections::BTreeSet::new(),
+        None,
+    )
+    .unwrap();
+    let mut owner = Owner {
+        paths: Some(std::rc::Rc::new(paths)),
+        ..Default::default()
+    };
+    let context = MotionContext {
+        objects: &objects,
+        units: &mut units,
+    };
+    assert_eq!(
+        SourceFixedPathGenerator::load(
+            &master,
+            &context,
+            &mut owner,
+            0,
+            WaypointOrigin::None,
+            FixedPathOptions::default()
+        )
+        .err()
+        .unwrap()
+        .id,
+        "execution.waypoint.GetDefaultPath_null_origin_undefined"
+    );
+    assert!(SourceFixedPathGenerator::load(
+        &master,
+        &context,
+        &mut owner,
+        901 << 8,
+        WaypointOrigin::WaypointPath,
+        FixedPathOptions::default()
+    )
+    .is_ok());
+}
 #[test]
 fn explicit_path_selection_and_point_entrypoint_obey_motionmaster_mutation_order() {
     // MotionMaster.cpp:425-444,599-620. Path ID is set before selection.

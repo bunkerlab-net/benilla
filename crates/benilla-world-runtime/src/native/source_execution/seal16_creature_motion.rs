@@ -5,6 +5,7 @@ use super::*;
 struct MotionOwner<'a> {
     geometry: &'a mut SourceTerrainManager,
     groups: &'a SourceSpawnGroups,
+    waypoint_paths: std::rc::Rc<SourceWaypointPaths>,
     map: MapIdentity,
     database_guid: u32,
     lookups: &'a mut Vec<&'static str>,
@@ -12,6 +13,10 @@ struct MotionOwner<'a> {
     charmer: Option<ObjectHandle>,
 }
 impl MotionExecutionOwner for MotionOwner<'_> {
+    fn waypoint_paths(&mut self) -> Result<std::rc::Rc<SourceWaypointPaths>> {
+        self.lookups.push("creature_loaded_waypoint_manager");
+        Ok(self.waypoint_paths.clone())
+    }
     fn pathfinder_geometry(&mut self) -> Result<&mut SourceTerrainManager> {
         Ok(self.geometry)
     }
@@ -60,6 +65,7 @@ pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
     let mut owner = MotionOwner {
         geometry: context.products,
         groups: prefix.groups,
+        waypoint_paths: prefix.waypoint_paths.clone(),
         map: context.objects.get(object)?.map.unwrap(),
         database_guid: context.objects.get(object)?.database_guid,
         lookups: &mut prefix.lookups,

@@ -24,6 +24,75 @@ fn paths(rows: [Vec<SourceWaypointRow>; 3]) -> SourceWaypointPaths {
     )
     .unwrap()
 }
+#[test]
+fn default_path_only_dereferences_null_origin_for_waypoint_fallback() {
+    let p = paths([
+        vec![row(7, 0, 1, 0, 0)],
+        vec![row(901, 0, 2, 0, 0)],
+        vec![row(901 << 8, 0, 3, 0, 0)],
+    ]);
+    assert!(p
+        .default_path(901, 7, None)
+        .unwrap()
+        .unwrap()
+        .contains_key(&1));
+    assert!(p
+        .default_path(901, 8, None)
+        .unwrap()
+        .unwrap()
+        .contains_key(&2));
+    let p = paths([vec![], vec![], vec![row(901 << 8, 0, 3, 0, 0)]]);
+    assert_eq!(
+        p.default_path(901, 8, None).unwrap_err().id,
+        "execution.waypoint.GetDefaultPath_null_origin_undefined"
+    );
+    let mut origin = WaypointOrigin::Guid;
+    assert!(p.default_path(901, 8, Some(&mut origin)).unwrap().is_some());
+    assert_eq!(origin, WaypointOrigin::WaypointPath);
+    assert!(p.default_path(902, 8, Some(&mut origin)).unwrap().is_none());
+    assert_eq!(origin, WaypointOrigin::WaypointPath);
+    assert!(p
+        .path_from_origin(901, 8, 0, WaypointOrigin::None)
+        .unwrap()
+        .is_none());
+    assert!(p
+        .path_from_origin(901, 8, 901 << 8, WaypointOrigin::WaypointPath)
+        .unwrap()
+        .is_some());
+}
+
+#[test]
+fn loaded_manager_reaches_spell_query_after_initializing_the_path_cursor() {
+    struct LoadedManager(Rc<SourceWaypointPaths>);
+    impl MotionExecutionOwner for LoadedManager {
+        fn waypoint_paths(&mut self) -> Result<Rc<SourceWaypointPaths>> {
+            Ok(self.0.clone())
+        }
+    }
+    let (_, p) = loaded(&[(1, 0, 0), (3, 0, 0)]);
+    let g = SourceWaypointGenerator::default();
+    let (objects, mut units, mut master) = setup();
+    let mut context = MotionContext {
+        objects: &objects,
+        units: &mut units,
+    };
+    assert_eq!(
+        g.initialize_path(
+            &mut master,
+            &mut context,
+            &mut LoadedManager(p),
+            WaypointPathRequest::default()
+        )
+        .unwrap_err()
+        .id,
+        "execution.waypoint.f5_spell_movement_cast_query_owner"
+    );
+    assert_eq!(g.progress().origin, WaypointOrigin::Guid);
+    assert_eq!(g.progress().current, 1);
+    assert_eq!(g.progress().last_reached, 0);
+    assert_eq!(g.progress().wait, 0);
+    assert_eq!(g.node_after(1, false).unwrap(), Some(3));
+}
 fn loaded(points: &[(u32, u32, u32)]) -> (SourceWaypointGenerator, Rc<SourceWaypointPaths>) {
     let paths = Rc::new(paths([
         points.iter().map(|&(p, d, s)| row(7, 0, p, d, s)).collect(),
