@@ -56,6 +56,33 @@ fn fixture() -> (SourceObjects, SourceUnits, ObjectHandle, Bound) {
     )
 }
 #[test]
+fn authored_waypoint_reset_position_reads_world_or_existing_transport_offset() {
+    let (mut objects, mut units, unit, mut owner) = fixture();
+    let world_pose = [1., 2., 3., 4.];
+    objects
+        .set_pose(unit, SourcePose(world_pose.map(f32::to_bits)))
+        .unwrap();
+    let transport = objects.construct(1, SourceObjectKind::GameObject).unwrap();
+    let context = MotionContext {
+        objects: &objects,
+        units: &mut units,
+    };
+    assert_eq!(owner.waypoint_position(unit, &context).unwrap(), world_pose);
+    let offset = [5., 6., 7., 8.];
+    let movement = owner.passengers.movement_mut(unit).unwrap();
+    movement.transport = Some(transport);
+    movement.offset = SourcePose(offset.map(f32::to_bits));
+    assert_eq!(owner.waypoint_position(unit, &context).unwrap(), offset);
+    owner.passengers = SourcePassengers::default();
+    assert_eq!(
+        owner.waypoint_position(unit, &context).unwrap_err().id,
+        "execution.transport.world_object_transport_unbound"
+    );
+    owner.passengers.construct(unit, &objects).unwrap();
+    assert_eq!(owner.waypoint_position(unit, &context).unwrap(), world_pose);
+}
+
+#[test]
 fn constructor_reads_live_flags_without_writing_movement_info() {
     let (objects, mut units, unit, _) = fixture();
     for flag in [WALK, 0x0080_0000, 0x4000_0000, 0x800, 0x400, ROOT] {
@@ -223,18 +250,30 @@ fn finalized_stop_does_not_read_transport_but_forced_stop_emits_done() {
     );
 }
 #[test]
-fn in_world_send_refuses_only_after_id_flags_spline_and_outbound_are_committed() {
+fn in_world_empty_send_commits_id_flags_spline_and_outbound() {
     let (mut objects, mut units, unit, mut owner) = fixture();
     objects.get_mut(unit).unwrap().in_world = true;
+    let before = serde_json::to_vec(units.get(&objects, unit).unwrap()).unwrap();
+    let world = crate::native::synthetic_fixture::world();
+    let saved = world.checkpoint().unwrap().encode().unwrap();
     let mut context = MotionContext {
         objects: &objects,
         units: &mut units,
     };
     let mut init = SourceMoveSplineInit::construct(unit, &context).unwrap();
     init.move_to([1., 0., 0.]);
+    init.launch(unit, &mut context, &mut owner).unwrap();
     assert_eq!(
-        init.launch(unit, &mut context, &mut owner).unwrap_err().id,
-        "execution.spline.client_guids_i_am_at_owner_11216"
+        serde_json::to_vec(context.units.get(&objects, unit).unwrap()).unwrap(),
+        before
+    );
+    assert_eq!(world.checkpoint().unwrap().encode().unwrap(), saved);
+    assert_eq!(
+        SourceManagers::default()
+            .require_durable_checkpoint()
+            .unwrap_err()
+            .id,
+        "execution.managers.f7_continuation_owner"
     );
     assert_eq!(context.spline(unit).unwrap().id(), 1);
     assert!(!context.spline_finalized(unit).unwrap());

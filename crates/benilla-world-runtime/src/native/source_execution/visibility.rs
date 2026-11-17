@@ -61,6 +61,42 @@ impl SourceObjects {
             .as_mut()
             .ok_or_else(|| refuse("execution.visibility.world_object_type"))
     }
+    /// Object.h:1142 returns the live per-object set.
+    pub fn client_guids_i_am_at(&self, object: ObjectHandle) -> Result<&BTreeSet<SourceGuid>> {
+        Ok(&self.world_visibility(object)?.client_guids)
+    }
+    /// Unit.cpp:11212-11228. Player lookup uses the live map registry.
+    pub fn send_message_to_all_who_see_me_move(
+        &self,
+        packet: &SplineOutbound,
+        mut send_session: impl FnMut(ObjectHandle, &SplineOutbound) -> Result<()>,
+    ) -> Result<()> {
+        let object = self.get(packet.unit)?;
+        if !object.in_world {
+            return Ok(());
+        }
+        let mover_owner = packet.excluded.unwrap_or_default();
+        for &guid in self.client_guids_i_am_at(packet.unit)? {
+            if mover_owner == guid {
+                continue;
+            }
+            let map = object
+                .map
+                .ok_or_else(|| refuse("execution.spline.GetMap_owner_11221"))?;
+            if let Some(player) = self.lookup(map, LiveLookupKind::Player, guid) {
+                send_session(player, packet)?;
+            }
+        }
+        if object.kind == SourceObjectKind::Player {
+            let guid = object
+                .guid
+                .ok_or_else(|| refuse("execution.spline.player_GetObjectGuid_owner_11225"))?;
+            if mover_owner != guid {
+                send_session(packet.unit, packet)?;
+            }
+        }
+        Ok(())
+    }
     pub fn visibility_override_bits(&self, object: ObjectHandle) -> Result<u32> {
         Ok(self.world_visibility(object)?.override_bits)
     }
@@ -423,5 +459,179 @@ mod tests {
             .set_visibility_distance_override(player, SourceVisibilityDistance::Infinite)
             .unwrap();
         assert_eq!(objects.visibility_override_bits(player).unwrap(), 0);
+    }
+    #[test]
+    fn authored_move_broadcast_reads_live_set_and_preserves_source_branches() {
+        let (mut objects, cells, unit, _) = fixture();
+        objects.get_mut(unit).unwrap().kind = SourceObjectKind::Creature;
+        let guid = SourceGuid::with_entry(HighGuid::Creature, 1, 1);
+        objects.assign_guid(unit, 1, guid).unwrap();
+        let mut packet = SplineOutbound {
+            unit,
+            guid,
+            transport: None,
+            excluded: None,
+            movement: vec![1, 2, 3],
+        };
+        // Authored players, not stock startup evidence.
+        let mut players = Vec::new();
+        for low in [7, 8] {
+            let player = objects.construct(1, SourceObjectKind::Player).unwrap();
+            let guid = SourceGuid::without_entry(HighGuid::Player, low);
+            objects.bind_map(player, cells.map(), &cells).unwrap();
+            objects.assign_guid(player, 0, guid).unwrap();
+            objects.register_player_lookup(player).unwrap();
+            objects.link_map_player(player).unwrap();
+            objects.add_to_world(player).unwrap();
+            players.push((player, guid));
+        }
+        objects
+            .world_visibility_mut(unit)
+            .unwrap()
+            .client_guids
+            .extend([
+                SourceGuid::default(),
+                players[0].1,
+                players[1].1,
+                SourceGuid::without_entry(HighGuid::Player, 9),
+            ]);
+        // Unit.cpp:11214 returns before even reading visibility.
+        objects
+            .send_message_to_all_who_see_me_move(&packet, |_, _| panic!("out of world"))
+            .unwrap();
+        objects.add_to_world(unit).unwrap();
+        let mut sent = Vec::new();
+        objects
+            .send_message_to_all_who_see_me_move(&packet, |p, data| {
+                assert_eq!(data, &packet);
+                sent.push(p);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(sent, [players[0].0, players[1].0]);
+        packet.excluded = Some(players[0].1);
+        sent.clear();
+        objects
+            .send_message_to_all_who_see_me_move(&packet, |p, _| {
+                sent.push(p);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(sent, [players[1].0]);
+        objects
+            .world_visibility_mut(unit)
+            .unwrap()
+            .client_guids
+            .clear();
+        objects
+            .send_message_to_all_who_see_me_move(&packet, |_, _| panic!("empty set"))
+            .unwrap();
+        // Unit.cpp:11225-11226 sends a player mover its own copy unless excluded.
+        packet.unit = players[0].0;
+        packet.guid = players[0].1;
+        objects
+            .send_message_to_all_who_see_me_move(&packet, |_, _| panic!("excluded self"))
+            .unwrap();
+        packet.excluded = None;
+        sent.clear();
+        objects
+            .send_message_to_all_who_see_me_move(&packet, |p, _| {
+                sent.push(p);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(sent, [players[0].0]);
+    }
+
+    #[test]
+    fn authored_move_broadcast_refuses_unowned_map_and_session_at_the_read() {
+        let (mut objects, cells, unit, _) = fixture();
+        objects.get_mut(unit).unwrap().kind = SourceObjectKind::Creature;
+        let guid = SourceGuid::without_entry(HighGuid::Player, 7);
+        objects
+            .world_visibility_mut(unit)
+            .unwrap()
+            .client_guids
+            .insert(guid);
+        objects.get_mut(unit).unwrap().in_world = true;
+        let packet = SplineOutbound {
+            unit,
+            guid,
+            transport: None,
+            excluded: None,
+            movement: vec![],
+        };
+        objects.get_mut(unit).unwrap().map = None;
+        let skipped = SplineOutbound {
+            excluded: Some(guid),
+            ..packet.clone()
+        };
+        objects
+            .send_message_to_all_who_see_me_move(&skipped, |_, _| {
+                panic!("owner skip precedes map read")
+            })
+            .unwrap();
+        assert_eq!(
+            objects
+                .send_message_to_all_who_see_me_move(&packet, |_, _| panic!())
+                .unwrap_err()
+                .id,
+            "execution.spline.GetMap_owner_11221"
+        );
+        objects.get_mut(unit).unwrap().map = Some(cells.map());
+        let player = objects.construct(1, SourceObjectKind::Player).unwrap();
+        objects.bind_map(player, cells.map(), &cells).unwrap();
+        objects.assign_guid(player, 0, guid).unwrap();
+        objects.register_player_lookup(player).unwrap();
+        objects.add_to_world(player).unwrap();
+        struct MissingSession;
+        impl MotionExecutionOwner for MissingSession {}
+        let mut units = SourceUnits::default();
+        let context = MotionContext {
+            objects: &objects,
+            units: &mut units,
+        };
+        assert_eq!(
+            MissingSession
+                .send_spline(&packet, &context)
+                .unwrap_err()
+                .id,
+            "execution.spline.player_GetSession_SendPacket_owner_11222_11226"
+        );
+        let self_packet = SplineOutbound {
+            unit: player,
+            ..packet
+        };
+        assert_eq!(
+            MissingSession
+                .send_spline(&self_packet, &context)
+                .unwrap_err()
+                .id,
+            "execution.spline.player_GetSession_SendPacket_owner_11222_11226"
+        );
+    }
+
+    #[test]
+    fn authored_out_of_world_move_does_not_read_unowned_visibility() {
+        let (mut objects, _, unit, _) = fixture();
+        objects.get_mut(unit).unwrap().visibility = None;
+        let packet = SplineOutbound {
+            unit,
+            guid: SourceGuid::with_entry(HighGuid::Creature, 1, 1),
+            transport: None,
+            excluded: None,
+            movement: vec![],
+        };
+        objects
+            .send_message_to_all_who_see_me_move(&packet, |_, _| panic!())
+            .unwrap();
+        objects.get_mut(unit).unwrap().in_world = true;
+        assert_eq!(
+            objects
+                .send_message_to_all_who_see_me_move(&packet, |_, _| panic!())
+                .unwrap_err()
+                .id,
+            "execution.visibility.world_object_type"
+        );
     }
 }

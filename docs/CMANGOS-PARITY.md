@@ -210,11 +210,21 @@ is meaningful without a bounded content/mechanics inventory.
   Constructor-only bindings refuse full movement reads until an owner supplies
   the remaining operands. Authored cast-query tests do not establish live
   nonempty-slot coverage.
-  Map 1 GUID28842 completes both recorded `PathFinder::calculate` calls and
-  launches its waypoint spline before the unported recipient read at
-  `Unit.cpp:11216`. Its thread-local spline counter starts at one,
+  `Unit::SendMessageToAllWhoSeeMeMove`, `Unit.cpp:11212-11228`, reads the
+  live visibility set and map player registry, skips the mover owner and
+  refuses unowned player sessions. Authored player tests cover recipient
+  order, absent players and self-send. Map 1 GUID28842's Map::Add visibility
+  traversal reaches no camera and leaves its constructor-empty set empty,
+  `Map.cpp:501-504,1335-1348`, `GridNotifiers.cpp:32-38`,
+  `Object.cpp:3081-3088`. Its thread-local spline counter starts at one,
   `MoveSplineInit.cpp:27,102`, and refuses an unproven execution thread.
-  Passenger and spline owners add no saved state.
+  Waypoint reset positions read the existing transport offset or live world
+  position, `WaypointMovementGenerator.cpp:132`, `Object.h:877,1129`.
+  GUID28842 completes AI construction and consumes the recorded first AI word
+  at position12112, value257701202. Map 1 then reaches GUID27010/entry4633
+  with 72 completed objects and 12405 words, before `InitAI` calls
+  `AddMainSpell`, `CreatureEventAI.cpp:140`, `UnitAI.cpp:965`.
+  Passenger, spline and broadcast owners add no saved state.
 - **Current fork:** `benilla-app/src/net/p2p.rs` relays avatar poses, jump fields
   and chat with finite/bounded-value checks. It explicitly rejects transport
   movement in the inspected bridge. This is not replicated authoritative player

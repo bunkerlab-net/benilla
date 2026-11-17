@@ -246,7 +246,11 @@ fn linear_arrival_reuses_script_timer_and_waypoint_notification_order() {
             self.0.push(format!("inform:{kind}:{point}"));
             Ok(())
         }
-        fn waypoint_position(&mut self, _: ObjectHandle) -> Result<[f32; 4]> {
+        fn waypoint_position(
+            &mut self,
+            _: ObjectHandle,
+            _: &MotionContext<'_>,
+        ) -> Result<[f32; 4]> {
             self.0.push("position".into());
             Ok([1.; 4])
         }

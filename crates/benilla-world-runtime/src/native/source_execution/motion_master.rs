@@ -40,12 +40,21 @@ pub trait MotionExecutionOwner {
     fn spline_thread(&mut self) -> Result<&mut SourceSplineThread> {
         Err(refuse("execution.spline.thread_local_counter_owner_102"))
     }
-    fn send_spline(
+    fn send_spline(&mut self, packet: &SplineOutbound, context: &MotionContext<'_>) -> Result<()> {
+        context
+            .objects
+            .send_message_to_all_who_see_me_move(packet, |player, packet| {
+                self.spline_send_session(player, packet)
+            })
+    }
+    fn spline_send_session(
         &mut self,
+        _player: ObjectHandle,
         _packet: &SplineOutbound,
-        _context: &MotionContext<'_>,
     ) -> Result<()> {
-        Err(refuse("execution.spline.client_guids_i_am_at_owner_11216"))
+        Err(refuse(
+            "execution.spline.player_GetSession_SendPacket_owner_11222_11226",
+        ))
     }
     fn spline_debug_spawn(
         &mut self,
@@ -223,10 +232,19 @@ pub trait MotionExecutionOwner {
     fn waypoint_paths(&mut self) -> Result<Rc<SourceWaypointPaths>> {
         Err(refuse("execution.waypoint.loaded_waypoint_manager_owner"))
     }
-    fn waypoint_position(&mut self, _unit: ObjectHandle) -> Result<[f32; 4]> {
-        Err(refuse(
-            "execution.waypoint.transport_relative_position_owner",
-        ))
+    /// WaypointMovementGenerator.cpp:132; Object.h:877,1129.
+    fn waypoint_position(
+        &mut self,
+        unit: ObjectHandle,
+        context: &MotionContext<'_>,
+    ) -> Result<[f32; 4]> {
+        let passengers = self.pathfinder_passengers()?;
+        let pose = if passengers.transport(unit)?.is_some() {
+            passengers.movement(unit)?.offset
+        } else {
+            context.objects.pose(unit)?
+        };
+        Ok(pose.0.map(f32::from_bits))
     }
     /// Unit.cpp:4343-4381, IsNonMeleeSpellCasted(false,false,true,true).
     fn waypoint_casting_for_movement(

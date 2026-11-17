@@ -204,7 +204,7 @@ impl MotionExecutionOwner for Owner {
         self.spline
             .ok_or_else(|| refuse("execution.motion.f6_spline_finalized_owner"))
     }
-    fn waypoint_position(&mut self, _: ObjectHandle) -> Result<[f32; 4]> {
+    fn waypoint_position(&mut self, _: ObjectHandle, _: &MotionContext<'_>) -> Result<[f32; 4]> {
         self.log.push("position".into());
         Ok([5., 6., 7., 8.])
     }
@@ -1126,7 +1126,11 @@ fn external_start_and_finished_callbacks_precede_f6_and_can_end_the_send() {
 fn interrupt_captures_position_then_clears_roaming_before_missing_walk_owner() {
     struct MissingInterrupt;
     impl MotionExecutionOwner for MissingInterrupt {
-        fn waypoint_position(&mut self, _: ObjectHandle) -> Result<[f32; 4]> {
+        fn waypoint_position(
+            &mut self,
+            _: ObjectHandle,
+            _: &MotionContext<'_>,
+        ) -> Result<[f32; 4]> {
             Ok([9.; 4])
         }
     }
@@ -1298,7 +1302,11 @@ fn bound_speed_and_passengers_calculate_before_lookahead_and_spline_init() {
 fn real_current_path_index_pops_one_pending_node_before_arrival() {
     struct BoundPosition<'a>(&'a SourceObjects);
     impl MotionExecutionOwner for BoundPosition<'_> {
-        fn waypoint_position(&mut self, unit: ObjectHandle) -> Result<[f32; 4]> {
+        fn waypoint_position(
+            &mut self,
+            unit: ObjectHandle,
+            _: &MotionContext<'_>,
+        ) -> Result<[f32; 4]> {
             Ok(self.0.pose(unit)?.0.map(f32::from_bits))
         }
     }

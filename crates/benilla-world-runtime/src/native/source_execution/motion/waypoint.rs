@@ -218,7 +218,8 @@ impl SourceWaypointGenerator {
         self.cursor.set(Some(p.current));
         self.progress.set(p);
         self.send_next(master, context, owner)?;
-        self.reset_point.set(owner.waypoint_position(master.unit)?);
+        self.reset_point
+            .set(owner.waypoint_position(master.unit, context)?);
         Ok(())
     }
     fn stop(&self, wait: u32) {
@@ -457,7 +458,8 @@ impl SourceWaypointGenerator {
                 self.progress.get().current,
             )?;
         }
-        self.reset_point.set(owner.waypoint_position(master.unit)?);
+        self.reset_point
+            .set(owner.waypoint_position(master.unit, context)?);
         p = self.progress.get();
         let wait = node.delay.wrapping_add(p.script_time as u32) as i32;
         let cursor = self
@@ -557,7 +559,8 @@ impl SourceMovementGenerator for SourceWaypointGenerator {
         owner: &mut dyn MotionExecutionOwner,
     ) -> Result<()> {
         if context.units.get(context.objects, master.unit)?.state & WANDER_MOVING != 0 {
-            self.reset_point.set(owner.waypoint_position(master.unit)?);
+            self.reset_point
+                .set(owner.waypoint_position(master.unit, context)?);
         }
         owner.motion_call(master, MotionCall::InterruptMoving, context)?;
         context.units.get_mut(context.objects, master.unit)?.state &=
