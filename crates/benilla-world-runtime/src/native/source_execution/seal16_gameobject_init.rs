@@ -168,9 +168,34 @@ impl<D: GridDefinitions<Row = SpawnKey>> GameObjectFactoryOwner<D, SourceTerrain
             }
             let pose = context.objects.pose(handle)?.0;
             let position = std::array::from_fn(|index| f32::from_bits(pose[index]));
-            let zone = context
+            if self.map_entry.id == 1 && context.objects.get(handle)?.database_guid == 32019 {
+                assert_eq!(self.gameobjects.get(handle)?.template.entry, 176768);
+                assert_eq!(
+                    self.swimming_census,
+                    SourceCreatureSwimmingCensus {
+                        reached_441: 2,
+                        swimming_not_set: 2,
+                        ..SourceCreatureSwimmingCensus::default()
+                    }
+                );
+                assert!(self.lookups.ends_with(&[
+                    "go_template",
+                    "go_template",
+                    "go_model",
+                    "go_battleground",
+                ]));
+            }
+            let location = context
                 .products
-                .zone_and_area(self.map_entry.id, position)?[0];
+                .zone_and_area(self.map_entry.id, position)?;
+            self.zone_lookups.insert(
+                SpawnKey {
+                    kind: GridSpawnKind::GameObject,
+                    guid: context.objects.get(handle)?.database_guid,
+                },
+                location,
+            );
+            let zone = location[0];
             self.go_zone = Some(zone);
             self.lookups.push("go_zone");
             self.lookups.push("go_outdoor_pvp_get_script");

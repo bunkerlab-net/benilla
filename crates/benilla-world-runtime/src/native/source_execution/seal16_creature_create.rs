@@ -29,9 +29,40 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
             "execution.creature.loaded_battleground_create_owner",
         ));
     }
-    let zone = context
+    if prefix.map_entry.id == 0 && data.row.guid == 636 {
+        let current = prefix.creature_entry.as_ref().unwrap();
+        assert_eq!((template.words[0], current.equipment), (14508, 14508));
+        assert_eq!(current.virtual_items, [7420, 0, 0]);
+        assert_eq!(current.virtual_item_info, [[0x0d010702, 3], [0, 0], [0, 0]]);
+        assert_ne!(template.words[17] & 2, 0);
+        assert_eq!(template.words[23] & 0x8000, 0);
+        assert_eq!(prefix.swimming_census.reached_441, 1);
+        assert_eq!(prefix.swimming_census.swimming_not_set, 1);
+        assert_eq!(
+            current.movement_flags & benilla_sim::creature_capabilities::MOVEFLAG_SWIMMING,
+            0
+        );
+        assert!(prefix.lookups.contains(&"creature_init_entry_remainder"));
+        assert!(prefix.lookups.ends_with(&[
+            "creature_final_position_relocated_valid",
+            "creature_create_battleground",
+        ]));
+        assert_eq!(
+            (prefix.creature_battleground, prefix.creature_zone),
+            (Some(false), None)
+        );
+    }
+    let location = context
         .products
-        .zone_and_area(prefix.map_entry.id, position[..3].try_into().unwrap())?[0];
+        .zone_and_area(prefix.map_entry.id, position[..3].try_into().unwrap())?;
+    prefix.zone_lookups.insert(
+        SpawnKey {
+            kind: GridSpawnKind::Creature,
+            guid: data.row.guid,
+        },
+        location,
+    );
+    let zone = location[0];
     prefix.creature_zone = Some(zone);
     prefix.lookups.push("creature_create_zone");
     prefix.lookups.push("creature_outdoor_pvp_get_script");

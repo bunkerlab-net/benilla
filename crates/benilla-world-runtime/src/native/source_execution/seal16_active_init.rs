@@ -5,8 +5,8 @@ use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: [&str; 2] = [
-    "execution.terrain.wmo_area_catalog_owner",
-    "execution.terrain.wmo_area_catalog_owner",
+    "execution.creature_addon.Creature_2343.CastSpell_owner",
+    "execution.waypoint.formation_path_binding_owner",
 ];
 #[path = "seal16_active_clocks.rs"]
 mod clocks;
@@ -69,6 +69,7 @@ pub(super) struct Prefix<'a> {
     pub visibility: SourceVisibilityCensus,
     pub creature_battleground: Option<bool>,
     pub creature_zone: Option<u32>,
+    pub zone_lookups: BTreeMap<SpawnKey, [u32; 2]>,
     pub creature_linking_trigger: bool,
     pub instance_data: Option<&'a mut SourceWorldScript>,
     pub random: &'a mut dyn CreatureRandom,
@@ -416,6 +417,7 @@ pub(super) struct ActivePrefixReport {
     pub visibility: SourceVisibilityCensus,
     pub creature_battleground: Option<bool>,
     pub creature_zone: Option<u32>,
+    pub zone_lookups: BTreeMap<SpawnKey, [u32; 2]>,
     pub creature_linking_trigger: bool,
     pub selected_ai: Option<SelectedCreatureAi>,
     pub units: SourceUnits,
@@ -563,6 +565,7 @@ pub(super) fn load_first(
         first_creature: None,
         completed_objects: Vec::new(),
         first_go: None,
+        zone_lookups: BTreeMap::new(),
         selected_ai: None,
         motions: BTreeMap::new(),
         entry: None,
@@ -683,6 +686,7 @@ pub(super) fn load_first(
         visibility: factory.visibility,
         creature_battleground: factory.creature_battleground,
         creature_zone: factory.creature_zone,
+        zone_lookups: factory.zone_lookups,
         creature_linking_trigger: factory.creature_linking_trigger,
         selected_ai: factory.selected_ai,
         units: factory.units,

@@ -107,9 +107,17 @@ is meaningful without a bounded content/mechanics inventory.
   104 catalog candidate templates, so their equipment paths remain unknown.
   Fresh constructor settings leave `CAN_WIELD_LOOT` clear; its true branch
   refuses at `Creature.cpp:405`, `PrepareBodyLootState`.
-  The recorded prefixes complete 10 objects on map 0 and 23 on map 1, then
-  refuse `execution.terrain.wmo_area_catalog_owner` at the zone lookups in
-  `Creature.cpp:914` and `GameObject.cpp:289`.
+  The recorded prefixes complete 87 objects on map 0 and 33 on map 1.
+  Map 0 reaches `Creature.cpp:2343`, `CastSpell` for GUID40520's addon.
+  Map 1 reaches `MotionMaster.cpp:87`, the formation path owner for GUID28842.
+- **WMO area catalog.** Startup binds all 21,115 effective WMO rows through the
+  existing catalog owner, `World.cpp:908` and `DBCStores.cpp:555-560`.
+  Ten duplicate triples retain ascending-ID order. `GridMap.cpp:992-1015`
+  selects the last area on the current map or falls back to terrain.
+  Catalog row 33409 maps `[568,1,2860]` to area 1741. Seal16 recording
+  line 60402993 fixes the same triple at creature GUID636's position.
+  Map 1 GO32019 matches row 21876 with area zero, so terrain supplies
+  area 2617 and zone 405 through `GridMap.cpp:1011-1015,1051`.
 - **Dependencies:** native schema/version inspection; local data access and
   provenance; DBC lookups; creature class/level stats; game objects; conditions;
   pools/events/spawn groups; map/instance identity and lifecycle. Native source

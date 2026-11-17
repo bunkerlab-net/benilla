@@ -159,6 +159,7 @@ struct MapThreadEvidence {
     first_created_guid: Option<(u64, u32, u32, u32, u16)>,
     active_adds: Vec<(u64, u32, String, u32)>,
     active_locks: Vec<(u64, u16)>,
+    wmo_area_hit: Option<String>,
 }
 #[derive(Default)]
 pub(super) struct Inputs {
@@ -220,6 +221,18 @@ impl Inputs {
     }
     pub(super) fn observe_thread(&mut self, thread: u64, line: u64, kind: &str, p: &[&str]) {
         self.equipment.observe_map(thread, line, kind, p);
+        if matches!(
+            (thread, line, kind),
+            (6, 60402993, "geometry_area_result") | (7, 60354456, "geometry_area_result")
+        ) {
+            assert!(self
+                .map_threads
+                .entry(thread)
+                .or_default()
+                .wmo_area_hit
+                .replace(p.join(" "))
+                .is_none());
+        }
         if thread == 1
             && kind == "sql_request_bytes"
             && unhex(p.last().unwrap()) == CORPSE_LOAD_QUERY.as_bytes()
@@ -343,7 +356,7 @@ impl Inputs {
             "grid_create" if evidence.first_grid.is_none() => {
                 evidence.first_grid = Some((line, p[2].parse().unwrap(), p[3].parse().unwrap()));
             }
-            "active_add" if evidence.active_adds.len() < 2 => {
+            "active_add" if evidence.active_adds.len() < if thread == 6 { 2 } else { 6 } => {
                 evidence.active_adds.push((
                     line,
                     p[0].parse().unwrap(),
@@ -351,7 +364,7 @@ impl Inputs {
                     p[2].parse().unwrap(),
                 ));
             }
-            "grid_lock_inc" if evidence.active_locks.len() < 2 => {
+            "grid_lock_inc" if evidence.active_locks.len() < if thread == 6 { 2 } else { 6 } => {
                 evidence.active_locks.push((line, p[1].parse().unwrap()));
             }
             "constructor_loader_candidate" if evidence.first_candidate.is_none() => {
@@ -2151,6 +2164,7 @@ pub(super) fn continue_startup(
             mut creature_battleground,
             mut creature_zone,
             mut creature_linking_trigger,
+            zone_lookups,
             mut selected_ai,
             units,
             ais,
@@ -2197,11 +2211,28 @@ pub(super) fn continue_startup(
             "F6_NEXT_CANDIDATE map={slot} guid={} kind={:?} entry={entry} allocations={candidates} completed={completed} active_members={} refusal={} lookups={lookups:?}",
             attempt.guid, attempt.kind, continents.maps[slot].cells.active().len(), refusal.id
         );
+        println!("F6_WMO_CONTINUATION map={slot} raw={} pathfinder_constructors={} swimming={swimming_census:?} completed={completed} zone_lookups={}",
+            random.cursor().raw, geometry.pathfinder_constructor_completions - pathfinders_before,
+            zone_lookups.len());
         assert_eq!(
             continents.maps[slot].cells.active().len(),
-            usize::from(slot == 1)
+            if slot == 0 { 1 } else { 3 }
         );
-        if slot == 1 {
+        let active_guids = continents.maps[slot]
+            .cells
+            .active()
+            .members()
+            .map(|handle| active_objects.get(handle).unwrap().database_guid)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            active_guids,
+            if slot == 0 {
+                BTreeSet::from([636])
+            } else {
+                BTreeSet::from([27279, 27280, 27281])
+            }
+        );
+        {
             // Map.cpp:1581,1596; trace60348289/60348298 inserts twice, :60348296/:60348300 locks 1 then 2.
             assert_eq!(
                 evidence
@@ -2209,10 +2240,35 @@ pub(super) fn continue_startup(
                     .iter()
                     .map(|(line, map, _, guid)| (*line, *map, *guid))
                     .collect::<Vec<_>>(),
-                [(60348289, 1, 27280), (60348298, 1, 27280)]
+                if slot == 0 {
+                    vec![(60403034, 0, 636), (60403037, 0, 636)]
+                } else {
+                    vec![
+                        (60348289, 1, 27280),
+                        (60348298, 1, 27280),
+                        (60355102, 1, 27279),
+                        (60355106, 1, 27279),
+                        (60355803, 1, 27281),
+                        (60355807, 1, 27281),
+                    ]
+                }
             );
             assert_eq!(evidence.active_adds[0].2, evidence.active_adds[1].2);
-            assert_eq!(evidence.active_locks, [(60348296, 1), (60348300, 2)]);
+            assert_eq!(
+                evidence.active_locks,
+                if slot == 0 {
+                    vec![(60403035, 1), (60403039, 2)]
+                } else {
+                    vec![
+                        (60348296, 1),
+                        (60348300, 2),
+                        (60355104, 3),
+                        (60355108, 4),
+                        (60355805, 5),
+                        (60355809, 6),
+                    ]
+                }
+            );
             let active = continents.maps[slot]
                 .cells
                 .active()
@@ -2220,7 +2276,7 @@ pub(super) fn continue_startup(
                 .next()
                 .unwrap();
             let object = active_objects.get(active).unwrap();
-            assert_eq!(object.database_guid, 27280);
+            assert_eq!(object.database_guid, if slot == 0 { 636 } else { 27280 });
             assert!(object.active && object.in_world);
             assert_eq!(object.source_allocation, None);
             assert!(completed_objects.contains(&active));
@@ -2231,64 +2287,39 @@ pub(super) fn continue_startup(
                     .grids()
                     .active_lock_count(object.current_cell.unwrap().grid)
                     .unwrap(),
-                2
+                if slot == 0 { 2 } else { 6 }
             );
         }
         println!("F6_EQUIPMENT_CONTINUATION map={slot} completed={completed} candidates={candidates} raw={} refusal={} current_equipment={:?}", random.cursor().raw, refusal.id, equipment_writes.get(&attempt.guid));
         if slot == 0 {
-            assert_eq!((attempt.guid, entry), (636, 14508));
-            let current = creature_entry.as_ref().unwrap();
-            // Catalog equipment14508/item2179 and pre-start-classicmangos.sql:166283,594763 independently specify these fields.
+            assert_eq!((attempt.guid, entry), (40520, 6491));
+            assert_eq!(refusal.id, active_init::CREATURE_NEXT_OWNER[slot]);
             assert_eq!(
-                (current.equipment, current.virtual_items),
-                (14508, [7420, 0, 0])
+                zone_lookups[&SpawnKey {
+                    kind: GridSpawnKind::Creature,
+                    guid: 636,
+                }],
+                [33, 1741]
             );
-            assert_eq!(current.virtual_item_info, [[0x0d010702, 3], [0, 0], [0, 0]]);
-            // Creature.cpp:439-441 takes IsSwimmable, returns false, then Create reaches GetZoneId at :914.
-            let template = creature_templates.get(14508).unwrap();
-            assert_ne!(template.words[17] & 2, 0);
-            assert_eq!(template.words[23] & 0x8000, 0);
-            assert_eq!(swimming_census.reached_441, 1);
-            assert_eq!(swimming_census.swimming_not_set, 1);
             assert_eq!(
-                current.movement_flags & benilla_sim::creature_capabilities::MOVEFLAG_SWIMMING,
-                0
+                evidence.wmo_area_hit.as_deref(),
+                Some("3200 42214d13 9 1 568 2860")
             );
-            assert!(lookups.contains(&"creature_init_entry_remainder"));
-            assert!(lookups.ends_with(&[
-                "creature_final_position_relocated_valid",
-                "creature_create_battleground"
-            ]));
-            assert_eq!((creature_battleground, creature_zone), (Some(false), None));
-            // Creature.cpp:914, Object.cpp:1229 and GridMap.cpp:1046,992 resolve the current position through WMOAreaTable.
-            assert_eq!(refusal.id, "execution.terrain.wmo_area_catalog_owner");
-            let pose = active_objects
-                .get(candidate)
-                .unwrap()
-                .pose
-                .unwrap()
-                .0
-                .map(f32::from_bits);
-            let go = first_go.as_ref().unwrap().candidate;
-            let go_pose = active_objects
-                .get(go)
-                .unwrap()
-                .pose
-                .unwrap()
-                .0
-                .map(f32::from_bits);
-            equipment::next_zone_owner(
-                catalog,
-                geometry,
+            assert!(geometry.wmo_area_lookups.contains(&(
                 0,
-                pose[..3].try_into().unwrap(),
-                go_pose[..3].try_into().unwrap(),
-            );
+                [568, 1, 2860],
+                Some(geometry.dbc.areas[&1741].flag as u16),
+            )));
+            assert!(completed_objects.iter().any(|handle| active_objects
+                .get(*handle)
+                .unwrap()
+                .database_guid
+                == 636));
         }
         if slot == 1 {
             assert_eq!(
                 (attempt.guid, attempt.kind, entry),
-                (32019, GridSpawnKind::GameObject, 176768)
+                (28842, GridSpawnKind::Creature, 4726)
             );
             // Catalog equipment11596/item3368 and pre-start-classicmangos.sql:165687,595844 specify the completed creature's fields.
             let equipment = &equipment_writes[&27923];
@@ -2309,14 +2340,43 @@ pub(super) fn continue_startup(
                 .unwrap()
                 .database_guid
                 == 27923));
-            // GameObject.cpp:289 reaches GetZoneId after the non-battleground check.
-            assert!(lookups.ends_with(&[
-                "go_template",
-                "go_template",
-                "go_model",
-                "go_battleground"
-            ]));
-            assert_eq!(refusal.id, "execution.terrain.wmo_area_catalog_owner");
+            assert_eq!(refusal.id, active_init::CREATURE_NEXT_OWNER[slot]);
+            assert_eq!(
+                zone_lookups[&SpawnKey {
+                    kind: GridSpawnKind::GameObject,
+                    guid: 32019,
+                }],
+                [405, 2617]
+            );
+            assert_eq!(
+                evidence.wmo_area_hit.as_deref(),
+                Some("2471 4275d8f6 10245 0 1771 8359")
+            );
+            assert!(geometry
+                .wmo_area_lookups
+                .contains(&(1, [1771, 0, 8359], None)));
+            assert!(completed_objects.iter().any(|handle| active_objects
+                .get(*handle)
+                .unwrap()
+                .database_guid
+                == 32019));
+            let current = creature_entry.as_ref().unwrap();
+            assert_eq!(current.motion_state.unwrap() & WANDER_ACTIVE, WANDER_ACTIVE);
+            let live = units.get(&active_objects, candidate).unwrap();
+            assert_eq!(live.state & WANDER_ACTIVE, WANDER_ACTIVE);
+            assert!(!live.has_ai);
+            assert!(active_objects.get(candidate).unwrap().in_world);
+            assert!(!lookups.ends_with(&["creature_motion_initialized"]));
+            let data = owner
+                .spawns
+                .complete_data(SpawnKey {
+                    kind: GridSpawnKind::Creature,
+                    guid: 28842,
+                })
+                .unwrap()
+                .unwrap();
+            // Recording60365891 fixes the waypoint type before MotionMaster.cpp:87.
+            assert_eq!(data.row.movement, 2);
             // Snapshot106020 and recording60349485 fix this IsSwimmable pose; recording60349570 returns no VMap liquid.
             let snake = owner
                 .spawns
@@ -2510,10 +2570,29 @@ pub(super) fn continue_startup(
         assert!(!queued[0].to_abort);
         assert_eq!(fields.motion_state, Some(WANDER_ACTIVE));
         assert!(!fields.can_aggro);
+        let idle_count = completed_objects
+            .iter()
+            .filter(|handle| {
+                let object = active_objects.get(**handle).unwrap();
+                object.kind == SourceObjectKind::Creature
+                    && owner
+                        .spawns
+                        .complete_data(SpawnKey {
+                            kind: GridSpawnKind::Creature,
+                            guid: object.database_guid,
+                        })
+                        .unwrap()
+                        .unwrap()
+                        .row
+                        .movement
+                        == 0
+            })
+            .count() as u64;
+        assert_eq!(idle_count, if slot == 0 { 10 } else { 4 });
         assert_eq!(
             geometry.pathfinder_constructor_completions,
-            // MotionMaster.cpp:79-81; snapshot105045/105460 gives GUID27280/27923 static Idle, without a PathFinder.
-            pathfinders_before + motion_initializations - 2 * u64::from(slot == 1)
+            // Creature.cpp:453 and MotionMaster.cpp:79-81 select static Idle without a PathFinder.
+            pathfinders_before + motion_initializations - idle_count
         );
         assert_eq!(
             active_objects.viewpoint_cell(candidate).unwrap(),
@@ -2594,19 +2673,29 @@ pub(super) fn continue_startup(
                     .iter()
                     .map(|handle| active_objects.get(*handle).unwrap().database_guid)
                     .collect::<Vec<_>>(),
-                [18, 22, 67, 8999, 1996, 2402, 1992, 1993, 2348, 1987]
+                // Recording60382119-60476945, constructor_loader_success.
+                [
+                    18, 22, 67, 8999, 1996, 2402, 1992, 1993, 2348, 1987, 636, 1989, 32843, 1240,
+                    1979, 1907, 1908, 1342, 1991, 1917, 1918, 1977, 1970, 1909, 1910, 1965, 1967,
+                    1990, 1983, 1335, 77576, 1904, 1905, 1985, 1975, 947, 1902, 7876, 1911, 1959,
+                    953, 8108, 191715, 4418, 1944, 1955, 758, 951, 1871, 2482, 922, 1867, 8043,
+                    920, 32086, 2259, 2500, 2490, 2123, 1713, 2253, 2270, 7337, 2391, 7514, 1978,
+                    1972, 1695, 2383, 2240, 2374, 1858, 1969, 1639, 2231, 2236, 1466, 1682, 35,
+                    529, 530, 531, 532, 533, 2247, 77294, 1679,
+                ]
             );
-            for handle in &completed_objects {
+            for (index, handle) in completed_objects.iter().enumerate() {
                 let object = active_objects.get(*handle).unwrap();
                 assert!(object.in_world);
-                assert_eq!(
-                    continents.maps[slot]
-                        .cells
-                        .registered_cell(*handle)
-                        .unwrap()
-                        .grid,
-                    attempt.grid
-                );
+                let grid = continents.maps[slot]
+                    .cells
+                    .registered_cell(*handle)
+                    .unwrap()
+                    .grid;
+                if index < 10 {
+                    assert_eq!(grid, attempt.grid);
+                }
+                assert_eq!(grid.map, continents.maps[slot].identity);
                 if object.kind == SourceObjectKind::GameObject {
                     assert!(!gameobjects.get(*handle).unwrap().has_ai);
                 } else {
@@ -2624,6 +2713,8 @@ pub(super) fn continue_startup(
                     27984, 28210, 30207, 28239, 28020, 28353, 28008, 27280,
                     // Recording60348453,60349187,60350793,60352132 precedes GO32019 at :60353621.
                     27923, 28501, 28014, 28837,
+                    // Recording60354549-60365868, constructor_loader_success.
+                    32019, 27279, 27281, 28857, 28819, 28007, 28043, 28863, 28101, 29038,
                 ]
             );
         }
@@ -2814,7 +2905,7 @@ pub(super) fn continue_startup(
             ))
         );
         assert_eq!(attempt.guid, if slot == 0 { 18 } else { 28044 });
-        assert_eq!(candidates, if slot == 0 { 11 } else { 24 });
+        assert_eq!(candidates, if slot == 0 { 89 } else { 34 });
         assert_eq!(entry, if slot == 0 { 3211 } else { 4692 });
         if slot == 0 {
             assert_eq!(init_entry_fields, None);
@@ -3095,7 +3186,7 @@ pub(super) fn continue_startup(
                 attempt.cell.y(),
             ))
         );
-        assert_eq!(completed, if slot == 0 { 10 } else { 23 });
+        assert_eq!(completed, if slot == 0 { 87 } else { 33 });
         println!(
             "F6_VISIBILITY map={slot} census={visibility:?} invalidated_camera_iterator_stock_reach={}",
             visibility.cameras
@@ -3117,7 +3208,7 @@ pub(super) fn continue_startup(
         assert!(!continents.maps[slot].spawn_updated);
         assert_eq!(
             random.cursor().raw,
-            after_pools_cursor + if slot == 0 { 47 } else { 148 }
+            after_pools_cursor + if slot == 0 { 513 } else { 217 }
         );
         matched_map_words[slot] = random.cursor().raw;
         assert_eq!(after_pools_cursor as usize, evidence.pool_raw_end.unwrap());
@@ -3188,7 +3279,7 @@ pub(super) fn continue_startup(
             evidence.pool_snapshot_line.unwrap(),
             encounters.by_map(slot as u32).len(),
             refusal.id,
-            if slot == 0 { "Creature.cpp:914" } else { "GameObject.cpp:289" },
+            if slot == 0 { "Creature.cpp:2343" } else { "MotionMaster.cpp:87" },
         );
         owner.states = states;
         let raw = trace

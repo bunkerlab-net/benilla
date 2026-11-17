@@ -190,25 +190,3 @@ pub(super) fn census(
     );
     println!("F6_EQUIPMENT_CENSUS event_override=none difficulty=normal template_branches={template_branches:?} fixed_entry_spawn_branches={spawn_branches:?} entry_chosen_at_load_equipment_path_unknown={before_equipment} distinct_catalog_candidate_templates={} fresh_constructor_can_wield_loot=0", candidates.len());
 }
-pub(super) fn next_zone_owner(
-    catalog: &mut VerifiedCatalog,
-    geometry: &SourceTerrainManager,
-    map: u32,
-    creature_pose: [f32; 3],
-    go_pose: [f32; 3],
-) {
-    let hit = geometry
-        .vmap
-        .area_info(map, creature_pose)
-        .unwrap()
-        .unwrap();
-    let go_hit = geometry.vmap.area_info(map, go_pose).unwrap();
-    let rows = catalog.execution_wmo_area_dbc("WMOAreaTable.dbc").unwrap();
-    let matching = rows
-        .iter()
-        .filter(|row| {
-            (row[1] as i32, row[2] as i32, row[3] as i32) == (hit.root, hit.adt, hit.group)
-        })
-        .collect::<Vec<_>>();
-    println!("F6_NEXT_WMO_OWNER diagnostic_only=true map={map} dbc_rows={} fields=[ID,rootId,adtId,groupId,flags,areaId] columns=[0,1,2,3,9,10] creature_pose={creature_pose:?} creature_hit={hit:?} first_go_pose={go_pose:?} first_go_hit={go_hit:?} matching_rows={matching:?} recorded_prefix_first_unbound_lookup=1", rows.len());
-}

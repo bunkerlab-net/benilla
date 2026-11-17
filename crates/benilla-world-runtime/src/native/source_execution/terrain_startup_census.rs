@@ -334,6 +334,8 @@ fn frozen_startup(later: bool) {
     let mut geometry =
         SourceTerrainManager::new(files, SourceTerrainDbc::catalog(&mut catalog).unwrap());
     geometry.liquid_dbc = SourceLiquidDbc::catalog(&mut catalog).unwrap();
+    // World.cpp:908 loads DBCStores.cpp:555-560 once, before terrain construction.
+    geometry.wmo_areas = vmap_scene::SourceWmoAreas::catalog(&mut catalog).unwrap();
     let narrowed = geometry
         .dbc
         .areas

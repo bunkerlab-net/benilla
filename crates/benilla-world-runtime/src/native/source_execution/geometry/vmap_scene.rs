@@ -156,6 +156,8 @@ mod tests {
             flags: 0,
         };
         assert_eq!(rows.flag(info, &areas, 0).unwrap(), Some(12));
+        assert_eq!(rows.flag(info, &areas, 1).unwrap(), Some(9));
+        assert_eq!(rows.flag(info, &areas, 7).unwrap(), None);
         for missing in [
             AreaInfo { root: 2, ..info },
             AreaInfo { adt: 3, ..info },
@@ -170,6 +172,135 @@ mod tests {
                 .id,
             "execution.terrain.wmo_area_catalog_owner"
         );
+    }
+    #[test]
+    fn wmo_index_keeps_last_physical_id_before_ascending_triple_selection() {
+        let row = SourceWmoAreaRow {
+            id: 9,
+            root: 568,
+            adt: 1,
+            group: 2860,
+            flags: 0,
+            area: 7,
+        };
+        let rows = SourceWmoAreas::from_rows([
+            row,
+            SourceWmoAreaRow { id: 2, ..row },
+            SourceWmoAreaRow { area: 8, ..row },
+        ]);
+        let indexed = &rows.rows.as_ref().unwrap()[&(568, 1, 2860)];
+        assert_eq!(
+            indexed.iter().map(|r| (r.id, r.area)).collect::<Vec<_>>(),
+            [(2, 7), (9, 8)]
+        );
+    }
+    #[test]
+    fn stock_wmo_catalog_indexes_every_effective_row_before_map_selection() {
+        let Some(root) = std::env::var_os("BENILLA_F2_CATALOG") else {
+            println!("SKIP WMO catalog census: bind BENILLA_F2_CATALOG");
+            return;
+        };
+        let mut catalog = super::super::super::production_compiler::VerifiedCatalog::open(
+            std::path::Path::new(&root),
+            false,
+        )
+        .unwrap();
+        let areas = SourceTerrainDbc::catalog(&mut catalog).unwrap();
+        let wmo = SourceWmoAreas::catalog(&mut catalog).unwrap();
+        let triples = wmo.rows.as_ref().unwrap();
+        let count = triples.values().map(Vec::len).sum::<usize>();
+        assert_eq!(count, 21115);
+        let duplicates = triples
+            .iter()
+            .filter(|(_, rows)| rows.len() > 1)
+            .map(|(key, rows)| {
+                (
+                    *key,
+                    rows.iter().map(|r| (r.id, r.area)).collect::<Vec<_>>(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(triples.len(), 21105);
+        assert_eq!(
+            duplicates,
+            [
+                ((556, 1, -1), vec![(32862, 0), (35968, 2958)]),
+                ((556, 1, 2480), vec![(32864, 0), (35970, 2958)]),
+                ((556, 1, 2481), vec![(32863, 0), (35969, 2958)]),
+                ((1490, 1, 7233), vec![(20981, 135), (35977, 135)]),
+                ((1490, 1, 7234), vec![(20982, 135), (35978, 135)]),
+                ((1490, 1, 7235), vec![(20983, 135), (35979, 135)]),
+                ((1490, 1, 7236), vec![(20984, 135), (35980, 135)]),
+                ((1490, 1, 7237), vec![(20985, 135), (35981, 135)]),
+                ((1490, 1, 7238), vec![(20986, 135), (35982, 135)]),
+                ((1490, 1, 7239), vec![(20987, 135), (35983, 135)]),
+            ]
+        );
+        for (key, rows) in &duplicates {
+            let last = rows.last().unwrap();
+            let area = areas.areas[&last.1];
+            let info = AreaInfo {
+                floor: 0.0,
+                root: key.0,
+                adt: key.1,
+                group: key.2,
+                flags: 0,
+            };
+            assert_eq!(
+                wmo.flag(info, &areas.areas, area.map).unwrap(),
+                Some(area.flag as u16)
+            );
+            assert_eq!(triples[key].last().unwrap().id, last.0);
+            println!(
+                "F6_WMO_DUPLICATE triple={key:?} winner={} area={} map={}",
+                last.0, last.1, area.map
+            );
+        }
+        let absent_areas = triples
+            .values()
+            .flatten()
+            .filter(|row| !areas.areas.contains_key(&row.area))
+            .count();
+        let map_census = [0, 1].map(|map| {
+            triples
+                .values()
+                .flatten()
+                .filter(|row| areas.areas.get(&row.area).is_some_and(|a| a.map != map))
+                .count()
+        });
+        assert_eq!(absent_areas, 16000);
+        assert_eq!(map_census, [2563, 3559]);
+        assert_eq!((areas.areas[&1741].map, areas.areas[&1741].zone), (0, 33));
+        let john = &triples[&(568, 1, 2860)];
+        assert_eq!(
+            john.as_slice(),
+            [SourceWmoAreaRow {
+                id: 33409,
+                root: 568,
+                adt: 1,
+                group: 2860,
+                flags: 0,
+                area: 1741,
+            }]
+        );
+        assert_eq!((areas.areas[&2617].map, areas.areas[&2617].zone), (1, 405));
+        assert_eq!(
+            triples[&(1771, 0, 8359)].as_slice(),
+            [SourceWmoAreaRow {
+                id: 21876,
+                root: 1771,
+                adt: 0,
+                group: 8359,
+                flags: 0,
+                area: 0,
+            }]
+        );
+        println!(
+            "F6_WMO_STOVE triple=[1771,0,8359] rows={:?}",
+            triples[&(1771, 0, 8359)]
+        );
+        println!("F6_WMO_CENSUS rows={count} triples={} duplicate_triples={duplicates:?} absent_areas={absent_areas} wrong_map_rows={map_census:?}",
+            triples.len());
     }
     #[test]
     fn terrain_hides_area_only_between_input_plus_two_and_floor() {
