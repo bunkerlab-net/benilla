@@ -6,7 +6,7 @@ use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: [&str; 2] = [
     "execution.terrain.wmo_area_catalog_owner",
-    "execution.creature.loaded_equipment_template_owner",
+    "execution.terrain.wmo_area_catalog_owner",
 ];
 #[path = "seal16_active_clocks.rs"]
 mod clocks;
@@ -78,6 +78,7 @@ pub(super) struct Prefix<'a> {
     pub gameobjects: SourceGameObjects,
     pub creature_model: Option<[u32; 8]>,
     pub creature_entry: Option<creature_entry::EntryFields>,
+    pub equipment_writes: BTreeMap<u32, SourceCreatureEquipment>,
     pub level_definitions: &'a CreatureLevelDefinitions,
     pub level_config: &'a CreatureLevelConfig,
     pub encounters: &'a LoadedInstanceEncounters,
@@ -148,6 +149,11 @@ impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManag
             }
             return Ok(outcome);
         }
+        // Creature.cpp:898-930 and :880-895 diagnostics belong to this candidate.
+        self.creature_battleground = None;
+        self.creature_zone = None;
+        self.creature_linking_trigger = false;
+        self.selected_ai = None;
         // Creature.cpp:136 and :1603-1658. No selected model, stats or AI is supplied before this lookup.
         let object = context
             .objects
@@ -401,6 +407,7 @@ pub(super) struct ActivePrefixReport {
     pub creature_model: Option<[u32; 8]>,
     pub gameobjects: SourceGameObjects,
     pub creature_entry: Option<creature_entry::EntryFields>,
+    pub equipment_writes: BTreeMap<u32, SourceCreatureEquipment>,
     pub swimming_census: SourceCreatureSwimmingCensus,
     pub completed: usize,
     pub go_battleground: Option<bool>,
@@ -523,6 +530,7 @@ pub(super) fn load_first(
         gameobjects: SourceGameObjects::default(),
         creature_model: None,
         creature_entry: None,
+        equipment_writes: BTreeMap::new(),
         level_definitions,
         level_config,
         encounters,
@@ -666,6 +674,7 @@ pub(super) fn load_first(
         creature_model: factory.creature_model,
         gameobjects: factory.gameobjects,
         creature_entry: factory.creature_entry,
+        equipment_writes: factory.equipment_writes,
         swimming_census: factory.swimming_census,
         completed: factory.completed,
         go_battleground: factory.go_battleground,

@@ -96,6 +96,20 @@ is meaningful without a bounded content/mechanics inventory.
   The separate `scripts/classic-export.py` now offers a fake-driver-tested native
   SQL projection, schema probe and blocker report, with no real DB connectivity
   verification or native-to-runtime compiler. Its output is explicitly non-runnable.
+- **Loaded equipment.** The source-execution owner ports
+  `ObjectMgr.cpp:1561-1603,4057` and `Creature.cpp:388-429,1771-1790,2747-2770`.
+  Seal16 matches three equipment SQL statements and all 5,318 rows, with zero
+  row skips, missing-item references, slot corrections, or item metadata fixups.
+  Cold template branches have 5,086 zero and 5,298 nonzero equipment IDs.
+  Fixed-entry spawns have 39,770 zero-template, 25,911 nonzero-template, and
+  21 spawn-override branches; event overrides and explicit zero-spawn overrides
+  have zero reach. Another 734 spawns choose their entry at load time from
+  104 catalog candidate templates, so their equipment paths remain unknown.
+  Fresh constructor settings leave `CAN_WIELD_LOOT` clear; its true branch
+  refuses at `Creature.cpp:405`, `PrepareBodyLootState`.
+  The recorded prefixes complete 10 objects on map 0 and 23 on map 1, then
+  refuse `execution.terrain.wmo_area_catalog_owner` at the zone lookups in
+  `Creature.cpp:914` and `GameObject.cpp:289`.
 - **Dependencies:** native schema/version inspection; local data access and
   provenance; DBC lookups; creature class/level stats; game objects; conditions;
   pools/events/spawn groups; map/instance identity and lifecycle. Native source

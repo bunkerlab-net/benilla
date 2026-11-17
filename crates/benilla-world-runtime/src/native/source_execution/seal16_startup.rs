@@ -219,6 +219,7 @@ impl Inputs {
         addons
     }
     pub(super) fn observe_thread(&mut self, thread: u64, line: u64, kind: &str, p: &[&str]) {
+        self.equipment.observe_map(thread, line, kind, p);
         if thread == 1
             && kind == "sql_request_bytes"
             && unhex(p.last().unwrap()) == CORPSE_LOAD_QUERY.as_bytes()
@@ -2139,6 +2140,7 @@ pub(super) fn continue_startup(
             mut creature_display_chance,
             mut creature_model,
             mut creature_entry,
+            equipment_writes,
             swimming_census,
             gameobjects,
             completed,
@@ -2232,7 +2234,7 @@ pub(super) fn continue_startup(
                 2
             );
         }
-        println!("F6_EQUIPMENT_CONTINUATION map={slot} completed={completed} candidates={candidates} raw={} refusal={} current_equipment={:?}", random.cursor().raw, refusal.id, creature_entry.as_ref().map(|fields| (fields.equipment, fields.virtual_items, fields.virtual_item_info)));
+        println!("F6_EQUIPMENT_CONTINUATION map={slot} completed={completed} candidates={candidates} raw={} refusal={} current_equipment={:?}", random.cursor().raw, refusal.id, equipment_writes.get(&attempt.guid));
         if slot == 0 {
             assert_eq!((attempt.guid, entry), (636, 14508));
             let current = creature_entry.as_ref().unwrap();
@@ -2282,6 +2284,77 @@ pub(super) fn continue_startup(
                 pose[..3].try_into().unwrap(),
                 go_pose[..3].try_into().unwrap(),
             );
+        }
+        if slot == 1 {
+            assert_eq!(
+                (attempt.guid, attempt.kind, entry),
+                (32019, GridSpawnKind::GameObject, 176768)
+            );
+            // Catalog equipment11596/item3368 and pre-start-classicmangos.sql:165687,595844 specify the completed creature's fields.
+            let equipment = &equipment_writes[&27923];
+            assert_eq!(equipment.id, 11596);
+            assert_eq!(
+                equipment.slots,
+                [
+                    SourceVirtualItem {
+                        display: 7459,
+                        info: [0x0d020e02, 2]
+                    },
+                    SourceVirtualItem::default(),
+                    SourceVirtualItem::default(),
+                ]
+            );
+            assert!(completed_objects.iter().any(|handle| active_objects
+                .get(*handle)
+                .unwrap()
+                .database_guid
+                == 27923));
+            // GameObject.cpp:289 reaches GetZoneId after the non-battleground check.
+            assert!(lookups.ends_with(&[
+                "go_template",
+                "go_template",
+                "go_model",
+                "go_battleground"
+            ]));
+            assert_eq!(refusal.id, "execution.terrain.wmo_area_catalog_owner");
+            // Snapshot106020 and recording60349485 fix this IsSwimmable pose; recording60349570 returns no VMap liquid.
+            let snake = owner
+                .spawns
+                .complete_data(SpawnKey {
+                    kind: GridSpawnKind::Creature,
+                    guid: 28501,
+                })
+                .unwrap()
+                .unwrap();
+            assert_eq!(&snake.row.pose[..3], &[-1409.87, 1547.21, 60.7043]);
+            let cell = benilla_native_terrain::grid_height::coordinates(
+                snake.row.pose[0],
+                snake.row.pose[1],
+            )
+            .unwrap()
+            .1;
+            assert_eq!(cell, [82, 12]);
+            let frozen = recording
+                .ancestors()
+                .find(|path| path.ends_with("benilla-config/full-server/f1"))
+                .unwrap();
+            let bytes = std::fs::read(frozen.join("products/maps/0013429.map")).unwrap();
+            assert_eq!(
+                Sha256Id::of(&bytes),
+                Sha256Id::parse("f0a132e3818e263a2b8faa6e0941f214123facef75e5ee4be9c696b1bb4deb7a")
+                    .unwrap()
+            );
+            let liquid_offset = u32::from_le_bytes(bytes[24..28].try_into().unwrap()) as usize;
+            assert_eq!(liquid_offset, 66626);
+            assert_eq!(&bytes[liquid_offset..liquid_offset + 4], b"MLIQ");
+            assert_eq!(
+                &bytes[liquid_offset + 8..liquid_offset + 12],
+                &[7, 109, 14, 14]
+            );
+            let liquid = &geometry.terrain(1).unwrap().grid(34, 29).unwrap().liquid;
+            assert_eq!((liquid.offset, liquid.size), ([7, 109], [14, 14]));
+            // GridMap.cpp:598-600 returns NO_WATER because 82 - 109 is negative.
+            assert!(cell[0] < usize::from(liquid.offset[1]));
         }
         let completed_marks = lookups
             .iter()
@@ -2439,8 +2512,8 @@ pub(super) fn continue_startup(
         assert!(!fields.can_aggro);
         assert_eq!(
             geometry.pathfinder_constructor_completions,
-            // GUID27280 uses static Idle without a PathFinder; MotionMaster.cpp:79-81.
-            pathfinders_before + motion_initializations - u64::from(slot == 1)
+            // MotionMaster.cpp:79-81; snapshot105045/105460 gives GUID27280/27923 static Idle, without a PathFinder.
+            pathfinders_before + motion_initializations - 2 * u64::from(slot == 1)
         );
         assert_eq!(
             active_objects.viewpoint_cell(candidate).unwrap(),
@@ -2549,6 +2622,8 @@ pub(super) fn continue_startup(
                 [
                     28044, 28249, 87282, 27655, 28005, 28828, 29163, 28064, 29147, 6253, 28201,
                     27984, 28210, 30207, 28239, 28020, 28353, 28008, 27280,
+                    // Recording60348453,60349187,60350793,60352132 precedes GO32019 at :60353621.
+                    27923, 28501, 28014, 28837,
                 ]
             );
         }
@@ -2739,7 +2814,7 @@ pub(super) fn continue_startup(
             ))
         );
         assert_eq!(attempt.guid, if slot == 0 { 18 } else { 28044 });
-        assert_eq!(candidates, if slot == 0 { 11 } else { 20 });
+        assert_eq!(candidates, if slot == 0 { 11 } else { 24 });
         assert_eq!(entry, if slot == 0 { 3211 } else { 4692 });
         if slot == 0 {
             assert_eq!(init_entry_fields, None);
@@ -2852,12 +2927,12 @@ pub(super) fn continue_startup(
             assert_eq!(entry, 4692);
             assert_eq!((template.words[17], template.words[23]), (1, 0));
             assert_eq!(template.words[17] & 2, 0, "Creature.cpp:439 short-circuits");
-            // Creature.cpp:439-444 is counted across the entire reached map1 prefix.
+            // Creature.cpp:439-444 also runs for GUID28501/entry2914, recording60349187/60349235 and snapshot423578.
             assert_eq!(
                 swimming_census,
                 SourceCreatureSwimmingCensus {
-                    reached_441: 1,
-                    swimming_not_set: 1,
+                    reached_441: 2,
+                    swimming_not_set: 2,
                     ..SourceCreatureSwimmingCensus::default()
                 }
             );
@@ -3020,7 +3095,7 @@ pub(super) fn continue_startup(
                 attempt.cell.y(),
             ))
         );
-        assert_eq!(completed, if slot == 0 { 10 } else { 19 });
+        assert_eq!(completed, if slot == 0 { 10 } else { 23 });
         println!(
             "F6_VISIBILITY map={slot} census={visibility:?} invalidated_camera_iterator_stock_reach={}",
             visibility.cameras
@@ -3042,7 +3117,7 @@ pub(super) fn continue_startup(
         assert!(!continents.maps[slot].spawn_updated);
         assert_eq!(
             random.cursor().raw,
-            after_pools_cursor + if slot == 0 { 47 } else { 122 }
+            after_pools_cursor + if slot == 0 { 47 } else { 148 }
         );
         matched_map_words[slot] = random.cursor().raw;
         assert_eq!(after_pools_cursor as usize, evidence.pool_raw_end.unwrap());
@@ -3101,7 +3176,7 @@ pub(super) fn continue_startup(
             expected
         );
         println!(
-            "F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={} next_owner={} next_source=Creature.cpp:401",
+            "F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={} next_owner={} next_source={}",
             matched_map_words[slot],
             evidence
                 .pool_members
@@ -3113,6 +3188,7 @@ pub(super) fn continue_startup(
             evidence.pool_snapshot_line.unwrap(),
             encounters.by_map(slot as u32).len(),
             refusal.id,
+            if slot == 0 { "Creature.cpp:914" } else { "GameObject.cpp:289" },
         );
         owner.states = states;
         let raw = trace
@@ -3231,7 +3307,7 @@ pub(super) fn continue_startup(
             .count();
         assert!(results > 0);
         println!(
-            "F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} matched_map_thread_words={matched_map_words:?} matched_map_sql=4 matched_script_names_sql=1 matched_template_sql=6 matched_creature_model_sql=3 matched_creature_immunity_sql=1 matched_creature_spell_list_sql=5 matched_spawn_data_sql=2 matched_graveyard_sql=1 matched_encounter_sql=4 matched_group_sql=6 pool_results={results} event_initialization_reached=false next_owner_map0={} next_owner_map1={} next_raw={} next_word={} clone_next_word_checked=true",
+            "F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} matched_map_thread_words={matched_map_words:?} matched_map_sql=4 matched_script_names_sql=1 matched_template_sql=6 matched_creature_model_sql=3 matched_equipment_sql=3 matched_creature_immunity_sql=1 matched_creature_spell_list_sql=5 matched_spawn_data_sql=2 matched_graveyard_sql=1 matched_encounter_sql=4 matched_group_sql=6 pool_results={results} event_initialization_reached=false next_owner_map0={} next_owner_map1={} next_raw={} next_word={} clone_next_word_checked=true",
             owner.cursor.raw,
             refusal.id,
             active_init::CREATURE_NEXT_OWNER[1],

@@ -211,6 +211,7 @@ pub(super) fn continue_entry(
     fields.equipment = equipment.id;
     fields.virtual_items = equipment.slots.map(|slot| slot.display);
     fields.virtual_item_info = equipment.slots.map(|slot| slot.info);
+    prefix.equipment_writes.insert(data.row.guid, equipment);
     if let Err(error) = result {
         prefix.creature_entry = Some(fields);
         return Err(error);

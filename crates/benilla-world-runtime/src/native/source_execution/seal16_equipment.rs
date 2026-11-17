@@ -10,8 +10,18 @@ pub(super) struct Evidence {
     last_word: u64,
     before: Option<u64>,
     after: Option<u64>,
+    snake_liquid: [Option<String>; 2],
 }
 impl Evidence {
+    pub(super) fn observe_map(&mut self, thread: u64, line: u64, kind: &str, p: &[&str]) {
+        let index = match (line, kind) {
+            (60349485, "vmap_liquid") => 0,
+            (60349570, "geometry_result") => 1,
+            _ => return,
+        };
+        assert_eq!(thread, 7);
+        assert!(self.snake_liquid[index].replace(p.join(" ")).is_none());
+    }
     pub(super) fn observe(&mut self, line: u64, kind: &str, p: &[&str], raw: u64) {
         if kind == "sql_query" {
             let query = unhex(p.last().unwrap());
@@ -43,6 +53,14 @@ impl Evidence {
         }
     }
     pub(super) fn load(self, catalog: &mut VerifiedCatalog) -> LoadedEquipmentTemplates {
+        // Recording60349485/60349570 independently fixes GUID28501's VMap query and false result.
+        assert_eq!(
+            self.snake_liquid.map(|line| line.unwrap()),
+            [
+                "1 -0x1.6077aep+10 0x1.82cd7p+10 0x1.e5a268p+5 15",
+                "2385 integer 1 0"
+            ],
+        );
         assert_eq!(
             self.queries.iter().map(|q| q.1).collect::<Vec<_>>(),
             [0, 1, 2]
