@@ -190,9 +190,16 @@ is meaningful without a bounded content/mechanics inventory.
 - **Source execution cast query:** `Unit::IsNonMeleeSpellCasted`,
   `Unit.cpp:4343-4381`, reads the live current-spell slots without persistence.
   Nonempty generic/channel slots require a live Spell identity owner.
-  The seal16 map-1 waypoint continuation reaches `PathFinder.cpp:86`,
-  where the startup passenger owner is absent. Authored branch tests do not
-  establish live nonempty-slot coverage or a launched waypoint spline.
+  Startup WorldObjects retain constructor-proven null transport attachments,
+  `Object.cpp:1170` and `Object.h:1129`, in live continent passenger owners.
+  Constructor-only bindings refuse full movement reads until an owner supplies
+  the remaining operands. Authored cast-query tests do not establish live
+  nonempty-slot coverage.
+  Map 1 GUID28842 completes both recorded `PathFinder::calculate` calls and
+  launches its waypoint spline before the unported recipient read at
+  `Unit.cpp:11216`. Its thread-local spline counter starts at one,
+  `MoveSplineInit.cpp:27,102`, and refuses an unproven execution thread.
+  Passenger and spline owners add no saved state.
 - **Current fork:** `benilla-app/src/net/p2p.rs` relays avatar poses, jump fields
   and chat with finite/bounded-value checks. It explicitly rejects transport
   movement in the inspected bridge. This is not replicated authoritative player

@@ -46,7 +46,7 @@ impl MotionContext<'_> {
         start: [f32; 3],
         passengers: &SourcePassengers,
     ) -> Result<()> {
-        if let Some(transport) = passengers.movement(unit)?.transport {
+        if let Some(transport) = passengers.transport(unit)? {
             let pose = self.objects.pose(transport)?;
             benilla_sim::source_transports::passenger_position_xyz(start.map(f32::to_bits), pose.0)
                 .map_err(|_| refuse("execution.waypoint.passenger_position_numeric_domain_358"))?;

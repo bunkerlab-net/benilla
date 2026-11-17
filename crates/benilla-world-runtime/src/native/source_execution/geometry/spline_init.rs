@@ -19,6 +19,13 @@ impl SourceSplineThread {
     pub fn new(thread: u64) -> Self {
         Self { thread, next: 1 }
     }
+    pub fn for_thread(&mut self, thread: u64) -> Result<&mut Self> {
+        require(
+            self.thread == thread,
+            "execution.spline.execution_thread_owner_102",
+        )?;
+        Ok(self)
+    }
     /// MoveSplineInit.cpp:27,102,152. uint32 wraps, including through zero.
     pub fn take_id(&mut self) -> u32 {
         let id = self.next;
@@ -156,7 +163,7 @@ impl SourceMoveSplineInit {
         context: &MotionContext<'_>,
         owner: &(impl MotionExecutionOwner + ?Sized),
     ) -> Result<([u32; 4], Option<ObjectHandle>)> {
-        let transport = owner.pathfinder_passengers()?.movement(unit)?.transport;
+        let transport = owner.pathfinder_passengers()?.transport(unit)?;
         let mut pose = context.objects.pose(unit)?.0;
         if let Some(transport) = transport {
             pose = benilla_sim::source_transports::passenger_offset(

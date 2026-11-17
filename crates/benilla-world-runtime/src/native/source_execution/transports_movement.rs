@@ -485,7 +485,7 @@ impl SourceMoTransports {
             )?;
         }
         for player in players {
-            if self.passengers.movement(player)?.transport != Some(handle) {
+            if self.passengers.transport(player)? != Some(handle) {
                 owner.passenger_effect(
                     PassengerEffect::Visibility {
                         transport: handle,

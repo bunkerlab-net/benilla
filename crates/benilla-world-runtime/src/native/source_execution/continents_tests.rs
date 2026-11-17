@@ -101,6 +101,45 @@ fn constructors_create_both_world_maps_and_reuse_existing_terrain_without_draws(
 }
 
 #[test]
+fn continent_passengers_survive_candidate_construction_and_are_map_local() {
+    let mut terrain = SourceTerrainManager::default();
+    let (mut continents, _) = construct(&mut terrain, GuidMaximum::NoResult);
+    let mut objects = SourceObjects::default();
+    // MapManager.cpp:96-106 constructs map0 then map1 before loading candidates.
+    for slot in 0..2 {
+        assert_eq!(continents.maps[slot].identity.map, slot as u32);
+        let first = objects
+            .construct(slot as u64 + 1, SourceObjectKind::Creature)
+            .unwrap();
+        continents.maps[slot]
+            .passengers
+            .construct(first, &objects)
+            .unwrap();
+        for _ in 0..3 {
+            let next = objects
+                .construct(slot as u64 + 1, SourceObjectKind::Creature)
+                .unwrap();
+            continents.maps[slot]
+                .passengers
+                .construct(next, &objects)
+                .unwrap();
+            assert_eq!(
+                continents.maps[slot].passengers.transport(first).unwrap(),
+                None
+            );
+        }
+        assert_eq!(
+            continents.maps[1 - slot]
+                .passengers
+                .transport(first)
+                .unwrap_err()
+                .id,
+            "execution.transport.world_object_transport_unbound"
+        );
+    }
+}
+
+#[test]
 fn independent_preludes_accept_either_order_and_seed_counters_before_addref() {
     let cfg = ContinentConfig::parse(&config("120", "1", 300000)).unwrap();
     for order in [[0, 1], [1, 0]] {

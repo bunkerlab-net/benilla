@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1 Transports.cpp:206-347,498-618; GPL-3.0-or-later.
+//! Constructor-only attachments answer Object.h:1129 without inventing MovementInfo
+//! or pet operands. Full movement reads require a later explicit owner binding.
 use super::*;
 use benilla_sim::source_transports::{passenger_offset, passenger_position};
 use std::collections::BTreeMap;
@@ -112,9 +114,15 @@ impl PassengerEffect {
 pub struct TransportTransfer {
     pub transport: ObjectHandle,
 }
+#[derive(Debug)]
+enum PassengerState {
+    // Object.cpp:1170 initializes only m_transport among the operands owned here.
+    Constructed,
+    Movement(PassengerMovement),
+}
 #[derive(Default, Debug)]
 pub struct SourcePassengers {
-    units: BTreeMap<ObjectHandle, PassengerMovement>,
+    units: BTreeMap<ObjectHandle, PassengerState>,
     sets: BTreeMap<ObjectHandle, BTreeMap<u64, ObjectHandle>>,
     next: BTreeMap<ObjectHandle, Option<u64>>,
 }
@@ -136,6 +144,9 @@ impl SourcePassengers {
         }
         for (&unit, state) in &self.units {
             objects.get(unit)?;
+            let PassengerState::Movement(state) = state else {
+                continue;
+            };
             if let Some(transport) = state.transport {
                 require(
                     self.members(transport).any(|member| member == unit),
@@ -147,6 +158,24 @@ impl SourcePassengers {
             }
         }
         Ok(())
+    }
+    /// WorldObject::WorldObject, Object.cpp:1169-1174.
+    pub fn construct(&mut self, handle: ObjectHandle, objects: &SourceObjects) -> Result<()> {
+        objects.get(handle)?;
+        require(
+            !self.units.contains_key(&handle),
+            "execution.transport.passenger_state_already_bound",
+        )?;
+        self.units.insert(handle, PassengerState::Constructed);
+        Ok(())
+    }
+    /// Object.h:1129 reads m_transport without reading MovementInfo or pet state.
+    pub fn transport(&self, handle: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        match self.units.get(&handle) {
+            Some(PassengerState::Constructed) => Ok(None),
+            Some(PassengerState::Movement(state)) => Ok(state.transport),
+            None => Err(refuse("execution.transport.world_object_transport_unbound")),
+        }
     }
     /// Bind actual Unit movement/pet state, never observations of boarding outcomes.
     pub fn bind_unit(
@@ -163,22 +192,30 @@ impl SourcePassengers {
             "execution.transport.passenger_unit",
         )?;
         require(
-            !self.units.contains_key(&handle),
+            !matches!(self.units.get(&handle), Some(PassengerState::Movement(_))),
             "execution.transport.passenger_state_already_bound",
         )?;
-        self.units.insert(handle, state);
+        self.units.insert(handle, PassengerState::Movement(state));
         Ok(())
     }
     pub fn movement(&self, handle: ObjectHandle) -> Result<&PassengerMovement> {
-        self.units
-            .get(&handle)
-            .ok_or_else(|| refuse("execution.transport.f5_unit_movement_owner"))
+        match self.units.get(&handle) {
+            Some(PassengerState::Movement(state)) => Ok(state),
+            Some(PassengerState::Constructed) => {
+                Err(refuse("execution.transport.constructor_movement_unowned"))
+            }
+            None => Err(refuse("execution.transport.f5_unit_movement_owner")),
+        }
     }
     /// The Unit/player/pet handlers share this movement state with transport calls.
     pub fn movement_mut(&mut self, handle: ObjectHandle) -> Result<&mut PassengerMovement> {
-        self.units
-            .get_mut(&handle)
-            .ok_or_else(|| refuse("execution.transport.f5_unit_movement_owner"))
+        match self.units.get_mut(&handle) {
+            Some(PassengerState::Movement(state)) => Ok(state),
+            Some(PassengerState::Constructed) => {
+                Err(refuse("execution.transport.constructor_movement_unowned"))
+            }
+            None => Err(refuse("execution.transport.f5_unit_movement_owner")),
+        }
     }
     pub fn members(&self, transport: ObjectHandle) -> impl Iterator<Item = ObjectHandle> + '_ {
         self.sets
@@ -212,7 +249,7 @@ impl SourcePassengers {
             .entry(transport.handle)
             .or_default()
             .insert(pointer, passenger);
-        let state = self.units.get_mut(&passenger).unwrap();
+        let state = self.movement_mut(passenger)?;
         state.transport = Some(transport.handle);
         state.on_transport = true;
         let changed = state.guid != transport.guid;
@@ -228,7 +265,7 @@ impl SourcePassengers {
         for pet in pets.into_iter().flatten() {
             self.add(transport, pet, true, objects, owner)?;
             let offset = self.movement(passenger)?.offset;
-            let state = self.units.get_mut(&pet).unwrap();
+            let state = self.movement_mut(pet)?;
             state.guid = transport.guid;
             state.offset = offset;
             state.time = transport.progress;
@@ -269,10 +306,7 @@ impl SourcePassengers {
             );
         }
         set.remove(&pointer);
-        let state = self
-            .units
-            .get_mut(&passenger)
-            .ok_or_else(|| refuse("execution.transport.f5_unit_movement_owner"))?;
+        let state = self.movement_mut(passenger)?;
         state.transport = None;
         state.guid = 0;
         state.time = 0;
@@ -416,10 +450,10 @@ impl SourcePassengers {
                 let player = object.kind == SourceObjectKind::Player;
                 objects.set_pose(h, pose)?;
                 if player {
-                    self.units.get_mut(&h).unwrap().guid = transport.guid;
+                    self.movement_mut(h)?.guid = transport.guid;
                 }
             }
-            self.units.get_mut(&h).unwrap().time = transport.progress;
+            self.movement_mut(h)?.time = transport.progress;
         }
         Ok(())
     }

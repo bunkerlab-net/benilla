@@ -5,6 +5,13 @@ use std::sync::Arc;
 impl<D: GridDefinitions<Row = SpawnKey>> GameObjectFactoryOwner<D, SourceTerrainManager>
     for Prefix<'_>
 {
+    fn gameobject_constructed(
+        &mut self,
+        handle: ObjectHandle,
+        objects: &SourceObjects,
+    ) -> Result<()> {
+        self.passengers.construct(handle, objects)
+    }
     fn gameobjects(&mut self) -> &mut SourceGameObjects {
         &mut self.gameobjects
     }

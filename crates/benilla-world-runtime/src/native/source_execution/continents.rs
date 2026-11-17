@@ -118,6 +118,8 @@ pub struct SourceContinent {
     pub visibility: f32,
     pub cells: SourceCells,
     pub linking: SourceCreatureLinkingHolder,
+    /// Live WorldObject::m_transport bindings, initialized by Object.cpp:1170.
+    pub passengers: SourcePassengers,
     pub weather: SourceMapWeather,
     pub guids: Option<MapGuidAllocators>,
     pub persistent: Option<PersistentStateIdentity>,
@@ -337,6 +339,7 @@ impl SourceContinents {
                 visibility: 100.0, // ObjectDefines.h:32-38; Map.cpp:158.
                 cells: SourceCells::new(identity)?,
                 linking: SourceCreatureLinkingHolder::new(identity)?,
+                passengers: SourcePassengers::default(),
                 weather: SourceMapWeather::new(
                     identity,
                     config.weather_enabled,

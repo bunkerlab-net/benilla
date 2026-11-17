@@ -6,7 +6,7 @@ use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: [&str; 2] = [
     "execution.spells.f5_10_Spell_cast_owner",
-    "execution.pathfinder.transport_owner",
+    "execution.spline.client_guids_i_am_at_owner_11216",
 ];
 #[path = "seal16_active_clocks.rs"]
 mod clocks;
@@ -76,6 +76,7 @@ pub(super) struct Prefix<'a> {
     pub creature_linking_trigger: bool,
     pub instance_data: Option<&'a mut SourceWorldScript>,
     pub random: &'a mut dyn CreatureRandom,
+    pub spline_thread: &'a mut SourceSplineThread,
     pub dynamic_models: &'a mut SourceDynamicModels,
     pub dynamic_map: SourceDynamicMap,
     pub trig_dispatch: benilla_sim::source_trig_fma::DispatchBinding,
@@ -94,6 +95,7 @@ pub(super) struct Prefix<'a> {
     pub ai_config: &'a EventAiLoaderConfig,
     pub event_definitions: std::sync::Arc<EventAiDefinitions>,
     pub units: SourceUnits,
+    pub passengers: &'a mut SourcePassengers,
     pub ais: SourceCreatureAis,
     pub threats: SourceThreats,
     pub combat: SourceCombat,
@@ -162,6 +164,7 @@ impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManag
         let object = context
             .objects
             .construct(self.thread, SourceObjectKind::Creature)?;
+        self.passengers.construct(object, context.objects)?;
         self.candidates.push(object);
         self.motions.insert(
             object,
@@ -448,6 +451,7 @@ pub(super) fn load_first(
     creature_immunities: &LoadedCreatureImmunities,
     collision_models: &SourceCollisionModels,
     random: &mut dyn CreatureRandom,
+    spline_thread: &mut SourceSplineThread,
     dynamic_models: &mut SourceDynamicModels,
     trig_dispatch: benilla_sim::source_trig_fma::DispatchBinding,
     level_definitions: &CreatureLevelDefinitions,
@@ -534,6 +538,7 @@ pub(super) fn load_first(
         creature_linking_trigger: false, // Unit.cpp:419.
         instance_data: map.instance_data.as_mut(),
         random,
+        spline_thread,
         dynamic_models,
         dynamic_map: SourceDynamicMap::new(map.identity),
         trig_dispatch,
@@ -551,6 +556,7 @@ pub(super) fn load_first(
         ai_config,
         event_definitions,
         units: SourceUnits::default(),
+        passengers: &mut map.passengers,
         ais: SourceCreatureAis::default(),
         threats: SourceThreats::default(),
         combat: SourceCombat::default(),

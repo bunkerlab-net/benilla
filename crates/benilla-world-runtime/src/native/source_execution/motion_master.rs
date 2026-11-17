@@ -122,9 +122,9 @@ pub trait MotionExecutionOwner {
         context: &MotionContext<'_>,
         unit: ObjectHandle,
     ) -> Result<[f32; 3]> {
-        let movement = self.pathfinder_passengers()?.movement(unit)?;
-        let pose = if movement.transport.is_some() {
-            movement.offset
+        let passengers = self.pathfinder_passengers()?;
+        let pose = if passengers.transport(unit)?.is_some() {
+            passengers.movement(unit)?.offset
         } else {
             context.objects.pose(unit)?
         };
@@ -140,8 +140,7 @@ pub trait MotionExecutionOwner {
     ) -> Result<bool> {
         let attachment = self
             .pathfinder_passengers()
-            .and_then(|passengers| passengers.movement(path.unit).map(|state| state.transport))
-            .map_err(|_| refuse("execution.pathfinder.transport_owner"));
+            .and_then(|passengers| passengers.transport(path.unit));
         path.calculate(
             self.pathfinder_geometry()?,
             context,

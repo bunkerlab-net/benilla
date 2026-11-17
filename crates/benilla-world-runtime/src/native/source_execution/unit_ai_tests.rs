@@ -821,6 +821,29 @@ fn help_predicate_uses_source_guid_high_not_the_object_kind() {
 }
 
 #[test]
+fn passenger_construction_does_not_change_serialized_unit_bytes() {
+    let (objects, units, ai) = setup(0);
+    let before = serde_json::to_vec(units.get(&objects, ai.unit).unwrap()).unwrap();
+    let world = crate::native::synthetic_fixture::world();
+    let world_before = world.checkpoint().unwrap().encode().unwrap();
+    let mut passengers = SourcePassengers::default();
+    passengers.construct(ai.unit, &objects).unwrap();
+    assert_eq!(passengers.transport(ai.unit).unwrap(), None);
+    assert_eq!(world.checkpoint().unwrap().encode().unwrap(), world_before);
+    assert_eq!(
+        serde_json::to_vec(units.get(&objects, ai.unit).unwrap()).unwrap(),
+        before
+    );
+    assert_eq!(
+        SourceManagers::default()
+            .require_durable_checkpoint()
+            .unwrap_err()
+            .id,
+        "execution.managers.f7_continuation_owner"
+    );
+}
+
+#[test]
 fn fresh_move_spline_is_done_inventory_only_and_cannot_restore_a_unit() {
     use benilla_sim::source_spline::Args;
     let (objects, mut units, ai) = setup(0);

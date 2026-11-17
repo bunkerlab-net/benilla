@@ -46,7 +46,7 @@ pub fn source_update_spline_position(
     let facing = |index: usize| {
         facing[index].ok_or_else(|| refuse("execution.spline.facing_union_read_undefined"))
     };
-    if let Some(transport) = owner.pathfinder_passengers()?.movement(unit)?.transport {
+    if let Some(transport) = owner.pathfinder_passengers()?.transport(unit)? {
         owner.spline_transport_offset(unit, SourcePose(pose))?;
         pose = benilla_sim::source_transports::passenger_position(
             pose,

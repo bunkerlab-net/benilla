@@ -290,6 +290,16 @@ fn transport_launch_uses_local_frame_and_transport_guid() {
     );
 }
 #[test]
+fn spline_counter_refuses_an_unproven_execution_thread_before_consuming_an_id() {
+    let mut counter = SourceSplineThread::new(7);
+    assert_eq!(
+        counter.for_thread(8).unwrap_err().id,
+        "execution.spline.execution_thread_owner_102"
+    );
+    assert_eq!(counter.for_thread(7).unwrap().take_id(), 1);
+}
+
+#[test]
 fn thread_counters_are_shared_across_units_independent_across_threads_and_wrap() {
     let mut first = SourceSplineThread::new(7);
     let mut second = SourceSplineThread::new(8);

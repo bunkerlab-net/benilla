@@ -222,6 +222,11 @@ pub trait GameObjectFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     GridObjectFactory<D, P>
 {
     fn gameobjects(&mut self) -> &mut SourceGameObjects;
+    fn gameobject_constructed(
+        &mut self,
+        handle: ObjectHandle,
+        objects: &SourceObjects,
+    ) -> Result<()>;
     fn gameobject_guids(&mut self) -> &mut MapGuidAllocators;
     fn gameobject_spawn(
         &mut self,
@@ -553,6 +558,7 @@ where
         let trap = context
             .objects
             .construct(factory.gameobject_thread(), SourceObjectKind::GameObject)?;
+        factory.gameobject_constructed(trap, context.objects)?;
         let allocation = factory
             .gameobject_guids()
             .allocate(context.cells.map(), HighGuid::GameObject)?;
@@ -685,6 +691,7 @@ where
     let handle = context
         .objects
         .construct(factory.gameobject_thread(), SourceObjectKind::GameObject)?;
+    factory.gameobject_constructed(handle, context.objects)?;
     let requested = if let Some(guid) = requested_guid {
         guid
     } else if factory.gameobject_event_guid(spawn.database_guid)? {

@@ -112,6 +112,55 @@ fn unit(
     h
 }
 #[test]
+fn constructor_attachment_refuses_unowned_movement_until_real_binding() {
+    let mut objects = SourceObjects::default();
+    let unit = objects.construct(1, SourceObjectKind::Creature).unwrap();
+    let mut passengers = SourcePassengers::default();
+    assert_eq!(
+        passengers.transport(unit).unwrap_err().id,
+        "execution.transport.world_object_transport_unbound"
+    );
+    passengers.construct(unit, &objects).unwrap();
+    assert_eq!(passengers.transport(unit).unwrap(), None);
+    assert_eq!(
+        passengers.movement(unit).unwrap_err().id,
+        "execution.transport.constructor_movement_unowned"
+    );
+    assert_eq!(
+        passengers.movement_mut(unit).unwrap_err().id,
+        "execution.transport.constructor_movement_unowned"
+    );
+    assert_eq!(
+        passengers.construct(unit, &objects).unwrap_err().id,
+        "execution.transport.passenger_state_already_bound"
+    );
+    // Authored full operands become readable only after their real owner binds.
+    let movement = PassengerMovement {
+        transport: Some(unit),
+        guid: 17,
+        time: 19,
+        offset: SourcePose([1, 2, 3, 4]),
+        on_transport: true,
+        movement_pose: SourcePose([5, 6, 7, 8]),
+        ghost: false,
+        pet: None,
+        mini_pet: None,
+    };
+    passengers
+        .bind_unit(unit, movement.clone(), &objects)
+        .unwrap();
+    assert_eq!(passengers.transport(unit).unwrap(), Some(unit));
+    assert_eq!(passengers.movement(unit).unwrap(), &movement);
+    assert_eq!(
+        passengers
+            .bind_unit(unit, movement, &objects)
+            .unwrap_err()
+            .id,
+        "execution.transport.passenger_state_already_bound"
+    );
+}
+
+#[test]
 fn duplicate_boarding_does_not_touch_changed_unit_or_recurse() {
     // Transports.cpp:273-297 skips all mutations on duplicate membership.
     let (_, mut m, c, mut o, mut w, h) = setup();

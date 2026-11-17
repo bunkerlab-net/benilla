@@ -169,6 +169,13 @@ impl GridObjectFactory<Definitions, Products> for Factory {
     }
 }
 impl GameObjectFactoryOwner<Definitions, Products> for Factory {
+    fn gameobject_constructed(
+        &mut self,
+        handle: ObjectHandle,
+        objects: &SourceObjects,
+    ) -> Result<()> {
+        self.passengers.construct(handle, objects)
+    }
     fn gameobject_transport_animation(
         &mut self,
         entry: u32,

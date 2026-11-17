@@ -1945,6 +1945,8 @@ pub(super) fn continue_startup(
     );
     let continent_config = ContinentConfig::parse(&config).unwrap();
     let definitions = ContinentDefinitions::load(catalog, &inputs.maps, &config).unwrap();
+    // Map.h:201 reads the loaded Map.dbc entry for PathFinder.cpp:395.
+    geometry.bind_pathfinder_maps(catalog).unwrap();
     let temporary_starts = definitions.temporary_starts;
     let script_ids = &definitions.script_ids;
     let script_names = &definitions.script_names;
@@ -2026,6 +2028,8 @@ pub(super) fn continue_startup(
     {
         let evidence = &observed.map_threads[&thread];
         let stream = Mt19937::from_state(evidence.initial.clone().unwrap()).unwrap();
+        // MoveSplineInit.cpp:27 initializes this OS thread's counter beside its RNG.
+        let mut spline_thread = SourceSplineThread::new(thread);
         let mut cursor = DrawCursor::default();
         let mut trace = Vec::new();
         let mut sink = |event| trace.push(event);
@@ -2197,6 +2201,7 @@ pub(super) fn continue_startup(
         );
         let mut active_objects = SourceObjects::default();
         let pathfinders_before = geometry.pathfinder_constructor_completions;
+        let calculations_before = geometry.pathfinder_calculate_completions;
         let active_init::ActivePrefixReport {
             refusal,
             completed_objects,
@@ -2250,6 +2255,7 @@ pub(super) fn continue_startup(
             &creature_immunities,
             &collision_models,
             &mut random,
+            &mut spline_thread,
             &mut dynamic_models,
             trig_dispatch,
             &level_definitions,
@@ -2271,6 +2277,19 @@ pub(super) fn continue_startup(
             &config,
         )
         .unwrap();
+        for &handle in completed_objects.iter().chain(std::iter::once(&candidate)) {
+            assert_eq!(
+                continents.maps[slot].passengers.transport(handle).unwrap(),
+                None
+            );
+        }
+        // Recording60367004/60368544 are the first two map1 path calculations.
+        assert_eq!(
+            geometry.pathfinder_calculate_completions - calculations_before,
+            if slot == 0 { 0 } else { 2 },
+            "map={slot} next_owner={}",
+            refusal.id
+        );
         println!(
             "F6_NEXT_CANDIDATE map={slot} guid={} kind={:?} entry={entry} allocations={candidates} completed={completed} active_members={} refusal={} lookups={lookups:?}",
             attempt.guid, attempt.kind, continents.maps[slot].cells.active().len(), refusal.id
@@ -2516,9 +2535,24 @@ pub(super) fn continue_startup(
                 .spell_slots
                 .is_non_melee_spell_casted(&(), &addon_spells, false, false, true, true, false,)
                 .unwrap());
-            // Old -> new: :311 cast query -> PathFinder.cpp:86 GetTransport.
-            // :323 ran, :354-365 obtained the live pose and entered BuildIntPath.
+            // Old -> new: PathFinder.cpp:86 GetTransport -> Unit.cpp:11216 broadcast.
+            // Recording60367004/60368544 proves both BuildIntPath calls before launch.
             assert_eq!(live.state & WANDER_MOVING, WANDER_MOVING);
+            // The trace records no spline id here. MoveSplineInit.cpp:27,102
+            // establishes id1 for thread7's first launch; :104-117 commits before send.
+            assert!(live.movespline.initialized());
+            assert_eq!(live.movespline.id(), 1);
+            assert_eq!(
+                live.movement.as_ref().unwrap().flags.unwrap() & 0x0040_0101,
+                0x0040_0101
+            );
+            assert_eq!(live.spline_outbound.len(), 1);
+            assert_eq!(live.spline_outbound[0].unit, candidate);
+            assert_eq!(live.spline_outbound[0].transport, None);
+            // Path calculation and launch consume no RNG or SQL. The next word
+            // belongs to AI construction at recording60368585, after spline launch.
+            assert_eq!(random.cursor().raw, 12112);
+            assert_eq!(evidence.words[12112], (60368585, 12112, 257701202));
             assert_eq!(
                 lookups
                     .iter()
@@ -2789,10 +2823,9 @@ pub(super) fn continue_startup(
         assert_eq!(idle_count, if slot == 0 { 10 } else { 4 });
         assert_eq!(
             geometry.pathfinder_constructor_completions,
-            // Old -> new map1: +1, BuildIntPath constructs its PathFinder at
-            // WaypointMovementGenerator.cpp:264 after :323 sets ROAMING_MOVE.
+            // Recording60367004/60368544 executes two BuildIntPath calls, cpp:264.
             // Static Idle still constructs none, MotionMaster.cpp:79-81.
-            pathfinders_before + motion_initializations - idle_count + u64::from(slot == 1)
+            pathfinders_before + motion_initializations - idle_count + 2 * u64::from(slot == 1)
         );
         assert_eq!(
             active_objects.viewpoint_cell(candidate).unwrap(),
@@ -3479,7 +3512,7 @@ pub(super) fn continue_startup(
             evidence.pool_snapshot_line.unwrap(),
             encounters.by_map(slot as u32).len(),
             refusal.id,
-            if slot == 0 { "Creature.cpp:2343" } else { "PathFinder.cpp:86" },
+            if slot == 0 { "Creature.cpp:2343" } else { "Unit.cpp:11216" },
         );
         owner.states = states;
         let raw = trace

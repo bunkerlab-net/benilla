@@ -4,6 +4,9 @@ use super::*;
 
 struct MotionOwner<'a> {
     geometry: &'a mut SourceTerrainManager,
+    passengers: &'a mut SourcePassengers,
+    spline_thread: &'a mut SourceSplineThread,
+    thread: u64,
     groups: &'a SourceSpawnGroups,
     waypoint_paths: std::rc::Rc<SourceWaypointPaths>,
     spell_stores: &'a SourceSpellStores,
@@ -14,6 +17,15 @@ struct MotionOwner<'a> {
     charmer: Option<ObjectHandle>,
 }
 impl MotionExecutionOwner for MotionOwner<'_> {
+    fn spline_thread(&mut self) -> Result<&mut SourceSplineThread> {
+        self.spline_thread.for_thread(self.thread)
+    }
+    fn pathfinder_passengers(&self) -> Result<&SourcePassengers> {
+        Ok(self.passengers)
+    }
+    fn spline_passengers_mut(&mut self) -> Result<&mut SourcePassengers> {
+        Ok(self.passengers)
+    }
     fn waypoint_casting_for_movement(
         &mut self,
         unit: ObjectHandle,
@@ -91,6 +103,9 @@ pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
     live.movement = Some(movement);
     let mut owner = MotionOwner {
         geometry: context.products,
+        passengers: prefix.passengers,
+        spline_thread: prefix.spline_thread,
+        thread: prefix.thread,
         groups: prefix.groups,
         waypoint_paths: prefix.waypoint_paths.clone(),
         spell_stores: prefix.spell_stores,
