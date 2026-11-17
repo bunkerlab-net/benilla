@@ -35,7 +35,14 @@ impl SpellStartContext<'_> {
                 .template(spell)
                 .ok_or_else(|| refuse("execution.spells.missing_template"))?;
             value
-                .start(template, targets, None, self.events, self.owner)
+                .start(
+                    template,
+                    targets,
+                    None,
+                    self.events,
+                    &mut self.starts.spells,
+                    self.owner,
+                )
                 .map(|result| result == SpellCastResult::Ok)
         })();
         // A reached missing dependency must not discard the constructed Spell.

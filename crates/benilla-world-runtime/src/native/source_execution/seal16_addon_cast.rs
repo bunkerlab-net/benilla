@@ -224,7 +224,7 @@ pub(super) fn broadcast(
     }
     let (cells, map_distance_bits) =
         binding.ok_or_else(|| refuse("execution.spells.Map_541.broadcast_grid_owner"))?;
-    objects.message_broadcast_without_sessions(object, cells, map_distance_bits, radius)
+    objects.message_broadcast(object, cells, map_distance_bits, radius)
 }
 
 impl SourceRelationOwner for Owner<'_> {

@@ -98,7 +98,14 @@ impl SpellStartContext<'_> {
             }
         }
         // Refusals retain the real event and partially executed object; never retry it.
-        let result = value.start(t, targets, None, self.events, self.owner);
+        let result = value.start(
+            t,
+            targets,
+            None,
+            self.events,
+            &mut self.starts.spells,
+            self.owner,
+        );
         self.starts.spells.insert(id, value);
         result
     }

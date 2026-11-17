@@ -449,7 +449,12 @@ pub trait SpellExecutionOwner {
     fn reset_gcd(&mut self, _spell: &SourceSpell, _t: &SpellTemplate) -> Result<()> {
         Err(refuse("execution.spells.WorldObject_ResetGCD_owner"))
     }
-    fn set_current(&mut self, _spell: &mut SourceSpell, _t: &SpellTemplate) -> Result<()> {
+    fn set_current(
+        &mut self,
+        _spell: &mut SourceSpell,
+        _t: &SpellTemplate,
+        _spells: &mut BTreeMap<u64, SourceSpell>,
+    ) -> Result<()> {
         Err(refuse("execution.spells.Unit_SetCurrentCastedSpell_owner"))
     }
     fn update_pointers(&mut self, _spell: &mut SourceSpell) -> Result<bool> {

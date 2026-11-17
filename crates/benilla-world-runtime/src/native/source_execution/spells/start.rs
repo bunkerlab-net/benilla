@@ -71,6 +71,7 @@ impl SourceSpell {
         targets: SpellTargets,
         aura: Option<u32>,
         queue: &mut impl SpellEventQueue,
+        spells: &mut BTreeMap<u64, SourceSpell>,
         owner: &mut (impl SpellExecutionOwner + ?Sized),
     ) -> Result<SpellCastResult> {
         require(
@@ -88,12 +89,13 @@ impl SourceSpell {
             self.finish_failed(owner)?;
             return Ok(result);
         }
-        self.prepare(t, owner)?;
+        self.prepare(t, spells, owner)?;
         Ok(SpellCastResult::Ok)
     }
     pub fn prepare(
         &mut self,
         t: &SpellTemplate,
+        spells: &mut BTreeMap<u64, SourceSpell>,
         owner: &mut (impl SpellExecutionOwner + ?Sized),
     ) -> Result<()> {
         self.state = SourceSpellState::Casting;
@@ -124,7 +126,7 @@ impl SourceSpell {
         if !self.flags.old_triggered() {
             if !c.gameobject {
                 if (!self.flags.ignore_current(t) || is_channel(t)) && !self.flags.autorepeat() {
-                    owner.set_current(self, t)?;
+                    owner.set_current(self, t, spells)?;
                 }
                 owner.add_gcd(self, t)?;
             }
@@ -138,7 +140,7 @@ impl SourceSpell {
                     !c.gameobject,
                     "execution.spells.triggered_GO_channel_null_caster_undefined",
                 )?;
-                owner.set_current(self, t)?;
+                owner.set_current(self, t, spells)?;
             }
             if self.timer == 0 {
                 owner.call(self, SpellCall::Cast(true))?;
@@ -279,50 +281,6 @@ impl SourceSpellSlots {
     pub fn current(&self, slot: SpellSlot) -> Option<u64> {
         self.current[slot.index()]
     }
-    // Unit.cpp:4221-4299, with no previous Spell in the affected slots.
-    #[cfg(test)]
-    pub(crate) fn set_uncontested(
-        &mut self,
-        spell: &mut SourceSpell,
-        t: &SpellTemplate,
-    ) -> Result<()> {
-        let slot = SpellSlot::for_spell(t, spell);
-        if self.current(slot) == Some(spell.id) {
-            return Ok(());
-        }
-        require(
-            self.current(slot).is_none(),
-            "execution.spells.Unit_4226.InterruptSpell_live_owner",
-        )?;
-        if slot == SpellSlot::Generic {
-            require(
-                self.current(SpellSlot::Channel).is_none(),
-                "execution.spells.Unit_4237.channel_slot_spell_owner",
-            )?;
-            require(
-                self.current(SpellSlot::AutoRepeat).is_none(),
-                "execution.spells.Unit_4245.autorepeat_slot_spell_owner",
-            )?;
-        } else if slot == SpellSlot::Channel
-            && t.attributesex4 & 0x80 == 0
-            && !spell.flags.old_triggered()
-        {
-            require(
-                self.current(SpellSlot::AutoRepeat).is_none(),
-                "execution.spells.Unit_4259.autorepeat_slot_spell_owner",
-            )?;
-        } else if slot == SpellSlot::AutoRepeat {
-            return Err(refuse(
-                "execution.spells.Unit_4276.autorepeat_slot_reset_owner",
-            ));
-        }
-        self.reference(slot, spell);
-        Ok(())
-    }
-    fn reference(&mut self, slot: SpellSlot, spell: &mut SourceSpell) {
-        self.current[slot.index()] = Some(spell.id);
-        spell.referenced = true;
-    }
     pub fn interrupt(
         &mut self,
         slot: SpellSlot,
@@ -363,25 +321,21 @@ impl SourceSpellSlots {
         }
         Ok(())
     }
+    /// Unit.cpp:4221-4299. The in-flight Spell is separate from the other Spells.
     pub fn set(
         &mut self,
-        id: u64,
+        spell: &mut SourceSpell,
+        t: &SpellTemplate,
         spells: &mut BTreeMap<u64, SourceSpell>,
         stores: &SourceSpellStores,
         owner: &mut (impl SpellExecutionOwner + ?Sized),
     ) -> Result<()> {
-        let s = spells
-            .get(&id)
-            .ok_or_else(|| refuse("execution.spells.current_identity"))?;
-        let t = stores
-            .template(s.spell)
-            .ok_or_else(|| refuse("execution.spells.missing_template"))?;
-        let slot = SpellSlot::for_spell(t, s);
-        if self.current(slot) == Some(id) {
+        let slot = SpellSlot::for_spell(t, spell);
+        if self.current(slot) == Some(spell.id) {
             return Ok(());
         }
         let parallel = t.attributesex4 & 0x80 != 0;
-        let triggered = s.flags.old_triggered();
+        let triggered = spell.flags.old_triggered();
         let cancels_auto = t.attributesex3 & 0x400000 != 0;
         self.interrupt(slot, false, spells, stores, owner)?;
         let attr = |slot: SpellSlot,
@@ -445,7 +399,8 @@ impl SourceSpellSlots {
                 .expect("validated current spell")
                 .referenced = false;
         }
-        self.reference(slot, spells.get_mut(&id).expect("validated new spell"));
+        self.current[slot.index()] = Some(spell.id);
+        spell.referenced = true;
         Ok(())
     }
     pub fn clear_finished(&mut self, spells: &mut BTreeMap<u64, SourceSpell>) -> Result<()> {

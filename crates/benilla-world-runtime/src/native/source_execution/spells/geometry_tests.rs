@@ -92,7 +92,14 @@ fn authored_spell_start_uses_live_caster_and_computed_zone_before_next_missing_o
         seen: Vec::new(),
     };
     let error = spell
-        .start(&t, SpellTargets::default(), None, &mut queue, &mut owner)
+        .start(
+            &t,
+            SpellTargets::default(),
+            None,
+            &mut queue,
+            &mut BTreeMap::new(),
+            &mut owner,
+        )
         .unwrap_err();
     assert_eq!(owner.seen, [[12, 87]]);
     assert_eq!(

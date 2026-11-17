@@ -118,7 +118,12 @@ impl SpellExecutionOwner for Fixture {
         self.trace.push("ResetGCD".into());
         Ok(())
     }
-    fn set_current(&mut self, s: &mut SourceSpell, _: &SpellTemplate) -> Result<()> {
+    fn set_current(
+        &mut self,
+        s: &mut SourceSpell,
+        _: &SpellTemplate,
+        _: &mut BTreeMap<u64, SourceSpell>,
+    ) -> Result<()> {
         s.referenced = true;
         self.trace.push("SetCurrentCastedSpell".into());
         Ok(())
@@ -175,8 +180,15 @@ fn failed_check_retains_event_before_finish_without_preparation() {
         ..Default::default()
     };
     assert_eq!(
-        s.start(&t, SpellTargets::default(), None, &mut q, &mut f)
-            .unwrap(),
+        s.start(
+            &t,
+            SpellTargets::default(),
+            None,
+            &mut q,
+            &mut BTreeMap::new(),
+            &mut f
+        )
+        .unwrap(),
         R::NotReady
     );
     assert_eq!(s.state, SourceSpellState::Finished);
@@ -194,8 +206,15 @@ fn unavailable_query_keeps_targeting_object_and_queued_event() {
     let mut s = spell(&t, 0);
     let mut q = SourceUnitEvents::default();
     assert_eq!(
-        s.start(&t, SpellTargets::default(), None, &mut q, &mut Unbound)
-            .unwrap_err(),
+        s.start(
+            &t,
+            SpellTargets::default(),
+            None,
+            &mut q,
+            &mut BTreeMap::new(),
+            &mut Unbound
+        )
+        .unwrap_err(),
         SpellCheck::IsSpellReady.missing_owner()
     );
     assert_eq!(s.state, SourceSpellState::Targeting);
@@ -330,8 +349,15 @@ fn old_triggered_cast_time_is_unreferenced_while_instant_normal_cast_is_current(
     let mut q = SourceUnitEvents::default();
     let mut f = Fixture::default();
     assert_eq!(
-        s.start(&t, SpellTargets::default(), None, &mut q, &mut f)
-            .unwrap(),
+        s.start(
+            &t,
+            SpellTargets::default(),
+            None,
+            &mut q,
+            &mut BTreeMap::new(),
+            &mut f
+        )
+        .unwrap(),
         R::Ok
     );
     assert_eq!(s.timer, 1000);
@@ -349,8 +375,15 @@ fn old_triggered_cast_time_is_unreferenced_while_instant_normal_cast_is_current(
     let mut s = spell(&t, 8);
     let mut q = SourceUnitEvents::default();
     f.trace.clear();
-    s.start(&t, SpellTargets::default(), None, &mut q, &mut f)
-        .unwrap();
+    s.start(
+        &t,
+        SpellTargets::default(),
+        None,
+        &mut q,
+        &mut BTreeMap::new(),
+        &mut f,
+    )
+    .unwrap();
     assert_eq!(s.timer, 0);
     assert!(s.referenced);
     assert!(f.trace.ends_with(&[
@@ -377,8 +410,15 @@ fn autorepeat_dummy_suppresses_failed_check_but_internal_autorepeat_does_not() {
             ..Default::default()
         };
         assert_eq!(
-            s.start(&t, SpellTargets::default(), None, &mut q, &mut f)
-                .unwrap(),
+            s.start(
+                &t,
+                SpellTargets::default(),
+                None,
+                &mut q,
+                &mut BTreeMap::new(),
+                &mut f
+            )
+            .unwrap(),
             expected
         );
         assert_eq!(
@@ -401,9 +441,16 @@ fn start_stops_at_named_cast_owner_without_entering_target_or_effect_owners() {
         ..Default::default()
     };
     assert_eq!(
-        s.start(&t, SpellTargets::default(), None, &mut q, &mut f)
-            .unwrap_err()
-            .id,
+        s.start(
+            &t,
+            SpellTargets::default(),
+            None,
+            &mut q,
+            &mut BTreeMap::new(),
+            &mut f
+        )
+        .unwrap_err()
+        .id,
         "execution.spells.f5_10_Spell_cast_owner"
     );
     assert_eq!(s.state, SourceSpellState::Casting);
@@ -489,11 +536,17 @@ fn flying_spell_survives_slot_replacement_until_its_event_deletes_it() {
     first.state = SourceSpellState::Traveling;
     let mut second = spell(t, 0);
     second.id = 2;
-    let mut spells = BTreeMap::from([(1, first), (2, second)]);
+    let mut spells = BTreeMap::new();
     let mut slots = SourceSpellSlots::default();
     let mut f = Fixture::default();
-    slots.set(1, &mut spells, &stores, &mut f).unwrap();
-    slots.set(2, &mut spells, &stores, &mut f).unwrap();
+    slots
+        .set(&mut first, t, &mut spells, &stores, &mut f)
+        .unwrap();
+    spells.insert(1, first);
+    slots
+        .set(&mut second, t, &mut spells, &stores, &mut f)
+        .unwrap();
+    spells.insert(2, second);
     assert_eq!(slots.current(SpellSlot::Generic), Some(2));
     assert_eq!(spells[&1].state, SourceSpellState::Traveling);
     assert!(!spells[&1].referenced);
@@ -517,13 +570,26 @@ fn channel_generic_breakage_preserves_source_autorepeat_slot_quirk() {
     }
     let mut slots = SourceSpellSlots::default();
     let mut f = Fixture::default();
-    slots.set(1, &mut spells, &stores, &mut f).unwrap();
-    slots.set(2, &mut spells, &stores, &mut f).unwrap();
+    set_stored_slot(&mut slots, 1, &mut spells, &stores, &mut f);
+    set_stored_slot(&mut slots, 2, &mut spells, &stores, &mut f);
     assert_eq!(spells[&1].state, SourceSpellState::Casting);
-    slots.set(3, &mut spells, &stores, &mut f).unwrap();
-    slots.set(4, &mut spells, &stores, &mut f).unwrap();
+    set_stored_slot(&mut slots, 3, &mut spells, &stores, &mut f);
+    set_stored_slot(&mut slots, 4, &mut spells, &stores, &mut f);
     assert_eq!(spells[&1].state, SourceSpellState::Finished);
     assert_eq!(spells[&2].state, SourceSpellState::Finished);
+}
+
+fn set_stored_slot(
+    slots: &mut SourceSpellSlots,
+    id: u64,
+    spells: &mut BTreeMap<u64, SourceSpell>,
+    stores: &SourceSpellStores,
+    owner: &mut impl SpellExecutionOwner,
+) {
+    let mut spell = spells.remove(&id).unwrap();
+    let t = stores.template(spell.spell).unwrap();
+    slots.set(&mut spell, t, spells, stores, owner).unwrap();
+    spells.insert(id, spell);
 }
 #[test]
 fn pushback_caps_counts_and_consumes_only_reached_resistance_rolls() {
@@ -883,7 +949,7 @@ fn triggered_channels_are_current_even_with_concurrent_casts_ignored() {
     };
     let mut s = spell(&t, 0x1001);
     let mut f = Fixture::default();
-    s.prepare(&t, &mut f).unwrap();
+    s.prepare(&t, &mut BTreeMap::new(), &mut f).unwrap();
     assert!(s.referenced);
     assert!(f.trace.contains(&"SetCurrentCastedSpell".into()));
     assert!(!f.trace.contains(&"AddGCD".into()));
@@ -1001,7 +1067,7 @@ fn autorepeat_interrupt_sends_cancel_before_non_interruptible_flying_guard() {
     let mut slots = SourceSpellSlots::default();
     let mut f = Fixture::default();
     f.unit.player = true;
-    slots.set(1, &mut spells, &stores, &mut f).unwrap();
+    set_stored_slot(&mut slots, 1, &mut spells, &stores, &mut f);
     f.trace.clear();
     slots
         .interrupt(SpellSlot::AutoRepeat, true, &mut spells, &stores, &mut f)
@@ -1038,9 +1104,7 @@ fn interrupt_calls_ai_before_clearing_current_reference() {
     s.state = SourceSpellState::Casting;
     let mut spells = BTreeMap::from([(1, s)]);
     let mut slots = SourceSpellSlots::default();
-    slots
-        .set(1, &mut spells, &stores, &mut CheckReference)
-        .unwrap();
+    set_stored_slot(&mut slots, 1, &mut spells, &stores, &mut CheckReference);
     slots
         .interrupt(
             SpellSlot::Generic,
@@ -1108,7 +1172,12 @@ fn aura_removal_precedes_live_ai_presence_query() {
         fn cast_time(&mut self, _: &mut SourceSpell, _: &SpellTemplate) -> Result<i32> {
             Ok(1000)
         }
-        fn set_current(&mut self, _: &mut SourceSpell, _: &SpellTemplate) -> Result<()> {
+        fn set_current(
+            &mut self,
+            _: &mut SourceSpell,
+            _: &SpellTemplate,
+            _: &mut BTreeMap<u64, SourceSpell>,
+        ) -> Result<()> {
             Ok(())
         }
         fn add_gcd(&mut self, _: &SourceSpell, _: &SpellTemplate) -> Result<()> {
@@ -1121,7 +1190,7 @@ fn aura_removal_precedes_live_ai_presence_query() {
         has_ai: false,
         trace: Vec::new(),
     };
-    s.prepare(&t, &mut f).unwrap();
+    s.prepare(&t, &mut BTreeMap::new(), &mut f).unwrap();
     assert_eq!(
         f.trace,
         [
@@ -1261,8 +1330,13 @@ mod pet_ai_caller_tests {
         fn add_gcd(&mut self, s: &SourceSpell, t: &SpellTemplate) -> Result<()> {
             self.inner.add_gcd(s, t)
         }
-        fn set_current(&mut self, s: &mut SourceSpell, t: &SpellTemplate) -> Result<()> {
-            self.inner.set_current(s, t)
+        fn set_current(
+            &mut self,
+            s: &mut SourceSpell,
+            t: &SpellTemplate,
+            spells: &mut BTreeMap<u64, SourceSpell>,
+        ) -> Result<()> {
+            self.inner.set_current(s, t, spells)
         }
         fn indoor_policy(&mut self) -> Result<bool> {
             Ok(false)

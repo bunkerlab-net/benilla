@@ -48,16 +48,14 @@ pub struct SourceVisibilityCensus {
     pub unvisited_guids: usize,
     pub residual_players: usize,
 }
-#[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SourceBroadcastNotice {
+pub struct SourceBroadcastNotice {
     pub line: u32,
     pub object: ObjectHandle,
     pub position: [u32; 2],
 }
-#[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum SourceBroadcast {
+pub enum SourceBroadcast {
     OutOfWorld,
     InvalidCoordinates(SourceBroadcastNotice),
     GridUnloaded,
@@ -163,9 +161,8 @@ impl SourceObjects {
         }
         Ok(())
     }
-    /// Object.cpp:1916-1921, Map.cpp:528-549. Visit only existing world cells.
-    #[cfg(test)]
-    pub(crate) fn message_broadcast_without_sessions(
+    /// Map.cpp:528-549. Visit only existing world cells.
+    pub fn message_broadcast(
         &self,
         object: ObjectHandle,
         cells: &SourceCells,
@@ -354,7 +351,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             objects
-                .message_broadcast_without_sessions(object, &cells, distance, None)
+                .message_broadcast(object, &cells, distance, None)
                 .unwrap(),
             SourceBroadcast::InvalidCoordinates(SourceBroadcastNotice {
                 line: 534,
@@ -368,7 +365,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 objects
-                    .message_broadcast_without_sessions(object, &cells, distance, None)
+                    .message_broadcast(object, &cells, distance, None)
                     .unwrap_err()
                     .id,
                 "execution.spells.GridDefines_154.cell_float_to_int_undefined",
@@ -383,14 +380,14 @@ mod tests {
         // A grid can exist and contain a registration before its object data is loaded.
         assert_eq!(
             objects
-                .message_broadcast_without_sessions(object, &cells, distance, None)
+                .message_broadcast(object, &cells, distance, None)
                 .unwrap(),
             SourceBroadcast::GridUnloaded
         );
         cells.set_object_data_loaded(cell.grid).unwrap();
         assert_eq!(
             objects
-                .message_broadcast_without_sessions(object, &cells, distance, Some(0))
+                .message_broadcast(object, &cells, distance, Some(0))
                 .unwrap_err()
                 .id,
             "execution.spells.GridNotifiers_152.camera_session_owner",
@@ -400,7 +397,7 @@ mod tests {
             .unwrap();
         assert!(matches!(
             objects
-                .message_broadcast_without_sessions(object, &cells, distance, Some(0))
+                .message_broadcast(object, &cells, distance, Some(0))
                 .unwrap(),
             SourceBroadcast::Visited { loaded_cells } if loaded_cells > 0
         ));

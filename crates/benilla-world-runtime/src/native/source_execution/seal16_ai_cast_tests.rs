@@ -305,10 +305,17 @@ fn live_slots_and_ai_order_use_persistent_spells_in_source_order() {
         let live = units.get_mut(&objects, object).unwrap();
         let mut spell = SourceSpell::new(1, &t, object, SpellTriggerFlags(0), 0).unwrap();
         spell.state = SourceSpellState::Casting;
-        live.spell_starts.spells.insert(1, spell);
+        let t = stores.template(10848).unwrap();
         live.spell_slots
-            .set(1, &mut live.spell_starts.spells, &stores, &mut NoSpell)
+            .set(
+                &mut spell,
+                t,
+                &mut live.spell_starts.spells,
+                &stores,
+                &mut NoSpell,
+            )
             .unwrap();
+        live.spell_starts.spells.insert(1, spell);
         let targets = SourceSpellTargetMgr::initialize(&stores);
         let mut terrain = SourceTerrainManager::default();
         let mut binding = Binding {

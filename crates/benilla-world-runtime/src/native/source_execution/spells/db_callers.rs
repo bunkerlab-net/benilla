@@ -75,7 +75,14 @@ impl SpellStartContext<'_> {
             None => self.db_construct(source, caster, spell, flags, base)?,
         };
         let id = value.id;
-        let result = value.start(t, targets, None, self.events, self.owner);
+        let result = value.start(
+            t,
+            targets,
+            None,
+            self.events,
+            &mut self.starts.spells,
+            self.owner,
+        );
         self.starts.spells.insert(id, value);
         result.map(|_| ())
     }

@@ -91,7 +91,10 @@ mod active_tests;
 mod cells;
 mod visibility;
 use visibility::WorldVisibility;
-pub use visibility::{SourceVisibilityCensus, SourceVisibilityDistance, SourceVisibilityUpdate};
+pub use visibility::{
+    SourceBroadcast, SourceBroadcastNotice, SourceVisibilityCensus, SourceVisibilityDistance,
+    SourceVisibilityUpdate,
+};
 mod creature_settings;
 #[cfg(test)]
 use creature_settings::{ControlledLookup, FreshCreatureControl};

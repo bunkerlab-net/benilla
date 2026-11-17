@@ -453,12 +453,20 @@ impl SpellExecutionOwner for Owner<'_> {
         }
         Err(check.missing_owner())
     }
-    fn set_current(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<()> {
+    fn set_current(
+        &mut self,
+        spell: &mut SourceSpell,
+        t: &SpellTemplate,
+        spells: &mut BTreeMap<u64, SourceSpell>,
+    ) -> Result<()> {
         self.require_unit(spell.caster)?;
-        self.units
-            .get_mut(self.objects, self.object)?
-            .spell_slots
-            .set_uncontested(spell, t)
+        // Interruption callbacks also use this owner. Put the slot state back
+        // after dispatch, including on a refusal.
+        let mut slots =
+            std::mem::take(&mut self.units.get_mut(self.objects, self.object)?.spell_slots);
+        let result = slots.set(spell, t, spells, self.stores, self);
+        self.units.get_mut(self.objects, self.object)?.spell_slots = slots;
+        result
     }
 
     fn add_gcd(&mut self, spell: &SourceSpell, t: &SpellTemplate) -> Result<()> {
