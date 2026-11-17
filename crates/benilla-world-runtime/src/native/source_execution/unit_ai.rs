@@ -132,6 +132,9 @@ pub struct SourceUnitFields {
     /// Unit.h:2646; ObjectGuid.h:85 initializes the combo GUID empty.
     #[serde(skip)]
     pub combo_target: Option<ObjectHandle>,
+    /// Object.cpp:105-108 initializes UNIT_FIELD_PERSUADED to an empty GUID.
+    #[serde(skip)]
+    pub persuaded: Option<ObjectHandle>,
 }
 impl SourceUnitFields {
     /// Unit.cpp:330,423-425; Creature.cpp:541-579. Spawn overrides belong to UpdateEntry.
@@ -221,6 +224,7 @@ impl SourceUnitFields {
             totem: false,
             beneficiary: None,
             controlling_player: None,
+            persuaded: None,
             spawner: None,
             can_enter_combat: true,
             ignore_ranged_targets: false,

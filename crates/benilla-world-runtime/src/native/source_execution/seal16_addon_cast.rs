@@ -27,12 +27,23 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
         spell: u32,
     ) -> Result<()> {
         let before = (spell == 9036).then(|| serde_json::to_vec(&*live).unwrap());
+        if self.object.thread == 7 && self.objects.get(self.object)?.database_guid == 27677 {
+            // Catalog04 template11577/ordinal6753 and spawnTemplate0 leave every flag clear.
+            assert_eq!(live.flags, 0);
+            assert_eq!(live.faction, 91);
+            assert_eq!(live.static_flags, [0; 4]);
+            assert_eq!(
+                (live.owner, live.charmer, live.persuaded),
+                (None, None, None)
+            );
+        }
         let mut owner = Owner {
             object: self.object,
             objects: self.objects,
             terrain: self.terrain,
             stores: self.stores,
             targets: self.targets,
+            flags: &live.flags,
             immunities: &live.immunities,
             auras: &mut live.auras,
             addon: state,
@@ -167,6 +178,7 @@ struct Owner<'a> {
     terrain: &'a mut SourceTerrainManager,
     stores: &'a SourceSpellStores,
     targets: &'a SourceSpellTargetMgr,
+    flags: &'a u32,
     immunities: &'a CreatureImmunityState,
     auras: &'a mut SourceUnitAuras,
     addon: &'a mut CreatureAddonState,
@@ -176,6 +188,15 @@ struct Owner<'a> {
     clocks: &'a mut ActiveClocks,
     raw: u64,
     max_casts: u32,
+}
+impl SourceRelationOwner for Owner<'_> {
+    fn relation_flags(&self, unit: ObjectHandle) -> Result<u32> {
+        require(
+            unit == self.object,
+            "execution.relations.addon_other_unit_flags_owner",
+        )?;
+        Ok(*self.flags)
+    }
 }
 impl SpellLocationOwner for Owner<'_> {}
 impl SpellExecutionOwner for Owner<'_> {
@@ -223,7 +244,23 @@ impl SpellExecutionOwner for Owner<'_> {
         use SpellCastResult as R;
         match check {
             SpellCheck::TargetFilter(index) => {
-                spell.check_target_filter(t, usize::from(index), self.objects)
+                let result =
+                    spell.check_target_filter(t, usize::from(index), self.objects, self)?;
+                if self.object.thread == 7
+                    && self.objects.get(self.object)?.database_guid == 27677
+                    && t.id == 18148
+                {
+                    assert_eq!(result, R::Ok);
+                    assert_eq!(spell.targets.unit, Some(self.object));
+                    assert_eq!(
+                        (spell.caster, spell.original_caster),
+                        (self.object, self.object)
+                    );
+                    assert_eq!(*self.flags, 0);
+                    assert_eq!(unit_reaction_to(self.object, self.object, self)?, 4);
+                    println!("F6_RELATIONS guid=27677 flags=0 identity_exit=Relations.cpp:204 assist_exit=Relations.cpp:504 raw={} relation_words=0 relation_sql=0 relation_clock=0", self.raw);
+                }
+                Ok(result)
             }
             SpellCheck::PositiveImmunity(mask) => {
                 // Spell.cpp:4926 evaluates IsPositiveSpell even for an empty mask.

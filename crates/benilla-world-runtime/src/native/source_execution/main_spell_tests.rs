@@ -481,16 +481,17 @@ fn main_spell_final_school_read_follows_drain_cost_and_range() {
 #[test]
 fn target_filter_uses_the_source_table_and_refuses_the_selected_relation() {
     let f = PowerFixture::new();
+    let factions = CreatureAiFactions::default();
+    let relations = SourceRelations {
+        objects: &f.objects,
+        units: &f.units,
+        factions: &factions,
+    };
     for (ty, id) in [
-        (
-            21,
-            "execution.relations.Unit_CanAssistSpell_1133_CanAssist_owner",
-        ),
+        (21, ""),
         (6, "execution.relations.Unit_CanAttackSpell_1065_owner"),
-        (
-            35,
-            "execution.relations.Unit_CanAssistSpell_1133_CanAssist_owner",
-        ),
+        (35, "execution.relations.CheckCast_5088_IsInGroup_owner"),
+        (57, "execution.relations.CheckCast_5088_IsInGroup_owner"),
     ] {
         let t = SpellTemplate {
             id: 7,
@@ -499,10 +500,16 @@ fn target_filter_uses_the_source_table_and_refuses_the_selected_relation() {
         };
         let mut s = f.spell(&t);
         s.targets.unit = Some(f.caster);
-        assert_eq!(s.check_target_filter(&t, 0, &f.objects).unwrap_err().id, id);
+        let result = s.check_target_filter(&t, 0, &f.objects, &relations);
+        if id.is_empty() {
+            assert_eq!(result.unwrap(), SpellCastResult::Ok);
+        } else {
+            assert_eq!(result.unwrap_err().id, id);
+        }
         s.targets.unit = None;
         assert_eq!(
-            s.check_target_filter(&t, 0, &f.objects).unwrap(),
+            s.check_target_filter(&t, 0, &f.objects, &relations)
+                .unwrap(),
             SpellCastResult::BadTargets
         );
     }
@@ -575,22 +582,40 @@ fn catalog_relations_target_filters_are_static_cast_alternatives() {
             }
         }
         println!("RELATIONS_STATIC_ADDON table={table:?} raw_cast_occurrences={casts} filters={counts:?} missing_spells={missing} scope=raw_catalog_alternatives_not_execution");
+        // Creature.cpp:2343 always passes this as the addon aura's explicit target.
+        assert_eq!(
+            counts.get(&SpellTargetFilter::Helpful),
+            Some(&match table {
+                CreatureAddonTable::Template => 33,
+                CreatureAddonTable::Guid => 72,
+            })
+        );
+        println!("RELATIONS_STATIC_ADDON_IDENTITY table={table:?} helpful_self={} helpful_nonself=0 null_unit_target_undefined=0", counts[&SpellTargetFilter::Helpful]);
     }
     let mut counts = BTreeMap::<SpellTargetFilter, usize>::new();
     let mut casts = 0;
     let mut missing = 0;
+    let mut helpful_identity = [0usize; 2];
     for row in catalog_event_ai_rows(&mut catalog).unwrap() {
         for i in [12, 16, 20] {
             if row.words[i] != 11 {
                 continue;
             }
             let id = row.words[i + 1];
+            let filters = filters(&stores, id);
             casts += 1;
             missing += usize::from(stores.template(id).is_none());
-            for filter in filters(&stores, id) {
+            if filters.contains(&SpellTargetFilter::Helpful) {
+                // CreatureEventAI.cpp:1720-1721; UnitAI.cpp:169-170 makes force-self identity.
+                let identity = row.words[i + 2] == 0 || row.words[i + 3] & 0x10 != 0;
+                helpful_identity[usize::from(!identity)] += 1;
+            }
+            for filter in filters {
                 *counts.entry(filter).or_default() += 1;
             }
         }
     }
     println!("RELATIONS_STATIC_EVENTAI raw_cast_action_slots={casts} filters={counts:?} missing_spells={missing} scope=raw_catalog_alternatives_not_execution");
+    assert_eq!(helpful_identity, [218, 203]);
+    println!("RELATIONS_STATIC_EVENTAI_IDENTITY helpful_guaranteed_self={} helpful_dynamic_identity_or_faction={} null_unit_target_undefined=0 scope=raw_static_alternatives_not_execution", helpful_identity[0], helpful_identity[1]);
 }

@@ -186,12 +186,6 @@ impl Owner<'_> {
                 if target == 0 || data.ignored_targets[i][side] {
                     continue;
                 }
-                // SetTargetMap: range/radius reads precede the target switch.
-                // Spell.cpp:7495-7583,2159-2161. Self is a single-element list.
-                require(
-                    target == 1,
-                    "execution.spells.Spell_1785.SetTargetMap_owner",
-                )?;
                 let radius = [
                     t.effectradiusindex1,
                     t.effectradiusindex2,
@@ -207,6 +201,23 @@ impl Owner<'_> {
                     t.id != 28241,
                     "execution.spells.Spell_7570.GetSpellAuraHolder_owner",
                 )?;
+                // Spell.cpp:1785,2159-2161,2397-2405 selects the explicit friendly target.
+                match target {
+                    1 => {}
+                    21 | 57 => {
+                        let Some(unit) = s.targets.unit else {
+                            continue;
+                        };
+                        if !unit_can_assist_spell(s.caster, unit, self)? {
+                            continue;
+                        }
+                        require(
+                            unit == s.caster,
+                            "execution.spells.SetTargetMap_nonself_owner",
+                        )?;
+                    }
+                    _ => return Err(refuse("execution.spells.Spell_1785.SetTargetMap_owner")),
+                }
                 // CheckTarget, Spell.cpp:6936-7093, self skips type/LOS checks.
                 if t.attributesex3 & 0x1000 != 0 && self.auras.vis_flags & 1 == 0 {
                     continue;
@@ -320,7 +331,7 @@ impl Owner<'_> {
                 ),
             )?;
             let time = self.clocks.aura(self.object.thread, self.raw)?.seconds;
-            // SpellMgr.h:1212-1215. This fill has only TARGET_UNIT_CASTER.
+            // SpellTargets.cpp:34,54,90 gives these self targets the HELPFUL filter.
             let positive = t.attributes & 0x0400_0000 == 0;
             let period = [t.effectamplitude1, t.effectamplitude2, t.effectamplitude3][i];
             // SpellAuras.cpp:389 multiplies in uint32 before pinned int32 assignment.
@@ -460,6 +471,13 @@ impl Owner<'_> {
                 match effect.aura {
                     192..=255 => {}
                     95 => self.auras.vis_flags |= 1, // SpellAuras.cpp:4401-4429; creature.
+                    23 => {
+                        // SpellAuras.cpp:3097-3117 sets periodic and skips removal-only casts.
+                        self.auras.aura_holders.get_mut(&t.id).unwrap().effects[i]
+                            .as_mut()
+                            .unwrap()
+                            .periodic = true;
+                    }
                     4 => {
                         // SpellAuras.cpp:1231-1629. Specific handlers retain
                         // their named refusal; default branches reach PetAura.

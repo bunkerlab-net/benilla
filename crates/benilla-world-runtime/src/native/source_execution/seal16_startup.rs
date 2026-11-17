@@ -17,6 +17,8 @@ mod formation_path;
 mod gameobject_models;
 #[path = "seal16_immunities.rs"]
 mod immunities;
+#[path = "seal16_relations_evidence.rs"]
+mod relations_evidence;
 #[path = "seal16_script_registry.rs"]
 mod script_registry;
 #[path = "seal16_spawn_data.rs"]
@@ -2572,8 +2574,8 @@ pub(super) fn continue_startup(
                 .is_empty());
             assert_eq!(
                 (attempt.guid, attempt.kind, entry),
-                // Recording60411840/60411876 names the next candidate.
-                (27677, GridSpawnKind::Creature, 11577)
+                // Recording60433323/60433354 names the next candidate.
+                (27036, GridSpawnKind::Creature, 4636)
             );
             // Catalog equipment11596/item3368 and pre-start-classicmangos.sql:165687,595844 specify the completed creature's fields.
             let equipment = &equipment_writes[&27923];
@@ -2700,7 +2702,8 @@ pub(super) fn continue_startup(
             assert_eq!(live.spline_outbound[0].unit, candidate);
             assert_eq!(live.spline_outbound[0].transport, None);
             // Recording60409547 belongs to GUID27002, so AddMainSpell consumes no word.
-            assert_eq!(random.cursor().raw, 12422);
+            assert_eq!(random.cursor().raw, 12623);
+            relations_evidence::assert_words(&evidence.words);
             assert_eq!(
                 &evidence.words[12405..12422],
                 &[
@@ -2757,12 +2760,19 @@ pub(super) fn continue_startup(
                 "creature_db_addon_lookup",
                 "creature_template_addon_lookup",
             ]));
-            // Catalog creature_template_addon11577/ordinal5522; Spell.cpp:5086.
-            let stopped = units.get(&active_objects, stopped_candidate).unwrap();
+            // Recording60413544 completes GUID27677 after its addon18148 self cast.
+            let assisted = active_objects
+                .lookup_database(
+                    continents.maps[slot].identity,
+                    DatabaseLookupKind::Creature,
+                    27677,
+                )
+                .unwrap();
+            let stopped = units.get(&active_objects, assisted).unwrap();
             let spell = &stopped.spell_starts.spells[&1];
             assert_eq!(
                 (spell.spell, spell.caster, spell.targets.unit),
-                (18148, stopped_candidate, Some(stopped_candidate))
+                (18148, assisted, Some(assisted))
             );
             let t = addon_spells.template(18148).unwrap();
             assert_eq!(t.effectimplicittargeta1, 21);
@@ -2775,9 +2785,35 @@ pub(super) fn continue_startup(
                     SpellTargetEnumerator::Single
                 )
             );
-            assert_eq!(spell.original_caster, stopped_candidate);
+            assert_eq!(spell.original_caster, assisted);
             assert_eq!(stopped.flags & (0x0200_0000 | 8), 0);
-            assert!(!stopped.has_ai && !active_objects.get(stopped_candidate).unwrap().in_world);
+            assert!(stopped.has_ai && active_objects.get(assisted).unwrap().in_world);
+            assert!(completed_objects.contains(&assisted));
+            assert_eq!(spell.state, SourceSpellState::Finished);
+            let aura = &stopped.auras.aura_holders[&18148];
+            assert!(aura.ready && aura.permanent);
+            let effect = aura.effects[0].as_ref().unwrap();
+            assert!(effect.applied && effect.periodic);
+            assert_eq!(
+                (effect.kind, effect.periodic_time, effect.periodic_timer),
+                (23, 3000, 3000)
+            );
+            // Catalog addon4636/ordinal3682 and spell7165/ordinal5721 reach Object.cpp:2635.
+            let current = units.get(&active_objects, stopped_candidate).unwrap();
+            let cast = &current.spell_starts.spells[&1];
+            let battle = addon_spells.template(7165).unwrap();
+            assert_eq!(
+                (
+                    cast.spell,
+                    battle.attributes,
+                    battle.category,
+                    battle.recoverytime,
+                    battle.categoryrecoverytime
+                ),
+                (7165, 327696, 47, 0, 180000)
+            );
+            assert_eq!(cast.state, SourceSpellState::Casting);
+            assert!(!current.has_ai && !active_objects.get(stopped_candidate).unwrap().in_world);
             assert!(!completed_objects.contains(&stopped_candidate));
             // Recording60365908 returns no group; MotionMaster.cpp:87-94
             // retains path zero/PATH_NO_PATH and enters InitializeWaypointPath.
@@ -3179,6 +3215,9 @@ pub(super) fn continue_startup(
                     // Recording60409483,60410616,60411828 completes these three creatures.
                     27010, 27002, 29037,
                 ]
+                .into_iter()
+                .chain(relations_evidence::COMPLETED.iter().map(|(_, guid)| *guid))
+                .collect::<Vec<_>>()
             );
         }
         let (
@@ -3368,7 +3407,8 @@ pub(super) fn continue_startup(
             ))
         );
         assert_eq!(attempt.guid, if slot == 0 { 18 } else { 28044 });
-        assert_eq!(candidates, if slot == 0 { 89 } else { 76 });
+        // Recording60433051/60433053 allocates GO32518's linked trap in addition to its loader object.
+        assert_eq!(candidates, if slot == 0 { 89 } else { 104 });
         assert_eq!(entry, if slot == 0 { 3211 } else { 4692 });
         if slot == 0 {
             assert_eq!(init_entry_fields, None);
@@ -3649,8 +3689,8 @@ pub(super) fn continue_startup(
                 attempt.cell.y(),
             ))
         );
-        // Recording60411828 completes map1's 75th object before candidate27677.
-        assert_eq!(completed, if slot == 0 { 87 } else { 75 });
+        // Recording60433318 completes map1's 102nd object before candidate27036.
+        assert_eq!(completed, if slot == 0 { 87 } else { 102 });
         println!(
             "F6_VISIBILITY map={slot} census={visibility:?} invalidated_camera_iterator_stock_reach={}",
             visibility.cameras
@@ -3672,8 +3712,8 @@ pub(super) fn continue_startup(
         assert!(!continents.maps[slot].spawn_updated);
         assert_eq!(
             random.cursor().raw,
-            // Recording60412568 is word12422, after map1's pool cursor11895.
-            after_pools_cursor + if slot == 0 { 520 } else { 527 }
+            // Recording60433815 is word12623, after map1's pool cursor11895.
+            after_pools_cursor + if slot == 0 { 520 } else { 728 }
         );
         matched_map_words[slot] = random.cursor().raw;
         assert_eq!(after_pools_cursor as usize, evidence.pool_raw_end.unwrap());

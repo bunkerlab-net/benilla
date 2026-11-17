@@ -234,6 +234,7 @@ impl SourceSpell {
         t: &SpellTemplate,
         index: usize,
         objects: &SourceObjects,
+        relations: &(impl SourceRelationOwner + ?Sized),
     ) -> Result<R> {
         let ty = t.effects()[index].target_a;
         let data = SPELL_TARGET_INFO_TABLE
@@ -268,24 +269,32 @@ impl SourceSpell {
             caster.kind,
             SourceObjectKind::Creature | SourceObjectKind::Pet | SourceObjectKind::Player
         );
-        let id = match data.filter {
+        match data.filter {
             SpellTargetFilter::Harmful if unit => {
-                "execution.relations.Unit_CanAttackSpell_1065_owner"
+                Err(refuse("execution.relations.Unit_CanAttackSpell_1065_owner"))
             }
-            SpellTargetFilter::Harmful => "execution.relations.WorldObject_CanAttackSpell_owner",
-            SpellTargetFilter::Helpful if unit => {
-                "execution.relations.Unit_CanAssistSpell_1133_CanAssist_owner"
+            SpellTargetFilter::Harmful => Err(refuse(
+                "execution.relations.WorldObject_CanAttackSpell_owner",
+            )),
+            SpellTargetFilter::Helpful | SpellTargetFilter::Party | SpellTargetFilter::Group => {
+                if !unit {
+                    return Err(refuse(
+                        "execution.relations.WorldObject_CanAssistSpell_owner",
+                    ));
+                }
+                if !unit_can_assist_spell(self.caster, target, relations)? {
+                    return Ok(R::BadTargets);
+                }
+                if matches!(
+                    data.filter,
+                    SpellTargetFilter::Party | SpellTargetFilter::Group
+                ) {
+                    return Err(refuse("execution.relations.CheckCast_5088_IsInGroup_owner"));
+                }
+                Ok(R::Ok)
             }
-            SpellTargetFilter::Helpful => "execution.relations.WorldObject_CanAssistSpell_owner",
-            SpellTargetFilter::Party | SpellTargetFilter::Group if unit => {
-                "execution.relations.Unit_CanAssistSpell_1133_CanAssist_owner"
-            }
-            SpellTargetFilter::Party | SpellTargetFilter::Group => {
-                "execution.relations.WorldObject_CanAssistSpell_owner"
-            }
-            _ => return Ok(R::Ok),
-        };
-        Err(refuse(id))
+            _ => Ok(R::Ok),
+        }
     }
     // Shared by CheckCast and the definition-only post-location census.
     pub(super) fn check_cast_location_suffix(

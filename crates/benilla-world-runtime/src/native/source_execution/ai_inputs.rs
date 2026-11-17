@@ -115,7 +115,7 @@ impl AiRegistryBuilder {
 /// Unit.cpp:6228-6238 and DBCStructure.h:441-446 over complete retained DBC files.
 #[derive(Default)]
 pub struct CreatureAiFactions {
-    templates: BTreeMap<u32, (u32, bool)>,
+    templates: BTreeMap<u32, SourceFactionTemplate>,
     reputation: BTreeMap<u32, bool>,
 }
 impl CreatureAiFactions {
@@ -131,21 +131,46 @@ impl CreatureAiFactions {
         let mut view = catalog.dbc_view("FactionTemplate.dbc")?;
         for ordinal in 0..view.record_count() {
             let row = view.record(ordinal)?;
-            let mut neutral = true;
-            for column in [4, 5, 6, 7, 8, 9] {
-                neutral &= word(&row, column)? == 0;
-            }
-            this.templates
-                .insert(word(&row, 0)?, (word(&row, 1)?, neutral));
+            this.templates.insert(
+                word(&row, 0)?,
+                SourceFactionTemplate {
+                    faction: word(&row, 1)?,
+                    flags: word(&row, 2)?,
+                    group: word(&row, 3)?,
+                    friends: word(&row, 4)?,
+                    enemies: word(&row, 5)?,
+                    enemy_factions: [
+                        word(&row, 6)?,
+                        word(&row, 7)?,
+                        word(&row, 8)?,
+                        word(&row, 9)?,
+                    ],
+                    friend_factions: [
+                        word(&row, 10)?,
+                        word(&row, 11)?,
+                        word(&row, 12)?,
+                        word(&row, 13)?,
+                    ],
+                },
+            );
         }
         Ok(this)
     }
+    pub fn relation_template(&self, id: u32) -> Option<&SourceFactionTemplate> {
+        self.templates.get(&id)
+    }
+    pub fn relation_has_reputation(&self, faction: u32) -> bool {
+        self.reputation.get(&faction).copied().unwrap_or(false)
+    }
     pub fn neutral_to_all(&self, faction: u32) -> bool {
-        let Some(&(raw_faction, neutral)) = self.templates.get(&faction) else {
+        let Some(template) = self.templates.get(&faction) else {
             return true;
         };
-        raw_faction == 0
-            || (!self.reputation.get(&raw_faction).copied().unwrap_or(false) && neutral)
+        template.faction == 0
+            || (!self.relation_has_reputation(template.faction)
+                && template.friends == 0
+                && template.enemies == 0
+                && template.enemy_factions.iter().all(|value| *value == 0))
     }
 }
 fn word(row: &serde_json::Value, column: u64) -> Result<u32> {
@@ -174,6 +199,20 @@ mod tests {
                 (4, (9, false)),
                 (5, (10, true)),
             ]
+            .map(|(id, (faction, neutral))| {
+                (
+                    id,
+                    SourceFactionTemplate {
+                        faction,
+                        flags: 0,
+                        group: 0,
+                        friends: 0,
+                        enemies: u32::from(!neutral),
+                        enemy_factions: [0; 4],
+                        friend_factions: [0; 4],
+                    },
+                )
+            })
             .into(),
             reputation: [(7, true), (8, false)].into(),
         };

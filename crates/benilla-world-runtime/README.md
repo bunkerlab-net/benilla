@@ -2112,6 +2112,24 @@ stage, and Guard UpdateAI outcomes. EventAI's full UpdateAI composition is
 not bound by this owner. Component inventories and native format 91 are
 unchanged; NativeCapability remains uninhabited and F1 remains unsealed.
 
+## Source unit assistance
+
+`unit_can_assist_spell` delegates to `unit_can_assist`,
+`Relations.cpp:1131-1134,458-510`. It reads the live target flags before
+reaction, preserves the identity shortcut at `:203-204`, and returns for
+friendly NPC pairs at `:503-504`. `unit_reaction_to` uses the existing loaded
+`CreatureAiFactions` store for faction comparisons, `:100-187,255-267`.
+Controlling-player reads refuse at `:208`, `:166`, or `:487` before unowned
+duel and reputation state. The PvP helper preserves master, immunity, and
+PvP-flag read order, `:473-482`.
+
+Spell target filters call assistance for helpful targets and assistance
+before the unowned group lookup for party/group targets,
+`Spell.cpp:5075-5088`. Harmful filters retain their named attack-spell refusal.
+The assistance, threat, and hostile-selection delegates remain unchanged.
+Live persuasion state has no saved representation or restore owner.
+Native format remains 91.
+
 ## Source DB-script definitions
 
 `LoadedDbScriptMap` ports `ScriptMgr::LoadScripts` at CMaNGOS Classic

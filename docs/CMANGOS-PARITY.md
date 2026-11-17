@@ -226,12 +226,20 @@ is meaningful without a bounded content/mechanics inventory.
   Event463303/action1 supplies spell6660, with cost 0, minimum range 5 and mask 1.
   The live Unit power owner reuses `Spell.cpp:6311-6370` without a Spell
   argument and adds no RNG, SQL or clock reads.
-  Map 1 reaches GUID27677/entry11577 with 75 completed objects and 12422 words.
-  Its addon18148 selects target21's HELPFUL/SINGLE row, `SpellTargets.cpp:54`,
-  with the caster as its target. `Spell.cpp:5086` calls `Unit::CanAssistSpell`,
-  `Relations.cpp:1131-1133`. Its `CanAssist` call has no owner,
-  `Relations.cpp:458`.
-  Passenger, spline, main-spell and broadcast owners add no saved state.
+  GUID27677/entry11577's addon18148 selects target21's HELPFUL/SINGLE row,
+  `SpellTargets.cpp:54`, with the caster as its target. Its live flags are zero.
+  `Unit::CanAssistSpell` delegates to `CanAssist`, `Relations.cpp:1131-1134`.
+  Reaction takes the identity exit at `:203-204`; assistance takes the NPC pair
+  exit at `:503-504`. Faction comparisons use the loaded FactionTemplate store,
+  `:100-187,255-267`. Unowned player control reads still refuse by source line.
+  Target mapping accepts the explicit friendly self target,
+  `Spell.cpp:2397-2405`, and aura23 sets periodic state,
+  `SpellAuras.cpp:3097-3117`.
+  Map 1 stops at GUID27036/entry4636's addon7165 cooldown insertion,
+  `Object.cpp:2635`, after 102 completed objects, 104 allocations, 12623 words,
+  and two map SQL statements. The extra allocation is GO32518's linked trap,
+  recording60433051-60433060.
+  Passenger, spline, main-spell, broadcast, and relation owners add no saved state.
 - **Current fork:** `benilla-app/src/net/p2p.rs` relays avatar poses, jump fields
   and chat with finite/bounded-value checks. It explicitly rejects transport
   movement in the inspected bridge. This is not replicated authoritative player

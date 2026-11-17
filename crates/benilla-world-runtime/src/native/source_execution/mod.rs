@@ -38,6 +38,10 @@ pub use combat::*;
 mod main_spell;
 mod unit_ai;
 pub use unit_ai::*;
+mod relations;
+pub use relations::*;
+#[cfg(test)]
+mod relations_tests;
 mod unit_events;
 pub use unit_events::*;
 
