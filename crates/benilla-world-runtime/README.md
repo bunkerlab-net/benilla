@@ -1409,6 +1409,15 @@ Authored tests are component evidence. Retained observer metadata does
 not establish independently matched group selections or MP transitions.
 Native format, NativeCapability and production admission are unchanged.
 
+`MotionMaster.cpp:87-94` reads the same loaded group entry and its first
+matching member slot. A formation leader uses `MovementIdOrWander` with
+`PATH_FROM_WAYPOINT_PATH`; every other branch keeps the default path and
+`PATH_NO_PATH`. `GetFormationEntry` reads the immutable group definition,
+`SpawnGroup.h:87`, independently of mutable `FormationData`.
+The startup motion owner calls this lookup before `InitializeWaypointPath`.
+The next missing binding is the loaded waypoint manager at
+`WaypointMovementGenerator.cpp:44-49`.
+
 ## Source formation slots
 
 `source_execution::SourceFormations` owns ordered static, script and player

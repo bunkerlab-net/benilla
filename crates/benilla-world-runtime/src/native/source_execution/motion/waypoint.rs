@@ -184,12 +184,12 @@ impl SourceWaypointGenerator {
             delay,
             overwrite_entry,
         } = request;
-        let paths = owner.waypoint_paths()?;
         let entry = if overwrite_entry == 0 {
             context.units.get(context.objects, master.unit)?.entry
         } else {
             overwrite_entry
         };
+        let paths = owner.waypoint_paths()?;
         self.load_path(
             &paths,
             entry,

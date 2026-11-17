@@ -11,6 +11,8 @@ mod active_init;
 mod creature_models;
 #[path = "seal16_equipment.rs"]
 mod equipment;
+#[path = "seal16_formation_path.rs"]
+mod formation_path;
 #[path = "seal16_gameobject_models.rs"]
 mod gameobject_models;
 #[path = "seal16_immunities.rs"]
@@ -1531,6 +1533,7 @@ pub(super) fn continue_startup(
         inputs,
         &groups,
     );
+    formation_path::census(spawns, &groups);
     let mut dynamic = BTreeMap::<u32, [Vec<u32>; 2]>::new();
     for ((map, kind), guids) in std::mem::take(&mut spawns.dynamic_guids) {
         dynamic.entry(map).or_default()[usize::from(kind == GridSpawnKind::GameObject)] = guids;
@@ -2367,6 +2370,19 @@ pub(super) fn continue_startup(
             assert!(!live.has_ai);
             assert!(active_objects.get(candidate).unwrap().in_world);
             assert!(!lookups.ends_with(&["creature_motion_initialized"]));
+            // Recording60365908 returns no group for GUID28842. MotionMaster.cpp:87-94
+            // retains path zero/PATH_NO_PATH and enters InitializeWaypointPath.
+            assert!(groups
+                .creature_group(continents.maps[slot].identity, 28842)
+                .unwrap()
+                .is_none());
+            assert!(lookups.ends_with(&["creature_waypoint_default_path"]));
+            assert_eq!(
+                groups
+                    .waypoint_formation_path(continents.maps[slot].identity, 28842)
+                    .unwrap(),
+                None
+            );
             let data = owner
                 .spawns
                 .complete_data(SpawnKey {
@@ -2375,7 +2391,7 @@ pub(super) fn continue_startup(
                 })
                 .unwrap()
                 .unwrap();
-            // Recording60365891 fixes the waypoint type before MotionMaster.cpp:87.
+            // Recording60365891 fixes the waypoint type before MotionMaster.cpp:94.
             assert_eq!(data.row.movement, 2);
             // Snapshot106020 and recording60349485 fix this IsSwimmable pose; recording60349570 returns no VMap liquid.
             let snake = owner
@@ -3279,7 +3295,7 @@ pub(super) fn continue_startup(
             evidence.pool_snapshot_line.unwrap(),
             encounters.by_map(slot as u32).len(),
             refusal.id,
-            if slot == 0 { "Creature.cpp:2343" } else { "MotionMaster.cpp:87" },
+            if slot == 0 { "Creature.cpp:2343" } else { "WaypointMovementGenerator.cpp:45" },
         );
         owner.states = states;
         let raw = trace

@@ -81,6 +81,13 @@ impl SpawnGroupDefinition {
             GridSpawnKind::GameObject
         }
     }
+    /// MotionMaster.cpp:88-91; SpawnGroup.h:87 reads the immutable entry.
+    pub fn waypoint_formation_path(&self, guid: u32) -> Option<u32> {
+        let formation = self.formation.as_ref()?;
+        // SpawnGroupDefines.h:118-121 returns -1 when no member matches.
+        let member = self.members.iter().find(|member| member.guid == guid)?;
+        (member.slot == 0).then_some(formation.path)
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum GroupLoadDecision {
@@ -893,6 +900,22 @@ impl SourceSpawnGroups {
             })
         })
         .transpose()
+    }
+    /// Creature.cpp:1679-1681 binds the map-local group before AIM_Initialize.
+    pub fn waypoint_formation_path(&self, map: MapIdentity, guid: u32) -> Result<Option<u32>> {
+        let Some(group) = self.group_for(
+            map,
+            SpawnKey {
+                kind: GridSpawnKind::Creature,
+                guid,
+            },
+        )?
+        else {
+            return Ok(None);
+        };
+        Ok(self
+            .definition(group.handle.id)?
+            .waypoint_formation_path(guid))
     }
     pub fn gameobject_group(
         &self,

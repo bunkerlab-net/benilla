@@ -925,6 +925,53 @@ fn formation_leader_path_overrides_the_default_and_uses_waypoint_path_origin() {
 }
 
 #[test]
+fn formation_and_default_origins_reach_path_initialization_for_both_generators() {
+    // MotionMaster.cpp:83-94; cpp:44-49 selects only the requested origin.
+    for movement in [2, 4] {
+        for formation in [None, Some(77)] {
+            let p = Rc::new(paths([
+                vec![],
+                if formation.is_none() {
+                    vec![row(901, 2, 8, 0, 0)]
+                } else {
+                    vec![]
+                },
+                if formation.is_some() {
+                    vec![row(77, 0, 9, 0, 0)]
+                } else {
+                    vec![]
+                },
+            ]));
+            let (objects, mut units, mut master) = setup();
+            master.default = MotionDefault {
+                movement_type: movement,
+                default_path: 2,
+            };
+            let mut c = MotionContext {
+                objects: &objects,
+                units: &mut units,
+            };
+            let mut owner = Owner {
+                paths: Some(p),
+                formation,
+                ..Default::default()
+            };
+            assert_eq!(
+                master.initialize(&mut c, &mut owner).unwrap_err().id,
+                "execution.motion.f6_spline_finalized_owner"
+            );
+            assert_eq!(master.path_id().unwrap(), formation.unwrap_or(2));
+            assert_eq!(master.current_type(), 2);
+            assert_eq!(owner.log, ["spline"]);
+            assert_eq!(
+                c.units.get(&objects, master.unit).unwrap().state & WANDER_ACTIVE,
+                WANDER_ACTIVE
+            );
+        }
+    }
+}
+
+#[test]
 fn arrival_delay_sum_wraps_and_signed_negative_does_not_start_a_wait() {
     // Kernel-only cpp:211 arithmetic at the two uint32-to-int32 boundaries.
     for (delay, delta, expected) in [
@@ -1219,4 +1266,35 @@ fn real_current_path_index_pops_one_pending_node_before_arrival() {
         .unwrap()
         .movespline
         .finalized());
+}
+
+#[test]
+fn initialize_path_reads_default_entry_before_requesting_the_waypoint_manager() {
+    // WaypointMovementGenerator.cpp:39-49. An explicit entry skips GetEntry.
+    let (objects, _, mut master) = setup();
+    let mut units = SourceUnits::default();
+    let mut context = MotionContext {
+        objects: &objects,
+        units: &mut units,
+    };
+    for (overwrite_entry, expected) in [
+        (0, "execution.unit.fields_generation_missing"),
+        (901, "execution.waypoint.loaded_waypoint_manager_owner"),
+    ] {
+        assert_eq!(
+            SourceWaypointGenerator::default()
+                .initialize_path(
+                    &mut master,
+                    &mut context,
+                    &mut Owner::default(),
+                    WaypointPathRequest {
+                        overwrite_entry,
+                        ..Default::default()
+                    },
+                )
+                .unwrap_err()
+                .id,
+            expected
+        );
+    }
 }

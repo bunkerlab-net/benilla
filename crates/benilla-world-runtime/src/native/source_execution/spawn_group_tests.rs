@@ -2688,3 +2688,62 @@ fn catalog04_spawn_group_load_counts_and_effective_spawn_refusals_or_explicit_ab
     println!("spawn-group catalog-04 query rows [groups, formations, members, entries, links, squads]={counts:?}; accepted prefix rows={accepted}; effective container unpublished; first refusal={}", refusal.id);
     println!("spawn-group catalog-04 member prerequisite probes passed={passed}, refused={refused:?}; these are not accepted-member counts");
 }
+
+#[test]
+fn waypoint_formation_path_uses_group_entry_and_first_matching_slot() {
+    // MotionMaster.cpp:87-91; SpawnGroupDefines.h:118-121.
+    let (groups, _, group, _) = fixture(template(1, 0, 0), &[(7, 0), (8, 0)], false, |rows, _| {
+        rows.push(
+            GroupPhase::Formations,
+            GroupInputData::Formation(Formation {
+                group: 1,
+                kind: 1,
+                spread_bits: 3_f32.to_bits(),
+                options: 0,
+                path: 77,
+                movement: 2,
+                comment: vec![],
+            }),
+        );
+        for (slot, row) in rows
+            .phases
+            .get_mut(&(GroupPhase::Members as usize))
+            .unwrap()
+            .iter_mut()
+            .enumerate()
+        {
+            if let GroupInputData::Member { slot: value, .. } = &mut row.data {
+                *value = slot as i32;
+            }
+        }
+    });
+    assert_eq!(
+        groups.waypoint_formation_path(group.map, 7).unwrap(),
+        Some(77)
+    );
+    assert_eq!(groups.waypoint_formation_path(group.map, 8).unwrap(), None);
+    assert_eq!(groups.waypoint_formation_path(group.map, 9).unwrap(), None);
+    let mut definition = groups.definitions().unwrap()[&1].clone();
+    assert_eq!(definition.waypoint_formation_path(9), None);
+    definition.members[0].slot = -1;
+    assert_eq!(definition.waypoint_formation_path(7), None);
+    definition.members[0].slot = 0;
+    definition.members.push(GroupMember {
+        slot: 1,
+        ..definition.members[0]
+    });
+    assert_eq!(definition.waypoint_formation_path(7), Some(77));
+    definition.formation.as_mut().unwrap().path = 0;
+    assert_eq!(definition.waypoint_formation_path(7), Some(0));
+    definition.formation = None;
+    assert_eq!(definition.waypoint_formation_path(7), None);
+    let (groups, _, group, _) = fixture(template(1, 0, 0), &[(7, 0)], false, |_, _| {});
+    assert_eq!(groups.waypoint_formation_path(group.map, 7).unwrap(), None);
+    assert_eq!(
+        SourceSpawnGroups::default()
+            .waypoint_formation_path(group.map, 7)
+            .unwrap_err()
+            .id,
+        "execution.group.loader_owner"
+    );
+}

@@ -4,12 +4,27 @@ use super::*;
 
 struct MotionOwner<'a> {
     geometry: &'a mut SourceTerrainManager,
+    groups: &'a SourceSpawnGroups,
+    map: MapIdentity,
+    database_guid: u32,
+    lookups: &'a mut Vec<&'static str>,
     flags: u32,
     charmer: Option<ObjectHandle>,
 }
 impl MotionExecutionOwner for MotionOwner<'_> {
     fn pathfinder_geometry(&mut self) -> Result<&mut SourceTerrainManager> {
         Ok(self.geometry)
+    }
+    fn waypoint_formation_path(&mut self, _: ObjectHandle) -> Result<Option<u32>> {
+        let path = self
+            .groups
+            .waypoint_formation_path(self.map, self.database_guid)?;
+        self.lookups.push(if path.is_some() {
+            "creature_waypoint_formation_path"
+        } else {
+            "creature_waypoint_default_path"
+        });
+        Ok(path)
     }
     fn client_controlling(&mut self, _: ObjectHandle) -> Result<Option<ObjectHandle>> {
         // Unit.cpp:6528-6548. A fresh ordinary creature has no possessing charmer.
@@ -44,6 +59,10 @@ pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
     live.can_aggro = Some(fields.can_aggro);
     let mut owner = MotionOwner {
         geometry: context.products,
+        groups: prefix.groups,
+        map: context.objects.get(object)?.map.unwrap(),
+        database_guid: context.objects.get(object)?.database_guid,
+        lookups: &mut prefix.lookups,
         flags: live.flags,
         charmer: live.charmer,
     };
