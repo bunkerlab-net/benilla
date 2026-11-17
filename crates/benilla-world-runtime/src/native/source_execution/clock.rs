@@ -3,6 +3,30 @@
 use super::*;
 use benilla_sim::source_time::WorldTimer;
 
+/// World.cpp:108; Map.cpp:83-85 reads the one cached World clock on every map.
+#[derive(Default)]
+pub struct SourceWorldClock {
+    current_ms: i64,
+}
+impl SourceWorldClock {
+    pub fn current_ms(&self) -> i64 {
+        self.current_ms
+    }
+    pub fn update(&mut self) -> Result<()> {
+        Err(refuse("execution.clock.World_1512.recorded_clock_owner"))
+    }
+}
+impl SpellCooldownClock for &SourceWorldClock {
+    fn map_clock(&mut self) -> Result<i64> {
+        Ok(self.current_ms())
+    }
+    fn world_clock(&mut self) -> Result<i64> {
+        Ok(self.current_ms())
+    }
+}
+#[cfg(test)]
+#[path = "cached_world_clock_tests.rs"]
+mod cached_clock_tests;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClockKind {
     RelativeSteadyMilliseconds,

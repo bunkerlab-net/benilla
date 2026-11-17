@@ -665,6 +665,19 @@ is meaningful without a bounded content/mechanics inventory.
   one shared history through arbitrary network partitions. CMaNGOS logic cannot
   answer that architectural decision.
 
+## Live WorldObject cooldowns
+
+Live WorldObject cooldowns follow `Object.h:117-284` and
+`Object.cpp:2599-2745,3102-3138`. A single cached World clock supplies every
+startup map, `Map.cpp:83-85`, `World.cpp:108`. Readiness consumes no new clock
+sample. Zero-duration cooldown writes leave the maps empty.
+The source-order continuation includes `SpellMgr.cpp:389-431`.
+An empty check mask skips the stronger-aura block,
+`SpellMgr.h:90-108,984-991`. Existing location, items, and range owners
+continue to the live combat-reach read at `Unit.h:1095`, which still
+requires its unit-field owner. Cooldowns are live-only; checkpoint
+format remains 91 and F7 restore remains unowned.
+
 ## Port order and acceptance gates
 
 1. **Define the target profile:** selected native content/mechanics, exact source

@@ -107,6 +107,7 @@ pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
             stores: prefix.spell_stores,
             targets: &prefix.spell_targets,
             terrain: context.products,
+            world_clock: prefix.world_clock,
         },
     };
     let mut execution = SourceAiExecution {

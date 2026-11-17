@@ -5,7 +5,7 @@ use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: [&str; 2] = [
-    "execution.spells.WorldObject_IsSpellReady_cooldown_owner",
+    "execution.spells.Unit_1095.UNIT_FIELD_COMBATREACH_owner",
     "execution.spells.WorldObject_2635.AddCooldown_owner",
 ];
 #[path = "seal16_active_clocks.rs"]
@@ -57,6 +57,7 @@ pub(super) struct Prefix<'a> {
     pub spell_stores: &'a SourceSpellStores,
     pub spell_targets: SourceSpellTargetMgr,
     pub clocks: &'a mut ActiveClocks,
+    pub world_clock: &'a SourceWorldClock,
     pub scripts: &'a SourceScriptRegistry,
     pub gameobject_templates: &'a LoadedGameObjectTemplates,
     pub spawn_templates: &'a LoadedCreatureSpawnTemplates,
@@ -449,6 +450,7 @@ pub(super) fn load_first(
     creature_addons: &LoadedCreatureAddons,
     spell_stores: &SourceSpellStores,
     clocks: &mut ActiveClocks,
+    world_clock: &SourceWorldClock,
     gameobject_templates: &LoadedGameObjectTemplates,
     scripts: &SourceScriptRegistry,
     spawn_templates: &LoadedCreatureSpawnTemplates,
@@ -526,6 +528,7 @@ pub(super) fn load_first(
         spell_stores,
         spell_targets: SourceSpellTargetMgr::initialize(spell_stores),
         clocks,
+        world_clock,
         gameobject_templates,
         scripts,
         spawn_templates,

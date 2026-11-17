@@ -180,6 +180,7 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
             level: fields.level.as_ref().unwrap().level,
             cast_speed: fields.cast_speed,
             clocks: prefix.clocks,
+            world_clock: prefix.world_clock,
             raw: prefix.random.creature_raw_position()?,
             max_casts: addon_cast::max_casts(prefix.config)?,
         },

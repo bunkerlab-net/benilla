@@ -80,6 +80,7 @@ fn live_binding_runs_once_restores_event_owner_and_preserves_saved_bytes() {
         stores: &stores,
         targets: &targets,
         terrain: &mut terrain,
+        world_clock: &SourceWorldClock::default(),
     };
     let mut calls = 0;
     let expected = refuse("authored.callback.refusal");
@@ -106,7 +107,7 @@ fn live_binding_runs_once_restores_event_owner_and_preserves_saved_bytes() {
     assert_eq!(calls, 2);
 }
 #[test]
-fn live_ai_cast_uses_order_slots_and_retains_third_spell_before_cooldown_refusal() {
+fn live_ai_cast_keeps_its_spell_after_cooldowns_before_missing_geometry() {
     let (objects, mut units, mut ais, object) = setup();
     let stores = stores();
     let targets = SourceSpellTargetMgr::initialize(&stores);
@@ -116,6 +117,7 @@ fn live_ai_cast_uses_order_slots_and_retains_third_spell_before_cooldown_refusal
         stores: &stores,
         targets: &targets,
         terrain: &mut terrain,
+        world_clock: &SourceWorldClock::default(),
     };
     // UnitAI.cpp:175 short-circuits the current-spell read during evade.
     ais.get_mut(&objects, object).unwrap().base.order = 4;
@@ -157,10 +159,11 @@ fn live_ai_cast_uses_order_slots_and_retains_third_spell_before_cooldown_refusal
             ))
             .unwrap_err()
             .id,
-        "execution.spells.WorldObject_IsSpellReady_cooldown_owner"
+        "execution.terrain.live_object_map_owner"
     );
     let live = units.get(&objects, object).unwrap();
     let spell = &live.spell_starts.spells[&1];
+    assert_eq!(spell.cooldown_lookups, [1, 1]);
     assert_eq!(spell.state, SourceSpellState::Targeting);
     assert_eq!(spell.flags, SpellTriggerFlags(0x100));
     assert_eq!((spell.targets.unit, spell.targets.mask), (Some(object), 2));
@@ -225,6 +228,7 @@ fn live_unit_reads_current_flags_pose_auras_control_and_interrupt_slots() {
         stores: &stores,
         targets: &targets,
         terrain: &mut terrain,
+        world_clock: &SourceWorldClock::default(),
     };
     binding
         .run(&mut units, &ais, &objects, |c| {
@@ -292,6 +296,7 @@ fn live_slots_and_ai_order_use_persistent_spells_in_source_order() {
             stores: &stores,
             targets: &targets,
             terrain: &mut terrain,
+            world_clock: &SourceWorldClock::default(),
         };
         binding
             .run(&mut units, &ais, &objects, |c| {
@@ -387,4 +392,71 @@ fn default_context_callback_runs_once_and_preserves_refusal() {
     });
     assert_eq!(count, 2);
     assert_eq!(result, Err(expected));
+}
+#[test]
+fn live_cooldowns_preserve_saved_bytes_and_the_f7_refusal() {
+    let (objects, mut units, ais, object) = setup();
+    let stores = stores();
+    let t = stores.template(10848).unwrap();
+    let before = serde_json::to_vec(units.get(&objects, object).unwrap()).unwrap();
+    let live = units.get_mut(&objects, object).unwrap();
+    live.cooldowns
+        .add(0, t, 10, 0, false, |_| unreachable!())
+        .unwrap();
+    live.cooldowns.add_gcd(t, 10, || Ok(0)).unwrap();
+    live.cooldowns.lockouts.insert(2, 10);
+    assert_eq!(before, serde_json::to_vec(&*live).unwrap());
+    assert_eq!(
+        units.inventory(&objects).unwrap()["restore"],
+        "execution.unit.f7_restore_owner"
+    );
+    assert_eq!(
+        SourceManagers::default()
+            .require_durable_checkpoint()
+            .unwrap_err()
+            .id,
+        "execution.managers.f7_continuation_owner"
+    );
+    let targets = SourceSpellTargetMgr::initialize(&stores);
+    let mut terrain = SourceTerrainManager::default();
+    let mut binding = Binding {
+        object,
+        stores: &stores,
+        targets: &targets,
+        terrain: &mut terrain,
+        world_clock: &SourceWorldClock::default(),
+    };
+    binding
+        .run(&mut units, &ais, &objects, |c| {
+            let mut s = SourceSpell::new(1, t, object, SpellTriggerFlags(0), 0)?;
+            assert_eq!(
+                c.owner.check(&mut s, t, SpellCheck::IsSpellReady)?,
+                SpellCastResult::NotReady
+            );
+            assert_eq!(
+                c.owner.check(&mut s, t, SpellCheck::HasGcd)?,
+                SpellCastResult::NotReady
+            );
+            Ok(())
+        })
+        .unwrap();
+    units
+        .get_mut(&objects, object)
+        .unwrap()
+        .cooldowns
+        .update(10);
+    binding
+        .run(&mut units, &ais, &objects, |c| {
+            let mut s = SourceSpell::new(1, t, object, SpellTriggerFlags(0), 0)?;
+            assert_eq!(
+                c.owner.check(&mut s, t, SpellCheck::IsSpellReady)?,
+                SpellCastResult::Ok
+            );
+            assert_eq!(
+                c.owner.check(&mut s, t, SpellCheck::HasGcd)?,
+                SpellCastResult::Ok
+            );
+            Ok(())
+        })
+        .unwrap();
 }

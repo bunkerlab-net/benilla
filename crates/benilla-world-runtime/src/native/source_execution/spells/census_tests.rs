@@ -574,10 +574,32 @@ fn catalog04_creation_event_cast_diagnostic_and_recorded_reach() {
         let t = stores.template(id).unwrap();
         println!("F6_ADDON_COOLDOWN_CATALOG spell={id} RecoveryTime={} CategoryRecoveryTime={} StartRecoveryTime={} passive={}",
             t.recoverytime, t.categoryrecoverytime, t.startrecoverytime, t.attributes & 0x40 != 0);
+        println!("F6_COOLDOWN_STATIC_ATTRIBUTES spell={id} attributes={} attributesex={} attributesex2={} stances={} stancesnot={} effects={:?}",
+            t.attributes, t.attributesex, t.attributesex2, t.stances, t.stancesnot,
+            t.effects().map(|e| (e.effect, e.aura, e.target_a, e.target_b)));
     }
     let rows = catalog_event_ai_rows(&mut catalog).unwrap();
     let mut counts = BTreeMap::<String, usize>::new();
     let mut casts = Vec::new();
+    let mut duration_counts = [0usize; 3];
+    let mut duration_spells = [BTreeSet::new(), BTreeSet::new(), BTreeSet::new()];
+    let mut candidate_spells = BTreeSet::new();
+    let mut category_null = Vec::new();
+    for (&id, t) in stores.templates() {
+        if t.category != 0
+            && t.categoryrecoverytime != 0
+            && stores
+                .dbc("SpellCategory.dbc", t.category)
+                .unwrap()
+                .is_none()
+        {
+            category_null.push(id);
+        }
+    }
+    assert!(
+        category_null.is_empty(),
+        "static category null candidates: {category_null:?}"
+    );
     for row in rows {
         // CreatureEventAI.h:53 defines SPAWNED11.
         // Raw catalog rows are diagnostic input, not executable lifecycle proof.
@@ -606,10 +628,25 @@ fn catalog04_creation_event_cast_diagnostic_and_recorded_reach() {
                 "missing_spell"
             };
             *counts.entry(class.to_owned()).or_default() += 1;
+            if class == "normal_self_cooldown_candidate" {
+                let t = stores.template(p[0]).unwrap();
+                candidate_spells.insert(t.id);
+                for (i, duration) in [t.recoverytime, t.categoryrecoverytime, t.startrecoverytime]
+                    .into_iter()
+                    .enumerate()
+                {
+                    if duration != 0 {
+                        duration_counts[i] += 1;
+                        duration_spells[i].insert(t.id);
+                    }
+                }
+            }
             casts.push(json!({"event": row.words[0], "slot": slot, "spell": p[0],
                 "target": p[1], "flags": p[2], "class": class}));
         }
     }
+    println!("F6_COOLDOWN_STATIC_CENSUS candidates={} distinct_spells={} nonzero_duration_actions={duration_counts:?} nonzero_duration_spells={:?} category_null={category_null:?}",
+        counts["normal_self_cooldown_candidate"], candidate_spells.len(), duration_spells.map(|ids| ids.len()));
     println!(
         "F6_CREATION_CAST_DIAGNOSTIC {}",
         json!({
@@ -618,7 +655,7 @@ fn catalog04_creation_event_cast_diagnostic_and_recorded_reach() {
             "recorded_prefix_reaches_new_stop": 1,
             "recorded_event": 649101,
             "recorded_action_slot": 0,
-            "stop": "Spell.cpp:4680",
+            "stop": "Unit.h:1095",
             "qualification": "raw candidates do not prove execution or later action reach"
         })
     );

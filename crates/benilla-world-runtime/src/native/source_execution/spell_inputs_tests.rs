@@ -861,3 +861,46 @@ fn cached_talent_membership_never_infers_zero_from_empty_rank_slots() {
     load(&mut s, "spell_learn_spell", json!([2, 1, 1]));
     skipped(&s, "spell_learn_spell", "talent");
 }
+
+#[test]
+fn shapeshift_check_reads_loaded_flags_and_talent_membership_in_order() {
+    use SpellCastResult as R;
+    let mut stores = SourceSpellStores::default();
+    stores.dbc.insert(
+        "SpellShapeshiftForm.dbc".into(),
+        BTreeMap::from([
+            (
+                1,
+                SpellDbcRecord {
+                    ordinal: 0,
+                    words: BTreeMap::from([(11, 0)]),
+                },
+            ),
+            (
+                2,
+                SpellDbcRecord {
+                    ordinal: 1,
+                    words: BTreeMap::from([(11, 1)]),
+                },
+            ),
+        ]),
+    );
+    let mut t = SpellTemplate {
+        id: 42,
+        ..SpellTemplate::default()
+    };
+    assert_eq!(stores.shapeshift_error(&t, 1).unwrap(), R::Ok);
+    t.attributes = 0x10000;
+    assert_eq!(stores.shapeshift_error(&t, 1).unwrap(), R::NotShapeshift);
+    assert_eq!(stores.shapeshift_error(&t, 2).unwrap(), R::Ok);
+    t.attributes = 0;
+    t.stances = 4;
+    assert_eq!(stores.shapeshift_error(&t, 1).unwrap(), R::OnlyShapeshift);
+    assert_eq!(stores.shapeshift_error(&t, 2).unwrap(), R::OnlyShapeshift);
+    t.attributesex2 = 0x80000;
+    assert_eq!(stores.shapeshift_error(&t, 2).unwrap(), R::Ok);
+    assert_eq!(stores.shapeshift_error(&t, 3).unwrap(), R::Ok);
+    stores.talent_spells.insert(42);
+    t.effect1 = 36;
+    assert_eq!(stores.shapeshift_error(&t, 33).unwrap(), R::Ok);
+}

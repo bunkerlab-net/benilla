@@ -42,7 +42,7 @@ impl SourceSpellStores {
             SpellScriptKind::Aura => self.aura_scripts.get(&id),
         })
     }
-    pub(super) fn is_talent(&self, id: u32) -> bool {
+    pub(in super::super) fn is_talent(&self, id: u32) -> bool {
         self.talent_spells.contains(&id)
     }
     pub(super) fn load_affect(&mut self, v: &[serde_json::Value]) -> Result<Option<&'static str>> {

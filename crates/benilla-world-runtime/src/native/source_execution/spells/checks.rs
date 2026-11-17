@@ -469,3 +469,19 @@ fn effect_has_check(t: &SpellTemplate, e: SpellEffect, i: usize) -> bool {
         _ => false,
     }
 }
+
+#[test]
+fn explicit_caster_target_has_an_empty_check_mask_and_skips_aura_comparison() {
+    let mut t = SpellTemplate {
+        effect1: 6,
+        effectapplyauraname1: 4,
+        effectimplicittargeta1: 1,
+        ..SpellTemplate::default()
+    };
+    assert_eq!(check_effect_mask(&t).unwrap(), 0);
+    assert!(!aura_apply_only(&t, 0));
+    assert!(!area_spell(&t).unwrap());
+    t.effectimplicittargeta1 = 6;
+    assert_eq!(check_effect_mask(&t).unwrap(), 1);
+    assert!(aura_apply_only(&t, 1));
+}

@@ -2955,3 +2955,29 @@ PathFinder construction reaches the full-grid upgrade through
 This happens during motion initialization, `Creature.cpp:882`,
 before the queued AI notification fires.
 
+## Source WorldObject cooldowns
+
+`SourceUnitFields.cooldowns` owns live spell, category, global cooldown, and
+school-lockout maps. Construction starts them empty,
+`Object.cpp:1169-1175`, `Object.h:117-284,1181-1183`. Readiness preserves the
+clock branch, global check, item refusal, spell/category checks, and silence
+lockout order, `Object.cpp:2702-2745`. Expiry includes the exact boundary.
+`AddCooldown` skips zero-duration writes, `Object.cpp:2630-2635`.
+
+Every startup map reads one `SourceWorldClock`. Its epoch comes from
+`World.cpp:108`; `Map.cpp:83-85` forwards the same cached value.
+The trace's first `World::Update` is line 61753333 on thread 12, after the
+creation cast at line 60477770. No clock sample is consumed at readiness.
+An update refuses until the `World.cpp:1512` recording input has an owner.
+
+The normal self cast checks live form and auras in source order.
+`SpellMgr.cpp:389-431` uses loaded Talent and shapeshift definitions.
+Spell10848's targetA1/B0 yields an empty check mask, so
+`SpellMgr.h:90-108,984-991` skips the stronger-aura block.
+The continuation uses the existing location, items, and range owners.
+It refuses at the first live combat-reach read, `Unit.h:1095`,
+from `Spell.cpp:6166-6189`. The stacker attribute wrapper has component
+coverage for `SpellStacking.cpp:371-387`; this cast doesn't call it.
+Cooldowns remain excluded from checkpoint bytes; native format stays 91.
+Queued spell events still block load completion, `Spell.cpp:7127-7164`.
+

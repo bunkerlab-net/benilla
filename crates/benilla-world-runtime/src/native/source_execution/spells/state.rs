@@ -215,6 +215,14 @@ pub struct SourceSpell {
     pub spell_go: Option<SourceSpellGo>,
     #[cfg(test)]
     pub proc_event_lookups: u32,
+    #[cfg(test)]
+    pub cooldown_lookups: [u32; 2],
+    #[cfg(test)]
+    pub stacker_lookups: u32,
+    #[cfg(test)]
+    pub stacker_attribute_exits: u32,
+    #[cfg(test)]
+    pub check_suffix_lookups: [u32; 3],
 }
 impl SourceSpell {
     pub(in crate::native::source_execution) fn new(
@@ -288,6 +296,14 @@ impl SourceSpell {
             spell_go: None,
             #[cfg(test)]
             proc_event_lookups: 0,
+            #[cfg(test)]
+            cooldown_lookups: [0; 2],
+            #[cfg(test)]
+            stacker_lookups: 0,
+            #[cfg(test)]
+            stacker_attribute_exits: 0,
+            #[cfg(test)]
+            check_suffix_lookups: [0; 3],
         })
     }
     pub fn deletable(&self) -> bool {
@@ -323,6 +339,9 @@ pub struct SourceSpellGcd {
     deadlines: BTreeMap<u32, i64>,
 }
 impl SourceSpellGcd {
+    pub fn is_empty(&self) -> bool {
+        self.deadlines.is_empty()
+    }
     pub fn has(&self, category: u32, now: i64) -> bool {
         self.deadlines.get(&category).is_some_and(|at| *at > now)
     }

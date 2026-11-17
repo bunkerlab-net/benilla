@@ -124,6 +124,7 @@ pub struct SourceUnitFields {
     #[serde(skip)]
     pub unit_class: Option<u32>,
     #[serde(skip)]
+    /// Object.cpp:105-108 zeros form byte 2; Creature.cpp:2316 writes only stand byte 0.
     pub shapeshift_form: u32,
     #[serde(skip)]
     pub stand_state: u8,
@@ -135,6 +136,9 @@ pub struct SourceUnitFields {
     /// Object.cpp:105-108 initializes UNIT_FIELD_PERSUADED to an empty GUID.
     #[serde(skip)]
     pub persuaded: Option<ObjectHandle>,
+    /// Object.cpp:1169-1175; Object.h:1181-1183 constructs empty cooldown maps.
+    #[serde(skip)]
+    pub cooldowns: SourceSpellCooldowns,
 }
 impl SourceUnitFields {
     /// Unit.cpp:330,423-425; Creature.cpp:541-579. Spawn overrides belong to UpdateEntry.
@@ -261,6 +265,7 @@ impl SourceUnitFields {
             stand_state: 0,
             immunities: CreatureImmunityState::default(),
             combo_target: None,
+            cooldowns: SourceSpellCooldowns::default(),
         }
     }
     pub fn in_combat(&self) -> bool {

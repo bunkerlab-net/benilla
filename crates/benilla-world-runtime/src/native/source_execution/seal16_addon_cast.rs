@@ -16,6 +16,7 @@ pub(super) struct Execution<'a> {
     pub level: u32,
     pub cast_speed: u32,
     pub clocks: &'a mut ActiveClocks,
+    pub world_clock: &'a SourceWorldClock,
     pub raw: u64,
     pub max_casts: u32,
 }
@@ -46,11 +47,13 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
             flags: &live.flags,
             immunities: &live.immunities,
             auras: &mut live.auras,
+            cooldowns: &mut live.cooldowns,
             addon: state,
             unit: self.unit,
             level: self.level,
             cast_speed: self.cast_speed,
             clocks: self.clocks,
+            world_clock: self.world_clock,
             raw: self.raw,
             max_casts: self.max_casts,
         };
@@ -143,6 +146,7 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
             assert_eq!(live.auras.cast_counter, 0);
             assert!(!live.auras.spell_procs_happening);
             let t = self.stores.template(spell).unwrap();
+            assert!(live.cooldowns.is_empty());
             assert_eq!((t.procflags, t.procchance, t.proccharges), (0, 101, 0));
             assert!(self.stores.proc_event(spell).is_none());
             if id == 2 {
@@ -181,11 +185,13 @@ struct Owner<'a> {
     flags: &'a u32,
     immunities: &'a CreatureImmunityState,
     auras: &'a mut SourceUnitAuras,
+    cooldowns: &'a mut SourceSpellCooldowns,
     addon: &'a mut CreatureAddonState,
     unit: SpellUnitState,
     level: u32,
     cast_speed: u32,
     clocks: &'a mut ActiveClocks,
+    world_clock: &'a SourceWorldClock,
     raw: u64,
     max_casts: u32,
 }

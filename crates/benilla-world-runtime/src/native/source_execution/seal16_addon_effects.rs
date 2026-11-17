@@ -62,12 +62,18 @@ impl Owner<'_> {
         // updateTradeSlotItem has no item target, Spell.h:158-165.
         s.duration = self.duration(t)?;
         self.fill_self_targets(s, t)?;
-        // Spell.cpp:3491-3497; Object.cpp:2630-2635.
-        if t.attributes & 0x40 == 0 && (t.recoverytime != 0 || t.categoryrecoverytime != 0) {
-            return Err(refuse(
-                "execution.spells.WorldObject_2635.AddCooldown_owner",
-            ));
-        }
+        // Spell.cpp:3510-3516; Object.cpp:2632-2635 skips zero-duration writes.
+        self.cooldowns.send_spell_cooldown(
+            t,
+            s.flags.channel_only(),
+            || Ok(self.world_clock.current_ms()),
+            |category| {
+                Ok(self
+                    .stores
+                    .dbc("SpellCategory.dbc", category)?
+                    .map(|row| row.words[&1]))
+            },
+        )?;
         require(
             !self.unit.has_ai,
             "execution.spells.Spell_3275.OnSpellCooldownAdded_owner",
@@ -392,9 +398,13 @@ impl Owner<'_> {
             {
                 continue;
             }
-            let _ = existing;
+            require(
+                existing.caster == holder.caster,
+                "execution.spells.Unit_5000.different_caster_stacker_owner",
+            )?;
+            spell_stackable(Some(t), Some(old))?;
             return Err(refuse(
-                "execution.spells.Unit_5000.IsSpellStackableWithSpell_owner",
+                "execution.spells.Unit_5003.aura_stack_resolution_owner",
             ));
         }
         require(

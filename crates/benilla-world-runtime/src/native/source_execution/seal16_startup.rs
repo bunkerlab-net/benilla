@@ -2032,6 +2032,8 @@ pub(super) fn continue_startup(
     let objects = SourceObjects::default();
     let mut matched_map_words = [0u64; 2];
     let mut matched_map_sql = 0;
+    let world_clock = SourceWorldClock::default();
+    assert_eq!(world_clock.current_ms(), 0);
     for (slot, thread, first_line, first_word) in
         [(0, 6, 60100952, 2440933613), (1, 7, 60117712, 159038541)]
     {
@@ -2256,6 +2258,7 @@ pub(super) fn continue_startup(
             &creature_addons,
             &addon_spells,
             &mut evidence.active_clocks.clone(),
+            &world_clock,
             &gameobject_templates,
             &scripts,
             &spawn_templates,
@@ -2450,10 +2453,33 @@ pub(super) fn continue_startup(
             assert_eq!(holder.event.flags & 0x20, 0);
             assert_eq!(first_action.params.unwrap()[2] & 0x16, 0);
             assert!(units.get(&active_objects, candidate).unwrap().has_ai);
-            println!("F6_EVENTAI_SPAWN event=649101 type=11 action_slot=0 cast=10848 target=0 flags=0 branch=normal_cast next_source=Spell.cpp:4680");
-            // Spell.cpp:3001-3011,4679-4680. The third Spell owns a real
-            // self target and queued event before its first cooldown read.
+            println!("F6_EVENTAI_SPAWN event=649101 type=11 action_slot=0 cast=10848 target=0 flags=0 branch=normal_cast next_source=Unit.h:1095");
+            // SpellMgr.h:90-108,984-991 skips masked aura checks for targetA1/B0.
             let ai_spell = &live.spell_starts.spells[&3];
+            assert_eq!(ai_spell.cooldown_lookups, [1, 1]);
+            assert_eq!(
+                (ai_spell.stacker_lookups, ai_spell.stacker_attribute_exits),
+                (0, 0)
+            );
+            let t = addon_spells.template(10848).unwrap();
+            assert_eq!(ai_spell.check_suffix_lookups, [1, 1, 1]);
+            assert_eq!(check_effect_mask(t).unwrap(), 0);
+            let range = addon_spells.range_entry(t.rangeindex).unwrap().unwrap();
+            println!("F6_COOLDOWN_CONTINUATION range_index={} range_flags={} affected_mask=0 self_targeting=false stacker_lookups=0 location_items_complete=true", t.rangeindex, range.flags);
+            assert_eq!((t.attributes, t.attributesex), (256, 0));
+            let old = addon_spells.template(9036).unwrap();
+            assert_eq!((old.attributes, old.attributesex), (763363648, 1024));
+            assert_eq!(
+                (t.effect1, t.effectapplyauraname1, t.effect2, t.effect3),
+                (6, 4, 0, 0)
+            );
+            assert_eq!((t.effectimplicittargeta1, t.effectimplicittargetb1), (1, 0));
+            assert_eq!(live.auras.aura_holders[&10848].caster, candidate);
+            assert!(live.cooldowns.is_empty());
+            assert_eq!(live.shapeshift_form, 0);
+            assert_eq!(live.auras.aura_holders.first_key_value().unwrap().0, &9036);
+            assert_eq!(live.auras.aura_holders[&9036].caster, candidate);
+            println!("F6_COOLDOWN_UB_REACH category_null=0 school_shift=0 lockout_shift=0 clock_add=0 form_shift=0");
             assert_eq!(
                 (ai_spell.spell, ai_spell.caster, ai_spell.original_caster),
                 (10848, candidate, candidate)
