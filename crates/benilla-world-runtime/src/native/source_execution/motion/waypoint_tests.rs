@@ -192,7 +192,11 @@ impl MotionExecutionOwner for Owner {
     fn waypoint_formation_path(&mut self, _: ObjectHandle) -> Result<Option<u32>> {
         Ok(self.formation)
     }
-    fn waypoint_casting_for_movement(&mut self, _: ObjectHandle) -> Result<bool> {
+    fn waypoint_casting_for_movement(
+        &mut self,
+        _: ObjectHandle,
+        _: &MotionContext<'_>,
+    ) -> Result<bool> {
         Ok(false)
     }
     fn spline_finalized(&mut self, _: ObjectHandle, _: &MotionContext<'_>) -> Result<bool> {

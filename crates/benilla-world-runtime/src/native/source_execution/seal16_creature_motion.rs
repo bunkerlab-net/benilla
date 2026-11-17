@@ -6,6 +6,7 @@ struct MotionOwner<'a> {
     geometry: &'a mut SourceTerrainManager,
     groups: &'a SourceSpawnGroups,
     waypoint_paths: std::rc::Rc<SourceWaypointPaths>,
+    spell_stores: &'a SourceSpellStores,
     map: MapIdentity,
     database_guid: u32,
     lookups: &'a mut Vec<&'static str>,
@@ -13,6 +14,24 @@ struct MotionOwner<'a> {
     charmer: Option<ObjectHandle>,
 }
 impl MotionExecutionOwner for MotionOwner<'_> {
+    fn waypoint_casting_for_movement(
+        &mut self,
+        unit: ObjectHandle,
+        context: &MotionContext<'_>,
+    ) -> Result<bool> {
+        let slots = &context.units.get(context.objects, unit)?.spell_slots;
+        let result = slots.is_non_melee_spell_casted(
+            &(),
+            self.spell_stores,
+            false,
+            false,
+            true,
+            true,
+            false,
+        )?;
+        self.lookups.push("creature_live_spell_movement_query");
+        Ok(result)
+    }
     fn waypoint_paths(&mut self) -> Result<std::rc::Rc<SourceWaypointPaths>> {
         self.lookups.push("creature_loaded_waypoint_manager");
         Ok(self.waypoint_paths.clone())
@@ -62,10 +81,19 @@ pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
         max_energy: level.maximum_power[3],
     });
     live.can_aggro = Some(fields.can_aggro);
+    // Creature.cpp:2888-2922,435-452; Unit.cpp:8439-8441. Retain InitEntry's
+    // actual MovementInfo flags and model/template rates for BuildIntPath.
+    let mut movement = SourceCreatureMovement::construct();
+    movement.flags = Some(fields.movement_flags);
+    for (rate, bits) in movement.rates.iter_mut().zip(fields.speed_rates) {
+        *rate = Some(f32::from_bits(bits));
+    }
+    live.movement = Some(movement);
     let mut owner = MotionOwner {
         geometry: context.products,
         groups: prefix.groups,
         waypoint_paths: prefix.waypoint_paths.clone(),
+        spell_stores: prefix.spell_stores,
         map: context.objects.get(object)?.map.unwrap(),
         database_guid: context.objects.get(object)?.database_guid,
         lookups: &mut prefix.lookups,

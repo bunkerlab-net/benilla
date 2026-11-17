@@ -45,6 +45,9 @@ pub struct SourceUnitFields {
     pub vitals: Option<SourceUnitVitals>,
     #[serde(skip)]
     pub movement: Option<SourceCreatureMovement>,
+    /// Unit.h:2606; Unit.cpp:350 nulls all current-spell slots at construction.
+    #[serde(skip)]
+    pub spell_slots: SourceSpellSlots,
     pub victim: Option<ObjectHandle>,
     pub target: Option<ObjectHandle>,
     pub attackers: Vec<ObjectHandle>,
@@ -167,6 +170,7 @@ impl SourceUnitFields {
             state: 0,
             vitals: None,
             movement: None,
+            spell_slots: SourceSpellSlots::default(),
             victim: None,
             target: None,
             attackers: Vec::new(),

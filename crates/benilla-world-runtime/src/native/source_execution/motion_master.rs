@@ -230,7 +230,11 @@ pub trait MotionExecutionOwner {
         ))
     }
     /// Unit.cpp:4343-4381, IsNonMeleeSpellCasted(false,false,true,true).
-    fn waypoint_casting_for_movement(&mut self, _unit: ObjectHandle) -> Result<bool> {
+    fn waypoint_casting_for_movement(
+        &mut self,
+        _unit: ObjectHandle,
+        _context: &MotionContext<'_>,
+    ) -> Result<bool> {
         Err(refuse(
             "execution.waypoint.f5_spell_movement_cast_query_owner",
         ))

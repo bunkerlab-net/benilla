@@ -187,6 +187,12 @@ is meaningful without a bounded content/mechanics inventory.
   `VerifyMovementInfo`, `ProcessMovementInfo`, `HandleMoverRelocation`][movement];
   [`MotionMaster::UpdateMotion`, `MoveChase`, `MoveWaypoint`, `MoveFleeing`][motion];
   [`MoveSpline::Initialize`, `ComputePosition`, `_updateState`][spline].
+- **Source execution cast query:** `Unit::IsNonMeleeSpellCasted`,
+  `Unit.cpp:4343-4381`, reads the live current-spell slots without persistence.
+  Nonempty generic/channel slots require a live Spell identity owner.
+  The seal16 map-1 waypoint continuation reaches `PathFinder.cpp:86`,
+  where the startup passenger owner is absent. Authored branch tests do not
+  establish live nonempty-slot coverage or a launched waypoint spline.
 - **Current fork:** `benilla-app/src/net/p2p.rs` relays avatar poses, jump fields
   and chat with finite/bounded-value checks. It explicitly rejects transport
   movement in the inspected bridge. This is not replicated authoritative player

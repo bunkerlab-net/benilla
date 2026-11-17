@@ -304,7 +304,7 @@ impl SourceWaypointGenerator {
         let fields = context.units.get(context.objects, master.unit)?;
         if !context.objects.get(master.unit)?.alive
             || fields.immobilized()
-            || owner.waypoint_casting_for_movement(master.unit)?
+            || owner.waypoint_casting_for_movement(master.unit, context)?
         {
             if !owner.spline_finalized(master.unit, context)? {
                 let call = if owner.client_controlled(master.unit)? {
@@ -589,7 +589,7 @@ impl SourceMovementGenerator for SourceWaypointGenerator {
                 self.send_next(master, context, owner)?;
             }
         } else if fields.state & 0x0055_0000 == 0 {
-            if owner.waypoint_casting_for_movement(master.unit)? {
+            if owner.waypoint_casting_for_movement(master.unit, context)? {
                 return Ok(true);
             }
             self.stop(1000);

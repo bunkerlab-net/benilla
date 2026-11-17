@@ -2496,6 +2496,36 @@ pub(super) fn continue_startup(
             assert_eq!(live.state & WANDER_ACTIVE, WANDER_ACTIVE);
             assert!(!live.has_ai);
             assert!(active_objects.get(candidate).unwrap().in_world);
+            // Unit.cpp:347-351 constructs ALIVE, state=0 and empty slots.
+            // This path applied no addon spells, so Spell.cpp:3060-3098 never
+            // registered a current spell. IsImmobilizedState, Unit.h:2293,
+            // tests ROOT|STUNNED|LOGOUT_TIMER|AI_ROOT, not UNIT_FIELD_FLAGS.
+            assert!(active_objects.get(candidate).unwrap().alive);
+            assert_eq!(live.state & 0x2000_001a, 0);
+            assert!(!live.immobilized());
+            assert!(current.spell_starts.spells.is_empty());
+            for slot in [
+                SpellSlot::Melee,
+                SpellSlot::Generic,
+                SpellSlot::Channel,
+                SpellSlot::AutoRepeat,
+            ] {
+                assert_eq!(live.spell_slots.current(slot), None);
+            }
+            assert!(!live
+                .spell_slots
+                .is_non_melee_spell_casted(&(), &addon_spells, false, false, true, true, false,)
+                .unwrap());
+            // Old -> new: :311 cast query -> PathFinder.cpp:86 GetTransport.
+            // :323 ran, :354-365 obtained the live pose and entered BuildIntPath.
+            assert_eq!(live.state & WANDER_MOVING, WANDER_MOVING);
+            assert_eq!(
+                lookups
+                    .iter()
+                    .filter(|&&s| s == "creature_live_spell_movement_query")
+                    .count(),
+                1
+            );
             assert!(!lookups.ends_with(&["creature_motion_initialized"]));
             // Recording60365908 returns no group for GUID28842. MotionMaster.cpp:87-94
             // retains path zero/PATH_NO_PATH and enters InitializeWaypointPath.
@@ -2505,7 +2535,8 @@ pub(super) fn continue_startup(
                 .is_none());
             assert!(lookups.ends_with(&[
                 "creature_waypoint_default_path",
-                "creature_loaded_waypoint_manager"
+                "creature_loaded_waypoint_manager",
+                "creature_live_spell_movement_query"
             ]));
             // A path and its initialized first cursor are required to reach
             // SendNextWayPointPath's spell query, cpp:94-131,305-311.
@@ -2758,8 +2789,10 @@ pub(super) fn continue_startup(
         assert_eq!(idle_count, if slot == 0 { 10 } else { 4 });
         assert_eq!(
             geometry.pathfinder_constructor_completions,
-            // Creature.cpp:453 and MotionMaster.cpp:79-81 select static Idle without a PathFinder.
-            pathfinders_before + motion_initializations - idle_count
+            // Old -> new map1: +1, BuildIntPath constructs its PathFinder at
+            // WaypointMovementGenerator.cpp:264 after :323 sets ROAMING_MOVE.
+            // Static Idle still constructs none, MotionMaster.cpp:79-81.
+            pathfinders_before + motion_initializations - idle_count + u64::from(slot == 1)
         );
         assert_eq!(
             active_objects.viewpoint_cell(candidate).unwrap(),
@@ -3446,7 +3479,7 @@ pub(super) fn continue_startup(
             evidence.pool_snapshot_line.unwrap(),
             encounters.by_map(slot as u32).len(),
             refusal.id,
-            if slot == 0 { "Creature.cpp:2343" } else { "WaypointMovementGenerator.cpp:311" },
+            if slot == 0 { "Creature.cpp:2343" } else { "PathFinder.cpp:86" },
         );
         owner.states = states;
         let raw = trace

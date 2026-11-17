@@ -3,6 +3,7 @@
 use super::*;
 use std::collections::BTreeMap;
 mod callers;
+mod cast_query;
 mod caster_auras;
 mod checks;
 mod items;
@@ -10,6 +11,7 @@ mod location;
 mod positivity;
 mod power;
 mod range;
+pub use cast_query::*;
 pub use caster_auras::*;
 pub use location::*;
 pub use positivity::*;

@@ -420,3 +420,7 @@ impl SourceSpellSlots {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "cast_query_tests.rs"]
+mod cast_query_tests;

@@ -118,6 +118,7 @@ pub(super) fn census(
     println!("F6_WAYPOINT_PATH_CENSUS defaults={defaults:?} formation_aware={effective:?} variable={variable:?} null_origin_waypoint_fallback_potential_reach={null_origin_ub} fixed_null_origin_undefined_stock_reach={fixed_null_origin_ub} startup_null_origin_reach=0");
     assert_eq!(defaults[0].iter().sum::<usize>(), 2931);
     assert_eq!(defaults[1].iter().sum::<usize>(), 335);
+    println!("F6_CAST_QUERY_STOCK_DIAGNOSTIC raw_spawn_waypoint_defaults={} live_spell_slots=not_inferred executed_map1_query_reported_separately", defaults[0].iter().sum::<usize>());
     // WaypointMovementGenerator.cpp:45 always passes &m_PathOrigin.
     assert_eq!(null_origin_ub, 0);
     assert_eq!(fixed_null_origin_ub, 0);

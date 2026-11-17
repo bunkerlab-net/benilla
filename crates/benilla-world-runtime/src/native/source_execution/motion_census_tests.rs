@@ -593,7 +593,11 @@ fn catalog04_waypoint_loader_and_raw_prefix_census_or_explicit_absence() {
         }
         // Prefix probe constructs a fresh Unit with null spell slots,
         // Unit.cpp:350-351. This is not a live casting-state default.
-        fn waypoint_casting_for_movement(&mut self, _: ObjectHandle) -> Result<bool> {
+        fn waypoint_casting_for_movement(
+            &mut self,
+            _: ObjectHandle,
+            _: &MotionContext<'_>,
+        ) -> Result<bool> {
             Ok(false)
         }
     }

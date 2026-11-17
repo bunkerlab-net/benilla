@@ -6,7 +6,7 @@ use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: [&str; 2] = [
     "execution.spells.f5_10_Spell_cast_owner",
-    "execution.waypoint.f5_spell_movement_cast_query_owner",
+    "execution.pathfinder.transport_owner",
 ];
 #[path = "seal16_active_clocks.rs"]
 mod clocks;

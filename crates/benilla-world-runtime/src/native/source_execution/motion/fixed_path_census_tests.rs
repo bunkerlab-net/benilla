@@ -85,7 +85,11 @@ fn catalog04_fixed_and_linear_defaults_and_raw_prefixes_or_explicit_absence() {
         fn waypoint_paths(&mut self) -> Result<Rc<SourceWaypointPaths>> {
             Ok(self.paths.clone())
         }
-        fn waypoint_casting_for_movement(&mut self, _: ObjectHandle) -> Result<bool> {
+        fn waypoint_casting_for_movement(
+            &mut self,
+            _: ObjectHandle,
+            _: &MotionContext<'_>,
+        ) -> Result<bool> {
             Ok(false)
         }
     }
