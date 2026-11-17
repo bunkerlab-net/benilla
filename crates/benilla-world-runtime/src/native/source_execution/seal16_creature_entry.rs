@@ -184,6 +184,22 @@ pub(super) fn continue_entry(
         "execution.creature.initial_speed_motion_binding",
     )?;
     let mut fields = model_fields(template, model);
+    let scale = f32::from_bits(
+        prefix
+            .init_entry_fields
+            .ok_or_else(|| refuse("execution.creature.initial_object_scale_binding"))?
+            .1,
+    );
+    let native_scale = f32::from_bits(template.words[14]);
+    let normalized = if native_scale != 0.0 {
+        scale / native_scale
+    } else {
+        scale
+    };
+    // Unit.cpp:10270 reads the selected model and the native/current scale operands.
+    let reach = (normalized * f32::from_bits(model[2])).to_bits();
+    prefix.units.get_mut(objects, object)?.combat_reach = Some(reach);
+    assert_eq!(reach, fields.reach);
     prefix
         .lookups
         .push("creature_native_display_speed_gender_power");
@@ -216,6 +232,8 @@ pub(super) fn continue_entry(
     }
     fields.name = original.strings[0].clone();
     fields.cast_speed = 1f32.to_bits();
+    // Creature.cpp:433 writes UNIT_MOD_CAST_SPEED before addon loading and every cast.
+    prefix.units.get_mut(objects, object)?.cast_speed = 1f32.to_bits();
     if template.words[17] & 4 != 0 {
         fields.movement_flags |= MOVEFLAG_LEVITATING;
     }

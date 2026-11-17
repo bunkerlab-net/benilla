@@ -139,11 +139,18 @@ pub struct SourceUnitFields {
     /// Object.cpp:1169-1175; Object.h:1181-1183 constructs empty cooldown maps.
     #[serde(skip)]
     pub cooldowns: SourceSpellCooldowns,
+    /// Unit.cpp:10270 writes model reach after Object.cpp:105-108 initializes update fields.
+    #[serde(skip)]
+    pub combat_reach: Option<u32>,
+    /// Object.cpp:105-108 zeros the field before Creature.cpp:433 writes one.
+    #[serde(skip)]
+    pub cast_speed: u32,
 }
 impl SourceUnitFields {
     /// Unit.cpp:330,423-425; Creature.cpp:541-579. Spawn overrides belong to UpdateEntry.
     pub fn creature(template: &CreatureAiTemplateOperands) -> Self {
-        Self::creature_values(
+        let mut fields = Self::constructed_creature();
+        fields.apply_creature_values(
             template.entry,
             template.faction,
             template.static_flags,
@@ -153,13 +160,14 @@ impl SourceUnitFields {
             template.pursuit_ms,
             template.call_for_help,
             template.creature_type,
-        )
+        );
+        fields
     }
     /// Creature.h:90-117; bind SQLStorage fields without raw catalog alternatives.
     #[cfg(test)]
-    pub(super) fn loaded_creature(template: &LoadedCreatureInfo) -> Self {
+    pub(super) fn populate_loaded_creature(&mut self, template: &LoadedCreatureInfo) {
         let w = &template.words;
-        Self::creature_values(
+        self.apply_creature_values(
             w[0],
             w[13],
             w[25..29].try_into().unwrap(),
@@ -169,10 +177,11 @@ impl SourceUnitFields {
             w[33],
             w[32],
             w[16],
-        )
+        );
     }
     #[allow(clippy::too_many_arguments)]
-    fn creature_values(
+    fn apply_creature_values(
+        &mut self,
         entry: u32,
         faction: u32,
         static_flags: [u32; 4],
@@ -182,36 +191,53 @@ impl SourceUnitFields {
         pursuit_ms: u32,
         call_for_help: u32,
         creature_type: u32,
-    ) -> Self {
+    ) {
+        self.entry = entry;
+        self.faction = faction;
+        self.static_flags = static_flags;
+        self.can_fly = inhabit_type & 4 != 0;
+        self.can_walk = inhabit_type & 1 != 0;
+        self.can_swim = inhabit_type & 2 != 0;
+        self.mmap_extra_flags = extra_flags & 0x6000;
+        self.force_attacking = extra_flags & 0x80000 != 0;
+        self.run_during_wander = extra_flags & 0x20 != 0;
+        self.flags = unit_flags
+            | if static_flags[0] & 0x200 != 0 {
+                0x0200_0000
+            } else {
+                0
+            }
+            | if static_flags[0] & 0x20 != 0 {
+                0x100
+            } else {
+                0
+            }
+            | if static_flags[0] & 0x40 != 0 {
+                0x200
+            } else {
+                0
+            };
+        self.pursuit_ms = pursuit_ms;
+        self.can_call_assistance = extra_flags & 0x800 == 0;
+        self.call_for_help = call_for_help;
+        self.critter = creature_type == 8;
+    }
+    /// Unit.cpp:320-366 and Object.cpp:1169-1175 construct the live containers before LoadFromDB.
+    pub fn constructed_creature() -> Self {
         Self {
-            entry,
-            faction,
-            static_flags,
+            entry: 0,
+            faction: 0,
+            static_flags: [0; 4],
             has_ai: false,
-            can_fly: inhabit_type & 4 != 0,
-            can_walk: inhabit_type & 1 != 0,
-            can_swim: inhabit_type & 2 != 0,
-            mmap_extra_flags: extra_flags & 0x6000,
+            can_fly: false,
+            can_walk: false,
+            can_swim: false,
+            mmap_extra_flags: 0,
             neutral_to_all: None,
             can_aggro: None,
-            force_attacking: extra_flags & 0x80000 != 0,
-            run_during_wander: extra_flags & 0x20 != 0,
-            flags: unit_flags
-                | if static_flags[0] & 0x200 != 0 {
-                    0x0200_0000
-                } else {
-                    0
-                }
-                | if static_flags[0] & 0x20 != 0 {
-                    0x100
-                } else {
-                    0
-                }
-                | if static_flags[0] & 0x40 != 0 {
-                    0x200
-                } else {
-                    0
-                },
+            force_attacking: false,
+            run_during_wander: false,
+            flags: 0,
             state: 0,
             power_fields: None,
             power_cost_modifier: [0; 7],
@@ -242,15 +268,15 @@ impl SourceUnitFields {
             mounted: false,
             offhand: false,
             combat_timer: 0,
-            pursuit_ms,
+            pursuit_ms: 0,
             last_refresh_position: None,
             combat_tick: 1200,
             damage_by_others: 0,
             already_called_assistance: false,
-            can_call_assistance: extra_flags & 0x800 == 0,
+            can_call_assistance: true,
             can_check_help: true,
-            call_for_help,
-            critter: creature_type == 8,
+            call_for_help: 0,
+            critter: false,
             linking_event_trigger: None,
             movespline: benilla_sim::source_spline::MoveSpline::default(),
             spline_debug_path: false,
@@ -266,6 +292,8 @@ impl SourceUnitFields {
             immunities: CreatureImmunityState::default(),
             combo_target: None,
             cooldowns: SourceSpellCooldowns::default(),
+            combat_reach: None,
+            cast_speed: 0,
         }
     }
     pub fn in_combat(&self) -> bool {
@@ -360,6 +388,10 @@ impl SourceUnits {
             }
         }
         Ok(true)
+    }
+    #[cfg(test)]
+    pub(super) fn discard_construction(&mut self, unit: ObjectHandle) {
+        self.fields.remove(&unit);
     }
     pub fn register(
         &mut self,

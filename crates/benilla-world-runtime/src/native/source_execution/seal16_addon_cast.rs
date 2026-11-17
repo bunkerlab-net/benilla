@@ -14,7 +14,6 @@ pub(super) struct Execution<'a> {
     pub targets: &'a SourceSpellTargetMgr,
     pub unit: SpellUnitState,
     pub level: u32,
-    pub cast_speed: u32,
     pub clocks: &'a mut ActiveClocks,
     pub world_clock: &'a SourceWorldClock,
     pub raw: u64,
@@ -51,7 +50,7 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
             addon: state,
             unit: self.unit,
             level: self.level,
-            cast_speed: self.cast_speed,
+            cast_speed: &live.cast_speed,
             clocks: self.clocks,
             world_clock: self.world_clock,
             raw: self.raw,
@@ -189,7 +188,7 @@ struct Owner<'a> {
     addon: &'a mut CreatureAddonState,
     unit: SpellUnitState,
     level: u32,
-    cast_speed: u32,
+    cast_speed: &'a u32,
     clocks: &'a mut ActiveClocks,
     world_clock: &'a SourceWorldClock,
     raw: u64,
@@ -319,41 +318,51 @@ impl SpellExecutionOwner for Owner<'_> {
         if call != SpellCall::PrepareTriggerData {
             return Err(call.missing_owner());
         }
-        // Spell.cpp:795-805. No cast item was supplied by Creature.cpp:2343.
-        let t = self
-            .stores
-            .template(spell.spell)
-            .ok_or_else(|| refuse("execution.spells.missing_template"))?;
-        let mut negative_effect_mask = 0;
-        for i in 0..3 {
-            if !positive_unit_effect(self.stores, t, i, None)? {
-                negative_effect_mask |= 1 << i;
-            }
-        }
-        spell.trigger_data = Some(SpellTriggerData {
-            can_trigger: !spell.flags.do_not_proc(),
-            negative_effect_mask,
-        });
-        Ok(())
+        prepare_trigger_data(self.stores, spell)
     }
     fn cast_time(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<i32> {
-        fresh_cast_time(self.stores, spell, t, self.level, self.cast_speed)
+        fresh_cast_time(
+            |index| self.stores.dbc("SpellCastTimes.dbc", index),
+            spell,
+            t,
+            || Ok(self.level),
+            || Ok(*self.cast_speed),
+        )
     }
 }
 
-// SpellMgr.cpp:104-172; Object.h:1156 has no spell-mod owner on a generic
-// creature. Unit.cpp:341-343 constructs its ranged speed multiplier as one.
-fn fresh_cast_time(
+// Spell.cpp:795-805 prepares trigger data without a cast item.
+pub(super) fn prepare_trigger_data(
     stores: &SourceSpellStores,
+    spell: &mut SourceSpell,
+) -> Result<()> {
+    let t = stores
+        .template(spell.spell)
+        .ok_or_else(|| refuse("execution.spells.missing_template"))?;
+    let mut negative_effect_mask = 0;
+    for i in 0..3 {
+        if !positive_unit_effect(stores, t, i, None)? {
+            negative_effect_mask |= 1 << i;
+        }
+    }
+    spell.trigger_data = Some(SpellTriggerData {
+        can_trigger: !spell.flags.do_not_proc(),
+        negative_effect_mask,
+    });
+    Ok(())
+}
+// SpellMgr.cpp:104-172 reads creature level and speed only at the corresponding formula operands.
+pub(super) fn fresh_cast_time<'a>(
+    lookup: impl FnOnce(u32) -> Result<Option<&'a SpellDbcRecord>>,
     spell: &SourceSpell,
     t: &SpellTemplate,
-    level: u32,
-    speed: u32,
+    level: impl FnOnce() -> Result<u32>,
+    speed: impl FnOnce() -> Result<u32>,
 ) -> Result<i32> {
     if spell.flags.old_triggered() && (t.manacost != 0 || t.manacostpercentage != 0) {
         return Ok(0); // Spell.cpp:7105-7108.
     }
-    let Some(row) = stores.dbc("SpellCastTimes.dbc", t.castingtimeindex)? else {
+    let Some(row) = lookup(t.castingtimeindex)? else {
         return Ok(0);
     };
     let word = |index| {
@@ -364,7 +373,7 @@ fn fresh_cast_time(
     };
     // Mixed signed/unsigned source arithmetic converts to uint32 before the
     // implementation-defined int32 assignment on the pinned GCC target.
-    let rank = creature_power_rank(level, t) as i32;
+    let rank = creature_power_rank(level()?, t) as i32;
     let mut time = word(1)?
         .wrapping_add(word(2)?.wrapping_mul(((rank / 5) as u32).wrapping_sub(t.baselevel)))
         as i32;
@@ -373,9 +382,11 @@ fn fresh_cast_time(
         time = add_ranged_delay(time)?;
     }
     if t.attributes & 0x0000_0030 == 0 && t.attributesex3 & 0x2000_0000 == 0 {
-        time = scale_cast_time(time, speed)?;
+        time = scale_cast_time(time, speed()?)?;
     } else if t.attributes & 2 != 0 && !spell.auto_repeat {
-        time = scale_cast_time(time, 1f32.to_bits())?;
+        return Err(refuse(
+            "execution.spells.SpellMgr_162.ranged_attack_speed_owner",
+        ));
     }
     if t.id == 19968 {
         time = 0;

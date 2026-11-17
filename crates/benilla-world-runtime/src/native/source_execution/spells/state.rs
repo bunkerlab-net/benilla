@@ -223,6 +223,10 @@ pub struct SourceSpell {
     pub stacker_attribute_exits: u32,
     #[cfg(test)]
     pub check_suffix_lookups: [u32; 3],
+    #[cfg(test)]
+    pub power_lookups: [u32; 2],
+    #[cfg(test)]
+    pub prepare_lookups: [u32; 6],
 }
 impl SourceSpell {
     pub(in crate::native::source_execution) fn new(
@@ -304,6 +308,10 @@ impl SourceSpell {
             stacker_attribute_exits: 0,
             #[cfg(test)]
             check_suffix_lookups: [0; 3],
+            #[cfg(test)]
+            power_lookups: [0; 2],
+            #[cfg(test)]
+            prepare_lookups: [0; 6],
         })
     }
     pub fn deletable(&self) -> bool {

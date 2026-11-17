@@ -5,7 +5,7 @@ use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: [&str; 2] = [
-    "execution.spells.Unit_1095.UNIT_FIELD_COMBATREACH_owner",
+    "execution.spells.UnitAI_429.current_spell_write_owner",
     "execution.spells.WorldObject_2635.AddCooldown_owner",
 ];
 #[path = "seal16_active_clocks.rs"]
@@ -165,6 +165,11 @@ impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManag
         let object = context
             .objects
             .construct(self.thread, SourceObjectKind::Creature)?;
+        self.units.register(
+            context.objects,
+            object,
+            SourceUnitFields::constructed_creature(),
+        )?;
         self.passengers.construct(object, context.objects)?;
         self.candidates.push(object);
         self.motions.insert(
@@ -187,6 +192,7 @@ impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManag
             DatabaseLookupKind::Creature,
             key.guid,
         ) {
+            self.units.discard_construction(object);
             context.objects.destroy(object, context.cells)?;
             return Ok(GridCandidateOutcome::FailedAndDestroyed(object));
         }
@@ -209,6 +215,7 @@ impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManag
         self.entry = Some(entry);
         self.lookups.push("creature_template");
         let Some(original) = self.creature_templates.get(entry) else {
+            self.units.discard_construction(object);
             context.objects.destroy(object, context.cells)?;
             return Ok(GridCandidateOutcome::FailedAndDestroyed(object));
         };
@@ -236,11 +243,14 @@ impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManag
             key.guid,
             SourceGuid::with_entry(HighGuid::Creature, entry, allocation.counter),
         )?;
+        self.units.get_mut(context.objects, object)?.combat_reach = Some(0);
+        self.units.get_mut(context.objects, object)?.cast_speed = 0;
         self.lookups.push("creature_create_from_proto");
         let effective = event
             .filter(|event| event.entry != 0)
             .map_or(entry, |event| event.entry);
         let Some(template) = self.creature_templates.get(effective) else {
+            self.units.discard_construction(object);
             context.objects.destroy(object, context.cells)?;
             return Ok(GridCandidateOutcome::FailedAndDestroyed(object));
         };
@@ -273,10 +283,12 @@ impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManag
             }
         }
         if display == 0 {
+            self.units.discard_construction(object);
             context.objects.destroy(object, context.cells)?;
             return Ok(GridCandidateOutcome::FailedAndDestroyed(object));
         }
         let Some(model) = self.creature_models.random_gender(display, self.random)? else {
+            self.units.discard_construction(object);
             context.objects.destroy(object, context.cells)?;
             return Ok(GridCandidateOutcome::FailedAndDestroyed(object));
         };

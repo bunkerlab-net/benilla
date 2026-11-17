@@ -655,7 +655,7 @@ fn catalog04_creation_event_cast_diagnostic_and_recorded_reach() {
             "recorded_prefix_reaches_new_stop": 1,
             "recorded_event": 649101,
             "recorded_action_slot": 0,
-            "stop": "Unit.h:1095",
+            "stop": "UnitAI.cpp:429",
             "qualification": "raw candidates do not prove execution or later action reach"
         })
     );

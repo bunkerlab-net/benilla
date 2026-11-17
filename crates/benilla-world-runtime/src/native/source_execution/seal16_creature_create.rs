@@ -15,6 +15,7 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
         .objects
         .set_pose(object, SourcePose(position.map(f32::to_bits)))?;
     if !creatures::valid_position(position) {
+        prefix.units.discard_construction(object);
         context.objects.destroy(object, context.cells)?;
         return Ok(GridCandidateOutcome::FailedAndDestroyed(object));
     }
@@ -166,6 +167,9 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
         has_ai: false,
         position: context.objects.get(object)?.pose.unwrap().0,
     };
+    if context.objects.get(object)?.database_guid == 40520 {
+        assert_eq!(live.cast_speed, fields.cast_speed);
+    }
     fields.addon.load(
         addon,
         false,
@@ -178,7 +182,6 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
             targets: &prefix.spell_targets,
             unit,
             level: fields.level.as_ref().unwrap().level,
-            cast_speed: fields.cast_speed,
             clocks: prefix.clocks,
             world_clock: prefix.world_clock,
             raw: prefix.random.creature_raw_position()?,
@@ -226,6 +229,7 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
     prefix.lookups.push("creature_respawn_calendar_consumed");
     if fields.respawn_time.unwrap() > clock.seconds {
         if new_spawning {
+            prefix.units.discard_construction(object);
             context.objects.destroy(object, context.cells)?;
             return Ok(GridCandidateOutcome::FailedAndDestroyed(object));
         }

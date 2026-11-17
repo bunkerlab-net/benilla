@@ -460,3 +460,165 @@ fn live_cooldowns_preserve_saved_bytes_and_the_f7_refusal() {
         })
         .unwrap();
 }
+
+#[test]
+fn prepare_walk_preserves_holders_and_reaches_the_actual_ai_write() {
+    let (objects, mut units, ais, object) = setup();
+    let mut stores = stores();
+    stores
+        .insert_template(SpellTemplate {
+            id: 9036,
+            ..Default::default()
+        })
+        .unwrap();
+    for id in [9036, 10848] {
+        let t = stores.template(id).unwrap();
+        units
+            .get_mut(&objects, object)
+            .unwrap()
+            .auras
+            .aura_holders
+            .insert(id, SourceAuraHolder::new(t, object, 0, 0, -1).unwrap());
+    }
+    let before = units.get(&objects, object).unwrap().auras.clone();
+    let targets = SourceSpellTargetMgr::initialize(&stores);
+    let mut terrain = SourceTerrainManager::default();
+    let mut binding = Binding {
+        object,
+        stores: &stores,
+        targets: &targets,
+        terrain: &mut terrain,
+        world_clock: &SourceWorldClock::default(),
+    };
+    binding
+        .run(&mut units, &ais, &objects, |c| {
+            let t = stores.template(10848).unwrap();
+            let mut s = SourceSpell::new(3, t, object, SpellTriggerFlags(0x100), 0)?;
+            s.targets.unit = Some(object);
+            c.owner.call(&mut s, SpellCall::RemoveCastAuras(4))?;
+            assert_eq!(s.prepare_lookups[2], 2);
+            assert_eq!(
+                c.owner
+                    .call(&mut s, SpellCall::AiCastState(true))
+                    .unwrap_err()
+                    .id,
+                "execution.spells.UnitAI_429.current_spell_write_owner"
+            );
+            assert_eq!(&s.prepare_lookups[3..], &[1, 1, 1]);
+            c.owner.call(&mut s, SpellCall::AiCastState(false))?;
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(units.get(&objects, object).unwrap().auras, before);
+}
+
+#[test]
+fn casting_time_reads_live_speed_and_refuses_only_the_ranged_operand() {
+    use std::cell::Cell;
+    let (_, _, _, object) = setup();
+    let row = SpellDbcRecord {
+        ordinal: 0,
+        words: BTreeMap::from([(1, 500), (2, 0), (3, 0)]),
+    };
+    let lookup = |index| Ok((index == 42).then_some(&row));
+    let mut t = SpellTemplate {
+        id: 10848,
+        castingtimeindex: 42,
+        ..Default::default()
+    };
+    let s = SourceSpell::new(3, &t, object, SpellTriggerFlags(0), 0).unwrap();
+    let reads = Cell::new(0);
+    let time = fresh_cast_time(
+        lookup,
+        &s,
+        &t,
+        || Ok(1),
+        || {
+            reads.set(reads.get() + 1);
+            Ok(0.5f32.to_bits())
+        },
+    )
+    .unwrap();
+    assert_eq!(time, 250);
+    assert_eq!(reads.get(), 1);
+    t.attributes = 0x12;
+    assert_eq!(
+        fresh_cast_time(lookup, &s, &t, || Ok(1), || unreachable!())
+            .unwrap_err()
+            .id,
+        "execution.spells.SpellMgr_162.ranged_attack_speed_owner"
+    );
+    t.castingtimeindex = 99;
+    assert_eq!(
+        fresh_cast_time(lookup, &s, &t, || unreachable!(), || unreachable!()).unwrap(),
+        0
+    );
+}
+
+#[test]
+fn aura_removal_and_ai_movement_refuse_at_their_source_calls() {
+    let (objects, mut units, ais, object) = setup();
+    let mut stores = stores();
+    stores
+        .insert_template(SpellTemplate {
+            id: 9036,
+            aurainterruptflags: 4,
+            ..Default::default()
+        })
+        .unwrap();
+    let ghost = stores.template(9036).unwrap();
+    units
+        .get_mut(&objects, object)
+        .unwrap()
+        .auras
+        .aura_holders
+        .insert(
+            9036,
+            SourceAuraHolder::new(ghost, object, 0, 0, -1).unwrap(),
+        );
+    let mut shroud = stores.template(10848).unwrap().clone();
+    shroud.interruptflags = 1;
+    stores.insert_template(shroud).unwrap();
+    let targets = SourceSpellTargetMgr::initialize(&stores);
+    let mut terrain = SourceTerrainManager::default();
+    let mut binding = Binding {
+        object,
+        stores: &stores,
+        targets: &targets,
+        terrain: &mut terrain,
+        world_clock: &SourceWorldClock::default(),
+    };
+    binding
+        .run(&mut units, &ais, &objects, |c| {
+            let t = stores.template(10848).unwrap();
+            let mut s = SourceSpell::new(3, t, object, SpellTriggerFlags(0), 0)?;
+            assert_eq!(
+                c.owner
+                    .call(&mut s, SpellCall::RemoveCastAuras(4))
+                    .unwrap_err()
+                    .id,
+                "execution.spells.Unit_5270.RemoveSpellAuraHolder_owner"
+            );
+            assert_eq!(s.prepare_lookups[2], 1);
+            s.cast_time = 1;
+            assert_eq!(
+                c.owner
+                    .call(&mut s, SpellCall::AiCastState(true))
+                    .unwrap_err()
+                    .id,
+                "execution.spells.UnitAI_362.InterruptMoving_owner"
+            );
+            assert_eq!(s.prepare_lookups[4], 0);
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(
+        units
+            .get(&objects, object)
+            .unwrap()
+            .auras
+            .aura_holders
+            .len(),
+        1
+    );
+}

@@ -2453,7 +2453,7 @@ pub(super) fn continue_startup(
             assert_eq!(holder.event.flags & 0x20, 0);
             assert_eq!(first_action.params.unwrap()[2] & 0x16, 0);
             assert!(units.get(&active_objects, candidate).unwrap().has_ai);
-            println!("F6_EVENTAI_SPAWN event=649101 type=11 action_slot=0 cast=10848 target=0 flags=0 branch=normal_cast next_source=Unit.h:1095");
+            println!("F6_EVENTAI_SPAWN event=649101 type=11 action_slot=0 cast=10848 target=0 flags=0 branch=normal_cast next_source=UnitAI.cpp:429");
             // SpellMgr.h:90-108,984-991 skips masked aura checks for targetA1/B0.
             let ai_spell = &live.spell_starts.spells[&3];
             assert_eq!(ai_spell.cooldown_lookups, [1, 1]);
@@ -2465,7 +2465,7 @@ pub(super) fn continue_startup(
             assert_eq!(ai_spell.check_suffix_lookups, [1, 1, 1]);
             assert_eq!(check_effect_mask(t).unwrap(), 0);
             let range = addon_spells.range_entry(t.rangeindex).unwrap().unwrap();
-            println!("F6_COOLDOWN_CONTINUATION range_index={} range_flags={} affected_mask=0 self_targeting=false stacker_lookups=0 location_items_complete=true", t.rangeindex, range.flags);
+            println!("F6_COOLDOWN_CONTINUATION range_index={} range_flags={} affected_mask=0 self_targeting=false stacker_lookups=0 location_items_range_power_complete=true", t.rangeindex, range.flags);
             assert_eq!((t.attributes, t.attributesex), (256, 0));
             let old = addon_spells.template(9036).unwrap();
             assert_eq!((old.attributes, old.attributesex), (763363648, 1024));
@@ -2479,12 +2479,36 @@ pub(super) fn continue_startup(
             assert_eq!(live.shapeshift_form, 0);
             assert_eq!(live.auras.aura_holders.first_key_value().unwrap().0, &9036);
             assert_eq!(live.auras.aura_holders[&9036].caster, candidate);
+            assert_eq!(ai_spell.power_lookups, [1, 1]);
+            assert_eq!(ai_spell.prepare_lookups, [1, 1, 2, 1, 1, 1]);
+            assert_eq!(
+                (ai_spell.power_cost, ai_spell.cast_time, ai_spell.timer),
+                (0, 0, 0)
+            );
+            assert_eq!(live.cast_speed, 1f32.to_bits());
+            assert_eq!(
+                live.combat_reach,
+                creature_entry.as_ref().map(|fields| fields.reach)
+            );
+            assert!(live.target.is_none());
+            assert!(ais
+                .get(&active_objects, candidate)
+                .unwrap()
+                .base
+                .current_spell
+                .is_none());
+            assert_eq!(t.attributesex4 & 0x80, 0);
+            assert_eq!(t.attributes & 0x404, 0);
+            assert_eq!(t.attributesex & 0x44, 0);
+            assert_eq!(old.aurainterruptflags & 4, 0);
+            assert_eq!(live.auras.aura_holders.len(), 2);
+            println!("F6_PREPARE_AURA_WALK flag=4 ghost_flags={} shroud_flags={} holders=2 state=true force_target=false has_target=false", old.aurainterruptflags, t.aurainterruptflags);
             println!("F6_COOLDOWN_UB_REACH category_null=0 school_shift=0 lockout_shift=0 clock_add=0 form_shift=0");
             assert_eq!(
                 (ai_spell.spell, ai_spell.caster, ai_spell.original_caster),
                 (10848, candidate, candidate)
             );
-            assert_eq!(ai_spell.state, SourceSpellState::Targeting);
+            assert_eq!(ai_spell.state, SourceSpellState::Casting);
             assert_eq!(ai_spell.flags, SpellTriggerFlags(0x100));
             assert_eq!(
                 (ai_spell.targets.unit, ai_spell.targets.mask),
@@ -2500,7 +2524,13 @@ pub(super) fn continue_startup(
             );
             assert_eq!(ai_spell.creation_time, 0);
             assert!(ai_spell.filtering_scheme.is_some());
-            assert!(ai_spell.trigger_data.is_none());
+            assert_eq!(
+                ai_spell.trigger_data,
+                Some(SpellTriggerData {
+                    can_trigger: true,
+                    negative_effect_mask: 0
+                })
+            );
             assert!(!ai_spell.referenced && !ai_spell.executing);
             assert_eq!(live.spell_slots.current(SpellSlot::Melee), None);
             assert_eq!(ais.get(&active_objects, candidate).unwrap().base.order, 0);

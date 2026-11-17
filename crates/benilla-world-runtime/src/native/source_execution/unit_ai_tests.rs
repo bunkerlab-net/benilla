@@ -1223,3 +1223,49 @@ fn aura_storage_is_fresh_per_unit_and_excluded_from_saved_fields() {
     assert_eq!(second.auras, SourceUnitAuras::default());
     assert_eq!(serde_json::to_vec(&first).unwrap(), saved);
 }
+
+#[test]
+fn construction_population_keeps_live_containers_reach_and_speed() {
+    let mut fields = SourceUnitFields::constructed_creature();
+    assert_eq!(fields.combat_reach, None);
+    assert_eq!(fields.cast_speed, 0);
+    assert!(fields.auras.aura_holders.is_empty());
+    assert!(fields.spell_starts.spells.is_empty());
+    assert!(fields.cooldowns.is_empty());
+    let saved = serde_json::to_vec(&fields).unwrap();
+    let unit = ObjectHandle {
+        thread: 6,
+        construction: 1,
+    };
+    let spell = SpellTemplate {
+        id: 9036,
+        ..Default::default()
+    };
+    fields.combat_reach = Some(1.5f32.to_bits());
+    fields.cast_speed = 1f32.to_bits();
+    fields.cooldowns.lockouts.insert(1, 20);
+    fields.spell_starts.spells.insert(
+        7,
+        SourceSpell::new(7, &spell, unit, SpellTriggerFlags(1), 0).unwrap(),
+    );
+    fields.unit_events.add_spell(7).unwrap();
+    fields
+        .auras
+        .aura_holders
+        .insert(9036, SourceAuraHolder::new(&spell, unit, 0, 0, -1).unwrap());
+    assert_eq!(serde_json::to_vec(&fields).unwrap(), saved);
+    let mut template = SqlTemplateRow {
+        ordinal: 0,
+        words: [0; 99],
+        strings: std::array::from_fn(|_| Vec::new()),
+    };
+    template.words[0] = 6491;
+    fields.populate_loaded_creature(&template);
+    assert_eq!(fields.entry, 6491);
+    assert_eq!(fields.combat_reach, Some(1.5f32.to_bits()));
+    assert_eq!(fields.cast_speed, 1f32.to_bits());
+    assert_eq!(fields.cooldowns.lockouts[&1], 20);
+    assert!(fields.spell_starts.spells.contains_key(&7));
+    assert_eq!(fields.unit_events.inventory().queued.len(), 1);
+    assert!(fields.auras.has_aura(9036));
+}

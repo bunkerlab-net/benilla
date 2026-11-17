@@ -2974,10 +2974,15 @@ The normal self cast checks live form and auras in source order.
 `SpellMgr.cpp:389-431` uses loaded Talent and shapeshift definitions.
 Spell10848's targetA1/B0 yields an empty check mask, so
 `SpellMgr.h:90-108,984-991` skips the stronger-aura block.
-The continuation uses the existing location, items, and range owners.
-It refuses at the first live combat-reach read, `Unit.h:1095`,
-from `Spell.cpp:6166-6189`. The stacker attribute wrapper has component
-coverage for `SpellStacking.cpp:371-387`; this cast doesn't call it.
+The unit exists from construction, and late spawn population preserves its
+containers. `Unit.cpp:10270` writes live combat reach from the model and
+scale operands. `Creature.cpp:433` writes live cast speed before addon casts.
+The continuation uses the existing location, items, range and power owners.
+It enters Casting, prepares triggers and walks the live aura holders,
+`Spell.cpp:3025-3049`, `Unit.cpp:5253-5276`. The AI callback reaches its
+unowned current-spell identity write, `UnitAI.cpp:429`.
+The stacker attribute wrapper has component coverage for
+`SpellStacking.cpp:371-387`; this cast doesn't call it.
 Cooldowns remain excluded from checkpoint bytes; native format stays 91.
 Queued spell events still block load completion, `Spell.cpp:7127-7164`.
 

@@ -77,7 +77,8 @@ pub(super) fn register_unit<D: GridDefinitions<Row = SpawnKey>>(
     context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
 ) -> Result<()> {
     let fields = prefix.creature_entry.as_mut().unwrap();
-    let mut live = SourceUnitFields::loaded_creature(template);
+    let live = prefix.units.get_mut(context.objects, object)?;
+    live.populate_loaded_creature(template);
     live.unit_class = Some(template.words[36]);
     live.immunities = std::mem::take(&mut fields.immunities);
     live.flags = fields.unit_flags;
@@ -114,7 +115,7 @@ pub(super) fn register_unit<D: GridDefinitions<Row = SpawnKey>>(
         *rate = Some(f32::from_bits(bits));
     }
     live.movement = Some(movement);
-    prefix.units.register(context.objects, object, live)
+    Ok(())
 }
 
 pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(

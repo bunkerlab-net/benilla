@@ -488,6 +488,14 @@ impl Owner<'_> {
                             .unwrap()
                             .periodic = true;
                     }
+                    65 => {
+                        let aura = self.auras.aura_holders[&t.id].effects[i].as_ref().unwrap();
+                        return Err(refuse(if aura.amount > 0 {
+                            "execution.spells.Unit_10496.ApplyPercentModFloatValue_owner"
+                        } else {
+                            "execution.spells.Unit_10498.ApplyPercentModFloatValue_owner"
+                        }));
+                    }
                     4 => {
                         // SpellAuras.cpp:1231-1629. Specific handlers retain
                         // their named refusal; default branches reach PetAura.
