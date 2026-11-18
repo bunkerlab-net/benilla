@@ -1737,6 +1737,11 @@ impl Authority for LocalAuthority {
     }
 }
 impl LocalAuthority {
+    #[cfg(test)]
+    pub(crate) fn request_lifetime_for_test(&self) -> Duration {
+        self.request_lifetime
+    }
+
     /// A selected owned-route mailbox cannot resolve until this exact sink's
     /// initialization response has been accepted by its waiting controller.
     pub(crate) fn take_route_commit_sink(&mut self) -> Option<MailboxRouteCommitSink> {
@@ -2835,6 +2840,26 @@ impl Mailbox {
             ),
         }
     }
+    #[cfg(test)]
+    #[cfg_attr(
+        benilla_headless_geometry,
+        allow(
+            dead_code,
+            reason = "used by benilla-world-controller-tests, not benilla-native-geometry-tests"
+        )
+    )]
+    pub(crate) fn serve_test_query_slice(
+        &self,
+        request_lifetime: Duration,
+        geometry: impl FnMut(&Session, &AuthorityRequest, Body, Instant) -> Result<Facts, Failure>,
+    ) -> usize {
+        // This fixture has one consumer. Start the slice after the work is queued.
+        if self.rx.is_empty() {
+            return 0;
+        }
+        self.serve_query_slice(1, Instant::now() + request_lifetime, geometry)
+    }
+
     fn serve_query_slice(
         &self,
         limit: usize,

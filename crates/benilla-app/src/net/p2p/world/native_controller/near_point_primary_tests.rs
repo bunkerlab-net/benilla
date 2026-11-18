@@ -169,7 +169,15 @@ fn mailbox_authority(authority: ProductAuthority) -> MailboxAuthority {
 
 fn mailbox_authority_with_expired_first_slice(
     authority: ProductAuthority,
+    expire_first_slice: bool,
+) -> (MailboxAuthority, Arc<AtomicU64>) {
+    mailbox_authority_with_slice(authority, expire_first_slice, None)
+}
+
+fn mailbox_authority_with_slice(
+    authority: ProductAuthority,
     mut expire_first_slice: bool,
+    slice: Option<Duration>,
 ) -> (MailboxAuthority, Arc<AtomicU64>) {
     let ProductAuthority {
         provider,
@@ -181,23 +189,26 @@ fn mailbox_authority_with_expired_first_slice(
         ..
     } = authority;
     let (local, mailbox) = core::mailbox(session).unwrap();
+    if let Some(slice) = slice {
+        assert_eq!(local.request_lifetime_for_test(), slice);
+    }
     let stop = Arc::new(AtomicBool::new(false));
     let service_stop = Arc::clone(&stop);
     let controller_thread = std::thread::current().id();
     let service = std::thread::spawn(move || {
         assert_ne!(std::thread::current().id(), controller_thread);
         while !service_stop.load(Ordering::Acquire) {
-            let count = mailbox.serve_queries_until(1, |session, request, _, deadline| {
+            let resolve = |session: &Session, request: &n::AuthorityRequest, _, until: Instant| {
                 observed.lock().unwrap().push(request.clone());
-                // The retained provider is loaded/bound before this 2ms service window.
+                // The retained provider is loaded and bound before service.
                 let facts = if expire_first_slice {
                     expire_first_slice = false;
-                    std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+                    std::thread::sleep(until.saturating_duration_since(Instant::now()));
                     Err(Failure::Deadline)
                 } else if fault.load(Ordering::SeqCst) == 1 {
                     Err(Failure::MissingGeometry)
                 } else {
-                    provider.resolve(session, request, deadline)
+                    provider.resolve(session, request, until)
                 };
                 let mut facts = facts.inspect_err(|&failure| {
                     failures.lock().unwrap().push(failure);
@@ -216,7 +227,11 @@ fn mailbox_authority_with_expired_first_slice(
                     _ => {}
                 }
                 Ok(facts)
-            });
+            };
+            let count = match slice {
+                Some(slice) => mailbox.serve_test_query_slice(slice, resolve),
+                None => mailbox.serve_queries_until(1, resolve),
+            };
             assert!(count <= 1);
             if count == 0 {
                 std::thread::sleep(Duration::from_millis(1));
@@ -680,7 +695,10 @@ fn actual_primary_vertical_fallback_remains_unavailable_without_any_publication(
     let (data, authority) = setup(11.);
     let failures = Arc::clone(&authority.failures);
     let observed = Arc::clone(&authority.observed);
-    let mut c = create(&h, data.clone(), mailbox_authority(authority));
+    // This checks fallback and publication within the production request lifetime.
+    let (authority, _) =
+        mailbox_authority_with_slice(authority, false, Some(Duration::from_millis(500)));
+    let mut c = create(&h, data.clone(), authority);
     c.initial_events().unwrap();
     pump_to(&mut c, 1);
     let before = c.world.checkpoint().unwrap();
