@@ -17,28 +17,36 @@ impl SpellPowerContext<'_> {
         Ok(self.vitals(caster)?.health)
     }
     pub fn current(&self, caster: ObjectHandle, ty: u32) -> Result<u32> {
-        let v = self.vitals(caster)?;
+        self.vitals(caster)?.spell_power_current(ty)
+    }
+    pub fn maximum(&self, caster: ObjectHandle, ty: u32) -> Result<u32> {
+        self.vitals(caster)?.spell_power_maximum(ty)
+    }
+    fn vitals(&self, caster: ObjectHandle) -> Result<&SourceUnitVitals> {
+        self.units
+            .get(self.objects, caster)?
+            .vitals
+            .as_ref()
+            .ok_or_else(|| refuse("execution.spells.CreatureStats_current_resources_owner"))
+    }
+}
+
+impl SourceUnitVitals {
+    pub(in crate::native::source_execution) fn spell_power_current(&self, ty: u32) -> Result<u32> {
         match ty {
-            0 => Ok(v.mana),
-            3 => Ok(v.energy),
+            0 => Ok(self.mana),
+            3 => Ok(self.energy),
             // SourceUnits has no live rage/focus/happiness field. Do not infer
             // current power from a constructor's maximum or regeneration flag.
             _ => Err(refuse("execution.spells.Unit_GetPower_type_owner")),
         }
     }
-    pub fn maximum(&self, caster: ObjectHandle, ty: u32) -> Result<u32> {
-        let v = self.vitals(caster)?;
+    pub(in crate::native::source_execution) fn spell_power_maximum(&self, ty: u32) -> Result<u32> {
         match ty {
-            0 => Ok(v.max_mana),
-            3 => Ok(v.max_energy),
+            0 => Ok(self.max_mana),
+            3 => Ok(self.max_energy),
             _ => Err(refuse("execution.spells.Unit_GetMaxPower_type_owner")),
         }
-    }
-    fn vitals(&self, caster: ObjectHandle) -> Result<SourceUnitVitals> {
-        self.units
-            .get(self.objects, caster)?
-            .vitals
-            .ok_or_else(|| refuse("execution.spells.CreatureStats_current_resources_owner"))
     }
 }
 

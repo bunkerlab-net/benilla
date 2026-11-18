@@ -160,7 +160,83 @@ pub struct SourceUnitFields {
     #[serde(skip)]
     pub spell_list_disabled: Option<bool>,
 }
+
+pub struct SourceUnitCastFields<'a> {
+    pub movement: &'a Option<SourceCreatureMovement>,
+    pub spell_slots: &'a mut SourceSpellSlots,
+    pub flags: &'a u32,
+    pub gm: &'a bool,
+    pub mounted: &'a bool,
+    pub stand_state: &'a u8,
+    pub charmer: &'a Option<ObjectHandle>,
+    pub control_guids: &'a SourceControlGuids,
+    pub unit_class: &'a Option<u32>,
+    pub combo_target: &'a Option<ObjectHandle>,
+    pub has_ai: &'a bool,
+    pub totem: &'a bool,
+    pub auras: &'a mut SourceUnitAuras,
+    pub immunities: &'a CreatureImmunityState,
+    pub threat_modifier: &'a mut [f32; 7],
+    pub vitals: &'a mut Option<SourceUnitVitals>,
+    pub power_fields: &'a mut Option<SourceUnitPowerFields>,
+    pub power_cost_modifier: &'a [i32; 7],
+    pub power_cost_multiplier: &'a [u32; 7],
+    pub shapeshift_form: &'a mut u32,
+    pub target: &'a mut Option<ObjectHandle>,
+    pub victim: &'a Option<ObjectHandle>,
+    pub cooldowns: &'a mut SourceSpellCooldowns,
+    pub combat_reach: &'a Option<u32>,
+    pub bounding_radius: &'a Option<u32>,
+    pub cast_speed: &'a u32,
+    pub entry: &'a u32,
+    pub spell_list: &'a Option<CreatureSpellList>,
+}
+
 impl SourceUnitFields {
+    /// Spell.cpp:3007-3020. Borrow the live caster, Spell store, and event queue separately.
+    pub fn borrow_cast(
+        &mut self,
+    ) -> (
+        SourceUnitCastFields<'_>,
+        &mut SourceSpellStarts,
+        &mut SourceUnitEvents,
+    ) {
+        (
+            SourceUnitCastFields {
+                movement: &self.movement,
+                spell_slots: &mut self.spell_slots,
+                flags: &self.flags,
+                gm: &self.gm,
+                mounted: &self.mounted,
+                stand_state: &self.stand_state,
+                charmer: &self.charmer,
+                control_guids: &self.control_guids,
+                unit_class: &self.unit_class,
+                combo_target: &self.combo_target,
+                has_ai: &self.has_ai,
+                totem: &self.totem,
+                auras: &mut self.auras,
+                immunities: &self.immunities,
+                threat_modifier: &mut self.threat_modifier,
+                vitals: &mut self.vitals,
+                power_fields: &mut self.power_fields,
+                power_cost_modifier: &self.power_cost_modifier,
+                power_cost_multiplier: &self.power_cost_multiplier,
+                shapeshift_form: &mut self.shapeshift_form,
+                target: &mut self.target,
+                victim: &self.victim,
+                cooldowns: &mut self.cooldowns,
+                combat_reach: &self.combat_reach,
+                bounding_radius: &self.bounding_radius,
+                cast_speed: &self.cast_speed,
+                entry: &self.entry,
+                spell_list: &self.spell_list,
+            },
+            &mut self.spell_starts,
+            &mut self.unit_events,
+        )
+    }
+
     /// Unit.cpp:330,423-425; Creature.cpp:541-579. Spawn overrides belong to UpdateEntry.
     pub fn creature(template: &CreatureAiTemplateOperands) -> Self {
         let mut fields = Self::constructed_creature();

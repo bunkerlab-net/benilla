@@ -116,6 +116,45 @@ fn live_binding_runs_once_restores_event_owner_and_preserves_saved_bytes() {
     );
     assert_eq!(calls, 2);
 }
+
+#[test]
+fn live_cast_refuses_a_non_caster_target_before_scheduling() {
+    let (mut objects, mut units, mut ais, object) = setup();
+    let other = objects.construct(6, SourceObjectKind::Creature).unwrap();
+    objects.set_pose(other, SourcePose([0; 4])).unwrap();
+    units
+        .register(&objects, other, SourceUnitFields::constructed_creature())
+        .unwrap();
+    let stores = stores();
+    let mut binding = Binding {
+        object,
+        stores: &stores,
+        targets: &SourceSpellTargetMgr::initialize(&stores),
+        terrain: &mut SourceTerrainManager::default(),
+        world_clock: &SourceWorldClock::default(),
+        clocks: &mut ActiveClocks::default(),
+        random: &mut NoDraw,
+        creature_spells: None,
+        max_casts: 0,
+        broadcast: None,
+    };
+    assert_eq!(
+        binding
+            .run(&mut units, &mut ais, &objects, |c| c.ai_cast(
+                object,
+                Some(other),
+                10848,
+                0
+            ))
+            .unwrap_err()
+            .id,
+        "execution.spells.ai_cast.other_unit_owner"
+    );
+    let live = units.get(&objects, object).unwrap();
+    assert!(live.spell_starts.spells.is_empty());
+    assert!(live.unit_events.inventory().queued.is_empty());
+}
+
 #[test]
 fn live_ai_cast_keeps_its_spell_after_cooldowns_before_missing_geometry() {
     let (objects, mut units, mut ais, object) = setup();
@@ -394,7 +433,7 @@ fn contested_slot_refuses_callback_reads_and_restores_old_spell() {
     let mut owner = Owner {
         object,
         objects: &objects,
-        units: &mut units,
+        live: units.get_mut(&objects, object).unwrap().borrow_cast().0,
         ai: ais.get_mut(&objects, object).unwrap(),
         stores: &stores,
         targets: &SourceSpellTargetMgr::initialize(&stores),

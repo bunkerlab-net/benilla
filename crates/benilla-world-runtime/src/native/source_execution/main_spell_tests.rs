@@ -413,7 +413,7 @@ fn live_unit_power_owner_reads_constructor_modifiers_and_selected_resources() {
     fields.vitals.as_mut().unwrap().max_energy = 90;
     let mut owner = super::super::main_spell::UnitPowerOwner {
         objects: &f.objects,
-        units: &f.units,
+        units: super::super::main_spell::UnitPowerSource::Units(&f.units),
     };
     let mut t = SpellTemplate {
         id: 7,

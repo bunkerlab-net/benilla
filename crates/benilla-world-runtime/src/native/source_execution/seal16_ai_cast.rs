@@ -3,7 +3,9 @@
 //! CreatureEventAI.cpp:782-804; UnitAI.cpp:143-223. Live creation-time casting.
 use super::super::addon_cast::{self, fresh_cast_time, prepare_trigger_data};
 use super::*;
-use crate::native::source_execution::main_spell::UnitPowerOwner;
+use crate::native::source_execution::main_spell::{
+    UnitPowerOperands, UnitPowerOwner, UnitPowerSource,
+};
 
 pub(super) struct Binding<'a> {
     pub object: ObjectHandle,
@@ -26,18 +28,15 @@ impl Binding<'_> {
         run: impl FnOnce(&mut SpellStartContext<'_>) -> Result<T>,
     ) -> Result<T> {
         let ai = ais.get_mut(objects, self.object)?;
-        let live = units.get_mut(objects, self.object)?;
-        // Move the owners for the borrow only. Restore them on success and refusal.
-        let mut starts = std::mem::take(&mut live.spell_starts);
-        let mut events = std::mem::take(&mut live.unit_events);
-        let result = run(&mut SpellStartContext {
+        let (live, starts, events) = units.get_mut(objects, self.object)?.borrow_cast();
+        run(&mut SpellStartContext {
             stores: self.stores,
-            starts: &mut starts,
-            events: &mut events,
+            starts,
+            events,
             owner: &mut Owner {
                 object: self.object,
                 objects,
-                units,
+                live,
                 ai,
                 stores: self.stores,
                 targets: self.targets,
@@ -50,17 +49,14 @@ impl Binding<'_> {
                 broadcast: self.broadcast,
                 slots_detached: false,
             },
-        });
-        let live = units.get_mut(objects, self.object)?;
-        live.spell_starts = starts;
-        live.unit_events = events;
-        result
+        })
     }
 }
+
 struct Owner<'a> {
     object: ObjectHandle,
     objects: &'a SourceObjects,
-    units: &'a mut SourceUnits,
+    live: SourceUnitCastFields<'a>,
     ai: &'a mut SourceCreatureAi,
     stores: &'a SourceSpellStores,
     targets: &'a SourceSpellTargetMgr,
@@ -74,34 +70,38 @@ struct Owner<'a> {
     slots_detached: bool,
 }
 impl Owner<'_> {
-    fn live(&self) -> Result<&SourceUnitFields> {
-        self.units.get(self.objects, self.object)
-    }
     fn slots(&self) -> Result<&SourceSpellSlots> {
         require(
             !self.slots_detached,
             "execution.spells.Unit_4226.slot_read_during_interrupt_owner",
         )?;
-        Ok(&self.live()?.spell_slots)
+        Ok(self.live.spell_slots)
     }
     fn with_detached_slots<T>(
         &mut self,
         run: impl FnOnce(&mut SourceSpellSlots, &mut Self) -> Result<T>,
     ) -> Result<T> {
         self.slots()?;
-        let live = self.units.get_mut(self.objects, self.object)?;
-        let mut slots = std::mem::take(&mut live.spell_slots);
+        let mut slots = std::mem::take(self.live.spell_slots);
         // Unit.cpp:4316-4325 keeps the old slot visible during cancellation.
         self.slots_detached = true;
         let result = run(&mut slots, self);
-        self.units.get_mut(self.objects, self.object)?.spell_slots = slots;
+        *self.live.spell_slots = slots;
         self.slots_detached = false;
         result
     }
     fn power_owner(&self) -> UnitPowerOwner<'_> {
         UnitPowerOwner {
             objects: self.objects,
-            units: self.units,
+            units: UnitPowerSource::Caster(
+                self.object,
+                UnitPowerOperands {
+                    vitals: self.live.vitals,
+                    fields: self.live.power_fields,
+                    flat: self.live.power_cost_modifier,
+                    multiplier: self.live.power_cost_multiplier,
+                },
+            ),
         }
     }
     fn require_unit(&self, unit: ObjectHandle) -> Result<()> {
@@ -112,6 +112,7 @@ impl Owner<'_> {
         )
     }
     fn interrupt(&self, unit: ObjectHandle, slot: SpellSlot) -> Result<()> {
+        // Unit.cpp:4304 reads this unit's current Spell slot.
         self.require_unit(unit)?;
         // Unit.cpp:4304. Empty slots return before cancellation or callbacks.
         require(
@@ -125,8 +126,7 @@ impl Owner<'_> {
             self.range_mod_owner(spell.caster)?.is_none(),
             "execution.spells.Spell_3163.SpellModRAII_owner",
         )?;
-        let live = self.units.get_mut(self.objects, self.object)?;
-        if !addon_cast::enter_cast(&mut live.auras.cast_counter, self.max_casts) {
+        if !addon_cast::enter_cast(&mut self.live.auras.cast_counter, self.max_casts) {
             spell.finish_failed(self)?; // SendCastResult returns for a creature.
             spell.executing = false;
             return Ok(());
@@ -142,7 +142,7 @@ impl Owner<'_> {
         }
         let unit = self.unit(spell.caster)?;
         let level = self.power_owner().power_level(spell.caster)?;
-        let live = self.units.get_mut(self.objects, self.object)?;
+        let live = &mut self.live;
         let base = &self.ai.base;
         addon_cast::Owner {
             object: self.object,
@@ -150,35 +150,35 @@ impl Owner<'_> {
             terrain: self.terrain,
             stores: self.stores,
             targets: self.targets,
-            flags: &live.flags,
-            control_guids: &live.control_guids,
-            immunities: &live.immunities,
-            auras: &mut live.auras,
-            threat_modifier: &mut live.threat_modifier,
-            power_fields: &mut live.power_fields,
+            flags: live.flags,
+            control_guids: live.control_guids,
+            immunities: live.immunities,
+            auras: live.auras,
+            threat_modifier: live.threat_modifier,
+            power_fields: live.power_fields,
             power_type: None,
-            vitals: &mut live.vitals,
-            form: &mut live.shapeshift_form,
-            cooldowns: &mut live.cooldowns,
-            stand: live.stand_state,
-            mount: u32::from(live.mounted),
+            vitals: live.vitals,
+            form: live.shapeshift_form,
+            cooldowns: live.cooldowns,
+            stand: *live.stand_state,
+            mount: u32::from(*live.mounted),
             unit,
             level,
-            cast_speed: &live.cast_speed,
+            cast_speed: live.cast_speed,
             creature_spell_list: live.spell_list.as_ref(),
-            entry: &live.entry,
+            entry: live.entry,
             random: self.random,
             creature_spells: self.creature_spells,
             clocks: self.clocks,
             world_clock: self.world_clock,
             broadcast: self.broadcast,
-            bounding_radius: live.bounding_radius,
+            bounding_radius: *live.bounding_radius,
             max_casts: self.max_casts,
         }
         .cast_checked(spell, t, Some(base), None, |spell| {
             // UnitAI.cpp:352. A different Spell instance leaves the target alone.
             if spell.flags.notify_ai() && base.current_spell == Some(spell.id) {
-                finish_ai_cast(base, spell, t, live.victim, &mut live.target)?;
+                finish_ai_cast(base, spell, t, *live.victim, live.target)?;
             }
             Ok(())
         })
@@ -212,6 +212,7 @@ fn finish_ai_cast(
 impl SpellLocationOwner for Owner<'_> {}
 impl SpellExecutionOwner for Owner<'_> {
     fn unit(&mut self, unit: ObjectHandle) -> Result<SpellUnitState> {
+        // Unit.cpp:1495 and Spell.cpp:4830-4869 read the target's own state.
         self.require_unit(unit)?;
         let object = self.objects.get(unit)?;
         require(
@@ -219,7 +220,7 @@ impl SpellExecutionOwner for Owner<'_> {
             "execution.spells.ai_cast.non_generic_creature_owner",
         )?;
         let movement = self
-            .live()?
+            .live
             .movement
             .as_ref()
             .and_then(|movement| movement.flags)
@@ -228,25 +229,25 @@ impl SpellExecutionOwner for Owner<'_> {
             player: false,
             gameobject: false,
             alive: object.alive,
-            standing: self.live()?.stand_state == 0,
-            player_controlled: self.live()?.flags & 8 != 0,
-            combat: self.live()?.in_combat(),
+            standing: *self.live.stand_state == 0,
+            player_controlled: self.live.flags & 8 != 0,
+            combat: self.live.flags & UNIT_FLAG_COMBAT != 0,
             battleground_wait_leave: false,
-            gm: self.live()?.gm,
+            gm: *self.live.gm,
             moving: movement & 0x0400_60cf != 0,
             falling_far: movement & 0x4000 != 0,
-            stealth: self.live()?.auras.has_aura_type(16),
-            form: self.live()?.shapeshift_form,
+            stealth: self.live.auras.has_aura_type(16),
+            form: *self.live.shapeshift_form,
             class: self
-                .live()?
+                .live
                 .unit_class
                 .ok_or_else(|| refuse("execution.spells.ai_cast.unit_class_owner"))?,
-            combo_target: self.live()?.combo_target,
-            mounted: self.live()?.mounted,
-            taxi: self.live()?.flags & 0x0010_0000 != 0,
-            totem: self.live()?.totem,
-            untargetable: self.live()?.flags & 0x0001_0000 != 0,
-            has_ai: self.live()?.has_ai,
+            combo_target: *self.live.combo_target,
+            mounted: *self.live.mounted,
+            taxi: self.live.flags & 0x0010_0000 != 0,
+            totem: *self.live.totem,
+            untargetable: self.live.flags & 0x0001_0000 != 0,
+            has_ai: *self.live.has_ai,
             position: object
                 .pose
                 .ok_or_else(|| refuse("execution.spells.WorldObject_position_owner"))?
@@ -266,6 +267,7 @@ impl SpellExecutionOwner for Owner<'_> {
         if evade && cast_flags & 2 == 0 {
             return Ok((true, false));
         }
+        // UnitAI.cpp:178 reads the selected caster's current cast.
         self.require_unit(caster)?;
         Ok((
             evade,
@@ -281,14 +283,16 @@ impl SpellExecutionOwner for Owner<'_> {
         ))
     }
     fn has_aura(&mut self, unit: ObjectHandle, spell: u32) -> Result<bool> {
+        // UnitAI.cpp:188-190 checks the selected target's auras.
         self.require_unit(unit)?;
-        Ok(self.live()?.auras.has_aura(spell))
+        Ok(self.live.auras.has_aura(spell))
     }
     fn active_auto_spell(
         &mut self,
         unit: ObjectHandle,
         starts: &SourceSpellStarts,
     ) -> Result<Option<u32>> {
+        // UnitAI.cpp:204-208 reads the caster's active autorepeat Spell.
         self.require_unit(unit)?;
         self.slots()?
             .current(SpellSlot::AutoRepeat)
@@ -357,10 +361,10 @@ impl SpellExecutionOwner for Owner<'_> {
             spell.cooldown_lookups[0] += 1;
             if self.object.thread == 6 && self.objects.get(self.object)?.database_guid == 40520 {
                 assert_eq!((spell.id, spell.spell), (3, 10848));
-                assert!(self.live()?.cooldowns.is_empty());
+                assert!(self.live.cooldowns.is_empty());
             }
             return Ok(
-                if self.live()?.cooldowns.is_spell_ready(
+                if self.live.cooldowns.is_spell_ready(
                     t,
                     spell.item_cast,
                     self.objects.get(spell.caster)?.in_world,
@@ -377,7 +381,7 @@ impl SpellExecutionOwner for Owner<'_> {
             spell.cooldown_lookups[1] += 1;
             return Ok(
                 if self
-                    .live()?
+                    .live
                     .cooldowns
                     .gcd
                     .has(t.startrecoverycategory, self.world_clock.current_ms())
@@ -389,13 +393,11 @@ impl SpellExecutionOwner for Owner<'_> {
             );
         }
         if check == SpellCheck::Shapeshift {
-            return self
-                .stores
-                .shapeshift_error(t, self.live()?.shapeshift_form);
+            return self.stores.shapeshift_error(t, *self.live.shapeshift_form);
         }
         if check == SpellCheck::SpiritOfRedemption {
             return Ok(
-                if self.live()?.auras.has_aura_type(176) && t.attributesex3 & 0x0010_0000 == 0 {
+                if self.live.auras.has_aura_type(176) && t.attributesex3 & 0x0010_0000 == 0 {
                     SpellCastResult::BadTargets
                 } else {
                     SpellCastResult::Ok
@@ -403,7 +405,7 @@ impl SpellExecutionOwner for Owner<'_> {
             );
         }
         if let SpellCheck::StrongerAura(_) = check {
-            for (&id, existing) in &self.live()?.auras.aura_holders {
+            for (&id, existing) in &self.live.auras.aura_holders {
                 let old = self
                     .stores
                     .template(id)
@@ -429,12 +431,12 @@ impl SpellExecutionOwner for Owner<'_> {
             return Ok(
                 if positive
                     && mask != 0
-                    && self.live()?.immunities.immune_to_self_spell(
+                    && self.live.immunities.immune_to_self_spell(
                         self.stores,
                         t,
                         mask,
                         self.object,
-                        &self.live()?.auras,
+                        self.live.auras,
                     )?
                 {
                     SpellCastResult::TargetAuraState
@@ -444,7 +446,8 @@ impl SpellExecutionOwner for Owner<'_> {
             );
         }
         if let SpellCheck::AllowedInLocation(location) = check {
-            let player = spell_beneficiary_player(self.objects, self.units, Some(self.object))?;
+            let player =
+                spell_beneficiary_from_guids(self.objects, self.object, *self.live.control_guids)?;
             let map = self
                 .objects
                 .get(self.object)?
@@ -492,19 +495,24 @@ impl SpellExecutionOwner for Owner<'_> {
     fn add_gcd(&mut self, spell: &SourceSpell, t: &SpellTemplate) -> Result<()> {
         self.require_unit(spell.caster)?;
         let clock = self.world_clock;
-        self.units
-            .get_mut(self.objects, self.object)?
-            .cooldowns
-            .add_gcd(t, 0, || Ok(clock.current_ms()))
+        self.live.cooldowns.add_gcd(t, 0, || Ok(clock.current_ms()))
     }
     fn power_objects(&mut self) -> Result<&SourceObjects> {
         Ok(self.objects)
     }
-    fn power_context(&mut self) -> Result<SpellPowerContext<'_>> {
-        Ok(SpellPowerContext {
-            objects: self.objects,
-            units: self.units,
-        })
+    fn power_health(&mut self, caster: ObjectHandle) -> Result<u32> {
+        // Spell.cpp:6321,6380 read the true caster's current health.
+        self.power_owner().power_health(caster)
+    }
+    fn caster_aura_flags(&mut self, caster: ObjectHandle) -> Result<u32> {
+        // Spell.cpp:6029 reads UNIT_FIELD_FLAGS from the true caster.
+        self.require_unit(caster)?;
+        Ok(*self.live.flags)
+    }
+    fn caster_charmer(&mut self, caster: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        // Spell.cpp:6034 reads the true caster's charmer.
+        self.require_unit(caster)?;
+        Ok(*self.live.charmer)
     }
     fn power_mod_owner(&mut self, caster: ObjectHandle) -> Result<Option<ObjectHandle>> {
         self.range_mod_owner(caster)
@@ -548,7 +556,7 @@ impl SpellExecutionOwner for Owner<'_> {
             spell,
             t,
             || self.power_owner().power_level(caster),
-            || Ok(self.live()?.cast_speed),
+            || Ok(*self.live.cast_speed),
         )?;
         spell.prepare_lookups[1] += 1;
         Ok(time)
@@ -575,7 +583,7 @@ impl SpellExecutionOwner for Owner<'_> {
                     .ok_or_else(|| refuse("execution.spells.missing_template"))?;
                 addon_cast::check_cast_aura_removals(
                     self.stores,
-                    &self.live()?.auras,
+                    self.live.auras,
                     cast,
                     self.object,
                     flag,
@@ -594,7 +602,7 @@ impl SpellExecutionOwner for Owner<'_> {
                         self.objects,
                         spell.caster,
                         self.broadcast,
-                        self.live()?.bounding_radius,
+                        *self.live.bounding_radius,
                     )?);
                 }
                 Ok(())
@@ -611,8 +619,13 @@ impl SpellExecutionOwner for Owner<'_> {
                     .template(spell.spell)
                     .ok_or_else(|| refuse("execution.spells.missing_template"))?;
                 if !state {
-                    let live = self.units.get_mut(self.objects, self.object)?;
-                    return finish_ai_cast(&self.ai.base, spell, t, live.victim, &mut live.target);
+                    return finish_ai_cast(
+                        &self.ai.base,
+                        spell,
+                        t,
+                        *self.live.victim,
+                        self.live.target,
+                    );
                 }
                 spell.prepare_lookups[3] += 1;
                 if t.attributesex4 & 0x80 != 0 || t.attributes & 0x404 != 0 {
@@ -637,7 +650,7 @@ impl SpellExecutionOwner for Owner<'_> {
                 )?;
                 spell.prepare_lookups[5] += 1;
                 require(
-                    self.live()?.target.is_none(),
+                    self.live.target.is_none(),
                     "execution.spells.UnitAI_407.SetFacingTo_owner",
                 )?;
                 self.ai.base.current_spell = Some(spell.id);
@@ -672,8 +685,8 @@ impl SpellExecutionOwner for Owner<'_> {
                         "execution.spells.UnitAI_474.SetFacingTo_owner"
                     }));
                 }
-                let victim = self.live()?.victim.filter(|_| !self.ai.base.combat_script);
-                self.units.get_mut(self.objects, self.object)?.target = victim;
+                let victim = self.live.victim.filter(|_| !self.ai.base.combat_script);
+                *self.live.target = victim;
                 Ok(())
             }
             _ => Err(call.missing_owner()),
@@ -686,9 +699,10 @@ impl SpellExecutionOwner for Owner<'_> {
         Ok(self.stores)
     }
     fn moving_forward(&mut self, unit: ObjectHandle) -> Result<bool> {
+        // Spell.cpp:6196 checks both caster and target movement.
         self.require_unit(unit)?;
         let flags = self
-            .live()?
+            .live
             .movement
             .as_ref()
             .and_then(|m| m.flags)
@@ -696,9 +710,10 @@ impl SpellExecutionOwner for Owner<'_> {
         Ok(flags & 0x200d != 0)
     }
     fn walking(&mut self, unit: ObjectHandle) -> Result<bool> {
+        // Spell.cpp:6196 checks both caster and target movement.
         self.require_unit(unit)?;
         let flags = self
-            .live()?
+            .live
             .movement
             .as_ref()
             .and_then(|m| m.flags)
@@ -706,12 +721,14 @@ impl SpellExecutionOwner for Owner<'_> {
         Ok(flags & 0x100 != 0)
     }
     fn range_mod_owner(&mut self, unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        // Spell.cpp:6207 reads the selected caster's mod owner.
         self.require_unit(unit)?;
-        world_object_spell_mod_owner(self.objects, unit, self.live()?.totem)
+        world_object_spell_mod_owner(self.objects, unit, *self.live.totem)
     }
     fn combat_reach(&mut self, unit: ObjectHandle) -> Result<f32> {
+        // Spell.cpp:6173,6181,6189 read both units' combat reach.
         self.require_unit(unit)?;
-        self.live()?
+        self.live
             .combat_reach
             .map(f32::from_bits)
             .ok_or_else(|| refuse("execution.spells.Unit_1095.UNIT_FIELD_COMBATREACH_owner"))
