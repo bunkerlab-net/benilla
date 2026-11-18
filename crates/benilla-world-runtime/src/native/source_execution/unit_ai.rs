@@ -157,6 +157,10 @@ pub struct SourceUnitFields {
     pub spell_list: Option<CreatureSpellList>,
     #[serde(skip)]
     pub spell_list_disabled: Option<bool>,
+    #[serde(skip)]
+    pub loaded_creature: SourceLoadedCreatureFields,
+    #[serde(skip)]
+    pub power_type: Option<u8>,
 }
 
 pub struct SourceUnitCastFields<'a> {
@@ -177,6 +181,7 @@ pub struct SourceUnitCastFields<'a> {
     pub vitals: &'a mut Option<SourceUnitVitals>,
     pub power_fields: &'a mut Option<SourceUnitPowerFields>,
     pub power_cost_modifier: &'a [i32; 7],
+    pub power_type: &'a mut Option<u8>,
     pub power_cost_multiplier: &'a [u32; 7],
     pub shapeshift_form: &'a mut u32,
     pub target: &'a mut Option<ObjectHandle>,
@@ -216,6 +221,7 @@ impl SourceUnitFields {
                 threat_modifier: &mut self.threat_modifier,
                 vitals: &mut self.vitals,
                 power_fields: &mut self.power_fields,
+                power_type: &mut self.power_type,
                 power_cost_modifier: &self.power_cost_modifier,
                 power_cost_multiplier: &self.power_cost_multiplier,
                 shapeshift_form: &mut self.shapeshift_form,
@@ -240,75 +246,48 @@ impl SourceUnitFields {
         fields
     }
     pub(super) fn apply_creature_template(&mut self, template: &CreatureAiTemplateOperands) {
-        self.apply_creature_values(
-            template.entry,
-            template.faction,
-            template.static_flags,
+        self.entry = template.entry;
+        self.faction = template.faction;
+        self.apply_creature_properties(
             template.extra_flags,
-            template.unit_flags,
             template.inhabit_type,
             template.pursuit_ms,
             template.call_for_help,
-            template.creature_type,
         );
+        self.apply_creature_capabilities(template.extra_flags);
+        self.static_flags = template.static_flags;
+        self.flags = template.unit_flags;
+        for application in SourceCreatureSettings::effects(template.static_flags) {
+            self.flags |= application.unit_flag();
+        }
+        self.set_creature_type(template.creature_type);
     }
-    /// Creature.h:90-117; bind SQLStorage fields without raw catalog alternatives.
-    #[cfg(test)]
-    pub(super) fn populate_loaded_creature(&mut self, template: &LoadedCreatureInfo) {
-        let w = &template.words;
-        self.apply_creature_values(
-            w[0],
-            w[13],
-            w[25..29].try_into().unwrap(),
-            w[23],
-            w[21],
-            w[17],
-            w[33],
-            w[32],
-            w[16],
-        );
-    }
-    #[allow(clippy::too_many_arguments)]
-    fn apply_creature_values(
+
+    /// Creature.cpp:336 binds the template; its getters read these loaded operands.
+    pub(super) fn apply_creature_properties(
         &mut self,
-        entry: u32,
-        faction: u32,
-        static_flags: [u32; 4],
         extra_flags: u32,
-        unit_flags: u32,
         inhabit_type: u32,
         pursuit_ms: u32,
         call_for_help: u32,
-        creature_type: u32,
     ) {
-        self.entry = entry;
-        self.faction = faction;
-        self.static_flags = static_flags;
         self.can_fly = inhabit_type & 4 != 0;
         self.can_walk = inhabit_type & 1 != 0;
         self.can_swim = inhabit_type & 2 != 0;
         self.mmap_extra_flags = extra_flags & 0x6000;
-        self.force_attacking = extra_flags & 0x80000 != 0;
         self.run_during_wander = extra_flags & 0x20 != 0;
-        self.flags = unit_flags
-            | if static_flags[0] & 0x200 != 0 {
-                0x0200_0000
-            } else {
-                0
-            }
-            | if static_flags[0] & 0x20 != 0 {
-                0x100
-            } else {
-                0
-            }
-            | if static_flags[0] & 0x40 != 0 {
-                0x200
-            } else {
-                0
-            };
         self.pursuit_ms = pursuit_ms;
-        self.can_call_assistance = extra_flags & 0x800 == 0;
         self.call_for_help = call_for_help;
+    }
+
+    /// Creature.cpp:463-464.
+    pub(super) fn apply_creature_capabilities(&mut self, extra_flags: u32) {
+        self.force_attacking = extra_flags & 0x80000 != 0;
+        self.can_call_assistance = extra_flags & 0x800 == 0;
+    }
+
+    /// Creature.cpp:614-615 and Creature.h:624.
+    pub(super) fn set_creature_type(&mut self, creature_type: u32) {
         self.critter = creature_type == 8;
     }
     /// Unit.cpp:320-366 and Object.cpp:1169-1175 construct the live containers before LoadFromDB.
@@ -323,7 +302,7 @@ impl SourceUnitFields {
             can_swim: false,
             mmap_extra_flags: 0,
             neutral_to_all: None,
-            can_aggro: None,
+            can_aggro: Some(false), // Creature.cpp:140.
             force_attacking: false,
             run_during_wander: false,
             flags: 0,
@@ -386,6 +365,11 @@ impl SourceUnitFields {
             cast_speed: 0,
             spell_list: None,
             spell_list_disabled: None,
+            loaded_creature: SourceLoadedCreatureFields {
+                detection: 20f32.to_bits(), // Creature.cpp:142.
+                ..Default::default()
+            },
+            power_type: None,
         }
     }
     pub fn in_combat(&self) -> bool {

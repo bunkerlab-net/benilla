@@ -172,7 +172,7 @@ impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManag
         self.units.register(
             context.objects,
             object,
-            SourceUnitFields::constructed_creature(),
+            CreatureConstruction::construct_loaded_unit(),
         )?;
         self.passengers.construct(object, context.objects)?;
         self.candidates.push(object);
@@ -259,9 +259,18 @@ impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManag
             return Ok(GridCandidateOutcome::FailedAndDestroyed(object));
         };
         self.lookups.push("init_entry_template");
-        // Creature.cpp:335-344 writes only entry, scale, race and class before ChooseDisplayId.
-        self.init_entry_fields =
-            Some((effective, template.words[14], [0, template.words[36] as u8]));
+        let live = self.units.get_mut(context.objects, object)?;
+        CreatureConstruction::init_loaded_entry_base(live, template);
+        let operands = (
+            live.entry,
+            live.loaded_creature.scale.unwrap(),
+            [live.loaded_creature.race, live.unit_class.unwrap() as u8],
+        );
+        assert_eq!(
+            operands,
+            (effective, template.words[14], [0, template.words[36] as u8])
+        );
+        self.init_entry_fields = Some(operands);
         self.lookups.push("init_entry_fields");
         let mut display = event.map_or(0, |event| event.model);
         if display == 0 {
@@ -298,19 +307,20 @@ impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManag
         };
         self.creature_model = Some(model.words);
         self.lookups.push("creature_model_random_gender");
-        creature_entry::continue_entry(
+        let mut construction = creature_entry::continue_entry(
             self,
             object,
             data,
             original,
             template,
             event,
+            group,
             model.words,
             context.products,
             attempt.grid.map.map,
             context.objects,
         )?;
-        creature_create::continue_create(self, object, data, template, context)
+        creature_create::continue_create(self, &mut construction, data, template, context)
     }
     fn viewpoint_added(
         &mut self,

@@ -3,11 +3,12 @@
 use super::*;
 pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
     prefix: &mut Prefix<'_>,
-    object: ObjectHandle,
+    construction: &mut CreatureConstruction,
     data: &EffectiveSpawnData,
     template: &LoadedCreatureInfo,
     context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
 ) -> Result<GridCandidateOutcome> {
+    let object = construction.object;
     // CreatureCreatePos has no close object, and staticSpawn is true, Creature.cpp:105-120.
     let position = data.row.pose;
     prefix.lookups.push("creature_select_final_point_static");
@@ -99,6 +100,10 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
         .event_trigger(template.words[0], data.row.guid, prefix.map_entry.id)
     {
         prefix.creature_linking_trigger = true; // Creature.cpp:928, before AddMasterToHolder.
+        prefix
+            .units
+            .get_mut(context.objects, object)?
+            .linking_event_trigger = Some(true);
         prefix.link_holder.add_master(
             prefix.linking,
             context.objects,
@@ -145,9 +150,11 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
     {
         prefix.lookups.push("creature_template_addon_lookup");
     }
-    motion_initialize::register_unit(prefix, object, template, context)?;
     let fields = prefix.creature_entry.as_mut().unwrap();
     let live = prefix.units.get_mut(context.objects, object)?;
+    let flags = live.flags;
+    let movement = live.movement.as_ref().unwrap().flags.unwrap();
+    let level = live.power_fields.as_ref().unwrap().level;
     if prefix.map_entry.id == 0 && data.row.guid == 40520 {
         assert!(!live.auras.has_aura_holders());
         assert!(live.auras.aura_type_ids().next().is_none());
@@ -164,28 +171,29 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
         gameobject: false,
         alive: true,
         standing: fields.addon.stand == 0,
-        player_controlled: fields.unit_flags & 8 != 0,
-        combat: fields.unit_flags & UNIT_FLAG_COMBAT != 0,
+        player_controlled: flags & 8 != 0,
+        combat: flags & UNIT_FLAG_COMBAT != 0,
         battleground_wait_leave: false,
         gm: false,
-        moving: fields.movement_flags & 0x0400_60cf != 0,
-        falling_far: fields.movement_flags & 0x4000 != 0,
+        moving: movement & 0x0400_60cf != 0,
+        falling_far: movement & 0x4000 != 0,
         stealth: live.auras.has_aura_type(16),
         form: live.shapeshift_form,
-        class: template.words[36],
+        class: live.unit_class.unwrap(),
         combo_target: None,
         mounted: fields.addon.mount != 0,
-        taxi: fields.unit_flags & 0x0010_0000 != 0,
+        taxi: flags & 0x0010_0000 != 0,
         totem: false, // Generic Creature subtype, Creature.h:595,622.
-        untargetable: fields.unit_flags & 0x0001_0000 != 0,
+        untargetable: flags & 0x0001_0000 != 0,
         has_ai: false,
         position: context.objects.get(object)?.pose.unwrap().0,
     };
     if context.objects.get(object)?.database_guid == 40520 {
         assert_eq!(live.cast_speed, fields.cast_speed);
+        assert_eq!(live.power_type, Some(fields.power));
     }
     let raw = prefix.random.creature_raw_position()?;
-    fields.addon.load(
+    let result = fields.addon.load(
         addon,
         false,
         live,
@@ -196,8 +204,7 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
             stores: prefix.spell_stores,
             targets: &prefix.spell_targets,
             unit,
-            level: fields.level.as_ref().unwrap().level,
-            power_type: &mut fields.power,
+            level,
             clocks: prefix.clocks,
             world_clock: prefix.world_clock,
             random: prefix.random,
@@ -205,7 +212,9 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
             raw,
             max_casts: addon_cast::max_casts(prefix.config)?,
         },
-    )?;
+    );
+    fields.power = live.power_type.unwrap();
+    result?;
     prefix.lookups.push("creature_addon_applied");
     prefix.lookups.push("creature_create_return");
     if prefix
@@ -235,7 +244,8 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
     // Object.cpp:3076-3078 compares the actual allocated GUID counter.
     let new_spawning = data.row.guid != 0 && data.row.guid != guid.counter();
     if !new_spawning {
-        fields.corpse_delay = fields.corpse_delay.min(delay.wrapping_mul(9) / 10);
+        construction.corpse_delay = construction.corpse_delay.min(delay.wrapping_mul(9) / 10);
+        fields.corpse_delay = construction.corpse_delay;
     }
     context.objects.get_mut(object)?.alive = true; // Creature.cpp:1694.
     fields.respawn_time = Some(context.saved_respawn(GridSpawnKind::Creature, data.row.guid)?);
@@ -345,7 +355,12 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
         context.set_active_object_state(object, true, prefix)?;
     }
     prefix.lookups.push("creature_force_active_checked");
-    if prefix.creature_entry.as_ref().unwrap().count_spawns {
+    if prefix
+        .units
+        .get(context.objects, object)?
+        .loaded_creature
+        .count_spawns
+    {
         return Err(refuse("execution.creature.Map_2995.AddToSpawnCount_owner"));
     }
     prefix.lookups.push("creature_spawn_count_checked");
@@ -363,7 +378,11 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
         SourceVisibilityUpdate {
             object,
             map_distance_bits: prefix.map_visibility_bits,
-            bounding_radius_bits: prefix.creature_entry.as_ref().unwrap().radius,
+            bounding_radius_bits: prefix
+                .units
+                .get(context.objects, object)?
+                .bounding_radius
+                .unwrap(),
         },
         context.cells,
         &mut prefix.visibility,
@@ -395,8 +414,9 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
     prefix.lookups.push("creature_ai_registry_bound");
     // Creature.h:621-623 and Unit.cpp:330,429: this DB-loaded Creature is not a Pet,
     // temporary summon or Totem and has no charmer or owner.
-    let fields = prefix.creature_entry.as_ref().unwrap();
-    let neutral = prefix.ai_factions.neutral_to_all(fields.faction);
+    let neutral = prefix
+        .ai_factions
+        .neutral_to_all(prefix.units.get(context.objects, object)?.faction);
     let selected = prefix.ai_registry.select_after_script(
         context.objects,
         object,

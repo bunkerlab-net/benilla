@@ -246,12 +246,25 @@ pub fn draw_source_creature_level(
 }
 impl SourceUnitFields {
     pub fn apply_source_level(&mut self, value: &SourceLevelStats, class: u32) {
+        self.power_fields = Some(SourceUnitPowerFields {
+            level: value.level,
+            create_health: value.create_health,
+            create_mana: value.create_mana,
+            auxiliary_current: Some([value.power[1], value.power[2], value.power[4]]),
+            auxiliary_maximum: Some([
+                value.maximum_power[1],
+                value.maximum_power[2],
+                value.maximum_power[4],
+            ]),
+        });
         self.vitals = Some(SourceUnitVitals {
             health: value.health,
             max_health: value.maximum_health,
             mana: value.power[0],
             max_mana: value.maximum_power[0],
-            has_mana: matches!(class, 2 | 8),
+            has_mana: self
+                .power_type
+                .map_or(matches!(class, 2 | 8), |power| power == 0),
             energy: value.power[3],
             max_energy: value.maximum_power[3],
         });

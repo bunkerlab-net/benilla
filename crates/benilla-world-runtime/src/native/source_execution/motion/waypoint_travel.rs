@@ -59,10 +59,27 @@ impl SourceCreatureMovement {
         spawn: Result<Option<&LoadedCreatureSpawnTemplate>>,
         swimmable: impl FnOnce() -> Result<bool>,
     ) -> Result<()> {
+        self.init_entry_flags_from_bits(
+            [template.inhabit_type, template.extra_flags],
+            controlled_pet,
+            client_controlled,
+            spawn,
+            swimmable,
+        )
+    }
+
+    pub(in crate::native::source_execution) fn init_entry_flags_from_bits(
+        &mut self,
+        [inhabit_type, extra_flags]: [u32; 2],
+        controlled_pet: bool,
+        client_controlled: bool,
+        spawn: Result<Option<&LoadedCreatureSpawnTemplate>>,
+        swimmable: impl FnOnce() -> Result<bool>,
+    ) -> Result<()> {
         if !controlled_pet {
-            self.set_levitate(template.inhabit_type & 4 != 0, client_controlled)?;
+            self.set_levitate(inhabit_type & 4 != 0, client_controlled)?;
         }
-        if template.inhabit_type & 2 != 0 && template.extra_flags & 0x8000 == 0 && swimmable()? {
+        if inhabit_type & 2 != 0 && extra_flags & 0x8000 == 0 && swimmable()? {
             *self
                 .flags
                 .as_mut()

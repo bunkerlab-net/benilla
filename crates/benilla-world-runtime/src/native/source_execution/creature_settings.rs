@@ -15,6 +15,16 @@ pub enum CreatureStaticFlagApplication {
     ImmuneToPlayer,
     ImmuneToNpc,
 }
+impl CreatureStaticFlagApplication {
+    pub(super) fn unit_flag(self) -> u32 {
+        match self {
+            Self::Visibility(_) => 0,
+            Self::UnitFlag(mask) => mask,
+            Self::ImmuneToPlayer => 0x100,
+            Self::ImmuneToNpc => 0x200,
+        }
+    }
+}
 impl SourceCreatureSettings {
     pub fn reset(
         &mut self,
@@ -22,26 +32,34 @@ impl SourceCreatureSettings {
         mut apply: impl FnMut(CreatureStaticFlagApplication) -> Result<()>,
     ) -> Result<()> {
         self.flags = flags;
-        use CreatureStaticFlagApplication::*;
-        if flags[0] & 0x8000_0000 != 0 {
-            apply(Visibility(SourceVisibilityDistance::Large))?;
-        }
-        if flags[2] & 0x400 != 0 {
-            apply(Visibility(SourceVisibilityDistance::Gigantic))?;
-        }
-        if flags[2] & 0x800 != 0 {
-            apply(Visibility(SourceVisibilityDistance::Infinite))?;
-        }
-        if flags[0] & 0x200 != 0 {
-            apply(UnitFlag(0x0200_0000))?;
-        }
-        if flags[0] & 0x20 != 0 {
-            apply(ImmuneToPlayer)?;
-        }
-        if flags[0] & 0x40 != 0 {
-            apply(ImmuneToNpc)?;
+        for effect in Self::effects(flags) {
+            apply(effect)?;
         }
         Ok(())
+    }
+
+    /// CreatureSettings.cpp:31-49, including ordered visibility precedence.
+    pub(super) fn effects(flags: [u32; 4]) -> impl Iterator<Item = CreatureStaticFlagApplication> {
+        use CreatureStaticFlagApplication::*;
+        [
+            (
+                flags[0] & 0x8000_0000,
+                Visibility(SourceVisibilityDistance::Large),
+            ),
+            (
+                flags[2] & 0x400,
+                Visibility(SourceVisibilityDistance::Gigantic),
+            ),
+            (
+                flags[2] & 0x800,
+                Visibility(SourceVisibilityDistance::Infinite),
+            ),
+            (flags[0] & 0x200, UnitFlag(0x0200_0000)),
+            (flags[0] & 0x20, ImmuneToPlayer),
+            (flags[0] & 0x40, ImmuneToNpc),
+        ]
+        .into_iter()
+        .filter_map(|(set, effect)| (set != 0).then_some(effect))
     }
 }
 #[cfg(test)]

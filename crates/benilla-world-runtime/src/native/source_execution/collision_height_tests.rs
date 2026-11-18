@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use benilla_sim::creature_capabilities::MOVEFLAG_SWIMMING;
 
 fn models(height: f32) -> SourceCollisionModels {
     SourceCollisionModels {
@@ -83,19 +84,20 @@ fn both_source_asserts_refuse_at_lookup_before_terrain_or_flag_write() {
             (0, 1),
         ),
     ] {
-        let mut flags = 0x100;
+        let mut movement = SourceCreatureMovement::construct();
         let mut census = SourceCreatureSwimmingCensus::default();
-        let error = models
-            .init_entry_swimming(
-                display,
-                1.5,
-                &mut flags,
-                |_| panic!("terrain preceded assertion"),
-                &mut census,
-            )
+        let error = movement
+            .init_entry_flags_from_bits([2, 0], false, false, Ok(None), || {
+                models.init_entry_swimmable(
+                    display,
+                    1.5,
+                    |_| panic!("terrain preceded assertion"),
+                    &mut census,
+                )
+            })
             .unwrap_err();
         assert_eq!(error.id, id);
-        assert_eq!(flags, 0x100);
+        assert_eq!(movement.flags.unwrap(), 0x100);
         assert_eq!(census.reached_441, 1);
         assert_eq!(
             (census.display_assert_11952, census.model_assert_11954),
@@ -119,22 +121,26 @@ fn liquid_owner_receives_respawn_pose_and_scaled_height_before_swimming_write() 
     let models = models(2.5);
     let mut census = SourceCreatureSwimmingCensus::default();
     for (scale, expected) in [(1.5, true), (4.0, false)] {
-        let mut flags = 0x100;
+        let mut movement = SourceCreatureMovement::construct();
         let mut queries = 0;
-        models
-            .init_entry_swimming(
-                1192,
-                scale,
-                &mut flags,
-                |height| {
-                    queries += 1;
-                    geometry.is_swimmable(0, [0., 0., 4.], height, None)
-                },
-                &mut census,
-            )
+        movement
+            .init_entry_flags_from_bits([2, 0], false, false, Ok(None), || {
+                models.init_entry_swimmable(
+                    1192,
+                    scale,
+                    |height| {
+                        queries += 1;
+                        geometry.is_swimmable(0, [0., 0., 4.], height, None)
+                    },
+                    &mut census,
+                )
+            })
             .unwrap();
         assert_eq!(queries, 1);
-        assert_eq!(flags, 0x100 | if expected { MOVEFLAG_SWIMMING } else { 0 });
+        assert_eq!(
+            movement.flags.unwrap(),
+            0x100 | if expected { MOVEFLAG_SWIMMING } else { 0 }
+        );
     }
     assert_eq!(
         census,
@@ -149,22 +155,23 @@ fn liquid_owner_receives_respawn_pose_and_scaled_height_before_swimming_write() 
 
 #[test]
 fn terrain_refusal_preserves_flags_after_successful_height_lookups() {
-    let mut flags = 0x100;
+    let mut movement = SourceCreatureMovement::construct();
     let mut census = SourceCreatureSwimmingCensus::default();
-    let error = models(2.5)
-        .init_entry_swimming(
-            1192,
-            1.5,
-            &mut flags,
-            |height| {
-                assert_eq!(height, 3.75);
-                Err(refuse("authored.terrain.next_owner"))
-            },
-            &mut census,
-        )
+    let error = movement
+        .init_entry_flags_from_bits([2, 0], false, false, Ok(None), || {
+            models(2.5).init_entry_swimmable(
+                1192,
+                1.5,
+                |height| {
+                    assert_eq!(height, 3.75);
+                    Err(refuse("authored.terrain.next_owner"))
+                },
+                &mut census,
+            )
+        })
         .unwrap_err();
     assert_eq!(error.id, "authored.terrain.next_owner");
-    assert_eq!(flags, 0x100);
+    assert_eq!(movement.flags.unwrap(), 0x100);
     assert_eq!(
         census,
         SourceCreatureSwimmingCensus {

@@ -1320,7 +1320,7 @@ fn construction_population_keeps_live_containers_reach_and_speed() {
         strings: std::array::from_fn(|_| Vec::new()),
     };
     template.words[0] = 6491;
-    fields.populate_loaded_creature(&template);
+    CreatureConstruction::init_loaded_entry_base(&mut fields, &template);
     assert_eq!(fields.entry, 6491);
     assert_eq!(fields.combat_reach, Some(1.5f32.to_bits()));
     assert_eq!(fields.cast_speed, 1f32.to_bits());

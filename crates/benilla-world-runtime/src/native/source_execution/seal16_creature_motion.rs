@@ -68,54 +68,6 @@ impl MotionExecutionOwner for MotionOwner<'_> {
         context.units.possessing_client(context.objects, unit)
     }
 }
-pub(super) fn register_unit<D: GridDefinitions<Row = SpawnKey>>(
-    prefix: &mut Prefix<'_>,
-    object: ObjectHandle,
-    template: &LoadedCreatureInfo,
-    context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
-) -> Result<()> {
-    let fields = prefix.creature_entry.as_mut().unwrap();
-    let live = prefix.units.get_mut(context.objects, object)?;
-    live.populate_loaded_creature(template);
-    live.unit_class = Some(template.words[36]);
-    live.immunities = std::mem::take(&mut fields.immunities);
-    live.flags = fields.unit_flags;
-    live.faction = fields.faction;
-    live.static_flags = fields.settings.flags;
-    live.linking_event_trigger = Some(prefix.creature_linking_trigger);
-    let level = fields.level.as_ref().unwrap();
-    live.power_fields = Some(SourceUnitPowerFields {
-        level: level.level,
-        create_health: level.create_health,
-        create_mana: level.create_mana,
-        auxiliary_current: Some([level.power[1], level.power[2], level.power[4]]),
-        auxiliary_maximum: Some([
-            level.maximum_power[1],
-            level.maximum_power[2],
-            level.maximum_power[4],
-        ]),
-    });
-    live.vitals = Some(SourceUnitVitals {
-        health: level.health,
-        max_health: level.maximum_health,
-        mana: level.power[0],
-        max_mana: level.maximum_power[0],
-        has_mana: fields.power == 0,
-        energy: level.power[3],
-        max_energy: level.maximum_power[3],
-    });
-    live.can_aggro = Some(fields.can_aggro);
-    // Creature.cpp:2888-2922,435-452; Unit.cpp:8439-8441. Retain InitEntry's
-    // actual MovementInfo flags and model/template rates for BuildIntPath.
-    let mut movement = SourceCreatureMovement::construct();
-    movement.flags = Some(fields.movement_flags);
-    for (rate, bits) in movement.rates.iter_mut().zip(fields.speed_rates) {
-        *rate = Some(f32::from_bits(bits));
-    }
-    live.movement = Some(movement);
-    Ok(())
-}
-
 pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
     prefix: &mut Prefix<'_>,
     object: ObjectHandle,

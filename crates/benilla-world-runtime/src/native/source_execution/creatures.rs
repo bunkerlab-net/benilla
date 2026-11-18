@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+// CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
 //! Creature LoadFromDB executes at the grid factory, with mandatory reached owners.
 use super::*;
 use benilla_sim::creature_init::DisplayChoice;
@@ -39,6 +40,57 @@ pub struct CreatureModel {
     pub id: u32,
     pub gender: u8,
     pub other_gender: u32,
+}
+
+/// The definitions selected for a fresh ordinary DB creature's entry.
+pub struct LoadedCreatureEntry<'a> {
+    pub original: &'a LoadedCreatureInfo,
+    pub effective: &'a LoadedCreatureInfo,
+    pub spawn: &'a LoadedCreatureSpawnTemplate,
+    pub movement: u32,
+    pub map: u32,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct SourceLoadedCreatureFields {
+    pub scale: Option<u32>,
+    pub race: u8,
+    pub native_display: u32,
+    pub display: u32,
+    pub gender: u8,
+    pub base_speeds: [u32; 2],
+    pub model_run_speed: u32,
+    pub equipment: SourceCreatureEquipment,
+    pub name: Vec<u8>,
+    pub default_movement: u32,
+    pub damage_school: u32,
+    pub can_parry: bool,
+    pub can_block: bool,
+    pub can_dual_wield: bool,
+    pub no_reputation: bool,
+    pub detection: u32,
+    pub interaction_pause: u32,
+    pub misc_flags: u8,
+    pub gossip: u32,
+    pub npc_flags: u32,
+    pub attack_times: [u32; 3],
+    pub dynamic_flags: u32,
+    pub resistances: [u32; 6],
+    pub invisible: bool,
+    pub ignore_mmap: bool,
+    pub count_spawns: bool,
+    pub can_modify_stats: bool,
+    pub pvp: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CreatureEntryConfig {
+    NormalCorpseDecay,
+    EliteCorpseDecay,
+    RareEliteCorpseDecay,
+    WorldBossCorpseDecay,
+    RareCorpseDecay,
+    InteractionPause,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CreatureGroup {
@@ -136,6 +188,317 @@ pub struct CreatureConstruction {
     summoned_ai: Option<SourceSummonedAi>,
 }
 impl CreatureConstruction {
+    fn new(
+        object: ObjectHandle,
+        spawn: CreatureSpawn,
+        original_entry: u32,
+        template: CreatureTemplate,
+        event: Option<CreatureEventData>,
+        group: Option<CreatureGroup>,
+    ) -> Self {
+        let corpse_delay = template.corpse_seconds;
+        let position = spawn.position;
+        Self {
+            object,
+            spawn,
+            original_entry,
+            template,
+            event,
+            group,
+            position,
+            respawn_position: position,
+            model: None,
+            rolls: benilla_sim::creature_init::SelectionRolls {
+                model: None,
+                gender: None,
+                level: None,
+            },
+            level: 0,
+            respawn_delay: 0,
+            corpse_delay,
+            respawn_time: 0,
+            linking_trigger: false,
+            spawning_linked: false,
+            selected_ai: None,
+            event_ai: None,
+            builtin_ai: None,
+            summoned_ai: None,
+        }
+    }
+
+    pub fn from_loaded_entry(
+        object: ObjectHandle,
+        data: &EffectiveSpawnData,
+        entry: &LoadedCreatureEntry<'_>,
+        event: Option<CreatureEventData>,
+        group: Option<CreatureGroup>,
+        model: CreatureModel,
+    ) -> Self {
+        let row = &data.row;
+        let w = &entry.effective.words;
+        let mut state = Self::new(
+            object,
+            CreatureSpawn {
+                database_guid: row.guid,
+                entry: row.entry,
+                position: row.pose,
+                model: entry.spawn.model_id,
+                respawn_seconds: row.respawn,
+                respawn_radius: row.radius,
+                relay: entry.spawn.relay_id,
+            },
+            entry.original.words[0],
+            CreatureTemplate {
+                entry: w[0],
+                dynamic_guid: w[23] & 0x10_0000 != 0,
+                active: w[23] & 0x1000 != 0,
+                count_spawns: w[23] & 0x200000 != 0,
+                displays: std::array::from_fn(|i| DisplayChoice {
+                    id: w[5 + i],
+                    probability: w[9 + i],
+                }),
+                levels: [w[3], w[4]],
+                corpse_seconds: w[88],
+                can_fly: w[17] & 4 != 0,
+            },
+            event,
+            group,
+        );
+        state.model = Some(model);
+        state.corpse_delay = 60; // Creature.cpp:140, before InitEntry applies decay policy.
+        state
+    }
+
+    /// Unit.cpp:419 and Creature.cpp:155 initialize the fresh loaded unit.
+    pub fn construct_loaded_unit() -> SourceUnitFields {
+        let mut live = SourceUnitFields::constructed_creature();
+        live.linking_event_trigger = Some(false);
+        live.movement = Some(SourceCreatureMovement::construct());
+        live
+    }
+
+    /// Creature.cpp:335-344, before ChooseDisplayId. The template is already selected.
+    pub fn init_loaded_entry_base(live: &mut SourceUnitFields, template: &LoadedCreatureInfo) {
+        let w = &template.words;
+        live.entry = w[0];
+        live.loaded_creature.scale = Some(w[14]);
+        live.loaded_creature.race = 0;
+        live.unit_class = Some(u32::from(w[36] as u8));
+        live.apply_creature_properties(w[23], w[17], w[33], w[32]);
+    }
+
+    /// Creature.cpp:360-385,2888-2918; Unit.cpp:10260-10275.
+    pub fn apply_loaded_model(
+        live: &mut SourceUnitFields,
+        template: &LoadedCreatureInfo,
+        model: [u32; 8],
+    ) -> Result<CreatureModel> {
+        let current_scale = f32::from_bits(
+            live.loaded_creature
+                .scale
+                .ok_or_else(|| refuse("execution.creature.initial_object_scale_binding"))?,
+        );
+        let native_scale = f32::from_bits(template.words[14]);
+        let normalized = if native_scale != 0.0 {
+            current_scale / native_scale
+        } else {
+            1.0
+        };
+        let entry = &mut live.loaded_creature;
+        entry.native_display = model[0];
+        entry.display = model[0];
+        live.bounding_radius = Some((normalized * f32::from_bits(model[1])).to_bits());
+        live.combat_reach = Some((normalized * f32::from_bits(model[2])).to_bits());
+        let movement = live
+            .movement
+            .get_or_insert_with(SourceCreatureMovement::construct);
+        for (kind, (speed, override_bits)) in
+            model[3..5].iter().zip(&template.words[29..31]).enumerate()
+        {
+            let bits = if f32::from_bits(*override_bits) != 0.0 {
+                *override_bits
+            } else {
+                *speed
+            };
+            entry.base_speeds[kind] = bits;
+            movement.set_speed_rate(kind, f32::from_bits(bits));
+        }
+        entry.model_run_speed = model[4];
+        entry.gender = model[5] as u8;
+        match template.words[36] {
+            1 => live.power_type = Some(1),
+            2 | 8 => live.power_type = Some(0),
+            4 => live.power_type = Some(3),
+            _ => (), // Creature.cpp:383-385 does not write PowerType.
+        }
+        Ok(CreatureModel {
+            id: model[0],
+            gender: entry.gender,
+            other_gender: model[6],
+        })
+    }
+
+    /// Creature.cpp:388-433. Equipment may refuse before the name and cast-speed writes.
+    pub fn load_entry_equipment(
+        &self,
+        live: &mut SourceUnitFields,
+        entry: &LoadedCreatureEntry<'_>,
+        equipment: &LoadedEquipmentTemplates,
+    ) -> Result<()> {
+        live.loaded_creature.equipment.init_entry(
+            self.event.map(|event| (event.equipment, event.entry)),
+            Some(entry.spawn.equipment_id),
+            entry.original.words[93],
+            entry.effective.words[93],
+            live.static_flags[0] & 0x80 != 0,
+            equipment,
+        )?;
+        live.loaded_creature
+            .name
+            .clone_from(&entry.original.strings[0]);
+        live.cast_speed = 1f32.to_bits();
+        Ok(())
+    }
+
+    /// Creature.cpp:435-501, on the fresh ordinary DB path.
+    pub fn finish_loaded_init_entry(
+        &mut self,
+        live: &mut SourceUnitFields,
+        entry: &LoadedCreatureEntry<'_>,
+        encounters: &LoadedInstanceEncounters,
+        mut config: impl FnMut(CreatureEntryConfig) -> Result<u32>,
+        swimmable: impl FnOnce(u32, f32) -> Result<bool>,
+    ) -> Result<()> {
+        let w = &entry.effective.words;
+        let fields = &mut live.loaded_creature;
+        live.movement
+            .as_mut()
+            .ok_or_else(|| refuse("execution.movement.flags_owner"))?
+            .init_entry_flags_from_bits(
+                [w[17], w[23]],
+                false,
+                false,
+                Ok(Some(entry.spawn)),
+                || {
+                    let scale = fields
+                        .scale
+                        .ok_or_else(|| refuse("execution.creature.initial_object_scale_binding"))?;
+                    swimmable(fields.native_display, f32::from_bits(scale))
+                },
+            )?;
+        fields.default_movement = movement_enum(entry.movement)?;
+        fields.damage_school = school_enum(w[62])?;
+        fields.can_parry = w[23] & 4 == 0;
+        fields.can_block = w[23] & 0x10 == 0;
+        fields.can_dual_wield = w[23] & 0x800000 != 0;
+        fields.no_reputation = false;
+        fields.detection = (w[31] as f32).to_bits();
+        live.apply_creature_capabilities(w[23]);
+        self.corpse_delay = if w[88] != 0 {
+            w[88]
+        } else if encounters
+            .by_credit()
+            .get(&self.template.entry)
+            .is_some_and(|rows| {
+                rows.iter()
+                    .any(|row| row.credit_type == 0 && row.entry.map == entry.map)
+            })
+        {
+            3600
+        } else {
+            config(match w[37] {
+                4 => CreatureEntryConfig::RareCorpseDecay,
+                1 => CreatureEntryConfig::EliteCorpseDecay,
+                2 => CreatureEntryConfig::RareEliteCorpseDecay,
+                3 => CreatureEntryConfig::WorldBossCorpseDecay,
+                _ => CreatureEntryConfig::NormalCorpseDecay,
+            })?
+        };
+        live.loaded_creature.interaction_pause = if w[87] as i32 != -1 {
+            w[87]
+        } else {
+            config(CreatureEntryConfig::InteractionPause)?
+        };
+        Ok(())
+    }
+
+    /// Creature.cpp:511-514 precedes the SelectLevel draw.
+    pub fn begin_loaded_update_entry(live: &mut SourceUnitFields, addon: &mut CreatureAddonState) {
+        addon.sheath = 1;
+        live.loaded_creature.misc_flags = 0x10;
+    }
+
+    pub fn select_level(&mut self, random: Option<&mut dyn CreatureRandom>) -> Result<()> {
+        let [min, max] = self.template.levels;
+        self.level = draw_source_creature_level([min, max], random)?;
+        self.rolls.level = (min != max).then_some(self.level);
+        Ok(())
+    }
+
+    /// Creature.cpp:523-538,1426-1475. Apply the spawn resources after SelectLevel.
+    pub fn apply_loaded_level(
+        &self,
+        live: &mut SourceUnitFields,
+        entry: &LoadedCreatureEntry<'_>,
+        definitions: &CreatureLevelDefinitions,
+        config: &CreatureLevelConfig,
+    ) -> Result<benilla_sim::creature_init::SourceLevelStats> {
+        let mut stats = definitions.stats(self.template.entry, self.level, false, config)?;
+        let class = entry.effective.words[36];
+        stats.apply_spawn(
+            entry.spawn.cur_health,
+            entry.spawn.cur_mana,
+            true,
+            class,
+            entry.effective.words[18],
+        );
+        live.apply_source_level(&stats, class);
+        Ok(stats)
+    }
+
+    /// Creature.cpp:541-607 on fresh DB construction, before spell-list selection.
+    pub fn update_loaded_entry_flags(
+        live: &mut SourceUnitFields,
+        entry: &LoadedCreatureEntry<'_>,
+        faction_flags: &std::collections::BTreeMap<u32, u32>,
+    ) -> Result<()> {
+        let w = &entry.effective.words;
+        let spawn = entry.spawn;
+        live.faction = if spawn.faction != 0 {
+            spawn.faction
+        } else {
+            w[13]
+        };
+        let fields = &mut live.loaded_creature;
+        fields.gossip = w[86];
+        fields.npc_flags = if spawn.npc_flags == -1 {
+            w[20]
+        } else {
+            spawn.npc_flags as u32
+        };
+        fields.attack_times = [w[60], w[60], w[61]];
+        live.flags = if spawn.unit_flags == -1 {
+            w[21]
+        } else {
+            spawn.unit_flags as u32
+        };
+        fields.dynamic_flags = w[22];
+        fields.resistances.copy_from_slice(&w[72..78]);
+        fields.invisible = w[23] & 0x80 != 0;
+        fields.ignore_mmap = w[23] & 0x4000 != 0;
+        fields.count_spawns = w[23] & 0x200000 != 0;
+        if w[37] == 3 {
+            return Err(refuse(
+                "execution.creature.loaded_world_boss_immunity_owner",
+            ));
+        }
+        fields.can_modify_stats = true;
+        fields.pvp = faction_flags
+            .get(&live.faction)
+            .is_some_and(|flags| flags & 0x1000 != 0);
+        Ok(())
+    }
+
     pub fn selected_ai(&self) -> Option<&SelectedCreatureAi> {
         self.selected_ai.as_ref()
     }
@@ -260,6 +623,28 @@ impl CreatureConstruction {
         SourceCreatureLifecycle::new(self, settings, objects)
     }
 }
+
+// MotionMaster.h:49-79 and SharedDefines.h:169-180 pin the C++ enum value ranges.
+pub(super) fn movement_enum(value: u32) -> Result<u32> {
+    require(
+        value <= 31,
+        "execution.creature.Creature_453.movement_enum_undefined",
+    )?;
+    Ok(value)
+}
+
+pub(super) fn school_enum(value: u32) -> Result<u32> {
+    require(
+        value <= 7,
+        "execution.creature.Creature_458.school_enum_undefined",
+    )?;
+    Ok(value)
+}
+
+#[cfg(test)]
+#[path = "creature_entry_tests.rs"]
+mod entry_tests;
+
 /// Borrow the calling engine without result inputs; Util.cpp:68-96.
 pub trait CreatureRandom {
     fn creature_stream(&self) -> Result<u64> {
@@ -632,34 +1017,7 @@ where
         )?;
         template
     };
-    let corpse_delay = template.corpse_seconds;
-    let position = spawn.position;
-    let mut state = CreatureConstruction {
-        object,
-        spawn,
-        original_entry: entry,
-        template,
-        event,
-        group,
-        position,
-        respawn_position: position,
-        model: None,
-        level: 0,
-        respawn_delay: 0,
-        corpse_delay,
-        respawn_time: 0,
-        rolls: benilla_sim::creature_init::SelectionRolls {
-            model: None,
-            gender: None,
-            level: None,
-        },
-        linking_trigger: false,
-        spawning_linked: false,
-        selected_ai: None,
-        event_ai: None,
-        builtin_ai: None,
-        summoned_ai: None,
-    };
+    let mut state = CreatureConstruction::new(object, spawn, entry, template, event, group);
     factory.creature_phase(CreaturePhase::InitEntryBase, &mut state, context)?;
     let mut display = event.map_or(0, |event| event.model);
     if display == 0 {
@@ -699,8 +1057,8 @@ where
         context,
     )?;
     let [min, max] = state.template.levels;
-    state.level = if min == max {
-        draw_source_creature_level([min, max], None)?
+    if min == max {
+        state.select_level(None)?;
     } else {
         let thread = factory.creature_thread();
         let random = factory.creature_random()?;
@@ -708,9 +1066,8 @@ where
             random.creature_stream()? == thread,
             "execution.creature.SelectLevel_urand_thread_mismatch",
         )?;
-        draw_source_creature_level([min, max], Some(random))?
-    };
-    state.rolls.level = (min != max).then_some(state.level);
+        state.select_level(Some(random))?;
+    }
     factory.creature_phase(CreaturePhase::SelectLevelStats, &mut state, context)?;
     factory.creature_phase(
         CreaturePhase::UpdateEntryFlagsAndSpells,

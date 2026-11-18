@@ -3,7 +3,6 @@
 //! Unit.cpp:11930-11957 and Creature.cpp:439-442, native-display collision height.
 use super::*;
 use crate::native::production_compiler::VerifiedCatalog;
-use benilla_sim::creature_capabilities::MOVEFLAG_SWIMMING;
 use std::collections::BTreeMap;
 
 /// The existing pinned DbcView owns layouts and last-physical duplicate lookup.
@@ -61,15 +60,14 @@ impl SourceCollisionModels {
         Ok(if height == 0.0 { 2.03128 } else { height })
     }
 
-    /// Called only after Creature.cpp:439-440. A refusal leaves MovementInfo unchanged.
-    pub fn init_entry_swimming(
+    /// Collision-height and terrain operands at Creature.cpp:441.
+    pub fn init_entry_swimmable(
         &self,
         native_display: u32,
         object_scale: f32,
-        flags: &mut u32,
         swimmable: impl FnOnce(f32) -> Result<bool>,
         census: &mut SourceCreatureSwimmingCensus,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         census.reached_441 += 1;
         let height = self
             .collision_height(native_display, object_scale)
@@ -82,13 +80,13 @@ impl SourceCollisionModels {
                 }
                 _ => {}
             })?;
-        if swimmable(height)? {
-            *flags |= MOVEFLAG_SWIMMING;
+        let eligible = swimmable(height)?;
+        if eligible {
             census.swimming_set += 1;
         } else {
             census.swimming_not_set += 1;
         }
-        Ok(())
+        Ok(eligible)
     }
 }
 
