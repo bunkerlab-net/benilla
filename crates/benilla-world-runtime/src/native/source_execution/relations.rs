@@ -170,15 +170,25 @@ impl SourceControlGuids {
 }
 
 impl SourceUnits {
-    /// Unit.cpp:6523-6548 resolves the client controlling a possessed creature.
+    /// Unit.cpp:6528-6540 resolves a possessing charmer; player self-control refuses at :6544.
     pub fn possessing_client(
         &self,
         objects: &SourceObjects,
         unit: ObjectHandle,
     ) -> Result<Option<ObjectHandle>> {
         let live = self.get(objects, unit)?;
-        if live.flags & 8 == 0 || !live.control_guids.has_charmer() || live.flags & 0x0100_0000 == 0
-        {
+        if live.flags & 8 == 0 {
+            return Ok(None);
+        }
+        if !live.control_guids.has_charmer() {
+            if objects.get(unit)?.kind == SourceObjectKind::Player {
+                return Err(refuse(
+                    "execution.relations.Unit_6544.IsClientControlled_owner",
+                ));
+            }
+            return Ok(None);
+        }
+        if live.flags & 0x0100_0000 == 0 {
             return Ok(None);
         }
         let Some(charmer) = live

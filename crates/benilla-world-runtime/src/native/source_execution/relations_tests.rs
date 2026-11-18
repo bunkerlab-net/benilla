@@ -259,6 +259,32 @@ fn possessing_client_requires_live_flags_and_a_player_charmer_in_the_map() {
 }
 
 #[test]
+fn possessing_client_refuses_only_the_uncharmed_player_self_control_read() {
+    let mut f = PowerFixture::new();
+    let player = f.objects.construct(1, SourceObjectKind::Player).unwrap();
+    let mut fields = SourceUnitFields::constructed_creature();
+    fields.flags = 8;
+    f.units.register(&f.objects, player, fields).unwrap();
+    assert_eq!(
+        f.units
+            .possessing_client(&f.objects, player)
+            .unwrap_err()
+            .id,
+        "execution.relations.Unit_6544.IsClientControlled_owner"
+    );
+    f.units.get_mut(&f.objects, player).unwrap().flags = 0;
+    assert_eq!(f.units.possessing_client(&f.objects, player).unwrap(), None);
+
+    let live = f.units.get_mut(&f.objects, f.caster).unwrap();
+    live.flags = 8;
+    live.control_guids = SourceControlGuids::default();
+    assert_eq!(
+        f.units.possessing_client(&f.objects, f.caster).unwrap(),
+        None
+    );
+}
+
+#[test]
 fn relations_recursive_owner_reaches_last_creator_and_refuses_a_cycle() {
     let mut f = PowerFixture::new();
     let middle = f.objects.construct(1, SourceObjectKind::Creature).unwrap();
