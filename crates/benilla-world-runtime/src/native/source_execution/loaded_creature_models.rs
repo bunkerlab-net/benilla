@@ -90,13 +90,30 @@ impl LoadedCreatureModels {
         display: u32,
         random: &mut dyn CreatureRandom,
     ) -> Result<Option<&LoadedCreatureModelInfo>> {
-        let Some(model) = self.get(display) else {
-            return Ok(None);
-        };
-        if model.words[6] != 0 && random.creature_urand(0, 1)? == 0 {
-            return Ok(Some(self.get(model.words[6]).unwrap_or(model)));
-        }
-        Ok(Some(model))
+        let selection = self.random_gender_selection(display, random)?;
+        Ok(selection.model)
+    }
+    pub fn random_gender_selection(
+        &self,
+        display: u32,
+        random: &mut dyn CreatureRandom,
+    ) -> Result<CreatureModelSelection<&LoadedCreatureModelInfo>> {
+        select_source_creature_model(
+            random,
+            display,
+            |_, id| Ok(self.get(id)),
+            |model| model.words[6],
+            |random| random.creature_urand(0, 1),
+        )
+    }
+    pub fn missing_other_gender_count(&self) -> usize {
+        self.rows
+            .values()
+            .filter(|row| {
+                let alternate = row.words[6];
+                alternate != 0 && !self.rows.contains_key(&alternate)
+            })
+            .count()
     }
     pub fn catalog_diagnostic(catalog: &mut VerifiedCatalog) -> Result<Self> {
         let rows = catalog.execution_creature_model_rows()?;

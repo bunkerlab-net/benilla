@@ -501,3 +501,305 @@ fn notify_delay_uses_source_default_only_for_negative_values() {
     assert_eq!(notify_delay(5000), 5000);
     assert_eq!(notify_delay(i32::MAX), 2147483647);
 }
+
+impl<'a> Prefix<'a> {
+    pub(super) fn loaded_creature_spawn(&self, guid: u32) -> Result<&'a EffectiveSpawnData> {
+        self.spawns
+            .complete_data(SpawnKey {
+                kind: GridSpawnKind::Creature,
+                guid,
+            })?
+            .ok_or_else(|| refuse("execution.grid.effective_spawn_absent"))
+    }
+
+    pub(super) fn loaded_creature_template(&self, entry: u32) -> Result<&'a LoadedCreatureInfo> {
+        self.creature_templates
+            .get(entry)
+            .ok_or_else(|| refuse("execution.creature.template_binding"))
+    }
+
+    fn loaded_creature_entry(
+        &self,
+        state: &CreatureConstruction,
+    ) -> Result<LoadedCreatureEntry<'a>> {
+        let data = self.loaded_creature_spawn(state.spawn.database_guid)?;
+        let spawn = data
+            .spawn_template
+            .and_then(|entry| self.spawn_templates.rows().get(&entry))
+            .ok_or_else(|| refuse("execution.creature.spawn_template_undefined"))?;
+        Ok(LoadedCreatureEntry {
+            original: self.loaded_creature_template(state.original_entry)?,
+            effective: self.loaded_creature_template(state.template.entry)?,
+            spawn,
+            movement: u32::from(data.row.movement),
+            map: self.map_entry.id,
+        })
+    }
+}
+
+impl<D: GridDefinitions<Row = SpawnKey>> CreatureFactoryOwner<D, SourceTerrainManager>
+    for Prefix<'_>
+{
+    fn creature_thread(&self) -> u64 {
+        self.thread
+    }
+
+    fn creature_construct_candidate(
+        &mut self,
+        object: ObjectHandle,
+        context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
+    ) -> Result<()> {
+        CreatureConstruction::construct_loaded_candidate(
+            object,
+            context.objects,
+            &mut self.units,
+            self.passengers,
+            &mut self.motions,
+        )?;
+        self.candidates.push(object);
+        Ok(())
+    }
+
+    fn creature_spawn(
+        &mut self,
+        _: GridLoadAttempt,
+        key: SpawnKey,
+    ) -> Result<Option<CreatureSpawn>> {
+        let data = self.loaded_creature_spawn(key.guid)?;
+        self.lookups.push("creature_data");
+        let row = &data.row;
+        Ok(Some(CreatureSpawn {
+            database_guid: row.guid,
+            entry: row.entry,
+            position: row.pose,
+            // Creature.cpp:666 and :1742 access the spawn template at different sites.
+            model: 0,
+            respawn_seconds: row.respawn,
+            respawn_radius: row.radius,
+            relay: 0,
+        }))
+    }
+
+    fn creature_event_guid(&mut self, _: u32) -> Result<bool> {
+        // World.cpp:1383-1420 initializes events after the continent jobs join.
+        let events = self.events.inventory();
+        require(
+            !events.initialized && events.active.is_empty(),
+            "execution.creature.ObjectGridLoader_134.IsEventGuid_owner",
+        )?;
+        Ok(false)
+    }
+
+    fn creature_force_dynamic(&mut self) -> Result<bool> {
+        Ok(source_map_forces_dynamic_guids(self.guids.map().map))
+    }
+
+    fn creature_force_load_map(&mut self) -> Result<bool> {
+        // Bound to the empty forced-map set before active loading.
+        Ok(false)
+    }
+
+    fn creature_group(&mut self, database: u32) -> Result<Option<CreatureGroup>> {
+        let group = self.groups.creature_group(self.guids.map(), database)?;
+        self.lookups.push("spawn_group");
+        Ok(group)
+    }
+
+    fn creature_current_group(&mut self, _: ObjectHandle) -> Result<Option<CreatureGroup>> {
+        Err(refuse(
+            "execution.creature.Creature_1751.GetFormationData_owner",
+        ))
+    }
+
+    fn creature_entry(&mut self, _: u32, owner: CreatureEntryOwner) -> Result<u32> {
+        Err(refuse(match owner {
+            CreatureEntryOwner::Group(_) => "execution.creature.loaded_group_entry_owner",
+            CreatureEntryOwner::Conditional => "execution.creature.loaded_conditional_entry_owner",
+            CreatureEntryOwner::Random { .. } => "execution.creature.loaded_random_entry_owner",
+        }))
+    }
+
+    fn creature_event(&mut self, database: u32) -> Result<Option<CreatureEventData>> {
+        let event = self.events.creature_event_data(database)?;
+        self.lookups.push("active_event");
+        Ok(event)
+    }
+
+    fn creature_template(&mut self, entry: u32) -> Result<Option<CreatureTemplate>> {
+        Ok(self
+            .creature_templates
+            .get(entry)
+            .map(CreatureTemplate::from))
+    }
+
+    fn creature_model(&mut self, display: u32) -> Result<Option<CreatureModel>> {
+        Ok(self.creature_models.get(display).map(CreatureModel::from))
+    }
+
+    fn creature_spawn_model(&mut self, spawn: &CreatureSpawn) -> Result<u32> {
+        let model = self
+            .spawn_templates
+            .model_id(self.loaded_creature_spawn(spawn.database_guid)?)?;
+        self.lookups.push("creature_spawn_template_model");
+        Ok(model)
+    }
+
+    fn observe_creature_factory(&mut self, observation: CreatureFactoryObservation) {
+        use CreatureFactoryObservation::*;
+        self.lookups.push(match observation {
+            NoExistingCreature => "existing_creature",
+            ConditionalSkipped => "conditional_skipped_nonzero_entry",
+            RandomSkipped => "random_skipped_nonzero_entry",
+            OriginalTemplate(entry) => {
+                self.entry = Some(entry);
+                "creature_template"
+            }
+            GuidAllocated => "creature_guid",
+            CreateFromProto => "creature_create_from_proto",
+            DisplayChance(chance) => {
+                self.creature_display_chance = Some(chance);
+                "creature_display_chance"
+            }
+            DisplayDrawn => "creature_display_draw",
+            DisplayFallback => "creature_display_fallback_template",
+            ModelSelected => "creature_model_random_gender",
+            MissingModelGender(notice) => panic!("unexpected missing alternate gender: {notice:?}"),
+        });
+    }
+
+    fn creature_guids(&mut self) -> &mut MapGuidAllocators {
+        self.guids
+    }
+
+    fn creature_random(&mut self) -> Result<&mut dyn CreatureRandom> {
+        Ok(self.random)
+    }
+
+    fn creature_respawn_time(&mut self, _: u32) -> Result<i64> {
+        Err(refuse(
+            "execution.creature.Creature_1696.persistent_respawn_owner",
+        ))
+    }
+
+    fn creature_save_respawn_time(&mut self, _: u32, _: i64) -> Result<()> {
+        Err(refuse(
+            "execution.creature.Creature_1717.loaded_save_respawn_owner",
+        ))
+    }
+
+    fn creature_wall_time(&mut self, _: ObjectHandle) -> Result<ClockSample> {
+        let clock = self
+            .clocks
+            .creature_respawn(self.thread, self.random.creature_raw_position()?)?;
+        self.creature_entry.as_mut().unwrap().respawn_clock =
+            Some((clock.site_line, clock.time_line, clock.seconds));
+        self.lookups.push("creature_respawn_calendar_consumed");
+        Ok(ClockSample::authored(ClockKind::WallSeconds, clock.seconds))
+    }
+
+    fn creature_spawned_by_linked_mob(&mut self, _: &CreatureConstruction) -> Result<bool> {
+        Err(refuse(
+            "execution.creature.Creature_1720.linking_lookup_owner",
+        ))
+    }
+
+    fn creature_linked_can_spawn(&mut self, _: &CreatureConstruction) -> Result<bool> {
+        Err(refuse("execution.creature.Creature_1723.CanSpawn_owner"))
+    }
+
+    fn creature_dead_flying_height(&mut self, _: &CreatureConstruction) -> Result<f32> {
+        Err(refuse(
+            "execution.creature.Creature_1731.GetHeightStatic_owner",
+        ))
+    }
+
+    fn creature_phase(
+        &mut self,
+        phase: CreaturePhase,
+        state: &mut CreatureConstruction,
+        context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
+    ) -> Result<()> {
+        match phase {
+            CreaturePhase::InitEntryBase => {
+                let template = self.loaded_creature_template(state.template.entry)?;
+                self.lookups.push("init_entry_template");
+                let live = self.units.get_mut(context.objects, state.object)?;
+                CreatureConstruction::reset_loaded_proto_fields(live);
+                CreatureConstruction::init_loaded_entry_base(live, template);
+                let operands = (
+                    live.entry,
+                    live.loaded_creature.scale.unwrap(),
+                    [live.loaded_creature.race, live.unit_class.unwrap() as u8],
+                );
+                assert_eq!(
+                    operands,
+                    (
+                        state.template.entry,
+                        template.words[14],
+                        [0, template.words[36] as u8]
+                    )
+                );
+                self.init_entry_fields = Some(operands);
+                self.lookups.push("init_entry_fields");
+                Ok(())
+            }
+            CreaturePhase::ModelAndDisplay => {
+                let model = self.creature_models.get(state.model.unwrap().id).unwrap();
+                if self.creature_model.is_none() {
+                    eprintln!(
+                        "F6_CREATURE_GENDER_MODELS map={} missing_alternate_rows={}",
+                        self.map_entry.id,
+                        self.creature_models.missing_other_gender_count(),
+                    );
+                }
+                self.creature_model = Some(model.words);
+                let template = self.loaded_creature_template(state.template.entry)?;
+                creature_entry::apply_model(
+                    self,
+                    state.object,
+                    template,
+                    model.words,
+                    context.objects,
+                )
+            }
+            CreaturePhase::InitEntryEquipmentAndFlags => {
+                let entry = self.loaded_creature_entry(state)?;
+                state.corpse_delay = 60; // Creature.cpp:140 constructor before the InitEntry policy.
+                creature_entry::finish_init_entry(
+                    self,
+                    state,
+                    &entry,
+                    context.products,
+                    context.objects,
+                )
+            }
+            CreaturePhase::SelectLevelStats => {
+                let entry = self.loaded_creature_entry(state)?;
+                creature_entry::apply_level(self, state, &entry, context.objects)
+            }
+            CreaturePhase::UpdateEntryFlagsAndSpells => {
+                let entry = self.loaded_creature_entry(state)?;
+                creature_entry::update_entry(self, state, &entry, context.objects)
+            }
+            _ => Err(phase.missing_owner()),
+        }
+    }
+
+    fn creature_created(
+        &mut self,
+        _: CreatureConstruction,
+        _: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
+    ) -> Result<()> {
+        self.lookups.push("creature_load_from_db_return");
+        Ok(())
+    }
+
+    fn creature_destroy_candidate(
+        &mut self,
+        object: ObjectHandle,
+        _: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
+    ) -> Result<()> {
+        self.units.discard_construction(object);
+        Ok(())
+    }
+}

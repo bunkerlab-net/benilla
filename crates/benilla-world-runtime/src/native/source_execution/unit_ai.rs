@@ -520,8 +520,7 @@ impl SourceUnits {
         }
         Ok(true)
     }
-    #[cfg(test)]
-    pub(super) fn discard_construction(&mut self, unit: ObjectHandle) {
+    pub fn discard_construction(&mut self, unit: ObjectHandle) {
         self.fields.remove(&unit);
     }
     pub fn register(

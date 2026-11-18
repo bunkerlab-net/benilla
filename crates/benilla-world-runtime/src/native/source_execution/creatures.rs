@@ -35,11 +35,83 @@ pub struct CreatureTemplate {
     pub corpse_seconds: u32,
     pub can_fly: bool,
 }
+
+impl From<&LoadedCreatureInfo> for CreatureTemplate {
+    fn from(row: &LoadedCreatureInfo) -> Self {
+        let w = &row.words;
+        Self {
+            entry: w[0],
+            dynamic_guid: w[23] & 0x10_0000 != 0,
+            active: w[23] & 0x1000 != 0,
+            count_spawns: w[23] & 0x20_0000 != 0,
+            displays: std::array::from_fn(|i| DisplayChoice {
+                id: w[5 + i],
+                probability: w[9 + i],
+            }),
+            levels: [w[3], w[4]],
+            corpse_seconds: w[88],
+            can_fly: w[17] & 4 != 0,
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CreatureModel {
     pub id: u32,
     pub gender: u8,
     pub other_gender: u32,
+}
+
+impl From<&LoadedCreatureModelInfo> for CreatureModel {
+    fn from(row: &LoadedCreatureModelInfo) -> Self {
+        Self {
+            id: row.words[0],
+            gender: row.words[5] as u8,
+            other_gender: row.words[6],
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MissingCreatureModelGender {
+    pub display: u32,
+    pub alternate: u32,
+}
+
+pub struct CreatureModelSelection<T> {
+    pub model: Option<T>,
+    pub roll: Option<u32>,
+    pub missing_gender: Option<MissingCreatureModelGender>,
+}
+
+/// ObjectMgr.cpp:1615-1633. Both storage bindings use the same lookup and draw order.
+pub(super) fn select_source_creature_model<O: ?Sized, T>(
+    owner: &mut O,
+    display: u32,
+    mut lookup: impl FnMut(&mut O, u32) -> Result<Option<T>>,
+    other_gender: impl FnOnce(&T) -> u32,
+    draw: impl FnOnce(&mut O) -> Result<u32>,
+) -> Result<CreatureModelSelection<T>> {
+    let mut selection = CreatureModelSelection {
+        model: lookup(owner, display)?,
+        roll: None,
+        missing_gender: None,
+    };
+    if let Some(model) = selection.model.as_ref() {
+        let alternate = other_gender(model);
+        if alternate != 0 {
+            let roll = draw(owner)?;
+            selection.roll = Some(roll);
+            if roll == 0 {
+                if let Some(model) = lookup(owner, alternate)? {
+                    selection.model = Some(model);
+                } else {
+                    selection.missing_gender =
+                        Some(MissingCreatureModelGender { display, alternate });
+                }
+            }
+        }
+    }
+    Ok(selection)
 }
 
 /// The definitions selected for a fresh ordinary DB creature's entry.
@@ -227,50 +299,35 @@ impl CreatureConstruction {
         }
     }
 
-    pub fn from_loaded_entry(
+    /// Unit.cpp:419 and Creature.cpp:155 initialize the fresh loaded unit.
+    pub fn construct_loaded_candidate(
         object: ObjectHandle,
-        data: &EffectiveSpawnData,
-        entry: &LoadedCreatureEntry<'_>,
-        event: Option<CreatureEventData>,
-        group: Option<CreatureGroup>,
-        model: CreatureModel,
-    ) -> Self {
-        let row = &data.row;
-        let w = &entry.effective.words;
-        let mut state = Self::new(
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        passengers: &mut SourcePassengers,
+        motions: &mut std::collections::BTreeMap<ObjectHandle, SourceMotionMaster>,
+    ) -> Result<()> {
+        units.register(objects, object, Self::construct_loaded_unit())?;
+        passengers.construct(object, objects)?;
+        motions.insert(
             object,
-            CreatureSpawn {
-                database_guid: row.guid,
-                entry: row.entry,
-                position: row.pose,
-                model: entry.spawn.model_id,
-                respawn_seconds: row.respawn,
-                respawn_radius: row.radius,
-                relay: entry.spawn.relay_id,
-            },
-            entry.original.words[0],
-            CreatureTemplate {
-                entry: w[0],
-                dynamic_guid: w[23] & 0x10_0000 != 0,
-                active: w[23] & 0x1000 != 0,
-                count_spawns: w[23] & 0x200000 != 0,
-                displays: std::array::from_fn(|i| DisplayChoice {
-                    id: w[5 + i],
-                    probability: w[9 + i],
-                }),
-                levels: [w[3], w[4]],
-                corpse_seconds: w[88],
-                can_fly: w[17] & 4 != 0,
-            },
-            event,
-            group,
+            SourceMotionMaster::new(
+                object,
+                MotionDefault {
+                    movement_type: 0,
+                    default_path: 0,
+                },
+            ),
         );
-        state.model = Some(model);
-        state.corpse_delay = 60; // Creature.cpp:140, before InitEntry applies decay policy.
-        state
+        Ok(())
     }
 
-    /// Unit.cpp:419 and Creature.cpp:155 initialize the fresh loaded unit.
+    /// Object.cpp:105-118; Creature.cpp:1608 clears the unit's value array.
+    pub fn reset_loaded_proto_fields(live: &mut SourceUnitFields) {
+        live.combat_reach = Some(0);
+        live.cast_speed = 0;
+    }
+
     pub fn construct_loaded_unit() -> SourceUnitFields {
         let mut live = SourceUnitFields::constructed_creature();
         live.linking_event_trigger = Some(false);
@@ -714,10 +771,25 @@ pub fn draw_source_creature_display(
     choices: [DisplayChoice; 4],
     random: &mut dyn CreatureRandom,
 ) -> Result<(u32, i32)> {
-    let total = choices
+    draw_source_creature_display_with_chance(
+        choices,
+        source_creature_display_chance(&choices),
+        random,
+    )
+}
+
+fn source_creature_display_chance(choices: &[DisplayChoice; 4]) -> u32 {
+    choices
         .iter()
         .filter(|choice| choice.id != 0)
-        .fold(0u32, |total, choice| total.wrapping_add(choice.probability));
+        .fold(0u32, |total, choice| total.wrapping_add(choice.probability))
+}
+
+fn draw_source_creature_display_with_chance(
+    choices: [DisplayChoice; 4],
+    total: u32,
+    random: &mut dyn CreatureRandom,
+) -> Result<(u32, i32)> {
     let upper = (total as i32)
         .checked_sub(1)
         .ok_or_else(|| refuse("execution.creature.display_signed_overflow"))?
@@ -738,6 +810,27 @@ pub fn draw_source_creature_display(
 #[cfg(test)]
 #[path = "creature_display_tests.rs"]
 mod display_tests;
+
+/// Map.cpp:2966-2975.
+pub fn source_map_forces_dynamic_guids(map: u32) -> bool {
+    matches!(map, 533 | 543)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CreatureFactoryObservation {
+    ModelSelected,
+    NoExistingCreature,
+    ConditionalSkipped,
+    RandomSkipped,
+    OriginalTemplate(u32),
+    GuidAllocated,
+    CreateFromProto,
+    DisplayChance(u32),
+    DisplayDrawn,
+    DisplayFallback,
+    MissingModelGender(MissingCreatureModelGender),
+}
+
 /// Execute reached owners through the reentrant factory; Creature.cpp:898-934,1738-1765.
 pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     GridObjectFactory<D, P>
@@ -767,6 +860,10 @@ pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     fn creature_event(&mut self, database: u32) -> Result<Option<CreatureEventData>>;
     fn creature_template(&mut self, entry: u32) -> Result<Option<CreatureTemplate>>;
     fn creature_model(&mut self, display: u32) -> Result<Option<CreatureModel>>;
+    fn creature_spawn_model(&mut self, spawn: &CreatureSpawn) -> Result<u32> {
+        Ok(spawn.model)
+    }
+    fn observe_creature_factory(&mut self, _observation: CreatureFactoryObservation) {}
     fn creature_guids(&mut self) -> &mut MapGuidAllocators;
     fn creature_random(&mut self) -> Result<&mut dyn CreatureRandom>;
     fn creature_respawn_time(&mut self, database: u32) -> Result<i64>;
@@ -854,7 +951,7 @@ pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
         context: &mut GridFactoryContext<'_, D, P>,
     ) -> Result<()>;
 }
-fn failed<D, P, F>(
+pub(super) fn failed<D, P, F>(
     factory: &mut F,
     object: ObjectHandle,
     context: &mut GridFactoryContext<'_, D, P>,
@@ -934,175 +1031,12 @@ where
     P: GridProductOwner,
     F: CreatureFactoryOwner<D, P>,
 {
-    require(
-        attempt.kind == GridSpawnKind::Creature,
-        "execution.creature.factory_kind",
-    )?;
-    let object = context
-        .objects
-        .construct(factory.creature_thread(), SourceObjectKind::Creature)?;
-    factory.creature_construct_candidate(object, context)?;
-    // An unsupported owner is a stopped execution, not a source LoadFromDB false/delete.
-    let requested = if let Some(guid) = requested_guid {
-        guid
-    } else if factory.creature_event_guid(attempt.guid)? {
-        0
-    } else {
-        attempt.guid
-    };
-    let Some(spawn) = factory.creature_spawn(attempt, row)? else {
+    let (object, loaded) =
+        prepare_source_creature(factory, attempt, row, requested_guid, forced_entry, context)?;
+    let Some(mut state) = loaded else {
         return failed(factory, object, context);
     };
-    require(
-        spawn.database_guid == attempt.guid,
-        "execution.creature.definition_binding",
-    )?;
-    if !context.objects.candidate_allowed(
-        attempt.grid.map,
-        DatabaseLookupKind::Creature,
-        attempt.guid,
-    ) {
-        return failed(factory, object, context);
-    }
-    let group = factory.creature_group(attempt.guid)?;
-    let mut entry = if forced_entry != 0 {
-        forced_entry
-    } else {
-        spawn.entry
-    };
-    // Group, conditional, random and event fallback are ordered; Creature.cpp:1630-1653.
-    if entry == 0 {
-        if let Some(group) = group {
-            entry = factory.creature_entry(attempt.guid, CreatureEntryOwner::Group(group))?;
-        }
-    }
-    if entry == 0 {
-        entry = factory.creature_entry(attempt.guid, CreatureEntryOwner::Conditional)?;
-    }
-    // GetDbGuid is still zero before _Create, not the LoadFromDB argument; Creature.cpp:1646,1608.
-    if entry == 0 {
-        entry = factory.creature_entry(
-            attempt.guid,
-            CreatureEntryOwner::Random {
-                lookup_database_guid: 0,
-            },
-        )?;
-    }
-    let event = factory.creature_event(attempt.guid)?;
-    if entry == 0 {
-        entry = event.map_or(0, |event| event.entry);
-    }
-    if entry == 0 {
-        return failed(factory, object, context);
-    }
-    let Some(original) = factory.creature_template(entry)? else {
-        return failed(factory, object, context);
-    };
-    require(
-        original.entry == entry,
-        "execution.creature.template_binding",
-    )?;
-    let force_dynamic = factory.creature_force_dynamic()?;
-    require(
-        factory.creature_guids().map() == attempt.grid.map,
-        "execution.creature.allocator_map",
-    )?;
-    let allocation = factory.creature_guids().spawn_counter(SpawnGuidRequest {
-        high: HighGuid::Creature,
-        database: attempt.guid,
-        requested,
-        force_dynamic,
-        extra_dynamic: original.dynamic_guid,
-        group: group.is_some(),
-    })?;
-    require(!allocation.stop_now, "execution.creature.guid_stop_now")?;
-    context
-        .objects
-        .bind_map(object, attempt.grid.map, context.cells)?;
-    context
-        .objects
-        .set_pose(object, SourcePose(spawn.position.map(f32::to_bits)))?;
-    context.objects.set_respawn_definition(
-        object,
-        SourcePose(spawn.position.map(f32::to_bits)),
-        true,
-    )?;
-    // GUID uses the original entry before event InitEntry override; Creature.cpp:1604-1610,322-324.
-    context.objects.assign_guid(
-        object,
-        attempt.guid,
-        SourceGuid::with_entry(HighGuid::Creature, entry, allocation.counter),
-    )?;
-    let effective = event.filter(|e| e.entry != 0).map_or(entry, |e| e.entry);
-    let template = if effective == entry {
-        original
-    } else {
-        let Some(template) = factory.creature_template(effective)? else {
-            return failed(factory, object, context);
-        };
-        require(
-            template.entry == effective,
-            "execution.creature.template_binding",
-        )?;
-        template
-    };
-    let mut state = CreatureConstruction::new(object, spawn, entry, template, event, group);
-    factory.creature_phase(CreaturePhase::InitEntryBase, &mut state, context)?;
-    let mut display = event.map_or(0, |event| event.model);
-    if display == 0 {
-        display = state.spawn.model;
-    }
-    if display == 0 {
-        let (chosen, roll) =
-            draw_source_creature_display(state.template.displays, factory.creature_random()?)?;
-        display = chosen;
-        state.rolls.model = Some(roll as u32);
-        if display == 0 {
-            display = factory
-                .creature_template(1)?
-                .map_or(0, |t| t.displays[0].id);
-        }
-    }
-    if display == 0 {
-        return failed(factory, object, context);
-    }
-    let Some(mut model) = factory.creature_model(display)? else {
-        return failed(factory, object, context);
-    };
-    if model.other_gender != 0 {
-        let roll = factory.creature_random()?.creature_urand(0, 1)?;
-        state.rolls.gender = Some(roll);
-        if roll == 0 {
-            if let Some(other) = factory.creature_model(model.other_gender)? {
-                model = other;
-            }
-        }
-    }
-    state.model = Some(model);
-    factory.creature_phase(CreaturePhase::ModelAndDisplay, &mut state, context)?;
-    factory.creature_phase(
-        CreaturePhase::InitEntryEquipmentAndFlags,
-        &mut state,
-        context,
-    )?;
-    let [min, max] = state.template.levels;
-    if min == max {
-        state.select_level(None)?;
-    } else {
-        let thread = factory.creature_thread();
-        let random = factory.creature_random()?;
-        require(
-            random.creature_stream()? == thread,
-            "execution.creature.SelectLevel_urand_thread_mismatch",
-        )?;
-        state.select_level(Some(random))?;
-    }
-    factory.creature_phase(CreaturePhase::SelectLevelStats, &mut state, context)?;
-    factory.creature_phase(
-        CreaturePhase::UpdateEntryFlagsAndSpells,
-        &mut state,
-        context,
-    )?;
+    let group = state.group;
     // UpdateEntry applies active spells before positioning; Creature.cpp:617-619.
     if state
         .event
@@ -1195,6 +1129,203 @@ where
     }
     factory.creature_created(state, context)?;
     Ok(GridCandidateOutcome::Loaded(object))
+}
+pub(super) fn prepare_source_creature<D, P, F>(
+    factory: &mut F,
+    attempt: GridLoadAttempt,
+    row: D::Row,
+    requested_guid: Option<u32>,
+    forced_entry: u32,
+    context: &mut GridFactoryContext<'_, D, P>,
+) -> Result<(ObjectHandle, Option<CreatureConstruction>)>
+where
+    D: GridDefinitions,
+    P: GridProductOwner,
+    F: CreatureFactoryOwner<D, P>,
+{
+    require(
+        attempt.kind == GridSpawnKind::Creature,
+        "execution.creature.factory_kind",
+    )?;
+    let object = context
+        .objects
+        .construct(factory.creature_thread(), SourceObjectKind::Creature)?;
+    factory.creature_construct_candidate(object, context)?;
+    // An unsupported owner is a stopped execution, not a source LoadFromDB false/delete.
+    let requested = if let Some(guid) = requested_guid {
+        guid
+    } else if factory.creature_event_guid(attempt.guid)? {
+        0
+    } else {
+        attempt.guid
+    };
+    let Some(spawn) = factory.creature_spawn(attempt, row)? else {
+        return Ok((object, None));
+    };
+    require(
+        spawn.database_guid == attempt.guid,
+        "execution.creature.definition_binding",
+    )?;
+    if !context.objects.candidate_allowed(
+        attempt.grid.map,
+        DatabaseLookupKind::Creature,
+        attempt.guid,
+    ) {
+        return Ok((object, None));
+    }
+    factory.observe_creature_factory(CreatureFactoryObservation::NoExistingCreature);
+    let group = factory.creature_group(attempt.guid)?;
+    let mut entry = if forced_entry != 0 {
+        forced_entry
+    } else {
+        spawn.entry
+    };
+    // Group, conditional, random and event fallback are ordered; Creature.cpp:1630-1653.
+    if entry == 0 {
+        if let Some(group) = group {
+            entry = factory.creature_entry(attempt.guid, CreatureEntryOwner::Group(group))?;
+        }
+    }
+    if entry == 0 {
+        entry = factory.creature_entry(attempt.guid, CreatureEntryOwner::Conditional)?;
+    } else {
+        factory.observe_creature_factory(CreatureFactoryObservation::ConditionalSkipped);
+    }
+    // GetDbGuid is still zero before _Create, not the LoadFromDB argument; Creature.cpp:1646,1608.
+    if entry == 0 {
+        entry = factory.creature_entry(
+            attempt.guid,
+            CreatureEntryOwner::Random {
+                lookup_database_guid: 0,
+            },
+        )?;
+    } else {
+        factory.observe_creature_factory(CreatureFactoryObservation::RandomSkipped);
+    }
+    let event = factory.creature_event(attempt.guid)?;
+    if entry == 0 {
+        entry = event.map_or(0, |event| event.entry);
+    }
+    if entry == 0 {
+        return Ok((object, None));
+    }
+    factory.observe_creature_factory(CreatureFactoryObservation::OriginalTemplate(entry));
+    let Some(original) = factory.creature_template(entry)? else {
+        return Ok((object, None));
+    };
+    require(
+        original.entry == entry,
+        "execution.creature.template_binding",
+    )?;
+    let force_dynamic = factory.creature_force_dynamic()?;
+    require(
+        factory.creature_guids().map() == attempt.grid.map,
+        "execution.creature.allocator_map",
+    )?;
+    let allocation = factory.creature_guids().spawn_counter(SpawnGuidRequest {
+        high: HighGuid::Creature,
+        database: attempt.guid,
+        requested,
+        force_dynamic,
+        extra_dynamic: original.dynamic_guid,
+        group: group.is_some(),
+    })?;
+    require(!allocation.stop_now, "execution.creature.guid_stop_now")?;
+    factory.observe_creature_factory(CreatureFactoryObservation::GuidAllocated);
+    context
+        .objects
+        .bind_map(object, attempt.grid.map, context.cells)?;
+    context.objects.set_respawn_definition(
+        object,
+        SourcePose(spawn.position.map(f32::to_bits)),
+        true,
+    )?;
+    // GUID uses the original entry before event InitEntry override; Creature.cpp:1604-1610,322-324.
+    context.objects.assign_guid(
+        object,
+        attempt.guid,
+        SourceGuid::with_entry(HighGuid::Creature, entry, allocation.counter),
+    )?;
+    factory.observe_creature_factory(CreatureFactoryObservation::CreateFromProto);
+    let effective = event.filter(|e| e.entry != 0).map_or(entry, |e| e.entry);
+    let template = if effective == entry {
+        original
+    } else {
+        let Some(template) = factory.creature_template(effective)? else {
+            return Ok((object, None));
+        };
+        require(
+            template.entry == effective,
+            "execution.creature.template_binding",
+        )?;
+        template
+    };
+    let mut state = CreatureConstruction::new(object, spawn, entry, template, event, group);
+    factory.creature_phase(CreaturePhase::InitEntryBase, &mut state, context)?;
+    let mut display = event.map_or(0, |event| event.model);
+    if display == 0 {
+        display = factory.creature_spawn_model(&state.spawn)?;
+    }
+    if display == 0 {
+        let choices = state.template.displays;
+        let total = source_creature_display_chance(&choices);
+        factory.observe_creature_factory(CreatureFactoryObservation::DisplayChance(total));
+        let (chosen, roll) =
+            draw_source_creature_display_with_chance(choices, total, factory.creature_random()?)?;
+        factory.observe_creature_factory(CreatureFactoryObservation::DisplayDrawn);
+        display = chosen;
+        state.rolls.model = Some(roll as u32);
+        if display == 0 {
+            display = factory
+                .creature_template(1)?
+                .map_or(0, |t| t.displays[0].id);
+            factory.observe_creature_factory(CreatureFactoryObservation::DisplayFallback);
+        }
+    }
+    if display == 0 {
+        return Ok((object, None));
+    }
+    let selection = select_source_creature_model(
+        factory,
+        display,
+        F::creature_model,
+        |model| model.other_gender,
+        |factory| factory.creature_random()?.creature_urand(0, 1),
+    )?;
+    if let Some(notice) = selection.missing_gender {
+        factory.observe_creature_factory(CreatureFactoryObservation::MissingModelGender(notice));
+    }
+    let Some(model) = selection.model else {
+        return Ok((object, None));
+    };
+    state.rolls.gender = selection.roll;
+    factory.observe_creature_factory(CreatureFactoryObservation::ModelSelected);
+    state.model = Some(model);
+    factory.creature_phase(CreaturePhase::ModelAndDisplay, &mut state, context)?;
+    factory.creature_phase(
+        CreaturePhase::InitEntryEquipmentAndFlags,
+        &mut state,
+        context,
+    )?;
+    let [min, max] = state.template.levels;
+    if min == max {
+        state.select_level(None)?;
+    } else {
+        let thread = factory.creature_thread();
+        let random = factory.creature_random()?;
+        require(
+            random.creature_stream()? == thread,
+            "execution.creature.SelectLevel_urand_thread_mismatch",
+        )?;
+        state.select_level(Some(random))?;
+    }
+    factory.creature_phase(CreaturePhase::SelectLevelStats, &mut state, context)?;
+    factory.creature_phase(
+        CreaturePhase::UpdateEntryFlagsAndSpells,
+        &mut state,
+        context,
+    )?;
+    Ok((object, Some(state)))
 }
 
 /// Selected construction only. EventAI keeps its existing definition/build/base owner path.

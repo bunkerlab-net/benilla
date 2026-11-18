@@ -307,6 +307,39 @@ impl<D: GridDefinitions, F: GridObjectFactory<D, P>, P: GridProductOwner>
         })
     }
 }
+/// ObjectGridLoader.cpp:117,156-159; Map.h:378 returns a null battleground for a base map.
+pub fn dispatch_grid_battleground_db_load(
+    map: PersistentMapEntry,
+    callback: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    if map.battleground() {
+        callback()?;
+    }
+    Ok(())
+}
+
+#[test]
+fn grid_battleground_callback_only_runs_for_a_battleground_map() {
+    let land = PersistentMapEntry { id: 0, map_type: 0 };
+    let bg = PersistentMapEntry {
+        id: 30,
+        map_type: 3,
+    };
+    let mut calls = 0;
+    let mut callback = || {
+        calls += 1;
+        Err(refuse("execution.grid.loaded_battleground_owner"))
+    };
+    dispatch_grid_battleground_db_load(land, &mut callback).unwrap();
+    assert_eq!(
+        dispatch_grid_battleground_db_load(bg, &mut callback)
+            .unwrap_err()
+            .id,
+        "execution.grid.loaded_battleground_owner"
+    );
+    assert_eq!(calls, 1);
+}
+
 // Factories own real constructors, LoadFromDB, failure deletion and reached callbacks; ObjectGridLoader.cpp:119-159.
 pub trait GridObjectFactory<D: GridDefinitions, P: GridProductOwner>: Sized {
     fn load_from_db(

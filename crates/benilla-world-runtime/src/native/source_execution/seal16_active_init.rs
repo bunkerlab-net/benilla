@@ -165,162 +165,14 @@ impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManag
         self.creature_zone = None;
         self.creature_linking_trigger = false;
         self.selected_ai = None;
-        // Creature.cpp:136 and :1603-1658. No selected model, stats or AI is supplied before this lookup.
-        let object = context
-            .objects
-            .construct(self.thread, SourceObjectKind::Creature)?;
-        self.units.register(
-            context.objects,
-            object,
-            CreatureConstruction::construct_loaded_unit(),
-        )?;
-        self.passengers.construct(object, context.objects)?;
-        self.candidates.push(object);
-        self.motions.insert(
-            object,
-            SourceMotionMaster::new(
-                object,
-                MotionDefault {
-                    movement_type: 0,
-                    default_path: 0,
-                },
-            ),
-        );
-        let data = self
-            .spawns
-            .complete_data(key)?
-            .ok_or_else(|| refuse("execution.grid.effective_spawn_absent"))?;
-        self.lookups.push("creature_data");
-        if !context.objects.candidate_allowed(
-            attempt.grid.map,
-            DatabaseLookupKind::Creature,
-            key.guid,
-        ) {
-            self.units.discard_construction(object);
-            context.objects.destroy(object, context.cells)?;
-            return Ok(GridCandidateOutcome::FailedAndDestroyed(object));
-        }
-        self.lookups.push("existing_creature");
-        let group = self.groups.creature_group(attempt.grid.map, key.guid)?;
-        self.lookups.push("spawn_group");
-        let entry = data.row.entry;
-        if entry == 0 {
-            // Group/conditional/random selection needs its live source RNG owner, never a recorded answer.
-            return Err(refuse(if group.is_some() {
-                "execution.creature.loaded_group_entry_owner"
-            } else {
-                "execution.creature.loaded_conditional_entry_owner"
-            }));
-        }
-        self.lookups.push("conditional_skipped_nonzero_entry");
-        self.lookups.push("random_skipped_nonzero_entry");
-        let event = self.events.creature_event_data(key.guid)?;
-        self.lookups.push("active_event");
-        self.entry = Some(entry);
-        self.lookups.push("creature_template");
-        let Some(original) = self.creature_templates.get(entry) else {
-            self.units.discard_construction(object);
-            context.objects.destroy(object, context.cells)?;
-            return Ok(GridCandidateOutcome::FailedAndDestroyed(object));
+        let (object, state) =
+            creatures::prepare_source_creature(self, attempt, key, None, 0, context)?;
+        let Some(mut state) = state else {
+            return creatures::failed(self, object, context);
         };
-        // Map.cpp:2966-2975 forces only maps 533 and 543.
-        let allocation = self.guids.spawn_counter(SpawnGuidRequest {
-            high: HighGuid::Creature,
-            database: key.guid,
-            requested: key.guid,
-            force_dynamic: matches!(attempt.grid.map.map, 533 | 543),
-            extra_dynamic: original.words[23] & 0x10_0000 != 0,
-            group: group.is_some(),
-        })?;
-        require(!allocation.stop_now, "execution.creature.guid_stop_now")?;
-        self.lookups.push("creature_guid");
-        context
-            .objects
-            .bind_map(object, attempt.grid.map, context.cells)?;
-        context.objects.set_respawn_definition(
-            object,
-            SourcePose(data.row.pose.map(f32::to_bits)),
-            true,
-        )?;
-        context.objects.assign_guid(
-            object,
-            key.guid,
-            SourceGuid::with_entry(HighGuid::Creature, entry, allocation.counter),
-        )?;
-        self.units.get_mut(context.objects, object)?.combat_reach = Some(0);
-        self.units.get_mut(context.objects, object)?.cast_speed = 0;
-        self.lookups.push("creature_create_from_proto");
-        let effective = event
-            .filter(|event| event.entry != 0)
-            .map_or(entry, |event| event.entry);
-        let Some(template) = self.creature_templates.get(effective) else {
-            self.units.discard_construction(object);
-            context.objects.destroy(object, context.cells)?;
-            return Ok(GridCandidateOutcome::FailedAndDestroyed(object));
-        };
-        self.lookups.push("init_entry_template");
-        let live = self.units.get_mut(context.objects, object)?;
-        CreatureConstruction::init_loaded_entry_base(live, template);
-        let operands = (
-            live.entry,
-            live.loaded_creature.scale.unwrap(),
-            [live.loaded_creature.race, live.unit_class.unwrap() as u8],
-        );
-        assert_eq!(
-            operands,
-            (effective, template.words[14], [0, template.words[36] as u8])
-        );
-        self.init_entry_fields = Some(operands);
-        self.lookups.push("init_entry_fields");
-        let mut display = event.map_or(0, |event| event.model);
-        if display == 0 {
-            display = self.spawn_templates.model_id(data)?;
-            self.lookups.push("creature_spawn_template_model");
-        }
-        if display == 0 {
-            let choices = std::array::from_fn(|index| benilla_sim::creature_init::DisplayChoice {
-                id: template.words[5 + index],
-                probability: template.words[9 + index],
-            });
-            let chance = choices
-                .iter()
-                .filter(|choice| choice.id != 0)
-                .fold(0u32, |sum, choice| sum.wrapping_add(choice.probability));
-            self.creature_display_chance = Some(chance);
-            self.lookups.push("creature_display_chance");
-            display = draw_source_creature_display(choices, self.random)?.0;
-            self.lookups.push("creature_display_draw");
-            if display == 0 {
-                display = self.creature_templates.get(1).map_or(0, |row| row.words[5]);
-                self.lookups.push("creature_display_fallback_template");
-            }
-        }
-        if display == 0 {
-            self.units.discard_construction(object);
-            context.objects.destroy(object, context.cells)?;
-            return Ok(GridCandidateOutcome::FailedAndDestroyed(object));
-        }
-        let Some(model) = self.creature_models.random_gender(display, self.random)? else {
-            self.units.discard_construction(object);
-            context.objects.destroy(object, context.cells)?;
-            return Ok(GridCandidateOutcome::FailedAndDestroyed(object));
-        };
-        self.creature_model = Some(model.words);
-        self.lookups.push("creature_model_random_gender");
-        let mut construction = creature_entry::continue_entry(
-            self,
-            object,
-            data,
-            original,
-            template,
-            event,
-            group,
-            model.words,
-            context.products,
-            attempt.grid.map.map,
-            context.objects,
-        )?;
-        creature_create::continue_create(self, &mut construction, data, template, context)
+        let data = self.loaded_creature_spawn(key.guid)?;
+        let template = self.loaded_creature_template(state.template.entry)?;
+        creature_create::continue_create(self, &mut state, data, template, context)
     }
     fn viewpoint_added(
         &mut self,
@@ -340,10 +192,9 @@ impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManag
         object: ObjectHandle,
         context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
     ) -> Result<()> {
-        // ObjectGridLoader.cpp:117,156-159; the base Map::GetBG is null, Map.h:378.
-        if self.map_entry.battleground() {
-            return Err(refuse("execution.grid.loaded_battleground_owner"));
-        }
+        dispatch_grid_battleground_db_load(self.map_entry, || {
+            Err(refuse("execution.grid.loaded_battleground_owner"))
+        })?;
         self.lookups.push("grid_battleground_null");
         require(
             context.cells.registered_cell(object).is_some(),

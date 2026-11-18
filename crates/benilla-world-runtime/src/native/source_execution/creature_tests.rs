@@ -151,6 +151,7 @@ struct Factory {
     templates: BTreeMap<u32, CreatureTemplate>,
     models: BTreeMap<u32, CreatureModel>,
     observations: Vec<Observation>,
+    missing_model_genders: Vec<MissingCreatureModelGender>,
     states: BTreeMap<ObjectHandle, CreatureConstruction>,
     group: Option<CreatureGroup>,
     entries: [u32; 3],
@@ -211,6 +212,7 @@ impl Factory {
             )]
             .into(),
             observations: vec![],
+            missing_model_genders: Vec::new(),
             states: BTreeMap::new(),
             group: None,
             entries: [0; 3],
@@ -348,6 +350,11 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
     }
     fn creature_model(&mut self, model: u32) -> Result<Option<CreatureModel>> {
         Ok(self.models.get(&model).copied())
+    }
+    fn observe_creature_factory(&mut self, observation: CreatureFactoryObservation) {
+        if let CreatureFactoryObservation::MissingModelGender(notice) = observation {
+            self.missing_model_genders.push(notice);
+        }
     }
     fn creature_guids(&mut self) -> &mut MapGuidAllocators {
         &mut self.guids
@@ -760,6 +767,25 @@ fn startup_loader_constructs_before_player_entry_and_equal_model_draws_skip_equa
         .unwrap();
     assert!(view < motion && motion < loader);
 }
+#[test]
+fn factory_keeps_base_model_and_reports_missing_alternate_after_the_gender_draw() {
+    let mut world = World::new(vec![spawn(40, 0.0)]);
+    let mut factory = Factory::new();
+    factory.models.get_mut(&11).unwrap().other_gender = 12;
+    world.load(0.0, &mut factory).unwrap();
+    let state = factory.states.values().next().unwrap();
+    assert_eq!(state.model.unwrap().id, 11);
+    assert_eq!(state.rolls.gender, Some(0));
+    assert_eq!(factory.random.cursor.raw, 3);
+    assert_eq!(
+        factory.missing_model_genders,
+        [MissingCreatureModelGender {
+            display: 11,
+            alternate: 12,
+        }],
+    );
+}
+
 #[test]
 fn duplicate_alive_skip_constructs_and_destroys_without_draws_or_entry_queries() {
     let mut world = World::new(vec![spawn(40, 0.0)]);

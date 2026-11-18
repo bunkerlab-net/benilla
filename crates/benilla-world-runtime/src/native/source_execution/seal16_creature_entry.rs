@@ -135,21 +135,13 @@ impl EntryFields {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(super) fn continue_entry(
+pub(super) fn apply_model(
     prefix: &mut Prefix<'_>,
     object: ObjectHandle,
-    data: &EffectiveSpawnData,
-    original: &LoadedCreatureInfo,
     template: &LoadedCreatureInfo,
-    event: Option<CreatureEventData>,
-    group: Option<CreatureGroup>,
     model: [u32; 8],
-    terrain: &mut SourceTerrainManager,
-    map: u32,
-    objects: &mut SourceObjects,
-) -> Result<CreatureConstruction> {
-    // Unit.cpp:330,429-430,8514-8531; MotionMaster.cpp:692-698 has no generators before AIM_Initialize.
+    objects: &SourceObjects,
+) -> Result<()> {
     require(
         prefix
             .motions
@@ -158,7 +150,7 @@ pub(super) fn continue_entry(
         "execution.creature.initial_speed_motion_binding",
     )?;
     let live = prefix.units.get_mut(objects, object)?;
-    let selected = CreatureConstruction::apply_loaded_model(live, template, model)?;
+    CreatureConstruction::apply_loaded_model(live, template, model)?;
     // The first display has the template scale, Creature.cpp:338,366; Unit.cpp:10266.
     let native_scale = f32::from_bits(template.words[14]);
     let normalized = if native_scale != 0.0 {
@@ -173,63 +165,80 @@ pub(super) fn continue_entry(
     prefix
         .lookups
         .push("creature_native_display_speed_gender_power");
-    let spawn = prefix
-        .spawn_templates
-        .rows()
-        .get(
-            &data
-                .spawn_template
-                .ok_or_else(|| refuse("execution.creature.spawn_template_undefined"))?,
-        )
-        .ok_or_else(|| refuse("execution.creature.spawn_template_undefined"))?;
-    let entry = LoadedCreatureEntry {
-        original,
-        effective: template,
-        spawn,
-        movement: u32::from(data.row.movement),
-        map,
-    };
-    let mut state =
-        CreatureConstruction::from_loaded_entry(object, data, &entry, event, group, selected);
+    Ok(())
+}
+
+pub(super) fn finish_init_entry(
+    prefix: &mut Prefix<'_>,
+    state: &mut CreatureConstruction,
+    entry: &LoadedCreatureEntry<'_>,
+    terrain: &mut SourceTerrainManager,
+    objects: &SourceObjects,
+) -> Result<()> {
+    let object = state.object;
+    let live = prefix.units.get_mut(objects, object)?;
     let mut addon = CreatureAddonState::default();
-    let result = state.load_entry_equipment(live, &entry, prefix.equipment);
-    prefix
-        .equipment_writes
-        .insert(data.row.guid, live.loaded_creature.equipment.clone());
+    let result = state.load_entry_equipment(live, entry, prefix.equipment);
+    prefix.equipment_writes.insert(
+        state.spawn.database_guid,
+        live.loaded_creature.equipment.clone(),
+    );
     if let Err(error) = result {
-        prefix.creature_entry = Some(EntryFields::observe(live, &state, addon, None));
+        prefix.creature_entry = Some(EntryFields::observe(live, state, addon, None));
         return Err(error);
     }
     prefix.lookups.push("creature_equipment_name_cast_levitate");
+    let [x, y, z, _] = state.spawn.position;
     let result = state.finish_loaded_init_entry(
         live,
-        &entry,
+        entry,
         prefix.encounters,
         |key| uint_config(prefix.config, key),
         |display, scale| {
             prefix.collision_models.init_entry_swimmable(
                 display,
                 scale,
-                |height| {
-                    terrain.is_swimmable(map, data.row.pose[..3].try_into().unwrap(), height, None)
-                },
+                |height| terrain.is_swimmable(entry.map, [x, y, z], height, None),
                 &mut prefix.swimming_census,
             )
         },
     );
     if let Err(error) = result {
-        prefix.creature_entry = Some(EntryFields::observe(live, &state, addon, None));
+        prefix.creature_entry = Some(EntryFields::observe(live, state, addon, None));
         return Err(error);
     }
     prefix.lookups.push("creature_init_entry_remainder");
     CreatureConstruction::begin_loaded_update_entry(live, &mut addon);
-    state.select_level(Some(prefix.random))?;
+    prefix.creature_entry = Some(EntryFields::observe(live, state, addon, None));
+    Ok(())
+}
+
+pub(super) fn apply_level(
+    prefix: &mut Prefix<'_>,
+    state: &CreatureConstruction,
+    entry: &LoadedCreatureEntry<'_>,
+    objects: &SourceObjects,
+) -> Result<()> {
+    let live = prefix.units.get_mut(objects, state.object)?;
     let stats =
-        state.apply_loaded_level(live, &entry, prefix.level_definitions, prefix.level_config)?;
+        state.apply_loaded_level(live, entry, prefix.level_definitions, prefix.level_config)?;
+    prefix.creature_entry.as_mut().unwrap().level = Some(stats);
     prefix.lookups.push("creature_level_stats_spawn");
-    let result =
-        CreatureConstruction::update_loaded_entry_flags(live, &entry, prefix.faction_flags);
-    let mut fields = EntryFields::observe(live, &state, addon, Some(stats));
+    Ok(())
+}
+
+pub(super) fn update_entry(
+    prefix: &mut Prefix<'_>,
+    state: &CreatureConstruction,
+    entry: &LoadedCreatureEntry<'_>,
+    objects: &mut SourceObjects,
+) -> Result<()> {
+    let object = state.object;
+    let template = entry.effective;
+    let live = prefix.units.get_mut(objects, object)?;
+    let result = CreatureConstruction::update_loaded_entry_flags(live, entry, prefix.faction_flags);
+    let prior = prefix.creature_entry.take().unwrap();
+    let mut fields = EntryFields::observe(live, state, prior.addon, prior.level);
     if let Err(error) = result {
         prefix.creature_entry = Some(fields);
         return Err(error);
@@ -256,7 +265,7 @@ pub(super) fn continue_entry(
     prefix.lookups.push("creature_immunity_set_updated");
     fields.chain_immune = live.loaded_creature.chain_immune;
     prefix.lookups.push("creature_critter_chain_immunity");
-    if let Err(error) = state.require_loaded_entry_callbacks(&entry) {
+    if let Err(error) = state.require_loaded_entry_callbacks(entry) {
         prefix.creature_entry = Some(fields);
         return Err(error);
     }
@@ -272,7 +281,7 @@ pub(super) fn continue_entry(
     prefix.creature_entry = Some(fields);
     result?;
     prefix.lookups.push("creature_static_flags_reset");
-    Ok(state)
+    Ok(())
 }
 #[cfg(test)]
 mod tests {
