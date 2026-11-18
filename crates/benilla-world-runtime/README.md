@@ -1163,6 +1163,9 @@ lists without replacing the source iterator rules. Respawn uses the source's
 strict fresh-wall loop guard. `try_follow_master` retains the source's final
 out-of-range lookup at `:766-776`; reverse events do not.
 
+`SourceCreatureLinkingHolder::follow_offsets` reads both creatures' live
+respawn poses and bounding radii, `CreatureLinkingMgr.cpp:615-637`.
+
 `LinkingActionRequest::lifecycle` enters retained F4.07 respawn or immediate
 forced despawn, including mandatory callbacks and removal. Forced despawn runs
 death, in-place corpse removal, then the real Unit health setter,
@@ -1808,6 +1811,11 @@ Interrupt, Reset and static Idle follow `MotionMaster.cpp:57-277,599-620`.
 Only Home and Distract are replaced before a new generator interrupts the
 exposed top. Direct EFFECT expiry preserves stored targeted generators;
 delayed expiry removes them, `MotionMaster.cpp:203-271`.
+
+The linked `SourceMotionMaster::move_follow` checks lost control and clears
+the stack before refusing at `FollowerReference.cpp:25`. The follower list
+remains unowned. `SourceUnits::possessing_client` resolves the possessed
+creature's player charmer in its map, `Unit.cpp:6523-6548`.
 
 The default selector uses the four registered factories and genuine null
 fallback, `CreatureAISelector.cpp:109-135`, `CreatureAIRegistry.cpp:45-48`.

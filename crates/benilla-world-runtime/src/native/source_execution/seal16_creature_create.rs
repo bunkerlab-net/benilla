@@ -300,11 +300,7 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
     if slave_link.is_some() || prefix.creature_linking_trigger {
         prefix.link_births.insert(
             object,
-            (
-                fields.respawn_delay.unwrap(),
-                fields.respawn_time.unwrap(),
-                fields.radius,
-            ),
+            (fields.respawn_delay.unwrap(), fields.respawn_time.unwrap()),
         );
     }
     let cell =

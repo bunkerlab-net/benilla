@@ -448,6 +448,41 @@ fn initialize_possessed_and_player_owned_creature_use_static_idle() {
         .unwrap();
     assert_eq!(master.current_type(), 0);
 }
+
+#[test]
+fn linked_move_follow_gates_before_lookup_and_clears_before_attach() {
+    let (objects, mut units, mut master) = setup();
+    let unit = master.unit;
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let mut context = MotionContext {
+        objects: &objects,
+        units: &mut units,
+    };
+    master
+        .mutate(Probe::new("old", 11, &log), &mut context, &mut Unbound)
+        .unwrap();
+    log.borrow_mut().clear();
+    context.units.get_mut(&objects, unit).unwrap().state = 0x40;
+    SourceMotionMaster::move_follow(
+        unit,
+        || panic!("lost control must skip motion lookup"),
+        &mut context,
+        &mut Unbound,
+    )
+    .unwrap();
+    assert_eq!(master.len(), 2);
+    assert!(log.borrow().is_empty());
+
+    context.units.get_mut(&objects, unit).unwrap().state = 0;
+    assert_eq!(
+        SourceMotionMaster::move_follow(unit, || Ok(&mut master), &mut context, &mut Unbound)
+            .unwrap_err()
+            .id,
+        "execution.movement.FollowerReference_25.addFollower_owner"
+    );
+    assert_eq!(master.len(), 1);
+    assert_eq!(&*log.borrow(), &["old.finalize", "old.drop"]);
+}
 #[test]
 fn path_read_refuses_only_before_defined_initialization() {
     let (objects, mut units, _) = setup();

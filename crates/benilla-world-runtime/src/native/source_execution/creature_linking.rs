@@ -395,6 +395,49 @@ impl SourceCreatureLinkingHolder {
     pub fn map(&self) -> MapIdentity {
         self.map
     }
+    /// CreatureLinkingMgr.cpp:615-637 computes offsets from the live respawn poses and radii.
+    pub fn follow_offsets(
+        &self,
+        objects: &SourceObjects,
+        units: &SourceUnits,
+        unit: ObjectHandle,
+        master: ObjectHandle,
+    ) -> Result<[f32; 2]> {
+        let source = objects.get(unit)?;
+        let target = objects.get(master)?;
+        let Some((from, to)) = source.respawn_pose.zip(target.respawn_pose) else {
+            return Err(refuse(
+                "execution.linking.CreatureLinkingMgr_619.respawn_coordinate_owner",
+            ));
+        };
+        let [x, y, z, _] = from.0.map(f32::from_bits);
+        let [mx, my, mz, orientation] = to.0.map(f32::from_bits);
+        let (dx, dy, dz) = (x - mx, y - my, z - mz);
+        let radius = |unit| {
+            units
+                .get(objects, unit)?
+                .bounding_radius
+                .map(f32::from_bits)
+                .ok_or_else(|| {
+                    refuse("execution.linking.CreatureLinkingMgr_629.bounding_radius_owner")
+                })
+        };
+        let length = benilla_sim::source_transports::sqrt_single_bits(
+            (dx * dx + dy * dy + dz * dz).to_bits(),
+        )
+        .map_err(|_| refuse("execution.linking.CreatureLinkingMgr_626.follow_distance_numeric"))?;
+        let distance = f32::from_bits(length) - radius(unit)? - radius(master)?;
+        let distance = if distance < 0. { 0. } else { distance };
+        let bearing = benilla_sim::facing::atan2_bits(dy.to_bits(), dx.to_bits())
+            .map_err(|_| refuse("execution.linking.CreatureLinkingMgr_634.follow_angle_numeric"))?;
+        let angle = f32::from_bits(bearing) - orientation;
+        let angle = if angle >= 0. {
+            angle
+        } else {
+            std::f32::consts::TAU + angle
+        };
+        Ok([distance, angle])
+    }
     fn object<'a>(
         &self,
         objects: &'a SourceObjects,

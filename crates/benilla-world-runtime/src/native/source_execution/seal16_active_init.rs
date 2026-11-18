@@ -70,7 +70,7 @@ pub(super) struct Prefix<'a> {
     pub outdoor_pvp: &'a SourceOutdoorPvp,
     pub linking: &'a SourceCreatureLinking,
     pub link_holder: &'a mut SourceCreatureLinkingHolder,
-    pub link_births: BTreeMap<ObjectHandle, (u32, i64, u32)>,
+    pub link_births: BTreeMap<ObjectHandle, (u32, i64)>,
     pub pools: &'a SourcePoolManager,
     pub link_follow: Option<(ObjectHandle, ObjectHandle, [u32; 2])>,
     pub map_visibility_bits: u32,

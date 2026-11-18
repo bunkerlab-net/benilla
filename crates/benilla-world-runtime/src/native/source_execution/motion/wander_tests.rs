@@ -68,7 +68,11 @@ impl MotionExecutionOwner for Lifecycle {
         self.queries.push("client");
         Ok(self.client)
     }
-    fn client_controlling(&mut self, _: ObjectHandle) -> Result<Option<ObjectHandle>> {
+    fn client_controlling(
+        &mut self,
+        _: ObjectHandle,
+        _: &MotionContext<'_>,
+    ) -> Result<Option<ObjectHandle>> {
         self.queries.push("controlling");
         Ok(self.controlling)
     }

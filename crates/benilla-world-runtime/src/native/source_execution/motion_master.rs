@@ -6,6 +6,9 @@ use std::rc::Rc;
 pub const MOTION_CANNOT_MOVE: u32 = 0x2000_001e;
 pub const MOTION_NOT_MOVE: u32 = MOTION_CANNOT_MOVE | 0x800;
 const MOTION_MOVING: u32 = 0x0055_0000;
+const MOTION_LOST_CONTROL: u32 = 0x0020_2040;
+pub(super) const FOLLOW_REFERENCE_ATTACH_OWNER: &str =
+    "execution.movement.FollowerReference_25.addFollower_owner";
 
 /// Actual live operands after Creature::InitEntry, not raw SQL defaults.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -222,7 +225,11 @@ pub trait MotionExecutionOwner {
     fn client_controlled(&mut self, _unit: ObjectHandle) -> Result<bool> {
         Err(refuse("execution.motion.client_controlled_owner"))
     }
-    fn client_controlling(&mut self, _unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
+    fn client_controlling(
+        &mut self,
+        _unit: ObjectHandle,
+        _context: &MotionContext<'_>,
+    ) -> Result<Option<ObjectHandle>> {
         Err(refuse("execution.motion.client_controlling_owner"))
     }
     /// MotionMaster.cpp:85-94 reads the actual group's leader slot and path.
@@ -745,7 +752,7 @@ impl SourceMotionMaster {
         context: &mut MotionContext<'_>,
         owner: &mut dyn MotionExecutionOwner,
     ) -> Result<()> {
-        if context.units.get(context.objects, self.unit)?.state & 0x0020_2040 != 0 {
+        if context.units.get(context.objects, self.unit)?.state & MOTION_LOST_CONTROL != 0 {
             return Ok(());
         }
         self.clear(false, false, context, owner)?;
@@ -756,6 +763,21 @@ impl SourceMotionMaster {
             self.mutate(SourceHomeGenerator::new(run), context, owner)?;
         }
         Ok(())
+    }
+    /// MotionMaster.cpp:349-365 for linked Follow with a resolved target and `asMain=false`.
+    pub fn move_follow<'a>(
+        unit: ObjectHandle,
+        motion: impl FnOnce() -> Result<&'a mut Self>,
+        context: &mut MotionContext<'_>,
+        owner: &mut dyn MotionExecutionOwner,
+    ) -> Result<()> {
+        if context.units.get(context.objects, unit)?.state & MOTION_LOST_CONTROL != 0 {
+            return Ok(());
+        }
+        let motion = motion()?;
+        motion.clear(!motion.is_empty(), false, context, owner)?;
+        // TargetedMovementGenerator.h:34 attaches before writing any Follow fields.
+        Err(refuse(FOLLOW_REFERENCE_ATTACH_OWNER))
     }
     /// MotionMaster.cpp:466-484. An existing waypoint is not replaced.
     pub fn move_waypoint(

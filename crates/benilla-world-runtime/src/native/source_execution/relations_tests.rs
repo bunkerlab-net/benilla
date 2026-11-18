@@ -221,6 +221,44 @@ fn relations_guid_notice_and_pov_follow_the_accessor() {
 }
 
 #[test]
+fn possessing_client_requires_live_flags_and_a_player_charmer_in_the_map() {
+    let mut f = PowerFixture::new();
+    let map = MapIdentity {
+        map: 1,
+        instance: 0,
+        creation_generation: 1,
+    };
+    let player = f.objects.construct(1, SourceObjectKind::Player).unwrap();
+    let player_guid = SourceGuid::without_entry(HighGuid::Player, 7);
+    let creature_guid = SourceGuid::with_entry(HighGuid::Creature, 1, 9);
+    for (unit, guid) in [(player, player_guid), (f.caster, creature_guid)] {
+        f.objects.assign_guid(unit, 0, guid).unwrap();
+        f.objects.get_mut(unit).unwrap().map = Some(map);
+        f.objects.add_to_world(unit).unwrap();
+    }
+    f.objects.register_player_lookup(player).unwrap();
+    for (flags, charmer, expected) in [
+        (8, player_guid, None),
+        (0x0100_0000, player_guid, None),
+        (0x0100_0008, creature_guid, None),
+        (0x0100_0008, player_guid, Some(player)),
+    ] {
+        let live = f.units.get_mut(&f.objects, f.caster).unwrap();
+        live.flags = flags;
+        live.control_guids.charmer = charmer;
+        assert_eq!(
+            f.units.possessing_client(&f.objects, f.caster).unwrap(),
+            expected
+        );
+    }
+    f.objects.get_mut(player).unwrap().map = Some(MapIdentity { map: 0, ..map });
+    assert_eq!(
+        f.units.possessing_client(&f.objects, f.caster).unwrap(),
+        None
+    );
+}
+
+#[test]
 fn relations_recursive_owner_reaches_last_creator_and_refuses_a_cycle() {
     let mut f = PowerFixture::new();
     let middle = f.objects.construct(1, SourceObjectKind::Creature).unwrap();

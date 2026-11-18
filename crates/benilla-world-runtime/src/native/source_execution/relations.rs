@@ -169,6 +169,29 @@ impl SourceControlGuids {
     }
 }
 
+impl SourceUnits {
+    /// Unit.cpp:6523-6548 resolves the client controlling a possessed creature.
+    pub fn possessing_client(
+        &self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+    ) -> Result<Option<ObjectHandle>> {
+        let live = self.get(objects, unit)?;
+        if live.flags & 8 == 0 || !live.control_guids.has_charmer() || live.flags & 0x0100_0000 == 0
+        {
+            return Ok(None);
+        }
+        let Some(charmer) = live
+            .control_guids
+            .get_charmer(objects, unit, None, unbound_pet_loading)?
+            .unit()
+        else {
+            return Ok(None);
+        };
+        Ok((objects.get(charmer)?.kind == SourceObjectKind::Player).then_some(charmer))
+    }
+}
+
 fn is_unit_guid(guid: SourceGuid) -> bool {
     guid.raw() != 0 && matches!(guid.high(), 0 | 0xf130 | 0xf140)
 }

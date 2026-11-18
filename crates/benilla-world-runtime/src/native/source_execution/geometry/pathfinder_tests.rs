@@ -361,7 +361,11 @@ fn bound_initialization_executes_target_drop_before_melee_owner_and_random_updat
         fn pathfinder_geometry(&mut self) -> Result<&mut SourceTerrainManager> {
             Ok(&mut self.geometry)
         }
-        fn client_controlling(&mut self, _: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        fn client_controlling(
+            &mut self,
+            _: ObjectHandle,
+            _: &MotionContext<'_>,
+        ) -> Result<Option<ObjectHandle>> {
             Ok(None)
         }
         fn spline_finalized(&mut self, _: ObjectHandle, _: &MotionContext<'_>) -> Result<bool> {

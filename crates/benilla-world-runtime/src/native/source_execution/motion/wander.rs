@@ -225,7 +225,7 @@ impl SourceMovementGenerator for SourceWanderGenerator {
             false,
         )?);
         // RandomMovementGenerator.cpp:32-48 follows construction without destination draws.
-        if let Some(player) = owner.client_controlling(master.unit)? {
+        if let Some(player) = owner.client_controlling(master.unit, context)? {
             owner.motion_call(master, MotionCall::RemoveClientControl(player), context)?;
         } else if context.units.get(context.objects, master.unit)?.has_ai {
             context.units.get_mut(context.objects, master.unit)?.target = None;
@@ -273,7 +273,7 @@ impl SourceMovementGenerator for SourceWanderGenerator {
         // GetClientControlling is not GetControllingPlayer, Unit.cpp:6523-6548.
         let player_controlled = fields.flags & 8 != 0;
         if let Some(player) = if player_controlled {
-            owner.client_controlling(master.unit)?
+            owner.client_controlling(master.unit, context)?
         } else {
             None
         } {

@@ -369,6 +369,37 @@ fn follow_master_retains_last_out_of_range_lookup_but_reverse_event_does_not() {
         vec![Effect::Action(slave, Action::Follow(master))]
     );
 }
+
+#[test]
+fn linked_follow_offsets_use_live_respawn_poses_and_bounding_radii() {
+    let (mut h, master, slave) = entry_host(0x0200, 10);
+    let objects = &mut h.scene.objects;
+    let mut units = SourceUnits::default();
+    for (unit, pose, radius) in [
+        (master, [0., 0., 0., 1.], 2.0_f32),
+        (slave, [5., 0., 12., 0.], 1.0),
+    ] {
+        objects
+            .set_respawn_definition(unit, SourcePose(pose.map(f32::to_bits)), true)
+            .unwrap();
+        objects
+            .set_pose(unit, SourcePose([99.0_f32.to_bits(); 4]))
+            .unwrap();
+        let mut live = SourceUnitFields::constructed_creature();
+        live.bounding_radius = Some(radius.to_bits());
+        units.register(objects, unit, live).unwrap();
+    }
+    let read = |units: &SourceUnits| {
+        h.scene
+            .holder
+            .follow_offsets(objects, units, slave, master)
+            .unwrap()
+            .map(f32::to_bits)
+    };
+    assert_eq!(read(&units), [10.0_f32.to_bits(), 0x40a9_0fdb]);
+    units.get_mut(objects, slave).unwrap().bounding_radius = Some(12.0_f32.to_bits());
+    assert_eq!(read(&units), [0, 0x40a9_0fdb]);
+}
 #[test]
 fn repeated_respawn_guard_uses_strict_fresh_wall_and_zero_delay_short_circuit() {
     // Repeated Respawn writes now and the strict > check suppresses a second call; cpp:593-597.
