@@ -2990,6 +2990,9 @@ The creature addon and EventAI use the same immediate self-cast entry in
 cast. Triggered addon boosts use the same unit queue and inherit the
 triggering aura's reagent definition, `Unit.cpp:1484-1512`,
 `Spell.cpp:3007-3020,3083,3094`.
+At the cast-chain limit, aura-triggered casts suppress the cast result.
+Unbound player and pet cast results refuse before the spell finishes,
+`Spell.cpp:3165-3176,3813-3841`.
 The normal self cast uses the existing location, items, range, and power owners.
 The AI borrows its live base state and stores the same Spell key as the unit
 queue. `UnitAI.cpp:54,352,429,436` covers construction, identity comparison,

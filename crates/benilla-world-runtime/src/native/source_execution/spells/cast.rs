@@ -64,6 +64,17 @@ impl SourceSpell {
         )?;
         let (auras, max_casts) = owner.cast_chain();
         if !auras.try_enter_cast(max_casts) {
+            // Spell.cpp:3172,3815-3835. The result precedes finish and skips aura-triggered casts.
+            if self.triggered_by_aura.is_none() {
+                require(
+                    !owner.unit(self.caster)?.player,
+                    "execution.spells.Spell_3172.SendCastResult_player_owner",
+                )?;
+                require(
+                    !self.flags.pet_cast(),
+                    "execution.spells.Spell_3823.GetControllingPlayer_owner",
+                )?;
+            }
             self.finish_failed(owner)?;
             self.executing = false;
             return Ok(());
@@ -223,6 +234,31 @@ mod tests {
     }
 
     impl SpellExecutionOwner for CooldownOwner<'_> {
+        fn unit(&mut self, caster: ObjectHandle) -> Result<SpellUnitState> {
+            Ok(SpellUnitState {
+                player: self.objects.get(caster)?.kind == SourceObjectKind::Player,
+                gameobject: false,
+                alive: true,
+                standing: true,
+                player_controlled: false,
+                combat: false,
+                battleground_wait_leave: false,
+                gm: false,
+                moving: false,
+                falling_far: false,
+                stealth: false,
+                form: 0,
+                class: 1,
+                combo_target: None,
+                mounted: false,
+                taxi: false,
+                totem: false,
+                untargetable: false,
+                has_ai: false,
+                position: [0; 4],
+            })
+        }
+
         fn check(
             &mut self,
             _: &mut SourceSpell,
@@ -238,8 +274,8 @@ mod tests {
         fn cast_objects(&self) -> &SourceObjects {
             self.objects
         }
-        fn cast_mod_owner(&mut self, caster: ObjectHandle) -> Result<Option<ObjectHandle>> {
-            world_object_spell_mod_owner(self.objects, caster, false)
+        fn cast_mod_owner(&mut self, _: ObjectHandle) -> Result<Option<ObjectHandle>> {
+            Ok(None)
         }
         fn cast_chain(&mut self) -> (&mut SourceUnitAuras, u32) {
             (&mut self.auras, 1)
@@ -307,6 +343,66 @@ mod tests {
             assert_eq!(spell.state, SourceSpellState::Casting);
             assert_eq!(owner.auras.cast_counter, 1);
             assert!(events.owns_spell_event(spell.event.unwrap(), id));
+        }
+    }
+
+    #[test]
+    fn cast_limit_preserves_finish_and_refuses_unbound_result_recipients() {
+        use SourceObjectKind::{Creature, Pet, Player};
+
+        let stores = SourceSpellStores::default();
+        let t = SpellTemplate {
+            id: 42,
+            ..SpellTemplate::default()
+        };
+        for (kind, flags, aura, refusal) in [
+            (Creature, 0, None, None),
+            (
+                Player,
+                0,
+                None,
+                Some("execution.spells.Spell_3172.SendCastResult_player_owner"),
+            ),
+            (Player, 0, Some(17), None),
+            (
+                Pet,
+                0x80,
+                None,
+                Some("execution.spells.Spell_3823.GetControllingPlayer_owner"),
+            ),
+            (Pet, 0x80, Some(17), None),
+        ] {
+            let mut objects = SourceObjects::default();
+            let caster = objects.construct(6, kind).unwrap();
+            // Bind the earlier SpellMod lookup so every case reaches the depth limit.
+            let mut owner = CooldownOwner {
+                objects: &objects,
+                auras: SourceUnitAuras {
+                    cast_counter: 1,
+                    ..SourceUnitAuras::default()
+                },
+            };
+            let mut spell = SourceSpell::new(1, &t, caster, SpellTriggerFlags(flags), 0).unwrap();
+            spell.state = SourceSpellState::Casting;
+            spell.triggered_by_aura = aura;
+            let result = spell.cast_self(
+                false,
+                SelfCastCaller::UnitAi,
+                &stores,
+                &mut SourceSpellStarts::default(),
+                &mut SourceUnitEvents::default(),
+                &mut owner,
+            );
+            assert_eq!(owner.auras.cast_counter, 1, "{kind:?}");
+            if let Some(id) = refusal {
+                assert_eq!(result.unwrap_err().id, id);
+                assert_eq!(spell.state, SourceSpellState::Casting);
+                assert!(spell.executing);
+            } else {
+                assert_eq!(result, Ok(()));
+                assert_eq!(spell.state, SourceSpellState::Finished);
+                assert!(!spell.executing);
+            }
         }
     }
 }
