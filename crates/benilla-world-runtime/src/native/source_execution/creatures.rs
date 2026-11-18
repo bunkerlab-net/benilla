@@ -855,7 +855,11 @@ pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     fn creature_force_load_map(&mut self) -> Result<bool>;
     fn creature_group(&mut self, database: u32) -> Result<Option<CreatureGroup>>;
     /// Re-read the live group after relay/link callbacks; Creature.cpp:1749-1753.
-    fn creature_current_group(&mut self, object: ObjectHandle) -> Result<Option<CreatureGroup>>;
+    fn creature_current_group(
+        &mut self,
+        object: ObjectHandle,
+        context: &GridFactoryContext<'_, D, P>,
+    ) -> Result<Option<CreatureGroup>>;
     fn creature_entry(&mut self, database: u32, owner: CreatureEntryOwner) -> Result<u32>;
     fn creature_event(&mut self, database: u32) -> Result<Option<CreatureEventData>>;
     fn creature_template(&mut self, entry: u32) -> Result<Option<CreatureTemplate>>;
@@ -866,12 +870,34 @@ pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     fn observe_creature_factory(&mut self, _observation: CreatureFactoryObservation) {}
     fn creature_guids(&mut self) -> &mut MapGuidAllocators;
     fn creature_random(&mut self) -> Result<&mut dyn CreatureRandom>;
-    fn creature_respawn_time(&mut self, database: u32) -> Result<i64>;
-    fn creature_save_respawn_time(&mut self, database: u32, time: i64) -> Result<()>;
+    fn creature_units(&self) -> &SourceUnits;
+    fn creature_respawn_time(
+        &mut self,
+        database: u32,
+        context: &mut GridFactoryContext<'_, D, P>,
+    ) -> Result<i64>;
+    fn creature_save_respawn_time(
+        &mut self,
+        database: u32,
+        time: i64,
+        context: &mut GridFactoryContext<'_, D, P>,
+    ) -> Result<()>;
     fn creature_wall_time(&mut self, object: ObjectHandle) -> Result<ClockSample>;
-    fn creature_spawned_by_linked_mob(&mut self, state: &CreatureConstruction) -> Result<bool>;
-    fn creature_linked_can_spawn(&mut self, state: &CreatureConstruction) -> Result<bool>;
-    fn creature_dead_flying_height(&mut self, state: &CreatureConstruction) -> Result<f32>;
+    fn creature_spawned_by_linked_mob(
+        &mut self,
+        state: &CreatureConstruction,
+        context: &GridFactoryContext<'_, D, P>,
+    ) -> Result<bool>;
+    fn creature_linked_can_spawn(
+        &mut self,
+        state: &CreatureConstruction,
+        context: &mut GridFactoryContext<'_, D, P>,
+    ) -> Result<bool>;
+    fn creature_dead_flying_height(
+        &mut self,
+        state: &CreatureConstruction,
+        context: &mut GridFactoryContext<'_, D, P>,
+    ) -> Result<f32>;
     /// Live effective-template/control operands, not a selected AI answer.
     fn creature_ai_inputs(&mut self, _state: &CreatureConstruction) -> Result<CreatureAiInputs> {
         Err(refuse("execution.ai.live_inputs_owner"))
@@ -1079,7 +1105,7 @@ where
             .corpse_delay
             .min(state.respawn_delay.wrapping_mul(9) / 10);
     }
-    state.respawn_time = factory.creature_respawn_time(attempt.guid)?;
+    state.respawn_time = factory.creature_respawn_time(attempt.guid, context)?;
     let now = factory.creature_wall_time(object)?;
     require(
         now.kind() == ClockKind::WallSeconds,
@@ -1092,12 +1118,12 @@ where
         dead(factory, &mut state, context)?;
     } else if state.respawn_time != 0 {
         state.respawn_time = 0;
-        factory.creature_save_respawn_time(attempt.guid, 0)?;
+        factory.creature_save_respawn_time(attempt.guid, 0, context)?;
     }
-    state.spawning_linked = factory.creature_spawned_by_linked_mob(&state)?;
+    state.spawning_linked = factory.creature_spawned_by_linked_mob(&state, context)?;
     if state.spawning_linked
         && context.objects.get(object)?.alive
-        && !factory.creature_linked_can_spawn(&state)?
+        && !factory.creature_linked_can_spawn(&state, context)?
     {
         dead(factory, &mut state, context)?;
     }
@@ -1117,7 +1143,7 @@ where
     if state.linking_trigger && context.objects.get(object)?.alive {
         factory.creature_phase(CreaturePhase::LinkingRespawn, &mut state, context)?;
     }
-    state.group = factory.creature_current_group(object)?;
+    state.group = factory.creature_current_group(object, context)?;
     if let Some(group) = state.group {
         if group.has_formation {
             factory.creature_phase(CreaturePhase::FormationSlot, &mut state, context)?;
@@ -1463,7 +1489,7 @@ where
     context.objects.mark_dead(state.object)?;
     factory.creature_phase(CreaturePhase::SetDeadAndZeroHealth, state, context)?;
     if state.template.can_fly {
-        let height = factory.creature_dead_flying_height(state)?;
+        let height = factory.creature_dead_flying_height(state, context)?;
         if state.position[2] - height > 0.1 {
             state.position[2] = height;
         }

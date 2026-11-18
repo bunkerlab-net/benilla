@@ -605,7 +605,11 @@ impl<D: GridDefinitions<Row = SpawnKey>> CreatureFactoryOwner<D, SourceTerrainMa
         Ok(group)
     }
 
-    fn creature_current_group(&mut self, _: ObjectHandle) -> Result<Option<CreatureGroup>> {
+    fn creature_current_group(
+        &mut self,
+        _: ObjectHandle,
+        _: &GridFactoryContext<'_, D, SourceTerrainManager>,
+    ) -> Result<Option<CreatureGroup>> {
         Err(refuse(
             "execution.creature.Creature_1751.GetFormationData_owner",
         ))
@@ -675,13 +679,26 @@ impl<D: GridDefinitions<Row = SpawnKey>> CreatureFactoryOwner<D, SourceTerrainMa
         Ok(self.random)
     }
 
-    fn creature_respawn_time(&mut self, _: u32) -> Result<i64> {
+    fn creature_units(&self) -> &SourceUnits {
+        &self.units
+    }
+
+    fn creature_respawn_time(
+        &mut self,
+        _: u32,
+        _: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
+    ) -> Result<i64> {
         Err(refuse(
             "execution.creature.Creature_1696.persistent_respawn_owner",
         ))
     }
 
-    fn creature_save_respawn_time(&mut self, _: u32, _: i64) -> Result<()> {
+    fn creature_save_respawn_time(
+        &mut self,
+        _: u32,
+        _: i64,
+        _: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
+    ) -> Result<()> {
         Err(refuse(
             "execution.creature.Creature_1717.loaded_save_respawn_owner",
         ))
@@ -697,17 +714,29 @@ impl<D: GridDefinitions<Row = SpawnKey>> CreatureFactoryOwner<D, SourceTerrainMa
         Ok(ClockSample::authored(ClockKind::WallSeconds, clock.seconds))
     }
 
-    fn creature_spawned_by_linked_mob(&mut self, _: &CreatureConstruction) -> Result<bool> {
+    fn creature_spawned_by_linked_mob(
+        &mut self,
+        _: &CreatureConstruction,
+        _: &GridFactoryContext<'_, D, SourceTerrainManager>,
+    ) -> Result<bool> {
         Err(refuse(
             "execution.creature.Creature_1720.linking_lookup_owner",
         ))
     }
 
-    fn creature_linked_can_spawn(&mut self, _: &CreatureConstruction) -> Result<bool> {
+    fn creature_linked_can_spawn(
+        &mut self,
+        _: &CreatureConstruction,
+        _: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
+    ) -> Result<bool> {
         Err(refuse("execution.creature.Creature_1723.CanSpawn_owner"))
     }
 
-    fn creature_dead_flying_height(&mut self, _: &CreatureConstruction) -> Result<f32> {
+    fn creature_dead_flying_height(
+        &mut self,
+        _: &CreatureConstruction,
+        _: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
+    ) -> Result<f32> {
         Err(refuse(
             "execution.creature.Creature_1731.GetHeightStatic_owner",
         ))

@@ -331,7 +331,11 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
     fn creature_group(&mut self, _: u32) -> Result<Option<CreatureGroup>> {
         Ok(self.group)
     }
-    fn creature_current_group(&mut self, _: ObjectHandle) -> Result<Option<CreatureGroup>> {
+    fn creature_current_group(
+        &mut self,
+        _: ObjectHandle,
+        _: &GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<Option<CreatureGroup>> {
         Ok(self.group)
     }
     fn creature_entry(&mut self, _: u32, owner: CreatureEntryOwner) -> Result<u32> {
@@ -362,11 +366,23 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
     fn creature_random(&mut self) -> Result<&mut dyn CreatureRandom> {
         Ok(&mut self.random)
     }
-    fn creature_respawn_time(&mut self, guid: u32) -> Result<i64> {
+    fn creature_units(&self) -> &SourceUnits {
+        &self.units
+    }
+    fn creature_respawn_time(
+        &mut self,
+        guid: u32,
+        _: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<i64> {
         self.observations.push(Observation::Persistent(guid));
         Ok(self.saved_time)
     }
-    fn creature_save_respawn_time(&mut self, guid: u32, time: i64) -> Result<()> {
+    fn creature_save_respawn_time(
+        &mut self,
+        guid: u32,
+        time: i64,
+        _: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<()> {
         self.observations.push(Observation::Save(guid, time));
         self.saved_time = time;
         Ok(())
@@ -375,14 +391,26 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
         self.observations.push(Observation::Clock);
         Ok(ClockSample::authored(ClockKind::WallSeconds, self.now))
     }
-    fn creature_spawned_by_linked_mob(&mut self, _: &CreatureConstruction) -> Result<bool> {
+    fn creature_spawned_by_linked_mob(
+        &mut self,
+        _: &CreatureConstruction,
+        _: &GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<bool> {
         Ok(self.linked)
     }
-    fn creature_linked_can_spawn(&mut self, _: &CreatureConstruction) -> Result<bool> {
+    fn creature_linked_can_spawn(
+        &mut self,
+        _: &CreatureConstruction,
+        _: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<bool> {
         self.linked_checks += 1;
         Ok(self.can_spawn)
     }
-    fn creature_dead_flying_height(&mut self, _: &CreatureConstruction) -> Result<f32> {
+    fn creature_dead_flying_height(
+        &mut self,
+        _: &CreatureConstruction,
+        _: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<f32> {
         Ok(2.0)
     }
     fn creature_ai_inputs(&mut self, state: &CreatureConstruction) -> Result<CreatureAiInputs> {
