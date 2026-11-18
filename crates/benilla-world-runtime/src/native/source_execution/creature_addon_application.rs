@@ -118,11 +118,11 @@ impl SourceUnitAuras {
             .checked_add(1)
             .ok_or_else(|| refuse("execution.spells.Unit_4849.aura_holder_identity_exhausted"))?;
         let id = SourceAuraHolderId { spell, ordinal };
+        let holder = pending
+            .take()
+            .ok_or_else(|| refuse("execution.spells.Unit_4849.pending_aura_holder_owner"))?;
         self.last_holder_ordinal = ordinal;
-        let entry = self
-            .aura_holders
-            .entry(id)
-            .insert_entry(pending.take().expect("pending aura"));
+        let entry = self.aura_holders.entry(id).insert_entry(holder);
         for (i, aura) in entry.get().effects.iter().enumerate() {
             if let Some(aura) = aura {
                 if aura.kind < 192 {
@@ -195,6 +195,16 @@ impl CreatureAddonState {
         }
         Ok(true)
     }
+}
+
+#[test]
+fn storing_without_a_pending_holder_refuses_without_consuming_identity() {
+    let mut auras = SourceUnitAuras::default();
+    assert_eq!(
+        auras.store_aura_holder(90, &mut None).unwrap_err().id,
+        "execution.spells.Unit_4849.pending_aura_holder_owner"
+    );
+    assert_eq!(auras, SourceUnitAuras::default());
 }
 
 #[cfg(test)]

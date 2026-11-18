@@ -212,6 +212,23 @@ pub(super) struct Owner<'a> {
     pub bounding_radius: Option<u32>,
 }
 
+impl SelfAuraApplicationOwner for Owner<'_> {
+    fn self_aura_application(&mut self) -> SelfAuraApplication<'_> {
+        SelfAuraApplication {
+            object: self.object,
+            objects: self.objects,
+            control_guids: self.control_guids,
+            auras: self.auras,
+            threat_modifier: self.threat_modifier,
+            power_fields: self.power_fields,
+            power_type: self.power_type.as_deref_mut(),
+            vitals: self.vitals,
+            form: self.form,
+            player: self.unit.player,
+        }
+    }
+}
+
 pub(super) fn broadcast(
     objects: &SourceObjects,
     object: ObjectHandle,
