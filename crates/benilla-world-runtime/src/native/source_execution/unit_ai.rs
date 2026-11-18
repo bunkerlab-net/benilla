@@ -69,8 +69,6 @@ pub struct SourceUnitFields {
     pub victim: Option<ObjectHandle>,
     pub target: Option<ObjectHandle>,
     pub attackers: Vec<ObjectHandle>,
-    pub owner: Option<ObjectHandle>,
-    pub charmer: Option<ObjectHandle>,
     /// Object.cpp:105-108 zeros UNIT_FIELD_CHARMEDBY and UNIT_FIELD_CREATEDBY.
     #[serde(skip)]
     pub control_guids: SourceControlGuids,
@@ -168,7 +166,6 @@ pub struct SourceUnitCastFields<'a> {
     pub gm: &'a bool,
     pub mounted: &'a bool,
     pub stand_state: &'a u8,
-    pub charmer: &'a Option<ObjectHandle>,
     pub control_guids: &'a SourceControlGuids,
     pub unit_class: &'a Option<u32>,
     pub combo_target: &'a Option<ObjectHandle>,
@@ -209,7 +206,6 @@ impl SourceUnitFields {
                 gm: &self.gm,
                 mounted: &self.mounted,
                 stand_state: &self.stand_state,
-                charmer: &self.charmer,
                 control_guids: &self.control_guids,
                 unit_class: &self.unit_class,
                 combo_target: &self.combo_target,
@@ -240,7 +236,11 @@ impl SourceUnitFields {
     /// Unit.cpp:330,423-425; Creature.cpp:541-579. Spawn overrides belong to UpdateEntry.
     pub fn creature(template: &CreatureAiTemplateOperands) -> Self {
         let mut fields = Self::constructed_creature();
-        fields.apply_creature_values(
+        fields.apply_creature_template(template);
+        fields
+    }
+    pub(super) fn apply_creature_template(&mut self, template: &CreatureAiTemplateOperands) {
+        self.apply_creature_values(
             template.entry,
             template.faction,
             template.static_flags,
@@ -251,7 +251,6 @@ impl SourceUnitFields {
             template.call_for_help,
             template.creature_type,
         );
-        fields
     }
     /// Creature.h:90-117; bind SQLStorage fields without raw catalog alternatives.
     #[cfg(test)]
@@ -338,8 +337,6 @@ impl SourceUnitFields {
             victim: None,
             target: None,
             attackers: Vec::new(),
-            owner: None,
-            charmer: None,
             control_guids: SourceControlGuids::default(),
             pet_kind: None,
             totem: false,
@@ -504,8 +501,6 @@ impl SourceUnits {
             "execution.unit_ai.effective_entry",
         )?;
         f.neutral_to_all = Some(input.neutral_to_all);
-        f.owner = input.control.owner;
-        f.charmer = input.control.charmer;
         f.pet_kind = input.control.pet;
         f.totem = input.control.totem;
         f.set_flag(8, input.control.player_controlled);
@@ -532,10 +527,9 @@ impl SourceUnits {
         if object.kind == SourceObjectKind::Pet && controlled {
             return Ok(f.pet_kind == Some(CreaturePetKind::Guardian));
         }
-        if let Some(charmer) = f.charmer {
-            if objects.get(charmer)?.kind == SourceObjectKind::Player {
-                return Ok(false);
-            }
+        // Unit.cpp:8630 reads the GUID's high type without resolving it.
+        if f.control_guids.charmer.is_player() {
+            return Ok(false);
         }
         Ok(true)
     }
@@ -627,7 +621,6 @@ impl SourceUnits {
             energy: v.energy,
             max_energy: v.max_energy,
             victim: f.victim,
-            owner: f.owner,
             beneficiary: f.beneficiary,
             controlling_player: f.controlling_player,
             spawner: f.spawner,
@@ -1597,7 +1590,8 @@ impl SourceUnits {
         }
         let f = self.get_mut(objects, unit)?;
         f.flags |= UNIT_FLAG_COMBAT;
-        if f.owner.is_some() || f.charmer.is_some() {
+        // Unit.cpp:7924 and Unit.h:1845 use distinct charmer and creator predicates.
+        if f.control_guids.has_charmer() || f.control_guids.creator.raw() != 0 {
             f.flags |= 0x800;
             if first || pvp {
                 owner.call(unit, UnitAiCall::PropagateCombat(enemy), self, objects)?;

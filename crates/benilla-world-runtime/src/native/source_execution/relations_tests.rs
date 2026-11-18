@@ -120,11 +120,9 @@ fn relations_live_player_control_and_pvp_master_boundaries() {
 }
 
 #[test]
-fn relations_live_master_ignores_cached_handles_and_reads_own_pvp_flags() {
+fn relations_empty_live_master_reads_own_pvp_flags() {
     let mut f = PowerFixture::new();
     let fields = f.units.get_mut(&f.objects, f.caster).unwrap();
-    fields.owner = Some(f.caster);
-    fields.charmer = Some(f.caster);
     fields.flags = 0x1000;
     let factions = CreatureAiFactions::default();
     let relations = SourceRelations {
@@ -218,6 +216,61 @@ fn relations_guid_notice_and_pov_follow_the_accessor() {
     assert!(!selected.has_charmer());
     assert!(selected.has_master());
     assert_eq!(selected.master_guid(), non_unit);
+}
+
+#[test]
+fn threat_master_resolves_charmer_first_and_keeps_the_missing_notice() {
+    let mut f = PowerFixture::new();
+    let creator = f.objects.construct(1, SourceObjectKind::Creature).unwrap();
+    let map = MapIdentity {
+        map: 1,
+        instance: 0,
+        creation_generation: 1,
+    };
+    let creator_guid = SourceGuid::with_entry(HighGuid::Creature, 1, 2);
+    let charmer_guid = SourceGuid::without_entry(HighGuid::Player, 99);
+    for (unit, guid) in [
+        (f.caster, SourceGuid::with_entry(HighGuid::Creature, 1, 1)),
+        (creator, creator_guid),
+    ] {
+        f.objects.assign_guid(unit, 0, guid).unwrap();
+        f.objects.get_mut(unit).unwrap().map = Some(map);
+        f.objects.add_to_world(unit).unwrap();
+    }
+    f.units.get_mut(&f.objects, f.caster).unwrap().control_guids = SourceControlGuids {
+        charmer: charmer_guid,
+        creator: creator_guid,
+    };
+    let mut queries = SourceUnitQueries {
+        objects: &f.objects,
+        units: &mut f.units,
+    };
+    assert_eq!(
+        queries.threat_master(f.caster).unwrap(),
+        SourceMasterLookup {
+            charmer: SourceControlLookup::LoggedNull(SourceControlNotice::MissingUnit {
+                source_line: 6602,
+            }),
+            creator: Some(SourceControlLookup::Found(creator)),
+        }
+    );
+    let player = f.objects.construct(1, SourceObjectKind::Player).unwrap();
+    f.objects.assign_guid(player, 0, charmer_guid).unwrap();
+    f.objects.get_mut(player).unwrap().map = Some(map);
+    f.objects.register_player_lookup(player).unwrap();
+    f.objects.mark_in_world(player).unwrap();
+    assert_eq!(
+        SourceUnitQueries {
+            objects: &f.objects,
+            units: &mut f.units,
+        }
+        .threat_master(f.caster)
+        .unwrap(),
+        SourceMasterLookup {
+            charmer: SourceControlLookup::Found(player),
+            creator: None,
+        }
+    );
 }
 
 #[test]

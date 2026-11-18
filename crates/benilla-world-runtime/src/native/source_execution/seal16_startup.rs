@@ -2339,12 +2339,6 @@ pub(super) fn continue_startup(
                     "{}",
                     object.database_guid
                 );
-                assert_eq!(
-                    (live.owner, live.charmer),
-                    (None, None),
-                    "{}",
-                    object.database_guid
-                );
                 for master in live
                     .spell_starts
                     .spells

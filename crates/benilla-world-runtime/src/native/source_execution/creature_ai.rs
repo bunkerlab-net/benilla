@@ -311,10 +311,15 @@ impl ThreatExecutionOwner for SourceUnitQueries<'_> {
             gm: f.gm,
             alive: object.alive,
             no_threat: f.no_threat,
-            master: f.owner,
             feign_death: f.state & 4 != 0,
             can_have_threat_list: self.units.can_have_threat_list(self.objects, unit)?,
         })
+    }
+    fn threat_master(&mut self, unit: ObjectHandle) -> Result<SourceMasterLookup> {
+        self.units
+            .get(self.objects, unit)?
+            .control_guids
+            .get_master(self.objects, unit, None, unbound_pet_loading)
     }
     fn ignoring_ranged(&mut self, unit: ObjectHandle) -> Result<bool> {
         Ok(self.units.get(self.objects, unit)?.ignore_ranged_targets)
@@ -414,6 +419,18 @@ impl<O: UnitAiExecutionOwner + CreatureRandom> EventAiExecutionOwner for SourceA
     }
     fn unit(&mut self, unit: ObjectHandle) -> Result<EventAiUnit> {
         self.queries.units.event_unit(self.queries.objects, unit)
+    }
+    fn unit_kind(&mut self, unit: ObjectHandle) -> Result<SourceObjectKind> {
+        Ok(self.queries.objects.get(unit)?.kind)
+    }
+    fn unit_owner(&mut self, unit: ObjectHandle) -> Result<SourceControlLookup> {
+        let objects = self.queries.objects;
+        // Unit.cpp:6699 delegates nonrecursive GetOwner to GetCreator.
+        self.queries
+            .units
+            .get(objects, unit)?
+            .control_guids
+            .get_creator(objects, unit, None, |pet| self.owner.pet_is_loading(pet))
     }
     fn combat_state(&mut self, unit: ObjectHandle) -> Result<(bool, bool)> {
         let f = self.queries.units.get(self.queries.objects, unit)?;

@@ -284,9 +284,15 @@ pub trait SpellExecutionOwner {
         let c = self.power_context()?;
         Ok(c.units.get(c.objects, caster)?.flags)
     }
-    fn caster_charmer(&mut self, caster: ObjectHandle) -> Result<Option<ObjectHandle>> {
+    fn caster_charmer(&mut self, caster: ObjectHandle) -> Result<SourceControlLookup> {
         let c = self.power_context()?;
-        Ok(c.units.get(c.objects, caster)?.charmer)
+        // Spell.cpp:6034.
+        c.units.get(c.objects, caster)?.control_guids.get_charmer(
+            c.objects,
+            caster,
+            None,
+            unbound_pet_loading,
+        )
     }
     fn caster_auras(&mut self, _caster: ObjectHandle, _ty: u32) -> Result<&[SpellCasterAura]> {
         Err(refuse(

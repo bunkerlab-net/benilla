@@ -15,7 +15,6 @@ pub struct ThreatUnit {
     pub gm: bool,
     pub alive: bool,
     pub no_threat: bool,
-    pub master: Option<ObjectHandle>,
     pub feign_death: bool,
     pub can_have_threat_list: bool,
 }
@@ -42,6 +41,9 @@ pub trait ThreatExecutionOwner {
     }
     fn threat_unit(&mut self, _unit: ObjectHandle) -> Result<ThreatUnit> {
         Err(refuse("execution.threat.f5_04b_unit_fields_owner"))
+    }
+    fn threat_master(&mut self, _unit: ObjectHandle) -> Result<SourceMasterLookup> {
+        Err(refuse("execution.threat.ThreatManager_484.GetMaster_owner"))
     }
     fn threat_lookup(&mut self, _source: ObjectHandle, _guid: u64) -> Result<Option<ObjectHandle>> {
         Err(refuse("execution.threat.object_lookup_owner"))
@@ -316,7 +318,8 @@ impl SourceThreats {
         self.hated_by.entry(target).or_default().insert(0, source);
         self.add_existing(source, guid, value, owner)?;
         owner.aggro_linking(self, source, target)?;
-        if let Some(master) = owner.threat_unit(target)?.master {
+        // ThreatManager.cpp:484 resolves GetMaster after aggro linking.
+        if let Some(master) = owner.threat_master(target)?.unit() {
             if owner.threat_unit(master)?.alive
                 && owner.can_join_attacking(master, source)?
                 && !owner.threat_unit(master)?.feign_death

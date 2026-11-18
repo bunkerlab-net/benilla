@@ -134,6 +134,46 @@ fn setup(actions: u32) -> (SourceObjects, SourceUnits, SourceUnitAi) {
     (objects, units, ai)
 }
 #[test]
+fn combat_and_threat_use_guid_type_without_resolving_objects() {
+    let player = SourceGuid::without_entry(HighGuid::Player, 99);
+    let creature = SourceGuid::with_entry(HighGuid::Creature, 901, 99);
+    let nonunit = SourceGuid::with_entry(HighGuid::GameObject, 901, 99);
+    let empty = SourceGuid::default();
+    for (charmer, creator, threat, pet_combat) in [
+        (empty, empty, true, false),
+        (player, empty, false, true),
+        (creature, empty, true, true),
+        (nonunit, empty, true, false),
+        (empty, nonunit, true, true),
+    ] {
+        let (mut objects, mut units, ai) = setup(0);
+        let enemy = objects.construct(1, SourceObjectKind::Creature).unwrap();
+        units
+            .register(&objects, enemy, SourceUnitFields::constructed_creature())
+            .unwrap();
+        objects.set_pose(ai.unit, SourcePose([0; 4])).unwrap();
+        units.get_mut(&objects, ai.unit).unwrap().control_guids =
+            SourceControlGuids { charmer, creator };
+        assert_eq!(
+            units.can_have_threat_list(&objects, ai.unit).unwrap(),
+            threat
+        );
+        let mut owner = Authored::default();
+        units
+            .set_in_combat_with(ai.unit, enemy, &objects, &mut owner)
+            .unwrap();
+        assert_eq!(
+            units.get(&objects, ai.unit).unwrap().flags & 0x800 != 0,
+            pet_combat
+        );
+        assert_eq!(
+            owner.calls.contains(&UnitAiCall::PropagateCombat(enemy)),
+            pet_combat
+        );
+    }
+}
+
+#[test]
 fn unit_ai_constructor_retains_source_defaults_and_disabled_custom_actions() {
     let (_, _, ai) = setup(3);
     assert_eq!(ai.react_state, 2);

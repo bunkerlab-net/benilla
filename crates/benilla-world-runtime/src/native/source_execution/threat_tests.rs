@@ -12,6 +12,7 @@ pub(super) fn value(n: u32) -> ThreatValue {
 #[derive(Default)]
 pub(super) struct Host {
     pub units: BTreeMap<ObjectHandle, ThreatUnit>,
+    pub masters: BTreeMap<ObjectHandle, ObjectHandle>,
     pub melee: BTreeSet<ObjectHandle>,
     pub offline: BTreeSet<ObjectHandle>,
     pub rooted: bool,
@@ -34,7 +35,6 @@ impl Host {
                 gm: false,
                 alive: true,
                 no_threat: false,
-                master: None,
                 feign_death: false,
                 can_have_threat_list: !player,
             },
@@ -67,6 +67,18 @@ impl ThreatExecutionOwner for Host {
             .get(&unit)
             .copied()
             .ok_or_else(|| refuse("authored.stale_generation"))
+    }
+    fn threat_master(&mut self, unit: ObjectHandle) -> Result<SourceMasterLookup> {
+        self.threat_unit(unit)?;
+        Ok(SourceMasterLookup {
+            charmer: SourceControlLookup::EmptyGuid,
+            creator: Some(
+                self.masters
+                    .get(&unit)
+                    .copied()
+                    .map_or(SourceControlLookup::EmptyGuid, SourceControlLookup::Found),
+            ),
+        })
     }
     fn threat_lookup(&mut self, _source: ObjectHandle, guid: u64) -> Result<Option<ObjectHandle>> {
         Ok(self
@@ -274,7 +286,7 @@ fn zero_percent_remove_and_negative_add_keep_reverse_references_consistent() {
 #[test]
 fn pet_master_gets_zero_entry_after_linking_and_before_offline_test() {
     let (mut state, mut host, s, master, pet) = setup();
-    host.units.get_mut(&pet).unwrap().master = Some(master);
+    host.masters.insert(pet, master);
     add(&mut state, &mut host, s, pet, 12);
     assert_eq!(host.linking, vec![(s, pet), (s, master)]);
     assert_eq!(
@@ -292,7 +304,7 @@ fn pet_master_gets_zero_entry_after_linking_and_before_offline_test() {
         value(0)
     );
     let (mut state, mut host, s, master, pet) = setup();
-    host.units.get_mut(&pet).unwrap().master = Some(master);
+    host.masters.insert(pet, master);
     host.units.get_mut(&master).unwrap().feign_death = true;
     add(&mut state, &mut host, s, pet, 12);
     assert_eq!(state.manager(s).unwrap().online().len(), 1);

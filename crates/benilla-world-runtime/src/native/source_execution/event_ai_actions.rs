@@ -210,23 +210,23 @@ impl SourceEventAi {
     ) -> Result<Option<ObjectHandle>> {
         let creature = self.selected.object();
         if let Some(invoker) = invoker {
-            let unit = owner.unit(invoker)?;
-            if unit.kind == SourceObjectKind::Player {
+            if owner.unit_kind(invoker)? == SourceObjectKind::Player {
                 return Ok(Some(invoker));
             }
-            if let Some(parent) = unit.owner {
-                if owner.unit(parent)?.kind == SourceObjectKind::Player {
+            // CreatureEventAI.cpp:710-712 resolves the invoker's owner.
+            if let Some(parent) = owner.unit_owner(invoker)?.unit() {
+                if owner.unit_kind(parent)? == SourceObjectKind::Player {
                     return Ok(Some(parent));
                 }
             }
             Ok(None)
         } else {
-            let victim = owner.unit(creature)?.victim;
+            let victim = owner.victim(creature)?;
             if let Some(victim) = victim {
-                let unit = owner.unit(victim)?;
-                if unit.kind != SourceObjectKind::Player {
-                    if let Some(parent) = unit.owner {
-                        if owner.unit(parent)?.kind == SourceObjectKind::Player {
+                if owner.unit_kind(victim)? != SourceObjectKind::Player {
+                    // CreatureEventAI.cpp:721-722 resolves the victim's owner.
+                    if let Some(parent) = owner.unit_owner(victim)?.unit() {
+                        if owner.unit_kind(parent)? == SourceObjectKind::Player {
                             return Ok(Some(parent));
                         }
                     }

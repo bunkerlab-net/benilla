@@ -509,10 +509,12 @@ impl SpellExecutionOwner for Owner<'_> {
         self.require_unit(caster)?;
         Ok(*self.live.flags)
     }
-    fn caster_charmer(&mut self, caster: ObjectHandle) -> Result<Option<ObjectHandle>> {
+    fn caster_charmer(&mut self, caster: ObjectHandle) -> Result<SourceControlLookup> {
         // Spell.cpp:6034 reads the true caster's charmer.
         self.require_unit(caster)?;
-        Ok(*self.live.charmer)
+        self.live
+            .control_guids
+            .get_charmer(self.objects, caster, None, unbound_pet_loading)
     }
     fn power_mod_owner(&mut self, caster: ObjectHandle) -> Result<Option<ObjectHandle>> {
         self.range_mod_owner(caster)

@@ -63,8 +63,6 @@ pub enum CreaturePetKind {
 pub struct CreatureAiControl {
     pub pet: Option<CreaturePetKind>,
     pub player_controlled: bool,
-    pub owner: Option<ObjectHandle>,
-    pub charmer: Option<ObjectHandle>,
     pub temporary_summon: bool,
     pub totem: bool,
 }
@@ -155,12 +153,11 @@ impl SelectedCreatureAi {
     pub fn executable(&self) -> &AiExecutable {
         &self.executable
     }
-    /// Validate retained construction generations before a later constructor dispatch.
+    /// Validate the selected unit's construction before constructor dispatch.
     pub fn validate(&self, objects: &SourceObjects) -> Result<()> {
         self.validate_object(objects)?;
         validate_control(objects, self.object, &self.inputs.control)
     }
-    /// Derived lifecycle calls read live owners, not the construction-time relationship.
     pub(crate) fn validate_object(&self, objects: &SourceObjects) -> Result<()> {
         let object = objects.get(self.object)?;
         require(
@@ -198,15 +195,6 @@ fn validate_control(
         (kind == SourceObjectKind::Pet) == control.pet.is_some(),
         "execution.ai.pet_context",
     )?;
-    for reference in [control.owner, control.charmer].into_iter().flatten() {
-        require(
-            matches!(
-                objects.get(reference)?.kind,
-                SourceObjectKind::Player | SourceObjectKind::Creature | SourceObjectKind::Pet
-            ),
-            "execution.ai.control_unit_kind",
-        )?;
-    }
     Ok(())
 }
 #[derive(Clone, Default)]
@@ -312,9 +300,18 @@ impl SourceAiRegistry {
         objects: &SourceObjects,
         object: ObjectHandle,
         input: CreatureAiInputs,
+        control_guids: SourceControlGuids,
     ) -> Result<SelectedCreatureAi> {
-        let has_charmer = input.control.charmer.is_some();
-        self.select_inner(objects, object, input, false, has_charmer)
+        self.select_inner(objects, object, input, false, || Ok(control_guids))
+    }
+    pub(super) fn select_with_live_control(
+        &self,
+        objects: &SourceObjects,
+        object: ObjectHandle,
+        input: CreatureAiInputs,
+        control_guids: impl Fn() -> Result<SourceControlGuids>,
+    ) -> Result<SelectedCreatureAi> {
+        self.select_inner(objects, object, input, false, control_guids)
     }
     /// Continue after the live ScriptDev owner has executed the eligible null-slot check.
     #[cfg(test)]
@@ -325,7 +322,7 @@ impl SourceAiRegistry {
         input: CreatureAiInputs,
         control_guids: SourceControlGuids,
     ) -> Result<SelectedCreatureAi> {
-        self.select_inner(objects, object, input, true, control_guids.has_charmer())
+        self.select_inner(objects, object, input, true, || Ok(control_guids))
     }
     fn select_inner(
         &self,
@@ -333,14 +330,15 @@ impl SourceAiRegistry {
         object: ObjectHandle,
         input: CreatureAiInputs,
         script_checked: bool,
-        has_charmer: bool,
+        control_guids: impl Fn() -> Result<SourceControlGuids>,
     ) -> Result<SelectedCreatureAi> {
         validate_control(objects, object, &input.control)?;
         let source = objects.get(object)?;
         let c = &input.control;
         // ScriptDevAIMgr.cpp:363-370. A nonnull slot must run before its return is known.
+        // CreatureAISelector.cpp:41,59 reads HasCharmer without resolving the GUID.
         if !script_checked
-            && (c.pet != Some(CreaturePetKind::Controlled) || has_charmer)
+            && (c.pet != Some(CreaturePetKind::Controlled) || control_guids()?.has_charmer())
             && !input.script_name.is_empty()
         {
             require(self.scripts_loaded, "execution.ai.scriptdev_registry_owner")?;
@@ -367,7 +365,7 @@ impl SourceAiRegistry {
             } else {
                 (AiSelectionBranch::Guardian, Some("GuardianAI"))
             }
-        } else if has_charmer && !c.temporary_summon {
+        } else if control_guids()?.has_charmer() && !c.temporary_summon {
             (AiSelectionBranch::Charm, Some("PetAI"))
         } else if c.totem {
             (AiSelectionBranch::Totem, Some("TotemAI"))

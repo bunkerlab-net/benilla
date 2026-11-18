@@ -36,10 +36,7 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
             assert_eq!(live.flags, 0);
             assert_eq!(live.faction, 91);
             assert_eq!(live.static_flags, [0; 4]);
-            assert_eq!(
-                (live.owner, live.charmer, live.persuaded),
-                (None, None, None)
-            );
+            assert_eq!(live.persuaded, None);
             assert_eq!(live.control_guids, SourceControlGuids::default());
         }
         let (cast, starts, events) = live.borrow_cast();

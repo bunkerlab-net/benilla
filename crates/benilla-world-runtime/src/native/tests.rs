@@ -557,6 +557,10 @@ fn native91_profile_state_record_and_checkpoint_domains_are_exact() {
         NativeWorld::restore_synthetic_component_test(w.profile().clone(), initial).unwrap();
     replay.replay(w.records()).unwrap();
     assert_eq!(replay.checkpoint().unwrap(), checkpoint);
+    assert_eq!(
+        replay.checkpoint().unwrap().encode().unwrap(),
+        checkpoint.encode().unwrap()
+    );
 }
 
 #[test]

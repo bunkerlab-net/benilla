@@ -108,8 +108,6 @@ fn player_owned_pet(
     if fields.pet_kind.is_none() {
         return Ok(false);
     }
-    let Some(owner) = fields.owner else {
-        return Ok(false);
-    };
-    Ok(objects.get(owner)?.kind == SourceObjectKind::Player)
+    // GuardAI.cpp:61 and Unit.h:1845 read the creator GUID's high type.
+    Ok(fields.control_guids.creator.is_player())
 }

@@ -534,16 +534,8 @@ impl SourceMotionMaster {
         ) && fields.state & 0x40 == 0
         {
             self.current_path = Some(self.default.default_path);
-            let player_owner = fields
-                .owner
-                .map(|o| {
-                    context.objects.get(o).map(|o| {
-                        o.guid
-                            .is_some_and(|g| g.raw() != 0 && g.high() == HighGuid::Player as u16)
-                    })
-                })
-                .transpose()?
-                .unwrap_or(false);
+            // CreatureAISelector.cpp:114 and Unit.h:1845 read the creator GUID's high type.
+            let player_owner = fields.control_guids.creator.is_player();
             let kind = source_default_motion(self.default.movement_type, player_owner)?;
             if kind == 1 {
                 let radius = self
@@ -1003,13 +995,9 @@ impl SourceMotionMaster {
             let f = context.units.get(context.objects, self.unit)?;
             let client_controlled = if f.flags & 8 == 0 || f.flags & 0x00c0_0004 != 0 {
                 false
-            } else if let Some(charmer) = f.charmer {
-                f.flags & 0x0100_0000 != 0
-                    && context
-                        .objects
-                        .get(charmer)?
-                        .guid
-                        .is_some_and(|g| g.raw() != 0 && g.high() == HighGuid::Player as u16)
+            } else if f.control_guids.charmer.raw() != 0 {
+                // Unit.cpp:6509-6513 reads the raw GUID even when the charmer is absent.
+                f.flags & 0x0100_0000 != 0 && f.control_guids.charmer.is_player()
             } else {
                 context.objects.get(self.unit)?.kind == SourceObjectKind::Player
             };
@@ -1048,7 +1036,8 @@ impl SourceMotionMaster {
         }
         f.evade_home = home;
         f.evade_combat = false;
-        if f.charmer.is_none() {
+        // CombatManager.cpp:175.
+        if !f.control_guids.has_charmer() {
             owner.controlled_evade(self.unit, home)?;
         }
         Ok(())

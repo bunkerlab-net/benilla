@@ -47,6 +47,10 @@ impl SourceGuid {
     pub fn high(self) -> u16 {
         (self.0 >> 48) as u16
     }
+    /// ObjectGuid.h:128. High GUID zero also represents the empty GUID.
+    pub fn is_player(self) -> bool {
+        self.raw() != 0 && self.high() == HighGuid::Player as u16
+    }
     pub fn entry(self) -> u32 {
         if has_entry(self.high()) {
             ((self.0 >> 24) & 0xff_ffff) as u32

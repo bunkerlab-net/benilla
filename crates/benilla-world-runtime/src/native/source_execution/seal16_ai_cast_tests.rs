@@ -326,10 +326,16 @@ fn live_unit_reads_current_flags_pose_auras_control_and_interrupt_slots() {
         })
         .unwrap();
     let live = units.get_mut(&objects, object).unwrap();
-    live.charmer = Some(object);
+    live.control_guids.charmer = SourceGuid::without_entry(HighGuid::Player, 99);
     live.combo_target = Some(object);
     binding
         .run(&mut units, &mut ais, &objects, |c| {
+            assert_eq!(
+                c.owner.caster_charmer(object)?,
+                SourceControlLookup::LoggedNull(SourceControlNotice::AccessorOutsideWorld {
+                    source_line: 6594
+                },)
+            );
             assert_eq!(c.owner.unit(object)?.combo_target, Some(object));
             Ok(())
         })

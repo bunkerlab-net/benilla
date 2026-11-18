@@ -135,12 +135,21 @@ fn empty_flagged_aura_list_cancels_and_continues_the_else_if_chain() {
 #[test]
 fn charm_reads_three_types_in_order_and_control_flags_may_override_charm_failure() {
     let mut f = AuraFixture::new(0);
+    let guid = SourceGuid::with_entry(HighGuid::Creature, 901, 1);
     let caster = f.power.caster;
+    f.power.objects.assign_guid(caster, 0, guid).unwrap();
+    f.power.objects.get_mut(caster).unwrap().map = Some(MapIdentity {
+        map: 0,
+        instance: 0,
+        creation_generation: 1,
+    });
+    f.power.objects.add_to_world(caster).unwrap();
     f.power
         .units
         .get_mut(&f.power.objects, caster)
         .unwrap()
-        .charmer = Some(caster);
+        .control_guids
+        .charmer = guid;
     let t = template();
     let mut s = f.spell(&t);
     s.client_cast = true;
@@ -167,6 +176,42 @@ fn client_without_charmer_never_reads_charm_aura_lists() {
     assert_eq!(f.power.trace, ["resources", "resources"]);
     assert!(f.reads.is_empty());
 }
+#[test]
+fn client_cast_unresolved_charmer_keeps_typed_notice_and_skips_charm_auras() {
+    let mut f = AuraFixture::new(0);
+    let caster = f.power.caster;
+    let map = MapIdentity {
+        map: 0,
+        instance: 0,
+        creation_generation: 1,
+    };
+    f.power
+        .objects
+        .assign_guid(
+            caster,
+            0,
+            SourceGuid::with_entry(HighGuid::Creature, 901, 1),
+        )
+        .unwrap();
+    f.power.objects.get_mut(caster).unwrap().map = Some(map);
+    f.power.objects.add_to_world(caster).unwrap();
+    f.power
+        .units
+        .get_mut(&f.power.objects, caster)
+        .unwrap()
+        .control_guids
+        .charmer = SourceGuid::without_entry(HighGuid::Player, 99);
+    assert_eq!(
+        f.caster_charmer(caster).unwrap(),
+        SourceControlLookup::LoggedNull(SourceControlNotice::MissingUnit { source_line: 6602 })
+    );
+    let t = template();
+    let mut spell = f.spell(&t);
+    spell.client_cast = true;
+    assert_eq!(spell.check_caster_auras(&t, &mut f).unwrap(), R::Ok);
+    assert!(f.reads.is_empty());
+}
+
 #[test]
 fn mechanic_error_parameter_prefers_effect_then_spell_and_first_uncancelled_aura() {
     for (mechanic, effect, param) in [(3, 4, 4), (3, 0, 3)] {

@@ -302,6 +302,11 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
         context
             .objects
             .bind_source_allocation(object, object.construction * 256, 128, 0)?;
+        self.units.register(
+            context.objects,
+            object,
+            SourceUnitFields::constructed_creature(),
+        )?;
         Ok(())
     }
     fn creature_spawn(
@@ -384,6 +389,13 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
             neutral_to_all: false,
         })
     }
+    fn creature_ai_control_guids(
+        &self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+    ) -> Result<SourceControlGuids> {
+        Ok(self.units.get(objects, unit)?.control_guids)
+    }
     fn creature_ai_registry(&self) -> Result<&SourceAiRegistry> {
         Ok(&self.ai_registry)
     }
@@ -453,11 +465,8 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
                 b"LogFilter_EventAiDev=1",
                 Sha256Id::of(b"LogFilter_EventAiDev=1"),
             )?;
-            self.units.register(
-                context.objects,
-                state.object,
-                SourceUnitFields::creature(&template),
-            )?;
+            let live = self.units.get_mut(context.objects, state.object)?;
+            live.apply_creature_template(&template);
             self.units.bind_ai_selection(context.objects, selected)?;
             if self.builtin_dispatch_name.as_deref() != Some("PossessedAI") {
                 let base = SourceCreatureAi::construct(

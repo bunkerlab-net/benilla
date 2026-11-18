@@ -292,6 +292,7 @@ fn catalog_main_spells_static_census_and_entry4633_operands() {
                     CreatureAiControl::default(),
                     factions.neutral_to_all(t.faction),
                 ),
+                SourceControlGuids::default(),
             )
             .unwrap();
         if selected.executable().builtin_kind() == Some(BuiltinCreatureAi::Event) {

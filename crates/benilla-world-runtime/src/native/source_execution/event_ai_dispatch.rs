@@ -23,7 +23,6 @@ pub struct EventAiUnit {
     pub energy: u32,
     pub max_energy: u32,
     pub victim: Option<ObjectHandle>,
-    pub owner: Option<ObjectHandle>,
     pub beneficiary: Option<ObjectHandle>,
     pub controlling_player: Option<ObjectHandle>,
     pub spawner: Option<ObjectHandle>,
@@ -78,6 +77,14 @@ pub trait EventAiExecutionOwner: CreatureRandom {
     }
     fn unit(&mut self, _unit: ObjectHandle) -> Result<EventAiUnit> {
         Err(refuse("execution.event_ai.f5_04_unit_owner"))
+    }
+    fn unit_kind(&mut self, unit: ObjectHandle) -> Result<SourceObjectKind> {
+        Ok(self.unit(unit)?.kind)
+    }
+    fn unit_owner(&mut self, _unit: ObjectHandle) -> Result<SourceControlLookup> {
+        Err(refuse(
+            "execution.event_ai.CreatureEventAI_710_721.GetOwner_owner",
+        ))
     }
     fn combat_state(&mut self, unit: ObjectHandle) -> Result<(bool, bool)> {
         let unit = self.unit(unit)?;

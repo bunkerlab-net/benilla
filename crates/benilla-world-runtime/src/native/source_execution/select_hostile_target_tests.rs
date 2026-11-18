@@ -624,6 +624,17 @@ fn unreachable_target_starts_timer_once_and_reachable_target_stops_only_timer_fi
             .evade_combat
     );
     assert_eq!(owner.propagated, 1);
+    let fields = f.units.get_mut(&f.objects, f.ai.base.unit).unwrap();
+    fields.evade_combat = true;
+    fields.control_guids.charmer = SourceGuid::with_entry(HighGuid::Creature, 901, 99);
+    assert!(f.select(&mut owner).unwrap());
+    assert!(
+        !f.units
+            .get(&f.objects, f.ai.base.unit)
+            .unwrap()
+            .evade_combat
+    );
+    assert_eq!(owner.propagated, 1);
 }
 #[test]
 fn only_unreachable_single_flying_high_melee_target_is_removed_before_evade() {
@@ -739,6 +750,7 @@ fn guard_update_uses_real_selection_and_completes_empty_out_of_combat_update() {
             &f.objects,
             unit,
             template().inputs(CreatureAiControl::default(), false),
+            SourceControlGuids::default(),
         )
         .unwrap();
     let mut ais = SourceCreatureAis::default();
@@ -835,6 +847,7 @@ fn catalog04_guard_update_and_eventai_selection_stage_census_or_explicit_absence
                     CreatureAiControl::default(),
                     factions.neutral_to_all(t.faction),
                 ),
+                SourceControlGuids::default(),
             )
             .unwrap();
         let Some(kind @ (BuiltinCreatureAi::Guard | BuiltinCreatureAi::Event)) =

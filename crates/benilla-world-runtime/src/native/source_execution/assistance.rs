@@ -329,7 +329,9 @@ impl SourceAssistance {
         queue: &mut impl AssistanceQueue,
     ) -> Result<()> {
         let fields = units.get_mut(objects, sender)?;
-        if fields.already_called_assistance || enemy.is_none() || fields.charmer.is_some() {
+        // Creature.cpp:2162.
+        if fields.already_called_assistance || enemy.is_none() || fields.control_guids.has_charmer()
+        {
             return Ok(());
         }
         require(fields.has_ai, "execution.assistance.ai_assertion")?;
@@ -483,7 +485,13 @@ impl SourceAssistance {
                 if let Some(group) = group {
                     owner.group_aggro(group, enemy, units, objects, queue)?;
                 }
-                if call_assistance && units.get(objects, capture.sender)?.charmer.is_none() {
+                // Creature.cpp:2202 re-reads HasCharmer after the callbacks.
+                if call_assistance
+                    && !units
+                        .get(objects, capture.sender)?
+                        .control_guids
+                        .has_charmer()
+                {
                     require(
                         units.get(objects, capture.sender)?.has_ai,
                         "execution.assistance.ai_assertion",
@@ -593,7 +601,9 @@ impl SourceAssistance {
         let Some(enemy) = fields.victim else {
             return Ok(());
         };
-        if objects.get(sender)?.kind == SourceObjectKind::Pet || fields.charmer.is_some() {
+        // Creature.cpp:2219.
+        if objects.get(sender)?.kind == SourceObjectKind::Pet || fields.control_guids.has_charmer()
+        {
             return Ok(());
         }
         let radius = if f32::from_bits(radius) <= 0.0 {

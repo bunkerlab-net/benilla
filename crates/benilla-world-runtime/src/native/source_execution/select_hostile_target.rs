@@ -234,7 +234,8 @@ impl SourceCreatureAi {
         }
         f.evade_home = false;
         f.evade_combat = false;
-        if f.charmer.is_none() {
+        // CombatManager.cpp:175.
+        if !f.control_guids.has_charmer() {
             owner.propagate_evade_none(self.base.unit)?;
         }
         Ok(())

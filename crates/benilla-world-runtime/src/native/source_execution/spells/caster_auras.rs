@@ -31,7 +31,7 @@ impl SourceSpell {
         let flags = owner.caster_aura_flags(self.caster)?;
         let mut result = R::Ok;
         if self.client_cast
-            && owner.caster_charmer(self.caster)?.is_some()
+            && owner.caster_charmer(self.caster)?.unit().is_some()
             && !self.check_cancels_aura_types(t, &[6, 177, 2], owner)?
         {
             result = R::Charmed;

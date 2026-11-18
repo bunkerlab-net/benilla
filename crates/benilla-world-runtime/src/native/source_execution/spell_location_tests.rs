@@ -559,12 +559,20 @@ fn beneficiary_uses_live_guid_lookup_before_classifying_the_result() {
             spell_beneficiary_player(&objects, &units, Some(caster)).unwrap(),
             (kind == SourceObjectKind::Player).then_some(caster)
         );
-        units.get_mut(&objects, caster).unwrap().owner = Some(caster);
+        units
+            .get_mut(&objects, caster)
+            .unwrap()
+            .control_guids
+            .creator = SourceGuid::with_entry(HighGuid::Creature, 901, 99);
         assert_eq!(
             spell_beneficiary_player(&objects, &units, Some(caster)).unwrap(),
             (kind == SourceObjectKind::Player).then_some(caster)
         );
-        units.get_mut(&objects, caster).unwrap().charmer = Some(caster);
+        units
+            .get_mut(&objects, caster)
+            .unwrap()
+            .control_guids
+            .charmer = SourceGuid::with_entry(HighGuid::Creature, 901, 99);
         assert_eq!(
             spell_beneficiary_player(&objects, &units, Some(caster)).unwrap(),
             (kind == SourceObjectKind::Player).then_some(caster)

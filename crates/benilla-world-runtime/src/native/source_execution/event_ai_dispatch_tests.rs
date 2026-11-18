@@ -21,6 +21,7 @@ pub(super) fn state() -> SourceEventAi {
                 no_aggro_on_sight: false,
                 neutral_to_all: false,
             },
+            SourceControlGuids::default(),
         )
         .unwrap();
     let mut state = SourceEventAi::construct(
@@ -59,6 +60,8 @@ struct Host {
     words: VecDeque<u32>,
     draws: Vec<(u32, u32)>,
     units: BTreeMap<ObjectHandle, EventAiUnit>,
+    control_guids: BTreeMap<ObjectHandle, SourceControlGuids>,
+    objects: SourceObjects,
     combat_checks: VecDeque<bool>,
     ranged: bool,
     outputs: Vec<String>,
@@ -95,6 +98,13 @@ impl EventAiExecutionOwner for Host {
             .get(&unit)
             .copied()
             .ok_or_else(|| refuse("authored.unit_absent"))
+    }
+    fn unit_owner(&mut self, unit: ObjectHandle) -> Result<SourceControlLookup> {
+        self.control_guids
+            .get(&unit)
+            .copied()
+            .unwrap_or_default()
+            .get_creator(&self.objects, unit, None, unbound_pet_loading)
     }
     fn can_execute_combat_action(&mut self, _: ObjectHandle) -> Result<bool> {
         Ok(self
@@ -246,7 +256,6 @@ fn unit() -> EventAiUnit {
         energy: 80,
         max_energy: 100,
         victim: None,
-        owner: None,
         beneficiary: None,
         controlling_player: None,
         spawner: None,
@@ -579,15 +588,27 @@ fn chanced_text_uses_union_chance_gate_and_same_word_for_both_choices() {
 fn text_targets_preserve_nonplayer_victim_but_not_nonplayer_invoker() {
     let mut state = state();
     let creature = state.selected.object();
-    let pet = ObjectHandle {
-        thread: 2,
-        construction: 1,
-    };
-    let player = ObjectHandle {
-        thread: 3,
-        construction: 1,
-    };
     let mut owner = host(&state, []);
+    let pet = owner.objects.construct(2, SourceObjectKind::Pet).unwrap();
+    let player = owner
+        .objects
+        .construct(3, SourceObjectKind::Player)
+        .unwrap();
+    let player_guid = SourceGuid::without_entry(HighGuid::Player, 1);
+    let map = MapIdentity {
+        map: 0,
+        instance: 0,
+        creation_generation: 1,
+    };
+    for (unit, guid) in [
+        (pet, SourceGuid::with_entry(HighGuid::Pet, 901, 1)),
+        (player, player_guid),
+    ] {
+        owner.objects.assign_guid(unit, 0, guid).unwrap();
+        owner.objects.get_mut(unit).unwrap().map = Some(map);
+    }
+    owner.objects.add_to_world(pet).unwrap();
+    owner.control_guids.entry(pet).or_default().creator = player_guid;
     owner.units.insert(pet, unit());
     owner.units.insert(
         player,
@@ -596,6 +617,10 @@ fn text_targets_preserve_nonplayer_victim_but_not_nonplayer_invoker() {
             ..unit()
         },
     );
+    let invocation = EventAiInvocation {
+        invoker: Some(pet),
+        sender: None,
+    };
     owner.units.get_mut(&creature).unwrap().victim = Some(pet);
     let text = action(1, [101, 0, 0]);
     state
@@ -606,21 +631,20 @@ fn text_targets_preserve_nonplayer_victim_but_not_nonplayer_invoker() {
         format!("text:101:Some({pet:?})")
     );
     state
-        .execute_action(
-            &text,
-            0,
-            EventAiInvocation {
-                invoker: Some(pet),
-                sender: None,
-            },
-            None,
-            &mut owner,
-        )
+        .execute_action(&text, 0, invocation, None, &mut owner)
         .unwrap();
     assert_eq!(owner.outputs.pop().unwrap(), "text:101:None");
-    owner.units.get_mut(&pet).unwrap().owner = Some(player);
+    owner.objects.register_player_lookup(player).unwrap();
+    owner.objects.mark_in_world(player).unwrap();
     state
         .execute_action(&text, 0, EventAiInvocation::default(), None, &mut owner)
+        .unwrap();
+    assert_eq!(
+        owner.outputs.pop().unwrap(),
+        format!("text:101:Some({player:?})")
+    );
+    state
+        .execute_action(&text, 0, invocation, None, &mut owner)
         .unwrap();
     assert_eq!(
         owner.outputs.pop().unwrap(),

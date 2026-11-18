@@ -61,6 +61,7 @@ fn fixture(name: &str) -> Fixture {
             &objects,
             unit,
             t.clone().inputs(CreatureAiControl::default(), false),
+            SourceControlGuids::default(),
         )
         .unwrap();
     let mut ais = SourceCreatureAis::default();
@@ -194,7 +195,12 @@ fn null_missing_name_fallback_and_negative_guard_possessed_selection() {
     let registry = SourceAiRegistry::builtin();
     assert_eq!(
         registry
-            .select(&f.objects, unit, input.clone())
+            .select(
+                &f.objects,
+                unit,
+                input.clone(),
+                SourceControlGuids::default()
+            )
             .unwrap()
             .executable()
             .builtin_kind(),
@@ -203,14 +209,21 @@ fn null_missing_name_fallback_and_negative_guard_possessed_selection() {
     input.guard = true;
     assert_eq!(
         registry
-            .select(&f.objects, unit, input.clone())
+            .select(
+                &f.objects,
+                unit,
+                input.clone(),
+                SourceControlGuids::default()
+            )
             .unwrap()
             .executable()
             .builtin_kind(),
         Some(BuiltinCreatureAi::Guard)
     );
     input.ai_name = "not_registered".into();
-    let selected = registry.select(&f.objects, unit, input).unwrap();
+    let selected = registry
+        .select(&f.objects, unit, input, SourceControlGuids::default())
+        .unwrap();
     assert_eq!(*selected.executable(), AiExecutable::NullFallback);
     let body =
         SourceBuiltinAi::construct(selected, &f.objects, &mut f.units, &f.ais, &mut f.random)
@@ -503,17 +516,19 @@ fn owner_loss_does_not_invent_derived_cleanup_for_null_guard_or_possessed() {
         let mut f = fixture(name);
         let unit = f.ai.selected().object();
         let owner = f.objects.construct(2, SourceObjectKind::Player).unwrap();
+        let guid = SourceGuid::without_entry(HighGuid::Player, 1);
+        f.objects.assign_guid(owner, 0, guid).unwrap();
+        f.units
+            .get_mut(&f.objects, unit)
+            .unwrap()
+            .control_guids
+            .creator = guid;
         let selected = SourceAiRegistry::builtin()
             .select(
                 &f.objects,
                 unit,
-                template(name).inputs(
-                    CreatureAiControl {
-                        owner: Some(owner),
-                        ..CreatureAiControl::default()
-                    },
-                    false,
-                ),
+                template(name).inputs(CreatureAiControl::default(), false),
+                SourceControlGuids::default(),
             )
             .unwrap();
         f.ai =
@@ -530,7 +545,6 @@ fn owner_loss_does_not_invent_derived_cleanup_for_null_guard_or_possessed() {
                 .unwrap(),
             )
             .unwrap();
-        f.units.get_mut(&f.objects, unit).unwrap().owner = None;
         let mut execution = Authored {
             select: Some(false),
             ..Default::default()
@@ -623,6 +637,7 @@ fn builtin_catalog04_constructor_census_or_explicit_absence() {
                     CreatureAiControl::default(),
                     factions.neutral_to_all(t.faction),
                 ),
+                SourceControlGuids::default(),
             )
             .unwrap();
         let name = selected
@@ -760,6 +775,7 @@ fn missing_base_or_other_selected_class_never_becomes_a_null_body() {
                 &f.objects,
                 f.ai.selected().object(),
                 template(name).inputs(CreatureAiControl::default(), false),
+                SourceControlGuids::default(),
             )
             .unwrap();
         assert_eq!(
@@ -829,10 +845,9 @@ fn guard_pet_assistance_preserves_the_source_creature_guid_test() {
                 SourceUnitFields::creature(&template("")),
             )
             .unwrap();
-        let player = f.objects.construct(1, SourceObjectKind::Player).unwrap();
         let fields = f.units.get_mut(&f.objects, victim).unwrap();
         fields.pet_kind = Some(CreaturePetKind::Controlled);
-        fields.owner = Some(player);
+        fields.control_guids.creator = SourceGuid::without_entry(HighGuid::Player, 42);
         let mut owner = Authored {
             helper: Some(victim),
             query_results: [true, true, true, true, false].into(),

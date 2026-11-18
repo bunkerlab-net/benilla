@@ -85,6 +85,7 @@ fn selected(objects: &mut SourceObjects, guid: u32) -> SelectedCreatureAi {
                 no_aggro_on_sight: false,
                 neutral_to_all: false,
             },
+            SourceControlGuids::default(),
         )
         .unwrap()
 }
@@ -927,6 +928,7 @@ fn retained_catalog04_inherited_eventai_update_census_or_explicit_absence() {
                         CreatureAiControl::default(),
                         factions.neutral_to_all(t.faction),
                     ),
+                    SourceControlGuids::default(),
                 )
                 .unwrap();
             if selected.executable().builtin_kind() != Some(BuiltinCreatureAi::Event) {

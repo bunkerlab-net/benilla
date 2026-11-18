@@ -252,7 +252,7 @@ mod tests {
         // No registry is a missing owner, not an absent script and false TotemAI success.
         assert_eq!(
             SourceAiRegistry::builtin()
-                .select(&objects, creature, input)
+                .select(&objects, creature, input, SourceControlGuids::default())
                 .unwrap_err()
                 .id,
             "execution.ai.scriptdev_registry_owner"

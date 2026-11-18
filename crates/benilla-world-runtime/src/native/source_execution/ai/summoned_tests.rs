@@ -65,6 +65,7 @@ struct Host {
     ready: bool,
     range: f32,
     target: Option<ObjectHandle>,
+    search_owner: Option<Option<ObjectHandle>>,
     queries: Vec<bool>,
     helper: Option<ObjectHandle>,
 }
@@ -78,6 +79,7 @@ impl Default for Host {
             range: 0.0,
             target: None,
             queries: Vec::new(),
+            search_owner: None,
             helper: None,
         }
     }
@@ -149,9 +151,10 @@ impl SummonedAiExecutionOwner for Host {
     fn nearest_totem_target(
         &mut self,
         _: ObjectHandle,
-        _: Option<ObjectHandle>,
+        owner: Option<ObjectHandle>,
         _: f32,
     ) -> Result<Option<ObjectHandle>> {
+        self.search_owner = Some(owner);
         self.calls.push("search".into());
         Ok(self.target)
     }
@@ -243,6 +246,8 @@ fn fixture(name: &str, definition: Option<EventAiDefinition>) -> Fixture {
     objects.mark_in_world(target).unwrap();
     objects.register_player_lookup(owner).unwrap();
     objects.mark_in_world(owner).unwrap();
+    // Leave the AI test subject out of the map lookup store for cached target tests.
+    objects.get_mut(unit).unwrap().in_world = true;
     let t = template(name);
     let mut units = SourceUnits::default();
     for h in [unit, owner, target] {
@@ -259,13 +264,19 @@ fn fixture(name: &str, definition: Option<EventAiDefinition>) -> Fixture {
             max_energy: 0,
         });
     }
+    units.get_mut(&objects, unit).unwrap().control_guids.creator =
+        objects.get(owner).unwrap().guid.unwrap();
     let control = CreatureAiControl {
-        owner: Some(owner),
         totem: name == "TotemAI",
         ..Default::default()
     };
     let selected = SourceAiRegistry::builtin()
-        .select(&objects, unit, t.clone().inputs(control, false))
+        .select(
+            &objects,
+            unit,
+            t.clone().inputs(control, false),
+            SourceControlGuids::default(),
+        )
         .unwrap();
     let base = SourceCreatureAi::construct(
         &objects,
@@ -360,6 +371,7 @@ fn summoned_construction_retains_eventai_loader_and_derived_identity_only() {
                 &f.objects,
                 f.unit,
                 template(name).inputs(CreatureAiControl::default(), false),
+                SourceControlGuids::default(),
             )
             .unwrap();
         assert_eq!(
@@ -379,8 +391,15 @@ fn summoned_construction_retains_eventai_loader_and_derived_identity_only() {
             &f.objects,
             f.unit,
             template("GuardianAI").inputs(CreatureAiControl::default(), false),
+            SourceControlGuids::default(),
         )
         .unwrap();
+    let owner_guid = f.objects.get(f.owner).unwrap().guid.unwrap();
+    f.units
+        .get_mut(&f.objects, f.unit)
+        .unwrap()
+        .control_guids
+        .creator = SourceGuid::without_entry(HighGuid::Player, 99);
     assert_eq!(
         SourceSummonedAi::construct(
             selected,
@@ -395,15 +414,19 @@ fn summoned_construction_retains_eventai_loader_and_derived_identity_only() {
         .id,
         "execution.guardian_ai.f5_15_required_owner"
     );
-    let mut input = template("GuardianAI").inputs(
-        CreatureAiControl {
-            owner: Some(f.owner),
-            ..Default::default()
-        },
-        false,
-    );
+    f.units
+        .get_mut(&f.objects, f.unit)
+        .unwrap()
+        .control_guids
+        .creator = owner_guid;
+    let mut input = template("GuardianAI").inputs(CreatureAiControl::default(), false);
     let selected = SourceAiRegistry::builtin()
-        .select(&f.objects, f.unit, input.clone())
+        .select(
+            &f.objects,
+            f.unit,
+            input.clone(),
+            SourceControlGuids::default(),
+        )
         .unwrap();
     assert_eq!(
         SourceSummonedAi::construct(
@@ -438,7 +461,6 @@ fn summoned_construction_retains_eventai_loader_and_derived_identity_only() {
         (
             CreatureAiControl {
                 pet: Some(CreaturePetKind::Guardian),
-                owner: Some(f.owner),
                 ..Default::default()
             },
             BuiltinCreatureAi::Guardian,
@@ -457,7 +479,12 @@ fn summoned_construction_retains_eventai_loader_and_derived_identity_only() {
         };
         input.control = control;
         let selected = SourceAiRegistry::builtin()
-            .select(&f.objects, object, input.clone())
+            .select(
+                &f.objects,
+                object,
+                input.clone(),
+                SourceControlGuids::default(),
+            )
             .unwrap();
         assert_eq!(
             (selected.executable().builtin_kind(), selected.branch()),
@@ -522,6 +549,7 @@ fn totem_spell_cooldown_search_facing_cast_and_victim_revalidation_order() {
         host.calls,
         ["type", "spell-id", "spell", "ready", "range", "search", "face", "cast"]
     );
+    assert_eq!(host.search_owner, Some(Some(f.owner)));
     host.calls.clear();
     host.queries = vec![true, true, false, true];
     f.run(&mut host, |s, e| s.update(1, e)).unwrap();
@@ -536,11 +564,17 @@ fn totem_spell_cooldown_search_facing_cast_and_victim_revalidation_order() {
             "cast"
         ]
     );
+    f.units
+        .get_mut(&f.objects, f.unit)
+        .unwrap()
+        .control_guids
+        .creator = SourceGuid::without_entry(HighGuid::Player, 99);
     host.calls.clear();
     host.queries = vec![false];
     host.target = None;
     f.run(&mut host, |s, e| s.update(1, e)).unwrap();
     assert_eq!(host.calls.last().unwrap(), "search");
+    assert_eq!(host.search_owner, Some(None));
     host.calls.clear();
     host.spell = false;
     f.run(&mut host, |s, e| s.update(1, e)).unwrap();
@@ -598,7 +632,11 @@ fn guardian_assistance_precedes_inherited_timers_and_event_update() {
         f.ais.get(&f.objects, f.unit).unwrap().base.generic_timers[0].remaining,
         0
     );
-    f.units.get_mut(&f.objects, f.unit).unwrap().owner = None;
+    f.units
+        .get_mut(&f.objects, f.unit)
+        .unwrap()
+        .control_guids
+        .creator = SourceGuid::default();
     f.run(&mut Unbound, |s, e| s.update(1, e)).unwrap();
     assert_eq!(
         f.state.is_visible().unwrap_err().id,
@@ -610,11 +648,19 @@ fn guardian_respawn_follow_owner_loss_death_and_unsummon() {
     let mut f = fixture("GuardianAI", Some(event(4)));
     f.state.event.phase = 9;
     f.state.event.clock.remaining = 123;
-    f.units.get_mut(&f.objects, f.unit).unwrap().owner = None;
+    f.units
+        .get_mut(&f.objects, f.unit)
+        .unwrap()
+        .control_guids
+        .creator = SourceGuid::default();
     f.run(&mut Unbound, |s, e| s.just_respawned(settings(), e))
         .unwrap();
     assert_eq!(f.state.event.clock.remaining, 123);
-    f.units.get_mut(&f.objects, f.unit).unwrap().owner = Some(f.owner);
+    f.units
+        .get_mut(&f.objects, f.unit)
+        .unwrap()
+        .control_guids
+        .creator = f.objects.get(f.owner).unwrap().guid.unwrap();
     assert_eq!(
         f.run(&mut Unbound, |s, e| s.just_respawned(settings(), e))
             .unwrap_err()
@@ -627,6 +673,18 @@ fn guardian_respawn_follow_owner_loss_death_and_unsummon() {
     assert_eq!(host.calls, ["draw", "draw", "follow-data", "follow"]);
     assert_eq!(f.state.event.clock.remaining, 500);
     assert_eq!(f.state.event.phase, 9);
+    let creator = f.objects.get(f.owner).unwrap().guid.unwrap();
+    f.units
+        .get_mut(&f.objects, f.unit)
+        .unwrap()
+        .control_guids
+        .creator = SourceGuid::without_entry(HighGuid::Player, 99);
+    f.run(&mut Unbound, |s, e| s.on_unsummon(e)).unwrap();
+    f.units
+        .get_mut(&f.objects, f.unit)
+        .unwrap()
+        .control_guids
+        .creator = creator;
     assert_eq!(
         f.run(&mut Unbound, |s, e| s.on_unsummon(e)).unwrap_err().id,
         "execution.guardian_ai.f5_15_relinquish_follow_owner"
@@ -824,6 +882,7 @@ fn summoned_catalog04_constructor_and_first_update_census_or_explicit_absence() 
                     CreatureAiControl::default(),
                     factions.neutral_to_all(t.faction),
                 ),
+                SourceControlGuids::default(),
             )
             .unwrap();
         let kind = selected.executable().builtin_kind();
@@ -907,19 +966,14 @@ fn summoned_catalog04_constructor_and_first_update_census_or_explicit_absence() 
 }
 
 #[test]
-fn destroyed_owner_skips_guardian_assistance_and_respawn_but_not_eventai_validation() {
+fn destroyed_owner_skips_guardian_assistance_and_respawn() {
     let mut f = fixture("GuardianAI", Some(event(0)));
     let selected = SourceAiRegistry::builtin()
         .select(
             &f.objects,
             f.unit,
-            template("EventAI").inputs(
-                CreatureAiControl {
-                    owner: Some(f.owner),
-                    ..Default::default()
-                },
-                false,
-            ),
+            template("EventAI").inputs(CreatureAiControl::default(), false),
+            SourceControlGuids::default(),
         )
         .unwrap();
     let ordinary =
@@ -931,12 +985,7 @@ fn destroyed_owner_skips_guardian_assistance_and_respawn_but_not_eventai_validat
     f.objects
         .destroy(f.owner, &mut SourceCells::new(map).unwrap())
         .unwrap();
-    // SourceUnitFields::owner is the live GetOwner result, not the retained OwnerGuid.
-    f.units.get_mut(&f.objects, f.unit).unwrap().owner = None;
-    assert_eq!(
-        ordinary.validate(&f.objects).unwrap_err().id,
-        "execution.stale_object_handle"
-    );
+    ordinary.validate(&f.objects).unwrap();
     assert_eq!(
         ordinary.validate_inherited(&f.objects).unwrap_err().id,
         "execution.event_ai.derived_executable_identity"
@@ -1048,7 +1097,11 @@ fn totem_cached_creature_uses_map_storage_before_attackability_checks() {
 #[test]
 fn totem_respawn_without_owner_still_redraws_generic_timers() {
     let mut f = fixture("TotemAI", None);
-    f.units.get_mut(&f.objects, f.unit).unwrap().owner = None;
+    f.units
+        .get_mut(&f.objects, f.unit)
+        .unwrap()
+        .control_guids
+        .creator = SourceGuid::default();
     let mut host = Host::default();
     f.run(&mut host, |s, e| s.just_respawned(settings(), e))
         .unwrap();

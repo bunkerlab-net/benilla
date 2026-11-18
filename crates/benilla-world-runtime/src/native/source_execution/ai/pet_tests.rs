@@ -121,7 +121,12 @@ impl Fixture {
             ..Default::default()
         };
         let selected = SourceAiRegistry::builtin()
-            .select(&objects, unit, t.clone().inputs(control, false))
+            .select(
+                &objects,
+                unit,
+                t.clone().inputs(control, false),
+                SourceControlGuids::default(),
+            )
             .unwrap();
         let mut units = SourceUnits::default();
         for u in [unit, target] {
@@ -236,7 +241,7 @@ fn pet_controlled_config_precedes_follow_and_unwritten_created_spell() {
             .attack_angle,
         std::f32::consts::PI
     );
-    assert!(f.selected.inputs().control.owner.is_none());
+    assert_eq!(f.control().creator, SourceGuid::default());
     f.control().creator = f.objects.get(f.target).unwrap().guid.unwrap();
     let mut owner = Dependencies::default();
     assert_eq!(
@@ -635,7 +640,7 @@ fn pet_cast_checks_preserve_casting_combat_master_and_target_table_order() {
         SpellCastResult::AffectingCombat
     );
     t.attributes = 0;
-    f.units.get_mut(&f.objects, state.unit).unwrap().owner = Some(f.target);
+    f.control().creator = f.objects.get(f.target).unwrap().guid.unwrap();
     f.objects.get_mut(f.target).unwrap().alive = false;
     assert_eq!(
         state
@@ -797,6 +802,7 @@ fn pet_catalog04_constructor_and_reach_census_or_explicit_absence() {
                     CreatureAiControl::default(),
                     factions.neutral_to_all(t.faction),
                 ),
+                SourceControlGuids::default(),
             )
             .unwrap();
         if selected.executable().builtin_kind() != Some(BuiltinCreatureAi::Pet) {
@@ -951,10 +957,6 @@ fn pet_master_guid_lookup_prioritizes_charmer_then_creator_and_keeps_missing_fie
     assert_eq!(read(&f).unit(), None);
     assert!(!f.control().has_master());
     assert_eq!(f.control().master_guid().raw(), 0);
-    // Cached control handles must not stand in for absent source GUID fields.
-    f.units.get_mut(&f.objects, unit).unwrap().owner = Some(creator);
-    f.units.get_mut(&f.objects, unit).unwrap().charmer = Some(f.target);
-    assert_eq!(read(&f).unit(), None);
     let mut owner = Dependencies::default();
     let mut threats = SourceThreats::default();
     let mut wrapped = SourceAiDependencies {

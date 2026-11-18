@@ -365,6 +365,15 @@ pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     fn creature_ai_inputs(&mut self, _state: &CreatureConstruction) -> Result<CreatureAiInputs> {
         Err(refuse("execution.ai.live_inputs_owner"))
     }
+    fn creature_ai_control_guids(
+        &self,
+        _objects: &SourceObjects,
+        _unit: ObjectHandle,
+    ) -> Result<SourceControlGuids> {
+        Err(refuse(
+            "execution.ai.CreatureAISelector_41.HasCharmer_owner",
+        ))
+    }
     fn creature_ai_registry(&self) -> Result<&SourceAiRegistry> {
         Err(refuse("execution.ai.registry_owner"))
     }
@@ -872,10 +881,11 @@ where
         inputs.effective_entry == state.template.entry,
         "execution.ai.effective_entry",
     )?;
-    state.selected_ai = Some(factory.creature_ai_registry()?.select(
+    state.selected_ai = Some(factory.creature_ai_registry()?.select_with_live_control(
         context.objects,
         state.object,
         inputs,
+        || factory.creature_ai_control_guids(context.objects, state.object),
     )?);
     factory.creature_ai_construct(state, context)
 }

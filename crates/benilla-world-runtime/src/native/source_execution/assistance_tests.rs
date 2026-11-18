@@ -646,11 +646,52 @@ fn assistance_live_charmer_suppresses_pull_delivery_not_captured_group_callback(
     };
     let mut queue = SourceUnitEvents::default();
     queue.add_assistance(1, c).unwrap();
-    units.get_mut(&objects, h[0]).unwrap().charmer = Some(h[1]);
+    units.get_mut(&objects, h[0]).unwrap().control_guids.charmer =
+        SourceGuid::without_entry(HighGuid::Player, 99);
     let mut owner = Authored::default();
     update(&mut queue, 1, &objects, &mut units, &mut owner);
     assert_eq!(owner.order, ["group"]);
     assert!(owner.received.is_empty());
+}
+#[test]
+fn assistance_and_grid_help_gate_on_unresolved_live_charmer() {
+    let (objects, mut units, h) = fixture();
+    let mut owner = Authored::default();
+    let mut queue = SourceUnitEvents::default();
+    units.get_mut(&objects, h[0]).unwrap().control_guids.charmer =
+        SourceGuid::without_entry(HighGuid::Player, 99);
+    SourceAssistance::call_assistance(
+        h[0],
+        Some(h[1]),
+        0,
+        1,
+        &mut units,
+        &objects,
+        &mut owner,
+        &mut queue,
+    )
+    .unwrap();
+    SourceAssistance::call_for_help(h[0], 0, &mut units, &objects, &mut owner).unwrap();
+    assert!(owner.visits.is_empty());
+    assert!(!units.get(&objects, h[0]).unwrap().already_called_assistance);
+    units.get_mut(&objects, h[0]).unwrap().control_guids.charmer = SourceGuid::default();
+    SourceAssistance::call_assistance(
+        h[0],
+        Some(h[1]),
+        0,
+        1,
+        &mut units,
+        &objects,
+        &mut owner,
+        &mut queue,
+    )
+    .unwrap();
+    SourceAssistance::call_for_help(h[0], 0, &mut units, &objects, &mut owner).unwrap();
+    assert!(units.get(&objects, h[0]).unwrap().already_called_assistance);
+    assert!(owner
+        .visits
+        .iter()
+        .any(|(_, kind)| *kind == AssistanceVisit::GridHelp));
 }
 
 #[test]
@@ -703,6 +744,7 @@ fn assistance_delayed_delivery_runs_real_receive_eventai_dispatch() {
             &objects,
             h[2],
             super::motion_master_tests::template().inputs(CreatureAiControl::default(), false),
+            SourceControlGuids::default(),
         )
         .unwrap();
     state.holders[0].event.kind = 30;

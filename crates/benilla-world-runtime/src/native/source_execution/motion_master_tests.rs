@@ -446,13 +446,13 @@ fn initialize_defaults_registered_and_null_factories() {
 }
 #[test]
 fn initialize_possessed_and_player_owned_creature_use_static_idle() {
-    let (mut objects, mut units, mut master) = setup();
-    let player = objects.construct(1, SourceObjectKind::Player).unwrap();
-    objects
-        .assign_guid(player, 0, SourceGuid::without_entry(HighGuid::Player, 1))
-        .unwrap();
+    let (objects, mut units, mut master) = setup();
     master.default.movement_type = 1;
-    units.get_mut(&objects, master.unit).unwrap().owner = Some(player);
+    units
+        .get_mut(&objects, master.unit)
+        .unwrap()
+        .control_guids
+        .creator = SourceGuid::without_entry(HighGuid::Player, 1);
     master
         .initialize(
             &mut MotionContext {
@@ -463,7 +463,11 @@ fn initialize_possessed_and_player_owned_creature_use_static_idle() {
         )
         .unwrap();
     assert_eq!(master.current_type(), 0);
-    units.get_mut(&objects, master.unit).unwrap().owner = None;
+    units
+        .get_mut(&objects, master.unit)
+        .unwrap()
+        .control_guids
+        .creator = SourceGuid::default();
     units.get_mut(&objects, master.unit).unwrap().state = 0x40;
     master
         .initialize(
@@ -928,6 +932,36 @@ fn lost_control_prevents_home_clear_and_owned_spline_reaches_home_order() {
     assert!(c.units.get(&objects, master.unit).unwrap().evade_home);
 }
 #[test]
+fn immobilize_uses_unresolved_possessing_player_guid() {
+    let (mut objects, mut units, mut master) = setup();
+    let unit = master.unit;
+    objects.get_mut(unit).unwrap().in_world = true;
+    for (charmer, stopped) in [
+        (SourceGuid::without_entry(HighGuid::Player, 99), false),
+        (SourceGuid::with_entry(HighGuid::Creature, 901, 99), true),
+        (SourceGuid::default(), true),
+    ] {
+        let fields = units.get_mut(&objects, unit).unwrap();
+        fields.flags = 0x0100_0008;
+        fields.state = 0x0001_0000;
+        fields.control_guids.charmer = charmer;
+        let mut owner = HomeOwner::default();
+        master
+            .immobilize(
+                true,
+                &mut MotionContext {
+                    objects: &objects,
+                    units: &mut units,
+                },
+                &mut owner,
+            )
+            .unwrap();
+        assert_eq!(owner.calls.contains(&MotionCall::StopSpline), stopped);
+        assert_eq!(owner.calls.last(), Some(&MotionCall::SendRoot(true)));
+    }
+}
+
+#[test]
 fn immobilization_preserves_other_root_and_refuses_missing_output_after_state_change() {
     let (objects, mut units, mut master) = setup();
     let mut c = MotionContext {
@@ -1232,7 +1266,11 @@ fn evade_state_preserves_equality_timer_and_order_then_propagates_unless_charmed
         owner.0,
         ["order4", "controlledtrue", "order0", "controlledfalse"]
     );
-    c.units.get_mut(&objects, master.unit).unwrap().charmer = Some(master.unit);
+    c.units
+        .get_mut(&objects, master.unit)
+        .unwrap()
+        .control_guids
+        .charmer = SourceGuid::without_entry(HighGuid::Player, 99);
     owner.0.clear();
     master.set_evade_home(true, &mut c, &mut owner).unwrap();
     assert_eq!(owner.0, ["order4"]);

@@ -53,7 +53,26 @@ fn check(
     kind: Option<BuiltinCreatureAi>,
     missing: &str,
 ) -> SelectedCreatureAi {
-    let selected = registry.select(objects, object, input).unwrap();
+    check_selection(
+        registry,
+        objects,
+        object,
+        (input, SourceControlGuids::default()),
+        branch,
+        kind,
+        missing,
+    )
+}
+fn check_selection(
+    registry: &SourceAiRegistry,
+    objects: &SourceObjects,
+    object: ObjectHandle,
+    (input, guids): (CreatureAiInputs, SourceControlGuids),
+    branch: AiSelectionBranch,
+    kind: Option<BuiltinCreatureAi>,
+    missing: &str,
+) -> SelectedCreatureAi {
+    let selected = registry.select(objects, object, input, guids).unwrap();
     assert_eq!(selected.branch(), branch);
     assert_eq!(selected.executable().builtin_kind(), kind);
     assert_eq!(selected.constructor_refusal(objects).unwrap().id, missing);
@@ -90,7 +109,7 @@ fn every_eligible_precedence_pair_selects_the_earlier_source_branch() {
     for (i, &earlier) in branches.iter().enumerate() {
         for &later in &branches[i + 1..] {
             let mut objects = SourceObjects::default();
-            let charmer = objects.construct(1, SourceObjectKind::Player).unwrap();
+            let mut guids = SourceControlGuids::default();
             let mut input = input();
             for branch in [later, earlier] {
                 match branch {
@@ -98,7 +117,9 @@ fn every_eligible_precedence_pair_selects_the_earlier_source_branch() {
                     AiSelectionBranch::Guardian => {
                         input.control.pet = Some(CreaturePetKind::Guardian)
                     }
-                    AiSelectionBranch::Charm => input.control.charmer = Some(charmer),
+                    AiSelectionBranch::Charm => {
+                        guids.charmer = SourceGuid::without_entry(HighGuid::Player, 99)
+                    }
                     AiSelectionBranch::Totem => input.control.totem = true,
                     AiSelectionBranch::ExplicitName => input.ai_name = "PossessedAI".into(),
                     AiSelectionBranch::Guard => input.guard = true,
@@ -133,7 +154,15 @@ fn every_eligible_precedence_pair_selects_the_earlier_source_branch() {
                 ),
                 _ => unreachable!(),
             };
-            check(&registry, &objects, object, input, earlier, kind, missing);
+            check_selection(
+                &registry,
+                &objects,
+                object,
+                (input, guids),
+                earlier,
+                kind,
+                missing,
+            );
             pairs += 1;
         }
     }
@@ -192,7 +221,6 @@ fn controlled_pets_skip_scripts_unless_charmed_and_require_player_control_for_pe
         ),
     ] {
         let mut objects = SourceObjects::default();
-        let charmer = objects.construct(1, SourceObjectKind::Player).unwrap();
         let mut input = input();
         input.script_name = "authored_script".into();
         input.ai_name = "PossessedAI".into();
@@ -200,17 +228,19 @@ fn controlled_pets_skip_scripts_unless_charmed_and_require_player_control_for_pe
         input.control = CreatureAiControl {
             pet: Some(CreaturePetKind::Controlled),
             player_controlled,
-            owner: Some(charmer),
-            charmer: charmed.then_some(charmer),
             totem: true,
             ..Default::default()
         };
         let object = object(&mut objects, &input);
-        check(
+        let guids = SourceControlGuids {
+            charmer: SourceGuid::without_entry(HighGuid::Player, if charmed { 99 } else { 0 }),
+            ..Default::default()
+        };
+        check_selection(
             &scripted_registry(nonnull),
             &objects,
             object,
-            input,
+            (input, guids),
             expected,
             kind,
             missing,
@@ -289,19 +319,21 @@ fn charmed_temporary_summons_continue_to_totem_name_guard_or_permit() {
         ),
     ] {
         let mut objects = SourceObjects::default();
-        let charmer = objects.construct(1, SourceObjectKind::Player).unwrap();
         let mut input = input();
         input.ai_name = name.into();
         input.guard = guard;
-        input.control.charmer = Some(charmer);
         input.control.temporary_summon = true;
         input.control.totem = totem;
         let object = object(&mut objects, &input);
-        check(
+        let guids = SourceControlGuids {
+            charmer: SourceGuid::without_entry(HighGuid::Player, 99),
+            ..Default::default()
+        };
+        check_selection(
             &SourceAiRegistry::builtin(),
             &objects,
             object,
-            input,
+            (input, guids),
             branch,
             Some(kind),
             missing,
@@ -441,7 +473,12 @@ fn unavailable_script_registry_is_not_verified_absence_but_suppressed_pet_script
     let creature = object(&mut objects, &input);
     assert_eq!(
         SourceAiRegistry::builtin()
-            .select(&objects, creature, input.clone())
+            .select(
+                &objects,
+                creature,
+                input.clone(),
+                SourceControlGuids::default()
+            )
             .unwrap_err()
             .id,
         "execution.ai.scriptdev_registry_owner"
@@ -470,7 +507,7 @@ fn builtin_duplicates_reject_by_default_and_explicit_replacement_does_not_mutate
     let original = registry
         .clone()
         .freeze()
-        .select(&objects, object, input())
+        .select(&objects, object, input(), SourceControlGuids::default())
         .unwrap();
     assert!(registry
         .register("EventAI".into(), BuiltinCreatureAi::Null, true)
@@ -524,45 +561,40 @@ fn scriptdev_duplicate_ids_overwrite_and_zero_id_is_ignored() {
     assert_eq!(binding.registration, 2);
 }
 #[test]
-fn stale_creature_owner_and_charmer_generations_refuse_before_constructor_dispatch() {
-    for stale in [0, 1, 2] {
-        let mut objects = SourceObjects::default();
-        let creature = object(&mut objects, &input());
-        let owner = objects.construct(1, SourceObjectKind::Player).unwrap();
-        let charmer = objects.construct(1, SourceObjectKind::Player).unwrap();
-        let mut input = input();
-        input.control.owner = Some(owner);
-        input.control.charmer = Some(charmer);
-        let selected = SourceAiRegistry::builtin()
-            .select(&objects, creature, input.clone())
-            .unwrap();
-        assert_eq!(
-            selected.constructor_refusal(&objects).unwrap().id,
-            "execution.ai.pet_constructor_owner"
-        );
-        let mut cells = SourceCells::new(MapIdentity {
-            map: 0,
-            instance: 0,
-            creation_generation: 1,
-        })
+fn stale_creature_generation_refuses_before_constructor_dispatch() {
+    let mut objects = SourceObjects::default();
+    let creature = object(&mut objects, &input());
+    let guids = SourceControlGuids {
+        charmer: SourceGuid::without_entry(HighGuid::Player, 99),
+        ..Default::default()
+    };
+    let selected = SourceAiRegistry::builtin()
+        .select(&objects, creature, input(), guids)
         .unwrap();
-        objects
-            .destroy([creature, owner, charmer][stale], &mut cells)
-            .unwrap();
-        let replacement = objects.construct(1, SourceObjectKind::Creature).unwrap();
-        assert!(replacement.construction > charmer.construction);
-        assert_eq!(
-            selected.constructor_refusal(&objects).unwrap_err().id,
-            "execution.stale_object_handle"
-        );
-        assert_eq!(
-            SourceAiRegistry::builtin()
-                .select(&objects, creature, input)
-                .unwrap_err()
-                .id,
-            "execution.stale_object_handle"
-        );
-    }
+    assert_eq!(
+        selected.constructor_refusal(&objects).unwrap().id,
+        "execution.ai.pet_constructor_owner"
+    );
+    let mut cells = SourceCells::new(MapIdentity {
+        map: 0,
+        instance: 0,
+        creation_generation: 1,
+    })
+    .unwrap();
+    objects.destroy(creature, &mut cells).unwrap();
+    let replacement = objects.construct(1, SourceObjectKind::Creature).unwrap();
+    assert!(replacement.construction > creature.construction);
+    assert_eq!(
+        selected.constructor_refusal(&objects).unwrap_err().id,
+        "execution.stale_object_handle"
+    );
+    assert_eq!(
+        SourceAiRegistry::builtin()
+            .select(&objects, creature, input(), guids)
+            .unwrap_err()
+            .id,
+        "execution.stale_object_handle"
+    );
 }
 #[test]
 fn inventory_retains_effective_entry_control_and_spawn_without_callback_addresses() {
@@ -626,6 +658,7 @@ fn retained_catalog04_all_template_selection_census_or_explicit_absence() {
                 &objects,
                 creature,
                 row.inputs(CreatureAiControl::default(), neutral),
+                SourceControlGuids::default(),
             )
             .unwrap();
         let kind = match selected.executable() {

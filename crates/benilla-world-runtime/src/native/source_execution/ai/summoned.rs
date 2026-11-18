@@ -143,13 +143,11 @@ impl SourceSummonedAi {
             event.selected.executable().builtin_kind() == Some(BuiltinCreatureAi::Guardian);
         if guardian {
             // GuardianAI.cpp:27-38 asserts owner, then changes only follow defaults.
-            let owner = event
-                .selected
-                .inputs()
-                .control
-                .owner
-                .ok_or_else(|| refuse("execution.guardian_ai.f5_15_required_owner"))?;
-            objects.get(owner)?;
+            let owner = units.get_owner(objects, unit, None, false, unbound_pet_loading, |_| {})?;
+            require(
+                owner.is_some(),
+                "execution.guardian_ai.f5_15_required_owner",
+            )?;
             ai.follow_angle = std::f32::consts::FRAC_PI_2;
             ai.follow_distance = 1.5;
             let spell = created_by_spell
@@ -201,7 +199,15 @@ impl SourceSummonedAi {
                     .queries
                     .units
                     .get(execution.queries.objects, unit)?;
-                if let Some(owner) = fields.owner {
+                // GuardianAI.cpp:61 resolves the creator before checking combat.
+                if let Some(owner) = execution.queries.units.get_owner(
+                    execution.queries.objects,
+                    unit,
+                    None,
+                    false,
+                    |pet| execution.owner.pet_is_loading(pet),
+                    |_| {},
+                )? {
                     if !fields.in_combat()
                         && execution
                             .queries
@@ -302,11 +308,16 @@ impl SourceSummonedAi {
         };
         if !valid {
             victim = if range != 0.0 {
-                execution.owner.nearest_totem_target(
+                // TotemAI.cpp:95 passes the resolved creator, which can be null.
+                let owner = execution.queries.units.get_owner(
+                    objects,
                     unit,
-                    execution.queries.units.get(objects, unit)?.owner,
-                    range,
-                )?
+                    None,
+                    false,
+                    |pet| execution.owner.pet_is_loading(pet),
+                    |_| {},
+                )?;
+                execution.owner.nearest_totem_target(unit, owner, range)?
             } else {
                 Some(unit)
             };
@@ -415,10 +426,23 @@ impl SourceSummonedAi {
     ) -> Result<()> {
         self.event.validate_inherited(e.queries.objects)?;
         let unit = self.event.selected.object();
-        let owner = e.queries.units.get(e.queries.objects, unit)?.owner;
-        if self.guardian() && owner.is_none() {
-            return Ok(());
-        }
+        let owner = if self.guardian() {
+            // GuardianAI.cpp:43-46 skips inherited respawn when the creator is missing.
+            let owner = e.queries.units.get_owner(
+                e.queries.objects,
+                unit,
+                None,
+                false,
+                |pet| e.owner.pet_is_loading(pet),
+                |_| {},
+            )?;
+            if owner.is_none() {
+                return Ok(());
+            }
+            owner
+        } else {
+            None
+        };
         // The lifecycle needs two borrows of one RNG. The adapter forwards to the same owner.
         {
             let objects = e.queries.objects;
@@ -426,8 +450,7 @@ impl SourceSummonedAi {
             self.event
                 .just_respawned(objects, settings, &mut Shared(&cell), &mut Shared(&cell))?;
         }
-        if self.guardian() && self.follow_default {
-            let owner = owner.expect("guardian owner checked");
+        if let Some(owner) = owner.filter(|_| self.follow_default) {
             if e.queries.objects.get(owner)?.kind == SourceObjectKind::Player {
                 let (angle, distance) = e.owner.follow_data(unit, owner)?;
                 let ai = e.ais.get_mut(e.queries.objects, unit)?;
@@ -479,23 +502,30 @@ impl SourceSummonedAi {
         e: &mut SourceAiExecution<'_, O>,
     ) -> Result<()> {
         self.event.validate_inherited(e.queries.objects)?;
-        if let (true, Some((requested, guid))) = (self.guardian(), self.requested_follower) {
+        if self.guardian() {
             let unit = self.event.selected.object();
-            let current = e.queries.units.get(e.queries.objects, unit)?.owner;
-            let matches_owner = match current {
-                None => true,
-                Some(owner) if owner == requested => true,
-                Some(owner) => e.queries.objects.get(owner)?.guid == Some(guid),
-            };
-            if matches_owner {
+            // GuardianAI.cpp:87,93 and Unit.h:1845 read the creator GUID.
+            let current = e
+                .queries
+                .units
+                .get(e.queries.objects, unit)?
+                .control_guids
+                .creator;
+            // CreatureAI.cpp:276 compares GUIDs before any map lookup.
+            if let Some((_, guid)) = self
+                .requested_follower
+                .filter(|&(_, guid)| current.raw() == 0 || current == guid)
+            {
                 let map = e
                     .queries
                     .objects
                     .get(unit)?
                     .map
                     .ok_or_else(|| refuse("execution.guardian_ai.map_owner"))?;
-                if let Some(player) = e.queries.objects.lookup(map, LiveLookupKind::Player, guid) {
-                    e.owner.relinquish_follow(unit, player)?;
+                if let Some(player) = e.queries.objects.lookup_unit(map, guid) {
+                    if e.queries.objects.get(player)?.kind == SourceObjectKind::Player {
+                        e.owner.relinquish_follow(unit, player)?;
+                    }
                 }
             }
         }

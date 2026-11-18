@@ -1756,6 +1756,12 @@ The factory requires the installed base AI before constructing its EventAI
 component. Registry installation resets the existing SourceCombat latch.
 Threat GUID rebinding uses F3's object lookup, including an NPC registered
 before base world membership, `Map.cpp:2331-2340,2371-2376`.
+Unit control reads use the live `UNIT_FIELD_CHARMEDBY` and
+`UNIT_FIELD_CREATEDBY`. `Unit.h:1845` aliases the owner GUID to the creator
+for creatures, pets and totems. GUID predicates do not look up an object.
+`Unit.cpp:6580-6636,6696-6717` resolves the same-map unit or the loading
+pet's player through the global accessor. These live GUIDs are not
+serialized; format 91 and the source execution restore refusal are unchanged.
 
 `SourceAiExecution::spell_list_changed` follows `UnitAI.cpp:1155-1179`.
 It clears main-spell state before reading the live list's `Disabled` field.

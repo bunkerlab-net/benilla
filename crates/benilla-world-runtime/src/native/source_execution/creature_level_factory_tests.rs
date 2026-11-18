@@ -111,12 +111,9 @@ fn grid_load_runs_non_normal_flying_level_vitals_on_factory_stream() {
     };
     factory
         .units
-        .register(
-            &world.objects,
-            state.object,
-            SourceUnitFields::creature(&operands),
-        )
-        .unwrap();
+        .get_mut(&world.objects, state.object)
+        .unwrap()
+        .apply_creature_template(&operands);
     let applied = factory
         .units
         .initialize_creature_level(&world.objects, state, defs, cfg, spawn)
