@@ -2,26 +2,7 @@
 // CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
 //! Spell.cpp:3160-3370,533-1043,1163-1502. Triggered generic creature self casts.
 use super::*;
-
-// Object.cpp:3091-3099. A refused continuation retains the live depth.
-pub(in super::super) fn enter_cast(counter: &mut u32, max_casts: u32) -> bool {
-    if max_casts != 0 && *counter >= max_casts {
-        return false;
-    }
-    *counter = counter.wrapping_add(1);
-    true
-}
-
-pub(in super::super) fn require_self_pointers(
-    s: &SourceSpell,
-    objects: &SourceObjects,
-) -> Result<()> {
-    objects.get(s.caster)?;
-    require(
-        s.targets.unit == Some(s.caster) && s.original_caster == s.caster,
-        "execution.spells.Spell_6905.UpdatePointers_nonself_owner",
-    )
-}
+use rustc_apfloat::{ieee::Single, Float, Round, Status};
 
 // Unit.cpp:5250-5270. Walk the live aura list until an unowned removal.
 pub(in super::super) fn check_cast_aura_removals(
@@ -51,13 +32,7 @@ pub(in super::super) fn check_cast_aura_removals(
 }
 
 impl Owner<'_> {
-    pub(super) fn cast_self(
-        &mut self,
-        s: &mut SourceSpell,
-        skip: bool,
-        starts: &mut SourceSpellStarts,
-        queue: &mut SourceUnitEvents,
-    ) -> Result<()> {
+    pub(super) fn assert_cast_entry(&self, s: &SourceSpell) -> Result<()> {
         if s.spell == 9036 && self.objects.get(s.caster)?.database_guid == 40520 {
             assert_eq!(s.state, SourceSpellState::Casting);
             assert_eq!(
@@ -77,158 +52,74 @@ impl Owner<'_> {
             );
             assert!(!s.referenced && !s.executing && !s.client_cast && !s.item_cast);
         }
-        s.executing = true;
-        require(
-            world_object_spell_mod_owner(self.objects, s.caster, self.unit.totem)?.is_none(),
-            "execution.spells.Spell_3163.SpellModRAII_owner",
-        )?;
-        if !enter_cast(&mut self.auras.cast_counter, self.max_casts) {
-            s.finish_failed(self)?;
-            s.executing = false;
-            return Ok(());
-        }
-        if s.targets.unit.is_some() {
-            require_self_pointers(s, self.objects)?;
-        } else {
-            self.objects.get(s.caster)?;
-            require(
-                s.original_caster == s.caster,
-                "execution.spells.Spell_3180.UpdatePointers_nonself_owner",
-            )?;
-        }
-        let t = self
-            .stores
-            .template(s.spell)
-            .ok_or_else(|| refuse("execution.spells.missing_template"))?;
-        if !skip && s.check_cast(t, false, self)? != SpellCastResult::Ok {
-            return Err(refuse("execution.spells.Spell_3206.StopCast_owner"));
-        }
-        self.cast_checked(s, t, None, Some((starts, queue)), |_| Ok(()))
+        Ok(())
+    }
+}
+
+impl SpellSelfCastOwner for Owner<'_> {
+    fn cast_objects(&self) -> &SourceObjects {
+        self.objects
+    }
+    fn cast_mod_owner(&mut self, caster: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        world_object_spell_mod_owner(self.objects, caster, self.unit.totem)
+    }
+    fn cast_chain(&mut self) -> (&mut SourceUnitAuras, u32) {
+        (self.auras, self.max_casts)
+    }
+    fn cast_checked(
+        &mut self,
+        spell: &mut SourceSpell,
+        t: &SpellTemplate,
+        starts: &mut SourceSpellStarts,
+        events: &mut SourceUnitEvents,
+    ) -> Result<()> {
+        spell.cast_checked(t, self.stores, None, Some((starts, events)), self, |_| {
+            Ok(())
+        })
+    }
+}
+
+impl SpellCastEffects for Owner<'_> {
+    fn cast_unit(&self) -> &SpellUnitState {
+        &self.unit
     }
 
-    pub(in super::super) fn cast_checked(
+    fn cast_auras(&mut self) -> &mut SourceUnitAuras {
+        self.auras
+    }
+
+    fn send_cooldown(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<()> {
+        self.send_spell_cooldown(spell, t)
+    }
+
+    fn send_spell_go(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<()> {
+        let guid = self
+            .objects
+            .get(spell.caster)?
+            .guid
+            .ok_or_else(|| refuse("execution.spells.Spell_3967.GetPackGUID_owner"))?
+            .raw();
+        spell.spell_go = Some(self_spell_go(spell, t, guid)?);
+        spell.go_broadcast = Some(broadcast(
+            self.objects,
+            spell.caster,
+            self.broadcast,
+            self.bounding_radius,
+        )?);
+        Ok(())
+    }
+
+    fn remove_cast_auras(
         &mut self,
-        s: &mut SourceSpell,
         t: &SpellTemplate,
-        base: Option<&SourceUnitAi>,
-        nested: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
-        finish: impl FnOnce(&mut SourceSpell) -> Result<()>,
+        caster: ObjectHandle,
+        flag: u32,
     ) -> Result<()> {
-        let precast = match t.spellfamilyname {
-            0 => matches!(t.mechanic, 16 | 25),
-            6 => t.spellfamilyflags & 1 != 0,
-            10 => t.mechanic == 25 && t.id != 25771,
-            _ => false,
-        };
-        require(
-            !precast,
-            "execution.spells.Spell_3218.AddPrecastSpell_owner",
-        )?;
-        require(
-            t.spellfamilyname != 6
-                || !matches!(t.id, 15237 | 15430 | 15431 | 27799 | 27800 | 27801 | 25331),
-            "execution.spells.Spell_3240.AddTriggeredSpell_owner",
-        )?;
-        // Spell.h:158-165 checks TARGET_FLAG_TRADE_ITEM before changing the item GUID.
-        require(
-            s.targets.mask & 0x1000 == 0,
-            "execution.spells.Spell_3256.updateTradeSlotItem_owner",
-        )?;
-        s.duration = self.duration(t)?;
-        self.fill_self_targets(s, t)?;
-        // Spell.cpp:3516 dispatches Creature.cpp:3109 or the WorldObject/Player override.
-        self.send_spell_cooldown(s, t)?;
-        if self.unit.has_ai && s.flags.notify_ai() {
-            let base = base.ok_or_else(|| refuse("execution.spells.Spell_3274.active_ai_owner"))?;
-            // UnitAI.cpp:956 short-circuits before reading EventAI's main-spell set.
-            require(
-                base.ranged_setting != 1,
-                "execution.spells.UnitAI_956.main_spell_membership_owner",
-            )?;
-        }
-        // TakePower calls ModifyPower(0), whose first operation returns for zero.
-        require(
-            s.power_cost == 0 && t.powertype < 5,
-            "execution.spells.Spell_4399.ModifyPower_owner",
-        )?;
-        // TakeReagents, TakeAmmo and SendCastResult return for a non-player.
-        require(
-            !self.unit.player && !self.unit.gameobject,
-            "execution.spells.Spell_4439.player_cast_owner",
-        )?;
-        require(
-            t.attributesex & 0x44 == 0,
-            "execution.spells.Spell_3942.channel_spell_go_owner",
-        )?;
-        if !s.flags.channel_only()
-            && (t.spellvisual != 0
-                || f32::from_bits(t.speed.0) > 0.
-                || (!s.flags.old_triggered() && s.triggered_by_aura.is_none()))
-        {
-            let guid = self
-                .objects
-                .get(s.caster)?
-                .guid
-                .ok_or_else(|| refuse("execution.spells.Spell_3967.GetPackGUID_owner"))?
-                .raw();
-            s.spell_go = Some(self_spell_go(s, t, guid)?);
-            s.go_broadcast = Some(broadcast(
-                self.objects,
-                s.caster,
-                self.broadcast,
-                self.bounding_radius,
-            )?);
-        }
-        for (i, effect) in t.effects().iter().enumerate() {
-            if effect.effect != 0 {
-                s.damage_multipliers[i] = 1f32.to_bits();
-            }
-        }
-        require(
-            !s.script_present,
-            "execution.spells.Spell_8059.OnCast_owner",
-        )?;
-        if !s.flags.old_triggered() && t.attributesex2 & 0x10000000 == 0 {
-            check_cast_aura_removals(self.stores, self.auras, t, s.caster, 0x10000, &mut 0)?;
-        }
-        s.state = SourceSpellState::Landing;
-        require(
-            s.flags.old_triggered() || t.interruptflags & 8 == 0 || t.attributesex2 & 0x20000 != 0,
-            "execution.spells.Spell_3450.resetAttackTimer_owner",
-        )?;
-        if let Some(threat) = self.stores.threat(t.id) {
-            require(
-                threat.threat == 0 && threat.ap_bonus.0 == 0,
-                "execution.spells.Spell_4497.HandleThreatSpells_owner",
-            )?;
-        }
-        // Spell.cpp:3462 is the first delayed-spell read in this immediate phase.
-        require(
-            f32::from_bits(t.speed.0).partial_cmp(&0.) != Some(std::cmp::Ordering::Greater),
-            "execution.spells.Spell_3462.delayed_spell_owner",
-        )?;
-        // No targetless, destination, item or launch-handled effects in this fill.
-        // Spell.cpp:1612-1652 computes no damage or healing and rolls no crit.
-        for target in &mut s.unique_targets {
-            target.processed_mask = 0;
-        }
-        self.hit_self(s, t, nested)?;
-        require(
-            !self.auras.has_aura_type(109),
-            "execution.spells.Spell_7442.Aura_isAffectedOnSpell_owner",
-        )?;
-        s.proc_event_lookups += self.proc_self(false)?; // Spell.cpp:3357, cast end.
-                                                        // handle_immediate revisits processed targets, then finish(true).
-        s.state = SourceSpellState::Finished;
-        finish(s)?;
-        require(
-            t.attributes & 0x0010_0000 == 0,
-            "execution.spells.Spell_3793.AttackStop_owner",
-        )?;
-        if self.auras.cast_counter != 0 {
-            self.auras.cast_counter -= 1;
-        }
-        s.executing = false;
+        check_cast_aura_removals(self.stores, self.auras, t, caster, flag, &mut 0)
+    }
+
+    fn proc_cast_end(&mut self, spell: &mut SourceSpell) -> Result<()> {
+        spell.proc_event_lookups += self.proc_self(false)?;
         Ok(())
     }
 
@@ -470,6 +361,9 @@ impl Owner<'_> {
         }
         Ok(())
     }
+}
+
+impl Owner<'_> {
     fn assert_event_ai_clock(
         &self,
         caster: ObjectHandle,
@@ -804,7 +698,14 @@ impl Owner<'_> {
         // SpellAuras.cpp:4263-4271,4291-4295. The boost starts before this holder is ready.
         let (starts, queue) =
             nested.ok_or_else(|| refuse("execution.spells.Aura_4291.CastSpell_owner"))?;
-        self.start_cast(boost, None, Some(spell), starts, queue)?;
+        let caster = self.object;
+        SpellStartContext {
+            stores: self.stores,
+            starts,
+            events: queue,
+            owner: self,
+        }
+        .cast_triggered(caster, None, boost, Some(spell))?;
         Ok(())
     }
 

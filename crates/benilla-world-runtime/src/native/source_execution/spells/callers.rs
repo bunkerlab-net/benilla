@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+// CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
 //! Unit.cpp:1469-1512,1595-1631; UnitAI.cpp:143-224.
 use super::*;
 
@@ -46,6 +47,29 @@ impl SpellStartContext<'_> {
         flags: SpellTriggerFlags,
         xyz: bool,
     ) -> Result<SpellCastResult> {
+        self.cast_with_aura(caster, target, spell, flags, xyz, None)
+    }
+
+    /// Unit.cpp:1453-1512. Start a triggered spell on behalf of this caster's aura.
+    pub fn cast_triggered(
+        &mut self,
+        caster: ObjectHandle,
+        target: Option<ObjectHandle>,
+        spell: u32,
+        aura: Option<u32>,
+    ) -> Result<SpellCastResult> {
+        self.cast_with_aura(caster, target, spell, SpellTriggerFlags(1), false, aura)
+    }
+
+    fn cast_with_aura(
+        &mut self,
+        caster: ObjectHandle,
+        target: Option<ObjectHandle>,
+        spell: u32,
+        flags: SpellTriggerFlags,
+        xyz: bool,
+        aura: Option<u32>,
+    ) -> Result<SpellCastResult> {
         let Some(t) = self.stores.template(spell) else {
             return Ok(SpellCastResult::NotFound);
         };
@@ -61,6 +85,9 @@ impl SpellStartContext<'_> {
         let id = self.starts.allocate()?;
         let mut value =
             SourceSpell::construct(id, self.stores, spell, caster, None, flags, self.owner)?;
+        value.triggered_by_spell_reagent = aura
+            .and_then(|id| self.stores.template(id))
+            .map(|template| template.reagent1);
         let mut targets = SpellTargets::default();
         if let Some(p) = xyz_pose {
             if t.targets & 0x20 != 0 {
@@ -78,14 +105,15 @@ impl SpellStartContext<'_> {
             return Ok(SpellCastResult::BadTargets);
         }
         // Refusals retain the real event and partially executed object; never retry it.
-        let result = value.start(
-            t,
-            targets,
-            None,
-            self.events,
-            &mut self.starts.spells,
-            self.owner,
-        );
+        let result = (|| {
+            value.schedule_start(targets, aura, self.events)?;
+            value
+                .start_scheduled(t, &mut self.starts.spells, self.owner)?
+                .dispatch(|skip| {
+                    self.owner
+                        .cast_scheduled(&mut value, skip, self.starts, self.events)
+                })
+        })();
         self.starts.spells.insert(id, value);
         result
     }

@@ -4,6 +4,8 @@ use super::*;
 use std::collections::BTreeMap;
 mod auras;
 mod callers;
+mod cast;
+pub use cast::*;
 mod cast_query;
 pub use auras::*;
 mod caster_auras;
@@ -423,6 +425,16 @@ pub trait SpellExecutionOwner {
     }
     fn call(&mut self, _spell: &mut SourceSpell, call: SpellCall) -> Result<()> {
         Err(call.missing_owner())
+    }
+    /// Spell.cpp:3083,3094. The synchronous cast can reborrow its own event queue.
+    fn cast_scheduled(
+        &mut self,
+        spell: &mut SourceSpell,
+        skip: bool,
+        _starts: &mut SourceSpellStarts,
+        _events: &mut SourceUnitEvents,
+    ) -> Result<()> {
+        self.call(spell, SpellCall::Cast(skip))
     }
     /// Spell.cpp:5098. This must bind the F6 live-object query, never map-only area.
     fn zone_area(&mut self, caster: ObjectHandle) -> Result<[u32; 2]> {

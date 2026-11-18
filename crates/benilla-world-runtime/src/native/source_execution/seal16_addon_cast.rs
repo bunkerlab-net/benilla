@@ -2,14 +2,11 @@
 // CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
 //! Creature.cpp:2343, Unit.cpp:1453-1512. Fresh Create precedes AI and AddToWorld.
 use super::*;
-use rustc_apfloat::{ieee::Single, Float, Round, Status};
 
 #[path = "seal16_addon_effects.rs"]
 mod effects;
 use crate::native::source_execution::visibility::SourceBroadcast;
-pub(super) use effects::{
-    check_cast_aura_removals, enter_cast, require_self_pointers, spell_start_packet,
-};
+pub(super) use effects::{check_cast_aura_removals, spell_start_packet};
 pub(super) struct Execution<'a> {
     pub object: ObjectHandle,
     pub objects: &'a SourceObjects,
@@ -45,45 +42,46 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
             );
             assert_eq!(live.control_guids, SourceControlGuids::default());
         }
+        let (cast, starts, events) = live.borrow_cast();
         let mut owner = Owner {
             object: self.object,
             objects: self.objects,
             terrain: self.terrain,
             stores: self.stores,
             targets: self.targets,
-            flags: &live.flags,
-            control_guids: &live.control_guids,
-            immunities: &live.immunities,
-            auras: &mut live.auras,
-            threat_modifier: &mut live.threat_modifier,
-            power_fields: &mut live.power_fields,
+            flags: cast.flags,
+            control_guids: cast.control_guids,
+            immunities: cast.immunities,
+            auras: cast.auras,
+            threat_modifier: cast.threat_modifier,
+            power_fields: cast.power_fields,
             power_type: Some(self.power_type),
-            vitals: &mut live.vitals,
-            form: &mut live.shapeshift_form,
-            cooldowns: &mut live.cooldowns,
-            creature_spell_list: live.spell_list.as_ref(),
-            entry: &live.entry,
+            vitals: cast.vitals,
+            form: cast.shapeshift_form,
+            cooldowns: cast.cooldowns,
+            creature_spell_list: cast.spell_list.as_ref(),
+            entry: cast.entry,
             random: self.random,
             creature_spells: self.creature_spells,
             stand: state.stand,
             mount: state.mount,
             unit: self.unit,
             level: self.level,
-            cast_speed: &live.cast_speed,
+            cast_speed: cast.cast_speed,
             clocks: self.clocks,
             world_clock: self.world_clock,
             max_casts: self.max_casts,
             broadcast: None,
-            bounding_radius: live.bounding_radius,
+            bounding_radius: *cast.bounding_radius,
         };
         // Creature.cpp:2343 ignores the cast result. A refusal still stops here.
-        owner.start_cast(
-            spell,
-            Some(self.object),
-            None,
-            &mut live.spell_starts,
-            &mut live.unit_events,
-        )?;
+        SpellStartContext {
+            stores: self.stores,
+            starts,
+            events,
+            owner: &mut owner,
+        }
+        .cast_triggered(self.object, Some(self.object), spell, None)?;
         if let Some(before) = before {
             assert_eq!(
                 before,
@@ -369,172 +367,35 @@ impl SpellExecutionOwner for Owner<'_> {
         if call != SpellCall::PrepareTriggerData {
             return Err(call.missing_owner());
         }
-        prepare_trigger_data(self.stores, spell)
+        spell.prepare_trigger_data(self.stores)
     }
     fn cast_time(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<i32> {
-        require(
-            world_object_spell_mod_owner(self.objects, spell.caster, self.unit.totem)?.is_none(),
-            "execution.spells.Spell_3033.SpellModRAII_owner",
-        )?;
-        fresh_cast_time(
-            |index| self.stores.dbc("SpellCastTimes.dbc", index),
-            spell,
+        let mod_owner = world_object_spell_mod_owner(self.objects, spell.caster, self.unit.totem)?;
+        spell.creature_cast_time(
             t,
+            self.stores,
+            mod_owner,
             || Ok(self.level),
             || Ok(*self.cast_speed),
         )
     }
-}
-
-impl Owner<'_> {
-    fn start_cast(
+    fn cast_scheduled(
         &mut self,
-        spell: u32,
-        target: Option<ObjectHandle>,
-        aura: Option<u32>,
+        spell: &mut SourceSpell,
+        skip: bool,
         starts: &mut SourceSpellStarts,
-        queue: &mut SourceUnitEvents,
-    ) -> Result<SpellCastResult> {
-        let Some(t) = self.stores.template(spell) else {
-            return Ok(SpellCastResult::NotFound);
-        };
-        let id = starts.allocate()?;
-        // Unit.cpp:1484-1492. The triggering aura belongs to this same caster.
-        let mut value = SourceSpell::construct(
-            id,
+        events: &mut SourceUnitEvents,
+    ) -> Result<()> {
+        self.assert_cast_entry(spell)?;
+        spell.cast_self(
+            skip,
+            SelfCastCaller::TriggeredUnit,
             self.stores,
-            spell,
-            self.object,
-            None,
-            SpellTriggerFlags(1),
+            starts,
+            events,
             self,
-        )?;
-        value.triggered_by_spell_reagent = aura
-            .and_then(|id| self.stores.template(id))
-            .map(|template| template.reagent1);
-        let Some(targets) = value.unit_cast_targets(t, target, self)? else {
-            starts.spells.insert(id, value);
-            return Ok(SpellCastResult::BadTargets);
-        };
-        let result = (|| {
-            value.schedule_start(targets, aura, queue)?;
-            // Spell.cpp:3018-3020,3083,3094. The tail cast may borrow this queue again.
-            value
-                .start_scheduled(t, &mut starts.spells, self)?
-                .dispatch(|skip| self.cast_self(&mut value, skip, starts, queue))
-        })();
-        starts.spells.insert(id, value);
-        result
-    }
-}
-
-// Spell.cpp:795-805 prepares trigger data without a cast item.
-pub(super) fn prepare_trigger_data(
-    stores: &SourceSpellStores,
-    spell: &mut SourceSpell,
-) -> Result<()> {
-    let t = stores
-        .template(spell.spell)
-        .ok_or_else(|| refuse("execution.spells.missing_template"))?;
-    let mut negative_effect_mask = 0;
-    for i in 0..3 {
-        if !positive_unit_effect(stores, t, i, None)? {
-            negative_effect_mask |= 1 << i;
-        }
-    }
-    spell.trigger_data = Some(SpellTriggerData {
-        can_trigger: !spell.flags.do_not_proc(),
-        negative_effect_mask,
-    });
-    Ok(())
-}
-// SpellMgr.cpp:104-172 reads creature level and speed only at the corresponding formula operands.
-pub(super) fn fresh_cast_time<'a>(
-    lookup: impl FnOnce(u32) -> Result<Option<&'a SpellDbcRecord>>,
-    spell: &SourceSpell,
-    t: &SpellTemplate,
-    level: impl FnOnce() -> Result<u32>,
-    speed: impl FnOnce() -> Result<u32>,
-) -> Result<i32> {
-    if spell.flags.old_triggered() && (t.manacost != 0 || t.manacostpercentage != 0) {
-        return Ok(0); // Spell.cpp:7105-7108.
-    }
-    let Some(row) = lookup(t.castingtimeindex)? else {
-        return Ok(0);
-    };
-    let word = |index| {
-        row.words
-            .get(&index)
-            .copied()
-            .ok_or_else(|| refuse("execution.creature_addon.SpellCastTimes_layout"))
-    };
-    // Mixed signed/unsigned source arithmetic converts to uint32 before the
-    // implementation-defined int32 assignment on the pinned GCC target.
-    let rank = creature_power_rank(level()?, t) as i32;
-    let mut time = word(1)?
-        .wrapping_add(word(2)?.wrapping_mul(((rank / 5) as u32).wrapping_sub(t.baselevel)))
-        as i32;
-    time = time.max(word(3)? as i32);
-    if t.attributes & 2 != 0 && !spell.auto_repeat {
-        time = add_ranged_delay(time)?;
-    }
-    if t.attributes & 0x0000_0030 == 0 && t.attributesex3 & 0x2000_0000 == 0 {
-        time = scale_cast_time(time, speed()?)?;
-    } else if t.attributes & 2 != 0 && !spell.auto_repeat {
-        return Err(refuse(
-            "execution.spells.SpellMgr_162.ranged_attack_speed_owner",
-        ));
-    }
-    if t.id == 19968 {
-        time = 0;
-    }
-    Ok(time.max(0))
-}
-
-fn add_ranged_delay(time: i32) -> Result<i32> {
-    time.checked_add(500)
-        .ok_or_else(|| refuse("execution.spells.SpellMgr_145.cast_time_add_overflow_undefined"))
-}
-
-fn scale_cast_time(time: i32, speed: u32) -> Result<i32> {
-    let value = Single::from_i128(i128::from(time))
-        .value
-        .mul_r(
-            Single::from_bits(u128::from(speed)),
-            Round::NearestTiesToEven,
         )
-        .value;
-    let converted = value.to_i128_r(32, Round::TowardZero, &mut false);
-    require(
-        !converted.status.contains(Status::INVALID_OP),
-        "execution.spells.SpellMgr_160.cast_time_float_to_int_undefined",
-    )?;
-    Ok(converted.value as i32)
-}
-
-#[test]
-fn cast_time_float_conversion_refuses_both_undefined_edges() {
-    assert_eq!(scale_cast_time(i32::MIN, 1f32.to_bits()).unwrap(), i32::MIN);
-    assert_eq!(
-        scale_cast_time(2147483520, 1f32.to_bits()).unwrap(),
-        2147483520
-    );
-    for (time, speed) in [(i32::MAX, 1f32), (i32::MIN, 2f32), (1, f32::NAN)] {
-        assert_eq!(
-            scale_cast_time(time, speed.to_bits()).unwrap_err().id,
-            "execution.spells.SpellMgr_160.cast_time_float_to_int_undefined"
-        );
     }
-    assert_eq!(scale_cast_time(3, 0.5f32.to_bits()).unwrap(), 1);
-}
-
-#[test]
-fn ranged_delay_refuses_at_first_signed_overflow() {
-    assert_eq!(add_ranged_delay(i32::MAX - 500).unwrap(), i32::MAX);
-    assert_eq!(
-        add_ranged_delay(i32::MAX - 499).unwrap_err().id,
-        "execution.spells.SpellMgr_145.cast_time_add_overflow_undefined"
-    );
 }
 
 pub(super) fn max_casts(config: &[u8]) -> Result<u32> {
@@ -571,13 +432,7 @@ impl CreatureCooldownOwner for CooldownBinding<'_> {
         Ok(result)
     }
     fn creature_cooldown(&mut self, spell: u32) -> Result<Option<u32>> {
-        let definitions = self
-            .definitions
-            .ok_or_else(|| refuse("execution.creature.ObjectMgr_GetCreatureCooldown_owner"))?;
-        let result = match definitions.0.cooldown_range(self.entry, spell)? {
-            Some([min, max]) => Some(self.random.creature_urand(min, max)?),
-            None => None,
-        };
+        let result = creature_cooldown(self.definitions, self.entry, spell, self.random)?;
         self.observation.fallback = Some(result);
         Ok(result)
     }

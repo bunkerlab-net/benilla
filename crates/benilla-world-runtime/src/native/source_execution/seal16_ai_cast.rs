@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
 //! CreatureEventAI.cpp:782-804; UnitAI.cpp:143-223. Live creation-time casting.
-use super::super::addon_cast::{self, fresh_cast_time, prepare_trigger_data};
+use super::super::addon_cast;
 use super::*;
 use crate::native::source_execution::main_spell::{
     UnitPowerOperands, UnitPowerOwner, UnitPowerSource,
@@ -120,31 +120,30 @@ impl Owner<'_> {
             "execution.spells.Unit_4304.InterruptSpell_live_cancel_owner",
         )
     }
-    fn cast_self(&mut self, spell: &mut SourceSpell, skip: bool) -> Result<()> {
-        spell.executing = true; // Spell.cpp:3162-3165.
-        require(
-            self.range_mod_owner(spell.caster)?.is_none(),
-            "execution.spells.Spell_3163.SpellModRAII_owner",
-        )?;
-        if !addon_cast::enter_cast(&mut self.live.auras.cast_counter, self.max_casts) {
-            spell.finish_failed(self)?; // SendCastResult returns for a creature.
-            spell.executing = false;
-            return Ok(());
-        }
-        addon_cast::require_self_pointers(spell, self.objects)?;
-        let t = self
-            .stores
-            .template(spell.spell)
-            .ok_or_else(|| refuse("execution.spells.missing_template"))?;
-        if !skip && spell.check_cast(t, false, self)? != SpellCastResult::Ok {
-            // Spell.cpp:7857-7863; non-player SendCastResult is skipped.
-            return Err(refuse("execution.spells.Spell_7860.SendInterrupted_owner"));
-        }
+}
+
+impl SpellSelfCastOwner for Owner<'_> {
+    fn cast_objects(&self) -> &SourceObjects {
+        self.objects
+    }
+    fn cast_mod_owner(&mut self, caster: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        self.range_mod_owner(caster)
+    }
+    fn cast_chain(&mut self) -> (&mut SourceUnitAuras, u32) {
+        (self.live.auras, self.max_casts)
+    }
+    fn cast_checked(
+        &mut self,
+        spell: &mut SourceSpell,
+        t: &SpellTemplate,
+        _starts: &mut SourceSpellStarts,
+        _events: &mut SourceUnitEvents,
+    ) -> Result<()> {
         let unit = self.unit(spell.caster)?;
         let level = self.power_owner().power_level(spell.caster)?;
         let live = &mut self.live;
         let base = &self.ai.base;
-        addon_cast::Owner {
+        let mut effects = addon_cast::Owner {
             object: self.object,
             objects: self.objects,
             terrain: self.terrain,
@@ -174,8 +173,8 @@ impl Owner<'_> {
             broadcast: self.broadcast,
             bounding_radius: *live.bounding_radius,
             max_casts: self.max_casts,
-        }
-        .cast_checked(spell, t, Some(base), None, |spell| {
+        };
+        spell.cast_checked(t, self.stores, Some(base), None, &mut effects, |spell| {
             // UnitAI.cpp:352. A different Spell instance leaves the target alone.
             if spell.flags.notify_ai() && base.current_spell == Some(spell.id) {
                 finish_ai_cast(base, spell, t, *live.victim, live.target)?;
@@ -546,20 +545,33 @@ impl SpellExecutionOwner for Owner<'_> {
         self.power_owner().power_multiplier(caster, school)
     }
     fn cast_time(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<i32> {
-        require(
-            self.range_mod_owner(spell.caster)?.is_none(),
-            "execution.spells.Spell_3033.SpellModRAII_owner",
-        )?;
         let caster = spell.caster;
-        let time = fresh_cast_time(
-            |index| self.stores.dbc("SpellCastTimes.dbc", index),
-            spell,
+        let mod_owner = self.range_mod_owner(caster)?;
+        let time = spell.creature_cast_time(
             t,
+            self.stores,
+            mod_owner,
             || self.power_owner().power_level(caster),
             || Ok(*self.live.cast_speed),
         )?;
         spell.prepare_lookups[1] += 1;
         Ok(time)
+    }
+    fn cast_scheduled(
+        &mut self,
+        spell: &mut SourceSpell,
+        skip: bool,
+        starts: &mut SourceSpellStarts,
+        events: &mut SourceUnitEvents,
+    ) -> Result<()> {
+        spell.cast_self(
+            skip,
+            SelfCastCaller::UnitAi,
+            self.stores,
+            starts,
+            events,
+            self,
+        )
     }
     fn call(&mut self, spell: &mut SourceSpell, call: SpellCall) -> Result<()> {
         match call {
@@ -572,7 +584,7 @@ impl SpellExecutionOwner for Owner<'_> {
                 )
             }
             SpellCall::PrepareTriggerData => {
-                prepare_trigger_data(self.stores, spell)?;
+                spell.prepare_trigger_data(self.stores)?;
                 spell.prepare_lookups[0] += 1;
                 Ok(())
             }
@@ -607,7 +619,6 @@ impl SpellExecutionOwner for Owner<'_> {
                 }
                 Ok(())
             }
-            SpellCall::Cast(skip) => self.cast_self(spell, skip),
             SpellCall::AiCastState(state) => {
                 self.require_unit(spell.caster)?;
                 // UnitAI.cpp:352 compares the live Spell identity before reading its template.

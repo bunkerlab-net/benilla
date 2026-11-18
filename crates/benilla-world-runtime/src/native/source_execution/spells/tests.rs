@@ -855,6 +855,44 @@ fn direct_and_ai_callers_reach_the_same_start_owner() {
 }
 
 #[test]
+fn triggered_start_retains_the_queued_spell_and_inherits_the_aura_reagent() {
+    let mut stores = stores();
+    stores
+        .insert_template(SpellTemplate {
+            id: 42,
+            reagent1: 123,
+            ..SpellTemplate::default()
+        })
+        .unwrap();
+    let mut starts = SourceSpellStarts::default();
+    let mut events = SourceUnitEvents::default();
+    let mut owner = Fixture {
+        cast_time: 0,
+        stop_cast: true,
+        ..Default::default()
+    };
+    let mut context = SpellStartContext {
+        stores: &stores,
+        starts: &mut starts,
+        events: &mut events,
+        owner: &mut owner,
+    };
+    assert_eq!(
+        context
+            .cast_triggered(unit(), Some(unit()), 7, Some(42))
+            .unwrap_err()
+            .id,
+        "execution.spells.f5_10_Spell_cast_owner"
+    );
+    let spell = &context.starts.spells[&1];
+    assert_eq!(spell.triggered_by_aura, Some(42));
+    assert_eq!(spell.triggered_by_spell_reagent, Some(123));
+    assert!(context
+        .events
+        .owns_spell_event(spell.event.unwrap(), spell.id));
+}
+
+#[test]
 fn constructor_refuses_loaded_targeting_map_before_start_and_event_creation() {
     struct Constructor;
     impl SpellExecutionOwner for Constructor {

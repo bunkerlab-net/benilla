@@ -2977,6 +2977,11 @@ Spell10848's targetA1/B0 yields an empty check mask, so
 The unit exists from construction, and late spawn population preserves its
 containers. `Unit.cpp:10270` writes live combat reach from the model and
 scale operands. `Creature.cpp:433` writes live cast speed before addon casts.
+The creature addon and EventAI use the same immediate self-cast entry in
+`spells/cast.rs`. `SpellStart` queues the live Spell key before the immediate
+cast. Triggered addon boosts use the same unit queue and inherit the
+triggering aura's reagent definition, `Unit.cpp:1484-1512`,
+`Spell.cpp:3007-3020,3083,3094`.
 The normal self cast uses the existing location, items, range, and power owners.
 The AI borrows its live base state and stores the same Spell key as the unit
 queue. `UnitAI.cpp:54,352,429,436` covers construction, identity comparison,

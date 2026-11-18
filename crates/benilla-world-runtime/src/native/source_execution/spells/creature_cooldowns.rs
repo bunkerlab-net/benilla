@@ -37,6 +37,21 @@ pub fn creature_spell_cooldown(
     Ok(CreatureCooldownMatch::Missing)
 }
 
+/// ObjectMgr.h:1190-1200. A matching fallback row consumes a map draw, even for equal bounds.
+pub fn creature_cooldown(
+    definitions: Option<&CreatureSpellMapData>,
+    entry: u32,
+    spell: u32,
+    random: &mut dyn CreatureRandom,
+) -> Result<Option<u32>> {
+    let definitions = definitions
+        .ok_or_else(|| refuse("execution.creature.ObjectMgr_GetCreatureCooldown_owner"))?;
+    match definitions.0.cooldown_range(entry, spell)? {
+        Some([min, max]) => Ok(Some(random.creature_urand(min, max)?)),
+        None => Ok(None),
+    }
+}
+
 pub fn world_object_spell_mod_owner(
     objects: &SourceObjects,
     caster: ObjectHandle,

@@ -338,6 +338,25 @@ fn creature_cooldown_index_distinguishes_unbound_from_loaded_empty() {
 }
 
 #[test]
+fn creature_cooldown_fallback_draws_only_for_a_matching_row() {
+    let definitions = CreatureSpellMapData(std::sync::Arc::new(LoadedCreatureSpellLists {
+        cooldowns: Some(BTreeMap::from([((9, 42), [37, 37])])),
+        ..LoadedCreatureSpellLists::default()
+    }));
+    let mut random = Random::default();
+    assert_eq!(
+        creature_cooldown(Some(&definitions), 9, 41, &mut random).unwrap(),
+        None
+    );
+    assert!(random.0.is_empty());
+    assert_eq!(
+        creature_cooldown(Some(&definitions), 9, 42, &mut random).unwrap(),
+        Some(37)
+    );
+    assert_eq!(random.0, [[37, 37]]);
+}
+
+#[test]
 fn live_creature_spell_list_is_empty_at_construction_and_excluded_from_saved_bytes() {
     let mut fields = SourceUnitFields::constructed_creature();
     assert!(fields.spell_list.is_none());

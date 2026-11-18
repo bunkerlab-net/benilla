@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+// CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
 //! Spell.cpp:2981-3098,3101-3157,3725-3742.
 use super::*;
+use rustc_apfloat::{ieee::Single, Float, Round, Status};
 
 pub trait SpellEventQueue {
     fn add_spell(&mut self, spell: u64) -> Result<u64>;
@@ -83,6 +85,47 @@ impl SourceSpell {
         }
         Ok(value)
     }
+
+    /// Spell.cpp:795-805. Compute trigger flags and effect polarity for an itemless cast.
+    pub fn prepare_trigger_data(&mut self, stores: &SourceSpellStores) -> Result<()> {
+        let t = stores
+            .template(self.spell)
+            .ok_or_else(|| refuse("execution.spells.missing_template"))?;
+        let mut negative_effect_mask = 0;
+        for i in 0..3 {
+            if !positive_unit_effect(stores, t, i, None)? {
+                negative_effect_mask |= 1 << i;
+            }
+        }
+        self.trigger_data = Some(SpellTriggerData {
+            can_trigger: !self.flags.do_not_proc(),
+            negative_effect_mask,
+        });
+        Ok(())
+    }
+
+    /// Spell.cpp:3033,7105-7108; SpellMgr.cpp:104-172. Read creature cast-time operands lazily.
+    pub fn creature_cast_time(
+        &self,
+        t: &SpellTemplate,
+        stores: &SourceSpellStores,
+        mod_owner: Option<ObjectHandle>,
+        level: impl FnOnce() -> Result<u32>,
+        speed: impl FnOnce() -> Result<u32>,
+    ) -> Result<i32> {
+        require(
+            mod_owner.is_none(),
+            "execution.spells.Spell_3033.SpellModRAII_owner",
+        )?;
+        fresh_cast_time(
+            |index| stores.dbc("SpellCastTimes.dbc", index),
+            self,
+            t,
+            level,
+            speed,
+        )
+    }
+
     pub fn start(
         &mut self,
         t: &SpellTemplate,
@@ -302,6 +345,86 @@ impl SourceSpell {
     }
 }
 
+impl SourceUnitAuras {
+    /// Object.cpp:3091-3099. A refused continuation retains the live depth.
+    pub fn try_enter_cast(&mut self, max_casts: u32) -> bool {
+        if max_casts != 0 && self.cast_counter >= max_casts {
+            return false;
+        }
+        self.cast_counter = self.cast_counter.wrapping_add(1);
+        true
+    }
+
+    /// Object.h:1153. The cast counter never decrements below zero.
+    pub fn leave_cast(&mut self) {
+        self.cast_counter = self.cast_counter.saturating_sub(1);
+    }
+}
+
+/// Spell.cpp:7105-7108; SpellMgr.cpp:104-172. Calculate the itemless creature cast time.
+pub fn fresh_cast_time<'a>(
+    lookup: impl FnOnce(u32) -> Result<Option<&'a SpellDbcRecord>>,
+    spell: &SourceSpell,
+    t: &SpellTemplate,
+    level: impl FnOnce() -> Result<u32>,
+    speed: impl FnOnce() -> Result<u32>,
+) -> Result<i32> {
+    if spell.flags.old_triggered() && (t.manacost != 0 || t.manacostpercentage != 0) {
+        return Ok(0); // Spell.cpp:7105-7108.
+    }
+    let Some(row) = lookup(t.castingtimeindex)? else {
+        return Ok(0);
+    };
+    let word = |index| {
+        row.words
+            .get(&index)
+            .copied()
+            .ok_or_else(|| refuse("execution.creature_addon.SpellCastTimes_layout"))
+    };
+    // Mixed signed/unsigned source arithmetic converts to uint32 before the
+    // implementation-defined int32 assignment on the pinned GCC target.
+    let rank = creature_power_rank(level()?, t) as i32;
+    let mut time = word(1)?
+        .wrapping_add(word(2)?.wrapping_mul(((rank / 5) as u32).wrapping_sub(t.baselevel)))
+        as i32;
+    time = time.max(word(3)? as i32);
+    if t.attributes & 2 != 0 && !spell.auto_repeat {
+        time = add_ranged_delay(time)?;
+    }
+    if t.attributes & 0x0000_0030 == 0 && t.attributesex3 & 0x2000_0000 == 0 {
+        time = scale_cast_time(time, speed()?)?;
+    } else if t.attributes & 2 != 0 && !spell.auto_repeat {
+        return Err(refuse(
+            "execution.spells.SpellMgr_162.ranged_attack_speed_owner",
+        ));
+    }
+    if t.id == 19968 {
+        time = 0;
+    }
+    Ok(time.max(0))
+}
+
+fn add_ranged_delay(time: i32) -> Result<i32> {
+    time.checked_add(500)
+        .ok_or_else(|| refuse("execution.spells.SpellMgr_145.cast_time_add_overflow_undefined"))
+}
+
+fn scale_cast_time(time: i32, speed: u32) -> Result<i32> {
+    let value = Single::from_i128(i128::from(time))
+        .value
+        .mul_r(
+            Single::from_bits(u128::from(speed)),
+            Round::NearestTiesToEven,
+        )
+        .value;
+    let converted = value.to_i128_r(32, Round::TowardZero, &mut false);
+    require(
+        !converted.status.contains(Status::INVALID_OP),
+        "execution.spells.SpellMgr_160.cast_time_float_to_int_undefined",
+    )?;
+    Ok(converted.value as i32)
+}
+
 /// Spell.cpp:6925-6934. A flying spell retains event ownership after slot replacement.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SpellSlot {
@@ -475,6 +598,69 @@ impl SourceSpellSlots {
         }
         Ok(())
     }
+}
+
+#[test]
+fn cast_time_float_conversion_refuses_both_undefined_edges() {
+    assert_eq!(scale_cast_time(i32::MIN, 1f32.to_bits()).unwrap(), i32::MIN);
+    assert_eq!(
+        scale_cast_time(2147483520, 1f32.to_bits()).unwrap(),
+        2147483520
+    );
+    for (time, speed) in [(i32::MAX, 1f32), (i32::MIN, 2f32), (1, f32::NAN)] {
+        assert_eq!(
+            scale_cast_time(time, speed.to_bits()).unwrap_err().id,
+            "execution.spells.SpellMgr_160.cast_time_float_to_int_undefined"
+        );
+    }
+    assert_eq!(scale_cast_time(3, 0.5f32.to_bits()).unwrap(), 1);
+}
+
+#[test]
+fn ranged_delay_refuses_at_first_signed_overflow() {
+    assert_eq!(add_ranged_delay(i32::MAX - 500).unwrap(), i32::MAX);
+    assert_eq!(
+        add_ranged_delay(i32::MAX - 499).unwrap_err().id,
+        "execution.spells.SpellMgr_145.cast_time_add_overflow_undefined"
+    );
+}
+
+#[test]
+fn cast_chain_refuses_at_limit_and_only_wraps_when_unlimited() {
+    let mut auras = SourceUnitAuras::default();
+    assert!(auras.try_enter_cast(1));
+    assert!(!auras.try_enter_cast(1));
+    assert_eq!(auras.cast_counter, 1);
+    auras.leave_cast();
+    auras.leave_cast();
+    assert_eq!(auras.cast_counter, 0);
+    auras.cast_counter = u32::MAX;
+    assert!(auras.try_enter_cast(0));
+    assert_eq!(auras.cast_counter, 0);
+}
+
+#[test]
+fn trigger_data_keeps_the_proc_flag_separate_from_negative_effects() {
+    let mut objects = SourceObjects::default();
+    let caster = objects.construct(6, SourceObjectKind::Creature).unwrap();
+    let mut stores = SourceSpellStores::default();
+    stores
+        .insert_template(SpellTemplate {
+            id: 42,
+            effect2: 129,
+            ..SpellTemplate::default()
+        })
+        .unwrap();
+    let t = stores.template(42).unwrap();
+    let mut spell = SourceSpell::new(1, t, caster, SpellTriggerFlags(0x40), 0).unwrap();
+    spell.prepare_trigger_data(&stores).unwrap();
+    assert_eq!(
+        spell.trigger_data,
+        Some(SpellTriggerData {
+            can_trigger: false,
+            negative_effect_mask: 2,
+        })
+    );
 }
 
 #[cfg(test)]
