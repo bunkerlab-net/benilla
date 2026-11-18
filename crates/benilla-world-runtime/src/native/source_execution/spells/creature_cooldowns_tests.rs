@@ -20,7 +20,7 @@ struct Owner {
     fallback: Option<[u32; 2]>,
     random: Random,
     calls: RefCell<Vec<&'static str>>,
-    refuse_master: bool,
+    master_lookup: Option<(SourceObjects, ObjectHandle, SourceControlGuids)>,
 }
 impl Owner {
     fn new(list: Option<CreatureSpellList>) -> Self {
@@ -30,7 +30,7 @@ impl Owner {
             fallback: None,
             random: Random::default(),
             calls: RefCell::default(),
-            refuse_master: false,
+            master_lookup: None,
         }
     }
     fn record(&self, name: &'static str) {
@@ -64,16 +64,18 @@ impl CreatureCooldownOwner for Owner {
         self.record("category");
         Ok(Some(0))
     }
-    fn master(&self) -> Result<Option<ObjectHandle>> {
+    fn master(&mut self) -> Result<Option<ObjectHandle>> {
         self.record("master");
-        if self.refuse_master {
-            Err(refuse("execution.relations.GetMaster_6716_owner"))
-        } else {
-            Ok(None)
-        }
+        let Some((objects, unit, guids)) = &self.master_lookup else {
+            return Ok(None);
+        };
+        Ok(guids
+            .get_master(objects, *unit, None, |_| unreachable!())?
+            .unit())
     }
-    fn is_player(&self, _: ObjectHandle) -> Result<bool> {
-        unreachable!()
+    fn is_player(&self, unit: ObjectHandle) -> Result<bool> {
+        self.record("is_player");
+        Ok(self.master_lookup.as_ref().unwrap().0.get(unit)?.kind == SourceObjectKind::Player)
     }
 }
 fn template() -> SpellTemplate {
@@ -96,6 +98,44 @@ fn list(repeat: u32, flags: u32) -> CreatureSpellList {
     let mut list = loaded.lists.remove(&900).unwrap();
     list.spells.get_mut(&0).unwrap().flags = flags;
     list
+}
+
+fn bind_master(owner: &mut Owner, map_available: bool, kind: SourceObjectKind) {
+    let mut objects = SourceObjects::default();
+    let caster = objects.construct(1, SourceObjectKind::Creature).unwrap();
+    let master = objects.construct(1, kind).unwrap();
+    let map = MapIdentity {
+        map: 1,
+        instance: 0,
+        creation_generation: 1,
+    };
+    let guid = if kind == SourceObjectKind::Player {
+        SourceGuid::without_entry(HighGuid::Player, 10)
+    } else {
+        SourceGuid::with_entry(HighGuid::Creature, 10, 10)
+    };
+    objects
+        .assign_guid(caster, 0, SourceGuid::with_entry(HighGuid::Creature, 42, 1))
+        .unwrap();
+    objects.get_mut(caster).unwrap().map = Some(map);
+    objects.add_to_world(caster).unwrap();
+    if !map_available {
+        objects.get_mut(caster).unwrap().map = None;
+    }
+    objects.assign_guid(master, 0, guid).unwrap();
+    objects.get_mut(master).unwrap().map = Some(map);
+    if kind == SourceObjectKind::Player {
+        objects.register_player_lookup(master).unwrap();
+    }
+    objects.add_to_world(master).unwrap();
+    owner.master_lookup = Some((
+        objects,
+        caster,
+        SourceControlGuids {
+            charmer: guid,
+            creator: SourceGuid::default(),
+        },
+    ));
 }
 
 #[test]
@@ -145,7 +185,7 @@ fn creature_cooldown_missing_fallback_and_zero_results_write_nothing() {
     };
     for matched in [false, true] {
         let mut owner = Owner::new(matched.then(|| list(0, 0)));
-        owner.refuse_master = true;
+        bind_master(&mut owner, false, SourceObjectKind::Creature);
         let mut cd = SourceSpellCooldowns::default();
         cd.add_creature_cooldown(&t, 0, false, false, &mut owner)
             .unwrap();
@@ -181,13 +221,13 @@ fn creature_cooldown_forced_duration_skips_scans_and_forwards_permanence() {
 #[test]
 fn creature_cooldown_master_refusal_keeps_the_completed_container_insert() {
     let mut owner = Owner::new(None);
-    owner.refuse_master = true;
+    bind_master(&mut owner, false, SourceObjectKind::Creature);
     let mut cd = SourceSpellCooldowns::default();
     assert_eq!(
         cd.add_creature_cooldown(&template(), 0, false, false, &mut owner)
             .unwrap_err()
             .id,
-        "execution.relations.GetMaster_6716_owner"
+        "execution.relations.Map_2371.GetUnit_map_owner"
     );
     assert_eq!(
         (cd.spells[&42].spell_expiry, cd.spells[&42].category_expiry),
@@ -198,6 +238,41 @@ fn creature_cooldown_master_refusal_keeps_the_completed_container_insert() {
         *owner.calls.borrow(),
         ["list", "fallback", "modifier", "clock", "category", "master"]
     );
+}
+
+#[test]
+fn creature_cooldown_only_player_master_reaches_the_packet_refusal() {
+    for (kind, expected) in [
+        (SourceObjectKind::Creature, None),
+        (
+            SourceObjectKind::Player,
+            Some("execution.spells.Creature_3154.spell_cooldown_packet_owner"),
+        ),
+    ] {
+        let mut owner = Owner::new(None);
+        bind_master(&mut owner, true, kind);
+        let mut cd = SourceSpellCooldowns::default();
+        assert_eq!(
+            cd.add_creature_cooldown(&template(), 0, false, false, &mut owner)
+                .err()
+                .map(|e| e.id),
+            expected.map(str::to_owned)
+        );
+        assert_eq!(cd.categories[&7], 42);
+        assert_eq!(cd.spells[&42].category_expiry, 120);
+        assert_eq!(
+            *owner.calls.borrow(),
+            [
+                "list",
+                "fallback",
+                "modifier",
+                "clock",
+                "category",
+                "master",
+                "is_player"
+            ]
+        );
+    }
 }
 
 #[test]

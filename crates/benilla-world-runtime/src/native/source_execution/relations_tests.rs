@@ -49,6 +49,9 @@ fn relations_identity_precedes_all_reaction_reads_but_not_uninteractible() {
         fn relation_flags(&self, _: ObjectHandle) -> Result<u32> {
             Ok(self.0)
         }
+        fn relation_master(&self, _: ObjectHandle) -> Result<Option<ObjectHandle>> {
+            unreachable!("identity and uncontrolled assistance do not read a master")
+        }
     }
     let f = PowerFixture::new();
     assert_eq!(unit_reaction_to(f.caster, f.caster, &Flags(8)).unwrap(), 4);
@@ -117,20 +120,170 @@ fn relations_live_player_control_and_pvp_master_boundaries() {
 }
 
 #[test]
-fn relations_live_master_lookup_refuses_without_guid_accessor_owner() {
+fn relations_live_master_ignores_cached_handles_and_reads_own_pvp_flags() {
     let mut f = PowerFixture::new();
     let fields = f.units.get_mut(&f.objects, f.caster).unwrap();
     fields.owner = Some(f.caster);
     fields.charmer = Some(f.caster);
+    fields.flags = 0x1000;
     let factions = CreatureAiFactions::default();
     let relations = SourceRelations {
         objects: &f.objects,
         units: &f.units,
         factions: &factions,
     };
+    assert!(unit_is_pvp_ui(f.caster, &relations).unwrap());
+}
+
+#[test]
+fn relations_guid_fields_do_not_change_saved_bytes() {
+    let mut f = PowerFixture::new();
+    let before = serde_json::to_vec(&f.units.inventory(&f.objects).unwrap()).unwrap();
+    let fields = f.units.get_mut(&f.objects, f.caster).unwrap();
+    assert_eq!(fields.control_guids, SourceControlGuids::default());
+    fields.control_guids.charmer = SourceGuid::without_entry(HighGuid::Player, 7);
+    fields.control_guids.creator = SourceGuid::with_entry(HighGuid::Creature, 1, 2);
+    let after = f.units.inventory(&f.objects).unwrap();
+    assert_eq!(serde_json::to_vec(&after).unwrap(), before);
+    assert_eq!(after["restore"], "execution.unit.f7_restore_owner");
+    assert_eq!(crate::native::NATIVE_FORMAT_VERSION, 91);
+}
+
+#[test]
+fn relations_guid_notice_and_pov_follow_the_accessor() {
+    let mut f = PowerFixture::new();
+    let pov = f.objects.construct(1, SourceObjectKind::Creature).unwrap();
+    let guid = SourceGuid::with_entry(HighGuid::Creature, 1, 2);
+    let selected = SourceControlGuids {
+        charmer: guid,
+        creator: guid,
+    };
     assert_eq!(
-        unit_is_pvp_ui(f.caster, &relations).unwrap_err().id,
-        "execution.relations.GetMaster_6716_owner"
+        selected
+            .get_master(&f.objects, f.caster, None, unbound_pet_loading)
+            .unwrap(),
+        SourceMasterLookup {
+            charmer: SourceControlLookup::LoggedNull(SourceControlNotice::AccessorOutsideWorld {
+                source_line: 6594
+            }),
+            creator: Some(SourceControlLookup::LoggedNull(
+                SourceControlNotice::AccessorOutsideWorld { source_line: 6623 }
+            )),
+        }
+    );
+    f.objects.get_mut(pov).unwrap().map = Some(MapIdentity {
+        map: 1,
+        instance: 0,
+        creation_generation: 1,
+    });
+    f.objects
+        .assign_guid(pov, 0, SourceGuid::with_entry(HighGuid::Creature, 1, 7))
+        .unwrap();
+    f.objects.add_to_world(pov).unwrap();
+    assert_eq!(
+        selected
+            .get_master(&f.objects, f.caster, Some(pov), unbound_pet_loading)
+            .unwrap(),
+        SourceMasterLookup {
+            charmer: SourceControlLookup::LoggedNull(SourceControlNotice::MissingUnit {
+                source_line: 6602
+            }),
+            creator: Some(SourceControlLookup::LoggedNull(
+                SourceControlNotice::MissingUnit { source_line: 6631 }
+            )),
+        }
+    );
+    f.objects.get_mut(pov).unwrap().map = None;
+    assert_eq!(
+        selected
+            .get_charmer(&f.objects, f.caster, Some(pov), unbound_pet_loading)
+            .unwrap_err()
+            .id,
+        "execution.relations.Map_2371.GetUnit_map_owner"
+    );
+    assert_eq!(
+        SourceControlGuids::default()
+            .get_master(&f.objects, f.caster, Some(pov), |_| panic!("empty GUID"))
+            .unwrap(),
+        SourceMasterLookup {
+            charmer: SourceControlLookup::EmptyGuid,
+            creator: Some(SourceControlLookup::EmptyGuid)
+        }
+    );
+    let non_unit = SourceGuid::without_entry(HighGuid::GameObject, 3);
+    let selected = SourceControlGuids {
+        charmer: non_unit,
+        creator: guid,
+    };
+    assert!(!selected.has_charmer());
+    assert!(selected.has_master());
+    assert_eq!(selected.master_guid(), non_unit);
+}
+
+#[test]
+fn relations_recursive_owner_reaches_last_creator_and_refuses_a_cycle() {
+    let mut f = PowerFixture::new();
+    let middle = f.objects.construct(1, SourceObjectKind::Creature).unwrap();
+    let root = f.objects.construct(1, SourceObjectKind::Creature).unwrap();
+    let map = MapIdentity {
+        map: 1,
+        instance: 0,
+        creation_generation: 1,
+    };
+    let root_guid = SourceGuid::with_entry(HighGuid::Creature, 1, 1);
+    let middle_guid = SourceGuid::with_entry(HighGuid::Creature, 1, 2);
+    let missing = SourceGuid::with_entry(HighGuid::Creature, 1, 3);
+    for (unit, guid, creator) in [(middle, middle_guid, root_guid), (root, root_guid, missing)] {
+        f.objects.assign_guid(unit, 0, guid).unwrap();
+        f.objects.get_mut(unit).unwrap().map = Some(map);
+        // Map::GetCreature can already see the typed store before the base world bit.
+        f.objects.register_world_lookup(unit).unwrap();
+        let mut fields = SourceUnitFields::constructed_creature();
+        fields.control_guids.creator = creator;
+        f.units.register(&f.objects, unit, fields).unwrap();
+    }
+    // Only the POV needs to be in world. The creators do not.
+    f.objects.get_mut(f.caster).unwrap().map = Some(map);
+    f.objects
+        .assign_guid(
+            f.caster,
+            0,
+            SourceGuid::with_entry(HighGuid::Creature, 1, 7),
+        )
+        .unwrap();
+    f.objects.add_to_world(f.caster).unwrap();
+    f.units
+        .get_mut(&f.objects, f.caster)
+        .unwrap()
+        .control_guids
+        .creator = middle_guid;
+    let mut notices = Vec::new();
+    let read = |f: &PowerFixture, recursive, notices: &mut Vec<_>| {
+        f.units.get_owner(
+            &f.objects,
+            f.caster,
+            Some(f.caster),
+            recursive,
+            unbound_pet_loading,
+            |notice| notices.push(notice),
+        )
+    };
+    assert_eq!(read(&f, false, &mut notices).unwrap(), Some(middle));
+    assert!(notices.is_empty());
+    assert_eq!(read(&f, true, &mut notices).unwrap(), Some(root));
+    // Unit.cpp:6703 re-reads the terminal owner on the outer loop's next condition.
+    assert_eq!(
+        notices,
+        [SourceControlNotice::MissingUnit { source_line: 6631 }; 2]
+    );
+    f.units
+        .get_mut(&f.objects, root)
+        .unwrap()
+        .control_guids
+        .creator = middle_guid;
+    assert_eq!(
+        read(&f, true, &mut notices).unwrap_err().id,
+        "execution.relations.Unit_6703.owner_recursion_cycle"
     );
 }
 

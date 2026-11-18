@@ -71,6 +71,9 @@ pub struct SourceUnitFields {
     pub attackers: Vec<ObjectHandle>,
     pub owner: Option<ObjectHandle>,
     pub charmer: Option<ObjectHandle>,
+    /// Object.cpp:105-108 zeros UNIT_FIELD_CHARMEDBY and UNIT_FIELD_CREATEDBY.
+    #[serde(skip)]
+    pub control_guids: SourceControlGuids,
     pub pet_kind: Option<CreaturePetKind>,
     pub totem: bool,
     pub beneficiary: Option<ObjectHandle>,
@@ -115,6 +118,9 @@ pub struct SourceUnitFields {
     /// Unit.h:2487,2507; Unit.cpp:355,365-366. Live state has no restore path.
     #[serde(skip)]
     pub auras: SourceUnitAuras,
+    /// Unit.cpp:409-410 initializes every school multiplier to one.
+    #[serde(skip)]
+    pub threat_modifier: [f32; 7],
     /// Unit.cpp:320,350; Spell.cpp:7127-7164. Events retain live Spells.
     #[serde(skip)]
     pub spell_starts: SourceSpellStarts,
@@ -258,6 +264,7 @@ impl SourceUnitFields {
             attackers: Vec::new(),
             owner: None,
             charmer: None,
+            control_guids: SourceControlGuids::default(),
             pet_kind: None,
             totem: false,
             beneficiary: None,
@@ -292,6 +299,7 @@ impl SourceUnitFields {
             spline_position_expiry: 0,
             spline_last_move_ms: 0,
             auras: SourceUnitAuras::default(),
+            threat_modifier: [1.0; 7],
             spell_starts: SourceSpellStarts::default(),
             unit_events: SourceUnitEvents::default(),
             unit_class: None,
@@ -351,6 +359,52 @@ pub struct SourceUnits {
     fields: BTreeMap<ObjectHandle, SourceUnitFields>,
 }
 impl SourceUnits {
+    /// Unit.cpp:6696-6707. Every recursive call keeps the original POV argument.
+    pub fn get_owner(
+        &self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+        pov: Option<ObjectHandle>,
+        recursive: bool,
+        mut loading: impl FnMut(ObjectHandle) -> Result<bool>,
+        mut notice: impl FnMut(SourceControlNotice),
+    ) -> Result<Option<ObjectHandle>> {
+        let mut creator = |unit| {
+            let outcome = self.get(objects, unit)?.control_guids.get_creator(
+                objects,
+                unit,
+                pov,
+                &mut loading,
+            )?;
+            if let SourceControlLookup::LoggedNull(message) = outcome {
+                notice(message);
+            }
+            Ok(outcome.unit())
+        };
+        if !recursive {
+            return creator(unit);
+        }
+        fn ascending(
+            unit: ObjectHandle,
+            remaining: usize,
+            creator: &mut impl FnMut(ObjectHandle) -> Result<Option<ObjectHandle>>,
+        ) -> Result<Option<ObjectHandle>> {
+            // A path longer than the live fields inventory repeats a unit.
+            require(
+                remaining != 0,
+                "execution.relations.Unit_6703.owner_recursion_cycle",
+            )?;
+            let mut owner = creator(unit)?;
+            while let Some(current) = owner {
+                let Some(grandowner) = ascending(current, remaining - 1, creator)? else {
+                    break;
+                };
+                owner = Some(grandowner);
+            }
+            Ok(owner)
+        }
+        ascending(unit, self.fields.len(), &mut creator)
+    }
     /// Bind the live F5.01 control operands, not a caller-selected AI identity.
     pub fn bind_ai_selection(
         &mut self,
@@ -618,20 +672,9 @@ pub fn spell_list_combat_predicate(disabled: Option<bool>, nonempty: bool) -> Re
 }
 
 pub trait UnitAiExecutionOwner {
-    fn pet_control_guid(
-        &mut self,
-        _unit: ObjectHandle,
-        field: PetControlField,
-    ) -> Result<SourceGuid> {
-        Err(refuse(match field {
-            PetControlField::Charmer => "execution.pet_ai.UNIT_FIELD_CHARMEDBY_owner",
-            PetControlField::Creator => "execution.pet_ai.UNIT_FIELD_CREATEDBY_owner",
-        }))
-    }
+    // Unit.cpp:6590,6619. Only queried for an out-of-world pet accessor and a player GUID.
     fn pet_is_loading(&mut self, _unit: ObjectHandle) -> Result<bool> {
-        Err(refuse(
-            "execution.pet_ai.Unit_GetCharmer_GetCreator_out_of_world_loading_owner",
-        ))
+        unbound_pet_loading(_unit)
     }
     fn spell_context(&mut self) -> Result<SpellStartContext<'_>> {
         Err(refuse("execution.spells.live_SpellStart_context_owner"))

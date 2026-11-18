@@ -6,19 +6,9 @@ use std::collections::BTreeMap;
 struct Dependencies {
     calls: Vec<UnitAiCall>,
     refuse_chase: bool,
-    charmer: SourceGuid,
-    creator: SourceGuid,
-    control_reads: Vec<PetControlField>,
     loading: Option<bool>,
 }
 impl UnitAiExecutionOwner for Dependencies {
-    fn pet_control_guid(&mut self, _: ObjectHandle, field: PetControlField) -> Result<SourceGuid> {
-        self.control_reads.push(field);
-        Ok(match field {
-            PetControlField::Charmer => self.charmer,
-            PetControlField::Creator => self.creator,
-        })
-    }
     fn pet_is_loading(&mut self, _: ObjectHandle) -> Result<bool> {
         self.loading.ok_or_else(|| {
             refuse("execution.pet_ai.Unit_GetCharmer_GetCreator_out_of_world_loading_owner")
@@ -162,6 +152,13 @@ impl Fixture {
             target,
         }
     }
+    fn control(&mut self) -> &mut SourceControlGuids {
+        &mut self
+            .units
+            .get_mut(&self.objects, self.selected.object())
+            .unwrap()
+            .control_guids
+    }
     fn construct(
         &mut self,
         spell: Option<u32>,
@@ -240,10 +237,8 @@ fn pet_controlled_config_precedes_follow_and_unwritten_created_spell() {
         std::f32::consts::PI
     );
     assert!(f.selected.inputs().control.owner.is_none());
-    let mut owner = Dependencies {
-        creator: f.objects.get(f.target).unwrap().guid.unwrap(),
-        ..Default::default()
-    };
+    f.control().creator = f.objects.get(f.target).unwrap().guid.unwrap();
+    let mut owner = Dependencies::default();
     assert_eq!(
         f.construct_with(None, Some(&behind), &mut owner)
             .unwrap_err()
@@ -256,7 +251,7 @@ fn pet_controlled_config_precedes_follow_and_unwritten_created_spell() {
     f.objects.get_mut(player).unwrap().map = f.objects.get(f.target).unwrap().map;
     f.objects.register_player_lookup(player).unwrap();
     f.objects.mark_in_world(player).unwrap();
-    owner.creator = guid;
+    f.control().creator = guid;
     assert_eq!(
         f.construct_with(None, Some(&behind), &mut owner)
             .unwrap_err()
@@ -317,10 +312,8 @@ fn pet_update_advances_timers_before_owner_and_never_selects_threat() {
 fn pet_update_script_then_actions_then_charm_read_are_ordered() {
     let mut f = Fixture::new(true, false);
     let unit = f.selected.object();
-    let mut owner = Dependencies {
-        creator: f.objects.get(f.target).unwrap().guid.unwrap(),
-        ..Default::default()
-    };
+    f.control().creator = f.objects.get(f.target).unwrap().guid.unwrap();
+    let mut owner = Dependencies::default();
     let mut state = f.authored();
     state.in_combat = true;
     f.ais.get_mut(&f.objects, unit).unwrap().base.combat_script = true;
@@ -338,7 +331,7 @@ fn pet_update_script_then_actions_then_charm_read_are_ordered() {
     );
     let mut f = Fixture::new(true, true);
     let mut state = f.authored();
-    owner.creator = f.objects.get(f.target).unwrap().guid.unwrap();
+    f.control().creator = f.objects.get(f.target).unwrap().guid.unwrap();
     assert_eq!(
         state
             .update(1, &f.objects, &mut f.units, &mut f.ais, &mut owner)
@@ -494,10 +487,9 @@ fn pet_overrides_do_not_fall_back_to_creature_ai() {
         .id,
         "execution.pet_ai.Unit_GetCharmInfo_owner"
     );
-    assert_eq!(
-        ai.on_unsummon(&f.objects, &f.ais).unwrap_err().id,
-        "execution.pet_ai.UNIT_FIELD_CREATEDBY_owner"
-    );
+    // PetAI.cpp:593 reads a set creator GUID even with no registered follower.
+    f.control().creator = f.objects.get(f.target).unwrap().guid.unwrap();
+    ai.on_unsummon(&f.objects, &f.units, &f.ais).unwrap();
     ai.just_died(
         &f.objects,
         &mut f.units,
@@ -511,11 +503,7 @@ struct Auras {
     values: BTreeMap<(ObjectHandle, u32, u8), u32>,
     reads: Vec<(ObjectHandle, u32, u8)>,
 }
-impl UnitAiExecutionOwner for Auras {
-    fn pet_control_guid(&mut self, _: ObjectHandle, _: PetControlField) -> Result<SourceGuid> {
-        Ok(SourceGuid::default())
-    }
-}
+impl UnitAiExecutionOwner for Auras {}
 impl PetAuraExecutionOwner for Auras {
     fn pet_has_aura(&mut self, unit: ObjectHandle, spell: u32, effect: u8) -> Result<bool> {
         self.reads.push((unit, spell, effect));
@@ -625,10 +613,8 @@ fn pet_cast_checks_preserve_casting_combat_master_and_target_table_order() {
     let mut f = Fixture::new(true, true);
     let state = f.authored();
     let mut t = SpellTemplate::default();
-    let mut owner = Dependencies {
-        creator: f.objects.get(f.target).unwrap().guid.unwrap(),
-        ..Default::default()
-    };
+    f.control().creator = f.objects.get(f.target).unwrap().guid.unwrap();
+    let mut owner = Dependencies::default();
     f.units
         .get_mut(&f.objects, state.unit)
         .unwrap()
@@ -873,7 +859,7 @@ fn pet_catalog04_constructor_and_reach_census_or_explicit_absence() {
 }
 
 #[test]
-fn pet_unbound_guid_reads_precede_update_timers_and_constructor_follow() {
+fn pet_live_empty_guids_advance_update_timers_and_constructor() {
     struct Unbound;
     impl UnitAiExecutionOwner for Unbound {}
     impl BuiltinAiExecutionOwner for Unbound {}
@@ -885,16 +871,12 @@ fn pet_unbound_guid_reads_precede_update_timers_and_constructor_follow() {
         remaining: 100,
         disabled: false,
     };
-    // PetAI.cpp:146 precedes UpdateTimers(:154), even with no selected owner handle.
-    assert_eq!(
-        ai.update(1, &f.objects, &mut f.units, &mut f.ais, &mut Unbound)
-            .unwrap_err()
-            .id,
-        "execution.pet_ai.UNIT_FIELD_CHARMEDBY_owner"
-    );
+    // PetAI.cpp:146 falls through to UpdateTimers(:154) for null charmer and creator.
+    ai.update(1, &f.objects, &mut f.units, &mut f.ais, &mut Unbound)
+        .unwrap();
     assert_eq!(
         f.ais.get(&f.objects, unit).unwrap().base.generic_timers[0].remaining,
-        100
+        99
     );
     let mut f = Fixture::new(true, true);
     let behind = PetAttackFromBehindConfig::parse(b"PetAttackFromBehind=1").unwrap();
@@ -902,7 +884,7 @@ fn pet_unbound_guid_reads_precede_update_timers_and_constructor_follow() {
         f.construct_with(None, Some(&behind), &mut Unbound)
             .unwrap_err()
             .id,
-        "execution.pet_ai.UNIT_FIELD_CREATEDBY_owner"
+        "execution.pet_ai.UNIT_CREATED_BY_SPELL_owner"
     );
     assert_eq!(
         f.ais
@@ -929,25 +911,30 @@ fn pet_master_guid_lookup_prioritizes_charmer_then_creator_and_keeps_missing_fie
     f.objects.assign_guid(creator, 0, creator_guid).unwrap();
     f.objects.get_mut(creator).unwrap().map = f.objects.get(unit).unwrap().map;
     f.objects.add_to_world(creator).unwrap();
-    let mut owner = Dependencies {
+    *f.control() = SourceControlGuids {
         charmer,
         creator: creator_guid,
-        ..Default::default()
     };
-    assert_eq!(
-        resolve_master(&f.objects, unit, &mut owner).unwrap(),
-        Some(f.target)
-    );
-    assert_eq!(owner.control_reads, [PetControlField::Charmer]);
+    let read = |f: &Fixture| {
+        f.units
+            .get(&f.objects, unit)
+            .unwrap()
+            .control_guids
+            .get_master(&f.objects, unit, None, unbound_pet_loading)
+            .unwrap()
+    };
+    assert_eq!(read(&f).unit(), Some(f.target));
+    assert_eq!(read(&f).creator, None);
     f.objects.remove_from_world(f.target).unwrap();
-    owner.control_reads.clear();
+    assert_eq!(read(&f).unit(), Some(creator));
     assert_eq!(
-        resolve_master(&f.objects, unit, &mut owner).unwrap(),
-        Some(creator)
-    );
-    assert_eq!(
-        owner.control_reads,
-        [PetControlField::Charmer, PetControlField::Creator]
+        read(&f),
+        SourceMasterLookup {
+            charmer: SourceControlLookup::LoggedNull(SourceControlNotice::MissingUnit {
+                source_line: 6602
+            }),
+            creator: Some(SourceControlLookup::Found(creator)),
+        }
     );
     f.objects.add_to_world(f.target).unwrap();
     f.objects.get_mut(f.target).unwrap().map = Some(MapIdentity {
@@ -955,25 +942,33 @@ fn pet_master_guid_lookup_prioritizes_charmer_then_creator_and_keeps_missing_fie
         instance: 0,
         creation_generation: 2,
     });
-    assert_eq!(
-        resolve_master(&f.objects, unit, &mut owner).unwrap(),
-        Some(creator)
-    );
-    owner.creator = SourceGuid::default();
-    assert_eq!(resolve_master(&f.objects, unit, &mut owner).unwrap(), None);
-    owner.charmer = SourceGuid::default();
-    assert_eq!(resolve_master(&f.objects, unit, &mut owner).unwrap(), None);
+    assert_eq!(read(&f).unit(), Some(creator));
+    f.control().creator = SourceGuid::default();
+    assert_eq!(read(&f).unit(), None);
+    assert!(f.control().has_master());
+    assert_eq!(f.control().master_guid(), charmer);
+    f.control().charmer = SourceGuid::default();
+    assert_eq!(read(&f).unit(), None);
+    assert!(!f.control().has_master());
+    assert_eq!(f.control().master_guid().raw(), 0);
     // Cached control handles must not stand in for absent source GUID fields.
     f.units.get_mut(&f.objects, unit).unwrap().owner = Some(creator);
     f.units.get_mut(&f.objects, unit).unwrap().charmer = Some(f.target);
-    assert_eq!(resolve_master(&f.objects, unit, &mut owner).unwrap(), None);
+    assert_eq!(read(&f).unit(), None);
+    let mut owner = Dependencies::default();
     let mut threats = SourceThreats::default();
     let mut wrapped = SourceAiDependencies {
         threats: &mut threats,
         owner: &mut owner,
     };
     assert_eq!(
-        resolve_master(&f.objects, unit, &mut wrapped).unwrap(),
+        f.units
+            .get(&f.objects, unit)
+            .unwrap()
+            .control_guids
+            .get_master(&f.objects, unit, None, |pet| wrapped.pet_is_loading(pet))
+            .unwrap()
+            .unit(),
         None
     );
 }
@@ -983,49 +978,97 @@ fn pet_master_out_of_world_preserves_loading_only_global_lookup_branch() {
     let mut f = Fixture::new(true, false);
     let unit = f.selected.object();
     f.objects.remove_from_world(unit).unwrap();
-    let mut owner = Dependencies {
-        charmer: f.objects.get(f.target).unwrap().guid.unwrap(),
-        ..Default::default()
+    f.control().charmer = f.objects.get(f.target).unwrap().guid.unwrap();
+    let mut owner = Dependencies::default();
+    let read = |f: &Fixture, owner: &mut Dependencies| {
+        let unit = f.selected.object();
+        f.units
+            .get(&f.objects, unit)
+            .unwrap()
+            .control_guids
+            .get_master(&f.objects, unit, None, |pet| owner.pet_is_loading(pet))
     };
-    assert_eq!(resolve_master(&f.objects, unit, &mut owner).unwrap(), None);
     assert_eq!(
-        owner.control_reads,
-        [PetControlField::Charmer, PetControlField::Creator]
+        read(&f, &mut owner).unwrap(),
+        SourceMasterLookup {
+            charmer: SourceControlLookup::LoggedNull(SourceControlNotice::AccessorOutsideWorld {
+                source_line: 6594
+            }),
+            creator: Some(SourceControlLookup::EmptyGuid),
+        }
     );
     let mut f = Fixture::new(true, true);
     let unit = f.selected.object();
     f.objects.remove_from_world(unit).unwrap();
-    owner.charmer = SourceGuid::without_entry(HighGuid::Player, 5);
+    let guid = SourceGuid::without_entry(HighGuid::Player, 5);
+    f.control().charmer = guid;
     assert_eq!(
-        resolve_master(&f.objects, unit, &mut owner).unwrap_err().id,
+        read(&f, &mut owner).unwrap_err().id,
         "execution.pet_ai.Unit_GetCharmer_GetCreator_out_of_world_loading_owner"
     );
     owner.loading = Some(false);
-    assert_eq!(resolve_master(&f.objects, unit, &mut owner).unwrap(), None);
+    assert_eq!(read(&f, &mut owner).unwrap().unit(), None);
     owner.loading = Some(true);
-    assert_eq!(resolve_master(&f.objects, unit, &mut owner).unwrap(), None);
+    assert_eq!(
+        read(&f, &mut owner).unwrap().charmer,
+        SourceControlLookup::LoadingPlayerMissing
+    );
     assert_eq!(f.objects.find_player(SourceGuid::default()).unwrap(), None);
-    assert_eq!(f.objects.find_player(owner.charmer).unwrap(), None);
+    assert_eq!(f.objects.find_player(guid).unwrap(), None);
     let player = f.objects.construct(1, SourceObjectKind::Player).unwrap();
-    f.objects.assign_guid(player, 0, owner.charmer).unwrap();
+    f.objects.assign_guid(player, 0, guid).unwrap();
     f.objects.get_mut(player).unwrap().map = Some(MapIdentity {
         map: 1,
         instance: 7,
         creation_generation: 2,
     });
     f.objects.register_player_lookup(player).unwrap();
-    assert_eq!(f.objects.find_player(owner.charmer).unwrap(), None);
-    assert_eq!(resolve_master(&f.objects, unit, &mut owner).unwrap(), None);
+    assert_eq!(f.objects.find_player(guid).unwrap(), None);
+    assert_eq!(read(&f, &mut owner).unwrap().unit(), None);
     f.objects.mark_in_world(player).unwrap();
-    assert_eq!(f.objects.find_player(owner.charmer).unwrap(), Some(player));
-    assert_eq!(
-        resolve_master(&f.objects, unit, &mut owner).unwrap(),
-        Some(player)
-    );
+    assert_eq!(f.objects.find_player(guid).unwrap(), Some(player));
+    assert_eq!(read(&f, &mut owner).unwrap().unit(), Some(player));
     assert_eq!(
         f.objects
             .find_player(SourceGuid::without_entry(HighGuid::Player, 6))
             .unwrap(),
         None
+    );
+}
+
+#[test]
+fn pet_cast_refuses_if_second_master_read_becomes_null() {
+    struct Loading(std::array::IntoIter<bool, 2>);
+    impl UnitAiExecutionOwner for Loading {
+        fn pet_is_loading(&mut self, _: ObjectHandle) -> Result<bool> {
+            Ok(self.0.next().unwrap())
+        }
+    }
+    let mut f = Fixture::new(true, true);
+    let pet = f.authored();
+    f.objects.remove_from_world(pet.unit).unwrap();
+    let guid = SourceGuid::without_entry(HighGuid::Player, 7);
+    f.control().charmer = guid;
+    let player = f.objects.construct(1, SourceObjectKind::Player).unwrap();
+    f.objects.assign_guid(player, 0, guid).unwrap();
+    f.objects.get_mut(player).unwrap().alive = false;
+    f.objects.register_player_lookup(player).unwrap();
+    f.objects.mark_in_world(player).unwrap();
+    let check = |loading| {
+        pet.check_pet_cast(
+            &SpellTemplate::default(),
+            None,
+            &f.objects,
+            &f.units,
+            &mut Loading(loading),
+        )
+    };
+    assert_eq!(
+        check([true, true].into_iter()).unwrap(),
+        SpellCastResult::CasterDead
+    );
+    assert_eq!(
+        check([true, false].into_iter()).unwrap_err().id,
+        "execution.pet_ai.PetAI_494.master_null_undefined"
     );
 }

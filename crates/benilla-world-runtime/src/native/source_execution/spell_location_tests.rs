@@ -534,7 +534,7 @@ fn spirit_heal_map_entry_null_nonbg_and_bg_are_distinct_and_reached_without_play
     );
 }
 #[test]
-fn beneficiary_uses_live_control_not_cached_beneficiary_and_refuses_unported_master_reads() {
+fn beneficiary_uses_live_guid_lookup_before_classifying_the_result() {
     let mut objects = SourceObjects::default();
     let mut units = SourceUnits::default();
     assert_eq!(
@@ -561,19 +561,41 @@ fn beneficiary_uses_live_control_not_cached_beneficiary_and_refuses_unported_mas
         );
         units.get_mut(&objects, caster).unwrap().owner = Some(caster);
         assert_eq!(
-            spell_beneficiary_player(&objects, &units, Some(caster))
-                .unwrap_err()
-                .id,
-            "execution.spells.location.Unit_GetOwner_owner"
+            spell_beneficiary_player(&objects, &units, Some(caster)).unwrap(),
+            (kind == SourceObjectKind::Player).then_some(caster)
         );
         units.get_mut(&objects, caster).unwrap().charmer = Some(caster);
         assert_eq!(
-            spell_beneficiary_player(&objects, &units, Some(caster))
-                .unwrap_err()
-                .id,
-            "execution.spells.location.Unit_GetCharmer_owner"
+            spell_beneficiary_player(&objects, &units, Some(caster)).unwrap(),
+            (kind == SourceObjectKind::Player).then_some(caster)
         );
     }
+    let caster = objects.construct(1, SourceObjectKind::Creature).unwrap();
+    let master = objects.construct(1, SourceObjectKind::Player).unwrap();
+    let map = MapIdentity {
+        map: 1,
+        instance: 0,
+        creation_generation: 1,
+    };
+    let guid = SourceGuid::without_entry(HighGuid::Player, 1);
+    for (unit, unit_guid) in [
+        (caster, SourceGuid::with_entry(HighGuid::Creature, 1, 1)),
+        (master, guid),
+    ] {
+        objects.assign_guid(unit, 0, unit_guid).unwrap();
+        objects.get_mut(unit).unwrap().map = Some(map);
+        if unit == master {
+            objects.register_player_lookup(unit).unwrap();
+        }
+        objects.add_to_world(unit).unwrap();
+    }
+    let mut live = fields();
+    live.control_guids.creator = guid;
+    units.register(&objects, caster, live).unwrap();
+    assert_eq!(
+        spell_beneficiary_player(&objects, &units, Some(caster)).unwrap(),
+        Some(master)
+    );
 }
 
 #[test]

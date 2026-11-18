@@ -28,6 +28,7 @@ pub struct SourceAura {
 pub struct SourceAuraHolder {
     pub caster: ObjectHandle,
     pub target: ObjectHandle,
+    pub triggered_by: Option<u32>,
     pub apply_time: i64,
     pub apply_ms: u32,
     pub duration: i32,
@@ -72,6 +73,7 @@ impl SourceAuraHolder {
         Ok(Self {
             caster: target,
             target,
+            triggered_by: None,
             apply_time: time,
             apply_ms: ms,
             duration,

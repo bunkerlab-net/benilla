@@ -13,6 +13,7 @@ pub struct CreatureCooldownObservation {
     pub searches: u32,
     pub result: Option<CreatureCooldownMatch>,
     pub fallback: Option<Option<u32>>,
+    pub master: Option<SourceMasterLookup>,
 }
 
 pub fn creature_spell_cooldown(
@@ -59,9 +60,7 @@ pub trait CreatureCooldownOwner {
     fn spell_mod_owner(&self) -> Result<Option<ObjectHandle>>;
     fn clock(&self) -> Result<i64>;
     fn category_flags(&self, category: u32) -> Result<Option<u32>>;
-    fn master(&self) -> Result<Option<ObjectHandle>> {
-        Err(refuse("execution.relations.GetMaster_6716_owner"))
-    }
+    fn master(&mut self) -> Result<Option<ObjectHandle>>;
     fn is_player(&self, unit: ObjectHandle) -> Result<bool>;
     fn modify_cooldown(
         &mut self,

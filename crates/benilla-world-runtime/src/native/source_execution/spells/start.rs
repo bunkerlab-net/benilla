@@ -5,6 +5,24 @@ use super::*;
 pub trait SpellEventQueue {
     fn add_spell(&mut self, spell: u64) -> Result<u64>;
 }
+
+#[must_use = "dispatch the immediate cast before returning from SpellStart"]
+pub(in crate::native::source_execution) struct ScheduledSpellStart {
+    result: SpellCastResult,
+    immediate: Option<bool>,
+}
+impl ScheduledSpellStart {
+    pub(in crate::native::source_execution) fn dispatch(
+        self,
+        cast: impl FnOnce(bool) -> Result<()>,
+    ) -> Result<SpellCastResult> {
+        if let Some(skip) = self.immediate {
+            cast(skip)?;
+        }
+        Ok(self.result)
+    }
+}
+
 impl SourceSpell {
     /// Loaded script lookup precedes source constructor initialization.
     pub fn construct(
@@ -74,6 +92,18 @@ impl SourceSpell {
         spells: &mut BTreeMap<u64, SourceSpell>,
         owner: &mut (impl SpellExecutionOwner + ?Sized),
     ) -> Result<SpellCastResult> {
+        self.schedule_start(targets, aura, queue)?;
+        // Spell.cpp:3018-3020,3083,3094. Dispatch the tail cast before returning.
+        self.start_scheduled(t, spells, owner)?
+            .dispatch(|skip| owner.call(self, SpellCall::Cast(skip)))
+    }
+    // Split at AddEvent so a synchronous cast can start another spell on the same queue.
+    pub(in crate::native::source_execution) fn schedule_start(
+        &mut self,
+        targets: SpellTargets,
+        aura: Option<u32>,
+        queue: &mut impl SpellEventQueue,
+    ) -> Result<()> {
         require(
             self.state == SourceSpellState::Created,
             "execution.spells.SpellStart_state",
@@ -83,14 +113,28 @@ impl SourceSpell {
         self.triggered_by_aura = aura;
         // :3007-3009. A failed CheckCast still owns the queued SpellEvent.
         self.event = Some(queue.add_spell(self.id)?);
+        Ok(())
+    }
+    pub(in crate::native::source_execution) fn start_scheduled(
+        &mut self,
+        t: &SpellTemplate,
+        spells: &mut BTreeMap<u64, SourceSpell>,
+        owner: &mut (impl SpellExecutionOwner + ?Sized),
+    ) -> Result<ScheduledSpellStart> {
         let result = self.check_cast(t, true, owner)?;
         if result != SpellCastResult::Ok && (!self.auto_repeat || self.flags.autorepeat()) {
             owner.call(self, SpellCall::SendResult(result))?;
             self.finish_failed(owner)?;
-            return Ok(result);
+            return Ok(ScheduledSpellStart {
+                result,
+                immediate: None,
+            });
         }
-        self.prepare(t, spells, owner)?;
-        Ok(SpellCastResult::Ok)
+        // Spell.cpp:3018-3020. The caller dispatches Prepare's tail cast.
+        Ok(ScheduledSpellStart {
+            result: SpellCastResult::Ok,
+            immediate: self.prepare_cast(t, spells, owner)?,
+        })
     }
     pub fn prepare(
         &mut self,
@@ -98,6 +142,20 @@ impl SourceSpell {
         spells: &mut BTreeMap<u64, SourceSpell>,
         owner: &mut (impl SpellExecutionOwner + ?Sized),
     ) -> Result<()> {
+        if let Some(skip) = self.prepare_cast(t, spells, owner)? {
+            owner.call(self, SpellCall::Cast(skip))?;
+        }
+        Ok(())
+    }
+
+    // Spell.cpp:3083,3094. Defer only the tail cast so it can borrow the
+    // same live store after SetCurrentCastedSpell.
+    fn prepare_cast(
+        &mut self,
+        t: &SpellTemplate,
+        spells: &mut BTreeMap<u64, SourceSpell>,
+        owner: &mut (impl SpellExecutionOwner + ?Sized),
+    ) -> Result<Option<bool>> {
         self.state = SourceSpellState::Casting;
         owner.call(self, SpellCall::PrepareTriggerData)?;
         if !self.flags.instant() {
@@ -132,7 +190,7 @@ impl SourceSpell {
             }
             owner.call(self, SpellCall::SendStart)?;
             if self.timer == 0 && !is_melee(t) && (!self.auto_repeat || self.flags.autorepeat()) {
-                owner.call(self, SpellCall::Cast(false))?;
+                return Ok(Some(false));
             }
         } else {
             if is_channel(t) {
@@ -143,10 +201,10 @@ impl SourceSpell {
                 owner.set_current(self, t, spells)?;
             }
             if self.timer == 0 {
-                owner.call(self, SpellCall::Cast(true))?;
+                return Ok(Some(true));
             }
         }
-        Ok(())
+        Ok(None)
     }
     pub fn cancel(
         &mut self,

@@ -48,7 +48,6 @@ impl SourceCreatureSettings {
 /// Constructor-owned GUID fields and sets, not cached lookup results.
 #[derive(Debug, Default)]
 pub(super) struct FreshCreatureControl {
-    charmer: SourceGuid,
     pet: SourceGuid,
     guardians: BTreeSet<SourceGuid>,
     totems: [SourceGuid; 4],
@@ -71,11 +70,12 @@ impl FreshCreatureControl {
         mask: u32,
         flags: &mut u32,
         in_world: bool,
+        control_guids: SourceControlGuids,
         mut lookup: impl FnMut(ControlledLookup, SourceGuid) -> Result<Option<ObjectHandle>>,
         mut child: impl FnMut(ObjectHandle, u32) -> Result<()>,
     ) -> Result<()> {
         *flags |= mask;
-        if self.charmer.raw() != 0 {
+        if control_guids.has_charmer() {
             return Ok(());
         }
         // Unit.h:2674-2706 excludes mini-pets; actual map lookups stay at their source positions.
@@ -174,16 +174,22 @@ mod tests {
             ],
             charm: guid(4),
             private_charms: BTreeSet::from([guid(5)]),
-            charmer: SourceGuid::default(),
         };
         let mut flags = 0x10;
         let mut calls = Vec::new();
         let lookup = |_: ControlledLookup, g: SourceGuid| Ok(Some(handle(u64::from(g.counter()))));
         control
-            .set_immune(0x100, &mut flags, true, lookup, |child, mask| {
-                calls.push((child, mask));
-                Ok(())
-            })
+            .set_immune(
+                0x100,
+                &mut flags,
+                true,
+                SourceControlGuids::default(),
+                lookup,
+                |child, mask| {
+                    calls.push((child, mask));
+                    Ok(())
+                },
+            )
             .unwrap();
         assert_eq!(flags, 0x110);
         assert_eq!(
@@ -192,18 +198,29 @@ mod tests {
         );
         let mut calls = Vec::new();
         control
-            .set_immune(0x200, &mut flags, false, lookup, |child, _| {
-                calls.push(child);
-                Ok(())
-            })
+            .set_immune(
+                0x200,
+                &mut flags,
+                false,
+                SourceControlGuids::default(),
+                lookup,
+                |child, _| {
+                    calls.push(child);
+                    Ok(())
+                },
+            )
             .unwrap();
         assert_eq!(calls, [handle(1), handle(2), handle(5)]);
-        control.charmer = guid(9);
+        let charmed = SourceControlGuids {
+            charmer: guid(9),
+            creator: SourceGuid::default(),
+        };
         control
             .set_immune(
                 0x100,
                 &mut flags,
                 true,
+                charmed,
                 |_, _| panic!("charm suppresses lookup"),
                 |_, _| panic!("charm suppresses propagation"),
             )
@@ -213,6 +230,7 @@ mod tests {
                 0x100,
                 &mut flags,
                 false,
+                SourceControlGuids::default(),
                 |_, _| panic!("constructor GUIDs/sets are empty"),
                 |_, _| panic!("constructor collections are empty"),
             )

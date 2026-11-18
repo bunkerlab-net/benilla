@@ -235,11 +235,13 @@ is meaningful without a bounded content/mechanics inventory.
   Target mapping accepts the explicit friendly self target,
   `Spell.cpp:2397-2405`, and aura23 sets periodic state,
   `SpellAuras.cpp:3097-3117`.
-  Map 1 stops at GUID27036/entry4636's addon7165 cooldown insertion,
-  `Object.cpp:2635`, after 102 completed objects, 104 allocations, 12623 words,
-  and two map SQL statements. The extra allocation is GO32518's linked trap,
-  recording60433051-60433060.
-  Passenger, spline, main-spell, broadcast, and relation owners add no saved state.
+  Map 1 completes GUID27036/entry4636's addon7165 and proceeds to Misha
+  GUID590005 following Rexxar GUID29113. It stops at
+  `execution.movement.FollowerReference_25.addFollower_owner`,
+  `FollowerReference.cpp:25`, after 198 completed objects, 202 allocations,
+  13,314 words, and two map SQL statements. Recording60533941 completes
+  Rexxar before Misha's load. Passenger, spline, main-spell, broadcast,
+  and relation owners add no saved state.
 - **Current fork:** `benilla-app/src/net/p2p.rs` relays avatar poses, jump fields
   and chat with finite/bounded-value checks. It explicitly rejects transport
   movement in the inspected bridge. This is not replicated authoritative player
@@ -682,10 +684,12 @@ immediate self effect. `Unit.cpp:4757` still needs the live aura removal owner.
 Creature cooldown sends dispatch through `Creature.cpp:3109-3162`.
 The live spell-list scan draws equal bounds, `Creature.cpp:1557-1567`;
 the loaded ObjectMgr fallback keeps NOT_FOUND, `Creature.cpp:3118-3125`.
-Map 1 retains the container insert and refuses at the master read,
-`Creature.cpp:3142`. Per-unit spells and events survive later loads;
-unbound SpellEvent execution refuses at `unit_events.rs:32-38,225-229`.
-Cooldowns, reach and speed remain live-only; checkpoint
+Map 1 inserts the cooldown before resolving its master at `Creature.cpp:3142`.
+`Unit.cpp:6580-6636,6696-6717` reads the live charmer and creator GUIDs.
+The reached database creatures have empty GUIDs and give no continuity
+notices. Per-unit spells and events survive later loads. Unbound SpellEvent
+execution refuses at `unit_events.rs:32-38,225-229`.
+Cooldowns, reach, speed, and control GUIDs remain live-only. Checkpoint
 format remains 91 and F7 restore remains unowned.
 
 ## Port order and acceptance gates

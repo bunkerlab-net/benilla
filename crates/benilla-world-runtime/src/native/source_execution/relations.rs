@@ -10,9 +10,7 @@ pub trait SourceRelationOwner {
             "execution.relations.GetFactionTemplateEntry_6209_owner",
         ))
     }
-    fn relation_master(&self, _unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
-        Err(refuse("execution.relations.GetMaster_6716_owner"))
-    }
+    fn relation_master(&self, unit: ObjectHandle) -> Result<Option<ObjectHandle>>;
     fn relation_persuaded(&self, _unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
         Err(refuse(
             "execution.relations.GetReactionTo_258_GetPersuadedGuid_owner",
@@ -34,6 +32,14 @@ impl SourceRelationOwner for SourceRelations<'_> {
     fn relation_flags(&self, unit: ObjectHandle) -> Result<u32> {
         Ok(self.units.get(self.objects, unit)?.flags)
     }
+    fn relation_master(&self, unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        Ok(self
+            .units
+            .get(self.objects, unit)?
+            .control_guids
+            .get_master(self.objects, unit, None, unbound_pet_loading)?
+            .unit())
+    }
     fn relation_faction(&self, unit: ObjectHandle) -> Result<Option<&SourceFactionTemplate>> {
         Ok(self
             .factions
@@ -45,6 +51,159 @@ impl SourceRelationOwner for SourceRelations<'_> {
     fn relation_has_reputation(&self, faction: u32) -> Result<bool> {
         Ok(self.factions.relation_has_reputation(faction))
     }
+}
+
+/// The live update fields read by Unit.h:2566,2572, independent of object handles.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SourceControlGuids {
+    pub charmer: SourceGuid,
+    pub creator: SourceGuid,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceControlLookup {
+    EmptyGuid,
+    LoggedNull(SourceControlNotice),
+    LoadingPlayerMissing,
+    Found(ObjectHandle),
+}
+impl SourceControlLookup {
+    pub fn unit(self) -> Option<ObjectHandle> {
+        match self {
+            Self::Found(unit) => Some(unit),
+            Self::EmptyGuid | Self::LoggedNull(_) | Self::LoadingPlayerMissing => None,
+        }
+    }
+}
+
+/// The GetCharmer/GetCreator debug-only continuity messages.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceControlNotice {
+    AccessorOutsideWorld { source_line: u16 },
+    MissingUnit { source_line: u16 },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SourceMasterLookup {
+    pub charmer: SourceControlLookup,
+    pub creator: Option<SourceControlLookup>,
+}
+impl SourceMasterLookup {
+    pub fn unit(self) -> Option<ObjectHandle> {
+        self.charmer
+            .unit()
+            .or(self.creator.and_then(SourceControlLookup::unit))
+    }
+}
+
+pub(super) fn unbound_pet_loading(_: ObjectHandle) -> Result<bool> {
+    Err(refuse(
+        "execution.pet_ai.Unit_GetCharmer_GetCreator_out_of_world_loading_owner",
+    ))
+}
+
+impl SourceControlGuids {
+    /// Unit.h:1827 and ObjectGuid.h:124-129 test the GUID kind without a lookup.
+    pub fn has_charmer(self) -> bool {
+        is_unit_guid(self.charmer)
+    }
+    /// Unit.cpp:6709-6712. Unresolved unit GUIDs still count.
+    pub fn has_master(self) -> bool {
+        self.has_charmer() || is_unit_guid(self.creator)
+    }
+    /// Unit.h:1845,1854. Any nonzero charmer GUID takes precedence.
+    pub fn master_guid(self) -> SourceGuid {
+        if self.charmer.raw() != 0 {
+            self.charmer
+        } else {
+            self.creator
+        }
+    }
+    /// Unit.cpp:6580-6607.
+    pub fn get_charmer(
+        self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+        pov: Option<ObjectHandle>,
+        loading: impl FnMut(ObjectHandle) -> Result<bool>,
+    ) -> Result<SourceControlLookup> {
+        resolve_control_guid(
+            objects,
+            pov.unwrap_or(unit),
+            self.charmer,
+            loading,
+            [6594, 6602],
+        )
+    }
+    /// Unit.cpp:6609-6636.
+    pub fn get_creator(
+        self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+        pov: Option<ObjectHandle>,
+        loading: impl FnMut(ObjectHandle) -> Result<bool>,
+    ) -> Result<SourceControlLookup> {
+        resolve_control_guid(
+            objects,
+            pov.unwrap_or(unit),
+            self.creator,
+            loading,
+            [6623, 6631],
+        )
+    }
+    /// Unit.cpp:6696-6699,6714-6717. Nonrecursive GetOwner is GetCreator.
+    pub fn get_master(
+        self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+        pov: Option<ObjectHandle>,
+        mut loading: impl FnMut(ObjectHandle) -> Result<bool>,
+    ) -> Result<SourceMasterLookup> {
+        let charmer = self.get_charmer(objects, unit, pov, &mut loading)?;
+        let creator = if charmer.unit().is_none() {
+            Some(self.get_creator(objects, unit, pov, loading)?)
+        } else {
+            None
+        };
+        Ok(SourceMasterLookup { charmer, creator })
+    }
+}
+
+fn is_unit_guid(guid: SourceGuid) -> bool {
+    guid.raw() != 0 && matches!(guid.high(), 0 | 0xf130 | 0xf140)
+}
+
+fn resolve_control_guid(
+    objects: &SourceObjects,
+    accessor: ObjectHandle,
+    guid: SourceGuid,
+    mut loading: impl FnMut(ObjectHandle) -> Result<bool>,
+    [outside_line, missing_line]: [u16; 2],
+) -> Result<SourceControlLookup> {
+    use SourceControlLookup::*;
+    if guid.raw() == 0 {
+        return Ok(EmptyGuid);
+    }
+    let accessor = objects.get(accessor)?;
+    if !accessor.in_world {
+        if guid.high() == 0 && accessor.kind == SourceObjectKind::Pet && loading(accessor.handle)? {
+            return Ok(objects
+                .find_player(guid)?
+                .map_or(LoadingPlayerMissing, Found));
+        }
+        return Ok(LoggedNull(SourceControlNotice::AccessorOutsideWorld {
+            source_line: outside_line,
+        }));
+    }
+    let map = accessor
+        .map
+        .ok_or_else(|| refuse("execution.relations.Map_2371.GetUnit_map_owner"))?;
+    if let Some(found) = objects.lookup_unit(map, guid) {
+        return Ok(Found(found));
+    }
+    Ok(LoggedNull(SourceControlNotice::MissingUnit {
+        source_line: missing_line,
+    }))
 }
 
 /// DBCStructure.h:401-410 retains every operand of Relations.cpp:100-142.

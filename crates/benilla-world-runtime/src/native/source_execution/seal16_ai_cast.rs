@@ -151,8 +151,14 @@ impl Owner<'_> {
             stores: self.stores,
             targets: self.targets,
             flags: &live.flags,
+            control_guids: &live.control_guids,
             immunities: &live.immunities,
             auras: &mut live.auras,
+            threat_modifier: &mut live.threat_modifier,
+            power_fields: &mut live.power_fields,
+            power_type: None,
+            vitals: &mut live.vitals,
+            form: &mut live.shapeshift_form,
             cooldowns: &mut live.cooldowns,
             stand: live.stand_state,
             mount: u32::from(live.mounted),
@@ -169,7 +175,7 @@ impl Owner<'_> {
             bounding_radius: live.bounding_radius,
             max_casts: self.max_casts,
         }
-        .cast_checked(spell, t, Some(base), |spell| {
+        .cast_checked(spell, t, Some(base), None, |spell| {
             // UnitAI.cpp:352. A different Spell instance leaves the target alone.
             if spell.flags.notify_ai() && base.current_spell == Some(spell.id) {
                 finish_ai_cast(base, spell, t, live.victim, &mut live.target)?;
@@ -438,10 +444,7 @@ impl SpellExecutionOwner for Owner<'_> {
             );
         }
         if let SpellCheck::AllowedInLocation(location) = check {
-            require(
-                self.live()?.owner.is_none() && self.live()?.charmer.is_none(),
-                "execution.spells.Unit_6484.GetMaster_owner",
-            )?;
+            let player = spell_beneficiary_player(self.objects, self.units, Some(self.object))?;
             let map = self
                 .objects
                 .get(self.object)?
@@ -450,7 +453,7 @@ impl SpellExecutionOwner for Owner<'_> {
                 .map;
             let result =
                 self.stores
-                    .allowed_in_location(t, map, location[0], location[1], None, self)?;
+                    .allowed_in_location(t, map, location[0], location[1], player, self)?;
             spell.check_suffix_lookups[0] += 1;
             return Ok(result);
         }
@@ -552,6 +555,14 @@ impl SpellExecutionOwner for Owner<'_> {
     }
     fn call(&mut self, spell: &mut SourceSpell, call: SpellCall) -> Result<()> {
         match call {
+            SpellCall::SendResult(_) => {
+                self.require_unit(spell.caster)?;
+                // Spell.cpp:3815-3830. This owner supports an ordinary Creature cast.
+                require(
+                    self.objects.get(spell.caster)?.kind == SourceObjectKind::Creature,
+                    "execution.spells.Spell_3823.cast_result_recipient_owner",
+                )
+            }
             SpellCall::PrepareTriggerData => {
                 prepare_trigger_data(self.stores, spell)?;
                 spell.prepare_lookups[0] += 1;

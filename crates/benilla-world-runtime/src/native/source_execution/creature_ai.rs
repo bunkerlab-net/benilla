@@ -701,13 +701,6 @@ pub struct SourceAiDependencies<'a, O: UnitAiExecutionOwner> {
     pub owner: &'a mut O,
 }
 impl<O: UnitAiExecutionOwner> UnitAiExecutionOwner for SourceAiDependencies<'_, O> {
-    fn pet_control_guid(
-        &mut self,
-        unit: ObjectHandle,
-        field: PetControlField,
-    ) -> Result<SourceGuid> {
-        self.owner.pet_control_guid(unit, field)
-    }
     fn pet_is_loading(&mut self, unit: ObjectHandle) -> Result<bool> {
         self.owner.pet_is_loading(unit)
     }

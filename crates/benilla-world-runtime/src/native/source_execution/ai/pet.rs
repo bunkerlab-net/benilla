@@ -18,12 +18,6 @@ pub trait PetAuraExecutionOwner: UnitAiExecutionOwner {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PetControlField {
-    Charmer,
-    Creator,
-}
-
 pub struct PetAiConstructionOwners<'a> {
     pub units: &'a mut SourceUnits,
     pub ais: &'a mut SourceCreatureAis,
@@ -44,14 +38,10 @@ impl SourcePetAi {
     pub(super) fn construct(
         selected: &SelectedCreatureAi,
         objects: &SourceObjects,
-        ais: &mut SourceCreatureAis,
-        created_by_spell: Option<u32>,
-        config: &EventAiLoaderConfig,
-        attack_from_behind: Option<&PetAttackFromBehindConfig>,
-        owner: &mut (impl UnitAiExecutionOwner + ?Sized),
+        owners: &mut PetAiConstructionOwners<'_>,
     ) -> Result<Self> {
         let unit = selected.object();
-        let ai = ais.get_mut(objects, unit)?;
+        let ai = owners.ais.get_mut(objects, unit)?;
         // PetAI.cpp:41-45 writes these before reading any derived dependency.
         let value = Self {
             unit,
@@ -62,13 +52,19 @@ impl SourcePetAi {
         ai.follow_distance = 1.5;
         if selected.inputs().control.pet == Some(CreaturePetKind::Controlled) {
             // PetAI.cpp:49 precedes RequestFollow(:53), even with no owner.
-            let behind = attack_from_behind.ok_or_else(|| {
+            let behind = owners.attack_from_behind.ok_or_else(|| {
                 refuse("execution.pet_ai.CONFIG_BOOL_PET_ATTACK_FROM_BEHIND_owner")
             })?;
             if behind.enabled() {
                 ai.base.attack_angle = std::f32::consts::PI;
             }
-            if let Some(owner) = resolve_control(objects, unit, PetControlField::Creator, owner)? {
+            let guid = owners.units.get(objects, unit)?.control_guids;
+            if let Some(owner) = guid
+                .get_creator(objects, unit, None, |pet| {
+                    owners.execution.pet_is_loading(pet)
+                })?
+                .unit()
+            {
                 return Err(refuse(
                     if objects.get(owner)?.kind == SourceObjectKind::Player {
                         "execution.pet_ai.Player_RequestFollowData_owner"
@@ -79,7 +75,8 @@ impl SourcePetAi {
             }
         }
         // PetAI.cpp:56. None means explicitly unwritten, not spell zero.
-        let spell = created_by_spell
+        let spell = owners
+            .created_by_spell
             .ok_or_else(|| refuse("execution.pet_ai.UNIT_CREATED_BY_SPELL_owner"))?;
         if spell == 688 {
             ai.base.attack_distance = 25.0;
@@ -89,7 +86,7 @@ impl SourcePetAi {
         if !ai.guard {
             return Err(refuse("execution.pet_ai.Unit_GetCharmInfo_owner"));
         }
-        ai.base.visibility_distance = f32::from_bits(config.guard_sight()?);
+        ai.base.visibility_distance = f32::from_bits(owners.config.guard_sight()?);
         Ok(value)
     }
     pub fn inventory(&self) -> serde_json::Value {
@@ -106,7 +103,12 @@ impl SourcePetAi {
         owner: &mut impl UnitAiExecutionOwner,
     ) -> Result<()> {
         // PetAI inherits CanHandleCharm=false, UnitAI.h:478. No inherited AI update.
-        let master = resolve_master(objects, self.unit, owner)?; // PetAI.cpp:146.
+        // PetAI.cpp:146.
+        let master = units
+            .get(objects, self.unit)?
+            .control_guids
+            .get_master(objects, self.unit, None, |pet| owner.pet_is_loading(pet))?
+            .unit();
         let ai = ais.get_mut(objects, self.unit)?;
         update_timers(&mut ai.base, diff)?; // PetAI.cpp:154, before the owner test.
         if master.is_none() {
@@ -234,13 +236,16 @@ impl SourcePetAi {
         if fields.in_combat() && spell.attributes & 0x1000_0000 != 0 {
             return Ok(SpellCastResult::AffectingCombat);
         }
-        if self.is_pet
-            || owner
-                .pet_control_guid(self.unit, PetControlField::Charmer)?
-                .raw()
-                != 0
-        {
-            if let Some(master) = resolve_master(objects, self.unit, owner)? {
+        let guids = fields.control_guids;
+        if self.is_pet || guids.has_charmer() {
+            let mut master = || {
+                guids
+                    .get_master(objects, self.unit, None, |pet| owner.pet_is_loading(pet))
+                    .map(SourceMasterLookup::unit)
+            };
+            if master()?.is_some() {
+                let master = master()?
+                    .ok_or_else(|| refuse("execution.pet_ai.PetAI_494.master_null_undefined"))?;
                 if !objects.get(master)?.alive {
                     return Ok(SpellCastResult::CasterDead);
                 }
@@ -320,46 +325,6 @@ fn update_timers(ai: &mut SourceUnitAi, diff: u32) -> Result<()> {
         "execution.pet_ai.combat_action_timer_owner",
     )?;
     Ok(())
-}
-
-// Unit.cpp:6580-6635,6696-6717. Never treat selected owner handles as GUID fields.
-fn resolve_master(
-    objects: &SourceObjects,
-    unit: ObjectHandle,
-    owner: &mut (impl UnitAiExecutionOwner + ?Sized),
-) -> Result<Option<ObjectHandle>> {
-    match resolve_control(objects, unit, PetControlField::Charmer, owner)? {
-        Some(charmer) => Ok(Some(charmer)),
-        None => resolve_control(objects, unit, PetControlField::Creator, owner),
-    }
-}
-fn resolve_control(
-    objects: &SourceObjects,
-    unit: ObjectHandle,
-    field: PetControlField,
-    owner: &mut (impl UnitAiExecutionOwner + ?Sized),
-) -> Result<Option<ObjectHandle>> {
-    let guid = owner.pet_control_guid(unit, field)?;
-    if guid.raw() == 0 {
-        return Ok(None);
-    }
-    let source = objects.get(unit)?;
-    if !source.in_world {
-        if guid.high() == HighGuid::Player as u16
-            && source.kind == SourceObjectKind::Pet
-            && owner.pet_is_loading(unit)?
-        {
-            return objects.find_player(guid);
-        }
-        return Ok(None);
-    }
-    let map = source
-        .map
-        .ok_or_else(|| refuse("execution.pet_ai.GetMap_owner"))?;
-    Ok(match guid.high() {
-        0 | 0xf130 | 0xf140 => objects.lookup_world_object(map, guid),
-        _ => None,
-    })
 }
 
 #[cfg(test)]

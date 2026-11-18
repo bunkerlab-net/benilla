@@ -191,15 +191,17 @@ pub fn spell_beneficiary_player(
     let Some(caster) = caster else {
         return Ok(None);
     };
-    let object = objects.get(caster)?;
-    let fields = units.get(objects, caster)?;
-    if fields.charmer.is_some() {
-        return Err(refuse("execution.spells.location.Unit_GetCharmer_owner"));
-    }
-    if fields.owner.is_some() {
-        return Err(refuse("execution.spells.location.Unit_GetOwner_owner"));
-    }
-    Ok((object.kind == SourceObjectKind::Player).then_some(caster))
+    spell_beneficiary_from_guids(objects, caster, units.get(objects, caster)?.control_guids)
+}
+
+pub(in crate::native::source_execution) fn spell_beneficiary_from_guids(
+    objects: &SourceObjects,
+    caster: ObjectHandle,
+    control: SourceControlGuids,
+) -> Result<Option<ObjectHandle>> {
+    let master = control.get_master(objects, caster, None, unbound_pet_loading)?;
+    let beneficiary = master.unit().unwrap_or(caster);
+    Ok((objects.get(beneficiary)?.kind == SourceObjectKind::Player).then_some(beneficiary))
 }
 
 /// Borrowed real loaded/live owners; no fabricated location or player identity.

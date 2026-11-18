@@ -395,6 +395,38 @@ fn old_triggered_cast_time_is_unreferenced_while_instant_normal_cast_is_current(
     assert!(!f.trace.iter().any(|v| v == "GetSpellCastTime"));
 }
 #[test]
+fn instant_spellstart_dispatches_cast_at_the_tail_of_each_prepare_branch() {
+    // Spell.cpp:3018-3020,3074-3094.
+    for (t, flags, tail) in [
+        (template(), 8, &["AddGCD", "SendStart", "Cast(false)"][..]),
+        (
+            SpellTemplate {
+                attributesex: 4,
+                ..template()
+            },
+            0x1009,
+            &["SetCurrentCastedSpell", "Cast(true)"][..],
+        ),
+    ] {
+        let mut s = spell(&t, flags);
+        let mut f = Fixture::default();
+        assert_eq!(
+            s.start(
+                &t,
+                SpellTargets::default(),
+                None,
+                &mut SourceUnitEvents::default(),
+                &mut BTreeMap::new(),
+                &mut f,
+            )
+            .unwrap(),
+            R::Ok
+        );
+        assert_eq!(&f.trace[f.trace.len() - tail.len()..], tail);
+    }
+}
+
+#[test]
 fn autorepeat_dummy_suppresses_failed_check_but_internal_autorepeat_does_not() {
     // Spell.cpp:2984,3083.
     let t = SpellTemplate {

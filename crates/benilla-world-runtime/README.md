@@ -3001,10 +3001,19 @@ Creature cooldown sends use the virtual override,
 in map order and draws even equal repeat bounds, `Creature.cpp:1557-1567`.
 The loaded ObjectMgr fallback preserves the NOT_FOUND result,
 `Creature.cpp:3118-3125`, `ObjectMgr.h:1190-1200`. Nonzero durations enter
-the container before the unowned master read at `Creature.cpp:3142`.
+the container before `GetMaster` at `Creature.cpp:3142`. This lookup
+reads the live charmer and creator GUIDs through `Unit.cpp:6580-6717`.
+The database creatures have neither GUID set, so the lookup returns
+null without a map lookup or a continuity notice.
 Player sends refuse at `Player.h:2199`.
 
 Spell objects and queued events remain on their unit across subsequent
 loads. Unbound event execution refuses, `unit_events.rs:32-38,225-229`;
 the thread-6 completion guard remains at `seal16_active_init.rs`.
+
+On map 1, spell7165 applies Defensive Stance and its triggered aura21156.
+The replay stops at `FollowerReference.cpp:25` as Misha starts to follow
+Rexxar, after 198 completed objects, 202 allocations, 13,314 RNG words,
+and two map SQL statements. The follower list and Follow lifecycle
+remain unowned.
 

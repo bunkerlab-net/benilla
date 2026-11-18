@@ -3,6 +3,7 @@
 use super::*;
 
 struct MotionOwner<'a> {
+    objects: &'a SourceObjects,
     geometry: &'a mut SourceTerrainManager,
     passengers: &'a mut SourcePassengers,
     spline_thread: &'a mut SourceSplineThread,
@@ -14,7 +15,7 @@ struct MotionOwner<'a> {
     database_guid: u32,
     lookups: &'a mut Vec<&'static str>,
     flags: u32,
-    charmer: Option<ObjectHandle>,
+    control_guids: SourceControlGuids,
 }
 impl MotionExecutionOwner for MotionOwner<'_> {
     fn spline_thread(&mut self) -> Result<&mut SourceSplineThread> {
@@ -62,10 +63,20 @@ impl MotionExecutionOwner for MotionOwner<'_> {
         });
         Ok(path)
     }
-    fn client_controlling(&mut self, _: ObjectHandle) -> Result<Option<ObjectHandle>> {
-        // Unit.cpp:6528-6548. A fresh ordinary creature has no possessing charmer.
-        if self.flags & 8 != 0 && self.charmer.is_some() && self.flags & 0x0100_0000 != 0 {
-            return Err(refuse("execution.creature.Unit_6536.GetCharmer_owner"));
+    fn client_controlling(&mut self, unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        // Unit.cpp:6528-6548. Controlled, possessed creatures look up their charmer.
+        if self.flags & 8 != 0 && self.control_guids.has_charmer() && self.flags & 0x0100_0000 != 0
+        {
+            if let Some(charmer) = self
+                .control_guids
+                .get_charmer(self.objects, unit, None, unbound_pet_loading)?
+                .unit()
+            {
+                return Ok(
+                    (self.objects.get(charmer)?.kind == SourceObjectKind::Player)
+                        .then_some(charmer),
+                );
+            }
         }
         Ok(None)
     }
@@ -127,6 +138,7 @@ pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
     let fields = prefix.creature_entry.as_mut().unwrap();
     let live = prefix.units.get(context.objects, object)?;
     let mut owner = MotionOwner {
+        objects: context.objects,
         geometry: context.products,
         passengers: prefix.passengers,
         spline_thread: prefix.spline_thread,
@@ -138,7 +150,7 @@ pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
         database_guid: context.objects.get(object)?.database_guid,
         lookups: &mut prefix.lookups,
         flags: live.flags,
-        charmer: live.charmer,
+        control_guids: live.control_guids,
     };
     prefix.threats.register(object)?;
     // Only the empty constructor master exists before AIM_Initialize.
@@ -164,4 +176,177 @@ pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
     fields.motion_state = Some(prefix.units.get(context.objects, object)?.state);
     prefix.motions.insert(object, master);
     result
+}
+
+struct LinkingRespawn<'a> {
+    motion: MotionOwner<'a>,
+    units: &'a mut SourceUnits,
+    motions: &'a mut BTreeMap<ObjectHandle, SourceMotionMaster>,
+    births: &'a BTreeMap<ObjectHandle, (u32, i64, u32)>,
+    follow: &'a mut Option<(ObjectHandle, ObjectHandle, [u32; 2])>,
+}
+impl LinkingEventOwner for LinkingRespawn<'_> {
+    fn linking_creature(
+        &mut self,
+        map: MapIdentity,
+        unit: ObjectHandle,
+    ) -> Result<LinkingCreature> {
+        let object = self.motion.objects.get(unit)?;
+        require(object.map == Some(map), "execution.linking.object_map_kind")?;
+        let live = self.units.get(self.motion.objects, unit)?;
+        let pose = object
+            .respawn_pose
+            .ok_or_else(|| refuse("execution.linking.master_respawn_pose_owner"))?;
+        let guid = object
+            .guid
+            .ok_or_else(|| refuse("execution.linking.guid_owner"))?;
+        let &(respawn_delay, respawn_time, _) = self.births.get(&unit).ok_or_else(|| {
+            refuse("execution.linking.CreatureLinkingMgr_596.respawn_fields_owner")
+        })?;
+        Ok(LinkingCreature {
+            object: unit,
+            entry: live.entry,
+            database: object.database_guid,
+            respawn_xy: [pose.0[0], pose.0[1]],
+            new_spawning: source_creature_new_spawning(object.database_guid, guid.counter()),
+            death: if object.alive {
+                CreatureDeathState::Alive
+            } else {
+                CreatureDeathState::Dead
+            },
+            pet: object.kind == SourceObjectKind::Pet,
+            controlled: live.flags & 8 != 0,
+            combat: live.in_combat(),
+            respawn_delay,
+            respawn_time,
+        })
+    }
+    fn linking_lookup(
+        &mut self,
+        map: MapIdentity,
+        lookup: LinkingLookup,
+    ) -> Result<Option<ObjectHandle>> {
+        Ok(lookup.resolve(map, self.motion.objects))
+    }
+    fn linking_wall(&mut self) -> Result<ClockSample> {
+        Err(refuse(
+            "execution.linking.CreatureLinkingMgr_596.wall_clock_owner",
+        ))
+    }
+    fn linking_schedule(
+        &mut self,
+        _: LinkingScheduleRequest,
+        _: &mut SourceCreatureLinkingHolder,
+    ) -> Result<()> {
+        Err(refuse(
+            "execution.linking.CreatureLinkingMgr_534.RespawnCreature_owner",
+        ))
+    }
+    fn linking_action(
+        &mut self,
+        request: LinkingActionRequest,
+        _: &mut SourceCreatureLinkingHolder,
+    ) -> Result<()> {
+        let LinkingAction::Follow(master) = request.action else {
+            return Err(request.action.missing_owner());
+        };
+        let unit = request.object;
+        let objects = self.motion.objects;
+        let source = objects.get(unit)?;
+        let target = objects.get(master)?;
+        // CreatureLinkingMgr.cpp:615-637 reads respawn poses and object radii.
+        let Some((from, to)) = source.respawn_pose.zip(target.respawn_pose) else {
+            return Err(refuse(
+                "execution.linking.CreatureLinkingMgr_619.respawn_coordinate_owner",
+            ));
+        };
+        let [x, y, z, _] = from.0.map(f32::from_bits);
+        let [mx, my, mz, orientation] = to.0.map(f32::from_bits);
+        let (dx, dy, dz) = (x - mx, y - my, z - mz);
+        let radius = |unit| {
+            self.births
+                .get(&unit)
+                .map(|&(_, _, radius)| f32::from_bits(radius))
+                .ok_or_else(|| {
+                    refuse("execution.linking.CreatureLinkingMgr_629.bounding_radius_owner")
+                })
+        };
+        let length = benilla_sim::source_transports::sqrt_single_bits(
+            (dx * dx + dy * dy + dz * dz).to_bits(),
+        )
+        .map_err(|_| refuse("execution.linking.CreatureLinkingMgr_626.follow_distance_numeric"))?;
+        let distance = f32::from_bits(length) - radius(unit)? - radius(master)?;
+        let distance = if distance < 0. { 0. } else { distance };
+        let bearing = benilla_sim::facing::atan2_bits(dy.to_bits(), dx.to_bits())
+            .map_err(|_| refuse("execution.linking.CreatureLinkingMgr_634.follow_angle_numeric"))?;
+        let angle = f32::from_bits(bearing) - orientation;
+        let angle = if angle >= 0. {
+            angle
+        } else {
+            std::f32::consts::TAU + angle
+        };
+
+        // MotionMaster.cpp:349-365. Clear the current stack before constructing Follow.
+        let live = self.units.get(objects, unit)?;
+        if live.state & 0x0020_2040 != 0 {
+            return Ok(());
+        }
+        self.motion.flags = live.flags;
+        self.motion.control_guids = live.control_guids;
+        self.motion.database_guid = source.database_guid;
+        let motion = self.motions.get_mut(&unit).ok_or_else(|| {
+            refuse("execution.movement.CreatureLinkingMgr_637.GetMotionMaster_owner")
+        })?;
+        motion.clear(
+            !motion.is_empty(),
+            false,
+            &mut MotionContext {
+                objects,
+                units: self.units,
+            },
+            &mut self.motion,
+        )?;
+        *self.follow = Some((unit, master, [distance.to_bits(), angle.to_bits()]));
+        // TargetedMovementGenerator.h:34 links the target before writing generator fields.
+        Err(refuse(
+            "execution.movement.FollowerReference_25.addFollower_owner",
+        ))
+    }
+}
+
+pub(super) fn linking_respawn<D: GridDefinitions<Row = SpawnKey>>(
+    prefix: &mut Prefix<'_>,
+    object: ObjectHandle,
+    context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
+) -> Result<()> {
+    let actor = context.objects.get(object)?;
+    let map = prefix.link_holder.map();
+    let live = prefix.units.get(context.objects, object)?;
+    prefix.link_holder.event(
+        prefix.linking,
+        &mut LinkingRespawn {
+            motion: MotionOwner {
+                objects: context.objects,
+                geometry: context.products,
+                passengers: prefix.passengers,
+                spline_thread: prefix.spline_thread,
+                thread: prefix.thread,
+                groups: prefix.groups,
+                waypoint_paths: prefix.waypoint_paths.clone(),
+                spell_stores: prefix.spell_stores,
+                map,
+                database_guid: actor.database_guid,
+                lookups: &mut prefix.lookups,
+                flags: live.flags,
+                control_guids: live.control_guids,
+            },
+            units: &mut prefix.units,
+            motions: &mut prefix.motions,
+            births: &prefix.link_births,
+            follow: &mut prefix.link_follow,
+        },
+        LinkingEvent::Respawn,
+        object,
+        None,
+    )
 }

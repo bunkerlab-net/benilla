@@ -20,7 +20,7 @@ impl SourceSpellStarts {
             "execution.spells.queued_spell_event_owner",
         )
     }
-    pub(super) fn allocate(&mut self) -> Result<u64> {
+    pub(in crate::native::source_execution) fn allocate(&mut self) -> Result<u64> {
         self.next_id = self
             .next_id
             .checked_add(1)
@@ -58,12 +58,7 @@ impl SpellStartContext<'_> {
         } else {
             None
         };
-        let id = self
-            .starts
-            .next_id
-            .checked_add(1)
-            .ok_or_else(|| refuse("execution.spells.identity_exhausted"))?;
-        self.starts.next_id = id;
+        let id = self.starts.allocate()?;
         let mut value =
             SourceSpell::construct(id, self.stores, spell, caster, None, flags, self.owner)?;
         let mut targets = SpellTargets::default();
@@ -76,26 +71,11 @@ impl SpellStartContext<'_> {
                 targets.destination = Some([p[0], p[1], p[2]]);
                 targets.mask |= 0x40;
             }
+        } else if let Some(unit_targets) = value.unit_cast_targets(t, target, self.owner)? {
+            targets = unit_targets;
         } else {
-            if let Some(target) = target {
-                let p = self.owner.unit(target)?.position;
-                targets.unit = Some(target);
-                targets.destination = Some([p[0], p[1], p[2]]);
-                targets.mask |= 2;
-            }
-            if t.targets & 0x40 != 0 {
-                if target.is_none() {
-                    self.starts.spells.insert(id, value);
-                    return Ok(SpellCastResult::BadTargets);
-                }
-                targets.mask |= 0x40;
-            }
-            if t.targets & 0x20 != 0 {
-                targets.source = self.owner.casting_source(&value)?;
-                if targets.source.is_some() {
-                    targets.mask |= 0x20;
-                }
-            }
+            self.starts.spells.insert(id, value);
+            return Ok(SpellCastResult::BadTargets);
         }
         // Refusals retain the real event and partially executed object; never retry it.
         let result = value.start(
@@ -172,5 +152,36 @@ impl SpellStartContext<'_> {
             SpellTriggerFlags(flags),
             cast_flags & 0x1000 != 0,
         )? == SpellCastResult::Ok)
+    }
+}
+
+impl SourceSpell {
+    /// Unit.cpp:1494-1509. No explicit unit target is valid for implicit self spells.
+    pub(in crate::native::source_execution) fn unit_cast_targets(
+        &self,
+        t: &SpellTemplate,
+        target: Option<ObjectHandle>,
+        owner: &mut (impl SpellExecutionOwner + ?Sized),
+    ) -> Result<Option<SpellTargets>> {
+        let mut targets = SpellTargets::default();
+        if let Some(target) = target {
+            let p = owner.unit(target)?.position;
+            targets.unit = Some(target);
+            targets.destination = Some([p[0], p[1], p[2]]);
+            targets.mask |= 2;
+        }
+        if t.targets & 0x40 != 0 {
+            if target.is_none() {
+                return Ok(None);
+            }
+            targets.mask |= 0x40;
+        }
+        if t.targets & 0x20 != 0 {
+            targets.source = owner.casting_source(self)?;
+            if targets.source.is_some() {
+                targets.mask |= 0x20;
+            }
+        }
+        Ok(Some(targets))
     }
 }

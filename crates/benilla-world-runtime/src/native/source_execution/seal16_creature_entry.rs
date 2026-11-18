@@ -423,6 +423,7 @@ pub(super) fn continue_entry(
                         mask,
                         &mut fields.unit_flags,
                         objects.get(object)?.in_world,
+                        prefix.units.get(objects, object)?.control_guids,
                         |kind, guid| {
                             let Some(map) = objects.get(object)?.map else {
                                 return Ok(None);

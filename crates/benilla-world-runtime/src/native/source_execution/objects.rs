@@ -542,6 +542,13 @@ impl SourceObjects {
                     .is_some_and(|object| object.map == Some(map))
             })
     }
+    // Map.cpp:2371-2377,2331-2340. Reuse the same typed map stores and player filter.
+    pub(super) fn lookup_unit(&self, map: MapIdentity, guid: SourceGuid) -> Option<ObjectHandle> {
+        match guid.high() {
+            0 | 0xf130 | 0xf140 if guid.raw() != 0 => self.lookup_world_object(map, guid),
+            _ => None,
+        }
+    }
     // DB lookup preserves insertion order and prioritizes an alive creature; Map.cpp:2426-2452,2515-2523.
     pub fn lookup_database(
         &self,

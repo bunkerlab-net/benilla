@@ -313,7 +313,8 @@ impl SourceAiRegistry {
         object: ObjectHandle,
         input: CreatureAiInputs,
     ) -> Result<SelectedCreatureAi> {
-        self.select_inner(objects, object, input, false)
+        let has_charmer = input.control.charmer.is_some();
+        self.select_inner(objects, object, input, false, has_charmer)
     }
     /// Continue after the live ScriptDev owner has executed the eligible null-slot check.
     #[cfg(test)]
@@ -322,8 +323,9 @@ impl SourceAiRegistry {
         objects: &SourceObjects,
         object: ObjectHandle,
         input: CreatureAiInputs,
+        control_guids: SourceControlGuids,
     ) -> Result<SelectedCreatureAi> {
-        self.select_inner(objects, object, input, true)
+        self.select_inner(objects, object, input, true, control_guids.has_charmer())
     }
     fn select_inner(
         &self,
@@ -331,13 +333,14 @@ impl SourceAiRegistry {
         object: ObjectHandle,
         input: CreatureAiInputs,
         script_checked: bool,
+        has_charmer: bool,
     ) -> Result<SelectedCreatureAi> {
         validate_control(objects, object, &input.control)?;
         let source = objects.get(object)?;
         let c = &input.control;
         // ScriptDevAIMgr.cpp:363-370. A nonnull slot must run before its return is known.
         if !script_checked
-            && (c.pet != Some(CreaturePetKind::Controlled) || c.charmer.is_some())
+            && (c.pet != Some(CreaturePetKind::Controlled) || has_charmer)
             && !input.script_name.is_empty()
         {
             require(self.scripts_loaded, "execution.ai.scriptdev_registry_owner")?;
@@ -364,7 +367,7 @@ impl SourceAiRegistry {
             } else {
                 (AiSelectionBranch::Guardian, Some("GuardianAI"))
             }
-        } else if c.charmer.is_some() && !c.temporary_summon {
+        } else if has_charmer && !c.temporary_summon {
             (AiSelectionBranch::Charm, Some("PetAI"))
         } else if c.totem {
             (AiSelectionBranch::Totem, Some("TotemAI"))

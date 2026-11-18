@@ -115,32 +115,16 @@ impl SourceBuiltinAi {
     pub fn construct_pet(
         selected: SelectedCreatureAi,
         objects: &SourceObjects,
-        owners: PetAiConstructionOwners<'_>,
+        mut owners: PetAiConstructionOwners<'_>,
     ) -> Result<Self> {
         selected.validate(objects)?;
-        let PetAiConstructionOwners {
-            units,
-            ais,
-            created_by_spell,
-            config,
-            attack_from_behind,
-            execution,
-        } = owners;
         require(
             selected.executable().builtin_kind() == Some(BuiltinCreatureAi::Pet),
             "execution.pet_ai.selection_mismatch",
         )?;
-        let body = BuiltinBody::Pet(SourcePetAi::construct(
-            &selected,
-            objects,
-            ais,
-            created_by_spell,
-            config,
-            attack_from_behind,
-            execution,
-        )?);
-        units.bind_ai_selection(objects, &selected)?;
-        units.get_mut(objects, selected.object())?.has_ai = true;
+        let body = BuiltinBody::Pet(SourcePetAi::construct(&selected, objects, &mut owners)?);
+        owners.units.bind_ai_selection(objects, &selected)?;
+        owners.units.get_mut(objects, selected.object())?.has_ai = true;
         Ok(Self { selected, body })
     }
     pub fn pet(&self) -> Option<&SourcePetAi> {
@@ -312,7 +296,10 @@ impl SourceBuiltinAi {
         base.just_died(objects, units, owner)?;
         if matches!(self.body, BuiltinBody::Pet(_)) {
             // PetAI.cpp:598-599 evaluates GetOwnerGuid even with no requested follower.
-            owner.pet_control_guid(self.selected.object(), PetControlField::Creator)?;
+            let _owner_guid = units
+                .get(objects, self.selected.object())?
+                .control_guids
+                .creator;
         }
         Ok(())
     }
@@ -335,11 +322,19 @@ impl SourceBuiltinAi {
         }
         Ok(())
     }
-    pub fn on_unsummon(&self, objects: &SourceObjects, ais: &SourceCreatureAis) -> Result<()> {
+    pub fn on_unsummon(
+        &self,
+        objects: &SourceObjects,
+        units: &SourceUnits,
+        ais: &SourceCreatureAis,
+    ) -> Result<()> {
         self.validate(objects, ais)?;
         if matches!(self.body, BuiltinBody::Pet(_)) {
-            // PetAI.cpp:592-593. This legacy callback has no raw field owner binding.
-            return Err(refuse("execution.pet_ai.UNIT_FIELD_CREATEDBY_owner"));
+            // PetAI.cpp:592-593; CreatureAI.cpp:276 exits for the empty requested follower.
+            let _owner_guid = units
+                .get(objects, self.selected.object())?
+                .control_guids
+                .creator;
         }
         Ok(()) // UnitAI.h:425 is empty for the other classes.
     }

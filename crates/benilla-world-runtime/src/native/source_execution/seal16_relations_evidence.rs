@@ -239,3 +239,48 @@ pub(super) fn assert_words(words: &[(u64, u64, u64)]) {
     );
     assert_eq!(words[12623], (60433815, 12623, 1799183854));
 }
+
+pub(super) fn assert_continuation_words(words: &[(u64, u64, u64)]) {
+    // seal16-full-01 trace.tsv, thread 7, lines 60434830 through 60534410.
+    // Hash each (line, position, value) as three little-endian u64s.
+    assert_eq!(
+        digest(
+            words[12624..13314]
+                .iter()
+                .map(|&(line, raw, word)| [line, raw, word])
+        ),
+        "e73b69148f9c5c58d05e6fb117e76daef26b34b198f291b9848d22260427aa9f"
+    );
+}
+
+pub(super) fn assert_continuation_clocks(
+    before: &super::active_init::ActiveClocks,
+    after: &super::active_init::ActiveClocks,
+) {
+    let consumed = before.0.iter().take(before.0.len() - after.0.len());
+    let suffix = consumed.filter(|sample| sample.time_line >= 60434041);
+    assert_eq!(suffix.clone().count(), 93);
+    // Seal16 trace.tsv: clocks from 7165's holder through 590005's respawn.
+    assert_eq!(
+        digest(suffix.map(|sample| [
+            sample.site_line,
+            sample.time_line,
+            sample.thread,
+            sample.site[2],
+            sample.raw,
+            sample.seconds as u64,
+        ])),
+        "71da92e362a0fca32f900af25078eb01ff76df5a69aaa6e1767af070f4008006"
+    );
+}
+
+fn digest<const N: usize>(rows: impl Iterator<Item = [u64; N]>) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    for row in rows {
+        for value in row {
+            hash.update(value.to_le_bytes());
+        }
+    }
+    format!("{:x}", hash.finalize())
+}

@@ -18,6 +18,7 @@ pub(super) struct Execution<'a> {
     pub targets: &'a SourceSpellTargetMgr,
     pub unit: SpellUnitState,
     pub level: u32,
+    pub power_type: &'a mut u8,
     pub clocks: &'a mut ActiveClocks,
     pub world_clock: &'a SourceWorldClock,
     pub random: &'a mut dyn CreatureRandom,
@@ -42,6 +43,7 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
                 (live.owner, live.charmer, live.persuaded),
                 (None, None, None)
             );
+            assert_eq!(live.control_guids, SourceControlGuids::default());
         }
         let mut owner = Owner {
             object: self.object,
@@ -50,8 +52,14 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
             stores: self.stores,
             targets: self.targets,
             flags: &live.flags,
+            control_guids: &live.control_guids,
             immunities: &live.immunities,
             auras: &mut live.auras,
+            threat_modifier: &mut live.threat_modifier,
+            power_fields: &mut live.power_fields,
+            power_type: Some(self.power_type),
+            vitals: &mut live.vitals,
+            form: &mut live.shapeshift_form,
             cooldowns: &mut live.cooldowns,
             creature_spell_list: live.spell_list.as_ref(),
             entry: &live.entry,
@@ -69,18 +77,12 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
             bounding_radius: live.bounding_radius,
         };
         // Creature.cpp:2343 ignores the cast result. A refusal still stops here.
-        SpellStartContext {
-            stores: self.stores,
-            starts: &mut live.spell_starts,
-            events: &mut live.unit_events,
-            owner: &mut owner,
-        }
-        .cast(
-            self.object,
-            Some(self.object),
+        owner.start_cast(
             spell,
-            SpellTriggerFlags(1),
-            false,
+            Some(self.object),
+            None,
+            &mut live.spell_starts,
+            &mut live.unit_events,
         )?;
         if let Some(before) = before {
             assert_eq!(
@@ -194,8 +196,14 @@ pub(super) struct Owner<'a> {
     pub stores: &'a SourceSpellStores,
     pub targets: &'a SourceSpellTargetMgr,
     pub flags: &'a u32,
+    pub control_guids: &'a SourceControlGuids,
     pub immunities: &'a CreatureImmunityState,
     pub auras: &'a mut SourceUnitAuras,
+    pub threat_modifier: &'a mut [f32; 7],
+    pub power_fields: &'a mut Option<SourceUnitPowerFields>,
+    pub power_type: Option<&'a mut u8>,
+    pub vitals: &'a mut Option<SourceUnitVitals>,
+    pub form: &'a mut u32,
     pub cooldowns: &'a mut SourceSpellCooldowns,
     pub stand: u8,
     pub mount: u32,
@@ -235,6 +243,16 @@ impl SourceRelationOwner for Owner<'_> {
         )?;
         Ok(*self.flags)
     }
+    fn relation_master(&self, unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        require(
+            unit == self.object,
+            "execution.relations.Unit_6582.addon_other_unit_fields_owner",
+        )?;
+        Ok(self
+            .control_guids
+            .get_master(self.objects, unit, None, unbound_pet_loading)?
+            .unit())
+    }
 }
 impl SpellLocationOwner for Owner<'_> {}
 impl SpellExecutionOwner for Owner<'_> {
@@ -247,6 +265,8 @@ impl SpellExecutionOwner for Owner<'_> {
         let mut value = self.unit;
         value.standing = self.stand == 0;
         value.mounted = self.mount != 0;
+        value.form = *self.form;
+        value.stealth = self.auras.has_aura_type(16);
         Ok(value)
     }
     fn map_time(&mut self, caster: ObjectHandle) -> Result<u32> {
@@ -330,7 +350,8 @@ impl SpellExecutionOwner for Owner<'_> {
             ),
             SpellCheck::StrongerAura(_) if self.auras.aura_holders.is_empty() => Ok(R::Ok),
             SpellCheck::AllowedInLocation(location) => {
-                // Unit.cpp:6488-6494: this fresh generic creature has no beneficiary.
+                let player =
+                    spell_beneficiary_from_guids(self.objects, self.object, *self.control_guids)?;
                 let map = self
                     .objects
                     .get(self.object)?
@@ -338,16 +359,13 @@ impl SpellExecutionOwner for Owner<'_> {
                     .ok_or_else(|| refuse("execution.spells.location.WorldObject_GetMapId_owner"))?
                     .map;
                 self.stores
-                    .allowed_in_location(t, map, location[0], location[1], None, self)
+                    .allowed_in_location(t, map, location[0], location[1], player, self)
             }
             SpellCheck::Items => spell.check_items(t, false, self),
             _ => Err(check.missing_owner()),
         }
     }
     fn call(&mut self, spell: &mut SourceSpell, call: SpellCall) -> Result<()> {
-        if let SpellCall::Cast(skip) = call {
-            return self.cast_self(spell, skip);
-        }
         if call != SpellCall::PrepareTriggerData {
             return Err(call.missing_owner());
         }
@@ -365,6 +383,48 @@ impl SpellExecutionOwner for Owner<'_> {
             || Ok(self.level),
             || Ok(*self.cast_speed),
         )
+    }
+}
+
+impl Owner<'_> {
+    fn start_cast(
+        &mut self,
+        spell: u32,
+        target: Option<ObjectHandle>,
+        aura: Option<u32>,
+        starts: &mut SourceSpellStarts,
+        queue: &mut SourceUnitEvents,
+    ) -> Result<SpellCastResult> {
+        let Some(t) = self.stores.template(spell) else {
+            return Ok(SpellCastResult::NotFound);
+        };
+        let id = starts.allocate()?;
+        // Unit.cpp:1484-1492. The triggering aura belongs to this same caster.
+        let mut value = SourceSpell::construct(
+            id,
+            self.stores,
+            spell,
+            self.object,
+            None,
+            SpellTriggerFlags(1),
+            self,
+        )?;
+        value.triggered_by_spell_reagent = aura
+            .and_then(|id| self.stores.template(id))
+            .map(|template| template.reagent1);
+        let Some(targets) = value.unit_cast_targets(t, target, self)? else {
+            starts.spells.insert(id, value);
+            return Ok(SpellCastResult::BadTargets);
+        };
+        let result = (|| {
+            value.schedule_start(targets, aura, queue)?;
+            // Spell.cpp:3018-3020,3083,3094. The tail cast may borrow this queue again.
+            value
+                .start_scheduled(t, &mut starts.spells, self)?
+                .dispatch(|skip| self.cast_self(&mut value, skip, starts, queue))
+        })();
+        starts.spells.insert(id, value);
+        result
     }
 }
 
@@ -490,6 +550,7 @@ pub(super) fn max_casts(config: &[u8]) -> Result<u32> {
 struct CooldownBinding<'a> {
     object: ObjectHandle,
     objects: &'a SourceObjects,
+    control_guids: &'a SourceControlGuids,
     entry: u32,
     list: Option<&'a CreatureSpellList>,
     definitions: Option<&'a CreatureSpellMapData>,
@@ -536,6 +597,13 @@ impl CreatureCooldownOwner for CooldownBinding<'_> {
             .dbc("SpellCategory.dbc", category)?
             .map(|row| row.words[&1]))
     }
+    fn master(&mut self) -> Result<Option<ObjectHandle>> {
+        let lookup =
+            self.control_guids
+                .get_master(self.objects, self.object, None, unbound_pet_loading)?;
+        self.observation.master = Some(lookup);
+        Ok(lookup.unit())
+    }
     fn is_player(&self, unit: ObjectHandle) -> Result<bool> {
         Ok(self.objects.get(unit)?.kind == SourceObjectKind::Player)
     }
@@ -549,6 +617,7 @@ impl Owner<'_> {
             &mut CooldownBinding {
                 object: self.object,
                 objects: self.objects,
+                control_guids: self.control_guids,
                 entry: *self.entry,
                 list: self.creature_spell_list,
                 definitions: self.creature_spells,

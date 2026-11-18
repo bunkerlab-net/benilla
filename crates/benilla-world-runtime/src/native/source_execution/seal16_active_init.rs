@@ -6,7 +6,7 @@ use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: [&str; 2] = [
     "execution.spells.Unit_4757.RemoveSpellAuraHolder_owner",
-    "execution.relations.GetMaster_6716_owner",
+    "execution.movement.FollowerReference_25.addFollower_owner",
 ];
 #[path = "seal16_active_clocks.rs"]
 mod clocks;
@@ -69,6 +69,10 @@ pub(super) struct Prefix<'a> {
     pub creature_immunities: &'a LoadedCreatureImmunities,
     pub outdoor_pvp: &'a SourceOutdoorPvp,
     pub linking: &'a SourceCreatureLinking,
+    pub link_holder: &'a mut SourceCreatureLinkingHolder,
+    pub link_births: BTreeMap<ObjectHandle, (u32, i64, u32)>,
+    pub pools: &'a SourcePoolManager,
+    pub link_follow: Option<(ObjectHandle, ObjectHandle, [u32; 2])>,
     pub map_visibility_bits: u32,
     pub visibility: SourceVisibilityCensus,
     pub creature_battleground: Option<bool>,
@@ -417,6 +421,7 @@ pub(super) struct FirstGo {
 pub(super) struct ActivePrefixReport {
     pub first_creature: Option<FirstCreature>,
     pub refusal: Refusal,
+    pub link_follow: Option<(ObjectHandle, ObjectHandle, [u32; 2])>,
     pub first_go: Option<FirstGo>,
     pub completed_objects: Vec<ObjectHandle>,
     pub attempt: GridLoadAttempt,
@@ -485,6 +490,7 @@ pub(super) fn load_first(
     event_definitions: std::sync::Arc<EventAiDefinitions>,
     outdoor_pvp: &SourceOutdoorPvp,
     linking: &SourceCreatureLinking,
+    pools: &SourcePoolManager,
     states: &mut SourceManagers,
     products: &mut SourceTerrainManager,
     objects: &mut SourceObjects,
@@ -552,6 +558,10 @@ pub(super) fn load_first(
         creature_immunities,
         outdoor_pvp,
         linking,
+        link_holder: &mut map.linking,
+        link_births: BTreeMap::new(),
+        pools,
+        link_follow: None,
         map_visibility_bits: map.visibility.to_bits(),
         visibility: SourceVisibilityCensus::default(),
         creature_battleground: None,
@@ -690,6 +700,7 @@ pub(super) fn load_first(
         .flatten();
     Ok(ActivePrefixReport {
         refusal,
+        link_follow: factory.link_follow,
         first_go: factory.first_go,
         completed_objects: factory.completed_objects,
         first_creature: factory.first_creature,

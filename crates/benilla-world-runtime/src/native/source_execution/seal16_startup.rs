@@ -141,6 +141,7 @@ struct MapThreadEvidence {
     words: Vec<(u64, u64, u64)>,
     sql_line: Option<u64>,
     sql_statements: Vec<Vec<u8>>,
+    sql_lines: Vec<u64>,
     first_shuffle: Option<String>,
     shuffle_before: Vec<u32>,
     shuffle_after: Vec<u32>,
@@ -165,6 +166,9 @@ struct MapThreadEvidence {
     first_created_guid: Option<(u64, u32, u32, u32, u16)>,
     active_adds: Vec<(u64, u32, String, u32)>,
     active_locks: Vec<(u64, u16)>,
+    continuation_births: Vec<u64>,
+    continuation_completed: Vec<(u64, u32)>,
+    path_calculations: Vec<u64>,
     wmo_area_hit: Option<String>,
 }
 #[derive(Default)]
@@ -366,7 +370,20 @@ impl Inputs {
             "grid_create" if evidence.first_grid.is_none() => {
                 evidence.first_grid = Some((line, p[2].parse().unwrap(), p[3].parse().unwrap()));
             }
-            "active_add" if evidence.active_adds.len() < if thread == 6 { 2 } else { 6 } => {
+            "logical_birth"
+                if thread == 7 && (60310149..60534450).contains(&line) && p[1] == "object" =>
+            {
+                evidence.continuation_births.push(line);
+            }
+            "constructor_loader_success" if thread == 7 && (60435155..60534450).contains(&line) => {
+                evidence
+                    .continuation_completed
+                    .push((line, p[1].parse().unwrap()));
+            }
+            "path_calculate" if thread == 7 && (60310149..60534450).contains(&line) => {
+                evidence.path_calculations.push(line);
+            }
+            "active_add" if evidence.active_adds.len() < if thread == 6 { 2 } else { 10 } => {
                 evidence.active_adds.push((
                     line,
                     p[0].parse().unwrap(),
@@ -374,7 +391,7 @@ impl Inputs {
                     p[2].parse().unwrap(),
                 ));
             }
-            "grid_lock_inc" if evidence.active_locks.len() < if thread == 6 { 2 } else { 6 } => {
+            "grid_lock_inc" if evidence.active_locks.len() < if thread == 6 { 2 } else { 10 } => {
                 evidence.active_locks.push((line, p[1].parse().unwrap()));
             }
             "constructor_loader_candidate" if evidence.first_candidate.is_none() => {
@@ -503,6 +520,9 @@ impl Inputs {
                 evidence.total_words += 1;
             }
             "sql_request_bytes" | "sql_write_bytes" => {
+                if thread == 7 && line < 60534450 {
+                    evidence.sql_lines.push(line);
+                }
                 if evidence.sql_statements.len() < 2 {
                     assert_eq!(p[4], "0");
                     let bytes = p[5]
@@ -2075,6 +2095,10 @@ pub(super) fn continue_startup(
             assert_eq!(statement.as_bytes(), recorded);
         }
         assert_eq!(evidence.sql_statements.len(), 2);
+        if slot == 1 {
+            assert_eq!(evidence.sql_lines.len(), storage.issued.len());
+            assert_eq!(evidence.sql_lines, [60101153, 60113864]);
+        }
         matched_map_sql += 2;
         assert!(storage.pending.contains(&(slot as u32)));
         assert_eq!(
@@ -2213,8 +2237,10 @@ pub(super) fn continue_startup(
         let mut active_objects = SourceObjects::default();
         let pathfinders_before = geometry.pathfinder_constructor_completions;
         let calculations_before = geometry.pathfinder_calculate_completions;
+        let mut active_clocks = evidence.active_clocks.clone();
         let active_init::ActivePrefixReport {
             refusal,
+            link_follow,
             completed_objects,
             first_go,
             first_creature,
@@ -2257,7 +2283,7 @@ pub(super) fn continue_startup(
             &creature_templates,
             &creature_addons,
             &addon_spells,
-            &mut evidence.active_clocks.clone(),
+            &mut active_clocks,
             &world_clock,
             &gameobject_templates,
             &scripts,
@@ -2281,6 +2307,7 @@ pub(super) fn continue_startup(
             event_definitions.clone(),
             &outdoor_pvp,
             &links,
+            &pools,
             &mut states,
             geometry,
             &mut active_objects,
@@ -2294,11 +2321,50 @@ pub(super) fn continue_startup(
                 continents.maps[slot].passengers.transport(handle).unwrap(),
                 None
             );
+            // Object.cpp:105-108,115-118. The DB creature path has no Set*Guid writer.
+            let object = active_objects.get(handle).unwrap();
+            if object.kind == SourceObjectKind::Creature {
+                let live = units.get(&active_objects, handle).unwrap();
+                assert_eq!(
+                    live.control_guids,
+                    SourceControlGuids::default(),
+                    "{}",
+                    object.database_guid
+                );
+                assert_eq!(
+                    (live.owner, live.charmer),
+                    (None, None),
+                    "{}",
+                    object.database_guid
+                );
+                for master in live
+                    .spell_starts
+                    .spells
+                    .values()
+                    .filter_map(|spell| spell.creature_cooldown.master)
+                {
+                    assert_eq!(
+                        master,
+                        SourceMasterLookup {
+                            charmer: SourceControlLookup::EmptyGuid,
+                            creator: Some(SourceControlLookup::EmptyGuid),
+                        },
+                        "Creature.cpp:3142, GUID {}",
+                        object.database_guid
+                    );
+                }
+            }
         }
-        // Recording60367004/60368544 are the first two map1 path calculations.
+        // Map 1's two initial and five later calculations precede the linked follow.
+        if slot == 1 {
+            assert_eq!(
+                evidence.path_calculations,
+                [60367004, 60368544, 60449019, 60506680, 60509749, 60532760, 60533794]
+            );
+        }
         assert_eq!(
             geometry.pathfinder_calculate_completions - calculations_before,
-            if slot == 0 { 0 } else { 2 },
+            evidence.path_calculations.len() as u64,
             "map={slot} next_owner={}",
             refusal.id
         );
@@ -2306,12 +2372,17 @@ pub(super) fn continue_startup(
             "F6_NEXT_CANDIDATE map={slot} guid={} kind={:?} entry={entry} allocations={candidates} completed={completed} active_members={} refusal={} lookups={lookups:?}",
             attempt.guid, attempt.kind, continents.maps[slot].cells.active().len(), refusal.id
         );
+        if slot == 1 {
+            relations_evidence::assert_continuation_words(&evidence.words);
+            relations_evidence::assert_continuation_clocks(&evidence.active_clocks, &active_clocks);
+            assert_eq!(evidence.continuation_births.len(), candidates);
+        }
         println!("F6_WMO_CONTINUATION map={slot} raw={} pathfinder_constructors={} swimming={swimming_census:?} completed={completed} zone_lookups={}",
             random.cursor().raw, geometry.pathfinder_constructor_completions - pathfinders_before,
             zone_lookups.len());
         assert_eq!(
             continents.maps[slot].cells.active().len(),
-            if slot == 0 { 1 } else { 3 }
+            if slot == 0 { 1 } else { 5 }
         );
         let active_guids = continents.maps[slot]
             .cells
@@ -2324,7 +2395,7 @@ pub(super) fn continue_startup(
             if slot == 0 {
                 BTreeSet::from([636])
             } else {
-                BTreeSet::from([27279, 27280, 27281])
+                BTreeSet::from([27279, 27280, 27281, 29113, 590005])
             }
         );
         {
@@ -2345,6 +2416,10 @@ pub(super) fn continue_startup(
                         (60355106, 1, 27279),
                         (60355803, 1, 27281),
                         (60355807, 1, 27281),
+                        (60532333, 1, 29113),
+                        (60532335, 1, 29113),
+                        (60534329, 1, 590005),
+                        (60534331, 1, 590005),
                     ]
                 }
             );
@@ -2361,6 +2436,10 @@ pub(super) fn continue_startup(
                         (60355108, 4),
                         (60355805, 5),
                         (60355809, 6),
+                        (60532334, 1),
+                        (60532336, 2),
+                        (60534330, 3),
+                        (60534332, 4),
                     ]
                 }
             );
@@ -2687,8 +2766,8 @@ pub(super) fn continue_startup(
                 .is_empty());
             assert_eq!(
                 (attempt.guid, attempt.kind, entry),
-                // Recording60433323/60433354 names the next candidate.
-                (27036, GridSpawnKind::Creature, 4636)
+                // Recording60533942-60533948 starts Misha's load after Rexxar.
+                (590005, GridSpawnKind::Creature, 10204)
             );
             // Catalog equipment11596/item3368 and pre-start-classicmangos.sql:165687,595844 specify the completed creature's fields.
             let equipment = &equipment_writes[&27923];
@@ -2775,6 +2854,18 @@ pub(super) fn continue_startup(
             // Recording60368723 completes GUID28842 after Creature.cpp:882-895.
             assert!(completed_objects.contains(&waypoint));
             let stopped_candidate = candidate;
+            let (follower, master, offsets) =
+                link_follow.expect("linked MoveFollow reached constructor");
+            assert_eq!(follower, stopped_candidate);
+            assert_eq!(active_objects.get(master).unwrap().database_guid, 29113);
+            assert!(completed_objects.contains(&master));
+            assert!(!completed_objects.contains(&follower));
+            assert!(active_objects.get(follower).unwrap().in_world);
+            assert!(units.get(&active_objects, follower).unwrap().has_ai);
+            // Respawn poses at trace60531970/60533948 and model rows at
+            // pre-start-classicmangos.sql:330733,332387 supply the operands.
+            assert_eq!(offsets, [0x403fe66a, 0x409a01b2]);
+            println!("F6_LINK_FOLLOW map=1 follower=590005 master=29113 offsets={offsets:x?}");
             let candidate = waypoint;
             let live = units.get(&active_objects, candidate).unwrap();
             assert_eq!(live.state & WANDER_ACTIVE, WANDER_ACTIVE);
@@ -2815,7 +2906,7 @@ pub(super) fn continue_startup(
             assert_eq!(live.spline_outbound[0].unit, candidate);
             assert_eq!(live.spline_outbound[0].transport, None);
             // Recording60433815 consumes equal-bound word12623 at Creature.cpp:1563.
-            assert_eq!(random.cursor().raw, 12624);
+            assert_eq!(random.cursor().raw, 13314);
             assert_eq!(evidence.words[12623], (60433815, 12623, 1799183854));
             relations_evidence::assert_words(&evidence.words);
             assert_eq!(
@@ -2844,10 +2935,22 @@ pub(super) fn continue_startup(
             assert_eq!(evidence.words[12112], (60368585, 12112, 257701202));
             assert_eq!(
                 lookups
-                    .iter()
+                    .split_inclusive(|lookup| *lookup == "grid_battleground_null")
+                    .take(102)
+                    .flatten()
                     .filter(|&&s| s == "creature_live_spell_movement_query")
                     .count(),
                 1
+            );
+            // WaypointMovementGenerator.cpp:311 queries once before each initial move.
+            // The later paths belong to GUIDs 29103, 50797, and 29113 at recording
+            // 60449019, 60506680/60509749, and 60532760/60533794, respectively.
+            assert_eq!(
+                lookups
+                    .iter()
+                    .filter(|&&s| s == "creature_live_spell_movement_query")
+                    .count(),
+                4
             );
             // Recording60409483 completes object73 after Creature.cpp:886-895.
             assert_eq!(completed_objects[72], main);
@@ -2869,7 +2972,17 @@ pub(super) fn continue_startup(
                 "grid_viewpoint_added",
                 "grid_battleground_null",
             ]));
-            assert!(lookups.ends_with(&[
+            // GUID27036 is the next candidate after trace60433318. Its addon
+            // starts at Creature.cpp:932 before the cooldown draw at trace60433815.
+            let battle_calls = lookups
+                .split_inclusive(|lookup| *lookup == "grid_battleground_null")
+                .nth(102)
+                .unwrap();
+            let addon_applied = battle_calls
+                .iter()
+                .position(|&lookup| lookup == "creature_addon_applied")
+                .unwrap();
+            assert!(battle_calls[..addon_applied].ends_with(&[
                 "creature_load_addon",
                 "creature_db_addon_lookup",
                 "creature_template_addon_lookup",
@@ -2905,14 +3018,19 @@ pub(super) fn continue_startup(
             assert!(completed_objects.contains(&assisted));
             assert_eq!(spell.state, SourceSpellState::Finished);
             // Recording60433318 completes the later GO32518 while this unit retains its SpellEvent.
-            let later = *completed_objects.last().unwrap();
-            assert_eq!(active_objects.get(later).unwrap().database_guid, 32518);
+            let later = completed_objects
+                .iter()
+                .position(|&object| {
+                    active_objects.get(object).unwrap().kind == SourceObjectKind::GameObject
+                        && active_objects.get(object).unwrap().database_guid == 32518
+                })
+                .unwrap();
             assert!(
                 completed_objects
                     .iter()
                     .position(|&object| object == assisted)
                     .unwrap()
-                    < completed_objects.len() - 1
+                    < later
             );
             assert!(stopped
                 .unit_events
@@ -2930,7 +3048,14 @@ pub(super) fn continue_startup(
                 (23, 3000, 3000)
             );
             // Catalog spell7165/ordinal5721 and legacy list463600/ordinal987 precede trace60433815.
-            let current = units.get(&active_objects, stopped_candidate).unwrap();
+            let battle_caster = active_objects
+                .lookup_database(
+                    continents.maps[slot].identity,
+                    DatabaseLookupKind::Creature,
+                    27036,
+                )
+                .unwrap();
+            let current = units.get(&active_objects, battle_caster).unwrap();
             let cast = &current.spell_starts.spells[&1];
             let battle = addon_spells.template(7165).unwrap();
             assert_eq!(
@@ -2943,11 +3068,11 @@ pub(super) fn continue_startup(
                 ),
                 (7165, 327696, 47, 0, 180000)
             );
-            assert_eq!(cast.state, SourceSpellState::Casting);
-            assert!(!current.has_ai && !active_objects.get(stopped_candidate).unwrap().in_world);
-            assert!(!completed_objects.contains(&stopped_candidate));
+            assert_eq!(cast.state, SourceSpellState::Finished);
+            assert!(current.has_ai && active_objects.get(battle_caster).unwrap().in_world);
+            assert!(completed_objects.contains(&battle_caster));
             assert_eq!(
-                active_objects.get(stopped_candidate).unwrap().kind,
+                active_objects.get(battle_caster).unwrap().kind,
                 SourceObjectKind::Creature
             );
             assert!(!current.totem);
@@ -2966,6 +3091,13 @@ pub(super) fn continue_startup(
                 Some(CreatureCooldownMatch::Spell(0))
             );
             assert_eq!(cast.creature_cooldown.fallback, None);
+            assert_eq!(
+                cast.creature_cooldown.master,
+                Some(SourceMasterLookup {
+                    charmer: SourceControlLookup::EmptyGuid,
+                    creator: Some(SourceControlLookup::EmptyGuid),
+                })
+            );
             let cooldown = &current.cooldowns.spells[&7165];
             assert_eq!(
                 (
@@ -2976,8 +3108,53 @@ pub(super) fn continue_startup(
                 (0, 180000, false)
             );
             assert_eq!(current.cooldowns.categories[&47], 7165);
-            assert!(current.auras.aura_holders.is_empty());
-            println!("F6_CREATURE_COOLDOWN map=1 guid=27036 spell=7165 repeat=[0,0] flags=0 raw_line=60433815 raw_index=12623 raw_value=1799183854 result=0 category_expiry=180000 next_source=Creature.cpp:3142");
+            assert_eq!(current.shapeshift_form, 17);
+            assert_eq!(current.threat_modifier, [0.8; 7]);
+            assert_eq!(
+                current
+                    .auras
+                    .aura_holders
+                    .keys()
+                    .copied()
+                    .collect::<Vec<_>>(),
+                [7165, 21156]
+            );
+            for spell in [7165, 21156] {
+                let aura = &current.auras.aura_holders[&spell];
+                assert!(aura.ready && aura.permanent);
+                assert!(aura.effects[0].as_ref().unwrap().applied);
+                assert_eq!(aura.apply_time, 1794314190);
+            }
+            assert_eq!(current.auras.aura_holders[&21156].triggered_by, Some(7165));
+            let events = current.unit_events.inventory();
+            assert!(events.queued.iter().any(|event| {
+                event.event_id == cast.event.unwrap()
+                    && event.kind == SourceUnitEvent::Spell { spell: cast.id }
+            }));
+            // Trace lines 60433815 and 60434041 anchor the stance and its aura clocks.
+            // Spell.cpp:3008-3009 queues the outer event before SpellAuras.cpp:4291-4295.
+            let boost = &current.spell_starts.spells[&2];
+            assert_eq!((cast.id, boost.id, boost.spell), (1, 2, 21156));
+            assert_eq!(boost.state, SourceSpellState::Finished);
+            assert_eq!(boost.triggered_by_aura, Some(7165));
+            let spell_events: Vec<_> = events
+                .queued
+                .iter()
+                .filter_map(|event| match event.kind {
+                    SourceUnitEvent::Spell { spell } if spell == cast.id || spell == boost.id => {
+                        Some((spell, event.event_id))
+                    }
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(
+                spell_events,
+                [
+                    (cast.id, cast.event.unwrap()),
+                    (boost.id, boost.event.unwrap())
+                ]
+            );
+            println!("F6_CREATURE_COOLDOWN map=1 guid=27036 spell=7165 repeat=[0,0] flags=0 raw_line=60433815 raw_index=12623 raw_value=1799183854 result=0 category_expiry=180000 master=empty_guids");
             // Recording60365908 returns no group; MotionMaster.cpp:87-94
             // retains path zero/PATH_NO_PATH and enters InitializeWaypointPath.
             assert!(groups
@@ -3239,15 +3416,17 @@ pub(super) fn continue_startup(
                         == 0
             })
             .count() as u64;
-        assert_eq!(idle_count, if slot == 0 { 10 } else { 4 });
+        // MotionMaster.cpp:79-81. The seven added Idle loaders record movement=0
+        // at 60433354, 60446082, 60475692, 60476575, 60482101, 60521606, 60522958.
+        assert_eq!(idle_count, if slot == 0 { 10 } else { 11 });
         assert_eq!(
             geometry.pathfinder_constructor_completions,
-            // Recording60367004/60368544 executes two BuildIntPath calls, cpp:264.
-            // The completed waypoint contributes one marker, no Wander PathFinder.
-            // Static Idle constructs none, MotionMaster.cpp:79-81. Map0's pending
-            // GUID40520 now initializes Idle, proved above.
-            pathfinders_before + motion_initializations - idle_count - u64::from(slot == 0)
-                + u64::from(slot == 1)
+            // Four recorded waypoints execute seven BuildIntPath calls at
+            // WaypointMovementGenerator.cpp:264. Each other non-idle motion constructs one.
+            // Static Idle constructs none, MotionMaster.cpp:79-81. Both stopped
+            // creatures select Idle before the refusal; Misha's row is trace60533948.
+            pathfinders_before + motion_initializations - idle_count - 1
+                + if slot == 0 { 0 } else { 7 - 4 }
         );
         assert_eq!(
             active_objects.viewpoint_cell(candidate).unwrap(),
@@ -3380,6 +3559,12 @@ pub(super) fn continue_startup(
                 ]
                 .into_iter()
                 .chain(relations_evidence::COMPLETED.iter().map(|(_, guid)| *guid))
+                .chain(
+                    evidence
+                        .continuation_completed
+                        .iter()
+                        .map(|(_, guid)| *guid)
+                )
                 .collect::<Vec<_>>()
             );
         }
@@ -3570,8 +3755,8 @@ pub(super) fn continue_startup(
             ))
         );
         assert_eq!(attempt.guid, if slot == 0 { 18 } else { 28044 });
-        // Recording60433051/60433053 allocates GO32518's linked trap in addition to its loader object.
-        assert_eq!(candidates, if slot == 0 { 89 } else { 104 });
+        // Trace60533943 births the map 1 partial object, after 201 object births.
+        assert_eq!(candidates, if slot == 0 { 89 } else { 202 });
         assert_eq!(entry, if slot == 0 { 3211 } else { 4692 });
         if slot == 0 {
             assert_eq!(init_entry_fields, None);
@@ -3684,12 +3869,15 @@ pub(super) fn continue_startup(
             assert_eq!(entry, 4692);
             assert_eq!((template.words[17], template.words[23]), (1, 0));
             assert_eq!(template.words[17] & 2, 0, "Creature.cpp:439 short-circuits");
-            // Creature.cpp:439-444 also runs for GUID28501/entry2914, recording60349187/60349235 and snapshot423578.
+            // Creature.cpp:439-444 adds 34 probes after GUID27036. The template
+            // operands are in snapshot rows 423578,425240,425616,425627,427039,
+            // 427112,428051,428062. Trace60438284 through Misha's load records
+            // no VMap liquid at any of those probes; the bound terrain is dry.
             assert_eq!(
                 swimming_census,
                 SourceCreatureSwimmingCensus {
-                    reached_441: 2,
-                    swimming_not_set: 2,
+                    reached_441: 36,
+                    swimming_not_set: 36,
                     ..SourceCreatureSwimmingCensus::default()
                 }
             );
@@ -3852,8 +4040,8 @@ pub(super) fn continue_startup(
                 attempt.cell.y(),
             ))
         );
-        // Recording60433318 completes map1's 102nd object before candidate27036.
-        assert_eq!(completed, if slot == 0 { 87 } else { 102 });
+        // Recording60533941 completes Rexxar, map 1's 198th completed load.
+        assert_eq!(completed, if slot == 0 { 87 } else { 198 });
         println!(
             "F6_VISIBILITY map={slot} census={visibility:?} invalidated_camera_iterator_stock_reach={}",
             visibility.cameras
@@ -3875,8 +4063,8 @@ pub(super) fn continue_startup(
         assert!(!continents.maps[slot].spawn_updated);
         assert_eq!(
             random.cursor().raw,
-            // Recording60433815 adds the equal-bound GetSpellCooldown word after pool cursor11895.
-            after_pools_cursor + if slot == 0 { 520 } else { 729 }
+            // Thread 7's last word before Follow construction is at trace60534410.
+            after_pools_cursor + if slot == 0 { 520 } else { 1419 }
         );
         matched_map_words[slot] = random.cursor().raw;
         assert_eq!(after_pools_cursor as usize, evidence.pool_raw_end.unwrap());
@@ -3947,7 +4135,7 @@ pub(super) fn continue_startup(
             evidence.pool_snapshot_line.unwrap(),
             encounters.by_map(slot as u32).len(),
             refusal.id,
-            if slot == 0 { "Unit.cpp:4757" } else { "UnitAI.cpp:965" },
+            if slot == 0 { "Unit.cpp:4757" } else { "FollowerReference.cpp:25" },
         );
         owner.states = states;
         let raw = trace

@@ -85,14 +85,13 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
     }
     prefix.linking.ensure_loaded()?;
     prefix.lookups.push("creature_linking_slave_lookup");
-    if prefix
+    let slave_link = prefix
         .linking
-        .lookup(template.words[0], data.row.guid, prefix.map_entry.id)
-        .is_some()
-    {
-        return Err(refuse(
-            "execution.creature.loaded_linking_slave_holder_owner",
-        )); // Creature.cpp:925.
+        .lookup(template.words[0], data.row.guid, prefix.map_entry.id);
+    if slave_link.is_some() {
+        prefix
+            .link_holder
+            .add_slave(prefix.linking, context.objects, object, template.words[0])?;
     }
     prefix.lookups.push("creature_linking_trigger_lookup");
     if prefix
@@ -100,9 +99,24 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
         .event_trigger(template.words[0], data.row.guid, prefix.map_entry.id)
     {
         prefix.creature_linking_trigger = true; // Creature.cpp:928, before AddMasterToHolder.
-        return Err(refuse(
-            "execution.creature.loaded_linking_master_holder_owner",
-        ));
+        prefix.link_holder.add_master(
+            prefix.linking,
+            context.objects,
+            object,
+            template.words[0],
+        )?;
+    }
+    // Creature.cpp:439-444 precedes the former :3142 boundary. GUID27036
+    // has no water inhabit bit (trace60433354 and SQL snapshot line 425150).
+    if prefix.map_entry.id == 1 && data.row.guid == 27036 {
+        assert_eq!(
+            prefix.swimming_census,
+            SourceCreatureSwimmingCensus {
+                reached_441: 2,
+                swimming_not_set: 2,
+                ..SourceCreatureSwimmingCensus::default()
+            }
+        );
     }
     prefix.lookups.push("creature_load_addon");
     let guid = context
@@ -157,7 +171,7 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
         moving: fields.movement_flags & 0x0400_60cf != 0,
         falling_far: fields.movement_flags & 0x4000 != 0,
         stealth: live.auras.has_aura_type(16),
-        form: 0,
+        form: live.shapeshift_form,
         class: template.words[36],
         combo_target: None,
         mounted: fields.addon.mount != 0,
@@ -183,6 +197,7 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
             targets: &prefix.spell_targets,
             unit,
             level: fields.level.as_ref().unwrap().level,
+            power_type: &mut fields.power,
             clocks: prefix.clocks,
             world_clock: prefix.world_clock,
             random: prefix.random,
@@ -246,20 +261,52 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
         ));
     }
     prefix.lookups.push("creature_spawned_by_linked_mob_lookup");
-    // The Create lookup already selected the same loaded linking information.
-    if prefix
-        .linking
-        .lookup(template.words[0], data.row.guid, prefix.map_entry.id)
-        .is_some_and(|info| {
-            info.flags & (LINKING_BOSS_DEAD | LINKING_BOSS_ALIVE) != 0
-                && (info.master_guid != 0 || info.range != 0)
-        })
-    {
-        return Err(refuse(
-            "execution.creature.Creature_1723.loaded_linked_spawn_owner",
-        ));
-    }
     let map = context.objects.get(object)?.map.unwrap();
+    let spawn_linked = slave_link.is_some_and(|info| info.spawning_linked());
+    if spawn_linked && context.objects.get(object)?.alive {
+        let (managers, state) = context.definitions.persistent_state(map)?;
+        let can_spawn = prefix.link_holder.can_spawn_creature(
+            prefix.linking,
+            context.objects,
+            managers.state(state)?,
+            &mut MapLinkingGate {
+                spawns: prefix.spawns,
+                pools: prefix.pools,
+                script: prefix.instance_data.as_deref(),
+            },
+            object,
+            template.words[0],
+        )?;
+        if !can_spawn {
+            context.objects.mark_dead(object)?;
+            // Unit.cpp:9250-9271. This ordinary creature has no player group update.
+            let live = prefix.units.get_mut(context.objects, object)?;
+            live.vitals.as_mut().unwrap().health = 0;
+            if live.can_fly {
+                // Creature.cpp:1731 and GridDefines.h:63 disable VMaps and search 10 units.
+                let [x, y, z, orientation] = data.row.pose;
+                let height = context
+                    .products
+                    .height_static(map.map, [x, y, z], false, 10.)?;
+                if f64::from(z - height) > 0.1 {
+                    context.objects.set_pose(
+                        object,
+                        SourcePose([x, y, height, orientation].map(f32::to_bits)),
+                    )?;
+                }
+            }
+        }
+    }
+    if slave_link.is_some() || prefix.creature_linking_trigger {
+        prefix.link_births.insert(
+            object,
+            (
+                fields.respawn_delay.unwrap(),
+                fields.respawn_time.unwrap(),
+                fields.radius,
+            ),
+        );
+    }
     let cell =
         benilla_sim::resident_map::compute_cell_pair(position[0].to_bits(), position[1].to_bits())
             .map_err(|_| refuse("execution.creature.map_add_coordinates"))?;
@@ -375,6 +422,7 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
             no_aggro_on_sight: template.words[23] & 2 != 0,
             neutral_to_all: neutral,
         },
+        prefix.units.get(context.objects, object)?.control_guids,
     )?;
     prefix.lookups.push("creature_ai_selected");
     eprintln!(
@@ -394,9 +442,7 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
     }
     prefix.lookups.push("creature_spawn_relay_checked");
     if prefix.creature_linking_trigger && context.objects.get(object)?.alive {
-        return Err(refuse(
-            "execution.creature.Creature_1747.DoCreatureLinkingEvent_owner",
-        ));
+        motion_initialize::linking_respawn(prefix, object, context)?;
     }
     if prefix.groups.creature_group(map, data.row.guid)?.is_some() {
         return Err(refuse(

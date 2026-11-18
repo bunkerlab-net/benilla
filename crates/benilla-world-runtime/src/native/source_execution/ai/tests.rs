@@ -714,7 +714,7 @@ fn respawn_and_unsummon_follow_the_selected_base_class() {
             f.random.cursor.raw,
             if name == "PossessedAI" { 2 } else { 4 }
         );
-        f.ai.on_unsummon(&f.objects, &f.ais).unwrap();
+        f.ai.on_unsummon(&f.objects, &f.units, &f.ais).unwrap();
         f.ai.on_heartbeat(&f.objects, &f.ais).unwrap();
         let base = match &f.ai.body {
             BuiltinBody::Possessed(base) => base,
