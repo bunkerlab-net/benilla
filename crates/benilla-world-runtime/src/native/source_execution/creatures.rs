@@ -234,7 +234,7 @@ impl CreaturePhase {
             }
             Self::RespawnDefinition => "execution.creature.Creature_1688.respawn_radius_owner",
             Self::MapAddToWorld => "execution.creature.add_to_world_owner",
-            Self::AddToSpawnCount => "execution.creature.spawn_count_owner",
+            Self::AddToSpawnCount => "execution.creature.Map_2995.AddToSpawnCount_owner",
             Self::MapAddViewpoint => "execution.creature.viewpoint_owner",
             Self::MapAddVisibility => "execution.creature.visibility_owner",
             Self::MotionInitialize => "execution.creature.motion_owner",
@@ -243,7 +243,7 @@ impl CreaturePhase {
             }
             Self::InstanceRespawnAndCreatorLoot => "execution.creature.instance_respawn_owner",
             Self::Relay(_) => "execution.creature.relay_owner",
-            Self::RabbitDay => "execution.creature.rabbit_calendar_spell_owner",
+            Self::RabbitDay => "execution.creature.Creature_1761.localtime_owner",
         })
     }
 }
@@ -901,9 +901,20 @@ pub enum CreatureFactoryObservation {
     MapActiveChecked,
 }
 
+pub trait CreatureFactoryConfig {
+    /// Unit.cpp:9394 reads CONFIG_UINT32_CREATURE_RESPAWN_AGGRO_DELAY.
+    fn creature_respawn_aggro_config(&self) -> Result<i32> {
+        Err(refuse("execution.creature.loaded_notify_delay_config"))
+    }
+
+    /// Creature.cpp:1758 reads CONFIG_UINT32_RABBIT_DAY.
+    fn creature_rabbit_day(&self) -> Result<u32> {
+        Err(refuse("execution.creature.rabbit_day_config"))
+    }
+}
 /// Execute reached owners through the reentrant factory; Creature.cpp:898-934,1738-1765.
 pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
-    GridObjectFactory<D, P>
+    GridObjectFactory<D, P> + CreatureFactoryConfig
 {
     fn creature_thread(&self) -> u64;
     fn creature_construct_candidate(
@@ -942,8 +953,6 @@ pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     fn creature_random(&mut self) -> Result<&mut dyn CreatureRandom>;
     fn creature_units(&self) -> &SourceUnits;
     fn creature_units_mut(&mut self) -> &mut SourceUnits;
-    fn creature_respawn_aggro_config(&self) -> Result<i32>;
-    fn creature_rabbit_day(&self) -> Result<u32>;
     fn creature_spawn_relay(&mut self, state: &CreatureConstruction) -> Result<u32> {
         Ok(state.spawn.relay)
     }
@@ -1054,9 +1063,11 @@ pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     fn creature_phase(
         &mut self,
         phase: CreaturePhase,
-        state: &mut CreatureConstruction,
-        context: &mut GridFactoryContext<'_, D, P>,
-    ) -> Result<()>;
+        _state: &mut CreatureConstruction,
+        _context: &mut GridFactoryContext<'_, D, P>,
+    ) -> Result<()> {
+        Err(phase.missing_owner())
+    }
     fn creature_created(
         &mut self,
         state: CreatureConstruction,

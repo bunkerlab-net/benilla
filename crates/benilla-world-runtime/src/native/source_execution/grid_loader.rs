@@ -354,6 +354,15 @@ pub trait GridObjectFactory<D: GridDefinitions, P: GridProductOwner>: Sized {
         cell: CellIdentity,
         context: &mut GridFactoryContext<'_, D, P>,
     ) -> Result<()>;
+    /// Camera.cpp:104 handles ViewPoint's reached Event_AddedToWorld callback.
+    fn camera_added_to_world(
+        &mut self,
+        _objects: &mut SourceObjects,
+        _cells: &mut SourceCells,
+        _camera: ObjectHandle,
+    ) -> Result<()> {
+        Err(refuse("execution.camera.Camera_104.added_to_world_owner"))
+    }
     fn battleground_db_load(
         &mut self,
         object: ObjectHandle,

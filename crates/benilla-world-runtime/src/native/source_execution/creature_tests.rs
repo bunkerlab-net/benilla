@@ -372,12 +372,6 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
     fn creature_units_mut(&mut self) -> &mut SourceUnits {
         &mut self.units
     }
-    fn creature_respawn_aggro_config(&self) -> Result<i32> {
-        Ok(2087) // Authored World config input.
-    }
-    fn creature_rabbit_day(&self) -> Result<u32> {
-        Ok(0) // Authored config disables the holiday.
-    }
     fn creature_respawn_time(
         &mut self,
         guid: u32,
@@ -2304,4 +2298,54 @@ fn creator_loot_callback_reads_live_creator_after_instance_respawn() {
         "execution.creature.Creature_893.SetLootRecipient_owner"
     );
     assert_eq!(observed, [CreatureAiInitializeObservation::InstanceRespawn]);
+}
+
+impl CreatureFactoryConfig for Factory {
+    fn creature_respawn_aggro_config(&self) -> Result<i32> {
+        Ok(2087) // Authored World config input.
+    }
+    fn creature_rabbit_day(&self) -> Result<u32> {
+        Ok(0) // Authored config disables the holiday.
+    }
+}
+
+#[test]
+fn unbound_factory_continuation_refuses_at_source_sites() {
+    struct UnboundConfig;
+    impl CreatureFactoryConfig for UnboundConfig {}
+    let live = SourceUnitFields::constructed_creature();
+    assert_eq!(
+        source_add_to_world_notify_delay(SourceObjectKind::Creature, &live, || {
+            UnboundConfig.creature_respawn_aggro_config()
+        })
+        .unwrap_err()
+        .id,
+        "execution.creature.loaded_notify_delay_config",
+    );
+    assert_eq!(
+        UnboundConfig.creature_rabbit_day().unwrap_err().id,
+        "execution.creature.rabbit_day_config",
+    );
+    for (phase, refusal) in [
+        (
+            CreaturePhase::AddToSpawnCount,
+            "execution.creature.Map_2995.AddToSpawnCount_owner",
+        ),
+        (
+            CreaturePhase::RabbitDay,
+            "execution.creature.Creature_1761.localtime_owner",
+        ),
+    ] {
+        assert_eq!(phase.missing_owner().id, refusal);
+    }
+    let mut objects = SourceObjects::default();
+    let mut cells = SourceCells::new(map()).unwrap();
+    let camera = objects.construct(2, SourceObjectKind::Camera).unwrap();
+    assert_eq!(
+        Factory::new()
+            .camera_added_to_world(&mut objects, &mut cells, camera)
+            .unwrap_err()
+            .id,
+        "execution.camera.Camera_104.added_to_world_owner",
+    );
 }

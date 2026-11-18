@@ -543,22 +543,6 @@ impl<D: GridDefinitions<Row = SpawnKey>> CreatureFactoryOwner<D, SourceTerrainMa
             .products
             .height_static(map.map, [x, y, z], false, 10.)
     }
-    fn creature_respawn_aggro_config(&self) -> Result<i32> {
-        super::super::super::super::spawn_loader_config::assignment(
-            self.config,
-            "CreatureRespawnAggroDelay",
-        )?
-        .1
-        .parse()
-        .map_err(|_| refuse("execution.creature.loaded_notify_delay_config"))
-    }
-
-    fn creature_rabbit_day(&self) -> Result<u32> {
-        super::super::super::super::spawn_loader_config::assignment(self.config, "RabbitDay")?
-            .1
-            .parse()
-            .map_err(|_| refuse("execution.creature.rabbit_day_config"))
-    }
     fn creature_units_mut(&mut self) -> &mut SourceUnits {
         &mut self.units
     }
@@ -717,9 +701,6 @@ impl<D: GridDefinitions<Row = SpawnKey>> CreatureFactoryOwner<D, SourceTerrainMa
                 context.objects.get(state.object)?.map == Some(self.guids.map()),
                 "execution.creature.map_binding",
             ),
-            CreaturePhase::AddToSpawnCount => {
-                Err(refuse("execution.creature.Map_2995.AddToSpawnCount_owner"))
-            }
             CreaturePhase::MapAddViewpoint => {
                 let cell = context
                     .cells
@@ -729,7 +710,11 @@ impl<D: GridDefinitions<Row = SpawnKey>> CreatureFactoryOwner<D, SourceTerrainMa
                     state.object,
                     cell,
                     context.cells,
-                    |_, _, _| Err(refuse("execution.camera.Camera_104.added_to_world_owner")),
+                    |objects, cells, camera| {
+                        <Self as GridObjectFactory<D, SourceTerrainManager>>::camera_added_to_world(
+                            self, objects, cells, camera,
+                        )
+                    },
                 )?;
                 self.lookups.push("creature_map_viewpoint_added");
                 Ok(())
@@ -746,9 +731,6 @@ impl<D: GridDefinitions<Row = SpawnKey>> CreatureFactoryOwner<D, SourceTerrainMa
             CreaturePhase::Relay(_) => Err(refuse(
                 "execution.creature.Creature_1743.ScriptsStart_owner",
             )),
-            CreaturePhase::RabbitDay => {
-                Err(refuse("execution.creature.Creature_1761.localtime_owner"))
-            }
             CreaturePhase::AiSpellListChanged | CreaturePhase::AiJustRespawned => {
                 ai_initialize::callback(self, phase, state.object, context)
             }
@@ -779,5 +761,24 @@ impl<D: GridDefinitions<Row = SpawnKey>> CreatureFactoryOwner<D, SourceTerrainMa
             self.passengers,
             &mut self.motions,
         )
+    }
+}
+
+impl CreatureFactoryConfig for Prefix<'_> {
+    fn creature_respawn_aggro_config(&self) -> Result<i32> {
+        super::super::super::super::spawn_loader_config::assignment(
+            self.config,
+            "CreatureRespawnAggroDelay",
+        )?
+        .1
+        .parse()
+        .map_err(|_| refuse("execution.creature.loaded_notify_delay_config"))
+    }
+
+    fn creature_rabbit_day(&self) -> Result<u32> {
+        super::super::super::super::spawn_loader_config::assignment(self.config, "RabbitDay")?
+            .1
+            .parse()
+            .map_err(|_| refuse("execution.creature.rabbit_day_config"))
     }
 }

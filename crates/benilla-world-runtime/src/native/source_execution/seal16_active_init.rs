@@ -173,11 +173,16 @@ impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManag
         context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
     ) -> Result<()> {
         self.lookups.push("grid_viewpoint_added");
-        context
-            .objects
-            .viewpoint_added_to_world(object, cell, context.cells, |_, _, _| {
-                Err(refuse("execution.camera.Camera_104.added_to_world_owner"))
-            })
+        context.objects.viewpoint_added_to_world(
+            object,
+            cell,
+            context.cells,
+            |objects, cells, camera| {
+                <Self as GridObjectFactory<D, SourceTerrainManager>>::camera_added_to_world(
+                    self, objects, cells, camera,
+                )
+            },
+        )
     }
     fn battleground_db_load(
         &mut self,
