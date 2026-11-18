@@ -4,6 +4,62 @@
 use super::*;
 use std::collections::BTreeMap;
 
+impl SourceCreatureAis {
+    /// CreatureEventAI.cpp:87 calls the ordinary CreatureAI constructor first.
+    #[allow(clippy::too_many_arguments)]
+    pub fn install_loaded_event_ai_base(
+        &mut self,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        combat: &mut SourceCombat,
+        selected: &SelectedCreatureAi,
+        template: &CreatureAiTemplateOperands,
+        config: &EventAiLoaderConfig,
+        owner: &mut (impl UnitAiExecutionOwner + CreatureRandom),
+    ) -> Result<()> {
+        let unit = selected.object();
+        require(
+            objects.get(unit)?.kind == SourceObjectKind::Creature
+                && !units.get(objects, unit)?.control_guids.has_charmer()
+                && !selected.inputs().control.temporary_summon,
+            "execution.creature.CreatureAI_45.charm_info_owner",
+        )?;
+        let base =
+            SourceCreatureAi::construct(objects, unit, units, template, false, 0, config, owner)?;
+        self.install(objects, units, base, combat)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CreatureAiInitializeObservation {
+    InstanceRespawn,
+    CreatorLoot,
+}
+
+/// Creature.cpp:889-895 calls the instance before reading the live creator-loot flag.
+pub fn finish_source_creature_ai_initialization(
+    objects: &SourceObjects,
+    units: &SourceUnits,
+    unit: ObjectHandle,
+    instance: Option<&mut SourceWorldScript>,
+    mut observe: impl FnMut(CreatureAiInitializeObservation),
+    set_loot_recipient: impl FnOnce(SourceControlLookup) -> Result<()>,
+) -> Result<()> {
+    if let Some(script) = instance {
+        script.creature_respawn()?;
+    }
+    observe(CreatureAiInitializeObservation::InstanceRespawn);
+    let live = units.get(objects, unit)?;
+    if live.static_flags[0] & 0x2000 != 0 {
+        let creator = live
+            .control_guids
+            .get_creator(objects, unit, None, unbound_pet_loading)?;
+        set_loot_recipient(creator)?;
+    }
+    observe(CreatureAiInitializeObservation::CreatorLoot);
+    Ok(())
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct SourceCreatureAi {
     pub base: SourceUnitAi,
@@ -602,6 +658,25 @@ impl<O: UnitAiExecutionOwner + CreatureRandom> EventAiExecutionOwner for SourceA
 }
 
 impl<O: UnitAiExecutionOwner + CreatureRandom> SourceAiExecution<'_, O> {
+    /// Creature.cpp:887 calls the selected EventAI with the live static flags.
+    pub fn event_ai_just_respawned(
+        &mut self,
+        event: &mut SourceEventAi,
+        random: &mut dyn CreatureRandom,
+    ) -> Result<()> {
+        let objects = self.queries.objects;
+        let live = self.queries.units.get(objects, event.selected.object())?;
+        event.just_respawned(
+            objects,
+            EventAiRespawnSettings {
+                no_aggro_on_sight: event.selected.inputs().no_aggro_on_sight,
+                spawn_defensive: live.static_flags[1] & 0x400_0000 != 0,
+                ignore_combat: live.static_flags[0] & 0x200_0000 != 0,
+            },
+            random,
+            &mut EventAiDispatcher(self),
+        )
+    }
     /// UnitAI.cpp:1155-1179 resets main spells before scanning the live spell list.
     pub fn spell_list_changed(&mut self, state: &mut SourceEventAi) -> Result<()> {
         let unit = state.selected.object();

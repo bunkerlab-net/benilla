@@ -71,7 +71,6 @@ impl MotionExecutionOwner for MotionOwner<'_> {
 pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
     prefix: &mut Prefix<'_>,
     object: ObjectHandle,
-    _template: &LoadedCreatureInfo,
     context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
 ) -> Result<()> {
     let fields = prefix.creature_entry.as_mut().unwrap();
@@ -88,19 +87,19 @@ pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
         lookups: &mut prefix.lookups,
     };
     prefix.threats.register(object)?;
-    // Only the empty constructor master exists before AIM_Initialize.
+    let master = prefix
+        .motions
+        .get_mut(&object)
+        .ok_or_else(|| refuse("execution.creature.initial_motion_empty_binding"))?;
     require(
-        prefix.motions.get(&object).unwrap().is_empty(),
+        master.is_empty(),
         "execution.creature.initial_motion_empty_binding",
     )?;
-    let mut master = SourceMotionMaster::new(
-        object,
-        MotionDefault {
-            movement_type: fields.default_movement,
-            default_path: 0, // MotionMaster.h:104; no SetDefaultPathId in Create/LoadFromDB.
-        },
-    );
-    master.bind_respawn_radius(f32::from_bits(fields.respawn_radius.unwrap()));
+    master.default.movement_type = prefix
+        .units
+        .get(context.objects, object)?
+        .loaded_creature
+        .default_movement;
     let result = master.initialize(
         &mut MotionContext {
             objects: context.objects,
@@ -109,7 +108,6 @@ pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
         &mut owner,
     );
     fields.motion_state = Some(prefix.units.get(context.objects, object)?.state);
-    prefix.motions.insert(object, master);
     result
 }
 
@@ -117,7 +115,6 @@ struct LinkingRespawn<'a> {
     motion: MotionOwner<'a>,
     units: &'a mut SourceUnits,
     motions: &'a mut BTreeMap<ObjectHandle, SourceMotionMaster>,
-    births: &'a BTreeMap<ObjectHandle, (u32, i64)>,
     follow: &'a mut Option<(FollowerReferenceId, ObjectHandle, [u32; 2])>,
 }
 impl LinkingEventOwner for LinkingRespawn<'_> {
@@ -135,9 +132,6 @@ impl LinkingEventOwner for LinkingRespawn<'_> {
         let guid = object
             .guid
             .ok_or_else(|| refuse("execution.linking.guid_owner"))?;
-        let &(respawn_delay, respawn_time) = self.births.get(&unit).ok_or_else(|| {
-            refuse("execution.linking.CreatureLinkingMgr_596.respawn_fields_owner")
-        })?;
         Ok(LinkingCreature {
             object: unit,
             entry: live.entry,
@@ -152,8 +146,8 @@ impl LinkingEventOwner for LinkingRespawn<'_> {
             pet: object.kind == SourceObjectKind::Pet,
             controlled: live.flags & 8 != 0,
             combat: live.in_combat(),
-            respawn_delay,
-            respawn_time,
+            respawn_delay: live.respawn_delay,
+            respawn_time: live.respawn_time,
         })
     }
     fn linking_lookup(
@@ -233,7 +227,6 @@ pub(super) fn linking_respawn<D: GridDefinitions<Row = SpawnKey>>(
             },
             units: &mut prefix.units,
             motions: &mut prefix.motions,
-            births: &prefix.link_births,
             follow: &mut prefix.link_follow,
         },
         LinkingEvent::Respawn,

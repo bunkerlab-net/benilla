@@ -16,6 +16,14 @@ pub struct CreatureSpawn {
     pub respawn_radius: f32,
     pub relay: u32,
 }
+
+impl CreatureSpawn {
+    /// Creature.h:313, including the draw for equal bounds.
+    pub fn random_respawn_time(&self, random: &mut dyn CreatureRandom) -> Result<u32> {
+        let [min, max] = self.respawn_seconds;
+        random.creature_urand(min, max)
+    }
+}
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CreatureEventData {
     pub entry: u32,
@@ -191,6 +199,7 @@ pub enum CreaturePhase {
     LinkingRegistration,
     LoadAddon,
     AttachGroup,
+    RespawnDefinition,
     MapAddToWorld,
     AddToSpawnCount,
     MapAddViewpoint,
@@ -223,6 +232,7 @@ impl CreaturePhase {
             Self::AttachGroup | Self::FormationSlot | Self::GroupRespawn => {
                 "execution.creature.group_owner"
             }
+            Self::RespawnDefinition => "execution.creature.Creature_1688.respawn_radius_owner",
             Self::MapAddToWorld => "execution.creature.add_to_world_owner",
             Self::AddToSpawnCount => "execution.creature.spawn_count_owner",
             Self::MapAddViewpoint => "execution.creature.viewpoint_owner",
@@ -287,7 +297,7 @@ impl CreatureConstruction {
                 level: None,
             },
             level: 0,
-            respawn_delay: 0,
+            respawn_delay: 25,
             corpse_delay,
             respawn_time: 0,
             linking_trigger: false,
@@ -345,6 +355,19 @@ impl CreatureConstruction {
     pub fn reset_loaded_proto_fields(live: &mut SourceUnitFields) {
         live.combat_reach = Some(0);
         live.cast_speed = 0;
+    }
+
+    /// Creature.cpp:1705,1726; Unit.cpp:9224-9243 writes health before group updates.
+    pub fn clear_loaded_health(live: &mut SourceUnitFields) -> Result<()> {
+        let vitals = live
+            .vitals
+            .as_mut()
+            .ok_or_else(|| refuse("execution.creature.Creature_1705.SetHealth_owner"))?;
+        vitals.health = 0;
+        require(
+            !live.control_guids.has_charmer(),
+            "execution.creature.Unit_9240.health_charmer_owner",
+        )
     }
 
     pub fn construct_loaded_unit() -> SourceUnitFields {
@@ -613,6 +636,10 @@ impl CreatureConstruction {
     pub fn event_ai_mut(&mut self) -> Option<&mut SourceEventAi> {
         self.event_ai.as_mut()
     }
+    /// Transfer the constructed AI to its map-local runtime owner.
+    pub fn take_event_ai(&mut self) -> Option<SourceEventAi> {
+        self.event_ai.take()
+    }
     pub fn builtin_ai(&self) -> Option<&SourceBuiltinAi> {
         self.builtin_ai.as_ref()
     }
@@ -699,6 +726,20 @@ impl CreatureConstruction {
         build: EventAiBuild,
         base_ais: &SourceCreatureAis,
     ) -> Result<()> {
+        self.construct_event_ai_with_base(objects, definitions, build, |selected| {
+            base_ais.get(objects, selected.object())?;
+            Ok(())
+        })
+    }
+
+    /// CreatureEventAI.cpp:87 constructs CreatureAI before reading EventAI definitions.
+    pub fn construct_event_ai_with_base(
+        &mut self,
+        objects: &SourceObjects,
+        definitions: std::sync::Arc<EventAiDefinitions>,
+        build: EventAiBuild,
+        bind_base: impl FnOnce(&SelectedCreatureAi) -> Result<()>,
+    ) -> Result<()> {
         require(
             self.event_ai.is_none(),
             "execution.event_ai.already_constructed",
@@ -710,7 +751,7 @@ impl CreatureConstruction {
         if selected.executable().builtin_kind() != Some(BuiltinCreatureAi::Event) {
             return Err(selected.constructor_refusal(objects)?);
         }
-        base_ais.get(objects, selected.object())?;
+        bind_base(selected)?;
         self.event_ai = Some(SourceEventAi::construct(
             selected.clone(),
             objects,
@@ -848,6 +889,16 @@ pub enum CreatureFactoryObservation {
     DisplayDrawn,
     DisplayFallback,
     MissingModelGender(MissingCreatureModelGender),
+    FinalPositionRelocated,
+    RespawnDelay(u32),
+    RespawnTime { time: i64, corpse_delay: u32 },
+    MapGridLinked,
+    WorldLookupRegistered,
+    BaseAddedToWorld,
+    AiNotifyEnqueued(u32),
+    ForceActiveChecked,
+    SpawnCountChecked,
+    MapActiveChecked,
 }
 
 /// Execute reached owners through the reentrant factory; Creature.cpp:898-934,1738-1765.
@@ -890,6 +941,12 @@ pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     fn creature_guids(&mut self) -> &mut MapGuidAllocators;
     fn creature_random(&mut self) -> Result<&mut dyn CreatureRandom>;
     fn creature_units(&self) -> &SourceUnits;
+    fn creature_units_mut(&mut self) -> &mut SourceUnits;
+    fn creature_respawn_aggro_config(&self) -> Result<i32>;
+    fn creature_rabbit_day(&self) -> Result<u32>;
+    fn creature_spawn_relay(&mut self, state: &CreatureConstruction) -> Result<u32> {
+        Ok(state.spawn.relay)
+    }
     fn creature_respawn_time(
         &mut self,
         database: u32,
@@ -917,6 +974,21 @@ pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
         state: &CreatureConstruction,
         context: &mut GridFactoryContext<'_, D, P>,
     ) -> Result<f32>;
+    fn creature_select_ai(
+        &mut self,
+        state: &CreatureConstruction,
+        objects: &SourceObjects,
+    ) -> Result<SelectedCreatureAi> {
+        let inputs = self.creature_ai_inputs(state)?;
+        require(
+            inputs.effective_entry == state.template.entry,
+            "execution.ai.effective_entry",
+        )?;
+        self.creature_ai_registry()?
+            .select_with_live_control(objects, state.object, inputs, || {
+                self.creature_ai_control_guids(objects, state.object)
+            })
+    }
     /// Live effective-template/control operands, not a selected AI answer.
     fn creature_ai_inputs(&mut self, _state: &CreatureConstruction) -> Result<CreatureAiInputs> {
         Err(refuse("execution.ai.live_inputs_owner"))
@@ -1097,6 +1169,7 @@ where
     if !relocate_source_creature_for_create(context.objects, object, state.position)? {
         return failed(factory, object, context);
     }
+    factory.observe_creature_factory(CreatureFactoryObservation::FinalPositionRelocated);
     for phase in [
         CreaturePhase::PvpAndInstanceCreate,
         CreaturePhase::LinkingRegistration,
@@ -1107,8 +1180,23 @@ where
     if group.is_some() {
         factory.creature_phase(CreaturePhase::AttachGroup, &mut state, context)?;
     }
-    let [min, max] = state.spawn.respawn_seconds;
-    state.respawn_delay = factory.creature_random()?.creature_urand(min, max)?;
+    state.respawn_position = state.position;
+    context.objects.set_respawn_definition(
+        object,
+        SourcePose(state.respawn_position.map(f32::to_bits)),
+        true,
+    )?;
+    factory.creature_phase(CreaturePhase::RespawnDefinition, &mut state, context)?;
+    state.respawn_delay = state
+        .spawn
+        .random_respawn_time(factory.creature_random()?)?;
+    factory
+        .creature_units_mut()
+        .get_mut(context.objects, object)?
+        .respawn_delay = state.respawn_delay;
+    factory.observe_creature_factory(CreatureFactoryObservation::RespawnDelay(
+        state.respawn_delay,
+    ));
     let runtime_counter = context
         .objects
         .get(object)?
@@ -1121,7 +1209,16 @@ where
             .corpse_delay
             .min(state.respawn_delay.wrapping_mul(9) / 10);
     }
+    context.objects.get_mut(object)?.alive = true;
     state.respawn_time = factory.creature_respawn_time(attempt.guid, context)?;
+    factory
+        .creature_units_mut()
+        .get_mut(context.objects, object)?
+        .respawn_time = state.respawn_time;
+    factory.observe_creature_factory(CreatureFactoryObservation::RespawnTime {
+        time: state.respawn_time,
+        corpse_delay: state.corpse_delay,
+    });
     let now = factory.creature_wall_time(object)?;
     require(
         now.kind() == ClockKind::WallSeconds,
@@ -1134,6 +1231,14 @@ where
         dead(factory, &mut state, context)?;
     } else if state.respawn_time != 0 {
         state.respawn_time = 0;
+        factory
+            .creature_units_mut()
+            .get_mut(context.objects, object)?
+            .respawn_time = 0;
+        factory.observe_creature_factory(CreatureFactoryObservation::RespawnTime {
+            time: 0,
+            corpse_delay: state.corpse_delay,
+        });
         factory.creature_save_respawn_time(attempt.guid, 0, context)?;
     }
     state.spawning_linked = factory.creature_spawned_by_linked_mob(&state, context)?;
@@ -1153,8 +1258,9 @@ where
     ] {
         factory.creature_phase(phase, &mut state, context)?;
     }
-    if state.spawn.relay != 0 {
-        factory.creature_phase(CreaturePhase::Relay(state.spawn.relay), &mut state, context)?;
+    let relay = factory.creature_spawn_relay(&state)?;
+    if relay != 0 {
+        factory.creature_phase(CreaturePhase::Relay(relay), &mut state, context)?;
     }
     if state.linking_trigger && context.objects.get(object)?.alive {
         factory.creature_phase(CreaturePhase::LinkingRespawn, &mut state, context)?;
@@ -1166,7 +1272,7 @@ where
         }
         factory.creature_phase(CreaturePhase::GroupRespawn, &mut state, context)?;
     }
-    if context.objects.get(object)?.alive {
+    if context.objects.get(object)?.alive && factory.creature_rabbit_day()? != 0 {
         factory.creature_phase(CreaturePhase::RabbitDay, &mut state, context)?;
     }
     factory.creature_created(state, context)?;
@@ -1435,17 +1541,7 @@ where
     F: CreatureFactoryOwner<D, P>,
 {
     require(state.selected_ai.is_none(), "execution.ai.already_selected")?;
-    let inputs = factory.creature_ai_inputs(state)?;
-    require(
-        inputs.effective_entry == state.template.entry,
-        "execution.ai.effective_entry",
-    )?;
-    state.selected_ai = Some(factory.creature_ai_registry()?.select_with_live_control(
-        context.objects,
-        state.object,
-        inputs,
-        || factory.creature_ai_control_guids(context.objects, state.object),
-    )?);
+    state.selected_ai = Some(factory.creature_select_ai(state, context.objects)?);
     factory.creature_ai_construct(state, context)
 }
 
@@ -1471,17 +1567,40 @@ where
     }
     let cell = context.cells.cell(cell)?;
     context.objects.link_cell(object, cell, context.cells)?;
-    context.objects.add_to_world(object)?;
+    factory.observe_creature_factory(CreatureFactoryObservation::MapGridLinked);
+    context.objects.register_world_lookup(object)?;
+    factory.observe_creature_factory(CreatureFactoryObservation::WorldLookupRegistered);
+    context.objects.mark_in_world(object)?;
+    factory.observe_creature_factory(CreatureFactoryObservation::BaseAddedToWorld);
+    let delay = source_add_to_world_notify_delay(
+        context.objects.get(object)?.kind,
+        factory.creature_units().get(context.objects, object)?,
+        || factory.creature_respawn_aggro_config(),
+    )?;
+    factory
+        .creature_units_mut()
+        .get_mut(context.objects, object)?
+        .unit_events
+        .schedule_ai_notify(delay, false)?;
+    factory.observe_creature_factory(CreatureFactoryObservation::AiNotifyEnqueued(delay));
     factory.creature_phase(CreaturePhase::MapAddToWorld, state, context)?;
     if factory.creature_force_load_map()? || state.template.active {
         context.set_active_object_state(object, true, factory)?;
     }
-    if state.template.count_spawns {
+    factory.observe_creature_factory(CreatureFactoryObservation::ForceActiveChecked);
+    if factory
+        .creature_units()
+        .get(context.objects, object)?
+        .loaded_creature
+        .count_spawns
+    {
         factory.creature_phase(CreaturePhase::AddToSpawnCount, state, context)?;
     }
+    factory.observe_creature_factory(CreatureFactoryObservation::SpawnCountChecked);
     if context.objects.get(object)?.active {
         context.add_to_active(object, factory)?;
     }
+    factory.observe_creature_factory(CreatureFactoryObservation::MapActiveChecked);
     factory.creature_phase(CreaturePhase::MapAddViewpoint, state, context)?;
     factory.creature_phase(CreaturePhase::MapAddVisibility, state, context)
 }
@@ -1491,6 +1610,21 @@ fn valid_position(position: [f32; 4]) -> bool {
     position.iter().all(|v| v.is_finite())
         && f64::from(position[0].abs()) <= LIMIT
         && f64::from(position[1].abs()) <= LIMIT
+}
+/// Creature.h:646 short-circuits the movement flags if the creature can inhabit air.
+fn loaded_creature_can_fly(live: &SourceUnitFields) -> Result<bool> {
+    use benilla_sim::creature_capabilities::{
+        MOVEFLAG_CAN_FLY, MOVEFLAG_HOVER, MOVEFLAG_LEVITATING,
+    };
+    if live.can_fly {
+        return Ok(true);
+    }
+    let flags = live
+        .movement
+        .as_ref()
+        .and_then(|movement| movement.flags)
+        .ok_or_else(|| refuse("execution.creature.Creature_1706.CanFly_movement_flags_owner"))?;
+    Ok(flags & (MOVEFLAG_LEVITATING | MOVEFLAG_HOVER | MOVEFLAG_CAN_FLY) != 0)
 }
 fn dead<D, P, F>(
     factory: &mut F,
@@ -1504,15 +1638,20 @@ where
 {
     context.objects.mark_dead(state.object)?;
     factory.creature_phase(CreaturePhase::SetDeadAndZeroHealth, state, context)?;
-    if state.template.can_fly {
+    if loaded_creature_can_fly(
+        factory
+            .creature_units()
+            .get(context.objects, state.object)?,
+    )? {
         let height = factory.creature_dead_flying_height(state, context)?;
-        if state.position[2] - height > 0.1 {
-            state.position[2] = height;
+        let [x, y, z, orientation] = state.spawn.position;
+        if f64::from(z - height) > 0.1 {
+            state.position = [x, y, height, orientation];
+            context
+                .objects
+                .set_pose(state.object, SourcePose(state.position.map(f32::to_bits)))?;
         }
     }
-    context
-        .objects
-        .set_pose(state.object, SourcePose(state.position.map(f32::to_bits)))?;
     Ok(())
 }
 

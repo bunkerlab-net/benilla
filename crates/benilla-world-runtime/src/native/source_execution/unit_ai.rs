@@ -72,6 +72,14 @@ pub struct SourceUnitFields {
     /// Object.cpp:105-108 zeros UNIT_FIELD_CHARMEDBY and UNIT_FIELD_CREATEDBY.
     #[serde(skip)]
     pub control_guids: SourceControlGuids,
+    /// Creature.cpp:140 initializes these live members before LoadFromDB.
+    #[serde(skip)]
+    pub respawn_delay: u32,
+    #[serde(skip)]
+    pub respawn_time: i64,
+    /// Object.cpp:105-108 clears UNIT_CREATED_BY_SPELL.
+    #[serde(skip)]
+    pub unit_created_by_spell: u32,
     #[serde(skip)]
     pub controlled: SourceControlledUnits,
     pub pet_kind: Option<CreaturePetKind>,
@@ -319,6 +327,9 @@ impl SourceUnitFields {
             target: None,
             attackers: Vec::new(),
             control_guids: SourceControlGuids::default(),
+            respawn_delay: 25,
+            respawn_time: 0,
+            unit_created_by_spell: 0,
             controlled: SourceControlledUnits::default(),
             pet_kind: None,
             totem: false,

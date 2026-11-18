@@ -2,6 +2,78 @@
 // CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
 //! CreatureAISelector.cpp:38-90. Selection records an executable, never an AI body.
 use super::*;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceCreatureAiScriptObservation {
+    RegistryLookup,
+    NullFactory,
+    BuiltinRegistry,
+}
+
+/// CreatureAISelector.cpp:40-45 and ScriptDevAIMgr.cpp:363-370 for an ordinary DB creature.
+pub fn probe_loaded_creature_ai_script(
+    objects: &SourceObjects,
+    object: ObjectHandle,
+    scripts: &SourceScriptRegistry,
+    script_id: u32,
+    mut observe: impl FnMut(SourceCreatureAiScriptObservation),
+) -> Result<()> {
+    require(
+        objects.get(object)?.kind == SourceObjectKind::Creature,
+        "execution.ai.loaded_script_creature_kind",
+    )?;
+    let script = scripts.get_script(script_id)?;
+    observe(SourceCreatureAiScriptObservation::RegistryLookup);
+    if let Some(script) = script {
+        let factory = script
+            .slots
+            .get("GetAI")
+            .ok_or_else(|| refuse("execution.creature.ScriptDevAIMgr_367.GetAI_slot_owner"))?;
+        if *factory {
+            return Err(refuse("execution.creature.ScriptDevAIMgr_370.GetAI_owner"));
+        }
+    }
+    observe(SourceCreatureAiScriptObservation::NullFactory);
+    Ok(())
+}
+
+impl CreatureAiInputs {
+    /// CreatureAISelector.cpp:40-83 reads these operands from the current creature template and unit.
+    pub fn loaded_db_creature(
+        template: &LoadedCreatureInfo,
+        live: &SourceUnitFields,
+        scripts: &SourceScriptRegistry,
+        factions: &CreatureAiFactions,
+    ) -> Result<Self> {
+        require(
+            live.entry == template.words[0],
+            "execution.ai.effective_entry",
+        )?;
+        let ai_name = std::str::from_utf8(&template.strings[2])
+            .map_err(|_| refuse("execution.creature.GetAIName_encoding_owner"))?;
+        let script_name = std::str::from_utf8(
+            scripts
+                .names()
+                .get(template.words[96] as usize)
+                .ok_or_else(|| refuse("execution.creature.ScriptName_index_owner"))?,
+        )
+        .map_err(|_| refuse("execution.creature.ScriptName_encoding_owner"))?;
+        Ok(Self {
+            effective_entry: live.entry,
+            ai_name: ai_name.into(),
+            script_name: script_name.into(),
+            control: CreatureAiControl {
+                pet: live.pet_kind,
+                player_controlled: live.flags & 8 != 0,
+                temporary_summon: false,
+                totem: live.totem,
+            },
+            guard: template.words[23] & 0x400 != 0,
+            no_aggro_on_sight: template.words[23] & 2 != 0,
+            neutral_to_all: factions.neutral_to_all(live.faction),
+        })
+    }
+}
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -313,16 +385,22 @@ impl SourceAiRegistry {
     ) -> Result<SelectedCreatureAi> {
         self.select_inner(objects, object, input, false, control_guids)
     }
-    /// Continue after the live ScriptDev owner has executed the eligible null-slot check.
-    #[cfg(test)]
-    pub(super) fn select_after_script(
+    /// CreatureAISelector.cpp:40-83 and ScriptDevAIMgr.cpp:363-370.
+    #[allow(clippy::too_many_arguments)]
+    pub fn select_loaded_db_creature(
         &self,
         objects: &SourceObjects,
-        object: ObjectHandle,
-        input: CreatureAiInputs,
-        control_guids: SourceControlGuids,
+        unit: ObjectHandle,
+        live: &SourceUnitFields,
+        template: &LoadedCreatureInfo,
+        scripts: &SourceScriptRegistry,
+        factions: &CreatureAiFactions,
+        mut observe: impl FnMut(SourceCreatureAiScriptObservation),
     ) -> Result<SelectedCreatureAi> {
-        self.select_inner(objects, object, input, true, || Ok(control_guids))
+        probe_loaded_creature_ai_script(objects, unit, scripts, template.words[96], &mut observe)?;
+        observe(SourceCreatureAiScriptObservation::BuiltinRegistry);
+        let inputs = CreatureAiInputs::loaded_db_creature(template, live, scripts, factions)?;
+        self.select_inner(objects, unit, inputs, true, || Ok(live.control_guids))
     }
     fn select_inner(
         &self,

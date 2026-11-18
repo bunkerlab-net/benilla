@@ -70,7 +70,6 @@ pub(super) struct Prefix<'a> {
     pub outdoor_pvp: &'a SourceOutdoorPvp,
     pub linking: &'a SourceCreatureLinking,
     pub link_holder: &'a mut SourceCreatureLinkingHolder,
-    pub link_births: BTreeMap<ObjectHandle, (u32, i64)>,
     pub pools: &'a SourcePoolManager,
     pub link_follow: Option<(FollowerReferenceId, ObjectHandle, [u32; 2])>,
     pub map_visibility_bits: u32,
@@ -165,14 +164,7 @@ impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManag
         self.creature_zone = None;
         self.creature_linking_trigger = false;
         self.selected_ai = None;
-        let (object, state) =
-            creatures::prepare_source_creature(self, attempt, key, None, 0, context)?;
-        let Some(mut state) = state else {
-            return creatures::failed(self, object, context);
-        };
-        let data = self.loaded_creature_spawn(key.guid)?;
-        let template = self.loaded_creature_template(state.template.entry)?;
-        creature_create::continue_create(self, &mut state, data, template, context)
+        context.load_creature(self, attempt, key)
     }
     fn viewpoint_added(
         &mut self,
@@ -415,7 +407,6 @@ pub(super) fn load_first(
         outdoor_pvp,
         linking,
         link_holder: &mut map.linking,
-        link_births: BTreeMap::new(),
         pools,
         link_follow: None,
         map_visibility_bits: map.visibility.to_bits(),

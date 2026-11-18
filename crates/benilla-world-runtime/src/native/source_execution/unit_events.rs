@@ -6,6 +6,64 @@ use benilla_sim::event_processor::{
     CallbackKind, EventError, EventPayload, EventProcessor, EventProcessorSnapshot,
 };
 
+/// World.cpp:704,2395-2402,2430-2437 checks the signed config value before storing uint32.
+pub fn source_respawn_aggro_delay(value: i32) -> u32 {
+    if value < 0 {
+        5000
+    } else {
+        value as u32
+    }
+}
+
+/// Unit.cpp:9389-9396. Only an uncontrolled creature reads its creation spell.
+pub fn source_add_to_world_notify_delay(
+    kind: SourceObjectKind,
+    live: &SourceUnitFields,
+    configured: impl FnOnce() -> Result<i32>,
+) -> Result<u32> {
+    if !matches!(kind, SourceObjectKind::Creature | SourceObjectKind::Pet) || live.flags & 8 != 0 {
+        return Ok(0);
+    }
+    if live.unit_created_by_spell != 0 {
+        return Ok(1000);
+    }
+    Ok(source_respawn_aggro_delay(configured()?))
+}
+
+#[test]
+fn notify_delay_uses_source_default_only_for_negative_values() {
+    assert_eq!(source_respawn_aggro_delay(-1), 5000);
+    assert_eq!(source_respawn_aggro_delay(0), 0);
+    assert_eq!(source_respawn_aggro_delay(5000), 5000);
+    assert_eq!(source_respawn_aggro_delay(i32::MAX), 2147483647);
+}
+
+#[test]
+fn add_to_world_delay_does_not_read_config_for_controlled_or_spell_units() {
+    let mut live = SourceUnitFields::constructed_creature();
+    let unbound = || Err(refuse("execution.creature.Unit_9394.config_owner"));
+    assert_eq!(
+        source_add_to_world_notify_delay(SourceObjectKind::Creature, &live, unbound)
+            .unwrap_err()
+            .id,
+        "execution.creature.Unit_9394.config_owner"
+    );
+    assert_eq!(
+        source_add_to_world_notify_delay(SourceObjectKind::Player, &live, unbound).unwrap(),
+        0
+    );
+    live.unit_created_by_spell = 72;
+    assert_eq!(
+        source_add_to_world_notify_delay(SourceObjectKind::Creature, &live, unbound).unwrap(),
+        1000
+    );
+    live.flags = 8;
+    assert_eq!(
+        source_add_to_world_notify_delay(SourceObjectKind::Creature, &live, unbound).unwrap(),
+        0
+    );
+}
+
 /// Captures data, never a closure or native address. Creature.h:1037-1045.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SourceUnitEvent {

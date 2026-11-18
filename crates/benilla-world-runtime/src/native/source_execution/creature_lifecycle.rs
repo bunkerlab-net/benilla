@@ -434,8 +434,9 @@ impl SourceCreatureLifecycle {
                 this.construction.respawn_delay = if let Some(delay) = group_delay {
                     delay
                 } else if context.grid.objects.get(this.object())?.database_spawn_data {
-                    let [min, max] = this.construction.spawn.respawn_seconds;
-                    owner.lifecycle_random()?.creature_urand(min, max)?
+                    this.construction
+                        .spawn
+                        .random_respawn_time(owner.lifecycle_random()?)?
                 } else {
                     this.construction.respawn_delay
                 };

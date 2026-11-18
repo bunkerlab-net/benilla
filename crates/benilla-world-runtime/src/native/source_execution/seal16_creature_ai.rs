@@ -68,43 +68,69 @@ impl UnitAiExecutionOwner for LiveOwner<'_> {
     }
 }
 
-pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
+pub(super) fn construct(
     prefix: &mut Prefix<'_>,
+    state: &mut CreatureConstruction,
+    objects: &SourceObjects,
+) -> Result<()> {
+    let selected = state
+        .selected_ai()
+        .ok_or_else(|| refuse("execution.ai.selection_absent"))?;
+    let object = state.object;
+    prefix.lookups.push("creature_ai_selected");
+    eprintln!(
+        "F6_CREATURE_AI map={} entry={} input={:?} branch={:?} executable={:?}",
+        prefix.map_entry.id,
+        state.template.entry,
+        selected.inputs(),
+        selected.branch(),
+        selected.executable()
+    );
+    prefix.selected_ai = Some(selected.clone());
+    state.construct_event_ai_with_base(
+        objects,
+        prefix.event_definitions.clone(),
+        EventAiBuild::Release,
+        |selected| {
+            let template = prefix
+                .ai_templates
+                .get(&selected.inputs().effective_entry)
+                .ok_or_else(|| refuse("execution.unit_ai.effective_entry"))?;
+            let random = RefCell::new(&mut *prefix.random);
+            prefix.ais.install_loaded_event_ai_base(
+                objects,
+                &mut prefix.units,
+                &mut prefix.combat,
+                selected,
+                template,
+                prefix.ai_config,
+                &mut Owner(&random),
+            )?;
+            prefix.lookups.push("creature_base_ai_constructed");
+            Ok(())
+        },
+    )?;
+    prefix.event_ais.insert(
+        object,
+        state
+            .take_event_ai()
+            .ok_or_else(|| refuse("execution.event_ai.generation_missing"))?,
+    );
+    prefix.lookups.push("creature_event_ai_constructed");
+    Ok(())
+}
+
+pub(super) fn callback<D: GridDefinitions<Row = SpawnKey>>(
+    prefix: &mut Prefix<'_>,
+    phase: CreaturePhase,
     object: ObjectHandle,
     context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
 ) -> Result<()> {
-    let selected = prefix.selected_ai.as_ref().unwrap();
-    if selected.executable().builtin_kind() != Some(BuiltinCreatureAi::Event) {
-        return Err(selected.constructor_refusal(context.objects)?);
-    }
+    let event = prefix
+        .event_ais
+        .get_mut(&object)
+        .ok_or_else(|| refuse("execution.event_ai.generation_missing"))?;
     let random = RefCell::new(&mut *prefix.random);
-    let mut owner = Owner(&random);
-    let base = SourceCreatureAi::construct(
-        context.objects,
-        object,
-        &mut prefix.units,
-        &prefix.ai_templates[&selected.inputs().effective_entry],
-        false,
-        0,
-        prefix.ai_config,
-        &mut owner,
-    )?;
-    prefix
-        .ais
-        .install(context.objects, &mut prefix.units, base, &mut prefix.combat)?;
-    prefix.lookups.push("creature_base_ai_constructed");
-    prefix.event_ais.insert(
-        object,
-        SourceEventAi::construct(
-            selected.clone(),
-            context.objects,
-            prefix.event_definitions.clone(),
-            EventAiBuild::Release,
-        )?,
-    );
-    prefix.lookups.push("creature_event_ai_constructed");
-    let event = prefix.event_ais.get_mut(&object).unwrap();
-    let fields = prefix.creature_entry.as_ref().unwrap();
     let mut live_owner = LiveOwner {
         binding: ai_cast::Binding {
             object,
@@ -128,29 +154,44 @@ pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
         threats: &mut prefix.threats,
         owner: &mut live_owner,
     };
-    execution.spell_list_changed(event)?;
-    prefix.lookups.push("creature_ai_spell_list_changed");
-    event.just_respawned(
-        context.objects,
-        EventAiRespawnSettings {
-            no_aggro_on_sight: selected.inputs().no_aggro_on_sight,
-            spawn_defensive: fields.settings.flags[1] & 0x4000000 != 0,
-            ignore_combat: fields.settings.flags[0] & 0x2000000 != 0,
+    match phase {
+        CreaturePhase::AiSpellListChanged => {
+            execution.spell_list_changed(event)?;
+            prefix.lookups.push("creature_ai_spell_list_changed");
+        }
+        CreaturePhase::AiJustRespawned => {
+            execution.event_ai_just_respawned(event, &mut Owner(&random))?;
+            prefix.lookups.push("creature_ai_just_respawned");
+        }
+        _ => return Err(phase.missing_owner()),
+    }
+    Ok(())
+}
+
+pub(super) fn finish(
+    prefix: &mut Prefix<'_>,
+    object: ObjectHandle,
+    objects: &SourceObjects,
+) -> Result<()> {
+    finish_source_creature_ai_initialization(
+        objects,
+        &prefix.units,
+        object,
+        prefix.instance_data.as_deref_mut(),
+        |notice| {
+            prefix.lookups.push(match notice {
+                CreatureAiInitializeObservation::InstanceRespawn => {
+                    "creature_instance_respawn_callback"
+                }
+                CreatureAiInitializeObservation::CreatorLoot => "creature_creator_loot_checked",
+            })
         },
-        &mut Owner(&random),
-        &mut EventAiDispatcher(&mut execution),
+        |_| {
+            Err(refuse(
+                "execution.creature.Creature_893.SetLootRecipient_owner",
+            ))
+        },
     )?;
-    prefix.lookups.push("creature_ai_just_respawned");
-    if let Some(script) = prefix.instance_data.as_mut() {
-        script.creature_respawn()?;
-    }
-    prefix.lookups.push("creature_instance_respawn_callback");
-    if fields.settings.flags[0] & 0x2000 != 0 {
-        return Err(refuse(
-            "execution.creature.Creature_893.SetLootRecipient_owner",
-        ));
-    }
-    prefix.lookups.push("creature_creator_loot_checked");
     prefix.lookups.push("creature_aim_initialize_return");
     Ok(())
 }

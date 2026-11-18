@@ -1,25 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Creature.cpp:906-934,1687-1740; Unit.cpp:9389-9395,10957-10970.
 use super::*;
-pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
+fn apply_addon<D: GridDefinitions<Row = SpawnKey>>(
     prefix: &mut Prefix<'_>,
-    construction: &mut CreatureConstruction,
+    object: ObjectHandle,
     data: &EffectiveSpawnData,
     template: &LoadedCreatureInfo,
     context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
-) -> Result<GridCandidateOutcome> {
-    let object = construction.object;
-    // CreatureCreatePos has no close object, and staticSpawn is true, Creature.cpp:105-120.
-    let position = data.row.pose;
-    prefix.lookups.push("creature_select_final_point_static");
-    if !relocate_source_creature_for_create(context.objects, object, position)? {
-        return creatures::failed(prefix, object, context);
-    }
-    prefix
-        .lookups
-        .push("creature_final_position_relocated_valid");
-    create_notifications(prefix, object, data.row.guid, template, context)?;
-    bind_linking(prefix, construction, context.objects)?;
+) -> Result<()> {
     // Creature.cpp:439-444 precedes the former :3142 boundary. GUID27036
     // has no water inhabit bit (trace60433354 and SQL snapshot line 425150).
     if prefix.map_entry.id == 1 && data.row.guid == 27036 {
@@ -126,163 +114,14 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
     result?;
     prefix.lookups.push("creature_addon_applied");
     prefix.lookups.push("creature_create_return");
-    if prefix
-        .groups
-        .creature_group(context.objects.get(object)?.map.unwrap(), data.row.guid)?
-        .is_some()
-    {
-        return Err(refuse(
-            "execution.creature.Creature_1681.loaded_creature_group_owner",
-        ));
-    }
-    context
-        .objects
-        .set_respawn_definition(object, SourcePose(position.map(f32::to_bits)), true)?;
-    fields.respawn_radius = Some(data.row.radius.to_bits());
-    prefix
-        .motions
-        .get_mut(&object)
-        .unwrap()
-        .bind_respawn_radius(data.row.radius);
-    prefix.lookups.push("creature_respawn_coordinate_radius");
-    let delay = prefix
-        .random
-        .creature_urand(data.row.respawn[0], data.row.respawn[1])?;
-    fields.respawn_delay = Some(delay);
-    prefix.lookups.push("creature_respawn_delay_draw");
-    // Object.cpp:3076-3078 compares the actual allocated GUID counter.
-    let new_spawning = data.row.guid != 0 && data.row.guid != guid.counter();
-    if !new_spawning {
-        construction.corpse_delay = construction.corpse_delay.min(delay.wrapping_mul(9) / 10);
-        fields.corpse_delay = construction.corpse_delay;
-    }
-    context.objects.get_mut(object)?.alive = true; // Creature.cpp:1694.
-    fields.respawn_time = Some(context.saved_respawn(GridSpawnKind::Creature, data.row.guid)?);
-    prefix.lookups.push("creature_persistent_respawn_read");
-    let clock = prefix
-        .clocks
-        .creature_respawn(prefix.thread, prefix.random.creature_raw_position()?)?;
-    fields.respawn_clock = Some((clock.site_line, clock.time_line, clock.seconds));
-    prefix.lookups.push("creature_respawn_calendar_consumed");
-    if fields.respawn_time.unwrap() > clock.seconds {
-        if new_spawning {
-            return creatures::failed(prefix, object, context);
-        }
-        context.objects.mark_dead(object)?;
-        return Err(refuse("execution.creature.Creature_1705.SetHealth_owner"));
-    }
-    if fields.respawn_time != Some(0) {
-        fields.respawn_time = Some(0); // Creature.cpp:1715, before the unbound save call.
-        return Err(refuse(
-            "execution.creature.Creature_1717.loaded_save_respawn_owner",
-        ));
-    }
-    prefix.lookups.push("creature_spawned_by_linked_mob_lookup");
-    let map = context.objects.get(object)?.map.unwrap();
-    let slave_link =
-        source_creature_link_info(prefix.linking, context.objects, &prefix.units, object)?;
-    let spawn_linked = slave_link.is_some_and(|info| info.spawning_linked());
-    if spawn_linked && context.objects.get(object)?.alive {
-        let (managers, state) = context.definitions.persistent_state(map)?;
-        let can_spawn = prefix.link_holder.can_spawn_creature(
-            prefix.linking,
-            context.objects,
-            managers.state(state)?,
-            &mut MapLinkingGate {
-                spawns: prefix.spawns,
-                pools: prefix.pools,
-                script: prefix.instance_data.as_deref(),
-            },
-            object,
-            template.words[0],
-        )?;
-        if !can_spawn {
-            context.objects.mark_dead(object)?;
-            // Unit.cpp:9250-9271. This ordinary creature has no player group update.
-            let live = prefix.units.get_mut(context.objects, object)?;
-            live.vitals.as_mut().unwrap().health = 0;
-            if live.can_fly {
-                // Creature.cpp:1731 and GridDefines.h:63 disable VMaps and search 10 units.
-                let [x, y, z, orientation] = data.row.pose;
-                let height = context
-                    .products
-                    .height_static(map.map, [x, y, z], false, 10.)?;
-                if f64::from(z - height) > 0.1 {
-                    context.objects.set_pose(
-                        object,
-                        SourcePose([x, y, height, orientation].map(f32::to_bits)),
-                    )?;
-                }
-            }
-        }
-    }
-    if slave_link.is_some() || prefix.creature_linking_trigger {
-        prefix.link_births.insert(
-            object,
-            (fields.respawn_delay.unwrap(), fields.respawn_time.unwrap()),
-        );
-    }
-    let cell =
-        benilla_sim::resident_map::compute_cell_pair(position[0].to_bits(), position[1].to_bits())
-            .map_err(|_| refuse("execution.creature.map_add_coordinates"))?;
-    if context.objects.get(object)?.active {
-        context.load_grid(cell, GridLoadTrigger::Enter, prefix)?;
-    } else {
-        context.load_grid(cell, GridLoadTrigger::TerrainOnly, prefix)?;
-    }
-    let cell = context.cells.cell(cell)?;
-    context.objects.link_cell(object, cell, context.cells)?;
-    prefix.lookups.push("creature_map_add_grid_link");
-    context.objects.register_world_lookup(object)?;
-    prefix.lookups.push("creature_world_guid_registered");
-    // WorldObject ctor :1170 starts notification false; UpdateEntry's string gates ran.
-    context.objects.mark_in_world(object)?;
-    prefix.lookups.push("creature_base_add_to_world");
-    let fields = prefix.creature_entry.as_mut().unwrap();
-    // Fresh ordinary Creature, no created-by spell or player controller, Unit.cpp:9393-9394.
-    let (_, value) = super::super::super::super::spawn_loader_config::assignment(
-        prefix.config,
-        "CreatureRespawnAggroDelay",
-    )?;
-    let delay = value
-        .parse::<i32>()
-        .map_err(|_| refuse("execution.creature.loaded_notify_delay_config"))?;
-    fields.notify_delay = Some(notify_delay(delay));
-    prefix
-        .units
-        .get_mut(context.objects, object)?
-        .unit_events
-        .schedule_ai_notify(fields.notify_delay.unwrap(), false)?;
-    prefix.lookups.push("creature_schedule_ai_notify");
-    require(
-        context.objects.get(object)?.map == Some(map),
-        "execution.creature.map_binding",
-    )?;
-    prefix.lookups.push("creature_ai_notify_enqueued");
-    // World.cpp:485-494 was bound to the empty forced-map set in load_first.
-    if template.words[23] & 0x1000 != 0 {
-        context.set_active_object_state(object, true, prefix)?;
-    }
-    prefix.lookups.push("creature_force_active_checked");
-    if prefix
-        .units
-        .get(context.objects, object)?
-        .loaded_creature
-        .count_spawns
-    {
-        return Err(refuse("execution.creature.Map_2995.AddToSpawnCount_owner"));
-    }
-    prefix.lookups.push("creature_spawn_count_checked");
-    if context.objects.get(object)?.active {
-        context.add_to_active(object, prefix)?;
-    }
-    prefix.lookups.push("creature_map_active_checked");
-    context
-        .objects
-        .viewpoint_added_to_world(object, cell, context.cells, |_, _, _| {
-            Err(refuse("execution.camera.Camera_104.added_to_world_owner"))
-        })?;
-    prefix.lookups.push("creature_map_viewpoint_added");
+    Ok(())
+}
+
+fn map_add_visibility<D: GridDefinitions<Row = SpawnKey>>(
+    prefix: &mut Prefix<'_>,
+    object: ObjectHandle,
+    context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
+) -> Result<()> {
     context.objects.map_add_visibility(
         SourceVisibilityUpdate {
             object,
@@ -303,88 +142,7 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
         |_, _, _, _| Err(refuse("execution.visibility.Map_1348.player_update_owner")),
     )?;
     prefix.lookups.push("creature_map_visibility_complete");
-    motion_initialize::initialize(prefix, object, template, context)?;
-    prefix.lookups.push("creature_motion_initialized");
-    // Creature.cpp:883 -> CreatureAISelector.cpp:42 -> ScriptDevAIMgr.cpp:365.
-    let script = prefix.scripts.get_script(template.words[96])?;
-    prefix.lookups.push("creature_ai_script_registry_lookup");
-    if let Some(script) = script {
-        let factory = script
-            .slots
-            .get("GetAI")
-            .ok_or_else(|| refuse("execution.creature.ScriptDevAIMgr_367.GetAI_slot_owner"))?;
-        if *factory {
-            return Err(refuse("execution.creature.ScriptDevAIMgr_370.GetAI_owner"));
-        }
-    }
-    prefix.lookups.push("creature_ai_script_null");
-    // World.cpp:1381 -> CreatureAIRegistry.cpp:35-48. Reuse F5.01's identity and
-    // std::map traversal, not a second list of factory names or scores.
-    prefix.lookups.push("creature_ai_registry_bound");
-    // Creature.h:621-623 and Unit.cpp:330,429: this DB-loaded Creature is not a Pet,
-    // temporary summon or Totem and has no charmer or owner.
-    let neutral = prefix
-        .ai_factions
-        .neutral_to_all(prefix.units.get(context.objects, object)?.faction);
-    let selected = prefix.ai_registry.select_after_script(
-        context.objects,
-        object,
-        CreatureAiInputs {
-            effective_entry: template.words[0],
-            ai_name: String::from_utf8(template.strings[2].clone())
-                .map_err(|_| refuse("execution.creature.GetAIName_encoding_owner"))?,
-            script_name: String::from_utf8(
-                prefix
-                    .scripts
-                    .names()
-                    .get(template.words[96] as usize)
-                    .ok_or_else(|| refuse("execution.creature.ScriptName_index_owner"))?
-                    .clone(),
-            )
-            .map_err(|_| refuse("execution.creature.ScriptName_encoding_owner"))?,
-            control: CreatureAiControl::default(),
-            guard: template.words[23] & 0x400 != 0,
-            no_aggro_on_sight: template.words[23] & 2 != 0,
-            neutral_to_all: neutral,
-        },
-        prefix.units.get(context.objects, object)?.control_guids,
-    )?;
-    prefix.lookups.push("creature_ai_selected");
-    eprintln!(
-        "F6_CREATURE_AI map={} entry={} input={:?} branch={:?} executable={:?}",
-        prefix.map_entry.id,
-        template.words[0],
-        selected.inputs(),
-        selected.branch(),
-        selected.executable()
-    );
-    prefix.selected_ai = Some(selected);
-    ai_initialize::initialize(prefix, object, context)?;
-    if prefix.spawn_templates.rows()[&data.spawn_template.unwrap()].relay_id != 0 {
-        return Err(refuse(
-            "execution.creature.Creature_1743.ScriptsStart_owner",
-        ));
-    }
-    prefix.lookups.push("creature_spawn_relay_checked");
-    if prefix.creature_linking_trigger && context.objects.get(object)?.alive {
-        motion_initialize::linking_respawn(prefix, object, context)?;
-    }
-    if prefix.groups.creature_group(map, data.row.guid)?.is_some() {
-        return Err(refuse(
-            "execution.creature.Creature_1751.GetFormationData_owner",
-        ));
-    }
-    prefix.lookups.push("creature_respawn_group_checked");
-    let rabbit_day =
-        super::super::super::super::spawn_loader_config::assignment(prefix.config, "RabbitDay")?
-            .1
-            .parse::<u32>()
-            .map_err(|_| refuse("execution.creature.rabbit_day_config"))?;
-    if context.objects.get(object)?.alive && rabbit_day != 0 {
-        return Err(refuse("execution.creature.Creature_1761.localtime_owner"));
-    }
-    prefix.lookups.push("creature_load_from_db_return");
-    Ok(GridCandidateOutcome::Loaded(object))
+    Ok(())
 }
 
 fn create_notifications<D: GridDefinitions<Row = SpawnKey>>(
@@ -483,23 +241,6 @@ mod addon_cast;
 mod ai_initialize;
 #[path = "seal16_creature_motion.rs"]
 mod motion_initialize;
-
-fn notify_delay(value: i32) -> u32 {
-    // World.cpp:704,2395-2402,2430-2437 resets negative uint32 config to its default.
-    if value < 0 {
-        5000
-    } else {
-        value as u32
-    }
-}
-
-#[test]
-fn notify_delay_uses_source_default_only_for_negative_values() {
-    assert_eq!(notify_delay(-1), 5000);
-    assert_eq!(notify_delay(0), 0);
-    assert_eq!(notify_delay(5000), 5000);
-    assert_eq!(notify_delay(i32::MAX), 2147483647);
-}
 
 impl<'a> Prefix<'a> {
     pub(super) fn loaded_creature_spawn(&self, guid: u32) -> Result<&'a EffectiveSpawnData> {
@@ -606,12 +347,24 @@ impl<D: GridDefinitions<Row = SpawnKey>> CreatureFactoryOwner<D, SourceTerrainMa
 
     fn creature_current_group(
         &mut self,
-        _: ObjectHandle,
-        _: &GridFactoryContext<'_, D, SourceTerrainManager>,
+        object: ObjectHandle,
+        context: &GridFactoryContext<'_, D, SourceTerrainManager>,
     ) -> Result<Option<CreatureGroup>> {
-        Err(refuse(
-            "execution.creature.Creature_1751.GetFormationData_owner",
-        ))
+        let live = context.objects.get(object)?;
+        let map = live
+            .map
+            .ok_or_else(|| refuse("execution.creature.map_binding"))?;
+        if self
+            .groups
+            .creature_group(map, live.database_guid)?
+            .is_some()
+        {
+            return Err(refuse(
+                "execution.creature.Creature_1751.GetFormationData_owner",
+            ));
+        }
+        self.lookups.push("creature_respawn_group_checked");
+        Ok(None)
     }
 
     fn creature_entry(&mut self, _: u32, owner: CreatureEntryOwner) -> Result<u32> {
@@ -649,7 +402,29 @@ impl<D: GridDefinitions<Row = SpawnKey>> CreatureFactoryOwner<D, SourceTerrainMa
 
     fn observe_creature_factory(&mut self, observation: CreatureFactoryObservation) {
         use CreatureFactoryObservation::*;
-        self.lookups.push(match observation {
+        let lookup = match observation {
+            FinalPositionRelocated => "creature_final_position_relocated_valid",
+            RespawnDelay(delay) => {
+                self.creature_entry.as_mut().unwrap().respawn_delay = Some(delay);
+                "creature_respawn_delay_draw"
+            }
+            RespawnTime { time, corpse_delay } => {
+                let fields = self.creature_entry.as_mut().unwrap();
+                fields.respawn_time = Some(time);
+                fields.corpse_delay = corpse_delay;
+                return;
+            }
+            MapGridLinked => "creature_map_add_grid_link",
+            WorldLookupRegistered => "creature_world_guid_registered",
+            BaseAddedToWorld => "creature_base_add_to_world",
+            AiNotifyEnqueued(delay) => {
+                self.creature_entry.as_mut().unwrap().notify_delay = Some(delay);
+                self.lookups.push("creature_schedule_ai_notify");
+                "creature_ai_notify_enqueued"
+            }
+            ForceActiveChecked => "creature_force_active_checked",
+            SpawnCountChecked => "creature_spawn_count_checked",
+            MapActiveChecked => "creature_map_active_checked",
             NoExistingCreature => "existing_creature",
             ConditionalSkipped => "conditional_skipped_nonzero_entry",
             RandomSkipped => "random_skipped_nonzero_entry",
@@ -667,7 +442,8 @@ impl<D: GridDefinitions<Row = SpawnKey>> CreatureFactoryOwner<D, SourceTerrainMa
             DisplayFallback => "creature_display_fallback_template",
             ModelSelected => "creature_model_random_gender",
             MissingModelGender(notice) => panic!("unexpected missing alternate gender: {notice:?}"),
-        });
+        };
+        self.lookups.push(lookup);
     }
 
     fn creature_guids(&mut self) -> &mut MapGuidAllocators {
@@ -684,12 +460,12 @@ impl<D: GridDefinitions<Row = SpawnKey>> CreatureFactoryOwner<D, SourceTerrainMa
 
     fn creature_respawn_time(
         &mut self,
-        _: u32,
-        _: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
+        database: u32,
+        context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
     ) -> Result<i64> {
-        Err(refuse(
-            "execution.creature.Creature_1696.persistent_respawn_owner",
-        ))
+        let time = context.saved_respawn(GridSpawnKind::Creature, database)?;
+        self.lookups.push("creature_persistent_respawn_read");
+        Ok(time)
     }
 
     fn creature_save_respawn_time(
@@ -715,30 +491,122 @@ impl<D: GridDefinitions<Row = SpawnKey>> CreatureFactoryOwner<D, SourceTerrainMa
 
     fn creature_spawned_by_linked_mob(
         &mut self,
-        _: &CreatureConstruction,
-        _: &GridFactoryContext<'_, D, SourceTerrainManager>,
+        state: &CreatureConstruction,
+        context: &GridFactoryContext<'_, D, SourceTerrainManager>,
     ) -> Result<bool> {
-        Err(refuse(
-            "execution.creature.Creature_1720.linking_lookup_owner",
-        ))
+        self.lookups.push("creature_spawned_by_linked_mob_lookup");
+        Ok(
+            source_creature_link_info(self.linking, context.objects, &self.units, state.object)?
+                .is_some_and(|info| info.spawning_linked()),
+        )
     }
 
     fn creature_linked_can_spawn(
         &mut self,
-        _: &CreatureConstruction,
-        _: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
+        state: &CreatureConstruction,
+        context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
     ) -> Result<bool> {
-        Err(refuse("execution.creature.Creature_1723.CanSpawn_owner"))
+        let map = context
+            .objects
+            .get(state.object)?
+            .map
+            .ok_or_else(|| refuse("execution.creature.map_binding"))?;
+        let entry = self.units.get(context.objects, state.object)?.entry;
+        let (managers, persistent) = context.definitions.persistent_state(map)?;
+        self.link_holder.can_spawn_creature(
+            self.linking,
+            context.objects,
+            managers.state(persistent)?,
+            &mut MapLinkingGate {
+                spawns: self.spawns,
+                pools: self.pools,
+                script: self.instance_data.as_deref(),
+            },
+            state.object,
+            entry,
+        )
     }
 
     fn creature_dead_flying_height(
         &mut self,
-        _: &CreatureConstruction,
-        _: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
+        state: &CreatureConstruction,
+        context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
     ) -> Result<f32> {
-        Err(refuse(
-            "execution.creature.Creature_1731.GetHeightStatic_owner",
-        ))
+        let map = context
+            .objects
+            .get(state.object)?
+            .map
+            .ok_or_else(|| refuse("execution.creature.map_binding"))?;
+        let [x, y, z, _] = state.spawn.position;
+        // Creature.cpp:1708,1731 and GridDefines.h:63 use static height, no VMaps, range 10.
+        context
+            .products
+            .height_static(map.map, [x, y, z], false, 10.)
+    }
+    fn creature_respawn_aggro_config(&self) -> Result<i32> {
+        super::super::super::super::spawn_loader_config::assignment(
+            self.config,
+            "CreatureRespawnAggroDelay",
+        )?
+        .1
+        .parse()
+        .map_err(|_| refuse("execution.creature.loaded_notify_delay_config"))
+    }
+
+    fn creature_rabbit_day(&self) -> Result<u32> {
+        super::super::super::super::spawn_loader_config::assignment(self.config, "RabbitDay")?
+            .1
+            .parse()
+            .map_err(|_| refuse("execution.creature.rabbit_day_config"))
+    }
+    fn creature_units_mut(&mut self) -> &mut SourceUnits {
+        &mut self.units
+    }
+
+    fn creature_spawn_relay(&mut self, state: &CreatureConstruction) -> Result<u32> {
+        let template = self
+            .loaded_creature_spawn(state.spawn.database_guid)?
+            .spawn_template
+            .and_then(|entry| self.spawn_templates.rows().get(&entry))
+            .ok_or_else(|| refuse("execution.creature.Creature_1742.spawn_template_undefined"))?;
+        if template.relay_id == 0 {
+            self.lookups.push("creature_spawn_relay_checked");
+        }
+        Ok(template.relay_id)
+    }
+    fn creature_select_ai(
+        &mut self,
+        state: &CreatureConstruction,
+        objects: &SourceObjects,
+    ) -> Result<SelectedCreatureAi> {
+        let template = self.loaded_creature_template(state.template.entry)?;
+        self.ai_registry.select_loaded_db_creature(
+            objects,
+            state.object,
+            self.units.get(objects, state.object)?,
+            template,
+            self.scripts,
+            self.ai_factions,
+            |notice| {
+                self.lookups.push(match notice {
+                    SourceCreatureAiScriptObservation::RegistryLookup => {
+                        "creature_ai_script_registry_lookup"
+                    }
+                    SourceCreatureAiScriptObservation::NullFactory => "creature_ai_script_null",
+                    SourceCreatureAiScriptObservation::BuiltinRegistry => {
+                        "creature_ai_registry_bound"
+                    }
+                })
+            },
+        )
+    }
+
+    fn creature_ai_construct(
+        &mut self,
+        state: &mut CreatureConstruction,
+        context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
+    ) -> Result<()> {
+        ai_initialize::construct(self, state, context.objects)
     }
 
     fn creature_phase(
@@ -808,6 +676,84 @@ impl<D: GridDefinitions<Row = SpawnKey>> CreatureFactoryOwner<D, SourceTerrainMa
             CreaturePhase::UpdateEntryFlagsAndSpells => {
                 let entry = self.loaded_creature_entry(state)?;
                 creature_entry::update_entry(self, state, &entry, context.objects)
+            }
+            CreaturePhase::SelectFinalPointAndRelocate => {
+                self.lookups.push("creature_select_final_point_static");
+                Ok(())
+            }
+            CreaturePhase::PvpAndInstanceCreate => {
+                let template = self.loaded_creature_template(state.template.entry)?;
+                create_notifications(
+                    self,
+                    state.object,
+                    state.spawn.database_guid,
+                    template,
+                    context,
+                )
+            }
+            CreaturePhase::LinkingRegistration => bind_linking(self, state, context.objects),
+            CreaturePhase::LoadAddon => {
+                let data = self.loaded_creature_spawn(state.spawn.database_guid)?;
+                let template = self.loaded_creature_template(state.template.entry)?;
+                apply_addon(self, state.object, data, template, context)
+            }
+            CreaturePhase::AttachGroup => Err(refuse(
+                "execution.creature.Creature_1681.loaded_creature_group_owner",
+            )),
+            CreaturePhase::RespawnDefinition => {
+                let radius = state.spawn.respawn_radius;
+                self.motions
+                    .get_mut(&state.object)
+                    .ok_or_else(|| refuse("execution.creature.respawn_motion_binding"))?
+                    .bind_respawn_radius(radius);
+                self.creature_entry.as_mut().unwrap().respawn_radius = Some(radius.to_bits());
+                self.lookups.push("creature_respawn_coordinate_radius");
+                Ok(())
+            }
+            CreaturePhase::SetDeadAndZeroHealth => CreatureConstruction::clear_loaded_health(
+                self.units.get_mut(context.objects, state.object)?,
+            ),
+            CreaturePhase::MapAddToWorld => require(
+                context.objects.get(state.object)?.map == Some(self.guids.map()),
+                "execution.creature.map_binding",
+            ),
+            CreaturePhase::AddToSpawnCount => {
+                Err(refuse("execution.creature.Map_2995.AddToSpawnCount_owner"))
+            }
+            CreaturePhase::MapAddViewpoint => {
+                let cell = context
+                    .cells
+                    .registered_cell(state.object)
+                    .ok_or_else(|| refuse("execution.grid_candidate_not_registered"))?;
+                context.objects.viewpoint_added_to_world(
+                    state.object,
+                    cell,
+                    context.cells,
+                    |_, _, _| Err(refuse("execution.camera.Camera_104.added_to_world_owner")),
+                )?;
+                self.lookups.push("creature_map_viewpoint_added");
+                Ok(())
+            }
+            CreaturePhase::MapAddVisibility => map_add_visibility(self, state.object, context),
+            CreaturePhase::MotionInitialize => {
+                motion_initialize::initialize(self, state.object, context)?;
+                self.lookups.push("creature_motion_initialized");
+                Ok(())
+            }
+            CreaturePhase::LinkingRespawn => {
+                motion_initialize::linking_respawn(self, state.object, context)
+            }
+            CreaturePhase::Relay(_) => Err(refuse(
+                "execution.creature.Creature_1743.ScriptsStart_owner",
+            )),
+            CreaturePhase::RabbitDay => {
+                Err(refuse("execution.creature.Creature_1761.localtime_owner"))
+            }
+            CreaturePhase::AiSpellListChanged | CreaturePhase::AiJustRespawned => {
+                ai_initialize::callback(self, phase, state.object, context)
+            }
+            CreaturePhase::InstanceRespawnAndCreatorLoot => {
+                ai_initialize::finish(self, state.object, context.objects)
             }
             _ => Err(phase.missing_owner()),
         }

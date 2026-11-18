@@ -307,7 +307,7 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
         self.units.register(
             context.objects,
             object,
-            SourceUnitFields::constructed_creature(),
+            CreatureConstruction::construct_loaded_unit(),
         )?;
         Ok(())
     }
@@ -368,6 +368,15 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
     }
     fn creature_units(&self) -> &SourceUnits {
         &self.units
+    }
+    fn creature_units_mut(&mut self) -> &mut SourceUnits {
+        &mut self.units
+    }
+    fn creature_respawn_aggro_config(&self) -> Result<i32> {
+        Ok(2087) // Authored World config input.
+    }
+    fn creature_rabbit_day(&self) -> Result<u32> {
+        Ok(0) // Authored config disables the holiday.
     }
     fn creature_respawn_time(
         &mut self,
@@ -605,6 +614,9 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
                 )?;
             }
             CreaturePhase::InitEntryBase => {
+                let live = self.units.get_mut(context.objects, state.object)?;
+                live.can_fly = state.template.can_fly;
+                live.loaded_creature.count_spawns = state.template.count_spawns;
                 self.health.insert(state.object, 1);
             }
             CreaturePhase::SelectLevelStats => {
@@ -622,6 +634,11 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
                 } else {
                     self.health.insert(state.object, state.level * 10);
                 }
+            }
+            CreaturePhase::RespawnDefinition => {
+                let live = self.units.get(context.objects, state.object)?;
+                assert_eq!((live.respawn_delay, live.respawn_time), (25, 0));
+                assert_eq!(live.unit_created_by_spell, 0);
             }
             CreaturePhase::SetDeadAndZeroHealth => {
                 self.health.insert(state.object, 0);
@@ -2177,4 +2194,114 @@ fn constructor_discard_rejects_transport_movement_and_unknown_handles() {
         "execution.transport.discard_construction_movement_owner"
     );
     assert_eq!(passengers.transport(unit).unwrap(), Some(transport));
+}
+
+#[test]
+fn world_add_queues_notify_on_live_unit_using_authored_branch_operands() {
+    for (created_by_spell, flags, deadline) in [(0, 0, 2087), (123, 0, 1000), (123, 8, 0)] {
+        let mut world = World::new(vec![spawn(40, 0.)]);
+        let mut factory = Factory::new();
+        world.load(0., &mut factory).unwrap();
+        let mut state = factory.states.pop_first().unwrap().1;
+        let object = state.object;
+        world.objects.remove_from_world(object).unwrap();
+        let live = factory.units.get_mut(&world.objects, object).unwrap();
+        assert_eq!((live.respawn_delay, live.respawn_time), (100, 0));
+        live.unit_created_by_spell = created_by_spell;
+        live.flags = flags;
+        live.unit_events.abort_ai_notify_event().unwrap();
+        add_source_creature(&mut factory, &mut state, &mut world.context()).unwrap();
+        let queue = factory
+            .units
+            .get(&world.objects, object)
+            .unwrap()
+            .unit_events
+            .inventory();
+        assert_eq!(queue.queued.len(), 1);
+        assert_eq!(queue.queued[0].kind, SourceUnitEvent::AiNotify);
+        assert_eq!(queue.queued[0].exec_time_ms, deadline);
+    }
+}
+
+#[test]
+fn respawn_delay_draw_keeps_equal_and_ranged_bounds() {
+    let mut spawn = spawn(40, 0.);
+    let mut random = Factory::new().random;
+    spawn.respawn_seconds = [25, 25];
+    assert_eq!(spawn.random_respawn_time(&mut random).unwrap(), 25);
+    assert_eq!(random.cursor.raw, 1);
+    spawn.respawn_seconds = [20, 22];
+    assert_eq!(spawn.random_respawn_time(&mut random).unwrap(), 20);
+    assert_eq!(random.cursor.raw, 2);
+}
+
+#[test]
+fn script_probe_refuses_nonnull_factory_before_builtin_selection() {
+    let mut objects = SourceObjects::default();
+    let object = objects.construct(2, SourceObjectKind::Creature).unwrap();
+    let mut scripts = SourceScriptRegistry::default();
+    scripts
+        .load_script_names(|| Ok(Some(vec![b"custom".to_vec()])))
+        .unwrap();
+    scripts
+        .initialize_registry([SourceScriptDefinition {
+            name: b"custom".to_vec(),
+            registration: 1,
+            operation: "register".into(),
+            source_file: "fixture".into(),
+            source_line: 1,
+            source_function: "AddSC_custom".into(),
+            slots: [("GetAI".into(), true)].into(),
+        }])
+        .unwrap();
+    let mut observed = Vec::new();
+    probe_loaded_creature_ai_script(&objects, object, &scripts, 0, |o| observed.push(o)).unwrap();
+    assert_eq!(
+        observed,
+        [
+            SourceCreatureAiScriptObservation::RegistryLookup,
+            SourceCreatureAiScriptObservation::NullFactory
+        ]
+    );
+    observed.clear();
+    assert_eq!(
+        probe_loaded_creature_ai_script(&objects, object, &scripts, 1, |o| observed.push(o))
+            .unwrap_err()
+            .id,
+        "execution.creature.ScriptDevAIMgr_370.GetAI_owner"
+    );
+    assert_eq!(
+        observed,
+        [SourceCreatureAiScriptObservation::RegistryLookup]
+    );
+}
+
+#[test]
+fn creator_loot_callback_reads_live_creator_after_instance_respawn() {
+    let mut objects = SourceObjects::default();
+    let mut units = SourceUnits::default();
+    let unit = objects.construct(2, SourceObjectKind::Creature).unwrap();
+    let mut fields = SourceUnitFields::constructed_creature();
+    fields.static_flags[0] |= 0x2000;
+    units.register(&objects, unit, fields).unwrap();
+    let mut observed = Vec::new();
+    assert_eq!(
+        finish_source_creature_ai_initialization(
+            &objects,
+            &units,
+            unit,
+            None,
+            |o| observed.push(o),
+            |creator| {
+                assert_eq!(creator, SourceControlLookup::EmptyGuid);
+                Err(refuse(
+                    "execution.creature.Creature_893.SetLootRecipient_owner",
+                ))
+            }
+        )
+        .unwrap_err()
+        .id,
+        "execution.creature.Creature_893.SetLootRecipient_owner"
+    );
+    assert_eq!(observed, [CreatureAiInitializeObservation::InstanceRespawn]);
 }
