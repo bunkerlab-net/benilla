@@ -310,6 +310,35 @@ impl CreatureSpellMapData {
         self.0.get(key)
     }
 }
+
+/// Creature.cpp:609-612. The legacy key uses unsigned C++ multiplication.
+pub fn source_creature_spell_list_key(entry: u32, explicit: u32) -> Option<u32> {
+    let key = if explicit != 0 {
+        explicit
+    } else {
+        entry.wrapping_mul(100)
+    };
+    (key != 0).then_some(key)
+}
+
+impl SourceUnitFields {
+    /// Creature.cpp:2426-2460. Fresh DB creatures have no AI and no prior list.
+    pub fn set_fresh_creature_spell_list(
+        &mut self,
+        key: u32,
+        map: Option<&CreatureSpellMapData>,
+        random: &mut dyn CreatureRandom,
+    ) -> Result<bool> {
+        let mut list = CreatureSpellList::default();
+        let changed = list.set(key, map, random)?;
+        if changed {
+            self.spell_list_disabled = Some(list.disabled);
+            self.spell_list = (key != 0).then_some(list);
+        }
+        Ok(changed)
+    }
+}
+
 impl CreatureSpellList {
     /// Creature.cpp:2426-2460. The caller invokes SpellListChanged only when this returns true.
     pub fn set(
@@ -331,7 +360,7 @@ impl CreatureSpellList {
         self.filter_availability(random)?;
         Ok(true)
     }
-    pub(super) fn filter_availability(&mut self, random: &mut dyn CreatureRandom) -> Result<()> {
+    fn filter_availability(&mut self, random: &mut dyn CreatureRandom) -> Result<()> {
         let mut failure = None;
         self.spells.retain(|_, spell| {
             if failure.is_some() || spell.availability >= 100 {

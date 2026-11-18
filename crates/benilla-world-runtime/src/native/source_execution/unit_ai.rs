@@ -72,6 +72,8 @@ pub struct SourceUnitFields {
     /// Object.cpp:105-108 zeros UNIT_FIELD_CHARMEDBY and UNIT_FIELD_CREATEDBY.
     #[serde(skip)]
     pub control_guids: SourceControlGuids,
+    #[serde(skip)]
+    pub controlled: SourceControlledUnits,
     pub pet_kind: Option<CreaturePetKind>,
     pub totem: bool,
     pub beneficiary: Option<ObjectHandle>,
@@ -317,6 +319,7 @@ impl SourceUnitFields {
             target: None,
             attackers: Vec::new(),
             control_guids: SourceControlGuids::default(),
+            controlled: SourceControlledUnits::default(),
             pet_kind: None,
             totem: false,
             beneficiary: None,

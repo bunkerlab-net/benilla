@@ -98,8 +98,7 @@ pub use visibility::{
     SourceVisibilityUpdate,
 };
 mod creature_settings;
-#[cfg(test)]
-use creature_settings::{ControlledLookup, FreshCreatureControl};
+pub use creature_settings::SourceControlledUnits;
 pub use creature_settings::{CreatureStaticFlagApplication, SourceCreatureSettings};
 mod clock;
 mod compare;

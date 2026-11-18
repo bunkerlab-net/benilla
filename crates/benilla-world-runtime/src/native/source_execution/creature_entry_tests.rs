@@ -331,3 +331,168 @@ fn init_entry_class_power_and_select_level_mana_agree_for_all_source_cases() {
         );
     }
 }
+
+#[test]
+fn fresh_spell_list_disables_zero_and_filters_only_the_live_copy() {
+    use std::sync::Arc;
+
+    struct Rolls(Vec<(u32, u32)>);
+    impl CreatureRandom for Rolls {
+        fn creature_irand(&mut self, _: i32, _: i32) -> Result<i32> {
+            panic!("Availability calls urand")
+        }
+
+        fn creature_urand(&mut self, low: u32, high: u32) -> Result<u32> {
+            self.0.push((low, high));
+            Ok(100)
+        }
+    }
+
+    let (lists, _) = LoadedCreatureSpellLists::load(
+        vec![SqlTemplateRow {
+            ordinal: 0,
+            words: [1, 0, 0, 0, 0, u32::MAX],
+            strings: [b"current".to_vec()],
+        }],
+        vec![SqlTemplateRow {
+            ordinal: 0,
+            words: [700, 0, 0],
+            strings: [b"list".to_vec()],
+        }],
+        vec![
+            SqlTemplateRow {
+                ordinal: 0,
+                words: [700, 0, 10, 0, u32::MAX, 1, 0, 99, 0, 0, 0, 0, 0],
+                strings: [],
+            },
+            SqlTemplateRow {
+                ordinal: 1,
+                words: [700, 1, 11, 0, u32::MAX, 1, 0, 100, 0, 0, 0, 0, 0],
+                strings: [],
+            },
+        ],
+        &BTreeMap::from([(10, 0), (11, 0)]),
+    );
+    let map = CreatureSpellMapData(Arc::new(lists));
+    let mut live = CreatureConstruction::construct_loaded_unit();
+    let mut random = Rolls(Vec::new());
+    let key = source_creature_spell_list_key(7, 0).unwrap();
+    assert_eq!(
+        live.set_fresh_creature_spell_list(key, None, &mut random)
+            .unwrap_err()
+            .id,
+        "execution.creature.loaded_spell_list_store_owner"
+    );
+    assert!(!live
+        .set_fresh_creature_spell_list(
+            source_creature_spell_list_key(7, 89).unwrap(),
+            Some(&map),
+            &mut random
+        )
+        .unwrap());
+    assert_eq!(live.spell_list_disabled, None);
+    assert!(random.0.is_empty());
+    assert!(live
+        .set_fresh_creature_spell_list(key, Some(&map), &mut random)
+        .unwrap());
+    assert_eq!(random.0, [(0, 100)]);
+    assert_eq!(map.get(700).unwrap().spells.len(), 2);
+    assert_eq!(
+        live.spell_list
+            .as_ref()
+            .unwrap()
+            .spells
+            .keys()
+            .copied()
+            .collect::<Vec<_>>(),
+        [1]
+    );
+    assert_eq!(live.spell_list_disabled, Some(false));
+
+    let mut zero = CreatureConstruction::construct_loaded_unit();
+    let wrapping_zero = source_creature_spell_list_key(0x40000000, 0).unwrap_or(0);
+    assert!(zero
+        .set_fresh_creature_spell_list(wrapping_zero, None, &mut random)
+        .unwrap());
+    assert_eq!(zero.spell_list_disabled, Some(true));
+    assert!(zero.spell_list.is_none());
+    assert_eq!(random.0, [(0, 100)]);
+}
+
+#[test]
+fn loaded_update_applies_immunity_before_critter_and_refuses_event_before_string_id() {
+    let mut row = template();
+    row.words[16] = 8;
+    row.words[91] = 11;
+    let spawn = spawn();
+    let entry = LoadedCreatureEntry {
+        original: &row,
+        effective: &row,
+        spawn: &spawn,
+        movement: 0,
+        map: 0,
+    };
+    let mut live = CreatureConstruction::construct_loaded_unit();
+    let mut state = construction(&row);
+    CreatureConstruction::init_loaded_entry_base(&mut live, &row);
+    assert_eq!(
+        CreatureConstruction::update_loaded_entry_immunities(&mut live, &row, None)
+            .unwrap_err()
+            .id,
+        "execution.creature.loaded_immunity_set_store_owner"
+    );
+    assert!(!live.critter && !live.loaded_creature.chain_immune);
+    let (store, _) = LoadedCreatureImmunities::load(&[[7, 0, 0, 6]], |entry| entry == 7);
+    CreatureConstruction::update_loaded_entry_immunities(&mut live, &row, Some(&store)).unwrap();
+    assert_eq!(live.immunities.set, 0);
+    assert!(live.critter && live.loaded_creature.chain_immune);
+    state.event = Some(CreatureEventData::default());
+    assert_eq!(
+        state.require_loaded_entry_callbacks(&entry).unwrap_err().id,
+        "execution.creature.loaded_game_event_spells_owner"
+    );
+    state.event = None;
+    assert_eq!(
+        state.require_loaded_entry_callbacks(&entry).unwrap_err().id,
+        "execution.creature.loaded_string_id_owner"
+    );
+}
+
+#[test]
+fn loaded_static_flags_use_live_control_and_keep_the_source_refusal_prefix() {
+    let mut objects = SourceObjects::default();
+    let unit = objects.construct(6, SourceObjectKind::Creature).unwrap();
+    let child = objects.construct(6, SourceObjectKind::Pet).unwrap();
+    let map = MapIdentity {
+        map: 0,
+        instance: 0,
+        creation_generation: 1,
+    };
+    let pet = SourceGuid::with_entry(HighGuid::Pet, 7, 1);
+    let stale = SourceGuid::with_entry(HighGuid::Pet, 7, 2);
+    objects.assign_guid(child, 0, pet).unwrap();
+    objects.get_mut(unit).unwrap().map = Some(map);
+    objects.get_mut(child).unwrap().map = Some(map);
+    objects.register_world_lookup(child).unwrap();
+
+    let mut live = CreatureConstruction::construct_loaded_unit();
+    let saved = serde_json::to_vec(&live).unwrap();
+    live.controlled.pet = stale;
+    live.controlled.guardians.insert(pet);
+    assert_eq!(serde_json::to_vec(&live).unwrap(), saved);
+    let flags = [0x8000_0260, 2, 0xc00, 4];
+    let failure =
+        SourceCreatureSettings::reset_live(&mut live, flags, unit, &mut objects).unwrap_err();
+    assert_eq!(
+        failure.id,
+        "execution.creature_settings.Unit_10704.controlled_flags_owner"
+    );
+    assert_eq!(live.static_flags, flags);
+    assert_eq!(objects.visibility_override_bits(unit).unwrap(), 0x4405_5555);
+    assert_eq!(live.flags, 0x0200_0100);
+    assert_eq!(live.controlled.pet, SourceGuid::default());
+
+    live.control_guids.charmer = SourceGuid::without_entry(HighGuid::Player, 9);
+    SourceCreatureSettings::reset_live(&mut live, flags, unit, &mut objects).unwrap();
+    assert_eq!(live.flags, 0x0200_0300);
+}

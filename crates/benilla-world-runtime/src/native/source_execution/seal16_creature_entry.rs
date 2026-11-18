@@ -47,10 +47,8 @@ pub(in crate::native::source_execution) struct EntryFields {
     pub can_modify_stats: bool,
     pub pvp: bool,
     pub requested_spell_list: u32,
-    pub spell_list_disabled: Option<bool>,
     pub chain_immune: bool,
     pub settings: SourceCreatureSettings,
-    pub control: FreshCreatureControl,
 }
 fn uint_config(config: &[u8], key: CreatureEntryConfig) -> Result<u32> {
     use CreatureEntryConfig::*;
@@ -67,14 +65,6 @@ fn uint_config(config: &[u8], key: CreatureEntryConfig) -> Result<u32> {
         .parse::<i32>()
         .map(|value| value as u32)
         .map_err(|_| refuse("execution.creature.loaded_uint_config"))
-}
-fn spell_list_key(entry: u32, template_list: u32) -> Option<u32> {
-    let key = if template_list != 0 {
-        template_list
-    } else {
-        entry.wrapping_mul(100)
-    };
-    (key != 0).then_some(key)
 }
 impl EntryFields {
     fn observe(
@@ -137,10 +127,10 @@ impl EntryFields {
             can_modify_stats: entry.can_modify_stats,
             pvp: entry.pvp,
             requested_spell_list: 0,
-            spell_list_disabled: None,
-            chain_immune: false,
-            settings: SourceCreatureSettings::default(),
-            control: FreshCreatureControl::default(),
+            chain_immune: entry.chain_immune,
+            settings: SourceCreatureSettings {
+                flags: live.static_flags,
+            },
         }
     }
 }
@@ -245,99 +235,39 @@ pub(super) fn continue_entry(
         return Err(error);
     }
     prefix.lookups.push("creature_update_entry_flags_stats_pvp");
-    let key = spell_list_key(template.words[0], template.words[89]).unwrap_or(0);
+    let key = source_creature_spell_list_key(live.entry, template.words[89]).unwrap_or(0);
     fields.requested_spell_list = key;
-    if key == 0 {
-        fields.spell_list_disabled = Some(true);
-        live.spell_list_disabled = Some(true);
-        prefix.lookups.push("creature_spell_list_disabled_zero");
-    } else {
-        let map = prefix
-            .creature_spells
-            .ok_or_else(|| refuse("execution.creature.loaded_spell_list_store_owner"))?;
+    if key != 0 && prefix.creature_spells.is_some() {
         prefix.lookups.push("creature_map_spell_list_lookup");
-        if let Some(list) = map.get(key) {
-            let mut selected = list.clone();
-            // The source copy is private to this creature; Availability draws use its map stream.
-            selected.filter_availability(prefix.random)?;
-            live.spell_list_disabled = Some(selected.disabled);
-            fields.spell_list_disabled = live.spell_list_disabled;
-            live.spell_list = Some(selected);
-            prefix.lookups.push("creature_spell_list_copy_availability");
-        }
+    }
+    if live.set_fresh_creature_spell_list(key, prefix.creature_spells, prefix.random)? {
+        prefix.lookups.push(if key != 0 {
+            "creature_spell_list_copy_availability"
+        } else {
+            "creature_spell_list_disabled_zero"
+        });
     }
     prefix.lookups.push("creature_immunity_set_lookup");
-    live.immunities
-        .update(template.words[0], 0, Some(prefix.creature_immunities))?;
+    CreatureConstruction::update_loaded_entry_immunities(
+        live,
+        template,
+        Some(prefix.creature_immunities),
+    )?;
     prefix.lookups.push("creature_immunity_set_updated");
-    live.set_creature_type(template.words[16]);
-    fields.chain_immune = live.critter;
+    fields.chain_immune = live.loaded_creature.chain_immune;
     prefix.lookups.push("creature_critter_chain_immunity");
-    if event.is_some() {
+    if let Err(error) = state.require_loaded_entry_callbacks(&entry) {
         prefix.creature_entry = Some(fields);
-        return Err(refuse("execution.creature.loaded_game_event_spells_owner"));
-    }
-    if template.words[91] != 0 || template.words[92] != 0 || spawn.string_id != 0 {
-        prefix.creature_entry = Some(fields);
-        return Err(refuse("execution.creature.loaded_string_id_owner"));
+        return Err(error);
     }
     prefix.lookups.push("creature_event_and_string_gates");
-    // Creature.cpp:631 writes all settings before any effects, CreatureSettings.cpp:31-49.
-    live.static_flags = template.words[25..29].try_into().unwrap();
-    let result = fields.settings.reset(live.static_flags, |application| {
-        match application {
-            CreatureStaticFlagApplication::Visibility(distance) => {
-                objects.set_visibility_distance_override(object, distance)?
-            }
-            CreatureStaticFlagApplication::UnitFlag(mask) => live.flags |= mask,
-            CreatureStaticFlagApplication::ImmuneToPlayer
-            | CreatureStaticFlagApplication::ImmuneToNpc => {
-                let mask = if application == CreatureStaticFlagApplication::ImmuneToPlayer {
-                    0x100
-                } else {
-                    0x200
-                };
-                fields.control.set_immune(
-                    mask,
-                    &mut live.flags,
-                    objects.get(object)?.in_world,
-                    live.control_guids,
-                    |kind, guid| {
-                        let Some(map) = objects.get(object)?.map else {
-                            return Ok(None);
-                        };
-                        let found = objects.lookup_world_object(map, guid).filter(|&handle| {
-                            let kind_found = objects.get(handle).unwrap().kind;
-                            if matches!(kind, ControlledLookup::Pet | ControlledLookup::Guardian) {
-                                kind_found == SourceObjectKind::Pet
-                            } else {
-                                matches!(
-                                    kind_found,
-                                    SourceObjectKind::Player
-                                        | SourceObjectKind::Creature
-                                        | SourceObjectKind::Pet
-                                )
-                            }
-                        });
-                        if kind == ControlledLookup::Totem && found.is_some() {
-                            return Err(refuse(
-                                "execution.creature_settings.Unit_6854.totem_fields_owner",
-                            ));
-                        }
-                        Ok(found)
-                    },
-                    |_, mask| {
-                        Err(refuse(if mask == 0x100 {
-                            "execution.creature_settings.Unit_10704.controlled_flags_owner"
-                        } else {
-                            "execution.creature_settings.Unit_10685.controlled_flags_owner"
-                        }))
-                    },
-                )?;
-            }
-        }
-        Ok(())
-    });
+    let result = SourceCreatureSettings::reset_live(
+        live,
+        template.words[25..29].try_into().unwrap(),
+        object,
+        objects,
+    );
+    fields.settings.flags = live.static_flags;
     fields.unit_flags = live.flags;
     prefix.creature_entry = Some(fields);
     result?;
@@ -414,9 +344,9 @@ mod tests {
     #[test]
     fn spell_list_zero_branch_and_legacy_key_preserve_source_wrapping_multiplication() {
         // Creature.cpp:609-612,2428-2439 disables only zero, before the map lookup.
-        assert_eq!(spell_list_key(4692, 0), Some(469200));
-        assert_eq!(spell_list_key(4692, 7), Some(7));
-        assert_eq!(spell_list_key(0, 0), None);
-        assert_eq!(spell_list_key(0x40000000, 0), None);
+        assert_eq!(source_creature_spell_list_key(4692, 0), Some(469200));
+        assert_eq!(source_creature_spell_list_key(4692, 7), Some(7));
+        assert_eq!(source_creature_spell_list_key(0, 0), None);
+        assert_eq!(source_creature_spell_list_key(0x40000000, 0), None);
     }
 }

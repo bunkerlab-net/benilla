@@ -81,6 +81,7 @@ pub struct SourceLoadedCreatureFields {
     pub count_spawns: bool,
     pub can_modify_stats: bool,
     pub pvp: bool,
+    pub chain_immune: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -497,6 +498,34 @@ impl CreatureConstruction {
             .get(&live.faction)
             .is_some_and(|flags| flags & 0x1000 != 0);
         Ok(())
+    }
+
+    /// Creature.cpp:613-615. Update the live immunity set before critter chain immunity.
+    pub fn update_loaded_entry_immunities(
+        live: &mut SourceUnitFields,
+        template: &LoadedCreatureInfo,
+        store: Option<&LoadedCreatureImmunities>,
+    ) -> Result<()> {
+        live.immunities.update(live.entry, 0, store)?;
+        live.set_creature_type(template.words[16]);
+        if live.critter {
+            live.loaded_creature.chain_immune = true;
+        }
+        Ok(())
+    }
+
+    /// Creature.cpp:617-628. These reached calls still require owners.
+    pub fn require_loaded_entry_callbacks(&self, entry: &LoadedCreatureEntry<'_>) -> Result<()> {
+        require(
+            self.event.is_none(),
+            "execution.creature.loaded_game_event_spells_owner",
+        )?;
+        require(
+            entry.effective.words[91] == 0
+                && entry.effective.words[92] == 0
+                && entry.spawn.string_id == 0,
+            "execution.creature.loaded_string_id_owner",
+        )
     }
 
     pub fn selected_ai(&self) -> Option<&SelectedCreatureAi> {

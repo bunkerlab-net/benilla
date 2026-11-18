@@ -2,7 +2,6 @@
 // CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
 //! CreatureSettings.cpp:25-49; Unit.cpp:10682-10710.
 use super::*;
-#[cfg(test)]
 use std::collections::BTreeSet;
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct SourceCreatureSettings {
@@ -38,6 +37,42 @@ impl SourceCreatureSettings {
         Ok(())
     }
 
+    /// Creature.cpp:631, CreatureSettings.cpp:31-49. Keep writes on refusal.
+    pub fn reset_live(
+        live: &mut SourceUnitFields,
+        flags: [u32; 4],
+        object: ObjectHandle,
+        objects: &mut SourceObjects,
+    ) -> Result<()> {
+        live.static_flags = flags;
+        for effect in Self::effects(flags) {
+            match effect {
+                CreatureStaticFlagApplication::Visibility(distance) => {
+                    objects.set_visibility_distance_override(object, distance)?;
+                }
+                CreatureStaticFlagApplication::UnitFlag(mask) => live.flags |= mask,
+                CreatureStaticFlagApplication::ImmuneToPlayer
+                | CreatureStaticFlagApplication::ImmuneToNpc => {
+                    live.controlled.set_immune(
+                        effect.unit_flag(),
+                        &mut live.flags,
+                        objects.get(object)?.in_world,
+                        live.control_guids,
+                        |kind, guid| lookup_controlled(objects, object, kind, guid),
+                        |_, mask| {
+                            Err(refuse(if mask == 0x100 {
+                                "execution.creature_settings.Unit_10704.controlled_flags_owner"
+                            } else {
+                                "execution.creature_settings.Unit_10685.controlled_flags_owner"
+                            }))
+                        },
+                    )?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// CreatureSettings.cpp:31-49, including ordered visibility precedence.
     pub(super) fn effects(flags: [u32; 4]) -> impl Iterator<Item = CreatureStaticFlagApplication> {
         use CreatureStaticFlagApplication::*;
@@ -62,28 +97,25 @@ impl SourceCreatureSettings {
         .filter_map(|(set, effect)| (set != 0).then_some(effect))
     }
 }
-#[cfg(test)]
-/// Constructor-owned GUID fields and sets, not cached lookup results.
-#[derive(Debug, Default)]
-pub(super) struct FreshCreatureControl {
-    pet: SourceGuid,
-    guardians: BTreeSet<SourceGuid>,
-    totems: [SourceGuid; 4],
-    charm: SourceGuid,
-    private_charms: BTreeSet<SourceGuid>,
+/// Unit.h:1872,2674-2706. Live GUID fields and collections, with no cached handles.
+#[derive(Clone, Debug, Default)]
+pub struct SourceControlledUnits {
+    pub pet: SourceGuid,
+    pub guardians: BTreeSet<SourceGuid>,
+    pub totems: [SourceGuid; 4],
+    pub charm: SourceGuid,
+    pub private_charms: BTreeSet<SourceGuid>,
 }
-#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ControlledLookup {
+enum ControlledLookup {
     Pet,
     Guardian,
     Totem,
     Charm,
     PrivateCharm,
 }
-#[cfg(test)]
-impl FreshCreatureControl {
-    pub(super) fn set_immune(
+impl SourceControlledUnits {
+    fn set_immune(
         &mut self,
         mask: u32,
         flags: &mut u32,
@@ -132,6 +164,31 @@ impl FreshCreatureControl {
         Ok(())
     }
 }
+
+/// Unit.cpp:6555-6562,6750-6763,6850-6854. Look up each GUID in the calling map.
+fn lookup_controlled(
+    objects: &SourceObjects,
+    object: ObjectHandle,
+    kind: ControlledLookup,
+    guid: SourceGuid,
+) -> Result<Option<ObjectHandle>> {
+    let Some(map) = objects.get(object)?.map else {
+        return Ok(None);
+    };
+    let found = match kind {
+        ControlledLookup::Pet | ControlledLookup::Guardian => objects
+            .lookup_world_object(map, guid)
+            .filter(|&unit| objects.get(unit).unwrap().kind == SourceObjectKind::Pet),
+        _ => objects.lookup_unit(map, guid),
+    };
+    if kind == ControlledLookup::Totem && found.is_some() {
+        return Err(refuse(
+            "execution.creature_settings.Unit_6854.totem_fields_owner",
+        ));
+    }
+    Ok(found)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,7 +238,7 @@ mod tests {
             construction,
         };
         let guid = |id| SourceGuid::with_entry(HighGuid::Pet, 1, id);
-        let mut control = FreshCreatureControl {
+        let mut control = SourceControlledUnits {
             pet: guid(1),
             guardians: BTreeSet::from([guid(2)]),
             totems: [
@@ -243,7 +300,7 @@ mod tests {
                 |_, _| panic!("charm suppresses propagation"),
             )
             .unwrap();
-        FreshCreatureControl::default()
+        SourceControlledUnits::default()
             .set_immune(
                 0x100,
                 &mut flags,
