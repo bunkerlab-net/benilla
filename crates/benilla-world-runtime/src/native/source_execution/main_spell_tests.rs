@@ -444,6 +444,63 @@ fn live_unit_power_owner_reads_constructor_modifiers_and_selected_resources() {
 }
 
 #[test]
+fn live_power_dispatch_agrees_for_full_and_borrowed_units() {
+    use super::super::main_spell::{UnitPowerOperands, UnitPowerOwner, UnitPowerSource};
+
+    let mut f = PowerFixture::new();
+    let missing_current = || Err(refuse("execution.spells.Unit_GetPower_type_owner"));
+    let missing_maximum = || Err(refuse("execution.spells.Unit_GetMaxPower_type_owner"));
+    for (ty, has_auxiliary, current, maximum) in [
+        (0, true, Ok(11), Ok(101)),
+        (1, true, Ok(12), Ok(102)),
+        (2, true, Ok(13), Ok(103)),
+        (3, true, Ok(14), Ok(104)),
+        (4, true, Ok(15), Ok(105)),
+        (5, true, missing_current(), missing_maximum()),
+        (1, false, missing_current(), missing_maximum()),
+        (2, false, missing_current(), missing_maximum()),
+        (4, false, missing_current(), missing_maximum()),
+    ] {
+        let live = f.units.get_mut(&f.objects, f.caster).unwrap();
+        let vitals = live.vitals.as_mut().unwrap();
+        vitals.mana = 11;
+        vitals.max_mana = 101;
+        vitals.energy = 14;
+        vitals.max_energy = 104;
+        let fields = live.power_fields.as_mut().unwrap();
+        fields.auxiliary_current = has_auxiliary.then_some([12, 13, 15]);
+        fields.auxiliary_maximum = has_auxiliary.then_some([102, 103, 105]);
+
+        let context = SpellPowerContext {
+            objects: &f.objects,
+            units: &f.units,
+        };
+        let live = f.units.get(&f.objects, f.caster).unwrap();
+        let borrowed = UnitPowerOperands {
+            vitals: &live.vitals,
+            fields: &live.power_fields,
+            flat: &live.power_cost_modifier,
+            multiplier: &live.power_cost_multiplier,
+        };
+        let actual_current = context.current(f.caster, ty);
+        let actual_maximum = context.maximum(f.caster, ty);
+        assert_eq!(actual_current, current, "current power type {ty}");
+        assert_eq!(actual_maximum, maximum, "maximum power type {ty}");
+        for units in [
+            UnitPowerSource::Units(&f.units),
+            UnitPowerSource::Caster(f.caster, borrowed),
+        ] {
+            let mut owner = UnitPowerOwner {
+                objects: &f.objects,
+                units,
+            };
+            assert_eq!(owner.power_current(f.caster, ty), actual_current);
+            assert_eq!(owner.power_maximum(f.caster, ty), actual_maximum);
+        }
+    }
+}
+
+#[test]
 fn main_spell_final_school_read_follows_drain_cost_and_range() {
     for school in [31, 32] {
         let mut f = PowerFixture::new();

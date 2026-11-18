@@ -54,20 +54,6 @@ pub(super) struct UnitPowerOperands<'a> {
     pub multiplier: &'a [u32; 7],
 }
 #[cfg(test)]
-impl UnitPowerOperands<'_> {
-    fn vitals(&self) -> Result<&SourceUnitVitals> {
-        self.vitals
-            .as_ref()
-            .ok_or_else(|| refuse("execution.spells.CreatureStats_current_resources_owner"))
-    }
-
-    fn fields(&self) -> Result<&SourceUnitPowerFields> {
-        self.fields
-            .as_ref()
-            .ok_or_else(|| refuse("execution.spells.CreatureStats_power_fields_owner"))
-    }
-}
-#[cfg(test)]
 impl UnitPowerOwner<'_> {
     fn operands(&self, caster: ObjectHandle) -> Result<UnitPowerOperands<'_>> {
         match &self.units {
@@ -87,6 +73,14 @@ impl UnitPowerOwner<'_> {
             }
         }
     }
+
+    fn power_fields(&self, caster: ObjectHandle) -> Result<SpellPowerFields<'_>> {
+        let operands = self.operands(caster)?;
+        Ok(SpellPowerFields {
+            vitals: operands.vitals,
+            power: operands.fields,
+        })
+    }
 }
 #[cfg(test)]
 impl SpellExecutionOwner for UnitPowerOwner<'_> {
@@ -103,48 +97,22 @@ impl SpellExecutionOwner for UnitPowerOwner<'_> {
         })
     }
     fn power_health(&mut self, caster: ObjectHandle) -> Result<u32> {
-        Ok(self.operands(caster)?.vitals()?.health)
+        Ok(self.power_fields(caster)?.vitals()?.health)
     }
     fn power_level(&mut self, caster: ObjectHandle) -> Result<u32> {
-        Ok(self.operands(caster)?.fields()?.level)
+        Ok(self.power_fields(caster)?.power()?.level)
     }
     fn power_create_health(&mut self, caster: ObjectHandle) -> Result<u32> {
-        Ok(self.operands(caster)?.fields()?.create_health)
+        Ok(self.power_fields(caster)?.power()?.create_health)
     }
     fn power_create_mana(&mut self, caster: ObjectHandle) -> Result<u32> {
-        Ok(self.operands(caster)?.fields()?.create_mana)
+        Ok(self.power_fields(caster)?.power()?.create_mana)
     }
     fn power_current(&mut self, caster: ObjectHandle, ty: u32) -> Result<u32> {
-        if matches!(ty, 0 | 3) {
-            return self.operands(caster)?.vitals()?.spell_power_current(ty);
-        }
-        let index = match ty {
-            1 => 0,
-            2 => 1,
-            4 => 2,
-            _ => return Err(refuse("execution.spells.Unit_GetPower_type_owner")),
-        };
-        Ok(self
-            .operands(caster)?
-            .fields()?
-            .auxiliary_current
-            .ok_or_else(|| refuse("execution.spells.Unit_GetPower_type_owner"))?[index])
+        SpellPowerRead::Current.read(ty, || self.power_fields(caster))
     }
     fn power_maximum(&mut self, caster: ObjectHandle, ty: u32) -> Result<u32> {
-        if matches!(ty, 0 | 3) {
-            return self.operands(caster)?.vitals()?.spell_power_maximum(ty);
-        }
-        let index = match ty {
-            1 => 0,
-            2 => 1,
-            4 => 2,
-            _ => return Err(refuse("execution.spells.Unit_GetMaxPower_type_owner")),
-        };
-        Ok(self
-            .operands(caster)?
-            .fields()?
-            .auxiliary_maximum
-            .ok_or_else(|| refuse("execution.spells.Unit_GetMaxPower_type_owner"))?[index])
+        SpellPowerRead::Maximum.read(ty, || self.power_fields(caster))
     }
     fn power_flat_modifier(&mut self, caster: ObjectHandle, school: u32) -> Result<i32> {
         Ok(self.operands(caster)?.flat[school as usize])

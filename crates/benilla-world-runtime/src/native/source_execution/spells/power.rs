@@ -14,39 +14,81 @@ pub struct SpellPowerContext<'a> {
 }
 impl SpellPowerContext<'_> {
     pub fn health(&self, caster: ObjectHandle) -> Result<u32> {
-        Ok(self.vitals(caster)?.health)
+        Ok(self.fields(caster)?.vitals()?.health)
     }
     pub fn current(&self, caster: ObjectHandle, ty: u32) -> Result<u32> {
-        self.vitals(caster)?.spell_power_current(ty)
+        SpellPowerRead::Current.read(ty, || self.fields(caster))
     }
     pub fn maximum(&self, caster: ObjectHandle, ty: u32) -> Result<u32> {
-        self.vitals(caster)?.spell_power_maximum(ty)
+        SpellPowerRead::Maximum.read(ty, || self.fields(caster))
     }
-    fn vitals(&self, caster: ObjectHandle) -> Result<&SourceUnitVitals> {
-        self.units
-            .get(self.objects, caster)?
-            .vitals
-            .as_ref()
-            .ok_or_else(|| refuse("execution.spells.CreatureStats_current_resources_owner"))
+    fn fields(&self, caster: ObjectHandle) -> Result<SpellPowerFields<'_>> {
+        let live = self.units.get(self.objects, caster)?;
+        Ok(SpellPowerFields {
+            vitals: &live.vitals,
+            power: &live.power_fields,
+        })
     }
 }
 
-impl SourceUnitVitals {
-    pub(in crate::native::source_execution) fn spell_power_current(&self, ty: u32) -> Result<u32> {
-        match ty {
-            0 => Ok(self.mana),
-            3 => Ok(self.energy),
-            // SourceUnits has no live rage/focus/happiness field. Do not infer
-            // current power from a constructor's maximum or regeneration flag.
-            _ => Err(refuse("execution.spells.Unit_GetPower_type_owner")),
-        }
+pub(in crate::native::source_execution) struct SpellPowerFields<'a> {
+    pub vitals: &'a Option<SourceUnitVitals>,
+    pub power: &'a Option<SourceUnitPowerFields>,
+}
+
+impl<'a> SpellPowerFields<'a> {
+    pub(in crate::native::source_execution) fn vitals(&self) -> Result<&'a SourceUnitVitals> {
+        self.vitals
+            .as_ref()
+            .ok_or_else(|| refuse("execution.spells.CreatureStats_current_resources_owner"))
     }
-    pub(in crate::native::source_execution) fn spell_power_maximum(&self, ty: u32) -> Result<u32> {
-        match ty {
-            0 => Ok(self.max_mana),
-            3 => Ok(self.max_energy),
-            _ => Err(refuse("execution.spells.Unit_GetMaxPower_type_owner")),
-        }
+
+    pub(in crate::native::source_execution) fn power(&self) -> Result<&'a SourceUnitPowerFields> {
+        self.power
+            .as_ref()
+            .ok_or_else(|| refuse("execution.spells.CreatureStats_power_fields_owner"))
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(in crate::native::source_execution) enum SpellPowerRead {
+    Current,
+    Maximum,
+}
+
+impl SpellPowerRead {
+    /// Unit.h:1341-1342 reads the requested live power field by type.
+    pub(in crate::native::source_execution) fn read<'a>(
+        self,
+        ty: u32,
+        fields: impl FnOnce() -> Result<SpellPowerFields<'a>>,
+    ) -> Result<u32> {
+        let missing = match self {
+            Self::Current => "execution.spells.Unit_GetPower_type_owner",
+            Self::Maximum => "execution.spells.Unit_GetMaxPower_type_owner",
+        };
+        // SharedDefines.h:151-155. Mana and energy live in vitals; the other types have packed slots.
+        let index = match (self, ty) {
+            (Self::Current, 0) => return Ok(fields()?.vitals()?.mana),
+            (Self::Maximum, 0) => return Ok(fields()?.vitals()?.max_mana),
+            (Self::Current, 3) => return Ok(fields()?.vitals()?.energy),
+            (Self::Maximum, 3) => return Ok(fields()?.vitals()?.max_energy),
+            (_, 1) => 0,
+            (_, 2) => 1,
+            (_, 4) => 2,
+            _ => return Err(refuse(missing)),
+        };
+        let power = fields()?.power()?;
+        let slots = match self {
+            // Unit.cpp:9276-9283 reads and writes live current power; the maximum only caps writes.
+            Self::Current => &power.auxiliary_current,
+            // Unit.cpp:9309-9310 writes the separate live maximum field.
+            Self::Maximum => &power.auxiliary_maximum,
+        };
+        slots
+            .as_ref()
+            .map(|values| values[index])
+            .ok_or_else(|| refuse(missing))
     }
 }
 
