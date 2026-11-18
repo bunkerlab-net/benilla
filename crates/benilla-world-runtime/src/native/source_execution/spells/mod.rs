@@ -19,6 +19,7 @@ mod items;
 mod location;
 mod positivity;
 mod power;
+mod procs;
 mod range;
 mod shapeshift;
 mod stacking;

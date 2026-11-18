@@ -507,18 +507,7 @@ impl SourceAuraFields {
                 let shift = (slot % 4) * 8;
                 self.levels[slot / 4] =
                     (self.levels[slot / 4] & !(255 << shift)) | level.wrapping_shl(shift as u32);
-                let count = if holder.charges > 0 {
-                    holder.charges.wrapping_mul(holder.stack)
-                } else {
-                    holder.stack
-                };
-                let count = if count <= 255 {
-                    count.wrapping_sub(1) as u8
-                } else {
-                    254
-                };
-                self.applications[slot / 4] =
-                    (self.applications[slot / 4] & !(255 << shift)) | u32::from(count) << shift;
+                self.update_aura_application(holder.slot, holder.charges, holder.stack);
             }
         }
         // SpellAuras.cpp:5290-5303. Refuse at unbound stand, flag, or seal updates.
@@ -535,6 +524,27 @@ impl SourceAuraFields {
             t.spellfamilyname != 10 || t.spellfamilyflags & 0x0a00_0200 == 0,
             "execution.spells.SpellAuraHolder_5303.ModifyAuraState_owner",
         )
+    }
+
+    // SpellAuras.cpp:5960-5974.
+    fn update_aura_application(&mut self, slot: u8, charges: u32, stack: u32) {
+        let slot = usize::from(slot);
+        if slot >= self.spells.len() {
+            return;
+        }
+        let count = if charges > 0 {
+            charges.wrapping_mul(stack)
+        } else {
+            stack
+        };
+        let count = if count <= 255 {
+            count.wrapping_sub(1) as u8
+        } else {
+            254
+        };
+        let shift = (slot % 4) * 8;
+        self.applications[slot / 4] =
+            (self.applications[slot / 4] & !(255 << shift)) | u32::from(count) << shift;
     }
 }
 
@@ -641,6 +651,12 @@ pub fn apply_self_aura_holder(
                     "execution.spells.Unit_10498.ApplyPercentModFloatValue_owner"
                 }));
             }
+            42 => {
+                live.auras
+                    .handle_aura_proc_trigger_spell(holder, true, true)?;
+                live.auras.mark_effect_applied(holder, i)?;
+                continue;
+            }
             4 => apply_creature_dummy_aura(stores, t)?,
             _ => {
                 return Err(refuse(&format!(
@@ -665,6 +681,26 @@ impl SourceUnitAuras {
     fn mark_effect_applied(&mut self, holder: SourceAuraHolderId, index: usize) -> Result<()> {
         if let Some(aura) = self.applied_holder_mut(holder)?.effects[index].as_mut() {
             aura.applied = true;
+        }
+        Ok(())
+    }
+
+    // SpellAuras.cpp:3067-3082,5740-5753. Creature effects have no player spell
+    // modifiers (SpellAuras.cpp:901-904).
+    fn handle_aura_proc_trigger_spell(
+        &mut self,
+        id: SourceAuraHolderId,
+        apply: bool,
+        real: bool,
+    ) -> Result<()> {
+        if !real || id.spell() != 28200 || !apply {
+            return Ok(());
+        }
+        let holder = self.applied_holder_mut(id)?;
+        if holder.charges != 6 {
+            holder.charges = 6;
+            let (slot, stack) = (holder.slot, holder.stack);
+            self.aura_fields.update_aura_application(slot, 6, stack);
         }
         Ok(())
     }
@@ -873,4 +909,37 @@ fn inserting_without_a_pending_holder_refuses_before_writing_slots() {
         .id;
     assert_eq!(id, "execution.spells.Unit_4687.pending_aura_holder_owner");
     assert_eq!(auras, SourceUnitAuras::default());
+}
+
+#[test]
+fn proc_trigger_aura_sets_ascendance_charges_only_on_real_apply() {
+    let mut auras = SourceUnitAuras::default();
+    let target = ObjectHandle {
+        thread: 1,
+        construction: 1,
+    };
+    for id in [7276, 28200] {
+        let t = SpellTemplate {
+            id,
+            ..Default::default()
+        };
+        let mut holder = SourceAuraHolder::new(&t, target, 0, 0, -1).unwrap();
+        holder.charges = 1;
+        holder.stack = 2;
+        holder.slot = 1;
+        let holder = auras.store_aura_holder(id, &mut Some(holder)).unwrap();
+        auras.aura_fields.applications[0] = 0x3412_0156;
+        for (apply, real) in [(false, false), (true, false), (false, true), (true, true)] {
+            auras
+                .handle_aura_proc_trigger_spell(holder, apply, real)
+                .unwrap();
+            if id == 28200 && apply && real {
+                assert_eq!(auras.aura_holder(holder).unwrap().charges, 6);
+                assert_eq!(auras.aura_fields.applications[0], 0x3412_0b56);
+            } else {
+                assert_eq!(auras.aura_holder(holder).unwrap().charges, 1);
+                assert_eq!(auras.aura_fields.applications[0], 0x3412_0156);
+            }
+        }
+    }
 }

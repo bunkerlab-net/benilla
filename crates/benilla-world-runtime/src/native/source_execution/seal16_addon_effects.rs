@@ -91,7 +91,12 @@ impl SpellCastEffects for Owner<'_> {
     }
 
     fn proc_cast_end(&mut self, spell: &mut SourceSpell) -> Result<()> {
-        spell.proc_event_lookups += self.proc_self(false)?;
+        let raw = self.random.creature_raw_position()?;
+        let mut lookups = 0;
+        self.auras
+            .proc_creature_self_cast_end(self.stores, spell, || lookups += 1)?;
+        assert_eq!(self.random.creature_raw_position()?, raw);
+        spell.proc_event_lookups += lookups;
         Ok(())
     }
 
@@ -266,7 +271,13 @@ impl SpellAuraHitOwner for Owner<'_> {
     }
 
     fn proc_aura_hit(&mut self, s: &mut SourceSpell) -> Result<()> {
-        s.proc_event_lookups += self.proc_self(true)?;
+        let raw = self.random.creature_raw_position()?;
+        let mut lookups = 0;
+        let alive = self.objects.get(self.object)?.alive;
+        self.auras
+            .proc_creature_self_hit(self.stores, s, alive, || lookups += 1)?;
+        assert_eq!(self.random.creature_raw_position()?, raw);
+        s.proc_event_lookups += lookups;
         Ok(())
     }
 }
@@ -290,41 +301,6 @@ impl Owner<'_> {
                 (6, 27087, 1794314190)
             );
         }
-    }
-
-    fn proc_self(&mut self, victim: bool) -> Result<u32> {
-        // UnitAuraProcHandler.cpp:277-340,343-388. Helpful spell flags do
-        // not intersect MELEE_BASED_TRIGGER_MASK. Creature has no item procs.
-        let current = !self.auras.spell_procs_happening;
-        self.auras.spell_procs_happening = true;
-        let mut lookups = 0;
-        for _ in 0..if victim { 2 } else { 1 } {
-            for (id, holder) in self.auras.aura_holders() {
-                // :415-420 skips the just-created holder until Spell.cpp:1358.
-                if !holder.ready || holder.deleted {
-                    continue;
-                }
-                let id = id.spell();
-                let t = self
-                    .stores
-                    .template(id)
-                    .ok_or_else(|| refuse("execution.spells.missing_template"))?;
-                let event = self.stores.proc_event(id);
-                let flags = event
-                    .filter(|v| v.flags != 0)
-                    .map_or(t.procflags, |v| v.flags);
-                lookups += 1;
-                // :518-529 rejects before a chance or handler when flags are zero.
-                require(
-                    flags == 0,
-                    "execution.spells.UnitAuraProcHandler_532.IsSpellProcEventCanTriggeredBy_owner",
-                )?;
-            }
-        }
-        if current {
-            self.auras.spell_procs_happening = false;
-        }
-        Ok(lookups)
     }
 }
 
