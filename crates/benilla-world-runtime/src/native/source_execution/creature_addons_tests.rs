@@ -421,7 +421,9 @@ fn addon_application_aura_membership_reload_and_cast_refusal_keep_source_order()
     for reload in [false, true] {
         let mut state = CreatureAddonState::default();
         let mut unit = addon_unit();
-        unit.auras.aura_holders.insert(10, holder());
+        unit.auras
+            .store_aura_holder(10, &mut Some(holder()))
+            .unwrap();
         assert_eq!(
             state
                 .load(Some(&addon), reload, &mut unit, &mut NoSpellExecution)
@@ -434,15 +436,14 @@ fn addon_application_aura_membership_reload_and_cast_refusal_keep_source_order()
             state.duplicate_aura_errors,
             if reload { vec![] } else { vec![10] }
         );
-        assert_eq!(
-            unit.auras.aura_holders.keys().copied().collect::<Vec<_>>(),
-            [10]
-        );
+        assert_eq!(unit.auras.aura_spell_ids().collect::<Vec<_>>(), [10]);
     }
     addon.auras = CreatureAddonAuras::Spells(vec![10, 0, 11]);
     let mut state = CreatureAddonState::default();
     let mut unit = addon_unit();
-    unit.auras.aura_holders.insert(10, holder());
+    unit.auras
+        .store_aura_holder(10, &mut Some(holder()))
+        .unwrap();
     assert!(state
         .load(Some(&addon), true, &mut unit, &mut NoSpellExecution)
         .unwrap());

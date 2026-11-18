@@ -404,10 +404,11 @@ impl SpellExecutionOwner for Owner<'_> {
             );
         }
         if let SpellCheck::StrongerAura(_) = check {
-            for (&id, existing) in &self.live.auras.aura_holders {
+            // Spell.cpp:4958-4965. Examine each holder in multimap order.
+            for (id, existing) in self.live.auras.aura_holders() {
                 let old = self
                     .stores
-                    .template(id)
+                    .template(id.spell())
                     .ok_or_else(|| refuse("execution.spells.missing_template"))?;
                 require(
                     existing.caster == spell.caster,

@@ -2426,7 +2426,7 @@ pub(super) fn continue_startup(
             assert!(!live.has_ai);
             assert!(motions[&candidate].is_empty());
             // SQL:435839 supplies addon7276. SpellAuras.cpp:103,686 dispatch before applying it.
-            let aura = &live.auras.aura_holders[&7276];
+            let aura = live.auras.first_aura_holder(7276).unwrap();
             assert_eq!((aura.caster, aura.target), (candidate, candidate));
             assert_eq!(aura.apply_time, 1794314190); // Recording60539954.
             let effect = aura.effects[0].as_ref().unwrap();
@@ -2539,14 +2539,8 @@ pub(super) fn continue_startup(
             let current = creature_entry.as_ref().unwrap();
             let live = units.get(&active_objects, candidate).unwrap();
             let auras = &live.auras;
-            assert_eq!(
-                auras.aura_holders.keys().copied().collect::<Vec<_>>(),
-                [9036, 10848]
-            );
-            assert_eq!(
-                auras.aura_types.keys().copied().collect::<Vec<_>>(),
-                [4, 95]
-            );
+            assert_eq!(auras.aura_spell_ids().collect::<Vec<_>>(), [9036, 10848]);
+            assert_eq!(auras.aura_type_ids().collect::<Vec<_>>(), [4, 95]);
             assert_eq!(auras.vis_flags, 1);
             assert_eq!(auras.cast_counter, 1);
             assert!(current.addon.duplicate_aura_errors.is_empty());
@@ -2614,7 +2608,10 @@ pub(super) fn continue_startup(
                 (6, 4, 0, 0)
             );
             assert_eq!((t.effectimplicittargeta1, t.effectimplicittargetb1), (1, 0));
-            assert_eq!(live.auras.aura_holders[&10848].caster, candidate);
+            assert_eq!(
+                live.auras.first_aura_holder(10848).unwrap().caster,
+                candidate
+            );
             assert!(live.cooldowns.is_empty());
             assert_eq!(live.spell_starts.spells[&1].creature_cooldown.searches, 0);
             let addon_cooldown = &live.spell_starts.spells[&2].creature_cooldown;
@@ -2627,8 +2624,11 @@ pub(super) fn continue_startup(
                 SourceObjectKind::Creature
             );
             assert!(!live.totem);
-            assert_eq!(live.auras.aura_holders.first_key_value().unwrap().0, &9036);
-            assert_eq!(live.auras.aura_holders[&9036].caster, candidate);
+            assert_eq!(live.auras.aura_spell_ids().next(), Some(9036));
+            assert_eq!(
+                live.auras.first_aura_holder(9036).unwrap().caster,
+                candidate
+            );
             assert_eq!(ai_spell.power_lookups, [2, 2]);
             assert_eq!(ai_spell.prepare_lookups, [1, 1, 2, 1, 1, 1]);
             assert_eq!(
@@ -2652,7 +2652,7 @@ pub(super) fn continue_startup(
             assert_eq!(t.attributes & 0x404, 0);
             assert_eq!(t.attributesex & 0x44, 0);
             assert_eq!(old.aurainterruptflags & 4, 0);
-            assert_eq!(live.auras.aura_holders.len(), 2);
+            assert_eq!(live.auras.aura_holders().len(), 2);
             println!("F6_PREPARE_AURA_WALK flag=4 ghost_flags={} shroud_flags={} holders=2 state=true force_target=false has_target=false", old.aurainterruptflags, t.aurainterruptflags);
             println!("F6_COOLDOWN_UB_REACH category_null=0 school_shift=0 lockout_shift=0 clock_add=0 form_shift=0");
             assert_eq!(
@@ -3126,7 +3126,7 @@ pub(super) fn continue_startup(
                 .iter()
                 .any(|event| event.event_id == spell.event.unwrap()
                     && event.kind == SourceUnitEvent::Spell { spell: spell.id }));
-            let aura = &stopped.auras.aura_holders[&18148];
+            let aura = stopped.auras.first_aura_holder(18148).unwrap();
             assert!(aura.ready && aura.permanent);
             let effect = aura.effects[0].as_ref().unwrap();
             assert!(effect.applied && effect.periodic);
@@ -3198,21 +3198,19 @@ pub(super) fn continue_startup(
             assert_eq!(current.shapeshift_form, 17);
             assert_eq!(current.threat_modifier, [0.8; 7]);
             assert_eq!(
-                current
-                    .auras
-                    .aura_holders
-                    .keys()
-                    .copied()
-                    .collect::<Vec<_>>(),
+                current.auras.aura_spell_ids().collect::<Vec<_>>(),
                 [7165, 21156]
             );
             for spell in [7165, 21156] {
-                let aura = &current.auras.aura_holders[&spell];
+                let aura = current.auras.first_aura_holder(spell).unwrap();
                 assert!(aura.ready && aura.permanent);
                 assert!(aura.effects[0].as_ref().unwrap().applied);
                 assert_eq!(aura.apply_time, 1794314190);
             }
-            assert_eq!(current.auras.aura_holders[&21156].triggered_by, Some(7165));
+            assert_eq!(
+                current.auras.first_aura_holder(21156).unwrap().triggered_by,
+                Some(7165)
+            );
             let events = current.unit_events.inventory();
             assert!(events.queued.iter().any(|event| {
                 event.event_id == cast.event.unwrap()

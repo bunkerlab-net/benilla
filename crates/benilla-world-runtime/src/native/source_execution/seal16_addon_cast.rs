@@ -122,7 +122,7 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
                 (event.add_time_ms, event.exec_time_ms, event.to_abort),
                 (0, 1, false)
             );
-            let aura = &live.auras.aura_holders[&spell];
+            let aura = live.auras.first_aura_holder(spell).unwrap();
             assert!(aura.permanent && aura.ready && aura.skip_update && !aura.deleted);
             assert_eq!((aura.caster, aura.target), (self.object, self.object));
             assert_eq!(
@@ -162,15 +162,12 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
             assert!(self.stores.proc_event(spell).is_none());
             if id == 2 {
                 assert_eq!(
-                    live.auras.aura_holders.keys().copied().collect::<Vec<_>>(),
+                    live.auras.aura_spell_ids().collect::<Vec<_>>(),
                     [9036, 10848]
                 );
+                assert_eq!(live.auras.aura_type_ids().collect::<Vec<_>>(), [4, 95]);
                 assert_eq!(
-                    live.auras.aura_types.keys().copied().collect::<Vec<_>>(),
-                    [4, 95]
-                );
-                assert_eq!(
-                    live.auras.aura_holders[&9036].effects[0]
+                    live.auras.first_aura_holder(9036).unwrap().effects[0]
                         .as_ref()
                         .unwrap()
                         .amount,
@@ -346,7 +343,7 @@ impl SpellExecutionOwner for Owner<'_> {
                     R::Ok
                 },
             ),
-            SpellCheck::StrongerAura(_) if self.auras.aura_holders.is_empty() => Ok(R::Ok),
+            SpellCheck::StrongerAura(_) if !self.auras.has_aura_holders() => Ok(R::Ok),
             SpellCheck::AllowedInLocation(location) => {
                 let player =
                     spell_beneficiary_from_guids(self.objects, self.object, *self.control_guids)?;

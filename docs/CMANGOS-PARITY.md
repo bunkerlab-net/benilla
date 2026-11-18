@@ -121,6 +121,9 @@ is meaningful without a bounded content/mechanics inventory.
   Both addon spells finish without RNG or SQL. The in-flight Spell owns its
   pending holder until `Spell.cpp:1490` transfers it to the unit. Both are live
   state outside saved fields. Other effects and aura handlers refuse by name.
+  Holder IDs pair spell ID with a unit-local insertion ordinal, in the order
+  of the multimap in `Unit.h:1076`. Each type list stores holder and effect IDs
+  in append order, `Unit.cpp:4871-4874`. Neither changes the saved format.
   The 262-spell addon census has 299 effect slots and 43 aura types. Its static
   coverage is 31 spells, with 231 using an unported effect or aura type.
   Static coverage does not establish execution; this map 0 prefix completes two.

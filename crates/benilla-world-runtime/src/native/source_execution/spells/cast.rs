@@ -377,11 +377,9 @@ mod tests {
             // Bind the earlier SpellMod lookup so every case reaches the depth limit.
             let mut owner = CooldownOwner {
                 objects: &objects,
-                auras: SourceUnitAuras {
-                    cast_counter: 1,
-                    ..SourceUnitAuras::default()
-                },
+                auras: SourceUnitAuras::default(),
             };
+            owner.auras.cast_counter = 1;
             let mut spell = SourceSpell::new(1, &t, caster, SpellTriggerFlags(flags), 0).unwrap();
             spell.state = SourceSpellState::Casting;
             spell.triggered_by_aura = aura;

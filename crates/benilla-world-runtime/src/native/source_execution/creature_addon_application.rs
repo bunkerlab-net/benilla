@@ -14,13 +14,33 @@ pub struct CreatureAddonState {
     pub duplicate_aura_errors: Vec<u32>,
 }
 
+/// Unit.h:1076. Order by spell and then by insertion into this unit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SourceAuraHolderId {
+    spell: u32,
+    ordinal: u64,
+}
+
+impl SourceAuraHolderId {
+    pub fn spell(self) -> u32 {
+        self.spell
+    }
+}
+
+/// Unit.h:1080. A type-list entry identifies an effect on a specific holder.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SourceAuraEffectRef {
+    pub holder: SourceAuraHolderId,
+    pub effect: u8,
+}
+
 /// Unit.h:2487,2507; Unit.cpp:355,365-366, fresh live Unit storage.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SourceUnitAuras {
-    /// Unit.h:1647-1650 tests holder membership, not individual effects.
-    pub aura_holders: BTreeMap<u32, SourceAuraHolder>,
+    aura_holders: BTreeMap<SourceAuraHolderId, SourceAuraHolder>,
+    last_holder_ordinal: u64,
     /// Unit.h:2507 default-constructs every per-type AuraList empty.
-    pub aura_types: std::collections::BTreeMap<u32, Vec<u64>>,
+    aura_types: BTreeMap<u32, Vec<SourceAuraEffectRef>>,
     /// Object.cpp:1173 constructs the triggered cast depth at zero.
     pub cast_counter: u32,
     /// Unit.cpp:330-366, fresh UNIT_FIELD_BYTES_1 visibility byte.
@@ -47,13 +67,84 @@ pub trait CreatureAddonExecutionOwner {
 }
 
 impl SourceUnitAuras {
+    pub fn aura_holders(
+        &self,
+    ) -> impl ExactSizeIterator<Item = (SourceAuraHolderId, &SourceAuraHolder)> {
+        self.aura_holders.iter().map(|(&id, holder)| (id, holder))
+    }
+
+    pub fn has_aura_holders(&self) -> bool {
+        !self.aura_holders.is_empty()
+    }
+
+    pub fn aura_spell_ids(&self) -> impl ExactSizeIterator<Item = u32> + '_ {
+        self.aura_holders.keys().map(|id| id.spell)
+    }
+
+    pub fn aura_type_ids(&self) -> impl ExactSizeIterator<Item = u32> + '_ {
+        self.aura_types.keys().copied()
+    }
+
+    pub fn aura_holder(&self, id: SourceAuraHolderId) -> Option<&SourceAuraHolder> {
+        self.aura_holders.get(&id)
+    }
+
+    pub fn aura_holder_mut(&mut self, id: SourceAuraHolderId) -> Option<&mut SourceAuraHolder> {
+        self.aura_holders.get_mut(&id)
+    }
+
+    // Unit.cpp:10907-10910. find returns the first holder for this spell.
+    pub fn first_aura_holder(&self, spell: u32) -> Option<&SourceAuraHolder> {
+        let first = SourceAuraHolderId { spell, ordinal: 0 };
+        self.aura_holders
+            .range(first..)
+            .next()
+            .filter(|(id, _)| id.spell == spell)
+            .map(|(_, holder)| holder)
+    }
+
+    pub fn auras_of_type(&self, kind: u32) -> &[SourceAuraEffectRef] {
+        self.aura_types.get(&kind).map_or(&[], Vec::as_slice)
+    }
+
+    // Unit.cpp:4849-4853,4871-4874. Insert the holder, then append each effect.
+    pub(in crate::native::source_execution) fn store_aura_holder(
+        &mut self,
+        spell: u32,
+        pending: &mut Option<SourceAuraHolder>,
+    ) -> Result<SourceAuraHolderId> {
+        let ordinal = self
+            .last_holder_ordinal
+            .checked_add(1)
+            .ok_or_else(|| refuse("execution.spells.Unit_4849.aura_holder_identity_exhausted"))?;
+        let id = SourceAuraHolderId { spell, ordinal };
+        self.last_holder_ordinal = ordinal;
+        let entry = self
+            .aura_holders
+            .entry(id)
+            .insert_entry(pending.take().expect("pending aura"));
+        for (i, aura) in entry.get().effects.iter().enumerate() {
+            if let Some(aura) = aura {
+                if aura.kind < 192 {
+                    self.aura_types
+                        .entry(aura.kind)
+                        .or_default()
+                        .push(SourceAuraEffectRef {
+                            holder: id,
+                            effect: i as u8,
+                        });
+                }
+            }
+        }
+        Ok(id)
+    }
+
+    // Unit.h:1647-1650. Membership tests the holder, not its effects.
     pub fn has_aura(&self, spell: u32) -> bool {
-        self.aura_holders.contains_key(&spell)
+        self.first_aura_holder(spell).is_some()
     }
     pub fn has_aura_type(&self, kind: u32) -> bool {
-        self.aura_types
-            .get(&kind)
-            .is_some_and(|auras| !auras.is_empty())
+        !self.auras_of_type(kind).is_empty()
     }
 }
 impl CreatureAddonState {
@@ -105,3 +196,9 @@ impl CreatureAddonState {
         Ok(true)
     }
 }
+
+#[cfg(test)]
+#[path = "aura_holder_tests.rs"]
+mod aura_holder_tests;
+#[cfg(test)]
+pub(in crate::native::source_execution) use aura_holder_tests::authored_effect_holder;

@@ -1,5 +1,12 @@
 use super::*;
 use serde_json::{json, Value};
+
+impl SourceSpellStores {
+    pub(in crate::native::source_execution) fn bind_empty_duration_fixture(&mut self) {
+        self.dbc.insert("SpellDuration.dbc".into(), BTreeMap::new());
+    }
+}
+
 struct Missing;
 impl SpellLoaderOwner for Missing {}
 struct Known;

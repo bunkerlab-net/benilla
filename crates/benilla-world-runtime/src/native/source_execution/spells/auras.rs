@@ -196,7 +196,8 @@ pub fn check_cast_aura_removals(
     flag: u32,
     mut observe_lookup: impl FnMut(),
 ) -> Result<()> {
-    for (&id, holder) in &auras.aura_holders {
+    for (id, holder) in auras.aura_holders() {
+        let id = id.spell();
         let old = stores
             .template(id)
             .ok_or_else(|| refuse("execution.spells.missing_template"))?;
@@ -257,6 +258,7 @@ pub trait SpellAuraHitOwner {
     fn apply_inserted_aura_holder(
         &mut self,
         _t: &SpellTemplate,
+        _holder: SourceAuraHolderId,
         _nested: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
     ) -> Result<()> {
         Err(refuse(
@@ -340,20 +342,27 @@ impl SourceSpell {
             )?);
         }
         // Spell.cpp:1490. Transfer pending ownership before modifier callbacks.
-        if self.pending_aura.is_some() {
-            owner
+        let inserted = if self.pending_aura.is_some() {
+            let holder = owner
                 .aura_hit_target(target_unit)?
                 .insert_self_aura_holder(stores, t, &mut self.pending_aura, level, stand)?;
-            owner.apply_inserted_aura_holder(t, nested)?;
-        }
+            owner.apply_inserted_aura_holder(t, holder, nested)?;
+            Some(holder)
+        } else {
+            None
+        };
         // Spell.cpp:1329-1331. Run the hit procs for both sides.
         owner.proc_aura_hit(self)?;
-        // Spell.cpp:1353-1358. Delay readiness until after hit procs.
-        if let Some(holder) = owner
-            .aura_hit_target(target_unit)?
-            .aura_holders
-            .get_mut(&t.id)
-        {
+        // Spell.cpp:1353-1358. Only the holder created by this hit can become ready.
+        if let Some(id) = inserted {
+            let auras = owner.aura_hit_target(target_unit)?;
+            require(
+                !auras.spell_procs_happening,
+                "execution.spells.Spell_1356.AddDelayedHolderDueToProc_owner",
+            )?;
+            let holder = auras
+                .aura_holder_mut(id)
+                .ok_or_else(|| refuse("execution.spells.Spell_1358.aura_holder_owner"))?;
             holder.ready = true;
         }
         Ok(())
@@ -362,7 +371,7 @@ impl SourceSpell {
 
 impl SourceAura {
     // SpellAuras.cpp:257-290,389. Construct the bound ApplyAura effect.
-    pub(super) fn self_spell_effect(
+    pub(in crate::native::source_execution) fn self_spell_effect(
         t: &SpellTemplate,
         i: usize,
         kind: u32,
@@ -406,10 +415,10 @@ impl SourceUnitAuras {
         pending: &mut Option<SourceAuraHolder>,
         level: u32,
         stand: u8,
-    ) -> Result<()> {
+    ) -> Result<SourceAuraHolderId> {
         let holder = pending.as_mut().expect("pending aura");
-        // Unit.cpp:4708-4757. Only the non-passive same-caster path is bound.
-        if let Some(old) = self.aura_holders.get(&t.id) {
+        // Unit.cpp:4708-4773. The bound path stops on the first matching holder.
+        if let Some(old) = self.first_aura_holder(t.id) {
             require(
                 !holder.passive,
                 "execution.spells.Unit_4708.passive_duplicate_holder_owner",
@@ -433,7 +442,8 @@ impl SourceUnitAuras {
         }
         // Unit.cpp:4937-4971. Existing passive ranks skip before stacker calls.
         stores.stack(t.id)?;
-        for (&id, existing) in &self.aura_holders {
+        for (id, existing) in self.aura_holders() {
+            let id = id.spell();
             stores.stack(id)?;
             let old = stores
                 .template(id)
@@ -465,20 +475,7 @@ impl SourceUnitAuras {
             .assign_self_aura_slot(t, holder, level, stand)?;
         // Unit.cpp:4847-4853. Set creation delay before indexing effects.
         holder.skip_update = true;
-        self.aura_holders
-            .insert(t.id, pending.take().expect("pending aura"));
-        for (i, aura) in self.aura_holders[&t.id].effects.iter().enumerate() {
-            if let Some(aura) = aura {
-                // Unit.cpp:4871-4874. Append each valid effect in effect order.
-                if aura.kind < 192 {
-                    self.aura_types
-                        .entry(aura.kind)
-                        .or_default()
-                        .push((u64::from(t.id) << 2) | i as u64);
-                }
-            }
-        }
-        Ok(())
+        self.store_aura_holder(t.id, pending)
     }
 }
 

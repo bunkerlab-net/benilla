@@ -149,8 +149,8 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
     let fields = prefix.creature_entry.as_mut().unwrap();
     let live = prefix.units.get_mut(context.objects, object)?;
     if prefix.map_entry.id == 0 && data.row.guid == 40520 {
-        assert!(live.auras.aura_holders.is_empty());
-        assert!(live.auras.aura_types.is_empty());
+        assert!(!live.auras.has_aura_holders());
+        assert!(live.auras.aura_type_ids().next().is_none());
         assert!(prefix.lookups.ends_with(&[
             "creature_load_addon",
             "creature_db_addon_lookup",

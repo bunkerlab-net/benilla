@@ -1,4 +1,5 @@
 use super::*;
+use crate::native::source_execution::authored_effect_holder;
 use std::collections::VecDeque;
 
 fn template() -> CreatureAiTemplateOperands {
@@ -1221,11 +1222,20 @@ fn aura_storage_is_fresh_per_unit_and_excluded_from_saved_fields() {
         thread: 6,
         construction: 1,
     };
-    first.auras.aura_holders.insert(
-        9036,
-        SourceAuraHolder::new(&spell, unit, 1794314190, 0, -1).unwrap(),
-    );
-    first.auras.aura_types.insert(95, vec![9036 << 2]);
+    let mut holder = authored_effect_holder(&spell, unit, 95);
+    holder.apply_time = 1794314190;
+    let mut other = holder.clone();
+    other.caster.construction = 2;
+    first
+        .auras
+        .store_aura_holder(9036, &mut Some(holder))
+        .unwrap();
+    first
+        .auras
+        .store_aura_holder(9036, &mut Some(other))
+        .unwrap();
+    assert_eq!(first.auras.aura_holders().len(), 2);
+    assert_eq!(first.auras.auras_of_type(95).len(), 2);
     first.auras.vis_flags = 1;
     assert!(first.auras.has_aura(9036) && first.auras.has_aura_type(95));
     assert_eq!(second.auras, SourceUnitAuras::default());
@@ -1237,7 +1247,7 @@ fn construction_population_keeps_live_containers_reach_and_speed() {
     let mut fields = SourceUnitFields::constructed_creature();
     assert_eq!(fields.combat_reach, None);
     assert_eq!(fields.cast_speed, 0);
-    assert!(fields.auras.aura_holders.is_empty());
+    assert!(!fields.auras.has_aura_holders());
     assert!(fields.spell_starts.spells.is_empty());
     assert!(fields.cooldowns.is_empty());
     let saved = serde_json::to_vec(&fields).unwrap();
@@ -1252,15 +1262,17 @@ fn construction_population_keeps_live_containers_reach_and_speed() {
     fields.combat_reach = Some(1.5f32.to_bits());
     fields.cast_speed = 1f32.to_bits();
     fields.cooldowns.lockouts.insert(1, 20);
-    fields.spell_starts.spells.insert(
-        7,
-        SourceSpell::new(7, &spell, unit, SpellTriggerFlags(1), 0).unwrap(),
-    );
+    let mut pending = SourceSpell::new(7, &spell, unit, SpellTriggerFlags(1), 0).unwrap();
+    pending.pending_aura = Some(SourceAuraHolder::new(&spell, unit, 0, 0, -1).unwrap());
+    fields.spell_starts.spells.insert(7, pending);
     fields.unit_events.add_spell(7).unwrap();
     fields
         .auras
-        .aura_holders
-        .insert(9036, SourceAuraHolder::new(&spell, unit, 0, 0, -1).unwrap());
+        .store_aura_holder(
+            9036,
+            &mut Some(SourceAuraHolder::new(&spell, unit, 0, 0, -1).unwrap()),
+        )
+        .unwrap();
     assert_eq!(serde_json::to_vec(&fields).unwrap(), saved);
     let mut template = SqlTemplateRow {
         ordinal: 0,
@@ -1274,6 +1286,7 @@ fn construction_population_keeps_live_containers_reach_and_speed() {
     assert_eq!(fields.cast_speed, 1f32.to_bits());
     assert_eq!(fields.cooldowns.lockouts[&1], 20);
     assert!(fields.spell_starts.spells.contains_key(&7));
+    assert!(fields.spell_starts.spells[&7].pending_aura.is_some());
     assert_eq!(fields.unit_events.inventory().queued.len(), 1);
     assert!(fields.auras.has_aura(9036));
 }

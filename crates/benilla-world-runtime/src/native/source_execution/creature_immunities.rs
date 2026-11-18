@@ -210,6 +210,7 @@ impl CreatureImmunityState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::native::source_execution::authored_effect_holder;
     #[test]
     fn fresh_self_spell_immunity_uses_loaded_sets_and_keeps_aura_dependencies() {
         let stores = SourceSpellStores::default();
@@ -255,7 +256,14 @@ mod tests {
         assert!(!state
             .immune_to_self_spell(&stores, &spell, 1, unit, &auras)
             .unwrap());
-        auras.aura_types.insert(147, vec![1]);
+        let shield = SpellTemplate {
+            id: 1,
+            ..Default::default()
+        };
+        let holder = authored_effect_holder(&shield, unit, 147);
+        auras
+            .store_aura_holder(shield.id, &mut Some(holder))
+            .unwrap();
         assert_eq!(
             state
                 .immune_to_self_spell(&stores, &spell, 1, unit, &auras)

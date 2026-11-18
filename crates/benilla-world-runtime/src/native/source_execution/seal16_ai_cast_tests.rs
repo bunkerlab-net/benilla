@@ -1,4 +1,5 @@
 use super::*;
+use crate::native::source_execution::authored_effect_holder;
 
 struct NoDraw;
 impl UnitAiExecutionOwner for NoDraw {}
@@ -273,7 +274,14 @@ fn live_unit_reads_current_flags_pose_auras_control_and_interrupt_slots() {
     live.stand_state = 1;
     live.shapeshift_form = 5;
     live.mounted = true;
-    live.auras.aura_types.insert(16, vec![1]);
+    let stealth = SpellTemplate {
+        id: 1784,
+        ..Default::default()
+    };
+    let holder = authored_effect_holder(&stealth, object, 16);
+    live.auras
+        .store_aura_holder(stealth.id, &mut Some(holder))
+        .unwrap();
     objects
         .set_pose(object, SourcePose([1f32.to_bits(), 0, 0, 0]))
         .unwrap();
@@ -607,8 +615,11 @@ fn prepare_walk_preserves_holders_and_reaches_the_actual_ai_write() {
             .get_mut(&objects, object)
             .unwrap()
             .auras
-            .aura_holders
-            .insert(id, SourceAuraHolder::new(t, object, 0, 0, -1).unwrap());
+            .store_aura_holder(
+                id,
+                &mut Some(SourceAuraHolder::new(t, object, 0, 0, -1).unwrap()),
+            )
+            .unwrap();
     }
     let before = units.get(&objects, object).unwrap().auras.clone();
     let saved = serde_json::to_vec(&ais.inventory(&objects).unwrap()).unwrap();
@@ -750,11 +761,11 @@ fn aura_removal_and_ai_movement_refuse_at_their_source_calls() {
         .get_mut(&objects, object)
         .unwrap()
         .auras
-        .aura_holders
-        .insert(
+        .store_aura_holder(
             9036,
-            SourceAuraHolder::new(ghost, object, 0, 0, -1).unwrap(),
-        );
+            &mut Some(SourceAuraHolder::new(ghost, object, 0, 0, -1).unwrap()),
+        )
+        .unwrap();
     let mut shroud = stores.template(10848).unwrap().clone();
     shroud.interruptflags = 1;
     stores.insert_template(shroud).unwrap();
@@ -801,7 +812,7 @@ fn aura_removal_and_ai_movement_refuse_at_their_source_calls() {
             .get(&objects, object)
             .unwrap()
             .auras
-            .aura_holders
+            .aura_holders()
             .len(),
         1
     );

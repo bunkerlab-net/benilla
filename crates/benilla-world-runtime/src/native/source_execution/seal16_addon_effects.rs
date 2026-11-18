@@ -258,9 +258,10 @@ impl SpellAuraHitOwner for Owner<'_> {
     fn apply_inserted_aura_holder(
         &mut self,
         t: &SpellTemplate,
+        holder: SourceAuraHolderId,
         nested: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
     ) -> Result<()> {
-        self.apply_holder(t, nested)
+        self.apply_holder(t, holder, nested)
     }
 
     fn proc_aura_hit(&mut self, s: &mut SourceSpell) -> Result<()> {
@@ -293,16 +294,20 @@ impl Owner<'_> {
     fn apply_holder(
         &mut self,
         t: &SpellTemplate,
+        holder: SourceAuraHolderId,
         mut nested: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
     ) -> Result<()> {
+        // Unit.cpp:4855. Apply modifiers to the holder that was just inserted.
         for (i, effect) in t.effects().iter().enumerate() {
-            if self.auras.aura_holders[&t.id].effects[i].is_some() {
+            if self.auras.aura_holder(holder).unwrap().effects[i].is_some() {
                 // Aura::OnApply/OnAfterApply see the holder script already bound.
                 match effect.aura {
                     192..=255 => {}
                     95 => self.auras.vis_flags |= 1, // SpellAuras.cpp:4401-4429; creature.
                     10 => {
-                        let aura = self.auras.aura_holders[&t.id].effects[i].as_ref().unwrap();
+                        let aura = self.auras.aura_holder(holder).unwrap().effects[i]
+                            .as_ref()
+                            .unwrap();
                         if self.objects.get(self.object)?.alive {
                             require(
                                 !matches!(t.id, 26400 | 28862),
@@ -322,16 +327,18 @@ impl Owner<'_> {
                             }
                         }
                     }
-                    36 => self.apply_shape(t.id, i, nested.as_mut())?,
+                    36 => self.apply_shape(holder, i, nested.as_mut())?,
                     23 => {
                         // SpellAuras.cpp:3097-3117 sets periodic and skips removal-only casts.
-                        self.auras.aura_holders.get_mut(&t.id).unwrap().effects[i]
+                        self.auras.aura_holder_mut(holder).unwrap().effects[i]
                             .as_mut()
                             .unwrap()
                             .periodic = true;
                     }
                     65 => {
-                        let aura = self.auras.aura_holders[&t.id].effects[i].as_ref().unwrap();
+                        let aura = self.auras.aura_holder(holder).unwrap().effects[i]
+                            .as_ref()
+                            .unwrap();
                         return Err(refuse(if aura.amount > 0 {
                             "execution.spells.Unit_10496.ApplyPercentModFloatValue_owner"
                         } else {
@@ -383,7 +390,7 @@ impl Owner<'_> {
                         )))
                     }
                 }
-                self.auras.aura_holders.get_mut(&t.id).unwrap().effects[i]
+                self.auras.aura_holder_mut(holder).unwrap().effects[i]
                     .as_mut()
                     .unwrap()
                     .applied = true;
@@ -411,11 +418,11 @@ impl Owner<'_> {
 
     fn apply_shape(
         &mut self,
-        spell: u32,
+        holder: SourceAuraHolderId,
         effect: usize,
         nested: Option<&mut (&mut SourceSpellStarts, &mut SourceUnitEvents)>,
     ) -> Result<()> {
-        let misc = self.auras.aura_holders[&spell].effects[effect]
+        let misc = self.auras.aura_holder(holder).unwrap().effects[effect]
             .as_ref()
             .unwrap()
             .misc;
@@ -431,9 +438,10 @@ impl Owner<'_> {
         };
         // SpellAuras.cpp:1792-1796,1861-1885; Unit.cpp:820-834 excludes this holder.
         require(
-            self.auras.aura_types[&36]
+            self.auras
+                .auras_of_type(36)
                 .iter()
-                .all(|id| (*id >> 2) == u64::from(spell)),
+                .all(|effect| effect.holder == holder),
             "execution.spells.Unit_831.RemoveAurasDueToSpell_owner",
         )?;
         let power_type = self
@@ -470,7 +478,7 @@ impl Owner<'_> {
         }
         // SpellAuras.cpp:1920-1936; Unit.cpp:5211-5223.
         *self.form = form;
-        for &id in self.auras.aura_holders.keys() {
+        for id in self.auras.aura_spell_ids() {
             let aura = self
                 .stores
                 .template(id)
@@ -490,7 +498,7 @@ impl Owner<'_> {
             events: queue,
             owner: self,
         }
-        .cast_triggered(caster, None, boost, Some(spell))?;
+        .cast_triggered(caster, None, boost, Some(holder.spell()))?;
         Ok(())
     }
 
@@ -518,11 +526,12 @@ impl Owner<'_> {
         self.auras.spell_procs_happening = true;
         let mut lookups = 0;
         for _ in 0..if victim { 2 } else { 1 } {
-            for (&id, holder) in &self.auras.aura_holders {
+            for (id, holder) in self.auras.aura_holders() {
                 // :415-420 skips the just-created holder until Spell.cpp:1358.
                 if !holder.ready || holder.deleted {
                     continue;
                 }
+                let id = id.spell();
                 let t = self
                     .stores
                     .template(id)
