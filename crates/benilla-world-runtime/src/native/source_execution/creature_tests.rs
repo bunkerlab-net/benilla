@@ -2027,3 +2027,154 @@ fn selected_builtin_factory_dispatch_retains_real_bodies_and_named_refusals() {
 
 #[path = "creature_level_factory_tests.rs"]
 mod creature_level_factory_tests;
+
+#[test]
+fn create_dispatch_uses_live_entry_and_pose_and_stops_before_instance_for_pvp() {
+    let mut objects = SourceObjects::default();
+    let cells = SourceCells::new(map()).unwrap();
+    let unit = objects.construct(2, SourceObjectKind::Creature).unwrap();
+    let guid = SourceGuid::with_entry(HighGuid::Creature, 7, 40);
+    objects.bind_map(unit, map(), &cells).unwrap();
+    objects.assign_guid(unit, 40, guid).unwrap();
+    assert!(relocate_source_creature_for_create(&mut objects, unit, [1., 2., 3., 0.]).unwrap());
+    let mut units = SourceUnits::default();
+    let mut fields = SourceUnitFields::constructed_creature();
+    fields.entry = 14508;
+    units.register(&objects, unit, fields).unwrap();
+    let mut outdoor = SourceOutdoorPvp::default();
+    let mut world = SourceMessager::new(MessageOwner::World);
+    outdoor
+        .initialize([true, false], 1, &mut world, &mut BTreeMap::new())
+        .unwrap();
+    let mut instance = SourceWorldScript {
+        map: map(),
+        stores: WorldScriptStores::default(),
+        state: WorldScriptState::EasternKingdoms,
+    };
+    for (map_type, zone, error) in [
+        (
+            3,
+            0,
+            Some("execution.creature.loaded_battleground_create_owner"),
+        ),
+        (
+            0,
+            1377,
+            Some("execution.creature.loaded_outdoor_pvp_create_owner"),
+        ),
+        (0, 1, None),
+    ] {
+        let mut observed = Vec::new();
+        let result = notify_loaded_creature_create(
+            &objects,
+            &units,
+            unit,
+            PersistentMapEntry { id: 0, map_type },
+            &outdoor,
+            Some(&mut instance),
+            |pose| {
+                assert_eq!(map_type, 0);
+                assert_eq!(pose, [1., 2., 3.]);
+                Ok([zone, 37])
+            },
+            |event| observed.push(event),
+        );
+        assert_eq!(
+            result.as_ref().err().map(|refusal| refusal.id.as_str()),
+            error
+        );
+        assert_eq!(
+            observed.first(),
+            Some(&CreatureCreateObservation::Battleground(map_type == 3))
+        );
+        if error.is_some() {
+            assert!(instance.stores.creatures.is_empty());
+        } else {
+            assert_eq!(
+                observed.last(),
+                Some(&CreatureCreateObservation::InstanceScriptCalled)
+            );
+            assert_eq!(instance.stores.creatures.get(&14508), Some(&guid.raw()));
+        }
+    }
+    assert!(
+        !relocate_source_creature_for_create(&mut objects, unit, [f32::NAN, 2., 3., 0.]).unwrap()
+    );
+}
+
+#[test]
+fn failed_creature_construction_discards_all_live_bindings() {
+    let mut objects = SourceObjects::default();
+    let mut cells = SourceCells::new(map()).unwrap();
+    let mut units = SourceUnits::default();
+    let mut passengers = SourcePassengers::default();
+    let mut motions = BTreeMap::new();
+    let failed = objects.construct(2, SourceObjectKind::Creature).unwrap();
+    CreatureConstruction::construct_loaded_candidate(
+        failed,
+        &objects,
+        &mut units,
+        &mut passengers,
+        &mut motions,
+    )
+    .unwrap();
+    CreatureConstruction::discard_loaded_candidate(
+        failed,
+        &mut units,
+        &mut passengers,
+        &mut motions,
+    )
+    .unwrap();
+    assert!(units.get(&objects, failed).is_err());
+    assert!(passengers.transport(failed).is_err());
+    assert!(!motions.contains_key(&failed));
+    objects.destroy(failed, &mut cells).unwrap();
+    let next = objects.construct(2, SourceObjectKind::Creature).unwrap();
+    CreatureConstruction::construct_loaded_candidate(
+        next,
+        &objects,
+        &mut units,
+        &mut passengers,
+        &mut motions,
+    )
+    .unwrap();
+    assert!(units.get(&objects, next).is_ok());
+    assert_eq!(passengers.transport(next).unwrap(), None);
+    assert!(motions.contains_key(&next));
+}
+
+#[test]
+fn constructor_discard_rejects_transport_movement_and_unknown_handles() {
+    let mut objects = SourceObjects::default();
+    let unit = objects.construct(2, SourceObjectKind::Creature).unwrap();
+    let transport = objects.construct(2, SourceObjectKind::GameObject).unwrap();
+    let mut passengers = SourcePassengers::default();
+    assert_eq!(
+        passengers.discard_construction(unit).unwrap_err().id,
+        "execution.transport.world_object_transport_unbound"
+    );
+    passengers.construct(unit, &objects).unwrap();
+    let pose = SourcePose([0; 4]);
+    passengers
+        .bind_unit(
+            unit,
+            PassengerMovement {
+                transport: Some(transport),
+                guid: 1,
+                time: 0,
+                offset: pose,
+                on_transport: true,
+                movement_pose: pose,
+                ghost: false,
+                pet: None,
+                mini_pet: None,
+            },
+            &objects,
+        )
+        .unwrap();
+    assert_eq!(
+        passengers.discard_construction(unit).unwrap_err().id,
+        "execution.transport.discard_construction_movement_owner"
+    );
+    assert_eq!(passengers.transport(unit).unwrap(), Some(transport));
+}

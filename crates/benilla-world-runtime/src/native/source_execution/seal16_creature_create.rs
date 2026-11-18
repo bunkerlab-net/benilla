@@ -12,105 +12,14 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
     // CreatureCreatePos has no close object, and staticSpawn is true, Creature.cpp:105-120.
     let position = data.row.pose;
     prefix.lookups.push("creature_select_final_point_static");
-    context
-        .objects
-        .set_pose(object, SourcePose(position.map(f32::to_bits)))?;
-    if !creatures::valid_position(position) {
-        prefix.units.discard_construction(object);
-        context.objects.destroy(object, context.cells)?;
-        return Ok(GridCandidateOutcome::FailedAndDestroyed(object));
+    if !relocate_source_creature_for_create(context.objects, object, position)? {
+        return creatures::failed(prefix, object, context);
     }
     prefix
         .lookups
         .push("creature_final_position_relocated_valid");
-    let battleground = prefix.map_entry.battleground();
-    prefix.creature_battleground = Some(battleground);
-    prefix.lookups.push("creature_create_battleground");
-    if battleground {
-        return Err(refuse(
-            "execution.creature.loaded_battleground_create_owner",
-        ));
-    }
-    if prefix.map_entry.id == 0 && data.row.guid == 636 {
-        let current = prefix.creature_entry.as_ref().unwrap();
-        assert_eq!((template.words[0], current.equipment), (14508, 14508));
-        assert_eq!(current.virtual_items, [7420, 0, 0]);
-        assert_eq!(current.virtual_item_info, [[0x0d010702, 3], [0, 0], [0, 0]]);
-        assert_ne!(template.words[17] & 2, 0);
-        assert_eq!(template.words[23] & 0x8000, 0);
-        assert_eq!(prefix.swimming_census.reached_441, 1);
-        assert_eq!(prefix.swimming_census.swimming_not_set, 1);
-        assert_eq!(
-            current.movement_flags & benilla_sim::creature_capabilities::MOVEFLAG_SWIMMING,
-            0
-        );
-        assert!(prefix.lookups.contains(&"creature_init_entry_remainder"));
-        assert!(prefix.lookups.ends_with(&[
-            "creature_final_position_relocated_valid",
-            "creature_create_battleground",
-        ]));
-        assert_eq!(
-            (prefix.creature_battleground, prefix.creature_zone),
-            (Some(false), None)
-        );
-    }
-    let location = context
-        .products
-        .zone_and_area(prefix.map_entry.id, position[..3].try_into().unwrap())?;
-    prefix.zone_lookups.insert(
-        SpawnKey {
-            kind: GridSpawnKind::Creature,
-            guid: data.row.guid,
-        },
-        location,
-    );
-    let zone = location[0];
-    prefix.creature_zone = Some(zone);
-    prefix.lookups.push("creature_create_zone");
-    prefix.lookups.push("creature_outdoor_pvp_get_script");
-    if prefix.outdoor_pvp.get_script(zone)?.is_some() {
-        return Err(refuse("execution.creature.loaded_outdoor_pvp_create_owner"));
-    }
-    prefix.lookups.push("creature_instance_data");
-    if let Some(script) = prefix.instance_data.as_mut() {
-        prefix.lookups.push("creature_instance_on_creature_create");
-        script.creature_create(
-            template.words[0],
-            context
-                .objects
-                .get(object)?
-                .guid
-                .ok_or_else(|| refuse("execution.object_guid_absent"))?
-                .raw(),
-        );
-    }
-    prefix.linking.ensure_loaded()?;
-    prefix.lookups.push("creature_linking_slave_lookup");
-    let slave_link = prefix
-        .linking
-        .lookup(template.words[0], data.row.guid, prefix.map_entry.id);
-    if slave_link.is_some() {
-        prefix
-            .link_holder
-            .add_slave(prefix.linking, context.objects, object, template.words[0])?;
-    }
-    prefix.lookups.push("creature_linking_trigger_lookup");
-    if prefix
-        .linking
-        .event_trigger(template.words[0], data.row.guid, prefix.map_entry.id)
-    {
-        prefix.creature_linking_trigger = true; // Creature.cpp:928, before AddMasterToHolder.
-        prefix
-            .units
-            .get_mut(context.objects, object)?
-            .linking_event_trigger = Some(true);
-        prefix.link_holder.add_master(
-            prefix.linking,
-            context.objects,
-            object,
-            template.words[0],
-        )?;
-    }
+    create_notifications(prefix, object, data.row.guid, template, context)?;
+    bind_linking(prefix, construction, context.objects)?;
     // Creature.cpp:439-444 precedes the former :3142 boundary. GUID27036
     // has no water inhabit bit (trace60433354 and SQL snapshot line 425150).
     if prefix.map_entry.id == 1 && data.row.guid == 27036 {
@@ -257,9 +166,7 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
     prefix.lookups.push("creature_respawn_calendar_consumed");
     if fields.respawn_time.unwrap() > clock.seconds {
         if new_spawning {
-            prefix.units.discard_construction(object);
-            context.objects.destroy(object, context.cells)?;
-            return Ok(GridCandidateOutcome::FailedAndDestroyed(object));
+            return creatures::failed(prefix, object, context);
         }
         context.objects.mark_dead(object)?;
         return Err(refuse("execution.creature.Creature_1705.SetHealth_owner"));
@@ -272,6 +179,8 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
     }
     prefix.lookups.push("creature_spawned_by_linked_mob_lookup");
     let map = context.objects.get(object)?.map.unwrap();
+    let slave_link =
+        source_creature_link_info(prefix.linking, context.objects, &prefix.units, object)?;
     let spawn_linked = slave_link.is_some_and(|info| info.spawning_linked());
     if spawn_linked && context.objects.get(object)?.alive {
         let (managers, state) = context.definitions.persistent_state(map)?;
@@ -476,6 +385,96 @@ pub(super) fn continue_create<D: GridDefinitions<Row = SpawnKey>>(
     }
     prefix.lookups.push("creature_load_from_db_return");
     Ok(GridCandidateOutcome::Loaded(object))
+}
+
+fn create_notifications<D: GridDefinitions<Row = SpawnKey>>(
+    prefix: &mut Prefix<'_>,
+    object: ObjectHandle,
+    database: u32,
+    template: &LoadedCreatureInfo,
+    context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
+) -> Result<()> {
+    use CreatureCreateObservation::*;
+    let map = prefix.map_entry;
+    notify_loaded_creature_create(
+        context.objects,
+        &prefix.units,
+        object,
+        map,
+        prefix.outdoor_pvp,
+        prefix.instance_data.as_deref_mut(),
+        |pose| context.products.zone_and_area(map.id, pose),
+        |observation| match observation {
+            Battleground(battleground) => {
+                prefix.creature_battleground = Some(battleground);
+                prefix.lookups.push("creature_create_battleground");
+                if map.id == 0 && database == 636 {
+                    let current = prefix.creature_entry.as_ref().unwrap();
+                    assert_eq!((template.words[0], current.equipment), (14508, 14508));
+                    assert_eq!(current.virtual_items, [7420, 0, 0]);
+                    assert_eq!(current.virtual_item_info, [[0x0d010702, 3], [0, 0], [0, 0]]);
+                    assert_ne!(template.words[17] & 2, 0);
+                    assert_eq!(template.words[23] & 0x8000, 0);
+                    assert_eq!(prefix.swimming_census.reached_441, 1);
+                    assert_eq!(prefix.swimming_census.swimming_not_set, 1);
+                    assert_eq!(
+                        current.movement_flags
+                            & benilla_sim::creature_capabilities::MOVEFLAG_SWIMMING,
+                        0
+                    );
+                    assert!(prefix.lookups.contains(&"creature_init_entry_remainder"));
+                    assert!(prefix.lookups.ends_with(&[
+                        "creature_final_position_relocated_valid",
+                        "creature_create_battleground",
+                    ]));
+                    assert_eq!(
+                        (prefix.creature_battleground, prefix.creature_zone),
+                        (Some(false), None)
+                    );
+                }
+            }
+            Zone(location) => {
+                prefix.zone_lookups.insert(
+                    SpawnKey {
+                        kind: GridSpawnKind::Creature,
+                        guid: database,
+                    },
+                    location,
+                );
+                prefix.creature_zone = Some(location[0]);
+                prefix.lookups.push("creature_create_zone");
+            }
+            OutdoorScriptLookup => prefix.lookups.push("creature_outdoor_pvp_get_script"),
+            InstanceDataLookup => prefix.lookups.push("creature_instance_data"),
+            InstanceScriptCalled => prefix.lookups.push("creature_instance_on_creature_create"),
+        },
+    )
+}
+
+fn bind_linking(
+    prefix: &mut Prefix<'_>,
+    state: &mut CreatureConstruction,
+    objects: &SourceObjects,
+) -> Result<()> {
+    let result = register_loaded_creature_linking(
+        state,
+        prefix.linking,
+        prefix.link_holder,
+        objects,
+        &mut prefix.units,
+        |notice| {
+            prefix.lookups.push(match notice {
+                CreatureLinkingRegistrationObservation::SlaveLookup => {
+                    "creature_linking_slave_lookup"
+                }
+                CreatureLinkingRegistrationObservation::TriggerLookup => {
+                    "creature_linking_trigger_lookup"
+                }
+            });
+        },
+    );
+    prefix.creature_linking_trigger = state.linking_trigger;
+    result
 }
 
 #[path = "seal16_addon_cast.rs"]
@@ -828,7 +827,11 @@ impl<D: GridDefinitions<Row = SpawnKey>> CreatureFactoryOwner<D, SourceTerrainMa
         object: ObjectHandle,
         _: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
     ) -> Result<()> {
-        self.units.discard_construction(object);
-        Ok(())
+        CreatureConstruction::discard_loaded_candidate(
+            object,
+            &mut self.units,
+            self.passengers,
+            &mut self.motions,
+        )
     }
 }

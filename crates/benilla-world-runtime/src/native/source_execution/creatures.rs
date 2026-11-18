@@ -322,6 +322,25 @@ impl CreatureConstruction {
         Ok(())
     }
 
+    /// ObjectGridLoader.cpp:138-142 deletes a failed construction before world insertion.
+    pub fn discard_loaded_candidate(
+        object: ObjectHandle,
+        units: &mut SourceUnits,
+        passengers: &mut SourcePassengers,
+        motions: &mut std::collections::BTreeMap<ObjectHandle, SourceMotionMaster>,
+    ) -> Result<()> {
+        require(
+            motions
+                .get(&object)
+                .is_some_and(SourceMotionMaster::is_empty),
+            "execution.creature.failed_construction_motion_owner",
+        )?;
+        passengers.discard_construction(object)?;
+        units.discard_construction(object);
+        motions.remove(&object);
+        Ok(())
+    }
+
     /// Object.cpp:105-118; Creature.cpp:1608 clears the unit's value array.
     pub fn reset_loaded_proto_fields(live: &mut SourceUnitFields) {
         live.combat_reach = Some(0);
@@ -1075,12 +1094,9 @@ where
         &mut state,
         context,
     )?;
-    if !valid_position(state.position) {
+    if !relocate_source_creature_for_create(context.objects, object, state.position)? {
         return failed(factory, object, context);
     }
-    context
-        .objects
-        .set_pose(object, SourcePose(state.position.map(f32::to_bits)))?;
     for phase in [
         CreaturePhase::PvpAndInstanceCreate,
         CreaturePhase::LinkingRegistration,
@@ -1469,7 +1485,7 @@ where
     factory.creature_phase(CreaturePhase::MapAddViewpoint, state, context)?;
     factory.creature_phase(CreaturePhase::MapAddVisibility, state, context)
 }
-pub(super) fn valid_position(position: [f32; 4]) -> bool {
+fn valid_position(position: [f32; 4]) -> bool {
     // Position validity has a half-yard margin, unlike cell conversion; GridDefines.h:177-194.
     const LIMIT: f64 = (533.333_3_f32 * 64.0 / 2.0) as f64 - 0.5;
     position.iter().all(|v| v.is_finite())
@@ -1574,6 +1590,101 @@ pub fn register_source_creature_linking(
     object: ObjectHandle,
     entry: u32,
 ) -> Result<bool> {
+    register_source_creature_linking_inner(links, holder, objects, object, entry, |_| {}, || {})
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CreatureCreateObservation {
+    Battleground(bool),
+    Zone([u32; 2]),
+    OutdoorScriptLookup,
+    InstanceDataLookup,
+    InstanceScriptCalled,
+}
+
+/// Creature.cpp:911-921 queries outdoor PvP only on the non-battleground path.
+#[allow(clippy::too_many_arguments)]
+pub fn notify_loaded_creature_create(
+    objects: &SourceObjects,
+    units: &SourceUnits,
+    object: ObjectHandle,
+    map: PersistentMapEntry,
+    outdoor: &SourceOutdoorPvp,
+    instance: Option<&mut SourceWorldScript>,
+    zone_and_area: impl FnOnce([f32; 3]) -> Result<[u32; 2]>,
+    mut observe: impl FnMut(CreatureCreateObservation),
+) -> Result<()> {
+    let battleground = map.battleground();
+    observe(CreatureCreateObservation::Battleground(battleground));
+    if battleground {
+        return Err(refuse(
+            "execution.creature.loaded_battleground_create_owner",
+        ));
+    }
+    let value = objects.get(object)?;
+    require(
+        value.map.is_some_and(|identity| identity.map == map.id),
+        "execution.creature.map_binding",
+    )?;
+    let [x, y, z, _] = objects.pose(object)?.0.map(f32::from_bits);
+    let location = zone_and_area([x, y, z])?;
+    observe(CreatureCreateObservation::Zone(location));
+    observe(CreatureCreateObservation::OutdoorScriptLookup);
+    if outdoor.get_script(location[0])?.is_some() {
+        return Err(refuse("execution.creature.loaded_outdoor_pvp_create_owner"));
+    }
+    observe(CreatureCreateObservation::InstanceDataLookup);
+    if let Some(script) = instance {
+        observe(CreatureCreateObservation::InstanceScriptCalled);
+        let guid = value
+            .guid
+            .ok_or_else(|| refuse("execution.object_guid_absent"))?;
+        script.creature_create(units.get(objects, object)?.entry, guid.raw());
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CreatureLinkingRegistrationObservation {
+    SlaveLookup,
+    TriggerLookup,
+}
+
+/// Creature.cpp:923-929 sets the Unit flag before calling AddMasterToHolder.
+pub fn register_loaded_creature_linking(
+    state: &mut CreatureConstruction,
+    links: &SourceCreatureLinking,
+    holder: &mut SourceCreatureLinkingHolder,
+    objects: &SourceObjects,
+    units: &mut SourceUnits,
+    observe: impl FnMut(CreatureLinkingRegistrationObservation),
+) -> Result<()> {
+    let live = units.get_mut(objects, state.object)?;
+    register_source_creature_linking_inner(
+        links,
+        holder,
+        objects,
+        state.object,
+        live.entry,
+        observe,
+        || {
+            live.linking_event_trigger = Some(true);
+            state.linking_trigger = true;
+        },
+    )?;
+    Ok(())
+}
+
+fn register_source_creature_linking_inner(
+    links: &SourceCreatureLinking,
+    holder: &mut SourceCreatureLinkingHolder,
+    objects: &SourceObjects,
+    object: ObjectHandle,
+    entry: u32,
+    mut observe: impl FnMut(CreatureLinkingRegistrationObservation),
+    set_trigger: impl FnOnce(),
+) -> Result<bool> {
+    observe(CreatureLinkingRegistrationObservation::SlaveLookup);
     let info = lookup_source_creature_linking(links, objects, object, entry)?;
     let value = objects.get(object)?;
     require(
@@ -1583,9 +1694,31 @@ pub fn register_source_creature_linking(
     if info.is_some() {
         holder.add_slave(links, objects, object, entry)?;
     }
+    observe(CreatureLinkingRegistrationObservation::TriggerLookup);
     let trigger = links.event_trigger(entry, value.database_guid, holder.map().map);
     if trigger {
+        set_trigger();
         holder.add_master(links, objects, object, entry)?;
     }
     Ok(trigger)
+}
+
+/// Creature.cpp:908-909 and :123-134 relocate before checking validity.
+pub fn relocate_source_creature_for_create(
+    objects: &mut SourceObjects,
+    object: ObjectHandle,
+    position: [f32; 4],
+) -> Result<bool> {
+    objects.set_pose(object, SourcePose(position.map(f32::to_bits)))?;
+    Ok(valid_position(position))
+}
+
+/// CreatureLinkingMgr.cpp:294-298 queries the live effective entry again at Creature.cpp:1720.
+pub fn source_creature_link_info(
+    links: &SourceCreatureLinking,
+    objects: &SourceObjects,
+    units: &SourceUnits,
+    object: ObjectHandle,
+) -> Result<Option<LinkingInfo>> {
+    lookup_source_creature_linking(links, objects, object, units.get(objects, object)?.entry)
 }

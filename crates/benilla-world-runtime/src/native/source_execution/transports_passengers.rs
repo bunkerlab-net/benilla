@@ -169,6 +169,20 @@ impl SourcePassengers {
         self.units.insert(handle, PassengerState::Constructed);
         Ok(())
     }
+    /// Object.cpp:1169-1174; ObjectGridLoader.cpp:138-142 destroys the fresh WorldObject.
+    pub fn discard_construction(&mut self, handle: ObjectHandle) -> Result<()> {
+        match self.units.get(&handle) {
+            Some(PassengerState::Constructed) => {
+                self.units.remove(&handle);
+                Ok(())
+            }
+            Some(PassengerState::Movement(_)) => Err(refuse(
+                "execution.transport.discard_construction_movement_owner",
+            )),
+            None => Err(refuse("execution.transport.world_object_transport_unbound")),
+        }
+    }
+
     /// Object.h:1129 reads m_transport without reading MovementInfo or pet state.
     pub fn transport(&self, handle: ObjectHandle) -> Result<Option<ObjectHandle>> {
         match self.units.get(&handle) {
