@@ -2,6 +2,7 @@
 // CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
 //! SpellAuras.cpp:257-290,5155-5212. State belongs to the target Unit.
 use super::super::relations::unbound_pet_loading;
+use super::procs::heartbeat_aura;
 use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -188,48 +189,83 @@ fn aura_type_cast_checks_both_sides_of_the_nonfixed_enum_boundary() {
     );
 }
 
-// Unit.cpp:5253-5276. Walk live holders in order until an unowned removal.
+/// Live operands of the bound creature self-holder removal.
+#[derive(Clone, Copy)]
+pub struct SelfAuraRemoval<'a> {
+    pub target: ObjectHandle,
+    pub level: Option<u32>,
+    pub alive: bool,
+    pub player: bool,
+    pub player_group: Option<bool>,
+    pub totem: bool,
+    pub objects: &'a SourceObjects,
+    pub control_guids: &'a SourceControlGuids,
+}
+
+/// Unit.h:242-254.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum AuraRemoveMode {
+    Default = 0,
+    Stack = 1,
+    Death = 4,
+    Delete = 5,
+    Expire = 7,
+}
+
+// Unit.cpp:5253-5276. Start at begin() again after a holder removal.
 pub fn check_cast_aura_removals(
     stores: &SourceSpellStores,
-    auras: &SourceUnitAuras,
+    auras: &mut SourceUnitAuras,
     cast: &SpellTemplate,
-    caster: ObjectHandle,
+    live: SelfAuraRemoval<'_>,
     flag: u32,
     mut observe_lookup: impl FnMut(),
 ) -> Result<()> {
-    for (id, holder) in auras.aura_holders() {
-        let id = id.spell();
-        let old = stores
-            .template(id)
-            .ok_or_else(|| refuse("execution.spells.missing_template"))?;
-        observe_lookup();
-        if old.aurainterruptflags & flag != 0
-            && (id != cast.id || holder.caster != caster)
-            && (cast.attributesex & 0x20 == 0 || old.dispel != 5)
-            && (cast.attributesex2 & 0x4000 == 0 || old.dispel != 6)
-        {
-            return Err(refuse(
-                "execution.spells.Unit_5270.RemoveSpellAuraHolder_owner",
-            ));
+    loop {
+        let mut remove = None;
+        for (id, holder) in auras.aura_holders() {
+            let old = stores
+                .template(id.spell())
+                .ok_or_else(|| refuse("execution.spells.missing_template"))?;
+            observe_lookup();
+            if old.aurainterruptflags & flag != 0
+                && (id.spell() != cast.id || holder.caster != live.target)
+                && (cast.attributesex & 0x20 == 0 || old.dispel != 5)
+                && (cast.attributesex2 & 0x4000 == 0 || old.dispel != 6)
+            {
+                remove = Some(id);
+                break;
+            }
         }
+        let Some(id) = remove else { return Ok(()) };
+        auras.remove_self_aura_holder(stores, id, AuraRemoveMode::Default, live)?;
     }
-    Ok(())
+}
+
+fn spell_duration_word(row: Option<&SpellDbcRecord>, index: usize) -> Result<i32> {
+    row.map_or(Ok(0), |row| {
+        row.words
+            .get(&index)
+            .map(|v| *v as i32)
+            .ok_or_else(|| refuse("execution.spells.SpellDuration_layout"))
+    })
+}
+
+// SpellMgr.cpp:56-64. Unlike CalculateSpellDuration, this never calls a script.
+fn template_duration(stores: &SourceSpellStores, t: &SpellTemplate) -> Result<i32> {
+    source_spell_duration(spell_duration_word(
+        stores.dbc("SpellDuration.dbc", t.durationindex)?,
+        1,
+    )?)
 }
 
 // SpellMgr.cpp:56-101. The bound creature path has no player SpellMod owner.
 pub fn creature_self_aura_duration(stores: &SourceSpellStores, t: &SpellTemplate) -> Result<i32> {
     let row = stores.dbc("SpellDuration.dbc", t.durationindex)?;
-    let word = |index| -> Result<i32> {
-        row.map_or(Ok(0), |row| {
-            row.words
-                .get(&index)
-                .map(|v| *v as i32)
-                .ok_or_else(|| refuse("execution.spells.SpellDuration_layout"))
-        })
-    };
-    let value = source_spell_duration(word(1)?)?;
+    let value = source_spell_duration(spell_duration_word(row, 1)?)?;
     if value != -1 && t.attributesex3 & 0x2000_0000 == 0 {
-        source_spell_max_duration(word(3)?)?;
+        source_spell_max_duration(spell_duration_word(row, 3)?)?;
     }
     require(
         stores
@@ -280,7 +316,7 @@ impl SourceSpell {
         &mut self,
         t: &SpellTemplate,
         stores: &SourceSpellStores,
-        level: u32,
+        live: SelfAuraRemoval<'_>,
         stand: u8,
         nested: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
         owner: &mut impl SpellAuraHitOwner,
@@ -345,7 +381,7 @@ impl SourceSpell {
         let inserted = if self.pending_aura.is_some() {
             let holder = owner
                 .aura_hit_target(target_unit)?
-                .insert_self_aura_holder(stores, t, &mut self.pending_aura, level, stand)?;
+                .insert_self_aura_holder(stores, t, &mut self.pending_aura, live, stand)?;
             owner.apply_inserted_aura_holder(t, holder, nested)?;
             Some(holder)
         } else {
@@ -361,7 +397,7 @@ impl SourceSpell {
                 "execution.spells.Spell_1356.AddDelayedHolderDueToProc_owner",
             )?;
             let holder = auras
-                .aura_holder_mut(id)
+                .retained_aura_holder_mut(id)
                 .ok_or_else(|| refuse("execution.spells.Spell_1358.aura_holder_owner"))?;
             holder.ready = true;
         }
@@ -413,18 +449,19 @@ impl SourceUnitAuras {
         stores: &SourceSpellStores,
         t: &SpellTemplate,
         pending: &mut Option<SourceAuraHolder>,
-        level: u32,
+        live: SelfAuraRemoval<'_>,
         stand: u8,
     ) -> Result<SourceAuraHolderId> {
         let holder = pending
             .as_mut()
             .ok_or_else(|| refuse("execution.spells.Unit_4687.pending_aura_holder_owner"))?;
-        // Unit.cpp:4708-4773. The bound path stops on the first matching holder.
-        if let Some(old) = self.first_aura_holder(t.id) {
-            require(
-                !holder.passive,
-                "execution.spells.Unit_4708.passive_duplicate_holder_owner",
-            )?;
+        let area = holder.effects.iter().flatten().any(|aura| aura.area);
+        let persistent = holder.effects.iter().flatten().any(|aura| aura.persistent);
+        // Unit.cpp:4708-4773. The same-caster removal breaks the equal-key scan.
+        let same_spell = ((!holder.passive && !persistent) || area)
+            .then(|| self.aura_holders_for_spell(t.id).next())
+            .flatten();
+        if let Some((id, old)) = same_spell {
             require(
                 old.caster == holder.caster,
                 "execution.spells.Unit_4763.different_caster_stacker_owner",
@@ -438,21 +475,43 @@ impl SourceUnitAuras {
                 t.id != 12654,
                 "execution.spells.Unit_4733.rolling_ignite_owner",
             )?;
-            return Err(refuse(
-                "execution.spells.Unit_4757.RemoveSpellAuraHolder_owner",
-            ));
+            self.remove_self_aura_holder(stores, id, AuraRemoveMode::Stack, live)?;
         }
-        // Unit.cpp:4937-4971. Existing passive ranks skip before stacker calls.
-        stores.stack(t.id)?;
+        // Unit.cpp:4778-4783,4930-5045; SpellMgr.h:351-356.
+        let party = t.effects().iter().any(|effect| effect.effect == 35);
+        if !holder.passive || party || t.effects().iter().any(|effect| effect.effect == 6) {
+            self.check_aura_stacking(stores, t, holder, party)?;
+        }
+        require(
+            !holder.tracked,
+            "execution.spells.Unit_4793.GetTrackedAuraTargets_owner",
+        )?;
+        self.aura_fields
+            .assign_self_aura_slot(t, holder, live, stand)?;
+        // Unit.cpp:4847-4853. Set creation delay before indexing effects.
+        holder.skip_update = true;
+        self.store_aura_holder(t.id, pending)
+    }
+
+    fn check_aura_stacking(
+        &self,
+        stores: &SourceSpellStores,
+        t: &SpellTemplate,
+        holder: &SourceAuraHolder,
+        party: bool,
+    ) -> Result<()> {
+        let data = stores.stack(t.id)?;
         for (id, existing) in self.aura_holders() {
             let id = id.spell();
-            stores.stack(id)?;
+            let existing_data = stores.stack(id)?;
             let old = stores
                 .template(id)
                 .ok_or_else(|| refuse("execution.spells.missing_template"))?;
+            let own = existing.caster == holder.caster;
+            let another_rank = id != t.id && stores.first_rank(id) == stores.first_rank(t.id);
             if old.attributes & 0x40 != 0
                 && (id != t.id || t.attributes & 0x10 == 0)
-                && (id == t.id || stores.first_rank(id) != stores.first_rank(t.id))
+                && ((!own && !party) || !another_rank)
             {
                 continue;
             }
@@ -460,24 +519,323 @@ impl SourceUnitAuras {
             if holder.triggered_by == Some(id) || existing.triggered_by == Some(t.id) {
                 continue;
             }
+            let mut unique = id == t.id && t.attributesex & 0x800 != 0;
+            if let Some((data, _)) = data
+                .zip(existing_data)
+                .filter(|(data, existing)| data.mask & existing.mask != 0)
+            {
+                unique = matches!(data.rule, 1 | 2);
+            }
+            // SharedDefines.h:1649-1675; LIMITONLY never conflicts.
+            if !unique && !matches!(holder.diminish_group, 0 | 18) {
+                unique = holder.diminish_group == existing.diminish_group;
+            }
             require(
-                existing.caster == holder.caster,
+                own,
                 "execution.spells.Unit_5000.different_caster_stacker_owner",
             )?;
-            spell_stackable(Some(t), Some(old))?;
-            return Err(refuse(
+            let stackable = spell_stackable(Some(t), Some(old))?;
+            require(
+                !unique && stackable && !another_rank,
                 "execution.spells.Unit_5003.aura_stack_resolution_owner",
+            )?;
+        }
+        Ok(())
+    }
+
+    // Unit.cpp:5326-5390; the bound caster and target are the same live unit.
+    pub fn remove_self_aura_holder(
+        &mut self,
+        stores: &SourceSpellStores,
+        id: SourceAuraHolderId,
+        mode: AuraRemoveMode,
+        live: SelfAuraRemoval<'_>,
+    ) -> Result<()> {
+        let holder = self
+            .aura_holder(id)
+            .ok_or_else(|| refuse("execution.spells.Unit_5328.live_aura_holder_owner"))?;
+        require(
+            !holder.deleted,
+            "execution.spells.Unit_5328.deleted_aura_holder_assert",
+        )?;
+        let t = stores
+            .template(id.spell())
+            .ok_or_else(|| refuse("execution.spells.missing_template"))?;
+        require(
+            holder.caster == holder.target && holder.target == live.target,
+            "execution.spells.Unit_5333.GetCaster_owner",
+        )?;
+        let channeled = t.attributesex & 0x44 != 0;
+        require(
+            !channeled || !live.totem,
+            "execution.spells.Unit_5335.GetTotemType_owner",
+        )?;
+        let mut holder = self
+            .unlink_aura_holder(id)
+            .ok_or_else(|| refuse("execution.spells.Unit_5346.aura_holder_map_owner"))?;
+        holder.remove_mode = mode as u32;
+        let result = self.remove_holder_contents(stores, t, id, &mut holder, mode, live);
+        if result.is_ok() {
+            holder.deleted = true;
+        }
+        self.defer_aura_holder(id, holder);
+        result?;
+        // Unit.cpp:5373-5378. The proc store is read only with a nonzero counter.
+        if self.heartbeat_proc_counter != 0 && heartbeat_aura(stores, t) {
+            self.heartbeat_proc_counter -= 1;
+        }
+        if mode != AuraRemoveMode::Expire && channeled && !checks::area_spell(t)? {
+            return Err(refuse(
+                "execution.spells.Unit_5381.GetChannelObjectGuid_owner",
             ));
         }
+        if matches!(t.id, 28682 | 11129) {
+            let sibling = if t.id == 28682 { 11129 } else { 28682 };
+            self.remove_self_auras_by_spell(stores, sibling, None, live)?;
+        }
+        Ok(())
+    }
+
+    fn remove_holder_contents(
+        &mut self,
+        stores: &SourceSpellStores,
+        t: &SpellTemplate,
+        id: SourceAuraHolderId,
+        holder: &mut SourceAuraHolder,
+        mode: AuraRemoveMode,
+        live: SelfAuraRemoval<'_>,
+    ) -> Result<()> {
+        // SpellAuras.cpp:5906-5919. A tracked self holder would access the caster's map.
         require(
             !holder.tracked,
-            "execution.spells.Unit_4793.GetTrackedAuraTargets_owner",
+            "execution.spells.SpellAuraHolder_5915.GetTrackedAuraTargets_owner",
         )?;
+        for (index, effect) in holder.effects.iter_mut().enumerate() {
+            self.remove_aura(
+                stores,
+                t,
+                SourceAuraEffectRef {
+                    holder: id,
+                    effect: index as u8,
+                },
+                effect,
+                mode,
+                live,
+            )?;
+        }
+        self.remove_aura_slot(stores, t, holder, mode, live)?;
+        if mode != AuraRemoveMode::Delete {
+            self.handle_spell_specific_boosts(stores, t, Some(live))?;
+        }
+        Ok(())
+    }
+
+    // Unit.cpp:5404-5446. The holder and type list no longer expose the aura
+    // when its modifier runs. The bound creature effect has no script ref.
+    fn remove_aura(
+        &mut self,
+        stores: &SourceSpellStores,
+        t: &SpellTemplate,
+        reference: SourceAuraEffectRef,
+        effect: &mut Option<SourceAura>,
+        mode: AuraRemoveMode,
+        live: SelfAuraRemoval<'_>,
+    ) -> Result<()> {
+        let Some(aura) = effect.as_mut() else {
+            return Ok(());
+        };
+        if aura.kind < 192 {
+            self.unlink_aura_effect(aura.kind, reference);
+        }
+        aura.remove_mode = mode as u32;
+        let Some(mut aura) = effect.take() else {
+            return Ok(());
+        };
+        let result = if mode != AuraRemoveMode::Delete || matches!(aura.kind, 2 | 128) {
+            let result = self.unapply_aura(stores, t, &aura, mode, live);
+            if result.is_ok() {
+                aura.applied = false;
+            }
+            result
+        } else {
+            Ok(())
+        };
+        self.defer_aura(aura);
+        result
+    }
+
+    // SpellAuras.cpp:677-690. Only the bound, scriptless handlers are available here.
+    fn unapply_aura(
+        &mut self,
+        stores: &SourceSpellStores,
+        t: &SpellTemplate,
+        aura: &SourceAura,
+        mode: AuraRemoveMode,
+        live: SelfAuraRemoval<'_>,
+    ) -> Result<()> {
+        require(
+            stores
+                .script_binding(SpellScriptKind::Aura, t.id)?
+                .is_none(),
+            "execution.spells.Aura_684.OnAfterApply_owner",
+        )?;
+        match aura.kind {
+            4 => handle_creature_dummy_aura(stores, t, live.player, Some((mode, live.alive))),
+            95 => self.handle_aura_ghost(false, live.player),
+            42 | 192..=255 => Ok(()),
+            kind => Err(refuse(&format!(
+                "execution.spells.AuraHandler.type_{kind}_unapply_owner"
+            ))),
+        }
+    }
+
+    // SpellAuras.cpp:5306-5393.
+    fn remove_aura_slot(
+        &mut self,
+        stores: &SourceSpellStores,
+        t: &SpellTemplate,
+        holder: &mut SourceAuraHolder,
+        mode: AuraRemoveMode,
+        live: SelfAuraRemoval<'_>,
+    ) -> Result<()> {
+        if mode != AuraRemoveMode::Stack {
+            self.cleanup_aura_triggered_spells(stores, t, live)?;
+        }
+        // IsPersistent scans m_auras (SpellAuras.cpp:5833-5839), now empty.
+        let slot = usize::from(holder.slot);
+        if self
+            .aura_fields
+            .spells
+            .get(slot)
+            .is_none_or(|spell| *spell == 0)
+        {
+            return Ok(());
+        }
+        require(
+            holder.diminish_group == 0,
+            "execution.spells.SpellAuraHolder_5337.ApplyDiminishingAura_owner",
+        )?;
+        self.aura_fields.spells[slot] = 0;
+        self.aura_fields.flags[slot >> 3] &= !(15 << ((slot & 7) * 4));
+        let level = live
+            .level
+            .ok_or_else(|| refuse("execution.spells.SpellAuraHolder_5341.GetLevel_owner"))?;
+        self.aura_fields.set_aura_level(slot, level);
+        holder.charges = 0;
+        holder.stack = 1;
         self.aura_fields
-            .assign_self_aura_slot(t, holder, level, stand)?;
-        // Unit.cpp:4847-4853. Set creation delay before indexing effects.
-        holder.skip_update = true;
-        self.store_aura_holder(t.id, pending)
+            .update_aura_application(holder.slot, holder.charges, holder.stack);
+        if mode == AuraRemoveMode::Delete {
+            return Ok(());
+        }
+        live.update_aura_for_group()?;
+        if t.spellfamilyname == 10 && t.spellfamilyflags & 0x0a00_0200 != 0 {
+            let mut sibling = false;
+            for id in self.aura_spell_ids() {
+                let other = stores
+                    .template(id)
+                    .ok_or_else(|| refuse("execution.spells.missing_template"))?;
+                if other.spellfamilyname == 10 && other.spellfamilyflags & t.spellfamilyflags != 0 {
+                    sibling = true;
+                    break;
+                }
+            }
+            require(
+                sibling,
+                "execution.spells.SpellAuraHolder_5375.ModifyAuraState_owner",
+            )?;
+        }
+        if t.attributesex & 0x0004_0000 != 0 {
+            let mut sibling = false;
+            for id in self.aura_spell_ids() {
+                let other = stores
+                    .template(id)
+                    .ok_or_else(|| refuse("execution.spells.missing_template"))?;
+                if other.attributesex & 0x0004_0000 != 0 {
+                    sibling = true;
+                    break;
+                }
+            }
+            require(
+                sibling,
+                "execution.spells.SpellAuraHolder_5384.RemoveFlag_owner",
+            )?;
+        }
+        require(
+            t.attributes & 0x0200_0000 == 0,
+            "execution.spells.SpellAuraHolder_5390.AddCooldown_owner",
+        )
+    }
+
+    // SpellAuras.cpp:5395-5421.
+    fn cleanup_aura_triggered_spells(
+        &mut self,
+        stores: &SourceSpellStores,
+        t: &SpellTemplate,
+        live: SelfAuraRemoval<'_>,
+    ) -> Result<()> {
+        for (index, effect) in t.effects().into_iter().enumerate() {
+            if effect.aura == 0 || effect.trigger == 0 {
+                continue;
+            }
+            let Some(triggered) = stores.template(effect.trigger) else {
+                continue;
+            };
+            if template_duration(stores, triggered)? != -1
+                || effect.aura == 23
+                    && template_duration(stores, t)?
+                        == [t.effectamplitude1, t.effectamplitude2, t.effectamplitude3][index]
+                            as i32
+            {
+                continue;
+            }
+            self.remove_self_auras_by_spell(stores, effect.trigger, None, live)?;
+        }
+        Ok(())
+    }
+
+    // Unit.cpp:5049-5063,5179-5193. Restart the selected spell's range.
+    fn remove_self_auras_by_spell(
+        &mut self,
+        stores: &SourceSpellStores,
+        spell: u32,
+        caster: Option<ObjectHandle>,
+        live: SelfAuraRemoval<'_>,
+    ) -> Result<()> {
+        loop {
+            let id = self
+                .aura_holders_for_spell(spell)
+                .find(|(_, holder)| caster.is_none_or(|caster| caster == holder.caster))
+                .map(|(id, _)| id);
+            let Some(id) = id else { return Ok(()) };
+            self.remove_self_aura_holder(stores, id, AuraRemoveMode::Default, live)?;
+        }
+    }
+}
+
+impl SelfAuraRemoval<'_> {
+    // Unit.cpp:10501-10523.
+    fn update_aura_for_group(self) -> Result<()> {
+        if self.player {
+            return match self.player_group {
+                Some(false) => Ok(()),
+                Some(true) => Err(refuse("execution.spells.Unit_10508.aura_slot_group_owner")),
+                None => Err(refuse("execution.spells.Unit_10506.GetGroup_owner")),
+            };
+        }
+        if self.control_guids.has_charmer() {
+            if let Some(charmer) = self
+                .control_guids
+                .get_charmer(self.objects, self.target, None, unbound_pet_loading)?
+                .unit()
+            {
+                require(
+                    self.objects.get(charmer)?.kind != SourceObjectKind::Player,
+                    "execution.spells.Unit_10516.charmer_GetGroup_owner",
+                )?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -487,7 +845,7 @@ impl SourceAuraFields {
         &mut self,
         t: &SpellTemplate,
         holder: &mut SourceAuraHolder,
-        level: u32,
+        live: SelfAuraRemoval<'_>,
         stand: u8,
     ) -> Result<()> {
         holder.slot = 255;
@@ -504,10 +862,16 @@ impl SourceAuraFields {
                     8
                 };
                 self.flags[slot >> 3] = (self.flags[slot >> 3] & !(15 << shift)) | flags << shift;
-                let shift = (slot % 4) * 8;
-                self.levels[slot / 4] =
-                    (self.levels[slot / 4] & !(255 << shift)) | level.wrapping_shl(shift as u32);
+                let level = live.level.ok_or_else(|| {
+                    refuse("execution.spells.SpellAuraHolder_5277.GetLevel_owner")
+                })?;
+                self.set_aura_level(slot, level);
                 self.update_aura_application(holder.slot, holder.charges, holder.stack);
+                live.update_aura_for_group()?;
+                require(
+                    !live.player || holder.passive,
+                    "execution.spells.SpellAuraHolder_5986.aura_duration_session_owner",
+                )?;
             }
         }
         // SpellAuras.cpp:5290-5303. Refuse at unbound stand, flag, or seal updates.
@@ -524,6 +888,12 @@ impl SourceAuraFields {
             t.spellfamilyname != 10 || t.spellfamilyflags & 0x0a00_0200 == 0,
             "execution.spells.SpellAuraHolder_5303.ModifyAuraState_owner",
         )
+    }
+
+    // SpellAuras.cpp:5945-5953.
+    fn set_aura_level(&mut self, slot: usize, level: u32) {
+        let shift = (slot % 4) * 8;
+        self.levels[slot / 4] = (self.levels[slot / 4] & !(255 << shift)) | level << shift;
     }
 
     // SpellAuras.cpp:5960-5974.
@@ -589,7 +959,7 @@ pub fn apply_self_aura_holder(
         match kind {
             192..=255 => {}
             95 => {
-                live.auras.vis_flags |= 1; // SpellAuras.cpp:4401-4429; creature.
+                live.auras.handle_aura_ghost(true, live.player)?;
                 live.auras.mark_effect_applied(holder, i)?;
                 continue;
             }
@@ -657,7 +1027,7 @@ pub fn apply_self_aura_holder(
                 live.auras.mark_effect_applied(holder, i)?;
                 continue;
             }
-            4 => apply_creature_dummy_aura(stores, t)?,
+            4 => handle_creature_dummy_aura(stores, t, live.player, None)?,
             _ => {
                 return Err(refuse(&format!(
                     "execution.spells.AuraHandler.type_{kind}_owner"
@@ -674,7 +1044,7 @@ pub fn apply_self_aura_holder(
 
 impl SourceUnitAuras {
     fn applied_holder_mut(&mut self, holder: SourceAuraHolderId) -> Result<&mut SourceAuraHolder> {
-        self.aura_holder_mut(holder)
+        self.retained_aura_holder_mut(holder)
             .ok_or_else(|| refuse("execution.spells.Unit_4855.aura_holder_owner"))
     }
 
@@ -714,62 +1084,167 @@ impl SourceUnitAuras {
         if self.applied_holder_mut(holder)?.deleted {
             return Ok(());
         }
-        // Unit.cpp:4860-4865; SpellAuras.cpp:5572-5652.
-        let boost = match t.spellfamilyname {
-            0 => t.id == 20594,
-            3 => t.mechanic == 17,
-            9 => t.id == 19574,
-            _ => false,
-        };
-        require(
-            !boost,
-            "execution.spells.SpellAuraHolder_5648.boost_CastSpell_owner",
-        )?;
-        let flags = stores
-            .proc_event(t.id)
-            .map_or(t.procflags, |v| v.flags | t.procflags);
-        if flags & 1 != 0 {
+        // Unit.cpp:4860-4865.
+        self.handle_spell_specific_boosts(stores, t, None)?;
+        if heartbeat_aura(stores, t) {
             self.heartbeat_proc_counter = self.heartbeat_proc_counter.wrapping_add(1);
         }
         Ok(())
     }
+
+    // SpellAuras.cpp:5572-5652.
+    fn handle_spell_specific_boosts(
+        &mut self,
+        stores: &SourceSpellStores,
+        t: &SpellTemplate,
+        remove: Option<SelfAuraRemoval<'_>>,
+    ) -> Result<()> {
+        for spell in spell_specific_boosts(t) {
+            let Some(live) = remove else {
+                return Err(refuse(
+                    "execution.spells.SpellAuraHolder_5648.boost_CastSpell_owner",
+                ));
+            };
+            require(
+                stores.template(spell).is_some(),
+                "execution.spells.SpellAuraHolder_5633.boost_template_null_undefined",
+            )?;
+            // Either argument of the caster-GUID choice names the self caster.
+            self.remove_self_auras_by_spell(stores, spell, Some(live.target), live)?;
+        }
+        Ok(())
+    }
+
+    // SpellAuras.cpp:4401-4429.
+    fn handle_aura_ghost(&mut self, apply: bool, player: bool) -> Result<()> {
+        if apply {
+            self.vis_flags |= 1;
+            require(
+                !player,
+                "execution.spells.Aura_4411.player_ghost_flag_owner",
+            )
+        } else {
+            self.vis_flags &= !1;
+            require(
+                !player,
+                "execution.spells.Aura_4421.player_ghost_flag_owner",
+            )
+        }
+    }
 }
 
-// SpellAuras.cpp:1231-1629. Specific handlers refuse; defaults reach PetAura.
-fn apply_creature_dummy_aura(stores: &SourceSpellStores, t: &SpellTemplate) -> Result<()> {
-    let specific = match t.spellfamilyname {
-        0 => matches!(
-            t.id,
-            6946 | 41170
-                | 7057
-                | 7054
-                | 13139
-                | 21094
-                | 23487
-                | 23183
-                | 25042
-                | 25471
-                | 26681
-                | 26682
-                | 6606
-                | 16093
-                | 24658
-                | 24661
-                | 28819
-                | 29266
-        ),
-        4 => t.id == 23427,
-        6 => t.id == 30238,
-        10 => matches!(t.id, 21082 | 20162 | 20305 | 20306 | 20307 | 20308),
-        _ => false,
+// SpellAuras.cpp:5572-5624. Default families and IDs exit before polymorph.
+fn spell_specific_boosts(t: &SpellTemplate) -> impl Iterator<Item = u32> + '_ {
+    let (boosts, eligible): (&[u32], _) = match (t.spellfamilyname, t.id) {
+        (0, 20594) => (&[20612], true),
+        (3, _) => (&[], true),
+        (9, 19574) => (&[24395, 24396, 24397, 26592], true),
+        _ => (&[], false),
     };
+    boosts
+        .iter()
+        .copied()
+        .chain((eligible && t.mechanic == 17).then_some(12939))
+}
+
+// SpellAuras.cpp:1231-1629.
+fn handle_creature_dummy_aura(
+    stores: &SourceSpellStores,
+    t: &SpellTemplate,
+    player: bool,
+    remove: Option<(AuraRemoveMode, bool)>,
+) -> Result<()> {
+    if let Some((mode, alive)) = remove {
+        if t.effect1 == 63 && t.effect2 == 6 && t.effectapplyauraname2 == 4 && alive {
+            // Spell.cpp:106-114; SpellAuras.cpp:1359-1385.
+            return require(
+                !matches!(t.id, 19548 | 19674 | 19687..=19689 | 19692..=19694 | 19696..=19697 | 19699 | 19700),
+                "execution.spells.Aura_1383.quest_tame_CastSpell_owner",
+            );
+        }
+        let site = match t.id {
+            11129 => Some("execution.spells.Aura_1391.RemoveAurasDueToSpell_owner"),
+            11826 if mode == AuraRemoveMode::Expire && player => {
+                Some("execution.spells.Aura_1400.CastSpell_owner")
+            }
+            12774 if mode != AuraRemoveMode::Death => {
+                Some("execution.spells.Aura_1410.CastSpell_owner")
+            }
+            17189 => Some("execution.spells.Aura_1417.ModifyHealth_owner"),
+            25185 => Some("execution.spells.Aura_1421.CastSpell_owner"),
+            26077 => Some("execution.spells.Aura_1426.CastSpell_owner"),
+            29104 if mode == AuraRemoveMode::Death && player => {
+                Some("execution.spells.Aura_1432.CastSpell_owner")
+            }
+            30238 => Some("execution.spells.Aura_1437.RemoveAurasDueToSpell_owner"),
+            11826 | 12774 | 29104 => return Ok(()),
+            _ if mode == AuraRemoveMode::Death
+                && t.spellfamilyname == 3
+                && t.spellfamilyflags & 0x800 != 0 =>
+            {
+                Some("execution.spells.Aura_1448.InterruptSpell_owner")
+            }
+            _ => None,
+        };
+        if let Some(site) = site {
+            return Err(refuse(site));
+        }
+    } else {
+        let specific = match t.spellfamilyname {
+            0 => matches!(
+                t.id,
+                6946 | 41170
+                    | 7057
+                    | 7054
+                    | 13139
+                    | 21094
+                    | 23487
+                    | 23183
+                    | 25042
+                    | 25471
+                    | 26681
+                    | 26682
+            ),
+            4 => t.id == 23427,
+            6 => t.id == 30238,
+            _ => false,
+        };
+        require(
+            !specific,
+            "execution.spells.Aura_1231.HandleAuraDummy_specific_owner",
+        )?;
+    }
+    if let Some(site) = match (t.spellfamilyname, t.id) {
+        (0, 6606) => Some("execution.spells.Aura_1472.clearUnitState_owner"),
+        (0, 16093) => Some("execution.spells.Aura_1487.clearUnitState_owner"),
+        (0, 24658) => Some("execution.spells.Aura_1504.RemoveAurasDueToSpell_owner"),
+        (0, 24661) => Some("execution.spells.Aura_1517.RemoveAurasDueToSpell_owner"),
+        (0, 28819) => Some("execution.spells.Aura_1530.SetStandState_owner"),
+        (0, 29266) => Some("execution.spells.Aura_1540.SetFeignDeath_owner"),
+        (7, _) if player && t.spelliconid == 1563 => {
+            Some("execution.spells.Aura_1552.UpdateAttackPowerAndDamage_owner")
+        }
+        (10, 21082 | 20162 | 20305..=20308) => {
+            Some("execution.spells.Aura_1571.ApplyPercentModFloatVar_owner")
+        }
+        _ => None,
+    } {
+        return Err(refuse(if remove.is_some() {
+            site
+        } else {
+            "execution.spells.Aura_1231.HandleAuraDummy_specific_owner"
+        }));
+    }
+    if stores.pet_aura(t.id).is_some() {
+        return Err(refuse(if remove.is_some() {
+            "execution.spells.Aura_1585.RemovePetAura_owner"
+        } else {
+            "execution.spells.Aura_1583.AddPetAura_owner"
+        }));
+    }
     require(
-        !specific,
-        "execution.spells.Aura_1231.HandleAuraDummy_specific_owner",
-    )?;
-    require(
-        stores.pet_aura(t.id).is_none(),
-        "execution.spells.Aura_1583.AddPetAura_owner",
+        !player,
+        "execution.spells.Aura_1591.GetSpellAreaForAuraMapBounds_owner",
     )
 }
 
@@ -902,7 +1377,19 @@ fn inserting_without_a_pending_holder_refuses_before_writing_slots() {
             &SourceSpellStores::default(),
             &SpellTemplate::default(),
             &mut None,
-            1,
+            SelfAuraRemoval {
+                target: ObjectHandle {
+                    thread: 1,
+                    construction: 1,
+                },
+                level: Some(1),
+                alive: true,
+                player: false,
+                player_group: None,
+                totem: false,
+                objects: &SourceObjects::default(),
+                control_guids: &SourceControlGuids::default(),
+            },
             0,
         )
         .unwrap_err()

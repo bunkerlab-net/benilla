@@ -38,6 +38,9 @@ pub struct SourceAuraEffectRef {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SourceUnitAuras {
     aura_holders: BTreeMap<SourceAuraHolderId, SourceAuraHolder>,
+    aura_update_next: Option<SourceAuraHolderId>,
+    deleted_holders: Vec<(SourceAuraHolderId, SourceAuraHolder)>,
+    deleted_auras: Vec<SourceAura>,
     last_holder_ordinal: u64,
     /// Unit.h:2507 default-constructs every per-type AuraList empty.
     aura_types: BTreeMap<u32, Vec<SourceAuraEffectRef>>,
@@ -93,13 +96,99 @@ impl SourceUnitAuras {
         self.aura_holders.get_mut(&id)
     }
 
+    // Spell.cpp:1353-1358 still has its original holder after callbacks.
+    pub(in crate::native::source_execution) fn retained_aura_holder_mut(
+        &mut self,
+        id: SourceAuraHolderId,
+    ) -> Option<&mut SourceAuraHolder> {
+        self.aura_holders.get_mut(&id).or_else(|| {
+            self.deleted_holders
+                .iter_mut()
+                .rev()
+                .find_map(|(key, holder)| (*key == id).then_some(holder))
+        })
+    }
+
+    pub fn deferred_aura_holders(
+        &self,
+    ) -> impl ExactSizeIterator<Item = (SourceAuraHolderId, &SourceAuraHolder)> {
+        self.deleted_holders
+            .iter()
+            .map(|(id, holder)| (*id, holder))
+    }
+
+    pub fn deferred_auras(&self) -> &[SourceAura] {
+        &self.deleted_auras
+    }
+
+    // Unit.cpp:5338-5348. Move the update iterator before erasing its entry.
+    pub(in crate::native::source_execution) fn unlink_aura_holder(
+        &mut self,
+        id: SourceAuraHolderId,
+    ) -> Option<SourceAuraHolder> {
+        if self.aura_update_next == Some(id) {
+            use std::ops::Bound::{Excluded, Unbounded};
+            self.aura_update_next = self
+                .aura_holders
+                .range((Excluded(id), Unbounded))
+                .next()
+                .map(|(&next, _)| next);
+        }
+        self.aura_holders.remove(&id)
+    }
+
+    // Unit.cpp:5406-5410. Remove only this effect from its type list.
+    pub(in crate::native::source_execution) fn unlink_aura_effect(
+        &mut self,
+        kind: u32,
+        effect: SourceAuraEffectRef,
+    ) {
+        if let std::collections::btree_map::Entry::Occupied(mut entry) = self.aura_types.entry(kind)
+        {
+            entry.get_mut().retain(|indexed| *indexed != effect);
+            if entry.get().is_empty() {
+                entry.remove();
+            }
+        }
+    }
+
+    pub(in crate::native::source_execution) fn defer_aura_holder(
+        &mut self,
+        id: SourceAuraHolderId,
+        holder: SourceAuraHolder,
+    ) {
+        self.deleted_holders.push((id, holder));
+    }
+
+    pub(in crate::native::source_execution) fn defer_aura(&mut self, aura: SourceAura) {
+        self.deleted_auras.push(aura);
+    }
+
+    // Unit.cpp:494,10856-10866. Holders are disposed before their removed effects.
+    pub fn cleanup_deleted_auras(&mut self) {
+        self.deleted_holders.clear();
+        self.deleted_auras.clear();
+    }
+
     // Unit.cpp:10907-10910. find returns the first holder for this spell.
-    pub fn first_aura_holder(&self, spell: u32) -> Option<&SourceAuraHolder> {
+    pub(in crate::native::source_execution) fn aura_holders_for_spell(
+        &self,
+        spell: u32,
+    ) -> impl Iterator<Item = (SourceAuraHolderId, &SourceAuraHolder)> {
         let first = SourceAuraHolderId { spell, ordinal: 0 };
         self.aura_holders
-            .range(first..)
+            .range(
+                first..=SourceAuraHolderId {
+                    spell,
+                    ordinal: u64::MAX,
+                },
+            )
+            .map(|(&id, holder)| (id, holder))
+    }
+
+    pub fn first_aura_holder(&self, spell: u32) -> Option<&SourceAuraHolder> {
+        self.aura_holders_for_spell(spell)
             .next()
-            .filter(|(id, _)| id.spell == spell)
             .map(|(_, holder)| holder)
     }
 

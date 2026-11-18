@@ -29,7 +29,7 @@ impl Binding<'_> {
     ) -> Result<T> {
         let ai = ais.get_mut(objects, self.object)?;
         let (live, starts, events) = units.get_mut(objects, self.object)?.borrow_cast();
-        run(&mut SpellStartContext {
+        let result = run(&mut SpellStartContext {
             stores: self.stores,
             starts,
             events,
@@ -49,7 +49,18 @@ impl Binding<'_> {
                 broadcast: self.broadcast,
                 slots_detached: false,
             },
-        })
+        })?;
+        let object = objects.get(self.object)?;
+        if self.object.thread == 6
+            && object.database_guid == 40520
+            && starts
+                .spells
+                .get(&4)
+                .is_some_and(|spell| spell.state == SourceSpellState::Finished)
+        {
+            assert_guid40520_queue(starts, events);
+        }
+        Ok(result)
     }
 }
 
@@ -359,7 +370,10 @@ impl SpellExecutionOwner for Owner<'_> {
             let mut clock = self.world_clock;
             spell.cooldown_lookups[0] += 1;
             if self.object.thread == 6 && self.objects.get(self.object)?.database_guid == 40520 {
-                assert_eq!((spell.id, spell.spell), (3, 10848));
+                assert_eq!(
+                    (spell.id, spell.spell),
+                    if spell.id == 3 { (3, 10848) } else { (4, 9036) }
+                );
                 assert!(self.live.cooldowns.is_empty());
             }
             return Ok(
@@ -596,14 +610,20 @@ impl SpellExecutionOwner for Owner<'_> {
                     .stores
                     .template(spell.spell)
                     .ok_or_else(|| refuse("execution.spells.missing_template"))?;
-                check_cast_aura_removals(
-                    self.stores,
-                    self.live.auras,
-                    cast,
-                    self.object,
-                    flag,
-                    || spell.prepare_lookups[2] += 1,
-                )
+                let object = self.objects.get(self.object)?;
+                let live = SelfAuraRemoval {
+                    target: self.object,
+                    level: self.live.power_fields.as_ref().map(|fields| fields.level),
+                    alive: object.alive,
+                    player: object.kind == SourceObjectKind::Player,
+                    player_group: None,
+                    totem: *self.live.totem,
+                    objects: self.objects,
+                    control_guids: self.live.control_guids,
+                };
+                check_cast_aura_removals(self.stores, self.live.auras, cast, live, flag, || {
+                    spell.prepare_lookups[2] += 1
+                })
             }
             SpellCall::SendStart => {
                 self.require_unit(spell.caster)?;

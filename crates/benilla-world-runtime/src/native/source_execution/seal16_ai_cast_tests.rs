@@ -748,7 +748,7 @@ fn casting_time_reads_live_speed_and_refuses_only_the_ranged_operand() {
 }
 
 #[test]
-fn aura_removal_and_ai_movement_refuse_at_their_source_calls() {
+fn cast_interrupt_removes_holder_before_the_ai_movement_refusal() {
     let (objects, mut units, mut ais, object) = setup();
     let mut stores = stores();
     stores
@@ -759,14 +759,13 @@ fn aura_removal_and_ai_movement_refuse_at_their_source_calls() {
         })
         .unwrap();
     let ghost = stores.template(9036).unwrap();
-    units
-        .get_mut(&objects, object)
-        .unwrap()
-        .auras
-        .store_aura_holder(
-            9036,
-            &mut Some(SourceAuraHolder::new(ghost, object, 0, 0, -1).unwrap()),
-        )
+    let shroud = stores.template(10848).unwrap();
+    let auras = &mut units.get_mut(&objects, object).unwrap().auras;
+    let interrupted = auras
+        .store_aura_holder(9036, &mut Some(authored_effect_holder(ghost, object, 95)))
+        .unwrap();
+    let kept = auras
+        .store_aura_holder(10848, &mut Some(authored_effect_holder(shroud, object, 4)))
         .unwrap();
     let mut shroud = stores.template(10848).unwrap().clone();
     shroud.interruptflags = 1;
@@ -789,14 +788,9 @@ fn aura_removal_and_ai_movement_refuse_at_their_source_calls() {
         .run(&mut units, &mut ais, &objects, |c| {
             let t = stores.template(10848).unwrap();
             let mut s = SourceSpell::new(3, t, object, SpellTriggerFlags(0), 0)?;
-            assert_eq!(
-                c.owner
-                    .call(&mut s, SpellCall::RemoveCastAuras(4))
-                    .unwrap_err()
-                    .id,
-                "execution.spells.Unit_5270.RemoveSpellAuraHolder_owner"
-            );
-            assert_eq!(s.prepare_lookups[2], 1);
+            // Unit.cpp:5270-5271. Restart at the remaining, nonmatching holder.
+            c.owner.call(&mut s, SpellCall::RemoveCastAuras(4))?;
+            assert_eq!(s.prepare_lookups[2], 2);
             s.cast_time = 1;
             assert_eq!(
                 c.owner
@@ -809,15 +803,27 @@ fn aura_removal_and_ai_movement_refuse_at_their_source_calls() {
             Ok(())
         })
         .unwrap();
+    let auras = &mut units.get_mut(&objects, object).unwrap().auras;
+    assert_eq!(auras.aura_holders().len(), 1);
+    assert!(auras.aura_holder(interrupted).is_none());
+    assert!(auras.auras_of_type(95).is_empty());
+    assert!(auras.aura_holder(kept).is_some());
     assert_eq!(
-        units
-            .get(&objects, object)
-            .unwrap()
-            .auras
-            .aura_holders()
-            .len(),
-        1
+        auras.auras_of_type(4),
+        &[SourceAuraEffectRef {
+            holder: kept,
+            effect: 0
+        }]
     );
+    let (id, holder) = auras.deferred_aura_holders().next().unwrap();
+    assert_eq!(id, interrupted);
+    assert!(holder.deleted);
+    assert_eq!(holder.remove_mode, AuraRemoveMode::Default as u32);
+    assert_eq!(auras.deferred_auras().len(), 1);
+    auras.cleanup_deleted_auras();
+    assert_eq!(auras.deferred_aura_holders().len(), 0);
+    assert!(auras.deferred_auras().is_empty());
+    assert!(auras.aura_holder(kept).is_some());
 }
 
 #[test]

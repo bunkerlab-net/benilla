@@ -127,10 +127,10 @@ is meaningful without a bounded content/mechanics inventory.
   The 262-spell addon census has 299 effect slots and 43 aura types. Its static
   coverage is 31 spells, with 231 using an unported effect or aura type.
   Static coverage does not establish execution; this map 0 prefix completes two.
-  EventAI spawn event 649101 reaches spell 10848's same-caster aura replacement.
-  It refuses at `Unit.cpp:4757` before removing the addon holder.
-  `execution.spells.queued_spell_event_owner` prevents load completion from
-  discarding the pending cleanup events, `Spell.cpp:7127-7164`.
+  EventAI event 649101 replaces 10848 and adds a second passive 9036.
+  `Unit.cpp:5326-5446,10856-10866` unlinks both indexes and defers disposal.
+  Map 0 reaches 137 completions, 142 allocations, and 27,328 random words.
+  It stops at `execution.ai.guard_constructor_owner`, `GuardAI.cpp:32`.
 - **WMO area catalog.** Startup binds all 21,115 effective WMO rows through the
   existing catalog owner, `World.cpp:908` and `DBCStores.cpp:555-560`.
   Ten duplicate triples retain ascending-ID order. `GridMap.cpp:992-1015`

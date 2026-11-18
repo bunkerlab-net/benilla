@@ -87,6 +87,7 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
         }
         if self.object.thread == 6 && self.objects.get(self.object)?.database_guid == 40520 {
             assert_eq!(self.raw, 27080);
+            assert!(state.duplicate_aura_errors.is_empty());
             let id = if spell == 9036 { 1 } else { 2 };
             assert_eq!(live.spell_starts.spells.len(), id as usize);
             let value = &live.spell_starts.spells[&id];
@@ -210,6 +211,21 @@ pub(super) struct Owner<'a> {
     pub max_casts: u32,
     pub broadcast: Option<(&'a SourceCells, u32)>,
     pub bounding_radius: Option<u32>,
+}
+
+impl<'a> Owner<'a> {
+    pub(super) fn aura_removal(&self) -> SelfAuraRemoval<'a> {
+        SelfAuraRemoval {
+            target: self.object,
+            level: Some(self.level),
+            alive: self.unit.alive,
+            player: self.unit.player,
+            player_group: None,
+            totem: self.unit.totem,
+            objects: self.objects,
+            control_guids: self.control_guids,
+        }
+    }
 }
 
 impl SelfAuraApplicationOwner for Owner<'_> {

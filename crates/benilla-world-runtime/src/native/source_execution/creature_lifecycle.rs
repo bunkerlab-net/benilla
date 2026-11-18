@@ -158,6 +158,14 @@ pub trait CreatureLifecycleOwner<D: GridDefinitions, P: ResidencyProductOwner>:
             "execution.unit_update.f6_spline_live_unit_binding_owner",
         ))
     }
+    fn lifecycle_aura_cleanup_target(
+        &mut self,
+        _unit: ObjectHandle,
+        _objects: &SourceObjects,
+    ) -> Result<&mut SourceUnitAuras> {
+        Err(UnitUpdateCall::CleanupDeletedAuras.missing_owner())
+    }
+
     fn lifecycle_unit_call(
         &mut self,
         call: UnitUpdateCall,
@@ -172,6 +180,10 @@ pub trait CreatureLifecycleOwner<D: GridDefinitions, P: ResidencyProductOwner>:
                 units,
             };
             source_update_spline_movement(_creature.object(), _diff, &mut context, motion)
+        } else if call == UnitUpdateCall::CleanupDeletedAuras {
+            self.lifecycle_aura_cleanup_target(_creature.object(), _context.grid.objects)?
+                .cleanup_deleted_auras();
+            Ok(())
         } else {
             Err(call.missing_owner())
         }

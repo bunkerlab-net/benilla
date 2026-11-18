@@ -54,6 +54,12 @@ fn prepare_masks_for_proc_system(
 const MELEE_BASED: u32 = 0x37c;
 const NEGATIVE_TRIGGER: u32 = MELEE_BASED | 0x33000;
 
+// Unit.cpp:4863-4865,5373-5377. Both the template and proc row count.
+pub(super) fn heartbeat_aura(stores: &SourceSpellStores, t: &SpellTemplate) -> bool {
+    let event = stores.proc_event(t.id);
+    t.procflags & 1 != 0 || event.is_some_and(|event| event.flags & 1 != 0)
+}
+
 impl SourceUnitAuras {
     /// Spell.cpp:3351-3352. The cast-end event has no victim proc.
     pub fn proc_creature_self_cast_end(

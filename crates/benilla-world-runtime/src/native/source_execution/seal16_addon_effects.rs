@@ -87,7 +87,11 @@ impl SpellCastEffects for Owner<'_> {
         caster: ObjectHandle,
         flag: u32,
     ) -> Result<()> {
-        check_cast_aura_removals(self.stores, self.auras, t, caster, flag, || {})
+        let live = SelfAuraRemoval {
+            target: caster,
+            ..self.aura_removal()
+        };
+        check_cast_aura_removals(self.stores, self.auras, t, live, flag, || {})
     }
 
     fn proc_cast_end(&mut self, spell: &mut SourceSpell) -> Result<()> {
@@ -233,7 +237,14 @@ impl SpellCastEffects for Owner<'_> {
         t: &SpellTemplate,
         nested: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
     ) -> Result<()> {
-        s.hit_self_auras(t, self.stores, self.level, self.stand, nested, self)
+        s.hit_self_auras(
+            t,
+            self.stores,
+            self.aura_removal(),
+            self.stand,
+            nested,
+            self,
+        )
     }
 }
 
@@ -241,14 +252,24 @@ impl SpellAuraHitOwner for Owner<'_> {
     fn aura_holder_seconds(&mut self, s: &SourceSpell) -> Result<i64> {
         let raw = self.random.creature_raw_position()?;
         let clock = self.clocks.aura_holder(self.object.thread, raw)?;
-        self.assert_event_ai_clock(s.caster, s.id, &clock, (60478082, 60478084));
+        self.assert_event_ai_clock(
+            s.caster,
+            s.id,
+            &clock,
+            [(60478082, 60478084), (60478530, 60478532)],
+        );
         Ok(clock.seconds)
     }
 
     fn aura_effect_seconds(&mut self, s: &SourceSpell) -> Result<i64> {
         let raw = self.random.creature_raw_position()?;
         let clock = self.clocks.aura(self.object.thread, raw)?;
-        self.assert_event_ai_clock(s.caster, s.id, &clock, (60478159, 60478161));
+        self.assert_event_ai_clock(
+            s.caster,
+            s.id,
+            &clock,
+            [(60478159, 60478161), (60478579, 60478581)],
+        );
         Ok(clock.seconds)
     }
 
@@ -288,14 +309,14 @@ impl Owner<'_> {
         caster: ObjectHandle,
         id: u64,
         clock: &ActiveClock,
-        lines: (u64, u64),
+        lines: [(u64, u64); 2],
     ) {
         if self.object.thread == 6
             && self.objects.get(caster).unwrap().database_guid == 40520
-            && id == 3
+            && matches!(id, 3 | 4)
         {
             // seal16-full-01/run/trace.tsv. Both time inputs follow raw word 27086.
-            assert_eq!((clock.site_line, clock.time_line), lines);
+            assert_eq!((clock.site_line, clock.time_line), lines[id as usize - 3]);
             assert_eq!(
                 (clock.thread, clock.raw, clock.seconds),
                 (6, 27087, 1794314190)
