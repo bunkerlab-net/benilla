@@ -349,12 +349,6 @@ impl<D: GridDefinitions<Row = SpawnKey>> GridObjectFactory<D, SourceTerrainManag
             context.cells.registered_cell(object).is_some(),
             "execution.grid_candidate_not_registered",
         )?;
-        if object.thread == 6 && context.objects.get(object)?.kind == SourceObjectKind::Creature {
-            let fields = self.units.get(context.objects, object)?;
-            fields
-                .spell_starts
-                .require_load_completion(&fields.unit_events)?;
-        }
         self.completed_objects.push(object);
         self.completed += 1;
         if self.first_creature.is_none()

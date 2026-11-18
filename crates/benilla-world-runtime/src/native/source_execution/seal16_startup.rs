@@ -2594,13 +2594,11 @@ pub(super) fn continue_startup(
                 (0, Some(0))
             );
             assert!(!completed_objects.contains(&candidate));
-            assert_eq!(
-                live.spell_starts
-                    .require_load_completion(&live.unit_events)
-                    .unwrap_err()
-                    .id,
-                "execution.spells.queued_spell_event_owner"
-            );
+            for spell in live.spell_starts.spells.values() {
+                assert!(live
+                    .unit_events
+                    .owns_spell_event(spell.event.unwrap(), spell.id));
+            }
             let ai = &event_ais[&candidate];
             assert_eq!(ai.depth, 1);
             assert_eq!(ai.staged[0], [0]);

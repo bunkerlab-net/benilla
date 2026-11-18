@@ -9,18 +9,6 @@ pub struct SourceSpellStarts {
     pub spells: BTreeMap<u64, SourceSpell>,
 }
 impl SourceSpellStarts {
-    #[cfg(test)]
-    /// Spell.cpp:7127-7164. A finished Spell remains owned until its event runs.
-    pub(crate) fn require_load_completion(&self, events: &SourceUnitEvents) -> Result<()> {
-        require(
-            !self.spells.values().any(|spell| {
-                spell
-                    .event
-                    .is_some_and(|event| events.owns_spell_event(event, spell.id))
-            }),
-            "execution.spells.queued_spell_event_owner",
-        )
-    }
     pub(in crate::native::source_execution) fn allocate(&mut self) -> Result<u64> {
         self.next_id = self
             .next_id

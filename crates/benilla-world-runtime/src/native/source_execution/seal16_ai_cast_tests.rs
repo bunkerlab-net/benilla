@@ -224,13 +224,9 @@ fn live_ai_cast_keeps_its_spell_after_cooldowns_before_missing_geometry() {
     assert_eq!((spell.targets.unit, spell.targets.mask), (Some(object), 2));
     assert_eq!(live.unit_events.inventory().queued.len(), 1);
     assert_eq!(before, serde_json::to_vec(live).unwrap());
-    assert_eq!(
-        live.spell_starts
-            .require_load_completion(&live.unit_events)
-            .unwrap_err()
-            .id,
-        "execution.spells.queued_spell_event_owner"
-    );
+    assert!(live
+        .unit_events
+        .owns_spell_event(spell.event.unwrap(), spell.id));
     // A second unit starts with independent owners. Replacing the comparison
     // record cannot remove the first unit's Spell or its event.
     let other = SourceUnitFields::creature(&CreatureAiTemplateOperands {
