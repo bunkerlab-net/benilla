@@ -2,34 +2,6 @@
 // CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
 //! Spell.cpp:3160-3370,533-1043,1163-1502. Triggered generic creature self casts.
 use super::*;
-use rustc_apfloat::{ieee::Single, Float, Round, Status};
-
-// Unit.cpp:5250-5270. Walk the live aura list until an unowned removal.
-pub(in super::super) fn check_cast_aura_removals(
-    stores: &SourceSpellStores,
-    auras: &SourceUnitAuras,
-    cast: &SpellTemplate,
-    caster: ObjectHandle,
-    flag: u32,
-    lookups: &mut u32,
-) -> Result<()> {
-    for (&id, holder) in &auras.aura_holders {
-        let old = stores
-            .template(id)
-            .ok_or_else(|| refuse("execution.spells.missing_template"))?;
-        *lookups += 1;
-        if old.aurainterruptflags & flag != 0
-            && (id != cast.id || holder.caster != caster)
-            && (cast.attributesex & 0x20 == 0 || old.dispel != 5)
-            && (cast.attributesex2 & 0x4000 == 0 || old.dispel != 6)
-        {
-            return Err(refuse(
-                "execution.spells.Unit_5270.RemoveSpellAuraHolder_owner",
-            ));
-        }
-    }
-    Ok(())
-}
 
 impl Owner<'_> {
     pub(super) fn assert_cast_entry(&self, s: &SourceSpell) -> Result<()> {
@@ -115,7 +87,7 @@ impl SpellCastEffects for Owner<'_> {
         caster: ObjectHandle,
         flag: u32,
     ) -> Result<()> {
-        check_cast_aura_removals(self.stores, self.auras, t, caster, flag, &mut 0)
+        check_cast_aura_removals(self.stores, self.auras, t, caster, flag, || {})
     }
 
     fn proc_cast_end(&mut self, spell: &mut SourceSpell) -> Result<()> {
@@ -124,27 +96,7 @@ impl SpellCastEffects for Owner<'_> {
     }
 
     fn duration(&self, t: &SpellTemplate) -> Result<i32> {
-        let row = self.stores.dbc("SpellDuration.dbc", t.durationindex)?;
-        let word = |index| -> Result<i32> {
-            row.map_or(Ok(0), |row| {
-                row.words
-                    .get(&index)
-                    .map(|v| *v as i32)
-                    .ok_or_else(|| refuse("execution.spells.SpellDuration_layout"))
-            })
-        };
-        let value = source_spell_duration(word(1)?)?;
-        if value != -1 && t.attributesex3 & 0x2000_0000 == 0 {
-            source_spell_max_duration(word(3)?)?;
-        }
-        // SpellMgr.cpp:76-101, Object.h:1156. No Player spell-mod owner.
-        require(
-            self.stores
-                .script_binding(SpellScriptKind::Aura, t.id)?
-                .is_none(),
-            "execution.spells.AuraScript_OnDurationCalculate_owner",
-        )?;
-        Ok(value)
+        creature_self_aura_duration(self.stores, t)
     }
 
     fn fill_self_targets(&mut self, s: &mut SourceSpell, t: &SpellTemplate) -> Result<()> {
@@ -276,89 +228,43 @@ impl SpellCastEffects for Owner<'_> {
         t: &SpellTemplate,
         nested: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
     ) -> Result<()> {
-        let Some(target) = s.unique_targets.first_mut() else {
-            return Ok(());
-        };
-        if target.processed || target.effect_mask == 0 {
-            return Ok(());
-        }
-        target.processed = true;
-        if target.missed {
-            return Ok(());
-        }
-        let mask = target.hit_mask & !target.processed_mask;
-        if t.effects()
-            .iter()
-            .enumerate()
-            .any(|(i, effect)| mask & (1 << i) != 0 && matches!(effect.effect, 6 | 27 | 35 | 119))
-        {
-            // SpellAuras.cpp:5174 and :270 are independent libc time calls.
-            let raw = self.random.creature_raw_position()?;
-            let clock = self.clocks.aura_holder(self.object.thread, raw)?;
-            self.assert_event_ai_clock(s.caster, s.id, &clock, (60478082, 60478084));
-            let time = clock.seconds;
-            let duration = self.duration(t)?;
-            let mut aura_holder = SourceAuraHolder::new(t, self.object, time, 0, duration)?;
-            aura_holder.triggered_by = s.triggered_by_aura;
-            s.pending_aura = Some(aura_holder);
-        }
-        for (i, effect) in t.effects().iter().enumerate() {
-            if mask & (1 << i) == 0 {
-                continue;
-            }
-            let amount = effect_value(t, i, s.base_points[i])?;
-            s.damage_per_effect[i] = amount;
-            require(
-                effect.effect == 6,
-                &format!(
-                    "execution.spells.SpellEffects.effect_{}_owner",
-                    effect.effect
-                ),
-            )?;
-            let raw = self.random.creature_raw_position()?;
-            let clock = self.clocks.aura(self.object.thread, raw)?;
-            self.assert_event_ai_clock(s.caster, s.id, &clock, (60478159, 60478161));
-            let time = clock.seconds;
-            // SpellTargets.cpp:34,54,90 gives these self targets the HELPFUL filter.
-            let positive = t.attributes & 0x0400_0000 == 0;
-            let period = [t.effectamplitude1, t.effectamplitude2, t.effectamplitude3][i];
-            // SpellAuras.cpp:389 multiplies in uint32 before pinned int32 assignment.
-            let stack = s
-                .pending_aura
-                .as_ref()
-                .expect("IsSpellAppliesAura includes ApplyAura")
-                .stack;
-            let aura = SourceAura {
-                kind: source_aura_type(effect.aura)?,
-                amount: (amount as u32).wrapping_mul(stack) as i32,
-                base_points: s.base_points[i],
-                misc: [t.effectmiscvalue1, t.effectmiscvalue2, t.effectmiscvalue3][i],
-                periodic_time: period,
-                periodic_timer: period as i32,
-                periodic_tick: 0,
-                positive,
-                apply_time: time,
-                applied: false,
-                periodic: false,
-                area: false,
-                persistent: false,
-                magnet_used: false,
-                remove_mode: 0,
-                script_value: 0,
-                affect_overridden: false,
-            };
-            s.pending_aura
-                .as_mut()
-                .expect("IsSpellAppliesAura includes ApplyAura")
-                .effects[i] = Some(aura);
-        }
-        if s.pending_aura.is_some() {
-            self.add_holder(t, &mut s.pending_aura, nested)?;
-        }
-        s.proc_event_lookups += self.proc_self(true)?; // Spell.cpp:1329-1331, both sides.
-        if let Some(holder) = self.auras.aura_holders.get_mut(&t.id) {
-            holder.ready = true;
-        }
+        s.hit_self_auras(t, self.stores, self.level, self.stand, nested, self)
+    }
+}
+
+impl SpellAuraHitOwner for Owner<'_> {
+    fn aura_holder_seconds(&mut self, s: &SourceSpell) -> Result<i64> {
+        let raw = self.random.creature_raw_position()?;
+        let clock = self.clocks.aura_holder(self.object.thread, raw)?;
+        self.assert_event_ai_clock(s.caster, s.id, &clock, (60478082, 60478084));
+        Ok(clock.seconds)
+    }
+
+    fn aura_effect_seconds(&mut self, s: &SourceSpell) -> Result<i64> {
+        let raw = self.random.creature_raw_position()?;
+        let clock = self.clocks.aura(self.object.thread, raw)?;
+        self.assert_event_ai_clock(s.caster, s.id, &clock, (60478159, 60478161));
+        Ok(clock.seconds)
+    }
+
+    fn aura_hit_target(&mut self, target: ObjectHandle) -> Result<&mut SourceUnitAuras> {
+        require(
+            target == self.object,
+            "execution.spells.Spell_1490.AddSpellAuraHolder_target_owner",
+        )?;
+        Ok(self.auras)
+    }
+
+    fn apply_inserted_aura_holder(
+        &mut self,
+        t: &SpellTemplate,
+        nested: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
+    ) -> Result<()> {
+        self.apply_holder(t, nested)
+    }
+
+    fn proc_aura_hit(&mut self, s: &mut SourceSpell) -> Result<()> {
+        s.proc_event_lookups += self.proc_self(true)?;
         Ok(())
     }
 }
@@ -384,132 +290,11 @@ impl Owner<'_> {
         }
     }
 
-    fn add_holder(
+    fn apply_holder(
         &mut self,
         t: &SpellTemplate,
-        pending: &mut Option<SourceAuraHolder>,
         mut nested: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
     ) -> Result<()> {
-        let holder = pending.as_mut().expect("pending aura");
-        if let Some(old) = self.auras.aura_holders.get(&t.id) {
-            require(
-                !holder.passive,
-                "execution.spells.Unit_4708.passive_duplicate_holder_owner",
-            )?;
-            require(
-                old.caster == holder.caster,
-                "execution.spells.Unit_4763.different_caster_stacker_owner",
-            )?;
-            require(
-                t.stackamount == 0,
-                "execution.spells.Unit_4722.ModStackAmount_owner",
-            )?;
-            // SpellAuras.cpp:5513-5515; the creature self cast has no item.
-            require(
-                t.id != 12654,
-                "execution.spells.Unit_4733.rolling_ignite_owner",
-            )?;
-            return Err(refuse(
-                "execution.spells.Unit_4757.RemoveSpellAuraHolder_owner",
-            ));
-        }
-        // Unit.cpp:4937-4971. Existing passive ranks skip before stacker calls.
-        self.stores.stack(t.id)?;
-        for (&id, existing) in &self.auras.aura_holders {
-            self.stores.stack(id)?;
-            let old = self
-                .stores
-                .template(id)
-                .ok_or_else(|| refuse("execution.spells.missing_template"))?;
-            if old.attributes & 0x40 != 0
-                && (id != t.id || t.attributes & 0x10 == 0)
-                && (id == t.id || self.stores.first_rank(id) != self.stores.first_rank(t.id))
-            {
-                continue;
-            }
-            // Unit.cpp:4974-4977 lets a triggering aura coexist with its triggered boost.
-            if holder.triggered_by == Some(id) || existing.triggered_by == Some(t.id) {
-                continue;
-            }
-            require(
-                existing.caster == holder.caster,
-                "execution.spells.Unit_5000.different_caster_stacker_owner",
-            )?;
-            spell_stackable(Some(t), Some(old))?;
-            return Err(refuse(
-                "execution.spells.Unit_5003.aura_stack_resolution_owner",
-            ));
-        }
-        require(
-            !holder.tracked,
-            "execution.spells.Unit_4793.GetTrackedAuraTargets_owner",
-        )?;
-        // SpellAuras.cpp:5231-5283,5921-5974. Creature group updates and
-        // duration packets return without sending, Unit.cpp:10501-10523.
-        holder.slot = 255;
-        if !holder.passive {
-            let positive = holder.effects.iter().flatten().all(|a| a.positive);
-            let range = if positive { 0..32 } else { 32..48 };
-            if let Some(slot) = range
-                .into_iter()
-                .find(|&i| self.auras.aura_fields.spells[i] == 0)
-            {
-                holder.slot = slot as u8;
-                let fields = &mut self.auras.aura_fields;
-                fields.spells[slot] = t.id;
-                let shift = (slot & 7) * 4;
-                let flags = if positive {
-                    4 | u32::from(t.attributes & 0x8000_0000 == 0)
-                } else {
-                    8
-                };
-                fields.flags[slot >> 3] =
-                    (fields.flags[slot >> 3] & !(15 << shift)) | flags << shift;
-                let shift = (slot % 4) * 8;
-                fields.levels[slot / 4] = (fields.levels[slot / 4] & !(255 << shift))
-                    | self.level.wrapping_shl(shift as u32);
-                let count = if holder.charges > 0 {
-                    holder.charges.wrapping_mul(holder.stack)
-                } else {
-                    holder.stack
-                };
-                let count = if count <= 255 {
-                    count.wrapping_sub(1) as u8
-                } else {
-                    254
-                };
-                fields.applications[slot / 4] =
-                    (fields.applications[slot / 4] & !(255 << shift)) | u32::from(count) << shift;
-            }
-        }
-        let seated = matches!(self.stand, 1 | 2 | 4 | 5 | 6);
-        require(
-            t.aurainterruptflags & 0x0004_0000 == 0 || seated,
-            "execution.spells.SpellAuraHolder_5292.SetStandState_owner",
-        )?;
-        require(
-            t.attributesex & 0x0004_0000 == 0,
-            "execution.spells.SpellAuraHolder_5295.SetFlag_owner",
-        )?;
-        require(
-            t.spellfamilyname != 10 || t.spellfamilyflags & 0x0a00_0200 == 0,
-            "execution.spells.SpellAuraHolder_5303.ModifyAuraState_owner",
-        )?;
-        holder.skip_update = true;
-        self.auras
-            .aura_holders
-            .insert(t.id, pending.take().expect("pending aura"));
-        for (i, aura) in self.auras.aura_holders[&t.id].effects.iter().enumerate() {
-            if let Some(aura) = aura {
-                if aura.kind < 192 {
-                    self.auras
-                        .aura_types
-                        .entry(aura.kind)
-                        .or_default()
-                        .push((u64::from(t.id) << 2) | i as u64);
-                }
-            }
-        }
         for (i, effect) in t.effects().iter().enumerate() {
             if self.auras.aura_holders[&t.id].effects[i].is_some() {
                 // Aura::OnApply/OnAfterApply see the holder script already bound.
@@ -780,69 +565,6 @@ fn shapeshift_enum_refuses_values_outside_the_source_range() {
             "execution.spells.Aura_1716.shapeshift_enum_undefined"
         );
     }
-}
-
-fn effect_value(t: &SpellTemplate, i: usize, current: i32) -> Result<i32> {
-    // Object.cpp:2923-2965. Port the fixed dice path, without synthetic RNG.
-    let dice = [t.effectbasedice1, t.effectbasedice2, t.effectbasedice3][i] as i32;
-    let base = current
-        .checked_sub(dice)
-        .ok_or_else(|| refuse("execution.spells.Object_2927.base_points_sub_undefined"))?;
-    require(
-        [
-            t.effectrealpointsperlevel1,
-            t.effectrealpointsperlevel2,
-            t.effectrealpointsperlevel3,
-        ][i]
-            .0
-            == 0,
-        "execution.spells.Object_2934.effect_level_scaling_owner",
-    )?;
-    require(
-        matches!(
-            [t.effectdiesides1, t.effectdiesides2, t.effectdiesides3][i],
-            0 | 1
-        ),
-        "execution.spells.Object_2955.effect_dice_rng_owner",
-    )?;
-    let value = Single::from_i128(i128::from(base))
-        .value
-        .add_r(
-            Single::from_i128(i128::from(dice)).value,
-            Round::NearestTiesToEven,
-        )
-        .value;
-    require(
-        t.attributes & 0x0008_0000 == 0
-            || t.spelllevel == 0
-            || !matches!(t.effects()[i].aura, 3 | 53 | 69 | 162 | 64),
-        "execution.spells.Object_3014.GetCreatureClassLvlStats_owner",
-    )?;
-    let converted = value.to_i128_r(32, Round::TowardZero, &mut false);
-    require(
-        !converted.status.contains(Status::INVALID_OP),
-        "execution.spells.Object_3024.effect_float_to_int_undefined",
-    )?;
-    Ok(converted.value as i32)
-}
-
-#[test]
-fn fixed_effect_value_checks_signed_subtraction_before_float_conversion() {
-    let t = SpellTemplate {
-        effectbasedice1: 1,
-        effectdiesides1: 1,
-        ..Default::default()
-    };
-    assert_eq!(effect_value(&t, 0, i32::MIN + 1).unwrap(), i32::MIN);
-    assert_eq!(
-        effect_value(&t, 0, i32::MIN).unwrap_err().id,
-        "execution.spells.Object_2927.base_points_sub_undefined"
-    );
-    assert_eq!(effect_value(&t, 0, 2_147_483_520).unwrap(), 2_147_483_520);
-    assert_eq!(
-        effect_value(&t, 0, i32::MAX).unwrap_err().id,
-        "execution.spells.Object_3024.effect_float_to_int_undefined"
-    );
 }
 
 pub(in super::super) fn spell_start_packet(

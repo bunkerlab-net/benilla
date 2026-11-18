@@ -112,12 +112,15 @@ is meaningful without a bounded content/mechanics inventory.
   Map 1 reaches `MotionMaster.cpp:87`, the formation path owner for GUID28842.
 - **Triggered addon self-casts.** `Spell.cpp:3160-3370,934-1043,1163-1502`
   owns the reached generic self-target cast, target masks and immediate effects.
-  `SpellEffects.cpp:1731-1748` creates the aura through
-  `SpellAuras.cpp:259-290,5155-5283` and `Unit.cpp:4687-4919`.
+  `spells/auras.rs` owns the reached duration, pending holder, interrupt scan,
+  replacement gate, slot fields, and type lists, `Unit.cpp:4687-4874,5253-5276`.
+  Holder and effect clocks bind separately at `SpellAuras.cpp:5174` and `:270`.
+  `spells/effect_value.rs` owns the fixed-dice calculation, `Object.cpp:2923-3024`.
   Ghost type 95 sets the live visibility flag, `SpellAuras.cpp:4401-4429`.
   Dummy type 4 follows its generic branch, `SpellAuras.cpp:1231-1328`.
-  Both addon spells finish without RNG or SQL. Their holders belong to the unit,
-  outside its saved fields. Other effects and aura handlers refuse by name.
+  Both addon spells finish without RNG or SQL. The in-flight Spell owns its
+  pending holder until `Spell.cpp:1490` transfers it to the unit. Both are live
+  state outside saved fields. Other effects and aura handlers refuse by name.
   The 262-spell addon census has 299 effect slots and 43 aura types. Its static
   coverage is 31 spells, with 231 using an unported effect or aura type.
   Static coverage does not establish execution; this map 0 prefix completes two.

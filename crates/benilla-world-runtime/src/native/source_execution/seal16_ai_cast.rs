@@ -593,13 +593,13 @@ impl SpellExecutionOwner for Owner<'_> {
                     .stores
                     .template(spell.spell)
                     .ok_or_else(|| refuse("execution.spells.missing_template"))?;
-                addon_cast::check_cast_aura_removals(
+                check_cast_aura_removals(
                     self.stores,
                     self.live.auras,
                     cast,
                     self.object,
                     flag,
-                    &mut spell.prepare_lookups[2],
+                    || spell.prepare_lookups[2] += 1,
                 )
             }
             SpellCall::SendStart => {

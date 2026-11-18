@@ -14,6 +14,7 @@ mod cooldowns;
 pub use cooldowns::*;
 mod creature_cooldowns;
 pub use creature_cooldowns::*;
+mod effect_value;
 mod items;
 mod location;
 mod positivity;

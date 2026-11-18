@@ -212,7 +212,6 @@ pub struct SourceSpell {
     pub damage_multipliers: [u32; 3],
     pub damage_per_effect: [i32; 3],
     /// Spell.cpp:1445-1494. Ownership transfers to the unit only on insertion.
-    #[cfg(test)]
     pub pending_aura: Option<SourceAuraHolder>,
     #[cfg(test)]
     pub spell_go: Option<SourceSpellPacket>,
@@ -307,7 +306,6 @@ impl SourceSpell {
             unique_targets: Vec::new(),
             damage_multipliers: [0; 3],
             damage_per_effect: [0; 3],
-            #[cfg(test)]
             pending_aura: None,
             #[cfg(test)]
             spell_go: None,

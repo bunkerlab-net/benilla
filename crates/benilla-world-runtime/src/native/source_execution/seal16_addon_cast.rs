@@ -6,7 +6,7 @@ use super::*;
 #[path = "seal16_addon_effects.rs"]
 mod effects;
 use crate::native::source_execution::visibility::SourceBroadcast;
-pub(super) use effects::{check_cast_aura_removals, spell_start_packet};
+pub(super) use effects::spell_start_packet;
 pub(super) struct Execution<'a> {
     pub object: ObjectHandle,
     pub objects: &'a SourceObjects,
