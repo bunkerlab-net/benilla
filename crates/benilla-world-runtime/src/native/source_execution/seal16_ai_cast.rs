@@ -48,6 +48,7 @@ impl Binding<'_> {
                 creature_spells: self.creature_spells,
                 max_casts: self.max_casts,
                 broadcast: self.broadcast,
+                slots_detached: false,
             },
         });
         let live = units.get_mut(objects, self.object)?;
@@ -70,10 +71,32 @@ struct Owner<'a> {
     creature_spells: Option<&'a CreatureSpellMapData>,
     max_casts: u32,
     broadcast: Option<(&'a SourceCells, u32)>,
+    slots_detached: bool,
 }
 impl Owner<'_> {
     fn live(&self) -> Result<&SourceUnitFields> {
         self.units.get(self.objects, self.object)
+    }
+    fn slots(&self) -> Result<&SourceSpellSlots> {
+        require(
+            !self.slots_detached,
+            "execution.spells.Unit_4226.slot_read_during_interrupt_owner",
+        )?;
+        Ok(&self.live()?.spell_slots)
+    }
+    fn with_detached_slots<T>(
+        &mut self,
+        run: impl FnOnce(&mut SourceSpellSlots, &mut Self) -> Result<T>,
+    ) -> Result<T> {
+        self.slots()?;
+        let live = self.units.get_mut(self.objects, self.object)?;
+        let mut slots = std::mem::take(&mut live.spell_slots);
+        // Unit.cpp:4316-4325 keeps the old slot visible during cancellation.
+        self.slots_detached = true;
+        let result = run(&mut slots, self);
+        self.units.get_mut(self.objects, self.object)?.spell_slots = slots;
+        self.slots_detached = false;
+        result
     }
     fn power_owner(&self) -> UnitPowerOwner<'_> {
         UnitPowerOwner {
@@ -92,7 +115,7 @@ impl Owner<'_> {
         self.require_unit(unit)?;
         // Unit.cpp:4304. Empty slots return before cancellation or callbacks.
         require(
-            self.live()?.spell_slots.current(slot).is_none(),
+            self.slots()?.current(slot).is_none(),
             "execution.spells.Unit_4304.InterruptSpell_live_cancel_owner",
         )
     }
@@ -240,7 +263,7 @@ impl SpellExecutionOwner for Owner<'_> {
         self.require_unit(caster)?;
         Ok((
             evade,
-            self.live()?.spell_slots.is_non_melee_spell_casted(
+            self.slots()?.is_non_melee_spell_casted(
                 starts,
                 self.stores,
                 false,
@@ -261,8 +284,7 @@ impl SpellExecutionOwner for Owner<'_> {
         starts: &SourceSpellStarts,
     ) -> Result<Option<u32>> {
         self.require_unit(unit)?;
-        self.live()?
-            .spell_slots
+        self.slots()?
             .current(SpellSlot::AutoRepeat)
             .map(|id| starts.current_spell(id).map(|spell| spell.spell))
             .transpose()
@@ -460,13 +482,8 @@ impl SpellExecutionOwner for Owner<'_> {
         spells: &mut BTreeMap<u64, SourceSpell>,
     ) -> Result<()> {
         self.require_unit(spell.caster)?;
-        // Interruption callbacks also use this owner. Put the slot state back
-        // after dispatch, including on a refusal.
-        let mut slots =
-            std::mem::take(&mut self.units.get_mut(self.objects, self.object)?.spell_slots);
-        let result = slots.set(spell, t, spells, self.stores, self);
-        self.units.get_mut(self.objects, self.object)?.spell_slots = slots;
-        result
+        let stores = self.stores;
+        self.with_detached_slots(|slots, owner| slots.set(spell, t, spells, stores, owner))
     }
 
     fn add_gcd(&mut self, spell: &SourceSpell, t: &SpellTemplate) -> Result<()> {

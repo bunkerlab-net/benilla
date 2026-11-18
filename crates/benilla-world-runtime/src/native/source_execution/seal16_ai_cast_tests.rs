@@ -371,6 +371,60 @@ fn live_slots_and_ai_order_use_persistent_spells_in_source_order() {
 }
 
 #[test]
+fn contested_slot_refuses_callback_reads_and_restores_old_spell() {
+    struct ReadOnCancel<'a, 'b>(&'a mut Owner<'b>);
+    impl SpellExecutionOwner for ReadOnCancel<'_, '_> {
+        fn unit(&mut self, unit: ObjectHandle) -> Result<SpellUnitState> {
+            self.0.unit(unit)
+        }
+        fn call(&mut self, spell: &mut SourceSpell, call: SpellCall) -> Result<()> {
+            assert_eq!(call, SpellCall::ResetMods);
+            assert_eq!((spell.id, spell.referenced), (1, true));
+            self.0.interrupt_slot(spell.caster, 1)
+        }
+    }
+
+    let (objects, mut units, mut ais, object) = setup();
+    let stores = stores();
+    let t = stores.template(10848).unwrap();
+    let mut old = SourceSpell::new(1, t, object, SpellTriggerFlags(0), 0).unwrap();
+    old.state = SourceSpellState::Casting;
+    let mut new = SourceSpell::new(2, t, object, SpellTriggerFlags(0), 0).unwrap();
+    let mut spells = BTreeMap::new();
+    let mut owner = Owner {
+        object,
+        objects: &objects,
+        units: &mut units,
+        ai: ais.get_mut(&objects, object).unwrap(),
+        stores: &stores,
+        targets: &SourceSpellTargetMgr::initialize(&stores),
+        terrain: &mut SourceTerrainManager::default(),
+        world_clock: &SourceWorldClock::default(),
+        clocks: &mut ActiveClocks::default(),
+        random: &mut NoDraw,
+        creature_spells: None,
+        max_casts: 0,
+        broadcast: None,
+        slots_detached: false,
+    };
+    owner.set_current(&mut old, t, &mut spells).unwrap();
+    spells.insert(1, old);
+    let error = owner
+        .with_detached_slots(|slots, owner| {
+            slots.set(&mut new, t, &mut spells, &stores, &mut ReadOnCancel(owner))
+        })
+        .unwrap_err();
+    assert_eq!(
+        error.id,
+        "execution.spells.Unit_4226.slot_read_during_interrupt_owner"
+    );
+    assert_eq!(owner.slots().unwrap().current(SpellSlot::Generic), Some(1));
+    assert!(spells[&1].referenced);
+    assert_eq!(spells[&1].state, SourceSpellState::Casting);
+    assert!(!new.referenced);
+}
+
+#[test]
 fn default_context_callback_runs_once_and_preserves_refusal() {
     struct DefaultOwner<'a> {
         stores: &'a SourceSpellStores,
