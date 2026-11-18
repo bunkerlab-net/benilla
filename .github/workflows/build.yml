@@ -78,7 +78,7 @@ jobs:
           save-on-workflow-dispatch: true
       # Target caches omit the scheduler's learned compiler memory estimates.
       - name: Restore native mbx scheduler memory
-        if: matrix.platform == 'linux-arm64'
+        if: runner.os == 'Linux'
         id: mbx-memory
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -87,7 +87,7 @@ jobs:
           restore-keys: |
             mbx-memory-v1-${{ runner.os }}-${{ runner.arch }}-ubuntu26-player-native-tests-${{ hashFiles('rust-toolchain.toml') }}-
       - name: Report restored native mbx scheduler memory
-        if: matrix.platform == 'linux-arm64'
+        if: runner.os == 'Linux'
         id: mbx-memory-history
         run: |
           python3 - <<'PY'
@@ -153,17 +153,17 @@ jobs:
         # A focused helper failure stays red and must not skip the full native suite.
         if: ${{ !cancelled() && (success() || steps.native-helper.outcome == 'failure') }}
         env:
-          CARGO_BUILD_JOBS: ${{ matrix.platform == 'linux-arm64' && (steps.mbx-memory-history.outputs.heavy-learned == 'true' && '3' || '1') || matrix.cargo_jobs }}
+          CARGO_BUILD_JOBS: ${{ runner.os == 'Linux' && (steps.mbx-memory-history.outputs.heavy-learned == 'true' && '3' || '1') || matrix.cargo_jobs }}
         run: |
           set -o pipefail
-          # Serialize cold ARM64 compiles; learned heavy units share an 11 GiB budget.
-          if [ "$BUILD_PLATFORM" = "linux-arm64" ]; then
+          # Serialize cold Linux compiles; learned heavy units share an 11 GiB budget.
+          if [ "$RUNNER_OS" = "Linux" ]; then
             export MBX_SCHEDULER_MEMORY=11GiB
           fi
           python3 scripts/capture-ci-log.py --log "$RUNNER_TEMP/benilla-native-tests.log" -- mbx test --locked --no-fail-fast -p benilla-profile -p benilla-sim -p benilla-world-data -p benilla-world-runtime -p benilla-world-client -p benilla-world-store -p benilla-world-controller-tests -p benilla-native-geometry-tests -p benilla-native-nav -p benilla-native-nav-generator -p benilla-native-dbc -p benilla-native-terrain -p benilla-mpq -p benilla-native-vmap -p benilla-native-vmap-source
       - name: Save native mbx scheduler memory
         # Keep completed compiler measurements even when a later compile or test fails.
-        if: always() && matrix.platform == 'linux-arm64' && steps.mbx-memory.outputs.cache-primary-key != ''
+        if: always() && runner.os == 'Linux' && steps.mbx-memory.outputs.cache-primary-key != ''
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/mbx/scheduler/memory.json
