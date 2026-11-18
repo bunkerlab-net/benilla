@@ -28,7 +28,8 @@ impl SourceHomeGenerator {
         if context.units.get(context.objects, master.unit)?.state & MOTION_NOT_MOVE != 0 {
             return Ok(());
         }
-        let mut target = match master.reset_position() {
+        // HomeMovementGenerator.cpp:47 reads the top's virtual reset position first.
+        let mut target = match master.reset_position()? {
             Some(position) => position,
             None => owner.combat_start_position(master.unit)?,
         };

@@ -66,6 +66,8 @@ mod unit_events_census_tests;
 #[cfg(test)]
 mod unit_events_tests;
 pub use motion_master::*;
+mod follow;
+pub use follow::*;
 mod motion;
 pub use motion::*;
 mod motion_dependencies;

@@ -251,6 +251,32 @@ pub(super) fn assert_continuation_words(words: &[(u64, u64, u64)]) {
         ),
         "e73b69148f9c5c58d05e6fb117e76daef26b34b198f291b9848d22260427aa9f"
     );
+    // Thread 7 continues with GUID50942, GUID50950, then GUID35936 before addon spell7276.
+    assert_eq!(
+        &words[13314..13332],
+        &[
+            (60534490, 13314, 3835546177),
+            (60534505, 13315, 1278552396),
+            (60534608, 13316, 370396801),
+            (60535041, 13317, 1331250111),
+            (60535056, 13318, 1805382002),
+            (60535091, 13319, 260078945),
+            (60535107, 13320, 996768929),
+            (60535121, 13321, 311385393),
+            (60535181, 13322, 3064099018),
+            (60535196, 13323, 2116357069),
+            (60535312, 13324, 3846255735),
+            (60535346, 13325, 3225382514),
+            (60535360, 13326, 1782421205),
+            (60535396, 13327, 2278203877),
+            (60535411, 13328, 2737314857),
+            (60535426, 13329, 1851702798),
+            (60535494, 13330, 1936796533),
+            (60539844, 13331, 675875699),
+        ]
+    );
+    // Creature.h:313 draws the next word only after the addon returns.
+    assert_eq!(words[13332], (60539979, 13332, 3820596846));
 }
 
 pub(super) fn assert_continuation_clocks(
@@ -259,10 +285,13 @@ pub(super) fn assert_continuation_clocks(
 ) {
     let consumed = before.0.iter().take(before.0.len() - after.0.len());
     let suffix = consumed.filter(|sample| sample.time_line >= 60434041);
-    assert_eq!(suffix.clone().count(), 93);
+    let prefix = suffix
+        .clone()
+        .take_while(|sample| sample.time_line <= 60534324);
+    assert_eq!(prefix.clone().count(), 93);
     // Seal16 trace.tsv: clocks from 7165's holder through 590005's respawn.
     assert_eq!(
-        digest(suffix.map(|sample| [
+        digest(prefix.map(|sample| [
             sample.site_line,
             sample.time_line,
             sample.thread,
@@ -271,6 +300,25 @@ pub(super) fn assert_continuation_clocks(
             sample.seconds as u64,
         ])),
         "71da92e362a0fca32f900af25078eb01ff76df5a69aaa6e1767af070f4008006"
+    );
+    assert_eq!(
+        suffix
+            .filter(|sample| sample.time_line > 60534324)
+            .map(|s| (
+                s.site_line,
+                s.time_line,
+                s.thread,
+                s.site[2],
+                s.raw,
+                s.seconds
+            ))
+            .collect::<Vec<_>>(),
+        [
+            (60534620, 60534621, 7, 10166329, 13317, 1794314190),
+            (60535324, 60535325, 7, 10166329, 13325, 1794314190),
+            (60539951, 60539954, 7, 8250845, 13332, 1794314190),
+            (60539962, 60539964, 7, 8249833, 13332, 1794314190),
+        ]
     );
 }
 

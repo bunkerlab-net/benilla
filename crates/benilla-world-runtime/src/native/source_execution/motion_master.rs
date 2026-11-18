@@ -7,8 +7,6 @@ pub const MOTION_CANNOT_MOVE: u32 = 0x2000_001e;
 pub const MOTION_NOT_MOVE: u32 = MOTION_CANNOT_MOVE | 0x800;
 const MOTION_MOVING: u32 = 0x0055_0000;
 const MOTION_LOST_CONTROL: u32 = 0x0020_2040;
-pub(super) const FOLLOW_REFERENCE_ATTACH_OWNER: &str =
-    "execution.movement.FollowerReference_25.addFollower_owner";
 
 /// Actual live operands after Creature::InitEntry, not raw SQL defaults.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -179,6 +177,11 @@ pub trait MotionExecutionOwner {
         _context: &mut MotionContext<'_>,
     ) -> Result<()> {
         Err(refuse("execution.motion.wander_melee_attack_stop_owner"))
+    }
+    fn relinquish_follow(&mut self, _unit: ObjectHandle, _follower: SourceGuid) -> Result<()> {
+        Err(refuse(
+            "execution.movement.TargetedMovementGenerator_829.RelinquishFollow_owner",
+        ))
     }
     fn combat_start_position(&mut self, _unit: ObjectHandle) -> Result<[f32; 4]> {
         Err(refuse("execution.motion.combat_start_position_owner"))
@@ -381,6 +384,9 @@ impl MotionCall {
 /// Destruction is independently deferred, as in MotionMaster.cpp:179-201,242-271.
 pub trait SourceMovementGenerator {
     fn kind(&self) -> u32;
+    fn as_follow(&self) -> Option<&SourceFollowGenerator> {
+        None
+    }
     fn initialize(
         &self,
         master: &mut SourceMotionMaster,
@@ -415,8 +421,8 @@ pub trait SourceMovementGenerator {
     fn removed_on_expire(&self) -> bool {
         false
     }
-    fn reset_position(&self) -> Option<[f32; 4]> {
-        None
+    fn reset_position(&self) -> Result<Option<[f32; 4]>> {
+        Ok(None)
     }
     fn pause(&self, _delta: i32, _force: bool) -> Result<()> {
         Err(refuse("execution.motion.pause_generator_owner"))
@@ -480,15 +486,21 @@ impl SourceMotionMaster {
     pub fn current_type(&self) -> u32 {
         self.stack.last().map_or(0, Generator::kind)
     }
+    pub fn follow(&self) -> Option<&SourceFollowGenerator> {
+        match self.stack.last()? {
+            Generator::Owned(generator) => generator.as_follow(),
+            Generator::Idle => None,
+        }
+    }
     /// MotionMaster.h:104,173,195-196 leave this uninitialized until the creature branch.
     pub fn path_id(&self) -> Result<u32> {
         self.current_path
             .ok_or_else(|| refuse("execution.motion.path_id_uninitialized_undefined"))
     }
-    pub fn reset_position(&self) -> Option<[f32; 4]> {
+    pub fn reset_position(&self) -> Result<Option<[f32; 4]>> {
         match self.stack.last() {
             Some(Generator::Owned(g)) => g.reset_position(),
-            _ => None,
+            _ => Ok(None),
         }
     }
     pub fn stop_moving(
@@ -598,13 +610,22 @@ impl SourceMotionMaster {
         context: &mut MotionContext<'_>,
         owner: &mut dyn MotionExecutionOwner,
     ) -> Result<()> {
+        self.mutate_owned(Rc::new(generator), context, owner)
+    }
+    fn mutate_owned(
+        &mut self,
+        generator: Rc<dyn SourceMovementGenerator>,
+        context: &mut MotionContext<'_>,
+        owner: &mut dyn MotionExecutionOwner,
+    ) -> Result<()> {
+        // MotionMaster.cpp:599-615 expires Home/Distract, then interrupts the surviving top.
         if matches!(self.current_type(), 5 | 12) {
             self.expire(false, context, owner)?;
         }
         if let Some(Generator::Owned(g)) = self.stack.last().cloned() {
             g.interrupt(self, context, owner)?;
         }
-        let generator = Rc::new(generator);
+        // MotionMaster.cpp:618-619 initializes before pushing.
         generator.initialize(self, context, owner)?;
         self.stack.push(Generator::Owned(generator));
         Ok(())
@@ -630,6 +651,7 @@ impl SourceMotionMaster {
         } {
             let current = self.stack.pop().unwrap();
             self.finalize(&current, context, owner)?;
+            // MotionMaster.cpp:168-169,198-199 delete now or retain until UpdateMotion.
             if self.updating && matches!(current, Generator::Owned(_)) {
                 self.expired.as_mut().unwrap().push(current);
             }
@@ -686,6 +708,7 @@ impl SourceMotionMaster {
             while self.stack.last().is_some_and(Generator::removed) {
                 let removed = self.stack.pop().unwrap();
                 self.finalize(&removed, context, owner)?;
+                // MotionMaster.cpp:222,264 delete now or retain until UpdateMotion.
                 if self.updating {
                     self.expired.as_mut().unwrap().push(removed);
                 }
@@ -698,6 +721,7 @@ impl SourceMotionMaster {
                 self.expired.as_mut().unwrap().push(current);
             }
         } else {
+            // MotionMaster.cpp:231-232 deletes the generator and its follower list element.
             drop(current);
             if self.stack.is_empty() {
                 self.initialize(context, owner)?;
@@ -735,7 +759,10 @@ impl SourceMotionMaster {
             self.expire(true, context, owner)?;
         }
         if let Some(expired) = self.expired.take() {
-            drop(expired);
+            // MotionMaster.cpp:138-147 deletes in deferred-list order.
+            for generator in expired {
+                drop(generator);
+            }
             if self.stack.is_empty() {
                 self.initialize(context, owner)?;
             }
@@ -764,20 +791,32 @@ impl SourceMotionMaster {
         }
         Ok(())
     }
-    /// MotionMaster.cpp:349-365 for linked Follow with a resolved target and `asMain=false`.
+    /// MotionMaster.cpp:349-365. Creature linking has already resolved its target.
     pub fn move_follow<'a>(
         unit: ObjectHandle,
         motion: impl FnOnce() -> Result<&'a mut Self>,
+        request: FollowRequest,
         context: &mut MotionContext<'_>,
         owner: &mut dyn MotionExecutionOwner,
+        on_linked: impl FnOnce(FollowerReferenceId, &SourceFollowers),
     ) -> Result<()> {
         if context.units.get(context.objects, unit)?.state & MOTION_LOST_CONTROL != 0 {
             return Ok(());
         }
         let motion = motion()?;
-        motion.clear(!motion.is_empty(), false, context, owner)?;
-        // TargetedMovementGenerator.h:34 attaches before writing any Follow fields.
-        Err(refuse(FOLLOW_REFERENCE_ATTACH_OWNER))
+        // MotionMaster.cpp:354-357 clears before constructing the generator.
+        motion.clear(
+            !request.main && !motion.is_empty(),
+            request.main,
+            context,
+            owner,
+        )?;
+        // MotionMaster.cpp:365 checks the control flag only for players.
+        let possess = context.objects.get(unit)?.kind == SourceObjectKind::Player
+            && context.units.get(context.objects, unit)?.flags & 8 == 0;
+        let generator =
+            SourceFollowGenerator::construct(unit, request, possess, context, on_linked)?;
+        motion.mutate_owned(generator, context, owner)
     }
     /// MotionMaster.cpp:466-484. An existing waypoint is not replaced.
     pub fn move_waypoint(

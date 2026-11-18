@@ -731,3 +731,12 @@ The prefix stops at the unbound factory constructor call at
 The same initializer registers Wander, Waypoint, FixedPath, and LinearWP movement
 factories in that order at lines 45-48; `motion_master::source_default_motion`
 owns their selection.
+
+### Follow reference state
+
+`SourceUnits::inventory` lists each unit's last generator ordinal and incoming
+follower references, newest first. Each live Follow generator holds its source
+identity, optional target, and constructor fields. Deferred deletion retains
+the generator and its link until `UpdateMotion` deletes it, `MotionMaster.cpp:138-147`.
+The reference state stays in memory. Native save format 91 and the restore
+refusal are unchanged.

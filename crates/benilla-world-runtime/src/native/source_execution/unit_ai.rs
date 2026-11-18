@@ -430,9 +430,18 @@ impl SourceUnitFields {
         });
     }
 }
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Serialize)]
+#[serde(transparent)]
+struct SourceLiveUnit {
+    fields: SourceUnitFields,
+    /// Unit.h:2615. Links and ordinals belong to the live unit, not cloned fields.
+    #[serde(skip)]
+    followers: SourceFollowers,
+}
+
+#[derive(Debug, Default)]
 pub struct SourceUnits {
-    fields: BTreeMap<ObjectHandle, SourceUnitFields>,
+    fields: BTreeMap<ObjectHandle, SourceLiveUnit>,
 }
 impl SourceUnits {
     /// Unit.cpp:6696-6707. Every recursive call keeps the original POV argument.
@@ -551,10 +560,19 @@ impl SourceUnits {
             !self.fields.contains_key(&unit),
             "execution.unit.duplicate_generation",
         )?;
-        self.fields.insert(unit, fields);
+        self.fields.insert(
+            unit,
+            SourceLiveUnit {
+                fields,
+                followers: SourceFollowers::default(),
+            },
+        );
         Ok(())
     }
     pub fn get(&self, objects: &SourceObjects, unit: ObjectHandle) -> Result<&SourceUnitFields> {
+        Ok(&self.live(objects, unit)?.fields)
+    }
+    fn live(&self, objects: &SourceObjects, unit: ObjectHandle) -> Result<&SourceLiveUnit> {
         objects.get(unit)?;
         self.fields
             .get(&unit)
@@ -565,10 +583,31 @@ impl SourceUnits {
         objects: &SourceObjects,
         unit: ObjectHandle,
     ) -> Result<&mut SourceUnitFields> {
+        Ok(&mut self.live_mut(objects, unit)?.fields)
+    }
+    fn live_mut(
+        &mut self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+    ) -> Result<&mut SourceLiveUnit> {
         objects.get(unit)?;
         self.fields
             .get_mut(&unit)
             .ok_or_else(|| refuse("execution.unit.fields_generation_missing"))
+    }
+    pub fn followers(
+        &self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+    ) -> Result<&SourceFollowers> {
+        Ok(&self.live(objects, unit)?.followers)
+    }
+    pub fn followers_mut(
+        &mut self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+    ) -> Result<&mut SourceFollowers> {
+        Ok(&mut self.live_mut(objects, unit)?.followers)
     }
     pub fn event_unit(&self, objects: &SourceObjects, unit: ObjectHandle) -> Result<EventAiUnit> {
         let f = self.get(objects, unit)?;
@@ -631,9 +670,10 @@ impl SourceUnits {
         }
         Ok(
             serde_json::json!({"version":1,"units":self.fields.iter().collect::<Vec<_>>(),
-            "splines":self.fields.iter().map(|(unit,fields)| (unit,&fields.movespline)).collect::<Vec<_>>(),
-            "spell_power":self.fields.iter().map(|(unit,fields)| (unit,&fields.power_fields,fields.power_cost_modifier,fields.power_cost_multiplier)).collect::<Vec<_>>(),
-            "spline_updates":self.fields.iter().map(|(unit,fields)| (unit,fields.spline_position_expiry,fields.spline_debug_path,fields.spline_last_move_ms,&fields.spline_outbound)).collect::<Vec<_>>(),
+            "splines":self.fields.iter().map(|(unit,live)| (unit,&live.fields.movespline)).collect::<Vec<_>>(),
+            "spell_power":self.fields.iter().map(|(unit,live)| (unit,&live.fields.power_fields,live.fields.power_cost_modifier,live.fields.power_cost_multiplier)).collect::<Vec<_>>(),
+            "spline_updates":self.fields.iter().map(|(unit,live)| (unit,live.fields.spline_position_expiry,live.fields.spline_debug_path,live.fields.spline_last_move_ms,&live.fields.spline_outbound)).collect::<Vec<_>>(),
+            "followers":self.fields.iter().map(|(unit,live)| (unit,live.followers.last_ordinal(),live.followers.ids())).collect::<Vec<_>>(),
             "restore":"execution.unit.f7_restore_owner"}),
         )
     }

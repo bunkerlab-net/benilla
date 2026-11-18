@@ -627,8 +627,8 @@ impl SourceMovementGenerator for SourceWaypointGenerator {
         }
         Ok(true)
     }
-    fn reset_position(&self) -> Option<[f32; 4]> {
-        Some(self.reset_point.get())
+    fn reset_position(&self) -> Result<Option<[f32; 4]>> {
+        Ok(Some(self.reset_point.get()))
     }
 }
 #[cfg(test)]

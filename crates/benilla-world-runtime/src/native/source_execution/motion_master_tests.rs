@@ -60,6 +60,7 @@ enum DuringUpdate {
     Finish,
     Clear(bool, bool),
     Expire(bool),
+    ReplaceFollow(ObjectHandle),
 }
 struct Probe {
     name: &'static str,
@@ -149,6 +150,33 @@ impl SourceMovementGenerator for Probe {
             DuringUpdate::Finish => return Ok(false),
             DuringUpdate::Clear(reset, all) => master.clear(reset, all, context, owner)?,
             DuringUpdate::Expire(reset) => master.expire(reset, context, owner)?,
+            DuringUpdate::ReplaceFollow(target) => {
+                master.clear(false, false, context, owner)?;
+                let unit = master.unit;
+                let ids = |context: &MotionContext<'_>| {
+                    context
+                        .units
+                        .followers(context.objects, target)
+                        .unwrap()
+                        .ids()
+                };
+                assert_eq!(ids(context), [FollowerReferenceId { unit, ordinal: 1 }]);
+                SourceMotionMaster::move_follow(
+                    unit,
+                    || Ok(master),
+                    FollowRequest::linked(target, [0.; 2]),
+                    context,
+                    owner,
+                    |_, _| {},
+                )?;
+                assert_eq!(
+                    ids(context),
+                    [
+                        FollowerReferenceId { unit, ordinal: 2 },
+                        FollowerReferenceId { unit, ordinal: 1 },
+                    ]
+                );
+            }
         }
         self.record("return");
         Ok(true)
@@ -156,8 +184,8 @@ impl SourceMovementGenerator for Probe {
     fn removed_on_expire(&self) -> bool {
         self.removed
     }
-    fn reset_position(&self) -> Option<[f32; 4]> {
-        self.position
+    fn reset_position(&self) -> Result<Option<[f32; 4]>> {
+        Ok(self.position)
     }
 }
 #[test]
@@ -451,8 +479,13 @@ fn initialize_possessed_and_player_owned_creature_use_static_idle() {
 
 #[test]
 fn linked_move_follow_gates_before_lookup_and_clears_before_attach() {
-    let (objects, mut units, mut master) = setup();
+    let (mut objects, mut units, mut master) = setup();
     let unit = master.unit;
+    let target = objects.construct(1, SourceObjectKind::Creature).unwrap();
+    units
+        .register(&objects, target, SourceUnitFields::creature(&template()))
+        .unwrap();
+    let request = FollowRequest::linked(target, [3., 1.]);
     let log = Rc::new(RefCell::new(Vec::new()));
     let mut context = MotionContext {
         objects: &objects,
@@ -466,22 +499,84 @@ fn linked_move_follow_gates_before_lookup_and_clears_before_attach() {
     SourceMotionMaster::move_follow(
         unit,
         || panic!("lost control must skip motion lookup"),
+        request,
         &mut context,
         &mut Unbound,
+        |_, _| panic!("lost control must not attach"),
     )
     .unwrap();
     assert_eq!(master.len(), 2);
     assert!(log.borrow().is_empty());
+    assert!(context
+        .units
+        .followers(&objects, target)
+        .unwrap()
+        .ids()
+        .is_empty());
 
     context.units.get_mut(&objects, unit).unwrap().state = 0;
+    let mut attached = None;
+    SourceMotionMaster::move_follow(
+        unit,
+        || Ok(&mut master),
+        request,
+        &mut context,
+        &mut Unbound,
+        |id, target| {
+            assert_eq!(target.ids(), [id]);
+            assert_eq!(&*log.borrow(), &["old.finalize", "old.drop"]);
+            attached = Some(id);
+        },
+    )
+    .unwrap();
+    assert_eq!(master.len(), 2);
+    assert_eq!(master.current_type(), 7);
+    assert_eq!(attached, Some(FollowerReferenceId { unit, ordinal: 1 }));
     assert_eq!(
-        SourceMotionMaster::move_follow(unit, || Ok(&mut master), &mut context, &mut Unbound)
-            .unwrap_err()
-            .id,
-        "execution.movement.FollowerReference_25.addFollower_owner"
+        context.units.followers(&objects, target).unwrap().ids(),
+        [FollowerReferenceId { unit, ordinal: 1 }]
     );
-    assert_eq!(master.len(), 1);
     assert_eq!(&*log.borrow(), &["old.finalize", "old.drop"]);
+}
+
+#[test]
+fn delayed_follow_deletion_keeps_the_old_reference_until_update_returns() {
+    let (mut objects, mut units, mut master) = setup();
+    let unit = master.unit;
+    let target = objects.construct(1, SourceObjectKind::Creature).unwrap();
+    units
+        .register(&objects, target, SourceUnitFields::creature(&template()))
+        .unwrap();
+    let mut context = MotionContext {
+        objects: &objects,
+        units: &mut units,
+    };
+    SourceMotionMaster::move_follow(
+        unit,
+        || Ok(&mut master),
+        FollowRequest::linked(target, [0.; 2]),
+        &mut context,
+        &mut Unbound,
+        |_, _| {},
+    )
+    .unwrap();
+    let mut probe = Probe::new("updating", 11, &Rc::default());
+    probe.during = DuringUpdate::ReplaceFollow(target);
+    master.mutate(probe, &mut context, &mut Unbound).unwrap();
+    master.update(1, &mut context, &mut Unbound).unwrap();
+    assert_eq!(
+        context.units.followers(&objects, target).unwrap().ids(),
+        [FollowerReferenceId { unit, ordinal: 2 }],
+    );
+    master
+        .clear(false, false, &mut context, &mut Unbound)
+        .unwrap();
+    assert!(context
+        .units
+        .followers(&objects, target)
+        .unwrap()
+        .ids()
+        .is_empty());
 }
 #[test]
 fn path_read_refuses_only_before_defined_initialization() {
@@ -696,6 +791,44 @@ fn home_prefers_previous_generators_reset_position() {
     );
     assert_eq!(owner.targets, [[3.; 4]]);
 }
+
+#[test]
+fn home_propagates_the_follow_reset_location_refusal() {
+    let (mut objects, mut units, mut master) = setup();
+    let unit = master.unit;
+    let target = objects.construct(1, SourceObjectKind::Creature).unwrap();
+    units
+        .register(&objects, target, SourceUnitFields::creature(&template()))
+        .unwrap();
+    let mut context = MotionContext {
+        objects: &objects,
+        units: &mut units,
+    };
+    let mut request = FollowRequest::linked(target, [0.; 2]);
+    request.main = true;
+    SourceMotionMaster::move_follow(
+        unit,
+        || Ok(&mut master),
+        request,
+        &mut context,
+        &mut Unbound,
+        |_, _| {},
+    )
+    .unwrap();
+    // Main Follow is the only stack entry, so MoveHome leaves it on top.
+    assert_eq!(master.len(), 1);
+    let mut owner = HomeOwner::default();
+    assert_eq!(
+        master
+            .move_home(true, &mut context, &mut owner)
+            .unwrap_err()
+            .id,
+        "execution.movement.TargetedMovementGenerator_845._getLocation_owner",
+    );
+    assert!(owner.targets.is_empty());
+    assert_eq!(master.current_type(), 7);
+}
+
 #[test]
 fn home_far_out_of_world_finalizes_before_delay_and_despawn() {
     let (objects, mut units, mut master) = setup();

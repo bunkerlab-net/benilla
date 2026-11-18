@@ -235,13 +235,15 @@ is meaningful without a bounded content/mechanics inventory.
   Target mapping accepts the explicit friendly self target,
   `Spell.cpp:2397-2405`, and aura23 sets periodic state,
   `SpellAuras.cpp:3097-3117`.
-  Map 1 completes GUID27036/entry4636's addon7165 and proceeds to Misha
-  GUID590005 following Rexxar GUID29113. It stops at
-  `execution.movement.FollowerReference_25.addFollower_owner`,
-  `FollowerReference.cpp:25`, after 198 completed objects, 202 allocations,
-  13,314 words, and two map SQL statements. Recording60533941 completes
-  Rexxar before Misha's load. Passenger, spline, main-spell, broadcast,
-  and relation owners add no saved state.
+  Map 1 completes Misha GUID590005 with a live Follow link to Rexxar
+  GUID29113. `TargetedMovementGenerator.h:34` attaches the reference before
+  writing Follow fields. It stops on GUID35936 and addon spell 7276 at
+  `execution.spells.AuraHandler.type_42_owner`, `SpellAuras.cpp:3067`.
+  Recording60534450,60535151,60535454 extends completed objects from 198 to
+  201. Recording60534459,60535154,60535470 extends allocations from 202 to
+  205. Thread 7 consumes 13,314 to 13,332 words at recording60534490-60539844.
+  Map 1 still issues two SQL statements at recording60101153 and 60113864.
+  Follow and its reference list add no saved state.
 - **Current fork:** `benilla-app/src/net/p2p.rs` relays avatar poses, jump fields
   and chat with finite/bounded-value checks. It explicitly rejects transport
   movement in the inspected bridge. This is not replicated authoritative player

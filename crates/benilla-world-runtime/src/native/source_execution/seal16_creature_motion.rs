@@ -166,7 +166,7 @@ struct LinkingRespawn<'a> {
     units: &'a mut SourceUnits,
     motions: &'a mut BTreeMap<ObjectHandle, SourceMotionMaster>,
     births: &'a BTreeMap<ObjectHandle, (u32, i64)>,
-    follow: &'a mut Option<(ObjectHandle, ObjectHandle, [u32; 2])>,
+    follow: &'a mut Option<(FollowerReferenceId, ObjectHandle, [u32; 2])>,
 }
 impl LinkingEventOwner for LinkingRespawn<'_> {
     fn linking_creature(
@@ -236,26 +236,25 @@ impl LinkingEventOwner for LinkingRespawn<'_> {
         let unit = request.object;
         let objects = self.motion.objects;
         let offsets = holder.follow_offsets(objects, self.units, unit, master)?;
-        let result = SourceMotionMaster::move_follow(
+        SourceMotionMaster::move_follow(
             unit,
             || {
                 self.motions.get_mut(&unit).ok_or_else(|| {
                     refuse("execution.movement.CreatureLinkingMgr_637.GetMotionMaster_owner")
                 })
             },
+            FollowRequest::linked(master, offsets),
             &mut MotionContext {
                 objects,
                 units: self.units,
             },
             &mut self.motion,
-        );
-        if result
-            .as_ref()
-            .is_err_and(|err| err.id == FOLLOW_REFERENCE_ATTACH_OWNER)
-        {
-            *self.follow = Some((unit, master, offsets.map(f32::to_bits)));
-        }
-        result
+            |id, target| {
+                assert_eq!(target.ids().first(), Some(&id));
+                *self.follow = Some((id, master, offsets.map(f32::to_bits)));
+            },
+        )?;
+        Ok(())
     }
 }
 

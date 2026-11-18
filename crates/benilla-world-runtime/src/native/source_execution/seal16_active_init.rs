@@ -6,7 +6,7 @@ use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: [&str; 2] = [
     "execution.spells.Unit_4757.RemoveSpellAuraHolder_owner",
-    "execution.movement.FollowerReference_25.addFollower_owner",
+    "execution.spells.AuraHandler.type_42_owner",
 ];
 #[path = "seal16_active_clocks.rs"]
 mod clocks;
@@ -72,7 +72,7 @@ pub(super) struct Prefix<'a> {
     pub link_holder: &'a mut SourceCreatureLinkingHolder,
     pub link_births: BTreeMap<ObjectHandle, (u32, i64)>,
     pub pools: &'a SourcePoolManager,
-    pub link_follow: Option<(ObjectHandle, ObjectHandle, [u32; 2])>,
+    pub link_follow: Option<(FollowerReferenceId, ObjectHandle, [u32; 2])>,
     pub map_visibility_bits: u32,
     pub visibility: SourceVisibilityCensus,
     pub creature_battleground: Option<bool>,
@@ -421,7 +421,7 @@ pub(super) struct FirstGo {
 pub(super) struct ActivePrefixReport {
     pub first_creature: Option<FirstCreature>,
     pub refusal: Refusal,
-    pub link_follow: Option<(ObjectHandle, ObjectHandle, [u32; 2])>,
+    pub link_follow: Option<(FollowerReferenceId, ObjectHandle, [u32; 2])>,
     pub first_go: Option<FirstGo>,
     pub completed_objects: Vec<ObjectHandle>,
     pub attempt: GridLoadAttempt,
@@ -451,6 +451,7 @@ pub(super) struct ActivePrefixReport {
     pub creature_linking_trigger: bool,
     pub selected_ai: Option<SelectedCreatureAi>,
     pub units: SourceUnits,
+    pub motions: BTreeMap<ObjectHandle, SourceMotionMaster>,
     pub ais: SourceCreatureAis,
     pub event_ais: BTreeMap<ObjectHandle, SourceEventAi>,
 }
@@ -736,6 +737,7 @@ pub(super) fn load_first(
         creature_linking_trigger: factory.creature_linking_trigger,
         selected_ai: factory.selected_ai,
         units: factory.units,
+        motions: factory.motions,
         ais: factory.ais,
         event_ais: factory.event_ais,
     })

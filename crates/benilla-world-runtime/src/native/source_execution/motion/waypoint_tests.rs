@@ -532,7 +532,7 @@ fn default_constructor_initializes_before_loading_and_stops_at_first_f6_query() 
         WANDER_ACTIVE | WANDER_MOVING
     );
     assert_eq!(owner.log, ["spline"]);
-    assert_eq!(master.reset_position(), Some([0.; 4]));
+    assert_eq!(master.reset_position().unwrap(), Some([0.; 4]));
 }
 #[test]
 fn initial_delay_does_not_defer_first_path_send_and_single_node_delay_stays_zero() {
@@ -862,7 +862,7 @@ fn interrupt_saves_position_before_interrupt_then_clears_state_and_restores_walk
         owner.log,
         ["position", "InterruptMoving", "RestoreWalk(true)"]
     );
-    assert_eq!(g.reset_position(), Some([5., 6., 7., 8.]));
+    assert_eq!(g.reset_position().unwrap(), Some([5., 6., 7., 8.]));
     assert_eq!(
         c.units.get(&objects, master.unit).unwrap().state,
         WAYPOINT_PAUSED
@@ -1148,7 +1148,7 @@ fn interrupt_captures_position_then_clears_roaming_before_missing_walk_owner() {
         "execution.motion.walk_movement_info_output_owner"
     );
     assert_eq!(c.units.get(&objects, master.unit).unwrap().state, 0);
-    assert_eq!(g.reset_position(), Some([9.; 4]));
+    assert_eq!(g.reset_position().unwrap(), Some([9.; 4]));
     assert!(c.spline_finalized(master.unit).unwrap());
     assert!(!c.spline(master.unit).unwrap().initialized());
     assert!(c
