@@ -91,6 +91,99 @@ fn fixture(name: &str) -> Fixture {
         random,
     }
 }
+
+#[test]
+fn guard_initialization_constructs_base_and_resets_in_callback_order() {
+    let mut objects = SourceObjects::default();
+    let unit = objects.construct(1, SourceObjectKind::Creature).unwrap();
+    let mut units = SourceUnits::default();
+    let mut t = template("");
+    t.extra_flags = 0x400;
+    units
+        .register(&objects, unit, SourceUnitFields::creature(&t))
+        .unwrap();
+    let selected = SourceAiRegistry::builtin()
+        .select(
+            &objects,
+            unit,
+            t.clone().inputs(CreatureAiControl::default(), false),
+            SourceControlGuids::default(),
+        )
+        .unwrap();
+    assert_eq!(selected.branch(), AiSelectionBranch::Guard);
+    let mut ais = SourceCreatureAis::default();
+    let mut owner = Random::new();
+    let guard = SourceCreatureAis::construct_loaded_builtin(
+        &objects,
+        &selected,
+        BuiltinAiFactoryOwners {
+            units: &mut units,
+            ais: &mut ais,
+            random: &mut owner,
+            base: BuiltinAiBase::Loaded {
+                combat: &mut SourceCombat::default(),
+                template: &t,
+                config: &config(),
+            },
+        },
+    )
+    .unwrap();
+    let ai = ais.get_mut(&objects, unit).unwrap();
+    assert_eq!(guard.selected().executable(), selected.executable());
+    assert_eq!(
+        ai.loaded_builtin.as_ref(),
+        Some(guard.selected().executable())
+    );
+    drop(guard);
+    let ai = &mut ai.base;
+    assert!(units.get(&objects, unit).unwrap().has_ai);
+    assert_eq!(ai.action_count(), 0);
+    assert_eq!(ai.visibility_distance, 50.);
+    assert!(ai.melee_enabled);
+    assert_eq!(
+        ai.generic_timers
+            .map(|timer| (timer.id, timer.remaining, timer.disabled)),
+        [(2000, 0, true), (2001, 0, true)]
+    );
+    assert_eq!(owner.cursor.raw, 2);
+
+    // Make each inherited callback's field writes visible independently.
+    ai.main_spell_id = 123;
+    ai.main_attack_mask = 4;
+    ai.generic_timers[0].disabled = false;
+    ai.generic_timers[0].remaining = 555;
+    ai.ranged_mode = true;
+    ai.chase_distance = 30.;
+    SourceAiExecution {
+        queries: SourceUnitQueries {
+            objects: &objects,
+            units: &mut units,
+        },
+        ais: &mut ais,
+        threats: &mut SourceThreats::default(),
+        owner: &mut owner,
+    }
+    .guard_spell_list_changed(unit)
+    .unwrap();
+    let ai = &ais.get(&objects, unit).unwrap().base;
+    assert_eq!((ai.main_spell_id, ai.main_attack_mask), (0, 0));
+    assert_eq!(ai.generic_timers[0].remaining, 555);
+    assert!(!ai.current_ranged_mode);
+    assert_eq!(ai.attack_distance, 0.);
+    assert_eq!(owner.cursor.raw, 2);
+
+    ais.guard_just_respawned(&objects, unit, &mut owner)
+        .unwrap();
+    let ai = &ais.get(&objects, unit).unwrap().base;
+    assert_eq!(
+        ai.generic_timers
+            .map(|timer| (timer.id, timer.remaining, timer.disabled)),
+        [(2000, 0, true), (2001, 0, true)]
+    );
+    assert!(ai.current_ranged_mode);
+    assert_eq!(ai.attack_distance, 30.);
+    assert_eq!(owner.cursor.raw, 4);
+}
 #[derive(Default)]
 struct Authored {
     calls: Vec<UnitAiCall>,
@@ -626,7 +719,10 @@ fn builtin_catalog04_constructor_census_or_explicit_absence() {
     );
     let mut outcomes = BTreeMap::<String, BTreeMap<String, usize>>::new();
     let mut update_gates = BTreeMap::<String, BTreeMap<String, (usize, usize)>>::new();
+    let mut guard_flag_templates = 0;
+    let mut defensive_guard_templates = 0;
     for t in catalog_creature_ai_census_inputs(&mut catalog).unwrap() {
+        guard_flag_templates += usize::from(t.extra_flags & 0x400 != 0);
         let mut objects = SourceObjects::default();
         let unit = objects.construct(1, SourceObjectKind::Creature).unwrap();
         let selected = registry
@@ -646,6 +742,7 @@ fn builtin_catalog04_constructor_census_or_explicit_absence() {
             .map_or("ScriptDev", |k| k.key())
             .to_owned();
         *selected_counts.entry(name.clone()).or_default() += 1;
+        defensive_guard_templates += usize::from(name == "GuardAI" && t.extra_flags & 2 != 0);
         let mut units = SourceUnits::default();
         units
             .register(&objects, unit, SourceUnitFields::creature(&t))
@@ -701,6 +798,10 @@ fn builtin_catalog04_constructor_census_or_explicit_absence() {
         *outcomes.entry(name).or_default().entry(reason).or_default() += 1;
     }
     assert_eq!(selected_counts.values().sum::<usize>(), 10384);
+    // Static template census with registered ScriptDev slot checks.
+    assert_eq!(guard_flag_templates, 180);
+    assert_eq!(defensive_guard_templates, 64);
+    assert_eq!(selected_counts["ScriptDev"], 330);
     assert_eq!(selected_counts["GuardAI"], 96);
     assert_eq!(selected_counts["TotemAI"], 93);
     assert_eq!(outcomes["GuardAI"]["constructed"], 96);

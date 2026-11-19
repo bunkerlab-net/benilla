@@ -150,7 +150,7 @@ fn every_eligible_precedence_pair_selects_the_earlier_source_branch() {
                 ),
                 AiSelectionBranch::Guard => (
                     Some(BuiltinCreatureAi::Guard),
-                    "execution.ai.guard_constructor_owner",
+                    "execution.ai.CreatureAIImpl_29.GuardAI_factory_context_owner",
                 ),
                 _ => unreachable!(),
             };
@@ -307,7 +307,7 @@ fn charmed_temporary_summons_continue_to_totem_name_guard_or_permit() {
             true,
             AiSelectionBranch::Guard,
             BuiltinCreatureAi::Guard,
-            "execution.ai.guard_constructor_owner",
+            "execution.ai.CreatureAIImpl_29.GuardAI_factory_context_owner",
         ),
         (
             false,
@@ -699,7 +699,7 @@ fn every_registered_explicit_factory_preserves_its_executable_and_exact_missing_
         (
             "GuardAI",
             BuiltinCreatureAi::Guard,
-            "execution.ai.guard_constructor_owner",
+            "execution.ai.CreatureAIImpl_29.GuardAI_factory_context_owner",
         ),
         (
             "PetAI",

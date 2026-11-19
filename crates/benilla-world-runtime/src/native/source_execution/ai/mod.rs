@@ -91,24 +91,36 @@ impl SourceBuiltinAi {
         random: &mut dyn CreatureRandom,
     ) -> Result<Self> {
         selected.validate(objects)?;
+        if matches!(
+            selected.executable().builtin_kind(),
+            Some(BuiltinCreatureAi::Null | BuiltinCreatureAi::Guard)
+        ) {
+            ais.get(objects, selected.object())?;
+        }
+        let ai = Self::construct_derived(selected, objects, units, random)?;
+        units.bind_ai_selection(objects, ai.selected())?;
+        units.get_mut(objects, ai.selected().object())?.has_ai = true;
+        Ok(ai)
+    }
+
+    pub(super) fn construct_derived(
+        selected: SelectedCreatureAi,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        random: &mut dyn CreatureRandom,
+    ) -> Result<Self> {
         let unit = selected.object();
         let body = match selected.executable().builtin_kind() {
             Some(BuiltinCreatureAi::Null) => {
-                ais.get(objects, unit)?;
                 null::construct(unit, objects, units)?;
                 BuiltinBody::Null
             }
-            Some(BuiltinCreatureAi::Guard) => {
-                ais.get(objects, unit)?;
-                BuiltinBody::Guard // GuardAI.cpp:32-34 has no derived constructor actions.
-            }
+            Some(BuiltinCreatureAi::Guard) => BuiltinBody::Guard, // GuardAI.cpp:32-34.
             Some(BuiltinCreatureAi::Possessed) => {
                 BuiltinBody::Possessed(SourceUnitAi::construct(objects, unit, 0, random)?)
             }
             _ => return Err(selected.constructor_refusal(objects)?),
         };
-        units.bind_ai_selection(objects, &selected)?;
-        units.get_mut(objects, unit)?.has_ai = true;
         Ok(Self { selected, body })
     }
     /// PetAI.cpp:41-65 requires writable base state and a real created-by-spell field.
@@ -316,9 +328,8 @@ impl SourceBuiltinAi {
         }
         if !matches!(self.body, BuiltinBody::Possessed(_)) {
             // CreatureAI.cpp:124-128 versus the empty UnitAI.h:260 callback.
-            let ai = ais.get_mut(objects, self.selected.object())?;
-            ai.reset_timers(true, random)?;
-            ai.reset();
+            ais.get_mut(objects, self.selected.object())?
+                .just_respawned(random)?;
         }
         Ok(())
     }

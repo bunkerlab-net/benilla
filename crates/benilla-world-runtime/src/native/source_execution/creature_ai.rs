@@ -2,12 +2,39 @@
 // CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
 //! CreatureAI.cpp:28-99, UnitAI.h:451-458. Component state, not native continuation.
 use super::*;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+
+pub struct BuiltinAiFactoryOwners<'a> {
+    pub units: &'a mut SourceUnits,
+    pub ais: &'a mut SourceCreatureAis,
+    pub random: &'a mut dyn CreatureRandom,
+    pub base: BuiltinAiBase<'a>,
+}
+
+pub enum BuiltinAiBase<'a> {
+    Installed,
+    Loaded {
+        combat: &'a mut SourceCombat,
+        template: &'a CreatureAiTemplateOperands,
+        config: &'a EventAiLoaderConfig,
+    },
+}
+
+struct LoadedAiRandom<'a>(&'a mut dyn CreatureRandom);
+impl CreatureRandom for LoadedAiRandom<'_> {
+    fn creature_irand(&mut self, min: i32, max: i32) -> Result<i32> {
+        self.0.creature_irand(min, max)
+    }
+    fn creature_urand(&mut self, min: u32, max: u32) -> Result<u32> {
+        self.0.creature_urand(min, max)
+    }
+}
+impl UnitAiExecutionOwner for LoadedAiRandom<'_> {}
 
 impl SourceCreatureAis {
-    /// CreatureEventAI.cpp:87 calls the ordinary CreatureAI constructor first.
+    /// GuardAI.cpp:32 and CreatureEventAI.cpp:87 call the zero-action CreatureAI constructor first.
     #[allow(clippy::too_many_arguments)]
-    pub fn install_loaded_event_ai_base(
+    pub fn install_loaded_creature_ai_base(
         &mut self,
         objects: &SourceObjects,
         units: &mut SourceUnits,
@@ -17,6 +44,20 @@ impl SourceCreatureAis {
         config: &EventAiLoaderConfig,
         owner: &mut (impl UnitAiExecutionOwner + CreatureRandom),
     ) -> Result<()> {
+        let base = Self::construct_loaded_creature_ai_base(
+            objects, units, selected, template, config, owner,
+        )?;
+        self.install(objects, units, base, combat)
+    }
+
+    fn construct_loaded_creature_ai_base(
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        selected: &SelectedCreatureAi,
+        template: &CreatureAiTemplateOperands,
+        config: &EventAiLoaderConfig,
+        owner: &mut (impl UnitAiExecutionOwner + CreatureRandom),
+    ) -> Result<SourceCreatureAi> {
         let unit = selected.object();
         require(
             objects.get(unit)?.kind == SourceObjectKind::Creature
@@ -24,9 +65,108 @@ impl SourceCreatureAis {
                 && !selected.inputs().control.temporary_summon,
             "execution.creature.CreatureAI_45.charm_info_owner",
         )?;
-        let base =
-            SourceCreatureAi::construct(objects, unit, units, template, false, 0, config, owner)?;
-        self.install(objects, units, base, combat)
+        SourceCreatureAi::construct(objects, unit, units, template, false, 0, config, owner)
+    }
+
+    /// CreatureAIImpl.h:26-29 and Creature.cpp:883 install a builtin on the live creature.
+    pub(crate) fn construct_loaded_builtin(
+        objects: &SourceObjects,
+        selected: &SelectedCreatureAi,
+        owners: BuiltinAiFactoryOwners<'_>,
+    ) -> Result<SourceBuiltinAi> {
+        if !matches!(
+            selected.executable().builtin_kind(),
+            Some(BuiltinCreatureAi::Guard | BuiltinCreatureAi::Null)
+        ) {
+            return SourceBuiltinAi::construct(
+                selected.clone(),
+                objects,
+                owners.units,
+                owners.ais,
+                owners.random,
+            );
+        }
+
+        selected.validate(objects)?;
+        let unit = selected.object();
+        match owners.base {
+            BuiltinAiBase::Installed => {
+                let ai = SourceBuiltinAi::construct(
+                    selected.clone(),
+                    objects,
+                    owners.units,
+                    owners.ais,
+                    owners.random,
+                )?;
+                owners.ais.get_mut(objects, unit)?.loaded_builtin =
+                    Some(selected.executable().clone());
+                Ok(ai)
+            }
+            BuiltinAiBase::Loaded {
+                combat,
+                template,
+                config,
+            } => {
+                require(
+                    !owners.ais.instances.contains_key(&unit),
+                    "execution.unit_ai.duplicate_generation",
+                )?;
+                require(
+                    selected.inputs().effective_entry == template.entry,
+                    "execution.unit_ai.effective_entry",
+                )?;
+                let mut base = Self::construct_loaded_creature_ai_base(
+                    objects,
+                    owners.units,
+                    selected,
+                    template,
+                    config,
+                    &mut LoadedAiRandom(owners.random),
+                )?;
+                let ai = SourceBuiltinAi::construct_derived(
+                    selected.clone(),
+                    objects,
+                    owners.units,
+                    owners.random,
+                )?;
+                owners.units.bind_ai_selection(objects, selected)?;
+                base.loaded_builtin = Some(selected.executable().clone());
+                owners.ais.install(objects, owners.units, base, combat)?;
+                Ok(ai)
+            }
+        }
+    }
+
+    fn loaded_guard(
+        &mut self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+        callback_owner: &'static str,
+    ) -> Result<&mut SourceCreatureAi> {
+        let ai = self.get_mut(objects, unit)?;
+        require(
+            ai.loaded_builtin
+                .as_ref()
+                .and_then(AiExecutable::builtin_kind)
+                == Some(BuiltinCreatureAi::Guard),
+            callback_owner,
+        )?;
+        Ok(ai)
+    }
+
+    /// GuardAI.h:28-44 inherits CreatureAI::JustRespawned.
+    pub fn guard_just_respawned(
+        &mut self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+        random: &mut dyn CreatureRandom,
+    ) -> Result<()> {
+        self.loaded_guard(
+            objects,
+            unit,
+            "execution.ai.Creature_887.JustRespawned_owner",
+        )?
+        .just_respawned(random)
     }
 }
 
@@ -67,6 +207,11 @@ pub struct SourceCreatureAi {
     pub follow_distance: f32,
     pub guard: bool,
     pub civilian: bool,
+    // Dynamic AI class, independent of the creature template's IsGuard flag.
+    #[serde(skip)]
+    pub(crate) loaded_builtin: Option<AiExecutable>,
+    #[serde(skip)]
+    main_spells: BTreeSet<u32>,
 }
 impl SourceCreatureAi {
     #[allow(clippy::too_many_arguments)]
@@ -116,6 +261,8 @@ impl SourceCreatureAi {
             follow_distance: 0.,
             guard,
             civilian: template.civilian,
+            loaded_builtin: None,
+            main_spells: BTreeSet::new(),
         })
     }
     pub fn reset(&mut self) {
@@ -240,6 +387,13 @@ impl SourceCreatureAi {
                 timer.disabled = true;
             }
         }
+        Ok(())
+    }
+
+    /// CreatureAI.cpp:124-128 resets timers before calling the inherited Reset.
+    pub fn just_respawned(&mut self, random: &mut dyn CreatureRandom) -> Result<()> {
+        self.reset_timers(true, random)?;
+        self.reset();
         Ok(())
     }
 }
@@ -680,26 +834,53 @@ impl<O: UnitAiExecutionOwner + CreatureRandom> SourceAiExecution<'_, O> {
     /// UnitAI.cpp:1155-1179 resets main spells before scanning the live spell list.
     pub fn spell_list_changed(&mut self, state: &mut SourceEventAi) -> Result<()> {
         let unit = state.selected.object();
-        let ai = &mut self.ais.get_mut(self.queries.objects, unit)?.base;
-        ai.main_spell_id = 0;
-        ai.main_spell_cost = 0;
-        ai.main_spell_min_range = 0.;
-        ai.main_attack_mask = 0;
-        ai.main_spell_info = None;
-        state.main_spell_id = 0;
-        state.main_spells.clear();
-        let live = self.queries.units.get(self.queries.objects, unit)?;
+        self.ais
+            .get_mut(self.queries.objects, unit)?
+            .base
+            .apply_spell_list_change(
+                &self.queries,
+                &mut state.main_spells,
+                Some(&mut state.main_spell_id),
+                self.owner,
+            )
+    }
+
+    /// GuardAI.h:28-44 inherits UnitAI::SpellListChanged.
+    pub fn guard_spell_list_changed(&mut self, unit: ObjectHandle) -> Result<()> {
+        let ai = self.ais.loaded_guard(
+            self.queries.objects,
+            unit,
+            "execution.ai.Creature_886.SpellListChanged_owner",
+        )?;
+        ai.base
+            .apply_spell_list_change(&self.queries, &mut ai.main_spells, None, self.owner)
+    }
+}
+
+impl SourceUnitAi {
+    fn apply_spell_list_change(
+        &mut self,
+        queries: &SourceUnitQueries<'_>,
+        main_spells: &mut BTreeSet<u32>,
+        mut event_main_spell_id: Option<&mut u32>,
+        owner: &mut (impl UnitAiExecutionOwner + CreatureRandom),
+    ) -> Result<()> {
+        let unit = self.unit;
+        self.main_spell_id = 0;
+        self.main_spell_cost = 0;
+        self.main_spell_min_range = 0.;
+        self.main_attack_mask = 0;
+        self.main_spell_info = None;
+        if let Some(id) = event_main_spell_id.as_deref_mut() {
+            *id = 0;
+        }
+        main_spells.clear();
+        let live = queries.units.get(queries.objects, unit)?;
         let disabled = live.spell_list_disabled;
         let spells = live.spell_list.as_ref();
         // Deviation: CreatureSpellList.h:84-91 leaves Disabled unwritten; the owner permits UnitAI.cpp:1165 because both branches do nothing for empty spells outside combat.
         if disabled.is_none() {
-            if spells.is_none_or(|list| list.spells.is_empty())
-                && !self
-                    .queries
-                    .units
-                    .get(self.queries.objects, unit)?
-                    .in_combat()
-            {
+            if spells.is_none_or(|list| list.spells.is_empty()) && !live.in_combat() {
                 return Ok(());
             }
             return Err(refuse(
@@ -712,38 +893,30 @@ impl<O: UnitAiExecutionOwner + CreatureRandom> SourceAiExecution<'_, O> {
         let spells = spells.ok_or_else(|| refuse("execution.unit_ai.live_spell_list_binding"))?;
         for spell in spells.spells.values() {
             if spell.flags & 2 != 0 {
-                if state.main_spell_id == 0 {
-                    state.main_spell_id = spell.spell_id;
+                if let Some(id) = event_main_spell_id.as_deref_mut() {
+                    if *id == 0 {
+                        *id = spell.spell_id;
+                    }
                 }
-                self.owner.add_main_spell(
+                owner.add_main_spell(
                     unit,
                     spell.spell_id,
-                    &mut self.ais.get_mut(self.queries.objects, unit)?.base,
-                    &mut state.main_spells,
-                    self.queries.units,
-                    self.queries.objects,
+                    self,
+                    main_spells,
+                    queries.units,
+                    queries.objects,
                 )?;
             }
         }
         if !spells.spells.is_empty() {
-            self.ais
-                .get_mut(self.queries.objects, unit)?
-                .base
-                .spell_list_cooldown = false;
+            self.spell_list_cooldown = false;
         }
-        if self
-            .queries
-            .units
-            .get(self.queries.objects, unit)?
-            .in_combat()
-        {
+        if live.in_combat() {
             // UnitAI.cpp:1359-1370 draws even equal initial bounds before AddCooldown.
             for spell in spells.spells.values() {
-                let cooldown = self
-                    .owner
-                    .creature_urand(spell.initial[0], spell.initial[1])?;
+                let cooldown = owner.creature_urand(spell.initial[0], spell.initial[1])?;
                 if cooldown != 0 {
-                    let context = self.owner.spell_context()?;
+                    let context = owner.spell_context()?;
                     require(
                         context.stores.template(spell.spell_id).is_some(),
                         "execution.unit_ai.UnitAI_1368.null_spell_undefined",

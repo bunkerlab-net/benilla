@@ -439,12 +439,14 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
     }
     fn creature_builtin_ai_owners(
         &mut self,
-    ) -> Result<(
-        &mut SourceUnits,
-        &SourceCreatureAis,
-        &mut dyn CreatureRandom,
-    )> {
-        Ok((&mut self.units, &self.base_ais, &mut self.random))
+        _: &SelectedCreatureAi,
+    ) -> Result<BuiltinAiFactoryOwners<'_>> {
+        Ok(BuiltinAiFactoryOwners {
+            units: &mut self.units,
+            ais: &mut self.base_ais,
+            random: &mut self.random,
+            base: BuiltinAiBase::Installed,
+        })
     }
     fn creature_summoned_ai_owners(
         &mut self,
@@ -2008,6 +2010,15 @@ fn selected_builtin_factory_dispatch_retains_real_bodies_and_named_refusals() {
         }
         result.unwrap();
         let (&unit, state) = factory.states.first_key_value().unwrap();
+        let discard = state.check_builtin_ai_discard(&world.objects, &factory.base_ais);
+        if name == "PossessedAI" {
+            assert_eq!(
+                discard.unwrap_err().id,
+                "execution.creature.Creature_1768.builtin_ai_live_retention_owner"
+            );
+        } else {
+            discard.unwrap();
+        }
         if name == "EventAI" {
             assert!(state.event_ai().is_some());
             assert!(state.builtin_ai().is_none());

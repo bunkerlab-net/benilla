@@ -43,9 +43,10 @@ const GROUP_QUERIES: [&str; 6] = [
     "SELECT Id, SquadId, Guid, Entry FROM spawn_group_squad",
 ];
 const EVENT_AI_QUERY: &str = "SELECT id, creature_id, event_type, event_inverse_phase_mask, event_chance, event_flags, event_param1, event_param2, event_param3, event_param4, event_param5, event_param6, action1_type, action1_param1, action1_param2, action1_param3, action2_type, action2_param1, action2_param2, action2_param3, action3_type, action3_param1, action3_param2, action3_param3 FROM creature_ai_scripts ORDER BY id";
-// The next map 0 word is the first Timer constructor draw under GuardAI.
-const MAP0_BEFORE_GUARD_TIMER: u64 = 60573960;
+// The next unconsumed word belongs to npc_chicken_cluck's UnitAI base.
+const MAP0_BEFORE_CHICKEN_TIMER: u64 = 60580494;
 const MAP0_GUARD_RAW: usize = 27328;
+const MAP0_NEXT_RAW: usize = 27356;
 
 fn retained_f1_file(root: &Path, recorded: &Path, expected: &Sha256Id) -> Result<Vec<u8>> {
     let prefix = recorded
@@ -83,12 +84,16 @@ fn map0_receipt<const N: usize>(rows: impl Iterator<Item = [u64; N]>) -> String 
 fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::ActiveClocks) {
     // The GUID40520 birth was already counted. The remaining 53 births include
     // the trap at :60493861 and both duplicate creature attempts.
-    assert_eq!(evidence.continuation_births.len(), 54);
-    let births = &evidence.continuation_births[1..];
+    assert_eq!(evidence.continuation_births.len(), 60);
+    let births = &evidence.continuation_births[1..54];
     assert_eq!((births[0], births[52]), (60478620, 60571587));
     assert_eq!(
         map0_receipt(births.iter().map(|&line| [line])),
         "fd02f4a98005a10bdacc5c1d342b14d97a8c9ac57409e744915deef010045e54"
+    );
+    assert_eq!(
+        &evidence.continuation_births[54..],
+        [60574126, 60575661, 60576274, 60576775, 60577108, 60579285]
     );
     assert_eq!(
         evidence.continuation_completed,
@@ -143,6 +148,12 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
             (60567087, 14068),
             (60567881, 14798),
             (60571579, 4086),
+            (60574113, 4242),
+            (60575629, 4244),
+            (60576242, 5015),
+            (60576763, 15029),
+            (60577106, 15033),
+            (60579270, 4198),
         ]
     );
     // The replay also compares each word, request and result in order below.
@@ -153,9 +164,44 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
         map0_receipt(words.iter().map(|&(line, raw, word)| [line, raw, word])),
         "81f7cbfb2bffbf5cd21af1a54cbde3b1aaf37622fbdb49567601059a266f4353"
     );
+    // The first pair is Timer::Timer (:23); the second is ResetTimer (:47).
+    // SpellListChanged has no draw at :60574013. JustRespawned starts at :60574032.
     assert_eq!(
-        evidence.words[MAP0_GUARD_RAW],
-        (MAP0_BEFORE_GUARD_TIMER, 27328, 4005247489)
+        &evidence.words[MAP0_GUARD_RAW..MAP0_NEXT_RAW],
+        [
+            (60573960, 27328, 4005247489),
+            (60573993, 27329, 1795029007),
+            (60574042, 27330, 2754521498),
+            (60574062, 27331, 3095061613),
+            (60574172, 27332, 3268678362),
+            (60574613, 27333, 704630599),
+            (60575486, 27334, 1562681081),
+            (60575508, 27335, 1179579994),
+            (60575569, 27336, 3428138308),
+            (60575587, 27337, 3725666063),
+            (60575719, 27338, 2615642661),
+            (60576072, 27339, 978124531),
+            (60576125, 27340, 3028640038),
+            (60576135, 27341, 1684947418),
+            (60576160, 27342, 1374585815),
+            (60576170, 27343, 3439775274),
+            (60576185, 27344, 1558588162),
+            (60576202, 27345, 3443523208),
+            (60576715, 27346, 292624312),
+            (60577087, 27347, 589746404),
+            (60577126, 27348, 528491939),
+            (60577863, 27349, 3249244699),
+            (60579113, 27350, 3022591220),
+            (60579136, 27351, 3061391942),
+            (60579199, 27352, 1570955401),
+            (60579219, 27353, 4225726343),
+            (60579340, 27354, 2157508273),
+            (60579530, 27355, 1618006803),
+        ]
+    );
+    assert_eq!(
+        evidence.words[MAP0_NEXT_RAW],
+        (MAP0_BEFORE_CHICKEN_TIMER, 27356, 360747331)
     );
     let consumed = evidence.active_clocks.0.len() - clocks.0.len();
     let new_clocks = evidence
@@ -164,9 +210,9 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
         .iter()
         .take(consumed)
         .filter(|clock| clock.time_line > 60478161);
-    assert_eq!(new_clocks.clone().count(), 34);
+    assert_eq!(new_clocks.clone().count(), 38);
     assert_eq!(
-        map0_receipt(new_clocks.map(|clock| [
+        map0_receipt(new_clocks.clone().take(34).map(|clock| [
             clock.site_line,
             clock.time_line,
             clock.thread,
@@ -176,7 +222,19 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
         ])),
         "a6728ca86005a2928aaa1272041a9130b0ec2a2a5541b5abb0e3d28041cd3630"
     );
-    assert_eq!(clocks.0.front().unwrap().time_line, 60574819);
+    assert_eq!(
+        new_clocks
+            .skip(34)
+            .map(|clock| (clock.site_line, clock.time_line, clock.raw, clock.seconds))
+            .collect::<Vec<_>>(),
+        [
+            (60574816, 60574819, 27334, 1794314190),
+            (60576112, 60576113, 27340, 1794314190),
+            (60578080, 60578083, 27350, 1794314190),
+            (60579682, 60579683, 27356, 1794314190),
+        ]
+    );
+    assert_eq!(clocks.0.front().unwrap().time_line, 60581521);
 }
 
 fn assert_guid40520_queue(spells: &SourceSpellStarts, events: &SourceUnitEvents) {
@@ -507,14 +565,14 @@ impl Inputs {
             }
             "logical_birth"
                 if p[1] == "object"
-                    && (thread == 6 && (60476953..MAP0_BEFORE_GUARD_TIMER).contains(&line)
+                    && (thread == 6 && (60476953..MAP0_BEFORE_CHICKEN_TIMER).contains(&line)
                         || thread == 7
                             && (60310149..MAP1_BEFORE_AREA_AURA_HOLDER).contains(&line)) =>
             {
                 evidence.continuation_births.push(line);
             }
             "constructor_loader_success"
-                if thread == 6 && (60478609..MAP0_BEFORE_GUARD_TIMER).contains(&line)
+                if thread == 6 && (60478609..MAP0_BEFORE_CHICKEN_TIMER).contains(&line)
                     || thread == 7 && (60435155..MAP1_BEFORE_AREA_AURA_HOLDER).contains(&line) =>
             {
                 evidence
@@ -522,7 +580,7 @@ impl Inputs {
                     .push((line, p[1].parse().unwrap()));
             }
             "path_calculate"
-                if thread == 6 && (60478609..MAP0_BEFORE_GUARD_TIMER).contains(&line)
+                if thread == 6 && (60478609..MAP0_BEFORE_CHICKEN_TIMER).contains(&line)
                     || thread == 7 && (60310149..MAP1_BEFORE_AREA_AURA_HOLDER).contains(&line) =>
             {
                 evidence.path_calculations.push(line);
@@ -664,7 +722,7 @@ impl Inputs {
                 evidence.total_words += 1;
             }
             "sql_request_bytes" | "sql_write_bytes" => {
-                if thread == 6 && line < MAP0_BEFORE_GUARD_TIMER
+                if thread == 6 && line < MAP0_BEFORE_CHICKEN_TIMER
                     || thread == 7 && line < MAP1_BEFORE_AREA_AURA_HOLDER
                 {
                     evidence.sql_lines.push(line);
@@ -2514,6 +2572,44 @@ pub(super) fn continue_startup(
             assert_eq!(evidence.sql_lines, [60100980, 60101139]);
             assert_map0_continuation(evidence, &active_clocks);
             assert_eq!(
+                completed_objects[137..]
+                    .iter()
+                    .map(|&object| active_objects.get(object).unwrap().database_guid)
+                    .collect::<Vec<_>>(),
+                [4242, 4244, 5015, 15029, 15033, 4198]
+            );
+            let guard = completed_objects[137];
+            assert_eq!(
+                active_objects.get(guard).unwrap().guid.unwrap().entry(),
+                3137
+            );
+            assert!(units.get(&active_objects, guard).unwrap().has_ai);
+            let guard_ai = ais.get(&active_objects, guard).unwrap();
+            assert!(guard_ai.guard);
+            assert_eq!(
+                guard_ai
+                    .loaded_builtin
+                    .as_ref()
+                    .and_then(AiExecutable::builtin_kind),
+                Some(BuiltinCreatureAi::Guard)
+            );
+            assert_eq!(
+                guard_ai.base.generic_timers.map(|timer| (
+                    timer.id,
+                    timer.remaining,
+                    timer.disabled
+                )),
+                [(2000, 0, true), (2001, 0, true)]
+            );
+            assert!(lookups.windows(5).any(|steps| steps
+                == [
+                    "creature_guard_ai_constructed",
+                    "creature_ai_spell_list_changed",
+                    "creature_ai_just_respawned",
+                    "creature_instance_respawn_callback",
+                    "creature_creator_loot_checked",
+                ]));
+            assert_eq!(
                 (
                     attempt.guid,
                     attempt.kind,
@@ -2521,7 +2617,8 @@ pub(super) fn continue_startup(
                     attempt.cell.x(),
                     attempt.cell.y()
                 ),
-                (4242, GridSpawnKind::Creature, 3137, 193, 477)
+                // Script::GetAI argument :60580449 and dispatch :60580467.
+                (4228, GridSpawnKind::Creature, 620, 194, 473)
             );
             assert!(!completed_objects.contains(&candidate));
             assert!(active_objects.get(candidate).unwrap().in_world);
@@ -3731,7 +3828,8 @@ pub(super) fn continue_startup(
         // GUID35888, GUID35890 and GUID35884 add Idle at 60551017, 60551773 and 60552428.
         // Map 0 adds Idle at :60476980, :60497080, :60507541, :60508292,
         // :60509039, :60510051, :60510915 and :60516693.
-        assert_eq!(idle_count, if slot == 0 { 18 } else { 16 });
+        // GUID5015 enters Idle (trace :60575680, initial-classicmangos.sql:85040).
+        assert_eq!(idle_count, if slot == 0 { 19 } else { 16 });
         assert_eq!(
             geometry.pathfinder_constructor_completions,
             // WaypointMovementGenerator.cpp:264 constructs per BuildIntPath.
@@ -4076,8 +4174,8 @@ pub(super) fn continue_startup(
             ))
         );
         assert_eq!(attempt.guid, if slot == 0 { 18 } else { 28044 });
-        // Last allocated objects are at :60571587 (map 0) and :60553169 (map 1).
-        assert_eq!(candidates, if slot == 0 { 142 } else { 223 });
+        // Last allocated objects are at :60579285 (map 0) and :60553169 (map 1).
+        assert_eq!(candidates, if slot == 0 { 148 } else { 223 });
         assert_eq!(entry, if slot == 0 { 3211 } else { 4692 });
         if slot == 0 {
             assert_eq!(init_entry_fields, None);
@@ -4364,8 +4462,8 @@ pub(super) fn continue_startup(
                 attempt.cell.y(),
             ))
         );
-        // :60571579 completes GUID4086, and :60553163 completes GUID35884.
-        assert_eq!(completed, if slot == 0 { 137 } else { 218 });
+        // :60579270 completes GUID4198, and :60553163 completes GUID35884.
+        assert_eq!(completed, if slot == 0 { 143 } else { 218 });
         println!(
             "F6_VISIBILITY map={slot} census={visibility:?} invalidated_camera_iterator_stock_reach={}",
             visibility.cameras
@@ -4388,7 +4486,7 @@ pub(super) fn continue_startup(
         assert_eq!(
             random.cursor().raw,
             if slot == 0 {
-                MAP0_GUARD_RAW as u64
+                MAP0_NEXT_RAW as u64
             } else {
                 after_pools_cursor + 1544
             }
@@ -4462,7 +4560,7 @@ pub(super) fn continue_startup(
             evidence.pool_snapshot_line.unwrap(),
             encounters.by_map(slot as u32).len(),
             refusal.id,
-            if slot == 0 { "GuardAI.cpp:32" } else { "Spell.cpp:552" },
+            if slot == 0 { "ScriptDevAIMgr.cpp:370" } else { "Spell.cpp:552" },
         );
         owner.states = states;
         let raw = trace

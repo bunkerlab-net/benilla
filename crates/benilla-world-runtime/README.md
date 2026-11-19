@@ -2007,9 +2007,17 @@ Native format 91, NativeCapability, and frozen-unsealed F1 are unchanged.
 from `CreatureAIRegistry.cpp:37-43`. NullAI disables combat after its real
 CreatureAI base constructor, `NullCreatureAI.cpp:22-25`. Its empty overrides
 and false visibility are source behaviour, `NullCreatureAI.h:30-38`.
-GuardAI shares the generation-owned CreatureAI base and preserves its sight
-and assistance branch order, `GuardAI.cpp:32-92`. Its inherited update expires
-base timers before concrete target selection through `SourceAiDependencies`,
+The loaded GuardAI factory constructs the zero-action CreatureAI base
+(`GuardAI.cpp:32-34`, `CreatureAI.cpp:26-47`) and retains the selected
+factory on that live base. `Creature.cpp:883-887` then calls the inherited
+`UnitAI::SpellListChanged` and `CreatureAI::JustRespawned`. The latter
+resets both timers before `CreatureAI::Reset` (`CreatureAI.cpp:49-53,124-128`).
+Construction and respawn each draw twice, including `urand(0, 0)`.
+The seal16 map 0 replay completes GUID4242 and reaches the ScriptDev
+`GetAI` slot for Chicken GUID4228 (`ScriptDevAIMgr.cpp:370`).
+
+GuardAI preserves its sight and assistance branch order (`GuardAI.cpp:36-92`).
+Its inherited update expires base timers before concrete target selection through `SourceAiDependencies`,
 `UnitAI.cpp:1084-1090`, `Unit.cpp:8691-8807`. The inherited event-timer callback
 is genuinely empty for GuardAI, `UnitAI.h:504`.
 

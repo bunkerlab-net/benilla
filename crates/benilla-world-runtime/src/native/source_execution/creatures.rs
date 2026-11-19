@@ -680,9 +680,7 @@ impl CreatureConstruction {
     pub fn construct_builtin_ai(
         &mut self,
         objects: &SourceObjects,
-        units: &mut SourceUnits,
-        ais: &SourceCreatureAis,
-        random: &mut dyn CreatureRandom,
+        owners: BuiltinAiFactoryOwners<'_>,
     ) -> Result<()> {
         require(
             self.builtin_ai.is_none(),
@@ -691,13 +689,34 @@ impl CreatureConstruction {
         let selected = self
             .selected_ai()
             .ok_or_else(|| refuse("execution.ai.selection_absent"))?;
-        self.builtin_ai = Some(SourceBuiltinAi::construct(
-            selected.clone(),
-            objects,
-            units,
-            ais,
-            random,
+        self.builtin_ai = Some(SourceCreatureAis::construct_loaded_builtin(
+            objects, selected, owners,
         )?);
+        Ok(())
+    }
+
+    /// The grid replay drops its construction after Creature.cpp:1768. Guard and Null
+    /// have no derived state; their exact selected factory must already be on the live base.
+    pub fn check_builtin_ai_discard(
+        &self,
+        objects: &SourceObjects,
+        ais: &SourceCreatureAis,
+    ) -> Result<()> {
+        if let Some(ai) = self.builtin_ai() {
+            let selected = ai.selected();
+            require(
+                matches!(
+                    selected.executable().builtin_kind(),
+                    Some(BuiltinCreatureAi::Guard | BuiltinCreatureAi::Null)
+                ),
+                "execution.creature.Creature_1768.builtin_ai_live_retention_owner",
+            )?;
+            require(
+                ais.get(objects, self.object)?.loaded_builtin.as_ref()
+                    == Some(selected.executable()),
+                "execution.creature.Creature_1768.builtin_ai_identity_owner",
+            )?;
+        }
         Ok(())
     }
     pub fn construct_pet_ai(
@@ -1024,14 +1043,10 @@ pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
         Err(refuse("execution.unit_ai.component_registry_binding_owner"))
     }
     /// Split the live registries and thread RNG into disjoint borrows.
-    #[allow(clippy::type_complexity)]
     fn creature_builtin_ai_owners(
         &mut self,
-    ) -> Result<(
-        &mut SourceUnits,
-        &SourceCreatureAis,
-        &mut dyn CreatureRandom,
-    )> {
+        _selected: &SelectedCreatureAi,
+    ) -> Result<BuiltinAiFactoryOwners<'_>> {
         Err(refuse(
             "execution.builtin_ai.live_unit_and_base_binding_owner",
         ))
@@ -1510,8 +1525,8 @@ where
         selected.executable().builtin_kind(),
         Some(BuiltinCreatureAi::Null | BuiltinCreatureAi::Guard | BuiltinCreatureAi::Possessed)
     ) {
-        let (units, ais, random) = factory.creature_builtin_ai_owners()?;
-        return state.construct_builtin_ai(context.objects, units, ais, random);
+        let owners = factory.creature_builtin_ai_owners(selected)?;
+        return state.construct_builtin_ai(context.objects, owners);
     }
     if matches!(
         selected.executable().builtin_kind(),

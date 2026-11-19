@@ -585,12 +585,32 @@ impl<D: GridDefinitions<Row = SpawnKey>> CreatureFactoryOwner<D, SourceTerrainMa
         )
     }
 
+    fn creature_builtin_ai_owners(
+        &mut self,
+        selected: &SelectedCreatureAi,
+    ) -> Result<BuiltinAiFactoryOwners<'_>> {
+        let template = self
+            .ai_templates
+            .get(&selected.inputs().effective_entry)
+            .ok_or_else(|| refuse("execution.unit_ai.effective_entry"))?;
+        Ok(BuiltinAiFactoryOwners {
+            units: &mut self.units,
+            ais: &mut self.ais,
+            random: self.random,
+            base: BuiltinAiBase::Loaded {
+                combat: &mut self.combat,
+                template,
+                config: self.ai_config,
+            },
+        })
+    }
+
     fn creature_ai_construct(
         &mut self,
         state: &mut CreatureConstruction,
         context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
     ) -> Result<()> {
-        ai_initialize::construct(self, state, context.objects)
+        ai_initialize::construct(self, state, context)
     }
 
     fn creature_phase(
@@ -743,9 +763,10 @@ impl<D: GridDefinitions<Row = SpawnKey>> CreatureFactoryOwner<D, SourceTerrainMa
 
     fn creature_created(
         &mut self,
-        _: CreatureConstruction,
-        _: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
+        state: CreatureConstruction,
+        context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
     ) -> Result<()> {
+        state.check_builtin_ai_discard(context.objects, &self.ais)?;
         self.lookups.push("creature_load_from_db_return");
         Ok(())
     }

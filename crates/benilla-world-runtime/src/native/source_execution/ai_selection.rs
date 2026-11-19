@@ -102,7 +102,7 @@ impl BuiltinCreatureAi {
     pub fn constructor_refusal(self) -> Refusal {
         refuse(match self {
             Self::Null => "execution.ai.null_constructor_owner",
-            Self::Guard => "execution.ai.guard_constructor_owner",
+            Self::Guard => "execution.ai.CreatureAIImpl_29.GuardAI_factory_context_owner",
             Self::Pet => "execution.ai.pet_constructor_owner",
             Self::Totem => "execution.ai.totem_constructor_owner",
             Self::Event => "execution.ai.event_ai_constructor_owner",

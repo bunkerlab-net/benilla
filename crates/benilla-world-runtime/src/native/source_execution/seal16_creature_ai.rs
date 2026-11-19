@@ -68,11 +68,12 @@ impl UnitAiExecutionOwner for LiveOwner<'_> {
     }
 }
 
-pub(super) fn construct(
+pub(super) fn construct<D: GridDefinitions<Row = SpawnKey>>(
     prefix: &mut Prefix<'_>,
     state: &mut CreatureConstruction,
-    objects: &SourceObjects,
+    context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
 ) -> Result<()> {
+    let objects = &*context.objects;
     let selected = state
         .selected_ai()
         .ok_or_else(|| refuse("execution.ai.selection_absent"))?;
@@ -87,6 +88,12 @@ pub(super) fn construct(
         selected.executable()
     );
     prefix.selected_ai = Some(selected.clone());
+    if selected.executable().builtin_kind() == Some(BuiltinCreatureAi::Guard) {
+        construct_source_creature_ai(prefix, state, context)?;
+        prefix.lookups.push("creature_base_ai_constructed");
+        prefix.lookups.push("creature_guard_ai_constructed");
+        return Ok(());
+    }
     state.construct_event_ai_with_base(
         objects,
         prefix.event_definitions.clone(),
@@ -97,7 +104,7 @@ pub(super) fn construct(
                 .get(&selected.inputs().effective_entry)
                 .ok_or_else(|| refuse("execution.unit_ai.effective_entry"))?;
             let random = RefCell::new(&mut *prefix.random);
-            prefix.ais.install_loaded_event_ai_base(
+            prefix.ais.install_loaded_creature_ai_base(
                 objects,
                 &mut prefix.units,
                 &mut prefix.combat,
@@ -126,10 +133,7 @@ pub(super) fn callback<D: GridDefinitions<Row = SpawnKey>>(
     object: ObjectHandle,
     context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
 ) -> Result<()> {
-    let event = prefix
-        .event_ais
-        .get_mut(&object)
-        .ok_or_else(|| refuse("execution.event_ai.generation_missing"))?;
+    let event = prefix.event_ais.get_mut(&object);
     let random = RefCell::new(&mut *prefix.random);
     let mut live_owner = LiveOwner {
         binding: ai_cast::Binding {
@@ -156,11 +160,21 @@ pub(super) fn callback<D: GridDefinitions<Row = SpawnKey>>(
     };
     match phase {
         CreaturePhase::AiSpellListChanged => {
-            execution.spell_list_changed(event)?;
+            if let Some(event) = event {
+                execution.spell_list_changed(event)?;
+            } else {
+                execution.guard_spell_list_changed(object)?;
+            }
             prefix.lookups.push("creature_ai_spell_list_changed");
         }
         CreaturePhase::AiJustRespawned => {
-            execution.event_ai_just_respawned(event, &mut Owner(&random))?;
+            if let Some(event) = event {
+                execution.event_ai_just_respawned(event, &mut Owner(&random))?;
+            } else {
+                execution
+                    .ais
+                    .guard_just_respawned(context.objects, object, &mut Owner(&random))?;
+            }
             prefix.lookups.push("creature_ai_just_respawned");
         }
         _ => return Err(phase.missing_owner()),
