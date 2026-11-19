@@ -2043,6 +2043,8 @@ is unproven: EventAI's spell 10848 aura replacement clears and installs the
 slot, flags, level and applications without marking them. Ghost visibility
 byte changes and EventAI `SET_UNIT_FLAG`/`REMOVE_UNIT_FLAG` writes to
 `UNIT_FIELD_FLAGS` also lack marking.
+The in-world area aura armor write also lacks marking
+(`StatSystem.cpp:664-672`, `Unit.h:1325`).
 
 GuardAI preserves its sight and assistance branch order (`GuardAI.cpp:36-92`).
 Its inherited update expires base timers before concrete target selection through `SourceAiDependencies`,
