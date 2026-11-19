@@ -134,9 +134,15 @@ is meaningful without a bounded content/mechanics inventory.
   modifier updates creature armor (`SpellAuras.cpp:3367-3387`,
   `StatSystem.cpp:664-672`). `AreaAura::Update` belongs to a later unit tick
   and refuses at `SpellAuras.cpp:410`.
-  Map 1 completes 259 objects and stops at the world-boss immunity call
-  (`Creature.cpp:597`). It matches 265 allocations, 13,730 random words, and
-  two SQL requests.
+  Non-pet world bosses append immunity `(1, 137)` with a null aura before
+  stat updates (`Creature.h:667-672`, `Creature.cpp:596-600`,
+  `Unit.cpp:7684-7696`). The stock census is 153 rank-3 templates, eight
+  direct map-0 spawns, and 13 direct map-1 spawns. The Ten Hour War group
+  adds eight conditional map-1 positions (`initial-classicmangos.sql:824204,
+  826592-826593,830011-830018`).
+  Map 1 completes 266 objects with 272 allocations, 13,783 random words,
+  and two SQL requests. It stops at the `boss_azuregos` factory for
+  GUID52349 (`ScriptDevAIMgr.cpp:370`, trace line 60622939).
   EventAI event 649101 replaces 10848 and adds a second passive 9036.
   `Unit.cpp:5326-5446,10856-10866` unlinks both indexes and defers disposal.
   Map 0 completes 189 objects with 199 allocations, 27,472 random words, and

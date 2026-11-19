@@ -1,10 +1,34 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Independent seal16 trace lines, used only as assertions after execution.
 use super::{
-    CreatureAddonAuras, CreatureAddonTable, LoadedCreatureAddons, SourceSpellStores,
-    SpellTargetImplicitType, SPELL_EFFECT_INFO_TABLE,
+    CreatureAddonAuras, CreatureAddonTable, GridSpawnKind, LoadedCreatureAddons,
+    LoadedCreatureTemplates, SourceEffectiveSpawns, SourceSpellStores, SpellTargetImplicitType,
+    SPELL_EFFECT_INFO_TABLE,
 };
 use std::collections::BTreeSet;
+
+pub(super) fn assert_world_boss_reach(
+    templates: &LoadedCreatureTemplates,
+    spawns: &SourceEffectiveSpawns,
+) {
+    // initial-classicmangos.sql:421041 (`Rank`), :80423-80424 (`id`, `map`).
+    let boss_entries: BTreeSet<_> = templates
+        .rows()
+        .iter()
+        .filter(|row| row.words[37] == 3)
+        .map(|row| row.words[0])
+        .collect();
+    let mut by_map = [0; 2];
+    for (key, spawn) in spawns.pre_terrain_map() {
+        if key.kind == GridSpawnKind::Creature
+            && spawn.row.map < 2
+            && boss_entries.contains(&spawn.row.entry)
+        {
+            by_map[spawn.row.map as usize] += 1;
+        }
+    }
+    assert_eq!((boss_entries.len(), by_map), (153, [8, 13]));
+}
 
 pub(super) fn assert_static_area_aura_reach(
     addons: &LoadedCreatureAddons,
@@ -343,6 +367,17 @@ pub(super) fn assert_continuation_words(words: &[(u64, u64, u64)]) {
     );
     assert_eq!(words[13729], (60601822, 13729, 2156260723));
     assert_eq!(words[13730], (60602255, 13730, 435216370));
+    // Trace :60602255-:60616628, including both world-boss respawn draws.
+    assert_eq!(
+        digest(
+            words[13730..13783]
+                .iter()
+                .map(|&(line, raw, word)| [line, raw, word])
+        ),
+        "c8a2c511760ce33447a612bd229cc677baac6a6a3b2fa79921ecd3eee66e887c"
+    );
+    // Azuregos's first AI timer draw is outside the executed prefix.
+    assert_eq!(words[13783], (60622967, 13783, 2606266200));
 }
 
 pub(super) fn assert_continuation_clocks(
@@ -407,7 +442,9 @@ pub(super) fn assert_continuation_clocks(
         ]
     );
     // Trace :60553823-:60601741, from the area effect through GUID35127's last aura.
-    let after_holder = suffix.filter(|sample| sample.time_line > 60553741);
+    let after_holder = suffix
+        .clone()
+        .filter(|sample| (60553742..=60601741).contains(&sample.time_line));
     assert_eq!(after_holder.clone().count(), 52);
     assert_eq!(
         digest(after_holder.map(|s| [
@@ -420,11 +457,41 @@ pub(super) fn assert_continuation_clocks(
         ])),
         "db1a30877479d1d1f80f3f3ed4259a23cbb9e089b241a09198c513006ee1d0b8"
     );
+    // Trace :60602283-:60616722, eight respawn reads and two aura reads.
+    let boss_clocks = suffix.filter(|sample| sample.time_line > 60601741);
+    assert_eq!(boss_clocks.clone().count(), 10);
+    assert_eq!(
+        digest(boss_clocks.map(|s| [
+            s.site_line,
+            s.time_line,
+            s.thread,
+            s.site[2],
+            s.raw,
+            s.seconds as u64,
+        ])),
+        "13b92a61a0af6467b6641f6bdf24f1c9d54fadb7228147137627ee272ef5ab86"
+    );
 }
 
 pub(super) fn assert_after_area_cast(births: &[u64], completed: &[(u64, u32)]) {
-    let births = &births[223..];
-    let completed = &completed[116..];
+    assert_eq!(
+        &births[265..],
+        [60608842, 60610167, 60611466, 60612904, 60614131, 60615221, 60616138]
+    );
+    assert_eq!(
+        &completed[157..],
+        [
+            (60608833, 35867),
+            (60610158, 36328),
+            (60611459, 35699),
+            (60612891, 35770),
+            (60614125, 35701),
+            (60615215, 35150),
+            (60616132, 35783),
+        ]
+    );
+    let births = &births[223..265];
+    let completed = &completed[116..157];
     // Trace :60554104-:60601783 and :60554098-:60601776.
     assert_eq!((births.len(), completed.len()), (42, 41));
     assert_eq!((births[0], births[41]), (60554104, 60601783));

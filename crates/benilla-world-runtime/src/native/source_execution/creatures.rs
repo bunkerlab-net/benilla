@@ -587,11 +587,8 @@ impl CreatureConstruction {
         fields.invisible = w[23] & 0x80 != 0;
         fields.ignore_mmap = w[23] & 0x4000 != 0;
         fields.count_spawns = w[23] & 0x200000 != 0;
-        if w[37] == 3 {
-            return Err(refuse(
-                "execution.creature.loaded_world_boss_immunity_owner",
-            ));
-        }
+        live.immunities
+            .apply_world_boss(live.pet_kind.is_some(), w[37]);
         fields.can_modify_stats = true;
         live.resistances.update_armor()?; // Creature.cpp:600; StatSystem.cpp:639-649.
         fields.pvp = faction_flags

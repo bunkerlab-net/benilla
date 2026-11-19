@@ -226,7 +226,7 @@ fn init_float(value: f32) -> benilla_sim::classic_spell::SpellFloat {
 }
 
 #[test]
-fn corpse_decay_precedes_interaction_config_and_world_boss_stops_before_pvp() {
+fn corpse_decay_precedes_interaction_config_and_world_boss_immunity() {
     let store = LoadedDungeonEncounters::load([DungeonEncounterEntry {
         id: 1,
         map: 0,
@@ -283,17 +283,26 @@ fn corpse_decay_precedes_interaction_config_and_world_boss_stops_before_pvp() {
             (state.corpse_delay, live.loaded_creature.interaction_pause),
             (expected, 180)
         );
-        assert_eq!(
-            CreatureConstruction::update_loaded_entry_flags(
-                &mut live,
-                &entry,
-                &BTreeMap::from([(17, 0x1000)])
-            )
-            .unwrap_err()
-            .id,
-            "execution.creature.loaded_world_boss_immunity_owner"
-        );
-        assert!(!live.loaded_creature.can_modify_stats && !live.loaded_creature.pvp);
+        CreatureConstruction::update_loaded_entry_flags(
+            &mut live,
+            &entry,
+            &BTreeMap::from([(17, 0x1000)]),
+        )
+        .unwrap();
+        assert!(live.loaded_creature.can_modify_stats && live.loaded_creature.pvp);
+        for (aura, immune) in [(136, false), (137, true), (138, false)] {
+            let spell = SpellTemplate {
+                effect1: 6,
+                effectapplyauraname1: aura,
+                ..Default::default()
+            };
+            assert_eq!(
+                live.immunities
+                    .immune_to_self_effect(&spell, 0, &live.auras)
+                    .unwrap(),
+                immune
+            );
+        }
         assert_eq!((live.faction, live.flags), (17, 0x10000));
     }
 }

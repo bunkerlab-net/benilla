@@ -81,6 +81,19 @@ impl Default for CreatureImmunityState {
     }
 }
 impl CreatureImmunityState {
+    /// Creature.cpp:596-597; SharedDefines.h:465; SpellAuraDefines.h:272.
+    pub(super) fn apply_world_boss(&mut self, is_pet: bool, rank: u32) {
+        if !is_pet && rank == 3 {
+            self.apply(
+                CreatureImmunity {
+                    kind: 1,    // IMMUNITY_STATE
+                    value: 137, // SPELL_AURA_MOD_TOTAL_STAT_PERCENTAGE
+                },
+                true,
+            );
+        }
+    }
+
     /// Creature.cpp:2008-2013; Unit.cpp:7385-7417, explicit self target.
     pub fn immune_to_self_effect(
         &self,
@@ -211,6 +224,56 @@ impl CreatureImmunityState {
 mod tests {
     use super::*;
     use crate::native::source_execution::authored_effect_holder;
+
+    #[test]
+    fn world_boss_replaces_state_immunity_at_the_tail() {
+        for (is_pet, rank) in [
+            (false, 0),
+            (false, 1),
+            (false, 2),
+            (false, 3),
+            (false, 4),
+            (false, 5),
+            (true, 3),
+        ] {
+            let mut state = CreatureImmunityState::default();
+            let prior = [
+                SpellImmune {
+                    aura: Some(9),
+                    value: 137,
+                },
+                SpellImmune {
+                    aura: None,
+                    value: 42,
+                },
+                SpellImmune {
+                    aura: None,
+                    value: 137,
+                },
+                SpellImmune {
+                    aura: Some(8),
+                    value: 43,
+                },
+            ];
+            state.spells[1].extend(prior);
+            state.spells[5].push(prior[0]);
+
+            state.apply_world_boss(is_pet, rank);
+
+            // Creature.cpp:597, Unit.cpp:7684-7696.
+            if (is_pet, rank) == (false, 3) {
+                assert_eq!(state.spells[1], [prior[1], prior[3], prior[2]]);
+            } else {
+                assert_eq!(state.spells[1], prior);
+            }
+            assert_eq!(state.spells[5], [prior[0]]);
+            assert!([0, 2, 3, 4]
+                .into_iter()
+                .all(|op| state.spells[op].is_empty()));
+            assert_eq!(state.set, u32::MAX);
+        }
+    }
+
     #[test]
     fn fresh_self_spell_immunity_uses_loaded_sets_and_keeps_aura_dependencies() {
         let stores = SourceSpellStores::default();

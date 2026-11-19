@@ -2847,6 +2847,9 @@ primary key, `sql/base/mangos.sql:1463`. Invalid entries and types retain the
 source's ordered rejection branches. `CreatureImmunityState::update` ports
 the same-set return, absent-set return, and old-set removal before application,
 `Creature.cpp:2462-2480`, using the null-aura rules in `Unit.cpp:7680-7708`.
+Before stat updates, a non-pet creature of rank 3 replaces state immunity
+137 and appends it with a null aura (`Creature.cpp:596-600`,
+`Unit.cpp:7684-7696`). This operation removes immunity records only.
 
 GO factory callbacks borrow persistent state through `GridFactoryContext`.
 Reads use the live manager's respawn map, `MapPersistentStateMgr.h:90-94`;
@@ -3041,8 +3044,9 @@ clock pairs at trace lines 60553739/60553741 and 60553823/60553824.
 `SpellAuras.cpp:298-328,3367-3387` stores the radius and applies the armor
 modifier on the live unit. The later area-aura tick refuses at
 `SpellAuras.cpp:410`.
-Map 1 completes the load for GUID35891 at trace line 60554098. Its next
-unbound call is the world-boss immunity write for GUID35867 (`Creature.cpp:597`).
+Map 1 completes the Spirit of Azuregos at trace line 60608833. Azuregos
+enters the world and starts waypoint motion before the replay stops at the
+`boss_azuregos` AI factory (`ScriptDevAIMgr.cpp:370`, trace line 60622939).
 At the cast-chain limit, aura-triggered casts suppress the cast result.
 Unbound player and pet cast results refuse before the spell finishes,
 `Spell.cpp:3165-3176,3813-3841`.

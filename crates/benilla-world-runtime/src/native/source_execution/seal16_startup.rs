@@ -381,8 +381,8 @@ fn tm(p: &[&str]) -> Tm {
         isdst: n(8),
     }
 }
-// Creature.cpp:597 stops GUID35867 before the next recorded RNG call (Creature.h:313).
-const MAP1_BEFORE_BOSS_RESPAWN: u64 = 60602249;
+// ScriptDevAIMgr.cpp:370 reaches the Azuregos factory at trace :60622939.
+const MAP1_NEXT_OWNER_LINE: u64 = 60622939;
 
 #[derive(Default)]
 struct MapThreadEvidence {
@@ -624,13 +624,13 @@ impl Inputs {
             "logical_birth"
                 if p[1] == "object"
                     && (thread == 6 && (60476953..MAP0_NEXT_OWNER_LINE).contains(&line)
-                        || thread == 7 && (60310149..MAP1_BEFORE_BOSS_RESPAWN).contains(&line)) =>
+                        || thread == 7 && (60310149..MAP1_NEXT_OWNER_LINE).contains(&line)) =>
             {
                 evidence.continuation_births.push(line);
             }
             "constructor_loader_success"
                 if thread == 6 && (60478609..MAP0_NEXT_OWNER_LINE).contains(&line)
-                    || thread == 7 && (60435155..MAP1_BEFORE_BOSS_RESPAWN).contains(&line) =>
+                    || thread == 7 && (60435155..MAP1_NEXT_OWNER_LINE).contains(&line) =>
             {
                 evidence
                     .continuation_completed
@@ -638,11 +638,11 @@ impl Inputs {
             }
             "path_calculate"
                 if thread == 6 && (60478609..MAP0_NEXT_OWNER_LINE).contains(&line)
-                    || thread == 7 && (60310149..MAP1_BEFORE_BOSS_RESPAWN).contains(&line) =>
+                    || thread == 7 && (60310149..MAP1_NEXT_OWNER_LINE).contains(&line) =>
             {
                 evidence.path_calculations.push(line);
             }
-            "active_add" if evidence.active_adds.len() < if thread == 6 { 4 } else { 10 } => {
+            "active_add" if evidence.active_adds.len() < if thread == 6 { 4 } else { 14 } => {
                 evidence.active_adds.push((
                     line,
                     p[0].parse().unwrap(),
@@ -650,7 +650,7 @@ impl Inputs {
                     p[2].parse().unwrap(),
                 ));
             }
-            "grid_lock_inc" if evidence.active_locks.len() < if thread == 6 { 4 } else { 10 } => {
+            "grid_lock_inc" if evidence.active_locks.len() < if thread == 6 { 4 } else { 14 } => {
                 evidence.active_locks.push((line, p[1].parse().unwrap()));
             }
             "constructor_loader_candidate" if evidence.first_candidate.is_none() => {
@@ -780,7 +780,7 @@ impl Inputs {
             }
             "sql_request_bytes" | "sql_write_bytes" => {
                 if thread == 6 && line < MAP0_NEXT_OWNER_LINE
-                    || thread == 7 && line < MAP1_BEFORE_BOSS_RESPAWN
+                    || thread == 7 && line < MAP1_NEXT_OWNER_LINE
                 {
                     evidence.sql_lines.push(line);
                 }
@@ -2608,6 +2608,8 @@ pub(super) fn continue_startup(
                     60367004, 60368544, 60449019, 60506680, 60509749, 60532760, 60533794,
                     // The three later path calculations all belong to GUID35138.
                     60580464, 60582481, 60583864,
+                    // Spirit of Azuregos and Azuregos each build two waypoint paths.
+                    60602723, 60603889, 60617339, 60618577,
                 ]
             );
         }
@@ -2745,6 +2747,7 @@ pub(super) fn continue_startup(
             attempt.guid, attempt.kind, continents.maps[slot].cells.active().len(), refusal.id
         );
         if slot == 1 {
+            relations_evidence::assert_world_boss_reach(&creature_templates, owner.spawns);
             relations_evidence::assert_static_area_aura_reach(&creature_addons, &addon_spells);
             relations_evidence::assert_continuation_words(&evidence.words);
             relations_evidence::assert_continuation_clocks(&evidence.active_clocks, &active_clocks);
@@ -2783,7 +2786,7 @@ pub(super) fn continue_startup(
                     (60553163, 35884),
                 ]
             );
-            assert_eq!(completed_objects.len(), 259); // Trace :60601776.
+            assert_eq!(completed_objects.len(), 266); // Trace :60616132.
             assert_eq!(evidence.sql_lines, [60101153, 60113864]);
             relations_evidence::assert_after_area_cast(
                 &evidence.continuation_births,
@@ -2848,32 +2851,39 @@ pub(super) fn continue_startup(
             // StatSystem.cpp:664-672 adds 130 agility armor and SQL:838502 adds 505.
             assert_eq!(area_unit.resistances.armor(), 2760);
 
-            // Trace :60601778-:60601806 creates GUID35867 with SQL:430697 rank 3.
+            // Spirit of Azuregos completes at :60608833 after Shroud of Death.
+            let spirit = completed_objects[259];
+            let spirit_object = active_objects.get(spirit).unwrap();
+            assert_eq!(spirit_object.database_guid, 35867);
+            assert!(spirit_object.in_world);
+            let spirit = units.get(&active_objects, spirit).unwrap();
+            assert!(spirit.has_ai && spirit.loaded_creature.can_modify_stats);
+            assert!(spirit.auras.first_aura_holder(10848).unwrap().ready);
+
+            // Trace :60616134-:60616151 and SQL :426310 identify Azuregos.
             assert_eq!(
                 (attempt.guid, attempt.kind, entry),
-                (35867, GridSpawnKind::Creature, 15481)
+                (52349, GridSpawnKind::Creature, 6109)
             );
-            assert_eq!((attempt.cell.x(), attempt.cell.y()), (589, 333));
+            assert_eq!((attempt.cell.x(), attempt.cell.y()), (590, 332));
             assert_eq!((attempt.grid.x, attempt.grid.y), (36, 20));
             assert_eq!(creature_templates.get(entry).unwrap().words[37], 3);
             assert!(!completed_objects.contains(&candidate));
-            assert!(!active_objects.get(candidate).unwrap().in_world);
+            assert!(active_objects.get(candidate).unwrap().in_world);
             let stopped = units.get(&active_objects, candidate).unwrap();
-            assert!(!stopped.has_ai && !stopped.loaded_creature.can_modify_stats);
-            assert!(motions[&candidate].is_empty());
-            assert!(!stopped.auras.has_aura_holders() && stopped.spell_starts.spells.is_empty());
-            // Creature.h:313 and Creature.cpp:1698 are still beyond the immunity call.
-            let next = active_clocks.0.front().unwrap();
-            assert_eq!(
-                (
-                    next.site_line,
-                    next.time_line,
-                    next.thread,
-                    next.site[2],
-                    next.raw
-                ),
-                (60602283, 60602285, 7, 10166329, 13731)
-            );
+            assert!(!stopped.has_ai && stopped.loaded_creature.can_modify_stats);
+            assert!(!motions[&candidate].is_empty());
+            let stat_aura = SpellTemplate {
+                effect1: 6,
+                effectapplyauraname1: 137,
+                ..Default::default()
+            };
+            for unit in [spirit, stopped] {
+                assert!(unit
+                    .immunities
+                    .immune_to_self_effect(&stat_aura, 0, &unit.auras)
+                    .unwrap());
+            }
 
             // Recording60539996 adds GUID35936 before its AI (60540194).
             let wavethrasher = completed_objects[201];
@@ -2925,7 +2935,7 @@ pub(super) fn continue_startup(
             zone_lookups.len());
         assert_eq!(
             continents.maps[slot].cells.active().len(),
-            if slot == 0 { 2 } else { 5 }
+            if slot == 0 { 2 } else { 7 }
         );
         let active_guids = continents.maps[slot]
             .cells
@@ -2938,7 +2948,7 @@ pub(super) fn continue_startup(
             if slot == 0 {
                 BTreeSet::from([636, 2129])
             } else {
-                BTreeSet::from([27279, 27280, 27281, 29113, 590005])
+                BTreeSet::from([27279, 27280, 27281, 29113, 35867, 52349, 590005])
             }
         );
         {
@@ -2968,6 +2978,10 @@ pub(super) fn continue_startup(
                         (60532335, 1, 29113),
                         (60534329, 1, 590005),
                         (60534331, 1, 590005),
+                        (60602297, 1, 35867),
+                        (60602299, 1, 35867),
+                        (60616735, 1, 52349),
+                        (60616739, 1, 52349),
                     ]
                 }
             );
@@ -2988,6 +3002,10 @@ pub(super) fn continue_startup(
                         (60532336, 2),
                         (60534330, 3),
                         (60534332, 4),
+                        (60602298, 1),
+                        (60602300, 2),
+                        (60616737, 3),
+                        (60616741, 4),
                     ]
                 }
             );
@@ -3494,7 +3512,7 @@ pub(super) fn continue_startup(
             assert_eq!(live.spline_outbound[0].unit, candidate);
             assert_eq!(live.spline_outbound[0].transport, None);
             // Recording60433815 consumes equal-bound word12623 at Creature.cpp:1563.
-            assert_eq!(random.cursor().raw, 13730); // Trace :60601822 consumes raw 13729.
+            assert_eq!(random.cursor().raw, 13783); // Trace :60616628 consumes raw 13782.
             assert_eq!(evidence.words[12623], (60433815, 12623, 1799183854));
             relations_evidence::assert_words(&evidence.words);
             assert_eq!(
@@ -3534,12 +3552,13 @@ pub(super) fn continue_startup(
             // The later paths belong to GUIDs 29103, 50797, and 29113 at recording
             // 60449019, 60506680/60509749, and 60532760/60533794, respectively.
             // Trace :60580464/:60582481/:60583864 adds GUID35138's first move.
+            // Trace :60602723 and :60617339 start the two bosses' first moves.
             assert_eq!(
                 lookups
                     .iter()
                     .filter(|&&s| s == "creature_live_spell_movement_query")
                     .count(),
-                5
+                7
             );
             // Recording60409483 completes object73 after Creature.cpp:886-895.
             assert_eq!(completed_objects[72], main);
@@ -4019,10 +4038,10 @@ pub(super) fn continue_startup(
             geometry.pathfinder_constructor_completions,
             // WaypointMovementGenerator.cpp:264 constructs per BuildIntPath.
             // Map 0 calculates seventeen paths for nine waypoints (:60601394-60629698).
-            // Map 1 calculates ten for five, including :60580464/:60582481/:60583864.
+            // Map 1 calculates fourteen paths for seven waypoints (:60618577 last).
             // Static Idle constructs none (MotionMaster.cpp:79-81).
             pathfinders_before + motion_initializations - idle_count
-                + if slot == 0 { 17 - 9 } else { 10 - 5 }
+                + if slot == 0 { 17 - 9 } else { 14 - 7 }
         );
         assert_eq!(
             active_objects.viewpoint_cell(candidate).unwrap(),
@@ -4360,8 +4379,8 @@ pub(super) fn continue_startup(
             ))
         );
         assert_eq!(attempt.guid, if slot == 0 { 18 } else { 28044 });
-        // Last allocated objects are at :60637267 (map 0) and :60601783 (map 1).
-        assert_eq!(candidates, if slot == 0 { 199 } else { 265 });
+        // Last allocated objects are at :60637267 (map 0) and :60616138 (map 1).
+        assert_eq!(candidates, if slot == 0 { 199 } else { 272 });
         assert_eq!(entry, if slot == 0 { 3211 } else { 4692 });
         if slot == 0 {
             assert_eq!(init_entry_fields, None);
@@ -4484,9 +4503,10 @@ pub(super) fn continue_startup(
                     // Creature.cpp:441 adds eight probes at recording60540431, 60545949,
                     // 60547348, 60548644, 60551058, 60551791, 60552460 and 60553213.
                     // The next 26 reads run from trace :60554170 through :60601839.
-                    reached_441: 71,
+                    // Six further probes run from :60608903 through :60616191.
+                    reached_441: 77,
                     swimming_set: 4,
-                    swimming_not_set: 67,
+                    swimming_not_set: 73,
                     ..SourceCreatureSwimmingCensus::default()
                 }
             );
@@ -4649,8 +4669,8 @@ pub(super) fn continue_startup(
                 attempt.cell.y(),
             ))
         );
-        // :60637264 completes GO15421, and :60601776 completes GUID35127.
-        assert_eq!(completed, if slot == 0 { 189 } else { 259 });
+        // :60637264 completes GO15421, and :60616132 completes GUID35783.
+        assert_eq!(completed, if slot == 0 { 189 } else { 266 });
         println!(
             "F6_VISIBILITY map={slot} census={visibility:?} invalidated_camera_iterator_stock_reach={}",
             visibility.cameras
@@ -4675,7 +4695,7 @@ pub(super) fn continue_startup(
             if slot == 0 {
                 MAP0_NEXT_RAW as u64
             } else {
-                after_pools_cursor + 1835 // Last consumed word: trace :60601822.
+                after_pools_cursor + 1888 // Last consumed word: trace :60616628.
             }
         );
         matched_map_words[slot] = random.cursor().raw;
@@ -4747,7 +4767,7 @@ pub(super) fn continue_startup(
             evidence.pool_snapshot_line.unwrap(),
             encounters.by_map(slot as u32).len(),
             refusal.id,
-            if slot == 0 { "ScriptDevAIMgr.cpp:380" } else { "Creature.cpp:597" },
+            if slot == 0 { "ScriptDevAIMgr.cpp:380" } else { "ScriptDevAIMgr.cpp:370" },
         );
         owner.states = states;
         let raw = trace
