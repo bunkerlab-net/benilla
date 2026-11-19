@@ -68,8 +68,19 @@ impl<D: GridDefinitions<Row = SpawnKey>> GameObjectFactoryOwner<D, SourceTerrain
             .event
             != 0)
     }
-    fn observe_gameobject_dynamic_guid_lookup(&mut self) {
-        self.lookups.push("go_force_dynamic");
+    fn observe_gameobject_factory(&mut self, observation: GameObjectFactoryObservation) {
+        match observation {
+            GameObjectFactoryObservation::DynamicGuidLookup => {
+                self.lookups.push("go_force_dynamic");
+            }
+            GameObjectFactoryObservation::LargeObjectPredicate => {
+                self.lookups.push("go_large_object_predicate");
+            }
+            GameObjectFactoryObservation::NullAi => {
+                self.lookups.push("go_ai_reset_null");
+                self.lookups.push("go_ai_just_spawned_skipped");
+            }
+        }
     }
     fn gameobject_group(&mut self, guid: u32) -> Result<Option<GameObjectGroupEntry>> {
         self.lookups.push("go_spawn_group");
@@ -203,9 +214,6 @@ impl<D: GridDefinitions<Row = SpawnKey>> GameObjectFactoryOwner<D, SourceTerrain
             (&self.gameobjects, script)
         }))
     }
-    fn observe_large_gameobject_predicate(&mut self) {
-        self.lookups.push("go_large_object_predicate");
-    }
     fn gameobject_map_visibility_distance(&mut self) -> Result<u32> {
         Ok(self.map_visibility_bits)
     }
@@ -226,10 +234,6 @@ impl<D: GridDefinitions<Row = SpawnKey>> GameObjectFactoryOwner<D, SourceTerrain
     fn gameobject_script_registry(&mut self) -> Result<&SourceScriptRegistry> {
         self.lookups.push("go_ai_script_registry_lookup");
         Ok(self.scripts)
-    }
-    fn observe_null_gameobject_ai(&mut self) {
-        self.lookups.push("go_ai_reset_null");
-        self.lookups.push("go_ai_just_spawned_skipped");
     }
     fn gameobject_callback(
         &mut self,

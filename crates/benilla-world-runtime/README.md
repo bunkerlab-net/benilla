@@ -547,9 +547,11 @@ NullAI, GuardAI and PossessedAI through `SourceBuiltinAi`. `SourceSummonedAi`
 constructs TotemAI and GuardianAI with the same EventAI loader and holders.
 The PetAI factory uses `SourceBuiltinAi::construct_pet` with explicit live owners.
 
-ScriptDev runs first for eligible creatures. A nonnull `GetAI` slot stops at
-`execution.ai.scriptdev_get_ai_constructor_owner`; its unknown return cannot
-justify builtin fallback. A proven null slot or absent registration can continue.
+ScriptDev runs first for eligible creatures. A closed enum on the live
+CreatureAI holds ported ScriptDev state. Its only class is `npc_chicken_cluck`.
+An unported non-null `GetAI` slot refuses at `ScriptDevAIMgr.cpp:370` with
+the script name in the refusal ID. A proven null slot or absent registration
+can continue to builtin selection.
 The seven builtins follow `CreatureAIRegistry.cpp:37-43`. Permit traversal uses
 lexicographic registry keys and strict `>` replacement, not registration order.
 Builtin duplicates reject unless replacement is explicit, while ScriptDev
@@ -2032,8 +2034,15 @@ factory on that live base. `Creature.cpp:883-887` then calls the inherited
 `UnitAI::SpellListChanged` and `CreatureAI::JustRespawned`. The latter
 resets both timers before `CreatureAI::Reset` (`CreatureAI.cpp:49-53,124-128`).
 Construction and respawn each draw twice, including `urand(0, 0)`.
-The seal16 map 0 replay completes GUID4242 and reaches the ScriptDev
-`GetAI` slot for Chicken GUID4228 (`ScriptDevAIMgr.cpp:370`).
+The seal16 map 0 replay constructs Chicken GUID4228 and stops at the
+non-null `go_bells` GameObjectAI for GO15508 (`ScriptDevAIMgr.cpp:380`).
+
+Chicken reset marks changed client fields and enqueues the in-world creature
+(`Object.cpp:1107-1117`). The drain at `Map.cpp:2409` refuses. Writer coverage
+is unproven: EventAI's spell 10848 aura replacement clears and installs the
+slot, flags, level and applications without marking them. Ghost visibility
+byte changes and EventAI `SET_UNIT_FLAG`/`REMOVE_UNIT_FLAG` writes to
+`UNIT_FIELD_FLAGS` also lack marking.
 
 GuardAI preserves its sight and assistance branch order (`GuardAI.cpp:36-92`).
 Its inherited update expires base timers before concrete target selection through `SourceAiDependencies`,

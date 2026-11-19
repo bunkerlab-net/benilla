@@ -70,6 +70,17 @@ enum Action {
     LoaderViewpoint(ObjectHandle),
     Animation(u32),
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum UnboundOperand {
+    SinCos,
+    Battleground,
+    Zone,
+    OutdoorScript,
+    VisibilityDistance,
+    VisibilityCensus,
+    ScriptRegistry,
+}
+
 struct Factory {
     objects: SourceGameObjects,
     guids: MapGuidAllocators,
@@ -81,6 +92,7 @@ struct Factory {
     map_visibility_bits: u32,
     visibility: SourceVisibilityCensus,
     script_id: u32,
+    unbound_operand: Option<UnboundOperand>,
     scripts: SourceScriptRegistry,
     half_yaw: Option<u32>,
     group: Option<GameObjectGroupEntry>,
@@ -129,6 +141,7 @@ impl Factory {
             map_visibility_bits: 100.0_f32.to_bits(),
             visibility: SourceVisibilityCensus::default(),
             script_id: 0,
+            unbound_operand: None,
             scripts,
             half_yaw: None,
             group: None,
@@ -275,23 +288,39 @@ impl GameObjectFactoryOwner<Definitions, Products> for Factory {
         Ok(self.now)
     }
     fn gameobject_sin_cos(&mut self, half_yaw_bits: u32) -> Result<[u32; 2]> {
+        if self.unbound_operand == Some(UnboundOperand::SinCos) {
+            return UnboundCallbacks(self).gameobject_sin_cos(half_yaw_bits);
+        }
         self.half_yaw = Some(half_yaw_bits);
         Ok(benilla_sim::source_trig_fma::sin_cos_bits(half_yaw_bits))
     }
-    fn gameobject_is_battleground(&mut self, _: ObjectHandle, _: &SourceObjects) -> Result<bool> {
+    fn gameobject_is_battleground(
+        &mut self,
+        handle: ObjectHandle,
+        objects: &SourceObjects,
+    ) -> Result<bool> {
+        if self.unbound_operand == Some(UnboundOperand::Battleground) {
+            return UnboundCallbacks(self).gameobject_is_battleground(handle, objects);
+        }
         Ok(self.battleground)
     }
     fn gameobject_zone(
         &mut self,
-        _: ObjectHandle,
+        handle: ObjectHandle,
         position: [f32; 3],
-        _: &mut GridFactoryContext<'_, Definitions, Products>,
+        context: &mut GridFactoryContext<'_, Definitions, Products>,
     ) -> Result<u32> {
+        if self.unbound_operand == Some(UnboundOperand::Zone) {
+            return UnboundCallbacks(self).gameobject_zone(handle, position, context);
+        }
         assert!(!self.battleground);
         assert!(position.into_iter().all(f32::is_finite));
         Ok(139)
     }
     fn gameobject_outdoor_script(&mut self, zone: u32) -> Result<Option<OutdoorPvpScript>> {
+        if self.unbound_operand == Some(UnboundOperand::OutdoorScript) {
+            return UnboundCallbacks(self).gameobject_outdoor_script(zone);
+        }
         assert_eq!(zone, 139);
         Ok(self.outdoor)
     }
@@ -301,9 +330,15 @@ impl GameObjectFactoryOwner<Definitions, Products> for Factory {
         Ok(self.instance.as_mut().map(|script| (&self.objects, script)))
     }
     fn gameobject_map_visibility_distance(&mut self) -> Result<u32> {
+        if self.unbound_operand == Some(UnboundOperand::VisibilityDistance) {
+            return UnboundCallbacks(self).gameobject_map_visibility_distance();
+        }
         Ok(self.map_visibility_bits)
     }
     fn gameobject_visibility_census(&mut self) -> Result<&mut SourceVisibilityCensus> {
+        if self.unbound_operand == Some(UnboundOperand::VisibilityCensus) {
+            UnboundCallbacks(self).gameobject_visibility_census()?;
+        }
         Ok(&mut self.visibility)
     }
     fn gameobject_script_id(&mut self, entry: u32) -> Result<u32> {
@@ -311,6 +346,9 @@ impl GameObjectFactoryOwner<Definitions, Products> for Factory {
         Ok(self.script_id)
     }
     fn gameobject_script_registry(&mut self) -> Result<&SourceScriptRegistry> {
+        if self.unbound_operand == Some(UnboundOperand::ScriptRegistry) {
+            UnboundCallbacks(self).gameobject_script_registry()?;
+        }
         Ok(&self.scripts)
     }
     fn gameobject_geometry(
@@ -1353,6 +1391,75 @@ impl GameObjectFactoryOwner<Definitions, Products> for UnboundCallbacks<'_> {
     ) -> Result<i64> {
         self.0.gameobject_read_persistent_respawn(guid, context)
     }
+}
+
+fn assert_unbound_factory_operand(operand: UnboundOperand, id: &str) {
+    let (mut world, mut factory) = (World::new(), Factory::new());
+    factory.unbound_operand = Some(operand);
+    let mut row = spawn();
+    if operand == UnboundOperand::SinCos {
+        row.rotation_bits = [0; 4];
+    }
+    if operand == UnboundOperand::VisibilityDistance {
+        factory.templates.get_mut(&100).unwrap().data[3] = 1;
+    }
+    assert_eq!(world.load(&mut factory, row).unwrap_err().id, id);
+}
+
+#[test]
+fn gameobject_unbound_sin_cos_refuses() {
+    assert_unbound_factory_operand(
+        UnboundOperand::SinCos,
+        "execution.gameobject.GameObject_2059.sin_cos_owner",
+    );
+}
+
+#[test]
+fn gameobject_unbound_battleground_refuses() {
+    assert_unbound_factory_operand(
+        UnboundOperand::Battleground,
+        "execution.gameobject.GameObject_287.IsBattleGround_owner",
+    );
+}
+
+#[test]
+fn gameobject_unbound_zone_refuses() {
+    assert_unbound_factory_operand(
+        UnboundOperand::Zone,
+        "execution.gameobject.GameObject_289.GetZoneId_owner",
+    );
+}
+
+#[test]
+fn gameobject_unbound_outdoor_script_refuses() {
+    assert_unbound_factory_operand(
+        UnboundOperand::OutdoorScript,
+        "execution.gameobject.GameObject_289.GetScript_owner",
+    );
+}
+
+#[test]
+fn gameobject_unbound_visibility_distance_refuses() {
+    assert_unbound_factory_operand(
+        UnboundOperand::VisibilityDistance,
+        "execution.gameobject.GameObject_299.visibility_distance_owner",
+    );
+}
+
+#[test]
+fn gameobject_unbound_visibility_census_refuses() {
+    assert_unbound_factory_operand(
+        UnboundOperand::VisibilityCensus,
+        "execution.visibility.Map_504.gameobject_update_owner",
+    );
+}
+
+#[test]
+fn gameobject_unbound_script_registry_refuses() {
+    assert_unbound_factory_operand(
+        UnboundOperand::ScriptRegistry,
+        "execution.gameobject.ScriptDevAIMgr_375.script_registry_owner",
+    );
 }
 
 #[test]

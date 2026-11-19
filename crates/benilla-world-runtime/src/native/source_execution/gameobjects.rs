@@ -220,6 +220,13 @@ impl SourceGameObjects {
         Ok(())
     }
 }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GameObjectFactoryObservation {
+    DynamicGuidLookup,
+    LargeObjectPredicate,
+    NullAi,
+}
+
 // All dependency methods execute at their actual source call; no captured outcome is an implementation.
 pub trait GameObjectFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     GridObjectFactory<D, P>
@@ -243,7 +250,7 @@ pub trait GameObjectFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     fn gameobject_template(&mut self, entry: u32) -> Result<Option<GameObjectTemplate>>;
     fn gameobject_thread(&self) -> u64;
     fn gameobject_event_guid(&mut self, guid: u32) -> Result<bool>;
-    fn observe_gameobject_dynamic_guid_lookup(&mut self) {}
+    fn observe_gameobject_factory(&mut self, _observation: GameObjectFactoryObservation) {}
     fn gameobject_group(&mut self, guid: u32) -> Result<Option<GameObjectGroupEntry>>;
     fn gameobject_group_entry(&mut self, group: u32, guid: u32) -> Result<u32>;
     fn gameobject_random_entries(&mut self, guid: u32) -> Result<Option<Arc<[u32]>>>;
@@ -318,7 +325,6 @@ pub trait GameObjectFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     ) -> Result<Option<(&SourceGameObjects, &mut SourceWorldScript)>> {
         Err(refuse("execution.gameobject.loaded_instance_create_owner"))
     }
-    fn observe_large_gameobject_predicate(&mut self) {}
     fn gameobject_map_visibility_distance(&mut self) -> Result<u32> {
         Err(refuse(
             "execution.gameobject.GameObject_299.visibility_distance_owner",
@@ -350,7 +356,6 @@ pub trait GameObjectFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
             "execution.gameobject.ScriptDevAIMgr_375.script_registry_owner",
         ))
     }
-    fn observe_null_gameobject_ai(&mut self) {}
     fn gameobject_geometry(
         &mut self,
         _map: MapIdentity,
@@ -425,7 +430,7 @@ pub(super) fn execute_source_gameobject_callback<
             }
         }
         GameObjectCallback::LargeVisibility => {
-            owner.observe_large_gameobject_predicate();
+            owner.observe_gameobject_factory(GameObjectFactoryObservation::LargeObjectPredicate);
             if owner.gameobjects().get(handle)?.template.large() {
                 context
                     .objects
@@ -452,7 +457,7 @@ pub(super) fn execute_source_gameobject_callback<
             let id = owner.gameobject_script_id(entry)?;
             owner.gameobject_script_registry()?.gameobject_ai(id)?;
             owner.gameobjects().get_mut(handle)?.has_ai = false;
-            owner.observe_null_gameobject_ai();
+            owner.observe_gameobject_factory(GameObjectFactoryObservation::NullAi);
         }
         GameObjectCallback::TemplateString(_) | GameObjectCallback::GroupString(_) => {
             return Err(refuse("execution.gameobject.loaded_string_id_owner"));
@@ -885,7 +890,7 @@ where
     }
     let group = factory.gameobject_group(spawn.database_guid)?;
     let entry = effective_entry::<D, P, F>(factory, &spawn, group, forced_entry)?;
-    factory.observe_gameobject_dynamic_guid_lookup();
+    factory.observe_gameobject_factory(GameObjectFactoryObservation::DynamicGuidLookup);
     let force_dynamic = source_map_forces_dynamic_guids(context.cells.map().map);
     let extra_dynamic = if force_dynamic {
         false
