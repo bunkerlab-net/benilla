@@ -3032,6 +3032,10 @@ The creature addon and EventAI use the same immediate self-cast entry in
 cast. Triggered addon boosts use the same unit queue and inherit the
 triggering aura's reagent definition, `Unit.cpp:1484-1512`,
 `Spell.cpp:3007-3020,3083,3094`.
+`spells/targeting.rs` selects the caster for spell 1032's single unit mode.
+The area aura uses the same unit-target fill as ordinary self casts
+(`Spell.cpp:552-573,723-784,2159-2161`). Map 1 reaches its holder clock at
+trace lines 60553739 and 60553741. The effect refuses at `SpellEffects.cpp:2331`.
 At the cast-chain limit, aura-triggered casts suppress the cast result.
 Unbound player and pet cast results refuse before the spell finishes,
 `Spell.cpp:3165-3176,3813-3841`.

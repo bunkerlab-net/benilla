@@ -1,5 +1,49 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Independent seal16 trace lines, used only as assertions after execution.
+use super::{
+    CreatureAddonAuras, CreatureAddonTable, LoadedCreatureAddons, SourceSpellStores,
+    SpellTargetImplicitType, SPELL_EFFECT_INFO_TABLE,
+};
+use std::collections::BTreeSet;
+
+pub(super) fn assert_static_area_aura_reach(
+    addons: &LoadedCreatureAddons,
+    stores: &SourceSpellStores,
+) {
+    let spells: BTreeSet<_> = [CreatureAddonTable::Template, CreatureAddonTable::Guid]
+        .into_iter()
+        .flat_map(|table| addons.table_rows(table))
+        .filter_map(|row| match &row.auras {
+            CreatureAddonAuras::Spells(spells) => Some(spells),
+            CreatureAddonAuras::Empty => None,
+            CreatureAddonAuras::Raw(_) => {
+                panic!("addon rows must finish loading before the census")
+            }
+        })
+        .flatten()
+        .copied()
+        .filter(|&spell| spell != 0)
+        .collect();
+    assert_eq!(spells.len(), 262);
+    let mut counts = [0; 4];
+    for id in spells {
+        let effects = stores.template(id).unwrap().effects();
+        counts[0] += usize::from(effects.iter().any(|e| {
+            SPELL_EFFECT_INFO_TABLE[e.effect as usize].required_target
+                == SpellTargetImplicitType::SpecialUnit
+        }));
+        counts[1] += usize::from(effects.iter().any(|e| e.effect == 35));
+        counts[2] += usize::from(effects.iter().any(|e| e.effect != 0 && e.aura == 22));
+        counts[3] += usize::from(effects.iter().any(|e| e.effect == 35 && e.aura == 22));
+    }
+    // initial-classicmangos.sql:146910-148699,431520-438994,837821-860203.
+    assert_eq!(counts, [10, 9, 15, 3]);
+    println!(
+        "F6_ADDON_AREA_STATIC distinct=262 special_unit={} effect_35={} aura_22={} effect_35_aura_22={}",
+        counts[0], counts[1], counts[2], counts[3]
+    );
+}
+
 pub(super) const COMPLETED: [(u64, u32); 27] = [
     (60413544, 27677),
     (60414358, 28094),
@@ -346,6 +390,8 @@ pub(super) fn assert_continuation_clocks(
             (60551589, 60551591, 7, 10166329, 13420, 1794314190),
             (60552233, 60552235, 7, 10166329, 13427, 1794314190),
             (60553010, 60553012, 7, 10166329, 13434, 1794314190),
+            // Spell.cpp:1445 reaches the holder clock before the area effect dispatch.
+            (60553739, 60553741, 7, 8250845, 13439, 1794314190),
         ]
     );
 }

@@ -127,6 +127,10 @@ is meaningful without a bounded content/mechanics inventory.
   The 262-spell addon census has 299 effect slots and 43 aura types. Its static
   coverage is 31 spells, with 231 using an unported effect or aura type.
   Static coverage does not establish execution; this map 0 prefix completes two.
+  `spells/targeting.rs` binds ordinary and special-unit creature self targets
+  to one unit-target fill (`Spell.cpp:533-784,2159-2161,2397-2405`).
+  Map 1 stops on GUID35891's spell 1032 at `SpellEffects.cpp:2331` after its
+  holder clock, before its effect clock. No additional RNG or SQL runs.
   EventAI event 649101 replaces 10848 and adds a second passive 9036.
   `Unit.cpp:5326-5446,10856-10866` unlinks both indexes and defers disposal.
   Map 0 completes 189 objects with 199 allocations, 27,472 random words, and

@@ -109,125 +109,52 @@ impl SpellCastEffects for Owner<'_> {
     }
 
     fn fill_self_targets(&mut self, s: &mut SourceSpell, t: &SpellTemplate) -> Result<()> {
-        let data = self
-            .targets
-            .get_spell_targeting_data(t.id)
-            .map_err(|e| refuse(&format!("execution.spells.targeting.{e}")))?;
-        for (i, effect) in t.effects().iter().enumerate() {
-            if effect.effect == 0 {
-                continue;
+        let observe_area = self.object.thread == 7
+            && t.id == 1032
+            && self.objects.get(self.object)?.database_guid == 35891;
+        let mut selections = Vec::new();
+        SelfSpellTargeting {
+            stores: self.stores,
+            targets: self.targets,
+            objects: self.objects,
+            unit: &self.unit,
+            level: self.level,
+            immunities: self.immunities,
+            auras: self.auras,
+            relations: self,
+        }
+        .fill(s, t, |selection| {
+            if observe_area {
+                selections.push(selection);
             }
-            require(
-                data.implicit_type[i] == SpellTargetImplicitType::Unit,
-                "execution.spells.Spell_550.effect_target_type_owner",
-            )?;
-            for side in 0..2 {
-                let target = [effect.target_a, effect.target_b][side];
-                if target == 0 || data.ignored_targets[i][side] {
-                    continue;
-                }
-                let radius = [
-                    t.effectradiusindex1,
-                    t.effectradiusindex2,
-                    t.effectradiusindex3,
-                ][i];
-                if radius != 0 {
-                    self.stores.dbc("SpellRadius.dbc", radius)?;
-                } else {
-                    self.stores.range_entry(t.rangeindex)?;
-                }
-                self.stores.cone(self.stores.first_rank(t.id));
-                require(
-                    t.id != 28241,
-                    "execution.spells.Spell_7570.GetSpellAuraHolder_owner",
-                )?;
-                // Spell.cpp:1785,2159-2161,2397-2405 selects the explicit friendly target.
-                match target {
-                    1 => {}
-                    21 | 57 => {
-                        let Some(unit) = s.targets.unit else {
-                            continue;
-                        };
-                        if !unit_can_assist_spell(s.caster, unit, self)? {
-                            continue;
-                        }
-                        require(
-                            unit == s.caster,
-                            "execution.spells.SetTargetMap_nonself_owner",
-                        )?;
-                    }
-                    _ => return Err(refuse("execution.spells.Spell_1785.SetTargetMap_owner")),
-                }
-                // CheckTarget, Spell.cpp:6936-7093, self skips type/LOS checks.
-                if t.attributesex3 & 0x1000 != 0 && self.auras.vis_flags & 1 == 0 {
-                    continue;
-                }
-                if t.maxtargetlevel != 0 && self.level > t.maxtargetlevel {
-                    continue;
-                }
-                require(
-                    t.attributesex3 & 0x8000_0000 == 0,
-                    "execution.spells.Spell_7072.IsAOEImmune_owner",
-                )?;
-                require(
-                    !s.script_present,
-                    "execution.spells.Spell_7093.OnCheckTarget_owner",
-                )?;
-                // FilterTargetMap on one target has no truncation or RNG.
-                let mask = data.target_mask[i][side] & !(s.partial_application_mask as u8);
-                let mut hit = 0;
-                for j in 0..3 {
-                    if mask & (1 << j) != 0
-                        && !self.immunities.immune_to_self_effect(t, j, self.auras)?
-                    {
-                        hit |= 1 << j;
-                    }
-                }
-                if t.attributesex4 & 0x0000_0800 != 0 && hit != mask {
-                    hit = 0;
-                }
-                if let Some(existing) = s.unique_targets.iter_mut().find(|v| v.unit == s.caster) {
-                    existing.effect_mask |= mask;
-                    existing.hit_mask |= hit;
-                    continue;
-                }
-                let duration = self.duration(t)?;
-                // Unit.cpp:2900-2925. Positive self aura: immunity, no hit roll.
-                require(
-                    positive_unit_spell(
-                        self.stores,
-                        t,
-                        u32::from(mask),
-                        Some((s.caster, s.caster)),
-                    )?,
-                    "execution.spells.Unit_2927.SpellHitResult_negative_owner",
-                )?;
-                let missed = self.immunities.immune_to_self_spell(
-                    self.stores,
-                    t,
-                    u32::from(mask),
-                    self.object,
-                    self.auras,
-                )?;
-                require(
-                    !self.unit.player_controlled && !matches!(t.id, 36924 | 31480),
-                    "execution.spells.Spell_1027.diminishing_owner",
-                )?;
-                s.unique_targets.push(SourceSpellTarget {
-                    unit: s.caster,
-                    effect_mask: mask,
-                    hit_mask: hit,
+        })?;
+        if observe_area {
+            // initial-classicmangos.sql:838502; Spell.cpp:552-573,2159-2161.
+            assert_eq!(
+                selections,
+                [SelfTargetSelection {
+                    effect: 0,
+                    implicit_type: SpellTargetImplicitType::SpecialUnit,
+                    modes: [1, 0],
+                    dispatched: [true, false],
+                    had_single: true,
+                    caster_default: false,
+                    has_candidate: [true, false],
+                }]
+            );
+            assert_eq!(
+                s.unique_targets,
+                [SourceSpellTarget {
+                    unit: self.object,
+                    effect_mask: 1,
+                    hit_mask: 1,
                     processed_mask: 0,
                     processed: false,
-                    duration,
-                    missed,
-                });
-            }
+                    duration: -1,
+                    missed: false,
+                }]
+            );
         }
-        require(
-            t.attributesex2 & 0x0020_0000 == 0 && t.attributesex & 0x0400_0000 == 0,
-            "execution.spells.Spell_704.all_target_requirements_owner",
-        )?;
         Ok(())
     }
 

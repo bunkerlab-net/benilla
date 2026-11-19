@@ -35,12 +35,14 @@ mod events;
 mod pet_callers;
 mod start;
 mod state;
+mod targeting;
 mod unit_event_owner;
 pub use callers::*;
 pub use checks::*;
 pub use events::*;
 pub use start::*;
 pub use state::*;
+pub use targeting::*;
 pub use unit_event_owner::*;
 #[cfg(test)]
 mod caster_auras_tests;

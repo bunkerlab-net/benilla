@@ -356,6 +356,11 @@ impl SourceSpell {
             // Spell.cpp:4593-4612. Calculate damage before dispatching the effect.
             let amount = super::effect_value::effect_value(t, i, self.base_points[i])?;
             self.damage_per_effect[i] = amount;
+            if matches!(effect.effect, 35 | 119) {
+                return Err(refuse(
+                    "execution.spells.SpellEffects_2331.EffectApplyAreaAura_owner",
+                ));
+            }
             if effect.effect != 6 {
                 return Err(refuse(&format!(
                     "execution.spells.SpellEffects.effect_{}_owner",

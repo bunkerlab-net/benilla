@@ -3,7 +3,18 @@ use serde_json::{json, Value};
 
 impl SourceSpellStores {
     pub(in crate::native::source_execution) fn bind_empty_duration_fixture(&mut self) {
-        self.dbc.insert("SpellDuration.dbc".into(), BTreeMap::new());
+        self.bind_test_dbc("SpellDuration.dbc", []);
+    }
+
+    pub(in crate::native::source_execution) fn bind_test_dbc(
+        &mut self,
+        file: &str,
+        rows: impl IntoIterator<Item = (u32, SpellDbcRecord)>,
+    ) {
+        assert!(self
+            .dbc
+            .insert(file.into(), rows.into_iter().collect())
+            .is_none());
     }
 }
 

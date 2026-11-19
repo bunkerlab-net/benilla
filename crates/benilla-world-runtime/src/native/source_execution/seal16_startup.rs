@@ -381,8 +381,8 @@ fn tm(p: &[&str]) -> Tm {
         isdst: n(8),
     }
 }
-// GUID35891 stops at special-unit targeting before the holder clock.
-const MAP1_BEFORE_AREA_AURA_HOLDER: u64 = 60553739;
+// GUID35891 stops after holder creation and before the area effect clock.
+const MAP1_BEFORE_AREA_AURA_EFFECT: u64 = 60553823;
 
 #[derive(Default)]
 struct MapThreadEvidence {
@@ -625,13 +625,13 @@ impl Inputs {
                 if p[1] == "object"
                     && (thread == 6 && (60476953..MAP0_NEXT_OWNER_LINE).contains(&line)
                         || thread == 7
-                            && (60310149..MAP1_BEFORE_AREA_AURA_HOLDER).contains(&line)) =>
+                            && (60310149..MAP1_BEFORE_AREA_AURA_EFFECT).contains(&line)) =>
             {
                 evidence.continuation_births.push(line);
             }
             "constructor_loader_success"
                 if thread == 6 && (60478609..MAP0_NEXT_OWNER_LINE).contains(&line)
-                    || thread == 7 && (60435155..MAP1_BEFORE_AREA_AURA_HOLDER).contains(&line) =>
+                    || thread == 7 && (60435155..MAP1_BEFORE_AREA_AURA_EFFECT).contains(&line) =>
             {
                 evidence
                     .continuation_completed
@@ -639,7 +639,7 @@ impl Inputs {
             }
             "path_calculate"
                 if thread == 6 && (60478609..MAP0_NEXT_OWNER_LINE).contains(&line)
-                    || thread == 7 && (60310149..MAP1_BEFORE_AREA_AURA_HOLDER).contains(&line) =>
+                    || thread == 7 && (60310149..MAP1_BEFORE_AREA_AURA_EFFECT).contains(&line) =>
             {
                 evidence.path_calculations.push(line);
             }
@@ -781,7 +781,7 @@ impl Inputs {
             }
             "sql_request_bytes" | "sql_write_bytes" => {
                 if thread == 6 && line < MAP0_NEXT_OWNER_LINE
-                    || thread == 7 && line < MAP1_BEFORE_AREA_AURA_HOLDER
+                    || thread == 7 && line < MAP1_BEFORE_AREA_AURA_EFFECT
                 {
                     evidence.sql_lines.push(line);
                 }
@@ -2742,6 +2742,7 @@ pub(super) fn continue_startup(
             attempt.guid, attempt.kind, continents.maps[slot].cells.active().len(), refusal.id
         );
         if slot == 1 {
+            relations_evidence::assert_static_area_aura_reach(&creature_addons, &addon_spells);
             relations_evidence::assert_continuation_words(&evidence.words);
             relations_evidence::assert_continuation_clocks(&evidence.active_clocks, &active_clocks);
             assert_eq!(evidence.continuation_births.len(), candidates);
@@ -2794,12 +2795,38 @@ pub(super) fn continue_startup(
             assert!(!stopped.auras.has_aura_holders());
             let pending_cast = stopped.spell_starts.spells.values().next().unwrap();
             assert_eq!(pending_cast.spell, 1032);
-            assert!(pending_cast.pending_aura.is_none());
+            assert_eq!(pending_cast.state, SourceSpellState::Landing);
+            assert_eq!(pending_cast.damage_per_effect, [505, 0, 0]); // SQL:838502: 504 + 1.
+            assert!(pending_cast.spell_go.is_some());
+            let target = pending_cast.unique_targets.first().unwrap();
+            assert_eq!(
+                (target.unit, target.effect_mask, target.hit_mask),
+                (candidate, 1, 1)
+            );
+            assert!(target.processed && !target.missed);
+            let holder = pending_cast.pending_aura.as_ref().unwrap();
+            assert_eq!((holder.caster, holder.target), (candidate, candidate));
+            assert_eq!(
+                (holder.duration, holder.diminish_group),
+                (target.duration, 0)
+            );
+            assert_eq!(holder.apply_time, 1794314190); // Trace:60553739/:60553741.
+            assert!(holder.effects.iter().all(Option::is_none));
             assert!(stopped
                 .unit_events
                 .owns_spell_event(pending_cast.event.unwrap(), pending_cast.id));
-            // The first unread clock belongs to the area aura holder.
-            assert_eq!(active_clocks.0.front().unwrap().time_line, 60553741);
+            // Spell.cpp:1445 reads the holder clock before SpellEffects.cpp:2331.
+            let next = active_clocks.0.front().unwrap();
+            assert_eq!(
+                (
+                    next.site_line,
+                    next.time_line,
+                    next.thread,
+                    next.site[2],
+                    next.raw
+                ),
+                (60553823, 60553824, 7, 8249833, 13439)
+            );
 
             // Recording60539996 adds GUID35936 before its AI (60540194).
             let wavethrasher = completed_objects[201];
@@ -4668,7 +4695,7 @@ pub(super) fn continue_startup(
             evidence.pool_snapshot_line.unwrap(),
             encounters.by_map(slot as u32).len(),
             refusal.id,
-            if slot == 0 { "ScriptDevAIMgr.cpp:380" } else { "Spell.cpp:552" },
+            if slot == 0 { "ScriptDevAIMgr.cpp:380" } else { "SpellEffects.cpp:2331" },
         );
         owner.states = states;
         let raw = trace
