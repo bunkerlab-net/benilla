@@ -424,7 +424,7 @@ impl SourceObjects {
         let kind = object.kind;
         cells.validate_cell(cell)?;
         cells.grid_remove(object)?;
-        cells.grid_add(object, cell)?;
+        cells.grid_add(object, cell, |member| self.objects.contains_key(&member))?;
         cells.link(handle, kind, cell)?;
         if matches!(kind, SourceObjectKind::Corpse | SourceObjectKind::Bones) {
             self.get_mut(handle)?.corpse_grid_reference = Some(cell);

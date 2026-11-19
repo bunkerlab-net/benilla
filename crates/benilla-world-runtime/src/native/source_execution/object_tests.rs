@@ -250,7 +250,7 @@ fn relocation_preserves_same_cell_order_and_requires_real_loaded_destination() {
 }
 
 #[test]
-fn active_grid_relocation_refuses_unbound_allocations() {
+fn active_grid_relocation_counts_unbound_objects() {
     let (mut objects, mut cells, cell) = setup();
     let object = spawn(
         &mut objects,
@@ -260,25 +260,64 @@ fn active_grid_relocation_refuses_unbound_allocations() {
         9,
     );
     objects.get_mut(object).unwrap().active = true;
-    let before = objects.get(object).unwrap().current_cell;
+    assert_eq!(cells.active_objects_in_grid(cell.grid).unwrap(), 0);
+    let destination = cells.cell(pair(34., 0.)).unwrap();
+    assert_eq!(destination.grid, cell.grid);
     assert_eq!(
         objects
             .relocate_creature(object, pair(34., 0.), &mut cells, |_, _, _| {
                 panic!("same-grid relocation cannot load")
             })
-            .unwrap_err()
-            .id,
-        "execution.residency.grid_activity_allocation"
+            .unwrap(),
+        CellRelocation::Moved {
+            old: cell,
+            new: destination
+        }
     );
-    assert_eq!(objects.get(object).unwrap().current_cell, before);
-    assert_eq!(cells.registered_cell(object), Some(cell));
-    assert_eq!(
+    assert_eq!(cells.registered_cell(object), Some(destination));
+    assert_eq!(cells.active_objects_in_grid(cell.grid).unwrap(), 1);
+}
+
+#[test]
+fn grid_activity_captures_the_flag_at_add_and_remove() {
+    let (mut objects, mut cells, cell) = setup();
+    let object = spawn(
+        &mut objects,
+        &mut cells,
+        cell,
+        SourceObjectKind::Creature,
+        9,
+    );
+    objects.get_mut(object).unwrap().active = true;
+    assert_eq!(cells.active_objects_in_grid(cell.grid).unwrap(), 0);
+    for _ in 0..2 {
         cells
-            .visit(cell, CellContainer::Grid)
-            .unwrap()
-            .collect::<Vec<_>>(),
-        vec![object]
+            .grid_add(objects.get(object).unwrap(), cell, |handle| {
+                handle == object
+            })
+            .unwrap();
+    }
+    assert_eq!(cells.active_objects_in_grid(cell.grid).unwrap(), 1);
+    objects.get_mut(object).unwrap().active = false;
+    objects.unlink_cell(object, &mut cells).unwrap();
+    assert_eq!(cells.active_objects_in_grid(cell.grid).unwrap(), 1);
+    objects.remove_from_world(object).unwrap();
+    objects.destroy(object, &mut cells).unwrap();
+    assert_eq!(cells.active_objects_in_grid(cell.grid).unwrap(), 1);
+
+    let new = spawn(
+        &mut objects,
+        &mut cells,
+        cell,
+        SourceObjectKind::Creature,
+        10,
     );
+    objects.get_mut(new).unwrap().active = true;
+    assert_eq!(
+        objects.link_cell(new, cell, &mut cells).unwrap_err().id,
+        "execution.residency.Grid_104.stale_pointer_alias_owner"
+    );
+    assert_eq!(cells.active_objects_in_grid(cell.grid).unwrap(), 1);
 }
 #[test]
 fn no_create_uses_object_data_and_grid_reconstruction_changes_cell_identity() {

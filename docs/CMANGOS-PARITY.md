@@ -154,6 +154,9 @@ is meaningful without a bounded content/mechanics inventory.
   The live AI retains its cooldown and reset timer (`npcs_special.cpp:60-72`).
   Clearing the quest-giver flag queues the unit for a client update
   (`Object.cpp:984-995,1107-1117`). The update drain remains unported.
+- **Grid activity.** `Grid.h:93-117` counts active grid objects. Add and
+  remove each test the live active flag. If removal leaves a stale member,
+  insertion requires enough address evidence to detect reuse of that member.
 - **WMO area catalog.** Startup binds all 21,115 effective WMO rows through the
   existing catalog owner, `World.cpp:908` and `DBCStores.cpp:555-560`.
   Ten duplicate triples retain ascending-ID order. `GridMap.cpp:992-1015`

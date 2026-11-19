@@ -2,7 +2,7 @@
 //! Grid lifetime and intrusive source type lists, not a pose-derived index.
 use super::*;
 use benilla_sim::resident_map::CellPair;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct GridIdentity {
     pub map: MapIdentity,
@@ -49,7 +49,7 @@ pub struct SourceCells {
     cells: BTreeMap<(u16, u16), [Ends; 8]>,
     links: BTreeMap<ObjectHandle, Link>,
     update_marks: Box<[u64]>,
-    grid_active: BTreeMap<(u16, u16), BTreeSet<u64>>,
+    grid_active: BTreeMap<(u16, u16), BTreeMap<ObjectHandle, Option<u64>>>,
     pub(super) removals: SourceRemovals,
 }
 impl SourceCells {
@@ -79,16 +79,38 @@ impl SourceCells {
         fresh
     }
     // Grid::Add/RemoveGridObject capture the flag at those calls, not at query time; Grid.h:93-117.
-    pub(super) fn grid_add(&mut self, object: &SourceObject, cell: CellIdentity) -> Result<()> {
+    // Grid.h:93-115 only inserts, erases and counts, so pointer order is unobservable.
+    pub(super) fn grid_add(
+        &mut self,
+        object: &SourceObject,
+        cell: CellIdentity,
+        is_live: impl Fn(ObjectHandle) -> bool,
+    ) -> Result<()> {
         self.validate_cell(cell)?;
         if object.active && object.kind.cell_slot().is_some_and(|slot| slot < 4) {
-            let pointer = object
-                .source_allocation
-                .ok_or_else(|| refuse("execution.residency.grid_activity_allocation"))?;
-            self.grid_active
-                .entry((cell.x, cell.y))
-                .or_default()
-                .insert(pointer);
+            let members = self.grid_active.entry((cell.x, cell.y)).or_default();
+            if members.contains_key(&object.handle) {
+                return Ok(());
+            }
+            let mut alias = None;
+            for (&member, &address) in members.iter() {
+                if is_live(member) {
+                    continue;
+                }
+                let (Some(stale), Some(new)) = (address, object.source_allocation) else {
+                    return Err(refuse(
+                        "execution.residency.Grid_104.stale_pointer_alias_owner",
+                    ));
+                };
+                if stale == new {
+                    alias = Some(member);
+                }
+            }
+            if let Some(alias) = alias {
+                // The address remains in the set and now belongs to this construction.
+                members.remove(&alias);
+            }
+            members.insert(object.handle, object.source_allocation);
         }
         Ok(())
     }
@@ -99,11 +121,18 @@ impl SourceCells {
         let Some(cell) = self.registered_cell(object.handle) else {
             return Ok(());
         };
-        let pointer = object
-            .source_allocation
-            .ok_or_else(|| refuse("execution.residency.grid_activity_allocation"))?;
-        if let Some(members) = self.grid_active.get_mut(&(cell.x, cell.y)) {
-            members.remove(&pointer);
+        let Some(members) = self.grid_active.get_mut(&(cell.x, cell.y)) else {
+            return Ok(());
+        };
+        if members.remove(&object.handle).is_some() {
+            return Ok(());
+        }
+        if let Some(alias) = object.source_allocation.and_then(|address| {
+            members
+                .iter()
+                .find_map(|(&member, &old)| (old == Some(address)).then_some(member))
+        }) {
+            members.remove(&alias);
         }
         Ok(())
     }
