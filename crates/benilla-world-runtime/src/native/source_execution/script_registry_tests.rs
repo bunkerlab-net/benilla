@@ -60,7 +60,7 @@ fn script_registry_names_sort_registration_order_overwrites_and_count() {
     assert!(registry.check_script_names().unwrap().is_empty());
     assert_eq!(
         registry.gameobject_ai(2).unwrap_err().id,
-        "execution.gameobject.loaded_script_get_gameobject_ai_owner"
+        format!("{}.z", script_registry::SCRIPTDEV_GET_GAMEOBJECT_AI_OWNER)
     );
     registry.gameobject_ai(0).unwrap();
     registry.gameobject_ai(1).unwrap();
@@ -164,4 +164,34 @@ fn script_registry_resize_preserves_existing_slots_and_does_not_reset_count() {
     registry.register_self(definition("a", 1, true)).unwrap();
     assert_eq!(registry.script_count(), 2);
     assert_eq!(registry.get_script(1).unwrap().unwrap().registration, 1);
+}
+
+#[test]
+fn gameobject_script_factory_names_each_unported_callback() {
+    let mut registry = SourceScriptRegistry::default();
+    let names = ["go_bells", "go_covert_ops", "go_lightning"];
+    registry
+        .load_script_names(|| Ok(Some(names.map(|name| name.as_bytes().to_vec()).into())))
+        .unwrap();
+    registry
+        .initialize_registry([
+            definition(names[0], 0, true),
+            definition(names[1], 1, true),
+            definition(names[2], 2, true),
+        ])
+        .unwrap();
+    let select = |name: &str| registry.gameobject_ai(registry.get_script_id(Some(name.as_bytes())));
+    assert_eq!(
+        select(names[0]).unwrap(),
+        Some(gameobjects::GameObjectScript::Bells)
+    );
+    for name in &names[1..] {
+        assert_eq!(
+            select(name).unwrap_err().id,
+            format!(
+                "{}.{name}",
+                script_registry::SCRIPTDEV_GET_GAMEOBJECT_AI_OWNER
+            )
+        );
+    }
 }

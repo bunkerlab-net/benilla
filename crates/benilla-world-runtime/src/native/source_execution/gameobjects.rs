@@ -4,6 +4,9 @@ use super::*;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+mod ai;
+pub use ai::{GameObjectScript, SourceGameObjectAi};
+
 #[derive(Clone, Debug)]
 pub struct GameObjectTemplate {
     pub entry: u32,
@@ -156,7 +159,7 @@ pub struct SourceGameObject {
     pub skillup_users: std::collections::BTreeSet<SourceGuid>,
     pub elevator: Option<SourceElevator>,
     /// GameObject.h:950 default-constructs an empty unique_ptr; AIM_Initialize resets it.
-    pub has_ai: bool,
+    pub ai: Option<SourceGameObjectAi>,
     pub(super) lifecycle_stopped: bool,
 }
 impl SourceGameObject {
@@ -225,6 +228,11 @@ pub enum GameObjectFactoryObservation {
     DynamicGuidLookup,
     LargeObjectPredicate,
     NullAi,
+    ScriptAiActiveInserted,
+    ScriptAiFactoryReturned,
+    ScriptAiJustSpawned,
+    InstanceOnObjectCreate,
+    InstanceOnObjectSpawn,
 }
 
 // All dependency methods execute at their actual source call; no captured outcome is an implementation.
@@ -304,6 +312,14 @@ pub trait GameObjectFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
         Err(refuse(
             "execution.gameobject.GameObject_289.GetZoneId_owner",
         ))
+    }
+    fn gameobject_area(
+        &mut self,
+        _handle: ObjectHandle,
+        _position: [f32; 3],
+        _context: &mut GridFactoryContext<'_, D, P>,
+    ) -> Result<u32> {
+        Err(refuse("execution.gameobject.Object_1234.GetAreaId_owner"))
     }
     fn gameobject_outdoor_script(&mut self, _zone: u32) -> Result<Option<OutdoorPvpScript>> {
         Err(refuse(
@@ -424,7 +440,11 @@ pub(super) fn execute_source_gameobject_callback<
                     .get(handle)?
                     .guid
                     .ok_or_else(|| refuse("execution.object_guid_absent"))?;
-                if script.gameobject_create(entry, guid.raw()) {
+                let active = script.gameobject_create(entry, guid.raw());
+                owner.observe_gameobject_factory(
+                    GameObjectFactoryObservation::InstanceOnObjectCreate,
+                );
+                if active {
                     context.set_active_object_state(handle, true, owner)?;
                 }
             }
@@ -451,13 +471,35 @@ pub(super) fn execute_source_gameobject_callback<
                 context,
             )?;
         }
-        // GameObject.cpp:2523-2533. A successful registry result proves the factory is null.
+        // GameObject.cpp:2528-2537 resets the AI after the factory, then calls JustSpawned.
         GameObjectCallback::InitializeAi => {
             let entry = owner.gameobjects().get(handle)?.template.entry;
             let id = owner.gameobject_script_id(entry)?;
-            owner.gameobject_script_registry()?.gameobject_ai(id)?;
-            owner.gameobjects().get_mut(handle)?.has_ai = false;
-            owner.observe_gameobject_factory(GameObjectFactoryObservation::NullAi);
+            let script = owner.gameobject_script_registry()?.gameobject_ai(id)?;
+            let ai = match script {
+                Some(script) => {
+                    let ai = script.construct(handle, entry, owner, context)?;
+                    owner.observe_gameobject_factory(
+                        GameObjectFactoryObservation::ScriptAiFactoryReturned,
+                    );
+                    Some(ai)
+                }
+                None => None,
+            };
+            let go = owner.gameobjects().get_mut(handle)?;
+            go.ai = ai;
+            if let Some(ai) = &go.ai {
+                ai.just_spawned();
+                owner.observe_gameobject_factory(GameObjectFactoryObservation::ScriptAiJustSpawned);
+            } else {
+                owner.observe_gameobject_factory(GameObjectFactoryObservation::NullAi);
+            }
+            if let Some((_, script)) = owner.gameobject_instance_data()? {
+                script.gameobject_spawned()?;
+                owner.observe_gameobject_factory(
+                    GameObjectFactoryObservation::InstanceOnObjectSpawn,
+                );
+            }
         }
         GameObjectCallback::TemplateString(_) | GameObjectCallback::GroupString(_) => {
             return Err(refuse("execution.gameobject.loaded_string_id_owner"));
@@ -621,7 +663,7 @@ where
             skillup_users: std::collections::BTreeSet::new(),
             lifecycle_stopped: false,
             elevator: None,
-            has_ai: false,
+            ai: None,
             has_model: false,
         },
     );

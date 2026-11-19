@@ -877,7 +877,12 @@ fn update_inner<D: GridDefinitions, P: ResidencyProductOwner, F: GameObjectLifec
             owner.gameobjects().get_mut(object)?.delayed_action_timer -= diff;
         }
     }
-    owner.go_lifecycle_phase(object, Phase::AiUpdate(diff), context)?;
+    // GameObject.cpp:742-745 dispatches a live m_AI before the WorldObject update.
+    if let Some(ai) = &owner.gameobjects().get(object)?.ai {
+        ai.update_ai(diff)?;
+    } else {
+        owner.go_lifecycle_phase(object, Phase::AiUpdate(diff), context)?;
+    }
     owner.go_lifecycle_phase(object, Phase::WorldObjectUpdate(diff), context)
 }
 pub fn update_source_gameobject<

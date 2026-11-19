@@ -47,8 +47,9 @@ const EVENT_AI_QUERY: &str = "SELECT id, creature_id, event_type, event_inverse_
 const MAP0_CHICKEN_TIMER: u64 = 60580494;
 const MAP0_CHICKEN_RAW: usize = 27356;
 const MAP0_GUARD_RAW: usize = 27328;
-const MAP0_NEXT_RAW: usize = 27472; // :60638177, after the first bell factory.
-const MAP0_NEXT_OWNER_LINE: u64 = 60637563;
+const MAP0_BELL_RAW: usize = 27472; // First word after the factory, :60638177.
+const MAP0_NEXT_RAW: usize = 27682; // First event 26501 holder timer word, :60711960.
+const MAP0_NEXT_OWNER_LINE: u64 = 60711958;
 
 fn retained_f1_file(root: &Path, recorded: &Path, expected: &Sha256Id) -> Result<Vec<u8>> {
     let prefix = recorded
@@ -87,7 +88,7 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
     // The GUID40520 birth was already counted. The remaining 53 births include
     // the trap at :60493861 and both duplicate creature attempts.
     // The continuation through the Bell GO adds 51 births, :60580681-60637267.
-    assert_eq!(evidence.continuation_births.len(), 111);
+    assert_eq!(evidence.continuation_births.len(), 180);
     let births = &evidence.continuation_births[1..54];
     assert_eq!((births[0], births[52]), (60478620, 60571587));
     assert_eq!(
@@ -159,13 +160,13 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
             (60579270, 4198),
         ]
     );
-    let births = &evidence.continuation_births[60..];
+    let births = &evidence.continuation_births[60..111];
     assert_eq!((births[0], births[50]), (60580681, 60637267));
     assert_eq!(
         map0_receipt(births.iter().map(|&line| [line])),
         "6234e9fada61f0581a42108b6276df7ec12bd3a9835545448d6e921930eee51a"
     );
-    let completions = &evidence.continuation_completed[56..];
+    let completions = &evidence.continuation_completed[56..102];
     assert_eq!(completions.len(), 46);
     assert_eq!(completions[0], (60580671, 4228));
     assert_eq!(completions[45], (60637264, 15421));
@@ -176,6 +177,25 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
                 .map(|&(line, guid)| [line, u64::from(guid)])
         ),
         "ae02fead37484a452953c8deba64e4f343ee472f6908803227b71f52bbf2cdd8"
+    );
+    // GO15508 completes first. The last allocation is GUID4195.
+    let births = &evidence.continuation_births[111..];
+    assert_eq!((births[0], births[68]), (60638125, 60709759));
+    assert_eq!(
+        map0_receipt(births.iter().map(|&line| [line])),
+        "4fb63486dea7a44326a4a25eb55d3900e5da2dd7f2b3da658f290c52847d7a57"
+    );
+    let completions = &evidence.continuation_completed[102..];
+    assert_eq!(completions.len(), 64);
+    assert_eq!(completions[0], (60638112, 15508));
+    assert_eq!(completions[63], (60709753, 4083));
+    assert_eq!(
+        map0_receipt(
+            completions
+                .iter()
+                .map(|&(line, guid)| [line, u64::from(guid)])
+        ),
+        "cc1c77e7c09ff82f9453a9f4274125ff29427d258eae5a0488ed60669b564f77"
     );
     // The replay also compares each word, request and result in order below.
     let words = &evidence.words[27087..MAP0_GUARD_RAW];
@@ -231,13 +251,22 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
         ]
     );
     // 116 new words, :60580494-60637549, including the four chicken timer draws.
-    let words = &evidence.words[MAP0_CHICKEN_RAW..MAP0_NEXT_RAW];
+    let words = &evidence.words[MAP0_CHICKEN_RAW..MAP0_BELL_RAW];
     assert_eq!(words[115], (60637549, 27471, 2490111375));
     assert_eq!(
         map0_receipt(words.iter().map(|&(line, raw, word)| [line, raw, word])),
         "5c0d7a8a781036bde0b46a2c740a259b055e7da8b544a08bca2b0fdb182ca404"
     );
-    assert_eq!(evidence.words[MAP0_NEXT_RAW], (60638177, 27472, 1912213781));
+    assert_eq!(evidence.words[MAP0_BELL_RAW], (60638177, 27472, 1912213781));
+    assert_eq!(evidence.words[MAP0_NEXT_RAW], (60711960, 27682, 3955263560));
+    assert_eq!(
+        map0_receipt(
+            evidence.words[MAP0_BELL_RAW..MAP0_NEXT_RAW]
+                .iter()
+                .map(|&(line, raw, word)| [line, raw, word])
+        ),
+        "001109888bc6c245941e9b4a64f1d9f7069f083089cb5ecf0e36d713dd45413f"
+    );
     let consumed = evidence.active_clocks.0.len() - clocks.0.len();
     let new_clocks = evidence
         .active_clocks
@@ -245,7 +274,7 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
         .iter()
         .take(consumed)
         .filter(|clock| clock.time_line > 60478161);
-    assert_eq!(new_clocks.clone().count(), 51); // Adds :60581521-60625673.
+    assert_eq!(new_clocks.clone().count(), 79);
     assert_eq!(
         map0_receipt(new_clocks.clone().take(34).map(|clock| [
             clock.site_line,
@@ -273,7 +302,9 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
     );
     assert_eq!(
         new_clocks
+            .clone()
             .skip(38)
+            .take(13)
             .map(|clock| (clock.site_line, clock.time_line, clock.raw, clock.seconds))
             .collect::<Vec<_>>(),
         [
@@ -292,7 +323,18 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
             (60625671, 60625673, 27452, 1794314190),
         ]
     );
-    assert_eq!(clocks.0.front().unwrap().time_line, 60638936);
+    assert_eq!(
+        map0_receipt(new_clocks.skip(51).map(|clock| [
+            clock.site_line,
+            clock.time_line,
+            clock.thread,
+            clock.site[2],
+            clock.raw,
+            clock.seconds as u64
+        ])),
+        "63f782289ea081e8c04b7c1f2eef65026c343c88ba8181e5818110fce1862f2e"
+    );
+    assert_eq!(clocks.0.front().unwrap().time_line, 60713068);
 }
 
 fn assert_guid40520_queue(spells: &SourceSpellStarts, events: &SourceUnitEvents) {
@@ -421,6 +463,7 @@ struct MapThreadEvidence {
     continuation_completed: Vec<(u64, u32)>,
     path_calculations: Vec<u64>,
     wmo_area_hit: Option<String>,
+    bell_trace: Vec<u64>,
 }
 #[derive(Default)]
 pub(super) struct Inputs {
@@ -483,6 +526,53 @@ impl Inputs {
     }
     pub(super) fn observe_thread(&mut self, thread: u64, line: u64, kind: &str, p: &[&str]) {
         self.equipment.observe_map(thread, line, kind, p);
+        if thread == 6 {
+            let expected: Option<(&str, &[&str])> = match line {
+                60637563 => Some((
+                    "script_factory_argument",
+                    &["145", "gameobject", "25769804506"],
+                )),
+                60637582 => Some((
+                    "operation_begin",
+                    &["7970", "7969", "TerrainInfo::GetAreaInfo"],
+                )),
+                60637844 => Some((
+                    "geometry_area_result",
+                    &["7970", "10757", "2", "138", "756"],
+                )),
+                60637854 => Some((
+                    "operation_begin",
+                    &["7977", "7969", "TerrainInfo::GetAreaInfo"],
+                )),
+                60638050 => Some((
+                    "geometry_area_result",
+                    &["7977", "10757", "2", "138", "756"],
+                )),
+                60638060 => Some(("active_add", &["0", "0x200c01f1a3f0", "15508"])),
+                60638066 => Some((
+                    "callback_result",
+                    &["7969", "pointer", "0x200c01f1ad00", "25769804509"],
+                )),
+                60638080 => Some(("callback_dispatch", &["7984"])),
+                60638101 => Some(("callback_dispatch", &["7985"])),
+                60638112 => Some(("constructor_loader_success", &["25769804506", "15508"])),
+                _ => None,
+            };
+            if let Some((trace_kind, prefix)) = expected {
+                assert_eq!(kind, trace_kind);
+                assert!(p.starts_with(prefix));
+                match line {
+                    60638080 => assert_eq!(p.last(), Some(&"JustSpawned")),
+                    60638101 => assert_eq!(p.last(), Some(&"OnObjectSpawn")),
+                    _ => {}
+                }
+                self.map_threads
+                    .entry(thread)
+                    .or_default()
+                    .bell_trace
+                    .push(line);
+            }
+        }
         if matches!(
             (thread, line, kind),
             (6, 60402993, "geometry_area_result") | (7, 60354456, "geometry_area_result")
@@ -2615,13 +2705,14 @@ pub(super) fn continue_startup(
         }
         if slot == 0 {
             assert_eq!(
-                evidence.path_calculations,
+                evidence.path_calculations[..17],
                 [
                     60489268, 60491574, 60495870, 60499147, 60500803, 60502330, 60504017, 60506382,
                     60560688, 60562420, 60569803, 60601394, 60617030, 60619528, 60621889, 60627229,
                     60629698,
                 ]
             );
+            assert_eq!(&evidence.path_calculations[17..], [60645023, 60646526]);
             assert_eq!(evidence.sql_lines, [60100980, 60101139]);
             assert_eq!(
                 Sha256Id::of(&std::fs::read(script_report).unwrap()),
@@ -2720,6 +2811,50 @@ pub(super) fn continue_startup(
                     "creature_load_from_db_return",
                 ]));
             assert_eq!(
+                evidence.bell_trace,
+                [
+                    60637563, 60637582, 60637844, 60637854, 60638050, 60638060, 60638066, 60638080,
+                    60638101, 60638112,
+                ]
+            );
+            let bell = completed_objects[189];
+            let object = active_objects.get(bell).unwrap();
+            let go = gameobjects.get(bell).unwrap();
+            let ai = go.ai.as_ref().unwrap();
+            assert_eq!((object.database_guid, go.template.entry), (15508, 175885));
+            assert_eq!(
+                (ai.object, ai.script),
+                (bell, gameobjects::GameObjectScript::Bells)
+            );
+            assert_eq!(
+                (
+                    ai.bell_tolls,
+                    ai.bell_sound,
+                    ai.bell_timer,
+                    ai.bell_plays_to_zone
+                ),
+                (0, 6675, 0, false)
+            );
+            assert!(object.in_world && object.active && object.notify_on_event);
+            assert!(continents.maps[slot].cells.active().contains(bell));
+            assert!(active_objects.event_notified(continents.maps[slot].identity, bell));
+            assert!(lookups.windows(11).any(|steps| steps
+                == [
+                    "go15508_ai_initialize",
+                    "go_ai_script_factory_lookup",
+                    "go_ai_gameobject_info",
+                    "go_ai_script_registry_lookup",
+                    "go_ai_area",
+                    "go_ai_area",
+                    "go_ai_active_inserted",
+                    "go_ai_factory_returned",
+                    "go_ai_just_spawned",
+                    "go_instance_data",
+                    "go_instance_on_object_spawn",
+                ]));
+            assert!(!completed_objects.contains(&candidate));
+            // GUID4195 reaches the entry event lookup at CreatureEventAI.cpp:150.
+            assert_eq!(
                 (
                     attempt.guid,
                     attempt.kind,
@@ -2727,13 +2862,8 @@ pub(super) fn continue_startup(
                     attempt.cell.x(),
                     attempt.cell.y()
                 ),
-                // GO15508: candidate :60637265, birth :60637267, GetGameObjectAI :60637563.
-                (15508, GridSpawnKind::GameObject, 175885, 194, 478)
+                (4195, GridSpawnKind::Creature, 265, 196, 475)
             );
-            assert!(!completed_objects.contains(&candidate));
-            assert!(active_objects.get(candidate).unwrap().in_world);
-            assert!(!gameobjects.get(candidate).unwrap().has_ai);
-            assert_eq!(go_script_id, Some(145));
             assert_eq!(refusal.id, active_init::CREATURE_NEXT_OWNER[0]);
         }
         assert_eq!(
@@ -2935,7 +3065,7 @@ pub(super) fn continue_startup(
             zone_lookups.len());
         assert_eq!(
             continents.maps[slot].cells.active().len(),
-            if slot == 0 { 2 } else { 7 }
+            if slot == 0 { 4 } else { 7 }
         );
         let active_guids = continents.maps[slot]
             .cells
@@ -2946,7 +3076,8 @@ pub(super) fn continue_startup(
         assert_eq!(
             active_guids,
             if slot == 0 {
-                BTreeSet::from([636, 2129])
+                // Trace :60638060 and :60667622-60667624 add two distinct objects.
+                BTreeSet::from([636, 2129, 4185, 15508])
             } else {
                 BTreeSet::from([27279, 27280, 27281, 29113, 35867, 52349, 590005])
             }
@@ -3318,6 +3449,7 @@ pub(super) fn continue_startup(
                 0,
                 [568, 1, 2860],
                 Some(geometry.dbc.areas[&1741].flag as u16),
+                9,
             )));
             assert!(completed_objects.iter().any(|handle| active_objects
                 .get(*handle)
@@ -3376,7 +3508,7 @@ pub(super) fn continue_startup(
             );
             assert!(geometry
                 .wmo_area_lookups
-                .contains(&(1, [1771, 0, 8359], None)));
+                .contains(&(1, [1771, 0, 8359], None, 10245)));
             assert!(completed_objects.iter().any(|handle| active_objects
                 .get(*handle)
                 .unwrap()
@@ -4033,15 +4165,16 @@ pub(super) fn continue_startup(
         // GUID5015 enters Idle (trace :60575680, initial-classicmangos.sql:85040).
         // GUIDs 4246, 4085, 4178, 4177 and 4206 add Idle: :60580674, :60596324,
         // :60604394, :60605820, :60623342; stock SQL :84305, :84147, :84238, :84237, :84265.
-        assert_eq!(idle_count, if slot == 0 { 24 } else { 23 });
+        // Ten more completed movement-type-zero creatures, :60639124-60700643.
+        assert_eq!(idle_count, if slot == 0 { 34 } else { 23 });
         assert_eq!(
             geometry.pathfinder_constructor_completions,
             // WaypointMovementGenerator.cpp:264 constructs per BuildIntPath.
-            // Map 0 calculates seventeen paths for nine waypoints (:60601394-60629698).
+            // Map 0 records 19 paths for 10 waypoint creatures.
             // Map 1 calculates fourteen paths for seven waypoints (:60618577 last).
             // Static Idle constructs none (MotionMaster.cpp:79-81).
             pathfinders_before + motion_initializations - idle_count
-                + if slot == 0 { 17 - 9 } else { 14 - 7 }
+                + if slot == 0 { 19 - 10 } else { 14 - 7 }
         );
         assert_eq!(
             active_objects.viewpoint_cell(candidate).unwrap(),
@@ -4155,7 +4288,10 @@ pub(super) fn continue_startup(
                 }
                 assert_eq!(grid.map, continents.maps[slot].identity);
                 if object.kind == SourceObjectKind::GameObject {
-                    assert!(!gameobjects.get(*handle).unwrap().has_ai);
+                    assert_eq!(
+                        gameobjects.get(*handle).unwrap().ai.is_some(),
+                        object.database_guid == 15508
+                    );
                 } else {
                     assert!(units.get(&active_objects, *handle).unwrap().has_ai);
                 }
@@ -4286,6 +4422,8 @@ pub(super) fn continue_startup(
                     "go_ai_script_registry_lookup",
                     "go_ai_reset_null",
                     "go_ai_just_spawned_skipped",
+                    "go_instance_data",
+                    "go_instance_on_object_spawn",
                 ]
             } else {
                 vec![
@@ -4379,8 +4517,8 @@ pub(super) fn continue_startup(
             ))
         );
         assert_eq!(attempt.guid, if slot == 0 { 18 } else { 28044 });
-        // Last allocated objects are at :60637267 (map 0) and :60616138 (map 1).
-        assert_eq!(candidates, if slot == 0 { 199 } else { 272 });
+        // Last allocated objects are at :60709759 (map 0) and :60616138 (map 1).
+        assert_eq!(candidates, if slot == 0 { 268 } else { 272 });
         assert_eq!(entry, if slot == 0 { 3211 } else { 4692 });
         if slot == 0 {
             assert_eq!(init_entry_fields, None);
@@ -4403,7 +4541,7 @@ pub(super) fn continue_startup(
                 (1, 100, 9)
             );
             assert!(object.has_model);
-            assert!(!object.has_ai);
+            assert!(object.ai.is_none());
             assert_eq!(object.respawn_delay, 900);
             assert_eq!(object.respawn_time, 0);
             assert!(object.spawned_by_default && object.spawn.is_some());
@@ -4669,8 +4807,8 @@ pub(super) fn continue_startup(
                 attempt.cell.y(),
             ))
         );
-        // :60637264 completes GO15421, and :60616132 completes GUID35783.
-        assert_eq!(completed, if slot == 0 { 189 } else { 266 });
+        // :60709753 completes GUID4083, and :60616132 completes GUID35783.
+        assert_eq!(completed, if slot == 0 { 253 } else { 266 });
         println!(
             "F6_VISIBILITY map={slot} census={visibility:?} invalidated_camera_iterator_stock_reach={}",
             visibility.cameras
@@ -4767,7 +4905,7 @@ pub(super) fn continue_startup(
             evidence.pool_snapshot_line.unwrap(),
             encounters.by_map(slot as u32).len(),
             refusal.id,
-            if slot == 0 { "ScriptDevAIMgr.cpp:380" } else { "ScriptDevAIMgr.cpp:370" },
+            if slot == 0 { "CreatureEventAI.cpp:150" } else { "ScriptDevAIMgr.cpp:370" },
         );
         owner.states = states;
         let raw = trace

@@ -4,6 +4,9 @@
 use super::*;
 use std::collections::BTreeMap;
 
+pub(super) const SCRIPTDEV_GET_GAMEOBJECT_AI_OWNER: &str =
+    "execution.gameobject.loaded_script_get_gameobject_ai_owner";
+
 /// Symbolic callback slots, never executable addresses or captured registry post-state.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourceScriptDefinition {
@@ -145,19 +148,25 @@ impl SourceScriptRegistry {
         Ok(missing)
     }
     /// ScriptDevAIMgr.cpp:375-380. A nonnull factory must execute before its result is known.
-    pub fn gameobject_ai(&self, id: u32) -> Result<()> {
+    pub fn gameobject_ai(&self, id: u32) -> Result<Option<super::gameobjects::GameObjectScript>> {
         if let Some(script) = self.get_script(id)? {
             let nonnull = script
                 .slots
                 .get("GetGameObjectAI")
                 .ok_or_else(|| refuse("execution.script_registry.GetGameObjectAI_slot_owner"))?;
             if *nonnull {
-                return Err(refuse(
-                    "execution.gameobject.loaded_script_get_gameobject_ai_owner",
-                ));
+                let name = std::str::from_utf8(&script.name).map_err(|_| {
+                    refuse("execution.gameobject.ScriptDevAIMgr_380.script_name_encoding_owner")
+                })?;
+                return match name {
+                    "go_bells" => Ok(Some(super::gameobjects::GameObjectScript::Bells)),
+                    _ => Err(refuse(&format!(
+                        "{SCRIPTDEV_GET_GAMEOBJECT_AI_OWNER}.{name}"
+                    ))),
+                };
             }
         }
-        Ok(())
+        Ok(None)
     }
     pub fn unexecuted_prerequisites(&self) -> &[UnexecutedScriptPrerequisite] {
         self.unexecuted

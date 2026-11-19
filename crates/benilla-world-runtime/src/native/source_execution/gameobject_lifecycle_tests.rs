@@ -491,6 +491,33 @@ impl Fixture {
             .respawn(GridSpawnKind::GameObject, 7)
     }
 }
+
+#[test]
+fn gameobject_tick_refuses_the_live_bell_update_after_delayed_action() {
+    let (bell, spawn) = bell_fixture(175885, Some([1497; 2]));
+    let mut fixture = Fixture::with(spawn, false, |factory| {
+        factory.templates = bell.templates;
+        factory.scripts = bell.scripts;
+        factory.script_id = bell.script_id;
+        factory.bell_areas = bell.bell_areas;
+    });
+    let go = fixture.factory.objects.get_mut(fixture.object).unwrap();
+    go.loot_state = 1;
+    go.delayed_action_timer = 100;
+    assert_eq!(
+        fixture
+            .apply(|owner, object, context| update_source_gameobject(owner, object, 100, context))
+            .unwrap_err()
+            .id,
+        "execution.gameobject.go_scripts_206.UpdateAI_owner"
+    );
+    assert_eq!(fixture.go().delayed_action_timer, 0);
+    assert_eq!(
+        fixture.factory.life().events.last(),
+        Some(&Event::Phase(fixture.object, Phase::DelayedAction))
+    );
+}
+
 #[test]
 fn positive_default_expiry_readds_the_same_construction_and_reinitializes_ai() {
     // GameObject.cpp:380-427 clears use data before Map::Add and AIM_Initialize.

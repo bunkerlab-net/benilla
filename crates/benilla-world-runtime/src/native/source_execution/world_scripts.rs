@@ -64,6 +64,22 @@ impl SourceWorldScript {
             })
         }
     }
+    /// InstanceData.h:93. Both continent classes inherit the empty body.
+    pub(in crate::native::source_execution) fn gameobject_spawned(&mut self) -> Result<()> {
+        Self::gameobject_spawned_for_class(match self.state {
+            WorldScriptState::EasternKingdoms => "world_map_eastern_kingdoms",
+            WorldScriptState::Kalimdor(_) => "world_map_kalimdor",
+        })
+    }
+    fn gameobject_spawned_for_class(class: &str) -> Result<()> {
+        if matches!(class, "world_map_eastern_kingdoms" | "world_map_kalimdor") {
+            Ok(())
+        } else {
+            Err(refuse(&format!(
+                "execution.world_script.{class}.OnObjectSpawn_override_owner"
+            )))
+        }
+    }
     /// world_eastern_kingdoms.cpp:69-86; world_kalimdor.cpp:70-87.
     pub fn creature_create(&mut self, entry: u32, guid: u64) {
         if entry == 16421 {
@@ -240,6 +256,7 @@ fn world_creature_create_uses_continent_keys_and_preserves_collection_order() {
         };
         script.creature_create(4692, 99);
         script.creature_respawn().unwrap();
+        script.gameobject_spawned().unwrap();
         assert_eq!(script.stores, WorldScriptStores::default());
         assert!(script.stores.creatures.is_empty());
         for entry in keys {
@@ -269,5 +286,15 @@ fn overriding_instance_respawn_requires_its_own_callback() {
             .unwrap_err()
             .id,
         "execution.world_script.instance_blackwing_lair.OnCreatureRespawn_override_owner"
+    );
+}
+
+#[test]
+fn overriding_instance_gameobject_spawn_requires_its_own_callback() {
+    assert_eq!(
+        SourceWorldScript::gameobject_spawned_for_class("instance_scarlet_monastery")
+            .unwrap_err()
+            .id,
+        "execution.world_script.instance_scarlet_monastery.OnObjectSpawn_override_owner"
     );
 }

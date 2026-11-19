@@ -91,6 +91,7 @@ pub struct SourceObject {
     pub alive: bool,
     pub life_generation: u64,
     pub active: bool,
+    pub notify_on_event: bool,
     pub pose: Option<SourcePose>,
     pub respawn_pose: Option<SourcePose>,
     pub database_spawn_data: bool,
@@ -171,6 +172,7 @@ pub struct SourceObjects {
     allocations: BTreeMap<u64, (u64, ObjectHandle)>,
     players: BTreeMap<MapIdentity, std::collections::VecDeque<ObjectHandle>>,
     client_updates: BTreeMap<MapIdentity, BTreeSet<ObjectHandle>>,
+    event_notified: BTreeMap<MapIdentity, BTreeSet<ObjectHandle>>,
 }
 impl SourceObjects {
     // A construction identity exists before _Create assigns any GUID; Object.cpp:48-59,115-125.
@@ -197,6 +199,7 @@ impl SourceObjects {
                 alive: true,
                 life_generation: 1,
                 active: kind == SourceObjectKind::Player,
+                notify_on_event: false,
                 pose: None,
                 respawn_pose: None,
                 database_spawn_data: false,
@@ -569,6 +572,13 @@ impl SourceObjects {
                 "execution.lookup_before_world",
             )?;
         }
+        // WorldObject::AddToWorld adds notify membership before the base call; Object.cpp:1972-1981.
+        if object.notify_on_event {
+            let map = object
+                .map
+                .ok_or_else(|| refuse("execution.object.Object_1975.map_owner"))?;
+            self.event_notified.entry(map).or_default().insert(handle);
+        }
         self.get_mut(handle)?.in_world = true;
         self.clear_update_mask(handle, false)
     }
@@ -588,6 +598,15 @@ impl SourceObjects {
             .map
             .zip(kind.database_kind())
             .map(|(map, kind)| (map, kind, object.database_guid));
+        let event_map = if object.notify_on_event {
+            Some(
+                object
+                    .map
+                    .ok_or_else(|| refuse("execution.object.Object_1989.map_owner"))?,
+            )
+        } else {
+            None
+        };
         if let Some(lookup_kind) = kind
             .lookup_kind()
             .filter(|kind| *kind != LiveLookupKind::Player)
@@ -599,6 +618,9 @@ impl SourceObjects {
             if let Some(objects) = self.database.get_mut(&key) {
                 objects.retain(|object| *object != handle);
             }
+        }
+        if let Some(members) = event_map.and_then(|map| self.event_notified.get_mut(&map)) {
+            members.remove(&handle);
         }
         self.clear_update_mask(handle, true)?;
         self.get_mut(handle)?.in_world = false;
@@ -825,6 +847,51 @@ impl SourceObjects {
         } else {
             PoseObservation::DifferentCell(handle)
         }
+    }
+}
+
+impl SourceObjects {
+    // Object.cpp:2583-2597 writes the flag before changing map membership.
+    pub(super) fn set_notify_on_event_state(
+        &mut self,
+        handle: ObjectHandle,
+        notify: bool,
+    ) -> Result<()> {
+        let object = self.get_mut(handle)?;
+        if object.notify_on_event == notify {
+            return Ok(());
+        }
+        object.notify_on_event = notify;
+        if !object.in_world {
+            return Ok(());
+        }
+        let map = object
+            .map
+            .ok_or_else(|| refuse("execution.object.Object_2594.map_owner"))?;
+        if notify {
+            self.event_notified.entry(map).or_default().insert(handle);
+        } else if let Some(members) = self.event_notified.get_mut(&map) {
+            members.remove(&handle);
+        }
+        Ok(())
+    }
+
+    pub fn event_notified(&self, map: MapIdentity, handle: ObjectHandle) -> bool {
+        self.event_notified
+            .get(&map)
+            .is_some_and(|members| members.contains(&handle))
+    }
+
+    // Map.cpp:2983 walks std::set<WorldObject*> in pointer order.
+    pub fn event_notification_member(&self, map: MapIdentity) -> Result<Option<ObjectHandle>> {
+        let Some(members) = self.event_notified.get(&map) else {
+            return Ok(None);
+        };
+        require(
+            members.len() <= 1,
+            "execution.map.Map_2983.event_notify_pointer_order_owner",
+        )?;
+        Ok(members.first().copied())
     }
 }
 

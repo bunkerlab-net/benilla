@@ -2034,8 +2034,14 @@ factory on that live base. `Creature.cpp:883-887` then calls the inherited
 `UnitAI::SpellListChanged` and `CreatureAI::JustRespawned`. The latter
 resets both timers before `CreatureAI::Reset` (`CreatureAI.cpp:49-53,124-128`).
 Construction and respawn each draw twice, including `urand(0, 0)`.
-The seal16 map 0 replay constructs Chicken GUID4228 and stops at the
-non-null `go_bells` GameObjectAI for GO15508 (`ScriptDevAIMgr.cpp:380`).
+The seal16 map 0 replay constructs Chicken GUID4228.
+
+The live GameObject retains the `go_bells` AI and its sound and routing state
+(`go_scripts.cpp:113-189`). The factory reads the current area twice, adds
+event notification, then activates the object (`Object.cpp:2566-2597`).
+After the factory returns, `GameObject.cpp:2528-2537` calls `JustSpawned` and
+the continent's inherited `OnObjectSpawn`. Bell event and update dispatch
+remain named refusals (`go_scripts.cpp:191,206`).
 
 Chicken reset marks changed client fields and enqueues the in-world creature
 (`Object.cpp:1107-1117`). The drain at `Map.cpp:2409` refuses. Writer coverage

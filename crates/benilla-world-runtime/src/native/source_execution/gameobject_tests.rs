@@ -69,6 +69,8 @@ enum Action {
     Urand(u32, u32),
     LoaderViewpoint(ObjectHandle),
     Animation(u32),
+    Observation(GameObjectFactoryObservation),
+    Area([u32; 3]),
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum UnboundOperand {
@@ -94,6 +96,7 @@ struct Factory {
     script_id: u32,
     unbound_operand: Option<UnboundOperand>,
     scripts: SourceScriptRegistry,
+    bell_areas: Option<std::collections::VecDeque<u32>>,
     half_yaw: Option<u32>,
     group: Option<GameObjectGroupEntry>,
     entries: Option<Arc<[u32]>>,
@@ -143,6 +146,7 @@ impl Factory {
             script_id: 0,
             unbound_operand: None,
             scripts,
+            bell_areas: None,
             half_yaw: None,
             group: None,
             entries: None,
@@ -316,6 +320,27 @@ impl GameObjectFactoryOwner<Definitions, Products> for Factory {
         assert!(!self.battleground);
         assert!(position.into_iter().all(f32::is_finite));
         Ok(139)
+    }
+    fn gameobject_area(
+        &mut self,
+        handle: ObjectHandle,
+        position: [f32; 3],
+        context: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<u32> {
+        if let Some(areas) = &mut self.bell_areas {
+            self.actions.push(Action::Area(position.map(f32::to_bits)));
+            Ok(areas.pop_front().unwrap())
+        } else {
+            UnboundCallbacks(self).gameobject_area(handle, position, context)
+        }
+    }
+    fn observe_gameobject_factory(&mut self, observation: GameObjectFactoryObservation) {
+        if matches!(
+            observation,
+            GameObjectFactoryObservation::InstanceOnObjectSpawn
+        ) {
+            self.actions.push(Action::Observation(observation));
+        }
     }
     fn gameobject_outdoor_script(&mut self, zone: u32) -> Result<Option<OutdoorPvpScript>> {
         if self.unbound_operand == Some(UnboundOperand::OutdoorScript) {
@@ -739,34 +764,44 @@ fn gameobject_nonnull_script_factory_refuses_after_world_add_and_visibility() {
     factory.scripts = SourceScriptRegistry::default();
     factory
         .scripts
-        .load_script_names(|| Ok(Some(vec![b"go".to_vec()])))
+        .load_script_names(|| Ok(Some(vec![b"go".to_vec(), b"go_bells".to_vec()])))
         .unwrap();
     factory
         .scripts
-        .initialize_registry([SourceScriptDefinition {
-            name: b"go".to_vec(),
-            registration: 0,
-            operation: "authored".into(),
-            source_file: "authored.cpp".into(),
-            source_line: 1,
-            source_function: "AddSC_authored".into(),
-            slots: BTreeMap::from([("GetGameObjectAI".into(), true)]),
-        }])
+        .initialize_registry([b"go".as_slice(), b"go_bells"].into_iter().enumerate().map(
+            |(ordinal, name)| SourceScriptDefinition {
+                name: name.to_vec(),
+                registration: ordinal as u64,
+                operation: "authored".into(),
+                source_file: "authored.cpp".into(),
+                source_line: 1,
+                source_function: "AddSC_authored".into(),
+                slots: BTreeMap::from([("GetGameObjectAI".into(), true)]),
+            },
+        ))
         .unwrap();
     factory.script_id = factory.scripts.get_script_id(Some(b"go"));
     assert_eq!(factory.script_id, 1);
     assert_eq!(
         world.load(&mut factory, spawn()).unwrap_err().id,
-        "execution.gameobject.loaded_script_get_gameobject_ai_owner",
+        format!("{}.go", script_registry::SCRIPTDEV_GET_GAMEOBJECT_AI_OWNER),
     );
     let handle = world
         .objects
         .lookup_database(map(), DatabaseLookupKind::GameObject, 7)
         .unwrap();
     assert!(world.objects.get(handle).unwrap().in_world);
-    assert!(!factory.objects.get(handle).unwrap().has_ai);
+    assert!(factory.objects.get(handle).unwrap().ai.is_none());
     assert!(factory.visibility.considered_cells > 0);
-    factory.objects.get_mut(handle).unwrap().has_ai = true;
+    factory.script_id = factory.scripts.get_script_id(Some(b"go_bells"));
+    factory
+        .gameobject_callback(
+            handle,
+            GameObjectCallback::InitializeAi,
+            &mut world.context(),
+        )
+        .unwrap();
+    factory.script_id = factory.scripts.get_script_id(Some(b"go"));
     assert_eq!(
         factory
             .gameobject_callback(
@@ -776,9 +811,10 @@ fn gameobject_nonnull_script_factory_refuses_after_world_add_and_visibility() {
             )
             .unwrap_err()
             .id,
-        "execution.gameobject.loaded_script_get_gameobject_ai_owner",
+        format!("{}.go", script_registry::SCRIPTDEV_GET_GAMEOBJECT_AI_OWNER),
     );
-    assert!(factory.objects.get(handle).unwrap().has_ai);
+    let retained = factory.objects.get(handle).unwrap().ai.as_ref().unwrap();
+    assert_eq!(retained.object, handle);
     factory.script_id = 0;
     gameobjects::execute_source_gameobject_callback(
         &mut factory,
@@ -787,7 +823,7 @@ fn gameobject_nonnull_script_factory_refuses_after_world_add_and_visibility() {
         &mut world.context(),
     )
     .unwrap();
-    assert!(!factory.objects.get(handle).unwrap().has_ai);
+    assert!(factory.objects.get(handle).unwrap().ai.is_none());
 }
 #[test]
 fn negative_respawn_never_draws_reads_saved_time_or_summons_link() {
@@ -1550,4 +1586,149 @@ fn gameobject_map_viewpoint_refuses_without_cell_or_camera_owner() {
         world.objects.viewpoint_cell(handle).unwrap(),
         world.cells.registered_cell(handle)
     );
+}
+
+fn bell_fixture(entry: u32, areas: Option<[u32; 2]>) -> (Factory, GameObjectSpawn) {
+    let mut factory = Factory::new();
+    factory.scripts = SourceScriptRegistry::default();
+    factory
+        .scripts
+        .load_script_names(|| Ok(Some(vec![b"go_bells".to_vec()])))
+        .unwrap();
+    factory
+        .scripts
+        .initialize_registry([SourceScriptDefinition {
+            name: b"go_bells".to_vec(),
+            registration: 0,
+            operation: "authored".into(),
+            source_file: "authored.cpp".into(),
+            source_line: 1,
+            source_function: "AddSC_authored".into(),
+            slots: BTreeMap::from([("GetGameObjectAI".into(), true)]),
+        }])
+        .unwrap();
+    factory.script_id = factory.scripts.get_script_id(Some(b"go_bells"));
+    factory.bell_areas = areas.map(Into::into);
+    factory.templates.insert(entry, template(entry, 5));
+    (factory, GameObjectSpawn { entry, ..spawn() })
+}
+
+#[test]
+fn gameobject_bells_reads_both_areas_and_retains_constructor_state() {
+    for (entry, area, routing_area, sound, zone) in [
+        (175885, 1497, 1497, 6595, true),
+        (175885, 2118, 2118, 6595, false),
+        (175885, 272, 272, 6595, false),
+        (175885, 0, 1497, 6675, true),
+        (176573, 809, 809, 7234, false),
+        (176573, 1537, 1537, 7234, true),
+        (176573, 1657, 1657, 6674, true),
+        (176573, 0, 0, 6594, false),
+        (100, 0, 0, 0, false),
+    ] {
+        let (mut factory, spawn) = bell_fixture(entry, Some([area, routing_area]));
+        let position: [u32; 3] = spawn.position_bits[..3].try_into().unwrap();
+        let mut world = World::new();
+        let handle = loaded(world.load(&mut factory, spawn).unwrap());
+        let ai = factory.objects.get(handle).unwrap().ai.as_ref().unwrap();
+        assert_eq!(
+            (
+                ai.object,
+                ai.bell_tolls,
+                ai.bell_sound,
+                ai.bell_timer,
+                ai.bell_plays_to_zone
+            ),
+            (handle, 0, sound, 0, zone)
+        );
+        let object = world.objects.get(handle).unwrap();
+        assert!(object.in_world && object.active && object.notify_on_event);
+        assert!(world.objects.event_notified(map(), handle));
+        assert!(world.cells.active().contains(handle));
+        let area_calls = factory
+            .actions
+            .iter()
+            .filter_map(|action| match action {
+                Action::Area(position) => Some(*position),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(area_calls, vec![position; if entry == 100 { 0 } else { 2 }]);
+        assert!(!factory.actions.contains(&Action::Observation(
+            GameObjectFactoryObservation::InstanceOnObjectSpawn
+        )));
+    }
+}
+
+#[test]
+fn gameobject_bells_requires_the_live_area_owner() {
+    let (mut factory, spawn) = bell_fixture(175885, None);
+    assert_eq!(
+        World::new().load(&mut factory, spawn).unwrap_err().id,
+        "execution.gameobject.Object_1234.GetAreaId_owner"
+    );
+}
+
+#[test]
+fn gameobject_bells_refuses_event_dispatch() {
+    let (mut factory, spawn) = bell_fixture(175885, Some([1497; 2]));
+    let handle = loaded(World::new().load(&mut factory, spawn).unwrap());
+    let ai = factory.objects.get(handle).unwrap().ai.as_ref().unwrap();
+    assert_eq!(
+        ai.on_event_happened(1024, true, false).unwrap_err().id,
+        "execution.gameobject.go_scripts_191.OnEventHappened_owner"
+    );
+}
+
+#[test]
+fn gameobject_bells_refuses_update_dispatch() {
+    let (mut factory, spawn) = bell_fixture(175885, Some([1497; 2]));
+    let handle = loaded(World::new().load(&mut factory, spawn).unwrap());
+    let ai = factory.objects.get(handle).unwrap().ai.as_ref().unwrap();
+    assert_eq!(
+        ai.update_ai(100).unwrap_err().id,
+        "execution.gameobject.go_scripts_206.UpdateAI_owner"
+    );
+}
+
+#[test]
+fn gameobject_bell_event_membership_follows_world_lifetime() {
+    let (mut factory, spawn) = bell_fixture(175885, Some([1497; 2]));
+    let mut world = World::new();
+    let first = loaded(world.load(&mut factory, spawn.clone()).unwrap());
+    factory.bell_areas = Some([1497; 2].into());
+    let second = loaded(
+        world
+            .load(
+                &mut factory,
+                GameObjectSpawn {
+                    database_guid: spawn.database_guid + 1,
+                    ..spawn
+                },
+            )
+            .unwrap(),
+    );
+    assert_eq!(
+        world
+            .objects
+            .event_notification_member(map())
+            .unwrap_err()
+            .id,
+        "execution.map.Map_2983.event_notify_pointer_order_owner"
+    );
+    world.objects.remove_from_world(second).unwrap();
+    assert!(world.objects.get(second).unwrap().notify_on_event);
+    assert!(!world.objects.event_notified(map(), second));
+    assert_eq!(
+        world.objects.event_notification_member(map()).unwrap(),
+        Some(first)
+    );
+    world.objects.add_to_world(second).unwrap();
+    assert!(world.objects.event_notified(map(), second));
+    world
+        .objects
+        .set_notify_on_event_state(second, false)
+        .unwrap();
+    assert!(!world.objects.event_notified(map(), second));
+    assert!(!world.objects.get(second).unwrap().notify_on_event);
 }

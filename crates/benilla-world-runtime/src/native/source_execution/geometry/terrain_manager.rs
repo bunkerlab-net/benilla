@@ -304,7 +304,7 @@ pub struct SourceTerrainManager {
     #[cfg(test)]
     pub grid_product_steps: Vec<&'static str>,
     #[cfg(test)]
-    pub wmo_area_lookups: Vec<(u32, [i32; 3], Option<u16>)>,
+    pub wmo_area_lookups: Vec<(u32, [i32; 3], Option<u16>, u32)>,
     /// Diagnostic actual completions, never inferred from query availability.
     pub pathfinder_constructor_completions: u64,
     pub pathfinder_calculate_completions: u64,
@@ -381,8 +381,12 @@ impl SourceTerrainManager {
             if !vmap_scene::area_hidden_by_terrain(pose[2], height, area.floor) {
                 let flag = self.wmo_areas.flag(area, &self.dbc.areas, map)?;
                 #[cfg(test)]
-                self.wmo_area_lookups
-                    .push((map, [area.root, area.adt, area.group], flag));
+                self.wmo_area_lookups.push((
+                    map,
+                    [area.root, area.adt, area.group],
+                    flag,
+                    area.flags,
+                ));
                 if let Some(flag) = flag {
                     return Ok(flag);
                 }

@@ -80,6 +80,21 @@ impl<D: GridDefinitions<Row = SpawnKey>> GameObjectFactoryOwner<D, SourceTerrain
                 self.lookups.push("go_ai_reset_null");
                 self.lookups.push("go_ai_just_spawned_skipped");
             }
+            GameObjectFactoryObservation::ScriptAiActiveInserted => {
+                self.lookups.push("go_ai_active_inserted");
+            }
+            GameObjectFactoryObservation::ScriptAiFactoryReturned => {
+                self.lookups.push("go_ai_factory_returned");
+            }
+            GameObjectFactoryObservation::ScriptAiJustSpawned => {
+                self.lookups.push("go_ai_just_spawned");
+            }
+            GameObjectFactoryObservation::InstanceOnObjectCreate => {
+                self.lookups.push("go_instance_on_object_create");
+            }
+            GameObjectFactoryObservation::InstanceOnObjectSpawn => {
+                self.lookups.push("go_instance_on_object_spawn");
+            }
         }
     }
     fn gameobject_group(&mut self, guid: u32) -> Result<Option<GameObjectGroupEntry>> {
@@ -201,6 +216,29 @@ impl<D: GridDefinitions<Row = SpawnKey>> GameObjectFactoryOwner<D, SourceTerrain
         self.lookups.push("go_zone");
         Ok(location[0])
     }
+    fn gameobject_area(
+        &mut self,
+        handle: ObjectHandle,
+        position: [f32; 3],
+        context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
+    ) -> Result<u32> {
+        self.lookups.push("go_ai_area");
+        // GridMap.cpp:1397-1403,1415-1421 resolve the same area field.
+        let before = context.products.wmo_area_lookups.len();
+        let area = context
+            .products
+            .zone_and_area(self.map_entry.id, position)?[1];
+        if self.map_entry.id == 0 && context.objects.get(handle)?.database_guid == 15508 {
+            // :60637844 and :60638050 resolve the same WMO group.
+            let hits = &context.products.wmo_area_lookups[before..];
+            assert_eq!(hits.len(), 1);
+            assert_eq!(hits[0], (0, [138, 2, 756], None, 10757));
+            // WMOAreaTable row 20490 has no area. Tile 0005134 cell 209
+            // supplies flag 147, which AreaTable maps to area 42 on map 0.
+            assert_eq!(area, 42);
+        }
+        Ok(area)
+    }
     fn gameobject_outdoor_script(&mut self, zone: u32) -> Result<Option<OutdoorPvpScript>> {
         self.lookups.push("go_outdoor_pvp_get_script");
         self.outdoor_pvp.get_script(zone)
@@ -209,10 +247,10 @@ impl<D: GridDefinitions<Row = SpawnKey>> GameObjectFactoryOwner<D, SourceTerrain
         &mut self,
     ) -> Result<Option<(&SourceGameObjects, &mut SourceWorldScript)>> {
         self.lookups.push("go_instance_data");
-        Ok(self.instance_data.as_deref_mut().map(|script| {
-            self.lookups.push("go_instance_on_object_create");
-            (&self.gameobjects, script)
-        }))
+        Ok(self
+            .instance_data
+            .as_deref_mut()
+            .map(|script| (&self.gameobjects, script)))
     }
     fn gameobject_map_visibility_distance(&mut self) -> Result<u32> {
         Ok(self.map_visibility_bits)
@@ -244,6 +282,12 @@ impl<D: GridDefinitions<Row = SpawnKey>> GameObjectFactoryOwner<D, SourceTerrain
         match callback {
             GameObjectCallback::MapViewpoint => self.lookups.push("go_map_viewpoint_added"),
             GameObjectCallback::MapVisibility => self.lookups.push("go_map_visibility_traversal"),
+            GameObjectCallback::InitializeAi
+                if self.map_entry.id == 0
+                    && context.objects.get(handle)?.database_guid == 15508 =>
+            {
+                self.lookups.push("go15508_ai_initialize");
+            }
             _ => {}
         }
         gameobjects::execute_source_gameobject_callback(self, handle, callback, context)?;

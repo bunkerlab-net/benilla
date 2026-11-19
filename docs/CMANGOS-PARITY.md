@@ -145,9 +145,10 @@ is meaningful without a bounded content/mechanics inventory.
   GUID52349 (`ScriptDevAIMgr.cpp:370`, trace line 60622939).
   EventAI event 649101 replaces 10848 and adds a second passive 9036.
   `Unit.cpp:5326-5446,10856-10866` unlinks both indexes and defers disposal.
-  Map 0 completes 189 objects with 199 allocations, 27,472 random words, and
-  two SQL requests. It stops at `ScriptDevAIMgr.cpp:380` for the `go_bells`
-  factory on GO15508.
+  The map 0 replay completes GO15508. It stops at the creature entry event
+  lookup for GUID4195, entry 265 (`CreatureEventAI.cpp:150`), where event
+  26501 needs its text template. It matches 253 completions, 268 allocations,
+  27,682 random words, and two SQL requests.
   GuardAI construction and its inherited `SpellListChanged` and
   `JustRespawned` callbacks complete for GUID4242 (`Creature.cpp:883-887`).
   `npc_chicken_cluck` completes construction and both resets for GUID4228.
@@ -172,9 +173,13 @@ is meaningful without a bounded content/mechanics inventory.
   uses the object override before map visibility. The Kalimdor callback requests
   activation at `world_kalimdor.cpp:179`. `Object.cpp:2566-2580`
   sets the flag before map add. The construction path uses the default object
-  radius, `GameObject.cpp:2209-2212`, and clears AI on a null script factory result,
-  `GameObject.cpp:2528-2533`, `ScriptDevAIMgr.cpp:373-381`. Unbound notifications
-  and non-null script constructors refuse by name.
+  radius (`GameObject.cpp:2209-2212`). The script factory clears AI for a null
+  slot and retains a live AI for `go_bells` (`ScriptDevAIMgr.cpp:373-381`).
+  The bell reads the current area twice, registers for events, and activates
+  (`go_scripts.cpp:113-189`, `Object.cpp:2566-2597`). `GameObject.cpp:2528-2537`
+  then calls `JustSpawned` and the continent's inherited `OnObjectSpawn`.
+  Other non-null script factories, bell event and update dispatch, and
+  pointer-ordered event notification refuse by name.
 - **Event links and quest activity.** `GameEventMgr.cpp:405` checks loaded pool
   members in `PoolManager.cpp:113-132,164-171,1117-1122` order and reports typed
   mismatches. `QuestDef.cpp:142` starts live quests active.
