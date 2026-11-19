@@ -9,6 +9,36 @@ const DELIVER: u32 = 0x08;
 const KILL_SPEAK: u32 = 0x30;
 const TIMED: u32 = 0x40;
 
+/// Live quest activity, outside source event inventory and native saved state.
+#[derive(Debug)]
+pub struct SourceQuestActivity {
+    active: BTreeMap<u32, bool>,
+}
+
+impl SourceQuestActivity {
+    /// ObjectMgr.cpp:4293 constructs each Quest; QuestDef.cpp:142 sets it active.
+    pub fn from_quest_ids(ids: impl IntoIterator<Item = u32>) -> Self {
+        Self {
+            active: ids.into_iter().map(|id| (id, true)).collect(),
+        }
+    }
+
+    /// GameEventMgr.cpp:542,1069 and QuestDef.h:253.
+    pub fn set_active(&mut self, quest: u32, active: bool) -> Result<()> {
+        // GameEventMgr.cpp:1062-1069 dereferences an absent Quest without checking.
+        let value = self
+            .active
+            .get_mut(&quest)
+            .ok_or_else(|| refuse("execution.event.quest_definition_missing"))?;
+        *value = active;
+        Ok(())
+    }
+
+    pub fn activity(&self) -> impl Iterator<Item = (u32, bool)> + '_ {
+        self.active.iter().map(|(&quest, &active)| (quest, active))
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct QuestFlagRow {
     pub id: u32,

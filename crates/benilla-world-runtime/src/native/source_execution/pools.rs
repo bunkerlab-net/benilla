@@ -154,6 +154,15 @@ pub trait PoolWork {
     ) -> Result<()>;
     fn observe(&mut self, operation: PoolOperation) -> Result<()>;
 }
+/// PoolManager.cpp:113-125 reports the member's own pool.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PoolEventLinkMismatch {
+    pub pool: u16,
+    pub kind: PoolKind,
+    pub guid: u32,
+    pub event: i16,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct PoolTemplate {
     pub map: Option<u32>,
@@ -343,6 +352,58 @@ impl SourcePoolManager {
         self.ensure_loaded()?;
         self.template(pool)
     }
+    /// GameEventMgr.cpp:405; PoolManager.cpp:113-132,164-171,1117-1122.
+    pub fn check_event_links(
+        &self,
+        pool: u16,
+        event: i16,
+        creatures: &BTreeMap<u32, i16>,
+        gameobjects: &BTreeMap<u32, i16>,
+    ) -> Result<Vec<PoolEventLinkMismatch>> {
+        let mut mismatches = Vec::new();
+        self.check_event_links_inner(pool, event, creatures, gameobjects, &mut mismatches)?;
+        Ok(mismatches)
+    }
+
+    fn check_event_links_inner(
+        &self,
+        pool: u16,
+        event: i16,
+        creatures: &BTreeMap<u32, i16>,
+        gameobjects: &BTreeMap<u32, i16>,
+        mismatches: &mut Vec<PoolEventLinkMismatch>,
+    ) -> Result<()> {
+        let template = self.pool_template(pool)?;
+        for (kind, links) in [
+            (PoolKind::GameObject, gameobjects),
+            (PoolKind::Creature, creatures),
+        ] {
+            let group = &template.groups[kind.index()];
+            for member in group.equal.iter().chain(&group.explicit) {
+                if links.get(&member.guid) != Some(&event) {
+                    mismatches.push(PoolEventLinkMismatch {
+                        pool,
+                        kind,
+                        guid: member.guid,
+                        event,
+                    });
+                }
+            }
+        }
+        let children = &template.groups[PoolKind::Child.index()];
+        for child in children.equal.iter().chain(&children.explicit) {
+            // Load already rejected child IDs above the uint16 pool maximum.
+            self.check_event_links_inner(
+                child.guid as u16,
+                event,
+                creatures,
+                gameobjects,
+                mismatches,
+            )?;
+        }
+        Ok(())
+    }
+
     pub fn check_pool(&self, pool: u16) -> Result<bool> {
         self.ensure_loaded()?;
         if pool > self.maximum {
@@ -941,5 +1002,53 @@ impl<W: PoolWork> RollContext for PoolRoll<'_, W> {
             .state(self.state)?
             .pools()
             .contains(self.kind.member(guid)))
+    }
+}
+
+#[cfg(test)]
+mod event_link_tests {
+    use super::*;
+
+    #[test]
+    fn pool_event_links_visit_go_creature_then_children_equal_before_explicit() {
+        let mut manager = SourcePoolManager {
+            maximum: 3,
+            templates: vec![PoolTemplate::default(); 4],
+            loaded: true,
+            ..SourcePoolManager::default()
+        };
+        for (pool, kind, guid, chance) in [
+            (1, PoolKind::GameObject, 10, 100.0),
+            (1, PoolKind::GameObject, 11, 0.0),
+            (1, PoolKind::GameObject, 12, 0.0),
+            (1, PoolKind::Creature, 20, 100.0),
+            (1, PoolKind::Creature, 21, 0.0),
+            (1, PoolKind::Child, 3, 100.0),
+            (1, PoolKind::Child, 2, 0.0),
+            (2, PoolKind::Creature, 22, 0.0),
+            (2, PoolKind::Creature, 23, 0.0),
+            (3, PoolKind::GameObject, 30, 0.0),
+        ] {
+            manager.templates[pool].groups[kind.index()].add(PoolObject::new(guid, chance, 0), 1);
+        }
+        let creatures = BTreeMap::from([(21, -7), (22, 7)]);
+        let gameobjects = BTreeMap::from([(12, 7)]);
+        let mismatches = manager
+            .check_event_links(1, 7, &creatures, &gameobjects)
+            .unwrap();
+        assert_eq!(
+            mismatches
+                .into_iter()
+                .map(|notice| (notice.pool, notice.kind, notice.guid, notice.event))
+                .collect::<Vec<_>>(),
+            [
+                (1, PoolKind::GameObject, 11, 7),
+                (1, PoolKind::GameObject, 10, 7),
+                (1, PoolKind::Creature, 21, 7),
+                (1, PoolKind::Creature, 20, 7),
+                (2, PoolKind::Creature, 23, 7),
+                (3, PoolKind::GameObject, 30, 7),
+            ]
+        );
     }
 }

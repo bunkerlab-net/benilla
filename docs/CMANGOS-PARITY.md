@@ -152,6 +152,11 @@ is meaningful without a bounded content/mechanics inventory.
   radius, `GameObject.cpp:2209-2212`, and clears AI on a null script factory result,
   `GameObject.cpp:2528-2533`, `ScriptDevAIMgr.cpp:373-381`. Unbound notifications
   and non-null script constructors refuse by name.
+- **Event links and quest activity.** `GameEventMgr.cpp:405` checks loaded pool
+  members in `PoolManager.cpp:113-132,164-171,1117-1122` order and reports typed
+  mismatches. `QuestDef.cpp:142` starts live quests active.
+  `GameEventMgr.cpp:542,1069` writes the flag; a missing quest at the latter
+  refuses by name. The live flag adds no saved state.
 - **Dependencies:** native schema/version inspection; local data access and
   provenance; DBC lookups; creature class/level stats; game objects; conditions;
   pools/events/spawn groups; map/instance identity and lifecycle. Native source

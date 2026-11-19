@@ -27,6 +27,21 @@ fn load(row: QuestFlagRow, owner: &mut impl QuestFlagLoaderOwner) -> SourceQuest
 }
 
 #[test]
+fn quest_activity_starts_active_and_refuses_missing_quest_without_inserting_it() {
+    let mut activity = SourceQuestActivity::from_quest_ids([7, 8]);
+    assert!(activity.activity().eq([(7, true), (8, true)]));
+    activity.set_active(7, false).unwrap();
+    assert!(activity.activity().eq([(7, false), (8, true)]));
+    assert_eq!(
+        activity.set_active(9, true).unwrap_err().id,
+        "execution.event.quest_definition_missing"
+    );
+    assert!(activity.activity().eq([(7, false), (8, true)]));
+    activity.set_active(7, true).unwrap();
+    assert!(activity.activity().eq([(7, true), (8, true)]));
+}
+
+#[test]
 fn deliver_sets_before_item_validation_and_preserves_already_set_flags() {
     for initial in [0, DELIVER] {
         let mut row = quest();

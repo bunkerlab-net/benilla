@@ -1014,11 +1014,13 @@ struct Owner<'a> {
     loaded_maps: BTreeMap<(u32, u32), MapIdentity>,
     effects: SourceEventEffects,
     quests: BTreeMap<u32, bool>,
+    quest_activity: SourceQuestActivity,
+    missing_quest_activity_writes: usize,
     status: BTreeSet<u16>,
     sql: Vec<String>,
     pool_operations: Vec<PoolOperation>,
     observations: Vec<GameEventObservation>,
-    link_errors: Vec<(PoolKind, u32, i16)>,
+    link_errors: Vec<PoolEventLinkMismatch>,
     engine: &'a mut Mt19937,
     cursor: &'a mut DrawCursor,
     raw: Vec<(u64, u64)>,
@@ -1058,10 +1060,9 @@ impl GameEventOwner for Owner<'_> {
         Ok(self.ids[kind as usize].contains(&id))
     }
     fn set_quest_active(&mut self, quest: u32, active: bool) -> Result<()> {
-        require(
-            self.ids[3].contains(&quest),
-            "execution.event.quest_definition_missing",
-        )?;
+        let result = self.quest_activity.set_active(quest, active);
+        self.missing_quest_activity_writes += usize::from(result.is_err());
+        result?;
         self.quests.insert(quest, active);
         Ok(())
     }
@@ -1073,53 +1074,9 @@ impl GameEventOwner for Owner<'_> {
         creatures: &BTreeMap<u32, i16>,
         gameobjects: &BTreeMap<u32, i16>,
     ) -> Result<()> {
-        fn check(
-            pools: &SourcePoolManager,
-            pool: u16,
-            event: i16,
-            creatures: &BTreeMap<u32, i16>,
-            gameobjects: &BTreeMap<u32, i16>,
-            errors: &mut Vec<(PoolKind, u32, i16)>,
-        ) -> Result<()> {
-            let template = pools.pool_template(pool)?;
-            for (kind, index) in [
-                (PoolKind::GameObject, 1),
-                (PoolKind::Creature, 2),
-                (PoolKind::Child, 0),
-            ] {
-                let group = &template.groups[index];
-                for object in group.equal.iter().chain(&group.explicit) {
-                    if kind == PoolKind::Child {
-                        check(
-                            pools,
-                            object.guid as u16,
-                            event,
-                            creatures,
-                            gameobjects,
-                            errors,
-                        )?;
-                    } else if (if kind == PoolKind::Creature {
-                        creatures
-                    } else {
-                        gameobjects
-                    })
-                    .get(&object.guid)
-                        != Some(&event)
-                    {
-                        errors.push((kind, object.guid, event));
-                    }
-                }
-            }
-            Ok(())
-        }
-        check(
-            pools,
-            pool,
-            event,
-            creatures,
-            gameobjects,
-            &mut self.link_errors,
-        )
+        self.link_errors
+            .extend(pools.check_event_links(pool, event, creatures, gameobjects)?);
+        Ok(())
     }
     fn effect(
         &mut self,
@@ -1886,6 +1843,24 @@ pub(super) fn continue_startup(
         dispatch,
     );
     let ids = catalog.execution_event_reference_ids().unwrap();
+    let quest_activity = SourceQuestActivity::from_quest_ids(ids[3].iter().copied());
+    let quest_activity_at_load: BTreeMap<_, _> = quest_activity.activity().collect();
+    assert!(quest_activity_at_load.keys().eq(ids[3].iter()));
+    assert!(quest_activity_at_load.values().all(|active| *active));
+    let assert_quest_activity = |owner: &Owner<'_>| {
+        for (quest, active) in owner.quest_activity.activity() {
+            assert_eq!(
+                active,
+                owner
+                    .quests
+                    .get(&quest)
+                    .copied()
+                    .unwrap_or(quest_activity_at_load[&quest]),
+                "live activity for quest {quest}"
+            );
+        }
+        assert_eq!(owner.missing_quest_activity_writes, 0);
+    };
     let mut owner = Owner {
         spawns,
         maps: &inputs.maps,
@@ -1900,6 +1875,8 @@ pub(super) fn continue_startup(
         loaded_maps: BTreeMap::new(),
         effects: SourceEventEffects::new(dynamic),
         quests: BTreeMap::new(),
+        quest_activity,
+        missing_quest_activity_writes: 0,
         status: BTreeSet::new(),
         sql: Vec::new(),
         pool_operations: Vec::new(),
@@ -1915,6 +1892,8 @@ pub(super) fn continue_startup(
         .load_catalog_definitions(catalog, event_occurrences, &mut pools, &mut owner)
         .unwrap();
     owner.pools = pools;
+    assert_eq!(&owner.quests, &events.inventory().quest_active);
+    assert_quest_activity(&owner);
     assert!(owner.clocks.is_empty());
     assert!(events.inventory().loaded);
     // World.cpp:1389 precedes :1416. Loading event 7's calendar is not StartEvent.
@@ -4740,6 +4719,7 @@ pub(super) fn continue_startup(
     assert_eq!(owner.sql, observed.expected_sql);
     assert_eq!(&owner.status, &events.inventory().active);
     assert_eq!(&owner.quests, &events.inventory().quest_active);
+    assert_quest_activity(&owner);
     assert!(!events.active(27));
     assert_eq!(owner.loaded_maps.len(), observed.map_births);
     let created = persistent

@@ -1264,6 +1264,13 @@ The Rust translation is GPL-3.0-or-later. Its source contract is:
   actual unordered successor owner and advances before the callback,
   `Maps/MapPersistentStateMgr.h:374-395`. A canonical inventory sort is not
   an executable traversal.
+- `GameEventMgr.cpp:405` checks event membership through `SourcePoolManager`.
+  `PoolManager.cpp:113-132,164-171,1117-1122` checks gameobjects, creatures,
+  then child pools. Each group visits equal-chance entries before explicit ones.
+  A mismatch returns a typed notice for the member's pool.
+- `SourceQuestActivity` starts each loaded quest active, `QuestDef.cpp:142`.
+  `GameEventMgr.cpp:542,1069` writes the live flag. A missing quest refuses
+  before the unchecked source dereference at `:1069`.
 
 Reached inverted unsigned respawn bounds refuse
 `execution.pool.respawn_bounds_undefined`, `Util/Util.cpp:74-77`.
