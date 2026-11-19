@@ -129,11 +129,15 @@ is meaningful without a bounded content/mechanics inventory.
   Static coverage does not establish execution; this map 0 prefix completes two.
   EventAI event 649101 replaces 10848 and adds a second passive 9036.
   `Unit.cpp:5326-5446,10856-10866` unlinks both indexes and defers disposal.
-  Map 0 completes 143 objects with 148 allocations, 27,356 random words, and
-  two SQL requests. It reaches the nonnull ScriptDev factory for Chicken
-  GUID4228 at `execution.creature.ScriptDevAIMgr_370.GetAI_owner`.
+  Map 0 completes 189 objects with 199 allocations, 27,472 random words, and
+  two SQL requests. It stops at `ScriptDevAIMgr.cpp:380` for the `go_bells`
+  factory on GO15508.
   GuardAI construction and its inherited `SpellListChanged` and
   `JustRespawned` callbacks complete for GUID4242 (`Creature.cpp:883-887`).
+  `npc_chicken_cluck` completes construction and both resets for GUID4228.
+  The live AI retains its cooldown and reset timer (`npcs_special.cpp:60-72`).
+  Clearing the quest-giver flag queues the unit for a client update
+  (`Object.cpp:984-995,1107-1117`). The update drain remains unported.
 - **WMO area catalog.** Startup binds all 21,115 effective WMO rows through the
   existing catalog owner, `World.cpp:908` and `DBCStores.cpp:555-560`.
   Ten duplicate triples retain ascending-ID order. `GridMap.cpp:992-1015`

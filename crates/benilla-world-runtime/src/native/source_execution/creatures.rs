@@ -696,7 +696,7 @@ impl CreatureConstruction {
     }
 
     /// The grid replay drops its construction after Creature.cpp:1768. Guard and Null
-    /// have no derived state; their exact selected factory must already be on the live base.
+    /// must have their exact identity live. A script must already have its full derived state live.
     pub fn check_builtin_ai_discard(
         &self,
         objects: &SourceObjects,
@@ -712,9 +712,22 @@ impl CreatureConstruction {
                 "execution.creature.Creature_1768.builtin_ai_live_retention_owner",
             )?;
             require(
-                ais.get(objects, self.object)?.loaded_builtin.as_ref()
-                    == Some(selected.executable()),
+                matches!(
+                    &ais.get(objects, self.object)?.loaded_class,
+                    LoadedCreatureAiClass::Builtin(executable) if executable == selected.executable()
+                ),
                 "execution.creature.Creature_1768.builtin_ai_identity_owner",
+            )?;
+        }
+        if let Some(AiExecutable::ScriptDevGetAi(binding)) =
+            self.selected_ai().map(SelectedCreatureAi::executable)
+        {
+            require(
+                matches!(
+                    &ais.get(objects, self.object)?.loaded_class,
+                    LoadedCreatureAiClass::Scripted(script) if script.binding() == binding.as_ref()
+                ),
+                "execution.creature.Creature_1768.scripted_ai_identity_owner",
             )?;
         }
         Ok(())
@@ -1512,6 +1525,17 @@ where
         .selected_ai()
         .ok_or_else(|| refuse("execution.ai.selection_absent"))?;
     selected.validate(context.objects)?;
+    if let AiExecutable::ScriptDevGetAi(binding) = selected.executable() {
+        let kind = SourceScriptedAiKind::for_registered_name(&binding.name)?;
+        let owners = factory.creature_builtin_ai_owners(selected)?;
+        return SourceCreatureAis::construct_loaded_script(
+            context.objects,
+            selected,
+            kind,
+            binding,
+            owners,
+        );
+    }
     if selected.executable().builtin_kind() == Some(BuiltinCreatureAi::Pet) {
         let owners = factory.creature_pet_ai_owners(selected)?;
         return state.construct_pet_ai(context.objects, owners);

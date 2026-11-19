@@ -2,7 +2,7 @@
 //! Construction, world membership and GUID lookup remain distinct lifetimes.
 use super::*;
 use benilla_sim::resident_map::CellPair;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct ObjectHandle {
     pub thread: u64,
@@ -104,6 +104,46 @@ pub struct SourceObject {
     allocation_base: Option<u64>,
     player_map_linked: bool,
     global_player_registered: bool,
+    changed_unit_fields: u8,
+    object_updated: bool,
+}
+
+/// Update fields whose writers currently call Object::MarkForClientUpdate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceUnitUpdateField {
+    FactionTemplate = 1,
+    NpcFlags = 2,
+}
+
+impl SourceUnitFields {
+    /// Object.cpp:847-856,984-995. The value write precedes the changed bit and enqueue.
+    pub fn set_client_update_field(
+        &mut self,
+        objects: &mut SourceObjects,
+        unit: ObjectHandle,
+        field: SourceUnitUpdateField,
+        value: u32,
+    ) -> Result<()> {
+        let current = match field {
+            SourceUnitUpdateField::FactionTemplate => &mut self.faction,
+            SourceUnitUpdateField::NpcFlags => &mut self.loaded_creature.npc_flags,
+        };
+        if *current != value {
+            *current = value;
+            objects.mark_unit_field_for_update(unit, field)?;
+            if field == SourceUnitUpdateField::FactionTemplate {
+                // Unit.cpp:6228-6238 reads the current faction template.
+                self.neutral_to_all = None;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl SourceObject {
+    pub fn unit_field_changed(&self, field: SourceUnitUpdateField) -> bool {
+        self.changed_unit_fields & field as u8 != 0
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PoseObservation {
@@ -130,6 +170,7 @@ pub struct SourceObjects {
     database: BTreeMap<(MapIdentity, DatabaseLookupKind, u32), Vec<ObjectHandle>>,
     allocations: BTreeMap<u64, (u64, ObjectHandle)>,
     players: BTreeMap<MapIdentity, std::collections::VecDeque<ObjectHandle>>,
+    client_updates: BTreeMap<MapIdentity, BTreeSet<ObjectHandle>>,
 }
 impl SourceObjects {
     // A construction identity exists before _Create assigns any GUID; Object.cpp:48-59,115-125.
@@ -171,6 +212,8 @@ impl SourceObjects {
                 allocation_base: None,
                 player_map_linked: false,
                 global_player_registered: false,
+                changed_unit_fields: 0,
+                object_updated: false,
             },
         );
         Ok(handle)
@@ -184,6 +227,68 @@ impl SourceObjects {
         self.objects
             .get_mut(&handle)
             .ok_or_else(|| refuse("execution.stale_object_handle"))
+    }
+    fn mark_unit_field_for_update(
+        &mut self,
+        handle: ObjectHandle,
+        field: SourceUnitUpdateField,
+    ) -> Result<()> {
+        let object = self
+            .objects
+            .get_mut(&handle)
+            .ok_or_else(|| refuse("execution.stale_object_handle"))?;
+        object.changed_unit_fields |= field as u8;
+        // Object.cpp:1107-1117,2486-2489; Map.h:287-290.
+        if object.in_world && !object.object_updated {
+            let map = object
+                .map
+                .ok_or_else(|| refuse("execution.object.Object_2488.client_update_map_owner"))?;
+            self.client_updates.entry(map).or_default().insert(handle);
+            object.object_updated = true;
+        }
+        Ok(())
+    }
+
+    pub fn client_update_pending(&self, map: MapIdentity, object: ObjectHandle) -> bool {
+        self.client_updates
+            .get(&map)
+            .is_some_and(|pending| pending.contains(&object))
+    }
+
+    /// Map.cpp:2409-2413. Membership has no pointer order. Not all in-world field
+    /// writers mark updates yet, so completeness is unproven even with zero or one member.
+    pub fn send_object_updates(&self, map: MapIdentity) -> Result<()> {
+        if self
+            .client_updates
+            .get(&map)
+            .is_some_and(|set| set.len() > 1)
+        {
+            return Err(refuse(
+                "execution.map.Map_2409.client_update_pointer_order_owner",
+            ));
+        }
+        Err(refuse("execution.map.Map_2409.client_update_writers_owner"))
+    }
+
+    /// Object.cpp:719-733. `remove` is false on AddToWorld and true on RemoveFromWorld.
+    fn clear_update_mask(&mut self, handle: ObjectHandle, remove: bool) -> Result<()> {
+        let object = self
+            .objects
+            .get_mut(&handle)
+            .ok_or_else(|| refuse("execution.stale_object_handle"))?;
+        object.changed_unit_fields = 0;
+        if object.object_updated {
+            if remove {
+                let map = object.map.ok_or_else(|| {
+                    refuse("execution.object.Object_2493.client_update_map_owner")
+                })?;
+                if let Some(pending) = self.client_updates.get_mut(&map) {
+                    pending.remove(&handle);
+                }
+            }
+            object.object_updated = false;
+        }
+        Ok(())
     }
     pub fn pose(&self, handle: ObjectHandle) -> Result<SourcePose> {
         self.get(handle)?
@@ -451,6 +556,9 @@ impl SourceObjects {
             object.kind != SourceObjectKind::Camera,
             "execution.camera_not_world_object",
         )?;
+        if object.in_world {
+            return Ok(());
+        }
         if let Some(kind) = object
             .kind
             .lookup_kind()
@@ -462,7 +570,7 @@ impl SourceObjects {
             )?;
         }
         self.get_mut(handle)?.in_world = true;
-        Ok(())
+        self.clear_update_mask(handle, false)
     }
     // Contiguous callers use both phases without an intervening entity hook; Creature.cpp:173-202, Pet.cpp:70-76.
     pub fn add_to_world(&mut self, handle: ObjectHandle) -> Result<()> {
@@ -473,7 +581,7 @@ impl SourceObjects {
     pub fn remove_from_world(&mut self, handle: ObjectHandle) -> Result<()> {
         let object = self.get(handle)?;
         if !object.in_world {
-            return Ok(());
+            return self.clear_update_mask(handle, true);
         }
         let kind = object.kind;
         let database_key = object
@@ -492,6 +600,7 @@ impl SourceObjects {
                 objects.retain(|object| *object != handle);
             }
         }
+        self.clear_update_mask(handle, true)?;
         self.get_mut(handle)?.in_world = false;
         Ok(())
     }

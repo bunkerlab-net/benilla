@@ -130,10 +130,10 @@ fn guard_initialization_constructs_base_and_resets_in_callback_order() {
     .unwrap();
     let ai = ais.get_mut(&objects, unit).unwrap();
     assert_eq!(guard.selected().executable(), selected.executable());
-    assert_eq!(
-        ai.loaded_builtin.as_ref(),
-        Some(guard.selected().executable())
-    );
+    assert!(matches!(
+        &ai.loaded_class,
+        LoadedCreatureAiClass::Builtin(executable) if executable == guard.selected().executable()
+    ));
     drop(guard);
     let ai = &mut ai.base;
     assert!(units.get(&objects, unit).unwrap().has_ai);
@@ -163,7 +163,7 @@ fn guard_initialization_constructs_base_and_resets_in_callback_order() {
         threats: &mut SourceThreats::default(),
         owner: &mut owner,
     }
-    .guard_spell_list_changed(unit)
+    .loaded_spell_list_changed(unit)
     .unwrap();
     let ai = &ais.get(&objects, unit).unwrap().base;
     assert_eq!((ai.main_spell_id, ai.main_attack_mask), (0, 0));
@@ -172,7 +172,7 @@ fn guard_initialization_constructs_base_and_resets_in_callback_order() {
     assert_eq!(ai.attack_distance, 0.);
     assert_eq!(owner.cursor.raw, 2);
 
-    ais.guard_just_respawned(&objects, unit, &mut owner)
+    ais.loaded_just_respawned(&mut objects, &mut units, unit, &mut owner)
         .unwrap();
     let ai = &ais.get(&objects, unit).unwrap().base;
     assert_eq!(
@@ -183,6 +183,283 @@ fn guard_initialization_constructs_base_and_resets_in_callback_order() {
     assert!(ai.current_ranged_mode);
     assert_eq!(ai.attack_distance, 30.);
     assert_eq!(owner.cursor.raw, 4);
+}
+
+#[test]
+fn chicken_constructor_and_respawn_run_both_resets_on_the_live_unit() {
+    use super::super::creature_tests::{chicken_binding, MissingRandom};
+    let mut builder = AiRegistryBuilder::builtin();
+    builder.load_scripts([chicken_binding()]).unwrap();
+    let registry = builder.freeze();
+    let map = MapIdentity {
+        map: 0,
+        instance: 0,
+        creation_generation: 1,
+    };
+    let cells = SourceCells::new(map).unwrap();
+    let mut objects = SourceObjects::default();
+    let mut units = SourceUnits::default();
+    let mut ais = SourceCreatureAis::default();
+    let mut t = template("");
+    // Stock SQL :421539, with an authored changed-faction arm below.
+    t.entry = 620;
+    t.faction = 31;
+    t.script_name = "npc_chicken_cluck".into();
+    let mut combat = SourceCombat::default();
+    let config = config();
+    for (in_world, faction, extra_flags) in [(true, 31, 0), (false, 35, 8)] {
+        let unit = objects.construct(1, SourceObjectKind::Creature).unwrap();
+        objects.bind_map(unit, map, &cells).unwrap();
+        objects
+            .assign_guid(
+                unit,
+                0,
+                SourceGuid::with_entry(HighGuid::Creature, 620, unit.construction as u32),
+            )
+            .unwrap();
+        if in_world {
+            objects.add_to_world(unit).unwrap();
+        }
+        let mut live = SourceUnitFields::creature(&t);
+        live.faction = faction;
+        live.loaded_creature.npc_flags = 2 | extra_flags;
+        units.register(&objects, unit, live).unwrap();
+        let selected = registry
+            .select(
+                &objects,
+                unit,
+                t.clone().inputs(CreatureAiControl::default(), false),
+                SourceControlGuids::default(),
+            )
+            .unwrap();
+        let AiExecutable::ScriptDevGetAi(binding) = selected.executable() else {
+            panic!("expected GetAI")
+        };
+        let mut construct = |random: &mut dyn CreatureRandom| {
+            SourceCreatureAis::construct_loaded_script(
+                &mut objects,
+                &selected,
+                SourceScriptedAiKind::ChickenCluck,
+                binding,
+                BuiltinAiFactoryOwners {
+                    units: &mut units,
+                    ais: &mut ais,
+                    random,
+                    base: BuiltinAiBase::Loaded {
+                        combat: &mut combat,
+                        template: &t,
+                        config: &config,
+                    },
+                },
+            )
+        };
+        assert_eq!(
+            construct(&mut MissingRandom).unwrap_err().id,
+            "execution.timer_ai.thread_rng_owner"
+        );
+        assert_eq!(
+            units.get(&objects, unit).unwrap().loaded_creature.npc_flags,
+            2 | extra_flags
+        );
+        assert_eq!(units.get(&objects, unit).unwrap().faction, faction);
+        assert!(!objects.client_update_pending(map, unit));
+        // The constructor must draw both generic timers before Reset changes the unit.
+        let mut owner = Random::new();
+        SourceCreatureAis::construct_loaded_script(
+            &mut objects,
+            &selected,
+            SourceScriptedAiKind::ChickenCluck,
+            binding,
+            BuiltinAiFactoryOwners {
+                units: &mut units,
+                ais: &mut ais,
+                random: &mut owner,
+                base: BuiltinAiBase::Loaded {
+                    combat: &mut combat,
+                    template: &t,
+                    config: &config,
+                },
+            },
+        )
+        .unwrap();
+        assert_eq!(owner.cursor.raw, 2);
+        let live = units.get(&objects, unit).unwrap();
+        assert!(live.has_ai);
+        assert_eq!(
+            (live.faction, live.loaded_creature.npc_flags),
+            (31, extra_flags)
+        );
+        assert_eq!(
+            objects
+                .get(unit)
+                .unwrap()
+                .unit_field_changed(SourceUnitUpdateField::FactionTemplate),
+            faction != 31
+        );
+        assert!(objects
+            .get(unit)
+            .unwrap()
+            .unit_field_changed(SourceUnitUpdateField::NpcFlags));
+        assert_eq!(objects.client_update_pending(map, unit), in_world);
+        let ai = ais.get_mut(&objects, unit).unwrap();
+        let LoadedCreatureAiClass::Scripted(SourceScriptedAi::ChickenCluck(chicken)) =
+            &mut ai.loaded_class
+        else {
+            panic!("expected chicken")
+        };
+        assert_eq!(
+            (chicken.evade_check_cooldown_ms, chicken.reset_flag_timer_ms),
+            (2500, 20000)
+        );
+        assert_eq!(ai.base.action_count(), 0);
+        assert_eq!(
+            ai.base
+                .generic_timers
+                .map(|timer| (timer.id, timer.remaining, timer.disabled)),
+            [(2000, 0, true), (2001, 0, true)]
+        );
+        chicken.reset_flag_timer_ms = 17;
+        ai.base.generic_timers[0].remaining = 555;
+        ai.base.main_spell_id = 123;
+        if !in_world {
+            objects.add_to_world(unit).unwrap();
+            assert!(!objects
+                .get(unit)
+                .unwrap()
+                .unit_field_changed(SourceUnitUpdateField::FactionTemplate));
+            assert!(!objects
+                .get(unit)
+                .unwrap()
+                .unit_field_changed(SourceUnitUpdateField::NpcFlags));
+        }
+        SourceAiExecution {
+            queries: SourceUnitQueries {
+                objects: &objects,
+                units: &mut units,
+            },
+            ais: &mut ais,
+            threats: &mut SourceThreats::default(),
+            owner: &mut owner,
+        }
+        .loaded_spell_list_changed(unit)
+        .unwrap();
+        let ai = ais.get(&objects, unit).unwrap();
+        assert_eq!(
+            (ai.base.main_spell_id, ai.base.generic_timers[0].remaining),
+            (0, 555)
+        );
+        assert_eq!(owner.cursor.raw, 2);
+        ais.loaded_just_respawned(&mut objects, &mut units, unit, &mut owner)
+            .unwrap();
+        let ai = ais.get_mut(&objects, unit).unwrap();
+        let LoadedCreatureAiClass::Scripted(script) = &mut ai.loaded_class else {
+            panic!("expected script")
+        };
+        let SourceScriptedAi::ChickenCluck(chicken) = script;
+        assert_eq!(
+            (chicken.evade_check_cooldown_ms, chicken.reset_flag_timer_ms),
+            (2500, 20000)
+        );
+        assert_eq!(
+            ai.base
+                .generic_timers
+                .map(|timer| (timer.remaining, timer.disabled)),
+            [(0, true); 2]
+        );
+        assert_eq!(owner.cursor.raw, 4);
+        let live = units.get(&objects, unit).unwrap();
+        assert_eq!(
+            (live.faction, live.loaded_creature.npc_flags),
+            (31, extra_flags)
+        );
+        assert!(!objects
+            .get(unit)
+            .unwrap()
+            .unit_field_changed(SourceUnitUpdateField::FactionTemplate));
+        assert_eq!(
+            objects
+                .get(unit)
+                .unwrap()
+                .unit_field_changed(SourceUnitUpdateField::NpcFlags),
+            in_world
+        );
+        assert_eq!(objects.client_update_pending(map, unit), in_world);
+        assert_eq!(
+            script.receive_emote(unit, 0).unwrap_err().id,
+            "execution.ai.ChatHandler_798.ReceiveEmote_owner.npc_chicken_cluck"
+        );
+        assert_eq!(
+            script.update_ai(1).unwrap_err().id,
+            "execution.ai.Unit_528.UpdateAI_owner.npc_chicken_cluck"
+        );
+    }
+}
+
+#[test]
+fn client_update_mask_and_queue_follow_world_membership() {
+    let map = MapIdentity {
+        map: 0,
+        instance: 0,
+        creation_generation: 1,
+    };
+    let cells = SourceCells::new(map).unwrap();
+    let mut objects = SourceObjects::default();
+    let mut units = SourceUnits::default();
+    let field = SourceUnitUpdateField::FactionTemplate;
+    let mut make = |low| {
+        let unit = objects.construct(1, SourceObjectKind::Creature).unwrap();
+        objects.bind_map(unit, map, &cells).unwrap();
+        objects
+            .assign_guid(
+                unit,
+                0,
+                SourceGuid::with_entry(HighGuid::Creature, 620, low),
+            )
+            .unwrap();
+        units
+            .register(&objects, unit, SourceUnitFields::creature(&template("")))
+            .unwrap();
+        unit
+    };
+    let a = make(1);
+    let b = make(2);
+    let mut put = |objects: &mut SourceObjects, unit, value| {
+        units
+            .get_mut(objects, unit)
+            .unwrap()
+            .set_client_update_field(objects, unit, field, value)
+            .unwrap();
+    };
+    put(&mut objects, a, 31);
+    assert!(objects.get(a).unwrap().unit_field_changed(field));
+    assert!(!objects.client_update_pending(map, a));
+    objects.add_to_world(a).unwrap();
+    assert!(!objects.get(a).unwrap().unit_field_changed(field));
+    put(&mut objects, a, 31);
+    assert!(!objects.get(a).unwrap().unit_field_changed(field));
+    assert!(!objects.client_update_pending(map, a));
+    put(&mut objects, a, 35);
+    assert!(objects.client_update_pending(map, a));
+    assert_eq!(
+        objects.send_object_updates(map).unwrap_err().id,
+        "execution.map.Map_2409.client_update_writers_owner"
+    );
+    objects.add_to_world(a).unwrap();
+    assert!(objects.get(a).unwrap().unit_field_changed(field));
+    objects.add_to_world(b).unwrap();
+    put(&mut objects, b, 31);
+    assert!(objects.client_update_pending(map, b));
+    assert_eq!(
+        objects.send_object_updates(map).unwrap_err().id,
+        "execution.map.Map_2409.client_update_pointer_order_owner"
+    );
+    objects.remove_from_world(a).unwrap();
+    assert!(!objects.get(a).unwrap().unit_field_changed(field));
+    assert!(!objects.client_update_pending(map, a));
+    assert!(objects.client_update_pending(map, b));
+    objects.add_to_world(a).unwrap();
+    put(&mut objects, a, 31);
+    assert!(objects.client_update_pending(map, a));
 }
 #[derive(Default)]
 struct Authored {
@@ -824,7 +1101,7 @@ fn respawn_and_unsummon_follow_the_selected_base_class() {
         base.ranged_mode = true;
         base.current_ranged_mode = false;
         base.chase_distance = 7.;
-        f.ai.just_respawned(&f.objects, &mut f.ais, &mut f.random)
+        f.ai.just_respawned(&mut f.objects, &mut f.units, &mut f.ais, &mut f.random)
             .unwrap();
         assert_eq!(
             f.random.cursor.raw,

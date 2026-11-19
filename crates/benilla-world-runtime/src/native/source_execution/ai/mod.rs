@@ -7,6 +7,8 @@ mod null;
 mod pet;
 pub use pet::*;
 mod possessed;
+mod scripted;
+pub use scripted::*;
 mod summoned;
 pub use summoned::*;
 #[cfg(test)]
@@ -317,7 +319,8 @@ impl SourceBuiltinAi {
     }
     pub fn just_respawned(
         &mut self,
-        objects: &SourceObjects,
+        objects: &mut SourceObjects,
+        units: &mut SourceUnits,
         ais: &mut SourceCreatureAis,
         random: &mut dyn CreatureRandom,
     ) -> Result<()> {
@@ -329,7 +332,7 @@ impl SourceBuiltinAi {
         if !matches!(self.body, BuiltinBody::Possessed(_)) {
             // CreatureAI.cpp:124-128 versus the empty UnitAI.h:260 callback.
             ais.get_mut(objects, self.selected.object())?
-                .just_respawned(random)?;
+                .just_respawned(objects, units, random)?;
         }
         Ok(())
     }

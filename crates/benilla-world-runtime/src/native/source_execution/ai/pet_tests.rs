@@ -447,7 +447,8 @@ fn pet_overrides_do_not_fall_back_to_creature_ai() {
     let unit = f.selected.object();
     f.ais.get_mut(&f.objects, unit).unwrap().base.generic_timers[0].remaining = 100;
     ai.just_respawned(
-        &f.objects,
+        &mut f.objects,
+        &mut f.units,
         &mut f.ais,
         &mut super::super::creature_tests::MissingRandom,
     )

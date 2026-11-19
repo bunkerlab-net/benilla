@@ -43,10 +43,12 @@ const GROUP_QUERIES: [&str; 6] = [
     "SELECT Id, SquadId, Guid, Entry FROM spawn_group_squad",
 ];
 const EVENT_AI_QUERY: &str = "SELECT id, creature_id, event_type, event_inverse_phase_mask, event_chance, event_flags, event_param1, event_param2, event_param3, event_param4, event_param5, event_param6, action1_type, action1_param1, action1_param2, action1_param3, action2_type, action2_param1, action2_param2, action2_param3, action3_type, action3_param1, action3_param2, action3_param3 FROM creature_ai_scripts ORDER BY id";
-// The next unconsumed word belongs to npc_chicken_cluck's UnitAI base.
-const MAP0_BEFORE_CHICKEN_TIMER: u64 = 60580494;
+// The first word of npc_chicken_cluck's zero-action CreatureAI base.
+const MAP0_CHICKEN_TIMER: u64 = 60580494;
+const MAP0_CHICKEN_RAW: usize = 27356;
 const MAP0_GUARD_RAW: usize = 27328;
-const MAP0_NEXT_RAW: usize = 27356;
+const MAP0_NEXT_RAW: usize = 27472; // :60638177, after the first bell factory.
+const MAP0_NEXT_OWNER_LINE: u64 = 60637563;
 
 fn retained_f1_file(root: &Path, recorded: &Path, expected: &Sha256Id) -> Result<Vec<u8>> {
     let prefix = recorded
@@ -84,7 +86,8 @@ fn map0_receipt<const N: usize>(rows: impl Iterator<Item = [u64; N]>) -> String 
 fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::ActiveClocks) {
     // The GUID40520 birth was already counted. The remaining 53 births include
     // the trap at :60493861 and both duplicate creature attempts.
-    assert_eq!(evidence.continuation_births.len(), 60);
+    // The continuation through the Bell GO adds 51 births, :60580681-60637267.
+    assert_eq!(evidence.continuation_births.len(), 111);
     let births = &evidence.continuation_births[1..54];
     assert_eq!((births[0], births[52]), (60478620, 60571587));
     assert_eq!(
@@ -92,11 +95,11 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
         "fd02f4a98005a10bdacc5c1d342b14d97a8c9ac57409e744915deef010045e54"
     );
     assert_eq!(
-        &evidence.continuation_births[54..],
+        &evidence.continuation_births[54..60],
         [60574126, 60575661, 60576274, 60576775, 60577108, 60579285]
     );
     assert_eq!(
-        evidence.continuation_completed,
+        &evidence.continuation_completed[..56],
         [
             (60478609, 40520),
             (60479696, 1578),
@@ -156,6 +159,24 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
             (60579270, 4198),
         ]
     );
+    let births = &evidence.continuation_births[60..];
+    assert_eq!((births[0], births[50]), (60580681, 60637267));
+    assert_eq!(
+        map0_receipt(births.iter().map(|&line| [line])),
+        "6234e9fada61f0581a42108b6276df7ec12bd3a9835545448d6e921930eee51a"
+    );
+    let completions = &evidence.continuation_completed[56..];
+    assert_eq!(completions.len(), 46);
+    assert_eq!(completions[0], (60580671, 4228));
+    assert_eq!(completions[45], (60637264, 15421));
+    assert_eq!(
+        map0_receipt(
+            completions
+                .iter()
+                .map(|&(line, guid)| [line, u64::from(guid)])
+        ),
+        "ae02fead37484a452953c8deba64e4f343ee472f6908803227b71f52bbf2cdd8"
+    );
     // The replay also compares each word, request and result in order below.
     let words = &evidence.words[27087..MAP0_GUARD_RAW];
     assert_eq!(words[0], (60478655, 27087, 2231193506));
@@ -167,7 +188,7 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
     // The first pair is Timer::Timer (:23); the second is ResetTimer (:47).
     // SpellListChanged has no draw at :60574013. JustRespawned starts at :60574032.
     assert_eq!(
-        &evidence.words[MAP0_GUARD_RAW..MAP0_NEXT_RAW],
+        &evidence.words[MAP0_GUARD_RAW..MAP0_CHICKEN_RAW],
         [
             (60573960, 27328, 4005247489),
             (60573993, 27329, 1795029007),
@@ -200,9 +221,23 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
         ]
     );
     assert_eq!(
-        evidence.words[MAP0_NEXT_RAW],
-        (MAP0_BEFORE_CHICKEN_TIMER, 27356, 360747331)
+        &evidence.words[MAP0_CHICKEN_RAW..MAP0_CHICKEN_RAW + 4],
+        [
+            // TimerAI.cpp:23,47. The SpellListChanged dispatch at :60580583 draws nothing.
+            (MAP0_CHICKEN_TIMER, 27356, 360747331),
+            (60580531, 27357, 2445076291),
+            (60580617, 27358, 1612564339),
+            (60580637, 27359, 843612412),
+        ]
     );
+    // 116 new words, :60580494-60637549, including the four chicken timer draws.
+    let words = &evidence.words[MAP0_CHICKEN_RAW..MAP0_NEXT_RAW];
+    assert_eq!(words[115], (60637549, 27471, 2490111375));
+    assert_eq!(
+        map0_receipt(words.iter().map(|&(line, raw, word)| [line, raw, word])),
+        "5c0d7a8a781036bde0b46a2c740a259b055e7da8b544a08bca2b0fdb182ca404"
+    );
+    assert_eq!(evidence.words[MAP0_NEXT_RAW], (60638177, 27472, 1912213781));
     let consumed = evidence.active_clocks.0.len() - clocks.0.len();
     let new_clocks = evidence
         .active_clocks
@@ -210,7 +245,7 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
         .iter()
         .take(consumed)
         .filter(|clock| clock.time_line > 60478161);
-    assert_eq!(new_clocks.clone().count(), 38);
+    assert_eq!(new_clocks.clone().count(), 51); // Adds :60581521-60625673.
     assert_eq!(
         map0_receipt(new_clocks.clone().take(34).map(|clock| [
             clock.site_line,
@@ -224,7 +259,9 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
     );
     assert_eq!(
         new_clocks
+            .clone()
             .skip(34)
+            .take(4)
             .map(|clock| (clock.site_line, clock.time_line, clock.raw, clock.seconds))
             .collect::<Vec<_>>(),
         [
@@ -234,7 +271,28 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
             (60579682, 60579683, 27356, 1794314190),
         ]
     );
-    assert_eq!(clocks.0.front().unwrap().time_line, 60581521);
+    assert_eq!(
+        new_clocks
+            .skip(38)
+            .map(|clock| (clock.site_line, clock.time_line, clock.raw, clock.seconds))
+            .collect::<Vec<_>>(),
+        [
+            (60581518, 60581521, 27362, 1794314190),
+            (60585022, 60585025, 27372, 1794314190),
+            (60587353, 60587356, 27378, 1794314190),
+            (60597330, 60597331, 27394, 1794314190),
+            (60598552, 60598555, 27400, 1794314190),
+            (60600578, 60600579, 27406, 1794314190),
+            (60605634, 60605636, 27412, 1794314190),
+            (60607322, 60607335, 27418, 1794314190),
+            (60608605, 60608606, 27424, 1794314190),
+            (60611355, 60611358, 27430, 1794314190),
+            (60616070, 60616071, 27440, 1794314190),
+            (60624558, 60624560, 27446, 1794314190),
+            (60625671, 60625673, 27452, 1794314190),
+        ]
+    );
+    assert_eq!(clocks.0.front().unwrap().time_line, 60638936);
 }
 
 fn assert_guid40520_queue(spells: &SourceSpellStarts, events: &SourceUnitEvents) {
@@ -565,14 +623,14 @@ impl Inputs {
             }
             "logical_birth"
                 if p[1] == "object"
-                    && (thread == 6 && (60476953..MAP0_BEFORE_CHICKEN_TIMER).contains(&line)
+                    && (thread == 6 && (60476953..MAP0_NEXT_OWNER_LINE).contains(&line)
                         || thread == 7
                             && (60310149..MAP1_BEFORE_AREA_AURA_HOLDER).contains(&line)) =>
             {
                 evidence.continuation_births.push(line);
             }
             "constructor_loader_success"
-                if thread == 6 && (60478609..MAP0_BEFORE_CHICKEN_TIMER).contains(&line)
+                if thread == 6 && (60478609..MAP0_NEXT_OWNER_LINE).contains(&line)
                     || thread == 7 && (60435155..MAP1_BEFORE_AREA_AURA_HOLDER).contains(&line) =>
             {
                 evidence
@@ -580,7 +638,7 @@ impl Inputs {
                     .push((line, p[1].parse().unwrap()));
             }
             "path_calculate"
-                if thread == 6 && (60478609..MAP0_BEFORE_CHICKEN_TIMER).contains(&line)
+                if thread == 6 && (60478609..MAP0_NEXT_OWNER_LINE).contains(&line)
                     || thread == 7 && (60310149..MAP1_BEFORE_AREA_AURA_HOLDER).contains(&line) =>
             {
                 evidence.path_calculations.push(line);
@@ -722,7 +780,7 @@ impl Inputs {
                 evidence.total_words += 1;
             }
             "sql_request_bytes" | "sql_write_bytes" => {
-                if thread == 6 && line < MAP0_BEFORE_CHICKEN_TIMER
+                if thread == 6 && line < MAP0_NEXT_OWNER_LINE
                     || thread == 7 && line < MAP1_BEFORE_AREA_AURA_HOLDER
                 {
                     evidence.sql_lines.push(line);
@@ -1579,7 +1637,14 @@ pub(super) fn continue_startup(
     let level_config = CreatureLevelConfig::parse(&config, Sha256Id::of(&config)).unwrap();
     let faction_flags = creature_models::faction_flags(catalog);
     // World.cpp:1381, before MapManager initialization at :1389. Shared F5.01 identity.
-    let ai_registry = SourceAiRegistry::builtin();
+    let script_report = std::env::var_os("BENILLA_F5_SCRIPT_REPORT").unwrap();
+    let script_report = Path::new(&script_report);
+    let script_report_hash = Sha256Id::of(&std::fs::read(script_report).unwrap());
+    let mut ai_registry = AiRegistryBuilder::builtin();
+    ai_registry
+        .load_catalog_scripts(catalog, script_report)
+        .unwrap();
+    let ai_registry = ai_registry.freeze();
     let ai_factions = CreatureAiFactions::load_catalog(catalog).unwrap();
     let ai_config = EventAiLoaderConfig::parse(&config, Sha256Id::of(&config)).unwrap();
     let ai_templates = catalog_creature_ai_census_inputs(catalog)
@@ -2500,6 +2565,9 @@ pub(super) fn continue_startup(
             &config,
         )
         .unwrap();
+        if slot == 0 {
+            eprintln!("F6_DISCOVERY guid={} kind={:?} cell=({}, {}) entry={entry} completed={completed} candidates={candidates} raw={} clocks={} sql={:?} motion={} refusal={} end={:?}", attempt.guid, attempt.kind, attempt.cell.x(), attempt.cell.y(), random.cursor().raw, evidence.active_clocks.0.len() - active_clocks.0.len(), evidence.sql_lines, geometry.pathfinder_calculate_completions - calculations_before, refusal.id, active_clocks.0.front());
+        }
         for &handle in completed_objects.iter().chain(std::iter::once(&candidate)) {
             assert_eq!(
                 continents.maps[slot].passengers.transport(handle).unwrap(),
@@ -2545,13 +2613,19 @@ pub(super) fn continue_startup(
                 evidence.path_calculations,
                 [
                     60489268, 60491574, 60495870, 60499147, 60500803, 60502330, 60504017, 60506382,
-                    60560688, 60562420, 60569803,
+                    60560688, 60562420, 60569803, 60601394, 60617030, 60619528, 60621889, 60627229,
+                    60629698,
                 ]
             );
             assert_eq!(evidence.sql_lines, [60100980, 60101139]);
+            assert_eq!(
+                Sha256Id::of(&std::fs::read(script_report).unwrap()),
+                script_report_hash,
+                "both ScriptDev registry views use BENILLA_F5_SCRIPT_REPORT"
+            );
             assert_map0_continuation(evidence, &active_clocks);
             assert_eq!(
-                completed_objects[137..]
+                completed_objects[137..143]
                     .iter()
                     .map(|&object| active_objects.get(object).unwrap().database_guid)
                     .collect::<Vec<_>>(),
@@ -2565,13 +2639,11 @@ pub(super) fn continue_startup(
             assert!(units.get(&active_objects, guard).unwrap().has_ai);
             let guard_ai = ais.get(&active_objects, guard).unwrap();
             assert!(guard_ai.guard);
-            assert_eq!(
-                guard_ai
-                    .loaded_builtin
-                    .as_ref()
-                    .and_then(AiExecutable::builtin_kind),
-                Some(BuiltinCreatureAi::Guard)
-            );
+            assert!(matches!(
+                &guard_ai.loaded_class,
+                LoadedCreatureAiClass::Builtin(executable)
+                    if executable.builtin_kind() == Some(BuiltinCreatureAi::Guard)
+            ));
             assert_eq!(
                 guard_ai.base.generic_timers.map(|timer| (
                     timer.id,
@@ -2588,6 +2660,60 @@ pub(super) fn continue_startup(
                     "creature_instance_respawn_callback",
                     "creature_creator_loot_checked",
                 ]));
+            // Script::GetAI :60580449, SpellListChanged :60580583, JustRespawned
+            // :60580604, OnCreatureRespawn :60580659, load completion :60580671.
+            let chicken = completed_objects[143];
+            let object = active_objects.get(chicken).unwrap();
+            assert_eq!(
+                (object.database_guid, object.guid.unwrap().entry()),
+                (4228, 620)
+            );
+            assert!(object.in_world);
+            // initial-classicmangos.sql:421539, Creature.cpp:541-559, npcs_special.cpp:68-71.
+            let template = creature_templates.get(620).unwrap();
+            assert_eq!((template.words[13], template.words[20]), (31, 2));
+            let live = units.get(&active_objects, chicken).unwrap();
+            assert_eq!((live.faction, live.loaded_creature.npc_flags), (31, 0));
+            assert!(live.has_ai);
+            // The recording does not instrument the field mask or Map::AddUpdateObject.
+            assert!(!object.unit_field_changed(SourceUnitUpdateField::FactionTemplate));
+            assert!(object.unit_field_changed(SourceUnitUpdateField::NpcFlags));
+            assert!(active_objects.client_update_pending(continents.maps[slot].identity, chicken));
+            let ai = ais.get(&active_objects, chicken).unwrap();
+            let LoadedCreatureAiClass::Scripted(script) = &ai.loaded_class else {
+                panic!("entry 620 must retain the ScriptDev AI");
+            };
+            let SourceScriptedAi::ChickenCluck(state) = script;
+            assert_eq!(
+                (script.binding().script_id, script.binding().name.as_str()),
+                (261, "npc_chicken_cluck")
+            );
+            assert_eq!(
+                (state.evade_check_cooldown_ms, state.reset_flag_timer_ms),
+                (2500, 20000)
+            );
+            assert_eq!(
+                ai.base
+                    .generic_timers
+                    .map(|timer| (timer.id, timer.remaining, timer.disabled)),
+                [(2000, 0, true), (2001, 0, true)]
+            );
+            assert!(lookups.windows(13).any(|steps| steps
+                == [
+                    "creature_ai_script_registry_lookup",
+                    "creature_ai_selected",
+                    "creature_base_ai_constructed",
+                    "creature_scripted_ai_constructed",
+                    "creature_ai_spell_list_changed",
+                    "creature_ai_just_respawned",
+                    "creature_instance_respawn_callback",
+                    "creature_creator_loot_checked",
+                    "creature_aim_initialize_return",
+                    "creature_spawn_relay_checked",
+                    "creature_respawn_group_checked",
+                    "creature_scripted_ai_retained",
+                    "creature_load_from_db_return",
+                ]));
             assert_eq!(
                 (
                     attempt.guid,
@@ -2596,12 +2722,13 @@ pub(super) fn continue_startup(
                     attempt.cell.x(),
                     attempt.cell.y()
                 ),
-                // Script::GetAI argument :60580449 and dispatch :60580467.
-                (4228, GridSpawnKind::Creature, 620, 194, 473)
+                // GO15508: candidate :60637265, birth :60637267, GetGameObjectAI :60637563.
+                (15508, GridSpawnKind::GameObject, 175885, 194, 478)
             );
             assert!(!completed_objects.contains(&candidate));
             assert!(active_objects.get(candidate).unwrap().in_world);
-            assert!(!units.get(&active_objects, candidate).unwrap().has_ai);
+            assert!(!gameobjects.get(candidate).unwrap().has_ai);
+            assert_eq!(go_script_id, Some(145));
             assert_eq!(refusal.id, active_init::CREATURE_NEXT_OWNER[0]);
         }
         assert_eq!(
@@ -3808,14 +3935,16 @@ pub(super) fn continue_startup(
         // Map 0 adds Idle at :60476980, :60497080, :60507541, :60508292,
         // :60509039, :60510051, :60510915 and :60516693.
         // GUID5015 enters Idle (trace :60575680, initial-classicmangos.sql:85040).
-        assert_eq!(idle_count, if slot == 0 { 19 } else { 16 });
+        // GUIDs 4246, 4085, 4178, 4177 and 4206 add Idle: :60580674, :60596324,
+        // :60604394, :60605820, :60623342; stock SQL :84305, :84147, :84238, :84237, :84265.
+        assert_eq!(idle_count, if slot == 0 { 24 } else { 16 });
         assert_eq!(
             geometry.pathfinder_constructor_completions,
             // WaypointMovementGenerator.cpp:264 constructs per BuildIntPath.
-            // Map 0's six waypoints calculate eleven paths; map 1's four
-            // calculate seven. Static Idle constructs none, MotionMaster.cpp:79-81.
+            // Map 0 adds three waypoints (GUIDs 4176, 4082 and 4211) with six
+            // calculations at :60601394-60629698. Static Idle constructs none.
             pathfinders_before + motion_initializations - idle_count
-                + if slot == 0 { 11 - 6 } else { 7 - 4 }
+                + if slot == 0 { 17 - 9 } else { 7 - 4 }
         );
         assert_eq!(
             active_objects.viewpoint_cell(candidate).unwrap(),
@@ -4153,8 +4282,8 @@ pub(super) fn continue_startup(
             ))
         );
         assert_eq!(attempt.guid, if slot == 0 { 18 } else { 28044 });
-        // Last allocated objects are at :60579285 (map 0) and :60553169 (map 1).
-        assert_eq!(candidates, if slot == 0 { 148 } else { 223 });
+        // Last allocated objects are at :60637267 (map 0) and :60553169 (map 1).
+        assert_eq!(candidates, if slot == 0 { 199 } else { 223 });
         assert_eq!(entry, if slot == 0 { 3211 } else { 4692 });
         if slot == 0 {
             assert_eq!(init_entry_fields, None);
@@ -4441,8 +4570,8 @@ pub(super) fn continue_startup(
                 attempt.cell.y(),
             ))
         );
-        // :60579270 completes GUID4198, and :60553163 completes GUID35884.
-        assert_eq!(completed, if slot == 0 { 143 } else { 218 });
+        // :60637264 completes GO15421, and :60553163 completes GUID35884.
+        assert_eq!(completed, if slot == 0 { 189 } else { 218 });
         println!(
             "F6_VISIBILITY map={slot} census={visibility:?} invalidated_camera_iterator_stock_reach={}",
             visibility.cameras
@@ -4539,7 +4668,7 @@ pub(super) fn continue_startup(
             evidence.pool_snapshot_line.unwrap(),
             encounters.by_map(slot as u32).len(),
             refusal.id,
-            if slot == 0 { "ScriptDevAIMgr.cpp:370" } else { "Spell.cpp:552" },
+            if slot == 0 { "ScriptDevAIMgr.cpp:380" } else { "Spell.cpp:552" },
         );
         owner.states = states;
         let raw = trace

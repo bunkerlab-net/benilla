@@ -44,6 +44,107 @@ fn scripted_registry(nonnull: bool) -> SourceAiRegistry {
     registry.load_scripts([script(nonnull, 1)]).unwrap();
     registry.freeze()
 }
+
+#[test]
+fn loaded_script_requires_the_live_slot_and_matching_catalog_binding() {
+    let mut objects = SourceObjects::default();
+    let creature = object(&mut objects, &input());
+    let mut row = SqlTemplateRow {
+        ordinal: 0,
+        words: [0; 99],
+        strings: [b"Chicken".to_vec(), Vec::new(), b"NullAI".to_vec()],
+    };
+    row.words[0] = 620;
+    row.words[96] = 1;
+    let mut live = CreatureConstruction::construct_loaded_unit();
+    live.entry = 620;
+    let factions = CreatureAiFactions::default();
+    const NAME: &str = "npc_chicken_cluck";
+    for (live_slot, id, recorded_name, recorded_slot, expected) in [
+        (true, 1, NAME, true, Ok(AiSelectionBranch::ScriptDev)),
+        (
+            true,
+            2,
+            NAME,
+            true,
+            Err("execution.ai.ScriptDevAIMgr_370.GetAI_binding_owner"),
+        ),
+        (
+            true,
+            1,
+            NAME,
+            false,
+            Err("execution.ai.ScriptDevAIMgr_370.GetAI_binding_owner"),
+        ),
+        (
+            true,
+            1,
+            "wrong_name",
+            true,
+            Err("execution.ai.ScriptDevAIMgr_370.GetAI_binding_owner"),
+        ),
+        (false, 1, NAME, true, Ok(AiSelectionBranch::ExplicitName)),
+    ] {
+        let mut binding = script(recorded_slot, 1);
+        binding.name = recorded_name.into();
+        binding.script_id = id;
+        let mut scripts = SourceScriptRegistry::default();
+        scripts
+            .load_script_names(|| Ok(Some(vec![NAME.as_bytes().to_vec()])))
+            .unwrap();
+        scripts
+            .initialize_registry([SourceScriptDefinition {
+                name: NAME.as_bytes().to_vec(),
+                registration: binding.registration,
+                operation: binding.operation.clone(),
+                source_file: binding.source_file.clone(),
+                source_line: binding.source_line,
+                source_function: binding.source_function.clone(),
+                slots: [("GetAI".into(), live_slot)].into(),
+            }])
+            .unwrap();
+        let mut registry = AiRegistryBuilder::builtin();
+        registry.load_scripts([binding.clone()]).unwrap();
+        let mut observed = Vec::new();
+        let selected = registry.freeze().select_loaded_db_creature(
+            &objects,
+            creature,
+            &live,
+            &row,
+            &scripts,
+            &factions,
+            |notice| observed.push(notice),
+        );
+        assert_eq!(
+            selected
+                .as_ref()
+                .map(|ai| ai.branch())
+                .map_err(|error| error.id.as_str()),
+            expected
+        );
+        if live_slot {
+            assert_eq!(
+                observed,
+                [SourceCreatureAiScriptObservation::RegistryLookup]
+            );
+        } else {
+            assert_eq!(
+                observed,
+                [
+                    SourceCreatureAiScriptObservation::RegistryLookup,
+                    SourceCreatureAiScriptObservation::NullFactory,
+                    SourceCreatureAiScriptObservation::BuiltinRegistry,
+                ]
+            );
+        }
+        if let Ok(selected) = selected {
+            match selected.executable() {
+                AiExecutable::ScriptDevGetAi(bound) => assert_eq!(bound.as_ref(), &binding),
+                executable => assert_eq!(executable.builtin_kind(), Some(BuiltinCreatureAi::Null)),
+            }
+        }
+    }
+}
 fn check(
     registry: &SourceAiRegistry,
     objects: &SourceObjects,
@@ -650,6 +751,7 @@ fn retained_catalog04_all_template_selection_census_or_explicit_absence() {
     let mut kinds = BTreeMap::new();
     let mut refusals = BTreeMap::new();
     let mut count = 0;
+    let mut scripts = BTreeMap::<String, usize>::new();
     for row in rows {
         assert_eq!(row.ordinal, count);
         let neutral = factions.neutral_to_all(row.faction);
@@ -666,6 +768,9 @@ fn retained_catalog04_all_template_selection_census_or_explicit_absence() {
             AiExecutable::NullFallback => "NullCreatureAI fallback",
             AiExecutable::ScriptDevGetAi(_) => "ScriptDev GetAI",
         };
+        if let AiExecutable::ScriptDevGetAi(binding) = selected.executable() {
+            *scripts.entry(binding.name.clone()).or_default() += 1;
+        }
         *kinds.entry(kind).or_insert(0usize) += 1;
         *refusals
             .entry(selected.constructor_refusal(&objects).unwrap().id)
@@ -673,6 +778,18 @@ fn retained_catalog04_all_template_selection_census_or_explicit_absence() {
         count += 1;
     }
     assert!(count > 0);
+    // initial-classicmangos.sql:421003-431495 joined to the accepted GetAI slots in
+    // content-final-script-rust.json; the sole port is entry 620 at SQL :421539.
+    assert_eq!(scripts.values().sum::<usize>(), 330);
+    assert_eq!(scripts.len(), 273);
+    assert_eq!(
+        scripts
+            .iter()
+            .filter(|(name, _)| SourceScriptedAiKind::for_registered_name(name).is_ok())
+            .map(|(name, &count)| (name.as_str(), count))
+            .collect::<Vec<_>>(),
+        [("npc_chicken_cluck", 1)]
+    );
     assert_eq!(kinds.values().sum::<usize>(), count as usize);
     assert_eq!(refusals.values().sum::<usize>(), count as usize);
     assert!(catalog_creature_ai_template(&mut catalog, u32::MAX)

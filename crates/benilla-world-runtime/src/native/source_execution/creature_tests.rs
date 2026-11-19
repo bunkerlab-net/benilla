@@ -417,10 +417,16 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
         Ok(2.0)
     }
     fn creature_ai_inputs(&mut self, state: &CreatureConstruction) -> Result<CreatureAiInputs> {
+        let name = self.builtin_dispatch_name.as_deref().unwrap_or_default();
+        let (ai_name, script_name) = if name == "npc_chicken_cluck" {
+            (String::new(), name.into())
+        } else {
+            (name.into(), String::new())
+        };
         Ok(CreatureAiInputs {
             effective_entry: state.template.entry,
-            ai_name: self.builtin_dispatch_name.clone().unwrap_or_default(),
-            script_name: String::new(),
+            ai_name,
+            script_name,
             control: CreatureAiControl::default(),
             guard: false,
             no_aggro_on_sight: false,
@@ -558,6 +564,29 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
             .push(Observation::Phase(state.spawn.database_guid, phase));
         match phase {
             CreaturePhase::AiSpellListChanged | CreaturePhase::AiJustRespawned
+                if self.builtin_dispatch_name.as_deref() == Some("npc_chicken_cluck") =>
+            {
+                if phase == CreaturePhase::AiSpellListChanged {
+                    SourceAiExecution {
+                        queries: SourceUnitQueries {
+                            objects: context.objects,
+                            units: &mut self.units,
+                        },
+                        ais: &mut self.base_ais,
+                        threats: &mut self.threats,
+                        owner: &mut self.random,
+                    }
+                    .loaded_spell_list_changed(state.object)?;
+                } else {
+                    self.base_ais.loaded_just_respawned(
+                        context.objects,
+                        &mut self.units,
+                        state.object,
+                        &mut self.random,
+                    )?;
+                }
+            }
+            CreaturePhase::AiSpellListChanged | CreaturePhase::AiJustRespawned
                 if self
                     .builtin_dispatch_name
                     .as_deref()
@@ -568,6 +597,7 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
                 if phase == CreaturePhase::AiJustRespawned {
                     state.builtin_ai_mut().unwrap().just_respawned(
                         context.objects,
+                        &mut self.units,
                         &mut self.base_ais,
                         &mut self.random,
                     )?;
@@ -2047,6 +2077,96 @@ fn selected_builtin_factory_dispatch_retains_real_bodies_and_named_refusals() {
     }
 }
 
+pub(super) fn chicken_binding() -> ScriptDevAiBinding {
+    ScriptDevAiBinding {
+        script_id: 1,
+        name: "npc_chicken_cluck".into(),
+        registration: 0,
+        operation: "fixture".into(),
+        source_file: "npcs_special.cpp".into(),
+        source_line: 108,
+        source_function: "GetAI_npc_chicken_cluck".into(),
+        registry_sha256: Sha256Id::of(b"authored chicken registry"),
+        get_ai_nonnull: true,
+    }
+}
+
+#[test]
+fn scripted_factory_discard_requires_and_keeps_the_exact_live_class() {
+    let mut world = World::new(vec![spawn(40, 0.)]);
+    let mut factory = Factory::new();
+    let mut registry = AiRegistryBuilder::builtin();
+    registry.load_scripts([chicken_binding()]).unwrap();
+    factory.ai_registry = registry.freeze();
+    factory.builtin_dispatch_name = Some("npc_chicken_cluck".into());
+    factory.event_ai_definitions = Some(std::sync::Arc::new(EventAiDefinitions::default()));
+    world.load(0., &mut factory).unwrap();
+    let (unit, state) = factory.states.pop_first().unwrap();
+    assert!(state.builtin_ai().is_none() && state.event_ai().is_none());
+    assert_eq!(
+        state
+            .check_builtin_ai_discard(&world.objects, &SourceCreatureAis::default())
+            .unwrap_err()
+            .id,
+        "execution.unit_ai.generation_missing"
+    );
+    let live = factory.base_ais.get_mut(&world.objects, unit).unwrap();
+    let class = live.loaded_class.clone();
+    live.loaded_class = LoadedCreatureAiClass::BaseOnly;
+    assert_eq!(
+        state
+            .check_builtin_ai_discard(&world.objects, &factory.base_ais)
+            .unwrap_err()
+            .id,
+        "execution.creature.Creature_1768.scripted_ai_identity_owner"
+    );
+    let mut wrong = chicken_binding();
+    wrong.script_id += 1;
+    let wrong = SourceScriptedAi::construct(
+        SourceScriptedAiKind::ChickenCluck,
+        &std::sync::Arc::new(wrong),
+        &mut world.objects,
+        &mut factory.units,
+        unit,
+    )
+    .unwrap();
+    factory
+        .base_ais
+        .get_mut(&world.objects, unit)
+        .unwrap()
+        .loaded_class = LoadedCreatureAiClass::Scripted(wrong);
+    assert_eq!(
+        state
+            .check_builtin_ai_discard(&world.objects, &factory.base_ais)
+            .unwrap_err()
+            .id,
+        "execution.creature.Creature_1768.scripted_ai_identity_owner"
+    );
+    factory
+        .base_ais
+        .get_mut(&world.objects, unit)
+        .unwrap()
+        .loaded_class = class;
+    state
+        .check_builtin_ai_discard(&world.objects, &factory.base_ais)
+        .unwrap();
+    drop(state);
+    let LoadedCreatureAiClass::Scripted(SourceScriptedAi::ChickenCluck(chicken)) = &factory
+        .base_ais
+        .get(&world.objects, unit)
+        .unwrap()
+        .loaded_class
+    else {
+        panic!("ScriptDev object was not retained")
+    };
+    assert_eq!(
+        (chicken.evade_check_cooldown_ms, chicken.reset_flag_timer_ms),
+        (2500, 20000)
+    );
+    let inventory = factory.base_ais.inventory(&world.objects).unwrap();
+    assert!(inventory["instances"][0][1].get("loaded_class").is_none());
+}
+
 #[path = "creature_level_factory_tests.rs"]
 mod creature_level_factory_tests;
 
@@ -2241,23 +2361,26 @@ fn respawn_delay_draw_keeps_equal_and_ranged_bounds() {
 }
 
 #[test]
-fn script_probe_refuses_nonnull_factory_before_builtin_selection() {
+fn script_probe_refuses_nonnull_unported_factory_by_registered_name() {
     let mut objects = SourceObjects::default();
     let object = objects.construct(2, SourceObjectKind::Creature).unwrap();
+    let names: [&[u8]; 3] = [b"guard_stormwind", b"other.script", b"\xff"];
     let mut scripts = SourceScriptRegistry::default();
     scripts
-        .load_script_names(|| Ok(Some(vec![b"custom".to_vec()])))
+        .load_script_names(|| Ok(Some(names.map(<[u8]>::to_vec).into())))
         .unwrap();
     scripts
-        .initialize_registry([SourceScriptDefinition {
-            name: b"custom".to_vec(),
-            registration: 1,
-            operation: "register".into(),
-            source_file: "fixture".into(),
-            source_line: 1,
-            source_function: "AddSC_custom".into(),
-            slots: [("GetAI".into(), true)].into(),
-        }])
+        .initialize_registry(names.into_iter().enumerate().map(|(ordinal, name)| {
+            SourceScriptDefinition {
+                name: name.to_vec(),
+                registration: ordinal as u64,
+                operation: "register".into(),
+                source_file: "fixture".into(),
+                source_line: 1,
+                source_function: "AddSC_guards".into(),
+                slots: [("GetAI".into(), true)].into(),
+            }
+        }))
         .unwrap();
     let mut observed = Vec::new();
     probe_loaded_creature_ai_script(&objects, object, &scripts, 0, |o| observed.push(o)).unwrap();
@@ -2269,16 +2392,43 @@ fn script_probe_refuses_nonnull_factory_before_builtin_selection() {
         ]
     );
     observed.clear();
-    assert_eq!(
+    let error =
         probe_loaded_creature_ai_script(&objects, object, &scripts, 1, |o| observed.push(o))
-            .unwrap_err()
-            .id,
-        "execution.creature.ScriptDevAIMgr_370.GetAI_owner"
+            .unwrap_err();
+    assert_eq!(
+        error.id,
+        "execution.ai.ScriptDevAIMgr_370.GetAI_owner.guard_stormwind"
+    );
+    assert_eq!(
+        error.id.strip_prefix(SCRIPTDEV_GET_AI_OWNER),
+        Some(".guard_stormwind")
     );
     assert_eq!(
         observed,
         [SourceCreatureAiScriptObservation::RegistryLookup]
     );
+    for (id, expected) in [
+        (
+            2,
+            "execution.ai.ScriptDevAIMgr_370.GetAI_owner.other.script",
+        ),
+        (
+            3,
+            "execution.ai.ScriptDevAIMgr_370.script_name_encoding_owner",
+        ),
+    ] {
+        observed.clear();
+        assert_eq!(
+            probe_loaded_creature_ai_script(&objects, object, &scripts, id, |o| observed.push(o))
+                .unwrap_err()
+                .id,
+            expected
+        );
+        assert_eq!(
+            observed,
+            [SourceCreatureAiScriptObservation::RegistryLookup]
+        );
+    }
 }
 
 #[test]

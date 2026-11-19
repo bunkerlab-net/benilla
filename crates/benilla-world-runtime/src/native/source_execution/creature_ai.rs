@@ -58,6 +58,10 @@ impl SourceCreatureAis {
         config: &EventAiLoaderConfig,
         owner: &mut (impl UnitAiExecutionOwner + CreatureRandom),
     ) -> Result<SourceCreatureAi> {
+        require(
+            selected.inputs().effective_entry == template.entry,
+            "execution.unit_ai.effective_entry",
+        )?;
         let unit = selected.object();
         require(
             objects.get(unit)?.kind == SourceObjectKind::Creature
@@ -98,8 +102,8 @@ impl SourceCreatureAis {
                     owners.ais,
                     owners.random,
                 )?;
-                owners.ais.get_mut(objects, unit)?.loaded_builtin =
-                    Some(selected.executable().clone());
+                owners.ais.get_mut(objects, unit)?.loaded_class =
+                    LoadedCreatureAiClass::Builtin(selected.executable().clone());
                 Ok(ai)
             }
             BuiltinAiBase::Loaded {
@@ -110,10 +114,6 @@ impl SourceCreatureAis {
                 require(
                     !owners.ais.instances.contains_key(&unit),
                     "execution.unit_ai.duplicate_generation",
-                )?;
-                require(
-                    selected.inputs().effective_entry == template.entry,
-                    "execution.unit_ai.effective_entry",
                 )?;
                 let mut base = Self::construct_loaded_creature_ai_base(
                     objects,
@@ -130,14 +130,59 @@ impl SourceCreatureAis {
                     owners.random,
                 )?;
                 owners.units.bind_ai_selection(objects, selected)?;
-                base.loaded_builtin = Some(selected.executable().clone());
+                base.loaded_class = LoadedCreatureAiClass::Builtin(selected.executable().clone());
                 owners.ais.install(objects, owners.units, base, combat)?;
                 Ok(ai)
             }
         }
     }
 
-    fn loaded_guard(
+    pub(crate) fn construct_loaded_script(
+        objects: &mut SourceObjects,
+        selected: &SelectedCreatureAi,
+        kind: SourceScriptedAiKind,
+        binding: &std::sync::Arc<ScriptDevAiBinding>,
+        owners: BuiltinAiFactoryOwners<'_>,
+    ) -> Result<()> {
+        let unit = selected.object();
+        match owners.base {
+            BuiltinAiBase::Installed => {
+                let ai = owners.ais.get_mut(objects, unit)?;
+                require(
+                    matches!(ai.loaded_class, LoadedCreatureAiClass::BaseOnly),
+                    "execution.ai.Creature_883.already_constructed",
+                )?;
+                let script =
+                    SourceScriptedAi::construct(kind, binding, objects, owners.units, unit)?;
+                ai.loaded_class = LoadedCreatureAiClass::Scripted(script);
+            }
+            BuiltinAiBase::Loaded {
+                combat,
+                template,
+                config,
+            } => {
+                require(
+                    !owners.ais.instances.contains_key(&unit),
+                    "execution.unit_ai.duplicate_generation",
+                )?;
+                let mut ai = Self::construct_loaded_creature_ai_base(
+                    objects,
+                    owners.units,
+                    selected,
+                    template,
+                    config,
+                    &mut LoadedAiRandom(owners.random),
+                )?;
+                let script =
+                    SourceScriptedAi::construct(kind, binding, objects, owners.units, unit)?;
+                ai.loaded_class = LoadedCreatureAiClass::Scripted(script);
+                owners.ais.install(objects, owners.units, ai, combat)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn loaded_initialization_ai(
         &mut self,
         objects: &SourceObjects,
         unit: ObjectHandle,
@@ -145,28 +190,35 @@ impl SourceCreatureAis {
     ) -> Result<&mut SourceCreatureAi> {
         let ai = self.get_mut(objects, unit)?;
         require(
-            ai.loaded_builtin
-                .as_ref()
-                .and_then(AiExecutable::builtin_kind)
-                == Some(BuiltinCreatureAi::Guard),
+            match &ai.loaded_class {
+                LoadedCreatureAiClass::BaseOnly => false,
+                LoadedCreatureAiClass::Builtin(executable) => {
+                    matches!(
+                        executable.builtin_kind(),
+                        Some(BuiltinCreatureAi::Guard | BuiltinCreatureAi::Null)
+                    )
+                }
+                LoadedCreatureAiClass::Scripted(_) => true,
+            },
             callback_owner,
         )?;
         Ok(ai)
     }
 
-    /// GuardAI.h:28-44 inherits CreatureAI::JustRespawned.
-    pub fn guard_just_respawned(
+    /// GuardAI.h:28-44 and sc_creature.h:137 inherit CreatureAI::JustRespawned.
+    pub fn loaded_just_respawned(
         &mut self,
-        objects: &SourceObjects,
+        objects: &mut SourceObjects,
+        units: &mut SourceUnits,
         unit: ObjectHandle,
         random: &mut dyn CreatureRandom,
     ) -> Result<()> {
-        self.loaded_guard(
+        self.loaded_initialization_ai(
             objects,
             unit,
             "execution.ai.Creature_887.JustRespawned_owner",
         )?
-        .just_respawned(random)
+        .just_respawned(objects, units, random)
     }
 }
 
@@ -200,6 +252,13 @@ pub fn finish_source_creature_ai_initialization(
     Ok(())
 }
 
+#[derive(Clone, Debug)]
+pub(crate) enum LoadedCreatureAiClass {
+    BaseOnly,
+    Builtin(AiExecutable),
+    Scripted(SourceScriptedAi),
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct SourceCreatureAi {
     pub base: SourceUnitAi,
@@ -209,7 +268,7 @@ pub struct SourceCreatureAi {
     pub civilian: bool,
     // Dynamic AI class, independent of the creature template's IsGuard flag.
     #[serde(skip)]
-    pub(crate) loaded_builtin: Option<AiExecutable>,
+    pub(crate) loaded_class: LoadedCreatureAiClass,
     #[serde(skip)]
     main_spells: BTreeSet<u32>,
 }
@@ -261,7 +320,7 @@ impl SourceCreatureAi {
             follow_distance: 0.,
             guard,
             civilian: template.civilian,
-            loaded_builtin: None,
+            loaded_class: LoadedCreatureAiClass::BaseOnly,
             main_spells: BTreeSet::new(),
         })
     }
@@ -368,8 +427,15 @@ impl SourceCreatureAi {
         self.base.enter_evade(objects, units, owner)?;
         // TimerAI.cpp:153-156 excludes both generic TIMER_ALWAYS timers on evade.
         self.require_combat_timer_owner()?;
-        self.reset();
-        Ok(())
+        match self.loaded_class {
+            LoadedCreatureAiClass::Scripted(_) => Err(refuse(
+                "execution.ai.CreatureAI_70.scripted_evade_Reset_owner",
+            )),
+            LoadedCreatureAiClass::BaseOnly | LoadedCreatureAiClass::Builtin(_) => {
+                self.reset();
+                Ok(())
+            }
+        }
     }
     fn require_combat_timer_owner(&self) -> Result<()> {
         // EventAI has zero combat actions and only these two disabled ALWAYS timers.
@@ -391,10 +457,20 @@ impl SourceCreatureAi {
     }
 
     /// CreatureAI.cpp:124-128 resets timers before calling the inherited Reset.
-    pub fn just_respawned(&mut self, random: &mut dyn CreatureRandom) -> Result<()> {
+    pub fn just_respawned(
+        &mut self,
+        objects: &mut SourceObjects,
+        units: &mut SourceUnits,
+        random: &mut dyn CreatureRandom,
+    ) -> Result<()> {
         self.reset_timers(true, random)?;
-        self.reset();
-        Ok(())
+        match &mut self.loaded_class {
+            LoadedCreatureAiClass::Scripted(ai) => ai.reset(objects, units, self.base.unit),
+            LoadedCreatureAiClass::BaseOnly | LoadedCreatureAiClass::Builtin(_) => {
+                self.reset();
+                Ok(())
+            }
+        }
     }
 }
 /// CreatureAI.cpp:294-358. Only areas 221/222 consume the process C stream.
@@ -845,9 +921,9 @@ impl<O: UnitAiExecutionOwner + CreatureRandom> SourceAiExecution<'_, O> {
             )
     }
 
-    /// GuardAI.h:28-44 inherits UnitAI::SpellListChanged.
-    pub fn guard_spell_list_changed(&mut self, unit: ObjectHandle) -> Result<()> {
-        let ai = self.ais.loaded_guard(
+    /// GuardAI and npc_chicken_cluckAI inherit UnitAI::SpellListChanged.
+    pub fn loaded_spell_list_changed(&mut self, unit: ObjectHandle) -> Result<()> {
+        let ai = self.ais.loaded_initialization_ai(
             self.queries.objects,
             unit,
             "execution.ai.Creature_886.SpellListChanged_owner",

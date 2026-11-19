@@ -88,10 +88,19 @@ pub(super) fn construct<D: GridDefinitions<Row = SpawnKey>>(
         selected.executable()
     );
     prefix.selected_ai = Some(selected.clone());
-    if selected.executable().builtin_kind() == Some(BuiltinCreatureAi::Guard) {
+    if selected.executable().builtin_kind() != Some(BuiltinCreatureAi::Event) {
         construct_source_creature_ai(prefix, state, context)?;
         prefix.lookups.push("creature_base_ai_constructed");
-        prefix.lookups.push("creature_guard_ai_constructed");
+        let class = &prefix.ais.get(context.objects, object)?.loaded_class;
+        prefix.lookups.push(match class {
+            LoadedCreatureAiClass::Builtin(executable)
+                if executable.builtin_kind() == Some(BuiltinCreatureAi::Guard) =>
+            {
+                "creature_guard_ai_constructed"
+            }
+            LoadedCreatureAiClass::Scripted(_) => "creature_scripted_ai_constructed",
+            _ => "creature_builtin_ai_constructed",
+        });
         return Ok(());
     }
     state.construct_event_ai_with_base(
@@ -135,6 +144,16 @@ pub(super) fn callback<D: GridDefinitions<Row = SpawnKey>>(
 ) -> Result<()> {
     let event = prefix.event_ais.get_mut(&object);
     let random = RefCell::new(&mut *prefix.random);
+    if phase == CreaturePhase::AiJustRespawned && event.is_none() {
+        prefix.ais.loaded_just_respawned(
+            context.objects,
+            &mut prefix.units,
+            object,
+            &mut Owner(&random),
+        )?;
+        prefix.lookups.push("creature_ai_just_respawned");
+        return Ok(());
+    }
     let mut live_owner = LiveOwner {
         binding: ai_cast::Binding {
             object,
@@ -163,18 +182,15 @@ pub(super) fn callback<D: GridDefinitions<Row = SpawnKey>>(
             if let Some(event) = event {
                 execution.spell_list_changed(event)?;
             } else {
-                execution.guard_spell_list_changed(object)?;
+                execution.loaded_spell_list_changed(object)?;
             }
             prefix.lookups.push("creature_ai_spell_list_changed");
         }
         CreaturePhase::AiJustRespawned => {
-            if let Some(event) = event {
-                execution.event_ai_just_respawned(event, &mut Owner(&random))?;
-            } else {
-                execution
-                    .ais
-                    .guard_just_respawned(context.objects, object, &mut Owner(&random))?;
-            }
+            execution.event_ai_just_respawned(
+                event.ok_or_else(|| refuse("execution.event_ai.generation_missing"))?,
+                &mut Owner(&random),
+            )?;
             prefix.lookups.push("creature_ai_just_respawned");
         }
         _ => return Err(phase.missing_owner()),

@@ -10,14 +10,20 @@ pub enum SourceCreatureAiScriptObservation {
     BuiltinRegistry,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum LoadedCreatureAiScriptFactory<'a> {
+    Null,
+    Ported(&'a SourceScriptDefinition),
+}
+
 /// CreatureAISelector.cpp:40-45 and ScriptDevAIMgr.cpp:363-370 for an ordinary DB creature.
-pub fn probe_loaded_creature_ai_script(
+pub fn probe_loaded_creature_ai_script<'a>(
     objects: &SourceObjects,
     object: ObjectHandle,
-    scripts: &SourceScriptRegistry,
+    scripts: &'a SourceScriptRegistry,
     script_id: u32,
     mut observe: impl FnMut(SourceCreatureAiScriptObservation),
-) -> Result<()> {
+) -> Result<LoadedCreatureAiScriptFactory<'a>> {
     require(
         objects.get(object)?.kind == SourceObjectKind::Creature,
         "execution.ai.loaded_script_creature_kind",
@@ -30,11 +36,15 @@ pub fn probe_loaded_creature_ai_script(
             .get("GetAI")
             .ok_or_else(|| refuse("execution.creature.ScriptDevAIMgr_367.GetAI_slot_owner"))?;
         if *factory {
-            return Err(refuse("execution.creature.ScriptDevAIMgr_370.GetAI_owner"));
+            let name = std::str::from_utf8(&script.name).map_err(|_| {
+                refuse("execution.ai.ScriptDevAIMgr_370.script_name_encoding_owner")
+            })?;
+            SourceScriptedAiKind::for_registered_name(name)?;
+            return Ok(LoadedCreatureAiScriptFactory::Ported(script));
         }
     }
     observe(SourceCreatureAiScriptObservation::NullFactory);
-    Ok(())
+    Ok(LoadedCreatureAiScriptFactory::Null)
 }
 
 impl CreatureAiInputs {
@@ -213,6 +223,24 @@ pub struct SelectedCreatureAi {
     executable: AiExecutable,
 }
 impl SelectedCreatureAi {
+    fn new(
+        source: &SourceObject,
+        inputs: CreatureAiInputs,
+        branch: AiSelectionBranch,
+        executable: AiExecutable,
+    ) -> Self {
+        Self {
+            version: 1,
+            object: source.handle,
+            database_guid: source.database_guid,
+            runtime_guid: source.guid,
+            map: source.map,
+            inputs,
+            branch,
+            executable,
+        }
+    }
+
     pub fn object(&self) -> ObjectHandle {
         self.object
     }
@@ -397,10 +425,48 @@ impl SourceAiRegistry {
         factions: &CreatureAiFactions,
         mut observe: impl FnMut(SourceCreatureAiScriptObservation),
     ) -> Result<SelectedCreatureAi> {
-        probe_loaded_creature_ai_script(objects, unit, scripts, template.words[96], &mut observe)?;
-        observe(SourceCreatureAiScriptObservation::BuiltinRegistry);
-        let inputs = CreatureAiInputs::loaded_db_creature(template, live, scripts, factions)?;
-        self.select_inner(objects, unit, inputs, true, || Ok(live.control_guids))
+        let script_id = template.words[96];
+        match probe_loaded_creature_ai_script(objects, unit, scripts, script_id, &mut observe)? {
+            LoadedCreatureAiScriptFactory::Null => {
+                observe(SourceCreatureAiScriptObservation::BuiltinRegistry);
+                let inputs =
+                    CreatureAiInputs::loaded_db_creature(template, live, scripts, factions)?;
+                self.select_inner(objects, unit, inputs, true, || Ok(live.control_guids))
+            }
+            LoadedCreatureAiScriptFactory::Ported(script) => {
+                let inputs =
+                    CreatureAiInputs::loaded_db_creature(template, live, scripts, factions)?;
+                validate_control(objects, unit, &inputs.control)?;
+                let binding = self.bind_loaded_script(script_id, &inputs.script_name, script)?;
+                Ok(SelectedCreatureAi::new(
+                    objects.get(unit)?,
+                    inputs,
+                    AiSelectionBranch::ScriptDev,
+                    AiExecutable::ScriptDevGetAi(Arc::clone(binding)),
+                ))
+            }
+        }
+    }
+
+    fn bind_loaded_script(
+        &self,
+        id: u32,
+        name: &str,
+        live: &SourceScriptDefinition,
+    ) -> Result<&Arc<ScriptDevAiBinding>> {
+        self.scripts
+            .get(name)
+            .filter(|binding| {
+                binding.script_id == id
+                    && binding.name.as_bytes() == live.name
+                    && binding.get_ai_nonnull
+                    && binding.registration == live.registration
+                    && binding.operation == live.operation
+                    && binding.source_file == live.source_file
+                    && binding.source_line == live.source_line
+                    && binding.source_function == live.source_function
+            })
+            .ok_or_else(|| refuse("execution.ai.ScriptDevAIMgr_370.GetAI_binding_owner"))
     }
     fn select_inner(
         &self,
@@ -425,16 +491,12 @@ impl SourceAiRegistry {
                 .get(&input.script_name)
                 .filter(|b| b.get_ai_nonnull)
             {
-                return Ok(SelectedCreatureAi {
-                    version: 1,
-                    object,
-                    database_guid: source.database_guid,
-                    runtime_guid: source.guid,
-                    map: source.map,
-                    inputs: input,
-                    branch: AiSelectionBranch::ScriptDev,
-                    executable: AiExecutable::ScriptDevGetAi(Arc::clone(binding)),
-                });
+                return Ok(SelectedCreatureAi::new(
+                    source,
+                    input,
+                    AiSelectionBranch::ScriptDev,
+                    AiExecutable::ScriptDevGetAi(Arc::clone(binding)),
+                ));
             }
         }
         let (branch, key) = if c.pet.is_some() {
@@ -474,16 +536,7 @@ impl SourceAiRegistry {
         let executable = factory.map_or(AiExecutable::NullFallback, |factory| {
             AiExecutable::Builtin(Arc::clone(factory))
         });
-        Ok(SelectedCreatureAi {
-            version: 1,
-            object,
-            database_guid: source.database_guid,
-            runtime_guid: source.guid,
-            map: source.map,
-            inputs: input,
-            branch,
-            executable,
-        })
+        Ok(SelectedCreatureAi::new(source, input, branch, executable))
     }
 }
 

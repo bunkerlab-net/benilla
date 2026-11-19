@@ -767,6 +767,16 @@ impl<D: GridDefinitions<Row = SpawnKey>> CreatureFactoryOwner<D, SourceTerrainMa
         context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
     ) -> Result<()> {
         state.check_builtin_ai_discard(context.objects, &self.ais)?;
+        if let Some(AiExecutable::ScriptDevGetAi(binding)) =
+            state.selected_ai().map(SelectedCreatureAi::executable)
+        {
+            let ai = self.ais.get(context.objects, state.object)?;
+            assert!(
+                matches!(&ai.loaded_class, LoadedCreatureAiClass::Scripted(script)
+                    if script.binding() == binding.as_ref())
+            );
+            self.lookups.push("creature_scripted_ai_retained");
+        }
         self.lookups.push("creature_load_from_db_return");
         Ok(())
     }
