@@ -93,6 +93,8 @@ fn apply_addon<D: GridDefinitions<Row = SpawnKey>>(
     let result = fields.addon.load(
         addon,
         false,
+        context.objects,
+        object,
         live,
         &mut addon_cast::Execution {
             object,

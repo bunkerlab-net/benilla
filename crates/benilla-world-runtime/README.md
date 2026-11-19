@@ -2053,9 +2053,15 @@ marks its unchanged dynamic flags (`GameObject.cpp:363,632`).
 `Object.cpp:1107-1117` enqueues each marked object once, only in world.
 First AddToWorld clears the mask. RemoveFromWorld clears it and dequeues the
 object (`Object.cpp:81-103,719-733`).
-The drain (`Map.cpp:2409`) refuses. Spell aura, unit combat, and movement
-field writers remain unmarked. Two or more pending objects also need the
-source pointer order.
+Aura slots, ghost visibility, shapeshift and power writes, armor,
+EventAI flags, addon stand/sheath/emote, and combat and movement target
+writes use the same queue. The drain (`Map.cpp:2409`) still refuses
+pending its owner decision. Two or more pending objects also need the
+source pointer order. Fresh-only entry, equipment, game object,
+transport, and corpse fields cannot enqueue on the represented paths.
+Runtime respawn and fishing fields still stop at their existing owners.
+Aura stand/flag and cast/channel target writes that still refuse
+(`SpellAuras.cpp:5292,5295`; `UnitAI.cpp:397,469`) do not reach the queue.
 
 GuardAI preserves its sight and assistance branch order (`GuardAI.cpp:36-92`).
 Its inherited update expires base timers before concrete target selection through `SourceAiDependencies`,

@@ -468,6 +468,113 @@ fn make_live(objects: &mut SourceObjects, unit: ObjectHandle, low: u32) {
 }
 
 #[test]
+fn client_update_attack_target_marks_both_guid_words_in_source_order() {
+    for in_world in [false, true] {
+        let (mut objects, mut units, ai) = setup(0);
+        let target = objects.construct(1, SourceObjectKind::Creature).unwrap();
+        units
+            .register(&objects, target, SourceUnitFields::creature(&template()))
+            .unwrap();
+        make_live(&mut objects, target, 2);
+        make_live(&mut objects, ai.unit, 1);
+        let map = objects.get(ai.unit).unwrap().map.unwrap();
+        if !in_world {
+            objects.remove_from_world(ai.unit).unwrap();
+        }
+        let mut owner = Authored::default();
+        let field = |objects: &SourceObjects, word| {
+            objects.get(ai.unit).unwrap().field_changed(word).unwrap()
+        };
+        assert!(!ai
+            .attack_stop(true, false, false, false, &objects, &mut units, &mut owner)
+            .unwrap());
+        assert!(!objects.client_update_pending(map, ai.unit));
+        assert!(!field(&objects, UNIT_FIELD_TARGET));
+        assert!(!field(&objects, UNIT_FIELD_TARGET + 1));
+        assert!(ai
+            .attack_unit(target, &objects, &mut units, &mut owner)
+            .unwrap());
+        assert!(field(&objects, UNIT_FIELD_TARGET));
+        assert!(field(&objects, UNIT_FIELD_TARGET + 1));
+        assert_eq!(objects.client_update_pending(map, ai.unit), in_world);
+        objects.remove_from_world(ai.unit).unwrap();
+        objects.add_to_world(ai.unit).unwrap();
+        if !in_world {
+            objects.remove_from_world(ai.unit).unwrap();
+        }
+        assert!(ai
+            .attack_unit(target, &objects, &mut units, &mut owner)
+            .unwrap());
+        assert!(!field(&objects, UNIT_FIELD_TARGET));
+        assert!(!field(&objects, UNIT_FIELD_TARGET + 1));
+        assert!(!objects.client_update_pending(map, ai.unit));
+        assert!(ai
+            .attack_stop(true, false, false, false, &objects, &mut units, &mut owner)
+            .unwrap());
+        assert!(field(&objects, UNIT_FIELD_TARGET));
+        assert!(field(&objects, UNIT_FIELD_TARGET + 1));
+        assert_eq!(objects.client_update_pending(map, ai.unit), in_world);
+    }
+}
+
+#[test]
+fn client_update_combat_flag_and_mount_clear_each_mark_only_on_change() {
+    for (in_world, changed) in [(true, false), (true, true), (false, true)] {
+        let (mut objects, mut units, ai) = setup(0);
+        let enemy = objects.construct(1, SourceObjectKind::Creature).unwrap();
+        units
+            .register(&objects, enemy, SourceUnitFields::creature(&template()))
+            .unwrap();
+        make_live(&mut objects, ai.unit, 1);
+        let map = objects.get(ai.unit).unwrap().map.unwrap();
+        if !in_world {
+            objects.remove_from_world(ai.unit).unwrap();
+        }
+        let fields = units.get_mut(&objects, ai.unit).unwrap();
+        fields.flags = if changed { 0 } else { UNIT_FLAG_COMBAT };
+        units
+            .set_in_combat_with(ai.unit, enemy, &objects, &mut Authored::default())
+            .unwrap();
+        assert!(units.get(&objects, ai.unit).unwrap().in_combat());
+        assert_eq!(
+            objects
+                .get(ai.unit)
+                .unwrap()
+                .field_changed(UNIT_FIELD_FLAGS)
+                .unwrap(),
+            changed
+        );
+        assert_eq!(
+            objects.client_update_pending(map, ai.unit),
+            in_world && changed
+        );
+
+        objects.remove_from_world(ai.unit).unwrap();
+        if in_world {
+            objects.add_to_world(ai.unit).unwrap();
+        }
+        let fields = units.get_mut(&objects, ai.unit).unwrap();
+        fields.mounted = changed;
+        fields.state |= 0x100; // UnitAI.cpp:345 skips chase while propelled.
+        ai.movement_on_attack(enemy, false, &objects, &mut units, &mut Authored::default())
+            .unwrap();
+        assert!(!units.get(&objects, ai.unit).unwrap().mounted);
+        assert_eq!(
+            objects
+                .get(ai.unit)
+                .unwrap()
+                .field_changed(UNIT_FIELD_MOUNTDISPLAYID)
+                .unwrap(),
+            changed
+        );
+        assert_eq!(
+            objects.client_update_pending(map, ai.unit),
+            in_world && changed
+        );
+    }
+}
+
+#[test]
 fn attack_stop_clears_target_then_melee_then_attacker_and_preserves_combat() {
     let (mut objects, mut units, ai) = setup(0);
     let target = objects.construct(1, SourceObjectKind::Creature).unwrap();

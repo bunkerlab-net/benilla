@@ -190,7 +190,7 @@ impl SpellSelfCastOwner for Owner<'_> {
         spell.cast_checked(t, self.stores, Some(base), None, &mut effects, |spell| {
             // UnitAI.cpp:352. A different Spell instance leaves the target alone.
             if spell.flags.notify_ai() && base.current_spell == Some(spell.id) {
-                finish_ai_cast(base, spell, t, *live.victim, live.target)?;
+                finish_ai_cast(base, spell, t, *live.victim, live.target, self.objects)?;
             }
             Ok(())
         })
@@ -208,6 +208,7 @@ fn finish_ai_cast(
     t: &SpellTemplate,
     victim: Option<ObjectHandle>,
     target: &mut Option<ObjectHandle>,
+    objects: &SourceObjects,
 ) -> Result<()> {
     // UnitAI.cpp:355-357,367-391,414-429. Finishing does not clear the pointer.
     if t.attributesex4 & 0x80 != 0 || t.attributes & 0x404 != 0 || ignores_cast_target(spell, t) {
@@ -217,8 +218,7 @@ fn finish_ai_cast(
         t.id != 31306,
         "execution.spells.UnitAI_416.HandleDelayedInstantAnimation_owner",
     )?;
-    *target = victim.filter(|_| !base.combat_script);
-    Ok(())
+    objects.set_unit_target(spell.caster, target, victim.filter(|_| !base.combat_script))
 }
 
 impl SpellLocationOwner for Owner<'_> {}
@@ -661,6 +661,7 @@ impl SpellExecutionOwner for Owner<'_> {
                         t,
                         *self.live.victim,
                         self.live.target,
+                        self.objects,
                     );
                 }
                 spell.prepare_lookups[3] += 1;
@@ -722,8 +723,8 @@ impl SpellExecutionOwner for Owner<'_> {
                     }));
                 }
                 let victim = self.live.victim.filter(|_| !self.ai.base.combat_script);
-                *self.live.target = victim;
-                Ok(())
+                self.objects
+                    .set_unit_target(self.object, self.live.target, victim)
             }
             _ => Err(call.missing_owner()),
         }

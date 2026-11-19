@@ -97,6 +97,19 @@ fn fresh_loaded_init_and_update_entry_write_live_fields_in_order() {
     };
     let mut live = SourceUnitFields::constructed_creature();
     let mut state = construction(&row);
+    let map = MapIdentity {
+        map: 0,
+        instance: 0,
+        creation_generation: 1,
+    };
+    let cells = SourceCells::new(map).unwrap();
+    let mut objects = SourceObjects::default();
+    let unit = objects.construct(6, SourceObjectKind::Creature).unwrap();
+    assert_eq!(unit, state.object);
+    objects
+        .assign_guid(unit, 42, SourceGuid::with_entry(HighGuid::Creature, 7, 42))
+        .unwrap();
+    objects.bind_map(unit, map, &cells).unwrap();
     CreatureConstruction::init_loaded_entry_base(&mut live, &row);
     assert_eq!(
         (
@@ -163,7 +176,7 @@ fn fresh_loaded_init_and_update_entry_write_live_fields_in_order() {
     assert!(
         live.loaded_creature.can_parry && !live.loaded_creature.can_block && live.force_attacking
     );
-    CreatureConstruction::begin_loaded_update_entry(&mut live);
+    CreatureConstruction::begin_loaded_update_entry(&objects, unit, &mut live).unwrap();
     assert_eq!(
         (live.sheath_state, live.loaded_creature.misc_flags),
         (1, 0x10)
@@ -197,7 +210,7 @@ fn fresh_loaded_init_and_update_entry_write_live_fields_in_order() {
     let config = b"Rate.Creature.Normal.HP=1\nRate.Creature.Normal.Damage=1\nRate.Creature.Elite.Elite.HP=1\nRate.Creature.Elite.Elite.Damage=1\nRate.Creature.Elite.RAREELITE.HP=1\nRate.Creature.Elite.RAREELITE.Damage=1\nRate.Creature.Elite.WORLDBOSS.HP=1\nRate.Creature.Elite.WORLDBOSS.Damage=1\nRate.Creature.Elite.RARE.HP=1\nRate.Creature.Elite.RARE.Damage=1\n";
     let config = CreatureLevelConfig::parse(config, Sha256Id::of(config)).unwrap();
     let stats = state
-        .apply_loaded_level(&mut live, &entry, &definitions, &config)
+        .apply_loaded_level(&objects, &mut live, &entry, &definitions, &config)
         .unwrap();
     assert_eq!(live.vitals.unwrap().health, 1);
     assert_eq!(
@@ -205,6 +218,8 @@ fn fresh_loaded_init_and_update_entry_write_live_fields_in_order() {
         stats.create_health
     );
     CreatureConstruction::update_loaded_entry_flags(
+        &objects,
+        unit,
         &mut live,
         &entry,
         &BTreeMap::from([(17, 0x1000)]),
@@ -221,6 +236,17 @@ fn fresh_loaded_init_and_update_entry_write_live_fields_in_order() {
             && live.loaded_creature.count_spawns
             && live.loaded_creature.pvp
     );
+    assert!(objects
+        .get(unit)
+        .unwrap()
+        .field_changed(UNIT_FIELD_BYTES_2)
+        .unwrap());
+    assert!(!objects.client_update_pending(map, unit));
+    objects.add_to_world(unit).unwrap();
+    for field in [UNIT_FIELD_BYTES_2, UNIT_FIELD_STAT1, UNIT_FIELD_RESISTANCES] {
+        assert!(!objects.get(unit).unwrap().field_changed(field).unwrap());
+    }
+    assert!(!objects.client_update_pending(map, unit));
 }
 
 fn init_float(value: f32) -> benilla_sim::classic_spell::SpellFloat {
@@ -264,6 +290,8 @@ fn corpse_decay_precedes_interaction_config_and_world_boss_immunity() {
         };
         let mut live = SourceUnitFields::constructed_creature();
         let mut state = construction(&row);
+        let mut objects = SourceObjects::default();
+        let unit = objects.construct(6, SourceObjectKind::Creature).unwrap();
         CreatureConstruction::init_loaded_entry_base(&mut live, &row);
         CreatureConstruction::apply_loaded_model(&mut live, &row, MODEL).unwrap();
         state
@@ -286,6 +314,8 @@ fn corpse_decay_precedes_interaction_config_and_world_boss_immunity() {
             (expected, 180)
         );
         CreatureConstruction::update_loaded_entry_flags(
+            &objects,
+            unit,
             &mut live,
             &entry,
             &BTreeMap::from([(17, 0x1000)]),
@@ -331,10 +361,13 @@ fn init_entry_class_power_and_select_level_mana_agree_for_all_source_cases() {
     for (class, power, has_mana) in [(1, 1, false), (2, 0, true), (4, 3, false), (8, 0, true)] {
         row.words[36] = class;
         let mut live = SourceUnitFields::constructed_creature();
+        let mut objects = SourceObjects::default();
+        let unit = objects.construct(6, SourceObjectKind::Creature).unwrap();
         CreatureConstruction::init_loaded_entry_base(&mut live, &row);
         assert_eq!(live.power_type, None);
         CreatureConstruction::apply_loaded_model(&mut live, &row, MODEL).unwrap();
-        live.apply_source_level(&value, class).unwrap();
+        live.apply_source_level(&objects, unit, &value, class)
+            .unwrap();
         assert_eq!(live.power_type, Some(power));
         assert_eq!(live.vitals.unwrap().has_mana, has_mana);
         assert_eq!(

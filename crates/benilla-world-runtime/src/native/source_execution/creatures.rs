@@ -522,12 +522,20 @@ impl CreatureConstruction {
     }
 
     /// Creature.cpp:511-514 precedes the SelectLevel draw.
-    pub fn begin_loaded_update_entry(live: &mut SourceUnitFields) {
-        // Creature.cpp:512 writes the sheath byte through Unit.h:1359.
-        if live.sheath_state != 1 {
-            live.sheath_state = 1;
-        }
-        live.loaded_creature.misc_flags = 0x10;
+    pub fn begin_loaded_update_entry(
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+        live: &mut SourceUnitFields,
+    ) -> Result<()> {
+        // Creature.cpp:512-513 writes two bytes of the same word.
+        objects.set_update_value(unit, UNIT_FIELD_BYTES_2, &mut live.sheath_state, 1)?;
+        objects.set_update_value(
+            unit,
+            UNIT_FIELD_BYTES_2,
+            &mut live.loaded_creature.misc_flags,
+            0x10,
+        )?;
+        Ok(())
     }
 
     pub fn select_level(&mut self, random: Option<&mut dyn CreatureRandom>) -> Result<()> {
@@ -540,6 +548,7 @@ impl CreatureConstruction {
     /// Creature.cpp:523-538,1426-1475. Apply the spawn resources after SelectLevel.
     pub fn apply_loaded_level(
         &self,
+        objects: &SourceObjects,
         live: &mut SourceUnitFields,
         entry: &LoadedCreatureEntry<'_>,
         definitions: &CreatureLevelDefinitions,
@@ -554,12 +563,14 @@ impl CreatureConstruction {
             class,
             entry.effective.words[18],
         );
-        live.apply_source_level(&stats, class)?;
+        live.apply_source_level(objects, self.object, &stats, class)?;
         Ok(stats)
     }
 
     /// Creature.cpp:541-607 on fresh DB construction, before spell-list selection.
     pub fn update_loaded_entry_flags(
+        objects: &SourceObjects,
+        unit: ObjectHandle,
         live: &mut SourceUnitFields,
         entry: &LoadedCreatureEntry<'_>,
         faction_flags: &std::collections::BTreeMap<u32, u32>,
@@ -593,7 +604,7 @@ impl CreatureConstruction {
         live.immunities
             .apply_world_boss(live.pet_kind.is_some(), w[37]);
         fields.can_modify_stats = true;
-        live.resistances.update_armor()?; // Creature.cpp:600; StatSystem.cpp:639-649.
+        live.resistances.update_armor(objects, unit)?; // Creature.cpp:600; StatSystem.cpp:639-649.
         fields.pvp = faction_flags
             .get(&live.faction)
             .is_some_and(|flags| flags & 0x1000 != 0);

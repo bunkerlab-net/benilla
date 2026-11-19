@@ -108,7 +108,7 @@ impl SourceCreatureAi {
                         // This is NOT AttackStop: no melee-state clearing or packet, :8738-8740.
                         let f = units.get_mut(objects, unit)?;
                         f.victim = None;
-                        f.target = None;
+                        objects.set_unit_target(unit, &mut f.target, None)?;
                         units
                             .get_mut(objects, old)?
                             .attackers

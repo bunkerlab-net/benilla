@@ -744,11 +744,11 @@ impl<O: UnitAiExecutionOwner + CreatureRandom> EventAiExecutionOwner for SourceA
             == 0)
     }
     fn unit_flag(&mut self, unit: ObjectHandle, value: u32, set: bool) -> Result<()> {
+        let objects = self.queries.objects;
         self.queries
             .units
-            .get_mut(self.queries.objects, unit)?
-            .set_flag(value, set);
-        Ok(())
+            .get_mut(objects, unit)?
+            .set_flag(objects, unit, value, set)
     }
     fn spawn_map(&mut self, unit: ObjectHandle) -> Result<u32> {
         Ok(self

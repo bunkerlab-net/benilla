@@ -228,7 +228,10 @@ impl SourceMovementGenerator for SourceWanderGenerator {
         if let Some(player) = owner.client_controlling(master.unit, context)? {
             owner.motion_call(master, MotionCall::RemoveClientControl(player), context)?;
         } else if context.units.get(context.objects, master.unit)?.has_ai {
-            context.units.get_mut(context.objects, master.unit)?.target = None;
+            let fields = context.units.get_mut(context.objects, master.unit)?;
+            context
+                .objects
+                .set_unit_target(master.unit, &mut fields.target, None)?;
             owner.wander_melee_attack_stop(master.unit, context)?;
         }
         if !owner.spline_finalized(master.unit, context)? {

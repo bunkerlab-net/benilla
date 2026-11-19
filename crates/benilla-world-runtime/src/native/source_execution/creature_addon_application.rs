@@ -238,6 +238,8 @@ impl CreatureAddonState {
         &mut self,
         addon: Option<&LoadedCreatureAddon>,
         reload: bool,
+        objects: &SourceObjects,
+        object: ObjectHandle,
         unit: &mut SourceUnitFields,
         owner: &mut impl CreatureAddonExecutionOwner,
     ) -> Result<bool> {
@@ -245,14 +247,27 @@ impl CreatureAddonState {
         if addon.mount != 0 {
             owner.mount(self, addon.mount)?;
         }
-        if addon.stand_state != 0 && unit.stand_state != addon.stand_state {
-            unit.stand_state = addon.stand_state;
+        if addon.stand_state != 0 {
+            objects.set_update_value(
+                object,
+                UNIT_FIELD_BYTES_1,
+                &mut unit.stand_state,
+                addon.stand_state,
+            )?;
         }
-        if unit.sheath_state != addon.sheath_state {
-            unit.sheath_state = addon.sheath_state;
-        }
-        if addon.emote != 0 && unit.npc_emote_state != addon.emote {
-            unit.npc_emote_state = addon.emote;
+        objects.set_update_value(
+            object,
+            UNIT_FIELD_BYTES_2,
+            &mut unit.sheath_state,
+            addon.sheath_state,
+        )?;
+        if addon.emote != 0 {
+            objects.set_update_value(
+                object,
+                UNIT_NPC_EMOTESTATE,
+                &mut unit.npc_emote_state,
+                addon.emote,
+            )?;
         }
         match &addon.auras {
             CreatureAddonAuras::Empty => {}

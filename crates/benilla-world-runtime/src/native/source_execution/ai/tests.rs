@@ -51,9 +51,24 @@ fn fixture(name: &str) -> Fixture {
     units
         .register(&objects, target, SourceUnitFields::creature(&t))
         .unwrap();
+    let map = MapIdentity {
+        map: 0,
+        instance: 0,
+        creation_generation: 1,
+    };
+    let cells = SourceCells::new(map).unwrap();
+    for (object, low) in [(unit, 1), (target, 2)] {
+        objects
+            .assign_guid(
+                object,
+                low,
+                SourceGuid::with_entry(HighGuid::Creature, 620, low),
+            )
+            .unwrap();
+        objects.bind_map(object, map, &cells).unwrap();
+    }
     objects.get_mut(unit).unwrap().alive = true;
-    objects.get_mut(target).unwrap().alive = true;
-    objects.get_mut(target).unwrap().in_world = true;
+    objects.add_to_world(target).unwrap();
     objects.set_pose(unit, SourcePose([0; 4])).unwrap();
     objects.set_pose(target, SourcePose([0; 4])).unwrap();
     let selected = SourceAiRegistry::builtin()

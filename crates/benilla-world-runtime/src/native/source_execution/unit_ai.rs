@@ -412,12 +412,14 @@ impl SourceUnitFields {
     pub fn in_evade(&self) -> bool {
         self.evade_home || self.evade_combat || self.evade_timer != 0
     }
-    pub fn set_flag(&mut self, mask: u32, set: bool) {
-        if set {
-            self.flags |= mask;
-        } else {
-            self.flags &= !mask;
-        }
+    pub fn set_flag(
+        &mut self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+        mask: u32,
+        set: bool,
+    ) -> Result<()> {
+        objects.update_flags(unit, UNIT_FIELD_FLAGS, &mut self.flags, mask, set)
     }
     /// The existing bounded kernel already includes UpdateMaxHealth/UpdateEntry.
     pub fn apply_initialized(&mut self, value: &benilla_sim::creature_init::InitializedCreature) {
@@ -515,8 +517,12 @@ impl SourceUnits {
         f.neutral_to_all = Some(input.neutral_to_all);
         f.pet_kind = input.control.pet;
         f.totem = input.control.totem;
-        f.set_flag(8, input.control.player_controlled);
-        Ok(())
+        f.set_flag(
+            objects,
+            selected.object(),
+            8,
+            input.control.player_controlled,
+        )
     }
     /// Unit.cpp:8605-8633, including player-controlled guardian and charm exceptions.
     pub fn can_have_threat_list(
@@ -1284,7 +1290,7 @@ impl SourceUnitAi {
                 if self.can_execute(objects, units)? {
                     let f = units.get_mut(objects, unit)?;
                     attacked = f.target.is_none();
-                    f.target = Some(target);
+                    objects.set_unit_target(unit, &mut f.target, Some(target))?;
                 }
                 if self.melee_enabled {
                     self.melee_start(Some(target), objects, units, owner)?;
@@ -1295,7 +1301,8 @@ impl SourceUnitAi {
             self.attack_stop(true, false, false, false, objects, units, owner)?;
         }
         if self.can_execute(objects, units)? {
-            units.get_mut(objects, unit)?.target = Some(target);
+            let f = units.get_mut(objects, unit)?;
+            objects.set_unit_target(unit, &mut f.target, Some(target))?;
         }
         let target_fields = units.get_mut(objects, target)?;
         if target_fields.attackers.contains(&unit) {
@@ -1370,7 +1377,8 @@ impl SourceUnitAi {
         }
         let player = objects.get(self.unit)?.kind == SourceObjectKind::Player;
         if target_switch && !player {
-            units.get_mut(objects, self.unit)?.target = None;
+            let f = units.get_mut(objects, self.unit)?;
+            objects.set_unit_target(self.unit, &mut f.target, None)?;
         }
         if !client_initiated && player {
             owner.call(self.unit, UnitAiCall::PlayerAttackCancel, units, objects)?;
@@ -1399,8 +1407,13 @@ impl SourceUnitAi {
         if f.state & CANNOT_REACT != 0 {
             return Ok(());
         }
-        if self.dismount_on_aggro {
-            f.mounted = false;
+        if self.dismount_on_aggro && f.mounted {
+            objects.set_update_value(
+                self.unit,
+                UNIT_FIELD_MOUNTDISPLAYID,
+                &mut f.mounted,
+                false,
+            )?;
         }
         if f.state & 0x100 == 0 {
             owner.call(
@@ -1600,10 +1613,10 @@ impl SourceUnits {
             self.trigger_combat_timer(unit, pvp, objects)?;
         }
         let f = self.get_mut(objects, unit)?;
-        f.flags |= UNIT_FLAG_COMBAT;
+        f.set_flag(objects, unit, UNIT_FLAG_COMBAT, true)?;
         // Unit.cpp:7924 and Unit.h:1845 use distinct charmer and creator predicates.
         if f.control_guids.has_charmer() || f.control_guids.creator.raw() != 0 {
-            f.flags |= 0x800;
+            f.set_flag(objects, unit, 0x800, true)?;
             if first || pvp {
                 owner.call(unit, UnitAiCall::PropagateCombat(enemy), self, objects)?;
             }

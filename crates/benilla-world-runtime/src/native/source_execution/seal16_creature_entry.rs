@@ -210,7 +210,7 @@ pub(super) fn finish_init_entry(
         return Err(error);
     }
     prefix.lookups.push("creature_init_entry_remainder");
-    CreatureConstruction::begin_loaded_update_entry(live);
+    CreatureConstruction::begin_loaded_update_entry(objects, object, live)?;
     prefix.creature_entry = Some(EntryFields::observe(live, state, addon, None));
     Ok(())
 }
@@ -222,8 +222,13 @@ pub(super) fn apply_level(
     objects: &SourceObjects,
 ) -> Result<()> {
     let live = prefix.units.get_mut(objects, state.object)?;
-    let stats =
-        state.apply_loaded_level(live, entry, prefix.level_definitions, prefix.level_config)?;
+    let stats = state.apply_loaded_level(
+        objects,
+        live,
+        entry,
+        prefix.level_definitions,
+        prefix.level_config,
+    )?;
     prefix.creature_entry.as_mut().unwrap().level = Some(stats);
     prefix.lookups.push("creature_level_stats_spawn");
     Ok(())
@@ -238,7 +243,13 @@ pub(super) fn update_entry(
     let object = state.object;
     let template = entry.effective;
     let live = prefix.units.get_mut(objects, object)?;
-    let result = CreatureConstruction::update_loaded_entry_flags(live, entry, prefix.faction_flags);
+    let result = CreatureConstruction::update_loaded_entry_flags(
+        objects,
+        object,
+        live,
+        entry,
+        prefix.faction_flags,
+    );
     let prior = prefix.creature_entry.take().unwrap();
     let mut fields = EntryFields::observe(live, state, prior.addon, prior.level);
     if let Err(error) = result {

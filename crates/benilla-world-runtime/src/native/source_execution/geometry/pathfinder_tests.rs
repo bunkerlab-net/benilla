@@ -328,7 +328,7 @@ fn forcing_overrides_map_ignore_but_not_global_disable_and_fields_are_transient(
             let (objects, mut units, master) = setup();
             let f = units.get_mut(&objects, master.unit).unwrap();
             f.mmap_extra_flags = extra;
-            f.set_flag(8, controlled);
+            f.set_flag(&objects, master.unit, 8, controlled).unwrap();
             let serialized = serde_json::to_value(&f).unwrap();
             for key in ["can_walk", "can_swim", "mmap_extra_flags"] {
                 assert!(serialized.get(key).is_none());

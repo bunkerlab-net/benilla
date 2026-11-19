@@ -40,7 +40,7 @@ impl ResistanceGroup {
     }
 }
 
-/// Live Unit resistance operands. Only Creature::UpdateArmor writes an update field here.
+/// Live resistance operands, including the agility and armor update fields.
 #[derive(Clone, Debug)]
 pub struct SourceUnitResistances {
     create: [i32; 7],
@@ -67,10 +67,21 @@ impl Default for SourceUnitResistances {
 
 impl SourceUnitResistances {
     /// Creature.cpp:1459,1475,1485; StatSystem.cpp:623,628.
-    pub fn select_level(&mut self, base_armor: f32, agility: i32) -> Result<()> {
+    pub fn select_level(
+        &mut self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+        base_armor: f32,
+        agility: i32,
+    ) -> Result<()> {
         self.groups[0].base_value = base_armor;
-        self.agility = agility as u32; // Unit.h:1321 reads the UInt32 update field.
-        self.update_armor()
+        objects.set_update_value(
+            unit,
+            UNIT_FIELD_STAT1,
+            &mut self.agility,
+            agility.max(0) as u32,
+        )?;
+        self.update_armor(objects, unit)
     }
 
     /// Creature.cpp:585-590.
@@ -106,17 +117,22 @@ impl SourceUnitResistances {
     }
 
     // StatSystem.cpp:664-672. The two TOTAL_VALUE writes may round differently.
-    pub fn update_armor(&mut self) -> Result<()> {
+    pub fn update_armor(&mut self, objects: &SourceObjects, unit: ObjectHandle) -> Result<()> {
         let dynamic = (self.agility as f32) * 2.0;
         self.groups[0].total_value += dynamic;
-        self.armor = armor_int(self.total(0))?;
+        let value = armor_int(self.total(0))?;
+        // Unit.h:1325 uses SetStatInt32Value (Object.cpp:930-936).
+        objects.set_update_value(unit, UNIT_FIELD_RESISTANCES, &mut self.armor, value.max(0))?;
         self.groups[0].total_value -= dynamic;
         Ok(())
     }
 
     /// SpellAuras.cpp:3367-3387.
+    #[allow(clippy::too_many_arguments)]
     pub fn handle_aura(
         &mut self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
         amount: i32,
         mask: i32,
         apply: bool,
@@ -140,7 +156,7 @@ impl SourceUnitResistances {
                     !player,
                     "execution.spells.Unit_9019.Player_UpdateArmor_owner",
                 )?;
-                self.update_armor()?;
+                self.update_armor(objects, unit)?;
             }
             let _change = self.total(school) - old;
             require(

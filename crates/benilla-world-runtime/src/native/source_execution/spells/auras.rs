@@ -721,7 +721,7 @@ impl SourceUnitAuras {
         )?;
         match aura.kind {
             4 => handle_creature_dummy_aura(stores, t, live.player, Some((mode, live.alive))),
-            95 => self.handle_aura_ghost(false, live.player),
+            95 => self.handle_aura_ghost(live.objects, live.target, false, live.player),
             42 | 192..=255 => Ok(()),
             kind => Err(refuse(&format!(
                 "execution.spells.AuraHandler.type_{kind}_unapply_owner"
@@ -755,16 +755,21 @@ impl SourceUnitAuras {
             holder.diminish_group == 0,
             "execution.spells.SpellAuraHolder_5337.ApplyDiminishingAura_owner",
         )?;
-        self.aura_fields.spells[slot] = 0;
-        self.aura_fields.flags[slot >> 3] &= !(15 << ((slot & 7) * 4));
+        self.aura_fields.set_aura_spell(live, slot, 0)?;
+        self.aura_fields.set_aura_flags(live, slot, 0)?;
         let level = live
             .level
             .ok_or_else(|| refuse("execution.spells.SpellAuraHolder_5341.GetLevel_owner"))?;
-        self.aura_fields.set_aura_level(slot, level);
+        self.aura_fields.set_aura_level(live, slot, level)?;
         holder.charges = 0;
         holder.stack = 1;
-        self.aura_fields
-            .update_aura_application(holder.slot, holder.charges, holder.stack);
+        self.aura_fields.update_aura_application(
+            live.objects,
+            live.target,
+            holder.slot,
+            holder.charges,
+            holder.stack,
+        )?;
         if mode == AuraRemoveMode::Delete {
             return Ok(());
         }
@@ -894,19 +899,24 @@ impl SourceAuraFields {
             let range = if positive { 0..32 } else { 32..48 };
             if let Some(slot) = range.into_iter().find(|&i| self.spells[i] == 0) {
                 holder.slot = slot as u8;
-                self.spells[slot] = t.id;
-                let shift = (slot & 7) * 4;
+                self.set_aura_spell(live, slot, t.id)?;
                 let flags = if positive {
                     4 | u32::from(t.attributes & 0x8000_0000 == 0)
                 } else {
                     8
                 };
-                self.flags[slot >> 3] = (self.flags[slot >> 3] & !(15 << shift)) | flags << shift;
+                self.set_aura_flags(live, slot, flags)?;
                 let level = live.level.ok_or_else(|| {
                     refuse("execution.spells.SpellAuraHolder_5277.GetLevel_owner")
                 })?;
-                self.set_aura_level(slot, level);
-                self.update_aura_application(holder.slot, holder.charges, holder.stack);
+                self.set_aura_level(live, slot, level)?;
+                self.update_aura_application(
+                    live.objects,
+                    live.target,
+                    holder.slot,
+                    holder.charges,
+                    holder.stack,
+                )?;
                 live.update_aura_for_group()?;
                 require(
                     !live.player || holder.passive,
@@ -930,17 +940,57 @@ impl SourceAuraFields {
         )
     }
 
+    // SpellAuras.h:195.
+    fn set_aura_spell(&mut self, live: SelfAuraRemoval<'_>, slot: usize, spell: u32) -> Result<()> {
+        live.objects.set_update_value(
+            live.target,
+            UNIT_FIELD_AURA + slot,
+            &mut self.spells[slot],
+            spell,
+        )?;
+        Ok(())
+    }
+
+    // SpellAuras.cpp:5921-5942.
+    fn set_aura_flags(&mut self, live: SelfAuraRemoval<'_>, slot: usize, flags: u32) -> Result<()> {
+        let index = slot >> 3;
+        let shift = (slot & 7) * 4;
+        let value = (self.flags[index] & !(15 << shift)) | flags << shift;
+        live.objects.set_update_value(
+            live.target,
+            UNIT_FIELD_AURAFLAGS + index,
+            &mut self.flags[index],
+            value,
+        )?;
+        Ok(())
+    }
+
     // SpellAuras.cpp:5945-5953.
-    fn set_aura_level(&mut self, slot: usize, level: u32) {
+    fn set_aura_level(&mut self, live: SelfAuraRemoval<'_>, slot: usize, level: u32) -> Result<()> {
+        let index = slot / 4;
         let shift = (slot % 4) * 8;
-        self.levels[slot / 4] = (self.levels[slot / 4] & !(255 << shift)) | level << shift;
+        let value = (self.levels[index] & !(255 << shift)) | level << shift;
+        live.objects.set_update_value(
+            live.target,
+            UNIT_FIELD_AURALEVELS + index,
+            &mut self.levels[index],
+            value,
+        )?;
+        Ok(())
     }
 
     // SpellAuras.cpp:5960-5974.
-    fn update_aura_application(&mut self, slot: u8, charges: u32, stack: u32) {
+    fn update_aura_application(
+        &mut self,
+        objects: &SourceObjects,
+        target: ObjectHandle,
+        slot: u8,
+        charges: u32,
+        stack: u32,
+    ) -> Result<()> {
         let slot = usize::from(slot);
         if slot >= self.spells.len() {
-            return;
+            return Ok(());
         }
         let count = if charges > 0 {
             charges.wrapping_mul(stack)
@@ -952,9 +1002,16 @@ impl SourceAuraFields {
         } else {
             254
         };
+        let index = slot / 4;
         let shift = (slot % 4) * 8;
-        self.applications[slot / 4] =
-            (self.applications[slot / 4] & !(255 << shift)) | u32::from(count) << shift;
+        let value = (self.applications[index] & !(255 << shift)) | u32::from(count) << shift;
+        objects.set_update_value(
+            target,
+            UNIT_FIELD_AURAAPPLICATIONS + index,
+            &mut self.applications[index],
+            value,
+        )?;
+        Ok(())
     }
 }
 
@@ -1001,6 +1058,8 @@ pub fn apply_self_aura_holder(
         match kind {
             0 | 192..=255 => {} // SpellAuras.cpp:61 dispatches type 0 to HandleNULL.
             22 => live.resistances.handle_aura(
+                live.objects,
+                live.object,
                 aura.amount,
                 aura.misc,
                 true,
@@ -1008,7 +1067,8 @@ pub fn apply_self_aura_holder(
                 live.player,
             )?,
             95 => {
-                live.auras.handle_aura_ghost(true, live.player)?;
+                live.auras
+                    .handle_aura_ghost(live.objects, live.object, true, live.player)?;
                 live.auras.mark_effect_applied(holder, i)?;
                 continue;
             }
@@ -1072,7 +1132,7 @@ pub fn apply_self_aura_holder(
             }
             42 => {
                 live.auras
-                    .handle_aura_proc_trigger_spell(holder, true, true)?;
+                    .handle_aura_proc_trigger_spell(live.objects, holder, true, true)?;
                 live.auras.mark_effect_applied(holder, i)?;
                 continue;
             }
@@ -1108,6 +1168,7 @@ impl SourceUnitAuras {
     // modifiers (SpellAuras.cpp:901-904).
     fn handle_aura_proc_trigger_spell(
         &mut self,
+        objects: &SourceObjects,
         id: SourceAuraHolderId,
         apply: bool,
         real: bool,
@@ -1118,8 +1179,9 @@ impl SourceUnitAuras {
         let holder = self.applied_holder_mut(id)?;
         if holder.charges != 6 {
             holder.charges = 6;
-            let (slot, stack) = (holder.slot, holder.stack);
-            self.aura_fields.update_aura_application(slot, 6, stack);
+            let (target, slot, stack) = (holder.target, holder.slot, holder.stack);
+            self.aura_fields
+                .update_aura_application(objects, target, slot, 6, stack)?;
         }
         Ok(())
     }
@@ -1165,20 +1227,25 @@ impl SourceUnitAuras {
     }
 
     // SpellAuras.cpp:4401-4429.
-    fn handle_aura_ghost(&mut self, apply: bool, player: bool) -> Result<()> {
-        if apply {
-            self.vis_flags |= 1;
-            require(
-                !player,
-                "execution.spells.Aura_4411.player_ghost_flag_owner",
-            )
-        } else {
-            self.vis_flags &= !1;
-            require(
-                !player,
-                "execution.spells.Aura_4421.player_ghost_flag_owner",
-            )
-        }
+    fn handle_aura_ghost(
+        &mut self,
+        objects: &SourceObjects,
+        target: ObjectHandle,
+        apply: bool,
+        player: bool,
+    ) -> Result<()> {
+        // Unit.h:1443-1444; Object.cpp:1008,1026 test one fixed bit.
+        let old = self.vis_flags;
+        let flags = if apply { old | 1 } else { old & !1 };
+        objects.set_update_value(target, UNIT_FIELD_BYTES_1, &mut self.vis_flags, flags)?;
+        require(
+            !player,
+            if apply {
+                "execution.spells.Aura_4411.player_ghost_flag_owner"
+            } else {
+                "execution.spells.Aura_4421.player_ghost_flag_owner"
+            },
+        )
     }
 }
 
@@ -1333,7 +1400,8 @@ impl SelfAuraApplication<'_> {
         )?;
         self.clear_stance_rage()?;
         // SpellAuras.cpp:1920-1936; Unit.cpp:5211-5223.
-        *self.form = form;
+        self.objects
+            .set_update_value(self.object, UNIT_FIELD_BYTES_1, self.form, form)?;
         for id in self.auras.aura_spell_ids() {
             let aura = stores
                 .template(id)
@@ -1351,8 +1419,10 @@ impl SelfAuraApplication<'_> {
             .power_type
             .as_deref_mut()
             .ok_or_else(|| refuse("execution.spells.Aura_1885.GetPowerType_owner"))?;
-        if *power_type != 1 {
-            *power_type = 1;
+        if self
+            .objects
+            .set_update_value(self.object, UNIT_FIELD_BYTES_0, power_type, 1)?
+        {
             if let Some(vitals) = self.vitals {
                 vitals.has_mana = false;
             }
@@ -1371,8 +1441,10 @@ impl SelfAuraApplication<'_> {
             .as_mut()
             .and_then(|power| power.auxiliary_current.as_mut())
             .ok_or_else(|| refuse("execution.spells.Aura_1911.GetPower_rage_owner"))?[0];
-        if *rage != 0 {
-            *rage = 0;
+        if self
+            .objects
+            .set_update_value(self.object, UNIT_FIELD_POWER2, rage, 0)?
+        {
             self.require_no_power_group("execution.spells.Unit_9294.GetGroup_owner")?;
         }
         Ok(())
@@ -1450,10 +1522,8 @@ fn inserting_without_a_pending_holder_refuses_before_writing_slots() {
 #[test]
 fn proc_trigger_aura_sets_ascendance_charges_only_on_real_apply() {
     let mut auras = SourceUnitAuras::default();
-    let target = ObjectHandle {
-        thread: 1,
-        construction: 1,
-    };
+    let mut objects = SourceObjects::default();
+    let target = objects.construct(1, SourceObjectKind::Creature).unwrap();
     for id in [7276, 28200] {
         let t = SpellTemplate {
             id,
@@ -1467,7 +1537,7 @@ fn proc_trigger_aura_sets_ascendance_charges_only_on_real_apply() {
         auras.aura_fields.applications[0] = 0x3412_0156;
         for (apply, real) in [(false, false), (true, false), (false, true), (true, true)] {
             auras
-                .handle_aura_proc_trigger_spell(holder, apply, real)
+                .handle_aura_proc_trigger_spell(&objects, holder, apply, real)
                 .unwrap();
             if id == 28200 && apply && real {
                 assert_eq!(auras.aura_holder(holder).unwrap().charges, 6);
@@ -1479,3 +1549,7 @@ fn proc_trigger_aura_sets_ascendance_charges_only_on_real_apply() {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "aura_mark_tests.rs"]
+mod aura_mark_tests;

@@ -746,6 +746,108 @@ impl BuiltinAiExecutionOwner for Host {}
 impl HostileTargetExecutionOwner for Host {}
 
 #[test]
+fn client_update_spawn_event_applies_set_and_remove_flag_in_the_dispatcher() {
+    let map = MapIdentity {
+        map: 0,
+        instance: 0,
+        creation_generation: 1,
+    };
+    let cells = SourceCells::new(map).unwrap();
+    let mut registry = AiRegistryBuilder::builtin();
+    registry.load_scripts(Vec::new()).unwrap();
+    let registry = registry.freeze();
+    let bytes = b"LogFilter_EventAiDev=1\nGuarderSight=50\n";
+    let config = EventAiLoaderConfig::parse(bytes, Sha256Id::of(bytes)).unwrap();
+    const FLAG: u32 = 0x200;
+    for (action, expected) in [(18, FLAG), (19, 0)] {
+        for (in_world, changed) in [(true, false), (true, true), (false, true)] {
+            let t = update_template();
+            let mut objects = SourceObjects::default();
+            let unit = objects.construct(1, SourceObjectKind::Creature).unwrap();
+            objects
+                .assign_guid(
+                    unit,
+                    41,
+                    SourceGuid::with_entry(HighGuid::Creature, 901, 41),
+                )
+                .unwrap();
+            objects.bind_map(unit, map, &cells).unwrap();
+            if in_world {
+                objects.add_to_world(unit).unwrap();
+            }
+            let selected = registry
+                .select(
+                    &objects,
+                    unit,
+                    t.clone().inputs(CreatureAiControl::default(), false),
+                    SourceControlGuids::default(),
+                )
+                .unwrap();
+            let mut spawn = row(1, 901, 11);
+            spawn.words[12..16].copy_from_slice(&[action, FLAG, 0, 0]);
+            let mut definitions = EventAiDefinitions::default();
+            definitions.insert(loaded(&mut Loader::default(), spawn));
+            let mut event = SourceEventAi::construct(
+                selected,
+                &objects,
+                Arc::new(definitions),
+                EventAiBuild::Release,
+            )
+            .unwrap();
+            let mut fields = SourceUnitFields::creature(&t);
+            fields.flags = if changed { expected ^ FLAG } else { expected };
+            let mut units = SourceUnits::default();
+            units.register(&objects, unit, fields).unwrap();
+            let mut mt = benilla_sim::source_rng::Mt19937::from_seed(5489);
+            let mut cursor = benilla_sim::source_rng::DrawCursor::default();
+            let mut sink = |_| {};
+            let mut random =
+                benilla_sim::source_rng::SourceRandom::new(1, &mut mt, &mut cursor, &mut sink)
+                    .unwrap();
+            let mut ais = SourceCreatureAis::default();
+            let ai = SourceCreatureAi::construct(
+                &objects,
+                unit,
+                &mut units,
+                &t,
+                false,
+                0,
+                &config,
+                &mut random,
+            )
+            .unwrap();
+            ais.install(&objects, &mut units, ai, &mut SourceCombat::default())
+                .unwrap();
+            let mut execution = SourceAiExecution {
+                queries: SourceUnitQueries {
+                    objects: &objects,
+                    units: &mut units,
+                },
+                ais: &mut ais,
+                threats: &mut SourceThreats::default(),
+                owner: &mut random,
+            };
+            execution
+                .event_ai_just_respawned(&mut event, &mut Host::default())
+                .unwrap();
+            assert_eq!(units.get(&objects, unit).unwrap().flags, expected);
+            assert_eq!(
+                objects
+                    .get(unit)
+                    .unwrap()
+                    .field_changed(UNIT_FIELD_FLAGS)
+                    .unwrap(),
+                changed
+            );
+            assert_eq!(
+                objects.client_update_pending(map, unit),
+                in_world && changed
+            );
+        }
+    }
+}
+
+#[test]
 fn inherited_eventai_update_runs_timers_selection_event_timers_then_ooc_return() {
     let mut objects = SourceObjects::default();
     let mut defs = EventAiDefinitions::default();

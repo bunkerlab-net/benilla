@@ -115,6 +115,8 @@ fn catalog04_level_vitals_and_undefined_census() {
     let mut refused = BTreeMap::<String, Vec<(u32, u32)>>::new();
     let mut template_ok = BTreeMap::new();
     let (mut compared, mut agreed, mut armor_ub) = (0, 0, 0);
+    let mut objects = SourceObjects::default();
+    let unit = objects.construct(1, SourceObjectKind::Creature).unwrap();
     for t in definitions.templates.values() {
         let mut ok = true;
         for level in t.levels[0]..=t.levels[1] {
@@ -127,7 +129,12 @@ fn catalog04_level_vitals_and_undefined_census() {
             };
             let mut live = SourceUnitResistances::default();
             compared += 1;
-            match live.select_level(f32::from_bits(stats.armor_base_bits), stats.attributes[1]) {
+            match live.select_level(
+                &objects,
+                unit,
+                f32::from_bits(stats.armor_base_bits),
+                stats.attributes[1],
+            ) {
                 Ok(()) => {
                     assert_eq!(
                         live.armor(),
