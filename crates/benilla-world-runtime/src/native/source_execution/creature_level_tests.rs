@@ -114,12 +114,36 @@ fn catalog04_level_vitals_and_undefined_census() {
     let mut fixed = 0usize;
     let mut refused = BTreeMap::<String, Vec<(u32, u32)>>::new();
     let mut template_ok = BTreeMap::new();
+    let (mut compared, mut agreed, mut armor_ub) = (0, 0, 0);
     for t in definitions.templates.values() {
         let mut ok = true;
         for level in t.levels[0]..=t.levels[1] {
             if let Err(e) = definitions.stats(t.entry, level, false, &config) {
                 refused.entry(e.id).or_default().push((t.entry, level));
                 ok = false;
+            }
+            let Ok(stats) = definitions.stats(t.entry, level, false, &config) else {
+                continue;
+            };
+            let mut live = SourceUnitResistances::default();
+            compared += 1;
+            match live.select_level(f32::from_bits(stats.armor_base_bits), stats.attributes[1]) {
+                Ok(()) => {
+                    assert_eq!(
+                        live.armor(),
+                        stats.armor,
+                        "entry {}, level {level}",
+                        t.entry
+                    );
+                    agreed += 1;
+                }
+                Err(e) => {
+                    assert_eq!(
+                        e.id,
+                        "execution.spells.StatSystem_669.armor_float_to_int_undefined"
+                    );
+                    armor_ub += 1;
+                }
             }
         }
         if ok {
@@ -130,6 +154,9 @@ fn catalog04_level_vitals_and_undefined_census() {
         }
         template_ok.insert(t.entry, ok);
     }
+    // initial-classicmangos.sql:421110-431494,448229-448438.
+    assert_eq!((compared, agreed, armor_ub), (15425, 15425, 0));
+    println!("CREATURE_ARMOR_STATIC compared={compared} agreed={agreed} float_to_int_undefined={armor_ub}");
     let mut spawns = 0usize;
     let mut numeric_spawns = 0usize;
     let mut spawn_refused = BTreeMap::<String, usize>::new();

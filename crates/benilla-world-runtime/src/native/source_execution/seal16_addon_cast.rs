@@ -29,7 +29,7 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
         live: &mut SourceUnitFields,
         spell: u32,
     ) -> Result<()> {
-        let before = (spell == 9036).then(|| serde_json::to_vec(&*live).unwrap());
+        let before = matches!(spell, 9036 | 1032).then(|| serde_json::to_vec(&*live).unwrap());
         if self.object.thread == 7 && self.objects.get(self.object)?.database_guid == 27677 {
             // Catalog04 template11577/ordinal6753 and spawnTemplate0 leave every flag clear.
             assert_eq!(live.flags, 0);
@@ -49,6 +49,8 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
             control_guids: cast.control_guids,
             immunities: cast.immunities,
             auras: cast.auras,
+            resistances: cast.resistances,
+            can_modify_stats: cast.can_modify_stats,
             threat_modifier: cast.threat_modifier,
             power_fields: cast.power_fields,
             power_type: cast.power_type.as_mut(),
@@ -82,7 +84,7 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
             assert_eq!(
                 before,
                 serde_json::to_vec(&*live).unwrap(),
-                "applying 9036 must not change saved SourceUnitFields bytes"
+                "applying {spell} must not change saved SourceUnitFields bytes"
             );
         }
         if self.object.thread == 6 && self.objects.get(self.object)?.database_guid == 40520 {
@@ -191,6 +193,8 @@ pub(super) struct Owner<'a> {
     pub control_guids: &'a SourceControlGuids,
     pub immunities: &'a CreatureImmunityState,
     pub auras: &'a mut SourceUnitAuras,
+    pub resistances: &'a mut SourceUnitResistances,
+    pub can_modify_stats: &'a bool,
     pub threat_modifier: &'a mut [f32; 7],
     pub power_fields: &'a mut Option<SourceUnitPowerFields>,
     pub power_type: Option<&'a mut u8>,
@@ -235,6 +239,8 @@ impl SelfAuraApplicationOwner for Owner<'_> {
             objects: self.objects,
             control_guids: self.control_guids,
             auras: self.auras,
+            resistances: self.resistances,
+            can_modify_stats: *self.can_modify_stats,
             threat_modifier: self.threat_modifier,
             power_fields: self.power_fields,
             power_type: self.power_type.as_deref_mut(),

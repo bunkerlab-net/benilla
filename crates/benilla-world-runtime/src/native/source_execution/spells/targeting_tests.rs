@@ -32,6 +32,7 @@ fn with_fixture<T>(
     // Authored loaded tables with no rows; no private inputs are needed.
     stores.bind_test_dbc("SpellRange.dbc", []);
     stores.bind_test_dbc("SpellDuration.dbc", []);
+    stores.bind_test_dbc("SpellRadius.dbc", []);
     stores.insert_template(t.clone())?;
     let mut objects = SourceObjects::default();
     let caster = objects.construct(7, kind)?;
@@ -264,28 +265,60 @@ fn fill_names_unbound_filters_and_player_pvp_reads_before_add_unit_target() {
 }
 
 #[test]
-fn effect_35_refuses_after_creating_a_holder_but_before_constructing_an_aura() {
-    struct Clocks;
-    impl SpellAuraHitOwner for Clocks {
+fn authored_area_effect_inserts_a_living_target_and_skips_a_dead_target() {
+    struct Hit {
+        auras: SourceUnitAuras,
+        clocks: Vec<i64>,
+    }
+    impl SpellAuraHitOwner for Hit {
         fn aura_holder_seconds(&mut self, _: &SourceSpell) -> Result<i64> {
+            self.clocks.push(42);
             Ok(42)
+        }
+        fn aura_effect_seconds(&mut self, _: &SourceSpell) -> Result<i64> {
+            self.clocks.push(43);
+            Ok(43)
+        }
+        fn aura_hit_target(&mut self, _: ObjectHandle) -> Result<&mut SourceUnitAuras> {
+            Ok(&mut self.auras)
+        }
+        fn apply_inserted_aura_holder(
+            &mut self,
+            _: &SpellTemplate,
+            holder: SourceAuraHolderId,
+            _: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
+        ) -> Result<()> {
+            let effect = self.auras.aura_holder(holder).unwrap().effects[0]
+                .as_ref()
+                .unwrap();
+            assert_eq!((effect.apply_time, effect.script_value), (43, 71));
+            assert_eq!(effect.area.unwrap().kind, SourceAreaAuraKind::Party);
+            Ok(())
+        }
+        fn proc_aura_hit(&mut self, _: &mut SourceSpell) -> Result<()> {
+            Ok(())
         }
     }
     let mut t = area_spell(1, 0);
     t.effectbasepoints1 = 504;
     t.effectbasedice1 = 1;
     t.effectdiesides1 = 1;
-    with_fixture(&t, 0, SourceObjectKind::Creature, |live, s| {
-        live.fill(s, &t, |_| {})?;
-        let caster = s.caster;
-        assert_eq!(
+    for alive in [false, true] {
+        with_fixture(&t, 0, SourceObjectKind::Creature, |live, s| {
+            live.fill(s, &t, |_| {})?;
+            let caster = s.caster;
+            s.script_value = 71;
+            let mut hit = Hit {
+                auras: SourceUnitAuras::default(),
+                clocks: Vec::new(),
+            };
             s.hit_self_auras(
                 &t,
                 live.stores,
                 SelfAuraRemoval {
                     target: caster,
                     level: Some(live.level),
-                    alive: true,
+                    alive,
                     player: false,
                     player_group: None,
                     totem: false,
@@ -294,18 +327,41 @@ fn effect_35_refuses_after_creating_a_holder_but_before_constructing_an_aura() {
                 },
                 0,
                 None,
-                &mut Clocks,
-            )
-            .unwrap_err()
-            .id,
-            "execution.spells.SpellEffects_2331.EffectApplyAreaAura_owner"
-        );
-        let holder = s.pending_aura.as_ref().unwrap();
-        assert_eq!((holder.apply_time, holder.diminish_group), (42, 0));
-        assert!(holder.effects.iter().all(Option::is_none));
-        assert!(s.unique_targets[0].processed);
-        assert_eq!(s.damage_per_effect, [505, 0, 0]);
-        Ok(())
-    })
-    .unwrap();
+                &mut hit,
+            )?;
+            assert!(s.pending_aura.is_none());
+            assert_eq!(hit.auras.has_aura_holders(), alive);
+            assert_eq!(hit.clocks, if alive { &[42, 43][..] } else { &[42][..] });
+            if let Some(holder) = hit.auras.first_aura_holder(t.id) {
+                assert_eq!((holder.apply_time, holder.diminish_group), (42, 0));
+                assert_eq!(holder.effects[0].as_ref().unwrap().amount, 505);
+                assert!(holder.ready && holder.skip_update);
+            }
+            assert!(s.unique_targets[0].processed);
+            assert_eq!(s.damage_per_effect, [505, 0, 0]);
+            Ok(())
+        })
+        .unwrap();
+    }
+}
+
+#[test]
+fn authored_caster_default_refuses_to_overwrite_an_existing_candidate() {
+    let caster = ObjectHandle {
+        thread: 7,
+        construction: 1,
+    };
+    let other = ObjectHandle {
+        thread: 7,
+        construction: 2,
+    };
+    let mut side_a = None;
+    add_default_caster(&mut side_a, caster).unwrap();
+    assert_eq!(side_a, Some(caster));
+    side_a = Some(other);
+    assert_eq!(
+        add_default_caster(&mut side_a, caster).unwrap_err().id,
+        "execution.spells.Spell_572.caster_default_append_owner"
+    );
+    assert_eq!(side_a, Some(other));
 }

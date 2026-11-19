@@ -126,6 +126,9 @@ pub struct SourceUnitFields {
     /// Unit.h:2487,2507; Unit.cpp:355,365-366. Live state has no restore path.
     #[serde(skip)]
     pub auras: SourceUnitAuras,
+    /// Unit.cpp:367-386. Live resistance groups and derived armor field.
+    #[serde(skip)]
+    pub resistances: SourceUnitResistances,
     /// Unit.cpp:409-410 initializes every school multiplier to one.
     #[serde(skip)]
     pub threat_modifier: [f32; 7],
@@ -186,6 +189,8 @@ pub struct SourceUnitCastFields<'a> {
     pub has_ai: &'a bool,
     pub totem: &'a bool,
     pub auras: &'a mut SourceUnitAuras,
+    pub resistances: &'a mut SourceUnitResistances,
+    pub can_modify_stats: &'a bool,
     pub immunities: &'a CreatureImmunityState,
     pub threat_modifier: &'a mut [f32; 7],
     pub vitals: &'a mut Option<SourceUnitVitals>,
@@ -227,6 +232,8 @@ impl SourceUnitFields {
                 has_ai: &self.has_ai,
                 totem: &self.totem,
                 auras: &mut self.auras,
+                resistances: &mut self.resistances,
+                can_modify_stats: &self.loaded_creature.can_modify_stats,
                 immunities: &self.immunities,
                 threat_modifier: &mut self.threat_modifier,
                 vitals: &mut self.vitals,
@@ -365,6 +372,7 @@ impl SourceUnitFields {
             spline_position_expiry: 0,
             spline_last_move_ms: 0,
             auras: SourceUnitAuras::default(),
+            resistances: SourceUnitResistances::default(),
             threat_modifier: [1.0; 7],
             spell_starts: SourceSpellStarts::default(),
             unit_events: SourceUnitEvents::default(),

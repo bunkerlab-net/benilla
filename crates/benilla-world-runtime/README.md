@@ -3034,8 +3034,13 @@ triggering aura's reagent definition, `Unit.cpp:1484-1512`,
 `Spell.cpp:3007-3020,3083,3094`.
 `spells/targeting.rs` selects the caster for spell 1032's single unit mode.
 The area aura uses the same unit-target fill as ordinary self casts
-(`Spell.cpp:552-573,723-784,2159-2161`). Map 1 reaches its holder clock at
-trace lines 60553739 and 60553741. The effect refuses at `SpellEffects.cpp:2331`.
+(`Spell.cpp:552-573,723-784,2159-2161`). The holder and effect use separate
+clock pairs at trace lines 60553739/60553741 and 60553823/60553824.
+`SpellAuras.cpp:298-328,3367-3387` stores the radius and applies the armor
+modifier on the live unit. The later area-aura tick refuses at
+`SpellAuras.cpp:410`.
+Map 1 completes the load for GUID35891 at trace line 60554098. Its next
+unbound call is the world-boss immunity write for GUID35867 (`Creature.cpp:597`).
 At the cast-chain limit, aura-triggered casts suppress the cast result.
 Unbound player and pet cast results refuse before the spell finishes,
 `Spell.cpp:3165-3176,3813-3841`.

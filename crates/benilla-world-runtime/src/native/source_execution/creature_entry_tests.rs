@@ -213,7 +213,7 @@ fn fresh_loaded_init_and_update_entry_write_live_fields_in_order() {
         (17, 8, 0x10000)
     );
     assert_eq!(live.loaded_creature.attack_times, [1800, 1800, 2400]);
-    assert_eq!(live.loaded_creature.resistances, [1, 2, 3, 4, 5, 6]);
+    assert_eq!(live.resistances.create_nonphysical(), [1, 2, 3, 4, 5, 6]);
     assert!(
         live.loaded_creature.ignore_mmap
             && live.loaded_creature.count_spawns
@@ -311,6 +311,7 @@ fn init_entry_class_power_and_select_level_mana_agree_for_all_source_cases() {
         health: 100,
         maximum_power: [50, 1000, 0, 100, 0],
         power: [50, 15, 0, 100, 0],
+        armor_base_bits: 0,
         armor: 0,
         attack_power: [0; 2],
         weapon_damage_bits: [[0; 2]; 3],
@@ -322,7 +323,7 @@ fn init_entry_class_power_and_select_level_mana_agree_for_all_source_cases() {
         CreatureConstruction::init_loaded_entry_base(&mut live, &row);
         assert_eq!(live.power_type, None);
         CreatureConstruction::apply_loaded_model(&mut live, &row, MODEL).unwrap();
-        live.apply_source_level(&value, class);
+        live.apply_source_level(&value, class).unwrap();
         assert_eq!(live.power_type, Some(power));
         assert_eq!(live.vitals.unwrap().has_mana, has_mana);
         assert_eq!(

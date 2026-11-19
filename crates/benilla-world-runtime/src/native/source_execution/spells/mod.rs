@@ -2,6 +2,8 @@
 //! Live SpellStart and typed requests to the owners reached by Spell.cpp.
 use super::*;
 use std::collections::BTreeMap;
+mod area_aura;
+pub use area_aura::*;
 mod auras;
 mod callers;
 mod cast;
@@ -21,7 +23,9 @@ mod positivity;
 mod power;
 mod procs;
 mod range;
+mod resistance;
 mod shapeshift;
+pub use resistance::*;
 mod stacking;
 pub use cast_query::*;
 pub use caster_auras::*;

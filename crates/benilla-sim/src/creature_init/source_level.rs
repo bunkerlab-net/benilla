@@ -60,6 +60,8 @@ pub struct SourceLevelStats {
     pub health: u32,
     pub maximum_power: [u32; 5],
     pub power: [u32; 5],
+    /// Creature.cpp:1459. Base value before StatSystem.cpp:666-672 adds agility.
+    pub armor_base_bits: u32,
     pub armor: i32,
     pub attack_power: [u32; 2],
     /// Mainhand, offhand, ranged, before UpdateDamagePhysical.
@@ -245,6 +247,7 @@ pub fn select_level_stats(
         "UpdateAttackPowerAndDamage_melee_conversion_undefined",
     )?;
     attrs[1] = source_int(create[1], "UpdateStats_attribute_conversion_undefined")?;
+    let armor_base_bits = armor.to_bits() as u32;
     let armor = source_int(
         add(armor, mul(signed(attrs[1]), n(2)?)?)?,
         "UpdateArmor_conversion_undefined",
@@ -295,6 +298,7 @@ pub fn select_level_stats(
         health: maximum_health,
         maximum_power,
         power: maximum_power,
+        armor_base_bits,
         armor,
         attack_power: [melee, ranged],
         weapon_damage_bits,

@@ -174,6 +174,7 @@ pub struct SourceSpell {
     pub flags: SpellTriggerFlags,
     pub state: SourceSpellState,
     pub targets: SpellTargets,
+    pub script_value: u64,
     pub triggered_by_aura: Option<u32>,
     /// First reagent of m_triggeredBySpellInfo, absent when that pointer is null.
     pub triggered_by_spell_reagent: Option<i32>,
@@ -272,6 +273,7 @@ impl SourceSpell {
             flags,
             state: SourceSpellState::Created,
             targets: SpellTargets::default(),
+            script_value: 0, // Spell.cpp:484.
             triggered_by_aura: None,
             event: None,
             triggered_by_spell_reagent: None,

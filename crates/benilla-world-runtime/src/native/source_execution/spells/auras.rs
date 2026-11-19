@@ -18,7 +18,7 @@ pub struct SourceAura {
     pub apply_time: i64,
     pub applied: bool,
     pub periodic: bool,
-    pub area: bool,
+    pub area: Option<SourceAreaAura>,
     pub persistent: bool,
     pub magnet_used: bool,
     pub remove_mode: u32,
@@ -356,12 +356,11 @@ impl SourceSpell {
             // Spell.cpp:4593-4612. Calculate damage before dispatching the effect.
             let amount = super::effect_value::effect_value(t, i, self.base_points[i])?;
             self.damage_per_effect[i] = amount;
-            if matches!(effect.effect, 35 | 119) {
-                return Err(refuse(
-                    "execution.spells.SpellEffects_2331.EffectApplyAreaAura_owner",
-                ));
+            let area = SourceAreaAuraKind::for_effect(effect.effect);
+            if area.is_some() && !live.alive {
+                continue; // SpellEffects.cpp:2333-2334.
             }
-            if effect.effect != 6 {
+            if area.is_none() && effect.effect != 6 {
                 return Err(refuse(&format!(
                     "execution.spells.SpellEffects.effect_{}_owner",
                     effect.effect
@@ -372,7 +371,7 @@ impl SourceSpell {
             let holder = self.pending_aura.as_mut().ok_or_else(|| {
                 refuse("execution.spells.SpellEffects_1731.pending_aura_holder_owner")
             })?;
-            holder.effects[i] = Some(SourceAura::self_spell_effect(
+            let mut aura = SourceAura::self_spell_effect(
                 t,
                 i,
                 effect.aura,
@@ -380,7 +379,32 @@ impl SourceSpell {
                 amount,
                 holder.stack,
                 time,
-            )?);
+            )?;
+            if let Some(kind) = area {
+                SourceAreaAura::attach(
+                    &mut aura,
+                    kind,
+                    stores,
+                    [
+                        t.effectradiusindex1,
+                        t.effectradiusindex2,
+                        t.effectradiusindex3,
+                    ][i],
+                    || world_object_spell_mod_owner(live.objects, self.caster, live.totem),
+                    live.totem,
+                )?;
+            }
+            // SpellAuras.cpp:376-377. The duration path already excluded AuraScript.
+            aura.script_value = self.script_value;
+            holder.effects[i] = Some(aura);
+        }
+        // Spell.cpp:1460,1496-1500. A dead target can leave an empty holder.
+        if self
+            .pending_aura
+            .as_ref()
+            .is_some_and(|holder| holder.effects.iter().all(Option::is_none))
+        {
+            self.pending_aura = None;
         }
         // Spell.cpp:1490. Transfer pending ownership before modifier callbacks.
         let inserted = if self.pending_aura.is_some() {
@@ -421,8 +445,15 @@ impl SourceAura {
         stack: u32,
         time: i64,
     ) -> Result<Self> {
-        // SpellTargets.cpp:34,54,90 gives these self targets the HELPFUL filter.
-        let positive = t.attributes & 0x0400_0000 == 0;
+        // SpellMgr.h:1067-1069,1087-1089,1212-1215 on aura-apply effects.
+        let e = t.effects()[i];
+        let hostile = |mode: u32| {
+            SPELL_TARGET_INFO_TABLE
+                .get(mode as usize)
+                .is_some_and(|info| info.filter == SpellTargetFilter::Harmful)
+        };
+        let positive =
+            t.attributes & 0x0400_0000 == 0 && !hostile(e.target_a) && !hostile(e.target_b);
         let period = [t.effectamplitude1, t.effectamplitude2, t.effectamplitude3][i];
         Ok(Self {
             kind: source_aura_type(kind)?,
@@ -437,7 +468,7 @@ impl SourceAura {
             apply_time: time,
             applied: false,
             periodic: false,
-            area: false,
+            area: None,
             persistent: false,
             magnet_used: false,
             remove_mode: 0,
@@ -460,7 +491,11 @@ impl SourceUnitAuras {
         let holder = pending
             .as_mut()
             .ok_or_else(|| refuse("execution.spells.Unit_4687.pending_aura_holder_owner"))?;
-        let area = holder.effects.iter().flatten().any(|aura| aura.area);
+        let area = holder
+            .effects
+            .iter()
+            .flatten()
+            .any(|aura| aura.area.is_some());
         let persistent = holder.effects.iter().flatten().any(|aura| aura.persistent);
         // Unit.cpp:4708-4773. The same-caster removal breaks the equal-key scan.
         let same_spell = ((!holder.passive && !persistent) || area)
@@ -929,6 +964,8 @@ pub struct SelfAuraApplication<'a> {
     pub objects: &'a SourceObjects,
     pub control_guids: &'a SourceControlGuids,
     pub auras: &'a mut SourceUnitAuras,
+    pub resistances: &'a mut SourceUnitResistances,
+    pub can_modify_stats: bool,
     pub threat_modifier: &'a mut [f32; 7],
     pub power_fields: &'a mut Option<SourceUnitPowerFields>,
     pub power_type: Option<&'a mut u8>,
@@ -950,7 +987,7 @@ pub fn apply_self_aura_holder(
     holder: SourceAuraHolderId,
     mut nested: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
 ) -> Result<()> {
-    for (i, effect) in t.effects().iter().enumerate() {
+    for i in 0..3 {
         let mut live = owner.self_aura_application();
         let aura_holder = live.auras.applied_holder_mut(holder)?;
         if aura_holder.deleted {
@@ -960,9 +997,16 @@ pub fn apply_self_aura_holder(
             continue;
         };
         // SpellAuras.cpp:677-690. The holder already checked for an AuraScript.
-        let kind = effect.aura;
+        let kind = aura.kind;
         match kind {
-            192..=255 => {}
+            0 | 192..=255 => {} // SpellAuras.cpp:61 dispatches type 0 to HandleNULL.
+            22 => live.resistances.handle_aura(
+                aura.amount,
+                aura.misc,
+                true,
+                live.can_modify_stats,
+                live.player,
+            )?,
             95 => {
                 live.auras.handle_aura_ghost(true, live.player)?;
                 live.auras.mark_effect_applied(holder, i)?;

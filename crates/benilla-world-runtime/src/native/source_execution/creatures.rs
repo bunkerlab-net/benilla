@@ -155,7 +155,6 @@ pub struct SourceLoadedCreatureFields {
     pub npc_flags: u32,
     pub attack_times: [u32; 3],
     pub dynamic_flags: u32,
-    pub resistances: [u32; 6],
     pub invisible: bool,
     pub ignore_mmap: bool,
     pub count_spawns: bool,
@@ -552,7 +551,7 @@ impl CreatureConstruction {
             class,
             entry.effective.words[18],
         );
-        live.apply_source_level(&stats, class);
+        live.apply_source_level(&stats, class)?;
         Ok(stats)
     }
 
@@ -583,7 +582,8 @@ impl CreatureConstruction {
             spawn.unit_flags as u32
         };
         fields.dynamic_flags = w[22];
-        fields.resistances.copy_from_slice(&w[72..78]);
+        live.resistances
+            .set_creature_resistances(std::array::from_fn(|i| w[72 + i]));
         fields.invisible = w[23] & 0x80 != 0;
         fields.ignore_mmap = w[23] & 0x4000 != 0;
         fields.count_spawns = w[23] & 0x200000 != 0;
@@ -593,6 +593,7 @@ impl CreatureConstruction {
             ));
         }
         fields.can_modify_stats = true;
+        live.resistances.update_armor()?; // Creature.cpp:600; StatSystem.cpp:639-649.
         fields.pvp = faction_flags
             .get(&live.faction)
             .is_some_and(|flags| flags & 0x1000 != 0);

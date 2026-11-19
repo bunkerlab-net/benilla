@@ -120,7 +120,7 @@ impl EntryFields {
             attack_times: entry.attack_times,
             unit_flags: live.flags,
             dynamic_flags: entry.dynamic_flags,
-            resistances: entry.resistances,
+            resistances: live.resistances.create_nonphysical(),
             invisible: entry.invisible,
             ignore_mmap: entry.ignore_mmap,
             count_spawns: entry.count_spawns,

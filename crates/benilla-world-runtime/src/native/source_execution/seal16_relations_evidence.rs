@@ -332,6 +332,17 @@ pub(super) fn assert_continuation_words(words: &[(u64, u64, u64)]) {
     );
     assert_eq!(words[13438], (60553204, 13438, 3952305824));
     assert_eq!(words[13439], (60553836, 13439, 155414054));
+    // Trace :60553836-:60601822, including the boss model roll at Creature.cpp:678.
+    assert_eq!(
+        digest(
+            words[13439..13730]
+                .iter()
+                .map(|&(line, raw, word)| [line, raw, word])
+        ),
+        "2c24ea7a5ce93df931dac3397d0db656c9de31ff0dbcd81c68438b880bb5b537"
+    );
+    assert_eq!(words[13729], (60601822, 13729, 2156260723));
+    assert_eq!(words[13730], (60602255, 13730, 435216370));
 }
 
 pub(super) fn assert_continuation_clocks(
@@ -358,7 +369,8 @@ pub(super) fn assert_continuation_clocks(
     );
     assert_eq!(
         suffix
-            .filter(|sample| sample.time_line > 60534324)
+            .clone()
+            .filter(|sample| (60534325..=60553741).contains(&sample.time_line))
             .map(|s| (
                 s.site_line,
                 s.time_line,
@@ -393,6 +405,44 @@ pub(super) fn assert_continuation_clocks(
             // Spell.cpp:1445 reaches the holder clock before the area effect dispatch.
             (60553739, 60553741, 7, 8250845, 13439, 1794314190),
         ]
+    );
+    // Trace :60553823-:60601741, from the area effect through GUID35127's last aura.
+    let after_holder = suffix.filter(|sample| sample.time_line > 60553741);
+    assert_eq!(after_holder.clone().count(), 52);
+    assert_eq!(
+        digest(after_holder.map(|s| [
+            s.site_line,
+            s.time_line,
+            s.thread,
+            s.site[2],
+            s.raw,
+            s.seconds as u64
+        ])),
+        "db1a30877479d1d1f80f3f3ed4259a23cbb9e089b241a09198c513006ee1d0b8"
+    );
+}
+
+pub(super) fn assert_after_area_cast(births: &[u64], completed: &[(u64, u32)]) {
+    let births = &births[223..];
+    let completed = &completed[116..];
+    // Trace :60554104-:60601783 and :60554098-:60601776.
+    assert_eq!((births.len(), completed.len()), (42, 41));
+    assert_eq!((births[0], births[41]), (60554104, 60601783));
+    assert_eq!(
+        (completed[0], completed[40]),
+        ((60554098, 35891), (60601776, 35127))
+    );
+    assert_eq!(
+        digest(births.iter().map(|&line| [line])),
+        "be2fae9050a353058bd6d498414916acf3b6e5967ee514ea6ea1a6d9ed4743b0"
+    );
+    assert_eq!(
+        digest(
+            completed
+                .iter()
+                .map(|&(line, guid)| [line, u64::from(guid)])
+        ),
+        "0f080b6366ee991555f42ad70cd3dfee5bb0e2675a08ac3318772fae51524c42"
     );
 }
 

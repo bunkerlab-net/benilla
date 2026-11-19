@@ -91,8 +91,7 @@ impl SelfSpellTargeting<'_> {
         }
         let caster_default = implicit_type == SpecialUnit && !had_single;
         if caster_default {
-            // Every ported SetTargetMap arm selects at most one single unit.
-            candidates[0] = Some(s.caster);
+            add_default_caster(&mut candidates[0], s.caster)?;
         }
         Ok((
             SelfTargetSelection {
@@ -302,6 +301,16 @@ impl SelfSpellTargeting<'_> {
         });
         Ok(())
     }
+}
+
+// Spell.cpp:571-572 appends. The bound one-unit slot cannot represent a second entry.
+fn add_default_caster(slot: &mut Option<ObjectHandle>, caster: ObjectHandle) -> Result<()> {
+    require(
+        slot.is_none(),
+        "execution.spells.Spell_572.caster_default_append_owner",
+    )?;
+    *slot = Some(caster);
+    Ok(())
 }
 
 fn target_info(

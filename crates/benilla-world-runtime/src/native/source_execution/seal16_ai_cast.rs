@@ -164,6 +164,8 @@ impl SpellSelfCastOwner for Owner<'_> {
             control_guids: live.control_guids,
             immunities: live.immunities,
             auras: live.auras,
+            resistances: live.resistances,
+            can_modify_stats: live.can_modify_stats,
             threat_modifier: live.threat_modifier,
             power_fields: live.power_fields,
             power_type: None,

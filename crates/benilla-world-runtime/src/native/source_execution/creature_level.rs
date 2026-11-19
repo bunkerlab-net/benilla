@@ -245,7 +245,7 @@ pub fn draw_source_creature_level(
         .creature_urand(levels[0], levels[1])
 }
 impl SourceUnitFields {
-    pub fn apply_source_level(&mut self, value: &SourceLevelStats, class: u32) {
+    pub fn apply_source_level(&mut self, value: &SourceLevelStats, class: u32) -> Result<()> {
         self.power_fields = Some(SourceUnitPowerFields {
             level: value.level,
             create_health: value.create_health,
@@ -257,6 +257,8 @@ impl SourceUnitFields {
                 value.maximum_power[4],
             ]),
         });
+        self.resistances
+            .select_level(f32::from_bits(value.armor_base_bits), value.attributes[1])?;
         self.vitals = Some(SourceUnitVitals {
             health: value.health,
             max_health: value.maximum_health,
@@ -268,6 +270,7 @@ impl SourceUnitFields {
             energy: value.power[3],
             max_energy: value.maximum_power[3],
         });
+        Ok(())
     }
 }
 impl SourceUnits {
@@ -285,7 +288,7 @@ impl SourceUnits {
             fields.entry == state.template.entry,
             "execution.creature.SelectLevel_unit_entry",
         )?;
-        fields.apply_source_level(&stats, definitions.template(fields.entry)?.unit_class);
+        fields.apply_source_level(&stats, definitions.template(fields.entry)?.unit_class)?;
         Ok(stats)
     }
 }

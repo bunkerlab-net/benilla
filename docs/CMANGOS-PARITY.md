@@ -129,8 +129,14 @@ is meaningful without a bounded content/mechanics inventory.
   Static coverage does not establish execution; this map 0 prefix completes two.
   `spells/targeting.rs` binds ordinary and special-unit creature self targets
   to one unit-target fill (`Spell.cpp:533-784,2159-2161,2397-2405`).
-  Map 1 stops on GUID35891's spell 1032 at `SpellEffects.cpp:2331` after its
-  holder clock, before its effect clock. No additional RNG or SQL runs.
+  `SpellEffects.cpp:2331-2338` and `SpellAuras.cpp:298-328,367-379` create
+  the area aura on the existing live holder. On application, the resistance
+  modifier updates creature armor (`SpellAuras.cpp:3367-3387`,
+  `StatSystem.cpp:664-672`). `AreaAura::Update` belongs to a later unit tick
+  and refuses at `SpellAuras.cpp:410`.
+  Map 1 completes 259 objects and stops at the world-boss immunity call
+  (`Creature.cpp:597`). It matches 265 allocations, 13,730 random words, and
+  two SQL requests.
   EventAI event 649101 replaces 10848 and adds a second passive 9036.
   `Unit.cpp:5326-5446,10856-10866` unlinks both indexes and defers disposal.
   Map 0 completes 189 objects with 199 allocations, 27,472 random words, and
