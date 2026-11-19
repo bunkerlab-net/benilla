@@ -145,10 +145,15 @@ is meaningful without a bounded content/mechanics inventory.
   GUID52349 (`ScriptDevAIMgr.cpp:370`, trace line 60622939).
   EventAI event 649101 replaces 10848 and adds a second passive 9036.
   `Unit.cpp:5326-5446,10856-10866` unlinks both indexes and defers disposal.
-  The map 0 replay completes GO15508. It stops at the creature entry event
-  lookup for GUID4195, entry 265 (`CreatureEventAI.cpp:150`), where event
-  26501 needs its text template. It matches 253 completions, 268 allocations,
-  27,682 random words, and two SQL requests.
+  Map 0 completes GUID4195 after event 26501's holder timer draw
+  (`CreatureEventAI.cpp:40`, trace :60711958-60711999).
+  EventAI validates action 54 against the loaded string templates
+  (`CreatureEventAIMgr.cpp:979-996`, `ScriptMgr.h:679`).
+  Startup matches the template SELECT at trace :52620961 before the EventAI
+  SELECT at :58819675. Runtime string selection refuses at `CreatureEventAI.cpp:1262`.
+  Map 0 matches 290 completions, 311 allocations, 27,780 random words,
+  170 clocks, and two SQL requests. GUID151461 stops at the invisibility
+  handler for addon spell 4986 (`SpellAuras.cpp:2631`, trace :60774092-60774113).
   GuardAI construction and its inherited `SpellListChanged` and
   `JustRespawned` callbacks complete for GUID4242 (`Creature.cpp:883-887`).
   `npc_chicken_cluck` completes construction and both resets for GUID4228.

@@ -1001,6 +1001,29 @@ impl CreatureRandom for Unavailable {
 }
 impl EventAiExecutionOwner for Unavailable {}
 #[test]
+fn new_text_template_refuses_only_after_successful_target_selection() {
+    let mut state = state();
+    let call = EventAiInvocation::default();
+    assert!(!state
+        .execute_action(&action(54, [0, 15, 12]), 0, call, None, &mut Unavailable)
+        .unwrap());
+    assert_eq!(
+        state
+            .execute_action(&action(54, [0, 0, 12]), 0, call, None, &mut Unavailable)
+            .unwrap_err()
+            .id,
+        "execution.event_ai.CreatureEventAI_1262.GetRandomScriptStringFromTemplate_owner"
+    );
+    assert_eq!(
+        state
+            .execute_action(&action(54, [101, 0, 0]), 0, call, None, &mut Unavailable)
+            .unwrap_err()
+            .id,
+        "execution.event_ai.presentation_text_owner"
+    );
+}
+
+#[test]
 fn unavailable_basic_and_dependent_owners_never_report_success() {
     let mut state = state();
     assert_eq!(

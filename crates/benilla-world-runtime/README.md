@@ -593,8 +593,12 @@ It retains loader notices, skips, and missing-owner refusals separately.
 Chance narrows to uint8 before the 100 cap. Zero chance remains loaded.
 All three action slots retain their source conversions and repairs.
 The catalog adapter reads narrow F2 SQL operands and F2.6 DBC views.
-Loaded quest flags, summons, relay/template, spell-list, and immunity managers
-remain separate typed dependencies where their effective state is unavailable.
+Action 54 checks the shared ScriptMgr string-template store when its direct
+broadcast ID is zero. `CreatureEventAIMgr.cpp:979-996` logs a missing
+template and retains the action and event. Runtime template selection
+still refuses at `CreatureEventAI.cpp:1262`.
+Unbound quest flags, summons, relays, relay templates, spell lists, and
+immunity sets remain separate dependencies.
 
 `SourceEventAi` follows `CreatureEventAI.cpp:87-162,1382-1472,1597-1632,1929-1975`.
 The constructor retains definitions without initialising holders.
@@ -2588,17 +2592,20 @@ Only the two continent script classes use the inherited empty
 OnCreatureRespawn, `InstanceData.h:102`, through `sc_instance.h:27,82`.
 It then checks CREATOR_LOOT, the remaining LoadFromDB gates and outer grid
 insertion, `Creature.cpp:1742-1768`, `ObjectGridLoader.cpp:117,156-159`.
-The full EventAI projection matches 11,469 SQL rows: 11,126 loaded,
-zero C++ skips and 343 unrepresented rows across 244 selector keys.
-Unrepresented source-loaded definitions retain their named missing owner.
+The full EventAI projection matches 11,469 SQL rows: 11,277 loaded,
+zero C++ skips and 192 unrepresented rows across 123 selector keys.
+The remaining owners are relays (151), summons (25), effective quest flags (9),
+and relay templates (7).
+The replay matches the random-template SELECT and its 418 rows before
+EventAI scripts load (trace :52620961, :52621090, :58819675).
 The first map1 timer is 5,376 at raw11902, after four real zero-range
 TimerAI constructor/reset draws, `TimerAI.cpp:23,47`, `CreatureEventAI.cpp:40`.
-Map0 completes four gameobjects and six creatures before GUID636 entry14508
-needs the equipment owner at `Creature.cpp:401`.
-Map1 completes three gameobjects and fifteen creatures before GUID27280
-entry11564 needs the live allocation owner before `Map.cpp:1581`.
-The map prefixes match 26,614 and 12,012 raw words. Recorded allocation
-addresses are never supplied as execution inputs.
+Map 0 completes 290 objects in 311 allocations. It matches 27,780 random
+words, 170 clocks, and two map SQL requests. It stops in GUID151461's
+addon spell 4986 at `SpellAuras.cpp:2631` (trace :60774092-60774113).
+Map 1 stops at the `boss_azuregos` factory for GUID52349
+(`ScriptDevAIMgr.cpp:370`, trace :60622939).
+Recorded allocation addresses are never supplied as execution inputs.
 The world-thread clone-only next-word check matches `(8712,3411341330)`.
 Global event/status/quest comparisons and WorldState remain beyond the map
 refusal. Seal8 keeps its earlier lunar refusal. Native format 91 is unchanged.

@@ -169,7 +169,9 @@ pub trait EventAiExecutionOwner: CreatureRandom {
         Err(refuse("execution.event_ai.presentation_text_owner"))
     }
     fn text_template(&mut self, _template: u32) -> Result<i32> {
-        Err(refuse("execution.event_ai.text_template_owner"))
+        Err(refuse(
+            "execution.event_ai.CreatureEventAI_1262.GetRandomScriptStringFromTemplate_owner",
+        ))
     }
     fn emote(&mut self, _creature: ObjectHandle, _emote: u32) -> Result<()> {
         Err(refuse("execution.event_ai.presentation_emote_owner"))

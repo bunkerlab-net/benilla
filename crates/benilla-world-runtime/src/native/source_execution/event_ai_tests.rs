@@ -253,6 +253,38 @@ fn row_parameter_repairs_preserve_source_flag_and_continue_quirks() {
         Some([12, 0, 0])
     ); // :912 continues action loop, retains invalid type.
 }
+
+#[test]
+fn new_text_validation_logs_missing_template_without_dropping_action_or_row() {
+    let mut loader = Loader::default();
+    loader.missing.extend([
+        (EventAiLookup::Broadcast, 71),
+        (EventAiLookup::TextTemplate, 12),
+    ]);
+    let mut r = row(1, 901, 4);
+    r.words[12..].copy_from_slice(&[54, 0, 7, 12, 54, 71, 7, 12, 54, 72, 7, 12]);
+    let result = load_event_ai_row(&mut loader, r).unwrap();
+    assert_eq!(
+        result
+            .notices
+            .iter()
+            .map(|notice| notice.line)
+            .collect::<Vec<_>>(),
+        [992, 984]
+    );
+    let EventAiDisposition::Loaded(event) = result.disposition else {
+        panic!("source keeps the event after logging");
+    };
+    assert_eq!(
+        event.actions.map(|action| (action.kind, action.params)),
+        [
+            (54, Some([0, 7, 12])),
+            (54, Some([0, 7, 12])),
+            (54, Some([72, 7, 12])),
+        ]
+    );
+}
+
 #[test]
 fn cast_validation_uses_sql_metadata_and_friendly_hp_computes_target_self() {
     let mut loader = Loader::default();

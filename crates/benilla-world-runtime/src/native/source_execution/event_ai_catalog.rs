@@ -46,6 +46,7 @@ pub struct EventAiCatalog<'a> {
     spells: Option<BTreeMap<u32, EventAiSpell>>,
     config: EventAiLoaderConfig,
     spell_lists: Option<&'a LoadedCreatureSpellLists>,
+    script_templates: Option<&'a SourceDbScriptTemplates>,
 }
 impl<'a> EventAiCatalog<'a> {
     pub fn new(catalog: &'a mut VerifiedCatalog, config: EventAiLoaderConfig) -> Self {
@@ -55,10 +56,14 @@ impl<'a> EventAiCatalog<'a> {
             spells: None,
             config,
             spell_lists: None,
+            script_templates: None,
         }
     }
     pub fn bind_spell_lists(&mut self, lists: &'a LoadedCreatureSpellLists) {
         self.spell_lists = Some(lists);
+    }
+    pub fn bind_script_templates(&mut self, templates: &'a SourceDbScriptTemplates) {
+        self.script_templates = Some(templates);
     }
     fn ids(&mut self, domain: EventAiLookup) -> Result<&BTreeSet<u32>> {
         use EventAiLookup::*;
@@ -94,10 +99,9 @@ impl<'a> EventAiCatalog<'a> {
                     RelayTemplate => {
                         return Err(refuse("execution.event_ai.loader.relay_template_owner"))
                     }
-                    TextTemplate => {
-                        return Err(refuse("execution.event_ai.loader.text_template_owner"))
+                    SpellList | TextTemplate => {
+                        unreachable!("loaded stores are resolved in contains")
                     }
-                    SpellList => unreachable!("loaded spell lists are resolved in contains"),
                     ImmunitySet => {
                         return Err(refuse("execution.event_ai.loader.immunity_store_owner"))
                     }
@@ -119,6 +123,16 @@ impl EventAiLoaderOwner for EventAiCatalog<'_> {
                 .spell_lists
                 .ok_or_else(|| refuse("execution.event_ai.loader.spell_list_store_owner"))?
                 .get(id)
+                .is_some());
+        }
+        if domain == EventAiLookup::TextTemplate {
+            // ScriptMgr.h:679 checks membership only in STRING_TEMPLATE.
+            return Ok(self
+                .script_templates
+                .ok_or_else(|| {
+                    refuse("execution.event_ai.CreatureEventAIMgr_990.string_template_store_owner")
+                })?
+                .string(id)
                 .is_some());
         }
         Ok(self.ids(domain)?.contains(&id))

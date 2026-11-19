@@ -617,6 +617,7 @@ fn validate_action(
                     p[0] = 0;
                 }
             } else {
+                // :992 logs the missing template. :993 exits the switch and keeps the action.
                 log_if(n, !owner.contains(TextTemplate, p[2], 0)?, 992, s);
             }
         }

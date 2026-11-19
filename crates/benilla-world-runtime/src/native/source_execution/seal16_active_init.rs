@@ -5,7 +5,7 @@ use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: [&str; 2] = [
-    "execution.event_ai.CreatureEventAI_150.entry_265.key_265.event_26501.execution.event_ai.loader.text_template_owner",
+    "execution.spells.AuraHandler.type_18_owner",
     "execution.ai.ScriptDevAIMgr_370.GetAI_owner.boss_azuregos",
 ];
 #[path = "seal16_active_clocks.rs"]
