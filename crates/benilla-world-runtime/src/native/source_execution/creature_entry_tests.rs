@@ -163,9 +163,11 @@ fn fresh_loaded_init_and_update_entry_write_live_fields_in_order() {
     assert!(
         live.loaded_creature.can_parry && !live.loaded_creature.can_block && live.force_attacking
     );
-    let mut addon = CreatureAddonState::default();
-    CreatureConstruction::begin_loaded_update_entry(&mut live, &mut addon);
-    assert_eq!((addon.sheath, live.loaded_creature.misc_flags), (1, 0x10));
+    CreatureConstruction::begin_loaded_update_entry(&mut live);
+    assert_eq!(
+        (live.sheath_state, live.loaded_creature.misc_flags),
+        (1, 0x10)
+    );
     state.select_level(None).unwrap();
     assert_eq!((state.level, state.rolls.level), (5, None));
     let input = super::super::super::synthetic_creature_generation_fixture::source(42, 5, 5).input;

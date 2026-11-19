@@ -110,6 +110,9 @@ is meaningful without a bounded content/mechanics inventory.
   The recorded prefixes complete 87 objects on map 0 and 33 on map 1.
   Map 0 applies addon auras 9036 and 10848 on GUID40520 before its AI spawn callback.
   Map 1 reaches `MotionMaster.cpp:87`, the formation path owner for GUID28842.
+- **Creature addon display fields.** The live Unit owns stand, sheath, and
+  NPC emote. `Creature.cpp:512,2316,2323,2329` fixes the write order.
+  These fields do not change the saved format.
 - **Triggered addon self-casts.** `Spell.cpp:3160-3370,934-1043,1163-1502`
   owns the reached generic self-target cast, target masks and immediate effects.
   `spells/auras.rs` owns the reached duration, pending holder, interrupt scan,

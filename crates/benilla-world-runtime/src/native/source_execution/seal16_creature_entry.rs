@@ -25,6 +25,7 @@ pub(in crate::native::source_execution) struct EntryFields {
     pub corpse_delay: u32,
     pub interaction_pause: u32,
     pub addon: CreatureAddonState,
+    pub sheath_state: u8,
     pub respawn_radius: Option<u32>,
     pub respawn_delay: Option<u32>,
     pub respawn_time: Option<i64>,
@@ -105,6 +106,7 @@ impl EntryFields {
             corpse_delay: state.corpse_delay,
             interaction_pause: entry.interaction_pause,
             addon,
+            sheath_state: live.sheath_state,
             respawn_radius: None,
             respawn_delay: None,
             respawn_time: None,
@@ -177,7 +179,7 @@ pub(super) fn finish_init_entry(
 ) -> Result<()> {
     let object = state.object;
     let live = prefix.units.get_mut(objects, object)?;
-    let mut addon = CreatureAddonState::default();
+    let addon = CreatureAddonState::default();
     let result = state.load_entry_equipment(live, entry, prefix.equipment);
     prefix.equipment_writes.insert(
         state.spawn.database_guid,
@@ -208,7 +210,7 @@ pub(super) fn finish_init_entry(
         return Err(error);
     }
     prefix.lookups.push("creature_init_entry_remainder");
-    CreatureConstruction::begin_loaded_update_entry(live, &mut addon);
+    CreatureConstruction::begin_loaded_update_entry(live);
     prefix.creature_entry = Some(EntryFields::observe(live, state, addon, None));
     Ok(())
 }

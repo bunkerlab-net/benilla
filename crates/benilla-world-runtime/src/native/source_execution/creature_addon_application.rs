@@ -4,13 +4,10 @@
 use super::*;
 use std::collections::BTreeMap;
 
-/// InitEntry sets sheath separately, Creature.cpp:512.
+/// Addon callbacks retain mount state and duplicate aura errors.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct CreatureAddonState {
     pub mount: u32,
-    pub stand: u8,
-    pub sheath: u8,
-    pub emote: u32,
     pub duplicate_aura_errors: Vec<u32>,
 }
 
@@ -248,13 +245,14 @@ impl CreatureAddonState {
         if addon.mount != 0 {
             owner.mount(self, addon.mount)?;
         }
-        if addon.stand_state != 0 {
-            self.stand = addon.stand_state;
+        if addon.stand_state != 0 && unit.stand_state != addon.stand_state {
             unit.stand_state = addon.stand_state;
         }
-        self.sheath = addon.sheath_state;
-        if addon.emote != 0 {
-            self.emote = addon.emote;
+        if unit.sheath_state != addon.sheath_state {
+            unit.sheath_state = addon.sheath_state;
+        }
+        if addon.emote != 0 && unit.npc_emote_state != addon.emote {
+            unit.npc_emote_state = addon.emote;
         }
         match &addon.auras {
             CreatureAddonAuras::Empty => {}

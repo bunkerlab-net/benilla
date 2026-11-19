@@ -61,7 +61,7 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
             entry: cast.entry,
             random: self.random,
             creature_spells: self.creature_spells,
-            stand: state.stand,
+            stand: *cast.stand_state,
             mount: state.mount,
             unit: self.unit,
             level: self.level,

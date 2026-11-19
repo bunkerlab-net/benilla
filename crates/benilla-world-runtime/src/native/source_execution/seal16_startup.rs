@@ -4829,7 +4829,7 @@ pub(super) fn continue_startup(
                 (fields.corpse_delay, fields.interaction_pause),
                 (270, 180000)
             );
-            assert_eq!((fields.addon.sheath, fields.misc_flags), (1, 0x10));
+            assert_eq!((fields.sheath_state, fields.misc_flags), (1, 0x10));
             assert_eq!(fields.level.as_ref().unwrap().level, 33);
             assert_eq!(
                 fields.level.as_ref().unwrap().health,

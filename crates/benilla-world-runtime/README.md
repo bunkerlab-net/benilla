@@ -3046,6 +3046,9 @@ Spell10848's targetA1/B0 yields an empty check mask, so
 The unit exists from construction, and late spawn population preserves its
 containers. `Unit.cpp:10270` writes live combat reach from the model and
 scale operands. `Creature.cpp:433` writes live cast speed before addon casts.
+Stand, sheath, and NPC emote are live Unit fields outside the saved format.
+`Creature.cpp:512` sets melee sheath before `LoadCreatureAddon` writes the
+selected stand and sheath bytes and the nonzero emote (`:2316,2323,2329`).
 The creature addon and EventAI use the same immediate self-cast entry in
 `spells/cast.rs`. `SpellStart` queues the live Spell key before the immediate
 cast. Triggered addon boosts use the same unit queue and inherit the

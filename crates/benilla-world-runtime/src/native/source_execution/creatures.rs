@@ -522,8 +522,11 @@ impl CreatureConstruction {
     }
 
     /// Creature.cpp:511-514 precedes the SelectLevel draw.
-    pub fn begin_loaded_update_entry(live: &mut SourceUnitFields, addon: &mut CreatureAddonState) {
-        addon.sheath = 1;
+    pub fn begin_loaded_update_entry(live: &mut SourceUnitFields) {
+        // Creature.cpp:512 writes the sheath byte through Unit.h:1359.
+        if live.sheath_state != 1 {
+            live.sheath_state = 1;
+        }
         live.loaded_creature.misc_flags = 0x10;
     }
 

@@ -67,7 +67,7 @@ fn apply_addon<D: GridDefinitions<Row = SpawnKey>>(
         player: false,
         gameobject: false,
         alive: true,
-        standing: fields.addon.stand == 0,
+        standing: live.stand_state == 0,
         player_controlled: flags & 8 != 0,
         combat: flags & UNIT_FLAG_COMBAT != 0,
         battleground_wait_leave: false,

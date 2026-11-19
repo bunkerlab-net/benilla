@@ -146,6 +146,10 @@ pub struct SourceUnitFields {
     #[serde(skip)]
     pub stand_state: u8,
     #[serde(skip)]
+    pub sheath_state: u8,
+    #[serde(skip)]
+    pub npc_emote_state: u32,
+    #[serde(skip)]
     pub immunities: CreatureImmunityState,
     /// Unit.h:2646; ObjectGuid.h:85 initializes the combo GUID empty.
     #[serde(skip)]
@@ -379,6 +383,8 @@ impl SourceUnitFields {
             unit_class: None,
             shapeshift_form: 0,
             stand_state: 0,
+            sheath_state: 0,
+            npc_emote_state: 0,
             immunities: CreatureImmunityState::default(),
             combo_target: None,
             cooldowns: SourceSpellCooldowns::default(),
