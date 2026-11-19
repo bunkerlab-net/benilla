@@ -9,6 +9,11 @@ use std::collections::BTreeMap;
 mod world_scripts;
 pub use world_scripts::*;
 
+/// Map.cpp:2966-2975.
+pub fn source_map_forces_dynamic_guids(map: u32) -> bool {
+    matches!(map, 533 | 543)
+}
+
 /// Catalog operands only. No recorded map births, script results or selected pool members.
 pub struct ContinentDefinitions {
     pub entries: [PersistentMapEntry; 2],

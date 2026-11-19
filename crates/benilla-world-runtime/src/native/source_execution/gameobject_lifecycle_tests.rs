@@ -385,7 +385,9 @@ impl Fixture {
     fn with(row: GameObjectSpawn, dynamic: bool, configure: impl FnOnce(&mut Factory)) -> Self {
         let mut factory = Factory::new();
         factory.lifecycle = Some(HostState::default());
-        factory.forced = dynamic;
+        if dynamic {
+            factory.templates.get_mut(&row.entry).unwrap().extra_flags |= 2;
+        }
         configure(&mut factory);
         let mut world = World::new();
         let database = row.database_guid;

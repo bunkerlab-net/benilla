@@ -142,6 +142,16 @@ is meaningful without a bounded content/mechanics inventory.
   line 60402993 fixes the same triple at creature GUID636's position.
   Map 1 GO32019 matches row 21876 with area zero, so terrain supplies
   area 2617 and zone 405 through `GridMap.cpp:1011-1015,1051`.
+- **GameObject construction.** `Map.cpp:2966-2975` supplies the shared forced
+  GUID policy. `GameObject.cpp:2053-2065` computes half-yaw for fallback rotation.
+  `GameObject.cpp:286-300` gates PvP notifications, dispatches instance creation,
+  then compares effective visibility for Large objects. `ObjectVisibility.cpp:53-59`
+  uses the object override before map visibility. The Kalimdor callback requests
+  activation at `world_kalimdor.cpp:179`. `Object.cpp:2566-2580`
+  sets the flag before map add. The construction path uses the default object
+  radius, `GameObject.cpp:2209-2212`, and clears AI on a null script factory result,
+  `GameObject.cpp:2528-2533`, `ScriptDevAIMgr.cpp:373-381`. Unbound notifications
+  and non-null script constructors refuse by name.
 - **Dependencies:** native schema/version inspection; local data access and
   provenance; DBC lookups; creature class/level stats; game objects; conditions;
   pools/events/spawn groups; map/instance identity and lifecycle. Native source

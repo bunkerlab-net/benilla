@@ -75,7 +75,14 @@ struct Factory {
     guids: MapGuidAllocators,
     templates: BTreeMap<u32, GameObjectTemplate>,
     events: bool,
-    forced: bool,
+    battleground: bool,
+    outdoor: Option<OutdoorPvpScript>,
+    instance: Option<SourceWorldScript>,
+    map_visibility_bits: u32,
+    visibility: SourceVisibilityCensus,
+    script_id: u32,
+    scripts: SourceScriptRegistry,
+    half_yaw: Option<u32>,
     group: Option<GameObjectGroupEntry>,
     entries: Option<Arc<[u32]>>,
     saved: i64,
@@ -93,6 +100,9 @@ struct Factory {
 }
 impl Factory {
     fn new() -> Self {
+        Self::new_on(map())
+    }
+    fn new_on(map: MapIdentity) -> Self {
         let mut globals = GlobalGuidAllocators::from_seed_rows(GuidSeedRows {
             player: GuidMaximum::NoResult,
             item: GuidMaximum::NoResult,
@@ -105,12 +115,22 @@ impl Factory {
         });
         let mut animations = SourceTransportTemplates::default();
         animations.load_animations([], &mut |_| Ok(())).unwrap();
+        let mut scripts = SourceScriptRegistry::default();
+        scripts.load_script_names(|| Ok(None)).unwrap();
+        scripts.initialize_registry([]).unwrap();
         Self {
             objects: SourceGameObjects::default(),
-            guids: globals.map_allocators(map()).unwrap(),
+            guids: globals.map_allocators(map).unwrap(),
             templates: BTreeMap::from([(100, template(100, 5))]),
             events: false,
-            forced: false,
+            battleground: false,
+            outdoor: None,
+            instance: None,
+            map_visibility_bits: 100.0_f32.to_bits(),
+            visibility: SourceVisibilityCensus::default(),
+            script_id: 0,
+            scripts,
+            half_yaw: None,
             group: None,
             entries: None,
             saved: 0,
@@ -205,9 +225,6 @@ impl GameObjectFactoryOwner<Definitions, Products> for Factory {
     fn gameobject_event_guid(&mut self, _: u32) -> Result<bool> {
         Ok(self.events)
     }
-    fn gameobject_force_dynamic(&mut self) -> Result<bool> {
-        Ok(self.forced)
-    }
     fn gameobject_group(&mut self, _: u32) -> Result<Option<GameObjectGroupEntry>> {
         Ok(self.group)
     }
@@ -257,14 +274,44 @@ impl GameObjectFactoryOwner<Definitions, Products> for Factory {
         self.actions.push(Action::Calendar);
         Ok(self.now)
     }
-    fn gameobject_rotation(&mut self, orientation: u32) -> Result<[u32; 2]> {
-        if f32::from_bits(orientation) == 0.0 {
-            Ok([orientation, 1.0_f32.to_bits()])
-        } else {
-            Err(Refusal {
-                id: "execution.gameobject_rotation_owner_unavailable".into(),
-            })
-        }
+    fn gameobject_sin_cos(&mut self, half_yaw_bits: u32) -> Result<[u32; 2]> {
+        self.half_yaw = Some(half_yaw_bits);
+        Ok(benilla_sim::source_trig_fma::sin_cos_bits(half_yaw_bits))
+    }
+    fn gameobject_is_battleground(&mut self, _: ObjectHandle, _: &SourceObjects) -> Result<bool> {
+        Ok(self.battleground)
+    }
+    fn gameobject_zone(
+        &mut self,
+        _: ObjectHandle,
+        position: [f32; 3],
+        _: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<u32> {
+        assert!(!self.battleground);
+        assert!(position.into_iter().all(f32::is_finite));
+        Ok(139)
+    }
+    fn gameobject_outdoor_script(&mut self, zone: u32) -> Result<Option<OutdoorPvpScript>> {
+        assert_eq!(zone, 139);
+        Ok(self.outdoor)
+    }
+    fn gameobject_instance_data(
+        &mut self,
+    ) -> Result<Option<(&SourceGameObjects, &mut SourceWorldScript)>> {
+        Ok(self.instance.as_mut().map(|script| (&self.objects, script)))
+    }
+    fn gameobject_map_visibility_distance(&mut self) -> Result<u32> {
+        Ok(self.map_visibility_bits)
+    }
+    fn gameobject_visibility_census(&mut self) -> Result<&mut SourceVisibilityCensus> {
+        Ok(&mut self.visibility)
+    }
+    fn gameobject_script_id(&mut self, entry: u32) -> Result<u32> {
+        assert!(self.templates.contains_key(&entry));
+        Ok(self.script_id)
+    }
+    fn gameobject_script_registry(&mut self) -> Result<&SourceScriptRegistry> {
+        Ok(&self.scripts)
     }
     fn gameobject_geometry(
         &mut self,
@@ -304,6 +351,11 @@ impl GameObjectFactoryOwner<Definitions, Products> for Factory {
             return self.lifecycle_model(handle, op, context);
         }
         self.actions.push(Action::Model(handle, op));
+        if op == GameObjectModelOperation::ConstructAndInsert {
+            context
+                .objects
+                .bind_source_allocation(handle, handle.construction * 256, 128, 0)?;
+        }
         match op {
             GameObjectModelOperation::ConstructAndInsert => {
                 assert!(!context.objects.get(handle)?.in_world);
@@ -313,7 +365,7 @@ impl GameObjectFactoryOwner<Definitions, Products> for Factory {
                 assert!(!context.objects.get(handle)?.in_world);
                 assert_eq!(
                     context.objects.lookup_database(
-                        map(),
+                        context.cells.map(),
                         DatabaseLookupKind::GameObject,
                         context.objects.get(handle)?.database_guid
                     ),
@@ -362,6 +414,17 @@ impl GameObjectFactoryOwner<Definitions, Products> for Factory {
                 context.load_gameobject(self, attempt, spawn)?;
             }
         }
+        match callback {
+            GameObjectCallback::CreateBattlegroundOrOutdoor
+            | GameObjectCallback::CreateInstance
+            | GameObjectCallback::LargeVisibility
+            | GameObjectCallback::MapViewpoint
+            | GameObjectCallback::MapVisibility
+            | GameObjectCallback::InitializeAi => {
+                gameobjects::execute_source_gameobject_callback(self, handle, callback, context)?;
+            }
+            _ => {}
+        }
         Ok(())
     }
     fn gameobject_dynamic_spawn_allowed(
@@ -381,14 +444,17 @@ struct World {
 }
 impl World {
     fn new() -> Self {
-        let mut cells = SourceCells::new(map()).unwrap();
+        Self::new_on(map())
+    }
+    fn new_on(map: MapIdentity) -> Self {
+        let mut cells = SourceCells::new(map).unwrap();
         cells.configure_grids(300000, true).unwrap();
         Self {
             definitions: Definitions {
                 rows: BTreeMap::new(),
             },
             products: Products,
-            sets: GridSpawnSets::new(map()),
+            sets: GridSpawnSets::new(map),
             objects: SourceObjects::default(),
             cells,
         }
@@ -489,10 +555,13 @@ fn zero_random_entry_retains_database_entry() {
 }
 #[test]
 fn static_dynamic_and_event_guids_use_source_allocator_branches() {
-    for mode in 0..4 {
-        let (mut world, mut factory) = (World::new(), Factory::new());
+    for (mode, map_id) in [(0, 0), (1, 0), (2, 533), (2, 543), (3, 0)] {
+        let map = MapIdentity {
+            map: map_id,
+            ..map()
+        };
+        let (mut world, mut factory) = (World::new_on(map), Factory::new_on(map));
         factory.events = mode == 1;
-        factory.forced = mode == 2;
         if mode == 3 {
             factory.templates.get_mut(&100).unwrap().extra_flags = 2;
         }
@@ -507,6 +576,180 @@ fn static_dynamic_and_event_guids_use_source_allocator_branches() {
             }
         );
     }
+}
+
+#[test]
+fn gameobject_fallback_rotation_passes_half_yaw_only_for_two_zero_components() {
+    for fallback in [false, true] {
+        let (mut world, mut factory) = (World::new(), Factory::new());
+        let mut row = spawn();
+        row.position_bits[3] = 1.0_f32.to_bits();
+        if fallback {
+            row.rotation_bits[3] = 0x8000_0000;
+        }
+        let handle = loaded(world.load(&mut factory, row).unwrap());
+        assert_eq!(factory.half_yaw, fallback.then_some(0x3f00_0000));
+        assert_eq!(
+            factory.objects.get(handle).unwrap().rotation_bits,
+            if fallback {
+                [0, 0, 0x3ef5_7744, 0x3f60_a940]
+            } else {
+                [0, 0, 0, 0x3f80_0000]
+            }
+        );
+    }
+}
+
+#[test]
+fn gameobject_pvp_branch_refuses_before_instance_or_world_add() {
+    for (battleground, expected) in [
+        (
+            true,
+            "execution.gameobject.loaded_battleground_create_owner",
+        ),
+        (
+            false,
+            "execution.gameobject.loaded_outdoor_pvp_create_owner",
+        ),
+    ] {
+        let (mut world, mut factory) = (World::new(), Factory::new());
+        factory.battleground = battleground;
+        factory.outdoor = Some(OutdoorPvpScript::EasternPlaguelands);
+        assert_eq!(world.load(&mut factory, spawn()).unwrap_err().id, expected);
+        let handle = ObjectHandle {
+            thread: 1,
+            construction: 1,
+        };
+        assert_eq!(
+            factory.actions,
+            [
+                Action::Model(handle, GameObjectModelOperation::ConstructAndInsert),
+                Action::Callback(handle, GameObjectCallback::CreateBattlegroundOrOutdoor)
+            ]
+        );
+        assert!(!world.objects.get(handle).unwrap().in_world);
+        assert_eq!(factory.cursor.raw, 0);
+    }
+}
+
+#[test]
+fn gameobject_instance_create_uses_live_guid_and_activates_at_map_add() {
+    let map = MapIdentity { map: 1, ..map() };
+    let (mut world, mut factory) = (World::new_on(map), Factory::new_on(map));
+    factory.instance = Some(SourceWorldScript {
+        map,
+        stores: WorldScriptStores::default(),
+        state: WorldScriptState::Kalimdor(KalimdorWorldState::default()),
+    });
+    let entry = 177746;
+    factory.templates.insert(entry, template(entry, 5));
+    let handle = loaded(
+        world
+            .load(&mut factory, GameObjectSpawn { entry, ..spawn() })
+            .unwrap(),
+    );
+    let script = factory.instance.unwrap();
+    let WorldScriptState::Kalimdor(state) = script.state else {
+        panic!("expected Kalimdor script");
+    };
+    assert_eq!(state.ghost_events.len(), 1);
+    assert_eq!(state.ghost_events[0].guid, 0xf110_02b6_5200_0007);
+    assert_eq!(
+        world
+            .cells
+            .active_objects_in_grid(world.cells.registered_cell(handle).unwrap().grid)
+            .unwrap(),
+        1,
+    );
+    let object = world.objects.get(handle).unwrap();
+    assert!(object.in_world && object.active);
+    assert!(world.cells.active().contains(handle));
+}
+
+#[test]
+fn gameobject_large_visibility_compares_the_effective_distance_and_uses_default_radius() {
+    for (large, map_distance, expected) in [
+        (false, 100.0_f32, 0),
+        (true, 199.0, 200.0_f32.to_bits()),
+        (true, 200.0, 0),
+        (true, 201.0, 0),
+    ] {
+        let (mut world, mut factory) = (World::new(), Factory::new());
+        factory.templates.get_mut(&100).unwrap().data[3] = u32::from(large);
+        factory.map_visibility_bits = map_distance.to_bits();
+        let handle = loaded(world.load(&mut factory, spawn()).unwrap());
+        assert_eq!(
+            world.objects.visibility_override_bits(handle).unwrap(),
+            expected
+        );
+    }
+
+    let (mut world, mut factory) = (World::new(), Factory::new());
+    factory.templates.get_mut(&100).unwrap().scale_bits = 0.1_f32.to_bits();
+    factory.map_visibility_bits = 23.0_f32.to_bits();
+    let mut row = spawn();
+    row.position_bits[..2].fill(10.25_f32.to_bits());
+    world.load(&mut factory, row).unwrap();
+    // CellImpl.h:54-81 adds the unscaled 0.389 radius. Both axes cross the
+    // 33.333-yard cell boundary, so the visit covers 3 by 3 cells, not 2 by 2.
+    assert_eq!(factory.visibility.considered_cells, 9);
+}
+
+#[test]
+fn gameobject_nonnull_script_factory_refuses_after_world_add_and_visibility() {
+    let (mut world, mut factory) = (World::new(), Factory::new());
+    factory.scripts = SourceScriptRegistry::default();
+    factory
+        .scripts
+        .load_script_names(|| Ok(Some(vec![b"go".to_vec()])))
+        .unwrap();
+    factory
+        .scripts
+        .initialize_registry([SourceScriptDefinition {
+            name: b"go".to_vec(),
+            registration: 0,
+            operation: "authored".into(),
+            source_file: "authored.cpp".into(),
+            source_line: 1,
+            source_function: "AddSC_authored".into(),
+            slots: BTreeMap::from([("GetGameObjectAI".into(), true)]),
+        }])
+        .unwrap();
+    factory.script_id = factory.scripts.get_script_id(Some(b"go"));
+    assert_eq!(factory.script_id, 1);
+    assert_eq!(
+        world.load(&mut factory, spawn()).unwrap_err().id,
+        "execution.gameobject.loaded_script_get_gameobject_ai_owner",
+    );
+    let handle = world
+        .objects
+        .lookup_database(map(), DatabaseLookupKind::GameObject, 7)
+        .unwrap();
+    assert!(world.objects.get(handle).unwrap().in_world);
+    assert!(!factory.objects.get(handle).unwrap().has_ai);
+    assert!(factory.visibility.considered_cells > 0);
+    factory.objects.get_mut(handle).unwrap().has_ai = true;
+    assert_eq!(
+        factory
+            .gameobject_callback(
+                handle,
+                GameObjectCallback::InitializeAi,
+                &mut world.context(),
+            )
+            .unwrap_err()
+            .id,
+        "execution.gameobject.loaded_script_get_gameobject_ai_owner",
+    );
+    assert!(factory.objects.get(handle).unwrap().has_ai);
+    factory.script_id = 0;
+    gameobjects::execute_source_gameobject_callback(
+        &mut factory,
+        handle,
+        GameObjectCallback::InitializeAi,
+        &mut world.context(),
+    )
+    .unwrap();
+    assert!(!factory.objects.get(handle).unwrap().has_ai);
 }
 #[test]
 fn negative_respawn_never_draws_reads_saved_time_or_summons_link() {
@@ -1027,4 +1270,177 @@ fn pool_load_uses_static_guid_and_failed_load_is_really_destroyed() {
             }
         }
     }
+}
+
+// Keep only the required bindings so the production defaults remain in use.
+struct UnboundCallbacks<'a>(&'a mut Factory);
+
+impl GridObjectFactory<Definitions, Products> for UnboundCallbacks<'_> {
+    fn load_from_db(
+        &mut self,
+        attempt: GridLoadAttempt,
+        row: GameObjectSpawn,
+        context: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<GridCandidateOutcome> {
+        context.load_gameobject(self, attempt, row)
+    }
+    fn viewpoint_added(
+        &mut self,
+        object: ObjectHandle,
+        cell: CellIdentity,
+        context: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<()> {
+        self.0.viewpoint_added(object, cell, context)
+    }
+    fn battleground_db_load(
+        &mut self,
+        object: ObjectHandle,
+        context: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<()> {
+        self.0.battleground_db_load(object, context)
+    }
+}
+
+impl GameObjectFactoryOwner<Definitions, Products> for UnboundCallbacks<'_> {
+    fn gameobjects(&mut self) -> &mut SourceGameObjects {
+        self.0.gameobjects()
+    }
+    fn gameobject_constructed(
+        &mut self,
+        handle: ObjectHandle,
+        objects: &SourceObjects,
+    ) -> Result<()> {
+        self.0.gameobject_constructed(handle, objects)
+    }
+    fn gameobject_guids(&mut self) -> &mut MapGuidAllocators {
+        self.0.gameobject_guids()
+    }
+    fn gameobject_spawn(
+        &mut self,
+        attempt: GridLoadAttempt,
+        row: GameObjectSpawn,
+    ) -> Result<GameObjectSpawn> {
+        self.0.gameobject_spawn(attempt, row)
+    }
+    fn gameobject_template(&mut self, entry: u32) -> Result<Option<GameObjectTemplate>> {
+        self.0.gameobject_template(entry)
+    }
+    fn gameobject_thread(&self) -> u64 {
+        self.0.gameobject_thread()
+    }
+    fn gameobject_event_guid(&mut self, guid: u32) -> Result<bool> {
+        self.0.gameobject_event_guid(guid)
+    }
+    fn gameobject_group(&mut self, guid: u32) -> Result<Option<GameObjectGroupEntry>> {
+        self.0.gameobject_group(guid)
+    }
+    fn gameobject_group_entry(&mut self, group: u32, guid: u32) -> Result<u32> {
+        self.0.gameobject_group_entry(group, guid)
+    }
+    fn gameobject_random_entries(&mut self, guid: u32) -> Result<Option<Arc<[u32]>>> {
+        self.0.gameobject_random_entries(guid)
+    }
+    fn gameobject_irand(&mut self, min: i32, max: i32) -> Result<i32> {
+        self.0.gameobject_irand(min, max)
+    }
+    fn gameobject_urand(&mut self, min: u32, max: u32) -> Result<u32> {
+        self.0.gameobject_urand(min, max)
+    }
+    fn gameobject_read_persistent_respawn(
+        &mut self,
+        guid: u32,
+        context: &mut GridFactoryContext<'_, Definitions, Products>,
+    ) -> Result<i64> {
+        self.0.gameobject_read_persistent_respawn(guid, context)
+    }
+}
+
+#[test]
+fn gameobject_unbound_create_and_respawn_callbacks_refuse_by_name() {
+    let (mut world, mut factory) = (World::new(), Factory::new());
+    let handle = loaded(world.load(&mut factory, spawn()).unwrap());
+    let mut unbound = UnboundCallbacks(&mut factory);
+    for (callback, id) in [
+        (
+            GameObjectCallback::TemplateString(1),
+            "execution.gameobject.loaded_string_id_owner",
+        ),
+        (
+            GameObjectCallback::GroupString(1),
+            "execution.gameobject.loaded_string_id_owner",
+        ),
+        (
+            GameObjectCallback::CreateInstance,
+            "execution.gameobject.loaded_instance_create_owner",
+        ),
+        (
+            GameObjectCallback::BindGroup(1),
+            "execution.gameobject.loaded_bind_group_owner",
+        ),
+        (
+            GameObjectCallback::RemoveOutdoorAndOwner,
+            "execution.gameobject.loaded_remove_owner",
+        ),
+        (
+            GameObjectCallback::InitializeAi,
+            "execution.gameobject.template_binding",
+        ),
+    ] {
+        assert_eq!(
+            unbound
+                .gameobject_callback(handle, callback, &mut world.context())
+                .unwrap_err()
+                .id,
+            id,
+        );
+    }
+    assert_eq!(
+        unbound.gameobject_calendar().unwrap_err().id,
+        "execution.gameobject.loaded_respawn_calendar_owner",
+    );
+    assert_eq!(
+        unbound
+            .gameobject_write_persistent_respawn(7, 0, &mut world.context())
+            .unwrap_err()
+            .id,
+        "execution.gameobject.loaded_save_respawn_effects_owner",
+    );
+}
+
+#[test]
+fn gameobject_map_viewpoint_refuses_without_cell_or_camera_owner() {
+    let (mut world, mut factory) = (World::new(), Factory::new());
+    let missing_cell = world
+        .objects
+        .construct(1, SourceObjectKind::GameObject)
+        .unwrap();
+    assert_eq!(
+        world
+            .context()
+            .map_gameobject_viewpoint(missing_cell, &mut factory)
+            .unwrap_err()
+            .id,
+        "execution.visibility.map_add_cell_binding",
+    );
+    let handle = loaded(world.load(&mut factory, spawn()).unwrap());
+    let camera = world
+        .objects
+        .construct(1, SourceObjectKind::Camera)
+        .unwrap();
+    world
+        .objects
+        .attach_viewpoint_camera(handle, camera)
+        .unwrap();
+    assert_eq!(
+        world
+            .context()
+            .map_gameobject_viewpoint(handle, &mut factory)
+            .unwrap_err()
+            .id,
+        "execution.camera.Camera_104.added_to_world_owner",
+    );
+    assert_eq!(
+        world.objects.viewpoint_cell(handle).unwrap(),
+        world.cells.registered_cell(handle)
+    );
 }

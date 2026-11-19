@@ -160,6 +160,9 @@ pub struct SourceGameObject {
     pub(super) lifecycle_stopped: bool,
 }
 impl SourceGameObject {
+    // GameObject.cpp:2209-2212; ObjectDefines.h:42.
+    const BOUNDING_RADIUS_BITS: u32 = 0x3ec7_2b02;
+
     // Spawn and collision predicates remain separate from world membership; GameObject.h:763-767, GameObject.cpp:1317-1334.
     pub fn is_spawned(&self) -> bool {
         self.respawn_delay == 0
@@ -240,7 +243,7 @@ pub trait GameObjectFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     fn gameobject_template(&mut self, entry: u32) -> Result<Option<GameObjectTemplate>>;
     fn gameobject_thread(&self) -> u64;
     fn gameobject_event_guid(&mut self, guid: u32) -> Result<bool>;
-    fn gameobject_force_dynamic(&mut self) -> Result<bool>;
+    fn observe_gameobject_dynamic_guid_lookup(&mut self) {}
     fn gameobject_group(&mut self, guid: u32) -> Result<Option<GameObjectGroupEntry>>;
     fn gameobject_group_entry(&mut self, group: u32, guid: u32) -> Result<u32>;
     fn gameobject_random_entries(&mut self, guid: u32) -> Result<Option<Arc<[u32]>>>;
@@ -253,12 +256,101 @@ pub trait GameObjectFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     ) -> Result<i64>;
     fn gameobject_write_persistent_respawn(
         &mut self,
-        guid: u32,
-        time: i64,
+        _guid: u32,
+        _time: i64,
+        _context: &mut GridFactoryContext<'_, D, P>,
+    ) -> Result<()> {
+        Err(refuse(
+            "execution.gameobject.loaded_save_respawn_effects_owner",
+        ))
+    }
+    fn gameobject_calendar(&mut self) -> Result<i64> {
+        Err(refuse("execution.gameobject.loaded_respawn_calendar_owner"))
+    }
+    fn gameobject_sin_cos(&mut self, _half_yaw_bits: u32) -> Result<[u32; 2]> {
+        Err(refuse("execution.gameobject.GameObject_2059.sin_cos_owner"))
+    }
+    fn gameobject_is_battleground(
+        &mut self,
+        _handle: ObjectHandle,
+        _objects: &SourceObjects,
+    ) -> Result<bool> {
+        Err(refuse(
+            "execution.gameobject.GameObject_287.IsBattleGround_owner",
+        ))
+    }
+    fn gameobject_battleground_create(
+        &mut self,
+        _handle: ObjectHandle,
+        _context: &mut GridFactoryContext<'_, D, P>,
+    ) -> Result<()> {
+        Err(refuse(
+            "execution.gameobject.loaded_battleground_create_owner",
+        ))
+    }
+    fn gameobject_zone(
+        &mut self,
+        _handle: ObjectHandle,
+        _position: [f32; 3],
+        _context: &mut GridFactoryContext<'_, D, P>,
+    ) -> Result<u32> {
+        Err(refuse(
+            "execution.gameobject.GameObject_289.GetZoneId_owner",
+        ))
+    }
+    fn gameobject_outdoor_script(&mut self, _zone: u32) -> Result<Option<OutdoorPvpScript>> {
+        Err(refuse(
+            "execution.gameobject.GameObject_289.GetScript_owner",
+        ))
+    }
+    fn gameobject_outdoor_create(
+        &mut self,
+        _script: OutdoorPvpScript,
+        _handle: ObjectHandle,
+        _context: &mut GridFactoryContext<'_, D, P>,
+    ) -> Result<()> {
+        Err(refuse(
+            "execution.gameobject.loaded_outdoor_pvp_create_owner",
+        ))
+    }
+    fn gameobject_instance_data(
+        &mut self,
+    ) -> Result<Option<(&SourceGameObjects, &mut SourceWorldScript)>> {
+        Err(refuse("execution.gameobject.loaded_instance_create_owner"))
+    }
+    fn observe_large_gameobject_predicate(&mut self) {}
+    fn gameobject_map_visibility_distance(&mut self) -> Result<u32> {
+        Err(refuse(
+            "execution.gameobject.GameObject_299.visibility_distance_owner",
+        ))
+    }
+    fn gameobject_visibility_census(&mut self) -> Result<&mut SourceVisibilityCensus> {
+        Err(refuse(
+            "execution.visibility.Map_504.gameobject_update_owner",
+        ))
+    }
+    fn gameobject_map_visibility(
+        &mut self,
+        request: SourceVisibilityUpdate,
         context: &mut GridFactoryContext<'_, D, P>,
-    ) -> Result<()>;
-    fn gameobject_calendar(&mut self) -> Result<i64>;
-    fn gameobject_rotation(&mut self, orientation_bits: u32) -> Result<[u32; 2]>;
+    ) -> Result<()> {
+        context.objects.map_add_visibility(
+            request,
+            context.cells,
+            self.gameobject_visibility_census()?,
+            visibility::unbound_visibility_camera_update,
+            visibility::unbound_visibility_player_update,
+        )
+    }
+    fn gameobject_script_id(&mut self, _entry: u32) -> Result<u32> {
+        Err(refuse("execution.gameobject.template_binding"))
+    }
+    fn gameobject_script_registry(&mut self) -> Result<&SourceScriptRegistry> {
+        Err(refuse(
+            "execution.gameobject.ScriptDevAIMgr_375.script_registry_owner",
+        ))
+    }
+    fn observe_null_gameobject_ai(&mut self) {}
     fn gameobject_geometry(
         &mut self,
         _map: MapIdentity,
@@ -282,7 +374,9 @@ pub trait GameObjectFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
         handle: ObjectHandle,
         callback: GameObjectCallback,
         context: &mut GridFactoryContext<'_, D, P>,
-    ) -> Result<()>;
+    ) -> Result<()> {
+        execute_source_gameobject_callback(self, handle, callback, context)
+    }
     // The virtual Create looks up animation only after generic GO callbacks; Transports.cpp:444-449.
     fn gameobject_transport_animation(
         &mut self,
@@ -291,6 +385,88 @@ pub trait GameObjectFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
         Err(refuse("execution.transport.animation_owner"))
     }
 }
+
+pub(super) fn execute_source_gameobject_callback<
+    D: GridDefinitions,
+    P: GridProductOwner,
+    F: GameObjectFactoryOwner<D, P>,
+>(
+    owner: &mut F,
+    handle: ObjectHandle,
+    callback: GameObjectCallback,
+    context: &mut GridFactoryContext<'_, D, P>,
+) -> Result<()> {
+    match callback {
+        // GameObject.cpp:286-290. Battlegrounds do not query terrain or OutdoorPvP.
+        GameObjectCallback::CreateBattlegroundOrOutdoor => {
+            if owner.gameobject_is_battleground(handle, context.objects)? {
+                owner.gameobject_battleground_create(handle, context)?;
+            } else {
+                let [x, y, z, _] = context.objects.pose(handle)?.0.map(f32::from_bits);
+                let zone = owner.gameobject_zone(handle, [x, y, z], context)?;
+                if let Some(script) = owner.gameobject_outdoor_script(zone)? {
+                    owner.gameobject_outdoor_create(script, handle, context)?;
+                }
+            }
+        }
+        // GameObject.cpp:292-296; world_kalimdor.cpp:173-180.
+        // Object.cpp:2566-2580 only sets the flag before world add; Map.cpp:496-497,1579-1584 add later.
+        GameObjectCallback::CreateInstance => {
+            if let Some((gameobjects, script)) = owner.gameobject_instance_data()? {
+                let entry = gameobjects.get(handle)?.template.entry;
+                let guid = context
+                    .objects
+                    .get(handle)?
+                    .guid
+                    .ok_or_else(|| refuse("execution.object_guid_absent"))?;
+                if script.gameobject_create(entry, guid.raw()) {
+                    context.set_active_object_state(handle, true, owner)?;
+                }
+            }
+        }
+        GameObjectCallback::LargeVisibility => {
+            owner.observe_large_gameobject_predicate();
+            if owner.gameobjects().get(handle)?.template.large() {
+                context
+                    .objects
+                    .apply_large_gameobject_visibility(handle, || {
+                        owner.gameobject_map_visibility_distance()
+                    })?;
+            }
+        }
+        GameObjectCallback::MapViewpoint => context.map_gameobject_viewpoint(handle, owner)?,
+        GameObjectCallback::MapVisibility => {
+            let map_distance_bits = owner.gameobject_map_visibility_distance()?;
+            owner.gameobject_map_visibility(
+                SourceVisibilityUpdate {
+                    object: handle,
+                    map_distance_bits,
+                    bounding_radius_bits: SourceGameObject::BOUNDING_RADIUS_BITS,
+                },
+                context,
+            )?;
+        }
+        // GameObject.cpp:2523-2533. A successful registry result proves the factory is null.
+        GameObjectCallback::InitializeAi => {
+            let entry = owner.gameobjects().get(handle)?.template.entry;
+            let id = owner.gameobject_script_id(entry)?;
+            owner.gameobject_script_registry()?.gameobject_ai(id)?;
+            owner.gameobjects().get_mut(handle)?.has_ai = false;
+            owner.observe_null_gameobject_ai();
+        }
+        GameObjectCallback::TemplateString(_) | GameObjectCallback::GroupString(_) => {
+            return Err(refuse("execution.gameobject.loaded_string_id_owner"));
+        }
+        GameObjectCallback::BindGroup(_) => {
+            return Err(refuse("execution.gameobject.loaded_bind_group_owner"));
+        }
+        GameObjectCallback::RemoveOutdoorAndOwner => {
+            return Err(refuse("execution.gameobject.loaded_remove_owner"));
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn execute_source_gameobject_model<
     D: GridDefinitions,
     P: GridProductOwner,
@@ -394,7 +570,8 @@ where
     }
     let mut rotation = spawn.rotation_bits;
     if f32::from_bits(rotation[2]) == 0.0 && f32::from_bits(rotation[3]) == 0.0 {
-        [rotation[2], rotation[3]] = factory.gameobject_rotation(spawn.position_bits[3])?;
+        // GameObject.cpp:2053-2065 uses the live orientation and divides before trig.
+        [rotation[2], rotation[3]] = factory.gameobject_sin_cos((position[3] / 2.0).to_bits())?;
     }
     // Transport flags precede the first model operation; GameObject.cpp:223-230.
     let flags = template.flags | if template.kind == 11 { 0x28 } else { 0 };
@@ -708,7 +885,8 @@ where
     }
     let group = factory.gameobject_group(spawn.database_guid)?;
     let entry = effective_entry::<D, P, F>(factory, &spawn, group, forced_entry)?;
-    let force_dynamic = factory.gameobject_force_dynamic()?;
+    factory.observe_gameobject_dynamic_guid_lookup();
+    let force_dynamic = source_map_forces_dynamic_guids(context.cells.map().map);
     let extra_dynamic = if force_dynamic {
         false
     } else {

@@ -692,16 +692,28 @@ The pinned CMaNGOS Classic `8ec338a1` contract is:
 - `GameObject.cpp:178-302,880-969` owns entry/GUID selection, transform/state,
   permanent defaults, positive saved respawn, and negative no-draw respawn.
   `ObjectMgr.h:600-604` draws signed `irand` even for a singleton random list.
+- `Map.cpp:2966-2975` forces dynamic GUIDs for maps 533 and 543 in both factories.
+  `GameObject.cpp:2053-2065` passes half the live yaw to the bound single-precision
+  trig owner only when both stored rotation components are zero.
 - `GameObject.h:590-594` retains database `goState` as signed32.
   `GameObject.cpp:926-927,2077-2079` preserves `-1` as the no-override sentinel
   and writes the selected state byte only through `SetGoState`.
 - `GameObject.cpp:230,2083-2105` constructs and inserts the collision model during
   `SetDisplayId`, before initial state and create callbacks. A missing dynamic
   collision owner refuses there, not after a fabricated world addition.
+- `GameObject.cpp:286-300` gates battleground and OutdoorPvP notifications, then
+  calls the bound instance script. The Kalimdor ghost magnet requests activation
+  at `world_kalimdor.cpp:173-180`. `Object.cpp:2566-2580` sets the flag before
+  `Map.cpp:496-497,1579-1584` registers the object as active.
+- Large objects compare their effective visibility distance with 200 yards.
+  `ObjectVisibility.cpp:53-59` gives an existing object override precedence over
+  the map distance. `GameObject.cpp:2209-2212` supplies the default object radius.
 - `Map.cpp:470-504` and `GameObject.cpp:115-141` register cells and lookup before
   world membership, enable collision, construct linked objects, activate, and
-  issue viewpoint/visibility callbacks. `GameObject.cpp:1244-1271,2528-2536`
-  initializes linked-trap AI before parent AI and requires the instance callback.
+  update the viewpoint and visibility. `GameObject.cpp:1244-1271,2528-2533`
+  initializes linked-trap AI before parent AI. `ScriptDevAIMgr.cpp:373-381`
+  resolves the live script ID. A null factory result clears AI and skips
+  `JustSpawned`. An unbound non-null constructor refuses before this assignment.
 
 The repository has no production dynamic GO model/tree insertion owner.
 Constructor tests use explicitly authored model operations to check ordering;

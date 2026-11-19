@@ -125,6 +125,33 @@ impl SourceObjects {
         }
         Ok(())
     }
+    /// GameObject.cpp:298-300 and ObjectVisibility.cpp:53-59.
+    pub(super) fn apply_large_gameobject_visibility(
+        &mut self,
+        object: ObjectHandle,
+        map_distance: impl FnOnce() -> Result<u32>,
+    ) -> Result<()> {
+        let distance = Self::effective_visibility_distance(
+            self.visibility_override_bits(object)?,
+            map_distance,
+        )?;
+        if f32::from_bits(distance) < f32::from_bits(SourceVisibilityDistance::Large.bits()) {
+            self.set_visibility_distance_override(object, SourceVisibilityDistance::Large)?;
+        }
+        Ok(())
+    }
+
+    fn effective_visibility_distance(
+        override_bits: u32,
+        map_distance: impl FnOnce() -> Result<u32>,
+    ) -> Result<u32> {
+        if f32::from_bits(override_bits) != 0.0 {
+            Ok(override_bits)
+        } else {
+            map_distance()
+        }
+    }
+
     pub fn viewpoint_cell(&self, object: ObjectHandle) -> Result<Option<CellIdentity>> {
         Ok(self.world_visibility(object)?.viewpoint_cell)
     }
@@ -246,11 +273,9 @@ impl SourceObjects {
         let pose = self.pose(request.object)?.0;
         let standing = compute_cell_pair(pose[0], pose[1])
             .map_err(|_| refuse("execution.cell_coordinates"))?;
-        let distance = if f32::from_bits(visibility.override_bits) != 0.0 {
-            visibility.override_bits
-        } else {
-            request.map_distance_bits
-        };
+        let distance = Self::effective_visibility_distance(visibility.override_bits, || {
+            Ok(request.map_distance_bits)
+        })?;
         let pairs = source_cell_visit(
             standing,
             pose[0],
@@ -312,6 +337,26 @@ impl SourceObjects {
     }
 }
 
+pub(super) fn unbound_visibility_camera_update(
+    _: &mut SourceObjects,
+    _: &mut SourceCells,
+    _: ObjectHandle,
+    _: ObjectHandle,
+) -> Result<SourceGuid> {
+    Err(refuse(
+        "execution.visibility.GridNotifiers_36.camera_update_owner",
+    ))
+}
+
+pub(super) fn unbound_visibility_player_update(
+    _: &mut SourceObjects,
+    _: &mut SourceCells,
+    _: ObjectHandle,
+    _: ObjectHandle,
+) -> Result<()> {
+    Err(refuse("execution.visibility.Map_1348.player_update_owner"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -338,6 +383,25 @@ mod tests {
             object,
             map_distance_bits: 100f32.to_bits(),
             bounding_radius_bits: 0x3ec7_2b02,
+        }
+    }
+
+    #[test]
+    fn gameobject_large_visibility_uses_the_live_override_before_map_distance() {
+        for (initial, expected) in [
+            (SourceVisibilityDistance::Tiny, 200_f32.to_bits()),
+            (SourceVisibilityDistance::Gigantic, 400_f32.to_bits()),
+        ] {
+            let (mut objects, _, object, _) = fixture();
+            objects
+                .set_visibility_distance_override(object, initial)
+                .unwrap();
+            objects
+                .apply_large_gameobject_visibility(object, || {
+                    panic!("override bypasses the map lookup")
+                })
+                .unwrap();
+            assert_eq!(objects.visibility_override_bits(object).unwrap(), expected);
         }
     }
 
@@ -526,11 +590,21 @@ mod tests {
                 request(go),
                 &mut cells,
                 &mut SourceVisibilityCensus::default(),
-                |_, _, _, _| {
-                    Err(refuse(
-                        "execution.visibility.GridNotifiers_36.camera_update_owner",
-                    ))
-                },
+                |_, _, _, _| Ok(guid),
+                unbound_visibility_player_update,
+            )
+            .unwrap_err();
+        assert_eq!(
+            failure.id,
+            "execution.visibility.Map_1348.player_update_owner"
+        );
+        assert!(objects.get(go).unwrap().is_new_object);
+        let failure = objects
+            .map_add_visibility(
+                request(go),
+                &mut cells,
+                &mut SourceVisibilityCensus::default(),
+                unbound_visibility_camera_update,
                 |_, _, _, _| panic!("camera refused first"),
             )
             .unwrap_err();

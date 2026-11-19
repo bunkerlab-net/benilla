@@ -890,11 +890,6 @@ fn draw_source_creature_display_with_chance(
 #[path = "creature_display_tests.rs"]
 mod display_tests;
 
-/// Map.cpp:2966-2975.
-pub fn source_map_forces_dynamic_guids(map: u32) -> bool {
-    matches!(map, 533 | 543)
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CreatureFactoryObservation {
     ModelSelected,

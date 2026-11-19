@@ -277,6 +277,21 @@ impl<D: GridDefinitions, P: GridProductOwner> GridFactoryContext<'_, D, P> {
     ) -> Result<GridCandidateOutcome> {
         load_source_gameobject(factory, attempt, row, self)
     }
+
+    pub(super) fn map_gameobject_viewpoint<F: GridObjectFactory<D, P>>(
+        &mut self,
+        object: ObjectHandle,
+        factory: &mut F,
+    ) -> Result<()> {
+        let cell = self
+            .cells
+            .registered_cell(object)
+            .ok_or_else(|| refuse("execution.visibility.map_add_cell_binding"))?;
+        self.objects
+            .viewpoint_added_to_world(object, cell, self.cells, |objects, cells, camera| {
+                factory.camera_added_to_world(objects, cells, camera)
+            })
+    }
 }
 impl<D: GridDefinitions, F: GridObjectFactory<D, P>, P: GridProductOwner>
     SourceGridLoader<'_, D, F, P>
