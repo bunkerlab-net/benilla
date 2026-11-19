@@ -54,7 +54,6 @@ pub enum GameObjectLifecyclePhase {
     GooberCasts,
     CapturePointDeactivate,
     CaptureTick,
-    ForceDynamicUpdate,
     LootUpdate,
     PoolRespawn(u32),
 }
@@ -361,7 +360,12 @@ fn state<D: GridDefinitions, P: GridProductOwner, F: GameObjectFactoryOwner<D, P
     state: u8,
     grid: &mut GridFactoryContext<'_, D, P>,
 ) -> Result<()> {
-    owner.gameobjects().get_mut(object)?.state = state;
+    grid.objects.set_update_value(
+        object,
+        GAMEOBJECT_STATE,
+        &mut owner.gameobjects().get_mut(object)?.state,
+        state,
+    )?;
     collision(owner, object, grid)
 }
 pub fn set_source_gameobject_loot_state<
@@ -445,7 +449,12 @@ fn delete_inner<D: GridDefinitions, P: ResidencyProductOwner, F: GameObjectLifec
     owner.go_lifecycle_phase(object, Phase::DespawnAnimation, context)?;
     state(owner, object, 1, context.grid)?;
     let flags = owner.gameobjects().get(object)?.template.flags;
-    owner.gameobjects().get_mut(object)?.flags = flags;
+    context.grid.objects.set_update_value(
+        object,
+        GAMEOBJECT_FLAGS,
+        &mut owner.gameobjects().get_mut(object)?.flags,
+        flags,
+    )?;
     owner.go_lifecycle_phase(object, Phase::AiJustDespawned, context)?;
     owner.go_lifecycle_phase(object, Phase::InstanceDespawn, context)?;
     let database = context.grid.objects.get(object)?.database_guid;
@@ -503,7 +512,11 @@ fn reset_door<D: GridDefinitions, P: ResidencyProductOwner, F: GameObjectLifecyc
     }
     // ResetDoorOrButton toggles even when the current state is READY; GameObject.cpp:1337-1344,1385-1395.
     let value = owner.gameobjects().get_mut(object)?;
-    value.flags &= !1;
+    let flags = value.flags & !1;
+    context
+        .grid
+        .objects
+        .set_update_value(object, GAMEOBJECT_FLAGS, &mut value.flags, flags)?;
     let next = if value.state == 1 { 0 } else { 1 };
     state(owner, object, next, context.grid)?;
     loot(owner, object, 3, None, context)?;
@@ -627,7 +640,10 @@ fn deactivate<D: GridDefinitions, P: ResidencyProductOwner, F: GameObjectLifecyc
                 owner.gameobjects().get_mut(object)?.restock_time =
                     seconds(now, i64::from(restock))?;
                 loot(owner, object, 0, None, context)?;
-                owner.go_lifecycle_phase(object, Phase::ForceDynamicUpdate, context)?;
+                context
+                    .grid
+                    .objects
+                    .force_update_field(object, GAMEOBJECT_DYN_FLAGS)?;
                 return Ok(UpdateFlow::Return);
             }
         }
@@ -650,11 +666,15 @@ fn deactivate<D: GridDefinitions, P: ResidencyProductOwner, F: GameObjectLifecyc
             .entry
             .instanceable();
         let value = owner.gameobjects().get_mut(object)?;
-        value.flags = if instance {
+        let flags = if instance {
             (value.template.flags & !0x16) | (value.flags & 0x16)
         } else {
             value.template.flags
         };
+        context
+            .grid
+            .objects
+            .set_update_value(object, GAMEOBJECT_FLAGS, &mut value.flags, flags)?;
     }
     owner.go_lifecycle_phase(object, Phase::DestroyLoot, context)?;
     owner.gameobjects().get_mut(object)?.has_loot = false;
@@ -790,7 +810,10 @@ fn update_inner<D: GridDefinitions, P: ResidencyProductOwner, F: GameObjectLifec
                             value.loot_state = 1;
                             owner.go_lifecycle_phase(object, Phase::DestroyLoot, context)?;
                             owner.gameobjects().get_mut(object)?.has_loot = false;
-                            owner.go_lifecycle_phase(object, Phase::ForceDynamicUpdate, context)?;
+                            context
+                                .grid
+                                .objects
+                                .force_update_field(object, GAMEOBJECT_DYN_FLAGS)?;
                         }
                         return Ok(());
                     }
@@ -844,7 +867,14 @@ fn update_inner<D: GridDefinitions, P: ResidencyProductOwner, F: GameObjectLifec
                     }
                 }
                 10 if cooldown < wall(owner, object, GameObjectLifecycleClock::GooberCooldown)? => {
-                    owner.gameobjects().get_mut(object)?.flags &= !1;
+                    let value = owner.gameobjects().get_mut(object)?;
+                    let flags = value.flags & !1;
+                    context.grid.objects.set_update_value(
+                        object,
+                        GAMEOBJECT_FLAGS,
+                        &mut value.flags,
+                        flags,
+                    )?;
                     loot(owner, object, 3, None, context)?;
                     owner.gameobjects().get_mut(object)?.cooldown_time = 0;
                 }
@@ -1042,7 +1072,12 @@ pub fn set_source_gameobject_display<
     grid: &mut GridFactoryContext<'_, D, P>,
 ) -> Result<()> {
     // Display state precedes model replacement; GameObject.cpp:2083-2086.
-    owner.gameobjects().get_mut(object)?.display = display;
+    grid.objects.set_update_value(
+        object,
+        GAMEOBJECT_DISPLAYID,
+        &mut owner.gameobjects().get_mut(object)?.display,
+        display,
+    )?;
     update_source_gameobject_model(owner, object, grid)
 }
 pub fn destroy_source_gameobject_model<

@@ -484,6 +484,14 @@ impl Fixture {
     fn go(&self) -> &SourceGameObject {
         self.factory.objects.get(self.object).unwrap()
     }
+    fn field_changed(&self, field: usize) -> bool {
+        self.world
+            .objects
+            .get(self.object)
+            .unwrap()
+            .field_changed(field)
+            .unwrap()
+    }
     fn deadline(&self) -> i64 {
         self.persistent
             .state(self.spawns.persistent())
@@ -516,6 +524,126 @@ fn gameobject_tick_refuses_the_live_bell_update_after_delayed_action() {
         fixture.factory.life().events.last(),
         Some(&Event::Phase(fixture.object, Phase::DelayedAction))
     );
+}
+
+#[test]
+fn client_update_gameobject_state_queues_only_a_live_changed_byte() {
+    let mut f = Fixture::new(false);
+    let handle = f.object;
+    let original = f.go().state;
+    let changed = u8::from(original == 0);
+    f.apply(|o, h, c| set_source_gameobject_state(o, h, original, c))
+        .unwrap();
+    assert!(!f.field_changed(GAMEOBJECT_STATE));
+    assert!(!f.world.objects.client_update_pending(map(), handle));
+    f.apply(|o, h, c| set_source_gameobject_state(o, h, changed, c))
+        .unwrap();
+    assert_eq!(f.go().state, changed);
+    assert!(f.field_changed(GAMEOBJECT_STATE));
+    assert!(f.world.objects.client_update_pending(map(), handle));
+    f.world.objects.remove_from_world(handle).unwrap();
+    f.apply(|o, h, c| set_source_gameobject_state(o, h, original, c))
+        .unwrap();
+    assert_eq!(f.go().state, original);
+    assert!(f.field_changed(GAMEOBJECT_STATE));
+    assert!(!f.world.objects.client_update_pending(map(), handle));
+}
+
+#[test]
+fn client_update_gameobject_flags_follow_the_result_of_remove_flag() {
+    for (in_world, changed) in [(true, true), (true, false), (false, true)] {
+        let mut f = Fixture::with(spawn(), false, |o| {
+            o.templates.get_mut(&100).unwrap().kind = 10;
+        });
+        let h = f.object;
+        if !in_world {
+            f.world.objects.remove_from_world(h).unwrap();
+        }
+        let go = f.factory.objects.get_mut(h).unwrap();
+        go.loot_state = 2;
+        go.flags = 0x20 | u32::from(changed);
+        go.cooldown_time = 100;
+        f.update();
+        assert_eq!(f.go().flags, 0x20);
+        assert_eq!(f.field_changed(GAMEOBJECT_FLAGS), changed);
+        assert_eq!(
+            f.world.objects.client_update_pending(map(), h),
+            in_world && changed
+        );
+    }
+}
+
+#[test]
+fn client_update_gameobject_delete_flags_follow_the_template_write() {
+    for (in_world, changed) in [(true, true), (true, false), (false, true)] {
+        let mut f = Fixture::new(false);
+        let h = f.object;
+        if !in_world {
+            f.world.objects.remove_from_world(h).unwrap();
+        }
+        let go = f.factory.objects.get_mut(h).unwrap();
+        go.state = 1;
+        go.flags = go.template.flags ^ u32::from(changed);
+        f.factory.life().pools.insert(7, 2);
+        f.apply(delete_source_gameobject).unwrap();
+        assert_eq!(f.go().flags, f.go().template.flags);
+        assert_eq!(f.field_changed(GAMEOBJECT_FLAGS), changed);
+        assert_eq!(
+            f.world.objects.client_update_pending(map(), h),
+            in_world && changed
+        );
+    }
+}
+
+#[test]
+fn client_update_gameobject_chest_restock_forces_the_unmodified_dynamic_word() {
+    for in_world in [false, true] {
+        let mut f = Fixture::with(spawn(), false, |o| {
+            let chest = o.templates.get_mut(&100).unwrap();
+            chest.kind = 3;
+            chest.data[2] = 9;
+        });
+        let h = f.object;
+        let flags = f.go().dynamic_flags;
+        f.world.objects.remove_from_world(h).unwrap();
+        if in_world {
+            f.world.objects.add_to_world(h).unwrap();
+        }
+        f.deactivate();
+        assert_eq!(f.go().dynamic_flags, flags);
+        assert!(f.field_changed(GAMEOBJECT_DYN_FLAGS));
+        assert_eq!(f.world.objects.client_update_pending(map(), h), in_world);
+
+        f.world.objects.remove_from_world(h).unwrap();
+        if in_world {
+            f.world.objects.add_to_world(h).unwrap();
+        }
+        assert!(!f.field_changed(GAMEOBJECT_DYN_FLAGS));
+        f.factory.life().wall = 110;
+        f.update();
+        assert_eq!(f.go().dynamic_flags, flags);
+        assert!(f.field_changed(GAMEOBJECT_DYN_FLAGS));
+        assert_eq!(f.world.objects.client_update_pending(map(), h), in_world);
+    }
+}
+
+#[test]
+fn client_update_gameobject_display_queues_only_when_changed_and_in_world() {
+    let mut f = Fixture::new(false);
+    let h = f.object;
+    for (in_world, display, changed) in [(true, 123, false), (true, 124, true), (false, 123, true)]
+    {
+        if !in_world {
+            f.world.objects.remove_from_world(h).unwrap();
+        }
+        set_source_gameobject_display(&mut f.factory, h, display, &mut f.world.context()).unwrap();
+        assert_eq!(f.go().display, display);
+        assert_eq!(f.field_changed(GAMEOBJECT_DISPLAYID), changed);
+        assert_eq!(
+            f.world.objects.client_update_pending(map(), h),
+            in_world && changed
+        );
+    }
 }
 
 #[test]

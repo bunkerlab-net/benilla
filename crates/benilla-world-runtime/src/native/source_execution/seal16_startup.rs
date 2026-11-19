@@ -2909,8 +2909,8 @@ pub(super) fn continue_startup(
             assert_eq!((live.faction, live.loaded_creature.npc_flags), (31, 0));
             assert!(live.has_ai);
             // The recording does not instrument the field mask or Map::AddUpdateObject.
-            assert!(!object.unit_field_changed(SourceUnitUpdateField::FactionTemplate));
-            assert!(object.unit_field_changed(SourceUnitUpdateField::NpcFlags));
+            assert!(!object.field_changed(UNIT_FIELD_FACTIONTEMPLATE).unwrap());
+            assert!(object.field_changed(UNIT_NPC_FLAGS).unwrap());
             assert!(active_objects.client_update_pending(continents.maps[slot].identity, chicken));
             let ai = ais.get(&active_objects, chicken).unwrap();
             let LoadedCreatureAiClass::Scripted(script) = &ai.loaded_class else {

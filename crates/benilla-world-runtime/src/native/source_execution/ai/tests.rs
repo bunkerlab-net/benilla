@@ -293,13 +293,15 @@ fn chicken_constructor_and_respawn_run_both_resets_on_the_live_unit() {
             objects
                 .get(unit)
                 .unwrap()
-                .unit_field_changed(SourceUnitUpdateField::FactionTemplate),
+                .field_changed(UNIT_FIELD_FACTIONTEMPLATE)
+                .unwrap(),
             faction != 31
         );
         assert!(objects
             .get(unit)
             .unwrap()
-            .unit_field_changed(SourceUnitUpdateField::NpcFlags));
+            .field_changed(UNIT_NPC_FLAGS)
+            .unwrap());
         assert_eq!(objects.client_update_pending(map, unit), in_world);
         let ai = ais.get_mut(&objects, unit).unwrap();
         let LoadedCreatureAiClass::Scripted(SourceScriptedAi::ChickenCluck(chicken)) =
@@ -326,11 +328,13 @@ fn chicken_constructor_and_respawn_run_both_resets_on_the_live_unit() {
             assert!(!objects
                 .get(unit)
                 .unwrap()
-                .unit_field_changed(SourceUnitUpdateField::FactionTemplate));
+                .field_changed(UNIT_FIELD_FACTIONTEMPLATE)
+                .unwrap());
             assert!(!objects
                 .get(unit)
                 .unwrap()
-                .unit_field_changed(SourceUnitUpdateField::NpcFlags));
+                .field_changed(UNIT_NPC_FLAGS)
+                .unwrap());
         }
         SourceAiExecution {
             queries: SourceUnitQueries {
@@ -375,12 +379,14 @@ fn chicken_constructor_and_respawn_run_both_resets_on_the_live_unit() {
         assert!(!objects
             .get(unit)
             .unwrap()
-            .unit_field_changed(SourceUnitUpdateField::FactionTemplate));
+            .field_changed(UNIT_FIELD_FACTIONTEMPLATE)
+            .unwrap());
         assert_eq!(
             objects
                 .get(unit)
                 .unwrap()
-                .unit_field_changed(SourceUnitUpdateField::NpcFlags),
+                .field_changed(UNIT_NPC_FLAGS)
+                .unwrap(),
             in_world
         );
         assert_eq!(objects.client_update_pending(map, unit), in_world);
@@ -405,7 +411,7 @@ fn client_update_mask_and_queue_follow_world_membership() {
     let cells = SourceCells::new(map).unwrap();
     let mut objects = SourceObjects::default();
     let mut units = SourceUnits::default();
-    let field = SourceUnitUpdateField::FactionTemplate;
+    let field = UNIT_FIELD_FACTIONTEMPLATE;
     let mut make = |low| {
         let unit = objects.construct(1, SourceObjectKind::Creature).unwrap();
         objects.bind_map(unit, map, &cells).unwrap();
@@ -423,20 +429,29 @@ fn client_update_mask_and_queue_follow_world_membership() {
     };
     let a = make(1);
     let b = make(2);
+    // Object::_Create (Object.cpp:115-125) changes both GUID words before Map::Add.
+    for word in [OBJECT_FIELD_GUID, OBJECT_FIELD_GUID + 1] {
+        assert!(objects.get(a).unwrap().field_changed(word).unwrap());
+    }
+    assert!(!objects.client_update_pending(map, a));
     let mut put = |objects: &mut SourceObjects, unit, value| {
         units
             .get_mut(objects, unit)
             .unwrap()
-            .set_client_update_field(objects, unit, field, value)
+            .set_faction_template(objects, unit, value)
             .unwrap();
     };
     put(&mut objects, a, 31);
-    assert!(objects.get(a).unwrap().unit_field_changed(field));
+    assert!(objects.get(a).unwrap().field_changed(field).unwrap());
     assert!(!objects.client_update_pending(map, a));
     objects.add_to_world(a).unwrap();
-    assert!(!objects.get(a).unwrap().unit_field_changed(field));
+    for word in [OBJECT_FIELD_GUID, OBJECT_FIELD_GUID + 1] {
+        assert!(!objects.get(a).unwrap().field_changed(word).unwrap());
+    }
+    assert!(!objects.client_update_pending(map, a));
+    assert!(!objects.get(a).unwrap().field_changed(field).unwrap());
     put(&mut objects, a, 31);
-    assert!(!objects.get(a).unwrap().unit_field_changed(field));
+    assert!(!objects.get(a).unwrap().field_changed(field).unwrap());
     assert!(!objects.client_update_pending(map, a));
     put(&mut objects, a, 35);
     assert!(objects.client_update_pending(map, a));
@@ -445,7 +460,7 @@ fn client_update_mask_and_queue_follow_world_membership() {
         "execution.map.Map_2409.client_update_writers_owner"
     );
     objects.add_to_world(a).unwrap();
-    assert!(objects.get(a).unwrap().unit_field_changed(field));
+    assert!(objects.get(a).unwrap().field_changed(field).unwrap());
     objects.add_to_world(b).unwrap();
     put(&mut objects, b, 31);
     assert!(objects.client_update_pending(map, b));
@@ -454,7 +469,7 @@ fn client_update_mask_and_queue_follow_world_membership() {
         "execution.map.Map_2409.client_update_pointer_order_owner"
     );
     objects.remove_from_world(a).unwrap();
-    assert!(!objects.get(a).unwrap().unit_field_changed(field));
+    assert!(!objects.get(a).unwrap().field_changed(field).unwrap());
     assert!(!objects.client_update_pending(map, a));
     assert!(objects.client_update_pending(map, b));
     objects.add_to_world(a).unwrap();

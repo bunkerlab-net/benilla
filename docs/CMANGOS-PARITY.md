@@ -163,6 +163,12 @@ is meaningful without a bounded content/mechanics inventory.
 - **Grid activity.** `Grid.h:93-117` counts active grid objects. Add and
   remove each test the live active flag. If removal leaves a stale member,
   insertion requires enough address evidence to detect reuse of that member.
+- **Client update marks.** The object mask tracks pinned `UpdateFields.h`
+  word indices. Chicken reset and the GameObject lifecycle mark changed
+  fields, and chest restock forces its dynamic flag update
+  (`GameObject.cpp:363,632`). `Object.cpp:81-103,719-733,1107-1117`
+  governs mask reset and queue membership. The drain at `Map.cpp:2409`
+  refuses on missing spell and unit writers or unresolved pointer order.
 - **WMO area catalog.** Startup binds all 21,115 effective WMO rows through the
   existing catalog owner, `World.cpp:908` and `DBCStores.cpp:555-560`.
   Ten duplicate triples retain ascending-ID order. `GridMap.cpp:992-1015`

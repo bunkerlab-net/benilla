@@ -3,6 +3,20 @@
 use super::*;
 use benilla_sim::resident_map::CellPair;
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::RangeInclusive;
+
+const OBJECT_END: usize = 0x06; // UpdateFields.h:31.
+pub(super) const OBJECT_FIELD_GUID: usize = 0x00; // UpdateFields.h:26.
+pub(super) const UNIT_FIELD_FACTIONTEMPLATE: usize = OBJECT_END + 0x1d; // UpdateFields.h:89.
+pub(super) const UNIT_NPC_FLAGS: usize = OBJECT_END + 0x8d; // UpdateFields.h:135.
+pub(super) const GAMEOBJECT_DISPLAYID: usize = OBJECT_END + 0x02; // UpdateFields.h:272.
+pub(super) const GAMEOBJECT_FLAGS: usize = OBJECT_END + 0x03; // UpdateFields.h:273.
+pub(super) const GAMEOBJECT_STATE: usize = OBJECT_END + 0x08; // UpdateFields.h:275.
+pub(super) const GAMEOBJECT_DYN_FLAGS: usize = OBJECT_END + 0x0d; // UpdateFields.h:280.
+const UNIT_END: usize = OBJECT_END + 0xb6; // UpdateFields.h:176.
+const GAMEOBJECT_END: usize = OBJECT_END + 0x14; // UpdateFields.h:287.
+const UPDATE_WORD_BITS: usize = u64::BITS as usize;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct ObjectHandle {
     pub thread: u64,
@@ -105,47 +119,92 @@ pub struct SourceObject {
     allocation_base: Option<u64>,
     player_map_linked: bool,
     global_player_registered: bool,
-    changed_unit_fields: u8,
+    changed_fields: SourceUpdateMask,
     object_updated: bool,
 }
 
-/// Update fields whose writers currently call Object::MarkForClientUpdate.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SourceUnitUpdateField {
-    FactionTemplate = 1,
-    NpcFlags = 2,
+/// Object.cpp:105-112 starts with one clear changed bit per update field word.
+#[derive(Clone, Debug)]
+enum SourceUpdateMask {
+    Unit([u64; UNIT_END.div_ceil(UPDATE_WORD_BITS)]),
+    GameObject([u64; GAMEOBJECT_END.div_ceil(UPDATE_WORD_BITS)]),
+    Unbound,
+}
+
+impl SourceUpdateMask {
+    fn new(kind: SourceObjectKind) -> Self {
+        match kind {
+            // Creature.cpp:153; Pet.cpp:51 uses the Creature constructor.
+            SourceObjectKind::Creature | SourceObjectKind::Pet => {
+                Self::Unit([0; UNIT_END.div_ceil(UPDATE_WORD_BITS)])
+            }
+            // GameObject.cpp:74; Transports.h:30,71,83.
+            SourceObjectKind::GameObject | SourceObjectKind::Transport => {
+                Self::GameObject([0; GAMEOBJECT_END.div_ceil(UPDATE_WORD_BITS)])
+            }
+            _ => Self::Unbound,
+        }
+    }
+
+    fn count(&self) -> Result<usize> {
+        match self {
+            Self::Unit(_) => Ok(UNIT_END),
+            Self::GameObject(_) => Ok(GAMEOBJECT_END),
+            Self::Unbound => Err(refuse(
+                "execution.object.Object_105.update_values_count_owner",
+            )),
+        }
+    }
+
+    fn words(&self) -> &[u64] {
+        match self {
+            Self::Unit(bits) => bits,
+            Self::GameObject(bits) => bits,
+            Self::Unbound => &[],
+        }
+    }
+
+    fn words_mut(&mut self) -> &mut [u64] {
+        match self {
+            Self::Unit(bits) => bits,
+            Self::GameObject(bits) => bits,
+            Self::Unbound => &mut [],
+        }
+    }
 }
 
 impl SourceUnitFields {
-    /// Object.cpp:847-856,984-995. The value write precedes the changed bit and enqueue.
-    pub fn set_client_update_field(
+    /// Unit.h:1363 sets the faction update field before later lookups can read it.
+    pub(super) fn set_faction_template(
         &mut self,
         objects: &mut SourceObjects,
         unit: ObjectHandle,
-        field: SourceUnitUpdateField,
-        value: u32,
+        faction: u32,
     ) -> Result<()> {
-        let current = match field {
-            SourceUnitUpdateField::FactionTemplate => &mut self.faction,
-            SourceUnitUpdateField::NpcFlags => &mut self.loaded_creature.npc_flags,
-        };
-        if *current != value {
-            *current = value;
-            objects.mark_unit_field_for_update(unit, field)?;
-            if field == SourceUnitUpdateField::FactionTemplate {
-                // Unit.cpp:6228-6238 reads the current faction template.
-                self.neutral_to_all = None;
-            }
+        if objects.set_update_value(unit, UNIT_FIELD_FACTIONTEMPLATE, &mut self.faction, faction)? {
+            // Unit.cpp:6228-6238 reads the current faction template.
+            self.neutral_to_all = None;
         }
         Ok(())
     }
 }
 
 impl SourceObject {
-    pub fn unit_field_changed(&self, field: SourceUnitUpdateField) -> bool {
-        self.changed_unit_fields & field as u8 != 0
+    pub fn field_changed(&self, field: usize) -> Result<bool> {
+        require(
+            field < self.changed_fields.count()?,
+            "execution.object.Object_849.update_field_index_assert",
+        )?;
+        Ok(self.changed_fields.words()[field / UPDATE_WORD_BITS]
+            & (1 << (field % UPDATE_WORD_BITS))
+            != 0)
     }
 }
+
+#[cfg(test)]
+#[path = "update_marks_tests.rs"]
+mod update_marks_tests;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PoseObservation {
     NoLiveObject,
@@ -215,7 +274,7 @@ impl SourceObjects {
                 allocation_base: None,
                 player_map_linked: false,
                 global_player_registered: false,
-                changed_unit_fields: 0,
+                changed_fields: SourceUpdateMask::new(kind),
                 object_updated: false,
             },
         );
@@ -231,22 +290,65 @@ impl SourceObjects {
             .get_mut(&handle)
             .ok_or_else(|| refuse("execution.stale_object_handle"))
     }
-    fn mark_unit_field_for_update(
+    /// Object.cpp:847-856,884-900,970-995. Compare and write the represented value.
+    pub(super) fn set_update_value<T: PartialEq>(
         &mut self,
         handle: ObjectHandle,
-        field: SourceUnitUpdateField,
-    ) -> Result<()> {
+        field: usize,
+        current: &mut T,
+        value: T,
+    ) -> Result<bool> {
+        self.write_update_fields(handle, field..=field, || {
+            if *current == value {
+                return false;
+            }
+            *current = value;
+            true
+        })
+    }
+
+    /// Object.cpp:1119-1127 also marks when the current value is unchanged.
+    pub(super) fn force_update_field(&mut self, handle: ObjectHandle, field: usize) -> Result<()> {
+        self.write_update_fields(handle, field..=field, || true)?;
+        Ok(())
+    }
+
+    fn write_update_fields(
+        &mut self,
+        handle: ObjectHandle,
+        fields: RangeInclusive<usize>,
+        write_if_changed: impl FnOnce() -> bool,
+    ) -> Result<bool> {
         let object = self
             .objects
             .get_mut(&handle)
             .ok_or_else(|| refuse("execution.stale_object_handle"))?;
-        object.changed_unit_fields |= field as u8;
+        require(
+            *fields.end() < object.changed_fields.count()?,
+            "execution.object.Object_849.update_field_index_assert",
+        )?;
+        if !write_if_changed() {
+            return Ok(false);
+        }
+        Self::mark_for_client_update(object, &mut self.client_updates, fields)?;
+        Ok(true)
+    }
+
+    fn mark_for_client_update(
+        object: &mut SourceObject,
+        client_updates: &mut BTreeMap<MapIdentity, BTreeSet<ObjectHandle>>,
+        fields: RangeInclusive<usize>,
+    ) -> Result<()> {
+        let bits = object.changed_fields.words_mut();
+        for field in fields {
+            bits[field / UPDATE_WORD_BITS] |= 1 << (field % UPDATE_WORD_BITS);
+        }
         // Object.cpp:1107-1117,2486-2489; Map.h:287-290.
         if object.in_world && !object.object_updated {
             let map = object
                 .map
                 .ok_or_else(|| refuse("execution.object.Object_2488.client_update_map_owner"))?;
-            self.client_updates.entry(map).or_default().insert(handle);
+            client_updates.entry(map).or_default().insert(object.handle);
             object.object_updated = true;
         }
         Ok(())
@@ -258,8 +360,9 @@ impl SourceObjects {
             .is_some_and(|pending| pending.contains(&object))
     }
 
-    /// Map.cpp:2409-2413. Membership has no pointer order. Not all in-world field
-    /// writers mark updates yet, so completeness is unproven even with zero or one member.
+    /// Map.cpp:2409-2413. Chicken and GameObject lifecycle writes mark their fields.
+    /// Spell aura, UnitAI combat, and movement field writers still lack marking.
+    /// Two or more pending objects also require the source's pointer order.
     pub fn send_object_updates(&self, map: MapIdentity) -> Result<()> {
         if self
             .client_updates
@@ -279,7 +382,7 @@ impl SourceObjects {
             .objects
             .get_mut(&handle)
             .ok_or_else(|| refuse("execution.stale_object_handle"))?;
-        object.changed_unit_fields = 0;
+        object.changed_fields.words_mut().fill(0);
         if object.object_updated {
             if remove {
                 let map = object.map.ok_or_else(|| {
@@ -385,15 +488,27 @@ impl SourceObjects {
         database_guid: u32,
         guid: SourceGuid,
     ) -> Result<()> {
-        let object = self.get_mut(handle)?;
+        let object = self
+            .objects
+            .get_mut(&handle)
+            .ok_or_else(|| refuse("execution.stale_object_handle"))?;
         require(
             !object.in_world
                 && !object.global_player_registered
                 && object.kind != SourceObjectKind::Camera,
             "execution.object_guid_assignment",
         )?;
+        let changed = object.guid.unwrap_or_default() != guid;
         object.guid = Some(guid);
         object.database_guid = database_guid;
+        if changed && !matches!(object.changed_fields, SourceUpdateMask::Unbound) {
+            // Object::_Create calls SetGuidValue; Object.cpp:115-125,859-869.
+            Self::mark_for_client_update(
+                object,
+                &mut self.client_updates,
+                OBJECT_FIELD_GUID..=OBJECT_FIELD_GUID + 1,
+            )?;
+        }
         Ok(())
     }
     pub fn bind_map(

@@ -82,9 +82,14 @@ impl SourceScriptedAi {
         let timer = write_timer(20000); // npcs_special.cpp:68.
         let live = units.get_mut(objects, unit)?;
         // Unit.h:1363 and :511; npcs_special.cpp:70-71.
-        live.set_client_update_field(objects, unit, SourceUnitUpdateField::FactionTemplate, 31)?;
+        live.set_faction_template(objects, unit, 31)?;
         let npc_flags = live.loaded_creature.npc_flags & !2;
-        live.set_client_update_field(objects, unit, SourceUnitUpdateField::NpcFlags, npc_flags)?;
+        objects.set_update_value(
+            unit,
+            UNIT_NPC_FLAGS,
+            &mut live.loaded_creature.npc_flags,
+            npc_flags,
+        )?;
         Ok(timer)
     }
 

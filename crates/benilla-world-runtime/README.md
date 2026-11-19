@@ -2047,14 +2047,15 @@ After the factory returns, `GameObject.cpp:2528-2537` calls `JustSpawned` and
 the continent's inherited `OnObjectSpawn`. Bell event and update dispatch
 remain named refusals (`go_scripts.cpp:191,206`).
 
-Chicken reset marks changed client fields and enqueues the in-world creature
-(`Object.cpp:1107-1117`). The drain at `Map.cpp:2409` refuses. Writer coverage
-is unproven: EventAI's spell 10848 aura replacement clears and installs the
-slot, flags, level and applications without marking them. Ghost visibility
-byte changes and EventAI `SET_UNIT_FLAG`/`REMOVE_UNIT_FLAG` writes to
-`UNIT_FIELD_FLAGS` also lack marking.
-The in-world area aura armor write also lacks marking
-(`StatSystem.cpp:664-672`, `Unit.h:1325`).
+Chicken reset and the GameObject lifecycle state, flag, and display setters
+mark changed update words by their `UpdateFields.h` index. Chest restock also
+marks its unchanged dynamic flags (`GameObject.cpp:363,632`).
+`Object.cpp:1107-1117` enqueues each marked object once, only in world.
+First AddToWorld clears the mask. RemoveFromWorld clears it and dequeues the
+object (`Object.cpp:81-103,719-733`).
+The drain (`Map.cpp:2409`) refuses. Spell aura, unit combat, and movement
+field writers remain unmarked. Two or more pending objects also need the
+source pointer order.
 
 GuardAI preserves its sight and assistance branch order (`GuardAI.cpp:36-92`).
 Its inherited update expires base timers before concrete target selection through `SourceAiDependencies`,
