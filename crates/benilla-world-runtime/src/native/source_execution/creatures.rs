@@ -1824,6 +1824,10 @@ pub enum CreatureCreateObservation {
     Zone([u32; 2]),
     OutdoorScriptLookup,
     SilithusCreatureCreate,
+    EasternPlaguelandsCreatureCreate {
+        entry: u32,
+        arm: PlaguelandsCreatureCreate,
+    },
     InstanceDataLookup,
     InstanceScriptCalled,
 }
@@ -1835,7 +1839,7 @@ pub fn notify_loaded_creature_create(
     units: &SourceUnits,
     object: ObjectHandle,
     map: PersistentMapEntry,
-    outdoor: &SourceOutdoorPvp,
+    outdoor: &mut SourceOutdoorPvp,
     instance: Option<&mut SourceWorldScript>,
     zone_and_area: impl FnOnce([f32; 3]) -> Result<[u32; 2]>,
     mut observe: impl FnMut(CreatureCreateObservation),
@@ -1862,9 +1866,11 @@ pub fn notify_loaded_creature_create(
             observe(CreatureCreateObservation::SilithusCreatureCreate)
         }
         Some(OutdoorPvpScript::EasternPlaguelands) => {
-            return Err(refuse(
-                "execution.outdoor_pvp.OutdoorPvPEP_95.HandleCreatureCreate_owner",
-            ));
+            let entry = units.get(objects, object)?.entry;
+            let arm = outdoor
+                .plaguelands_mut()?
+                .handle_creature_create(entry, value)?;
+            observe(CreatureCreateObservation::EasternPlaguelandsCreatureCreate { entry, arm });
         }
         None => {}
     }

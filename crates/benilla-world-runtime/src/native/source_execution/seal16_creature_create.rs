@@ -206,6 +206,17 @@ fn create_notifications<D: GridDefinitions<Row = SpawnKey>>(
             }
             OutdoorScriptLookup => prefix.lookups.push("creature_outdoor_pvp_get_script"),
             SilithusCreatureCreate => prefix.lookups.push("creature_silithus_pvp_on_create"),
+            EasternPlaguelandsCreatureCreate { entry, arm } => {
+                if map.id == 0 && database == 59514 {
+                    assert_eq!((entry, arm), (8602, PlaguelandsCreatureCreate::NoCase));
+                    assert_eq!(prefix.creature_zone, Some(139));
+                    assert_eq!(
+                        prefix.lookups.last(),
+                        Some(&"creature_outdoor_pvp_get_script")
+                    );
+                }
+                prefix.lookups.push("creature_ep_pvp_on_create");
+            }
             InstanceDataLookup => prefix.lookups.push("creature_instance_data"),
             InstanceScriptCalled => prefix.lookups.push("creature_instance_on_creature_create"),
         },

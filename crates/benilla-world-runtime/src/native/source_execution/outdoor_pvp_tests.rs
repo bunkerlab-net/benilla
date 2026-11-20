@@ -58,6 +58,72 @@ fn map(id: u32) -> MapIdentity {
         creation_generation: u64::from(id) + 1,
     }
 }
+
+#[test]
+fn plaguelands_creature_create_writes_only_the_bound_guid_for_each_entry() {
+    let mut manager = SourceOutdoorPvp::default();
+    let mut world = SourceMessager::new(MessageOwner::World);
+    manager
+        .initialize([false, true], 1, &mut world, &mut BTreeMap::new())
+        .unwrap();
+    let live = manager.plaguelands.as_mut().unwrap();
+    let mut objects = SourceObjects::default();
+    let unbound = objects.construct(1, SourceObjectKind::Creature).unwrap();
+    let bound = |objects: &mut SourceObjects, entry, counter| {
+        let creature = objects.construct(1, SourceObjectKind::Creature).unwrap();
+        let guid = SourceGuid::with_entry(HighGuid::Creature, entry, counter);
+        objects.assign_guid(creature, counter, guid).unwrap();
+        (creature, guid)
+    };
+
+    assert_eq!(
+        live.handle_creature_create(8602, objects.get(unbound).unwrap())
+            .unwrap(),
+        PlaguelandsCreatureCreate::NoCase,
+    );
+    assert_eq!(live.flight_master, SourceGuid::default());
+    assert!(live.soldiers.is_empty());
+
+    let entries = [17635, 17647, 17995, 17996];
+    let expected = entries.map(|entry| {
+        let (creature, guid) = bound(&mut objects, entry, entry);
+        assert_eq!(
+            live.handle_creature_create(entry, objects.get(creature).unwrap())
+                .unwrap(),
+            PlaguelandsCreatureCreate::Soldier,
+        );
+        guid
+    });
+    assert_eq!(live.soldiers, expected);
+    assert_eq!(live.flight_master, SourceGuid::default());
+
+    let (flight_master, guid) = bound(&mut objects, 17209, 500);
+    assert_eq!(
+        live.handle_creature_create(17209, objects.get(flight_master).unwrap())
+            .unwrap_err()
+            .id,
+        "execution.outdoor_pvp.OutdoorPvPEP_101.setFaction_owner",
+    );
+    assert_eq!(live.flight_master, guid);
+    assert_eq!(live.soldiers, expected);
+
+    for entry in entries {
+        assert_eq!(
+            live.handle_creature_create(entry, objects.get(unbound).unwrap())
+                .unwrap_err()
+                .id,
+            "execution.outdoor_pvp.OutdoorPvPEP_108.soldier_guid_owner",
+        );
+    }
+    assert_eq!(
+        live.handle_creature_create(17209, objects.get(unbound).unwrap())
+            .unwrap_err()
+            .id,
+        "execution.outdoor_pvp.OutdoorPvPEP_100.flight_master_guid_owner",
+    );
+    assert_eq!(live.flight_master, guid);
+    assert_eq!(live.soldiers, expected);
+}
 #[test]
 fn classic_registers_only_two_main_zones_and_queues_before_any_mutation() {
     let mut manager = SourceOutdoorPvp::default();
@@ -99,6 +165,8 @@ fn classic_registers_only_two_main_zones_and_queues_before_any_mutation() {
             tower_banners: Default::default(),
             lordaeron_shrine_alliance: SourceGuid::default(),
             lordaeron_shrine_horde: SourceGuid::default(),
+            flight_master: SourceGuid::default(),
+            soldiers: Vec::new(),
         })
     );
     assert_eq!(

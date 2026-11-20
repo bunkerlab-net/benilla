@@ -30,6 +30,34 @@ pub(super) fn assert_world_boss_reach(
     assert_eq!((boss_entries.len(), by_map), (153, [8, 13]));
 }
 
+pub(super) fn assert_plaguelands_creature_census(spawns: &SourceEffectiveSpawns) {
+    let mut counts = [0; 6];
+    for (key, spawn) in spawns.pre_terrain_map() {
+        if key.kind != GridSpawnKind::Creature || spawn.row.map != 0 {
+            continue;
+        }
+        let spawn = spawns.complete_data(*key).unwrap().unwrap();
+        if spawn.original_zone().unwrap() == 139 {
+            counts[match spawn.validation_entry {
+                17209 => 1,
+                17635 => 2,
+                17647 => 3,
+                17995 => 4,
+                17996 => 5,
+                _ => 0,
+            }] += 1;
+        }
+    }
+    // Stock creature and alternative rows contain none of the five special entries.
+    assert_eq!(&counts[1..], &[0; 5]);
+    println!(
+        "F6_EP_CREATURE_CENSUS zone=139 default={} flight_master={} soldiers={:?}",
+        counts[0],
+        counts[1],
+        &counts[2..]
+    );
+}
+
 pub(super) fn assert_static_area_aura_reach(
     addons: &LoadedCreatureAddons,
     stores: &SourceSpellStores,

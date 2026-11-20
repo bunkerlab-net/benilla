@@ -108,6 +108,42 @@ pub struct PlaguelandsPvp {
     pub tower_banners: [Vec<SourceGuid>; 4],
     pub lordaeron_shrine_alliance: SourceGuid,
     pub lordaeron_shrine_horde: SourceGuid,
+    pub flight_master: SourceGuid,
+    pub soldiers: Vec<SourceGuid>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlaguelandsCreatureCreate {
+    NoCase,
+    Soldier,
+}
+
+impl PlaguelandsPvp {
+    // OutdoorPvPEP.cpp:95-111; OutdoorPvPEP.h:54,70-75.
+    pub(super) fn handle_creature_create(
+        &mut self,
+        entry: u32,
+        creature: &SourceObject,
+    ) -> Result<PlaguelandsCreatureCreate> {
+        match entry {
+            17209 => {
+                self.flight_master = creature.guid.ok_or_else(|| {
+                    refuse("execution.outdoor_pvp.OutdoorPvPEP_100.flight_master_guid_owner")
+                })?;
+                Err(refuse(
+                    "execution.outdoor_pvp.OutdoorPvPEP_101.setFaction_owner",
+                ))
+            }
+            17635 | 17647 | 17995 | 17996 => {
+                let guid = creature.guid.ok_or_else(|| {
+                    refuse("execution.outdoor_pvp.OutdoorPvPEP_108.soldier_guid_owner")
+                })?;
+                self.soldiers.push(guid);
+                Ok(PlaguelandsCreatureCreate::Soldier)
+            }
+            _ => Ok(PlaguelandsCreatureCreate::NoCase),
+        }
+    }
 }
 #[derive(Debug)]
 pub struct SourceOutdoorPvp {
@@ -177,6 +213,9 @@ impl SourceOutdoorPvp {
                 tower_banners: Default::default(),
                 lordaeron_shrine_alliance: SourceGuid::default(),
                 lordaeron_shrine_horde: SourceGuid::default(),
+                // OutdoorPvPEP.h:236,240 default-constructs these members.
+                flight_master: SourceGuid::default(),
+                soldiers: Vec::new(),
             });
             // OutdoorPvP.cpp:34 queues first. No mutation until World.cpp:1554 drains it.
             world.enqueue_graveyard_team(cause, 927, 139, 1)?;

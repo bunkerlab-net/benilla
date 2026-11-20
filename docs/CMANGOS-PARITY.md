@@ -171,8 +171,8 @@ is meaningful without a bounded content/mechanics inventory.
   (`CreatureEventAIMgr.cpp:979-996`, `ScriptMgr.h:679`).
   Startup matches the template SELECT at trace :52620961 before the EventAI
   SELECT at :58819675. Runtime string selection refuses at `CreatureEventAI.cpp:1262`.
-  Map 0 matches 1,082 completions, 1,158 allocations, 32,373 random words,
-  760 clocks, 97 paths, and two SQL requests. GUID12058 finishes Defensive
+  Map 0 matches 1,096 completions, 1,173 allocations, 32,493 random words,
+  799 clocks, 97 paths, and two SQL requests. GUID12058 finishes Defensive
   Stance and its 7376 boost (trace :60985257). GUID89544 and GUID89542 finish
   Frost Armor (trace :61222641, :61242962). Bolvar GUID10495 retains a
   damage-shield effect with no immediate callback changes
@@ -197,8 +197,13 @@ is meaningful without a bounded content/mechanics inventory.
   with a ready-bit vector of size six (`boss_azuregos.cpp:42-62`, `TimerAI.h:120`).
   Map 1 first dispatches the inherited empty Silithus creature creation
   callback at GUID44205 (`Creature.cpp:914-915`, `OutdoorPvP.h:64`,
-  trace lines 60643213–60643388). Eastern Plaguelands creature creation
-  refuses at its override (`OutdoorPvPEP.cpp:95`).
+  trace lines 60643213–60643388). The Eastern Plaguelands override
+  saves soldier and flight master GUIDs in the live script. The flight
+  master refuses at `OutdoorPvPEP.cpp:101` after the GUID write.
+  No stock map-0 creature spawn selects a soldier or flight master.
+  GUID59514 completes the no-case path at trace :61396675. Map 0 stops
+  at Shadowmage GUID92187's type 126 aura (`SpellAuras.cpp:187`, after
+  trace :61406100).
 - **Stormwind guard startup.** `guard_ai.cpp:29-38,63-81` owns the guard
   base timers and the ranged check after inherited respawn. Stormwind
   calls its salute-only Reset in construction and respawn

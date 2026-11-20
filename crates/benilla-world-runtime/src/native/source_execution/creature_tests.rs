@@ -2232,11 +2232,7 @@ fn create_dispatch_uses_live_entry_and_preserves_pvp_callback_order() {
             0,
             Some("execution.creature.loaded_battleground_create_owner"),
         ),
-        (
-            0,
-            139,
-            Some("execution.outdoor_pvp.OutdoorPvPEP_95.HandleCreatureCreate_owner"),
-        ),
+        (0, 139, None),
         (0, 1377, None),
         (0, 1, None),
     ] {
@@ -2250,7 +2246,7 @@ fn create_dispatch_uses_live_entry_and_preserves_pvp_callback_order() {
             &units,
             unit,
             PersistentMapEntry { id: 0, map_type },
-            &outdoor,
+            &mut outdoor,
             Some(&mut instance),
             |pose| {
                 assert_eq!(map_type, 0);
@@ -2282,6 +2278,21 @@ fn create_dispatch_uses_live_entry_and_preserves_pvp_callback_order() {
                         Zone([1377, 37]),
                         OutdoorScriptLookup,
                         SilithusCreatureCreate,
+                        InstanceDataLookup,
+                        InstanceScriptCalled,
+                    ]
+                );
+            } else if zone == 139 {
+                assert_eq!(
+                    observed,
+                    [
+                        Battleground(false),
+                        Zone([139, 37]),
+                        OutdoorScriptLookup,
+                        EasternPlaguelandsCreatureCreate {
+                            entry: 14508,
+                            arm: PlaguelandsCreatureCreate::NoCase,
+                        },
                         InstanceDataLookup,
                         InstanceScriptCalled,
                     ]

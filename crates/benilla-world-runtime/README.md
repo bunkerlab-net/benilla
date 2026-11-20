@@ -2673,15 +2673,16 @@ Static coverage at stock template levels is 29 of 31 nonzero-slope addon
 effect slots and 13 of 16 direct EventAI Spawn-cast slots. The other two and
 three slots reach the dice RNG at `Object.cpp:2955`. This census counts effect
 value arithmetic and does not execute casts.
-Map 0 completes 1,082 objects in 1,158 allocations. It matches 32,373 random
-words, 760 clocks, 97 paths, and two map SQL requests. Defias Conjurers
+Map 0 completes 1,096 objects in 1,173 allocations. It matches 32,493 random
+words, 799 clocks, 97 paths, and two map SQL requests. Defias Conjurers
 GUID89544 and GUID89542 finish Frost Armor with 36 armor and two effect clocks
 each (trace :61221527-61221531, :61241174-61241178). All 23 Stormwind guards
 complete (trace :61339475-61390644). Bolvar GUID10495 retains Retribution Aura
 and Double Attack. The Double Attack cast-end proc excludes its own holder
 before the chance read (`UnitAuraProcHandler.cpp:544-545`, trace :61351279-61351308).
-The next stop is Eastern Plaguelands creature creation for GUID59514
-(`OutdoorPvPEP.cpp:95`, trace :61396329-61396334).
+Eastern Plaguelands creature creation completes for GUID59514
+(`OutdoorPvPEP.cpp:95-111`, trace :61396675). The next stop is Shadowform's
+type 126 aura on GUID92187 (`SpellAuras.cpp:187`, after trace :61406100).
 Map 1 completes 380 objects in 421 allocations. It matches 14,731 random
 words, 382 clocks, 31 paths, and two map SQL requests. The Silithyst
 Geyser GUID49337 completes at trace :60741339. Searing Infernal GUID33193
