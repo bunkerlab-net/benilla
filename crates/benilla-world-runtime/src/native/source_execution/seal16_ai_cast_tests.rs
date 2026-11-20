@@ -269,7 +269,7 @@ fn live_unit_reads_current_flags_pose_auras_control_and_interrupt_slots() {
     live.flags = 8 | UNIT_FLAG_COMBAT | 0x0001_0000;
     live.stand_state = 1;
     live.shapeshift_form = 5;
-    live.mounted = true;
+    live.set_mount_display(&objects, object, 2326).unwrap();
     let stealth = SpellTemplate {
         id: 1784,
         ..Default::default()

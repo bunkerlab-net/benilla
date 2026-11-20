@@ -131,7 +131,9 @@ pub struct SourceUnitFields {
     pub melee_spell: bool,
     pub gm: bool,
     pub no_threat: bool,
-    pub mounted: bool,
+    /// Object.cpp:105-108 zeros UNIT_FIELD_MOUNTDISPLAYID.
+    #[serde(skip)]
+    mount_display: u32,
     pub offhand: bool,
     pub combat_timer: u32,
     pub pursuit_ms: u32,
@@ -225,7 +227,7 @@ pub struct SourceUnitCastFields<'a> {
     pub flags: &'a u32,
     pub state: &'a mut u32,
     pub gm: &'a bool,
-    pub mounted: &'a bool,
+    pub mount_display: &'a u32,
     pub stand_state: &'a u8,
     pub control_guids: &'a SourceControlGuids,
     pub unit_class: &'a Option<u32>,
@@ -257,6 +259,30 @@ pub struct SourceUnitCastFields<'a> {
 }
 
 impl SourceUnitFields {
+    /// Unit.h:1447-1448 reads the live display field.
+    pub fn is_mounted(&self) -> bool {
+        self.mount_display() != 0
+    }
+
+    pub(super) fn mount_display(&self) -> u32 {
+        self.mount_display
+    }
+
+    pub(super) fn set_mount_display(
+        &mut self,
+        objects: &SourceObjects,
+        object: ObjectHandle,
+        display: u32,
+    ) -> Result<()> {
+        objects.set_update_value(
+            object,
+            UNIT_FIELD_MOUNTDISPLAYID,
+            &mut self.mount_display,
+            display,
+        )?;
+        Ok(())
+    }
+
     /// Spell.cpp:3007-3020. Borrow the live caster, Spell store, and event queue separately.
     pub fn borrow_cast(
         &mut self,
@@ -272,7 +298,7 @@ impl SourceUnitFields {
                 flags: &self.flags,
                 state: &mut self.state,
                 gm: &self.gm,
-                mounted: &self.mounted,
+                mount_display: &self.mount_display,
                 stand_state: &self.stand_state,
                 control_guids: &self.control_guids,
                 unit_class: &self.unit_class,
@@ -407,7 +433,7 @@ impl SourceUnitFields {
             gm: false,
             melee_spell: false,
             no_threat: false,
-            mounted: false,
+            mount_display: 0,
             offhand: false,
             combat_timer: 0,
             pursuit_ms: 0,
@@ -1352,7 +1378,7 @@ impl SourceUnitAi {
             return Ok(false);
         }
         let source = units.get(objects, unit)?;
-        if objects.get(unit)?.kind == SourceObjectKind::Player && source.mounted {
+        if objects.get(unit)?.kind == SourceObjectKind::Player && source.is_mounted() {
             return Ok(false);
         }
         let target_fields = units.get(objects, target)?;
@@ -1472,13 +1498,8 @@ impl SourceUnitAi {
         if f.state & CANNOT_REACT != 0 {
             return Ok(());
         }
-        if self.dismount_on_aggro && f.mounted {
-            objects.set_update_value(
-                self.unit,
-                UNIT_FIELD_MOUNTDISPLAYID,
-                &mut f.mounted,
-                false,
-            )?;
+        if self.dismount_on_aggro && f.is_mounted() {
+            f.set_mount_display(objects, self.unit, 0)?;
         }
         if f.state & 0x100 == 0 {
             owner.call(

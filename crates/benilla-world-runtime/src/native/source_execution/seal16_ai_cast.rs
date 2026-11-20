@@ -179,7 +179,7 @@ impl SpellSelfCastOwner for Owner<'_> {
             form: live.shapeshift_form,
             cooldowns: live.cooldowns,
             stand: *live.stand_state,
-            mount: u32::from(*live.mounted),
+            mount_display: live.mount_display,
             unit,
             level,
             cast_speed: live.cast_speed,
@@ -268,7 +268,7 @@ impl SpellExecutionOwner for Owner<'_> {
                 .unit_class
                 .ok_or_else(|| refuse("execution.spells.ai_cast.unit_class_owner"))?,
             combo_target: *self.live.combo_target,
-            mounted: *self.live.mounted,
+            mounted: *self.live.mount_display != 0,
             taxi: self.live.flags & 0x0010_0000 != 0,
             totem: *self.live.totem,
             untargetable: self.live.flags & 0x0001_0000 != 0,

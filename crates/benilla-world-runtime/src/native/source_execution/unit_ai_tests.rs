@@ -549,16 +549,20 @@ fn client_update_combat_flag_and_mount_clear_each_mark_only_on_change() {
             in_world && changed
         );
 
+        units
+            .get_mut(&objects, ai.unit)
+            .unwrap()
+            .set_mount_display(&objects, ai.unit, if changed { 2326 } else { 0 })
+            .unwrap();
         objects.remove_from_world(ai.unit).unwrap();
         if in_world {
             objects.add_to_world(ai.unit).unwrap();
         }
         let fields = units.get_mut(&objects, ai.unit).unwrap();
-        fields.mounted = changed;
         fields.state |= 0x100; // UnitAI.cpp:345 skips chase while propelled.
         ai.movement_on_attack(enemy, false, &objects, &mut units, &mut Authored::default())
             .unwrap();
-        assert!(!units.get(&objects, ai.unit).unwrap().mounted);
+        assert!(!units.get(&objects, ai.unit).unwrap().is_mounted());
         assert_eq!(
             objects
                 .get(ai.unit)

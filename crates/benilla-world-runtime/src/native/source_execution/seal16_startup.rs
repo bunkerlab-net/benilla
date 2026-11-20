@@ -4348,7 +4348,8 @@ pub(super) fn continue_startup(
                 2326
             );
             let outrider = units.get(&active_objects, candidate).unwrap();
-            assert!(!outrider.auras.has_aura_holders() && !outrider.mounted);
+            assert!(!outrider.auras.has_aura_holders() && !outrider.is_mounted());
+            assert_eq!(outrider.mount_display(), 0);
             assert_eq!(active_clocks.0.front().unwrap().time_line, 60941614);
             // :60941391-:60941401. The Outrider's respawn draw is still pending.
             assert_eq!(evidence.words[15080], (60941401, 15080, 536974546));

@@ -78,7 +78,7 @@ fn apply_addon<D: GridDefinitions<Row = SpawnKey>>(
         form: live.shapeshift_form,
         class: live.unit_class.unwrap(),
         combo_target: None,
-        mounted: fields.addon.mount != 0,
+        mounted: live.is_mounted(),
         taxi: flags & 0x0010_0000 != 0,
         totem: false, // Generic Creature subtype, Creature.h:595,622.
         untargetable: flags & 0x0001_0000 != 0,

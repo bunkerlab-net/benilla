@@ -4,10 +4,9 @@
 use super::*;
 use std::collections::BTreeMap;
 
-/// Addon callbacks retain mount state and duplicate aura errors.
+/// Diagnostics for duplicate auras on initial addon load.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct CreatureAddonState {
-    pub mount: u32,
     pub duplicate_aura_errors: Vec<u32>,
 }
 

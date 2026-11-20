@@ -70,7 +70,7 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
             random: self.random,
             creature_spells: self.creature_spells,
             stand: *cast.stand_state,
-            mount: state.mount,
+            mount_display: cast.mount_display,
             unit: self.unit,
             level: self.level,
             cast_speed: cast.cast_speed,
@@ -234,7 +234,7 @@ pub(super) struct Owner<'a> {
     pub form: &'a mut u32,
     pub cooldowns: &'a mut SourceSpellCooldowns,
     pub stand: u8,
-    pub mount: u32,
+    pub mount_display: &'a u32,
     pub unit: SpellUnitState,
     pub level: u32,
     pub cast_speed: &'a u32,
@@ -311,7 +311,7 @@ impl SpellExecutionOwner for Owner<'_> {
         self.objects.get(unit)?;
         let mut value = self.unit;
         value.standing = self.stand == 0;
-        value.mounted = self.mount != 0;
+        value.mounted = *self.mount_display != 0;
         value.form = *self.form;
         value.stealth = self.auras.has_aura_type(16);
         Ok(value)
