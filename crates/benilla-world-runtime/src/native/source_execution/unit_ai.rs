@@ -57,6 +57,8 @@ pub struct SourceUnitVisibility {
     pub detect_values: [i32; 32],
     /// ObjectVisibility.h:39-44,96; ObjectVisibility.cpp:41 initializes both slots to zero.
     pub stealth_detect: [u32; 2],
+    /// ObjectVisibility.h:39-44,95; ObjectVisibility.cpp:40 zeroes both strengths.
+    pub stealth_strength: [u32; 2],
 }
 
 #[derive(Clone, Debug, Serialize)]

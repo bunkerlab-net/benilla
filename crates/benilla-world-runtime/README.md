@@ -2661,14 +2661,18 @@ the live unit (`ObjectVisibility.cpp:35-41,120-130`, `Unit.cpp:359`).
 `SpellAuras.cpp:2631-2679` uses the running value to decide whether to
 remove interruptible auras and change the mode. The player glow and in-world
 visibility update still refuse by name. A fresh addon cast happens before
-`Map::Add` (`Creature.cpp:932,1738,2343`). It writes no visibility update fields.
+`Map::Add` (`Creature.cpp:932,1738,2343`). Type 18 writes no visibility update fields.
 Type 19 keeps the highest invisibility detection strength per type. On
 removal it skips equal amounts on other holders (`SpellAuras.cpp:2699-2716`).
 Type 17 adds or subtracts stealth detection strength with unsigned wrap
 (`SpellAuras.cpp:2621-2624`, `ObjectVisibility.h:80`). Both use live unit
 fields outside saved bytes. Controller detection and real player camera
 refresh still refuse at `ObjectVisibility.cpp:142` and `SpellAuras.cpp:2721`.
-The addon census uses the production dispatch. It classifies 201 of 262
+Type-16 stealth updates the live unsigned strengths and creep bit
+(`SpellAuras.cpp:2568-2619`, `ObjectVisibility.h:79`, `Unit.h:124,1443-1444`).
+It restores invisibility after the last stealth aura leaves. Player stealth
+byte writes and in-world visibility refreshes still refuse.
+The static addon census uses the production dispatch. It classifies 203 of 262
 spells as having a handler for every effect and aura type. It does not test
 each spell's targets or callbacks.
 Creature self-casts scale effect points and dice before the fixed-dice switch,
@@ -2697,8 +2701,9 @@ Map 1 completes 398 objects in 439 allocations. It matches 14,857 random
 words, 405 clocks, 31 paths, and two map SQL requests. The Silithyst Geyser
 GUID49337 completes at trace :60741339. Searing Infernal GUID33193 passes
 Fire Shield's helpful self-target check (`Spell.cpp:5086`, `Relations.cpp:204,504`)
-and completes at trace :60882413. The replay stops at Wildthorn Lurker
-GUID34917's Hide aura (`SpellAuras.cpp:2568`, after trace :60901711).
+and completes at trace :60882413. Wildthorn Lurker GUID34917 applies Hide
+before entering the world and stops at `AttackStop` (`Spell.cpp:3798`,
+after trace :60901711).
 Addon and EventAI casts share caster-only relation operands. A helpful cast
 on another unit stops at the first target flag read. Harmful unit filters
 stop at `CanAttackSpell` (`Relations.cpp:1065`).

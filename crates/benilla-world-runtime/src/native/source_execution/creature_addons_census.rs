@@ -151,6 +151,7 @@ fn catalog04_creature_addon_branch_census_and_4692_lookup() {
     let mut aura_types = BTreeMap::<u32, usize>::new();
     let mut effect_aura_slots = BTreeMap::<(u32, u32), usize>::new();
     let mut static_covered = 0;
+    let mut covered_stealth = Vec::new();
     for (&id, references) in &aura_spells {
         let spell = spells.template(id).unwrap();
         let static_coverage = spell.effects().iter().all(|effect| {
@@ -169,6 +170,9 @@ fn catalog04_creature_addon_branch_census_and_4692_lookup() {
             *effect_types.entry(effect).or_default() += 1;
         }
         let auras = spell.effects().map(|effect| effect.aura);
+        if static_coverage && auras.contains(&16) {
+            covered_stealth.push(id);
+        }
         for &aura in auras.iter().filter(|&&aura| aura != 0) {
             *aura_types.entry(aura).or_default() += 1;
         }
@@ -182,10 +186,12 @@ fn catalog04_creature_addon_branch_census_and_4692_lookup() {
     assert_eq!(aura_spells.len(), 262);
     // Stock type-15 spell rows: initial-classicmangos.sql :837990, :843358,
     // :844215, :845007, :845314, :847674, :847749, :848396, :854297,
-    // :854646, :854819, :854882, :854920, :855046. Coverage 183 -> 197.
+    // :854646, :854819, :854882, :854920, :855046.
     // Shadowform's type 126 slot at initial-classicmangos.sql :850374.
     // Detection slots for 8278, 8279 and 18950: SQL :844497, :844498, :852354.
-    assert_eq!(static_covered, 201);
+    // Type 16 adds Hide and Onin's Camouflage (:843391 and :845343).
+    assert_eq!(static_covered, 203);
+    assert_eq!(covered_stealth, [6920, 9572]);
     assert_eq!(aura_types.len(), 43);
     assert_eq!(aura_types.values().sum::<usize>(), 292);
     assert_eq!(effect_aura_slots.values().sum::<usize>(), 299);

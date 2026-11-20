@@ -131,8 +131,8 @@ is meaningful without a bounded content/mechanics inventory.
   of the multimap in `Unit.h:1076`. Each type list stores holder and effect IDs
   in append order, `Unit.cpp:4871-4874`. Neither changes the saved format.
   The 262-spell addon census has 299 effect slots and 43 aura types.
-  The production dispatch handles the effect and aura types for 201 spells.
-  The other 61 use an unported type. This count measures static coverage.
+  The production dispatch handles the effect and aura types for 203 spells.
+  The other 59 use an unported type. This count measures static coverage only.
   `spells/targeting.rs` binds ordinary and special-unit creature self targets
   to one unit-target fill (`Spell.cpp:533-784,2159-2161,2397-2405`).
   `SpellEffects.cpp:2331-2338` and `SpellAuras.cpp:298-328,367-379` create
@@ -157,6 +157,11 @@ is meaningful without a bounded content/mechanics inventory.
   even on another holder (`SpellAuras.cpp:2682-2722`). Stealth detection
   type 17 adds unsigned strength (`SpellAuras.cpp:2621-2624`).
   The controlling-player value and player camera refresh remain unbound.
+  Stealth type 16 keeps two unsigned strengths on the live visibility owner.
+  It writes the creep bit through the update field and shares the same
+  aura removal walk (`SpellAuras.cpp:2568-2619`, `ObjectVisibility.h:79`,
+  `Unit.h:124,1443-1444`). Player stealth byte writes and in-world visibility
+  refreshes refuse at `SpellAuras.cpp:2585,2606` and `Unit.cpp:8334`.
   Non-pet world bosses append immunity `(1, 137)` with a null aura before
   stat updates (`Creature.h:667-672`, `Creature.cpp:596-600`,
   `Unit.cpp:7684-7696`). The stock census is 153 rank-3 templates, eight
@@ -166,9 +171,9 @@ is meaningful without a bounded content/mechanics inventory.
   Map 1 completes 398 objects with 439 allocations, 14,857 random words,
   405 wall clocks, 31 paths, and two SQL requests. Searing Infernal GUID33193
   passes Fire Shield's helpful self-target check (`Spell.cpp:5086`,
-  `Relations.cpp:204,504`) and completes at trace :60882413. The replay
-  stops at Wildthorn Lurker GUID34917's Hide aura (`SpellAuras.cpp:2568`,
-  after trace :60901711), before the creature enters the world.
+  `Relations.cpp:204,504`) and completes at trace :60882413. Wildthorn
+  Lurker GUID34917 applies Hide before entering the world. The replay
+  stops at `Spell.cpp:3798`, after the effect clock at trace :60901711.
   EventAI event 649101 replaces 10848 and adds a second passive 9036.
   `Unit.cpp:5326-5446,10856-10866` unlinks both indexes and defers disposal.
   Map 0 completes GUID4195 after event 26501's holder timer draw

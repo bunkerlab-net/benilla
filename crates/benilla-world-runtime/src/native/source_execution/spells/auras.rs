@@ -796,6 +796,9 @@ impl SourceUnitAuras {
                 live.unit.player,
                 Some((mode, live.unit.alive)),
             ),
+            Some(SelfAuraApplyHandler::Stealth) => {
+                self.handle_stealth(stores, live, aura.misc, aura.amount, false, true)
+            }
             Some(SelfAuraApplyHandler::Invisibility) => {
                 self.handle_invisibility(stores, live, aura.misc, aura.amount, false, true)
             }
@@ -1137,6 +1140,7 @@ pub(crate) enum SelfAuraApplyHandler {
     Null,
     Dummy,
     Threat,
+    Stealth,
     StealthDetect,
     Invisibility,
     InvisibilityDetect,
@@ -1157,6 +1161,7 @@ impl SelfAuraApplyHandler {
             4 => Self::Dummy,
             10 => Self::Threat,
             15 => Self::NoImmediateEffect, // SpellAuras.cpp:76.
+            16 => Self::Stealth,           // SpellAuras.cpp:77.
             17 => Self::StealthDetect,     // SpellAuras.cpp:78.
             18 => Self::Invisibility,
             19 => Self::InvisibilityDetect, // SpellAuras.cpp:80.
@@ -1198,6 +1203,23 @@ pub fn apply_self_aura_holder(
             Some(SelfAuraApplyHandler::Null) => {} // SpellAuras.cpp:61 dispatches type 0 to HandleNULL.
             // SpellAuras.h:283-286. Later damage calculations inspect the aura list.
             Some(SelfAuraApplyHandler::NoImmediateEffect) => {}
+            Some(SelfAuraApplyHandler::Stealth) => {
+                let (misc, amount) = (aura.misc, aura.amount);
+                live.auras.handle_stealth(
+                    stores,
+                    &mut SelfAuraRemoval {
+                        unit,
+                        visibility: live.visibility,
+                        damage: live.damage.reborrow(*live.form),
+                    },
+                    misc,
+                    amount,
+                    true,
+                    true,
+                )?;
+                live.auras.mark_effect_applied(holder, i)?;
+                continue;
+            }
             Some(SelfAuraApplyHandler::Invisibility) => {
                 let (misc, amount) = (aura.misc, aura.amount);
                 live.auras.handle_invisibility(
@@ -1511,6 +1533,76 @@ impl SourceUnitAuras {
         Ok(())
     }
 
+    // SpellAuras.cpp:2568-2619. Strength changes before the other aura effects.
+    fn handle_stealth(
+        &mut self,
+        stores: &SourceSpellStores,
+        live: &mut SelfAuraRemoval<'_>,
+        misc: i32,
+        amount: i32,
+        apply: bool,
+        real: bool,
+    ) -> Result<()> {
+        use SourceUnitVisibilityMode::*;
+        let delta = if apply {
+            amount
+        } else {
+            amount.checked_neg().ok_or_else(|| {
+                refuse("execution.spells.Aura_2572.stealth_amount_negation_undefined")
+            })?
+        };
+        let strength = live
+            .visibility
+            .stealth_strength
+            .get_mut(misc as u32 as usize)
+            .ok_or_else(|| {
+                refuse("execution.spells.ObjectVisibility_79.stealth_index_undefined")
+            })?;
+        // ObjectVisibility.h:79 adds unsigned strength modulo 2^32.
+        *strength = strength.wrapping_add(delta as u32);
+
+        let unit = live.unit;
+        if apply {
+            // SpellDefines.h:382.
+            self.remove_auras_with_interrupt_flags(stores, live, 0x0010_0000)?;
+            if real {
+                // Unit.h:124,1443 sets creep through the update field.
+                let flags = self.vis_flags | 2;
+                unit.objects.set_update_value(
+                    unit.target,
+                    UNIT_FIELD_BYTES_1,
+                    &mut self.vis_flags,
+                    flags,
+                )?;
+                require(!unit.player, "execution.spells.Aura_2585.SetByteFlag_owner")?;
+                if live.visibility.mode != Off {
+                    live.visibility.set_visibility(unit, GroupNoDetect)?;
+                    live.visibility.set_visibility(unit, GroupStealth)?;
+                }
+            }
+        } else if real && !self.has_aura_type(16) && live.visibility.mode != Off {
+            // Unit.h:124,1444 clears creep through the update field.
+            let flags = self.vis_flags & !2;
+            unit.objects.set_update_value(
+                unit.target,
+                UNIT_FIELD_BYTES_1,
+                &mut self.vis_flags,
+                flags,
+            )?;
+            require(
+                !unit.player,
+                "execution.spells.Aura_2606.RemoveByteFlag_owner",
+            )?;
+            if self.has_aura_type(18) {
+                live.visibility.set_visibility(unit, GroupNoDetect)?;
+                live.visibility.set_visibility(unit, GroupInvisibility)?;
+            } else {
+                live.visibility.set_visibility(unit, On)?;
+            }
+        }
+        Ok(())
+    }
+
     // SpellAuras.cpp:2631-2679. The running sum, not `apply`, selects the branch.
     fn handle_invisibility(
         &mut self,
@@ -1644,6 +1736,21 @@ impl SourceUnitAuras {
             } else {
                 "execution.spells.Aura_4421.player_ghost_flag_owner"
             },
+        )
+    }
+}
+
+impl SourceUnitVisibility {
+    // Unit.cpp:8329-8335 writes the visibility mode before any in-world update.
+    fn set_visibility(
+        &mut self,
+        unit: SelfAuraTarget<'_>,
+        mode: SourceUnitVisibilityMode,
+    ) -> Result<()> {
+        self.mode = mode;
+        require(
+            !unit.objects.get(unit.target)?.in_world,
+            "execution.spells.Unit_8334.UpdateVisibilityAndView_owner",
         )
     }
 }

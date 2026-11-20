@@ -959,7 +959,7 @@ fn tm(p: &[&str]) -> Tm {
         isdst: n(8),
     }
 }
-// SpellAuras.cpp:2568 dispatches Hide after the effect clock, before the respawn draw.
+// Spell.cpp:3798 stops attacks after the Hide effect clock and before the respawn draw.
 const MAP1_NEXT_OWNER_LINE: u64 = 60901712;
 
 #[derive(Default)]
@@ -4270,8 +4270,8 @@ pub(super) fn continue_startup(
                 (23, true, 1794314191)
             ); // :60882369.
 
-            // :60901026-:60901052 binds the Lurker. Its addon list
-            // (SQL :434253) runs before AddToWorld at :60901725.
+            // :60901026-:60901052 binds the Lurker. Creature.cpp:932,1738,2343
+            // applies its addon (SQL :434253) before AddToWorld at :60901725.
             assert_eq!(
                 (attempt.guid, attempt.kind, entry),
                 (34917, GridSpawnKind::Creature, 3821)
@@ -4285,10 +4285,27 @@ pub(super) fn continue_startup(
             assert_eq!((hide.caster, hide.target), (candidate, candidate));
             assert_eq!(hide.apply_time, 1794314191); // :60901688.
             let effect = hide.effects[0].as_ref().unwrap();
+            // :60901711 is the effect clock.
             assert_eq!(
                 (effect.kind, effect.applied, effect.apply_time),
-                (16, false, 1794314191)
-            ); // :60901711.
+                (16, true, 1794314191)
+            );
+            // SQL :843391 and Object.cpp:2923-2947 give strength 100.
+            assert_eq!((effect.misc, effect.amount), (0, 100));
+            assert_eq!(lurker.visibility.stealth_strength, [100, 0]);
+            assert_eq!(lurker.auras.vis_flags & 2, 2);
+            // Unit.cpp:8333-8334 skips the refresh and both mode writes finish.
+            assert_eq!(
+                lurker.visibility.mode,
+                SourceUnitVisibilityMode::GroupStealth
+            );
+            let hide_cast = lurker
+                .spell_starts
+                .spells
+                .values()
+                .find(|spell| spell.spell == 6920)
+                .unwrap();
+            assert_eq!(hide_cast.state, SourceSpellState::Finished);
             assert_eq!(refusal.id, active_init::CREATURE_NEXT_OWNER[1]);
             let stat_aura = SpellTemplate {
                 effect1: 6,
@@ -6240,7 +6257,7 @@ pub(super) fn continue_startup(
             evidence.pool_snapshot_line.unwrap(),
             encounters.by_map(slot as u32).len(),
             refusal.id,
-            if slot == 0 { MAP0_NEXT_SOURCE } else { "SpellAuras.cpp:2568" },
+            if slot == 0 { MAP0_NEXT_SOURCE } else { "Spell.cpp:3798" },
         );
         owner.states = states;
         let raw = trace

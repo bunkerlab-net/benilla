@@ -363,6 +363,196 @@ fn invisibility_refuses_undefined_indices_and_arithmetic_before_write() {
     assert_eq!(target.unit.visibility.values[0], i32::MIN);
 }
 
+fn stealth(stores: &mut SourceSpellStores, id: u32, misc: i32) -> SpellTemplate {
+    let t = SpellTemplate {
+        id,
+        effect1: 6,
+        effectapplyauraname1: 16,
+        effectmiscvalue1: misc,
+        ..Default::default()
+    };
+    stores.insert_template(t.clone()).unwrap();
+    t
+}
+
+#[test]
+fn stealth_last_removal_restores_invisibility_or_on() {
+    use SourceUnitVisibilityMode::*;
+    let mut stores = SourceSpellStores::default();
+    let hide = stealth(&mut stores, 6920, 0);
+    let trap = stealth(&mut stores, 9005, 1);
+    let unseen = invisibility(&mut stores, 4986, 0);
+    for prior in [On, GroupInvisibility, Off] {
+        let mut target = Target::new(false, false);
+        let saved = serde_json::to_vec(&target.unit).unwrap();
+        if prior == GroupInvisibility {
+            let holder = target.holder(&unseen, 10);
+            apply_self_aura_holder(&mut target, &stores, &unseen, holder, None).unwrap();
+        } else {
+            target.unit.visibility.mode = prior;
+        }
+        let first = target.holder(&hide, -1);
+        let second = target.holder(&trap, 10);
+        assert_eq!(target.unit.visibility.stealth_strength, [0, 0]);
+        apply_self_aura_holder(&mut target, &stores, &hide, first, None).unwrap();
+        apply_self_aura_holder(&mut target, &stores, &trap, second, None).unwrap();
+        assert_eq!(target.unit.visibility.stealth_strength, [u32::MAX, 10]);
+        assert_eq!(target.unit.auras.vis_flags, 2);
+        let during = if prior == Off { Off } else { GroupStealth };
+        assert_eq!(target.unit.visibility.mode, during);
+        target.remove(&stores, first).unwrap();
+        assert_eq!(target.unit.visibility.stealth_strength, [0, 10]);
+        assert_eq!(target.unit.visibility.mode, during);
+        assert_eq!(target.unit.auras.vis_flags, 2);
+        target.remove(&stores, second).unwrap();
+        assert_eq!(target.unit.visibility.stealth_strength, [0, 0]);
+        assert_eq!(target.unit.visibility.mode, prior);
+        assert_eq!(
+            target.unit.auras.vis_flags,
+            if prior == Off { 2 } else { 0 }
+        );
+        assert_eq!(serde_json::to_vec(&target.unit).unwrap(), saved);
+    }
+}
+
+#[test]
+fn stealth_non_real_apply_interrupts_matching_auras_without_creep() {
+    let mut stores = SourceSpellStores::default();
+    let interrupted = SpellTemplate {
+        id: 11,
+        aurainterruptflags: 0x0010_0000,
+        effect1: 6,
+        effectapplyauraname1: 15,
+        ..Default::default()
+    };
+    let kept = SpellTemplate {
+        id: 12,
+        aurainterruptflags: 0x8000,
+        ..interrupted.clone()
+    };
+    let next = SpellTemplate {
+        id: 13,
+        ..interrupted.clone()
+    };
+    for t in [&interrupted, &kept, &next] {
+        stores.insert_template(t.clone()).unwrap();
+    }
+    let mut target = Target::new(false, false);
+    let first = target.holder(&interrupted, 1);
+    let keep = target.holder(&kept, 1);
+    let second = target.holder(&next, 1);
+    let live = target.self_aura_application();
+    let mut removal = SelfAuraRemoval {
+        unit: live.unit,
+        visibility: live.visibility,
+        damage: live.damage,
+    };
+    live.auras
+        .handle_stealth(&stores, &mut removal, 0, 7, true, false)
+        .unwrap();
+    assert!(live.auras.aura_holder(first).is_none());
+    assert!(live.auras.aura_holder(second).is_none());
+    assert!(live.auras.aura_holder(keep).is_some());
+    assert_eq!(removal.visibility.stealth_strength, [7, 0]);
+    assert_eq!(removal.visibility.mode, SourceUnitVisibilityMode::On);
+    assert_eq!(live.auras.vis_flags, 0);
+    live.auras
+        .handle_stealth(&stores, &mut removal, 0, 7, false, false)
+        .unwrap();
+    assert_eq!(*removal.visibility, SourceUnitVisibility::default());
+    assert_eq!(live.auras.vis_flags, 0);
+}
+
+#[test]
+fn stealth_refusals_follow_strength_and_creep_writes() {
+    use SourceUnitVisibilityMode::*;
+    let mut stores = SourceSpellStores::default();
+    let t = stealth(&mut stores, 6920, 0);
+    let world_refresh = "execution.spells.Unit_8334.UpdateVisibilityAndView_owner";
+    for (player, world, applied, removed, before) in [
+        (
+            true,
+            false,
+            "execution.spells.Aura_2585.SetByteFlag_owner",
+            "execution.spells.Aura_2606.RemoveByteFlag_owner",
+            On,
+        ),
+        (false, true, world_refresh, world_refresh, GroupNoDetect),
+    ] {
+        let mut target = Target::new(player, world);
+        let holder = target.holder(&t, 11);
+        assert_eq!(
+            apply_self_aura_holder(&mut target, &stores, &t, holder, None)
+                .unwrap_err()
+                .id,
+            applied
+        );
+        assert_eq!(target.unit.visibility.stealth_strength, [11, 0]);
+        assert_eq!(target.unit.visibility.mode, before);
+        assert_eq!(target.unit.auras.vis_flags, 2);
+        assert!(target
+            .objects
+            .get(target.object)
+            .unwrap()
+            .field_changed(UNIT_FIELD_BYTES_1)
+            .unwrap());
+        assert_eq!(
+            target
+                .objects
+                .client_update_pending(target.map, target.object),
+            world
+        );
+        assert_eq!(target.remove(&stores, holder).unwrap_err().id, removed);
+        assert_eq!(target.unit.visibility.stealth_strength, [0, 0]);
+        assert_eq!(target.unit.visibility.mode, On);
+        assert_eq!(target.unit.auras.vis_flags, 0);
+    }
+}
+
+#[test]
+fn stealth_refuses_invalid_indices_and_minimum_removal_before_state_write() {
+    let mut stores = SourceSpellStores::default();
+    for (id, index) in [(9001, -1), (9002, 2)] {
+        let t = stealth(&mut stores, id, index);
+        let mut target = Target::new(false, false);
+        let holder = target.holder(&t, 1);
+        let refusal = "execution.spells.ObjectVisibility_79.stealth_index_undefined";
+        assert_eq!(
+            apply_self_aura_holder(&mut target, &stores, &t, holder, None)
+                .unwrap_err()
+                .id,
+            refusal
+        );
+        assert_eq!(target.remove(&stores, holder).unwrap_err().id, refusal);
+        assert_eq!(target.unit.visibility, SourceUnitVisibility::default());
+        assert_eq!(target.unit.auras.vis_flags, 0);
+    }
+    for (id, amount) in [(9003, i32::MIN), (9004, i32::MIN + 1)] {
+        let t = stealth(&mut stores, id, 0);
+        let mut target = Target::new(false, false);
+        let holder = target.holder(&t, amount);
+        apply_self_aura_holder(&mut target, &stores, &t, holder, None).unwrap();
+        assert_eq!(target.unit.visibility.stealth_strength, [amount as u32, 0]);
+        let removal = target.remove(&stores, holder);
+        if amount == i32::MIN {
+            assert_eq!(
+                removal.unwrap_err().id,
+                "execution.spells.Aura_2572.stealth_amount_negation_undefined"
+            );
+            assert_eq!(target.unit.visibility.stealth_strength, [1 << 31, 0]);
+            assert_eq!(
+                target.unit.visibility.mode,
+                SourceUnitVisibilityMode::GroupStealth
+            );
+            assert_eq!(target.unit.auras.vis_flags, 2);
+        } else {
+            removal.unwrap();
+            assert_eq!(target.unit.visibility, SourceUnitVisibility::default());
+            assert_eq!(target.unit.auras.vis_flags, 0);
+        }
+    }
+}
+
 #[test]
 fn shapeshift_writes_form_then_removes_holders_or_names_their_boundary() {
     let mut stores = SourceSpellStores::default();
@@ -399,7 +589,7 @@ fn shapeshift_writes_form_then_removes_holders_or_names_their_boundary() {
     };
     let unported = SpellTemplate {
         id: 9002,
-        effectapplyauraname1: 16,
+        effectapplyauraname1: 33, // SpellAuras.cpp:94.
         ..cancel.clone()
     };
     for spell in [&t, &cancel, &surviving, &unported] {
@@ -443,7 +633,7 @@ fn shapeshift_writes_form_then_removes_holders_or_names_their_boundary() {
         if let Some(later) = later {
             assert_eq!(
                 result.unwrap_err().id,
-                "execution.spells.AuraHandler.type_16_unapply_owner"
+                "execution.spells.AuraHandler.type_33_unapply_owner"
             );
             assert!(target.unit.auras.aura_holder(later).is_none());
             assert!(
