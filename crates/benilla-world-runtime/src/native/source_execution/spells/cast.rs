@@ -231,12 +231,9 @@ impl SourceSpell {
         // HandleImmediate revisits processed targets, then finishes the cast.
         self.state = SourceSpellState::Finished;
         finish(self)?;
-        if !matches!(t.id, 32053 | 32054 | 32057) {
-            require(
-                self.spell_script.is_none(),
-                "execution.spells.Spell_3766.OnSuccessfulFinish_owner",
-            )?;
-        }
+        // Spell.cpp:3748-3764. add_self_unit_target records only immunity; Unit_2927 refuses negative hit rolls.
+        self.on_successful_finish(t)?;
+        // Spell.cpp:3789-3790. Holy Nova refuses and self procs cannot append a finish trigger.
         finish_tail(
             t,
             effects.finish_operands(nested.map(|(starts, _)| &*starts))?,
@@ -244,6 +241,18 @@ impl SourceSpell {
         effects.cast_auras().leave_cast();
         self.executing = false;
         Ok(())
+    }
+
+    fn on_successful_finish(&self, t: &SpellTemplate) -> Result<()> {
+        // Spell.cpp:7893-7905. These IDs take the hard-coded arm before the script hook.
+        require(
+            !matches!(t.id, 32053 | 32054 | 32057),
+            "execution.spells.Spell_7904.RemoveAuraStack_owner",
+        )?;
+        require(
+            self.spell_script.is_none(),
+            "execution.spells.Spell_3766.OnSuccessfulFinish_owner",
+        )
     }
 }
 
@@ -467,6 +476,28 @@ mod tests {
                 assert_eq!(result, Ok(()));
                 assert_eq!(spell.state, SourceSpellState::Finished);
                 assert!(!spell.executing);
+            }
+        }
+    }
+
+    #[test]
+    fn successful_finish_refuses_soul_charge_parent_stack_removal() {
+        let mut objects = SourceObjects::default();
+        let caster = objects.construct(1, SourceObjectKind::Creature).unwrap();
+        for id in [32053, 32054, 32057, 32055] {
+            let template = SpellTemplate {
+                id,
+                ..Default::default()
+            };
+            let spell = SourceSpell::new(1, &template, caster, SpellTriggerFlags(0), 0).unwrap();
+            let result = spell.on_successful_finish(&template);
+            if id == 32055 {
+                assert_eq!(result, Ok(()));
+            } else {
+                assert_eq!(
+                    result.unwrap_err().id,
+                    "execution.spells.Spell_7904.RemoveAuraStack_owner"
+                );
             }
         }
     }
