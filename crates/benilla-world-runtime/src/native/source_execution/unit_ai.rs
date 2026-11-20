@@ -152,6 +152,8 @@ pub struct SourceUnitFields {
     /// Unit.cpp:367-386. Live resistance groups and derived armor field.
     #[serde(skip)]
     pub resistances: SourceUnitResistances,
+    #[serde(skip)]
+    pub creature_damage: SourceCreatureDamage,
     /// Unit.cpp:409-410 initializes every school multiplier to one.
     #[serde(skip)]
     pub threat_modifier: [f32; 7],
@@ -403,6 +405,7 @@ impl SourceUnitFields {
             auras: SourceUnitAuras::default(),
             visibility: SourceUnitVisibility::default(),
             resistances: SourceUnitResistances::default(),
+            creature_damage: SourceCreatureDamage::default(),
             threat_modifier: [1.0; 7],
             spell_starts: SourceSpellStarts::default(),
             unit_events: SourceUnitEvents::default(),

@@ -12,14 +12,25 @@ pub enum ResistanceModifier {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct ResistanceGroup {
-    base_value: f32,
-    base_percent: f32,
-    total_value: f32,
-    total_percent: f32,
+pub(super) struct StatModifierGroup {
+    pub(super) base_value: f32,
+    pub(super) base_percent: f32,
+    pub(super) total_value: f32,
+    pub(super) total_percent: f32,
 }
 
-impl ResistanceGroup {
+impl Default for StatModifierGroup {
+    fn default() -> Self {
+        Self {
+            base_value: 0.0,
+            base_percent: 1.0,
+            total_value: 0.0,
+            total_percent: 1.0,
+        }
+    }
+}
+
+impl StatModifierGroup {
     fn modify(&mut self, modifier: ResistanceModifier, amount: f32, apply: bool) {
         let field = match modifier {
             ResistanceModifier::BaseValue => &mut self.base_value,
@@ -38,13 +49,22 @@ impl ResistanceGroup {
             *field *= if apply { factor } else { 1.0 / factor };
         }
     }
+
+    // Unit.cpp:9049-9060. Leave the raw value intact for unapply.
+    pub(super) fn total_percent(&self) -> f32 {
+        if self.total_percent <= 0.0 {
+            0.0
+        } else {
+            self.total_percent
+        }
+    }
 }
 
 /// Live resistance operands, including the agility and armor update fields.
 #[derive(Clone, Debug)]
 pub struct SourceUnitResistances {
     create: [i32; 7],
-    groups: [ResistanceGroup; 7],
+    groups: [StatModifierGroup; 7],
     agility: u32,
     armor: i32,
 }
@@ -53,12 +73,7 @@ impl Default for SourceUnitResistances {
     fn default() -> Self {
         Self {
             create: [0; 7],
-            groups: [ResistanceGroup {
-                base_value: 0.0,
-                base_percent: 1.0,
-                total_value: 0.0,
-                total_percent: 1.0,
-            }; 7],
+            groups: [StatModifierGroup::default(); 7],
             agility: 0,
             armor: 0,
         }
@@ -74,14 +89,32 @@ impl SourceUnitResistances {
         base_armor: f32,
         agility: i32,
     ) -> Result<()> {
-        self.groups[0].base_value = base_armor;
+        self.set_base_armor(base_armor);
+        self.set_agility(objects, unit, agility)?;
+        self.update_armor(objects, unit)
+    }
+
+    pub(in crate::native::source_execution) fn set_base_armor(&mut self, value: f32) {
+        self.groups[0].base_value = value;
+    }
+
+    pub(in crate::native::source_execution) fn agility(&self) -> u32 {
+        self.agility
+    }
+
+    pub(in crate::native::source_execution) fn set_agility(
+        &mut self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+        agility: i32,
+    ) -> Result<()> {
         objects.set_update_value(
             unit,
             UNIT_FIELD_STAT1,
             &mut self.agility,
             agility.max(0) as u32,
         )?;
-        self.update_armor(objects, unit)
+        Ok(())
     }
 
     /// Creature.cpp:585-590.

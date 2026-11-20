@@ -64,6 +64,8 @@ pub struct SourceLevelStats {
     pub armor_base_bits: u32,
     pub armor: i32,
     pub attack_power: [u32; 2],
+    /// Creature.cpp:1470-1471, before UpdateAttackPowerAndDamage.
+    pub base_attack_power_bits: [u32; 2],
     /// Mainhand, offhand, ranged, before UpdateDamagePhysical.
     pub weapon_damage_bits: [[u32; 2]; 3],
     pub damage_multiplier_bits: u32,
@@ -301,6 +303,7 @@ pub fn select_level_stats(
         armor_base_bits,
         armor,
         attack_power: [melee, ranged],
+        base_attack_power_bits: ap.map(|value| value.to_bits() as u32),
         weapon_damage_bits,
         damage_multiplier_bits: damage_multiplier.to_bits() as u32,
     })

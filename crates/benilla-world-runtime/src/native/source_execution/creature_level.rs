@@ -263,11 +263,36 @@ impl SourceUnitFields {
                 value.maximum_power[4],
             ]),
         });
-        self.resistances.select_level(
+        self.resistances
+            .set_base_armor(f32::from_bits(value.armor_base_bits));
+        self.creature_damage.load_level_operands(value);
+        let weapon = CreatureWeaponState {
+            equipment: &self.loaded_creature.equipment,
+            can_dual_wield: self.loaded_creature.can_dual_wield,
+            flags: self.flags,
+            form: self.shapeshift_form,
+        };
+        // StatSystem.cpp:614-642 visits strength before agility.
+        self.creature_damage
+            .set_strength(objects, unit, value.attributes[0])?;
+        self.creature_damage.update_attack_power_and_damage(
             objects,
             unit,
-            f32::from_bits(value.armor_base_bits),
-            value.attributes[1],
+            class,
+            self.resistances.agility(),
+            weapon,
+            false,
+        )?;
+        self.resistances
+            .set_agility(objects, unit, value.attributes[1])?;
+        self.resistances.update_armor(objects, unit)?;
+        self.creature_damage.update_attack_power_and_damage(
+            objects,
+            unit,
+            class,
+            self.resistances.agility(),
+            weapon,
+            true,
         )?;
         self.vitals = Some(SourceUnitVitals {
             health: value.health,

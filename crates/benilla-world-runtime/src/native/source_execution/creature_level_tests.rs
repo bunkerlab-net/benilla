@@ -80,6 +80,76 @@ fn level_draw_borrows_calling_thread_and_preserves_rejection_word_count() {
         2
     );
 }
+fn cross_check_damage(
+    objects: &SourceObjects,
+    unit: ObjectHandle,
+    class: u32,
+    stats: &SourceLevelStats,
+) -> Result<(bool, bool)> {
+    use benilla_sim::npc_melee::{creature_damage_range, CreatureDamageInputs, CreatureStatClass};
+
+    let mut live = SourceUnitFields::constructed_creature();
+    live.apply_source_level(objects, unit, stats, class)?;
+    let weapon = CreatureWeaponState {
+        equipment: &live.loaded_creature.equipment,
+        can_dual_wield: false,
+        flags: 0,
+        form: 0,
+    };
+    let damage = &mut live.creature_damage;
+    let first_pass = damage.attack_power_words() == stats.attack_power;
+    damage.update_attack_power_and_damage(
+        objects,
+        unit,
+        class,
+        live.resistances.agility(),
+        weapon,
+        false,
+    )?;
+    let actual = damage.damage_bits();
+    let reference_class = match class {
+        1 => Some(CreatureStatClass::Warrior),
+        2 => Some(CreatureStatClass::Paladin),
+        4 => Some(CreatureStatClass::Rogue),
+        8 => Some(CreatureStatClass::Mage),
+        _ => None,
+    };
+    let float = |bits| SpellFloat::from_bits(bits).unwrap();
+    let [min, max] = stats.weapon_damage_bits[0].map(float);
+    let reference = reference_class.and_then(|class| {
+        creature_damage_range(CreatureDamageInputs {
+            class,
+            strength: stats.attributes[0].max(0) as u32,
+            agility: stats.attributes[1].max(0) as u32,
+            create_strength: float(stats.create_attributes_bits[0]),
+            create_agility: float(stats.create_attributes_bits[1]),
+            base_attack_power: float(stats.base_attack_power_bits[0]),
+            damage_multiplier: float(stats.damage_multiplier_bits),
+            base_weapon_minimum: min,
+            base_weapon_maximum: max,
+            weapon_unusable: false,
+        })
+        .ok()
+    });
+    let mainhand_agrees =
+        reference.is_none_or(|r| actual[0] == [r.minimum.bits(), r.maximum.bits()]);
+    // A source arithmetic check, not an independent measurement. With no
+    // equipment or dual wield, GetBaseWeaponDamage returns zero for offhand.
+    let melee = reference.map_or(damage.attack_power_words()[0], |r| r.attack_power);
+    let offhand = ((melee as i32).max(0) as f32 / 14.0) * 0.5;
+    let ranged_ap = (stats.attack_power[1] as i32).max(0) as f32 / 14.0;
+    let multiplier = f32::from_bits(stats.damage_multiplier_bits);
+    let ranged = stats.weapon_damage_bits[2].map(|bits| {
+        (ranged_ap + f32::from_bits(bits) * multiplier)
+            .max(0.0)
+            .to_bits()
+    });
+    Ok((
+        reference.is_some(),
+        first_pass && mainhand_agrees && actual[1] == [offhand.to_bits(); 2] && actual[2] == ranged,
+    ))
+}
+
 #[test]
 fn catalog04_level_vitals_and_undefined_census() {
     let Some(root) = std::env::var_os("BENILLA_F5_AI_CATALOG") else {
@@ -117,6 +187,8 @@ fn catalog04_level_vitals_and_undefined_census() {
     let (mut compared, mut agreed, mut armor_ub) = (0, 0, 0);
     let mut objects = SourceObjects::default();
     let unit = objects.construct(1, SourceObjectKind::Creature).unwrap();
+    let (mut mainhand, mut other_ranges) = (0, 0);
+    let mut damage_disagreements = Vec::new();
     for t in definitions.templates.values() {
         let mut ok = true;
         for level in t.levels[0]..=t.levels[1] {
@@ -127,6 +199,13 @@ fn catalog04_level_vitals_and_undefined_census() {
             let Ok(stats) = definitions.stats(t.entry, level, false, &config) else {
                 continue;
             };
+            match cross_check_damage(&objects, unit, t.unit_class, &stats) {
+                Ok((bounded, true)) => {
+                    mainhand += usize::from(bounded);
+                    other_ranges += 1;
+                }
+                outcome => damage_disagreements.push((t.entry, level, outcome)),
+            }
             let mut live = SourceUnitResistances::default();
             compared += 1;
             match live.select_level(
@@ -164,6 +243,10 @@ fn catalog04_level_vitals_and_undefined_census() {
     // initial-classicmangos.sql:421110-431494,448229-448438.
     assert_eq!((compared, agreed, armor_ub), (15425, 15425, 0));
     println!("CREATURE_ARMOR_STATIC compared={compared} agreed={agreed} float_to_int_undefined={armor_ub}");
+    assert!(damage_disagreements.is_empty(), "{damage_disagreements:?}");
+    assert_eq!(other_ranges, compared);
+    assert!(mainhand > 0);
+    println!("CREATURE_DAMAGE_STATIC bounded_mainhand={mainhand} offhand_and_ranged={other_ranges} live_refusals=0");
     let mut spawns = 0usize;
     let mut numeric_spawns = 0usize;
     let mut spawn_refused = BTreeMap::<String, usize>::new();

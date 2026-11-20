@@ -604,7 +604,22 @@ impl CreatureConstruction {
         live.immunities
             .apply_world_boss(live.pet_kind.is_some(), w[37]);
         fields.can_modify_stats = true;
-        live.resistances.update_armor(objects, unit)?; // Creature.cpp:600; StatSystem.cpp:639-649.
+        // Creature.cpp:600. Strength and agility are already set by SelectLevel.
+        let weapon = CreatureWeaponState {
+            equipment: &fields.equipment,
+            can_dual_wield: fields.can_dual_wield,
+            flags: live.flags,
+            form: live.shapeshift_form,
+        };
+        let agility = live.resistances.agility();
+        let class = live
+            .unit_class
+            .ok_or_else(|| refuse("execution.creature.StatSystem_701.getClass_owner"))?;
+        live.creature_damage
+            .update_attack_power_and_damage(objects, unit, class, agility, weapon, false)?;
+        live.resistances.update_armor(objects, unit)?;
+        live.creature_damage
+            .update_attack_power_and_damage(objects, unit, class, agility, weapon, true)?;
         fields.pvp = faction_flags
             .get(&live.faction)
             .is_some_and(|flags| flags & 0x1000 != 0);

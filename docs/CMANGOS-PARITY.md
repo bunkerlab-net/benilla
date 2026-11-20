@@ -185,6 +185,12 @@ is meaningful without a bounded content/mechanics inventory.
   callback at GUID44205 (`Creature.cpp:914-915`, `OutdoorPvP.h:64`,
   trace lines 60643213–60643388). Eastern Plaguelands creature creation
   refuses at its override (`OutdoorPvPEP.cpp:95`).
+- **Creature damage fields.** `Creature.cpp:1459-1485,599-600` binds the
+  base weapon damage, attack power, and damage multiplier on the live unit.
+  `StatSystem.cpp:614-642,675-806` recalculates attack power and mainhand,
+  offhand, and ranged damage in strength and agility order. The second pass
+  uses the unit flags from `UpdateEntry`. The six damage fields use the
+  same update marks as armor. These members do not change saved bytes.
 - **Grid activity.** `Grid.h:93-117` counts active grid objects. Add and
   remove each test the live active flag. If removal leaves a stale member,
   insertion requires enough address evidence to detect reuse of that member.

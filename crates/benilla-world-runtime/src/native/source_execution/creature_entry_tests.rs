@@ -355,6 +355,7 @@ fn init_entry_class_power_and_select_level_mana_agree_for_all_source_cases() {
         armor_base_bits: 0,
         armor: 0,
         attack_power: [0; 2],
+        base_attack_power_bits: [0; 2],
         weapon_damage_bits: [[0; 2]; 3],
         damage_multiplier_bits: 0,
     };

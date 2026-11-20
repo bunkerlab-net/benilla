@@ -810,6 +810,9 @@ The pinned `8ec338a1` source contract is:
 `resolve_supported_creature_kernel` reuses `creature_init` arithmetic at the
 SelectLevelStats boundary with the already consumed rolls and matching operands.
 It does not run callbacks, move objects, or apply addon effects early.
+`SelectLevel` and `UpdateEntry` write the live creature attack power and physical
+damage fields. The recalculation uses the virtual equipment, dual wield, disarm,
+and shapeshift state at each source call (`StatSystem.cpp:675-806`).
 The legacy `creature_generation` cold schedule is not a source loader.
 
 The seal8-08 constructor diagnostic scans the hash-bound framing with an explicit

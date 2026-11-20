@@ -3065,6 +3065,17 @@ pub(super) fn continue_startup(
             );
             assert!(active_objects.get(candidate).unwrap().in_world); // Trace :60983776.
             let live = units.get(&active_objects, candidate).unwrap();
+            // Source calculation, not recorded fields. SQL :425005,:448328,
+            // :163712,:594597,:594764; StatSystem.cpp:675-806; no offhand weapon.
+            assert_eq!(
+                live.creature_damage.damage_bits(),
+                [
+                    [0x420d_7022, 0x423c_95ea],
+                    [0x40bc_9249, 0x40bc_9249],
+                    [0x41bc_9720, 0x420d_7158],
+                ],
+            );
+            assert_eq!(live.creature_damage.attack_power_words(), [165, 0]);
             // SQL :425005, Creature.cpp:371-374. This warrior already uses rage.
             assert_eq!((live.unit_class, live.power_type), (Some(1), Some(1)));
             assert_eq!(live.shapeshift_form, 18);
