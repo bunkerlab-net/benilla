@@ -17,6 +17,8 @@ mod location;
 mod m2_tests;
 mod math;
 mod nav_mesh;
+#[cfg(test)]
+mod navigation_test_helper;
 pub(crate) mod prepared;
 pub(crate) mod tile_prepared;
 mod trig;

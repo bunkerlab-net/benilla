@@ -1400,9 +1400,9 @@ class ExactProofTests(unittest.TestCase):
         prerequisite = workflow_gate("Verify navigation helper prerequisite")
         self.assertIn("mbx test --locked -p benilla-native-nav-generator --test process empty_request_runs_without_inherited_environment", prerequisite)
         self.assertIn('python3 scripts/verify-libtest-output.py "$log" empty_request_runs_without_inherited_environment', prerequisite)
-        fixture_source = (ROOT / "crates/benilla-app/src/net/p2p/world/native_geometry/products/vmap/installed_source_fixture.rs").read_text()
-        self.assertIn('"build benilla-native-nav-generator before scoped tests"', fixture_source)
-        self.assertIn('"benilla-native-navigation{}"', fixture_source)
+        helper_source = (ROOT / "crates/benilla-app/src/net/p2p/world/native_geometry/products/vmap/navigation_test_helper.rs").read_text()
+        self.assertIn('"build benilla-native-nav-generator before scoped tests"', helper_source)
+        self.assertIn('"benilla-native-navigation{}"', helper_source)
 
     def test_f05_diagnostic_cache_namespace_is_separate_from_canonical_jobs(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()

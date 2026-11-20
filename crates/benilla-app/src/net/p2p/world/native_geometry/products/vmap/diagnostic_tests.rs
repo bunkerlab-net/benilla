@@ -236,7 +236,7 @@ fn genuine_navigation_diagnostic_observes_actual_helper_and_ground_queries() {
     }
     let install = Install::new(&navigation_generation_tests::ridge_entries());
     let before = install.bytes();
-    let rows = navigation_report(&install.0, Some(navigation_generation_tests::helper()));
+    let rows = navigation_report(&install.0, Some(helper()));
     for row in &rows {
         assert_eq!(row["gameplay_admitted"], false);
         assert_eq!(row["status"], "passed", "{row}");

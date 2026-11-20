@@ -58,20 +58,6 @@ fn cardinal_entries(neighbor_adt: Vec<u8>) -> Vec<Entry> {
     entries
 }
 
-pub(super) fn helper() -> PathBuf {
-    let mut executable = std::env::current_exe().unwrap();
-    executable.pop();
-    executable.pop();
-    executable.push(format!(
-        "benilla-native-navigation{}",
-        std::env::consts::EXE_SUFFIX
-    ));
-    assert!(
-        executable.is_file(),
-        "Build benilla-native-nav-generator before scoped geometry tests; workspace tests and CI build it as an integration-test binary"
-    );
-    executable
-}
 fn assert_original_routes(mesh: &mut benilla_native_nav::Mesh, expected: &serde_json::Value) {
     for path in expected["output"]["paths"].as_array().unwrap() {
         let point = |name: &str| {

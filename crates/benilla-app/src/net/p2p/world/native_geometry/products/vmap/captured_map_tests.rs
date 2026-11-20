@@ -3,6 +3,7 @@
 //! The pinned original extractor/assembler/query runner supplies the independent oracle.
 //! Terrain/MMap inventory scaffolding is authored test data, never gameplay admission.
 use super::super::{tests as product_tests, InventorySpec, ProductSpec, TileId};
+use super::navigation_test_helper::helper;
 use super::*;
 use benilla_native_vmap::SourceModelName;
 use benilla_native_vmap_source::{

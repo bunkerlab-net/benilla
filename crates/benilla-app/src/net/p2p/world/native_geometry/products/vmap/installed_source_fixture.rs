@@ -6,6 +6,7 @@ use super::super::{
     TileId,
 };
 use super::captured_map_tests::{self as captured, archive::raw_entry};
+use super::navigation_test_helper::helper;
 use benilla_formats::{Chain, NativeM2MapInventory};
 use benilla_native_terrain::{PreparedTerrain, Tile};
 use benilla_native_vmap_source::{AssembledSourceMap, DoodadProjectionProfile};
@@ -158,17 +159,7 @@ pub(crate) fn with_navigation<T>(
         || false,
     )
     .unwrap();
-    let mut helper = std::env::current_exe().unwrap();
-    helper.pop();
-    helper.pop();
-    helper.push(format!(
-        "benilla-native-navigation{}",
-        std::env::consts::EXE_SUFFIX
-    ));
-    assert!(
-        helper.is_file(),
-        "build benilla-native-nav-generator before scoped tests"
-    );
+    let helper = helper();
     let output = input
         .generate(&helper, Instant::now() + Duration::from_secs(60), || false)
         .unwrap();
