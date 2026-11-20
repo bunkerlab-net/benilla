@@ -81,8 +81,10 @@ impl Target {
         amount: i32,
     ) -> SourceAuraHolderId {
         let mut holder = SourceAuraHolder::new(spell, self.object, 0, 0, -1).unwrap();
-        holder.effects[0] =
-            Some(SourceAura::self_spell_effect(spell, 0, 79, 0, amount, 1, 0).unwrap());
+        holder.effects[0] = Some(
+            SourceAura::self_spell_effect(spell, 0, spell.effectapplyauraname1, 0, amount, 1, 0)
+                .unwrap(),
+        );
         let id = self
             .live
             .auras
@@ -227,6 +229,31 @@ fn physical_damage_aura_apply_and_unapply_preserve_source_float_steps() {
         subject.expect(removed, true);
         assert_eq!(serde_json::to_vec(&subject.live).unwrap(), saved);
     }
+}
+
+#[test]
+fn melee_damage_taken_percent_has_no_immediate_effect() {
+    let mut stores = SourceSpellStores::default();
+    let spell = SpellTemplate {
+        id: 16592,
+        effect1: 6,
+        effectapplyauraname1: 126,
+        equippeditemclass: -1,
+        ..Default::default()
+    };
+    stores.insert_template(spell.clone()).unwrap();
+    let mut subject = Target::new();
+    let id = subject.apply(&stores, &spell, -20);
+    let holder = subject.live.auras.first_aura_holder(spell.id).unwrap();
+    let effect = holder.effects[0].as_ref().unwrap();
+    assert!(effect.applied);
+    assert_eq!((effect.kind, effect.amount), (126, -20));
+    subject.expect(INITIAL, false);
+    subject
+        .remove(&stores, id, AuraRemoveMode::Default)
+        .unwrap();
+    assert!(subject.live.auras.first_aura_holder(spell.id).is_none());
+    subject.expect(INITIAL, false);
 }
 
 #[test]

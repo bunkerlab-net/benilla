@@ -1147,6 +1147,7 @@ impl SelfAuraApplyHandler {
             79 => Self::DamagePercent,
             87 => Self::NoImmediateEffect, // SpellAuras.cpp:148.
             95 => Self::Ghost,
+            126 => Self::NoImmediateEffect, // SpellAuras.cpp:187.
             _ => return None,
         })
     }

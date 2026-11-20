@@ -183,7 +183,8 @@ fn catalog04_creature_addon_branch_census_and_4692_lookup() {
     // Stock type-15 spell rows: initial-classicmangos.sql :837990, :843358,
     // :844215, :845007, :845314, :847674, :847749, :848396, :854297,
     // :854646, :854819, :854882, :854920, :855046. Coverage 183 -> 197.
-    assert_eq!(static_covered, 197);
+    // Shadowform's type 126 slot at initial-classicmangos.sql :850374.
+    assert_eq!(static_covered, 198);
     assert_eq!(aura_types.len(), 43);
     assert_eq!(aura_types.values().sum::<usize>(), 292);
     assert_eq!(effect_aura_slots.values().sum::<usize>(), 299);

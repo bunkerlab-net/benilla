@@ -131,8 +131,8 @@ is meaningful without a bounded content/mechanics inventory.
   of the multimap in `Unit.h:1076`. Each type list stores holder and effect IDs
   in append order, `Unit.cpp:4871-4874`. Neither changes the saved format.
   The 262-spell addon census has 299 effect slots and 43 aura types.
-  The production dispatch handles the effect and aura types for 197 spells.
-  The other 65 use an unported type. This is static coverage, not execution.
+  The production dispatch handles the effect and aura types for 198 spells.
+  The other 64 use an unported type. This count measures static coverage.
   `spells/targeting.rs` binds ordinary and special-unit creature self targets
   to one unit-target fill (`Spell.cpp:533-784,2159-2161,2397-2405`).
   `SpellEffects.cpp:2331-2338` and `SpellAuras.cpp:298-328,367-379` create
@@ -201,9 +201,11 @@ is meaningful without a bounded content/mechanics inventory.
   saves soldier and flight master GUIDs in the live script. The flight
   master refuses at `OutdoorPvPEP.cpp:101` after the GUID write.
   No stock map-0 creature spawn selects a soldier or flight master.
-  GUID59514 completes the no-case path at trace :61396675. Map 0 stops
-  at Shadowmage GUID92187's type 126 aura (`SpellAuras.cpp:187`, after
-  trace :61406100).
+  GUID59514 completes the no-case path at trace :61396675. Shadowmage
+  GUID92187 completes with Shadowform at trace :61406116. Its type 126 aura
+  has no immediate effect (`SpellAuras.cpp:187`).
+  Map 0 stops at GUID156055's type 19 detection aura (`SpellAuras.cpp:80`,
+  after trace :61417869).
 - **Stormwind guard startup.** `guard_ai.cpp:29-38,63-81` owns the guard
   base timers and the ranged check after inherited respawn. Stormwind
   calls its salute-only Reset in construction and respawn
