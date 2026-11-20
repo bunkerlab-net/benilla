@@ -27,6 +27,10 @@ pub trait SpellSelfCastOwner: SpellExecutionOwner {
 pub trait SpellCastEffects {
     fn cast_unit(&self) -> &SpellUnitState;
     fn cast_auras(&mut self) -> &mut SourceUnitAuras;
+    fn finish_operands<'a>(
+        &'a mut self,
+        starts: Option<&'a SourceSpellStarts>,
+    ) -> Result<SpellFinishOperands<'a>>;
     fn duration(&self, t: &SpellTemplate) -> Result<i32>;
     fn fill_self_targets(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<()>;
     fn send_cooldown(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<()>;
@@ -44,6 +48,11 @@ pub trait SpellCastEffects {
         nested: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
     ) -> Result<()>;
     fn proc_cast_end(&mut self, spell: &mut SourceSpell) -> Result<()>;
+}
+
+pub struct SpellFinishOperands<'a> {
+    pub(crate) attack: CastAttackStop<'a>,
+    pub(crate) map_types: Option<&'a BTreeMap<u32, u32>>,
 }
 
 impl SourceSpell {
@@ -115,7 +124,7 @@ impl SourceSpell {
         t: &SpellTemplate,
         stores: &SourceSpellStores,
         base: Option<&SourceUnitAi>,
-        nested: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
+        mut nested: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
         effects: &mut impl SpellCastEffects,
         finish: impl FnOnce(&mut SourceSpell) -> Result<()>,
     ) -> Result<()> {
@@ -205,7 +214,13 @@ impl SourceSpell {
         for target in &mut self.unique_targets {
             target.processed_mask = 0;
         }
-        effects.hit_self(self, t, nested)?;
+        effects.hit_self(
+            self,
+            t,
+            nested
+                .as_mut()
+                .map(|(starts, events)| (&mut **starts, &mut **events)),
+        )?;
         require(
             !effects.cast_auras().has_aura_type(109),
             "execution.spells.Spell_7442.Aura_isAffectedOnSpell_owner",
@@ -214,14 +229,55 @@ impl SourceSpell {
         // HandleImmediate revisits processed targets, then finishes the cast.
         self.state = SourceSpellState::Finished;
         finish(self)?;
-        require(
-            t.attributes & 0x0010_0000 == 0,
-            "execution.spells.Spell_3793.AttackStop_owner",
+        finish_tail(
+            t,
+            effects.finish_operands(nested.map(|(starts, _)| &*starts))?,
         )?;
         effects.cast_auras().leave_cast();
         self.executing = false;
         Ok(())
     }
+}
+
+fn finish_tail(t: &SpellTemplate, live: SpellFinishOperands<'_>) -> Result<()> {
+    let SpellFinishOperands {
+        mut attack,
+        map_types,
+    } = live;
+    let caster = attack.object;
+    // Spell.cpp:3793-3802. Spell.h:584-587 tests the ranged slot attribute.
+    if t.attributes & 0x0010_0000 != 0 {
+        if t.attributes & 2 != 0 {
+            attack.interrupt_autorepeat()?;
+        }
+        attack.attack_stop(false, false, false, false)?;
+        require(
+            !attack
+                .control_guids
+                .is_client_controlled(*attack.flags, caster, None),
+            "execution.spells.Spell_3801.SendAttackSwingCancelAttack_owner",
+        )?;
+    }
+    // Spell.cpp:3805-3809. Map.h:201 checks the map entry if present.
+    if caster.in_world {
+        let map = caster
+            .map
+            .ok_or_else(|| refuse("execution.spells.Spell_3807.GetMap_owner"))?;
+        let map_types =
+            map_types.ok_or_else(|| refuse("execution.spells.Spell_3808.IsDungeon_owner"))?;
+        let dungeon = map_types.get(&map.map).is_some_and(|&map_type| {
+            PersistentMapEntry {
+                id: map.map,
+                map_type,
+            }
+            .dungeon()
+        });
+        require(
+            !dungeon,
+            "execution.spells.Spell_3809.UpdateEncounterState_owner",
+        )?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -259,6 +315,9 @@ mod tests {
             })
         }
 
+        fn reset_auto_repeat(&mut self) -> Result<()> {
+            Ok(())
+        }
         fn check(
             &mut self,
             _: &mut SourceSpell,
@@ -401,6 +460,293 @@ mod tests {
                 assert_eq!(spell.state, SourceSpellState::Finished);
                 assert!(!spell.executing);
             }
+        }
+    }
+
+    fn attack<'a>(
+        object: &'a SourceObject,
+        live: &'a mut SourceUnitFields,
+        stores: &'a SourceSpellStores,
+    ) -> CastAttackStop<'a> {
+        let (cast, starts, _) = live.borrow_cast();
+        CastAttackStop {
+            object,
+            flags: cast.flags,
+            control_guids: cast.control_guids,
+            state: cast.state,
+            victim: cast.victim,
+            slots: cast.spell_slots,
+            starts: Some(starts),
+            stores,
+        }
+    }
+
+    #[test]
+    fn finish_attack_stop_preserves_callback_and_write_order() {
+        let mut objects = SourceObjects::default();
+        let caster = objects.construct(1, SourceObjectKind::Creature).unwrap();
+        let victim = objects.construct(1, SourceObjectKind::Creature).unwrap();
+        let player = objects.construct(1, SourceObjectKind::Player).unwrap();
+        let stores = SourceSpellStores::default();
+        for (state, victim, target_switch, including_combo, caster, result, new_state) in [
+            (8, None, false, false, caster, Ok(false), 8),
+            (9, None, false, false, caster, Ok(false), 8),
+            (
+                8,
+                Some(victim),
+                false,
+                false,
+                caster,
+                Err("execution.spells.Unit_6358._removeAttacker_owner"),
+                8,
+            ),
+            (
+                9,
+                Some(victim),
+                false,
+                false,
+                caster,
+                Err("execution.spells.Unit_6405.SendMeleeAttackStop_owner"),
+                8,
+            ),
+            (
+                9,
+                Some(victim),
+                true,
+                false,
+                caster,
+                Err("execution.spells.Unit_6350.SetTargetGuid_owner"),
+                9,
+            ),
+            (
+                9,
+                Some(victim),
+                true,
+                true,
+                caster,
+                Err("execution.spells.Unit_6342.ClearComboPoints_owner"),
+                9,
+            ),
+            (
+                9,
+                None,
+                false,
+                false,
+                player,
+                Err("execution.spells.Unit_6353.SendAttackSwingCancelAttack_owner"),
+                9,
+            ),
+        ] {
+            let mut live = SourceUnitFields::constructed_creature();
+            live.state = state;
+            live.victim = victim;
+            live.target = victim;
+            assert_eq!(
+                attack(objects.get(caster).unwrap(), &mut live, &stores)
+                    .attack_stop(target_switch, true, including_combo, false)
+                    .map_err(|error| error.id),
+                result.map_err(str::to_owned)
+            );
+            assert_eq!(
+                (live.state, live.victim, live.target),
+                (new_state, victim, victim)
+            );
+        }
+    }
+
+    #[test]
+    fn finish_attack_stop_reads_live_slots_before_clearing_melee() {
+        let mut objects = SourceObjects::default();
+        let caster = objects.construct(1, SourceObjectKind::Creature).unwrap();
+        let player = objects.construct(1, SourceObjectKind::Player).unwrap();
+        let mut slot_owner = CooldownOwner {
+            objects: &objects,
+            auras: SourceUnitAuras::default(),
+        };
+        let stores = SourceSpellStores::default();
+        for (attributes, slot, kind, expected, new_state) in [
+            (0, Some(SpellSlot::Melee), caster, Ok(()), 9),
+            (0x0010_0000, None, caster, Ok(()), 8),
+            (
+                0x0010_0000,
+                Some(SpellSlot::Melee),
+                caster,
+                Err("execution.spells.Unit_4304.InterruptSpell_live_cancel_owner"),
+                8,
+            ),
+            (0x0010_0002, None, caster, Ok(()), 8),
+            (
+                0x0010_0002,
+                Some(SpellSlot::AutoRepeat),
+                caster,
+                Err("execution.spells.Spell_3796.InterruptSpell_autorepeat_owner"),
+                9,
+            ),
+            (
+                0x0010_0002,
+                Some(SpellSlot::AutoRepeat),
+                player,
+                Err("execution.spells.Unit_4310.SendAutoRepeatCancel_owner"),
+                9,
+            ),
+        ] {
+            let mut live = SourceUnitFields::constructed_creature();
+            live.state = 9;
+            live.melee_spell = false;
+            if let Some(slot) = slot {
+                let t = SpellTemplate {
+                    id: 7,
+                    attributes: if slot == SpellSlot::Melee { 4 } else { 2 },
+                    ..Default::default()
+                };
+                let mut s = SourceSpell::new(1, &t, kind, SpellTriggerFlags(0), 0).unwrap();
+                s.auto_repeat = slot == SpellSlot::AutoRepeat;
+                live.spell_slots
+                    .set(
+                        &mut s,
+                        &t,
+                        &mut live.spell_starts.spells,
+                        &stores,
+                        &mut slot_owner,
+                    )
+                    .unwrap();
+                live.spell_starts.spells.insert(s.id, s);
+            }
+            let object = objects.get(kind).unwrap();
+            let t = SpellTemplate {
+                attributes,
+                ..Default::default()
+            };
+            assert_eq!(
+                finish_tail(
+                    &t,
+                    SpellFinishOperands {
+                        attack: attack(object, &mut live, &stores),
+                        map_types: None,
+                    }
+                )
+                .map_err(|error| error.id),
+                expected.map_err(str::to_owned)
+            );
+            assert_eq!(live.state, new_state);
+            if let Some(slot) = slot {
+                assert_eq!(live.spell_slots.current(slot), Some(1));
+                assert!(live.spell_starts.spells[&1].referenced);
+            }
+            if slot == Some(SpellSlot::AutoRepeat) {
+                assert_eq!(
+                    attack(object, &mut live, &stores)
+                        .attack_stop(false, true, false, true)
+                        .unwrap_err()
+                        .id,
+                    "execution.spells.Unit_6346.InterruptNonMeleeSpells_owner"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn finish_attack_stop_reaches_control_and_encounter_after_melee() {
+        let mut objects = SourceObjects::default();
+        let caster = objects.construct(1, SourceObjectKind::Creature).unwrap();
+        let map = MapIdentity {
+            map: 33,
+            instance: 1,
+            creation_generation: 1,
+        };
+        let cells = SourceCells::new(map).unwrap();
+        objects.bind_map(caster, map, &cells).unwrap();
+        objects
+            .assign_guid(caster, 9, SourceGuid::with_entry(HighGuid::Creature, 7, 9))
+            .unwrap();
+        objects.add_to_world(caster).unwrap();
+        let object = objects.get(caster).unwrap();
+        let stores = SourceSpellStores::default();
+        let t = SpellTemplate {
+            attributes: 0x0010_0000,
+            ..Default::default()
+        };
+        let mut live = SourceUnitFields::constructed_creature();
+        live.state = UNIT_STATE_MELEE;
+        live.flags = 0x0100_0008;
+        live.control_guids.charmer = SourceGuid::without_entry(HighGuid::Player, 42);
+        let types = BTreeMap::from([(33, 1)]);
+        assert_eq!(
+            finish_tail(
+                &t,
+                SpellFinishOperands {
+                    attack: attack(object, &mut live, &stores),
+                    map_types: Some(&types),
+                }
+            )
+            .unwrap_err()
+            .id,
+            "execution.spells.Spell_3801.SendAttackSwingCancelAttack_owner"
+        );
+        assert_eq!(live.state, 0);
+        live.flags = 0;
+        assert_eq!(
+            finish_tail(
+                &t,
+                SpellFinishOperands {
+                    attack: attack(object, &mut live, &stores),
+                    map_types: Some(&types),
+                }
+            )
+            .unwrap_err()
+            .id,
+            "execution.spells.Spell_3809.UpdateEncounterState_owner"
+        );
+        let types = BTreeMap::from([(33, 0)]);
+        finish_tail(
+            &t,
+            SpellFinishOperands {
+                attack: attack(object, &mut live, &stores),
+                map_types: Some(&types),
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn finish_attack_stop_client_control_uses_flags_charmer_and_kind() {
+        let mut objects = SourceObjects::default();
+        let unit = objects.construct(1, SourceObjectKind::Creature).unwrap();
+        let owner = objects.construct(1, SourceObjectKind::Player).unwrap();
+        let other = objects.construct(1, SourceObjectKind::Player).unwrap();
+        let player_guid = SourceGuid::without_entry(HighGuid::Player, 42);
+        objects.assign_guid(owner, 42, player_guid).unwrap();
+        objects
+            .assign_guid(other, 43, SourceGuid::without_entry(HighGuid::Player, 43))
+            .unwrap();
+        let possessed = SourceControlGuids {
+            charmer: player_guid,
+            ..Default::default()
+        };
+        let non_player_charmer = SourceControlGuids {
+            charmer: SourceGuid::with_entry(HighGuid::Creature, 1, 1),
+            ..Default::default()
+        };
+        let uncharmed = SourceControlGuids::default();
+        let player = objects.get(owner).unwrap();
+        let creature = objects.get(unit).unwrap();
+        let other = objects.get(other).unwrap();
+        for (guids, flags, unit, exact, expected) in [
+            (possessed, 0x0100_0000, player, None, false),
+            (possessed, 0x0100_000c, player, None, false),
+            (possessed, 0x0140_0008, player, None, false),
+            (possessed, 0x0180_0008, player, None, false),
+            (possessed, 8, player, None, false),
+            (non_player_charmer, 0x0100_0008, player, None, false),
+            (possessed, 0x0100_0008, creature, None, true),
+            (possessed, 0x0100_0008, creature, Some(player), true),
+            (possessed, 0x0100_0008, creature, Some(other), false),
+            (uncharmed, 8, creature, None, false),
+            (uncharmed, 8, player, None, true),
+            (uncharmed, 8, player, Some(player), true),
+            (uncharmed, 8, player, Some(other), false),
+        ] {
+            assert_eq!(guids.is_client_controlled(flags, unit, exact), expected);
         }
     }
 }

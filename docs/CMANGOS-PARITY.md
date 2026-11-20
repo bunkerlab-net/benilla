@@ -168,12 +168,17 @@ is meaningful without a bounded content/mechanics inventory.
   direct map-0 spawns, and 13 direct map-1 spawns. The Ten Hour War group
   adds eight conditional map-1 positions (`initial-classicmangos.sql:824204,
   826592-826593,830011-830018`).
-  Map 1 completes 398 objects with 439 allocations, 14,857 random words,
-  405 wall clocks, 31 paths, and two SQL requests. Searing Infernal GUID33193
+  Map 1 completes 433 objects with 474 allocations, 15,080 random words,
+  439 wall clocks, 34 paths, and two SQL requests. Searing Infernal GUID33193
   passes Fire Shield's helpful self-target check (`Spell.cpp:5086`,
   `Relations.cpp:204,504`) and completes at trace :60882413. Wildthorn
-  Lurker GUID34917 applies Hide before entering the world. The replay
-  stops at `Spell.cpp:3798`, after the effect clock at trace :60901711.
+  Lurker GUID34917 applies Hide before entering the world. The finish tail
+  reads the caster's unit state, victim, current slots, and control flags
+  (`Spell.cpp:3793-3809`, `Unit.cpp:6339-6363,6398-6407,6496-6520`).
+  Hide reaches no packet or encounter callback. The respawn draw follows
+  the effect clock at trace :60901711.
+  Warsong Outrider GUID52348 stops at the addon mount call (`Creature.cpp:2313`).
+  The next trace operation at :60941391 draws its respawn delay.
   EventAI event 649101 replaces 10848 and adds a second passive 9036.
   `Unit.cpp:5326-5446,10856-10866` unlinks both indexes and defers disposal.
   Map 0 completes GUID4195 after event 26501's holder timer draw

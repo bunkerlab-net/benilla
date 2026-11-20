@@ -130,6 +130,25 @@ pub(super) fn unbound_pet_loading(_: ObjectHandle) -> Result<bool> {
 }
 
 impl SourceControlGuids {
+    /// Unit.cpp:6496-6520. Check controlling GUID type without resolving the charmer.
+    pub(crate) fn is_client_controlled(
+        &self,
+        flags: u32,
+        unit: &SourceObject,
+        exact_client: Option<&SourceObject>,
+    ) -> bool {
+        if flags & 0x0000_0008 == 0 || flags & 0x00c0_0004 != 0 {
+            return false;
+        }
+        if self.charmer.raw() != 0 {
+            return flags & 0x0100_0000 != 0
+                && self.charmer.is_player()
+                && exact_client.is_none_or(|client| client.guid == Some(self.charmer));
+        }
+        unit.kind == SourceObjectKind::Player
+            && exact_client.is_none_or(|client| client.handle == unit.handle)
+    }
+
     /// Unit.h:1827 and ObjectGuid.h:124-129 test the GUID kind without a lookup.
     pub fn has_charmer(self) -> bool {
         is_unit_guid(self.charmer)

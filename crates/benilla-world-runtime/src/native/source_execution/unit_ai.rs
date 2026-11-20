@@ -223,6 +223,7 @@ pub struct SourceUnitCastFields<'a> {
     pub movement: &'a Option<SourceCreatureMovement>,
     pub spell_slots: &'a mut SourceSpellSlots,
     pub flags: &'a u32,
+    pub state: &'a mut u32,
     pub gm: &'a bool,
     pub mounted: &'a bool,
     pub stand_state: &'a u8,
@@ -269,6 +270,7 @@ impl SourceUnitFields {
                 movement: &self.movement,
                 spell_slots: &mut self.spell_slots,
                 flags: &self.flags,
+                state: &mut self.state,
                 gm: &self.gm,
                 mounted: &self.mounted,
                 stand_state: &self.stand_state,
@@ -1425,17 +1427,13 @@ impl SourceUnitAi {
         units: &mut SourceUnits,
         owner: &mut impl UnitAiExecutionOwner,
     ) -> Result<()> {
-        let f = units.get_mut(objects, self.unit)?;
-        if f.state & UNIT_STATE_MELEE != 0 {
-            f.state &= !UNIT_STATE_MELEE;
-            if f.melee_spell {
-                owner.call(self.unit, UnitAiCall::InterruptMelee, units, objects)?;
-            }
-            if target.is_some() {
-                owner.call(self.unit, UnitAiCall::MeleeStop(target), units, objects)?;
-            }
+        RegistryAttackStop {
+            unit: self.unit,
+            objects,
+            units,
+            owner,
         }
-        Ok(())
+        .melee_stop(target)
     }
     /// Unit.cpp:6339-6362. Target switching clears target before melee stop.
     #[allow(clippy::too_many_arguments)]
@@ -1449,31 +1447,18 @@ impl SourceUnitAi {
         units: &mut SourceUnits,
         owner: &mut impl UnitAiExecutionOwner,
     ) -> Result<bool> {
-        if including_combo {
-            owner.call(self.unit, UnitAiCall::ClearCombo, units, objects)?;
+        RegistryAttackStop {
+            unit: self.unit,
+            objects,
+            units,
+            owner,
         }
-        if including_cast && units.get(objects, self.unit)?.casting_non_melee {
-            owner.call(self.unit, UnitAiCall::InterruptNonMelee, units, objects)?;
-        }
-        let player = objects.get(self.unit)?.kind == SourceObjectKind::Player;
-        if target_switch && !player {
-            let f = units.get_mut(objects, self.unit)?;
-            objects.set_unit_target(self.unit, &mut f.target, None)?;
-        }
-        if !client_initiated && player {
-            owner.call(self.unit, UnitAiCall::PlayerAttackCancel, units, objects)?;
-        }
-        let victim = units.get(objects, self.unit)?.victim;
-        self.melee_stop(victim, objects, units, owner)?;
-        if let Some(victim) = victim {
-            units
-                .get_mut(objects, victim)?
-                .attackers
-                .retain(|a| *a != self.unit);
-            units.get_mut(objects, self.unit)?.victim = None;
-            return Ok(true);
-        }
-        Ok(false)
+        .attack_stop(
+            target_switch,
+            including_cast,
+            including_combo,
+            client_initiated,
+        )
     }
     pub fn movement_on_attack(
         &self,
@@ -1571,6 +1556,207 @@ impl SourceUnitAi {
             self.melee_start(units.get(objects, self.unit)?.victim, objects, units, owner)?;
         }
         Ok(())
+    }
+}
+
+trait AttackStopOwner {
+    fn is_player(&self) -> Result<bool>;
+    fn unit_state(&mut self) -> Result<&mut u32>;
+    fn victim(&self) -> Result<Option<ObjectHandle>>;
+    fn clear_target(&mut self) -> Result<()>;
+    fn interrupt_non_melee_if_casting(&mut self) -> Result<()>;
+    fn remove_attacker_and_clear_victim(&mut self, victim: ObjectHandle) -> Result<()>;
+    fn call(&mut self, call: UnitAiCall) -> Result<()>;
+
+    // Unit.cpp:6398-6407. Clear the melee state before checking the slot.
+    fn melee_stop(&mut self, victim: Option<ObjectHandle>) -> Result<()> {
+        let state = self.unit_state()?;
+        if *state & UNIT_STATE_MELEE != 0 {
+            *state &= !UNIT_STATE_MELEE;
+            self.call(UnitAiCall::InterruptMelee)?;
+            if victim.is_some() {
+                self.call(UnitAiCall::MeleeStop(victim))?;
+            }
+        }
+        Ok(())
+    }
+
+    // Unit.cpp:6339-6363. Keep callback and field writes in source order.
+    fn attack_stop(
+        &mut self,
+        target_switch: bool,
+        including_cast: bool,
+        including_combo: bool,
+        client_initiated: bool,
+    ) -> Result<bool> {
+        if including_combo {
+            self.call(UnitAiCall::ClearCombo)?;
+        }
+        if including_cast {
+            self.interrupt_non_melee_if_casting()?;
+        }
+        let player = (target_switch || !client_initiated) && self.is_player()?;
+        if target_switch && !player {
+            self.clear_target()?;
+        }
+        if !client_initiated && player {
+            self.call(UnitAiCall::PlayerAttackCancel)?;
+        }
+        self.melee_stop(self.victim()?)?;
+        if let Some(victim) = self.victim()? {
+            self.remove_attacker_and_clear_victim(victim)?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+}
+
+struct RegistryAttackStop<'a, O> {
+    unit: ObjectHandle,
+    objects: &'a SourceObjects,
+    units: &'a mut SourceUnits,
+    owner: &'a mut O,
+}
+
+impl<O: UnitAiExecutionOwner> AttackStopOwner for RegistryAttackStop<'_, O> {
+    fn is_player(&self) -> Result<bool> {
+        Ok(self.objects.get(self.unit)?.kind == SourceObjectKind::Player)
+    }
+    fn unit_state(&mut self) -> Result<&mut u32> {
+        Ok(&mut self.units.get_mut(self.objects, self.unit)?.state)
+    }
+    fn victim(&self) -> Result<Option<ObjectHandle>> {
+        Ok(self.units.get(self.objects, self.unit)?.victim)
+    }
+    fn clear_target(&mut self) -> Result<()> {
+        let live = self.units.get_mut(self.objects, self.unit)?;
+        self.objects
+            .set_unit_target(self.unit, &mut live.target, None)
+    }
+    fn interrupt_non_melee_if_casting(&mut self) -> Result<()> {
+        if self.units.get(self.objects, self.unit)?.casting_non_melee {
+            self.call(UnitAiCall::InterruptNonMelee)?;
+        }
+        Ok(())
+    }
+    fn remove_attacker_and_clear_victim(&mut self, victim: ObjectHandle) -> Result<()> {
+        self.units
+            .get_mut(self.objects, victim)?
+            .attackers
+            .retain(|a| *a != self.unit);
+        self.units.get_mut(self.objects, self.unit)?.victim = None;
+        Ok(())
+    }
+    fn call(&mut self, call: UnitAiCall) -> Result<()> {
+        if call == UnitAiCall::InterruptMelee
+            && !self.units.get(self.objects, self.unit)?.melee_spell
+        {
+            return Ok(());
+        }
+        self.owner.call(self.unit, call, self.units, self.objects)
+    }
+}
+
+/// Caster-only operands for Unit.cpp:6339-6407.
+pub struct CastAttackStop<'a> {
+    pub(crate) object: &'a SourceObject,
+    pub(crate) flags: &'a u32,
+    pub(crate) control_guids: &'a SourceControlGuids,
+    pub(crate) state: &'a mut u32,
+    pub(crate) victim: &'a Option<ObjectHandle>,
+    pub(crate) slots: &'a SourceSpellSlots,
+    pub(crate) starts: Option<&'a SourceSpellStarts>,
+    pub(crate) stores: &'a SourceSpellStores,
+}
+
+impl CastAttackStop<'_> {
+    pub(crate) fn attack_stop(
+        &mut self,
+        target_switch: bool,
+        including_cast: bool,
+        including_combo: bool,
+        client_initiated: bool,
+    ) -> Result<bool> {
+        AttackStopOwner::attack_stop(
+            self,
+            target_switch,
+            including_cast,
+            including_combo,
+            client_initiated,
+        )
+    }
+
+    // Spell.cpp:3796 calls InterruptSpell with Unit.h:1958's withDelayed=true.
+    pub(crate) fn interrupt_autorepeat(&self) -> Result<()> {
+        if self.slots.current(SpellSlot::AutoRepeat).is_none() {
+            return Ok(());
+        }
+        require(
+            !self.is_player()?,
+            "execution.spells.Unit_4310.SendAutoRepeatCancel_owner",
+        )?;
+        Err(refuse(
+            "execution.spells.Spell_3796.InterruptSpell_autorepeat_owner",
+        ))
+    }
+}
+
+impl AttackStopOwner for CastAttackStop<'_> {
+    fn is_player(&self) -> Result<bool> {
+        Ok(self.object.kind == SourceObjectKind::Player)
+    }
+    fn unit_state(&mut self) -> Result<&mut u32> {
+        Ok(self.state)
+    }
+    fn victim(&self) -> Result<Option<ObjectHandle>> {
+        Ok(*self.victim)
+    }
+    fn clear_target(&mut self) -> Result<()> {
+        // Spell.cpp:3798 leaves targetSwitch false.
+        Err(refuse("execution.spells.Unit_6350.SetTargetGuid_owner"))
+    }
+    fn interrupt_non_melee_if_casting(&mut self) -> Result<()> {
+        let is_casting = self.slots.is_non_melee_spell_casted(
+            self,
+            self.stores,
+            false,
+            false,
+            false,
+            false,
+            false,
+        )?;
+        require(
+            !is_casting,
+            "execution.spells.Unit_6346.InterruptNonMeleeSpells_owner",
+        )
+    }
+    fn remove_attacker_and_clear_victim(&mut self, _victim: ObjectHandle) -> Result<()> {
+        Err(refuse("execution.spells.Unit_6358._removeAttacker_owner"))
+    }
+    fn call(&mut self, call: UnitAiCall) -> Result<()> {
+        Err(refuse(match call {
+            UnitAiCall::ClearCombo => "execution.spells.Unit_6342.ClearComboPoints_owner",
+            UnitAiCall::PlayerAttackCancel => {
+                "execution.spells.Unit_6353.SendAttackSwingCancelAttack_owner"
+            }
+            UnitAiCall::MeleeStop(_) => "execution.spells.Unit_6405.SendMeleeAttackStop_owner",
+            UnitAiCall::InterruptMelee => {
+                if self.slots.current(SpellSlot::Melee).is_none() {
+                    return Ok(());
+                }
+                "execution.spells.Unit_4304.InterruptSpell_live_cancel_owner"
+            }
+            _ => return Err(call.missing_owner()),
+        }))
+    }
+}
+
+impl SourceCurrentSpells for CastAttackStop<'_> {
+    fn current_spell(&self, id: u64) -> Result<&SourceSpell> {
+        match self.starts {
+            Some(starts) => starts.current_spell(id),
+            None => ().current_spell(id),
+        }
     }
 }
 

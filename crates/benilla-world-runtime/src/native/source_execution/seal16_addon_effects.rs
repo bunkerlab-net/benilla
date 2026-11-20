@@ -60,6 +60,25 @@ impl SpellCastEffects for Owner<'_> {
         self.auras
     }
 
+    fn finish_operands<'a>(
+        &'a mut self,
+        starts: Option<&'a SourceSpellStarts>,
+    ) -> Result<SpellFinishOperands<'a>> {
+        Ok(SpellFinishOperands {
+            attack: CastAttackStop {
+                object: self.objects.get(self.object)?,
+                flags: self.flags,
+                control_guids: self.control_guids,
+                state: self.state,
+                victim: self.victim,
+                slots: self.slots,
+                starts,
+                stores: self.stores,
+            },
+            map_types: self.terrain.pathfinder_map_types.as_ref(),
+        })
+    }
+
     fn send_cooldown(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<()> {
         self.send_spell_cooldown(spell, t)
     }
@@ -491,4 +510,193 @@ fn self_spell_go_encodes_full_and_packed_guids_without_broadcasting() {
         &body.bytes[..body.length],
         &[1, 1, 1, 1, 76, 35, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 8, 2, 0, 1, 1]
     );
+}
+
+#[test]
+fn finish_attack_stop_nested_stance_runs_before_the_parent_tail() {
+    use super::super::super::ActiveClock;
+    use benilla_sim::source_rng::{DrawCursor, Mt19937, SourceRandom};
+
+    struct AutoRepeatReset(bool);
+    impl SpellExecutionOwner for AutoRepeatReset {
+        fn reset_auto_repeat(&mut self) -> Result<()> {
+            assert!(!self.0);
+            self.0 = true;
+            Ok(())
+        }
+    }
+
+    let mut objects = SourceObjects::default();
+    let object = objects.construct(1, SourceObjectKind::Creature).unwrap();
+    let other = objects.construct(1, SourceObjectKind::Creature).unwrap();
+    let map = MapIdentity {
+        map: 0,
+        instance: 0,
+        creation_generation: 1,
+    };
+    objects
+        .bind_map(object, map, &SourceCells::new(map).unwrap())
+        .unwrap();
+    objects.set_pose(object, SourcePose([0; 4])).unwrap();
+    objects
+        .assign_guid(object, 1, SourceGuid::with_entry(HighGuid::Creature, 1, 1))
+        .unwrap();
+    let stance = SpellTemplate {
+        id: 2457,
+        attributes: 0x0010_0042,
+        effect1: 6,
+        effectapplyauraname1: 36,
+        effectmiscvalue1: 17,
+        effectimplicittargeta1: 1,
+        ..Default::default()
+    };
+    let boost = SpellTemplate {
+        id: 21156,
+        attributes: 0x0010_0040,
+        ..Default::default()
+    };
+    let auto = SpellTemplate {
+        id: 75,
+        attributes: 2,
+        ..Default::default()
+    };
+    let mut stores = SourceSpellStores::default();
+    for t in [stance, boost, auto] {
+        stores.insert_template(t).unwrap();
+    }
+    stores.bind_empty_duration_fixture();
+    stores.bind_test_dbc("SpellCastTimes.dbc", []);
+    stores.bind_test_dbc(
+        "SpellShapeshiftForm.dbc",
+        [(
+            17,
+            SpellDbcRecord {
+                ordinal: 0,
+                words: Default::default(),
+            },
+        )],
+    );
+    stores.bind_test_dbc("SpellRange.dbc", []);
+    let targets = SourceSpellTargetMgr::initialize(&stores);
+    for victim in [None, Some(other)] {
+        let mut live = SourceUnitFields::constructed_creature();
+        live.state = UNIT_STATE_MELEE;
+        live.victim = victim;
+        live.power_type = Some(1);
+        live.power_fields = Some(SourceUnitPowerFields {
+            level: 19,
+            create_health: 100,
+            create_mana: 0,
+            auxiliary_current: Some([0; 3]),
+            auxiliary_maximum: None,
+        });
+        let auto = stores.template(75).unwrap();
+        let mut s = SourceSpell::new(
+            live.spell_starts.allocate().unwrap(),
+            auto,
+            object,
+            SpellTriggerFlags(0),
+            0,
+        )
+        .unwrap();
+        s.auto_repeat = true;
+        let mut reset = AutoRepeatReset(false);
+        live.spell_slots
+            .set(
+                &mut s,
+                auto,
+                &mut live.spell_starts.spells,
+                &stores,
+                &mut reset,
+            )
+            .unwrap();
+        assert!(reset.0);
+        live.spell_starts.spells.insert(s.id, s);
+        let mut geometry = SourceTerrainManager::default();
+        geometry.files.retain_source_absence(0, 32, 32);
+        let mut mt = Mt19937::from_seed(123);
+        let mut cursor = DrawCursor::default();
+        let mut sink = |_| {};
+        let mut random = SourceRandom::new(1, &mut mt, &mut cursor, &mut sink).unwrap();
+        geometry.load_terrain(0, &mut random).unwrap();
+        let clocks = [8250845, 8249833]
+            .into_iter()
+            .enumerate()
+            .map(|(i, site)| ActiveClock {
+                site_line: (2 * i + 1) as u64,
+                time_line: (2 * i + 2) as u64,
+                thread: 1,
+                site: [1, 3678789157770927477, site],
+                module: true,
+                raw: 1,
+                seconds: 42,
+            });
+        let mut clocks = ActiveClocks(clocks.collect());
+        let unit = SpellUnitState {
+            player: false,
+            gameobject: false,
+            alive: true,
+            standing: true,
+            player_controlled: false,
+            combat: false,
+            battleground_wait_leave: false,
+            gm: false,
+            moving: false,
+            falling_far: false,
+            stealth: false,
+            form: 0,
+            class: 1,
+            combo_target: None,
+            mounted: false,
+            taxi: false,
+            totem: false,
+            untargetable: false,
+            has_ai: false,
+            position: [0; 4],
+        };
+        let result = Execution {
+            object,
+            objects: &objects,
+            terrain: &mut geometry,
+            stores: &stores,
+            targets: &targets,
+            unit,
+            level: 19,
+            clocks: &mut clocks,
+            world_clock: &SourceWorldClock::default(),
+            random: &mut random,
+            creature_spells: None,
+            raw: 1,
+            max_casts: 4,
+        }
+        .cast_spell(&mut CreatureAddonState::default(), &mut live, 2457);
+        let expected = if victim.is_some() {
+            "execution.spells.Unit_6405.SendMeleeAttackStop_owner"
+        } else {
+            "execution.spells.Spell_3796.InterruptSpell_autorepeat_owner"
+        };
+        assert_eq!(result.unwrap_err().id, expected);
+        let parent = &live.spell_starts.spells[&2];
+        let child = &live.spell_starts.spells[&3];
+        assert_eq!(
+            (parent.spell, child.spell, child.triggered_by_aura),
+            (2457, 21156, Some(2457))
+        );
+        assert!(parent.executing);
+        assert_eq!(child.state, SourceSpellState::Finished);
+        assert_eq!(live.state & UNIT_STATE_MELEE, 0);
+        assert_eq!(live.spell_slots.current(SpellSlot::AutoRepeat), Some(1));
+        assert!(clocks.0.is_empty());
+        if victim.is_some() {
+            assert_eq!(parent.state, SourceSpellState::Landing);
+            assert!(child.executing);
+            assert_eq!(live.auras.cast_counter, 2);
+            assert!(!live.auras.first_aura_holder(2457).unwrap().ready);
+        } else {
+            assert_eq!(parent.state, SourceSpellState::Finished);
+            assert!(!child.executing);
+            assert_eq!(live.auras.cast_counter, 1);
+            assert!(live.auras.first_aura_holder(2457).unwrap().ready);
+        }
+    }
 }

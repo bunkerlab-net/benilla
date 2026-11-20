@@ -959,8 +959,9 @@ fn tm(p: &[&str]) -> Tm {
         isdst: n(8),
     }
 }
-// Spell.cpp:3798 stops attacks after the Hide effect clock and before the respawn draw.
-const MAP1_NEXT_OWNER_LINE: u64 = 60901712;
+// Creature.cpp:2313 calls Mount before the respawn draw for GUID52348.
+const MAP1_NEXT_OWNER_LINE: u64 = 60941391;
+const MAP1_NEXT_SOURCE: &str = "Creature.cpp:2313";
 
 #[derive(Default)]
 struct MapThreadEvidence {
@@ -3394,7 +3395,8 @@ pub(super) fn continue_startup(
                     60698184, 60701076, 60702866, 60709280,
                     // GUID51838, GUID43350, and GUID43348 build nine more paths.
                     60754228, 60755543, 60789063, 60791048, 60793022, 60795147, 60837192, 60839184,
-                    60841199,
+                    60841199, // GUID32990 builds three waypoint paths.
+                    60913479, 60915246, 60918066,
                 ]
             );
         }
@@ -3927,8 +3929,8 @@ pub(super) fn continue_startup(
                     (60553163, 35884),
                 ]
             );
-            // :60882413-:60901023 adds 18 completions.
-            assert_eq!(completed_objects.len(), 398);
+            // :60902332-:60940681 adds 35 completions.
+            assert_eq!(completed_objects.len(), 433);
             assert_eq!(evidence.sql_lines, [60101153, 60113864]);
             relations_evidence::assert_after_area_cast(
                 &evidence.continuation_births,
@@ -4272,17 +4274,22 @@ pub(super) fn continue_startup(
 
             // :60901026-:60901052 binds the Lurker. Creature.cpp:932,1738,2343
             // applies its addon (SQL :434253) before AddToWorld at :60901725.
+            let lurker_handle = completed_objects[398]; // :60902332.
+            let lurker_object = active_objects.get(lurker_handle).unwrap();
+            let lurker = units.get(&active_objects, lurker_handle).unwrap();
             assert_eq!(
-                (attempt.guid, attempt.kind, entry),
-                (34917, GridSpawnKind::Creature, 3821)
+                (
+                    lurker_object.database_guid,
+                    lurker_object.kind,
+                    lurker.entry
+                ),
+                (34917, SourceObjectKind::Creature, 3821)
             );
-            assert!(!completed_objects.contains(&candidate));
-            assert!(!active_objects.get(candidate).unwrap().in_world);
-            let lurker = units.get(&active_objects, candidate).unwrap();
+            assert!(lurker_object.in_world); // :60901725 follows the cast.
             let proc = lurker.auras.first_aura_holder(3616).unwrap();
             assert!(proc.effects[0].as_ref().unwrap().applied); // :60901410-:60901471.
             let hide = lurker.auras.first_aura_holder(6920).unwrap();
-            assert_eq!((hide.caster, hide.target), (candidate, candidate));
+            assert_eq!((hide.caster, hide.target), (lurker_handle, lurker_handle));
             assert_eq!(hide.apply_time, 1794314191); // :60901688.
             let effect = hide.effects[0].as_ref().unwrap();
             // :60901711 is the effect clock.
@@ -4306,7 +4313,45 @@ pub(super) fn continue_startup(
                 .find(|spell| spell.spell == 6920)
                 .unwrap();
             assert_eq!(hide_cast.state, SourceSpellState::Finished);
+            assert!(!hide_cast.executing);
+            assert_eq!(lurker.auras.cast_counter, 0);
+            // Hide was still out of world at Spell.cpp:3805.
+            assert_eq!(
+                hide_cast.go_broadcast,
+                Some(crate::native::source_execution::visibility::SourceBroadcast::OutOfWorld)
+            );
+            // SQL :843391. Spell.cpp:3793 takes the flag; :3795 skips autorepeat.
+            assert_eq!(addon_spells.template(6920).unwrap().attributes, 0x1a14_0010);
+            // Unit.cpp:347,388. No melee step, victim removal, or client packet.
+            assert_eq!((lurker.state & UNIT_STATE_MELEE, lurker.victim), (0, None));
+            assert_eq!(lurker.flags & 8, 0); // Unit.cpp:6501.
+            assert!(!lurker
+                .control_guids
+                .is_client_controlled(lurker.flags, lurker_object, None));
             assert_eq!(refusal.id, active_init::CREATURE_NEXT_OWNER[1]);
+
+            // Trace :60940697, :60940706, :60940726. SQL :124242, :429461, :438002.
+            assert_eq!(
+                (attempt.guid, attempt.kind, entry),
+                (52348, GridSpawnKind::Creature, 12864)
+            );
+            assert!(!completed_objects.contains(&candidate));
+            assert!(!active_objects.get(candidate).unwrap().in_world);
+            assert!(creature_addons
+                .table_get(CreatureAddonTable::Guid, 52348)
+                .is_none());
+            assert_eq!(
+                creature_addons
+                    .table_get(CreatureAddonTable::Template, 12864)
+                    .unwrap()
+                    .mount,
+                2326
+            );
+            let outrider = units.get(&active_objects, candidate).unwrap();
+            assert!(!outrider.auras.has_aura_holders() && !outrider.mounted);
+            assert_eq!(active_clocks.0.front().unwrap().time_line, 60941614);
+            // :60941391-:60941401. The Outrider's respawn draw is still pending.
+            assert_eq!(evidence.words[15080], (60941401, 15080, 536974546));
             let stat_aura = SpellTemplate {
                 effect1: 6,
                 effectapplyauraname1: 137,
@@ -4963,8 +5008,8 @@ pub(super) fn continue_startup(
             assert_eq!(live.spline_outbound[0].unit, candidate);
             assert_eq!(live.spline_outbound[0].transport, None);
             // Recording60433815 consumes equal-bound word12623 at Creature.cpp:1563.
-            // :60901612 consumes Hide's equal-bound spell cooldown word.
-            assert_eq!(random.cursor().raw, 14857);
+            // :60940782 is the Outrider model-gender word before Mount.
+            assert_eq!(random.cursor().raw, 15080);
             assert_eq!(evidence.words[12623], (60433815, 12623, 1799183854));
             relations_evidence::assert_words(&evidence.words);
             assert_eq!(
@@ -5010,7 +5055,8 @@ pub(super) fn continue_startup(
                     .iter()
                     .filter(|&&s| s == "creature_live_spell_movement_query")
                     .count(),
-                15 // GUID51838, GUID43350, and GUID43348 add three initial moves.
+                // GUID32990 starts another initial move at :60913479.
+                16
             );
             // Recording60409483 completes object73 after Creature.cpp:886-895.
             assert_eq!(completed_objects[72], main);
@@ -5497,7 +5543,8 @@ pub(super) fn continue_startup(
         // GUID43073 adds Idle on map 1 (SQL :117830, trace :60749065).
         // :60894287-:60897433 adds five Idle creatures (SQL :109608,
         // :109418, :109421-:109422 and :109427).
-        assert_eq!(idle_count, if slot == 0 { 215 } else { 40 });
+        // :60904086-:60938913 records 15 more completed map-1 creatures with movement=0.
+        assert_eq!(idle_count, if slot == 0 { 215 } else { 55 });
         if slot == 1 {
             // :60777881 binds GUID42899's fixed-path movement type.
             let fixed = completed_objects
@@ -5511,14 +5558,14 @@ pub(super) fn continue_startup(
             geometry.pathfinder_constructor_completions,
             // WaypointMovementGenerator.cpp:264 constructs per BuildIntPath.
             // Map 0 records 97 paths for 59 creatures, through :61393560.
-            // Map 1 calculates 31 paths for 13 waypoint creatures.
+            // Map 1 calculates 34 paths for 14 waypoint creatures.
             // Static Idle constructs none (MotionMaster.cpp:79-81).
             pathfinders_before + motion_initializations - idle_count
                 + if slot == 0 {
                     97 - 59
                 } else {
                     // PathMovementGenerator.cpp:240 initializes fixed paths without a PathFinder.
-                    31 - 13 - 1
+                    34 - 14 - 1
                 }
         );
         assert_eq!(
@@ -5863,9 +5910,9 @@ pub(super) fn continue_startup(
             ))
         );
         assert_eq!(attempt.guid, if slot == 0 { 18 } else { 28044 });
-        // :61406118-61417596 adds 23 map-0 births. Map 1 adds 18 births
-        // at :60882448-:60901026.
-        assert_eq!(candidates, if slot == 0 { 1196 } else { 439 });
+        // :61406118-61417596 adds 23 map-0 births. Map 1 adds 35 births
+        // at :60902340-:60940706.
+        assert_eq!(candidates, if slot == 0 { 1196 } else { 474 });
         assert_eq!(entry, if slot == 0 { 3211 } else { 4692 });
         if slot == 0 {
             assert_eq!(init_entry_fields, None);
@@ -5994,9 +6041,11 @@ pub(super) fn continue_startup(
                     // :60884694-:60899783 has 11 more pre-world probes.
                     // The water in 0012737.map admits five: :60884694, :60888191,
                     // :60891045, :60892508 and :60898087.
-                    reached_441: 180,
-                    swimming_set: 9,
-                    swimming_not_set: 171,
+                    // :60902634-:60941101 adds 22 pre-world probes.
+                    // 0012737.map admits four: :60902634, :60907926, :60921477, :60932495.
+                    reached_441: 202,
+                    swimming_set: 13,
+                    swimming_not_set: 189,
                     ..SourceCreatureSwimmingCensus::default()
                 }
             );
@@ -6159,8 +6208,8 @@ pub(super) fn continue_startup(
                 attempt.cell.y(),
             ))
         );
-        // :61417594 completes GUID90952. Map 1 reaches GUID32972 at :60901023.
-        assert_eq!(completed, if slot == 0 { 1119 } else { 398 });
+        // :61417594 completes GUID90952. Map 1 reaches GUID33068 at :60940681.
+        assert_eq!(completed, if slot == 0 { 1119 } else { 433 });
         println!(
             "F6_VISIBILITY map={slot} census={visibility:?} invalidated_camera_iterator_stock_reach={}",
             visibility.cameras
@@ -6185,7 +6234,7 @@ pub(super) fn continue_startup(
             if slot == 0 {
                 MAP0_NEXT_RAW as u64
             } else {
-                after_pools_cursor + 2962 // Last word at :60901612.
+                after_pools_cursor + 3185 // Last word at :60940782.
             }
         );
         matched_map_words[slot] = random.cursor().raw;
@@ -6257,7 +6306,7 @@ pub(super) fn continue_startup(
             evidence.pool_snapshot_line.unwrap(),
             encounters.by_map(slot as u32).len(),
             refusal.id,
-            if slot == 0 { MAP0_NEXT_SOURCE } else { "Spell.cpp:3798" },
+            if slot == 0 { MAP0_NEXT_SOURCE } else { MAP1_NEXT_SOURCE },
         );
         owner.states = states;
         let raw = trace

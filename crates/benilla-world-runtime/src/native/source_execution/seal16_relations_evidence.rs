@@ -495,6 +495,15 @@ pub(super) fn assert_continuation_words(words: &[(u64, u64, u64)]) {
         ),
         "06e7dba5933434d35518f4fe111e39c665be9faef1f1bece33ce0a1d72b360eb"
     );
+    // :60901717-:60940782. Hide's respawn draw through the Outrider gender draw.
+    assert_eq!(
+        digest(
+            words[14857..15080]
+                .iter()
+                .map(|&(line, raw, word)| [line, raw, word])
+        ),
+        "0b61813af5b8865d87c23d05b626c951d37e6e4bb53c71df3fd29db9bcf29de6"
+    );
 }
 
 pub(super) fn assert_azuregos_requests(requests: &[(usize, String, i64, i64, Option<i64>)]) {
@@ -545,7 +554,7 @@ pub(super) fn assert_continuation_clocks(
     after: &super::active_init::ActiveClocks,
 ) {
     let consumed = before.0.iter().take(before.0.len() - after.0.len());
-    assert_eq!(consumed.clone().count(), 405); // 23 more clocks at :60882189-:60901711.
+    assert_eq!(consumed.clone().count(), 439); // :60901724-:60939995 adds 34 clocks.
     let suffix = consumed.filter(|sample| sample.time_line >= 60434041);
     let prefix = suffix
         .clone()
@@ -684,13 +693,24 @@ pub(super) fn assert_continuation_clocks(
     // Fire Shield's holder and effect are :60882189 / :60882369.
     // Hide's holder and effect are :60901688 / :60901711.
     assert_eq!(
-        digest(suffix.filter(|s| s.time_line >= 60882189).map(|s| [
+        digest(
+            suffix
+                .clone()
+                .filter(|s| (60882189..=60901711).contains(&s.time_line))
+                .map(|s| [s.site_line, s.time_line, s.raw, s.seconds as u64])
+        ),
+        "e870f5f93bffaf9dc4d4307f2b650f683553d1098f7b70ada61c9749f7b5c880"
+    );
+    // :60901724-:60939995. The first new clock is the Lurker's respawn read.
+    assert_eq!(
+        digest(suffix.filter(|s| s.time_line > 60901711).map(|s| [
             s.site_line,
             s.time_line,
+            s.site[2],
             s.raw,
             s.seconds as u64
         ])),
-        "e870f5f93bffaf9dc4d4307f2b650f683553d1098f7b70ada61c9749f7b5c880"
+        "753d834c0f4afa08d1fd31910260c3a71a6f0ed0fa70b10520ff19c94dd57900"
     );
 }
 
@@ -743,13 +763,13 @@ pub(super) fn assert_after_area_cast(births: &[u64], completed: &[(u64, u32)]) {
         ]
     );
     // :60691109-:60740668 allocate 58 additional objects.
-    assert_eq!(births.len(), 439);
+    assert_eq!(births.len(), 474);
     assert_eq!(
         digest(births[295..353].iter().map(|&line| [line])),
         "6a598f615159fe3b0f5cdab8ee894c46b3ef0de9a4dd31f7082e3fa9e4582319"
     );
     // :60691102-:60740587 complete 33 additional objects.
-    assert_eq!(completed.len(), 296);
+    assert_eq!(completed.len(), 331);
     assert_eq!(
         digest(
             completed[182..215]
@@ -774,17 +794,31 @@ pub(super) fn assert_after_area_cast(births: &[u64], completed: &[(u64, u32)]) {
     );
     // :60882448-:60901026 allocates 18 objects through GUID34917.
     assert_eq!(
-        digest(births[421..].iter().map(|&line| [line])),
+        digest(births[421..439].iter().map(|&line| [line])),
         "3e9f51eb78f30503a978d46c317be2510399a9c7ff0090b06d80bd33b3bc439e"
     );
     // :60882413-:60901023 completes 18 objects through GUID32972.
     assert_eq!(
         digest(
-            completed[278..]
+            completed[278..296]
                 .iter()
                 .map(|&(line, guid)| [line, u64::from(guid)])
         ),
         "92171b0715a65ede4698e647b5c562f512862405f8e55fb170893aea0d47c27e"
+    );
+    // :60902340-:60940706 allocates 35 objects through GUID52348.
+    assert_eq!(
+        digest(births[439..].iter().map(|&line| [line])),
+        "d210a1745638804181c0abe45c8307d48d5727c45f4ca773b6f85242ede3db30"
+    );
+    // :60902332-:60940681 completes 35 objects through GUID33068.
+    assert_eq!(
+        digest(
+            completed[296..]
+                .iter()
+                .map(|&(line, guid)| [line, u64::from(guid)])
+        ),
+        "5908c0513cc4d1dab9534c0b6d56bc8abddb1e48aa092b224fb8e34bb8b48aff"
     );
     let births = &births[223..265];
     let completed = &completed[116..157];
