@@ -6,7 +6,7 @@ use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: [&str; 2] = [
     "execution.spells.UnitAuraProcHandler_532.IsSpellProcEventCanTriggeredBy_owner",
-    "execution.gameobject.loaded_script_get_gameobject_ai_owner.go_outdoor_pvp_notify",
+    "execution.spells.Unit_CanAttackSpell_CanAssistSpell_owner",
 ];
 #[path = "seal16_active_clocks.rs"]
 mod clocks;

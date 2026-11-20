@@ -2091,6 +2091,11 @@ After the factory returns, `GameObject.cpp:2528-2537` calls `JustSpawned` and
 the continent's inherited `OnObjectSpawn`. Bell event and update dispatch
 remain named refusals (`go_scripts.cpp:191,206`).
 
+The `go_outdoor_pvp_notify` factory binds the GameObject handle without
+registering for events or activating the object (`battlegrounds.cpp:219-245`).
+It inherits the empty GameObjectAI hooks. `OnUse` returns for non-player
+users and refuses at the player's cached zone read (`battlegrounds.cpp:229`).
+
 Chicken reset and the GameObject lifecycle state, flag, and display setters
 mark changed update words by their `UpdateFields.h` index. Chest restock also
 marks its unchanged dynamic flags (`GameObject.cpp:363,632`).
@@ -2675,10 +2680,11 @@ each (trace :61221527-61221531, :61241174-61241178). Seven Stormwind guards
 complete (trace :61339475-61348541). Bolvar GUID10495 retains Retribution Aura
 (`SpellAuras.cpp:76`, trace :61351112/:61351114) and stops in the Double Attack
 cast-end proc check (`UnitAuraProcHandler.cpp:532`, after trace :61351279).
-Map 1 completes 317 objects in 353 allocations. It matches 14,234 random
-words, 323 clocks, 22 paths, and two map SQL requests. The Silithyst Geyser
-GUID49337 stops at `go_outdoor_pvp_notify` (`ScriptDevAIMgr.cpp:380`,
-trace :60741274).
+Map 1 completes 380 objects in 421 allocations. It matches 14,731 random
+words, 382 clocks, 31 paths, and two map SQL requests. The Silithyst
+Geyser GUID49337 completes at trace :60741339. Searing Infernal GUID33193
+stops at Fire Shield's helpful target check (`Spell.cpp:5086`), before
+the location lookup at trace :60881978.
 Recorded allocation addresses are never supplied as execution inputs.
 The world-thread clone-only next-word check matches `(8712,3411341330)`.
 Global event/status/quest comparisons and WorldState remain beyond the map

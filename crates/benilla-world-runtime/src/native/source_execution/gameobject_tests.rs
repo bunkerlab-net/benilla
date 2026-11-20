@@ -341,6 +341,7 @@ impl GameObjectFactoryOwner<Definitions, Products> for Factory {
             observation,
             GameObjectFactoryObservation::InstanceOnObjectSpawn
                 | GameObjectFactoryObservation::OutdoorOnObjectCreate
+                | GameObjectFactoryObservation::ScriptAiJustSpawned
         ) {
             self.actions.push(Action::Observation(observation));
         }
@@ -1848,17 +1849,16 @@ fn gameobject_map_viewpoint_refuses_without_cell_or_camera_owner() {
     );
 }
 
-fn bell_fixture(entry: u32, areas: Option<[u32; 2]>) -> (Factory, GameObjectSpawn) {
-    let mut factory = Factory::new();
+fn register_gameobject_script(factory: &mut Factory, name: &[u8]) {
     factory.scripts = SourceScriptRegistry::default();
     factory
         .scripts
-        .load_script_names(|| Ok(Some(vec![b"go_bells".to_vec()])))
+        .load_script_names(|| Ok(Some(vec![name.to_vec()])))
         .unwrap();
     factory
         .scripts
         .initialize_registry([SourceScriptDefinition {
-            name: b"go_bells".to_vec(),
+            name: name.to_vec(),
             registration: 0,
             operation: "authored".into(),
             source_file: "authored.cpp".into(),
@@ -1867,10 +1867,52 @@ fn bell_fixture(entry: u32, areas: Option<[u32; 2]>) -> (Factory, GameObjectSpaw
             slots: BTreeMap::from([("GetGameObjectAI".into(), true)]),
         }])
         .unwrap();
-    factory.script_id = factory.scripts.get_script_id(Some(b"go_bells"));
-    factory.bell_areas = areas.map(Into::into);
-    factory.templates.insert(entry, template(entry, 5));
+    factory.script_id = factory.scripts.get_script_id(Some(name));
+}
+
+fn scripted_gameobject_fixture(entry: u32, name: &[u8], kind: u32) -> (Factory, GameObjectSpawn) {
+    let mut factory = Factory::new();
+    register_gameobject_script(&mut factory, name);
+    factory.templates.insert(entry, template(entry, kind));
     (factory, GameObjectSpawn { entry, ..spawn() })
+}
+
+fn bell_fixture(entry: u32, areas: Option<[u32; 2]>) -> (Factory, GameObjectSpawn) {
+    let (mut factory, spawn) = scripted_gameobject_fixture(entry, b"go_bells", 5);
+    factory.bell_areas = areas.map(Into::into);
+    (factory, spawn)
+}
+
+#[test]
+fn gameobject_outdoor_pvp_notify_inherits_base_hooks_and_checks_user_kind() {
+    let (mut factory, spawn) = scripted_gameobject_fixture(181598, b"go_outdoor_pvp_notify", 10);
+    let mut world = World::new();
+    let handle = loaded(world.load(&mut factory, spawn).unwrap());
+    let ai = factory.objects.get(handle).unwrap().ai.as_ref().unwrap();
+    assert_eq!(ai.object, handle);
+    assert_eq!(ai.script, gameobjects::GameObjectScript::OutdoorPvpNotify);
+    assert!(ai.bells().is_none());
+    let object = world.objects.get(handle).unwrap();
+    assert!(object.in_world);
+    assert!(!object.active && !object.notify_on_event);
+    assert!(!world.objects.event_notified(map(), handle));
+    assert!(!world.cells.active().contains(handle));
+    assert!(!factory
+        .actions
+        .iter()
+        .any(|action| matches!(action, Action::Area(_))));
+    ai.update_ai(100).unwrap();
+    ai.on_event_happened(1024, true, false).unwrap();
+    ai.receive_ai_event(1, 2);
+    ai.on_heartbeat();
+    assert!(factory.actions.contains(&Action::Observation(
+        GameObjectFactoryObservation::ScriptAiJustSpawned
+    )));
+    ai.on_use(SourceObjectKind::Creature).unwrap();
+    assert_eq!(
+        ai.on_use(SourceObjectKind::Player).unwrap_err().id,
+        "execution.gameobject.battlegrounds_229.GetCachedZoneId_owner"
+    );
 }
 
 #[test]
@@ -1939,6 +1981,12 @@ fn gameobject_bells_refuses_event_dispatch() {
         ai.on_event_happened(1024, true, false).unwrap_err().id,
         "execution.gameobject.go_scripts_191.OnEventHappened_owner"
     );
+    ai.receive_ai_event(1, 2);
+    ai.on_heartbeat();
+    ai.on_use(SourceObjectKind::Player).unwrap();
+    assert!(factory.actions.contains(&Action::Observation(
+        GameObjectFactoryObservation::ScriptAiJustSpawned
+    )));
 }
 
 #[test]

@@ -300,6 +300,12 @@ impl<D: GridDefinitions<Row = SpawnKey>> GameObjectFactoryOwner<D, SourceTerrain
             {
                 self.lookups.push("go15508_ai_initialize");
             }
+            GameObjectCallback::InitializeAi
+                if self.map_entry.id == 1
+                    && context.objects.get(handle)?.database_guid == 49337 =>
+            {
+                self.lookups.push("go49337_ai_initialize");
+            }
             _ => {}
         }
         gameobjects::execute_source_gameobject_callback(self, handle, callback, context)?;

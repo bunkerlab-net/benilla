@@ -159,10 +159,10 @@ is meaningful without a bounded content/mechanics inventory.
   direct map-0 spawns, and 13 direct map-1 spawns. The Ten Hour War group
   adds eight conditional map-1 positions (`initial-classicmangos.sql:824204,
   826592-826593,830011-830018`).
-  Map 1 completes 317 objects with 353 allocations, 14,234 random words,
-  323 wall clocks, 22 paths, and two SQL requests. It stops at the Silithyst
-  Geyser GUID49337 factory, `go_outdoor_pvp_notify`
-  (`ScriptDevAIMgr.cpp:380`, trace :60741274).
+  Map 1 completes 380 objects with 421 allocations, 14,731 random words,
+  382 wall clocks, 31 paths, and two SQL requests. It stops at the helpful
+  target check for Fire Shield cast by Searing Infernal GUID33193
+  (`Spell.cpp:5086`, before trace :60881978).
   EventAI event 649101 replaces 10848 and adds a second passive 9036.
   `Unit.cpp:5326-5446,10856-10866` unlinks both indexes and defers disposal.
   Map 0 completes GUID4195 after event 26501's holder timer draw
@@ -262,11 +262,14 @@ is meaningful without a bounded content/mechanics inventory.
   activation at `world_kalimdor.cpp:179`. `Object.cpp:2566-2580`
   sets the flag before map add. The construction path uses the default object
   radius (`GameObject.cpp:2209-2212`). The script factory clears AI for a null
-  slot and retains a live AI for `go_bells` (`ScriptDevAIMgr.cpp:373-381`).
-  Its live payload holds bell state only. The bell reads the current area
+  slot and retains a live AI for `go_bells` and `go_outdoor_pvp_notify`
+  (`ScriptDevAIMgr.cpp:373-381`). Only the bell has a payload. It reads the current area
   twice, registers for events, and activates (`go_scripts.cpp:113-189`,
   `Object.cpp:2566-2597`). `GameObject.cpp:2528-2537`
   then calls `JustSpawned` and the continent's inherited `OnObjectSpawn`.
+  The outdoor PvP script binds the object without event registration or
+  activation. It overrides only `OnUse`, which returns for non-players
+  and refuses at the player's cached zone read (`battlegrounds.cpp:219-245`).
   Other non-null script factories, bell event and update dispatch, and
   pointer-ordered event notification refuse by name.
 - **Event links and quest activity.** `GameEventMgr.cpp:405` checks loaded pool

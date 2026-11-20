@@ -449,6 +449,15 @@ pub(super) fn assert_continuation_words(words: &[(u64, u64, u64)]) {
         ),
         "7abd0b2a60f636106788c11d17907487d809985d38fdd91bbe65c797f50a7f8c"
     );
+    // :60741405-:60881944. Last word is Fire Shield's EventAI action roll.
+    assert_eq!(
+        digest(
+            words[14234..14731]
+                .iter()
+                .map(|&(line, raw, word)| [line, raw, word])
+        ),
+        "cafec04132efe462d271aede3297f22d745989429183fb9fede6adf6efe2b8b0"
+    );
 }
 
 pub(super) fn assert_azuregos_requests(requests: &[(usize, String, i64, i64, Option<i64>)]) {
@@ -499,7 +508,7 @@ pub(super) fn assert_continuation_clocks(
     after: &super::active_init::ActiveClocks,
 ) {
     let consumed = before.0.iter().take(before.0.len() - after.0.len());
-    assert_eq!(consumed.clone().count(), 323); // 296 -> 323 at :60692060-:60739738.
+    assert_eq!(consumed.clone().count(), 382); // 323 -> 382 at :60742146-:60857928.
     let suffix = consumed.filter(|sample| sample.time_line >= 60434041);
     let prefix = suffix
         .clone()
@@ -618,13 +627,22 @@ pub(super) fn assert_continuation_clocks(
         ]
     );
     assert_eq!(
-        digest(suffix.filter(|s| s.time_line >= 60692060).map(|s| [
+        digest(
+            suffix
+                .clone()
+                .filter(|s| (60692060..=60739738).contains(&s.time_line))
+                .map(|s| [s.site_line, s.time_line, s.raw, s.seconds as u64])
+        ),
+        "e46e21725f19c8d402a29d18b6879d0bc5cb2f52b3f36bd07792ba95e74b6662"
+    );
+    assert_eq!(
+        digest(suffix.filter(|s| s.time_line > 60739738).map(|s| [
             s.site_line,
             s.time_line,
             s.raw,
             s.seconds as u64
         ])),
-        "e46e21725f19c8d402a29d18b6879d0bc5cb2f52b3f36bd07792ba95e74b6662"
+        "f5a5aa853ee325aed34715e0e71e617a531ee3d3079140215a9e29bcecf2f9e4"
     );
 }
 
@@ -677,20 +695,34 @@ pub(super) fn assert_after_area_cast(births: &[u64], completed: &[(u64, u32)]) {
         ]
     );
     // :60691109-:60740668 allocate 58 additional objects.
-    assert_eq!(births.len(), 353);
+    assert_eq!(births.len(), 421);
     assert_eq!(
-        digest(births[295..].iter().map(|&line| [line])),
+        digest(births[295..353].iter().map(|&line| [line])),
         "6a598f615159fe3b0f5cdab8ee894c46b3ef0de9a4dd31f7082e3fa9e4582319"
     );
     // :60691102-:60740587 complete 33 additional objects.
-    assert_eq!(completed.len(), 215);
+    assert_eq!(completed.len(), 278);
     assert_eq!(
         digest(
-            completed[182..]
+            completed[182..215]
                 .iter()
                 .map(|&(line, guid)| [line, u64::from(guid)])
         ),
         "00b000b3283dab5bb2919f90ba2de195b5db6a9c83de2091c0a1c39ba60cd3d2"
+    );
+    // :60741347-:60857633 adds 68 allocations, ending at GUID33193.
+    assert_eq!(
+        digest(births[353..].iter().map(|&line| [line])),
+        "a0e5084041e52f067f5a61ec9c282b622cec4035ef6920eac7185a7ed0f4cdc3"
+    );
+    // :60741339-:60857588 adds 63 completions, ending at GUID43735.
+    assert_eq!(
+        digest(
+            completed[215..]
+                .iter()
+                .map(|&(line, guid)| [line, u64::from(guid)])
+        ),
+        "6997f91d1cd8987749c93df0448cb6b015b6fb09f84248c685722d55d678e6d9"
     );
     let births = &births[223..265];
     let completed = &completed[116..157];

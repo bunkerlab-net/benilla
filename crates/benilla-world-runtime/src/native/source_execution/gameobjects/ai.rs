@@ -14,6 +14,7 @@ const BRILL: u32 = 2118;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GameObjectScript {
     Bells,
+    OutdoorPvpNotify,
 }
 
 #[derive(Debug)]
@@ -26,6 +27,7 @@ pub struct SourceGameObjectAi {
 #[derive(Debug)]
 enum GameObjectAiPayload {
     Bells(SourceBellsAi),
+    OutdoorPvpNotify,
 }
 
 #[derive(Debug)]
@@ -49,6 +51,14 @@ impl GameObjectScript {
         context: &mut GridFactoryContext<'_, D, P>,
     ) -> Result<SourceGameObjectAi> {
         // GameObjectAI.cpp:22-25 binds the object before the derived initializers.
+        // battlegrounds.cpp:219-221 inherits the base constructor.
+        if self == Self::OutdoorPvpNotify {
+            return Ok(SourceGameObjectAi {
+                object,
+                script: self,
+                payload: GameObjectAiPayload::OutdoorPvpNotify,
+            });
+        }
         let mut area = || {
             let [x, y, z, _] = context.objects.pose(object)?.0.map(f32::from_bits);
             owner.gameobject_area(object, [x, y, z], context)
@@ -92,19 +102,51 @@ impl SourceGameObjectAi {
     pub fn bells(&self) -> Option<&SourceBellsAi> {
         match &self.payload {
             GameObjectAiPayload::Bells(bells) => Some(bells),
+            GameObjectAiPayload::OutdoorPvpNotify => None,
         }
     }
 
-    // GameObjectAI.h:60. Bells inherits the empty implementation.
+    // GameObjectAI.h:60. Both scripts inherit the empty implementation.
     pub(super) fn just_spawned(&self) {}
 
+    // GameObjectAI.h:55,65. OutdoorPvpNotify inherits both empty hooks.
+    pub(in crate::native::source_execution) fn inherits_empty_lifecycle_hooks(&self) -> bool {
+        matches!(self.payload, GameObjectAiPayload::OutdoorPvpNotify)
+    }
+
+    // battlegrounds.cpp:223-230. Bells inherits GameObjectAI.cpp:31-33.
+    pub fn on_use(&self, user: SourceObjectKind) -> Result<()> {
+        if matches!(self.payload, GameObjectAiPayload::OutdoorPvpNotify)
+            && user == SourceObjectKind::Player
+        {
+            return Err(refuse(
+                "execution.gameobject.battlegrounds_229.GetCachedZoneId_owner",
+            ));
+        }
+        Ok(())
+    }
+
     pub fn on_event_happened(&self, _event: u16, _activate: bool, _resume: bool) -> Result<()> {
+        // GameObjectAI.h:48.
+        if matches!(self.payload, GameObjectAiPayload::OutdoorPvpNotify) {
+            return Ok(());
+        }
         Err(refuse(
             "execution.gameobject.go_scripts_191.OnEventHappened_owner",
         ))
     }
 
     pub fn update_ai(&self, _diff: u32) -> Result<()> {
+        // GameObjectAI.h:40.
+        if matches!(self.payload, GameObjectAiPayload::OutdoorPvpNotify) {
+            return Ok(());
+        }
         Err(refuse("execution.gameobject.go_scripts_206.UpdateAI_owner"))
     }
+
+    // GameObjectAI.h:70. Both scripts inherit the empty implementation.
+    pub fn receive_ai_event(&self, _event: u32, _misc: u32) {}
+
+    // GameObjectAI.h:80. Both scripts inherit the empty implementation.
+    pub fn on_heartbeat(&self) {}
 }

@@ -785,8 +785,8 @@ fn tm(p: &[&str]) -> Tm {
         isdst: n(8),
     }
 }
-// ScriptDevAIMgr.cpp:380 dispatches the Silithyst Geyser factory at :60741274.
-const MAP1_NEXT_OWNER_LINE: u64 = 60741274;
+// Spell.cpp:5086 checks Fire Shield's helpful target before the first aura clock.
+const MAP1_NEXT_OWNER_LINE: u64 = 60882188;
 
 #[derive(Default)]
 struct MapThreadEvidence {
@@ -826,6 +826,7 @@ struct MapThreadEvidence {
     path_calculations: Vec<u64>,
     wmo_area_hit: Option<String>,
     bell_trace: Vec<u64>,
+    geyser_trace: Vec<u64>,
     stormwind_trace: StormwindTrace,
 }
 #[derive(Default)]
@@ -946,6 +947,41 @@ impl Inputs {
                     .entry(thread)
                     .or_default()
                     .bell_trace
+                    .push(line);
+            }
+        }
+        if thread == 7 {
+            let expected: Option<(&str, &[&str], &str)> = match line {
+                60741257 => Some((
+                    "script_factory_argument",
+                    &["176", "gameobject", "30064772421"],
+                    "30064772421",
+                )),
+                60741274 => Some(("callback_dispatch", &["12148"], "Script::GetGameObjectAI")),
+                60741277 => Some((
+                    "logical_birth",
+                    &["30064772424", "gameobject_ai"],
+                    "0x200e025925c0",
+                )),
+                60741282 => Some(("callback_ai_owner", &["30064772424"], "30064772421")),
+                60741288 => Some((
+                    "callback_result",
+                    &["12148", "pointer", "0x200e025925c0"],
+                    "30064772424",
+                )),
+                60741313 => Some(("callback_dispatch", &["12149"], "JustSpawned")),
+                60741333 => Some(("callback_dispatch", &["12150"], "OnObjectSpawn")),
+                60741339 => Some(("constructor_loader_success", &["30064772421"], "49337")),
+                _ => None,
+            };
+            if let Some((trace_kind, prefix, last)) = expected {
+                assert_eq!(kind, trace_kind);
+                assert!(p.starts_with(prefix));
+                assert_eq!(p.last(), Some(&last));
+                self.map_threads
+                    .entry(thread)
+                    .or_default()
+                    .geyser_trace
                     .push(line);
             }
         }
@@ -1122,7 +1158,7 @@ impl Inputs {
             {
                 evidence.path_calculations.push(line);
             }
-            "active_add" if evidence.active_adds.len() < if thread == 6 { 4 } else { 14 } => {
+            "active_add" if evidence.active_adds.len() < if thread == 6 { 4 } else { 16 } => {
                 evidence.active_adds.push((
                     line,
                     p[0].parse().unwrap(),
@@ -1130,7 +1166,7 @@ impl Inputs {
                     p[2].parse().unwrap(),
                 ));
             }
-            "grid_lock_inc" if evidence.active_locks.len() < if thread == 6 { 4 } else { 14 } => {
+            "grid_lock_inc" if evidence.active_locks.len() < if thread == 6 { 4 } else { 16 } => {
                 evidence.active_locks.push((line, p[1].parse().unwrap()));
             }
             "constructor_loader_candidate" if evidence.first_candidate.is_none() => {
@@ -3159,6 +3195,9 @@ pub(super) fn continue_startup(
                     60658091, 60673312,
                     // GUID43010 and GUID42746 add four calculations before the geyser.
                     60698184, 60701076, 60702866, 60709280,
+                    // GUID51838, GUID43350, and GUID43348 build nine more paths.
+                    60754228, 60755543, 60789063, 60791048, 60793022, 60795147, 60837192, 60839184,
+                    60841199,
                 ]
             );
         }
@@ -3607,8 +3646,8 @@ pub(super) fn continue_startup(
                     (60553163, 35884),
                 ]
             );
-            // 284 at :60690801 -> 317 at :60740587.
-            assert_eq!(completed_objects.len(), 317);
+            // :60741339-:60857588 adds 63 completions.
+            assert_eq!(completed_objects.len(), 380);
             assert_eq!(evidence.sql_lines, [60101153, 60113864]);
             relations_evidence::assert_after_area_cast(
                 &evidence.continuation_births,
@@ -3735,7 +3774,7 @@ pub(super) fn continue_startup(
                             "creature_instance_on_creature_create",
                         ])
                     .count(),
-                35 // 8 -> 35, trace :60692004-:60739573 follows 27 new Silithus callbacks.
+                93 // 35 -> 93, trace :60741920-:60856146 follows 58 Silithus callbacks.
             );
 
             // Nelson retains its live AI and its moved cell after completing :60687826.
@@ -3840,20 +3879,84 @@ pub(super) fn continue_startup(
                     "go_instance_data",
                 ]));
 
-            // SQL :499556, :552250 and trace :60740658-:60741274 bind the geyser.
+            assert_eq!(
+                evidence.geyser_trace,
+                [60741257, 60741274, 60741277, 60741282, 60741288, 60741313, 60741333, 60741339,]
+            );
+            // SQL :499556, :552250 bind GUID49337. It completes at :60741339.
+            let geyser = completed_objects[317];
+            let object = active_objects.get(geyser).unwrap();
+            let go = gameobjects.get(geyser).unwrap();
+            let ai = go.ai.as_ref().unwrap();
+            assert_eq!(
+                (object.database_guid, go.template.entry, go.template.kind),
+                (49337, 181598, 10)
+            );
+            let cell = continents.maps[slot].cells.registered_cell(geyser).unwrap();
+            assert_eq!(
+                (cell.x, cell.y, cell.grid.x, cell.grid.y),
+                (276, 560, 17, 35)
+            );
+            assert_eq!(
+                zone_lookups[&SpawnKey {
+                    kind: GridSpawnKind::GameObject,
+                    guid: 49337,
+                }][0],
+                1377
+            );
+            assert_eq!(gameobject_templates.get(181598).unwrap().words[37], 176);
+            assert_eq!(
+                (ai.object, ai.script),
+                (geyser, gameobjects::GameObjectScript::OutdoorPvpNotify)
+            );
+            assert!(ai.bells().is_none());
+            assert!(object.in_world && !object.active && !object.notify_on_event);
+            assert!(!active_objects.event_notified(continents.maps[slot].identity, geyser));
+            assert!(!continents.maps[slot].cells.active().contains(geyser));
+            let calls = lookups
+                .split_inclusive(|&call| call == "grid_battleground_null")
+                .nth(317)
+                .unwrap();
+            assert!(calls.ends_with(&[
+                "go49337_ai_initialize",
+                "go_ai_script_factory_lookup",
+                "go_ai_gameobject_info",
+                "go_ai_script_registry_lookup",
+                "go_ai_factory_returned",
+                "go_ai_just_spawned",
+                "go_instance_data",
+                "go_instance_on_object_spawn",
+                "grid_viewpoint_added",
+                "grid_battleground_null",
+            ]));
+
+            // :60857630-:60857660 binds GUID33193. :60857932 adds it to the map.
+            // SQL :154000 selects Fire Shield on self. The relation check at
+            // Spell.cpp:5086 precedes the location query at :60881978.
             assert_eq!(
                 (attempt.guid, attempt.kind, entry),
-                (49337, GridSpawnKind::GameObject, 181598)
+                (33193, GridSpawnKind::Creature, 6073)
             );
-            assert_eq!((attempt.cell.x(), attempt.cell.y()), (276, 560));
-            assert_eq!((attempt.grid.x, attempt.grid.y), (17, 35));
+            assert_eq!((attempt.cell.x(), attempt.cell.y()), (576, 422));
+            assert_eq!((attempt.grid.x, attempt.grid.y), (36, 26));
             assert!(!completed_objects.contains(&candidate));
-            assert!(active_objects.get(candidate).unwrap().in_world); // :60741246.
-            assert_eq!(go_zone, Some(1377));
-            let geyser = gameobjects.get(candidate).unwrap();
-            assert_eq!(geyser.template.kind, 10);
-            assert!(geyser.ai.is_none());
-            assert_eq!(go_script_id, Some(176)); // :60741257.
+            assert!(active_objects.get(candidate).unwrap().in_world);
+            assert_eq!(
+                zone_lookups[&SpawnKey {
+                    kind: GridSpawnKind::Creature,
+                    guid: 33193,
+                }][0],
+                331
+            );
+            let infernal = units.get(&active_objects, candidate).unwrap();
+            assert!(infernal
+                .spell_starts
+                .spells
+                .values()
+                .any(|spell| spell.spell == 11966
+                    && spell.caster == candidate
+                    && spell.targets.unit == Some(candidate)));
+            assert!(infernal.auras.first_aura_holder(11966).is_none());
             assert_eq!(refusal.id, active_init::CREATURE_NEXT_OWNER[1]);
             let stat_aura = SpellTemplate {
                 effect1: 6,
@@ -3917,7 +4020,7 @@ pub(super) fn continue_startup(
             zone_lookups.len());
         assert_eq!(
             continents.maps[slot].cells.active().len(),
-            if slot == 0 { 18 } else { 7 }
+            if slot == 0 { 18 } else { 8 }
         );
         let active_guids = continents.maps[slot]
             .cells
@@ -3933,7 +4036,7 @@ pub(super) fn continue_startup(
                     14776, 15423, 15424, 15508, 20802, 45525,
                 ])
             } else {
-                BTreeSet::from([27279, 27280, 27281, 29113, 35867, 52349, 590005])
+                BTreeSet::from([27279, 27280, 27281, 29113, 35867, 51838, 52349, 590005])
             }
         );
         {
@@ -3967,6 +4070,8 @@ pub(super) fn continue_startup(
                         (60602299, 1, 35867),
                         (60616735, 1, 52349),
                         (60616739, 1, 52349),
+                        (60753629, 1, 51838),
+                        (60753634, 1, 51838),
                     ]
                 }
             );
@@ -3991,6 +4096,8 @@ pub(super) fn continue_startup(
                         (60602300, 2),
                         (60616737, 3),
                         (60616741, 4),
+                        (60753632, 1),
+                        (60753637, 2),
                     ]
                 }
             );
@@ -4498,8 +4605,8 @@ pub(super) fn continue_startup(
             assert_eq!(live.spline_outbound[0].unit, candidate);
             assert_eq!(live.spline_outbound[0].transport, None);
             // Recording60433815 consumes equal-bound word12623 at Creature.cpp:1563.
-            // 13947 -> 14234, last consumed word at :60690768 -> :60741222.
-            assert_eq!(random.cursor().raw, 14234);
+            // :60881944 consumes the second Fire Shield EventAI word.
+            assert_eq!(random.cursor().raw, 14731);
             assert_eq!(evidence.words[12623], (60433815, 12623, 1799183854));
             relations_evidence::assert_words(&evidence.words);
             assert_eq!(
@@ -4545,7 +4652,7 @@ pub(super) fn continue_startup(
                     .iter()
                     .filter(|&&s| s == "creature_live_spell_movement_query")
                     .count(),
-                12 // 10 -> 12, GUID43010 and GUID42746 start movement at :60698184 and :60709280.
+                15 // GUID51838, GUID43350, and GUID43348 add three initial moves.
             );
             // Recording60409483 completes object73 after Creature.cpp:886-895.
             assert_eq!(completed_objects[72], main);
@@ -5027,19 +5134,30 @@ pub(super) fn continue_startup(
         // 60 more Idle creatures finish at :61223188-61337478.
         // Seven more Idle creatures finish at :61339475-61350360.
         // Map 1 adds 11 Idle completions, SQL :117818-117825, :117829, :117831-117832.
-        assert_eq!(idle_count, if slot == 0 { 181 } else { 34 });
+        // GUID43073 adds Idle on map 1 (SQL :117830, trace :60749065).
+        assert_eq!(idle_count, if slot == 0 { 181 } else { 35 });
+        if slot == 1 {
+            // :60777881 binds GUID42899's fixed-path movement type.
+            let fixed = completed_objects
+                .iter()
+                .copied()
+                .find(|&handle| active_objects.get(handle).unwrap().database_guid == 42899)
+                .unwrap();
+            assert_eq!(motions[&fixed].current_type(), 3);
+        }
         assert_eq!(
             geometry.pathfinder_constructor_completions,
             // WaypointMovementGenerator.cpp:264 constructs per BuildIntPath.
             // Map 0 records 93 paths for 57 creatures, through :61345094.
-            // Map 1 calculates 18 -> 22 paths for 8 -> 10 waypoint creatures.
+            // Map 1 calculates 31 paths for 13 waypoint creatures.
             // Static Idle constructs none (MotionMaster.cpp:79-81).
             pathfinders_before + motion_initializations - idle_count
                 + if slot == 0 {
                     // Bolvar initializes Idle (:61350367).
                     93 - 57 - 1
                 } else {
-                    22 - 10
+                    // PathMovementGenerator.cpp:240 initializes fixed paths without a PathFinder.
+                    31 - 13 - 1
                 }
         );
         assert_eq!(
@@ -5384,9 +5502,9 @@ pub(super) fn continue_startup(
             ))
         );
         assert_eq!(attempt.guid, if slot == 0 { 18 } else { 28044 });
-        // :61339477-61350362 adds 17 map-0 births. Map 1 advances 295 -> 353
-        // from :60690842 to :60740668.
-        assert_eq!(candidates, if slot == 0 { 1037 } else { 353 });
+        // :61339477-61350362 adds 17 map-0 births. Map 1 adds 68 births
+        // at :60741347-:60857633.
+        assert_eq!(candidates, if slot == 0 { 1037 } else { 421 });
         assert_eq!(entry, if slot == 0 { 3211 } else { 4692 });
         if slot == 0 {
             assert_eq!(init_entry_fields, None);
@@ -5511,11 +5629,10 @@ pub(super) fn continue_startup(
                     // The next 26 reads run from trace :60554170 through :60601839.
                     // Six further probes run from :60608903 through :60616191.
                     // Eleven more dry probes (:60623557 through :60649738).
-                    // 90 -> 117 and 86 -> 113 dry. The 27 new checks start at
-                    // :60691734 (GUID43015) and end at :60739349 (GUID42962).
-                    reached_441: 117,
+                    // The next 52 pre-world probes run from :60741676 through :60855817.
+                    reached_441: 169,
                     swimming_set: 4,
-                    swimming_not_set: 113,
+                    swimming_not_set: 165,
                     ..SourceCreatureSwimmingCensus::default()
                 }
             );
@@ -5678,8 +5795,8 @@ pub(super) fn continue_startup(
                 attempt.cell.y(),
             ))
         );
-        // :61350360 completes GUID10494. Map 1 advances 284 -> 317 (:60690801 -> :60740587).
-        assert_eq!(completed, if slot == 0 { 963 } else { 317 });
+        // :61350360 completes GUID10494. Map 1 reaches GUID43735 at :60857588.
+        assert_eq!(completed, if slot == 0 { 963 } else { 380 });
         println!(
             "F6_VISIBILITY map={slot} census={visibility:?} invalidated_camera_iterator_stock_reach={}",
             visibility.cameras
@@ -5704,7 +5821,7 @@ pub(super) fn continue_startup(
             if slot == 0 {
                 MAP0_NEXT_RAW as u64
             } else {
-                after_pools_cursor + 2339 // 2052 -> 2339; last word :60690768 -> :60741222.
+                after_pools_cursor + 2836 // Last word at :60881944.
             }
         );
         matched_map_words[slot] = random.cursor().raw;
@@ -5776,7 +5893,7 @@ pub(super) fn continue_startup(
             evidence.pool_snapshot_line.unwrap(),
             encounters.by_map(slot as u32).len(),
             refusal.id,
-            if slot == 0 { MAP0_NEXT_SOURCE } else { "ScriptDevAIMgr.cpp:380" },
+            if slot == 0 { MAP0_NEXT_SOURCE } else { "Spell.cpp:5086" },
         );
         owner.states = states;
         let raw = trace

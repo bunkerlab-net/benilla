@@ -1402,6 +1402,46 @@ fn full_deactivation_callback_order_keeps_collision_before_loot_ai_and_visibilit
 }
 
 #[test]
+fn gameobject_outdoor_pvp_notify_skips_loot_and_despawn_ai_phases() {
+    for (script, bells) in [
+        (b"go_outdoor_pvp_notify".as_slice(), false),
+        (b"go_bells".as_slice(), true),
+    ] {
+        let fixture = || {
+            Fixture::with(spawn(), false, |factory| {
+                register_gameobject_script(factory, script);
+            })
+        };
+        let mut f = fixture();
+        f.factory.life().refuse_phase = Some(Phase::LootStateChange(None));
+        let loot = f.apply(|o, h, c| set_source_gameobject_loot_state(o, h, 1, None, c));
+        if bells {
+            assert_eq!(
+                loot.unwrap_err(),
+                Phase::LootStateChange(None).missing_owner()
+            );
+        } else {
+            loot.unwrap();
+        }
+        let mut f = fixture();
+        f.factory.life().refuse_phase = Some(Phase::AiJustDespawned);
+        f.factory.objects.get_mut(f.object).unwrap().loot_state = 3;
+        let update = f.apply(|o, h, c| update_source_gameobject(o, h, 100, c));
+        if bells {
+            assert_eq!(update.unwrap_err(), Phase::AiJustDespawned.missing_owner());
+        } else {
+            update.unwrap();
+            let object = f.object;
+            assert!(f
+                .factory
+                .life()
+                .events
+                .contains(&Event::Phase(object, Phase::InstanceDespawn)));
+        }
+    }
+}
+
+#[test]
 fn absent_model_definition_skips_collision_without_substituting_an_empty_dynamic_owner() {
     // GameObject.cpp:2089-2094 skips only an actually absent constructed model.
     let mut f = Fixture::with(spawn(), false, |o| o.life().definitions.clear());

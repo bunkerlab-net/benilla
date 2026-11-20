@@ -350,6 +350,29 @@ fn write_loot_state<D: GridDefinitions, P: GridProductOwner, F: GameObjectFactor
     collision(owner, object, grid)
 }
 
+fn dispatch_loot_or_despawn_ai<
+    D: GridDefinitions,
+    P: ResidencyProductOwner,
+    F: GameObjectLifecycleOwner<D, P>,
+>(
+    owner: &mut F,
+    object: ObjectHandle,
+    phase: GameObjectLifecyclePhase,
+    context: &mut GameObjectLifecycleContext<'_, '_, D, P>,
+) -> Result<()> {
+    // GameObjectAI.h:55,65. The notify script inherits the empty hooks.
+    if owner
+        .gameobjects()
+        .get(object)?
+        .ai
+        .as_ref()
+        .is_some_and(|ai| ai.inherits_empty_lifecycle_hooks())
+    {
+        return Ok(());
+    }
+    owner.go_lifecycle_phase(object, phase, context)
+}
+
 /// GameObject.cpp:2230-2251 on the Create path, before AI initialization.
 pub(super) fn set_source_capture_point_slider<
     D: GridDefinitions,
@@ -366,10 +389,17 @@ pub(super) fn set_source_capture_point_slider<
     if !slider.locked {
         write_loot_state(owner, object, 2, grid)?;
         // GameObject.cpp:2073. Only Create reaches this setter.
-        require(
-            owner.gameobjects().get(object)?.ai.is_none(),
-            "execution.gameobject.GameObject_2074.OnLootStateChange_owner",
-        )?;
+        if owner
+            .gameobjects()
+            .get(object)?
+            .ai
+            .as_ref()
+            .is_some_and(|ai| !ai.inherits_empty_lifecycle_hooks())
+        {
+            return Err(refuse(
+                "execution.gameobject.GameObject_2074.OnLootStateChange_owner",
+            ));
+        }
     }
     require(
         (-2_147_483_648.0..2_147_483_648.0).contains(&slider.value),
@@ -402,7 +432,8 @@ fn loot<D: GridDefinitions, P: ResidencyProductOwner, F: GameObjectLifecycleOwne
     context: &mut GameObjectLifecycleContext<'_, '_, D, P>,
 ) -> Result<()> {
     write_loot_state(owner, object, state, context.grid)?;
-    owner.go_lifecycle_phase(
+    dispatch_loot_or_despawn_ai(
+        owner,
         object,
         GameObjectLifecyclePhase::LootStateChange(user),
         context,
@@ -509,7 +540,7 @@ fn delete_inner<D: GridDefinitions, P: ResidencyProductOwner, F: GameObjectLifec
         &mut owner.gameobjects().get_mut(object)?.flags,
         flags,
     )?;
-    owner.go_lifecycle_phase(object, Phase::AiJustDespawned, context)?;
+    dispatch_loot_or_despawn_ai(owner, object, Phase::AiJustDespawned, context)?;
     owner.go_lifecycle_phase(object, Phase::InstanceDespawn, context)?;
     let database = context.grid.objects.get(object)?.database_guid;
     if let Some(pool) = owner.go_pool(database)? {
@@ -741,7 +772,7 @@ fn deactivate<D: GridDefinitions, P: ResidencyProductOwner, F: GameObjectLifecyc
     if value.respawn_delay == 0 {
         return Ok(UpdateFlow::Return);
     }
-    owner.go_lifecycle_phase(object, Phase::AiJustDespawned, context)?;
+    dispatch_loot_or_despawn_ai(owner, object, Phase::AiJustDespawned, context)?;
     owner.go_lifecycle_phase(object, Phase::InstanceDespawn, context)?;
     let value = owner.gameobjects().get(object)?;
     if !value.respawn_overridden {

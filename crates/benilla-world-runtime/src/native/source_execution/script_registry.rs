@@ -160,6 +160,9 @@ impl SourceScriptRegistry {
                 })?;
                 return match name {
                     "go_bells" => Ok(Some(super::gameobjects::GameObjectScript::Bells)),
+                    "go_outdoor_pvp_notify" => {
+                        Ok(Some(super::gameobjects::GameObjectScript::OutdoorPvpNotify))
+                    }
                     _ => Err(refuse(&format!(
                         "{SCRIPTDEV_GET_GAMEOBJECT_AI_OWNER}.{name}"
                     ))),
