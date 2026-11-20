@@ -1756,13 +1756,14 @@ fn gameobject_bells_reads_both_areas_and_retains_constructor_state() {
         let mut world = World::new();
         let handle = loaded(world.load(&mut factory, spawn).unwrap());
         let ai = factory.objects.get(handle).unwrap().ai.as_ref().unwrap();
+        let bells = ai.bells().unwrap();
         assert_eq!(
             (
                 ai.object,
-                ai.bell_tolls,
-                ai.bell_sound,
-                ai.bell_timer,
-                ai.bell_plays_to_zone
+                bells.tolls,
+                bells.sound,
+                bells.timer,
+                bells.plays_to_zone
             ),
             (handle, 0, sound, 0, zone)
         );

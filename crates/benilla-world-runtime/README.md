@@ -2071,9 +2071,10 @@ resets both timers before `CreatureAI::Reset` (`CreatureAI.cpp:49-53,124-128`).
 Construction and respawn each draw twice, including `urand(0, 0)`.
 The seal16 map 0 replay constructs Chicken GUID4228.
 
-The live GameObject retains the `go_bells` AI and its sound and routing state
-(`go_scripts.cpp:113-189`). The factory reads the current area twice, adds
-event notification, then activates the object (`Object.cpp:2566-2597`).
+The live GameObject retains the `go_bells` AI. Its bell payload holds the
+toll count, sound, timer, and routing (`go_scripts.cpp:113-189`). The factory
+reads the current area twice, adds event notification, then activates the
+object (`Object.cpp:2566-2597`).
 After the factory returns, `GameObject.cpp:2528-2537` calls `JustSpawned` and
 the continent's inherited `OnObjectSpawn`. Bell event and update dispatch
 remain named refusals (`go_scripts.cpp:191,206`).

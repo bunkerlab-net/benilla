@@ -246,8 +246,9 @@ is meaningful without a bounded content/mechanics inventory.
   sets the flag before map add. The construction path uses the default object
   radius (`GameObject.cpp:2209-2212`). The script factory clears AI for a null
   slot and retains a live AI for `go_bells` (`ScriptDevAIMgr.cpp:373-381`).
-  The bell reads the current area twice, registers for events, and activates
-  (`go_scripts.cpp:113-189`, `Object.cpp:2566-2597`). `GameObject.cpp:2528-2537`
+  Its live payload holds bell state only. The bell reads the current area
+  twice, registers for events, and activates (`go_scripts.cpp:113-189`,
+  `Object.cpp:2566-2597`). `GameObject.cpp:2528-2537`
   then calls `JustSpawned` and the continent's inherited `OnObjectSpawn`.
   Other non-null script factories, bell event and update dispatch, and
   pointer-ordered event notification refuse by name.

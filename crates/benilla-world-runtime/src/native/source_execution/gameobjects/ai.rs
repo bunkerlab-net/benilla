@@ -20,10 +20,20 @@ pub enum GameObjectScript {
 pub struct SourceGameObjectAi {
     pub object: ObjectHandle,
     pub script: GameObjectScript,
-    pub bell_tolls: u32,
-    pub bell_sound: u32,
-    pub bell_timer: u32,
-    pub bell_plays_to_zone: bool,
+    payload: GameObjectAiPayload,
+}
+
+#[derive(Debug)]
+enum GameObjectAiPayload {
+    Bells(SourceBellsAi),
+}
+
+#[derive(Debug)]
+pub struct SourceBellsAi {
+    pub tolls: u32,
+    pub sound: u32,
+    pub timer: u32,
+    pub plays_to_zone: bool,
 }
 
 impl GameObjectScript {
@@ -47,25 +57,27 @@ impl GameObjectScript {
         let ai = SourceGameObjectAi {
             object,
             script: self,
-            bell_tolls: 0,
-            bell_sound: match entry {
-                HORDE_BELL => match area()? {
-                    UNDERCITY | BRILL | TARREN_MILL => 6595,
-                    _ => 6675,
+            payload: GameObjectAiPayload::Bells(SourceBellsAi {
+                tolls: 0,
+                sound: match entry {
+                    HORDE_BELL => match area()? {
+                        UNDERCITY | BRILL | TARREN_MILL => 6595,
+                        _ => 6675,
+                    },
+                    ALLIANCE_BELL => match area()? {
+                        IRONFORGE_LOCAL | IRONFORGE => 7234,
+                        DARNASSUS => 6674,
+                        _ => 6594,
+                    },
+                    _ => 0,
                 },
-                ALLIANCE_BELL => match area()? {
-                    IRONFORGE_LOCAL | IRONFORGE => 7234,
-                    DARNASSUS => 6674,
-                    _ => 6594,
+                timer: 0,
+                plays_to_zone: match entry {
+                    HORDE_BELL => area()? == UNDERCITY,
+                    ALLIANCE_BELL => matches!(area()?, DARNASSUS | IRONFORGE),
+                    _ => false,
                 },
-                _ => 0,
-            },
-            bell_timer: 0,
-            bell_plays_to_zone: match entry {
-                HORDE_BELL => area()? == UNDERCITY,
-                ALLIANCE_BELL => matches!(area()?, DARNASSUS | IRONFORGE),
-                _ => false,
-            },
+            }),
         };
         context.objects.set_notify_on_event_state(object, true)?;
         let active = context.set_active_object_state(object, true, owner)?;
@@ -77,6 +89,12 @@ impl GameObjectScript {
 }
 
 impl SourceGameObjectAi {
+    pub fn bells(&self) -> Option<&SourceBellsAi> {
+        match &self.payload {
+            GameObjectAiPayload::Bells(bells) => Some(bells),
+        }
+    }
+
     // GameObjectAI.h:60. Bells inherits the empty implementation.
     pub(super) fn just_spawned(&self) {}
 

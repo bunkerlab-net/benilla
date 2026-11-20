@@ -3147,10 +3147,10 @@ pub(super) fn continue_startup(
             );
             assert_eq!(
                 (
-                    ai.bell_tolls,
-                    ai.bell_sound,
-                    ai.bell_timer,
-                    ai.bell_plays_to_zone
+                    ai.bells().unwrap().tolls,
+                    ai.bells().unwrap().sound,
+                    ai.bells().unwrap().timer,
+                    ai.bells().unwrap().plays_to_zone
                 ),
                 (0, 6675, 0, false)
             );
