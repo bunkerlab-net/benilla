@@ -156,6 +156,12 @@ fn client_update_stance_writes_the_rage_form_and_power_type_words() {
             auras: &mut unit.auras,
             visibility: &mut unit.visibility,
             resistances: &mut unit.resistances,
+            damage: DamageAuraTarget::new(
+                &mut unit.creature_damage,
+                &unit.loaded_creature,
+                unit.flags,
+                unit.shapeshift_form,
+            ),
             can_modify_stats: true,
             threat_modifier: &mut unit.threat_modifier,
             power_fields: &mut unit.power_fields,

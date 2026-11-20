@@ -269,6 +269,7 @@ fn authored_area_effect_inserts_a_living_target_and_skips_a_dead_target() {
     struct Hit {
         auras: SourceUnitAuras,
         visibility: SourceUnitVisibility,
+        damage: SourceCreatureDamage,
         clocks: Vec<i64>,
     }
     impl SpellAuraHitOwner for Hit {
@@ -284,6 +285,7 @@ fn authored_area_effect_inserts_a_living_target_and_skips_a_dead_target() {
             Ok(SelfAuraHitTarget {
                 auras: &mut self.auras,
                 visibility: &mut self.visibility,
+                damage: DamageAuraTarget::unmodified(&mut self.damage),
             })
         }
         fn apply_inserted_aura_holder(
@@ -315,6 +317,7 @@ fn authored_area_effect_inserts_a_living_target_and_skips_a_dead_target() {
             let mut hit = Hit {
                 auras: SourceUnitAuras::default(),
                 visibility: SourceUnitVisibility::default(),
+                damage: SourceCreatureDamage::default(),
                 clocks: Vec::new(),
             };
             s.hit_self_auras(

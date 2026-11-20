@@ -340,6 +340,74 @@ fn corpse_decay_precedes_interaction_config_and_world_boss_immunity() {
 }
 
 #[test]
+fn update_entry_repeats_rogue_damage_with_live_agility_and_disarm() {
+    let mut row = template();
+    row.words[21] = 0x0020_0000; // Unit.h:502.
+    row.words[36] = 4;
+    let mut spawn = spawn();
+    spawn.unit_flags = -1;
+    let entry = LoadedCreatureEntry {
+        original: &row,
+        effective: &row,
+        spawn: &spawn,
+        movement: 0,
+        map: 0,
+    };
+    let mut objects = SourceObjects::default();
+    let unit = objects.construct(6, SourceObjectKind::Creature).unwrap();
+    let mut live = SourceUnitFields::constructed_creature();
+    CreatureConstruction::init_loaded_entry_base(&mut live, &row);
+    CreatureConstruction::apply_loaded_model(&mut live, &row, MODEL).unwrap();
+    live.loaded_creature.equipment.slots[0].info[0] = 2;
+    let stats = init::SourceLevelStats {
+        level: 5,
+        create_attributes_bits: [10.0f32.to_bits(), 8.0f32.to_bits(), 0, 0, 0],
+        attributes: [10, 8, 0, 0, 0],
+        create_health: 1,
+        create_mana: 0,
+        maximum_health: 1,
+        health: 1,
+        maximum_power: [0; 5],
+        power: [0; 5],
+        armor_base_bits: 0,
+        armor: 16,
+        attack_power: [14, 28],
+        base_attack_power_bits: [22.0f32.to_bits(), 28.0f32.to_bits()],
+        weapon_damage_bits: [[1.0f32.to_bits(), 2.0f32.to_bits()]; 3],
+        damage_multiplier_bits: 1.0f32.to_bits(),
+    };
+    live.apply_source_level(&objects, unit, &stats, 4).unwrap();
+    assert!(!live.loaded_creature.can_modify_stats);
+    assert_eq!(live.creature_damage.attack_power_words(), [14, 28]);
+    assert_eq!(
+        live.creature_damage.damage_bits(),
+        [
+            [0x4000_0000, 0x4040_0000],
+            [0x3f00_0000; 2],
+            [0x4040_0000, 0x4080_0000]
+        ]
+    );
+    CreatureConstruction::update_loaded_entry_flags(
+        &objects,
+        unit,
+        &mut live,
+        &entry,
+        &BTreeMap::new(),
+    )
+    .unwrap();
+    assert!(live.loaded_creature.can_modify_stats);
+    assert_eq!(live.creature_damage.attack_power_words(), [22, 28]);
+    assert_eq!(
+        live.creature_damage.damage_bits(),
+        [
+            [0x3fa4_9249, 0x3fe4_9249],
+            [0x3f49_2492; 2],
+            [0x4040_0000, 0x4080_0000]
+        ]
+    );
+}
+
+#[test]
 fn init_entry_class_power_and_select_level_mana_agree_for_all_source_cases() {
     let mut row = template();
     let value = init::SourceLevelStats {

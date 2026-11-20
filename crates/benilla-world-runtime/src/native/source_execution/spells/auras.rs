@@ -206,6 +206,7 @@ pub struct SelfAuraTarget<'a> {
 pub struct SelfAuraRemoval<'a> {
     pub unit: SelfAuraTarget<'a>,
     pub visibility: &'a mut SourceUnitVisibility,
+    pub damage: DamageAuraTarget<'a>,
 }
 
 /// Unit.h:242-254.
@@ -316,6 +317,7 @@ pub fn creature_self_aura_duration(stores: &SourceSpellStores, t: &SpellTemplate
 pub struct SelfAuraHitTarget<'a> {
     pub auras: &'a mut SourceUnitAuras,
     pub visibility: &'a mut SourceUnitVisibility,
+    pub damage: DamageAuraTarget<'a>,
 }
 
 /// Operands and continuations of the immediate creature self-aura hit.
@@ -463,6 +465,7 @@ impl SourceSpell {
                 &mut SelfAuraRemoval {
                     unit: live,
                     visibility: target.visibility,
+                    damage: target.damage,
                 },
                 stand,
             )?;
@@ -785,6 +788,9 @@ impl SourceUnitAuras {
             Some(SelfAuraApplyHandler::Invisibility) => {
                 self.handle_invisibility(stores, live, aura.misc, aura.amount, false, true)
             }
+            Some(SelfAuraApplyHandler::DamagePercent) => {
+                handle_damage_percent_done(live.unit, &mut live.damage, t, aura, Some(mode), true)
+            }
             Some(SelfAuraApplyHandler::Ghost) => {
                 self.handle_aura_ghost(live.unit.objects, live.unit.target, false, live.unit.player)
             }
@@ -1091,6 +1097,7 @@ pub struct SelfAuraApplication<'a> {
     pub auras: &'a mut SourceUnitAuras,
     pub visibility: &'a mut SourceUnitVisibility,
     pub resistances: &'a mut SourceUnitResistances,
+    pub damage: DamageAuraTarget<'a>,
     pub can_modify_stats: bool,
     pub threat_modifier: &'a mut [f32; 7],
     pub power_fields: &'a mut Option<SourceUnitPowerFields>,
@@ -1113,6 +1120,7 @@ pub(crate) enum SelfAuraApplyHandler {
     PeriodicTrigger,
     Shapeshift,
     ProcTrigger,
+    DamagePercent,
     NoImmediateEffect,
     Ghost,
 }
@@ -1129,6 +1137,7 @@ impl SelfAuraApplyHandler {
             23 => Self::PeriodicTrigger,
             36 => Self::Shapeshift,
             42 => Self::ProcTrigger,
+            79 => Self::DamagePercent,
             87 => Self::NoImmediateEffect, // SpellAuras.cpp:148.
             95 => Self::Ghost,
             _ => return None,
@@ -1168,6 +1177,7 @@ pub fn apply_self_aura_holder(
                     &mut SelfAuraRemoval {
                         unit,
                         visibility: live.visibility,
+                        damage: live.damage.reborrow(*live.form),
                     },
                     misc,
                     amount,
@@ -1186,6 +1196,9 @@ pub fn apply_self_aura_holder(
                 live.can_modify_stats,
                 unit.player,
             )?,
+            Some(SelfAuraApplyHandler::DamagePercent) => {
+                handle_damage_percent_done(unit, &mut live.damage, t, aura, None, true)?
+            }
             Some(SelfAuraApplyHandler::Ghost) => {
                 live.auras
                     .handle_aura_ghost(unit.objects, unit.target, true, unit.player)?;
@@ -1271,6 +1284,63 @@ pub fn apply_self_aura_holder(
         .self_aura_application()
         .auras
         .apply_holder_boosts(stores, t, holder)
+}
+
+// SpellAuras.cpp:4114-4177. The magic multiplier is read later from the aura list.
+fn handle_damage_percent_done(
+    unit: SelfAuraTarget<'_>,
+    damage: &mut DamageAuraTarget<'_>,
+    spell: &SpellTemplate,
+    aura: &SourceAura,
+    remove: Option<AuraRemoveMode>,
+    real: bool,
+) -> Result<()> {
+    use super::damage::DamageAttack;
+    use super::resistance::{StatModifierUnit, UnitMod};
+
+    require(
+        !real || !unit.player,
+        "execution.spells.Aura_4123.GetWeaponForAttack_owner",
+    )?;
+    if aura.misc & 1 != 0 && (spell.equippeditemclass == -1 || !unit.player) {
+        let target = StatModifierUnit {
+            objects: unit.objects,
+            unit: unit.target,
+            can_modify: damage.can_modify_stats,
+            player: unit.player,
+            totem: unit.totem,
+        };
+        for attack in [
+            DamageAttack::Mainhand,
+            DamageAttack::Offhand,
+            DamageAttack::Ranged,
+        ] {
+            target.handle_stat_modifier(
+                UnitMod::Damage(damage.damage, attack, damage.weapon),
+                ResistanceModifier::TotalPercent,
+                aura.amount as f32,
+                remove.is_none(),
+            )?;
+        }
+        require(
+            !unit.player,
+            "execution.spells.Aura_4147.ApplyModSignedFloatValue_owner",
+        )?;
+    }
+    if aura.misc & 0x7e == 0 {
+        return Ok(());
+    }
+    if spell.equippeditemclass != -1 || spell.equippediteminventorytypemask != 0 {
+        return Ok(());
+    }
+    require(
+        !unit.player,
+        "execution.spells.Aura_4173.ApplyModSignedFloatValue_owner",
+    )?;
+    require(
+        remove != Some(AuraRemoveMode::Expire) || spell.id != 30423,
+        "execution.spells.Aura_4177.CastSpell_38639_owner",
+    )
 }
 
 impl SourceUnitAuras {
@@ -1589,6 +1659,7 @@ impl SelfAuraApplication<'_> {
             &mut SelfAuraRemoval {
                 unit: self.unit,
                 visibility: self.visibility,
+                damage: self.damage.reborrow(*self.form),
             },
             0x0000_8000,
         )?;
@@ -1697,6 +1768,12 @@ fn inserting_without_a_pending_holder_refuses_before_writing_slots() {
                     control_guids: &SourceControlGuids::default(),
                 },
                 visibility: &mut SourceUnitVisibility::default(),
+                damage: DamageAuraTarget::new(
+                    &mut SourceCreatureDamage::default(),
+                    &SourceLoadedCreatureFields::default(),
+                    0,
+                    0,
+                ),
             },
             0,
         )
@@ -1744,3 +1821,7 @@ mod aura_mark_tests;
 #[cfg(test)]
 #[path = "visibility_aura_tests.rs"]
 mod visibility_aura_tests;
+
+#[cfg(test)]
+#[path = "damage_aura_tests.rs"]
+mod damage_aura_tests;

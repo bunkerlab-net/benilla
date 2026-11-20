@@ -137,6 +137,11 @@ is meaningful without a bounded content/mechanics inventory.
   modifier updates creature armor (`SpellAuras.cpp:3367-3387`,
   `StatSystem.cpp:664-672`). `AreaAura::Update` belongs to a later unit tick
   and refuses at `SpellAuras.cpp:410`.
+  Damage percent aura 79 changes all three physical damage groups through
+  the same `HandleStatModifier` as resistance (`Unit.cpp:8970-9040`). It
+  recalculates creature min/max fields on apply and unapply when stats can
+  change. The generic magic branch writes Player fields only. Its expired
+  spell 30423 cast remains unbound (`SpellAuras.cpp:4114-4177`).
   Invisibility type 18 adds or subtracts signed strength and sets the mask
   from the resulting value. The live unit owns the mask, values, and mode
   (`ObjectVisibility.cpp:35-41,120-130`, `Unit.cpp:359`, `SpellAuras.cpp:2631-2679`).
@@ -162,12 +167,10 @@ is meaningful without a bounded content/mechanics inventory.
   (`CreatureEventAIMgr.cpp:979-996`, `ScriptMgr.h:679`).
   Startup matches the template SELECT at trace :52620961 before the EventAI
   SELECT at :58819675. Runtime string selection refuses at `CreatureEventAI.cpp:1262`.
-  Map 0 matches 429 completions, 451 allocations, 28,714 random words,
-  303 clocks, and two SQL requests. Three entry-3094 creatures apply
-  addon spell 4986 before map entry (trace :60773227-60791532).
-  GUID12058 casts Defensive Stance and queues its 7376 boost. Type 87 has
-  no immediate effect (`SpellAuras.cpp:148`, `SpellAuras.h:283-286`).
-  The boost stops at type 79 (`SpellAuras.cpp:4114`, trace :60985213-60985257).
+  Map 0 matches 767 completions, 797 allocations, 30,766 random words,
+  573 clocks, and two SQL requests. GUID12058 finishes Defensive Stance
+  and its 7376 boost (trace :60985257). GUID89544 stops at Frost Armor's
+  effect level scaling (`Object.cpp:2934`, trace :61221527-61221529).
   GuardAI construction and its inherited `SpellListChanged` and
   `JustRespawned` callbacks complete for GUID4242 (`Creature.cpp:883-887`).
   `npc_chicken_cluck` completes construction and both resets for GUID4228.

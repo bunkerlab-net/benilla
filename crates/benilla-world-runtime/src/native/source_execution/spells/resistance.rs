@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
 //! The resistance groups of Unit.cpp:367-386,8970-9034,9079-9101.
+use super::damage::{CreatureWeaponState, DamageAttack};
 use super::*;
 
 #[derive(Clone, Copy, Debug)]
@@ -56,6 +57,77 @@ impl StatModifierGroup {
             0.0
         } else {
             self.total_percent
+        }
+    }
+}
+
+pub(super) enum UnitMod<'a> {
+    Resistance(&'a mut SourceUnitResistances, usize),
+    Damage(
+        &'a mut SourceCreatureDamage,
+        DamageAttack,
+        CreatureWeaponState<'a>,
+    ),
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct StatModifierUnit<'a> {
+    pub objects: &'a SourceObjects,
+    pub unit: ObjectHandle,
+    pub can_modify: bool,
+    pub player: bool,
+    pub totem: bool,
+}
+
+impl StatModifierUnit<'_> {
+    // Unit.cpp:8970-9040. The modifier write precedes the CanModifyStats test.
+    pub(super) fn handle_stat_modifier(
+        self,
+        mut group: UnitMod<'_>,
+        modifier: ResistanceModifier,
+        amount: f32,
+        apply: bool,
+    ) -> Result<()> {
+        match &mut group {
+            UnitMod::Resistance(state, school) => &mut state.groups[*school],
+            UnitMod::Damage(state, attack, _) => state.group(*attack),
+        }
+        .modify(modifier, amount, apply);
+        if !self.can_modify {
+            return Ok(());
+        }
+        match group {
+            UnitMod::Resistance(state, 0) => {
+                require(
+                    !self.player,
+                    "execution.spells.Unit_9019.Player_UpdateArmor_owner",
+                )?;
+                state.update_armor(self.objects, self.unit)
+            }
+            UnitMod::Resistance(..) => {
+                Err(refuse("execution.spells.Unit_9033.UpdateResistances_owner"))
+            }
+            UnitMod::Damage(state, attack, weapon) => {
+                require(
+                    !self.player,
+                    match attack {
+                        DamageAttack::Mainhand => {
+                            "execution.spells.Unit_9038.Player_UpdateDamagePhysical_owner"
+                        }
+                        DamageAttack::Offhand => {
+                            "execution.spells.Unit_9039.Player_UpdateDamagePhysical_owner"
+                        }
+                        DamageAttack::Ranged => {
+                            "execution.spells.Unit_9040.Player_UpdateDamagePhysical_owner"
+                        }
+                    },
+                )?;
+                if self.totem {
+                    // Totem.h:64 has an empty virtual override.
+                    return Ok(());
+                }
+                state.update_damage_physical(self.objects, self.unit, weapon, attack)
+            }
         }
     }
 }
@@ -175,22 +247,24 @@ impl SourceUnitResistances {
         if amount == 0 {
             return Ok(());
         }
+        let target = StatModifierUnit {
+            objects,
+            unit,
+            can_modify,
+            player,
+            totem: false,
+        };
         for school in 0..self.groups.len() {
             if mask & (1 << school) == 0 {
                 continue;
             }
             let old = self.total(school);
-            self.groups[school].modify(ResistanceModifier::TotalValue, amount as f32, apply);
-            if can_modify {
-                if school != 0 {
-                    return Err(refuse("execution.spells.Unit_9033.UpdateResistances_owner"));
-                }
-                require(
-                    !player,
-                    "execution.spells.Unit_9019.Player_UpdateArmor_owner",
-                )?;
-                self.update_armor(objects, unit)?;
-            }
+            target.handle_stat_modifier(
+                UnitMod::Resistance(self, school),
+                ResistanceModifier::TotalValue,
+                amount as f32,
+                apply,
+            )?;
             let _change = self.total(school) - old;
             require(
                 !player,

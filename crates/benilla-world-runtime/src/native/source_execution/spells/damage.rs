@@ -8,6 +8,57 @@ const ATTACK_POWER_FIELDS: [[usize; 3]; 2] = [[0xa5, 0xa6, 0xa7], [0xa8, 0xa9, 0
 const DAMAGE_FIELDS: [[usize; 2]; 3] = [[0x86, 0x87], [0x88, 0x89], [0xab, 0xac]];
 
 #[derive(Clone, Copy)]
+pub(super) enum DamageAttack {
+    Mainhand,
+    Offhand,
+    Ranged,
+}
+
+pub struct DamageAuraTarget<'a> {
+    pub(super) damage: &'a mut SourceCreatureDamage,
+    pub(super) weapon: CreatureWeaponState<'a>,
+    pub(super) can_modify_stats: bool,
+}
+
+impl<'a> DamageAuraTarget<'a> {
+    pub fn new(
+        damage: &'a mut SourceCreatureDamage,
+        creature: &'a SourceLoadedCreatureFields,
+        flags: u32,
+        form: u32,
+    ) -> Self {
+        Self {
+            damage,
+            weapon: CreatureWeaponState {
+                equipment: &creature.equipment,
+                can_dual_wield: creature.can_dual_wield,
+                flags,
+                form,
+            },
+            can_modify_stats: creature.can_modify_stats,
+        }
+    }
+
+    pub(super) fn reborrow(&mut self, form: u32) -> DamageAuraTarget<'_> {
+        DamageAuraTarget {
+            damage: self.damage,
+            weapon: CreatureWeaponState {
+                form,
+                ..self.weapon
+            },
+            can_modify_stats: self.can_modify_stats,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn unmodified(damage: &'a mut SourceCreatureDamage) -> Self {
+        static CREATURE: std::sync::LazyLock<SourceLoadedCreatureFields> =
+            std::sync::LazyLock::new(SourceLoadedCreatureFields::default);
+        Self::new(damage, &CREATURE, 0, 0)
+    }
+}
+
+#[derive(Clone, Copy)]
 pub(in crate::native::source_execution) struct CreatureWeaponState<'a> {
     pub equipment: &'a SourceCreatureEquipment,
     pub can_dual_wield: bool,
@@ -72,6 +123,10 @@ impl Default for SourceCreatureDamage {
 }
 
 impl SourceCreatureDamage {
+    pub(super) fn group(&mut self, attack: DamageAttack) -> &mut StatModifierGroup {
+        &mut self.groups[attack as usize]
+    }
+
     pub(in crate::native::source_execution) fn load_level_operands(
         &mut self,
         stats: &benilla_sim::creature_init::SourceLevelStats,
@@ -158,10 +213,10 @@ impl SourceCreatureDamage {
             multiplier,
         )?;
         if ranged {
-            self.update_damage_physical(objects, unit, weapon, 2)
+            self.update_damage_physical(objects, unit, weapon, DamageAttack::Ranged)
         } else {
-            self.update_damage_physical(objects, unit, weapon, 0)?;
-            self.update_damage_physical(objects, unit, weapon, 1)
+            self.update_damage_physical(objects, unit, weapon, DamageAttack::Mainhand)?;
+            self.update_damage_physical(objects, unit, weapon, DamageAttack::Offhand)
         }
     }
 
@@ -188,13 +243,14 @@ impl SourceCreatureDamage {
     }
 
     // StatSystem.cpp:739-806; Unit.cpp:9190-9195.
-    fn update_damage_physical(
+    pub(super) fn update_damage_physical(
         &mut self,
         objects: &SourceObjects,
         unit: ObjectHandle,
         weapon: CreatureWeaponState<'_>,
-        attack: usize,
+        attack: DamageAttack,
     ) -> Result<()> {
+        let attack = attack as usize;
         let group = &self.groups[attack];
         let base = group.base_value + (self.total_attack_power(attack)? / 14.0);
         let usable = weapon.has_weapon_for_attack(attack);
@@ -239,3 +295,7 @@ impl SourceCreatureDamage {
         self.ap.map(|value| value as u32)
     }
 }
+
+#[cfg(test)]
+#[path = "damage_tests.rs"]
+mod tests;

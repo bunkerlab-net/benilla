@@ -152,6 +152,7 @@ fn aura_holder_ordinal_wrap_preserves_pending_holder_and_type_lists() {
 struct HitOwner {
     auras: SourceUnitAuras,
     visibility: SourceUnitVisibility,
+    damage: SourceCreatureDamage,
     applied: Option<SourceAuraHolderId>,
     reentrant: Option<SourceAuraHolderId>,
 }
@@ -170,6 +171,7 @@ impl SpellAuraHitOwner for HitOwner {
         Ok(SelfAuraHitTarget {
             auras: &mut self.auras,
             visibility: &mut self.visibility,
+            damage: DamageAuraTarget::unmodified(&mut self.damage),
         })
     }
 
@@ -281,6 +283,7 @@ fn client_update_nested_aura_hit_marks_before_each_modifier_callback() {
     struct Nested<'a> {
         auras: SourceUnitAuras,
         visibility: SourceUnitVisibility,
+        damage: SourceCreatureDamage,
         live: SelfAuraTarget<'a>,
         stores: &'a SourceSpellStores,
         inner: &'a SpellTemplate,
@@ -300,6 +303,7 @@ fn client_update_nested_aura_hit_marks_before_each_modifier_callback() {
             Ok(SelfAuraHitTarget {
                 auras: &mut self.auras,
                 visibility: &mut self.visibility,
+                damage: DamageAuraTarget::unmodified(&mut self.damage),
             })
         }
         fn apply_inserted_aura_holder(
@@ -357,6 +361,7 @@ fn client_update_nested_aura_hit_marks_before_each_modifier_callback() {
         let mut owner = Nested {
             auras: SourceUnitAuras::default(),
             visibility: SourceUnitVisibility::default(),
+            damage: SourceCreatureDamage::default(),
             live,
             stores: &stores,
             inner: &inner,
@@ -423,6 +428,7 @@ fn aura_removal_unlinks_by_identity_and_defers_in_effect_order() {
             &mut SelfAuraRemoval {
                 unit: live,
                 visibility: &mut SourceUnitVisibility::default(),
+                damage: DamageAuraTarget::unmodified(&mut SourceCreatureDamage::default()),
             },
         )
         .unwrap();
@@ -499,6 +505,7 @@ fn cast_removal_restarts_at_the_first_live_holder() {
         SelfAuraRemoval {
             unit: live,
             visibility: &mut SourceUnitVisibility::default(),
+            damage: DamageAuraTarget::unmodified(&mut SourceCreatureDamage::default()),
         },
         4,
         || lookups += 1,
@@ -597,6 +604,7 @@ fn aura_removal_refuses_first_unbound_source_operand() {
                     &mut SelfAuraRemoval {
                         unit: live,
                         visibility: &mut SourceUnitVisibility::default(),
+                        damage: DamageAuraTarget::unmodified(&mut SourceCreatureDamage::default()),
                     },
                 )
                 .err()
@@ -669,6 +677,7 @@ fn aura_removal_refuses_the_missing_boost_template_dereference() {
                 &mut SelfAuraRemoval {
                     unit: live,
                     visibility: &mut SourceUnitVisibility::default(),
+                    damage: DamageAuraTarget::unmodified(&mut SourceCreatureDamage::default()),
                 },
             )
             .unwrap_err()

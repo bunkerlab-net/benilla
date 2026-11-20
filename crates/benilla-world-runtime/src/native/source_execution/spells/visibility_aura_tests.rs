@@ -91,6 +91,12 @@ impl Target {
                     self.player,
                 ),
                 visibility: &mut self.unit.visibility,
+                damage: DamageAuraTarget::new(
+                    &mut self.unit.creature_damage,
+                    &self.unit.loaded_creature,
+                    self.unit.flags,
+                    self.unit.shapeshift_form,
+                ),
             },
         )
     }
@@ -109,6 +115,12 @@ impl SelfAuraApplicationOwner for Target {
             auras: &mut self.unit.auras,
             visibility: &mut self.unit.visibility,
             resistances: &mut self.unit.resistances,
+            damage: DamageAuraTarget::new(
+                &mut self.unit.creature_damage,
+                &self.unit.loaded_creature,
+                self.unit.flags,
+                self.unit.shapeshift_form,
+            ),
             can_modify_stats: false,
             threat_modifier: &mut self.unit.threat_modifier,
             power_fields: &mut self.unit.power_fields,

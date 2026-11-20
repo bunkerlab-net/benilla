@@ -813,6 +813,9 @@ It does not run callbacks, move objects, or apply addon effects early.
 `SelectLevel` and `UpdateEntry` write the live creature attack power and physical
 damage fields. The recalculation uses the virtual equipment, dual wield, disarm,
 and shapeshift state at each source call (`StatSystem.cpp:675-806`).
+Aura 79 updates the three physical groups through `Unit::HandleStatModifier`
+on apply and removal. Player item and damage display calls and the spell
+30423 expiry cast remain outside this creature path (`SpellAuras.cpp:4114-4177`).
 The legacy `creature_generation` cold schedule is not a source loader.
 
 The seal8-08 constructor diagnostic scans the hash-bound framing with an explicit
@@ -2626,10 +2629,10 @@ visibility update still refuse by name. A fresh addon cast happens before
 The addon census uses the production dispatch. It classifies 183 of 262
 spells as having a handler for every effect and aura type. It does not test
 each spell's targets or callbacks.
-Map 0 completes 429 objects in 451 allocations. It matches 28,714 random
-words, 303 clocks, and two map SQL requests. GUID12058 queues Defensive
-Stance's 7376 boost (`SpellAuras.cpp:4266-4268,4291-4295`, trace :60984600).
-The boost stops at type 79 (`SpellAuras.cpp:4114`, trace :60985213-60985257).
+Map 0 completes 767 objects in 797 allocations. It matches 30,766 random
+words, 573 clocks, and two map SQL requests. GUID12058 finishes the 7376
+Defensive Stance boost (trace :60985257). GUID89544 stops at Frost Armor's
+effect level scaling (`Object.cpp:2934`, trace :61221527-61221529).
 Map 1 stops at the `boss_azuregos` factory for GUID52349
 (`ScriptDevAIMgr.cpp:370`, trace :60622939).
 Recorded allocation addresses are never supplied as execution inputs.

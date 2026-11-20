@@ -93,6 +93,12 @@ impl SpellCastEffects for Owner<'_> {
                 ..self.aura_target()
             },
             visibility: self.visibility,
+            damage: DamageAuraTarget::new(
+                self.creature_damage,
+                self.loaded_creature,
+                *self.flags,
+                *self.form,
+            ),
         };
         check_cast_aura_removals(self.stores, self.auras, t, live, flag, || {})
     }
@@ -204,6 +210,12 @@ impl SpellAuraHitOwner for Owner<'_> {
         Ok(SelfAuraHitTarget {
             auras: self.auras,
             visibility: self.visibility,
+            damage: DamageAuraTarget::new(
+                self.creature_damage,
+                self.loaded_creature,
+                *self.flags,
+                *self.form,
+            ),
         })
     }
 

@@ -166,6 +166,8 @@ impl SpellSelfCastOwner for Owner<'_> {
             auras: live.auras,
             visibility: live.visibility,
             resistances: live.resistances,
+            creature_damage: live.creature_damage,
+            loaded_creature: live.loaded_creature,
             can_modify_stats: live.can_modify_stats,
             threat_modifier: live.threat_modifier,
             power_fields: live.power_fields,
@@ -633,6 +635,12 @@ impl SpellExecutionOwner for Owner<'_> {
                         control_guids: self.live.control_guids,
                     },
                     visibility: self.live.visibility,
+                    damage: DamageAuraTarget::new(
+                        self.live.creature_damage,
+                        self.live.loaded_creature,
+                        *self.live.flags,
+                        *self.live.shapeshift_form,
+                    ),
                 };
                 check_cast_aura_removals(self.stores, self.live.auras, cast, live, flag, || {
                     spell.prepare_lookups[2] += 1
