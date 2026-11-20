@@ -147,8 +147,8 @@ impl SpellSelfCastOwner for Owner<'_> {
         &mut self,
         spell: &mut SourceSpell,
         t: &SpellTemplate,
-        _starts: &mut SourceSpellStarts,
-        _events: &mut SourceUnitEvents,
+        starts: &mut SourceSpellStarts,
+        events: &mut SourceUnitEvents,
     ) -> Result<()> {
         let unit = self.unit(spell.caster)?;
         let level = self.power_owner().power_level(spell.caster)?;
@@ -164,11 +164,12 @@ impl SpellSelfCastOwner for Owner<'_> {
             control_guids: live.control_guids,
             immunities: live.immunities,
             auras: live.auras,
+            visibility: live.visibility,
             resistances: live.resistances,
             can_modify_stats: live.can_modify_stats,
             threat_modifier: live.threat_modifier,
             power_fields: live.power_fields,
-            power_type: None,
+            power_type: live.power_type.as_mut(),
             vitals: live.vitals,
             form: live.shapeshift_form,
             cooldowns: live.cooldowns,
@@ -187,13 +188,20 @@ impl SpellSelfCastOwner for Owner<'_> {
             bounding_radius: *live.bounding_radius,
             max_casts: self.max_casts,
         };
-        spell.cast_checked(t, self.stores, Some(base), None, &mut effects, |spell| {
-            // UnitAI.cpp:352. A different Spell instance leaves the target alone.
-            if spell.flags.notify_ai() && base.current_spell == Some(spell.id) {
-                finish_ai_cast(base, spell, t, *live.victim, live.target, self.objects)?;
-            }
-            Ok(())
-        })
+        spell.cast_checked(
+            t,
+            self.stores,
+            Some(base),
+            Some((starts, events)),
+            &mut effects,
+            |spell| {
+                // UnitAI.cpp:352. A different Spell instance leaves the target alone.
+                if spell.flags.notify_ai() && base.current_spell == Some(spell.id) {
+                    finish_ai_cast(base, spell, t, *live.victim, live.target, self.objects)?;
+                }
+                Ok(())
+            },
+        )
     }
 }
 
@@ -614,14 +622,17 @@ impl SpellExecutionOwner for Owner<'_> {
                     .ok_or_else(|| refuse("execution.spells.missing_template"))?;
                 let object = self.objects.get(self.object)?;
                 let live = SelfAuraRemoval {
-                    target: self.object,
-                    level: self.live.power_fields.as_ref().map(|fields| fields.level),
-                    alive: object.alive,
-                    player: object.kind == SourceObjectKind::Player,
-                    player_group: None,
-                    totem: *self.live.totem,
-                    objects: self.objects,
-                    control_guids: self.live.control_guids,
+                    unit: SelfAuraTarget {
+                        target: self.object,
+                        level: self.live.power_fields.as_ref().map(|fields| fields.level),
+                        alive: object.alive,
+                        player: object.kind == SourceObjectKind::Player,
+                        player_group: None,
+                        totem: *self.live.totem,
+                        objects: self.objects,
+                        control_guids: self.live.control_guids,
+                    },
+                    visibility: self.live.visibility,
                 };
                 check_cast_aura_removals(self.stores, self.live.auras, cast, live, flag, || {
                     spell.prepare_lookups[2] += 1

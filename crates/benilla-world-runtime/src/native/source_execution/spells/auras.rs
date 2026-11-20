@@ -189,9 +189,9 @@ fn aura_type_cast_checks_both_sides_of_the_nonfixed_enum_boundary() {
     );
 }
 
-/// Live operands of the bound creature self-holder removal.
+/// Immutable operands shared by the creature self-hit and removal paths.
 #[derive(Clone, Copy)]
-pub struct SelfAuraRemoval<'a> {
+pub struct SelfAuraTarget<'a> {
     pub target: ObjectHandle,
     pub level: Option<u32>,
     pub alive: bool,
@@ -200,6 +200,12 @@ pub struct SelfAuraRemoval<'a> {
     pub totem: bool,
     pub objects: &'a SourceObjects,
     pub control_guids: &'a SourceControlGuids,
+}
+
+/// Live operands of the bound creature self-holder removal.
+pub struct SelfAuraRemoval<'a> {
+    pub unit: SelfAuraTarget<'a>,
+    pub visibility: &'a mut SourceUnitVisibility,
 }
 
 /// Unit.h:242-254.
@@ -213,33 +219,64 @@ pub enum AuraRemoveMode {
     Expire = 7,
 }
 
-// Unit.cpp:5253-5276. Start at begin() again after a holder removal.
+// Unit.cpp:5253-5276. Only RemoveAurasOnCast has the cast filters.
 pub fn check_cast_aura_removals(
     stores: &SourceSpellStores,
     auras: &mut SourceUnitAuras,
     cast: &SpellTemplate,
-    live: SelfAuraRemoval<'_>,
+    mut live: SelfAuraRemoval<'_>,
     flag: u32,
-    mut observe_lookup: impl FnMut(),
+    observe_lookup: impl FnMut(),
 ) -> Result<()> {
-    loop {
-        let mut remove = None;
-        for (id, holder) in auras.aura_holders() {
-            let old = stores
-                .template(id.spell())
-                .ok_or_else(|| refuse("execution.spells.missing_template"))?;
-            observe_lookup();
-            if old.aurainterruptflags & flag != 0
-                && (id.spell() != cast.id || holder.caster != live.target)
+    let target = live.unit.target;
+    auras.remove_interrupting_auras(
+        stores,
+        &mut live,
+        flag,
+        |old, holder| {
+            (old.id != cast.id || holder.caster != target)
                 && (cast.attributesex & 0x20 == 0 || old.dispel != 5)
                 && (cast.attributesex2 & 0x4000 == 0 || old.dispel != 6)
-            {
-                remove = Some(id);
-                break;
+        },
+        observe_lookup,
+    )
+}
+
+impl SourceUnitAuras {
+    // Unit.cpp:5211-5223. The flag-only overload has no exceptions.
+    fn remove_auras_with_interrupt_flags(
+        &mut self,
+        stores: &SourceSpellStores,
+        live: &mut SelfAuraRemoval<'_>,
+        flag: u32,
+    ) -> Result<()> {
+        self.remove_interrupting_auras(stores, live, flag, |_, _| true, || {})
+    }
+
+    // Unit.cpp:5218,5271. Restart at begin() after each removal.
+    fn remove_interrupting_auras(
+        &mut self,
+        stores: &SourceSpellStores,
+        live: &mut SelfAuraRemoval<'_>,
+        flag: u32,
+        mut can_remove: impl FnMut(&SpellTemplate, &SourceAuraHolder) -> bool,
+        mut observe_lookup: impl FnMut(),
+    ) -> Result<()> {
+        loop {
+            let mut remove = None;
+            for (id, holder) in self.aura_holders() {
+                let old = stores
+                    .template(id.spell())
+                    .ok_or_else(|| refuse("execution.spells.missing_template"))?;
+                observe_lookup();
+                if old.aurainterruptflags & flag != 0 && can_remove(old, holder) {
+                    remove = Some(id);
+                    break;
+                }
             }
+            let Some(id) = remove else { return Ok(()) };
+            self.remove_self_aura_holder(stores, id, AuraRemoveMode::Default, live)?;
         }
-        let Some(id) = remove else { return Ok(()) };
-        auras.remove_self_aura_holder(stores, id, AuraRemoveMode::Default, live)?;
     }
 }
 
@@ -276,6 +313,11 @@ pub fn creature_self_aura_duration(stores: &SourceSpellStores, t: &SpellTemplate
     Ok(value)
 }
 
+pub struct SelfAuraHitTarget<'a> {
+    pub auras: &'a mut SourceUnitAuras,
+    pub visibility: &'a mut SourceUnitVisibility,
+}
+
 /// Operands and continuations of the immediate creature self-aura hit.
 pub trait SpellAuraHitOwner {
     fn aura_holder_seconds(&mut self, _spell: &SourceSpell) -> Result<i64> {
@@ -286,7 +328,7 @@ pub trait SpellAuraHitOwner {
         Err(refuse("execution.spells.Aura_270.time_owner"))
     }
 
-    fn aura_hit_target(&mut self, _target: ObjectHandle) -> Result<&mut SourceUnitAuras> {
+    fn aura_hit_target(&mut self, _target: ObjectHandle) -> Result<SelfAuraHitTarget<'_>> {
         Err(refuse(
             "execution.spells.Spell_1490.AddSpellAuraHolder_target_owner",
         ))
@@ -310,13 +352,24 @@ pub trait SpellAuraHitOwner {
     }
 }
 
+// SpellEffects.cpp:1731-1748,2331-2338.
+pub(crate) fn self_aura_effect(effect: u32) -> Result<Option<SourceAreaAuraKind>> {
+    let area = SourceAreaAuraKind::for_effect(effect);
+    if area.is_some() || effect == 6 {
+        return Ok(area);
+    }
+    Err(refuse(&format!(
+        "execution.spells.SpellEffects.effect_{effect}_owner"
+    )))
+}
+
 impl SourceSpell {
     /// Spell.cpp:1163-1184,1445-1494. Apply the immediate creature self hit.
     pub fn hit_self_auras(
         &mut self,
         t: &SpellTemplate,
         stores: &SourceSpellStores,
-        live: SelfAuraRemoval<'_>,
+        live: SelfAuraTarget<'_>,
         stand: u8,
         nested: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
         owner: &mut impl SpellAuraHitOwner,
@@ -356,15 +409,9 @@ impl SourceSpell {
             // Spell.cpp:4593-4612. Calculate damage before dispatching the effect.
             let amount = super::effect_value::effect_value(t, i, self.base_points[i])?;
             self.damage_per_effect[i] = amount;
-            let area = SourceAreaAuraKind::for_effect(effect.effect);
+            let area = self_aura_effect(effect.effect)?;
             if area.is_some() && !live.alive {
                 continue; // SpellEffects.cpp:2333-2334.
-            }
-            if area.is_none() && effect.effect != 6 {
-                return Err(refuse(&format!(
-                    "execution.spells.SpellEffects.effect_{}_owner",
-                    effect.effect
-                )));
             }
             // SpellEffects.cpp:1731-1748; SpellAuras.cpp:266-290 binds effect time separately.
             let time = owner.aura_effect_seconds(self)?;
@@ -408,9 +455,17 @@ impl SourceSpell {
         }
         // Spell.cpp:1490. Transfer pending ownership before modifier callbacks.
         let inserted = if self.pending_aura.is_some() {
-            let holder = owner
-                .aura_hit_target(target_unit)?
-                .insert_self_aura_holder(stores, t, &mut self.pending_aura, live, stand)?;
+            let target = owner.aura_hit_target(target_unit)?;
+            let holder = target.auras.insert_self_aura_holder(
+                stores,
+                t,
+                &mut self.pending_aura,
+                &mut SelfAuraRemoval {
+                    unit: live,
+                    visibility: target.visibility,
+                },
+                stand,
+            )?;
             owner.apply_inserted_aura_holder(t, holder, nested)?;
             Some(holder)
         } else {
@@ -420,7 +475,7 @@ impl SourceSpell {
         owner.proc_aura_hit(self)?;
         // Spell.cpp:1353-1358. Only the holder created by this hit can become ready.
         if let Some(id) = inserted {
-            let auras = owner.aura_hit_target(target_unit)?;
+            let auras = owner.aura_hit_target(target_unit)?.auras;
             require(
                 !auras.spell_procs_happening,
                 "execution.spells.Spell_1356.AddDelayedHolderDueToProc_owner",
@@ -485,7 +540,7 @@ impl SourceUnitAuras {
         stores: &SourceSpellStores,
         t: &SpellTemplate,
         pending: &mut Option<SourceAuraHolder>,
-        live: SelfAuraRemoval<'_>,
+        live: &mut SelfAuraRemoval<'_>,
         stand: u8,
     ) -> Result<SourceAuraHolderId> {
         let holder = pending
@@ -527,7 +582,7 @@ impl SourceUnitAuras {
             "execution.spells.Unit_4793.GetTrackedAuraTargets_owner",
         )?;
         self.aura_fields
-            .assign_self_aura_slot(t, holder, live, stand)?;
+            .assign_self_aura_slot(t, holder, live.unit, stand)?;
         // Unit.cpp:4847-4853. Set creation delay before indexing effects.
         holder.skip_update = true;
         self.store_aura_holder(t.id, pending)
@@ -589,7 +644,7 @@ impl SourceUnitAuras {
         stores: &SourceSpellStores,
         id: SourceAuraHolderId,
         mode: AuraRemoveMode,
-        live: SelfAuraRemoval<'_>,
+        live: &mut SelfAuraRemoval<'_>,
     ) -> Result<()> {
         let holder = self
             .aura_holder(id)
@@ -602,12 +657,12 @@ impl SourceUnitAuras {
             .template(id.spell())
             .ok_or_else(|| refuse("execution.spells.missing_template"))?;
         require(
-            holder.caster == holder.target && holder.target == live.target,
+            holder.caster == holder.target && holder.target == live.unit.target,
             "execution.spells.Unit_5333.GetCaster_owner",
         )?;
         let channeled = t.attributesex & 0x44 != 0;
         require(
-            !channeled || !live.totem,
+            !channeled || !live.unit.totem,
             "execution.spells.Unit_5335.GetTotemType_owner",
         )?;
         let mut holder = self
@@ -643,7 +698,7 @@ impl SourceUnitAuras {
         id: SourceAuraHolderId,
         holder: &mut SourceAuraHolder,
         mode: AuraRemoveMode,
-        live: SelfAuraRemoval<'_>,
+        live: &mut SelfAuraRemoval<'_>,
     ) -> Result<()> {
         // SpellAuras.cpp:5906-5919. A tracked self holder would access the caster's map.
         require(
@@ -679,7 +734,7 @@ impl SourceUnitAuras {
         reference: SourceAuraEffectRef,
         effect: &mut Option<SourceAura>,
         mode: AuraRemoveMode,
-        live: SelfAuraRemoval<'_>,
+        live: &mut SelfAuraRemoval<'_>,
     ) -> Result<()> {
         let Some(aura) = effect.as_mut() else {
             return Ok(());
@@ -711,7 +766,7 @@ impl SourceUnitAuras {
         t: &SpellTemplate,
         aura: &SourceAura,
         mode: AuraRemoveMode,
-        live: SelfAuraRemoval<'_>,
+        live: &mut SelfAuraRemoval<'_>,
     ) -> Result<()> {
         require(
             stores
@@ -719,11 +774,25 @@ impl SourceUnitAuras {
                 .is_none(),
             "execution.spells.Aura_684.OnAfterApply_owner",
         )?;
-        match aura.kind {
-            4 => handle_creature_dummy_aura(stores, t, live.player, Some((mode, live.alive))),
-            95 => self.handle_aura_ghost(live.objects, live.target, false, live.player),
-            42 | 192..=255 => Ok(()),
-            kind => Err(refuse(&format!(
+        let kind = aura.kind;
+        match SelfAuraApplyHandler::for_kind(kind) {
+            Some(SelfAuraApplyHandler::Dummy) => handle_creature_dummy_aura(
+                stores,
+                t,
+                live.unit.player,
+                Some((mode, live.unit.alive)),
+            ),
+            Some(SelfAuraApplyHandler::Invisibility) => {
+                self.handle_invisibility(stores, live, aura.misc, aura.amount, false, true)
+            }
+            Some(SelfAuraApplyHandler::Ghost) => {
+                self.handle_aura_ghost(live.unit.objects, live.unit.target, false, live.unit.player)
+            }
+            Some(SelfAuraApplyHandler::ProcTrigger | SelfAuraApplyHandler::NoImmediateEffect) => {
+                Ok(())
+            }
+            Some(SelfAuraApplyHandler::Null) if kind >= 192 => Ok(()),
+            _ => Err(refuse(&format!(
                 "execution.spells.AuraHandler.type_{kind}_unapply_owner"
             ))),
         }
@@ -736,7 +805,7 @@ impl SourceUnitAuras {
         t: &SpellTemplate,
         holder: &mut SourceAuraHolder,
         mode: AuraRemoveMode,
-        live: SelfAuraRemoval<'_>,
+        live: &mut SelfAuraRemoval<'_>,
     ) -> Result<()> {
         if mode != AuraRemoveMode::Stack {
             self.cleanup_aura_triggered_spells(stores, t, live)?;
@@ -755,17 +824,18 @@ impl SourceUnitAuras {
             holder.diminish_group == 0,
             "execution.spells.SpellAuraHolder_5337.ApplyDiminishingAura_owner",
         )?;
-        self.aura_fields.set_aura_spell(live, slot, 0)?;
-        self.aura_fields.set_aura_flags(live, slot, 0)?;
-        let level = live
+        let unit = live.unit;
+        self.aura_fields.set_aura_spell(unit, slot, 0)?;
+        self.aura_fields.set_aura_flags(unit, slot, 0)?;
+        let level = unit
             .level
             .ok_or_else(|| refuse("execution.spells.SpellAuraHolder_5341.GetLevel_owner"))?;
-        self.aura_fields.set_aura_level(live, slot, level)?;
+        self.aura_fields.set_aura_level(unit, slot, level)?;
         holder.charges = 0;
         holder.stack = 1;
         self.aura_fields.update_aura_application(
-            live.objects,
-            live.target,
+            unit.objects,
+            unit.target,
             holder.slot,
             holder.charges,
             holder.stack,
@@ -773,7 +843,7 @@ impl SourceUnitAuras {
         if mode == AuraRemoveMode::Delete {
             return Ok(());
         }
-        live.update_aura_for_group()?;
+        unit.update_aura_for_group()?;
         if t.spellfamilyname == 10 && t.spellfamilyflags & 0x0a00_0200 != 0 {
             let mut sibling = false;
             for id in self.aura_spell_ids() {
@@ -817,7 +887,7 @@ impl SourceUnitAuras {
         &mut self,
         stores: &SourceSpellStores,
         t: &SpellTemplate,
-        live: SelfAuraRemoval<'_>,
+        live: &mut SelfAuraRemoval<'_>,
     ) -> Result<()> {
         for (index, effect) in t.effects().into_iter().enumerate() {
             if effect.aura == 0 || effect.trigger == 0 {
@@ -845,7 +915,7 @@ impl SourceUnitAuras {
         stores: &SourceSpellStores,
         spell: u32,
         caster: Option<ObjectHandle>,
-        live: SelfAuraRemoval<'_>,
+        live: &mut SelfAuraRemoval<'_>,
     ) -> Result<()> {
         loop {
             let id = self
@@ -858,7 +928,7 @@ impl SourceUnitAuras {
     }
 }
 
-impl SelfAuraRemoval<'_> {
+impl SelfAuraTarget<'_> {
     // Unit.cpp:10501-10523.
     fn update_aura_for_group(self) -> Result<()> {
         if self.player {
@@ -890,7 +960,7 @@ impl SourceAuraFields {
         &mut self,
         t: &SpellTemplate,
         holder: &mut SourceAuraHolder,
-        live: SelfAuraRemoval<'_>,
+        live: SelfAuraTarget<'_>,
         stand: u8,
     ) -> Result<()> {
         holder.slot = 255;
@@ -941,7 +1011,7 @@ impl SourceAuraFields {
     }
 
     // SpellAuras.h:195.
-    fn set_aura_spell(&mut self, live: SelfAuraRemoval<'_>, slot: usize, spell: u32) -> Result<()> {
+    fn set_aura_spell(&mut self, live: SelfAuraTarget<'_>, slot: usize, spell: u32) -> Result<()> {
         live.objects.set_update_value(
             live.target,
             UNIT_FIELD_AURA + slot,
@@ -952,7 +1022,7 @@ impl SourceAuraFields {
     }
 
     // SpellAuras.cpp:5921-5942.
-    fn set_aura_flags(&mut self, live: SelfAuraRemoval<'_>, slot: usize, flags: u32) -> Result<()> {
+    fn set_aura_flags(&mut self, live: SelfAuraTarget<'_>, slot: usize, flags: u32) -> Result<()> {
         let index = slot >> 3;
         let shift = (slot & 7) * 4;
         let value = (self.flags[index] & !(15 << shift)) | flags << shift;
@@ -966,7 +1036,7 @@ impl SourceAuraFields {
     }
 
     // SpellAuras.cpp:5945-5953.
-    fn set_aura_level(&mut self, live: SelfAuraRemoval<'_>, slot: usize, level: u32) -> Result<()> {
+    fn set_aura_level(&mut self, live: SelfAuraTarget<'_>, slot: usize, level: u32) -> Result<()> {
         let index = slot / 4;
         let shift = (slot % 4) * 8;
         let value = (self.levels[index] & !(255 << shift)) | level << shift;
@@ -1017,10 +1087,9 @@ impl SourceAuraFields {
 
 /// Live operands of Unit.cpp:4855 for the creature self-aura path.
 pub struct SelfAuraApplication<'a> {
-    pub object: ObjectHandle,
-    pub objects: &'a SourceObjects,
-    pub control_guids: &'a SourceControlGuids,
+    pub unit: SelfAuraTarget<'a>,
     pub auras: &'a mut SourceUnitAuras,
+    pub visibility: &'a mut SourceUnitVisibility,
     pub resistances: &'a mut SourceUnitResistances,
     pub can_modify_stats: bool,
     pub threat_modifier: &'a mut [f32; 7],
@@ -1028,11 +1097,43 @@ pub struct SelfAuraApplication<'a> {
     pub power_type: Option<&'a mut u8>,
     pub vitals: &'a mut Option<SourceUnitVitals>,
     pub form: &'a mut u32,
-    pub player: bool,
 }
 
 pub trait SelfAuraApplicationOwner: SpellExecutionOwner {
     fn self_aura_application(&mut self) -> SelfAuraApplication<'_>;
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum SelfAuraApplyHandler {
+    Null,
+    Dummy,
+    Threat,
+    Invisibility,
+    Resistance,
+    PeriodicTrigger,
+    Shapeshift,
+    ProcTrigger,
+    NoImmediateEffect,
+    Ghost,
+}
+
+impl SelfAuraApplyHandler {
+    // SpellAuras.cpp:61-252. Only types with a bound apply path appear here.
+    pub(crate) fn for_kind(kind: u32) -> Option<Self> {
+        Some(match kind {
+            0 | 192..=255 => Self::Null,
+            4 => Self::Dummy,
+            10 => Self::Threat,
+            18 => Self::Invisibility,
+            22 => Self::Resistance,
+            23 => Self::PeriodicTrigger,
+            36 => Self::Shapeshift,
+            42 => Self::ProcTrigger,
+            87 => Self::NoImmediateEffect, // SpellAuras.cpp:148.
+            95 => Self::Ghost,
+            _ => return None,
+        })
+    }
 }
 
 /// Unit.cpp:4855-4865; SpellAuras.cpp:5224-5228. Use the inserted holder for
@@ -1055,28 +1156,47 @@ pub fn apply_self_aura_holder(
         };
         // SpellAuras.cpp:677-690. The holder already checked for an AuraScript.
         let kind = aura.kind;
-        match kind {
-            0 | 192..=255 => {} // SpellAuras.cpp:61 dispatches type 0 to HandleNULL.
-            22 => live.resistances.handle_aura(
-                live.objects,
-                live.object,
+        let unit = live.unit;
+        match SelfAuraApplyHandler::for_kind(kind) {
+            Some(SelfAuraApplyHandler::Null) => {} // SpellAuras.cpp:61 dispatches type 0 to HandleNULL.
+            // SpellAuras.h:283-286. Later damage calculations inspect the aura list.
+            Some(SelfAuraApplyHandler::NoImmediateEffect) => {}
+            Some(SelfAuraApplyHandler::Invisibility) => {
+                let (misc, amount) = (aura.misc, aura.amount);
+                live.auras.handle_invisibility(
+                    stores,
+                    &mut SelfAuraRemoval {
+                        unit,
+                        visibility: live.visibility,
+                    },
+                    misc,
+                    amount,
+                    true,
+                    true,
+                )?;
+                live.auras.mark_effect_applied(holder, i)?;
+                continue;
+            }
+            Some(SelfAuraApplyHandler::Resistance) => live.resistances.handle_aura(
+                unit.objects,
+                unit.target,
                 aura.amount,
                 aura.misc,
                 true,
                 live.can_modify_stats,
-                live.player,
+                unit.player,
             )?,
-            95 => {
+            Some(SelfAuraApplyHandler::Ghost) => {
                 live.auras
-                    .handle_aura_ghost(live.objects, live.object, true, live.player)?;
+                    .handle_aura_ghost(unit.objects, unit.target, true, unit.player)?;
                 live.auras.mark_effect_applied(holder, i)?;
                 continue;
             }
-            36 => {
+            Some(SelfAuraApplyHandler::Shapeshift) => {
                 let misc = aura.misc;
                 if let Some(spell) = live.apply_shape(stores, holder, misc)? {
                     // SpellAuras.cpp:4291-4295. The outer holder is still unready.
-                    let caster = live.object;
+                    let caster = unit.target;
                     let (starts, events) = nested
                         .as_mut()
                         .ok_or_else(|| refuse("execution.spells.Aura_4291.CastSpell_owner"))?;
@@ -1099,9 +1219,9 @@ pub fn apply_self_aura_holder(
                     .mark_effect_applied(holder, i)?;
                 continue;
             }
-            10 => {
+            Some(SelfAuraApplyHandler::Threat) => {
                 // SpellAuras.cpp:2811-2843; Util.h:156-160.
-                if live.objects.get(live.object)?.alive {
+                if unit.objects.get(unit.target)?.alive {
                     require(
                         !matches!(t.id, 26400 | 28862),
                         "execution.spells.Aura_2839.mod_threat_level_scaling_owner",
@@ -1119,25 +1239,27 @@ pub fn apply_self_aura_holder(
                     }
                 }
             }
-            23 => {
+            Some(SelfAuraApplyHandler::PeriodicTrigger) => {
                 // SpellAuras.cpp:3097-3117 sets periodic and skips removal-only casts.
                 aura.periodic = true;
             }
-            65 => {
+            None if kind == 65 => {
                 return Err(refuse(if aura.amount > 0 {
                     "execution.spells.Unit_10496.ApplyPercentModFloatValue_owner"
                 } else {
                     "execution.spells.Unit_10498.ApplyPercentModFloatValue_owner"
                 }));
             }
-            42 => {
+            Some(SelfAuraApplyHandler::ProcTrigger) => {
                 live.auras
-                    .handle_aura_proc_trigger_spell(live.objects, holder, true, true)?;
+                    .handle_aura_proc_trigger_spell(unit.objects, holder, true, true)?;
                 live.auras.mark_effect_applied(holder, i)?;
                 continue;
             }
-            4 => handle_creature_dummy_aura(stores, t, live.player, None)?,
-            _ => {
+            Some(SelfAuraApplyHandler::Dummy) => {
+                handle_creature_dummy_aura(stores, t, unit.player, None)?
+            }
+            None => {
                 return Err(refuse(&format!(
                     "execution.spells.AuraHandler.type_{kind}_owner"
                 )))
@@ -1208,10 +1330,10 @@ impl SourceUnitAuras {
         &mut self,
         stores: &SourceSpellStores,
         t: &SpellTemplate,
-        remove: Option<SelfAuraRemoval<'_>>,
+        mut remove: Option<&mut SelfAuraRemoval<'_>>,
     ) -> Result<()> {
         for spell in spell_specific_boosts(t) {
-            let Some(live) = remove else {
+            let Some(live) = remove.as_deref_mut() else {
                 return Err(refuse(
                     "execution.spells.SpellAuraHolder_5648.boost_CastSpell_owner",
                 ));
@@ -1221,9 +1343,65 @@ impl SourceUnitAuras {
                 "execution.spells.SpellAuraHolder_5633.boost_template_null_undefined",
             )?;
             // Either argument of the caster-GUID choice names the self caster.
-            self.remove_self_auras_by_spell(stores, spell, Some(live.target), live)?;
+            self.remove_self_auras_by_spell(stores, spell, Some(live.unit.target), live)?;
         }
         Ok(())
+    }
+
+    // SpellAuras.cpp:2631-2679. The running sum, not `apply`, selects the branch.
+    fn handle_invisibility(
+        &mut self,
+        stores: &SourceSpellStores,
+        live: &mut SelfAuraRemoval<'_>,
+        misc: i32,
+        amount: i32,
+        apply: bool,
+        real: bool,
+    ) -> Result<()> {
+        let delta = if apply {
+            amount
+        } else {
+            amount.checked_neg().ok_or_else(|| {
+                refuse("execution.spells.Aura_2635.invisibility_amount_negation_undefined")
+            })?
+        };
+        let index = misc as u32 as usize;
+        let value = live.visibility.values.get_mut(index).ok_or_else(|| {
+            refuse("execution.spells.ObjectVisibility_71.invisibility_index_undefined")
+        })?;
+        *value = value.checked_add(delta).ok_or_else(|| {
+            refuse("execution.spells.ObjectVisibility_71.invisibility_addition_undefined")
+        })?;
+        let bit = 1u32 << index;
+        if *value > 0 {
+            live.visibility.mask |= bit;
+            // SpellDefines.h:382.
+            self.remove_auras_with_interrupt_flags(stores, live, 0x0010_0000)?;
+            require(
+                !real || !live.unit.player,
+                "execution.spells.Aura_2647.GetMover_owner",
+            )?;
+            if live.visibility.mode == SourceUnitVisibilityMode::On {
+                live.visibility.mode = SourceUnitVisibilityMode::GroupInvisibility;
+            }
+        } else {
+            live.visibility.mask &= !bit;
+            if real && live.visibility.mask == 0 {
+                require(
+                    !live.unit.player,
+                    "execution.spells.Aura_2666.RemoveByteFlag_owner",
+                )?;
+                // SpellAuraDefines.h:111: SPELL_AURA_MOD_STEALTH = 16.
+                if live.visibility.mode != SourceUnitVisibilityMode::Off && !self.has_aura_type(16)
+                {
+                    live.visibility.mode = SourceUnitVisibilityMode::On;
+                }
+            }
+        }
+        require(
+            !live.unit.objects.get(live.unit.target)?.in_world,
+            "execution.spells.Aura_2679.UpdateVisibilityAndView_owner",
+        )
     }
 
     // SpellAuras.cpp:4401-4429.
@@ -1395,22 +1573,25 @@ impl SelfAuraApplication<'_> {
             "execution.spells.Aura_1884.GetOverrideScript_owner",
         )?;
         require(
-            !self.player,
+            !self.unit.player,
             "execution.spells.Aura_1890.tactical_mastery_owner",
         )?;
         self.clear_stance_rage()?;
-        // SpellAuras.cpp:1920-1936; Unit.cpp:5211-5223.
-        self.objects
-            .set_update_value(self.object, UNIT_FIELD_BYTES_1, self.form, form)?;
-        for id in self.auras.aura_spell_ids() {
-            let aura = stores
-                .template(id)
-                .ok_or_else(|| refuse("execution.spells.missing_template"))?;
-            require(
-                aura.aurainterruptflags & 0x8000 == 0,
-                "execution.spells.Unit_5217.RemoveSpellAuraHolder_owner",
-            )?;
-        }
+        // SpellAuras.cpp:1920-1936; SpellDefines.h:377.
+        self.unit.objects.set_update_value(
+            self.unit.target,
+            UNIT_FIELD_BYTES_1,
+            self.form,
+            form,
+        )?;
+        self.auras.remove_auras_with_interrupt_flags(
+            stores,
+            &mut SelfAuraRemoval {
+                unit: self.unit,
+                visibility: self.visibility,
+            },
+            0x0000_8000,
+        )?;
         Ok(Some(boost)) // SpellAuras.cpp:4263-4271.
     }
 
@@ -1419,16 +1600,17 @@ impl SelfAuraApplication<'_> {
             .power_type
             .as_deref_mut()
             .ok_or_else(|| refuse("execution.spells.Aura_1885.GetPowerType_owner"))?;
-        if self
+        let unit = self.unit;
+        if unit
             .objects
-            .set_update_value(self.object, UNIT_FIELD_BYTES_0, power_type, 1)?
+            .set_update_value(unit.target, UNIT_FIELD_BYTES_0, power_type, 1)?
         {
             if let Some(vitals) = self.vitals {
                 vitals.has_mana = false;
             }
             self.require_no_power_group("execution.spells.Unit_6184.GetGroup_owner")?;
             require(
-                self.objects.get(self.object)?.kind == SourceObjectKind::Creature,
+                unit.objects.get(unit.target)?.kind == SourceObjectKind::Creature,
                 "execution.spells.Unit_6191.GetCreatePowers_owner",
             )?;
         }
@@ -1441,9 +1623,10 @@ impl SelfAuraApplication<'_> {
             .as_mut()
             .and_then(|power| power.auxiliary_current.as_mut())
             .ok_or_else(|| refuse("execution.spells.Aura_1911.GetPower_rage_owner"))?[0];
-        if self
+        let unit = self.unit;
+        if unit
             .objects
-            .set_update_value(self.object, UNIT_FIELD_POWER2, rage, 0)?
+            .set_update_value(unit.target, UNIT_FIELD_POWER2, rage, 0)?
         {
             self.require_no_power_group("execution.spells.Unit_9294.GetGroup_owner")?;
         }
@@ -1451,15 +1634,16 @@ impl SelfAuraApplication<'_> {
     }
 
     fn require_no_power_group(&self, refusal: &str) -> Result<()> {
-        require(!self.player, refusal)?;
-        if self.control_guids.has_charmer() {
-            if let Some(unit) = self
+        let live = self.unit;
+        require(!live.player, refusal)?;
+        if live.control_guids.has_charmer() {
+            if let Some(unit) = live
                 .control_guids
-                .get_charmer(self.objects, self.object, None, unbound_pet_loading)?
+                .get_charmer(live.objects, live.target, None, unbound_pet_loading)?
                 .unit()
             {
                 require(
-                    self.objects.get(unit)?.kind != SourceObjectKind::Player,
+                    live.objects.get(unit)?.kind != SourceObjectKind::Player,
                     refusal,
                 )?;
             }
@@ -1498,18 +1682,21 @@ fn inserting_without_a_pending_holder_refuses_before_writing_slots() {
             &SourceSpellStores::default(),
             &SpellTemplate::default(),
             &mut None,
-            SelfAuraRemoval {
-                target: ObjectHandle {
-                    thread: 1,
-                    construction: 1,
+            &mut SelfAuraRemoval {
+                unit: SelfAuraTarget {
+                    target: ObjectHandle {
+                        thread: 1,
+                        construction: 1,
+                    },
+                    level: Some(1),
+                    alive: true,
+                    player: false,
+                    player_group: None,
+                    totem: false,
+                    objects: &SourceObjects::default(),
+                    control_guids: &SourceControlGuids::default(),
                 },
-                level: Some(1),
-                alive: true,
-                player: false,
-                player_group: None,
-                totem: false,
-                objects: &SourceObjects::default(),
-                control_guids: &SourceControlGuids::default(),
+                visibility: &mut SourceUnitVisibility::default(),
             },
             0,
         )
@@ -1553,3 +1740,7 @@ fn proc_trigger_aura_sets_ascendance_charges_only_on_real_apply() {
 #[cfg(test)]
 #[path = "aura_mark_tests.rs"]
 mod aura_mark_tests;
+
+#[cfg(test)]
+#[path = "visibility_aura_tests.rs"]
+mod visibility_aura_tests;

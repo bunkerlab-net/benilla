@@ -33,6 +33,27 @@ pub struct SourceUnitPowerFields {
     pub auxiliary_maximum: Option<[u32; 3]>,
 }
 
+/// Unit.h:454-461. Unit.cpp:359 initializes m_Visibility to VISIBILITY_ON.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum SourceUnitVisibilityMode {
+    Off = 0,
+    #[default]
+    On = 1,
+    GroupStealth = 2,
+    GroupInvisibility = 3,
+    GroupNoDetect = 4,
+    RemoveCorpse = 5,
+}
+
+/// Object.cpp:1171; ObjectVisibility.h:46-51,89-92; ObjectVisibility.cpp:35-41.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SourceUnitVisibility {
+    pub mode: SourceUnitVisibilityMode,
+    pub mask: u32,
+    pub values: [i32; 32],
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct SourceUnitFields {
     pub entry: u32,
@@ -126,6 +147,8 @@ pub struct SourceUnitFields {
     /// Unit.h:2487,2507; Unit.cpp:355,365-366. Live state has no restore path.
     #[serde(skip)]
     pub auras: SourceUnitAuras,
+    #[serde(skip)]
+    pub visibility: SourceUnitVisibility,
     /// Unit.cpp:367-386. Live resistance groups and derived armor field.
     #[serde(skip)]
     pub resistances: SourceUnitResistances,
@@ -193,6 +216,7 @@ pub struct SourceUnitCastFields<'a> {
     pub has_ai: &'a bool,
     pub totem: &'a bool,
     pub auras: &'a mut SourceUnitAuras,
+    pub visibility: &'a mut SourceUnitVisibility,
     pub resistances: &'a mut SourceUnitResistances,
     pub can_modify_stats: &'a bool,
     pub immunities: &'a CreatureImmunityState,
@@ -236,6 +260,7 @@ impl SourceUnitFields {
                 has_ai: &self.has_ai,
                 totem: &self.totem,
                 auras: &mut self.auras,
+                visibility: &mut self.visibility,
                 resistances: &mut self.resistances,
                 can_modify_stats: &self.loaded_creature.can_modify_stats,
                 immunities: &self.immunities,
@@ -376,6 +401,7 @@ impl SourceUnitFields {
             spline_position_expiry: 0,
             spline_last_move_ms: 0,
             auras: SourceUnitAuras::default(),
+            visibility: SourceUnitVisibility::default(),
             resistances: SourceUnitResistances::default(),
             threat_modifier: [1.0; 7],
             spell_starts: SourceSpellStarts::default(),

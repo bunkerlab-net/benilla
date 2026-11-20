@@ -88,8 +88,11 @@ impl SpellCastEffects for Owner<'_> {
         flag: u32,
     ) -> Result<()> {
         let live = SelfAuraRemoval {
-            target: caster,
-            ..self.aura_removal()
+            unit: SelfAuraTarget {
+                target: caster,
+                ..self.aura_target()
+            },
+            visibility: self.visibility,
         };
         check_cast_aura_removals(self.stores, self.auras, t, live, flag, || {})
     }
@@ -164,14 +167,7 @@ impl SpellCastEffects for Owner<'_> {
         t: &SpellTemplate,
         nested: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
     ) -> Result<()> {
-        s.hit_self_auras(
-            t,
-            self.stores,
-            self.aura_removal(),
-            self.stand,
-            nested,
-            self,
-        )
+        s.hit_self_auras(t, self.stores, self.aura_target(), self.stand, nested, self)
     }
 }
 
@@ -200,12 +196,15 @@ impl SpellAuraHitOwner for Owner<'_> {
         Ok(clock.seconds)
     }
 
-    fn aura_hit_target(&mut self, target: ObjectHandle) -> Result<&mut SourceUnitAuras> {
+    fn aura_hit_target(&mut self, target: ObjectHandle) -> Result<SelfAuraHitTarget<'_>> {
         require(
             target == self.object,
             "execution.spells.Spell_1490.AddSpellAuraHolder_target_owner",
         )?;
-        Ok(self.auras)
+        Ok(SelfAuraHitTarget {
+            auras: self.auras,
+            visibility: self.visibility,
+        })
     }
 
     fn apply_inserted_aura_holder(

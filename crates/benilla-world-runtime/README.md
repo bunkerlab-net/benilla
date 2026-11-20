@@ -2607,9 +2607,19 @@ The replay matches the random-template SELECT and its 418 rows before
 EventAI scripts load (trace :52620961, :52621090, :58819675).
 The first map1 timer is 5,376 at raw11902, after four real zero-range
 TimerAI constructor/reset draws, `TimerAI.cpp:23,47`, `CreatureEventAI.cpp:40`.
-Map 0 completes 290 objects in 311 allocations. It matches 27,780 random
-words, 170 clocks, and two map SQL requests. It stops in GUID151461's
-addon spell 4986 at `SpellAuras.cpp:2631` (trace :60774092-60774113).
+Type-18 invisibility keeps signed values, a mask, and a visibility mode on
+the live unit (`ObjectVisibility.cpp:35-41,120-130`, `Unit.cpp:359`).
+`SpellAuras.cpp:2631-2679` uses the running value to decide whether to
+remove interruptible auras and change the mode. The player glow and in-world
+visibility update still refuse by name. A fresh addon cast happens before
+`Map::Add` (`Creature.cpp:932,1738,2343`). It writes no visibility update fields.
+The addon census uses the production dispatch. It classifies 183 of 262
+spells as having a handler for every effect and aura type. It does not test
+each spell's targets or callbacks.
+Map 0 completes 429 objects in 451 allocations. It matches 28,714 random
+words, 303 clocks, and two map SQL requests. GUID12058 queues Defensive
+Stance's 7376 boost (`SpellAuras.cpp:4266-4268,4291-4295`, trace :60984600).
+The boost stops at type 79 (`SpellAuras.cpp:4114`, trace :60985213-60985257).
 Map 1 stops at the `boss_azuregos` factory for GUID52349
 (`ScriptDevAIMgr.cpp:370`, trace :60622939).
 Recorded allocation addresses are never supplied as execution inputs.

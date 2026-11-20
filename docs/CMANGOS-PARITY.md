@@ -127,9 +127,9 @@ is meaningful without a bounded content/mechanics inventory.
   Holder IDs pair spell ID with a unit-local insertion ordinal, in the order
   of the multimap in `Unit.h:1076`. Each type list stores holder and effect IDs
   in append order, `Unit.cpp:4871-4874`. Neither changes the saved format.
-  The 262-spell addon census has 299 effect slots and 43 aura types. Its static
-  coverage is 31 spells, with 231 using an unported effect or aura type.
-  Static coverage does not establish execution; this map 0 prefix completes two.
+  The 262-spell addon census has 299 effect slots and 43 aura types.
+  The production dispatch handles the effect and aura types for 183 spells.
+  The other 79 use an unported type. This is static coverage, not execution.
   `spells/targeting.rs` binds ordinary and special-unit creature self targets
   to one unit-target fill (`Spell.cpp:533-784,2159-2161,2397-2405`).
   `SpellEffects.cpp:2331-2338` and `SpellAuras.cpp:298-328,367-379` create
@@ -137,6 +137,14 @@ is meaningful without a bounded content/mechanics inventory.
   modifier updates creature armor (`SpellAuras.cpp:3367-3387`,
   `StatSystem.cpp:664-672`). `AreaAura::Update` belongs to a later unit tick
   and refuses at `SpellAuras.cpp:410`.
+  Invisibility type 18 adds or subtracts signed strength and sets the mask
+  from the resulting value. The live unit owns the mask, values, and mode
+  (`ObjectVisibility.cpp:35-41,120-130`, `Unit.cpp:359`, `SpellAuras.cpp:2631-2679`).
+  These members do not change saved bytes or mark client updates.
+  Invisibility and shapeshift use the same restart-after-removal walk as the
+  cast interrupt check (`Unit.cpp:5211-5223,5253-5276`).
+  Player glow and the in-world visibility refresh still refuse at
+  `SpellAuras.cpp:2647,2666,2679`. Detection type 19 remains unported.
   Non-pet world bosses append immunity `(1, 137)` with a null aura before
   stat updates (`Creature.h:667-672`, `Creature.cpp:596-600`,
   `Unit.cpp:7684-7696`). The stock census is 153 rank-3 templates, eight
@@ -154,9 +162,12 @@ is meaningful without a bounded content/mechanics inventory.
   (`CreatureEventAIMgr.cpp:979-996`, `ScriptMgr.h:679`).
   Startup matches the template SELECT at trace :52620961 before the EventAI
   SELECT at :58819675. Runtime string selection refuses at `CreatureEventAI.cpp:1262`.
-  Map 0 matches 290 completions, 311 allocations, 27,780 random words,
-  170 clocks, and two SQL requests. GUID151461 stops at the invisibility
-  handler for addon spell 4986 (`SpellAuras.cpp:2631`, trace :60774092-60774113).
+  Map 0 matches 429 completions, 451 allocations, 28,714 random words,
+  303 clocks, and two SQL requests. Three entry-3094 creatures apply
+  addon spell 4986 before map entry (trace :60773227-60791532).
+  GUID12058 casts Defensive Stance and queues its 7376 boost. Type 87 has
+  no immediate effect (`SpellAuras.cpp:148`, `SpellAuras.h:283-286`).
+  The boost stops at type 79 (`SpellAuras.cpp:4114`, trace :60985213-60985257).
   GuardAI construction and its inherited `SpellListChanged` and
   `JustRespawned` callbacks complete for GUID4242 (`Creature.cpp:883-887`).
   `npc_chicken_cluck` completes construction and both resets for GUID4228.

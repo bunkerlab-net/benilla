@@ -30,7 +30,7 @@ fn client_update_aura_field_words_compare_packed_values() {
     for (in_world, changed) in [(true, false), (true, true), (false, true)] {
         let (objects, target, map) = subject(in_world);
         let controls = SourceControlGuids::default();
-        let operands = SelfAuraRemoval {
+        let operands = SelfAuraTarget {
             target,
             level: Some(22),
             alive: true,
@@ -143,10 +143,18 @@ fn client_update_stance_writes_the_rage_form_and_power_type_words() {
             )
             .unwrap();
         let mut live = SelfAuraApplication {
-            object,
-            objects: &objects,
-            control_guids: &unit.control_guids,
+            unit: SelfAuraTarget {
+                target: object,
+                level: Some(19),
+                alive: true,
+                player: false,
+                player_group: None,
+                totem: unit.totem,
+                objects: &objects,
+                control_guids: &unit.control_guids,
+            },
             auras: &mut unit.auras,
+            visibility: &mut unit.visibility,
             resistances: &mut unit.resistances,
             can_modify_stats: true,
             threat_modifier: &mut unit.threat_modifier,
@@ -154,7 +162,6 @@ fn client_update_stance_writes_the_rage_form_and_power_type_words() {
             power_type: unit.power_type.as_mut(),
             vitals: &mut unit.vitals,
             form: &mut unit.shapeshift_form,
-            player: false,
         };
         assert_eq!(live.apply_shape(&stores, holder, 17).unwrap(), Some(21156));
         assert_eq!(unit.power_type, Some(1));

@@ -268,6 +268,7 @@ fn fill_names_unbound_filters_and_player_pvp_reads_before_add_unit_target() {
 fn authored_area_effect_inserts_a_living_target_and_skips_a_dead_target() {
     struct Hit {
         auras: SourceUnitAuras,
+        visibility: SourceUnitVisibility,
         clocks: Vec<i64>,
     }
     impl SpellAuraHitOwner for Hit {
@@ -279,8 +280,11 @@ fn authored_area_effect_inserts_a_living_target_and_skips_a_dead_target() {
             self.clocks.push(43);
             Ok(43)
         }
-        fn aura_hit_target(&mut self, _: ObjectHandle) -> Result<&mut SourceUnitAuras> {
-            Ok(&mut self.auras)
+        fn aura_hit_target(&mut self, _: ObjectHandle) -> Result<SelfAuraHitTarget<'_>> {
+            Ok(SelfAuraHitTarget {
+                auras: &mut self.auras,
+                visibility: &mut self.visibility,
+            })
         }
         fn apply_inserted_aura_holder(
             &mut self,
@@ -310,12 +314,13 @@ fn authored_area_effect_inserts_a_living_target_and_skips_a_dead_target() {
             s.script_value = 71;
             let mut hit = Hit {
                 auras: SourceUnitAuras::default(),
+                visibility: SourceUnitVisibility::default(),
                 clocks: Vec::new(),
             };
             s.hit_self_auras(
                 &t,
                 live.stores,
-                SelfAuraRemoval {
+                SelfAuraTarget {
                     target: caster,
                     level: Some(live.level),
                     alive,

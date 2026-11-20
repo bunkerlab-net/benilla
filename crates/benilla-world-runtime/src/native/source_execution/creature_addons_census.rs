@@ -154,7 +154,9 @@ fn catalog04_creature_addon_branch_census_and_4692_lookup() {
     for (&id, references) in &aura_spells {
         let spell = spells.template(id).unwrap();
         let static_coverage = spell.effects().iter().all(|effect| {
-            effect.effect == 0 || (effect.effect == 6 && matches!(effect.aura, 4 | 95))
+            effect.effect == 0
+                || (self_aura_effect(effect.effect).is_ok()
+                    && SelfAuraApplyHandler::for_kind(effect.aura).is_some())
         });
         static_covered += usize::from(static_coverage);
         for effect in spell.effects().iter().filter(|effect| effect.effect != 0) {
@@ -178,12 +180,13 @@ fn catalog04_creature_addon_branch_census_and_4692_lookup() {
         println!("CREATURE_ADDON_AURA spell={id} references_template_guid={references:?} effects={effects:?} auras={auras:?} static_coverage={static_coverage} reached={reached}");
     }
     assert_eq!(aura_spells.len(), 262);
-    assert_eq!(static_covered, 31);
+    assert_eq!(static_covered, 183);
     assert_eq!(aura_types.len(), 43);
     assert_eq!(aura_types.values().sum::<usize>(), 292);
     assert_eq!(effect_aura_slots.values().sum::<usize>(), 299);
     assert_eq!(effect_aura_slots[&(6, 95)], 1);
     assert_eq!(effect_aura_slots[&(6, 4)], 33);
+    assert_eq!(effect_aura_slots[&(6, 18)], 8);
     assert_eq!(
         effect_types,
         BTreeMap::from([(3, 5), (6, 281), (27, 1), (35, 10), (119, 2)])

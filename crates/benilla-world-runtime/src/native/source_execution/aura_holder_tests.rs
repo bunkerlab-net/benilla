@@ -8,11 +8,11 @@ fn unit(construction: u64) -> ObjectHandle {
     }
 }
 
-fn removal<'a>(
+fn aura_target<'a>(
     objects: &'a SourceObjects,
     controls: &'a SourceControlGuids,
-) -> SelfAuraRemoval<'a> {
-    SelfAuraRemoval {
+) -> SelfAuraTarget<'a> {
+    SelfAuraTarget {
         target: unit(1),
         level: Some(19),
         alive: true,
@@ -151,6 +151,7 @@ fn aura_holder_ordinal_wrap_preserves_pending_holder_and_type_lists() {
 #[derive(Default)]
 struct HitOwner {
     auras: SourceUnitAuras,
+    visibility: SourceUnitVisibility,
     applied: Option<SourceAuraHolderId>,
     reentrant: Option<SourceAuraHolderId>,
 }
@@ -164,9 +165,12 @@ impl SpellAuraHitOwner for HitOwner {
         Ok(20)
     }
 
-    fn aura_hit_target(&mut self, target: ObjectHandle) -> Result<&mut SourceUnitAuras> {
+    fn aura_hit_target(&mut self, target: ObjectHandle) -> Result<SelfAuraHitTarget<'_>> {
         assert_eq!(target, unit(1));
-        Ok(&mut self.auras)
+        Ok(SelfAuraHitTarget {
+            auras: &mut self.auras,
+            visibility: &mut self.visibility,
+        })
     }
 
     fn apply_inserted_aura_holder(
@@ -222,7 +226,7 @@ fn aura_hit_without_an_insert_leaves_the_incumbent_unready() {
         .hit_self_auras(
             &t,
             &SourceSpellStores::default(),
-            removal(&objects, &controls),
+            aura_target(&objects, &controls),
             0,
             None,
             &mut owner,
@@ -250,7 +254,7 @@ fn aura_hit_marks_only_its_inserted_holder_ready_outside_procs() {
         let result = hit(&t, 1).hit_self_auras(
             &t,
             &stores,
-            removal(&objects, &controls),
+            aura_target(&objects, &controls),
             0,
             None,
             &mut owner,
@@ -276,7 +280,8 @@ fn aura_hit_marks_only_its_inserted_holder_ready_outside_procs() {
 fn client_update_nested_aura_hit_marks_before_each_modifier_callback() {
     struct Nested<'a> {
         auras: SourceUnitAuras,
-        live: SelfAuraRemoval<'a>,
+        visibility: SourceUnitVisibility,
+        live: SelfAuraTarget<'a>,
         stores: &'a SourceSpellStores,
         inner: &'a SpellTemplate,
         map: MapIdentity,
@@ -290,9 +295,12 @@ fn client_update_nested_aura_hit_marks_before_each_modifier_callback() {
         fn aura_effect_seconds(&mut self, _: &SourceSpell) -> Result<i64> {
             Ok(20)
         }
-        fn aura_hit_target(&mut self, target: ObjectHandle) -> Result<&mut SourceUnitAuras> {
+        fn aura_hit_target(&mut self, target: ObjectHandle) -> Result<SelfAuraHitTarget<'_>> {
             assert_eq!(target, self.live.target);
-            Ok(&mut self.auras)
+            Ok(SelfAuraHitTarget {
+                auras: &mut self.auras,
+                visibility: &mut self.visibility,
+            })
         }
         fn apply_inserted_aura_holder(
             &mut self,
@@ -345,9 +353,10 @@ fn client_update_nested_aura_hit_marks_before_each_modifier_callback() {
     for in_world in [false, true] {
         let (objects, map) = update_subject(in_world);
         let control = SourceControlGuids::default();
-        let live = removal(&objects, &control);
+        let live = aura_target(&objects, &control);
         let mut owner = Nested {
             auras: SourceUnitAuras::default(),
+            visibility: SourceUnitVisibility::default(),
             live,
             stores: &stores,
             inner: &inner,
@@ -384,7 +393,7 @@ fn aura_removal_unlinks_by_identity_and_defers_in_effect_order() {
     stores.insert_template(t.clone()).unwrap();
     let (objects, _) = update_subject(false);
     let controls = SourceControlGuids::default();
-    let live = removal(&objects, &controls);
+    let live = aura_target(&objects, &controls);
     let mut auras = SourceUnitAuras::default();
     let mut old = authored_effect_holder(&t, live.target, 95);
     old.effects[2] = authored_effect_holder(&t, live.target, 4).effects[0].clone();
@@ -407,7 +416,15 @@ fn aura_removal_unlinks_by_identity_and_defers_in_effect_order() {
         .unwrap();
     auras.aura_update_next = Some(old);
     auras
-        .remove_self_aura_holder(&stores, old, AuraRemoveMode::Stack, live)
+        .remove_self_aura_holder(
+            &stores,
+            old,
+            AuraRemoveMode::Stack,
+            &mut SelfAuraRemoval {
+                unit: live,
+                visibility: &mut SourceUnitVisibility::default(),
+            },
+        )
         .unwrap();
     assert_eq!(auras.aura_update_next, Some(other));
     assert!(auras.aura_holder(old).is_none());
@@ -455,7 +472,7 @@ fn cast_removal_restarts_at_the_first_live_holder() {
     let mut stores = SourceSpellStores::default();
     let (objects, _) = update_subject(false);
     let controls = SourceControlGuids::default();
-    let live = removal(&objects, &controls);
+    let live = aura_target(&objects, &controls);
     let mut auras = SourceUnitAuras::default();
     let mut ids = Vec::new();
     for (id, flags) in [(1, 0), (2, 4), (3, 4)] {
@@ -475,7 +492,18 @@ fn cast_removal_restarts_at_the_first_live_holder() {
         ..Default::default()
     };
     let mut lookups = 0;
-    check_cast_aura_removals(&stores, &mut auras, &cast, live, 4, || lookups += 1).unwrap();
+    check_cast_aura_removals(
+        &stores,
+        &mut auras,
+        &cast,
+        SelfAuraRemoval {
+            unit: live,
+            visibility: &mut SourceUnitVisibility::default(),
+        },
+        4,
+        || lookups += 1,
+    )
+    .unwrap();
     // Visits [1,2], then [1,3], then [1].
     assert_eq!(lookups, 5);
     assert_eq!(
@@ -545,9 +573,9 @@ fn aura_removal_refuses_first_unbound_source_operand() {
         };
         let mut stores = SourceSpellStores::default();
         stores.insert_template(t.clone()).unwrap();
-        let live = SelfAuraRemoval {
+        let live = SelfAuraTarget {
             player,
-            ..removal(&objects, &controls)
+            ..aura_target(&objects, &controls)
         };
         let mut auras = SourceUnitAuras::default();
         let mut old = authored_effect_holder(&t, live.target, 95);
@@ -562,7 +590,15 @@ fn aura_removal_refuses_first_unbound_source_operand() {
         let old = auras.store_aura_holder(t.id, &mut Some(old)).unwrap();
         assert_eq!(
             auras
-                .remove_self_aura_holder(&stores, old, mode, live)
+                .remove_self_aura_holder(
+                    &stores,
+                    old,
+                    mode,
+                    &mut SelfAuraRemoval {
+                        unit: live,
+                        visibility: &mut SourceUnitVisibility::default(),
+                    },
+                )
                 .err()
                 .map(|err| err.id),
             site.map(str::to_owned)
@@ -592,10 +628,10 @@ fn replacement_slot_refuses_player_duration_packet_after_slot_write() {
     let mut owner = HitOwner::default();
     let (objects, _) = update_subject(false);
     let controls = SourceControlGuids::default();
-    let live = SelfAuraRemoval {
+    let live = SelfAuraTarget {
         player: true,
         player_group: Some(false),
-        ..removal(&objects, &controls)
+        ..aura_target(&objects, &controls)
     };
     let mut spell = hit(&t, 1);
     assert_eq!(
@@ -620,13 +656,21 @@ fn aura_removal_refuses_the_missing_boost_template_dereference() {
     stores.insert_template(t.clone()).unwrap();
     let (objects, _) = update_subject(false);
     let controls = SourceControlGuids::default();
-    let live = removal(&objects, &controls);
+    let live = aura_target(&objects, &controls);
     let mut auras = SourceUnitAuras::default();
     let mut holder = Some(authored_effect_holder(&t, live.target, 95));
     let id = auras.store_aura_holder(t.id, &mut holder).unwrap();
     assert_eq!(
         auras
-            .remove_self_aura_holder(&stores, id, AuraRemoveMode::Stack, live)
+            .remove_self_aura_holder(
+                &stores,
+                id,
+                AuraRemoveMode::Stack,
+                &mut SelfAuraRemoval {
+                    unit: live,
+                    visibility: &mut SourceUnitVisibility::default(),
+                },
+            )
             .unwrap_err()
             .id,
         "execution.spells.SpellAuraHolder_5633.boost_template_null_undefined"

@@ -29,7 +29,9 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
         live: &mut SourceUnitFields,
         spell: u32,
     ) -> Result<()> {
-        let before = matches!(spell, 9036 | 1032).then(|| serde_json::to_vec(&*live).unwrap());
+        let invisibility = self.object.thread == 6 && spell == 4986 && live.entry == 3094;
+        let before = (invisibility || matches!(spell, 9036 | 1032))
+            .then(|| serde_json::to_vec(&*live).unwrap());
         if self.object.thread == 7 && self.objects.get(self.object)?.database_guid == 27677 {
             // Catalog04 template11577/ordinal6753 and spawnTemplate0 leave every flag clear.
             assert_eq!(live.flags, 0);
@@ -49,6 +51,7 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
             control_guids: cast.control_guids,
             immunities: cast.immunities,
             auras: cast.auras,
+            visibility: cast.visibility,
             resistances: cast.resistances,
             can_modify_stats: cast.can_modify_stats,
             threat_modifier: cast.threat_modifier,
@@ -85,6 +88,24 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
                 before,
                 serde_json::to_vec(&*live).unwrap(),
                 "applying {spell} must not change saved SourceUnitFields bytes"
+            );
+        }
+        if invisibility {
+            // SQL :433653,:841741; Creature.cpp:932,1738,2343.
+            assert!(!self.objects.get(self.object)?.in_world);
+            assert_eq!(
+                live.visibility.mode,
+                SourceUnitVisibilityMode::GroupInvisibility
+            );
+            assert_eq!(live.visibility.mask, 1);
+            assert_eq!(live.visibility.values[0], 200);
+            assert_eq!(live.visibility.values[1..], [0; 31]);
+            let holder = live.auras.first_aura_holder(spell).unwrap();
+            assert!(holder.ready && holder.passive);
+            let aura = holder.effects[0].as_ref().unwrap();
+            assert_eq!(
+                (aura.kind, aura.misc, aura.amount, aura.applied),
+                (18, 0, 200, true)
             );
         }
         if self.object.thread == 6 && self.objects.get(self.object)?.database_guid == 40520 {
@@ -193,6 +214,7 @@ pub(super) struct Owner<'a> {
     pub control_guids: &'a SourceControlGuids,
     pub immunities: &'a CreatureImmunityState,
     pub auras: &'a mut SourceUnitAuras,
+    pub visibility: &'a mut SourceUnitVisibility,
     pub resistances: &'a mut SourceUnitResistances,
     pub can_modify_stats: &'a bool,
     pub threat_modifier: &'a mut [f32; 7],
@@ -218,8 +240,8 @@ pub(super) struct Owner<'a> {
 }
 
 impl<'a> Owner<'a> {
-    pub(super) fn aura_removal(&self) -> SelfAuraRemoval<'a> {
-        SelfAuraRemoval {
+    pub(super) fn aura_target(&self) -> SelfAuraTarget<'a> {
+        SelfAuraTarget {
             target: self.object,
             level: Some(self.level),
             alive: self.unit.alive,
@@ -235,10 +257,9 @@ impl<'a> Owner<'a> {
 impl SelfAuraApplicationOwner for Owner<'_> {
     fn self_aura_application(&mut self) -> SelfAuraApplication<'_> {
         SelfAuraApplication {
-            object: self.object,
-            objects: self.objects,
-            control_guids: self.control_guids,
+            unit: self.aura_target(),
             auras: self.auras,
+            visibility: self.visibility,
             resistances: self.resistances,
             can_modify_stats: *self.can_modify_stats,
             threat_modifier: self.threat_modifier,
@@ -246,7 +267,6 @@ impl SelfAuraApplicationOwner for Owner<'_> {
             power_type: self.power_type.as_deref_mut(),
             vitals: self.vitals,
             form: self.form,
-            player: self.unit.player,
         }
     }
 }
