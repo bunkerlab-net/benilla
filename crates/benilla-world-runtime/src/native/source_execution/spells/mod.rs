@@ -24,6 +24,7 @@ mod location;
 mod positivity;
 mod power;
 mod procs;
+pub use procs::ProcTriggerExit;
 mod range;
 mod resistance;
 mod shapeshift;

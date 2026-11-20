@@ -106,8 +106,30 @@ impl SpellCastEffects for Owner<'_> {
     fn proc_cast_end(&mut self, spell: &mut SourceSpell) -> Result<()> {
         let raw = self.random.creature_raw_position()?;
         let mut lookups = 0;
-        self.auras
-            .proc_creature_self_cast_end(self.stores, spell, || lookups += 1)?;
+        let bolvar = self.object.thread == 6
+            && self.objects.get(self.object)?.database_guid == 10495
+            && spell.spell == 18943;
+        let expected = [
+            (8990, ProcTriggerExit::ZeroFlags),
+            (18943, ProcTriggerExit::SelfTrigger),
+        ];
+        self.auras.proc_creature_self_cast_end(
+            self.stores,
+            spell,
+            self.objects,
+            self.stand,
+            |id, exit| {
+                if bolvar {
+                    assert_eq!(expected[lookups as usize], (id, exit));
+                }
+                lookups += 1;
+            },
+        )?;
+        if bolvar {
+            // No draw before the recorded completion at :61351308.
+            assert_eq!(raw, 32034);
+            assert_eq!(lookups as usize, expected.len());
+        }
         assert_eq!(self.random.creature_raw_position()?, raw);
         spell.proc_event_lookups += lookups;
         Ok(())
@@ -233,8 +255,14 @@ impl SpellAuraHitOwner for Owner<'_> {
         let raw = self.random.creature_raw_position()?;
         let mut lookups = 0;
         let alive = self.objects.get(self.object)?.alive;
-        self.auras
-            .proc_creature_self_hit(self.stores, s, alive, || lookups += 1)?;
+        self.auras.proc_creature_self_hit(
+            self.stores,
+            s,
+            alive,
+            self.objects,
+            self.stand,
+            |_, _| lookups += 1,
+        )?;
         assert_eq!(self.random.creature_raw_position()?, raw);
         s.proc_event_lookups += lookups;
         Ok(())

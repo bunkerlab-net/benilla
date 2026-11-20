@@ -171,15 +171,17 @@ is meaningful without a bounded content/mechanics inventory.
   (`CreatureEventAIMgr.cpp:979-996`, `ScriptMgr.h:679`).
   Startup matches the template SELECT at trace :52620961 before the EventAI
   SELECT at :58819675. Runtime string selection refuses at `CreatureEventAI.cpp:1262`.
-  Map 0 matches 963 completions, 1,037 allocations, 32,034 random words,
-  729 clocks, 93 paths, and two SQL requests. GUID12058 finishes Defensive
+  Map 0 matches 1,082 completions, 1,158 allocations, 32,373 random words,
+  760 clocks, 97 paths, and two SQL requests. GUID12058 finishes Defensive
   Stance and its 7376 boost (trace :60985257). GUID89544 and GUID89542 finish
   Frost Armor (trace :61222641, :61242962). Bolvar GUID10495 retains a
   damage-shield effect with no immediate callback changes
   (`SpellAuras.cpp:76`, trace :61351112/:61351114). Damage on melee still
-  needs `Unit.cpp:2256-2307`. Seven Stormwind guards complete (trace :61339475-61348541).
-  Double Attack stops at the cast-end proc check (`UnitAuraProcHandler.cpp:532`,
-  after trace :61351279).
+  needs `Unit.cpp:2256-2307`. All 23 Stormwind guards complete (trace :61339475-61390644).
+  `SpellMgr.cpp:843-934` checks loaded proc event rows and the triggering
+  spell. `UnitAuraProcHandler.cpp:544-545` excludes Double Attack from
+  its own cast-end proc. Bolvar completes without a proc roll (trace :61351308).
+  The chance read remains a refusal at `UnitAuraProcHandler.cpp:592`.
   GuardAI construction and its inherited `SpellListChanged` and
   `JustRespawned` callbacks complete for GUID4242 (`Creature.cpp:883-887`).
   `npc_chicken_cluck` completes construction and both resets for GUID4228.

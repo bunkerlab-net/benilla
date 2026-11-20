@@ -5,7 +5,7 @@ use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: [&str; 2] = [
-    "execution.spells.UnitAuraProcHandler_532.IsSpellProcEventCanTriggeredBy_owner",
+    "execution.outdoor_pvp.OutdoorPvPEP_95.HandleCreatureCreate_owner",
     "execution.spells.Unit_CanAttackSpell_CanAssistSpell_owner",
 ];
 #[path = "seal16_active_clocks.rs"]
