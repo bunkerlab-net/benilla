@@ -2642,10 +2642,20 @@ visibility update still refuse by name. A fresh addon cast happens before
 The addon census uses the production dispatch. It classifies 183 of 262
 spells as having a handler for every effect and aura type. It does not test
 each spell's targets or callbacks.
-Map 0 completes 767 objects in 797 allocations. It matches 30,766 random
-words, 573 clocks, and two map SQL requests. GUID12058 finishes the 7376
-Defensive Stance boost (trace :60985257). GUID89544 stops at Frost Armor's
-effect level scaling (`Object.cpp:2934`, trace :61221527-61221529).
+Creature self-casts scale effect points and dice before the fixed-dice switch,
+`Object.cpp:2931-2947`. The recorded Seal16 build uses `-ffp-contract=off`
+for `Object.cpp`, and its hash-bound `mangosd` uses separate `mulss` and
+`addss` at `0x51d2ce` and `0x51d2d7` for pinned `Object.cpp:2940`.
+Static coverage at stock template levels is 29 of 31 nonzero-slope addon
+effect slots and 13 of 16 direct EventAI Spawn-cast slots. The other two and
+three slots reach the dice RNG at `Object.cpp:2955`. This census counts effect
+value arithmetic and does not execute casts.
+Map 0 completes 946 objects in 1,020 allocations. It matches 31,934 random
+words, 716 clocks, and two map SQL requests. Defias Conjurers GUID89544 and
+GUID89542 finish Frost Armor with 36 armor and two effect clocks each
+(trace :61221527-61221531, :61241174-61241178). Map 0 stops at the
+`guard_stormwind` factory for GUID10507 (`ScriptDevAIMgr.cpp:370`,
+trace :61339352-61339354).
 Map 1 stops at the `boss_azuregos` factory for GUID52349
 (`ScriptDevAIMgr.cpp:370`, trace :60622939).
 Recorded allocation addresses are never supplied as execution inputs.

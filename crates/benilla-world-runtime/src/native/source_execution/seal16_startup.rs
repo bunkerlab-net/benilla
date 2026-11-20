@@ -53,10 +53,11 @@ const MAP0_BELL_RAW: usize = 27472; // First word after the factory, :60638177.
 const MAP0_EVENT_RAW: usize = 27682; // Event 26501 holder timer word, :60711960.
 const MAP0_INVISIBILITY_RAW: usize = 27780; // First word after aura 18, :60774115.
 const MAP0_STANCE_RAW: usize = 28714; // First word after type 79, :60985315.
-const MAP0_NEXT_RAW: usize = 30766; // Next word, :61221537.
+const MAP0_FROST_ARMOR_RAW: usize = 30766; // First word after Frost Armor, :61221537.
+const MAP0_NEXT_RAW: usize = 31934; // First Stormwind guard timer word, :61339365.
 
-// Object.cpp:2934, between the Frost Armor holder and first effect clocks.
-const MAP0_NEXT_OWNER_LINE: u64 = 61221529;
+// The Stormwind guard's Script::GetAI argument, ScriptDevAIMgr.cpp:370.
+const MAP0_NEXT_OWNER_LINE: u64 = 61339352;
 
 fn retained_f1_file(root: &Path, recorded: &Path, expected: &Sha256Id) -> Result<Vec<u8>> {
     let prefix = recorded
@@ -95,7 +96,7 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
     // The GUID40520 birth was already counted. The remaining 53 births include
     // the trap at :60493861 and both duplicate creature attempts.
     // The continuation through the Bell GO adds 51 births, :60580681-60637267.
-    assert_eq!(evidence.continuation_births.len(), 709);
+    assert_eq!(evidence.continuation_births.len(), 932);
     let births = &evidence.continuation_births[1..54];
     assert_eq!((births[0], births[52]), (60478620, 60571587));
     assert_eq!(
@@ -243,7 +244,7 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
         ),
         "8cd3ad671bc0134f0bbd1cf45247d55f265ad1eb61bb9675f1c8066071483632"
     );
-    let births = &evidence.continuation_births[363..];
+    let births = &evidence.continuation_births[363..709];
     assert_eq!(
         (births.len(), births[0], births[345]),
         (346, 60985267, 61221027)
@@ -252,7 +253,7 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
         map0_receipt(births.iter().map(|&line| [line])),
         "1dda36267cc34149d41a1d33e060987461ae1b5b286c714033fcf6b2e00d8cf0"
     );
-    let completions = &evidence.continuation_completed[342..];
+    let completions = &evidence.continuation_completed[342..680];
     assert_eq!(completions.len(), 338);
     assert_eq!(completions[0], (60985257, 12058));
     assert_eq!(completions[337], (61221025, 90136));
@@ -263,6 +264,28 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
                 .map(|&(line, guid)| [line, u64::from(guid)])
         ),
         "7039183a3878b9416a262d086c7dd55efdc9ba78eedc4200600b0427349130cc"
+    );
+    // GUID89544 was allocated at :61221027. The next 223 births end at GUID10507.
+    let births = &evidence.continuation_births[709..];
+    assert_eq!(
+        (births.len(), births[0], births[222]),
+        (223, 61222643, 61338937)
+    );
+    assert_eq!(
+        map0_receipt(births.iter().map(|&line| [line])),
+        "890d5bf105cdd30059e69bdebd118160ab08b6f69d38d1d356dee5bcaccc0f54"
+    );
+    let completions = &evidence.continuation_completed[680..];
+    assert_eq!(completions.len(), 179);
+    assert_eq!(completions[0], (61222641, 89544));
+    assert_eq!(completions[178], (61338935, 13946));
+    assert_eq!(
+        map0_receipt(
+            completions
+                .iter()
+                .map(|&(line, guid)| [line, u64::from(guid)])
+        ),
+        "52ca8df3429229cda4ac41fc01de252afe18247f05a26956152ccfe8c6fd7ac8"
     );
     // The replay also compares each word, request and result in order below.
     let words = &evidence.words[27087..MAP0_GUARD_RAW];
@@ -366,17 +389,33 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
         "e42db86f0d75705ba1476da10c11b2132caebfe345ef3703d8f7247ce8b6f79a"
     );
     assert_eq!(
-        evidence.words[MAP0_NEXT_RAW - 1],
+        evidence.words[MAP0_FROST_ARMOR_RAW - 1],
         (61221283, 30765, 4190303154)
     );
-    assert_eq!(evidence.words[MAP0_NEXT_RAW], (61221537, 30766, 193954474));
+    assert_eq!(
+        evidence.words[MAP0_FROST_ARMOR_RAW],
+        (61221537, 30766, 193954474)
+    );
     assert_eq!(
         map0_receipt(
-            evidence.words[MAP0_STANCE_RAW..MAP0_NEXT_RAW]
+            evidence.words[MAP0_STANCE_RAW..MAP0_FROST_ARMOR_RAW]
                 .iter()
                 .map(|&(line, raw, word)| [line, raw, word])
         ),
         "7675c0294f1ca1c8b57aace581f7117917eb30317c08314090ef4d5afff8f668"
+    );
+    assert_eq!(
+        evidence.words[MAP0_NEXT_RAW - 1],
+        (61339340, 31933, 3726907487)
+    );
+    assert_eq!(evidence.words[MAP0_NEXT_RAW], (61339365, 31934, 675277435));
+    assert_eq!(
+        map0_receipt(
+            evidence.words[MAP0_FROST_ARMOR_RAW..MAP0_NEXT_RAW]
+                .iter()
+                .map(|&(line, raw, word)| [line, raw, word])
+        ),
+        "1f22e300d83537168a3c0ebdfea6512599b584b0fbbad0724869b40279443805"
     );
     let consumed = evidence.active_clocks.0.len() - clocks.0.len();
     let new_clocks = evidence
@@ -385,8 +424,8 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
         .iter()
         .take(consumed)
         .filter(|clock| clock.time_line > 60478161);
-    assert_eq!(consumed, 573);
-    assert_eq!(new_clocks.clone().count(), 495);
+    assert_eq!(consumed, 716);
+    assert_eq!(new_clocks.clone().count(), 638);
     assert_eq!(
         map0_receipt(new_clocks.clone().take(34).map(|clock| [
             clock.site_line,
@@ -473,10 +512,13 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
     );
     assert_eq!(evidence.active_clocks.0[302].time_line, 60985213);
     assert_eq!(evidence.active_clocks.0[303].time_line, 60985940);
-    assert_eq!(evidence.active_clocks.0[consumed - 1].time_line, 61221527);
-    assert_eq!(clocks.0.front().unwrap().time_line, 61221529);
+    assert_eq!(evidence.active_clocks.0[572].time_line, 61221527);
+    assert_eq!(evidence.active_clocks.0[573].time_line, 61221529);
+    assert_eq!(evidence.active_clocks.0[574].time_line, 61221531);
+    assert_eq!(evidence.active_clocks.0[consumed - 1].time_line, 61339347);
+    assert_eq!(clocks.0.front().unwrap().time_line, 61339887);
     assert_eq!(
-        map0_receipt(evidence.active_clocks.0.range(303..consumed).map(|clock| [
+        map0_receipt(evidence.active_clocks.0.range(303..573).map(|clock| [
             clock.site_line,
             clock.time_line,
             clock.thread,
@@ -485,6 +527,17 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
             clock.seconds as u64
         ])),
         "3cee121eae7359630d0a7683f5374e6697e12637eccafc72c01316ff62d5681f"
+    );
+    assert_eq!(
+        map0_receipt(evidence.active_clocks.0.range(573..consumed).map(|clock| [
+            clock.site_line,
+            clock.time_line,
+            clock.thread,
+            clock.site[2],
+            clock.raw,
+            clock.seconds as u64
+        ])),
+        "f6c84dce826ba6e40b39a71c639d58e6f85808975f6351d8135b038952682fe4"
     );
 }
 
@@ -2949,11 +3002,17 @@ pub(super) fn continue_startup(
                 map0_receipt(paths.iter().map(|&line| [line])),
                 "45d4b5cfa3064d661c4be4fb00820cadcb94f8c0120a2a33ade64979c51d2daa"
             );
-            let paths = &evidence.path_calculations[46..];
+            let paths = &evidence.path_calculations[46..76];
             assert_eq!((paths.len(), paths[0], paths[29]), (30, 60986328, 61216530));
             assert_eq!(
                 map0_receipt(paths.iter().map(|&line| [line])),
                 "846cd2826980be5190054237552d1b30f8840e8a89272cff3f5bc7a0c23d5b86"
+            );
+            let paths = &evidence.path_calculations[76..];
+            assert_eq!((paths.len(), paths[0], paths[13]), (14, 61221985, 61286569));
+            assert_eq!(
+                map0_receipt(paths.iter().map(|&line| [line])),
+                "6af3a2827bcd3807304744396d1b4c51ad4a1843cfd5437534f10697553b2714"
             );
             assert_eq!(evidence.sql_lines, [60100980, 60101139]);
             assert_eq!(
@@ -3112,7 +3171,8 @@ pub(super) fn continue_startup(
                     "go_instance_on_object_spawn",
                 ]));
             assert!(!completed_objects.contains(&candidate));
-            // GUID89544 reads the Frost Armor holder clock before the scaling call.
+            // :61338936-61338949 names the Stormwind guard. :61339348 adds
+            // it to the world before the Script::GetAI call at :61339354.
             assert_eq!(
                 (
                     attempt.guid,
@@ -3121,17 +3181,36 @@ pub(super) fn continue_startup(
                     attempt.cell.x(),
                     attempt.cell.y()
                 ),
-                (89544, GridSpawnKind::Creature, 619, 176, 558)
+                (10507, GridSpawnKind::Creature, 1756, 256, 523)
             );
-            assert!(!active_objects.get(candidate).unwrap().in_world);
-            let stopped = units.get(&active_objects, candidate).unwrap();
-            assert!(!stopped.has_ai);
-            let spell = &stopped.spell_starts.spells[&1];
-            assert_eq!(
-                (spell.spell, spell.state),
-                (12544, SourceSpellState::Landing)
-            );
-            assert!(stopped.auras.first_aura_holder(12544).is_none());
+            assert!(active_objects.get(candidate).unwrap().in_world);
+            assert!(!units.get(&active_objects, candidate).unwrap().has_ai);
+            // SQL :431792, :847350 binds Frost Armor. SelectLevel draws 16
+            // at :61221284 and 15 at :61240810. Both give 11 + (3 - 1) * 12 + 1.
+            for (finish, guid) in [(61222641, 89544), (61242962, 89542)] {
+                let index = evidence
+                    .continuation_completed
+                    .iter()
+                    .position(|&row| row == (finish, guid))
+                    .unwrap();
+                let object = completed_objects[87 + index];
+                assert_eq!(active_objects.get(object).unwrap().database_guid, guid);
+                let live = units.get(&active_objects, object).unwrap();
+                let spell = &live.spell_starts.spells[&1];
+                assert_eq!(
+                    (spell.spell, spell.state),
+                    (12544, SourceSpellState::Finished)
+                );
+                let holder = live.auras.first_aura_holder(12544).unwrap();
+                assert!(holder.ready);
+                assert_eq!(holder.apply_time, 1794314192);
+                assert!(holder
+                    .effects
+                    .iter()
+                    .flatten()
+                    .map(|aura| (aura.kind, aura.amount, aura.applied, aura.apply_time))
+                    .eq([(22, 36, true, 1794314192), (42, 0, true, 1794314192)]));
+            }
             // The stance caster is the first new completion, trace :60985257.
             let stance_caster = completed_objects[429];
             let stance_object = active_objects.get(stance_caster).unwrap();
@@ -3512,7 +3591,7 @@ pub(super) fn continue_startup(
             zone_lookups.len());
         assert_eq!(
             continents.maps[slot].cells.active().len(),
-            if slot == 0 { 17 } else { 7 }
+            if slot == 0 { 18 } else { 7 }
         );
         let active_guids = continents.maps[slot]
             .cells
@@ -3523,10 +3602,10 @@ pub(super) fn continue_startup(
         assert_eq!(
             active_guids,
             if slot == 0 {
-                // :61022755-61175426 adds 12 new members to the five earlier ones.
+                // The last new member is GUID45525, :61257319-61257322.
                 BTreeSet::from([
                     636, 2129, 4185, 4603, 14514, 14515, 14516, 14517, 14772, 14773, 14774, 14775,
-                    14776, 15423, 15424, 15508, 20802,
+                    14776, 15423, 15424, 15508, 20802, 45525,
                 ])
             } else {
                 BTreeSet::from([27279, 27280, 27281, 29113, 35867, 52349, 590005])
@@ -4620,18 +4699,19 @@ pub(super) fn continue_startup(
         // GUID4191, GUID4193, and GUID4208 add Idle at :60748051, :60749159, and :60757810.
         // Fifteen more Idle creatures complete at :60774468-60979028.
         // 62 more Idle creatures finish at :60985257-61221025.
+        // 60 more Idle creatures finish at :61223188-61337478.
         // Map 1 stays at 23: :60649368, :60687847 and :60689490 use movement 2, 1, 1.
-        assert_eq!(idle_count, if slot == 0 { 114 } else { 23 });
+        assert_eq!(idle_count, if slot == 0 { 174 } else { 23 });
         assert_eq!(
             geometry.pathfinder_constructor_completions,
             // WaypointMovementGenerator.cpp:264 constructs per BuildIntPath.
-            // Map 0 records 76 paths for 44 waypoint creatures.
+            // Map 0 records 90 paths for 55 creatures, through :61286569.
             // Map 1 calculates 16 -> 18 paths for eight waypoints (:60658091, :60673312).
             // Static Idle constructs none (MotionMaster.cpp:79-81).
             pathfinders_before + motion_initializations - idle_count
                 + if slot == 0 {
-                    // The stopped GUID89544 has not initialized motion.
-                    76 - 44
+                    // The stopped GUID10507 initializes Idle (:61338942).
+                    90 - 55 - 1
                 } else {
                     18 - 8
                 }
@@ -4978,9 +5058,9 @@ pub(super) fn continue_startup(
             ))
         );
         assert_eq!(attempt.guid, if slot == 0 { 18 } else { 28044 });
-        // Map 0 ends allocation at :61221027. Map 1 adds four allocations, :60687834,
+        // Map 0 ends allocation at :61338937. Map 1 adds four allocations, :60687834,
         // :60689479, :60690806 and :60690842 (291 -> 295).
-        assert_eq!(candidates, if slot == 0 { 797 } else { 295 });
+        assert_eq!(candidates, if slot == 0 { 1020 } else { 295 });
         assert_eq!(entry, if slot == 0 { 3211 } else { 4692 });
         if slot == 0 {
             assert_eq!(init_entry_fields, None);
@@ -5272,8 +5352,8 @@ pub(super) fn continue_startup(
                 attempt.cell.y(),
             ))
         );
-        // :61221025 completes GUID90136. Map 1 advances 281 -> 284 (:60649319 -> :60690801).
-        assert_eq!(completed, if slot == 0 { 767 } else { 284 });
+        // :61338935 completes GUID13946. Map 1 advances 281 -> 284 (:60649319 -> :60690801).
+        assert_eq!(completed, if slot == 0 { 946 } else { 284 });
         println!(
             "F6_VISIBILITY map={slot} census={visibility:?} invalidated_camera_iterator_stock_reach={}",
             visibility.cameras
@@ -5370,7 +5450,7 @@ pub(super) fn continue_startup(
             evidence.pool_snapshot_line.unwrap(),
             encounters.by_map(slot as u32).len(),
             refusal.id,
-            if slot == 0 { "Object.cpp:2934" } else { "GameObject.cpp:290" },
+            if slot == 0 { "ScriptDevAIMgr.cpp:370" } else { "GameObject.cpp:290" },
         );
         owner.states = states;
         let raw = trace

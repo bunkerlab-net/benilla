@@ -118,7 +118,10 @@ is meaningful without a bounded content/mechanics inventory.
   `spells/auras.rs` owns the reached duration, pending holder, interrupt scan,
   replacement gate, slot fields, and type lists, `Unit.cpp:4687-4874,5253-5276`.
   Holder and effect clocks bind separately at `SpellAuras.cpp:5174` and `:270`.
-  `spells/effect_value.rs` owns the fixed-dice calculation, `Object.cpp:2923-3024`.
+  `spells/effect_value.rs` owns creature rank-based points and dice scaling
+  and the fixed-dice calculation, `Object.cpp:2923-2947,3024`.
+  The player rank override, dice RNG, and creature class-level scaling
+  still refuse by name, `Player.cpp:5885`, `Object.cpp:2955,3014`.
   Ghost type 95 sets the live visibility flag, `SpellAuras.cpp:4401-4429`.
   Dummy type 4 follows its generic branch, `SpellAuras.cpp:1231-1328`.
   Both addon spells finish without RNG or SQL. The in-flight Spell owns its
@@ -168,10 +171,11 @@ is meaningful without a bounded content/mechanics inventory.
   (`CreatureEventAIMgr.cpp:979-996`, `ScriptMgr.h:679`).
   Startup matches the template SELECT at trace :52620961 before the EventAI
   SELECT at :58819675. Runtime string selection refuses at `CreatureEventAI.cpp:1262`.
-  Map 0 matches 767 completions, 797 allocations, 30,766 random words,
-  573 clocks, and two SQL requests. GUID12058 finishes Defensive Stance
-  and its 7376 boost (trace :60985257). GUID89544 stops at Frost Armor's
-  effect level scaling (`Object.cpp:2934`, trace :61221527-61221529).
+  Map 0 matches 946 completions, 1,020 allocations, 31,934 random words,
+  716 clocks, and two SQL requests. GUID12058 finishes Defensive Stance
+  and its 7376 boost (trace :60985257). GUID89544 and GUID89542 finish
+  Frost Armor (trace :61222641, :61242962). GUID10507 stops at
+  `guard_stormwind` (`ScriptDevAIMgr.cpp:370`, trace :61339352-61339354).
   GuardAI construction and its inherited `SpellListChanged` and
   `JustRespawned` callbacks complete for GUID4242 (`Creature.cpp:883-887`).
   `npc_chicken_cluck` completes construction and both resets for GUID4228.

@@ -409,7 +409,13 @@ impl SourceSpell {
                 continue;
             }
             // Spell.cpp:4593-4612. Calculate damage before dispatching the effect.
-            let amount = super::effect_value::effect_value(t, i, self.base_points[i])?;
+            let amount = super::effect_value::effect_value(
+                t,
+                i,
+                self.base_points[i],
+                live.level,
+                live.player,
+            )?;
             self.damage_per_effect[i] = amount;
             let area = self_aura_effect(effect.effect)?;
             if area.is_some() && !live.alive {

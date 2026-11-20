@@ -5,7 +5,7 @@ use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: [&str; 2] = [
-    "execution.spells.Object_2934.effect_level_scaling_owner",
+    "execution.ai.ScriptDevAIMgr_370.GetAI_owner.guard_stormwind",
     "execution.gameobject.loaded_outdoor_pvp_create_owner",
 ];
 #[path = "seal16_active_clocks.rs"]
