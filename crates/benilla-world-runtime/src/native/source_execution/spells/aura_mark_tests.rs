@@ -106,6 +106,42 @@ fn client_update_ghost_uses_the_visibility_byte_change_test() {
 }
 
 #[test]
+fn client_update_player_ghost_marks_unit_byte_before_player_flag_refusal() {
+    let mut objects = SourceObjects::default();
+    let player = objects.construct(6, SourceObjectKind::Player).unwrap();
+    objects
+        .assign_guid(player, 41, SourceGuid::without_entry(HighGuid::Player, 41))
+        .unwrap();
+    let mut auras = SourceUnitAuras::default();
+    for (apply, flags, refusal) in [
+        (
+            true,
+            1,
+            "execution.spells.Aura_4411.player_ghost_flag_owner",
+        ),
+        (
+            false,
+            0,
+            "execution.spells.Aura_4421.player_ghost_flag_owner",
+        ),
+    ] {
+        assert_eq!(
+            auras
+                .handle_aura_ghost(&objects, player, apply, true)
+                .unwrap_err()
+                .id,
+            refusal
+        );
+        assert_eq!(auras.vis_flags, flags);
+        assert!(objects
+            .get(player)
+            .unwrap()
+            .field_changed(UNIT_FIELD_BYTES_1)
+            .unwrap());
+    }
+}
+
+#[test]
 fn client_update_stance_writes_the_rage_form_and_power_type_words() {
     let mut stores = SourceSpellStores::default();
     stores.bind_test_dbc(

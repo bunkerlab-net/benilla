@@ -29,6 +29,7 @@ pub(super) const GAMEOBJECT_FLAGS: usize = OBJECT_END + 0x03; // UpdateFields.h:
 pub(super) const GAMEOBJECT_STATE: usize = OBJECT_END + 0x08; // UpdateFields.h:275.
 pub(super) const GAMEOBJECT_DYN_FLAGS: usize = OBJECT_END + 0x0d; // UpdateFields.h:280.
 const UNIT_END: usize = OBJECT_END + 0xb6; // UpdateFields.h:176.
+const PLAYER_END: usize = UNIT_END + 0x446; // UpdateFields.h:266.
 const GAMEOBJECT_END: usize = OBJECT_END + 0x14; // UpdateFields.h:287.
 const UPDATE_WORD_BITS: usize = u64::BITS as usize;
 
@@ -143,6 +144,7 @@ pub struct SourceObject {
 #[derive(Clone, Debug)]
 enum SourceUpdateMask {
     Unit([Cell<u64>; UNIT_END.div_ceil(UPDATE_WORD_BITS)]),
+    Player(Box<[Cell<u64>; PLAYER_END.div_ceil(UPDATE_WORD_BITS)]>),
     GameObject([Cell<u64>; GAMEOBJECT_END.div_ceil(UPDATE_WORD_BITS)]),
     Unbound,
 }
@@ -154,6 +156,10 @@ impl SourceUpdateMask {
             SourceObjectKind::Creature | SourceObjectKind::Pet => {
                 Self::Unit([const { Cell::new(0) }; UNIT_END.div_ceil(UPDATE_WORD_BITS)])
             }
+            // Player.cpp:484 uses PLAYER_END.
+            SourceObjectKind::Player => Self::Player(Box::new(
+                [const { Cell::new(0) }; PLAYER_END.div_ceil(UPDATE_WORD_BITS)],
+            )),
             // GameObject.cpp:74; Transports.h:30,71,83.
             SourceObjectKind::GameObject | SourceObjectKind::Transport => Self::GameObject(
                 [const { Cell::new(0) }; GAMEOBJECT_END.div_ceil(UPDATE_WORD_BITS)],
@@ -165,6 +171,7 @@ impl SourceUpdateMask {
     fn count(&self) -> Result<usize> {
         match self {
             Self::Unit(_) => Ok(UNIT_END),
+            Self::Player(_) => Ok(PLAYER_END),
             Self::GameObject(_) => Ok(GAMEOBJECT_END),
             Self::Unbound => Err(refuse(
                 "execution.object.Object_105.update_values_count_owner",
@@ -175,6 +182,7 @@ impl SourceUpdateMask {
     fn words(&self) -> &[Cell<u64>] {
         match self {
             Self::Unit(bits) => bits,
+            Self::Player(bits) => bits.as_slice(),
             Self::GameObject(bits) => bits,
             Self::Unbound => &[],
         }
