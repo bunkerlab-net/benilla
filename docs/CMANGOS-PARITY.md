@@ -131,8 +131,8 @@ is meaningful without a bounded content/mechanics inventory.
   of the multimap in `Unit.h:1076`. Each type list stores holder and effect IDs
   in append order, `Unit.cpp:4871-4874`. Neither changes the saved format.
   The 262-spell addon census has 299 effect slots and 43 aura types.
-  The production dispatch handles the effect and aura types for 198 spells.
-  The other 64 use an unported type. This count measures static coverage.
+  The production dispatch handles the effect and aura types for 201 spells.
+  The other 61 use an unported type. This count measures static coverage.
   `spells/targeting.rs` binds ordinary and special-unit creature self targets
   to one unit-target fill (`Spell.cpp:533-784,2159-2161,2397-2405`).
   `SpellEffects.cpp:2331-2338` and `SpellAuras.cpp:298-328,367-379` create
@@ -152,7 +152,11 @@ is meaningful without a bounded content/mechanics inventory.
   Invisibility and shapeshift use the same restart-after-removal walk as the
   cast interrupt check (`Unit.cpp:5211-5223,5253-5276`).
   Player glow and the in-world visibility refresh still refuse at
-  `SpellAuras.cpp:2647,2666,2679`. Detection type 19 remains unported.
+  `SpellAuras.cpp:2647,2666,2679`. Invisibility detection type 19 keeps
+  separate mask and strength fields. Its removal scan skips equal amounts
+  even on another holder (`SpellAuras.cpp:2682-2722`). Stealth detection
+  type 17 adds unsigned strength (`SpellAuras.cpp:2621-2624`).
+  The controlling-player value and player camera refresh remain unbound.
   Non-pet world bosses append immunity `(1, 137)` with a null aura before
   stat updates (`Creature.h:667-672`, `Creature.cpp:596-600`,
   `Unit.cpp:7684-7696`). The stock census is 153 rank-3 templates, eight
@@ -204,8 +208,9 @@ is meaningful without a bounded content/mechanics inventory.
   GUID59514 completes the no-case path at trace :61396675. Shadowmage
   GUID92187 completes with Shadowform at trace :61406116. Its type 126 aura
   has no immediate effect (`SpellAuras.cpp:187`).
-  Map 0 stops at GUID156055's type 19 detection aura (`SpellAuras.cpp:80`,
-  after trace :61417869).
+  GUID156055 applies types 19 and 17 by trace :61417925.
+  Its Greater Invisibility spell script lookup stops map 0
+  (`Spell.cpp:388`, stock SQL :836881).
 - **Stormwind guard startup.** `guard_ai.cpp:29-38,63-81` owns the guard
   base timers and the ranged check after inherited respawn. Stormwind
   calls its salute-only Reset in construction and respawn

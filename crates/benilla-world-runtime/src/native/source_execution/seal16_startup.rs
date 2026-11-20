@@ -61,9 +61,9 @@ const MAP0_SHADOWFORM_RAW: usize = 32493; // GUID92190's display draw, :61406136
 const MAP0_NEXT_RAW: usize = 32650; // GUID156055's respawn delay, :61417987.
 
 const MAP0_FIRST_STORMWIND_LINE: u64 = 61339352;
-// The first detection effect dispatch follows its clock at :61417869.
-const MAP0_NEXT_OWNER_LINE: u64 = 61417870;
-const MAP0_NEXT_SOURCE: &str = "SpellAuras.cpp:80";
+// The third addon Spell starts after the second effect clock at :61417925.
+const MAP0_NEXT_OWNER_LINE: u64 = 61417926;
+const MAP0_NEXT_SOURCE: &str = "Spell.cpp:388";
 const MAP0_LAST_STORMWIND_COMPLETION: u64 = 61390644;
 
 #[derive(Default)]
@@ -654,8 +654,8 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
     // :61339887-61350846 add nine respawn clocks; :61351112/:61351114 add
     // the holder and effect clocks before handling aura 15.
     // :61351269/:61351279 add the holder and effect clocks for 18943.
-    assert_eq!(consumed, 837);
-    assert_eq!(new_clocks.clone().count(), 759);
+    assert_eq!(consumed, 839);
+    assert_eq!(new_clocks.clone().count(), 761);
     assert_eq!(
         map0_receipt(new_clocks.clone().take(34).map(|clock| [
             clock.site_line,
@@ -756,7 +756,16 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
     assert_eq!(evidence.active_clocks.0[798].time_line, 61406100);
     assert_eq!(evidence.active_clocks.0[799].time_line, 61406434);
     assert_eq!(evidence.active_clocks.0[836].time_line, 61417869);
-    assert_eq!(clocks.0.front().unwrap().time_line, 61417923);
+    assert_eq!(
+        evidence
+            .active_clocks
+            .0
+            .range(837..839)
+            .map(|c| (c.time_line, c.raw, c.seconds))
+            .collect::<Vec<_>>(),
+        [(61417923, 32650, 1794314192), (61417925, 32650, 1794314192)]
+    );
+    assert_eq!(clocks.0.front().unwrap().time_line, 61417979);
     assert_eq!(
         evidence
             .active_clocks
@@ -3674,15 +3683,32 @@ pub(super) fn continue_startup(
                 .flatten()
                 .map(|aura| (aura.kind, aura.amount, aura.applied, aura.apply_time))
                 .eq([(126, -20, true, 1794314192), (79, 20, true, 1794314192)]));
-            let stalker = units.get(&active_objects, candidate).unwrap();
-            let detect = stalker.auras.first_aura_holder(8278).unwrap();
-            assert!(!detect.ready);
-            assert_eq!(detect.apply_time, 1794314192); // :61417867.
-            let effect = detect.effects[0].as_ref().unwrap();
-            assert_eq!(
-                (effect.kind, effect.applied, effect.apply_time),
-                (19, false, 1794314192)
-            ); // :61417869.
+            let watcher = units.get(&active_objects, candidate).unwrap();
+            // Stock SQL :436590, :844497, :844498. Holder/effect clocks:
+            // :61417867/:61417869 and :61417923/:61417925.
+            for (id, kind) in [(8278, 19), (8279, 17)] {
+                let holder = watcher.auras.first_aura_holder(id).unwrap();
+                assert!(holder.ready);
+                assert_eq!(holder.apply_time, 1794314192);
+                let effect = holder.effects[0].as_ref().unwrap();
+                assert_eq!(
+                    (
+                        effect.kind,
+                        effect.misc,
+                        effect.amount,
+                        effect.applied,
+                        effect.apply_time
+                    ),
+                    (kind, 0, 100000, true, 1794314192)
+                );
+            }
+            assert_eq!(watcher.visibility.detect_mask, 1);
+            assert_eq!(watcher.visibility.detect_values[0], 100000);
+            assert_eq!(watcher.visibility.stealth_detect, [100000, 0]);
+            assert!(watcher.auras.first_aura_holder(16380).is_none()); // SQL :836881.
+            assert_eq!(watcher.visibility.mode, SourceUnitVisibilityMode::On);
+            assert_eq!(watcher.visibility.mask, 0);
+            assert_eq!(watcher.visibility.values, [0; 32]);
             let plague_creature = completed_objects[1082]; // :61396675.
             let plague_object = active_objects.get(plague_creature).unwrap();
             assert_eq!(plague_object.database_guid, 59514);

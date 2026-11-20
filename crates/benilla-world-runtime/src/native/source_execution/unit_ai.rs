@@ -52,6 +52,11 @@ pub struct SourceUnitVisibility {
     pub mode: SourceUnitVisibilityMode,
     pub mask: u32,
     pub values: [i32; 32],
+    /// ObjectVisibility.h:90,92; ObjectVisibility.cpp:35,38 initialize both to zero.
+    pub detect_mask: u32,
+    pub detect_values: [i32; 32],
+    /// ObjectVisibility.h:39-44,96; ObjectVisibility.cpp:41 initializes both slots to zero.
+    pub stealth_detect: [u32; 2],
 }
 
 #[derive(Clone, Debug, Serialize)]

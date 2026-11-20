@@ -714,7 +714,7 @@ impl SourceUnitAuras {
             !holder.tracked,
             "execution.spells.SpellAuraHolder_5915.GetTrackedAuraTargets_owner",
         )?;
-        for (index, effect) in holder.effects.iter_mut().enumerate() {
+        for index in 0..holder.effects.len() {
             self.remove_aura(
                 stores,
                 t,
@@ -722,7 +722,7 @@ impl SourceUnitAuras {
                     holder: id,
                     effect: index as u8,
                 },
-                effect,
+                &mut holder.effects,
                 mode,
                 live,
             )?;
@@ -741,10 +741,13 @@ impl SourceUnitAuras {
         stores: &SourceSpellStores,
         t: &SpellTemplate,
         reference: SourceAuraEffectRef,
-        effect: &mut Option<SourceAura>,
+        effects: &mut [Option<SourceAura>; 3],
         mode: AuraRemoveMode,
         live: &mut SelfAuraRemoval<'_>,
     ) -> Result<()> {
+        let effect = effects
+            .get_mut(usize::from(reference.effect))
+            .ok_or_else(|| refuse("execution.spells.Unit_5425.holder_effect_owner"))?;
         let Some(aura) = effect.as_mut() else {
             return Ok(());
         };
@@ -756,7 +759,8 @@ impl SourceUnitAuras {
             return Ok(());
         };
         let result = if mode != AuraRemoveMode::Delete || matches!(aura.kind, 2 | 128) {
-            let result = self.unapply_aura(stores, t, &aura, mode, live);
+            let result =
+                self.unapply_aura(stores, t, &aura, mode, live, (reference.holder, effects));
             if result.is_ok() {
                 aura.applied = false;
             }
@@ -776,6 +780,7 @@ impl SourceUnitAuras {
         aura: &SourceAura,
         mode: AuraRemoveMode,
         live: &mut SelfAuraRemoval<'_>,
+        detached: (SourceAuraHolderId, &[Option<SourceAura>; 3]),
     ) -> Result<()> {
         require(
             stores
@@ -793,6 +798,17 @@ impl SourceUnitAuras {
             ),
             Some(SelfAuraApplyHandler::Invisibility) => {
                 self.handle_invisibility(stores, live, aura.misc, aura.amount, false, true)
+            }
+            Some(SelfAuraApplyHandler::InvisibilityDetect) => self.handle_invisibility_detect(
+                live,
+                aura.misc,
+                aura.amount,
+                false,
+                true,
+                Some(detached),
+            ),
+            Some(SelfAuraApplyHandler::StealthDetect) => {
+                handle_mod_stealth_detect(live.visibility, aura.misc, aura.amount, false)
             }
             Some(SelfAuraApplyHandler::DamagePercent) => {
                 handle_damage_percent_done(live.unit, &mut live.damage, t, aura, Some(mode), true)
@@ -1121,7 +1137,9 @@ pub(crate) enum SelfAuraApplyHandler {
     Null,
     Dummy,
     Threat,
+    StealthDetect,
     Invisibility,
+    InvisibilityDetect,
     Resistance,
     PeriodicTrigger,
     Shapeshift,
@@ -1139,7 +1157,9 @@ impl SelfAuraApplyHandler {
             4 => Self::Dummy,
             10 => Self::Threat,
             15 => Self::NoImmediateEffect, // SpellAuras.cpp:76.
+            17 => Self::StealthDetect,     // SpellAuras.cpp:78.
             18 => Self::Invisibility,
+            19 => Self::InvisibilityDetect, // SpellAuras.cpp:80.
             22 => Self::Resistance,
             23 => Self::PeriodicTrigger,
             36 => Self::Shapeshift,
@@ -1191,6 +1211,26 @@ pub fn apply_self_aura_holder(
                     amount,
                     true,
                     true,
+                )?;
+                live.auras.mark_effect_applied(holder, i)?;
+                continue;
+            }
+            Some(SelfAuraApplyHandler::StealthDetect) => {
+                handle_mod_stealth_detect(live.visibility, aura.misc, aura.amount, true)?;
+            }
+            Some(SelfAuraApplyHandler::InvisibilityDetect) => {
+                let (misc, amount) = (aura.misc, aura.amount);
+                live.auras.handle_invisibility_detect(
+                    &mut SelfAuraRemoval {
+                        unit,
+                        visibility: live.visibility,
+                        damage: live.damage.reborrow(*live.form),
+                    },
+                    misc,
+                    amount,
+                    true,
+                    true,
+                    None,
                 )?;
                 live.auras.mark_effect_applied(holder, i)?;
                 continue;
@@ -1292,6 +1332,51 @@ pub fn apply_self_aura_holder(
         .self_aura_application()
         .auras
         .apply_holder_boosts(stores, t, holder)
+}
+// SpellAuras.cpp:2621-2624; ObjectVisibility.h:80 adds an unsigned value.
+fn handle_mod_stealth_detect(
+    visibility: &mut SourceUnitVisibility,
+    misc: i32,
+    amount: i32,
+    apply: bool,
+) -> Result<()> {
+    let delta = if apply {
+        amount
+    } else {
+        amount
+            .checked_neg()
+            .ok_or_else(|| refuse("execution.spells.Aura_2623.stealth_detect_negation_undefined"))?
+    };
+    let value = visibility
+        .stealth_detect
+        .get_mut(misc as u32 as usize)
+        .ok_or_else(|| {
+            refuse("execution.spells.ObjectVisibility_80.stealth_detect_index_undefined")
+        })?;
+    *value = value.wrapping_add(delta as u32);
+    Ok(())
+}
+
+// ObjectVisibility.cpp:133-146; Relations.cpp:72-91; ObjectAccessor.cpp:77-88.
+fn effective_invisibility_detect_value(
+    unit: SelfAuraTarget<'_>,
+    flags: u32,
+    visibility: &SourceUnitVisibility,
+    index: usize,
+) -> Result<i32> {
+    if flags & 8 != 0 {
+        let master = unit.control_guids.master_guid();
+        let controller = if master.raw() == 0 {
+            unit.player
+        } else {
+            master.is_player() && unit.objects.find_player(master)?.is_some()
+        };
+        require(
+            !controller,
+            "execution.spells.ObjectVisibility_142.controller_detect_value_owner",
+        )?;
+    }
+    Ok(visibility.detect_values[index])
 }
 
 // SpellAuras.cpp:4114-4177. The magic multiplier is read later from the aura list.
@@ -1479,6 +1564,64 @@ impl SourceUnitAuras {
         require(
             !live.unit.objects.get(live.unit.target)?.in_world,
             "execution.spells.Aura_2679.UpdateVisibilityAndView_owner",
+        )
+    }
+
+    // SpellAuras.cpp:2682-2722.
+    fn handle_invisibility_detect(
+        &self,
+        live: &mut SelfAuraRemoval<'_>,
+        misc: i32,
+        amount: i32,
+        apply: bool,
+        real: bool,
+        detached: Option<(SourceAuraHolderId, &[Option<SourceAura>; 3])>,
+    ) -> Result<()> {
+        let index = misc as u32 as usize;
+        require(
+            index < u32::BITS as usize && index < live.visibility.detect_values.len(),
+            "execution.spells.ObjectVisibility_110.invisibility_detect_index_undefined",
+        )?;
+        let bit = 1u32 << index;
+        if apply {
+            live.visibility.detect_mask |= bit;
+            if effective_invisibility_detect_value(
+                live.unit,
+                live.damage.weapon.flags,
+                live.visibility,
+                index,
+            )? <= amount
+            {
+                live.visibility.detect_values[index] = amount;
+            }
+        } else {
+            let mut highest = 0;
+            for effect in self.auras_of_type(19) {
+                let effects = match detached {
+                    Some((id, effects)) if id == effect.holder => Some(effects),
+                    _ => self
+                        .aura_holder(effect.holder)
+                        .map(|holder| &holder.effects),
+                };
+                let remaining = effects
+                    .and_then(|effects| effects.get(usize::from(effect.effect)))
+                    .and_then(Option::as_ref)
+                    .ok_or_else(|| refuse("execution.spells.Aura_2704.GetModifier_owner"))?;
+                if remaining.misc == misc
+                    && remaining.amount != amount
+                    && remaining.amount > highest
+                {
+                    highest = remaining.amount;
+                }
+            }
+            if highest == 0 {
+                live.visibility.detect_mask &= !bit;
+            }
+            live.visibility.detect_values[index] = highest;
+        }
+        require(
+            !real || !live.unit.player,
+            "execution.spells.Aura_2721.UpdateVisibilityForOwner_owner",
         )
     }
 

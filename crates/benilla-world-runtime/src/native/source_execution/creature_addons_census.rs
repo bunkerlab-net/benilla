@@ -184,7 +184,8 @@ fn catalog04_creature_addon_branch_census_and_4692_lookup() {
     // :844215, :845007, :845314, :847674, :847749, :848396, :854297,
     // :854646, :854819, :854882, :854920, :855046. Coverage 183 -> 197.
     // Shadowform's type 126 slot at initial-classicmangos.sql :850374.
-    assert_eq!(static_covered, 198);
+    // Detection slots for 8278, 8279 and 18950: SQL :844497, :844498, :852354.
+    assert_eq!(static_covered, 201);
     assert_eq!(aura_types.len(), 43);
     assert_eq!(aura_types.values().sum::<usize>(), 292);
     assert_eq!(effect_aura_slots.values().sum::<usize>(), 299);

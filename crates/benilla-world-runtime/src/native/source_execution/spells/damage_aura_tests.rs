@@ -80,6 +80,15 @@ impl Target {
         spell: &SpellTemplate,
         amount: i32,
     ) -> SourceAuraHolderId {
+        self.try_apply(stores, spell, amount).unwrap()
+    }
+
+    fn try_apply(
+        &mut self,
+        stores: &SourceSpellStores,
+        spell: &SpellTemplate,
+        amount: i32,
+    ) -> Result<SourceAuraHolderId> {
         let mut holder = SourceAuraHolder::new(spell, self.object, 0, 0, -1).unwrap();
         holder.effects[0] = Some(
             SourceAura::self_spell_effect(spell, 0, spell.effectapplyauraname1, 0, amount, 1, 0)
@@ -90,8 +99,8 @@ impl Target {
             .auras
             .store_aura_holder(spell.id, &mut Some(holder))
             .unwrap();
-        apply_self_aura_holder(self, stores, spell, id, None).unwrap();
-        id
+        apply_self_aura_holder(self, stores, spell, id, None)?;
+        Ok(id)
     }
 
     fn remove(
@@ -110,7 +119,7 @@ impl Target {
                 damage: DamageAuraTarget::new(
                     &mut self.live.creature_damage,
                     &self.live.loaded_creature,
-                    0,
+                    self.live.flags,
                     0,
                 ),
             },
@@ -145,7 +154,7 @@ fn operands<'a>(
         target,
         level: Some(19),
         alive: true,
-        player: false,
+        player: objects.get(target).unwrap().kind == SourceObjectKind::Player,
         player_group: None,
         totem: false,
         objects,
@@ -254,6 +263,171 @@ fn melee_damage_taken_percent_has_no_immediate_effect() {
         .unwrap();
     assert!(subject.live.auras.first_aura_holder(spell.id).is_none());
     subject.expect(INITIAL, false);
+}
+
+fn detection_spell(stores: &mut SourceSpellStores, id: u32, kind: u32, misc: i32) -> SpellTemplate {
+    let spell = SpellTemplate {
+        id,
+        effect1: 6,
+        effectapplyauraname1: kind,
+        effectmiscvalue1: misc,
+        equippeditemclass: -1,
+        ..Default::default()
+    };
+    stores.insert_template(spell.clone()).unwrap();
+    spell
+}
+
+#[test]
+fn detection_removal_excludes_equal_amounts_on_other_holders() {
+    let mut stores = SourceSpellStores::default();
+    let [high, equal, low, minimum, other] =
+        [1, 2, 3, 4, 5].map(|id| detection_spell(&mut stores, id, 19, i32::from(id == 5)));
+    let mut subject = Target::new();
+    let saved = serde_json::to_vec(&subject.live).unwrap();
+    let high = subject.apply(&stores, &high, 20);
+    let equal = subject.apply(&stores, &equal, 20);
+    let low = subject.apply(&stores, &low, 10);
+    let minimum = subject.apply(&stores, &minimum, i32::MIN);
+    subject.apply(&stores, &other, 30);
+    assert_eq!(subject.live.visibility.detect_mask, 3);
+    assert_eq!(&subject.live.visibility.detect_values[..2], &[20, 30]);
+    for (holder, mask, expected) in [(high, 3, 10), (low, 3, 20), (equal, 2, 0), (minimum, 2, 0)] {
+        subject
+            .remove(&stores, holder, AuraRemoveMode::Default)
+            .unwrap();
+        assert_eq!(subject.live.visibility.detect_mask, mask);
+        assert_eq!(&subject.live.visibility.detect_values[..2], &[expected, 30]);
+    }
+    assert_eq!(serde_json::to_vec(&subject.live).unwrap(), saved);
+}
+
+#[test]
+fn detection_index_guard_preserves_visibility_on_apply_and_remove() {
+    let mut stores = SourceSpellStores::default();
+    let [valid, negative, past] =
+        [(10, 31), (11, -1), (12, 32)].map(|(id, misc)| detection_spell(&mut stores, id, 19, misc));
+    let mut subject = Target::new();
+    let id = subject.apply(&stores, &valid, 5);
+    assert_eq!(subject.live.visibility.detect_mask, 0x8000_0000);
+    subject
+        .remove(&stores, id, AuraRemoveMode::Default)
+        .unwrap();
+    assert_eq!(subject.live.visibility, SourceUnitVisibility::default());
+    for spell in [negative, past] {
+        let error = subject.try_apply(&stores, &spell, 5).unwrap_err();
+        assert_eq!(
+            error.id,
+            "execution.spells.ObjectVisibility_110.invisibility_detect_index_undefined"
+        );
+        let id = subject.live.auras.aura_holders().next().unwrap().0;
+        let error = subject
+            .remove(&stores, id, AuraRemoveMode::Default)
+            .unwrap_err();
+        assert_eq!(
+            error.id,
+            "execution.spells.ObjectVisibility_110.invisibility_detect_index_undefined"
+        );
+        assert_eq!(subject.live.visibility, SourceUnitVisibility::default());
+    }
+}
+
+#[test]
+fn stealth_detection_wraps_unsigned_add_and_checks_removal_negation() {
+    let mut stores = SourceSpellStores::default();
+    let trap = detection_spell(&mut stores, 1, 17, 1);
+    let past = detection_spell(&mut stores, 2, 17, 2);
+    let mut subject = Target::new();
+    let id = subject.apply(&stores, &trap, -1);
+    assert_eq!(subject.live.visibility.stealth_detect, [0, u32::MAX]);
+    subject
+        .remove(&stores, id, AuraRemoveMode::Default)
+        .unwrap();
+    assert_eq!(subject.live.visibility.stealth_detect, [0, 0]);
+    let id = subject.apply(&stores, &trap, i32::MIN);
+    let error = subject
+        .remove(&stores, id, AuraRemoveMode::Default)
+        .unwrap_err();
+    assert_eq!(
+        error.id,
+        "execution.spells.Aura_2623.stealth_detect_negation_undefined"
+    );
+    assert_eq!(subject.live.visibility.stealth_detect, [0, 0x8000_0000]);
+    let error = subject.try_apply(&stores, &past, 1).unwrap_err();
+    assert_eq!(
+        error.id,
+        "execution.spells.ObjectVisibility_80.stealth_detect_index_undefined"
+    );
+    let id = subject.live.auras.aura_holders().next().unwrap().0;
+    let error = subject
+        .remove(&stores, id, AuraRemoveMode::Default)
+        .unwrap_err();
+    assert_eq!(
+        error.id,
+        "execution.spells.ObjectVisibility_80.stealth_detect_index_undefined"
+    );
+    assert_eq!(subject.live.visibility.stealth_detect, [0, 0x8000_0000]);
+}
+
+#[test]
+fn detection_uses_global_controller_lookup_and_refuses_real_player_camera() {
+    let mut stores = SourceSpellStores::default();
+    let detect = detection_spell(&mut stores, 1, 19, 0);
+    let mut subject = Target::new();
+    let guid = SourceGuid::without_entry(HighGuid::Player, 42);
+    subject.live.flags = 8;
+    subject.live.control_guids.creator = guid;
+    let id = subject.apply(&stores, &detect, 10);
+    assert_eq!(subject.live.visibility.detect_values[0], 10);
+    subject
+        .remove(&stores, id, AuraRemoveMode::Default)
+        .unwrap();
+
+    let player = subject
+        .objects
+        .construct(6, SourceObjectKind::Player)
+        .unwrap();
+    subject.objects.assign_guid(player, 42, guid).unwrap();
+    let other_map = MapIdentity {
+        map: 1,
+        ..subject.map
+    };
+    subject
+        .objects
+        .bind_map(player, other_map, &SourceCells::new(other_map).unwrap())
+        .unwrap();
+    subject.objects.register_player_lookup(player).unwrap();
+    subject.objects.add_to_world(player).unwrap();
+    let error = subject.try_apply(&stores, &detect, 10).unwrap_err();
+    assert_eq!(
+        error.id,
+        "execution.spells.ObjectVisibility_142.controller_detect_value_owner"
+    );
+    assert_eq!(subject.live.visibility.detect_mask, 1);
+    assert_eq!(subject.live.visibility.detect_values[0], 0);
+    let id = subject.live.auras.aura_holders().next().unwrap().0;
+    subject
+        .remove(&stores, id, AuraRemoveMode::Default)
+        .unwrap();
+
+    subject.live.flags = 0;
+    subject.object = player;
+    let error = subject.try_apply(&stores, &detect, 10).unwrap_err();
+    assert_eq!(
+        error.id,
+        "execution.spells.Aura_2721.UpdateVisibilityForOwner_owner"
+    );
+    assert_eq!(subject.live.visibility.detect_mask, 1);
+    assert_eq!(subject.live.visibility.detect_values[0], 10);
+    let id = subject.live.auras.aura_holders().next().unwrap().0;
+    let error = subject
+        .remove(&stores, id, AuraRemoveMode::Default)
+        .unwrap_err();
+    assert_eq!(
+        error.id,
+        "execution.spells.Aura_2721.UpdateVisibilityForOwner_owner"
+    );
+    assert_eq!(subject.live.visibility, SourceUnitVisibility::default());
 }
 
 #[test]
