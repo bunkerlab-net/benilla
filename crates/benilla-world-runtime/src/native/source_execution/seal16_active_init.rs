@@ -6,7 +6,7 @@ use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: [&str; 2] = [
     "execution.spells.spell_script_registry_owner",
-    "execution.creature_addon.Creature_2313.Mount_owner",
+    "execution.continents.load_transports_owner",
 ];
 #[path = "seal16_active_clocks.rs"]
 mod clocks;
@@ -556,10 +556,11 @@ pub(super) fn load_first(
         objects,
         cells: &mut map.cells,
     };
-    let refusal = active
-        .load(false, &mut context, &mut factory)
-        .err()
-        .ok_or_else(|| refuse("execution.continents.load_transports_owner"))?;
+    let refusal = match active.load(false, &mut context, &mut factory) {
+        Err(refusal) => refusal,
+        // Map.cpp:214-216 calls LoadTransports after active preload returns.
+        Ok(()) => refuse("execution.continents.load_transports_owner"),
+    };
     let attempt = *factory.attempts.last().ok_or_else(|| refusal.clone())?;
     let bound_guid = factory
         .candidates

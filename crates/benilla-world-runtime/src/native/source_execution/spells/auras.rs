@@ -245,7 +245,7 @@ pub fn check_cast_aura_removals(
 
 impl SourceUnitAuras {
     // Unit.cpp:5211-5223. The flag-only overload has no exceptions.
-    fn remove_auras_with_interrupt_flags(
+    pub(in crate::native::source_execution) fn remove_auras_with_interrupt_flags(
         &mut self,
         stores: &SourceSpellStores,
         live: &mut SelfAuraRemoval<'_>,

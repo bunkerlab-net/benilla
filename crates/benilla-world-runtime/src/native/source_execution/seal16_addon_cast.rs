@@ -23,6 +23,27 @@ pub(super) struct Execution<'a> {
     pub max_casts: u32,
 }
 impl CreatureAddonExecutionOwner for Execution<'_> {
+    fn mount(
+        &mut self,
+        live: &mut SourceUnitFields,
+        object: ObjectHandle,
+        objects: &SourceObjects,
+        display: u32,
+    ) -> Result<()> {
+        let mounted = live.mount(objects, object, display, None, self.stores)?;
+        let owner = objects.get(object)?;
+        if object.thread == 7 && owner.database_guid == 52348 {
+            // SQL :438002 and trace :60941388-:60941391 precede respawn setup.
+            assert!(mounted && live.is_mounted());
+            assert_eq!(live.mount_display(), 2326);
+            assert!(!live.auras.has_aura_holders());
+            assert!(!owner.in_world);
+            assert!(owner.field_changed(UNIT_FIELD_MOUNTDISPLAYID)?);
+            assert!(!objects.client_update_pending(owner.map.unwrap(), object));
+        }
+        Ok(())
+    }
+
     fn cast_spell(
         &mut self,
         state: &mut CreatureAddonState,

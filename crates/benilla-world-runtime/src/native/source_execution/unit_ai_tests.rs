@@ -579,6 +579,181 @@ fn client_update_combat_flag_and_mount_clear_each_mark_only_on_change() {
 }
 
 #[test]
+fn mount_gate_and_update_mask_follow_the_live_display() {
+    let stores = SourceSpellStores::default();
+    for in_world in [false, true] {
+        let (mut objects, _, ai) = setup(0);
+        let object = ai.unit;
+        make_live(&mut objects, object, 1);
+        let map = objects.get(object).unwrap().map.unwrap();
+        if !in_world {
+            objects.remove_from_world(object).unwrap();
+        }
+        let display_changed = |objects: &SourceObjects| {
+            objects
+                .get(object)
+                .unwrap()
+                .field_changed(UNIT_FIELD_MOUNTDISPLAYID)
+                .unwrap()
+        };
+        let mut unit = SourceUnitFields::constructed_creature();
+        assert!(!unit.unmount(&objects, object, None).unwrap());
+        assert!(!unit.mount(&objects, object, 0, None, &stores).unwrap());
+        assert_eq!(unit.mount_display(), 0);
+        assert!(!display_changed(&objects));
+        assert!(!objects.client_update_pending(map, object));
+
+        assert!(unit
+            .mount(&objects, object, 2326, Some(900), &stores)
+            .unwrap());
+        assert_eq!(unit.mount_display(), 2326);
+        assert!(unit.is_mounted());
+        assert!(display_changed(&objects));
+        assert_eq!(objects.client_update_pending(map, object), in_world);
+        objects.remove_from_world(object).unwrap();
+        if in_world {
+            objects.add_to_world(object).unwrap();
+        }
+        assert!(!unit
+            .mount(&objects, object, 2222, Some(900), &stores)
+            .unwrap());
+        assert!(unit
+            .mount(&objects, object, 2326, Some(2326), &stores)
+            .unwrap());
+        assert_eq!(unit.mount_display(), 2326);
+        assert!(!display_changed(&objects));
+        assert!(!objects.client_update_pending(map, object));
+
+        assert!(unit
+            .mount(&objects, object, 2222, Some(2326), &stores)
+            .unwrap());
+        assert_eq!(unit.mount_display(), 2222);
+        assert!(unit.mount(&objects, object, 2326, None, &stores).unwrap());
+        assert_eq!(unit.mount_display(), 2326);
+    }
+}
+
+#[test]
+fn mount_and_unmount_remove_interrupting_holders_before_writing_display() {
+    let (objects, _, ai) = setup(0);
+    let object = ai.unit;
+    for (dismount, flag) in [(false, 0x0002_0000), (true, 0x0000_0040)] {
+        let mut unit = SourceUnitFields::constructed_creature();
+        let old_display = if dismount { 2326 } else { 0 };
+        unit.set_mount_display(&objects, object, old_display)
+            .unwrap();
+        let matching = SpellTemplate {
+            id: 10,
+            aurainterruptflags: flag,
+            ..Default::default()
+        };
+        let remaining = SpellTemplate {
+            id: 20,
+            aurainterruptflags: 0x0002_0040 ^ flag,
+            ..Default::default()
+        };
+        for spell in [&matching, &remaining] {
+            unit.auras
+                .store_aura_holder(
+                    spell.id,
+                    &mut Some(SourceAuraHolder::new(spell, object, 0, 0, -1).unwrap()),
+                )
+                .unwrap();
+        }
+        let mut stores = SourceSpellStores::default();
+        stores.insert_template(matching.clone()).unwrap();
+        let act = |unit: &mut SourceUnitFields, stores: &SourceSpellStores| {
+            if dismount {
+                unit.unmount(&objects, object, Some(stores))
+            } else {
+                unit.mount(&objects, object, 2326, None, stores)
+            }
+        };
+        // The first holder is removed even if the next template is unbound.
+        assert_eq!(
+            act(&mut unit, &stores).unwrap_err().id,
+            "execution.spells.missing_template"
+        );
+        assert!(!unit.auras.has_aura(10));
+        assert!(unit.auras.has_aura(20));
+        assert_eq!(unit.mount_display(), old_display);
+        stores.insert_template(remaining).unwrap();
+        unit.auras
+            .store_aura_holder(
+                10,
+                &mut Some(SourceAuraHolder::new(&matching, object, 0, 0, -1).unwrap()),
+            )
+            .unwrap();
+        assert!(act(&mut unit, &stores).unwrap());
+        assert_eq!(unit.is_mounted(), !dismount);
+        assert!(!unit.auras.has_aura(10));
+        assert!(unit.auras.has_aura(20));
+    }
+}
+
+#[test]
+fn mount_info_speed_refusals_follow_display_writes_and_apply_only_to_creatures() {
+    let mut objects = SourceObjects::default();
+    let stores = SourceSpellStores::default();
+    let creature = objects.construct(1, SourceObjectKind::Creature).unwrap();
+    let player = objects.construct(1, SourceObjectKind::Player).unwrap();
+    let mut unit = SourceUnitFields::constructed_creature();
+    let before = serde_json::to_vec(&unit).unwrap();
+    assert!(unit.mount_info.is_none());
+    unit.mount_info = Some(901);
+    assert_eq!(
+        unit.mount(&objects, creature, 2326, None, &stores)
+            .unwrap_err()
+            .id,
+        "execution.unit.Unit_7766.SetBaseRunSpeed_owner"
+    );
+    assert_eq!(unit.mount_display(), 2326);
+    assert_eq!(serde_json::to_vec(&unit).unwrap(), before);
+    assert_eq!(
+        unit.unmount(&objects, creature, Some(&stores))
+            .unwrap_err()
+            .id,
+        "execution.unit.Unit_7782.SetBaseRunSpeed_owner"
+    );
+    assert_eq!(unit.mount_display(), 0);
+    let mut unit = SourceUnitFields::constructed_creature();
+    unit.mount_info = Some(901);
+    assert!(unit.mount(&objects, player, 2326, None, &stores).unwrap());
+    assert_eq!(unit.mount_display(), 2326);
+    assert!(unit.unmount(&objects, player, Some(&stores)).unwrap());
+    assert_eq!(unit.mount_display(), 0);
+}
+
+#[test]
+fn aggro_dismount_with_holders_refuses_before_clearing_the_display() {
+    let (mut objects, mut units, ai) = setup(0);
+    let target = objects.construct(1, SourceObjectKind::Creature).unwrap();
+    let unit = units.get_mut(&objects, ai.unit).unwrap();
+    unit.set_mount_display(&objects, ai.unit, 2326).unwrap();
+    let spell = SpellTemplate {
+        id: 10,
+        ..Default::default()
+    };
+    unit.auras
+        .store_aura_holder(
+            spell.id,
+            &mut Some(SourceAuraHolder::new(&spell, ai.unit, 0, 0, -1).unwrap()),
+        )
+        .unwrap();
+    let mut owner = Authored::default();
+    assert_eq!(
+        ai.movement_on_attack(target, false, &objects, &mut units, &mut owner)
+            .unwrap_err()
+            .id,
+        "execution.unit.Unit_7777.RemoveAurasWithInterruptFlags_owner"
+    );
+    let unit = units.get(&objects, ai.unit).unwrap();
+    assert_eq!(unit.mount_display(), 2326);
+    assert!(unit.auras.has_aura(10));
+    assert!(owner.calls.is_empty());
+}
+
+#[test]
 fn attack_stop_clears_target_then_melee_then_attacker_and_preserves_combat() {
     let (mut objects, mut units, ai) = setup(0);
     let target = objects.construct(1, SourceObjectKind::Creature).unwrap();

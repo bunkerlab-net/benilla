@@ -2697,16 +2697,20 @@ Type 126 has no immediate effect (`SpellAuras.cpp:187`).
 GUID156055 applies both detection auras (trace :61417867-61417925).
 Its Greater Invisibility cast stops at the spell script registry lookup
 (`Spell.cpp:388`, stock SQL :836881).
-Map 1 completes 433 objects in 474 allocations. It matches 15,080 random
-words, 439 clocks, 34 paths, and two map SQL requests. The Silithyst Geyser
-GUID49337 completes at trace :60741339. Searing Infernal GUID33193 passes
+Map 1 completes all 531 active preload objects in 571 allocations. It matches
+15,783 random words, 535 clocks, 35 paths, and two map SQL requests.
+Silithyst Geyser GUID49337 completes at trace :60741339.
+Searing Infernal GUID33193 passes
 Fire Shield's helpful self-target check (`Spell.cpp:5086`, `Relations.cpp:204,504`)
 and completes at trace :60882413. Wildthorn Lurker GUID34917 applies Hide
 before entering the world. Its finish tail finds no melee state or victim.
 The client-control flag is clear. The respawn draw at trace :60901712
 follows the Hide cast.
-Warsong Outrider GUID52348 stops at the addon mount call (`Creature.cpp:2313`)
-before the respawn draw at trace :60941391.
+Warsong Outrider GUID52348 mounts before the respawn draw at trace :60941391.
+Mount and Unmount remove interrupting auras before writing the live display
+(`Unit.cpp:7755-7787`). The creature mount-info speed steps still refuse.
+Map 1 stops at `LoadTransports` (`Map.cpp:216`). The four subsequent
+transport allocations begin at trace :61049124.
 Addon and EventAI casts share caster-only relation operands. A helpful cast
 on another unit stops at the first target flag read. Harmful unit filters
 stop at `CanAttackSpell` (`Relations.cpp:1065`).

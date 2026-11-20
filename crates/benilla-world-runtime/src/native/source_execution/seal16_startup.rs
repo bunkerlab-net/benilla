@@ -959,9 +959,10 @@ fn tm(p: &[&str]) -> Tm {
         isdst: n(8),
     }
 }
-// Creature.cpp:2313 calls Mount before the respawn draw for GUID52348.
-const MAP1_NEXT_OWNER_LINE: u64 = 60941391;
-const MAP1_NEXT_SOURCE: &str = "Creature.cpp:2313";
+// Map.cpp:216 first constructs a transport after the last active preload lock.
+const MAP1_NEXT_OWNER_LINE: u64 = 61049124;
+const MAP1_NEXT_SOURCE: &str = "Map.cpp:216";
+const MAP1_NEXT_RAW: u64 = 15783; // Final preload word at :61049072.
 
 #[derive(Default)]
 struct MapThreadEvidence {
@@ -1352,7 +1353,8 @@ impl Inputs {
             }
             "active_add"
                 if evidence.active_adds.len() < if thread == 6 { 4 } else { 16 }
-                    || map0_proc_continuation =>
+                    || map0_proc_continuation
+                    || thread == 7 && (60941620..MAP1_NEXT_OWNER_LINE).contains(&line) =>
             {
                 evidence.active_adds.push((
                     line,
@@ -1363,7 +1365,8 @@ impl Inputs {
             }
             "grid_lock_inc"
                 if evidence.active_locks.len() < if thread == 6 { 4 } else { 16 }
-                    || map0_proc_continuation =>
+                    || map0_proc_continuation
+                    || thread == 7 && (60941620..MAP1_NEXT_OWNER_LINE).contains(&line) =>
             {
                 evidence.active_locks.push((line, p[1].parse().unwrap()));
             }
@@ -3397,6 +3400,7 @@ pub(super) fn continue_startup(
                     60754228, 60755543, 60789063, 60791048, 60793022, 60795147, 60837192, 60839184,
                     60841199, // GUID32990 builds three waypoint paths.
                     60913479, 60915246, 60918066,
+                    60942601, // GUID52348 builds one waypoint path.
                 ]
             );
         }
@@ -3929,8 +3933,8 @@ pub(super) fn continue_startup(
                     (60553163, 35884),
                 ]
             );
-            // :60902332-:60940681 adds 35 completions.
-            assert_eq!(completed_objects.len(), 433);
+            // :60943949-:61049110 adds 98 completions through GUID45604.
+            assert_eq!(completed_objects.len(), 531);
             assert_eq!(evidence.sql_lines, [60101153, 60113864]);
             relations_evidence::assert_after_area_cast(
                 &evidence.continuation_births,
@@ -4057,7 +4061,7 @@ pub(super) fn continue_startup(
                             "creature_instance_on_creature_create",
                         ])
                     .count(),
-                93 // 35 -> 93, trace :60741920-:60856146 follows 58 Silithus callbacks.
+                93 + 81 // :60963083-:61048626 adds 81 Silithus creature callbacks.
             );
 
             // Nelson retains its live AI and its moved cell after completing :60687826.
@@ -4329,14 +4333,19 @@ pub(super) fn continue_startup(
                 .control_guids
                 .is_client_controlled(lurker.flags, lurker_object, None));
             assert_eq!(refusal.id, active_init::CREATURE_NEXT_OWNER[1]);
-
-            // Trace :60940697, :60940706, :60940726. SQL :124242, :429461, :438002.
+            // Trace :61048467-:61049110 binds the last active preload creature.
             assert_eq!(
                 (attempt.guid, attempt.kind, entry),
-                (52348, GridSpawnKind::Creature, 12864)
+                (45604, GridSpawnKind::Creature, 11738)
             );
-            assert!(!completed_objects.contains(&candidate));
-            assert!(!active_objects.get(candidate).unwrap().in_world);
+            assert_eq!(completed_objects.last(), Some(&candidate));
+            assert!(active_objects.get(candidate).unwrap().in_world);
+
+            // Trace :60940697, :60940706, :60940726. SQL :124242, :429461, :438002.
+            let outrider_handle = completed_objects[433];
+            let outrider_object = active_objects.get(outrider_handle).unwrap();
+            assert_eq!(outrider_object.database_guid, 52348);
+            assert!(outrider_object.in_world); // :60941620.
             assert!(creature_addons
                 .table_get(CreatureAddonTable::Guid, 52348)
                 .is_none());
@@ -4347,11 +4356,13 @@ pub(super) fn continue_startup(
                     .mount,
                 2326
             );
-            let outrider = units.get(&active_objects, candidate).unwrap();
-            assert!(!outrider.auras.has_aura_holders() && !outrider.is_mounted());
-            assert_eq!(outrider.mount_display(), 0);
-            assert_eq!(active_clocks.0.front().unwrap().time_line, 60941614);
-            // :60941391-:60941401. The Outrider's respawn draw is still pending.
+            let outrider = units.get(&active_objects, outrider_handle).unwrap();
+            assert_eq!(outrider.entry, 12864);
+            assert!(!outrider.auras.has_aura_holders() && outrider.is_mounted());
+            assert_eq!(outrider.mount_display(), 2326);
+            // :60941391-:60941614 draws the delay and checks the saved respawn time.
+            assert_eq!(outrider.respawn_delay, 120);
+            assert_eq!(outrider.respawn_time, 0);
             assert_eq!(evidence.words[15080], (60941401, 15080, 536974546));
             let stat_aura = SpellTemplate {
                 effect1: 6,
@@ -4415,7 +4426,7 @@ pub(super) fn continue_startup(
             zone_lookups.len());
         assert_eq!(
             continents.maps[slot].cells.active().len(),
-            if slot == 0 { 19 } else { 8 }
+            if slot == 0 { 19 } else { 9 }
         );
         let active_guids = continents.maps[slot]
             .cells
@@ -4431,7 +4442,9 @@ pub(super) fn continue_startup(
                     14776, 15423, 15424, 15508, 20802, 45525, 45707,
                 ])
             } else {
-                BTreeSet::from([27279, 27280, 27281, 29113, 35867, 51838, 52349, 590005])
+                BTreeSet::from([
+                    27279, 27280, 27281, 29113, 35867, 51838, 52348, 52349, 590005,
+                ])
             }
         );
         {
@@ -4469,6 +4482,8 @@ pub(super) fn continue_startup(
                         (60616739, 1, 52349),
                         (60753629, 1, 51838),
                         (60753634, 1, 51838),
+                        (60941636, 1, 52348),
+                        (60941641, 1, 52348),
                     ]
                 }
             );
@@ -4502,6 +4517,8 @@ pub(super) fn continue_startup(
                         (60616741, 4),
                         (60753632, 1),
                         (60753637, 2),
+                        (60941639, 1),
+                        (60941643, 2),
                     ]
                 }
             );
@@ -5009,8 +5026,7 @@ pub(super) fn continue_startup(
             assert_eq!(live.spline_outbound[0].unit, candidate);
             assert_eq!(live.spline_outbound[0].transport, None);
             // Recording60433815 consumes equal-bound word12623 at Creature.cpp:1563.
-            // :60940782 is the Outrider model-gender word before Mount.
-            assert_eq!(random.cursor().raw, 15080);
+            assert_eq!(random.cursor().raw, MAP1_NEXT_RAW);
             assert_eq!(evidence.words[12623], (60433815, 12623, 1799183854));
             relations_evidence::assert_words(&evidence.words);
             assert_eq!(
@@ -5056,8 +5072,8 @@ pub(super) fn continue_startup(
                     .iter()
                     .filter(|&&s| s == "creature_live_spell_movement_query")
                     .count(),
-                // GUID32990 starts another initial move at :60913479.
-                16
+                // GUID32990 and GUID52348 start at :60913479 and :60942601.
+                17
             );
             // Recording60409483 completes object73 after Creature.cpp:886-895.
             assert_eq!(completed_objects[72], main);
@@ -5545,6 +5561,7 @@ pub(super) fn continue_startup(
         // :60894287-:60897433 adds five Idle creatures (SQL :109608,
         // :109418, :109421-:109422 and :109427).
         // :60904086-:60938913 records 15 more completed map-1 creatures with movement=0.
+        // :60943949-:61049110 adds no map-1 Idle rows.
         assert_eq!(idle_count, if slot == 0 { 215 } else { 55 });
         if slot == 1 {
             // :60777881 binds GUID42899's fixed-path movement type.
@@ -5559,14 +5576,14 @@ pub(super) fn continue_startup(
             geometry.pathfinder_constructor_completions,
             // WaypointMovementGenerator.cpp:264 constructs per BuildIntPath.
             // Map 0 records 97 paths for 59 creatures, through :61393560.
-            // Map 1 calculates 34 paths for 14 waypoint creatures.
+            // Map 1 calculates 35 paths for 15 waypoint creatures.
             // Static Idle constructs none (MotionMaster.cpp:79-81).
             pathfinders_before + motion_initializations - idle_count
                 + if slot == 0 {
                     97 - 59
                 } else {
                     // PathMovementGenerator.cpp:240 initializes fixed paths without a PathFinder.
-                    34 - 14 - 1
+                    35 - 15 - 1
                 }
         );
         assert_eq!(
@@ -5911,9 +5928,9 @@ pub(super) fn continue_startup(
             ))
         );
         assert_eq!(attempt.guid, if slot == 0 { 18 } else { 28044 });
-        // :61406118-61417596 adds 23 map-0 births. Map 1 adds 35 births
-        // at :60902340-:60940706.
-        assert_eq!(candidates, if slot == 0 { 1196 } else { 474 });
+        // :61406118-61417596 adds 23 map-0 births.
+        // :60943951-:61048471 adds 97 map-1 births after the Outrider.
+        assert_eq!(candidates, if slot == 0 { 1196 } else { 571 });
         assert_eq!(entry, if slot == 0 { 3211 } else { 4692 });
         if slot == 0 {
             assert_eq!(init_entry_fields, None);
@@ -6044,9 +6061,11 @@ pub(super) fn continue_startup(
                     // :60891045, :60892508 and :60898087.
                     // :60902634-:60941101 adds 22 pre-world probes.
                     // 0012737.map admits four: :60902634, :60907926, :60921477, :60932495.
-                    reached_441: 202,
-                    swimming_set: 13,
-                    swimming_not_set: 189,
+                    // :60944179-:61047567 adds 85 pre-world probes. Only :60952297
+                    // is wet. Tile 0012737.map gives level 164.98 and floor 158.41.
+                    reached_441: 287,
+                    swimming_set: 14,
+                    swimming_not_set: 273,
                     ..SourceCreatureSwimmingCensus::default()
                 }
             );
@@ -6209,8 +6228,8 @@ pub(super) fn continue_startup(
                 attempt.cell.y(),
             ))
         );
-        // :61417594 completes GUID90952. Map 1 reaches GUID33068 at :60940681.
-        assert_eq!(completed, if slot == 0 { 1119 } else { 433 });
+        // Map 0 last completes GUID90952 at :61417594. Map 1 ends with GUID45604.
+        assert_eq!(completed, if slot == 0 { 1119 } else { 531 });
         println!(
             "F6_VISIBILITY map={slot} census={visibility:?} invalidated_camera_iterator_stock_reach={}",
             visibility.cameras
@@ -6235,7 +6254,7 @@ pub(super) fn continue_startup(
             if slot == 0 {
                 MAP0_NEXT_RAW as u64
             } else {
-                after_pools_cursor + 3185 // Last word at :60940782.
+                MAP1_NEXT_RAW
             }
         );
         matched_map_words[slot] = random.cursor().raw;

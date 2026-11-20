@@ -575,6 +575,12 @@ fn addon_application_mount_refuses_before_later_field_writes() {
         "execution.creature_addon.Creature_2313.Mount_owner"
     );
     assert_eq!(state, CreatureAddonState::default());
+    assert_eq!(unit.mount_display(), 0);
+    assert!(!objects
+        .get(object)
+        .unwrap()
+        .field_changed(UNIT_FIELD_MOUNTDISPLAYID)
+        .unwrap());
     assert_eq!(
         (unit.stand_state, unit.sheath_state, unit.npc_emote_state),
         (0, 0, 0)

@@ -168,17 +168,21 @@ is meaningful without a bounded content/mechanics inventory.
   direct map-0 spawns, and 13 direct map-1 spawns. The Ten Hour War group
   adds eight conditional map-1 positions (`initial-classicmangos.sql:824204,
   826592-826593,830011-830018`).
-  Map 1 completes 433 objects with 474 allocations, 15,080 random words,
-  439 wall clocks, 34 paths, and two SQL requests. Searing Infernal GUID33193
-  passes Fire Shield's helpful self-target check (`Spell.cpp:5086`,
+  Map 1 finishes active preload with 531 completions and 571 allocations.
+  It matches 15,783 random words, 535 wall clocks, 35 paths, and two SQL
+  requests. Searing Infernal GUID33193 passes Fire Shield's helpful
+  self-target check (`Spell.cpp:5086`,
   `Relations.cpp:204,504`) and completes at trace :60882413. Wildthorn
   Lurker GUID34917 applies Hide before entering the world. The finish tail
   reads the caster's unit state, victim, current slots, and control flags
   (`Spell.cpp:3793-3809`, `Unit.cpp:6339-6363,6398-6407,6496-6520`).
   Hide reaches no packet or encounter callback. The respawn draw follows
   the effect clock at trace :60901711.
-  Warsong Outrider GUID52348 stops at the addon mount call (`Creature.cpp:2313`).
-  The next trace operation at :60941391 draws its respawn delay.
+  Warsong Outrider GUID52348 writes mount display 2326 before the respawn
+  draw at trace :60941391. `Unit.cpp:7755-7787` removes interrupting auras
+  before the display write. The creature mount-info speed steps refuse at
+  `Unit.cpp:7766,7782`. Aggro dismount with holders and no stores refuses at
+  `Unit.cpp:7777`. Map 1 stops at `LoadTransports` (`Map.cpp:216`).
   EventAI event 649101 replaces 10848 and adds a second passive 9036.
   `Unit.cpp:5326-5446,10856-10866` unlinks both indexes and defers disposal.
   Map 0 completes GUID4195 after event 26501's holder timer draw

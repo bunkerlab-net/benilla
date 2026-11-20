@@ -50,7 +50,13 @@ pub struct SourceUnitAuras {
 }
 
 pub trait CreatureAddonExecutionOwner {
-    fn mount(&mut self, _state: &mut CreatureAddonState, _display: u32) -> Result<()> {
+    fn mount(
+        &mut self,
+        _live: &mut SourceUnitFields,
+        _object: ObjectHandle,
+        _objects: &SourceObjects,
+        _display: u32,
+    ) -> Result<()> {
         Err(refuse("execution.creature_addon.Creature_2313.Mount_owner"))
     }
     fn cast_spell(
@@ -244,7 +250,7 @@ impl CreatureAddonState {
     ) -> Result<bool> {
         let Some(addon) = addon else { return Ok(false) };
         if addon.mount != 0 {
-            owner.mount(self, addon.mount)?;
+            owner.mount(unit, object, objects, addon.mount)?;
         }
         if addon.stand_state != 0 {
             objects.set_update_value(

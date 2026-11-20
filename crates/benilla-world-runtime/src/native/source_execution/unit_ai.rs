@@ -11,6 +11,8 @@ pub const UNIT_FLAG_COMBAT: u32 = 0x0008_0000;
 const CROWD_CONTROL_FLAGS: u32 = 0x00c4_0000;
 const IMMOBILIZED: u32 = 0x2000_001a;
 const CANNOT_REACT: u32 = 0x0020_240e;
+const AURA_INTERRUPT_FLAG_DISMOUNT: u32 = 0x0000_0040; // SpellDefines.h:368.
+const AURA_INTERRUPT_FLAG_MOUNTING: u32 = 0x0002_0000; // SpellDefines.h:379.
 
 /// Values computed by SelectLevel/UpdateEntry, never guessed from MinLevelHealth.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -134,6 +136,9 @@ pub struct SourceUnitFields {
     /// Object.cpp:105-108 zeros UNIT_FIELD_MOUNTDISPLAYID.
     #[serde(skip)]
     mount_display: u32,
+    /// Creature.cpp:150 initializes m_mountInfo to null.
+    #[serde(skip)]
+    pub(super) mount_info: Option<u32>,
     pub offhand: bool,
     pub combat_timer: u32,
     pub pursuit_ms: u32,
@@ -281,6 +286,107 @@ impl SourceUnitFields {
             display,
         )?;
         Ok(())
+    }
+
+    /// Unit.cpp:7755-7770. The optional aura contributes only its amount.
+    pub fn mount(
+        &mut self,
+        objects: &SourceObjects,
+        object: ObjectHandle,
+        display: u32,
+        aura_amount: Option<i32>,
+        stores: &SourceSpellStores,
+    ) -> Result<bool> {
+        if display == 0
+            || (self.is_mounted()
+                && aura_amount.is_some_and(|amount| amount as u32 != self.mount_display()))
+        {
+            return Ok(false);
+        }
+        self.remove_mount_interrupting_auras(
+            objects,
+            object,
+            stores,
+            AURA_INTERRUPT_FLAG_MOUNTING,
+        )?;
+        self.set_mount_display(objects, object, display)?;
+        if self.has_mount_info(objects, object)? {
+            return Err(refuse("execution.unit.Unit_7766.SetBaseRunSpeed_owner"));
+        }
+        Ok(true)
+    }
+
+    /// Unit.cpp:7772-7787. This body does not read the aura argument.
+    pub fn unmount(
+        &mut self,
+        objects: &SourceObjects,
+        object: ObjectHandle,
+        stores: Option<&SourceSpellStores>,
+    ) -> Result<bool> {
+        if !self.is_mounted() {
+            return Ok(false);
+        }
+        if let Some(stores) = stores {
+            self.remove_mount_interrupting_auras(
+                objects,
+                object,
+                stores,
+                AURA_INTERRUPT_FLAG_DISMOUNT,
+            )?;
+        } else {
+            // Unit.cpp:5213 does not read spell data for an empty holder map.
+            require(
+                !self.auras.has_aura_holders(),
+                "execution.unit.Unit_7777.RemoveAurasWithInterruptFlags_owner",
+            )?;
+        }
+        self.set_mount_display(objects, object, 0)?;
+        if self.has_mount_info(objects, object)? {
+            return Err(refuse("execution.unit.Unit_7782.SetBaseRunSpeed_owner"));
+        }
+        Ok(true)
+    }
+
+    // Creature.h:937,1031 reads the template pointer. Unit.h:2448 returns null.
+    fn has_mount_info(&self, objects: &SourceObjects, object: ObjectHandle) -> Result<bool> {
+        Ok(self.mount_info.is_some()
+            && matches!(
+                objects.get(object)?.kind,
+                SourceObjectKind::Creature | SourceObjectKind::Pet
+            ))
+    }
+
+    fn remove_mount_interrupting_auras(
+        &mut self,
+        objects: &SourceObjects,
+        object: ObjectHandle,
+        stores: &SourceSpellStores,
+        flag: u32,
+    ) -> Result<()> {
+        let value = objects.get(object)?;
+        self.auras.remove_auras_with_interrupt_flags(
+            stores,
+            &mut SelfAuraRemoval {
+                unit: SelfAuraTarget {
+                    target: object,
+                    level: self.power_fields.as_ref().map(|power| power.level),
+                    alive: value.alive,
+                    player: value.kind == SourceObjectKind::Player,
+                    player_group: None,
+                    totem: self.totem,
+                    objects,
+                    control_guids: &self.control_guids,
+                },
+                visibility: &mut self.visibility,
+                damage: DamageAuraTarget::new(
+                    &mut self.creature_damage,
+                    &self.loaded_creature,
+                    self.flags,
+                    self.shapeshift_form,
+                ),
+            },
+            flag,
+        )
     }
 
     /// Spell.cpp:3007-3020. Borrow the live caster, Spell store, and event queue separately.
@@ -434,6 +540,7 @@ impl SourceUnitFields {
             melee_spell: false,
             no_threat: false,
             mount_display: 0,
+            mount_info: None,
             offhand: false,
             combat_timer: 0,
             pursuit_ms: 0,
@@ -1498,8 +1605,9 @@ impl SourceUnitAi {
         if f.state & CANNOT_REACT != 0 {
             return Ok(());
         }
-        if self.dismount_on_aggro && f.is_mounted() {
-            f.set_mount_display(objects, self.unit, 0)?;
+        // UnitAI.cpp:340-341 calls Unmount before testing the propelled state.
+        if self.dismount_on_aggro {
+            f.unmount(objects, self.unit, None)?;
         }
         if f.state & 0x100 == 0 {
             owner.call(
