@@ -133,23 +133,12 @@ impl StatModifierUnit<'_> {
 }
 
 /// Live resistance operands, including the agility and armor update fields.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct SourceUnitResistances {
     create: [i32; 7],
     groups: [StatModifierGroup; 7],
     agility: u32,
     armor: i32,
-}
-
-impl Default for SourceUnitResistances {
-    fn default() -> Self {
-        Self {
-            create: [0; 7],
-            groups: [StatModifierGroup::default(); 7],
-            agility: 0,
-            armor: 0,
-        }
-    }
 }
 
 impl SourceUnitResistances {
