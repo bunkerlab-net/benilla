@@ -159,10 +159,10 @@ is meaningful without a bounded content/mechanics inventory.
   direct map-0 spawns, and 13 direct map-1 spawns. The Ten Hour War group
   adds eight conditional map-1 positions (`initial-classicmangos.sql:824204,
   826592-826593,830011-830018`).
-  Map 1 completes 284 objects with 295 allocations, 13,947 random words,
-  296 wall clocks, 18 paths, and two SQL requests. It stops at the Wind Stone
-  outdoor PvP creation callback for GUID49298 (`GameObject.cpp:290`,
-  trace lines 60691033–60691037).
+  Map 1 completes 317 objects with 353 allocations, 14,234 random words,
+  323 wall clocks, 22 paths, and two SQL requests. It stops at the Silithyst
+  Geyser GUID49337 factory, `go_outdoor_pvp_notify`
+  (`ScriptDevAIMgr.cpp:380`, trace :60741274).
   EventAI event 649101 replaces 10848 and adds a second passive 9036.
   `Unit.cpp:5326-5446,10856-10866` unlinks both indexes and defers disposal.
   Map 0 completes GUID4195 after event 26501's holder timer draw
@@ -213,6 +213,12 @@ is meaningful without a bounded content/mechanics inventory.
   The player teleport and transformed Solenor spell cast refuse at
   `Unit.cpp:10611` and `silithus.cpp:107`. Stock has two bound templates
   and one direct spawn (`initial-classicmangos.sql:117961,430058,430064`).
+- **Outdoor PvP GameObject creation.** Silithus inherits
+  `OutdoorPvP.cpp:80-92`. Capture points restore their slider by entry,
+  and unlocked points activate before the state classification
+  (`GameObject.cpp:2230-2251`). Wind Stone GUID49298 skips both writes
+  (trace :60691033-:60691102). The Eastern Plaguelands override refuses
+  after the base call at `OutdoorPvPEP.cpp:117`.
 - **Grid activity.** `Grid.h:93-117` counts active grid objects. Add and
   remove each test the live active flag. If removal leaves a stale member,
   insertion requires enough address evidence to detect reuse of that member.

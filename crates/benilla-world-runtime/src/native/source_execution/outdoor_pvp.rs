@@ -8,6 +8,46 @@ pub enum OutdoorPvpScript {
     Silithus,
     EasternPlaguelands,
 }
+
+#[derive(Clone, Copy, Debug)]
+pub struct CapturePointSlider {
+    pub value: f32,
+    pub locked: bool,
+}
+
+impl OutdoorPvpScript {
+    pub(super) fn handle_gameobject_create<
+        D: GridDefinitions,
+        P: GridProductOwner,
+        F: GameObjectFactoryOwner<D, P>,
+    >(
+        self,
+        owner: &mut F,
+        object: ObjectHandle,
+        context: &mut GridFactoryContext<'_, D, P>,
+    ) -> Result<()> {
+        // OutdoorPvP.cpp:80-92. OutdoorPvPSI inherits this handler.
+        let template = &owner.gameobjects().get(object)?.template;
+        if template.kind == 29 {
+            let entry = template.entry;
+            let slider =
+                owner
+                    .gameobject_capture_point_slider(entry)?
+                    .unwrap_or(CapturePointSlider {
+                        value: 50.0,
+                        locked: false,
+                    });
+            gameobject_lifecycle::set_source_capture_point_slider(owner, object, slider, context)?;
+        }
+        match self {
+            Self::Silithus => Ok(()),
+            // OutdoorPvPEP.cpp:115 calls the base before :117 reads the entry.
+            Self::EasternPlaguelands => Err(refuse(
+                "execution.outdoor_pvp.OutdoorPvPEP_117.HandleGameObjectCreate_owner",
+            )),
+        }
+    }
+}
 #[derive(Debug, PartialEq, Eq)]
 pub struct SilithusPvp {
     pub resources: [u32; 2],
@@ -24,6 +64,7 @@ pub struct SourceOutdoorPvp {
     pub silithus: Option<SilithusPvp>,
     pub plaguelands: Option<PlaguelandsPvp>,
     pub update_interval: u32,
+    capture_points: BTreeMap<u32, CapturePointSlider>,
     initialized: bool,
 }
 impl Default for SourceOutdoorPvp {
@@ -33,6 +74,7 @@ impl Default for SourceOutdoorPvp {
             silithus: None,
             plaguelands: None,
             update_interval: 60_000,
+            capture_points: BTreeMap::new(),
             initialized: false,
         }
     }
@@ -114,6 +156,15 @@ impl SourceOutdoorPvp {
                 .map(|_| OutdoorPvpScript::EasternPlaguelands),
             _ => None,
         })
+    }
+
+    // OutdoorPvPMgr.h:65,88-89. The key is the template entry, not the spawn GUID.
+    pub fn capture_point_slider(&self, entry: u32) -> Option<CapturePointSlider> {
+        self.capture_points.get(&entry).copied()
+    }
+
+    pub fn set_capture_point_slider(&mut self, entry: u32, slider: CapturePointSlider) {
+        self.capture_points.insert(entry, slider);
     }
 }
 #[cfg(test)]

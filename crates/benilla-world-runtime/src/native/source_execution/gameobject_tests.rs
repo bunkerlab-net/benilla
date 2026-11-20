@@ -90,6 +90,7 @@ struct Factory {
     events: bool,
     battleground: bool,
     outdoor: Option<OutdoorPvpScript>,
+    outdoor_manager: SourceOutdoorPvp,
     instance: Option<SourceWorldScript>,
     map_visibility_bits: u32,
     visibility: SourceVisibilityCensus,
@@ -140,6 +141,7 @@ impl Factory {
             events: false,
             battleground: false,
             outdoor: None,
+            outdoor_manager: SourceOutdoorPvp::default(),
             instance: None,
             map_visibility_bits: 100.0_f32.to_bits(),
             visibility: SourceVisibilityCensus::default(),
@@ -338,6 +340,7 @@ impl GameObjectFactoryOwner<Definitions, Products> for Factory {
         if matches!(
             observation,
             GameObjectFactoryObservation::InstanceOnObjectSpawn
+                | GameObjectFactoryObservation::OutdoorOnObjectCreate
         ) {
             self.actions.push(Action::Observation(observation));
         }
@@ -348,6 +351,12 @@ impl GameObjectFactoryOwner<Definitions, Products> for Factory {
         }
         assert_eq!(zone, 139);
         Ok(self.outdoor)
+    }
+    fn gameobject_capture_point_slider(
+        &mut self,
+        entry: u32,
+    ) -> Result<Option<CapturePointSlider>> {
+        Ok(self.outdoor_manager.capture_point_slider(entry))
     }
     fn gameobject_instance_data(
         &mut self,
@@ -672,7 +681,7 @@ fn gameobject_pvp_branch_refuses_before_instance_or_world_add() {
         ),
         (
             false,
-            "execution.gameobject.loaded_outdoor_pvp_create_owner",
+            "execution.outdoor_pvp.OutdoorPvPEP_117.HandleGameObjectCreate_owner",
         ),
     ] {
         let (mut world, mut factory) = (World::new(), Factory::new());
@@ -683,15 +692,131 @@ fn gameobject_pvp_branch_refuses_before_instance_or_world_add() {
             thread: 1,
             construction: 1,
         };
-        assert_eq!(
-            factory.actions,
-            [
-                Action::Model(handle, GameObjectModelOperation::ConstructAndInsert),
-                Action::Callback(handle, GameObjectCallback::CreateBattlegroundOrOutdoor)
-            ]
-        );
+        let mut expected_actions = vec![
+            Action::Model(handle, GameObjectModelOperation::ConstructAndInsert),
+            Action::Callback(handle, GameObjectCallback::CreateBattlegroundOrOutdoor),
+        ];
+        if !battleground {
+            expected_actions.push(Action::Observation(
+                GameObjectFactoryObservation::OutdoorOnObjectCreate,
+            ));
+        }
+        assert_eq!(factory.actions, expected_actions);
         assert!(!world.objects.get(handle).unwrap().in_world);
         assert_eq!(factory.cursor.raw, 0);
+    }
+}
+
+#[test]
+fn gameobject_outdoor_capture_create_uses_stored_slider_before_ep_override() {
+    use gameobjects::CapturePointState::*;
+
+    for (script, saved, expected, loot, state) in [
+        (OutdoorPvpScript::Silithus, None, 50.0, 2, Neutral),
+        (
+            OutdoorPvpScript::Silithus,
+            Some((60.0, false)),
+            60.0,
+            2,
+            Neutral,
+        ),
+        (
+            OutdoorPvpScript::Silithus,
+            Some((60.5, true)),
+            60.5,
+            1,
+            ProgressAlliance,
+        ),
+        (
+            OutdoorPvpScript::Silithus,
+            Some((39.5, false)),
+            39.5,
+            2,
+            ProgressHorde,
+        ),
+        (
+            OutdoorPvpScript::Silithus,
+            Some((100.75, true)),
+            100.75,
+            1,
+            WinAlliance,
+        ),
+        (
+            OutdoorPvpScript::EasternPlaguelands,
+            Some((-0.75, false)),
+            -0.75,
+            2,
+            WinHorde,
+        ),
+    ] {
+        let (mut world, mut factory) = (World::new(), Factory::new());
+        factory.outdoor = Some(script);
+        let mut capture = template(100, 29);
+        capture.data[12] = 20;
+        factory.templates.insert(100, capture);
+        if let Some((value, locked)) = saved {
+            factory
+                .outdoor_manager
+                .set_capture_point_slider(100, CapturePointSlider { value, locked });
+        }
+        let result = world.load(&mut factory, spawn());
+        let handle = if script == OutdoorPvpScript::EasternPlaguelands {
+            assert_eq!(
+                result.unwrap_err().id,
+                "execution.outdoor_pvp.OutdoorPvPEP_117.HandleGameObjectCreate_owner"
+            );
+            ObjectHandle {
+                thread: 1,
+                construction: 1,
+            }
+        } else {
+            loaded(result.unwrap())
+        };
+        let go = factory.objects.get(handle).unwrap();
+        assert_eq!(
+            (go.capture_slider, go.loot_state, go.capture_state),
+            (Some(expected), loot, Some(state))
+        );
+    }
+}
+
+#[test]
+fn gameobject_outdoor_capture_refuses_undefined_slider_conversion_after_loot_write() {
+    for (value, defined) in [
+        (-2_147_483_904.0, false),
+        (-2_147_483_648.0, true),
+        (2_147_483_520.0, true),
+        (2_147_483_648.0, false),
+        (f32::INFINITY, false),
+        (f32::NAN, false),
+    ] {
+        let (mut world, mut factory) = (World::new(), Factory::new());
+        factory.outdoor = Some(OutdoorPvpScript::Silithus);
+        factory.templates.insert(100, template(100, 29));
+        factory.outdoor_manager.set_capture_point_slider(
+            100,
+            CapturePointSlider {
+                value,
+                locked: false,
+            },
+        );
+        let result = world.load(&mut factory, spawn());
+        let handle = ObjectHandle {
+            thread: 1,
+            construction: 1,
+        };
+        if defined {
+            assert_eq!(loaded(result.unwrap()), handle);
+        } else {
+            assert_eq!(
+                result.unwrap_err().id,
+                "execution.gameobject.GameObject_2241.capture_slider_int_undefined"
+            );
+        }
+        let go = factory.objects.get(handle).unwrap();
+        assert_eq!(go.capture_slider.map(f32::to_bits), Some(value.to_bits()));
+        assert_eq!(go.loot_state, 2);
+        assert_eq!(go.capture_state.is_some(), defined);
     }
 }
 

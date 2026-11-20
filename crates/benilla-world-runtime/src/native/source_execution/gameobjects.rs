@@ -119,6 +119,14 @@ pub enum GameObjectModelOperation {
     Remove,
     Destroy,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CapturePointState {
+    Neutral,
+    ProgressAlliance,
+    ProgressHorde,
+    WinAlliance,
+    WinHorde,
+}
 #[derive(Debug)]
 pub struct SourceGameObject {
     pub handle: ObjectHandle,
@@ -152,6 +160,8 @@ pub struct SourceGameObject {
     pub cooldown_time: i64,
     pub rearm_time: i64,
     pub capture_timer: u32,
+    pub capture_slider: Option<f32>,
+    pub capture_state: Option<CapturePointState>,
     pub delayed_action_timer: u32,
     pub use_times: u32,
     pub first_user: SourceGuid,
@@ -231,6 +241,7 @@ pub enum GameObjectFactoryObservation {
     ScriptAiActiveInserted,
     ScriptAiFactoryReturned,
     ScriptAiJustSpawned,
+    OutdoorOnObjectCreate,
     InstanceOnObjectCreate,
     InstanceOnObjectSpawn,
 }
@@ -326,14 +337,12 @@ pub trait GameObjectFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
             "execution.gameobject.GameObject_289.GetScript_owner",
         ))
     }
-    fn gameobject_outdoor_create(
+    fn gameobject_capture_point_slider(
         &mut self,
-        _script: OutdoorPvpScript,
-        _handle: ObjectHandle,
-        _context: &mut GridFactoryContext<'_, D, P>,
-    ) -> Result<()> {
+        _entry: u32,
+    ) -> Result<Option<CapturePointSlider>> {
         Err(refuse(
-            "execution.gameobject.loaded_outdoor_pvp_create_owner",
+            "execution.outdoor_pvp.OutdoorPvP_85.capture_slider_map_owner",
         ))
     }
     fn gameobject_instance_data(
@@ -426,7 +435,10 @@ pub(super) fn execute_source_gameobject_callback<
                 let [x, y, z, _] = context.objects.pose(handle)?.0.map(f32::from_bits);
                 let zone = owner.gameobject_zone(handle, [x, y, z], context)?;
                 if let Some(script) = owner.gameobject_outdoor_script(zone)? {
-                    owner.gameobject_outdoor_create(script, handle, context)?;
+                    owner.observe_gameobject_factory(
+                        GameObjectFactoryObservation::OutdoorOnObjectCreate,
+                    );
+                    script.handle_gameobject_create(owner, handle, context)?;
                 }
             }
         }
@@ -656,6 +668,8 @@ where
             cooldown_time: 0,
             rearm_time: 0,
             capture_timer: 0,
+            capture_slider: None,
+            capture_state: None,
             delayed_action_timer: 0,
             use_times: 0,
             first_user: SourceGuid::default(),

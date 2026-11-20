@@ -89,6 +89,9 @@ impl<D: GridDefinitions<Row = SpawnKey>> GameObjectFactoryOwner<D, SourceTerrain
             GameObjectFactoryObservation::ScriptAiJustSpawned => {
                 self.lookups.push("go_ai_just_spawned");
             }
+            GameObjectFactoryObservation::OutdoorOnObjectCreate => {
+                self.lookups.push("go_outdoor_pvp_on_object_create");
+            }
             GameObjectFactoryObservation::InstanceOnObjectCreate => {
                 self.lookups.push("go_instance_on_object_create");
             }
@@ -242,6 +245,12 @@ impl<D: GridDefinitions<Row = SpawnKey>> GameObjectFactoryOwner<D, SourceTerrain
     fn gameobject_outdoor_script(&mut self, zone: u32) -> Result<Option<OutdoorPvpScript>> {
         self.lookups.push("go_outdoor_pvp_get_script");
         self.outdoor_pvp.get_script(zone)
+    }
+    fn gameobject_capture_point_slider(
+        &mut self,
+        entry: u32,
+    ) -> Result<Option<CapturePointSlider>> {
+        Ok(self.outdoor_pvp.capture_point_slider(entry))
     }
     fn gameobject_instance_data(
         &mut self,

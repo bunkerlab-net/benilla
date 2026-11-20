@@ -339,6 +339,61 @@ fn collision<D: GridDefinitions, P: GridProductOwner, F: GameObjectFactoryOwner<
     }
     Ok(())
 }
+// GameObject.cpp:2067-2075 writes loot state before the collision and AI calls.
+fn write_loot_state<D: GridDefinitions, P: GridProductOwner, F: GameObjectFactoryOwner<D, P>>(
+    owner: &mut F,
+    object: ObjectHandle,
+    state: u8,
+    grid: &mut GridFactoryContext<'_, D, P>,
+) -> Result<()> {
+    owner.gameobjects().get_mut(object)?.loot_state = state;
+    collision(owner, object, grid)
+}
+
+/// GameObject.cpp:2230-2251 on the Create path, before AI initialization.
+pub(super) fn set_source_capture_point_slider<
+    D: GridDefinitions,
+    P: GridProductOwner,
+    F: GameObjectFactoryOwner<D, P>,
+>(
+    owner: &mut F,
+    object: ObjectHandle,
+    slider: CapturePointSlider,
+    grid: &mut GridFactoryContext<'_, D, P>,
+) -> Result<()> {
+    let go = owner.gameobjects().get_mut(object)?;
+    go.capture_slider = Some(slider.value);
+    if !slider.locked {
+        write_loot_state(owner, object, 2, grid)?;
+        // GameObject.cpp:2073. Only Create reaches this setter.
+        require(
+            owner.gameobjects().get(object)?.ai.is_none(),
+            "execution.gameobject.GameObject_2074.OnLootStateChange_owner",
+        )?;
+    }
+    require(
+        (-2_147_483_648.0..2_147_483_648.0).contains(&slider.value),
+        "execution.gameobject.GameObject_2241.capture_slider_int_undefined",
+    )?;
+    let go = owner.gameobjects().get_mut(object)?;
+    use gameobjects::CapturePointState::*;
+    go.capture_state = Some(match slider.value as i32 {
+        100 => WinAlliance,
+        0 => WinHorde,
+        _ => {
+            let half_neutral = go.template.data[12] as f32 * 0.5;
+            if slider.value > 50.0 + half_neutral {
+                ProgressAlliance
+            } else if slider.value < 50.0 - half_neutral {
+                ProgressHorde
+            } else {
+                Neutral
+            }
+        }
+    });
+    Ok(())
+}
+
 fn loot<D: GridDefinitions, P: ResidencyProductOwner, F: GameObjectLifecycleOwner<D, P>>(
     owner: &mut F,
     object: ObjectHandle,
@@ -346,8 +401,7 @@ fn loot<D: GridDefinitions, P: ResidencyProductOwner, F: GameObjectLifecycleOwne
     user: Option<ObjectHandle>,
     context: &mut GameObjectLifecycleContext<'_, '_, D, P>,
 ) -> Result<()> {
-    owner.gameobjects().get_mut(object)?.loot_state = state;
-    collision(owner, object, context.grid)?;
+    write_loot_state(owner, object, state, context.grid)?;
     owner.go_lifecycle_phase(
         object,
         GameObjectLifecyclePhase::LootStateChange(user),

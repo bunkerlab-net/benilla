@@ -723,6 +723,11 @@ The pinned CMaNGOS Classic `8ec338a1` contract is:
   calls the bound instance script. The Kalimdor ghost magnet requests activation
   at `world_kalimdor.cpp:173-180`. `Object.cpp:2566-2580` sets the flag before
   `Map.cpp:496-497,1579-1584` registers the object as active.
+- Silithus inherits the base GameObject create handler. It leaves
+  non-capture points unchanged. Capture points use the saved slider and lock
+  for their entry, or start at 50 and unlocked. The Eastern Plaguelands
+  callback runs the base and refuses at its entry switch (`OutdoorPvP.cpp:80-92`,
+  `GameObject.cpp:2230-2251`, `OutdoorPvPEP.cpp:115-117`).
 - Large objects compare their effective visibility distance with 200 yards.
   `ObjectVisibility.cpp:53-59` gives an existing object override precedence over
   the map distance. `GameObject.cpp:2209-2212` supplies the default object radius.
@@ -2656,8 +2661,10 @@ GUID89542 finish Frost Armor with 36 armor and two effect clocks each
 (trace :61221527-61221531, :61241174-61241178). Map 0 stops at the
 `guard_stormwind` factory for GUID10507 (`ScriptDevAIMgr.cpp:370`,
 trace :61339352-61339354).
-Map 1 stops at the `boss_azuregos` factory for GUID52349
-(`ScriptDevAIMgr.cpp:370`, trace :60622939).
+Map 1 completes 317 objects in 353 allocations. It matches 14,234 random
+words, 323 clocks, 22 paths, and two map SQL requests. The Silithyst Geyser
+GUID49337 stops at `go_outdoor_pvp_notify` (`ScriptDevAIMgr.cpp:380`,
+trace :60741274).
 Recorded allocation addresses are never supplied as execution inputs.
 The world-thread clone-only next-word check matches `(8712,3411341330)`.
 Global event/status/quest comparisons and WorldState remain beyond the map
