@@ -599,10 +599,10 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 #### models
 
 - The fraction is clamped to `[0, 1]` because the reference extrapolates, which for a window whose brackets miss the band can push a fix16 factor negative and cull the batch on a quirk. ([`src/models/key_anim.rs:130`](../crates/benilla-formats/src/models/key_anim.rs#L130))
-- Owners past the ceiling (Maraudon's waterfalls, the glue screens) keep the interleave with their emitters, because a bias past a 200-yard owner would jump every transparent surface in the zone. ([`src/models/m2_batches.rs:804`](../crates/benilla-formats/src/models/m2_batches.rs#L804))
+- Owners past the ceiling (Maraudon's waterfalls, the glue screens) keep the interleave with their emitters, because a bias past a 200-yard owner would jump every transparent surface in the zone. ([`src/models/m2_batches.rs:809`](../crates/benilla-formats/src/models/m2_batches.rs#L809))
 - The reference compares the texture objects' addresses (`0x41af70` on instance `+0xa4`, `0x70ac45`-`0x70ac69`); the model's own texture order stands in for them, because those addresses are a fact of the run's allocator and not of the file. Entries sharing a handle still tie. ([`src/models/sort_order.rs:47`](../crates/benilla-formats/src/models/sort_order.rs#L47))
-- The fx lane redraws them as projected decals (`ground_fx`) because that way they drape the terrain. ([`src/models/types.rs:398`](../crates/benilla-formats/src/models/types.rs#L398))
-- Consumers light such a card off the side it presents, because the reference's shading of it is inverted and follows the camera. ([`src/models/types.rs:472`](../crates/benilla-formats/src/models/types.rs#L472))
+- The fx lane redraws them as projected decals (`ground_fx`) because that way they drape the terrain. ([`src/models/types.rs:403`](../crates/benilla-formats/src/models/types.rs#L403))
+- Consumers light such a card off the side it presents, because the reference's shading of it is inverted and follows the camera. ([`src/models/types.rs:478`](../crates/benilla-formats/src/models/types.rs#L478))
 - The UV comes from the model-space position, not each surface's own `(i, j)`, because the two agree on cell-aligned surfaces and the position never seams where they are not. Magma and slime use this period too; the reference reads their UV from the vertex's authored `int16` pair × 1/256 (`0x6b6993`), which is not parsed. ([`src/models/wmo/group.rs:19`](../crates/benilla-formats/src/models/wmo/group.rs#L19))
 
 #### particles
@@ -939,7 +939,7 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 
 #### interact
 
-- The broad bound is the mesh `Aabb` grown by 1 unit, not the reference's sequence-bounds sphere, because it can only err permissive. ([`src/interact/pick.rs:190`](../crates/benilla-world/src/interact/pick.rs#L190))
+- The broad bound is the mesh `Aabb` grown by 1 unit, not the reference's sequence-bounds sphere, because it can only err permissive. ([`src/interact/pick.rs:191`](../crates/benilla-world/src/interact/pick.rs#L191))
 
 #### lighting
 
