@@ -55,6 +55,7 @@ pub struct SourceAuraHolder {
     pub heartbeat_interval: i32,
     pub proc_cooldown_ms: i64,
     pub effects: [Option<SourceAura>; 3],
+    script: Option<SourceSpellScript>,
 }
 impl SourceAuraHolder {
     pub(super) fn for_self_spell(
@@ -64,20 +65,23 @@ impl SourceAuraHolder {
         triggered_by: Option<u32>,
         seconds: impl FnOnce() -> Result<i64>,
     ) -> Result<Self> {
-        // SpellAuras.cpp:5164,5174,5185. The script read precedes the clock.
+        // SpellAuras.cpp:5164,5174,5185,5211. The script read precedes the clock.
         let script = stores.typed_script(
             SpellScriptKind::Aura,
             t.id,
             "execution.spells.SpellAuras_5164.script_binding_owner",
         )?;
         let time = seconds()?;
-        let duration = creature_self_aura_duration(stores, t)?;
-        require(
-            script.is_none(),
-            "execution.spells.SpellAuras_5185.OnDurationCalculate_owner",
-        )?;
+        let duration = SourceSpellScript::on_duration_calculate(
+            script,
+            creature_self_aura_duration(stores, t)?,
+        );
         let mut holder = Self::new(t, target, time, 0, duration)?;
         holder.triggered_by = triggered_by;
+        holder.script = script;
+        if let Some(script) = script {
+            script.on_holder_init(&mut holder);
+        }
         Ok(holder)
     }
 
@@ -132,6 +136,7 @@ impl SourceAuraHolder {
             heartbeat_interval: 0,
             proc_cooldown_ms: 0,
             effects: [None, None, None],
+            script: None,
         })
     }
 }
@@ -435,6 +440,10 @@ impl SourceSpell {
                 live.level,
                 live.player,
             )?;
+            require(
+                self.spell_script.is_none(),
+                "execution.spells.Spell_4610.OnEffectExecute_owner",
+            )?;
             self.damage_per_effect[i] = amount;
             let area = self_aura_effect(effect.effect)?;
             if area.is_some() && !live.alive {
@@ -445,6 +454,10 @@ impl SourceSpell {
             let holder = self.pending_aura.as_mut().ok_or_else(|| {
                 refuse("execution.spells.SpellEffects_1731.pending_aura_holder_owner")
             })?;
+            // SpellAuras.cpp:275. The bound unit caster is present.
+            let amount = holder
+                .script
+                .map_or(amount, |script| script.on_aura_value_calculate(amount));
             let mut aura = SourceAura::self_spell_effect(
                 t,
                 i,
@@ -468,8 +481,11 @@ impl SourceSpell {
                     live.totem,
                 )?;
             }
-            // SpellAuras.cpp:376-377. The duration path already excluded AuraScript.
+            // SpellAuras.cpp:376-377. Set the value before dispatching OnAuraInit.
             aura.script_value = self.script_value;
+            if let Some(script) = holder.script {
+                script.on_aura_init(&mut aura);
+            }
             holder.effects[i] = Some(aura);
         }
         // Spell.cpp:1460,1496-1500. A dead target can leave an empty holder.
@@ -501,6 +517,10 @@ impl SourceSpell {
         };
         // Spell.cpp:1329-1331. Run the hit procs for both sides.
         owner.proc_aura_hit(self)?;
+        require(
+            self.spell_script.is_none(),
+            "execution.spells.Spell_1334.OnAfterHit_owner",
+        )?;
         // Spell.cpp:1353-1358. Only the holder created by this hit can become ready.
         if let Some(id) = inserted {
             let auras = owner.aura_hit_target(target_unit)?.auras;
@@ -741,7 +761,7 @@ impl SourceUnitAuras {
                     holder: id,
                     effect: index as u8,
                 },
-                &mut holder.effects,
+                holder,
                 mode,
                 live,
             )?;
@@ -754,17 +774,18 @@ impl SourceUnitAuras {
     }
 
     // Unit.cpp:5404-5446. The holder and type list no longer expose the aura
-    // when its modifier runs. The bound creature effect has no script ref.
+    // when its modifier runs.
     fn remove_aura(
         &mut self,
         stores: &SourceSpellStores,
         t: &SpellTemplate,
         reference: SourceAuraEffectRef,
-        effects: &mut [Option<SourceAura>; 3],
+        holder: &mut SourceAuraHolder,
         mode: AuraRemoveMode,
         live: &mut SelfAuraRemoval<'_>,
     ) -> Result<()> {
-        let effect = effects
+        let effect = holder
+            .effects
             .get_mut(usize::from(reference.effect))
             .ok_or_else(|| refuse("execution.spells.Unit_5425.holder_effect_owner"))?;
         let Some(aura) = effect.as_mut() else {
@@ -779,7 +800,7 @@ impl SourceUnitAuras {
         };
         let result = if mode != AuraRemoveMode::Delete || matches!(aura.kind, 2 | 128) {
             let result =
-                self.unapply_aura(stores, t, &aura, mode, live, (reference.holder, effects));
+                self.unapply_aura(stores, t, &mut aura, mode, live, (reference.holder, holder));
             if result.is_ok() {
                 aura.applied = false;
             }
@@ -791,23 +812,20 @@ impl SourceUnitAuras {
         result
     }
 
-    // SpellAuras.cpp:677-690. Only the bound, scriptless handlers are available here.
+    // SpellAuras.cpp:679,684,686,690. Unapply reverses the hook order.
     fn unapply_aura(
         &mut self,
         stores: &SourceSpellStores,
         t: &SpellTemplate,
-        aura: &SourceAura,
+        aura: &mut SourceAura,
         mode: AuraRemoveMode,
         live: &mut SelfAuraRemoval<'_>,
-        detached: (SourceAuraHolderId, &[Option<SourceAura>; 3]),
+        (id, holder): (SourceAuraHolderId, &SourceAuraHolder),
     ) -> Result<()> {
-        require(
-            stores
-                .script_binding(SpellScriptKind::Aura, t.id)?
-                .is_none(),
-            "execution.spells.Aura_684.OnAfterApply_owner",
-        )?;
         let kind = aura.kind;
+        if let Some(script) = holder.script {
+            script.on_after_apply(aura, false);
+        }
         match SelfAuraApplyHandler::for_kind(kind) {
             Some(SelfAuraApplyHandler::Dummy) => handle_creature_dummy_aura(
                 stores,
@@ -827,7 +845,7 @@ impl SourceUnitAuras {
                 aura.amount,
                 false,
                 true,
-                Some(detached),
+                Some((id, &holder.effects)),
             ),
             Some(SelfAuraApplyHandler::StealthDetect) => {
                 handle_mod_stealth_detect(live.visibility, aura.misc, aura.amount, false)
@@ -845,7 +863,11 @@ impl SourceUnitAuras {
             _ => Err(refuse(&format!(
                 "execution.spells.AuraHandler.type_{kind}_unapply_owner"
             ))),
+        }?;
+        if let Some(script) = holder.script {
+            script.on_apply(aura, false);
         }
+        Ok(())
     }
 
     // SpellAuras.cpp:5306-5393.
@@ -1215,8 +1237,12 @@ pub fn apply_self_aura_holder(
         let Some(aura) = aura_holder.effects[i].as_mut() else {
             continue;
         };
-        // SpellAuras.cpp:677-690. The holder already checked for an AuraScript.
+        // SpellAuras.cpp:679,682. Read the handler type before dispatching OnApply.
         let kind = aura.kind;
+        let script = aura_holder.script;
+        if let Some(script) = script {
+            script.on_apply(aura, true);
+        }
         let unit = live.unit;
         match SelfAuraApplyHandler::for_kind(kind) {
             Some(SelfAuraApplyHandler::Null) => {} // SpellAuras.cpp:61 dispatches type 0 to HandleNULL.
@@ -1367,6 +1393,10 @@ pub fn apply_self_aura_holder(
                 )))
             }
         }
+        // SpellAuras.cpp:688. The handler may have changed the aura.
+        if let Some(script) = script {
+            script.on_after_apply(aura, true);
+        }
         aura.applied = true;
     }
     owner
@@ -1484,7 +1514,11 @@ impl SourceUnitAuras {
     }
 
     fn mark_effect_applied(&mut self, holder: SourceAuraHolderId, index: usize) -> Result<()> {
-        if let Some(aura) = self.applied_holder_mut(holder)?.effects[index].as_mut() {
+        let holder = self.applied_holder_mut(holder)?;
+        if let Some(aura) = holder.effects[index].as_mut() {
+            if let Some(script) = holder.script {
+                script.on_after_apply(aura, true);
+            }
             aura.applied = true;
         }
         Ok(())

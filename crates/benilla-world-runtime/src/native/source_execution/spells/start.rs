@@ -71,7 +71,7 @@ impl SourceSpell {
         value.affective_caster = affective;
         value.school_mask = school;
         value.creation_time = owner.map_time(caster)?;
-        value.script_present = spell_script.is_some();
+        value.spell_script = spell_script;
         value.aura_script = aura_script;
         value.reflectable = Some(
             t.dmgclass == 1
@@ -81,9 +81,10 @@ impl SourceSpell {
         );
         // SpellTargets.cpp:503-505 returns exactly 10; only the loaded map is missing.
         value.filtering_scheme = Some(owner.targeting_data(spell)?);
-        if value.script_present {
-            owner.call(&mut value, SpellCall::Init)?;
-        }
+        require(
+            value.spell_script.is_none(),
+            "execution.spells.Spell_504.OnInit_owner",
+        )?;
         Ok(value)
     }
 
@@ -219,9 +220,10 @@ impl SourceSpell {
             }
         }
         self.cast_position = owner.unit(self.caster)?.position;
-        if self.script_present {
-            owner.call(self, SpellCall::SuccessfulStart)?;
-        }
+        require(
+            self.spell_script.is_none(),
+            "execution.spells.Spell_3058.OnSuccessfulStart_owner",
+        )?;
         if !c.gameobject && t.attributesex & 1 != 0 {
             owner.call(self, SpellCall::UnsummonPet)?;
         }

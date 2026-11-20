@@ -440,10 +440,13 @@ fn catalog04_spell_area_and_first_cast_location_census() {
                 };
                 let mut value =
                     SourceSpell::new(1, t, caster, SpellTriggerFlags(flags), 0).unwrap();
-                value.script_present = s
-                    .script_binding(SpellScriptKind::Spell, id)
-                    .unwrap()
-                    .is_some();
+                value.spell_script = s
+                    .typed_script(
+                        SpellScriptKind::Spell,
+                        id,
+                        "execution.spells.Spell_388.script_binding_owner",
+                    )
+                    .unwrap();
                 let mut suffix = Suffix {
                     stores: &s,
                     range: super::range_tests::RangeFixture::new(),
@@ -485,12 +488,12 @@ fn catalog04_spell_area_and_first_cast_location_census() {
                     // CheckCasterAuras through a failed/unbound CheckPower.
                     let result = value.check_caster_auras(t, &mut suffix);
                     isolated_caster_auras.record(&result);
-                    let next_if_passed =
-                        match value.check_cast_power_suffix(t, false, true, &mut suffix) {
-                            Err(error) => error.id,
-                            Ok(R::Ok) => SpellCall::PrepareTriggerData.missing_owner().id,
-                            Ok(result) => format!("SPELL_FAILED_{result:?}"),
-                        };
+                    let next_if_passed = match value.check_cast_power_suffix(t, false, &mut suffix)
+                    {
+                        Err(error) => error.id,
+                        Ok(R::Ok) => SpellCall::PrepareTriggerData.missing_owner().id,
+                        Ok(result) => format!("SPELL_FAILED_{result:?}"),
+                    };
                     *post_aura_next.entry(next_if_passed).or_default() += 1;
                 }
                 power.merge(suffix.power);

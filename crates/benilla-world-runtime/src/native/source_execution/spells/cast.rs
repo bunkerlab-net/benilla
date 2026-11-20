@@ -148,12 +148,9 @@ impl SourceSpell {
             self.targets.mask & 0x1000 == 0,
             "execution.spells.Spell_3256.updateTradeSlotItem_owner",
         )?;
-        let duration = effects.duration(t)?;
-        require(
-            self.aura_script.is_none(),
-            "execution.spells.Spell_3258.OnDurationCalculate_owner",
-        )?;
-        self.duration = duration;
+        // Spell.cpp:3258. There is no target at this duration read.
+        self.duration =
+            SourceSpellScript::on_duration_calculate(self.aura_script, effects.duration(t)?);
         effects.fill_self_targets(self, t)?;
         effects.send_cooldown(self, t)?;
         if effects.cast_unit().has_ai && self.flags.notify_ai() {
@@ -191,8 +188,8 @@ impl SourceSpell {
             }
         }
         require(
-            !self.script_present,
-            "execution.spells.Spell_8059.OnCast_owner",
+            self.spell_script.is_none(),
+            "execution.spells.Spell_3285.OnCast_owner",
         )?;
         if !self.flags.old_triggered() && t.attributesex2 & 0x10000000 == 0 {
             effects.remove_cast_auras(t, self.caster, 0x10000)?;
@@ -234,6 +231,12 @@ impl SourceSpell {
         // HandleImmediate revisits processed targets, then finishes the cast.
         self.state = SourceSpellState::Finished;
         finish(self)?;
+        if !matches!(t.id, 32053 | 32054 | 32057) {
+            require(
+                self.spell_script.is_none(),
+                "execution.spells.Spell_3766.OnSuccessfulFinish_owner",
+            )?;
+        }
         finish_tail(
             t,
             effects.finish_operands(nested.map(|(starts, _)| &*starts))?,

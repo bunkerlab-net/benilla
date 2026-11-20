@@ -124,7 +124,6 @@ pub enum SpellCheck {
     NoActivePets,
     CaptureSpirit,
     ScreecherSpirit,
-    OnCheckCast(bool),
 }
 impl SpellCheck {
     /// The missing owner is named at the first source query, not at SpellStart.
@@ -157,19 +156,16 @@ impl SpellCheck {
             Self::NoActivePets => "f5_15_Player_GetPetGuid_TryLoadFromDB",
             Self::CaptureSpirit => "WorldObject_GetObjectGuid_GetEntry",
             Self::ScreecherSpirit => "Creature_HasBeenHitBySpell_RegisterHitBySpell",
-            Self::OnCheckCast(_) => "f5_21_Spell_OnCheckCast",
         };
         refuse(&format!("execution.spells.{name}_owner"))
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SpellCall {
-    Init,
     PrepareTriggerData,
     RemoveCastAuras(u32),
     AiCastState(bool),
     AiChannelState(bool),
-    SuccessfulStart,
     UnsummonPet,
     SendStart,
     SendResult(SpellCastResult),
@@ -191,7 +187,6 @@ pub enum SpellCall {
 impl SpellCall {
     pub fn missing_owner(self) -> Refusal {
         refuse(match self {
-            Self::Init | Self::SuccessfulStart => "execution.spells.f5_21_spell_script_owner",
             Self::PrepareTriggerData => "execution.spells.prepareDataForTriggerSystem_owner",
             Self::RemoveCastAuras(_) => "execution.spells.f5_12_RemoveAurasOnCast_owner",
             Self::AiCastState(_) => "execution.spells.UnitAI_OnSpellCastStateChange_owner",

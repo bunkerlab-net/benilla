@@ -180,6 +180,59 @@ fn invisibility_round_trip_across_indices_preserves_saved_unit_bytes() {
 }
 
 #[test]
+fn scripted_invisibility_unapply_keeps_live_periodicity() {
+    let mut stores = SourceSpellStores::default();
+    let t = invisibility(&mut stores, 16380, 0);
+    stores.bind_empty_duration_fixture();
+    stores
+        .bind_script(
+            t.id,
+            b"spell_detect_through_invisibility_mob",
+            &mut SourceSpellScriptRegistry,
+        )
+        .unwrap();
+    let mut target = Target::new(false, false);
+    let saved = serde_json::to_vec(&target.unit).unwrap();
+    let mut holder =
+        SourceAuraHolder::for_self_spell(&stores, &t, target.object, None, || Ok(0)).unwrap();
+    holder.effects[0] = Some(SourceAura::self_spell_effect(&t, 0, 18, 0, 300, 1, 0).unwrap());
+    let id = target
+        .unit
+        .auras
+        .store_aura_holder(t.id, &mut Some(holder))
+        .unwrap();
+    apply_self_aura_holder(&mut target, &stores, &t, id, None).unwrap();
+    let aura = target.unit.auras.aura_holder_mut(id).unwrap().effects[0]
+        .as_mut()
+        .unwrap();
+    assert_eq!(
+        (
+            aura.applied,
+            aura.periodic,
+            aura.periodic_time,
+            aura.periodic_timer
+        ),
+        (true, true, 1000, 1000)
+    );
+    aura.periodic_timer = 871;
+    aura.periodic_tick = 3;
+    target.remove(&stores, id).unwrap();
+    let removed = &target.unit.auras.deferred_auras()[0];
+    assert_eq!(
+        (
+            removed.applied,
+            removed.periodic,
+            removed.periodic_time,
+            removed.periodic_timer,
+            removed.periodic_tick
+        ),
+        (false, true, 1000, 871, 3)
+    );
+    assert_eq!(target.unit.visibility, SourceUnitVisibility::default());
+    assert_eq!(serde_json::to_vec(&target.unit).unwrap(), saved);
+}
+
+#[test]
 fn invisibility_preserves_gm_off_and_clears_no_detect_only_without_stealth() {
     let mut stores = SourceSpellStores::default();
     let t = invisibility(&mut stores, 4986, 0);

@@ -150,3 +150,37 @@ fn aura_holder_constructor_refuses_an_untyped_binding_before_its_clock() {
         "execution.spells.SpellAuras_5164.script_binding_owner"
     );
 }
+
+#[test]
+fn force_periodicity_sets_or_clears_the_live_period_without_resetting_the_tick() {
+    let t = SpellTemplate {
+        effectamplitude1: 37,
+        ..Default::default()
+    };
+    let mut aura = SourceAura::self_spell_effect(&t, 0, 18, 0, 0, 1, 0).unwrap();
+    assert_eq!(
+        (aura.periodic, aura.periodic_time, aura.periodic_timer),
+        (false, 37, 37)
+    );
+    aura.periodic_tick = 4;
+    aura.force_periodicity(1000);
+    assert_eq!(
+        (
+            aura.periodic,
+            aura.periodic_time,
+            aura.periodic_timer,
+            aura.periodic_tick
+        ),
+        (true, 1000, 1000, 4)
+    );
+    aura.force_periodicity(0);
+    assert_eq!(
+        (
+            aura.periodic,
+            aura.periodic_time,
+            aura.periodic_timer,
+            aura.periodic_tick
+        ),
+        (false, 0, 0, 4)
+    );
+}

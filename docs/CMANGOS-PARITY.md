@@ -224,10 +224,13 @@ is meaningful without a bounded content/mechanics inventory.
   GUID59514 completes the no-case path at trace :61396675. Shadowmage
   GUID92187 completes with Shadowform at trace :61406116. Its type 126 aura
   has no immediate effect (`SpellAuras.cpp:187`).
-  GUID156055 applies types 19 and 17 by trace :61417925.
+  GUID156055 applies types 19, 17, and 18 by trace :61417981.
   The closed spell script registry binds Greater Invisibility as an
-  AuraScript (stock SQL :836881). The first duration hook stops map 0
-  at `Spell.cpp:3258`.
+  AuraScript (stock SQL :836881). Its apply hook starts a 1000 ms period
+  (`spell_scripts.cpp:88-92`, `SpellAuras.cpp:6199-6207`). Unapply leaves the
+  period and timer unchanged. The periodic world update remains unported.
+  Map 0 stops at the cast tail's attack-stop call (`Spell.cpp:3793`),
+  after the effect clock at :61417981 and before the respawn draw at :61417987.
 - **Stormwind guard startup.** `guard_ai.cpp:29-38,63-81` owns the guard
   base timers and the ranged check after inherited respawn. Stormwind
   calls its salute-only Reset in construction and respawn

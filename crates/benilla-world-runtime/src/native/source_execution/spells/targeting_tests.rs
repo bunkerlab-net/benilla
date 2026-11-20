@@ -179,7 +179,8 @@ fn radius_callback_gates_precede_caster_arm() {
     ] {
         assert_eq!(
             with_fixture(&t, 0, kind, |live, s| {
-                s.script_present = scripted;
+                s.spell_script =
+                    scripted.then_some(SourceSpellScript::DetectThroughInvisibilityMob);
                 live.fill(s, &t, |_| panic!("dispatch must not run"))
             })
             .unwrap_err()

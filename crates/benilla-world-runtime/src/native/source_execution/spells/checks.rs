@@ -338,14 +338,13 @@ impl SourceSpell {
             check!(SpellCheck::Power(strict));
             check!(SpellCheck::CasterAuras);
         }
-        self.check_cast_power_suffix(t, player, strict, owner)
+        self.check_cast_power_suffix(t, player, owner)
     }
     // Spell.cpp:5163 onward. Also used for explicitly conditional census counts.
     pub(super) fn check_cast_power_suffix(
         &mut self,
         t: &SpellTemplate,
         player: bool,
-        strict: bool,
         owner: &mut (impl SpellExecutionOwner + ?Sized),
     ) -> Result<R> {
         macro_rules! check {
@@ -386,8 +385,13 @@ impl SourceSpell {
         match t.id {
             7914 => owner.check(self, t, SpellCheck::CaptureSpirit),
             12699 => owner.check(self, t, SpellCheck::ScreecherSpirit),
-            _ if self.script_present => owner.check(self, t, SpellCheck::OnCheckCast(strict)),
-            _ => Ok(R::Ok),
+            _ => {
+                require(
+                    self.spell_script.is_none(),
+                    "execution.spells.Spell_6002.OnCheckCast_owner",
+                )?;
+                Ok(R::Ok)
+            }
         }
     }
 }

@@ -333,11 +333,17 @@ impl SourceUnitAuras {
             .trigger_data
             .as_ref()
             .ok_or_else(|| refuse("execution.spells.Spell_1202.trigger_data_owner"))?;
-        if !trigger.can_trigger
-            || (attacker | victim) & NEGATIVE_TRIGGER != 0
-                && target.hit_mask & trigger.negative_effect_mask == 0
+        if (attacker | victim) & NEGATIVE_TRIGGER != 0
+            && target.hit_mask & trigger.negative_effect_mask == 0
             || attacker | victim == 0
         {
+            return Ok(());
+        }
+        require(
+            spell.spell_script.is_none(),
+            "execution.spells.Spell_1324.OnHit_owner",
+        )?;
+        if !trigger.can_trigger {
             return Ok(());
         }
         self.scan_creature_self_procs(

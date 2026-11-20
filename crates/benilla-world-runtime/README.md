@@ -2684,7 +2684,7 @@ effect slots and 13 of 16 direct EventAI Spawn-cast slots. The other two and
 three slots reach the dice RNG at `Object.cpp:2955`. This census counts effect
 value arithmetic and does not execute casts.
 Map 0 completes 1,119 objects in 1,196 allocations. It matches 32,650 random
-words, 839 clocks, 97 paths, and two map SQL requests. Defias Conjurers
+words, 841 clocks, 97 paths, and two map SQL requests. Defias Conjurers
 GUID89544 and GUID89542 finish Frost Armor with 36 armor and two effect clocks
 each (trace :61221527-61221531, :61241174-61241178). All 23 Stormwind guards
 complete (trace :61339475-61390644). Bolvar GUID10495 retains Retribution Aura
@@ -2694,10 +2694,14 @@ Eastern Plaguelands creature creation completes for GUID59514
 (`OutdoorPvPEP.cpp:95-111`, trace :61396675). Shadowmage GUID92187 completes
 with both Shadowform effects applied (trace :61406096-61406116).
 Type 126 has no immediate effect (`SpellAuras.cpp:187`).
-GUID156055 applies both detection auras (trace :61417867-61417925).
-The spell script registry binds Greater Invisibility as an AuraScript
-(stock SQL :836881) and refuses the other 577 rows by script name.
-The cast stops at its first duration hook (`Spell.cpp:3258`).
+GUID156055 applies both detection auras and Greater Invisibility
+(trace :61417867-61417981). The spell script registry loads one stock
+AuraScript binding, `spell_detect_through_invisibility_mob` for spell 16380.
+It refuses the other 577 rows by script name. The script sets the live
+aura's period and timer to 1000 ms on apply and leaves them alone on removal
+(`spell_scripts.cpp:88-92`). Periodic world updates remain unported.
+Greater Invisibility finishes its aura effects, then stops at the
+attack-stop call (`Spell.cpp:3793`) before the respawn draw (trace :61417987).
 Map 1 completes all 531 active preload objects in 571 allocations. It matches
 15,783 random words, 535 clocks, 35 paths, and two map SQL requests.
 Silithyst Geyser GUID49337 completes at trace :60741339.

@@ -137,7 +137,7 @@ impl SelfSpellTargeting<'_> {
             "execution.spells.Spell_7570.GetSpellAuraHolder_owner",
         )?;
         require(
-            !s.script_present,
+            s.spell_script.is_none(),
             "execution.spells.Spell_7583.OnRadiusCalculate_owner",
         )?;
         self.stores.cone(self.stores.first_rank(t.id));
@@ -246,7 +246,7 @@ impl SelfSpellTargeting<'_> {
             return Ok(false);
         }
         require(
-            !s.script_present,
+            s.spell_script.is_none(),
             "execution.spells.Spell_7093.OnCheckTarget_owner",
         )?;
         Ok(true)
@@ -273,11 +273,11 @@ impl SelfSpellTargeting<'_> {
             existing.hit_mask |= hit;
             return Ok(());
         }
-        let duration = creature_self_aura_duration(self.stores, t)?;
-        require(
-            s.aura_script.is_none(),
-            "execution.spells.Spell_944.OnDurationCalculate_owner",
-        )?;
+        // Spell.cpp:944. This duration read has a unit target.
+        let duration = SourceSpellScript::on_duration_calculate(
+            s.aura_script,
+            creature_self_aura_duration(self.stores, t)?,
+        );
         // Unit.cpp:2900-2925. Positive self aura: immunity, no hit roll.
         require(
             positive_unit_spell(self.stores, t, u32::from(mask), Some((s.caster, s.caster)))?,
