@@ -8,6 +8,8 @@ use std::collections::VecDeque;
 pub struct SourceCreatureMovement {
     pub flags: Option<u32>,
     pub rates: [Option<f32>; 6],
+    pub(in crate::native::source_execution) server_time: u32,
+    pub(in crate::native::source_execution) fall_time: u32,
 }
 impl SourceCreatureMovement {
     /// Object.h:753, Unit.cpp:412-413, Creature.cpp:155,2781-2798.
@@ -15,6 +17,8 @@ impl SourceCreatureMovement {
         Self {
             flags: Some(0x100),
             rates: [Some(1.); 6],
+            server_time: 0, // MovementInfo constructor, Object.h:753-754.
+            fall_time: 0,
         }
     }
     /// Unit.cpp:8492-8499. std::max preserves a NaN first argument.
@@ -23,17 +27,14 @@ impl SourceCreatureMovement {
             benilla_sim::creature_init::source_speed_rate_bits(rate.to_bits()),
         ));
     }
-    pub fn set_walk(&mut self, walk: bool) -> Result<()> {
-        let flags = self
-            .flags
-            .as_mut()
-            .ok_or_else(|| refuse("execution.movement.flags_owner"))?;
-        if walk {
-            *flags |= 0x100;
-        } else {
-            *flags &= !0x100;
-        }
-        Ok(())
+    pub(in crate::native::source_execution) fn set_walk(
+        &mut self,
+        state: &mut u32,
+        guid: u64,
+        walk: bool,
+        as_default: bool,
+    ) -> Result<Option<SourceMovementPacket>> {
+        source_set_creature_walk(state, self.flags.as_mut(), guid, walk, as_default)
     }
     /// Unit.cpp:12371-12378. Client-controlled movement does not write this bit.
     pub fn set_levitate(&mut self, enable: bool, client_controlled: bool) -> Result<()> {
@@ -58,6 +59,7 @@ impl SourceCreatureMovement {
         client_controlled: bool,
         spawn: Result<Option<&LoadedCreatureSpawnTemplate>>,
         swimmable: impl FnOnce() -> Result<bool>,
+        set_running: impl FnOnce(&mut Self) -> Result<()>,
     ) -> Result<()> {
         self.init_entry_flags_from_bits(
             [template.inhabit_type, template.extra_flags],
@@ -65,6 +67,7 @@ impl SourceCreatureMovement {
             client_controlled,
             spawn,
             swimmable,
+            set_running,
         )
     }
 
@@ -75,6 +78,7 @@ impl SourceCreatureMovement {
         client_controlled: bool,
         spawn: Result<Option<&LoadedCreatureSpawnTemplate>>,
         swimmable: impl FnOnce() -> Result<bool>,
+        set_running: impl FnOnce(&mut Self) -> Result<()>,
     ) -> Result<()> {
         if !controlled_pet {
             self.set_levitate(inhabit_type & 4 != 0, client_controlled)?;
@@ -87,7 +91,7 @@ impl SourceCreatureMovement {
         }
         if let Some(spawn) = spawn? {
             if spawn.spawn_flags & 1 != 0 {
-                self.set_walk(false)?;
+                set_running(self)?;
             }
             // Unit::SetHover, Unit.cpp:12451-12459, has the same control guard.
             if spawn.spawn_flags & 2 != 0 && !client_controlled {

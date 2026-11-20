@@ -337,7 +337,7 @@ impl GroupCallback {
             "execution.group.lifecycle_binding",
         )?;
         if forced_seconds != 0 {
-            creature.set_respawn_delay(forced_seconds, true);
+            creature.set_respawn_delay(forced_seconds, true, context, owner)?;
         }
         // SpawnGroup.cpp:640-642 enters Creature.cpp:1964-1969's Unit queue.
         // The default lifecycle phase owns scheduling, not a fabricated callback.

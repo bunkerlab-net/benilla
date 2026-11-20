@@ -259,9 +259,7 @@ pub struct CreatureConstruction {
     pub model: Option<CreatureModel>,
     pub rolls: benilla_sim::creature_init::SelectionRolls,
     pub level: u32,
-    pub respawn_delay: u32,
     pub corpse_delay: u32,
-    pub respawn_time: i64,
     pub linking_trigger: bool,
     pub spawning_linked: bool,
     selected_ai: Option<SelectedCreatureAi>,
@@ -296,9 +294,7 @@ impl CreatureConstruction {
                 level: None,
             },
             level: 0,
-            respawn_delay: 25,
             corpse_delay,
-            respawn_time: 0,
             linking_trigger: false,
             spawning_linked: false,
             selected_ai: None,
@@ -463,6 +459,7 @@ impl CreatureConstruction {
     pub fn finish_loaded_init_entry(
         &mut self,
         live: &mut SourceUnitFields,
+        objects: &SourceObjects,
         entry: &LoadedCreatureEntry<'_>,
         encounters: &LoadedInstanceEncounters,
         mut config: impl FnMut(CreatureEntryConfig) -> Result<u32>,
@@ -483,6 +480,18 @@ impl CreatureConstruction {
                         .scale
                         .ok_or_else(|| refuse("execution.creature.initial_object_scale_binding"))?;
                     swimmable(fields.native_display, f32::from_bits(scale))
+                },
+                |movement| {
+                    let object = objects.get(self.object)?;
+                    let guid = object.guid.map_or(0, SourceGuid::raw);
+                    if let Some(packet) = movement.set_walk(&mut live.state, guid, false, true)? {
+                        source_movement_send_to_set(object.in_world, packet, |_| {
+                            Err(refuse(
+                                "execution.movement.Object_1920.Map_MessageBroadcast_owner",
+                            ))
+                        })?;
+                    }
+                    Ok(())
                 },
             )?;
         fields.default_movement = movement_enum(entry.movement)?;
@@ -1248,16 +1257,14 @@ where
         true,
     )?;
     factory.creature_phase(CreaturePhase::RespawnDefinition, &mut state, context)?;
-    state.respawn_delay = state
+    let respawn_delay = state
         .spawn
         .random_respawn_time(factory.creature_random()?)?;
     factory
         .creature_units_mut()
         .get_mut(context.objects, object)?
-        .respawn_delay = state.respawn_delay;
-    factory.observe_creature_factory(CreatureFactoryObservation::RespawnDelay(
-        state.respawn_delay,
-    ));
+        .respawn_delay = respawn_delay;
+    factory.observe_creature_factory(CreatureFactoryObservation::RespawnDelay(respawn_delay));
     let runtime_counter = context
         .objects
         .get(object)?
@@ -1266,18 +1273,16 @@ where
         .counter();
     let new_spawning = source_creature_new_spawning(attempt.guid, runtime_counter);
     if !new_spawning {
-        state.corpse_delay = state
-            .corpse_delay
-            .min(state.respawn_delay.wrapping_mul(9) / 10);
+        state.corpse_delay = state.corpse_delay.min(respawn_delay.wrapping_mul(9) / 10);
     }
     context.objects.get_mut(object)?.alive = true;
-    state.respawn_time = factory.creature_respawn_time(attempt.guid, context)?;
+    let respawn_time = factory.creature_respawn_time(attempt.guid, context)?;
     factory
         .creature_units_mut()
         .get_mut(context.objects, object)?
-        .respawn_time = state.respawn_time;
+        .respawn_time = respawn_time;
     factory.observe_creature_factory(CreatureFactoryObservation::RespawnTime {
-        time: state.respawn_time,
+        time: respawn_time,
         corpse_delay: state.corpse_delay,
     });
     let now = factory.creature_wall_time(object)?;
@@ -1285,13 +1290,12 @@ where
         now.kind() == ClockKind::WallSeconds,
         "execution.creature.respawn_clock",
     )?;
-    if state.respawn_time > now.value() {
+    if respawn_time > now.value() {
         if new_spawning && group.is_none() {
             return failed(factory, object, context);
         }
         dead(factory, &mut state, context)?;
-    } else if state.respawn_time != 0 {
-        state.respawn_time = 0;
+    } else if respawn_time != 0 {
         factory
             .creature_units_mut()
             .get_mut(context.objects, object)?

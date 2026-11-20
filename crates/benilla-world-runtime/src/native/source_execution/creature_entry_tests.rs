@@ -142,6 +142,7 @@ fn fresh_loaded_init_and_update_entry_write_live_fields_in_order() {
     state
         .finish_loaded_init_entry(
             &mut live,
+            &objects,
             &entry,
             &LoadedInstanceEncounters::default(),
             |key| {
@@ -297,6 +298,7 @@ fn corpse_decay_precedes_interaction_config_and_world_boss_immunity() {
         state
             .finish_loaded_init_entry(
                 &mut live,
+                &objects,
                 &entry,
                 &encounters,
                 |key| {

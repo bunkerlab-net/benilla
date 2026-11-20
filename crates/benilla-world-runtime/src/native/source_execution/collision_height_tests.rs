@@ -87,14 +87,21 @@ fn both_source_asserts_refuse_at_lookup_before_terrain_or_flag_write() {
         let mut movement = SourceCreatureMovement::construct();
         let mut census = SourceCreatureSwimmingCensus::default();
         let error = movement
-            .init_entry_flags_from_bits([2, 0], false, false, Ok(None), || {
-                models.init_entry_swimmable(
-                    display,
-                    1.5,
-                    |_| panic!("terrain preceded assertion"),
-                    &mut census,
-                )
-            })
+            .init_entry_flags_from_bits(
+                [2, 0],
+                false,
+                false,
+                Ok(None),
+                || {
+                    models.init_entry_swimmable(
+                        display,
+                        1.5,
+                        |_| panic!("terrain preceded assertion"),
+                        &mut census,
+                    )
+                },
+                |_| panic!("no spawn settings"),
+            )
             .unwrap_err();
         assert_eq!(error.id, id);
         assert_eq!(movement.flags.unwrap(), 0x100);
@@ -124,17 +131,24 @@ fn liquid_owner_receives_respawn_pose_and_scaled_height_before_swimming_write() 
         let mut movement = SourceCreatureMovement::construct();
         let mut queries = 0;
         movement
-            .init_entry_flags_from_bits([2, 0], false, false, Ok(None), || {
-                models.init_entry_swimmable(
-                    1192,
-                    scale,
-                    |height| {
-                        queries += 1;
-                        geometry.is_swimmable(0, [0., 0., 4.], height, None)
-                    },
-                    &mut census,
-                )
-            })
+            .init_entry_flags_from_bits(
+                [2, 0],
+                false,
+                false,
+                Ok(None),
+                || {
+                    models.init_entry_swimmable(
+                        1192,
+                        scale,
+                        |height| {
+                            queries += 1;
+                            geometry.is_swimmable(0, [0., 0., 4.], height, None)
+                        },
+                        &mut census,
+                    )
+                },
+                |_| panic!("no spawn settings"),
+            )
             .unwrap();
         assert_eq!(queries, 1);
         assert_eq!(
@@ -158,17 +172,24 @@ fn terrain_refusal_preserves_flags_after_successful_height_lookups() {
     let mut movement = SourceCreatureMovement::construct();
     let mut census = SourceCreatureSwimmingCensus::default();
     let error = movement
-        .init_entry_flags_from_bits([2, 0], false, false, Ok(None), || {
-            models(2.5).init_entry_swimmable(
-                1192,
-                1.5,
-                |height| {
-                    assert_eq!(height, 3.75);
-                    Err(refuse("authored.terrain.next_owner"))
-                },
-                &mut census,
-            )
-        })
+        .init_entry_flags_from_bits(
+            [2, 0],
+            false,
+            false,
+            Ok(None),
+            || {
+                models(2.5).init_entry_swimmable(
+                    1192,
+                    1.5,
+                    |height| {
+                        assert_eq!(height, 3.75);
+                        Err(refuse("authored.terrain.next_owner"))
+                    },
+                    &mut census,
+                )
+            },
+            |_| panic!("no spawn settings"),
+        )
         .unwrap_err();
     assert_eq!(error.id, "authored.terrain.next_owner");
     assert_eq!(movement.flags.unwrap(), 0x100);

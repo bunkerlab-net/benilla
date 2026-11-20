@@ -100,6 +100,20 @@ pub fn source_update_spline_position(
         context,
     )
 }
+/// Unit.cpp:11091-11095. Clear the flags before marking the spline done.
+pub fn source_disable_spline(fields: &mut SourceUnitFields) -> Result<()> {
+    let flags = fields
+        .movement
+        .as_mut()
+        .ok_or_else(|| refuse("execution.spline.disable_movement_info_owner_11094"))?
+        .flags
+        .as_mut()
+        .ok_or_else(|| refuse("execution.spline.disable_movement_flags_owner_11094"))?;
+    *flags &= !0x0040_0001;
+    fields.movespline.interrupt();
+    Ok(())
+}
+
 /// Finalization disables movement before relocation, then MotionMaster runs in Unit::Update.
 pub fn source_update_spline_movement(
     unit: ObjectHandle,
@@ -117,15 +131,7 @@ pub fn source_update_spline_movement(
         .map_err(super::splines::spline_error)?;
     let arrived = fields.movespline.finalized();
     if arrived {
-        let flags = fields
-            .movement
-            .as_mut()
-            .ok_or_else(|| refuse("execution.spline.disable_movement_info_owner_11094"))?
-            .flags
-            .as_mut()
-            .ok_or_else(|| refuse("execution.spline.disable_movement_flags_owner_11094"))?;
-        *flags &= !0x0040_0001;
-        fields.movespline.interrupt();
+        source_disable_spline(fields)?;
     }
     fields.spline_position_expiry = fields.spline_position_expiry.saturating_sub(diff);
     if fields.spline_position_expiry == 0 || arrived {

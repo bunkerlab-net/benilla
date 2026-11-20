@@ -98,6 +98,13 @@ pub struct SourceUnitFields {
     pub respawn_delay: u32,
     #[serde(skip)]
     pub respawn_time: i64,
+    #[serde(skip)]
+    pub respawn_overridden: bool,
+    #[serde(skip)]
+    pub respawn_override_once: bool,
+    /// Unit.h:2609 uses the default Position constructor, Object.h:288.
+    #[serde(skip)]
+    pub last_notified_position: [f32; 3],
     /// Object.cpp:105-108 clears UNIT_CREATED_BY_SPELL.
     #[serde(skip)]
     pub unit_created_by_spell: u32,
@@ -371,6 +378,9 @@ impl SourceUnitFields {
             control_guids: SourceControlGuids::default(),
             respawn_delay: 25,
             respawn_time: 0,
+            respawn_overridden: false,
+            respawn_override_once: false,
+            last_notified_position: [0.; 3],
             unit_created_by_spell: 0,
             controlled: SourceControlledUnits::default(),
             pet_kind: None,

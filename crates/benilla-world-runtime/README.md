@@ -842,6 +842,12 @@ constructors call these owners instead of accepting empty active callbacks.
 flag and source-allocation bindings. `SourceCells::active` stores the actual
 pointer-ordered membership and mutation-safe next iterator.
 
+Creature relocation updates the viewpoint before position and visibility.
+The live unit retains the last notified position, the pending AI notification,
+and the respawn deadline and overrides. Ordinary creature heartbeat and walk
+mode packets use the existing map broadcast. Camera delivery and conditional
+heartbeat fields without bound movement state refuse at their source calls.
+
 The pinned `8ec338a1` source contract is:
 
 - `ObjectMgr.cpp:2040-2045,2233-2242,9132-9157` adds eligible ordinary active

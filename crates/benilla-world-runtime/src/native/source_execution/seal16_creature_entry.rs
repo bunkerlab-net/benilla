@@ -193,6 +193,7 @@ pub(super) fn finish_init_entry(
     let [x, y, z, _] = state.spawn.position;
     let result = state.finish_loaded_init_entry(
         live,
+        objects,
         entry,
         prefix.encounters,
         |key| uint_config(prefix.config, key),

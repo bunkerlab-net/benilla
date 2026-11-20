@@ -46,33 +46,58 @@ fn creation_flags_follow_source_order_and_preserve_existing_swimming() {
         string_id: 0,
     };
     let mut movement = SourceCreatureMovement::construct();
+    let mut state = 0;
     movement
-        .init_entry_flags(&template, false, false, Ok(Some(&spawn)), || Ok(true))
+        .init_entry_flags(
+            &template,
+            false,
+            false,
+            Ok(Some(&spawn)),
+            || Ok(true),
+            |movement| movement.set_walk(&mut state, 0, false, true).map(|_| ()),
+        )
         .unwrap();
     assert_eq!(movement.flags, Some(0x40200400));
     template.inhabit_type = 1;
     movement
-        .init_entry_flags(&template, false, false, Ok(None), || {
-            panic!("short-circuited query")
-        })
+        .init_entry_flags(
+            &template,
+            false,
+            false,
+            Ok(None),
+            || panic!("short-circuited query"),
+            |_| panic!("no spawn settings"),
+        )
         .unwrap();
     assert_eq!(movement.flags, Some(0x40200000));
-    movement.set_walk(true).unwrap();
+    movement.set_walk(&mut state, 0, true, false).unwrap();
     assert_eq!(movement.speed().unwrap().to_bits(), 4.722222f32.to_bits());
     let mut movement = SourceCreatureMovement::construct();
     template.inhabit_type = 6;
     assert_eq!(
         movement
-            .init_entry_flags(&template, false, false, Ok(Some(&spawn)), || Err(refuse(
-                "authored.swimmable"
-            )))
+            .init_entry_flags(
+                &template,
+                false,
+                false,
+                Ok(Some(&spawn)),
+                || Err(refuse("authored.swimmable")),
+                |_| panic!("swimmable refusal precedes SetWalk")
+            )
             .unwrap_err()
             .id,
         "authored.swimmable"
     );
     assert_eq!(movement.flags, Some(0x500));
     movement
-        .init_entry_flags(&template, true, true, Ok(Some(&spawn)), || Ok(false))
+        .init_entry_flags(
+            &template,
+            true,
+            true,
+            Ok(Some(&spawn)),
+            || Ok(false),
+            |movement| movement.set_walk(&mut state, 0, false, true).map(|_| ()),
+        )
         .unwrap();
     assert_eq!(movement.flags, Some(0x400));
 }

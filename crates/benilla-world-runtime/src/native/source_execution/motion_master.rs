@@ -103,6 +103,16 @@ pub trait MotionExecutionOwner {
             "execution.spline.f3_creature_relocation_context_owner_11088"
         }))
     }
+    fn broadcast_movement(
+        &mut self,
+        _unit: ObjectHandle,
+        _packet: &SourceMovementPacket,
+        _context: &MotionContext<'_>,
+    ) -> Result<()> {
+        Err(refuse(
+            "execution.movement.Object_1920.Map_MessageBroadcast_owner",
+        ))
+    }
     fn motion_call(
         &mut self,
         _master: &mut SourceMotionMaster,
@@ -115,6 +125,24 @@ pub trait MotionExecutionOwner {
             MotionCall::StopMovingForced => source_stop_moving(_master.unit, true, _context, self),
             MotionCall::InterruptMoving => {
                 source_interrupt_moving(_master.unit, false, _context, self)
+            }
+            MotionCall::RestoreWalk(walk) => {
+                let unit = _master.unit;
+                let object = _context.objects.get(unit)?;
+                let live = _context.units.get_mut(_context.objects, unit)?;
+                let flags = live
+                    .movement
+                    .as_mut()
+                    .and_then(|movement| movement.flags.as_mut());
+                let guid = object.guid.map_or(0, SourceGuid::raw);
+                if let Some(packet) =
+                    source_set_creature_walk(&mut live.state, flags, guid, walk, false)?
+                {
+                    source_movement_send_to_set(object.in_world, packet, |packet| {
+                        self.broadcast_movement(unit, packet, _context)
+                    })?;
+                }
+                Ok(())
             }
             _ => Err(call.missing_owner()),
         }
@@ -375,7 +403,7 @@ impl MotionCall {
             Self::RestoreClientControl(_) | Self::RemoveClientControl(_) => {
                 "execution.motion.client_control_output_owner"
             }
-            Self::RestoreWalk(_) => "execution.motion.walk_movement_info_output_owner",
+            Self::RestoreWalk(_) => "execution.movement.Creature_2781.SetWalk_owner",
         })
     }
 }
@@ -485,6 +513,37 @@ impl SourceMotionMaster {
     }
     pub fn current_type(&self) -> u32 {
         self.stack.last().map_or(0, Generator::kind)
+    }
+    /// Unit.cpp:10619-10621. The static Idle generator has an empty Interrupt.
+    pub fn interrupt_for_teleport(
+        &mut self,
+        context: &mut MotionContext<'_>,
+        owner: &mut dyn MotionExecutionOwner,
+    ) -> Result<()> {
+        if let Some(Generator::Owned(generator)) = self.stack.last().cloned() {
+            require(
+                matches!(generator.kind(), 1..=4 | 7 | 12),
+                "execution.movement.Unit_10621.Interrupt_owner",
+            )?;
+            generator.interrupt(self, context, owner)?;
+        }
+        Ok(())
+    }
+
+    /// Unit.cpp:10629-10631. Re-read the top after relocation and broadcast.
+    pub fn reset_after_teleport(
+        &mut self,
+        context: &mut MotionContext<'_>,
+        owner: &mut dyn MotionExecutionOwner,
+    ) -> Result<()> {
+        if let Some(Generator::Owned(generator)) = self.stack.last().cloned() {
+            require(
+                matches!(generator.kind(), 1..=4 | 7 | 12),
+                "execution.movement.Unit_10631.Reset_owner",
+            )?;
+            generator.reset(self, context, owner)?;
+        }
+        Ok(())
     }
     pub fn follow(&self) -> Option<&SourceFollowGenerator> {
         match self.stack.last()? {

@@ -152,10 +152,15 @@ pub trait ActiveRelocationOwner<D: GridDefinitions, P: GridProductOwner>:
 {
     fn relocation_phase(
         &mut self,
-        _object: ObjectHandle,
+        object: ObjectHandle,
         phase: RelocationPhase,
-        _context: &mut GridFactoryContext<'_, D, P>,
+        context: &mut GridFactoryContext<'_, D, P>,
     ) -> Result<()> {
+        if let RelocationPhase::ViewpointGridChanged { new, .. } = phase {
+            return context
+                .objects
+                .viewpoint_grid_changed(object, new, context.cells);
+        }
         Err(phase.missing_owner())
     }
 }

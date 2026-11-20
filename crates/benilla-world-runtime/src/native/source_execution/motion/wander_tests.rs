@@ -246,7 +246,7 @@ fn interrupt_clears_motion_before_missing_walk_owner_on_fresh_spline() {
             .interrupt(&mut master, &mut c, &mut Unbound)
             .unwrap_err()
             .id,
-        "execution.motion.walk_movement_info_output_owner"
+        "execution.movement.Creature_2792.walk_flags_owner"
     );
     assert_eq!(
         c.units.get(&objects, master.unit).unwrap().state,
@@ -364,7 +364,7 @@ fn finalize_owned_finished_spline_reaches_walk_after_state_clearing() {
             .finalize(&mut master, &mut c, &mut Unbound)
             .unwrap_err()
             .id,
-        "execution.motion.walk_movement_info_output_owner"
+        "execution.movement.Creature_2792.walk_flags_owner"
     );
     assert_eq!(c.units.get(&objects, master.unit).unwrap().state, 0);
 }

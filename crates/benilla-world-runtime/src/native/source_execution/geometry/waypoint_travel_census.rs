@@ -61,11 +61,19 @@ pub(super) fn run(
                 }
                 movement.set_speed_rate(kind, rate);
             }
-            movement.init_entry_flags(&templates[&entry], false, false, spawn, || {
-                Err(refuse(
-                    "execution.movement.creation_swimmable_collision_height_owner_441",
-                ))
-            })?;
+            let mut state = 0;
+            movement.init_entry_flags(
+                &templates[&entry],
+                false,
+                false,
+                spawn,
+                || {
+                    Err(refuse(
+                        "execution.movement.creation_swimmable_collision_height_owner_441",
+                    ))
+                },
+                |movement| movement.set_walk(&mut state, 0, false, true).map(|_| ()),
+            )?;
             let speed = movement.speed()?;
             let selected = paths[0]
                 .get(&guid)

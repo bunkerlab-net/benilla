@@ -423,7 +423,7 @@ impl SourceCreatureLinkingHolder {
                 })
         };
         let length = benilla_sim::source_transports::sqrt_single_bits(
-            (dx * dx + dy * dy + dz * dz).to_bits(),
+            visibility::source_relocation_distance_square([dx, dy, dz]).to_bits(),
         )
         .map_err(|_| refuse("execution.linking.CreatureLinkingMgr_626.follow_distance_numeric"))?;
         let distance = f32::from_bits(length) - radius(unit)? - radius(master)?;

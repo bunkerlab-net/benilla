@@ -117,6 +117,9 @@ pub trait CreatureLifecycleOwner<D: GridDefinitions, P: ResidencyProductOwner>:
     ResidencyOwner<D, P> + SpawnWork
 {
     fn lifecycle_random(&mut self) -> Result<&mut dyn CreatureRandom>;
+    fn lifecycle_units(&mut self) -> Result<&mut SourceUnits> {
+        Err(refuse("execution.creature_lifecycle.live_unit_owner"))
+    }
     fn lifecycle_wall(
         &mut self,
         object: ObjectHandle,
@@ -234,14 +237,40 @@ pub trait CreatureLifecycleOwner<D: GridDefinitions, P: ResidencyProductOwner>:
         Err(CreatureLifecyclePending::LinkingEffects.refusal())
     }
 }
+
+impl SourceUnitFields {
+    /// Creature.h:806. Creature.cpp:1875-1876 only clears the active override.
+    pub fn set_creature_respawn_delay(&mut self, delay: u32, once: bool) {
+        self.respawn_delay = delay;
+        self.respawn_overridden = true;
+        self.respawn_override_once = once;
+    }
+}
+
+/// Creature.h:801. On the pinned LP64 source, uint32 converts to signed time_t.
+pub fn source_creature_respawn_deadline(
+    delay: u32,
+    wall: impl FnOnce() -> Result<ClockSample>,
+) -> Result<i64> {
+    if delay == 0 {
+        return Ok(0);
+    }
+    let time = wall()?;
+    require(
+        time.kind() == ClockKind::WallSeconds,
+        "execution.creature.Creature_801.wall_clock_owner",
+    )?;
+    time.value()
+        .checked_add(i64::from(delay))
+        .ok_or_else(|| refuse("execution.creature.Creature_801.signed_time_overflow_undefined"))
+}
+
 #[derive(Debug)]
 pub struct SourceCreatureLifecycle {
     pub construction: CreatureConstruction,
     pub settings: CreatureLifecycleSettings,
     pub death_state: CreatureDeathState,
     pub corpse_expiration_ms: i64,
-    pub respawn_overridden: bool,
-    pub respawn_override_once: bool,
     pub has_loot: bool,
     pub loot_status: u32,
     new_spawning_system: bool,
@@ -277,8 +306,6 @@ impl SourceCreatureLifecycle {
                 CreatureDeathState::Dead
             },
             corpse_expiration_ms: 0,
-            respawn_overridden: false,
-            respawn_override_once: false,
             has_loot: false,
             loot_status: 0,
             new_spawning_system,
@@ -290,33 +317,52 @@ impl SourceCreatureLifecycle {
     pub fn object(&self) -> ObjectHandle {
         self.construction.object
     }
-    pub fn set_respawn_delay(&mut self, seconds: u32, once: bool) {
-        // Preserve the one-shot flag after consumption; Creature.h:806, Creature.cpp:1875-1876.
-        self.construction.respawn_delay = seconds;
-        self.respawn_overridden = true;
-        self.respawn_override_once = once;
+    fn live<'a, D: GridDefinitions, P: ResidencyProductOwner>(
+        &self,
+        context: &CreatureLifecycleContext<'_, '_, D, P>,
+        owner: &'a mut impl CreatureLifecycleOwner<D, P>,
+    ) -> Result<&'a mut SourceUnitFields> {
+        owner
+            .lifecycle_units()?
+            .get_mut(context.grid.objects, self.object())
     }
-    // Zero clears without a clock read; Creature.h:801.
+
+    pub fn set_respawn_delay<D: GridDefinitions, P: ResidencyProductOwner>(
+        &mut self,
+        seconds: u32,
+        once: bool,
+        context: &CreatureLifecycleContext<'_, '_, D, P>,
+        owner: &mut impl CreatureLifecycleOwner<D, P>,
+    ) -> Result<()> {
+        self.live(context, owner)?
+            .set_creature_respawn_delay(seconds, once);
+        Ok(())
+    }
+
     pub fn set_respawn_time<D: GridDefinitions, P: ResidencyProductOwner>(
         &mut self,
         delay: u32,
+        context: &CreatureLifecycleContext<'_, '_, D, P>,
         owner: &mut impl CreatureLifecycleOwner<D, P>,
     ) -> Result<()> {
         self.run(|this| {
-            this.construction.respawn_time = if delay == 0 {
-                0
-            } else {
-                Self::add_seconds(this.wall(CreatureLifecycleClock::SetRespawn, owner)?, delay)?
-            };
+            let deadline = source_creature_respawn_deadline(delay, || {
+                owner.lifecycle_wall(this.object(), CreatureLifecycleClock::SetRespawn)
+            })?;
+            this.live(context, owner)?.respawn_time = deadline;
             Ok(())
         })
     }
-    pub fn respawn_save_state(&self) -> RespawnSaveState {
-        RespawnSaveState::Creature {
-            respawn_seconds: self.construction.respawn_time,
+    pub fn respawn_save_state(
+        &self,
+        objects: &SourceObjects,
+        units: &SourceUnits,
+    ) -> Result<RespawnSaveState> {
+        Ok(RespawnSaveState::Creature {
+            respawn_seconds: units.get(objects, self.object())?.respawn_time,
             new_spawning_system: self.new_spawning_system,
             corpse_expiry_ms: self.corpse_expiration_ms,
-        }
+        })
     }
     fn run(&mut self, action: impl FnOnce(&mut Self) -> Result<()>) -> Result<()> {
         require(!self.stopped, "execution.creature_lifecycle.stopped")?;
@@ -370,11 +416,11 @@ impl SourceCreatureLifecycle {
         if object.kind == SourceObjectKind::Pet || !object.database_spawn_data {
             return Ok(());
         }
-        let deadline = if self.construction.respawn_time
-            > self.wall(CreatureLifecycleClock::Save, owner)?
+        let respawn_time = self.live(context, owner)?.respawn_time;
+        let deadline = if respawn_time > self.wall(CreatureLifecycleClock::Save, owner)?
             || self.new_spawning_system
         {
-            Some(self.construction.respawn_time)
+            Some(self.live(context, owner)?.respawn_time)
         } else if owner.world_clock_millis()? < self.corpse_expiration_ms {
             // Convert milliseconds through system_clock nanoseconds; Creature.cpp:2293, chrono.h:1127-1132.
             Some(
@@ -425,23 +471,26 @@ impl SourceCreatureLifecycle {
                 this.death_state == CreatureDeathState::Alive,
                 "execution.creature_lifecycle.death_state",
             )?;
-            if !this.respawn_overridden {
+            if !this.live(context, owner)?.respawn_overridden {
                 let group_delay = if this.construction.group.is_some() {
                     owner.lifecycle_group_delay(this, context)?
                 } else {
                     None
                 };
-                this.construction.respawn_delay = if let Some(delay) = group_delay {
-                    delay
+                if let Some(delay) = group_delay {
+                    this.live(context, owner)?.respawn_delay = delay;
                 } else if context.grid.objects.get(this.object())?.database_spawn_data {
-                    this.construction
+                    let delay = this
+                        .construction
                         .spawn
-                        .random_respawn_time(owner.lifecycle_random()?)?
-                } else {
-                    this.construction.respawn_delay
-                };
-            } else if this.respawn_override_once {
-                this.respawn_overridden = false;
+                        .random_respawn_time(owner.lifecycle_random()?)?;
+                    this.live(context, owner)?.respawn_delay = delay;
+                }
+            } else {
+                let live = this.live(context, owner)?;
+                if live.respawn_override_once {
+                    live.respawn_overridden = false;
+                }
             }
             let seconds = if this.settings.forever_corpse {
                 7 * 24 * 60 * 60
@@ -450,17 +499,17 @@ impl SourceCreatureLifecycle {
             };
             this.corpse_expiration_ms =
                 Self::add_millis(owner.world_clock_millis()?, i64::from(seconds) * 1000)?;
-            this.construction.respawn_time = Self::add_seconds(
-                this.wall(CreatureLifecycleClock::Death, owner)?,
-                this.construction.respawn_delay,
-            )?;
+            let now = this.wall(CreatureLifecycleClock::Death, owner)?;
+            let live = this.live(context, owner)?;
+            live.respawn_time = Self::add_seconds(now, live.respawn_delay)?;
             // Save precedes the local sentinel and nongroup AddCreature; Creature.cpp:1882-1892.
             if this.settings.save_immediately || this.settings.world_boss {
                 this.save_inner(context, owner)?;
             }
             if this.new_spawning_system {
-                this.construction.respawn_time = i64::MAX;
-                if this.construction.respawn_delay != 0 && this.construction.group.is_none() {
+                let live = this.live(context, owner)?;
+                live.respawn_time = i64::MAX;
+                if live.respawn_delay != 0 && this.construction.group.is_none() {
                     context.spawns.add(
                         context.persistent,
                         SpawnKey {
@@ -517,10 +566,8 @@ impl SourceCreatureLifecycle {
         }
         owner.lifecycle_phase(CreatureLifecyclePhase::InstanceDespawn, self, context)?;
         if delay != 0 {
-            self.construction.respawn_time = Self::add_seconds(
-                self.wall(CreatureLifecycleClock::ScriptCorpseDelay, owner)?,
-                delay,
-            )?;
+            let now = self.wall(CreatureLifecycleClock::ScriptCorpseDelay, owner)?;
+            self.live(context, owner)?.respawn_time = Self::add_seconds(now, delay)?;
             if self.settings.save_immediately || self.settings.world_boss {
                 self.save_inner(context, owner)?;
             }
@@ -604,7 +651,7 @@ impl SourceCreatureLifecycle {
                     }
                 }
                 CreatureDeathState::Dead => {
-                    if this.construction.respawn_time
+                    if this.live(context, owner)?.respawn_time
                         > this.wall(CreatureLifecycleClock::DeadUpdate, owner)?
                     {
                         return Ok(());
@@ -614,7 +661,7 @@ impl SourceCreatureLifecycle {
                     {
                         return Ok(());
                     }
-                    this.construction.respawn_time = 0;
+                    this.live(context, owner)?.respawn_time = 0;
                     owner.lifecycle_phase(
                         CreatureLifecyclePhase::ClearAggroLootAurasAndDynamicFlags,
                         this,
@@ -687,8 +734,8 @@ impl SourceCreatureLifecycle {
                         owner,
                     )?;
                 }
-                this.construction.respawn_time =
-                    this.wall(CreatureLifecycleClock::Respawn, owner)?;
+                let now = this.wall(CreatureLifecycleClock::Respawn, owner)?;
+                this.live(context, owner)?.respawn_time = now;
             }
             Ok(())
         })

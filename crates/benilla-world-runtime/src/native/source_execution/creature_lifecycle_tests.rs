@@ -236,6 +236,9 @@ impl CreatureLifecycleOwner<Definitions, Products> for Host {
     fn lifecycle_random(&mut self) -> Result<&mut dyn CreatureRandom> {
         Ok(&mut self.factory.random)
     }
+    fn lifecycle_units(&mut self) -> Result<&mut SourceUnits> {
+        Ok(&mut self.factory.units)
+    }
     fn lifecycle_wall(
         &mut self,
         _: ObjectHandle,
@@ -401,12 +404,39 @@ impl Fixture {
     fn update(&mut self) {
         self.apply(|l, c, h| l.update(100, c, h)).unwrap();
     }
+    fn live(&self) -> &SourceUnitFields {
+        self.host
+            .factory
+            .units
+            .get(&self.world.objects, self.life.object())
+            .unwrap()
+    }
     fn deadline(&self) -> i64 {
         self.persistent
             .state(self.spawns.persistent())
             .unwrap()
             .respawn(GridSpawnKind::Creature, 40)
     }
+}
+
+#[test]
+fn set_respawn_time_adds_unsigned_delay_at_signed_time_t_width() {
+    let wall = |time| Ok(ClockSample::authored(ClockKind::WallSeconds, time));
+    assert_eq!(
+        source_creature_respawn_deadline(u32::MAX, || wall(i64::MAX - i64::from(u32::MAX)))
+            .unwrap(),
+        i64::MAX
+    );
+    assert_eq!(
+        source_creature_respawn_deadline(1, || wall(i64::MAX))
+            .unwrap_err()
+            .id,
+        "execution.creature.Creature_801.signed_time_overflow_undefined"
+    );
+    assert_eq!(
+        source_creature_respawn_deadline(0, || panic!("zero never reads time")).unwrap(),
+        0
+    );
 }
 #[test]
 fn death_equal_endpoint_draw_and_pre_sentinel_save_use_distinct_clocks() {
@@ -416,16 +446,13 @@ fn death_equal_endpoint_draw_and_pre_sentinel_save_use_distinct_clocks() {
         let before = f.host.factory.random.cursor.raw;
         f.die();
         assert_eq!(f.host.factory.random.cursor.raw, before + 1);
-        assert_eq!(f.life.construction.respawn_delay, 100);
+        assert_eq!(f.live().respawn_delay, 100);
         assert_eq!(
             f.life.corpse_expiration_ms,
             if dynamic { 220_500 } else { 190_500 }
         );
         assert_eq!(f.deadline(), 201);
-        assert_eq!(
-            f.life.construction.respawn_time,
-            if dynamic { i64::MAX } else { 201 }
-        );
+        assert_eq!(f.live().respawn_time, if dynamic { i64::MAX } else { 201 });
         let calls = &f.host.calls;
         assert_eq!(
             &calls[..3],
@@ -471,17 +498,18 @@ fn delayed_save_keeps_zero_schedule_and_later_saves_local_sentinel() {
 fn one_shot_override_skips_one_death_draw_and_then_redraws() {
     // Creature.cpp:1875-1876 clears only the override-active flag.
     let mut f = Fixture::new(false);
-    f.life.set_respawn_delay(7, true);
+    f.apply(|life, context, owner| life.set_respawn_delay(7, true, context, owner))
+        .unwrap();
     let before = f.host.factory.random.cursor.raw;
     f.die();
-    assert_eq!(f.life.construction.respawn_time, 108);
+    assert_eq!(f.live().respawn_time, 108);
     assert_eq!(f.host.factory.random.cursor.raw, before);
-    assert!(!f.life.respawn_overridden && f.life.respawn_override_once);
+    assert!(!f.live().respawn_overridden && f.live().respawn_override_once);
     f.apply(|l, c, h| l.remove_corpse(false, c, h)).unwrap();
     f.host.wall = 108;
     f.update();
     f.die();
-    assert_eq!(f.life.construction.respawn_time, 208);
+    assert_eq!(f.live().respawn_time, 208);
     assert_eq!(f.host.factory.random.cursor.raw, before + 1);
 }
 #[test]
@@ -537,7 +565,7 @@ fn script_mutates_delay_after_callbacks_and_saves_with_a_fresh_wall_sample() {
         f.host.wall = 111;
         f.host.calls.clear();
         f.apply(|l, c, h| l.remove_corpse(false, c, h)).unwrap();
-        assert_eq!(f.life.construction.respawn_time, 120);
+        assert_eq!(f.live().respawn_time, 120);
         assert_eq!(f.deadline(), 120);
         if dynamic {
             assert_eq!(f.spawns.inventory().active[0].deadline_millis, 201_000);
@@ -750,7 +778,8 @@ fn group_delay_clear_and_zero_delay_do_not_add_a_nongroup_schedule() {
     assert!(f.life.construction.group.is_none());
     assert!(f.host.calls.contains(&Call::Phase(Phase::ClearGroup)));
     let mut f = Fixture::new(true);
-    f.life.set_respawn_delay(0, false);
+    f.apply(|life, context, owner| life.set_respawn_delay(0, false, context, owner))
+        .unwrap();
     f.die();
     assert!(f.spawns.inventory().active.is_empty());
 }
@@ -836,7 +865,7 @@ fn explicit_respawn_clears_persistence_and_waits_for_next_update() {
     f.die();
     f.apply(|l, c, h| l.respawn(c, h)).unwrap();
     assert_eq!(f.deadline(), 0);
-    assert_eq!(f.life.construction.respawn_time, 101);
+    assert_eq!(f.live().respawn_time, 101);
     assert_eq!(f.life.death_state, CreatureDeathState::Dead);
     f.update();
     assert_eq!(f.life.death_state, CreatureDeathState::Alive);
@@ -993,7 +1022,11 @@ fn unload_save_adapter_exposes_the_same_local_deadline_and_corpse_timepoint() {
     // F3.11 consumes this exact state through RespawnSaveState; Creature.cpp:2285-2293.
     let mut f = Fixture::new(true);
     f.die();
-    match f.life.respawn_save_state() {
+    match f
+        .life
+        .respawn_save_state(&f.world.objects, &f.host.factory.units)
+        .unwrap()
+    {
         RespawnSaveState::Creature {
             respawn_seconds,
             new_spawning_system,
@@ -1061,10 +1094,10 @@ fn pool_live_actions_reuse_retained_delay_save_readd_and_removal() {
         })
         .unwrap();
     }
-    assert_eq!(f.life.construction.respawn_delay, 40);
-    assert!(f.life.respawn_overridden);
-    assert!(!f.life.respawn_override_once);
-    assert_eq!(f.life.construction.respawn_time, 141);
+    assert_eq!(f.live().respawn_delay, 40);
+    assert!(f.live().respawn_overridden);
+    assert!(!f.live().respawn_override_once);
+    assert_eq!(f.live().respawn_time, 141);
     assert_eq!(f.deadline(), 141);
     assert!(f
         .host
@@ -1073,9 +1106,8 @@ fn pool_live_actions_reuse_retained_delay_save_readd_and_removal() {
     assert!(f.host.calls.contains(&Call::Phase(Phase::MapAdd)));
     assert!(!f.world.cells.removals().is_empty());
     f.host.calls.clear();
-    f.apply(|l, _, o| l.set_respawn_time::<Definitions, Products>(0, o))
-        .unwrap();
-    assert_eq!(f.life.construction.respawn_time, 0);
+    f.apply(|l, c, o| l.set_respawn_time(0, c, o)).unwrap();
+    assert_eq!(f.live().respawn_time, 0);
     assert!(f.host.calls.is_empty());
 }
 
@@ -1114,7 +1146,13 @@ impl LinkingEventOwner for Fixture {
     ) -> Result<LinkingCreature> {
         assert_eq!(m, map());
         assert_eq!(object, self.life.object());
-        LinkingCreature::read(&self.world.objects, &self.life, false, false)
+        LinkingCreature::read(
+            &self.world.objects,
+            &self.host.factory.units,
+            &self.life,
+            false,
+            false,
+        )
     }
     fn linking_lookup(
         &mut self,
@@ -1207,7 +1245,7 @@ fn linking_respawn_uses_real_legacy_deadline_and_repeated_loop_guard() {
         .event(&links, &mut f, LinkingEvent::Respawn, object, None)
         .unwrap();
     assert_eq!(f.life.death_state, CreatureDeathState::Dead);
-    assert_eq!(f.life.construction.respawn_time, 101);
+    assert_eq!(f.live().respawn_time, 101);
     assert_eq!(f.deadline(), 0);
     f.host.calls.clear();
     holder
@@ -1325,7 +1363,7 @@ fn group_forced_despawn_dispatches_real_death_corpse_health_and_delayed_event_re
         };
         let result =
             f.apply(|life, context, host| callback.creature_lifecycle(map(), life, context, host));
-        assert_eq!(f.life.construction.respawn_delay, 5);
+        assert_eq!(f.live().respawn_delay, 5);
         if delay_millis == 0 {
             result.unwrap();
             assert_eq!(f.life.death_state, CreatureDeathState::Dead);

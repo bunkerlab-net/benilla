@@ -91,11 +91,16 @@ pub use seal8_active::{compare_seal8_unsealed_active, Seal8ActiveDifference, Sea
 #[cfg(test)]
 mod active_tests;
 mod cells;
+mod movement_packets;
+use movement_packets::source_set_creature_walk;
+pub use movement_packets::{
+    source_movement_heartbeat, source_movement_send_to_set, SourceMovementPacket,
+};
 mod visibility;
 use visibility::WorldVisibility;
 pub use visibility::{
-    SourceBroadcast, SourceBroadcastNotice, SourceVisibilityCensus, SourceVisibilityDistance,
-    SourceVisibilityUpdate,
+    SourceBroadcast, SourceBroadcastNotice, SourceUnitRelocationConfig, SourceVisibilityCensus,
+    SourceVisibilityDistance, SourceVisibilityUpdate,
 };
 mod creature_settings;
 pub use creature_settings::SourceControlledUnits;

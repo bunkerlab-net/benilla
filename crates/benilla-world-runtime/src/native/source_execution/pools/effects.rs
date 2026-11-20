@@ -116,11 +116,10 @@ impl PoolLiveRequest {
         )?;
         match self.action {
             PoolLiveAction::SetCreatureDelay(delay) => {
-                creature.set_respawn_delay(delay, false);
-                Ok(())
+                creature.set_respawn_delay(delay, false, context, owner)
             }
             PoolLiveAction::SetRespawnTime(delay) => {
-                creature.set_respawn_time::<D, P>(delay, owner)
+                creature.set_respawn_time(delay, context, owner)
             }
             PoolLiveAction::SaveRespawn => creature.save_respawn(context, owner),
             PoolLiveAction::MapAdd => {

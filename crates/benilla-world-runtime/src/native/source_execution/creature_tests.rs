@@ -181,7 +181,7 @@ struct Factory {
     selected_ai: Option<SelectedCreatureAi>,
     event_ai_definitions: Option<std::sync::Arc<EventAiDefinitions>>,
     builtin_dispatch_name: Option<String>,
-    units: SourceUnits,
+    pub(super) units: SourceUnits,
     base_ais: SourceCreatureAis,
     combat: SourceCombat,
     threats: SourceThreats,
@@ -796,7 +796,14 @@ fn startup_loader_constructs_before_player_entry_and_equal_model_draws_skip_equa
         }
     );
     assert_eq!(state.level, 5);
-    assert_eq!(state.respawn_delay, 100);
+    assert_eq!(
+        factory
+            .units
+            .get(&world.objects, handle)
+            .unwrap()
+            .respawn_delay,
+        100
+    );
     assert_eq!(state.corpse_delay, 90);
     assert_eq!(factory.random.cursor.raw, 2);
     let raw: Vec<_> = factory
@@ -1055,7 +1062,14 @@ fn future_respawn_static_dead_dynamic_without_group_fails_and_group_dead_survive
             assert!(!world.objects.get(state.object).unwrap().alive);
             assert_eq!(state.position[2], 2.0);
             assert_eq!(factory.health[&state.object], 0);
-            assert_eq!(state.respawn_time, 1001);
+            assert_eq!(
+                factory
+                    .units
+                    .get(&world.objects, state.object)
+                    .unwrap()
+                    .respawn_time,
+                1001
+            );
         }
         assert!(!factory
             .observations
@@ -1071,7 +1085,14 @@ fn expired_respawn_including_threshold_equality_saves_zero_before_map_add() {
         factory.saved_time = saved;
         world.load(0.0, &mut factory).unwrap();
         let state = factory.states.values().next().unwrap();
-        assert_eq!(state.respawn_time, 0);
+        assert_eq!(
+            factory
+                .units
+                .get(&world.objects, state.object)
+                .unwrap()
+                .respawn_time,
+            0
+        );
         let save = factory
             .observations
             .iter()
@@ -1375,7 +1396,14 @@ fn display_fallback_keeps_equal_bound_draw_and_respawn_cap_keeps_uint32_wrap() {
     world.load(0.0, &mut factory).unwrap();
     let state = factory.states.values().next().unwrap();
     assert_eq!(state.model.unwrap().id, 11);
-    assert_eq!(state.respawn_delay, u32::MAX);
+    assert_eq!(
+        factory
+            .units
+            .get(&world.objects, state.object)
+            .unwrap()
+            .respawn_delay,
+        u32::MAX
+    );
     assert_eq!(state.corpse_delay, 429_496_728);
     assert_eq!(factory.random.cursor.raw, 2);
 }

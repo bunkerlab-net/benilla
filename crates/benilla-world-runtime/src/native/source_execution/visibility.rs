@@ -40,6 +40,18 @@ pub struct SourceVisibilityUpdate {
     pub map_distance_bits: u32,
     pub bounding_radius_bits: u32,
 }
+#[derive(Clone, Copy)]
+pub struct SourceUnitRelocationConfig {
+    pub lower_limit_squared: f32,
+    pub ai_notify_delay_ms: u32,
+    pub map_distance_bits: u32,
+}
+
+// Same left-associated binary32 sum as the CreatureLinkingMgr.cpp:626 distance.
+pub(super) fn source_relocation_distance_square([dx, dy, dz]: [f32; 3]) -> f32 {
+    (dx * dx + dy * dy) + dz * dz
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SourceVisibilityCensus {
     pub considered_cells: usize,
@@ -187,6 +199,62 @@ impl SourceObjects {
             camera_added(self, cells, camera)?;
         }
         Ok(())
+    }
+
+    /// Camera.h:124-128 changes the grid before the first camera callback.
+    pub fn viewpoint_grid_changed(
+        &mut self,
+        object: ObjectHandle,
+        cell: CellIdentity,
+        cells: &SourceCells,
+    ) -> Result<()> {
+        cells.validate_cell(cell)?;
+        let visibility = self.world_visibility_mut(object)?;
+        visibility.viewpoint_cell = Some(cell);
+        require(
+            visibility.cameras.is_empty(),
+            "execution.visibility.Camera_127.Event_Moved_owner",
+        )
+    }
+
+    /// Unit.cpp:10981-10998. Visibility changes precede ScheduleAINotify.
+    pub fn unit_on_relocated(
+        &mut self,
+        object: ObjectHandle,
+        cells: &mut SourceCells,
+        units: &mut SourceUnits,
+        config: SourceUnitRelocationConfig,
+        census: &mut SourceVisibilityCensus,
+    ) -> Result<()> {
+        let [x, y, z, _] = self.pose(object)?.0.map(f32::from_bits);
+        let previous = units.get(self, object)?.last_notified_position;
+        let delta = [previous[0] - x, previous[1] - y, previous[2] - z];
+        if source_relocation_distance_square(delta) > config.lower_limit_squared {
+            units.get_mut(self, object)?.last_notified_position = [x, y, z];
+            require(
+                self.world_visibility(object)?.cameras.is_empty(),
+                "execution.visibility.Camera_137.UpdateVisibilityForOwner_owner",
+            )?;
+            let radius = units
+                .get(self, object)?
+                .bounding_radius
+                .ok_or_else(|| refuse("execution.visibility.Unit_10995.bounding_radius_owner"))?;
+            self.update_object_visibility(
+                SourceVisibilityUpdate {
+                    object,
+                    map_distance_bits: config.map_distance_bits,
+                    bounding_radius_bits: radius,
+                },
+                cells,
+                census,
+                unbound_visibility_camera_update,
+                unbound_visibility_player_update,
+            )?;
+        }
+        units
+            .get_mut(self, object)?
+            .unit_events
+            .schedule_ai_notify(config.ai_notify_delay_ms, false)
     }
     /// Map.cpp:528-549. Visit only existing world cells.
     pub fn message_broadcast(
@@ -384,6 +452,90 @@ mod tests {
             map_distance_bits: 100f32.to_bits(),
             bounding_radius_bits: 0x3ec7_2b02,
         }
+    }
+
+    #[test]
+    fn relocation_updates_viewpoint_and_notified_position_before_callbacks() {
+        let (mut objects, mut cells, _, cell) = fixture();
+        let unit = objects.construct(1, SourceObjectKind::Creature).unwrap();
+        objects.bind_map(unit, cells.map(), &cells).unwrap();
+        cells.set_object_data_loaded(cell.grid).unwrap();
+        objects.viewpoint_grid_changed(unit, cell, &cells).unwrap();
+        assert_eq!(objects.viewpoint_cell(unit).unwrap(), Some(cell));
+        let mut live = SourceUnitFields::constructed_creature();
+        live.bounding_radius = Some(0.5f32.to_bits());
+        live.unit_events.schedule_ai_notify(5000, false).unwrap();
+        let queue = live.unit_events.inventory();
+        let mut units = SourceUnits::default();
+        units.register(&objects, unit, live).unwrap();
+        let config = SourceUnitRelocationConfig {
+            lower_limit_squared: 100.,
+            ai_notify_delay_ms: 1000,
+            map_distance_bits: 100f32.to_bits(),
+        };
+        let mut census = SourceVisibilityCensus::default();
+        objects
+            .set_pose(unit, SourcePose([10f32.to_bits(), 0, 0, 0]))
+            .unwrap();
+        objects
+            .unit_on_relocated(unit, &mut cells, &mut units, config, &mut census)
+            .unwrap();
+        assert_eq!(
+            units.get(&objects, unit).unwrap().last_notified_position,
+            [0.; 3]
+        );
+        assert_eq!(census, SourceVisibilityCensus::default());
+        objects
+            .set_pose(unit, SourcePose([11f32.to_bits(), 0, 0, 0]))
+            .unwrap();
+        objects
+            .unit_on_relocated(unit, &mut cells, &mut units, config, &mut census)
+            .unwrap();
+        let live = units.get(&objects, unit).unwrap();
+        assert_eq!(live.last_notified_position, [11., 0., 0.]);
+        assert_eq!(live.unit_events.inventory(), queue);
+        assert!(census.loaded_cells > 0);
+        assert_eq!(census.cameras, 0);
+        let after = census.clone();
+        objects
+            .unit_on_relocated(unit, &mut cells, &mut units, config, &mut census)
+            .unwrap();
+        assert_eq!(census, after);
+        let camera = objects.construct(1, SourceObjectKind::Camera).unwrap();
+        objects.attach_viewpoint_camera(unit, camera).unwrap();
+        let target_cell = cells
+            .cell(CellPair::from_indices(513, 512).unwrap())
+            .unwrap();
+        assert_eq!(
+            objects
+                .viewpoint_grid_changed(unit, target_cell, &cells)
+                .unwrap_err()
+                .id,
+            "execution.visibility.Camera_127.Event_Moved_owner"
+        );
+        assert_eq!(objects.viewpoint_cell(unit).unwrap(), Some(target_cell));
+        cells.link(camera, SourceObjectKind::Camera, cell).unwrap();
+        let mut state = 0;
+        let mut flags = 0;
+        let walk = super::super::source_set_creature_walk(
+            &mut state,
+            Some(&mut flags),
+            0x1234,
+            true,
+            false,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            source_movement_send_to_set(true, walk, |_| {
+                objects
+                    .message_broadcast(unit, &cells, config.map_distance_bits, Some(0))
+                    .map(|_| ())
+            })
+            .unwrap_err()
+            .id,
+            "execution.spells.GridNotifiers_152.camera_session_owner"
+        );
     }
 
     #[test]

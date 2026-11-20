@@ -55,6 +55,7 @@ impl LinkingCreature {
     /// Control/combat predicates come from the real Unit owner, not SoloCreatureAi defaults.
     pub fn read(
         objects: &SourceObjects,
+        units: &SourceUnits,
         creature: &SourceCreatureLifecycle,
         controlled: bool,
         combat: bool,
@@ -66,6 +67,7 @@ impl LinkingCreature {
         let runtime = object
             .guid
             .ok_or_else(|| refuse("execution.linking.guid_owner"))?;
+        let live = units.get(objects, creature.object())?;
         Ok(Self {
             object: creature.object(),
             entry: creature.construction.template.entry,
@@ -76,8 +78,8 @@ impl LinkingCreature {
             pet: object.kind == SourceObjectKind::Pet,
             controlled,
             combat,
-            respawn_delay: creature.construction.respawn_delay,
-            respawn_time: creature.construction.respawn_time,
+            respawn_delay: live.respawn_delay,
+            respawn_time: live.respawn_time,
         })
     }
     fn alive(self) -> bool {

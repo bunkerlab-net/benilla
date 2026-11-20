@@ -194,6 +194,13 @@ is meaningful without a bounded content/mechanics inventory.
   offhand, and ranged damage in strength and agility order. The second pass
   uses the unit flags from `UpdateEntry`. The six damage fields use the
   same update marks as armor. These members do not change saved bytes.
+- **Creature relocation support.** `Camera.h:124-128` updates the viewpoint
+  cell before camera callbacks. `Unit.cpp:10981-10998` updates visibility
+  above the configured displacement threshold and preserves a pending AI
+  notification. `Unit.cpp:266-301,731-737` writes the ordinary movement
+  heartbeat. `Creature.cpp:2781-2803` shares the walk-mode writes across
+  entry and motion callbacks. `Creature.h:801,806` uses the live unit's
+  respawn state. These fields do not change saved bytes.
 - **Grid activity.** `Grid.h:93-117` counts active grid objects. Add and
   remove each test the live active flag. If removal leaves a stale member,
   insertion requires enough address evidence to detect reuse of that member.

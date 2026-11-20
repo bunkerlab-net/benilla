@@ -892,7 +892,7 @@ fn finalize_clears_roaming_before_walk_refusal_and_reset_does_not_clear_timer() 
         g.finalize(&mut master, &mut c, &mut Unbound)
             .unwrap_err()
             .id,
-        "execution.motion.walk_movement_info_output_owner"
+        "execution.movement.Creature_2792.walk_flags_owner"
     );
     assert_eq!(
         c.units.get(&objects, master.unit).unwrap().state,
@@ -1145,7 +1145,7 @@ fn interrupt_captures_position_then_clears_roaming_before_missing_walk_owner() {
         g.interrupt(&mut master, &mut c, &mut MissingInterrupt)
             .unwrap_err()
             .id,
-        "execution.motion.walk_movement_info_output_owner"
+        "execution.movement.Creature_2792.walk_flags_owner"
     );
     assert_eq!(c.units.get(&objects, master.unit).unwrap().state, 0);
     assert_eq!(g.reset_position().unwrap(), Some([9.; 4]));

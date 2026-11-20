@@ -188,6 +188,43 @@ impl SourceMovementGenerator for Probe {
         Ok(self.position)
     }
 }
+
+#[test]
+fn teleport_dispatch_rereads_the_current_generator_and_refuses_an_unported_kind() {
+    let (objects, mut units, mut master) = setup();
+    let mut context = MotionContext {
+        objects: &objects,
+        units: &mut units,
+    };
+    let log = Rc::default();
+    master
+        .mutate(Probe::new("waypoint", 2, &log), &mut context, &mut Unbound)
+        .unwrap();
+    master
+        .interrupt_for_teleport(&mut context, &mut Unbound)
+        .unwrap();
+    assert_eq!(*log.borrow(), ["waypoint.init", "waypoint.interrupt"]);
+    master
+        .mutate(Probe::new("unported", 11, &log), &mut context, &mut Unbound)
+        .unwrap();
+    let before = log.borrow().len();
+    assert_eq!(
+        master
+            .reset_after_teleport(&mut context, &mut Unbound)
+            .unwrap_err()
+            .id,
+        "execution.movement.Unit_10631.Reset_owner"
+    );
+    assert_eq!(
+        master
+            .interrupt_for_teleport(&mut context, &mut Unbound)
+            .unwrap_err()
+            .id,
+        "execution.movement.Unit_10621.Interrupt_owner"
+    );
+    assert_eq!(log.borrow().len(), before);
+}
+
 #[test]
 fn stack_push_interrupt_and_home_distract_replacement() {
     for replace_kind in [5, 12] {

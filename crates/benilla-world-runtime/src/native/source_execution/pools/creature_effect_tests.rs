@@ -282,8 +282,14 @@ fn loaded_and_unloaded_pool_replacements_use_one_stream_and_actual_retained_stat
         );
         if loaded {
             let life = owner.life.as_ref().unwrap();
-            assert_eq!(life.construction.respawn_time, 200);
-            assert!(life.respawn_overridden);
+            let live = owner
+                .host
+                .factory
+                .units
+                .get(&owner.world.objects, life.object())
+                .unwrap();
+            assert_eq!(live.respawn_time, 200);
+            assert!(live.respawn_overridden);
             let object = life.object();
             assert_eq!(
                 owner
