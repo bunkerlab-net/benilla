@@ -1138,6 +1138,7 @@ impl SelfAuraApplyHandler {
             0 | 192..=255 => Self::Null,
             4 => Self::Dummy,
             10 => Self::Threat,
+            15 => Self::NoImmediateEffect, // SpellAuras.cpp:76.
             18 => Self::Invisibility,
             22 => Self::Resistance,
             23 => Self::PeriodicTrigger,

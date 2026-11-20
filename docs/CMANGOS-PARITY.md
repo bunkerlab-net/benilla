@@ -131,8 +131,8 @@ is meaningful without a bounded content/mechanics inventory.
   of the multimap in `Unit.h:1076`. Each type list stores holder and effect IDs
   in append order, `Unit.cpp:4871-4874`. Neither changes the saved format.
   The 262-spell addon census has 299 effect slots and 43 aura types.
-  The production dispatch handles the effect and aura types for 183 spells.
-  The other 79 use an unported type. This is static coverage, not execution.
+  The production dispatch handles the effect and aura types for 197 spells.
+  The other 65 use an unported type. This is static coverage, not execution.
   `spells/targeting.rs` binds ordinary and special-unit creature self targets
   to one unit-target fill (`Spell.cpp:533-784,2159-2161,2397-2405`).
   `SpellEffects.cpp:2331-2338` and `SpellAuras.cpp:298-328,367-379` create
@@ -172,11 +172,14 @@ is meaningful without a bounded content/mechanics inventory.
   Startup matches the template SELECT at trace :52620961 before the EventAI
   SELECT at :58819675. Runtime string selection refuses at `CreatureEventAI.cpp:1262`.
   Map 0 matches 963 completions, 1,037 allocations, 32,034 random words,
-  727 clocks, 93 paths, and two SQL requests. GUID12058 finishes Defensive
+  729 clocks, 93 paths, and two SQL requests. GUID12058 finishes Defensive
   Stance and its 7376 boost (trace :60985257). GUID89544 and GUID89542 finish
-  Frost Armor (trace :61222641, :61242962). Seven Stormwind guards complete
-  (trace :61339475-61348541). Bolvar GUID10495 stops at the damage-shield aura
-  (`SpellAuras.cpp:76`, trace :61351112-61351114).
+  Frost Armor (trace :61222641, :61242962). Bolvar GUID10495 retains a
+  damage-shield effect with no immediate callback changes
+  (`SpellAuras.cpp:76`, trace :61351112/:61351114). Damage on melee still
+  needs `Unit.cpp:2256-2307`. Seven Stormwind guards complete (trace :61339475-61348541).
+  Double Attack stops at the cast-end proc check (`UnitAuraProcHandler.cpp:532`,
+  after trace :61351279).
   GuardAI construction and its inherited `SpellListChanged` and
   `JustRespawned` callbacks complete for GUID4242 (`Creature.cpp:883-887`).
   `npc_chicken_cluck` completes construction and both resets for GUID4228.

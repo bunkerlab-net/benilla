@@ -2655,7 +2655,7 @@ the live unit (`ObjectVisibility.cpp:35-41,120-130`, `Unit.cpp:359`).
 remove interruptible auras and change the mode. The player glow and in-world
 visibility update still refuse by name. A fresh addon cast happens before
 `Map::Add` (`Creature.cpp:932,1738,2343`). It writes no visibility update fields.
-The addon census uses the production dispatch. It classifies 183 of 262
+The addon census uses the production dispatch. It classifies 197 of 262
 spells as having a handler for every effect and aura type. It does not test
 each spell's targets or callbacks.
 Creature self-casts scale effect points and dice before the fixed-dice switch,
@@ -2667,11 +2667,12 @@ effect slots and 13 of 16 direct EventAI Spawn-cast slots. The other two and
 three slots reach the dice RNG at `Object.cpp:2955`. This census counts effect
 value arithmetic and does not execute casts.
 Map 0 completes 963 objects in 1,037 allocations. It matches 32,034 random
-words, 727 clocks, 93 paths, and two map SQL requests. Defias Conjurers
+words, 729 clocks, 93 paths, and two map SQL requests. Defias Conjurers
 GUID89544 and GUID89542 finish Frost Armor with 36 armor and two effect clocks
 each (trace :61221527-61221531, :61241174-61241178). Seven Stormwind guards
-complete (trace :61339475-61348541). Map 0 stops at the damage-shield aura
-for Bolvar GUID10495 (`SpellAuras.cpp:76`, trace :61351112-61351114).
+complete (trace :61339475-61348541). Bolvar GUID10495 retains Retribution Aura
+(`SpellAuras.cpp:76`, trace :61351112/:61351114) and stops in the Double Attack
+cast-end proc check (`UnitAuraProcHandler.cpp:532`, after trace :61351279).
 Map 1 completes 317 objects in 353 allocations. It matches 14,234 random
 words, 323 clocks, 22 paths, and two map SQL requests. The Silithyst Geyser
 GUID49337 stops at `go_outdoor_pvp_notify` (`ScriptDevAIMgr.cpp:380`,

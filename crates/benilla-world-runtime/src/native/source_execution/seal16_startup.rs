@@ -55,12 +55,13 @@ const MAP0_INVISIBILITY_RAW: usize = 27780; // First word after aura 18, :607741
 const MAP0_STANCE_RAW: usize = 28714; // First word after type 79, :60985315.
 const MAP0_FROST_ARMOR_RAW: usize = 30766; // First word after Frost Armor, :61221537.
 const MAP0_STORMWIND_RAW: usize = 31934; // First Stormwind guard word, :61339365.
-const MAP0_NEXT_RAW: usize = 32034; // First word after GUID10495, :61351335.
+const MAP0_NEXT_RAW: usize = 32034; // Next creature's display draw, :61351335.
 
 const MAP0_FIRST_STORMWIND_LINE: u64 = 61339352;
-// The damage-shield dispatch follows the effect clock at :61351114.
-const MAP0_NEXT_OWNER_LINE: u64 = 61351115;
-const MAP0_NEXT_SOURCE: &str = "SpellAuras.cpp:76";
+// The 18943 cast-end proc follows the effect clock at :61351279.
+const MAP0_NEXT_OWNER_LINE: u64 = 61351280;
+const MAP0_NEXT_SOURCE: &str = "UnitAuraProcHandler.cpp:532";
+const MAP0_LAST_STORMWIND_COMPLETION: u64 = 61390644;
 
 #[derive(Default)]
 struct StormwindTrace {
@@ -539,8 +540,9 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
         .filter(|clock| clock.time_line > 60478161);
     // :61339887-61350846 add nine respawn clocks; :61351112/:61351114 add
     // the holder and effect clocks before handling aura 15.
-    assert_eq!(consumed, 727);
-    assert_eq!(new_clocks.clone().count(), 649);
+    // :61351269/:61351279 add the holder and effect clocks for 18943.
+    assert_eq!(consumed, 729);
+    assert_eq!(new_clocks.clone().count(), 651);
     assert_eq!(
         map0_receipt(new_clocks.clone().take(34).map(|clock| [
             clock.site_line,
@@ -632,8 +634,25 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
     assert_eq!(evidence.active_clocks.0[574].time_line, 61221531);
     assert_eq!(evidence.active_clocks.0[715].time_line, 61339347);
     assert_eq!(evidence.active_clocks.0[716].time_line, 61339887);
-    assert_eq!(evidence.active_clocks.0[consumed - 1].time_line, 61351114);
-    assert_eq!(clocks.0.front().unwrap().time_line, 61351269);
+    assert_eq!(evidence.active_clocks.0[726].time_line, 61351114);
+    assert_eq!(evidence.active_clocks.0[727].time_line, 61351269);
+    assert_eq!(evidence.active_clocks.0[consumed - 1].time_line, 61351279);
+    assert_eq!(clocks.0.front().unwrap().time_line, 61351783);
+    // Both of Bolvar's casts consume clock operands at one unchanged RNG cursor.
+    assert_eq!(
+        evidence
+            .active_clocks
+            .0
+            .range(725..729)
+            .map(|c| (c.time_line, c.raw, c.seconds))
+            .collect::<Vec<_>>(),
+        [
+            (61351112, 32034, 1794314192),
+            (61351114, 32034, 1794314192),
+            (61351269, 32034, 1794314192),
+            (61351279, 32034, 1794314192)
+        ]
+    );
     assert_eq!(
         map0_receipt(evidence.active_clocks.0.range(303..573).map(|clock| [
             clock.site_line,
@@ -657,7 +676,7 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
         "f6c84dce826ba6e40b39a71c639d58e6f85808975f6351d8135b038952682fe4"
     );
     assert_eq!(
-        map0_receipt(evidence.active_clocks.0.range(716..consumed).map(|clock| [
+        map0_receipt(evidence.active_clocks.0.range(716..727).map(|clock| [
             clock.site_line,
             clock.time_line,
             clock.thread,
@@ -666,6 +685,17 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
             clock.seconds as u64
         ])),
         "0d870990d5914f502982cd2d27f425f8f4e3eac237fd8eca4e58d3b4c9ada203"
+    );
+    assert_eq!(
+        map0_receipt(evidence.active_clocks.0.range(727..consumed).map(|clock| [
+            clock.site_line,
+            clock.time_line,
+            clock.thread,
+            clock.site[2],
+            clock.raw,
+            clock.seconds as u64
+        ])),
+        "6eae7c814b7feaaca13a15cce2b20b6a76653d8bb800332812ef921a53d3036d"
     );
 }
 
@@ -862,7 +892,7 @@ impl Inputs {
     pub(super) fn observe_thread(&mut self, thread: u64, line: u64, kind: &str, p: &[&str]) {
         self.equipment.observe_map(thread, line, kind, p);
         if thread == 6 {
-            if (MAP0_FIRST_STORMWIND_LINE..MAP0_NEXT_OWNER_LINE).contains(&line) {
+            if (MAP0_FIRST_STORMWIND_LINE..=MAP0_LAST_STORMWIND_COMPLETION).contains(&line) {
                 self.map_threads
                     .entry(thread)
                     .or_default()
@@ -3181,13 +3211,17 @@ pub(super) fn continue_startup(
                 .eq(evidence.continuation_completed[166..]
                     .iter()
                     .map(|&(_, guid)| guid)));
-            // :61339352-61348541 traces the seven guards before Bolvar.
+            // The recording has 23 guards; the live replay reaches seven before Bolvar.
             let guards = &evidence.stormwind_trace.completed;
             assert!(evidence.stormwind_trace.object.is_none());
-            assert_eq!(guards.len(), 7);
+            assert_eq!(guards.len(), 23);
+            assert_eq!(
+                map0_receipt(guards[..7].iter().copied()),
+                "8b951d4c5881bd52ae0c7da91290069694a4a6fbbe7ff62b4f4d3473de68053c"
+            );
             assert_eq!(
                 map0_receipt(guards.iter().copied()),
-                "8b951d4c5881bd52ae0c7da91290069694a4a6fbbe7ff62b4f4d3473de68053c"
+                "6f708bbcb6026d716a6197b6f1e31a212602d0163b2db60c459e762b59fb9dfe"
             );
             let guard_guids = completed_objects.iter().filter_map(|&handle| {
                 let object = active_objects.get(handle).unwrap();
@@ -3234,7 +3268,7 @@ pub(super) fn continue_startup(
                 );
                 Some(u64::from(object.database_guid))
             });
-            assert!(guard_guids.eq(guards.iter().map(|row| row[0])));
+            assert!(guard_guids.eq(guards[..7].iter().map(|row| row[0])));
             let [holder] = event_ais[&completed_objects[253]].holders.as_slice() else {
                 panic!("GUID4195 must retain event 26501");
             };
@@ -3379,8 +3413,7 @@ pub(super) fn continue_startup(
                     "go_instance_on_object_spawn",
                 ]));
             assert!(!completed_objects.contains(&candidate));
-            // :61350361-61350374 binds Bolvar. His Spawn event reaches the
-            // damage-shield apply after the holder/effect clocks :61351112/:61351114.
+            // :61350361-61350374 binds Bolvar. SQL :150093 casts 8990 then 18943.
             assert_eq!(
                 (
                     attempt.guid,
@@ -3391,8 +3424,52 @@ pub(super) fn continue_startup(
                 ),
                 (10495, GridSpawnKind::Creature, 1748, 258, 521)
             );
-            assert!(active_objects.get(candidate).unwrap().in_world);
-            assert!(units.get(&active_objects, candidate).unwrap().has_ai);
+            let object = active_objects.get(candidate).unwrap();
+            assert_eq!(
+                (object.database_guid, object.guid.unwrap().entry()),
+                (10495, 1748)
+            );
+            assert!(object.in_world);
+            let live = units.get(&active_objects, candidate).unwrap();
+            assert!(live.has_ai);
+            let spell = &live.spell_starts.spells[&1];
+            assert_eq!(
+                (spell.spell, spell.state),
+                (8990, SourceSpellState::Finished)
+            );
+            let holder = live.auras.first_aura_holder(8990).unwrap();
+            assert!(holder.ready);
+            assert_eq!(holder.apply_time, 1794314192); // :61351112.
+            let [shield] = live.auras.auras_of_type(15) else {
+                panic!("Bolvar must retain his damage shield");
+            };
+            assert_eq!(shield.holder.spell(), 8990);
+            let effect = holder.effects[0].as_ref().unwrap();
+            // SQL :422548,:845007. Scaling runs, then (max(63 / 5, 18) - 18)
+            // contributes zero. Fixed dice give 2 + 1. The trace has no amount.
+            assert_eq!(
+                (
+                    effect.kind,
+                    effect.amount,
+                    effect.applied,
+                    effect.apply_time
+                ),
+                (15, 3, true, 1794314192) // :61351114.
+            );
+            let spell = &live.spell_starts.spells[&2];
+            assert_eq!(
+                (spell.spell, spell.state),
+                (18943, SourceSpellState::Landing)
+            );
+            let holder = live.auras.first_aura_holder(18943).unwrap();
+            assert!(holder.ready);
+            assert_eq!(holder.apply_time, 1794314192); // :61351269.
+            assert_eq!(holder.charges, 0); // SQL :852347.
+            let effect = holder.effects[0].as_ref().unwrap();
+            assert_eq!(
+                (effect.kind, effect.applied, effect.apply_time),
+                (42, true, 1794314192) // :61351279.
+            );
             // SQL :431792, :847350 binds Frost Armor. SelectLevel draws 16
             // at :61221284 and 15 at :61240810. Both give 11 + (3 - 1) * 12 + 1.
             for (finish, guid) in [(61222641, 89544), (61242962, 89542)] {
@@ -3851,7 +3928,6 @@ pub(super) fn continue_startup(
         assert_eq!(
             active_guids,
             if slot == 0 {
-                // The last new member is GUID45525, :61257319-61257322.
                 BTreeSet::from([
                     636, 2129, 4185, 4603, 14514, 14515, 14516, 14517, 14772, 14773, 14774, 14775,
                     14776, 15423, 15424, 15508, 20802, 45525,
