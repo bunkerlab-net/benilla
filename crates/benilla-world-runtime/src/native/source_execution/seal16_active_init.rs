@@ -5,7 +5,7 @@ use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: [&str; 2] = [
-    "execution.outdoor_pvp.OutdoorPvPEP_133.point_xy_dist_calc_none_owner",
+    "execution.ai.ScriptDevAIMgr_370.GetAI_owner.npc_garments_of_quests",
     "execution.continents.load_transports_owner",
 ];
 #[path = "seal16_active_clocks.rs"]

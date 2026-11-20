@@ -198,6 +198,68 @@ fn banner_art_kit_uses_each_source_team_arm() {
 }
 
 #[test]
+fn banner_selects_each_tower_and_leaves_a_miss_unassigned() {
+    let mut live = SourceObjects::default();
+    let banner = live.construct(6, SourceObjectKind::GameObject).unwrap();
+    for (x, y, expected) in [
+        (3181.08_f32, -4379.36_f32, Some(0)),
+        (1860.85, -3731.23, Some(1)),
+        (2574.51, -4794.89, Some(2)),
+        (2962.71, -3042.31, Some(3)),
+        (0.0, 0.0, None),
+    ] {
+        live.set_pose(banner, SourcePose([x.to_bits(), y.to_bits(), 0, 0]))
+            .unwrap();
+        assert_eq!(banner_tower(live.get(banner).unwrap()), Ok(expected));
+    }
+}
+
+#[test]
+fn banner_distance_excludes_the_exact_binary32_boundary() {
+    for (x, square, hit) in [
+        (0x4247_ffff, 0x451c_3ffe, true),
+        (0x4248_0000, 0x451c_4000, false),
+        (0x4248_0001, 0x451c_4002, false),
+    ] {
+        let from = [f32::from_bits(x), 0.0];
+        assert_eq!(point_xy_distance_squared(from, [0.0; 2]).to_bits(), square);
+        assert_eq!(is_within_dist_2d(from, [0.0; 2], 50.0, 0.0), hit);
+    }
+
+    // Fusing either square with the sum gives 0x451c3fff and would admit the point.
+    let from = [f32::from_bits(0x406f_ae14), f32::from_bits(0x4247_702e)];
+    assert_eq!(
+        point_xy_distance_squared(from, [0.0; 2]).to_bits(),
+        0x451c_4000
+    );
+    assert!(!is_within_dist_2d(from, [0.0; 2], 50.0, 0.0));
+}
+
+#[test]
+fn banner_tower_stops_at_the_first_match() {
+    let mut probes = Vec::new();
+    assert_eq!(
+        first_banner_tower(|centre| {
+            probes.push(centre);
+            probes.len() >= 2
+        }),
+        Some(1)
+    );
+    assert_eq!(probes, [[3181.08, -4379.36], [1860.85, -3731.23]]);
+}
+
+#[test]
+fn banner_distance_refuses_unbound_combat_reach() {
+    let mut live = SourceObjects::default();
+    let creature = live.construct(6, SourceObjectKind::Creature).unwrap();
+    live.set_pose(creature, SourcePose([0; 4])).unwrap();
+    assert_eq!(
+        banner_tower(live.get(creature).unwrap()).unwrap_err().id,
+        "execution.outdoor_pvp.Object_1355.GetCombatReach_owner"
+    );
+}
+
+#[test]
 fn current_map_traversal_queues_only_map_zero_and_disabled_config_has_null_scripts() {
     let mut manager = SourceOutdoorPvp::default();
     let mut world = SourceMessager::new(MessageOwner::World);

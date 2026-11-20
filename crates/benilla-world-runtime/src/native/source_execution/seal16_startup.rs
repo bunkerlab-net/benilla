@@ -59,12 +59,12 @@ const MAP0_BOLVAR_RAW: usize = 32034; // Next creature's display draw, :61351335
 const MAP0_EP_CREATURE_RAW: usize = 32373; // GUID59514's respawn delay, :61396345.
 const MAP0_SHADOWFORM_RAW: usize = 32493; // GUID92190's display draw, :61406136.
 const MAP0_WATCHER_RESPAWN_RAW: usize = 32650; // :61417987.
-const MAP0_NEXT_RAW: usize = 32950; // First word after the banner, :61442437.
+const MAP0_BANNER_RAW: usize = 32950; // First word after the banner, :61442437.
+const MAP0_NEXT_RAW: usize = 33202; // Roberts's first AI timer word, :61479774.
 
 const MAP0_FIRST_STORMWIND_LINE: u64 = 61339352;
-// The banner distance precedes OnObjectCreate; its zone lookup ends at :61442393.
-const MAP0_NEXT_OWNER_LINE: u64 = 61442394;
-const MAP0_NEXT_SOURCE: &str = "OutdoorPvPEP.cpp:133";
+const MAP0_NEXT_OWNER_LINE: u64 = 61479761; // Roberts's ScriptDev factory.
+const MAP0_NEXT_SOURCE: &str = "ScriptDevAIMgr.cpp:370";
 const MAP0_LAST_STORMWIND_COMPLETION: u64 = 61390644;
 
 #[derive(Default)]
@@ -176,7 +176,7 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
     // the trap at :60493861 and both duplicate creature attempts.
     // The continuation through the Bell GO adds 51 births, :60580681-60637267.
     // :61339477-61350362 add 17 births after entering GUID10507's factory.
-    assert_eq!(evidence.continuation_births.len(), 1147);
+    assert_eq!(evidence.continuation_births.len(), 1188);
     let births = &evidence.continuation_births[1..54];
     assert_eq!((births[0], births[52]), (60478620, 60571587));
     assert_eq!(
@@ -437,7 +437,7 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
         map0_receipt(births.iter().map(|&line| [line])),
         "05ebe2a062d4f5d3ac6a1f625a85e91fe4d1e84ccf31d15186ee7807b593fade"
     );
-    assert_eq!(evidence.continuation_completed.len(), 1071);
+    assert_eq!(evidence.continuation_completed.len(), 1112);
     let completions = &evidence.continuation_completed[1009..1032];
     assert_eq!(
         (completions[0], completions[22]),
@@ -452,13 +452,13 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
         "fe6ccee6d7350bf525f24dfe28026b401478ec8bb6c7caea7d1d25720cc65cd9"
     );
     // :61418323 completes GUID156055. The last new birth is the banner at :61442202.
-    let births = &evidence.continuation_births[1108..];
+    let births = &evidence.continuation_births[1108..1147];
     assert_eq!((births[0], births[38]), (61418325, 61442202));
     assert_eq!(
         map0_receipt(births.iter().map(|&line| [line])),
         "dbc53003975eb3abe963db3ee5aaba72f4c1de65eae19df6192ad0fcc626d5fa"
     );
-    let completions = &evidence.continuation_completed[1032..];
+    let completions = &evidence.continuation_completed[1032..1071];
     assert_eq!(completions[0], (61418323, 156055));
     assert_eq!(completions[38], (61442199, 76583));
     assert_eq!(
@@ -468,6 +468,24 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
                 .map(|&(line, guid)| [line, u64::from(guid)])
         ),
         "4247385b2eafc893e2caed1142f539f866bda533edc3157d5b962fc3a5cba331"
+    );
+    // :61442417 completes GUID45695. :61479536 allocates Guard Roberts.
+    let births = &evidence.continuation_births[1147..];
+    assert_eq!((births[0], births[40]), (61442419, 61479536));
+    assert_eq!(
+        map0_receipt(births.iter().map(|&line| [line])),
+        "5920088217f8c3aed49e0494ba0c2f0f7d42efe826b2b289eec17043636cb20d"
+    );
+    let completions = &evidence.continuation_completed[1071..];
+    assert_eq!(completions[0], (61442417, 45695));
+    assert_eq!(completions[40], (61479534, 81081));
+    assert_eq!(
+        map0_receipt(
+            completions
+                .iter()
+                .map(|&(line, guid)| [line, u64::from(guid)])
+        ),
+        "1d9360893e6435380e5d9e6d54ef3eff8fe705b9be1c08efcfebe22a0aa0b260"
     );
     // The replay also compares each word, request and result in order below.
     let words = &evidence.words[27087..MAP0_GUARD_RAW];
@@ -667,17 +685,33 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
         "a68b5d9becd438dd24c8cbf0bb3948b4c7d7712ca479754aaa3f5e1a61cadea9"
     );
     assert_eq!(
-        evidence.words[MAP0_NEXT_RAW - 1],
+        evidence.words[MAP0_BANNER_RAW - 1],
         (61442179, 32949, 1987569684)
     );
-    assert_eq!(evidence.words[MAP0_NEXT_RAW], (61442437, 32950, 554098194));
+    assert_eq!(
+        evidence.words[MAP0_BANNER_RAW],
+        (61442437, 32950, 554098194)
+    );
     assert_eq!(
         map0_receipt(
-            evidence.words[MAP0_WATCHER_RESPAWN_RAW..MAP0_NEXT_RAW]
+            evidence.words[MAP0_WATCHER_RESPAWN_RAW..MAP0_BANNER_RAW]
                 .iter()
                 .map(|&(line, raw, word)| [line, raw, word])
         ),
         "928d4140e61d44d7a1748387f17238c36a7c8674caca5925b079786807ba61d9"
+    );
+    assert_eq!(
+        evidence.words[MAP0_NEXT_RAW - 1],
+        (61479749, 33201, 2511882518)
+    );
+    assert_eq!(evidence.words[MAP0_NEXT_RAW], (61479774, 33202, 467812715));
+    assert_eq!(
+        map0_receipt(
+            evidence.words[MAP0_BANNER_RAW..MAP0_NEXT_RAW]
+                .iter()
+                .map(|&(line, raw, word)| [line, raw, word])
+        ),
+        "4067ffc1a5c06b68c84bccbb2e2eb058fa276530dbeaf867bff810d08a89a2cd"
     );
     let consumed = evidence.active_clocks.0.len() - clocks.0.len();
     let new_clocks = evidence
@@ -689,8 +723,8 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
     // :61339887-61350846 add nine respawn clocks; :61351112/:61351114 add
     // the holder and effect clocks before handling aura 15.
     // :61351269/:61351279 add the holder and effect clocks for 18943.
-    assert_eq!(consumed, 882);
-    assert_eq!(new_clocks.clone().count(), 804);
+    assert_eq!(consumed, 921);
+    assert_eq!(new_clocks.clone().count(), 843);
     assert_eq!(
         map0_receipt(new_clocks.clone().take(34).map(|clock| [
             clock.site_line,
@@ -812,7 +846,9 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
     // The first clock after the cast belongs to the Watcher's respawn.
     assert_eq!(evidence.active_clocks.0[841].time_line, 61417994);
     assert_eq!(evidence.active_clocks.0[881].time_line, 61441758);
-    assert_eq!(clocks.0.front().unwrap().time_line, 61442756);
+    assert_eq!(evidence.active_clocks.0[882].time_line, 61442756);
+    assert_eq!(evidence.active_clocks.0[920].time_line, 61479756);
+    assert_eq!(clocks.0.front().unwrap().time_line, 61479952);
     assert_eq!(
         map0_receipt(evidence.active_clocks.0.range(841..882).map(|clock| [
             clock.site_line,
@@ -823,6 +859,17 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
             clock.seconds as u64
         ])),
         "5115bbf647878a59e8439034738a7b46b89ad0c9278c8c76b07ba8f612032e67"
+    );
+    assert_eq!(
+        map0_receipt(evidence.active_clocks.0.range(882..921).map(|clock| [
+            clock.site_line,
+            clock.time_line,
+            clock.thread,
+            clock.site[2],
+            clock.raw,
+            clock.seconds as u64
+        ])),
+        "5c307804f445ad36b9d27da02ce73d556d5fbf9558745e23cfb7e37bbd7fdbcd"
     );
     assert_eq!(
         evidence
@@ -3507,6 +3554,9 @@ pub(super) fn continue_startup(
                 [
                     61340833, 61343830, 61345094, 61377471, 61378655, 61379867, 61393560, 61427174,
                     61427846, 61428518, // GUID53169.
+                    61444452, 61445575, // GUID92142.
+                    61477547, // GUID81066.
+                    61478654, // GUID81071.
                 ]
             );
             assert_eq!(evidence.sql_lines, [60100980, 60101139]);
@@ -3733,13 +3783,88 @@ pub(super) fn continue_startup(
                     attempt.cell.x(),
                     attempt.cell.y()
                 ),
-                (45695, GridSpawnKind::GameObject, 182106, 606, 381)
-            ); // Trace :61442200-61442202.
-            let banner = active_objects.get(candidate).unwrap();
-            assert!(!banner.in_world);
+                (81085, GridSpawnKind::Creature, 12423, 226, 507)
+            ); // :61479535-:61479546. The factory is called at :61479761.
+            assert!(active_objects.get(candidate).unwrap().in_world); // :61479757.
+            assert_eq!(motions[&candidate].current_type(), 0); // Stock SQL :126198.
+            let roberts = units.get(&active_objects, candidate).unwrap();
+            assert_eq!(roberts.stand_state, 8); // SQL :437897 already binds Kneel.
+            assert_eq!(roberts.flags & 0x1000, 0); // SQL :429338, FactionTemplate.dbc 12.
+            let vitals = roberts.vitals.unwrap();
+            assert_eq!((vitals.health, vitals.max_health), (137, 137)); // SQL :448247.
+
+            let banner_handle = completed_objects[1158]; // :61442417.
+            let banner = active_objects.get(banner_handle).unwrap();
+            assert_eq!(banner.database_guid, 45695);
+            assert!(banner.in_world); // :61442405.
             let pose = banner.pose.unwrap().0;
             assert_eq!(pose[..3], [0x4544_c2b8, 0xc588_6c14, 0x4311_076d]); // :61442243.
-            assert_eq!(go_zone, Some(139));
+            assert_eq!(
+                outdoor_pvp::point_xy_distance_squared(
+                    [f32::from_bits(pose[0]), f32::from_bits(pose[1])],
+                    outdoor_pvp::PLAGUELANDS_TOWER_CENTRES[0],
+                )
+                .to_bits(),
+                0x449f_5cea
+            );
+            assert_eq!(
+                zone_lookups[&SpawnKey {
+                    kind: GridSpawnKind::GameObject,
+                    guid: 45695,
+                }][0],
+                139
+            );
+            let plaguelands = outdoor_pvp.plaguelands.as_ref().unwrap();
+            // :61442417/:61449446/:61449684/:61451107. InitBanner appends in source order.
+            assert_eq!(
+                plaguelands.tower_banners[0]
+                    .iter()
+                    .map(|guid| guid.counter())
+                    .collect::<Vec<_>>(),
+                [45695, 59, 80000, 45696]
+            );
+            assert_eq!(
+                gameobjects.get(banner_handle).unwrap().art_kit,
+                outdoor_pvp::CAPTURE_ARTKIT_NEUTRAL
+            );
+            // Object.cpp:719-733 clears the pre-world update mark at :61442405.
+            assert!(!banner
+                .field_changed(gameobjects::GAMEOBJECT_ARTKIT)
+                .unwrap());
+            assert!(!active_objects
+                .client_update_pending(continents.maps[slot].identity, banner_handle));
+
+            // Horde :61451288/:61451305/:61451315. Alliance :61451502/:61451519/:61451529.
+            for (index, guid, entry, bound) in [
+                (1172, 80004, 181955, plaguelands.lordaeron_shrine_horde),
+                (1173, 80005, 181682, plaguelands.lordaeron_shrine_alliance),
+            ] {
+                let handle = completed_objects[index];
+                let object = active_objects.get(handle).unwrap();
+                let go = gameobjects.get(handle).unwrap();
+                assert_eq!((object.database_guid, go.template.entry), (guid, entry));
+                assert_eq!(object.guid, Some(bound)); // OutdoorPvPEP.cpp:142-147.
+                assert!(object.in_world);
+                let ai = go.ai.as_ref().unwrap();
+                assert_eq!(
+                    (ai.object, ai.script),
+                    (handle, gameobjects::GameObjectScript::OutdoorPvpNotify)
+                );
+                let steps = lookups
+                    .split_inclusive(|lookup| *lookup == "grid_battleground_null")
+                    .nth(index)
+                    .unwrap();
+                assert!(steps.windows(7).any(|steps| steps
+                    == [
+                        "go_ai_script_factory_lookup",
+                        "go_ai_gameobject_info",
+                        "go_ai_script_registry_lookup",
+                        "go_ai_factory_returned",
+                        "go_ai_just_spawned",
+                        "go_instance_data",
+                        "go_instance_on_object_spawn",
+                    ]));
+            }
             let shadowmage = completed_objects[1096]; // Trace :61406116.
             let object = active_objects.get(shadowmage).unwrap();
             assert!(object.in_world);
@@ -5714,8 +5839,9 @@ pub(super) fn continue_startup(
         // :109418, :109421-:109422 and :109427).
         // :60904086-:60938913 records 15 more completed map-1 creatures with movement=0.
         // :61426545 and :61431657 add Idle GUID84780 and GUID90969 (SQL :127067, :128469).
+        // Eight more map-0 Idle completions run from :61447249 to :61479534.
         // :60943949-:61049110 adds no map-1 Idle rows.
-        assert_eq!(idle_count, if slot == 0 { 217 } else { 55 });
+        assert_eq!(idle_count, if slot == 0 { 225 } else { 55 });
         if slot == 1 {
             // :60777881 binds GUID42899's fixed-path movement type.
             let fixed = completed_objects
@@ -5728,12 +5854,13 @@ pub(super) fn continue_startup(
         assert_eq!(
             geometry.pathfinder_constructor_completions,
             // WaypointMovementGenerator.cpp:264 constructs per BuildIntPath.
-            // Map 0 records 100 paths for 60 creatures, through :61428518.
+            // Map 0 records 104 paths for 63 creatures, through :61478654.
             // Map 1 calculates 35 paths for 15 waypoint creatures.
             // Static Idle constructs none (MotionMaster.cpp:79-81).
             pathfinders_before + motion_initializations - idle_count
                 + if slot == 0 {
-                    100 - 60
+                    // Guard Roberts initializes Idle before the refusal, :61479757-:61479761.
+                    104 - 63 - 1
                 } else {
                     // PathMovementGenerator.cpp:240 initializes fixed paths without a PathFinder.
                     35 - 15 - 1
@@ -5854,7 +5981,8 @@ pub(super) fn continue_startup(
                     assert_eq!(
                         gameobjects.get(*handle).unwrap().ai.is_some(),
                         // The two go_bells factory calls are :60637563 and :61175218.
-                        matches!(object.database_guid, 15508 | 20802)
+                        // The shrine factory calls are :61451288 and :61451502.
+                        matches!(object.database_guid, 15508 | 20802 | 80004 | 80005)
                     );
                 } else {
                     assert!(units.get(&active_objects, *handle).unwrap().has_ai);
@@ -6081,9 +6209,9 @@ pub(super) fn continue_startup(
             ))
         );
         assert_eq!(attempt.guid, if slot == 0 { 18 } else { 28044 });
-        // :61418325-61442202 adds 39 map-0 births.
+        // :61442419-:61479536 adds 41 map-0 births.
         // :60943951-:61048471 adds 97 map-1 births after the Outrider.
-        assert_eq!(candidates, if slot == 0 { 1235 } else { 571 });
+        assert_eq!(candidates, if slot == 0 { 1276 } else { 571 });
         assert_eq!(entry, if slot == 0 { 3211 } else { 4692 });
         if slot == 0 {
             assert_eq!(init_entry_fields, None);
@@ -6381,8 +6509,8 @@ pub(super) fn continue_startup(
                 attempt.cell.y(),
             ))
         );
-        // :61442199 completes GUID76583. Map 1 ends with GUID45604.
-        assert_eq!(completed, if slot == 0 { 1158 } else { 531 });
+        // :61479534 completes GUID81081. Map 1 ends with GUID45604.
+        assert_eq!(completed, if slot == 0 { 1199 } else { 531 });
         println!(
             "F6_VISIBILITY map={slot} census={visibility:?} invalidated_camera_iterator_stock_reach={}",
             visibility.cameras

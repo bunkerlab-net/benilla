@@ -677,24 +677,15 @@ fn gameobject_fallback_rotation_passes_half_yaw_only_for_two_zero_components() {
 }
 
 #[test]
-fn gameobject_pvp_branch_refuses_before_instance_or_world_add() {
-    for (battleground, expected) in [
-        (
-            true,
-            "execution.gameobject.loaded_battleground_create_owner",
-        ),
-        (
-            false,
-            "execution.outdoor_pvp.OutdoorPvPEP_133.point_xy_dist_calc_none_owner",
-        ),
-    ] {
+fn gameobject_pvp_branch_refuses_battleground_and_loads_banner_miss() {
+    for battleground in [true, false] {
         let (mut world, mut factory) = (World::new(), Factory::new());
         factory.battleground = battleground;
         factory.outdoor = Some(OutdoorPvpScript::EasternPlaguelands);
         let mut row = spawn();
         row.entry = 182106;
         factory.templates.insert(row.entry, template(row.entry, 5));
-        assert_eq!(world.load(&mut factory, row).unwrap_err().id, expected);
+        let outcome = world.load(&mut factory, row);
         let handle = ObjectHandle {
             thread: 1,
             construction: 1,
@@ -703,14 +694,30 @@ fn gameobject_pvp_branch_refuses_before_instance_or_world_add() {
             Action::Model(handle, GameObjectModelOperation::ConstructAndInsert),
             Action::Callback(handle, GameObjectCallback::CreateBattlegroundOrOutdoor),
         ];
-        if !battleground {
-            expected_actions.push(Action::Observation(
-                GameObjectFactoryObservation::OutdoorOnObjectCreate,
-            ));
+        if battleground {
+            assert_eq!(
+                outcome.unwrap_err().id,
+                "execution.gameobject.loaded_battleground_create_owner"
+            );
+        } else {
+            assert_eq!(loaded(outcome.unwrap()), handle);
+            assert_eq!(factory.objects.get(handle).unwrap().art_kit, 0);
+            expected_actions.extend([
+                Action::Observation(GameObjectFactoryObservation::OutdoorOnObjectCreate),
+                Action::Callback(handle, GameObjectCallback::CreateInstance),
+                Action::Callback(handle, GameObjectCallback::LargeVisibility),
+                Action::Urand(25, 25),
+                Action::RespawnRead,
+                Action::Model(handle, GameObjectModelOperation::Insert),
+                Action::Model(handle, GameObjectModelOperation::Enable(true)),
+                Action::Callback(handle, GameObjectCallback::MapViewpoint),
+                Action::Callback(handle, GameObjectCallback::MapVisibility),
+                Action::Callback(handle, GameObjectCallback::InitializeAi),
+            ]);
         }
         assert_eq!(factory.actions, expected_actions);
-        assert!(!world.objects.get(handle).unwrap().in_world);
-        assert_eq!(factory.cursor.raw, 0);
+        assert_eq!(world.objects.get(handle).unwrap().in_world, !battleground);
+        assert_eq!(factory.cursor.raw, u64::from(!battleground));
     }
 }
 
@@ -788,6 +795,7 @@ fn gameobject_outdoor_fixed_banners_mark_only_changed_art_kits() {
             let live = world.objects.get(handle).unwrap();
             let guid = live.guid.unwrap();
             assert!(!live.field_changed(gameobjects::GAMEOBJECT_ARTKIT).unwrap());
+            assert!(!world.objects.client_update_pending(map(), handle));
             OutdoorPvpScript::EasternPlaguelands
                 .handle_gameobject_create(&mut factory, handle, &mut world.context())
                 .unwrap();
@@ -810,6 +818,10 @@ fn gameobject_outdoor_fixed_banners_mark_only_changed_art_kits() {
                     .unwrap()
                     .field_changed(gameobjects::GAMEOBJECT_ARTKIT)
                     .unwrap(),
+                initial == 0
+            );
+            assert_eq!(
+                world.objects.client_update_pending(map(), handle),
                 initial == 0
             );
         }

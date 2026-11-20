@@ -737,9 +737,9 @@ The pinned CMaNGOS Classic `8ec338a1` contract is:
   non-capture points unchanged. Capture points use the saved slider and lock
   for their entry, or start at 50 and unlocked (`OutdoorPvP.cpp:80-92`,
   `GameObject.cpp:2230-2251`). The Eastern Plaguelands callback runs the base,
-  records shrine and fixed banner GUIDs, and sets fixed banner art kits
-  (`OutdoorPvPEP.cpp:113-149,346-349`). Generic banners refuse at the first
-  point-to-XY distance check (`OutdoorPvPEP.cpp:133`).
+  records shrine GUIDs, and sets art kits after it appends banner GUIDs.
+  Generic banners join the first tower within 50 yards in XY. A miss
+  leaves the script unchanged (`OutdoorPvPEP.cpp:113-149,346-349`).
 - Large objects compare their effective visibility distance with 200 yards.
   `ObjectVisibility.cpp:53-59` gives an existing object override precedence over
   the map distance. `GameObject.cpp:2209-2212` supplies the default object radius.
@@ -2683,8 +2683,8 @@ Static coverage at stock template levels is 29 of 31 nonzero-slope addon
 effect slots and 13 of 16 direct EventAI Spawn-cast slots. The other two and
 three slots reach the dice RNG at `Object.cpp:2955`. This census counts effect
 value arithmetic and does not execute casts.
-Map 0 completes 1,158 objects in 1,235 allocations. It matches 32,950 random
-words, 882 clocks, 100 paths, and two map SQL requests. Defias Conjurers
+Map 0 completes 1,199 objects in 1,276 allocations. It matches 33,202 random
+words, 921 clocks, 104 paths, and two map SQL requests. Defias Conjurers
 GUID89544 and GUID89542 finish Frost Armor with 36 armor and two effect clocks
 each (trace :61221527-61221531, :61241174-61241178). All 23 Stormwind guards
 complete (trace :61339475-61390644). Bolvar GUID10495 retains Retribution Aura
@@ -2702,8 +2702,11 @@ aura's period and timer to 1000 ms on apply and leaves them alone on removal
 (`spell_scripts.cpp:88-92`). Periodic world updates remain unported.
 Greater Invisibility finishes before the respawn draw at trace :61417987.
 The cast tail finds no melee state or victim. The client-control flag is
-clear. GUID156055 completes at trace :61418323. The generic tower banner
-GUID45695 stops at the point-to-XY distance check (`OutdoorPvPEP.cpp:133`).
+clear. GUID156055 completes at trace :61418323. Banner GUID45695 joins
+Northpass with neutral art kit 21 (trace :61442243-:61442417). The two
+Lordaeron shrines bind their GUIDs and finish their AI spawn callbacks
+(trace :61451279-:61451535). Guard Roberts GUID81085 stops at the
+`npc_garments_of_quests` factory (`ScriptDevAIMgr.cpp:370`, trace :61479761).
 Map 1 completes all 531 active preload objects in 571 allocations. It matches
 15,783 random words, 535 clocks, 35 paths, and two map SQL requests.
 Silithyst Geyser GUID49337 completes at trace :60741339.

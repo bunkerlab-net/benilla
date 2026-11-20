@@ -51,9 +51,10 @@ impl OutdoorPvpScript {
             182097 => 2,
             182098 => 3,
             182106 => {
-                return Err(refuse(
-                    "execution.outdoor_pvp.OutdoorPvPEP_133.point_xy_dist_calc_none_owner",
-                ))
+                let Some(tower) = banner_tower(context.objects.get(object)?)? else {
+                    return Ok(());
+                };
+                tower
             }
             181682 => {
                 let guid =
@@ -86,12 +87,58 @@ impl OutdoorPvpScript {
     }
 }
 
+// OutdoorPvPEP.h:157-163. Northpass, Crownguard, Eastwall, Plaguewood.
+pub(super) const PLAGUELANDS_TOWER_CENTRES: [[f32; 2]; 4] = [
+    [3181.08, -4379.36],
+    [1860.85, -3731.23],
+    [2574.51, -4794.89],
+    [2962.71, -3042.31],
+];
+
+// Object.cpp:1310-1314,1331. DIST_CALC_NONE returns the squared distance.
+pub(super) fn point_xy_distance_squared(from: [f32; 2], to: [f32; 2]) -> f32 {
+    let dx = from[0] - to[0];
+    let dy = from[1] - to[1];
+    dx * dx + dy * dy
+}
+
+// Object.cpp:1352-1359. Use separate binary32 operations and a strict limit.
+fn is_within_dist_2d(from: [f32; 2], to: [f32; 2], distance: f32, reach: f32) -> bool {
+    let squared = point_xy_distance_squared(from, to);
+    let max = distance + reach;
+    squared < max * max
+}
+
+// OutdoorPvPEP.cpp:133-140. Stop after the first matching tower.
+fn first_banner_tower(within: impl FnMut([f32; 2]) -> bool) -> Option<usize> {
+    PLAGUELANDS_TOWER_CENTRES.iter().copied().position(within)
+}
+
+fn banner_tower(object: &SourceObject) -> Result<Option<usize>> {
+    let SourcePose([x, y, ..]) = object
+        .pose
+        .ok_or_else(|| refuse("execution.outdoor_pvp.Object_1312.point_position_owner"))?;
+    // Object.h:926. GameObject inherits the WorldObject reach.
+    require(
+        object.kind == SourceObjectKind::GameObject,
+        "execution.outdoor_pvp.Object_1355.GetCombatReach_owner",
+    )?;
+    let reach = 0.0_f32;
+    let from = [f32::from_bits(x), f32::from_bits(y)];
+    Ok(first_banner_tower(|centre| {
+        is_within_dist_2d(from, centre, 50.0, reach)
+    }))
+}
+
+// OutdoorPvP.h:34.
+pub(super) const CAPTURE_ARTKIT_NEUTRAL: u32 = 21;
+
 // OutdoorPvP.cpp:172-183 and OutdoorPvP.h:32-34 select team art or neutral art.
 fn banner_art_kit(team: u32) -> u32 {
     match team {
         469 => 2,
         67 => 1,
-        _ => 21,
+        _ => CAPTURE_ARTKIT_NEUTRAL,
     }
 }
 

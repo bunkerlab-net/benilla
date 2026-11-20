@@ -230,8 +230,8 @@ is meaningful without a bounded content/mechanics inventory.
   (`spell_scripts.cpp:88-92`, `SpellAuras.cpp:6199-6207`). Unapply leaves the
   period and timer unchanged. The periodic world update remains unported.
   The cast finishes before the respawn draw at trace :61417987. GUID156055
-  completes at :61418323. The map stops on banner GUID45695 at
-  `OutdoorPvPEP.cpp:133`, after the pose at :61442243.
+  completes at :61418323. The map stops at Guard Roberts GUID81085's
+  `npc_garments_of_quests` factory (`ScriptDevAIMgr.cpp:370`, trace :61479761).
 - **Stormwind guard startup.** `guard_ai.cpp:29-38,63-81` owns the guard
   base timers and the ranged check after inherited respawn. Stormwind
   calls its salute-only Reset in construction and respawn
@@ -267,9 +267,11 @@ is meaningful without a bounded content/mechanics inventory.
   and unlocked points activate before the state classification
   (`GameObject.cpp:2230-2251`). Wind Stone GUID49298 skips both writes
   (trace :60691033-:60691102). The Eastern Plaguelands override stores
-  shrine GUIDs and appends fixed banner GUIDs before it sets their art kits
-  (`OutdoorPvPEP.cpp:119-130,142-147,346-349`). Generic banner placement
-  refuses at the point-to-XY distance call (`OutdoorPvPEP.cpp:133`).
+  shrine GUIDs and appends banner GUIDs before it sets their art kits
+  (`OutdoorPvPEP.cpp:119-149,346-349`). A generic banner joins the first
+  tower within the strict XY limit (`Object.cpp:1310-1314,1331,1352-1359`).
+  GUID45695 joins Northpass at trace :61442243-:61442417. The shrine AI
+  and instance spawn callbacks run at trace :61451288-:61451535.
   Other entries leave the script unchanged (trace :61394207-:61394326).
 - **Grid activity.** `Grid.h:93-117` counts active grid objects. Add and
   remove each test the live active flag. If removal leaves a stale member,
