@@ -4,17 +4,33 @@
 use super::*;
 use std::sync::Arc;
 
+#[path = "azuregos.rs"]
+mod azuregos;
+#[path = "combat_ai.rs"]
+mod combat_ai;
+pub use azuregos::BossAzuregosAi;
+pub use combat_ai::{CombatActionInitial, CombatAi};
+
 pub(crate) const SCRIPTDEV_GET_AI_OWNER: &str = "execution.ai.ScriptDevAIMgr_370.GetAI_owner";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SourceScriptedAiKind {
     ChickenCluck,
+    Azuregos,
 }
 impl SourceScriptedAiKind {
     pub(crate) fn for_registered_name(name: &str) -> Result<Self> {
         match name {
             "npc_chicken_cluck" => Ok(Self::ChickenCluck),
+            "boss_azuregos" => Ok(Self::Azuregos),
             _ => Err(refuse(&format!("{SCRIPTDEV_GET_AI_OWNER}.{name}"))),
+        }
+    }
+
+    pub(crate) fn action_count(self) -> u32 {
+        match self {
+            Self::ChickenCluck => 0,
+            Self::Azuregos => BossAzuregosAi::ACTION_COUNT,
         }
     }
 }
@@ -22,7 +38,11 @@ impl SourceScriptedAiKind {
 #[derive(Clone, Debug)]
 pub enum SourceScriptedAi {
     ChickenCluck(ChickenCluckAi),
+    Azuregos(BossAzuregosAi),
 }
+
+// sc_creature.cpp:22-25. ScriptedAI inherits CreatureAI::Reset.
+const SCRIPTED_EVADE_CHECK_COOLDOWN_MS: u32 = 2500;
 
 #[derive(Clone, Debug)]
 pub struct ChickenCluckAi {
@@ -39,17 +59,22 @@ impl SourceScriptedAi {
         binding: &Arc<ScriptDevAiBinding>,
         objects: &mut SourceObjects,
         units: &mut SourceUnits,
-        unit: ObjectHandle,
+        base: &mut SourceUnitAi,
+        random: &mut dyn CreatureRandom,
     ) -> Result<Self> {
         match kind {
             SourceScriptedAiKind::ChickenCluck => {
-                let evade_check_cooldown_ms = 2500;
-                let reset_flag_timer_ms = Self::reset_chicken(objects, units, unit, |timer| timer)?;
+                let evade_check_cooldown_ms = SCRIPTED_EVADE_CHECK_COOLDOWN_MS;
+                let reset_flag_timer_ms =
+                    Self::reset_chicken(objects, units, base.unit, |timer| timer)?;
                 Ok(Self::ChickenCluck(ChickenCluckAi {
                     binding: Arc::clone(binding),
                     evade_check_cooldown_ms,
                     reset_flag_timer_ms,
                 }))
+            }
+            SourceScriptedAiKind::Azuregos => {
+                BossAzuregosAi::construct(binding, base, random).map(Self::Azuregos)
             }
         }
     }
@@ -57,6 +82,7 @@ impl SourceScriptedAi {
     pub fn binding(&self) -> &ScriptDevAiBinding {
         match self {
             Self::ChickenCluck(ai) => &ai.binding,
+            Self::Azuregos(ai) => &ai.binding,
         }
     }
 
@@ -64,12 +90,16 @@ impl SourceScriptedAi {
         &mut self,
         objects: &mut SourceObjects,
         units: &mut SourceUnits,
-        unit: ObjectHandle,
+        base: &mut SourceUnitAi,
     ) -> Result<()> {
         match self {
-            Self::ChickenCluck(ai) => Self::reset_chicken(objects, units, unit, |timer| {
+            Self::ChickenCluck(ai) => Self::reset_chicken(objects, units, base.unit, |timer| {
                 ai.reset_flag_timer_ms = timer;
             }),
+            Self::Azuregos(ai) => {
+                ai.reset(base);
+                Ok(())
+            }
         }
     }
 
@@ -99,6 +129,8 @@ impl SourceScriptedAi {
             Self::ChickenCluck(_) => Err(refuse(
                 "execution.ai.ChatHandler_798.ReceiveEmote_owner.npc_chicken_cluck",
             )),
+            // Azuregos inherits the empty UnitAI.h:282 callback.
+            Self::Azuregos(_) => Ok(()),
         }
     }
 
@@ -107,6 +139,9 @@ impl SourceScriptedAi {
         match self {
             Self::ChickenCluck(_) => Err(refuse(
                 "execution.ai.Unit_528.UpdateAI_owner.npc_chicken_cluck",
+            )),
+            Self::Azuregos(_) => Err(refuse(
+                "execution.ai.UnitAI_1084.UpdateAI_owner.boss_azuregos",
             )),
         }
     }

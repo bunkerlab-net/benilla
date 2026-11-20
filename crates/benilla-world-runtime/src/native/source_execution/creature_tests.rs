@@ -2122,12 +2122,14 @@ fn scripted_factory_discard_requires_and_keeps_the_exact_live_class() {
     );
     let mut wrong = chicken_binding();
     wrong.script_id += 1;
+    let base = &mut factory.base_ais.get_mut(&world.objects, unit).unwrap().base;
     let wrong = SourceScriptedAi::construct(
         SourceScriptedAiKind::ChickenCluck,
         &std::sync::Arc::new(wrong),
         &mut world.objects,
         &mut factory.units,
-        unit,
+        base,
+        &mut factory.random,
     )
     .unwrap();
     factory
@@ -2171,7 +2173,7 @@ fn scripted_factory_discard_requires_and_keeps_the_exact_live_class() {
 mod creature_level_factory_tests;
 
 #[test]
-fn create_dispatch_uses_live_entry_and_pose_and_stops_before_instance_for_pvp() {
+fn create_dispatch_uses_live_entry_and_preserves_pvp_callback_order() {
     let mut objects = SourceObjects::default();
     let cells = SourceCells::new(map()).unwrap();
     let unit = objects.construct(2, SourceObjectKind::Creature).unwrap();
@@ -2186,7 +2188,7 @@ fn create_dispatch_uses_live_entry_and_pose_and_stops_before_instance_for_pvp() 
     let mut outdoor = SourceOutdoorPvp::default();
     let mut world = SourceMessager::new(MessageOwner::World);
     outdoor
-        .initialize([true, false], 1, &mut world, &mut BTreeMap::new())
+        .initialize([true, true], 1, &mut world, &mut BTreeMap::new())
         .unwrap();
     let mut instance = SourceWorldScript {
         map: map(),
@@ -2201,11 +2203,16 @@ fn create_dispatch_uses_live_entry_and_pose_and_stops_before_instance_for_pvp() 
         ),
         (
             0,
-            1377,
-            Some("execution.creature.loaded_outdoor_pvp_create_owner"),
+            139,
+            Some("execution.outdoor_pvp.OutdoorPvPEP_95.HandleCreatureCreate_owner"),
         ),
+        (0, 1377, None),
         (0, 1, None),
     ] {
+        instance.stores.creatures.clear();
+        let live = units.get(&objects, unit).unwrap();
+        let before = serde_json::to_value(live).unwrap();
+        let events = live.unit_events.inventory();
         let mut observed = Vec::new();
         let result = notify_loaded_creature_create(
             &objects,
@@ -2221,6 +2228,9 @@ fn create_dispatch_uses_live_entry_and_pose_and_stops_before_instance_for_pvp() 
             },
             |event| observed.push(event),
         );
+        let live = units.get(&objects, unit).unwrap();
+        assert_eq!(serde_json::to_value(live).unwrap(), before);
+        assert_eq!(live.unit_events.inventory(), events);
         assert_eq!(
             result.as_ref().err().map(|refusal| refusal.id.as_str()),
             error
@@ -2232,6 +2242,22 @@ fn create_dispatch_uses_live_entry_and_pose_and_stops_before_instance_for_pvp() 
         if error.is_some() {
             assert!(instance.stores.creatures.is_empty());
         } else {
+            use CreatureCreateObservation::*;
+            if zone == 1377 {
+                assert_eq!(
+                    observed,
+                    [
+                        Battleground(false),
+                        Zone([1377, 37]),
+                        OutdoorScriptLookup,
+                        SilithusCreatureCreate,
+                        InstanceDataLookup,
+                        InstanceScriptCalled,
+                    ]
+                );
+            } else {
+                assert!(!observed.contains(&SilithusCreatureCreate));
+            }
             assert_eq!(
                 observed.last(),
                 Some(&CreatureCreateObservation::InstanceScriptCalled)

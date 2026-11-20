@@ -1794,6 +1794,7 @@ pub enum CreatureCreateObservation {
     Battleground(bool),
     Zone([u32; 2]),
     OutdoorScriptLookup,
+    SilithusCreatureCreate,
     InstanceDataLookup,
     InstanceScriptCalled,
 }
@@ -1826,8 +1827,17 @@ pub fn notify_loaded_creature_create(
     let location = zone_and_area([x, y, z])?;
     observe(CreatureCreateObservation::Zone(location));
     observe(CreatureCreateObservation::OutdoorScriptLookup);
-    if outdoor.get_script(location[0])?.is_some() {
-        return Err(refuse("execution.creature.loaded_outdoor_pvp_create_owner"));
+    match outdoor.get_script(location[0])? {
+        // Silithus inherits the empty virtual in OutdoorPvP.h:64.
+        Some(OutdoorPvpScript::Silithus) => {
+            observe(CreatureCreateObservation::SilithusCreatureCreate)
+        }
+        Some(OutdoorPvpScript::EasternPlaguelands) => {
+            return Err(refuse(
+                "execution.outdoor_pvp.OutdoorPvPEP_95.HandleCreatureCreate_owner",
+            ));
+        }
+        None => {}
     }
     observe(CreatureCreateObservation::InstanceDataLookup);
     if let Some(script) = instance {

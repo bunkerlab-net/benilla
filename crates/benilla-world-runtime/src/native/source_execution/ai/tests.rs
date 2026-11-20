@@ -374,7 +374,9 @@ fn chicken_constructor_and_respawn_run_both_resets_on_the_live_unit() {
         let LoadedCreatureAiClass::Scripted(script) = &mut ai.loaded_class else {
             panic!("expected script")
         };
-        let SourceScriptedAi::ChickenCluck(chicken) = script;
+        let SourceScriptedAi::ChickenCluck(chicken) = script else {
+            panic!("expected ChickenCluck, got {script:?}");
+        };
         assert_eq!(
             (chicken.evade_check_cooldown_ms, chicken.reset_flag_timer_ms),
             (2500, 20000)

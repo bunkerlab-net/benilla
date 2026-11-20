@@ -523,8 +523,8 @@ fn tm(p: &[&str]) -> Tm {
         isdst: n(8),
     }
 }
-// ScriptDevAIMgr.cpp:370 reaches the Azuregos factory at trace :60622939.
-const MAP1_NEXT_OWNER_LINE: u64 = 60622939;
+// ScriptDevAIMgr.cpp:370 dispatches npc_solenor at trace :60657539.
+const MAP1_NEXT_OWNER_LINE: u64 = 60657539;
 
 #[derive(Default)]
 struct MapThreadEvidence {
@@ -2870,6 +2870,8 @@ pub(super) fn continue_startup(
                     60580464, 60582481, 60583864,
                     // Spirit of Azuregos and Azuregos each build two waypoint paths.
                     60602723, 60603889, 60617339, 60618577,
+                    // Nelson's first waypoint starts at :60651302.
+                    60651302, 60653716,
                 ]
             );
         }
@@ -2974,7 +2976,9 @@ pub(super) fn continue_startup(
             let LoadedCreatureAiClass::Scripted(script) = &ai.loaded_class else {
                 panic!("entry 620 must retain the ScriptDev AI");
             };
-            let SourceScriptedAi::ChickenCluck(state) = script;
+            let SourceScriptedAi::ChickenCluck(state) = script else {
+                panic!("expected ChickenCluck, got {script:?}");
+            };
             assert_eq!(
                 (script.binding().script_id, script.binding().name.as_str()),
                 (261, "npc_chicken_cluck")
@@ -3146,7 +3150,7 @@ pub(super) fn continue_startup(
                     (60553163, 35884),
                 ]
             );
-            assert_eq!(completed_objects.len(), 266); // Trace :60616132.
+            assert_eq!(completed_objects.len(), 281); // Trace :60649319.
             assert_eq!(evidence.sql_lines, [60101153, 60113864]);
             relations_evidence::assert_after_area_cast(
                 &evidence.continuation_births,
@@ -3220,14 +3224,69 @@ pub(super) fn continue_startup(
             assert!(spirit.has_ai && spirit.loaded_creature.can_modify_stats);
             assert!(spirit.auras.first_aura_holder(10848).unwrap().ready);
 
-            // Trace :60616134-:60616151 and SQL :426310 identify Azuregos.
+            // Trace :60616134-:60616151, :60623298 and SQL :426310 identify Azuregos.
+            let azuregos = completed_objects[266];
+            let azuregos_object = active_objects.get(azuregos).unwrap();
+            assert_eq!(azuregos_object.database_guid, 52349);
+            assert!(azuregos_object.in_world);
+            assert_eq!(creature_templates.get(6109).unwrap().words[37], 3);
+            let azuregos_unit = units.get(&active_objects, azuregos).unwrap();
+            assert!(azuregos_unit.has_ai && azuregos_unit.loaded_creature.can_modify_stats);
+            assert!(!motions[&azuregos].is_empty());
+            let ai = ais.get(&active_objects, azuregos).unwrap();
+            let LoadedCreatureAiClass::Scripted(SourceScriptedAi::Azuregos(_)) = &ai.loaded_class
+            else {
+                panic!("expected Azuregos, got {:?}", ai.loaded_class);
+            };
+            assert_eq!(ai.base.action_count(), 6);
+            assert_eq!(azuregos_object.guid.unwrap().entry(), 6109);
+            let cell = active_objects.viewpoint_cell(azuregos).unwrap().unwrap();
+            assert_eq!((cell.x, cell.y), (590, 332));
+            assert_eq!((cell.grid.x, cell.grid.y), (36, 20));
+            assert!(lookups.windows(5).any(|steps| steps
+                == [
+                    "creature_scripted_ai_constructed",
+                    "creature_ai_spell_list_changed",
+                    "creature_ai_just_respawned",
+                    "creature_instance_respawn_callback",
+                    "creature_creator_loot_checked",
+                ]));
+
+            // GUID44205's terrain lookup at :60643213-:60643382 selects
+            // zone 1377. The inherited empty callback precedes :60643388.
+            let flayer = active_objects.get(completed_objects[276]).unwrap();
+            assert_eq!(
+                (flayer.database_guid, flayer.guid.unwrap().entry()),
+                (44205, 11737)
+            );
+            assert_eq!(
+                zone_lookups[&SpawnKey {
+                    kind: GridSpawnKind::Creature,
+                    guid: 44205
+                }][0],
+                1377
+            );
+            assert_eq!(
+                lookups
+                    .windows(4)
+                    .filter(|steps| *steps
+                        == [
+                            "creature_outdoor_pvp_get_script",
+                            "creature_silithus_pvp_on_create",
+                            "creature_instance_data",
+                            "creature_instance_on_creature_create",
+                        ])
+                    .count(),
+                6
+            );
+
+            // Trace :60649357-:60649368 and :60657539 identify Nelson's unported factory.
             assert_eq!(
                 (attempt.guid, attempt.kind, entry),
-                (52349, GridSpawnKind::Creature, 6109)
+                (43224, GridSpawnKind::Creature, 14536)
             );
-            assert_eq!((attempt.cell.x(), attempt.cell.y()), (590, 332));
-            assert_eq!((attempt.grid.x, attempt.grid.y), (36, 20));
-            assert_eq!(creature_templates.get(entry).unwrap().words[37], 3);
+            assert_eq!((attempt.cell.x(), attempt.cell.y()), (273, 561));
+            assert_eq!((attempt.grid.x, attempt.grid.y), (17, 35));
             assert!(!completed_objects.contains(&candidate));
             assert!(active_objects.get(candidate).unwrap().in_world);
             let stopped = units.get(&active_objects, candidate).unwrap();
@@ -3238,7 +3297,7 @@ pub(super) fn continue_startup(
                 effectapplyauraname1: 137,
                 ..Default::default()
             };
-            for unit in [spirit, stopped] {
+            for unit in [spirit, azuregos_unit] {
                 assert!(unit
                     .immunities
                     .immune_to_self_effect(&stat_aura, 0, &unit.auras)
@@ -3874,7 +3933,7 @@ pub(super) fn continue_startup(
             assert_eq!(live.spline_outbound[0].unit, candidate);
             assert_eq!(live.spline_outbound[0].transport, None);
             // Recording60433815 consumes equal-bound word12623 at Creature.cpp:1563.
-            assert_eq!(random.cursor().raw, 13783); // Trace :60616628 consumes raw 13782.
+            assert_eq!(random.cursor().raw, 13926); // Trace :60650115 consumes raw 13925.
             assert_eq!(evidence.words[12623], (60433815, 12623, 1799183854));
             relations_evidence::assert_words(&evidence.words);
             assert_eq!(
@@ -3920,7 +3979,7 @@ pub(super) fn continue_startup(
                     .iter()
                     .filter(|&&s| s == "creature_live_spell_movement_query")
                     .count(),
-                7
+                8
             );
             // Recording60409483 completes object73 after Creature.cpp:886-895.
             assert_eq!(completed_objects[72], main);
@@ -4403,14 +4462,14 @@ pub(super) fn continue_startup(
             geometry.pathfinder_constructor_completions,
             // WaypointMovementGenerator.cpp:264 constructs per BuildIntPath.
             // Map 0 records 46 paths for 28 waypoint creatures.
-            // Map 1 calculates fourteen paths for seven waypoints (:60618577 last).
+            // Map 1 calculates sixteen paths for eight waypoints (:60653716 last).
             // Static Idle constructs none (MotionMaster.cpp:79-81).
             pathfinders_before + motion_initializations - idle_count
                 + if slot == 0 {
                     // The stopped GUID12058 initialized Idle but did not complete.
                     46 - 28 - 1
                 } else {
-                    14 - 7
+                    16 - 8
                 }
         );
         assert_eq!(
@@ -4754,8 +4813,8 @@ pub(super) fn continue_startup(
             ))
         );
         assert_eq!(attempt.guid, if slot == 0 { 18 } else { 28044 });
-        // Last allocated objects are at :60982852 (map 0) and :60616138 (map 1).
-        assert_eq!(candidates, if slot == 0 { 451 } else { 272 });
+        // Last allocated objects are at :60982852 (map 0) and :60649360 (map 1).
+        assert_eq!(candidates, if slot == 0 { 451 } else { 291 });
         assert_eq!(entry, if slot == 0 { 3211 } else { 4692 });
         if slot == 0 {
             assert_eq!(init_entry_fields, None);
@@ -4879,9 +4938,10 @@ pub(super) fn continue_startup(
                     // 60547348, 60548644, 60551058, 60551791, 60552460 and 60553213.
                     // The next 26 reads run from trace :60554170 through :60601839.
                     // Six further probes run from :60608903 through :60616191.
-                    reached_441: 77,
+                    // Eleven more dry probes (:60623557 through :60649738).
+                    reached_441: 88,
                     swimming_set: 4,
-                    swimming_not_set: 73,
+                    swimming_not_set: 84,
                     ..SourceCreatureSwimmingCensus::default()
                 }
             );
@@ -5044,8 +5104,8 @@ pub(super) fn continue_startup(
                 attempt.cell.y(),
             ))
         );
-        // :60982845 completes GUID12056, and :60616132 completes GUID35783.
-        assert_eq!(completed, if slot == 0 { 429 } else { 266 });
+        // :60982845 completes GUID12056, and :60649319 completes GUID42964.
+        assert_eq!(completed, if slot == 0 { 429 } else { 281 });
         println!(
             "F6_VISIBILITY map={slot} census={visibility:?} invalidated_camera_iterator_stock_reach={}",
             visibility.cameras
@@ -5070,7 +5130,7 @@ pub(super) fn continue_startup(
             if slot == 0 {
                 MAP0_NEXT_RAW as u64
             } else {
-                after_pools_cursor + 1888 // Last consumed word: trace :60616628.
+                after_pools_cursor + 2031 // Last consumed word: trace :60650115.
             }
         );
         matched_map_words[slot] = random.cursor().raw;
@@ -5201,6 +5261,7 @@ pub(super) fn continue_startup(
                     (11902, 2308746867),
                 ]
             );
+            relations_evidence::assert_azuregos_requests(&evidence.candidate_requests);
         }
         assert!(trace.iter().all(|event| event.stream == thread));
         assert_eq!(evidence.first_word, Some((first_line, 0, first_word)));

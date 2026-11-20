@@ -376,8 +376,86 @@ pub(super) fn assert_continuation_words(words: &[(u64, u64, u64)]) {
         ),
         "c8a2c511760ce33447a612bd229cc677baac6a6a3b2fa79921ecd3eee66e887c"
     );
-    // Azuregos's first AI timer draw is outside the executed prefix.
-    assert_eq!(words[13783], (60622967, 13783, 2606266200));
+    // UnitAI 2000/2001, CombatAI 1000/1001, then Azuregos 0..5.
+    // Reset draws all six combat timers first, then custom timers by ID.
+    assert_eq!(
+        &words[13783..13803],
+        &[
+            (60622967, 13783, 2606266200),
+            (60622982, 13784, 3545480008),
+            (60622997, 13785, 2831756592),
+            (60623010, 13786, 712756487),
+            (60623022, 13787, 3399081992),
+            (60623036, 13788, 2963348438),
+            (60623049, 13789, 2721552185),
+            (60623062, 13790, 862859982),
+            (60623073, 13791, 4002594707),
+            (60623085, 13792, 4104714578),
+            (60623123, 13793, 3513295978),
+            (60623136, 13794, 2966504582),
+            (60623153, 13795, 2958419712),
+            (60623173, 13796, 1100549311),
+            (60623184, 13797, 3232642378),
+            (60623194, 13798, 2178491331),
+            (60623213, 13799, 1170659765),
+            (60623231, 13800, 252024332),
+            (60623249, 13801, 1534314507),
+            (60623267, 13802, 1898325816),
+        ]
+    );
+    // Trace :60623350-:60650115, through Nelson's respawn draw.
+    assert_eq!(
+        digest(
+            words[13803..13926]
+                .iter()
+                .map(|&(line, raw, word)| [line, raw, word])
+        ),
+        "219ce482cd14470bbbcaa680e1e591f94a0bae7eb8940fafbafe8a1db5891194"
+    );
+    assert_eq!(words[13926], (60657555, 13926, 1359723292));
+}
+
+pub(super) fn assert_azuregos_requests(requests: &[(usize, String, i64, i64, Option<i64>)]) {
+    let actual = requests
+        .iter()
+        .filter(|request| (13783..13803).contains(&request.0))
+        .map(|(index, kind, min, max, result)| {
+            assert_eq!(kind, "urand");
+            (*index, *min, *max, result.unwrap())
+        })
+        .collect::<Vec<_>>();
+    // TimerAI.cpp:23. UnitAI.cpp:60-61, CombatAI.cpp:33-34, boss_azuregos.cpp:57-62.
+    assert_eq!(
+        &actual[..10],
+        &[
+            (13783, 0, 0, 0),
+            (13784, 0, 0, 0),
+            (13785, 0, 0, 0),
+            (13786, 0, 0, 0),
+            (13787, 5000, 17000, 14497),
+            (13788, 10000, 30000, 23799),
+            (13789, 2000, 8000, 5802),
+            (13790, 30000, 30000, 30000),
+            (13791, 15000, 30000, 28979),
+            (13792, 7000, 7000, 7000),
+        ]
+    );
+    // TimerAI.cpp:47,146-150,182-194. Combat IDs 0..5, custom IDs 1000..1001, 2000..2001.
+    assert_eq!(
+        &actual[10..],
+        &[
+            (13793, 5000, 17000, 14816),
+            (13794, 10000, 30000, 23814),
+            (13795, 2000, 8000, 6133),
+            (13796, 30000, 30000, 30000),
+            (13797, 15000, 30000, 26290),
+            (13798, 7000, 7000, 7000),
+            (13799, 0, 0, 0),
+            (13800, 0, 0, 0),
+            (13801, 0, 0, 0),
+            (13802, 0, 0, 0),
+        ]
+    );
 }
 
 pub(super) fn assert_continuation_clocks(
@@ -458,7 +536,9 @@ pub(super) fn assert_continuation_clocks(
         "db1a30877479d1d1f80f3f3ed4259a23cbb9e089b241a09198c513006ee1d0b8"
     );
     // Trace :60602283-:60616722, eight respawn reads and two aura reads.
-    let boss_clocks = suffix.filter(|sample| sample.time_line > 60601741);
+    let boss_clocks = suffix
+        .clone()
+        .filter(|sample| (60601742..=60616722).contains(&sample.time_line));
     assert_eq!(boss_clocks.clone().count(), 10);
     assert_eq!(
         digest(boss_clocks.map(|s| [
@@ -471,15 +551,29 @@ pub(super) fn assert_continuation_clocks(
         ])),
         "13b92a61a0af6467b6641f6bdf24f1c9d54fadb7228147137627ee272ef5ab86"
     );
+    // Trace :60623940-:60650167, 15 respawn clocks and two aura clocks.
+    let after_azuregos = suffix.filter(|sample| sample.time_line > 60616722);
+    assert_eq!(after_azuregos.clone().count(), 17);
+    assert_eq!(
+        digest(after_azuregos.map(|s| [
+            s.site_line,
+            s.time_line,
+            s.thread,
+            s.site[2],
+            s.raw,
+            s.seconds as u64
+        ])),
+        "bc2287d69d00dd20cb7c59b2d45561816bc07cc039013e762d7aec6467bb4a43"
+    );
 }
 
 pub(super) fn assert_after_area_cast(births: &[u64], completed: &[(u64, u32)]) {
     assert_eq!(
-        &births[265..],
+        &births[265..272],
         [60608842, 60610167, 60611466, 60612904, 60614131, 60615221, 60616138]
     );
     assert_eq!(
-        &completed[157..],
+        &completed[157..164],
         [
             (60608833, 35867),
             (60610158, 36328),
@@ -488,6 +582,34 @@ pub(super) fn assert_after_area_cast(births: &[u64], completed: &[(u64, u32)]) {
             (60614125, 35701),
             (60615215, 35150),
             (60616132, 35783),
+        ]
+    );
+    assert_eq!(
+        &births[272..],
+        [
+            60623311, 60624655, 60626036, 60627081, 60628108, 60630599, 60631578, 60633684,
+            60634885, 60636075, 60644570, 60645999, 60646057, 60647493, 60647527, 60648417,
+            60648446, 60649324, 60649360
+        ]
+    );
+    assert_eq!(
+        &completed[164..],
+        [
+            (60623298, 52349),
+            (60624638, 35761),
+            (60626020, 36343),
+            (60627072, 35179),
+            (60628106, 36338),
+            (60630567, 35105),
+            (60631566, 36317),
+            (60633672, 35154),
+            (60634874, 36329),
+            (60636026, 35174),
+            (60644555, 44205),
+            (60645992, 43018),
+            (60647488, 43019),
+            (60648414, 42957),
+            (60649319, 42964)
         ]
     );
     let births = &births[223..265];

@@ -205,6 +205,7 @@ fn create_notifications<D: GridDefinitions<Row = SpawnKey>>(
                 prefix.lookups.push("creature_create_zone");
             }
             OutdoorScriptLookup => prefix.lookups.push("creature_outdoor_pvp_get_script"),
+            SilithusCreatureCreate => prefix.lookups.push("creature_silithus_pvp_on_create"),
             InstanceDataLookup => prefix.lookups.push("creature_instance_data"),
             InstanceScriptCalled => prefix.lookups.push("creature_instance_on_creature_create"),
         },

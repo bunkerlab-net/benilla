@@ -548,10 +548,17 @@ constructs TotemAI and GuardianAI with the same EventAI loader and holders.
 The PetAI factory uses `SourceBuiltinAi::construct_pet` with explicit live owners.
 
 ScriptDev runs first for eligible creatures. A closed enum on the live
-CreatureAI holds ported ScriptDev state. Its only class is `npc_chicken_cluck`.
+CreatureAI holds `npc_chicken_cluck` and `boss_azuregos`.
 An unported non-null `GetAI` slot refuses at `ScriptDevAIMgr.cpp:370` with
 the script name in the refusal ID. A proven null slot or absent registration
 can continue to builtin selection.
+
+`CombatAI.cpp:31-42` adds two disabled custom timers. `boss_azuregos.cpp:55-68`
+adds six combat timers and delegates Reset to CombatAI. At respawn, the AI
+clears action readiness, resets combat timers by ID, then resets custom
+timers by ID (`CreatureAI.cpp:124-128`, `TimerAI.cpp:182-194`).
+Disabled and fixed timers still draw from the thread RNG (`TimerAI.cpp:23,47`).
+
 The seven builtins follow `CreatureAIRegistry.cpp:37-43`. Permit traversal uses
 lexicographic registry keys and strict `>` replacement, not registration order.
 Builtin duplicates reject unless replacement is explicit, while ScriptDev
@@ -3077,9 +3084,9 @@ clock pairs at trace lines 60553739/60553741 and 60553823/60553824.
 `SpellAuras.cpp:298-328,3367-3387` stores the radius and applies the armor
 modifier on the live unit. The later area-aura tick refuses at
 `SpellAuras.cpp:410`.
-Map 1 completes the Spirit of Azuregos at trace line 60608833. Azuregos
-enters the world and starts waypoint motion before the replay stops at the
-`boss_azuregos` AI factory (`ScriptDevAIMgr.cpp:370`, trace line 60622939).
+Map 1 completes the Spirit of Azuregos at trace line 60608833 and Azuregos at
+60623298. The Azuregos factory and inherited `JustRespawned` each draw 10
+timer words (trace lines 60622967–60623085 and 60623123–60623267).
 At the cast-chain limit, aura-triggered casts suppress the cast result.
 Unbound player and pet cast results refuse before the spell finishes,
 `Spell.cpp:3165-3176,3813-3841`.

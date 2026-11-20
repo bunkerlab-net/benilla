@@ -45,7 +45,7 @@ impl SourceCreatureAis {
         owner: &mut (impl UnitAiExecutionOwner + CreatureRandom),
     ) -> Result<()> {
         let base = Self::construct_loaded_creature_ai_base(
-            objects, units, selected, template, config, owner,
+            objects, units, selected, template, config, 0, owner,
         )?;
         self.install(objects, units, base, combat)
     }
@@ -56,6 +56,7 @@ impl SourceCreatureAis {
         selected: &SelectedCreatureAi,
         template: &CreatureAiTemplateOperands,
         config: &EventAiLoaderConfig,
+        combat_actions: u32,
         owner: &mut (impl UnitAiExecutionOwner + CreatureRandom),
     ) -> Result<SourceCreatureAi> {
         require(
@@ -69,7 +70,16 @@ impl SourceCreatureAis {
                 && !selected.inputs().control.temporary_summon,
             "execution.creature.CreatureAI_45.charm_info_owner",
         )?;
-        SourceCreatureAi::construct(objects, unit, units, template, false, 0, config, owner)
+        SourceCreatureAi::construct(
+            objects,
+            unit,
+            units,
+            template,
+            false,
+            combat_actions,
+            config,
+            owner,
+        )
     }
 
     /// CreatureAIImpl.h:26-29 and Creature.cpp:883 install a builtin on the live creature.
@@ -121,6 +131,7 @@ impl SourceCreatureAis {
                     selected,
                     template,
                     config,
+                    0,
                     &mut LoadedAiRandom(owners.random),
                 )?;
                 let ai = SourceBuiltinAi::construct_derived(
@@ -152,8 +163,18 @@ impl SourceCreatureAis {
                     matches!(ai.loaded_class, LoadedCreatureAiClass::BaseOnly),
                     "execution.ai.Creature_883.already_constructed",
                 )?;
-                let script =
-                    SourceScriptedAi::construct(kind, binding, objects, owners.units, unit)?;
+                require(
+                    ai.base.action_count() == kind.action_count() as usize,
+                    "execution.ai.Creature_883.scripted_base_action_count_owner",
+                )?;
+                let script = SourceScriptedAi::construct(
+                    kind,
+                    binding,
+                    objects,
+                    owners.units,
+                    &mut ai.base,
+                    owners.random,
+                )?;
                 ai.loaded_class = LoadedCreatureAiClass::Scripted(script);
             }
             BuiltinAiBase::Loaded {
@@ -171,10 +192,17 @@ impl SourceCreatureAis {
                     selected,
                     template,
                     config,
+                    kind.action_count(),
                     &mut LoadedAiRandom(owners.random),
                 )?;
-                let script =
-                    SourceScriptedAi::construct(kind, binding, objects, owners.units, unit)?;
+                let script = SourceScriptedAi::construct(
+                    kind,
+                    binding,
+                    objects,
+                    owners.units,
+                    &mut ai.base,
+                    owners.random,
+                )?;
                 ai.loaded_class = LoadedCreatureAiClass::Scripted(script);
                 owners.ais.install(objects, owners.units, ai, combat)?;
             }
@@ -325,8 +353,7 @@ impl SourceCreatureAi {
         })
     }
     pub fn reset(&mut self) {
-        self.base.current_ranged_mode = self.base.ranged_mode;
-        self.base.attack_distance = self.base.chase_distance;
+        self.base.reset_creature_ranged_mode();
     }
     /// UnitAI.cpp:137-140 dispatches the virtual CreatureAI::AttackStart override.
     pub fn attacked_by(
@@ -361,6 +388,12 @@ impl SourceCreatureAi {
                     )?;
                 }
             }
+        }
+        if let (Some(enemy), LoadedCreatureAiClass::Scripted(SourceScriptedAi::Azuregos(ai))) =
+            (enemy, &mut self.loaded_class)
+        {
+            // sc_creature.cpp:36-41 dispatches Aggro after CreatureAI::EnterCombat.
+            ai.aggro(enemy)?;
         }
         Ok(())
     }
@@ -424,6 +457,11 @@ impl SourceCreatureAi {
         units: &mut SourceUnits,
         owner: &mut impl UnitAiExecutionOwner,
     ) -> Result<()> {
+        if let LoadedCreatureAiClass::Scripted(SourceScriptedAi::Azuregos(ai)) =
+            &mut self.loaded_class
+        {
+            return ai.enter_evade_mode();
+        }
         self.base.enter_evade(objects, units, owner)?;
         // TimerAI.cpp:153-156 excludes both generic TIMER_ALWAYS timers on evade.
         self.require_combat_timer_owner()?;
@@ -445,12 +483,21 @@ impl SourceCreatureAi {
         )
     }
     pub fn reset_timers(&mut self, all: bool, random: &mut dyn CreatureRandom) -> Result<()> {
-        self.require_combat_timer_owner()?;
+        if let LoadedCreatureAiClass::Scripted(SourceScriptedAi::Azuregos(ai)) =
+            &mut self.loaded_class
+        {
+            if !all {
+                return Err(refuse(
+                    "execution.ai.TimerAI_197.azuregos_evade_timers_owner",
+                ));
+            }
+            ai.reset_timers(&mut self.base, random)?;
+        } else {
+            self.require_combat_timer_owner()?;
+        }
         if all {
             for timer in &mut self.base.generic_timers {
-                // TimerAI.cpp:45-49 redraws before restoring initialDisabled.
-                timer.remaining = random.creature_urand(0, 0)?;
-                timer.disabled = true;
+                timer.reset_initial((0, 0), true, random)?;
             }
         }
         Ok(())
@@ -465,7 +512,7 @@ impl SourceCreatureAi {
     ) -> Result<()> {
         self.reset_timers(true, random)?;
         match &mut self.loaded_class {
-            LoadedCreatureAiClass::Scripted(ai) => ai.reset(objects, units, self.base.unit),
+            LoadedCreatureAiClass::Scripted(ai) => ai.reset(objects, units, &mut self.base),
             LoadedCreatureAiClass::BaseOnly | LoadedCreatureAiClass::Builtin(_) => {
                 self.reset();
                 Ok(())

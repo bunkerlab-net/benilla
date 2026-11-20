@@ -984,6 +984,35 @@ pub struct SourceAiTimer {
     pub remaining: u32,
     pub disabled: bool,
 }
+
+impl SourceAiTimer {
+    // TimerAI.cpp:22-24 draws even for equal bounds and disabled timers.
+    pub(crate) fn construct(
+        id: u32,
+        (min, max): (u32, u32),
+        disabled: bool,
+        random: &mut dyn CreatureRandom,
+    ) -> Result<Self> {
+        Ok(Self {
+            id,
+            remaining: random.creature_urand(min, max)?,
+            disabled,
+        })
+    }
+
+    // TimerAI.cpp:45-49 restores initialDisabled after the draw.
+    pub(crate) fn reset_initial(
+        &mut self,
+        (min, max): (u32, u32),
+        disabled: bool,
+        random: &mut dyn CreatureRandom,
+    ) -> Result<()> {
+        self.remaining = random.creature_urand(min, max)?;
+        self.disabled = disabled;
+        Ok(())
+    }
+}
+
 impl SourceUnitAi {
     /// UnitAI.cpp:39-61, TimerAI.h:120 value-initializes ready bits to false.
     pub fn construct(
@@ -1023,16 +1052,8 @@ impl SourceUnitAi {
             spell_list_cooldown: true,
             action_ready: vec![false; actions as usize],
             generic_timers: [
-                SourceAiTimer {
-                    id: 2000,
-                    remaining: random.creature_urand(0, 0)?,
-                    disabled: true,
-                },
-                SourceAiTimer {
-                    id: 2001,
-                    remaining: random.creature_urand(0, 0)?,
-                    disabled: true,
-                },
+                SourceAiTimer::construct(2000, (0, 0), true, random)?,
+                SourceAiTimer::construct(2001, (0, 0), true, random)?,
             ],
         })
     }
@@ -1051,6 +1072,15 @@ impl SourceUnitAi {
             .get_mut(index as usize)
             .ok_or_else(|| refuse("execution.unit_ai.action_index_undefined"))? = value;
         Ok(())
+    }
+    pub(crate) fn clear_action_ready(&mut self) {
+        self.action_ready.fill(false);
+    }
+
+    // CreatureAI.cpp:49-53, inherited by ScriptedAI.
+    pub(crate) fn reset_creature_ranged_mode(&mut self) {
+        self.current_ranged_mode = self.ranged_mode;
+        self.attack_distance = self.chase_distance;
     }
     pub fn can_execute(&self, objects: &SourceObjects, units: &SourceUnits) -> Result<bool> {
         let f = units.get(objects, self.unit)?;

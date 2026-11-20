@@ -151,9 +151,9 @@ is meaningful without a bounded content/mechanics inventory.
   direct map-0 spawns, and 13 direct map-1 spawns. The Ten Hour War group
   adds eight conditional map-1 positions (`initial-classicmangos.sql:824204,
   826592-826593,830011-830018`).
-  Map 1 completes 266 objects with 272 allocations, 13,783 random words,
-  and two SQL requests. It stops at the `boss_azuregos` factory for
-  GUID52349 (`ScriptDevAIMgr.cpp:370`, trace line 60622939).
+  Map 1 completes 281 objects with 291 allocations, 13,926 random words,
+  and two SQL requests. It stops at the `npc_solenor` factory for GUID43224
+  (`ScriptDevAIMgr.cpp:370`, trace line 60657539).
   EventAI event 649101 replaces 10848 and adds a second passive 9036.
   `Unit.cpp:5326-5446,10856-10866` unlinks both indexes and defers disposal.
   Map 0 completes GUID4195 after event 26501's holder timer draw
@@ -174,6 +174,17 @@ is meaningful without a bounded content/mechanics inventory.
   The live AI retains its cooldown and reset timer (`npcs_special.cpp:60-72`).
   Clearing the quest-giver flag queues the unit for a client update
   (`Object.cpp:984-995,1107-1117`). The update drain remains unported.
+- **CombatAI startup.** The Azuregos factory installs two disabled custom timers
+  and six active combat timers on the live AI (`CombatAI.cpp:31-42`,
+  `boss_azuregos.cpp:55-68`). Respawn resets the combat timers before the
+  custom timers (`CreatureAI.cpp:124-128`, `TimerAI.cpp:182-194`).
+  Construction and respawn consume 10 timer words each. Out-of-range action
+  IDs refuse at `TimerAI.cpp:215,221,227`. Azuregos uses IDs 0 through 5
+  with a ready-bit vector of size six (`boss_azuregos.cpp:42-62`, `TimerAI.h:120`).
+  Map 1 first dispatches the inherited empty Silithus creature creation
+  callback at GUID44205 (`Creature.cpp:914-915`, `OutdoorPvP.h:64`,
+  trace lines 60643213–60643388). Eastern Plaguelands creature creation
+  refuses at its override (`OutdoorPvPEP.cpp:95`).
 - **Grid activity.** `Grid.h:93-117` counts active grid objects. Add and
   remove each test the live active flag. If removal leaves a stale member,
   insertion requires enough address evidence to detect reuse of that member.

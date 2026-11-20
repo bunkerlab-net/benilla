@@ -779,7 +779,7 @@ fn retained_catalog04_all_template_selection_census_or_explicit_absence() {
     }
     assert!(count > 0);
     // initial-classicmangos.sql:421003-431495 joined to the accepted GetAI slots in
-    // content-final-script-rust.json; the sole port is entry 620 at SQL :421539.
+    // content-final-script-rust.json; ports are entries 620 and 6109 at SQL :421539 and :426310.
     assert_eq!(scripts.values().sum::<usize>(), 330);
     assert_eq!(scripts.len(), 273);
     assert_eq!(
@@ -788,7 +788,7 @@ fn retained_catalog04_all_template_selection_census_or_explicit_absence() {
             .filter(|(name, _)| SourceScriptedAiKind::for_registered_name(name).is_ok())
             .map(|(name, &count)| (name.as_str(), count))
             .collect::<Vec<_>>(),
-        [("npc_chicken_cluck", 1)]
+        [("boss_azuregos", 1), ("npc_chicken_cluck", 1)]
     );
     assert_eq!(kinds.values().sum::<usize>(), count as usize);
     assert_eq!(refusals.values().sum::<usize>(), count as usize);
