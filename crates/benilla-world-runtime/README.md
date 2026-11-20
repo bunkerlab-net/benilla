@@ -2683,8 +2683,8 @@ Static coverage at stock template levels is 29 of 31 nonzero-slope addon
 effect slots and 13 of 16 direct EventAI Spawn-cast slots. The other two and
 three slots reach the dice RNG at `Object.cpp:2955`. This census counts effect
 value arithmetic and does not execute casts.
-Map 0 completes 1,119 objects in 1,196 allocations. It matches 32,650 random
-words, 841 clocks, 97 paths, and two map SQL requests. Defias Conjurers
+Map 0 completes 1,158 objects in 1,235 allocations. It matches 32,950 random
+words, 882 clocks, 100 paths, and two map SQL requests. Defias Conjurers
 GUID89544 and GUID89542 finish Frost Armor with 36 armor and two effect clocks
 each (trace :61221527-61221531, :61241174-61241178). All 23 Stormwind guards
 complete (trace :61339475-61390644). Bolvar GUID10495 retains Retribution Aura
@@ -2700,8 +2700,10 @@ AuraScript binding, `spell_detect_through_invisibility_mob` for spell 16380.
 It refuses the other 577 rows by script name. The script sets the live
 aura's period and timer to 1000 ms on apply and leaves them alone on removal
 (`spell_scripts.cpp:88-92`). Periodic world updates remain unported.
-Greater Invisibility finishes its aura effects, then stops at the
-attack-stop call (`Spell.cpp:3793`) before the respawn draw (trace :61417987).
+Greater Invisibility finishes before the respawn draw at trace :61417987.
+The cast tail finds no melee state or victim. The client-control flag is
+clear. GUID156055 completes at trace :61418323. The generic tower banner
+GUID45695 stops at the point-to-XY distance check (`OutdoorPvPEP.cpp:133`).
 Map 1 completes all 531 active preload objects in 571 allocations. It matches
 15,783 random words, 535 clocks, 35 paths, and two map SQL requests.
 Silithyst Geyser GUID49337 completes at trace :60741339.

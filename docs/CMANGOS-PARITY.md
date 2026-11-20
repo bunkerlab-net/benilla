@@ -229,8 +229,9 @@ is meaningful without a bounded content/mechanics inventory.
   AuraScript (stock SQL :836881). Its apply hook starts a 1000 ms period
   (`spell_scripts.cpp:88-92`, `SpellAuras.cpp:6199-6207`). Unapply leaves the
   period and timer unchanged. The periodic world update remains unported.
-  Map 0 stops at the cast tail's attack-stop call (`Spell.cpp:3793`),
-  after the effect clock at :61417981 and before the respawn draw at :61417987.
+  The cast finishes before the respawn draw at trace :61417987. GUID156055
+  completes at :61418323. The map stops on banner GUID45695 at
+  `OutdoorPvPEP.cpp:133`, after the pose at :61442243.
 - **Stormwind guard startup.** `guard_ai.cpp:29-38,63-81` owns the guard
   base timers and the ranged check after inherited respawn. Stormwind
   calls its salute-only Reset in construction and respawn
