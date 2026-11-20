@@ -2,6 +2,10 @@
 //! Creature.cpp:882; MotionMaster.cpp:68-94; RandomMovementGenerator.cpp:25-48.
 use super::*;
 
+#[path = "seal16_solenor_binding.rs"]
+mod solenor_binding;
+pub(super) use solenor_binding::with_solenor_binding;
+
 struct MotionOwner<'a> {
     objects: &'a SourceObjects,
     geometry: &'a mut SourceTerrainManager,
@@ -13,6 +17,7 @@ struct MotionOwner<'a> {
     spell_stores: &'a SourceSpellStores,
     map: MapIdentity,
     lookups: &'a mut Vec<&'static str>,
+    broadcast: Option<(&'a SourceCells, u32)>,
 }
 impl MotionExecutionOwner for MotionOwner<'_> {
     fn spline_thread(&mut self) -> Result<&mut SourceSplineThread> {
@@ -67,6 +72,25 @@ impl MotionExecutionOwner for MotionOwner<'_> {
     ) -> Result<Option<ObjectHandle>> {
         context.units.possessing_client(context.objects, unit)
     }
+    fn broadcast_movement(
+        &mut self,
+        unit: ObjectHandle,
+        _packet: &SourceMovementPacket,
+        context: &MotionContext<'_>,
+    ) -> Result<()> {
+        let (cells, distance) = self
+            .broadcast
+            .ok_or_else(|| refuse("execution.movement.Object_1920.Map_MessageBroadcast_owner"))?;
+        context
+            .objects
+            .message_broadcast(
+                unit,
+                cells,
+                distance,
+                context.units.get(context.objects, unit)?.bounding_radius,
+            )
+            .map(|_| ())
+    }
 }
 pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
     prefix: &mut Prefix<'_>,
@@ -85,6 +109,7 @@ pub(super) fn initialize<D: GridDefinitions<Row = SpawnKey>>(
         spell_stores: prefix.spell_stores,
         map: context.objects.get(object)?.map.unwrap(),
         lookups: &mut prefix.lookups,
+        broadcast: None,
     };
     prefix.threats.register(object)?;
     let master = prefix
@@ -224,6 +249,7 @@ pub(super) fn linking_respawn<D: GridDefinitions<Row = SpawnKey>>(
                 spell_stores: prefix.spell_stores,
                 map,
                 lookups: &mut prefix.lookups,
+                broadcast: Some((context.cells, prefix.map_visibility_bits)),
             },
             units: &mut prefix.units,
             motions: &mut prefix.motions,

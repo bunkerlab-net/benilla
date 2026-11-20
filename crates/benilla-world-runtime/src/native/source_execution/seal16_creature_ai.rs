@@ -142,6 +142,31 @@ pub(super) fn callback<D: GridDefinitions<Row = SpawnKey>>(
     object: ObjectHandle,
     context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
 ) -> Result<()> {
+    if phase == CreaturePhase::AiJustRespawned
+        && prefix.relocation_config.is_some()
+        && prefix.units.get(context.objects, object)?.entry == 14536
+    {
+        let template = prefix
+            .ai_templates
+            .get(&14536)
+            .ok_or_else(|| refuse("execution.unit_ai.effective_entry"))?;
+        super::motion_initialize::with_solenor_binding(
+            prefix,
+            context,
+            |objects, owners, reset| {
+                owners.ais.loaded_just_respawned(
+                    objects,
+                    owners.units,
+                    object,
+                    owners.random,
+                    reset,
+                )
+            },
+            template,
+        )?;
+        prefix.lookups.push("creature_ai_just_respawned");
+        return Ok(());
+    }
     let event = prefix.event_ais.get_mut(&object);
     let random = RefCell::new(&mut *prefix.random);
     if phase == CreaturePhase::AiJustRespawned && event.is_none() {
@@ -150,6 +175,7 @@ pub(super) fn callback<D: GridDefinitions<Row = SpawnKey>>(
             &mut prefix.units,
             object,
             &mut Owner(&random),
+            &mut (),
         )?;
         prefix.lookups.push("creature_ai_just_respawned");
         return Ok(());

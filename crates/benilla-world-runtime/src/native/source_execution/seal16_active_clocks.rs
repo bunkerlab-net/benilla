@@ -56,6 +56,32 @@ impl ActiveClocks {
         )?;
         Ok(sample)
     }
+
+    pub fn solenor_respawn(&mut self, thread: u64, raw: u64) -> Result<ActiveClock> {
+        let sample = self
+            .0
+            .pop_front()
+            .ok_or_else(|| refuse("execution.creature.Creature_801.time_owner"))?;
+        // Creature.h:801, emitted at the silithus.cpp:86 call in both Reset bodies.
+        let expected = match raw {
+            13928 => (60657679, 60657681, 0xb6a5e6),
+            13930 => (60672952, 60672954, 0xb6a3ba),
+            _ => {
+                return Err(refuse(
+                    "execution.creature.Creature_801.recorded_clock_callsite_mismatch",
+                ))
+            }
+        };
+        require(
+            sample.module
+                && sample.thread == thread
+                && sample.raw == raw
+                && (sample.site_line, sample.time_line, sample.site[2]) == expected
+                && sample.site[..2] == [1, 3678789157770927477],
+            "execution.creature.Creature_801.recorded_clock_callsite_mismatch",
+        )?;
+        Ok(sample)
+    }
 }
 
 #[test]

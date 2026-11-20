@@ -150,6 +150,9 @@ impl RelocationPhase {
 pub trait ActiveRelocationOwner<D: GridDefinitions, P: GridProductOwner>:
     GridObjectFactory<D, P>
 {
+    fn allow_grid_load_at_relocation(&self, _cells: &SourceCells, _target: CellPair) -> Result<()> {
+        Ok(())
+    }
     fn relocation_phase(
         &mut self,
         object: ObjectHandle,

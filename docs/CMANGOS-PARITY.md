@@ -156,9 +156,10 @@ is meaningful without a bounded content/mechanics inventory.
   direct map-0 spawns, and 13 direct map-1 spawns. The Ten Hour War group
   adds eight conditional map-1 positions (`initial-classicmangos.sql:824204,
   826592-826593,830011-830018`).
-  Map 1 completes 281 objects with 291 allocations, 13,926 random words,
-  and two SQL requests. It stops at the `npc_solenor` factory for GUID43224
-  (`ScriptDevAIMgr.cpp:370`, trace line 60657539).
+  Map 1 completes 284 objects with 295 allocations, 13,947 random words,
+  296 wall clocks, 18 paths, and two SQL requests. It stops at the Wind Stone
+  outdoor PvP creation callback for GUID49298 (`GameObject.cpp:290`,
+  trace lines 60691033–60691037).
   EventAI event 649101 replaces 10848 and adds a second passive 9036.
   `Unit.cpp:5326-5446,10856-10866` unlinks both indexes and defers disposal.
   Map 0 completes GUID4195 after event 26501's holder timer draw
@@ -201,6 +202,13 @@ is meaningful without a bounded content/mechanics inventory.
   heartbeat. `Creature.cpp:2781-2803` shares the walk-mode writes across
   entry and motion callbacks. `Creature.h:801,806` uses the live unit's
   respawn state. These fields do not change saved bytes.
+- **Solenor construction and Reset.** `silithus.cpp:63-101` and
+  `CreatureAI.cpp:124-128` retain the script and run both Nelson resets.
+  `Unit.cpp:10604-10631` interrupts the spline and generator, moves the
+  creature, broadcasts the heartbeat, and resets the current generator.
+  The player teleport and transformed Solenor spell cast refuse at
+  `Unit.cpp:10611` and `silithus.cpp:107`. Stock has two bound templates
+  and one direct spawn (`initial-classicmangos.sql:117961,430058,430064`).
 - **Grid activity.** `Grid.h:93-117` counts active grid objects. Add and
   remove each test the live active flag. If removal leaves a stale member,
   insertion requires enough address evidence to detect reuse of that member.

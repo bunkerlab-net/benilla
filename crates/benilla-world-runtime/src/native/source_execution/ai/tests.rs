@@ -187,7 +187,7 @@ fn guard_initialization_constructs_base_and_resets_in_callback_order() {
     assert_eq!(ai.attack_distance, 0.);
     assert_eq!(owner.cursor.raw, 2);
 
-    ais.loaded_just_respawned(&mut objects, &mut units, unit, &mut owner)
+    ais.loaded_just_respawned(&mut objects, &mut units, unit, &mut owner, &mut ())
         .unwrap();
     let ai = &ais.get(&objects, unit).unwrap().base;
     assert_eq!(
@@ -266,6 +266,7 @@ fn chicken_constructor_and_respawn_run_both_resets_on_the_live_unit() {
                         config: &config,
                     },
                 },
+                &mut (),
             )
         };
         assert_eq!(
@@ -295,6 +296,7 @@ fn chicken_constructor_and_respawn_run_both_resets_on_the_live_unit() {
                     config: &config,
                 },
             },
+            &mut (),
         )
         .unwrap();
         assert_eq!(owner.cursor.raw, 2);
@@ -368,7 +370,7 @@ fn chicken_constructor_and_respawn_run_both_resets_on_the_live_unit() {
             (0, 555)
         );
         assert_eq!(owner.cursor.raw, 2);
-        ais.loaded_just_respawned(&mut objects, &mut units, unit, &mut owner)
+        ais.loaded_just_respawned(&mut objects, &mut units, unit, &mut owner, &mut ())
             .unwrap();
         let ai = ais.get_mut(&objects, unit).unwrap();
         let LoadedCreatureAiClass::Scripted(script) = &mut ai.loaded_class else {

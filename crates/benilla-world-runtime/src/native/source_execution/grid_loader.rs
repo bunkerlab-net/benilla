@@ -301,7 +301,10 @@ impl<D: GridDefinitions, F: GridObjectFactory<D, P>, P: GridProductOwner>
         cells: &mut SourceCells,
         object: ObjectHandle,
         target: CellPair,
-    ) -> Result<CellRelocation> {
+    ) -> Result<CellRelocation>
+    where
+        F: ActiveRelocationOwner<D, P>,
+    {
         let Self {
             definitions,
             factory,
@@ -310,6 +313,7 @@ impl<D: GridDefinitions, F: GridObjectFactory<D, P>, P: GridProductOwner>
             objects,
         } = self;
         objects.relocate_creature(object, target, cells, |objects, cells, pair| {
+            factory.allow_grid_load_at_relocation(cells, pair)?;
             let mut loader = SourceGridLoader {
                 definitions: &mut **definitions,
                 factory: &mut **factory,

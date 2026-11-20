@@ -412,7 +412,34 @@ pub(super) fn assert_continuation_words(words: &[(u64, u64, u64)]) {
         ),
         "219ce482cd14470bbbcaa680e1e591f94a0bae7eb8940fafbafe8a1db5891194"
     );
-    assert_eq!(words[13926], (60657555, 13926, 1359723292));
+    // :60657555-:60672859 are the four base timer words. The next two
+    // creatures consume :60687871-:60690768 before the map reaches Wind Stone.
+    assert_eq!(
+        &words[13926..13947],
+        &[
+            (60657555, 13926, 1359723292),
+            (60657575, 13927, 2421044289),
+            (60672839, 13928, 508077146),
+            (60672859, 13929, 331633868),
+            (60687871, 13930, 1097510118),
+            (60688178, 13931, 505139140),
+            (60688329, 13932, 1604461379),
+            (60689305, 13933, 1026565441),
+            (60689327, 13934, 3622726339),
+            (60689380, 13935, 1334046985),
+            (60689392, 13936, 3156293777),
+            (60689412, 13937, 242077266),
+            (60689432, 13938, 3044639056),
+            (60689519, 13939, 3362496960),
+            (60689534, 13940, 2425180166),
+            (60689743, 13941, 174389893),
+            (60689894, 13942, 3443532078),
+            (60690676, 13943, 25101090),
+            (60690696, 13944, 3900081597),
+            (60690748, 13945, 1292245421),
+            (60690768, 13946, 4203303550),
+        ]
+    );
 }
 
 pub(super) fn assert_azuregos_requests(requests: &[(usize, String, i64, i64, Option<i64>)]) {
@@ -463,6 +490,7 @@ pub(super) fn assert_continuation_clocks(
     after: &super::active_init::ActiveClocks,
 ) {
     let consumed = before.0.iter().take(before.0.len() - after.0.len());
+    assert_eq!(consumed.clone().count(), 296); // 292 -> 296, four wall reads below.
     let suffix = consumed.filter(|sample| sample.time_line >= 60434041);
     let prefix = suffix
         .clone()
@@ -552,7 +580,9 @@ pub(super) fn assert_continuation_clocks(
         "13b92a61a0af6467b6641f6bdf24f1c9d54fadb7228147137627ee272ef5ab86"
     );
     // Trace :60623940-:60650167, 15 respawn clocks and two aura clocks.
-    let after_azuregos = suffix.filter(|sample| sample.time_line > 60616722);
+    let after_azuregos = suffix
+        .clone()
+        .filter(|sample| (60616723..=60650167).contains(&sample.time_line));
     assert_eq!(after_azuregos.clone().count(), 17);
     assert_eq!(
         digest(after_azuregos.map(|s| [
@@ -564,6 +594,18 @@ pub(super) fn assert_continuation_clocks(
             s.seconds as u64
         ])),
         "bc2287d69d00dd20cb7c59b2d45561816bc07cc039013e762d7aec6467bb4a43"
+    );
+    assert_eq!(
+        suffix
+            .filter(|sample| sample.time_line > 60650167)
+            .map(|s| (s.site_line, s.time_line, s.raw, s.seconds))
+            .collect::<Vec<_>>(),
+        [
+            (60657679, 60657681, 13928, 1794314190),
+            (60672952, 60672954, 13930, 1794314191),
+            (60688400, 60688402, 13933, 1794314191),
+            (60689955, 60689956, 13943, 1794314191),
+        ]
     );
 }
 
@@ -589,7 +631,7 @@ pub(super) fn assert_after_area_cast(births: &[u64], completed: &[(u64, u32)]) {
         [
             60623311, 60624655, 60626036, 60627081, 60628108, 60630599, 60631578, 60633684,
             60634885, 60636075, 60644570, 60645999, 60646057, 60647493, 60647527, 60648417,
-            60648446, 60649324, 60649360
+            60648446, 60649324, 60649360, 60687834, 60689479, 60690806, 60690842,
         ]
     );
     assert_eq!(
@@ -609,7 +651,10 @@ pub(super) fn assert_after_area_cast(births: &[u64], completed: &[(u64, u32)]) {
             (60645992, 43018),
             (60647488, 43019),
             (60648414, 42957),
-            (60649319, 42964)
+            (60649319, 42964),
+            (60687826, 43224),
+            (60689472, 44359),
+            (60690801, 43017),
         ]
     );
     let births = &births[223..265];

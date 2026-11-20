@@ -226,6 +226,98 @@ fn teleport_dispatch_rereads_the_current_generator_and_refuses_an_unported_kind(
 }
 
 #[test]
+fn wander_and_waypoint_interrupt_broadcast_only_changed_walk_mode() {
+    #[derive(Default)]
+    struct Broadcasts(Vec<(u16, Vec<u8>)>);
+    impl MotionExecutionOwner for Broadcasts {
+        fn broadcast_movement(
+            &mut self,
+            _: ObjectHandle,
+            packet: &SourceMovementPacket,
+            _: &MotionContext<'_>,
+        ) -> Result<()> {
+            self.0.push((packet.opcode, packet.body().to_vec()));
+            Ok(())
+        }
+
+        fn waypoint_position(
+            &mut self,
+            unit: ObjectHandle,
+            context: &MotionContext<'_>,
+        ) -> Result<[f32; 4]> {
+            Ok(context.objects.pose(unit)?.0.map(f32::from_bits))
+        }
+    }
+
+    for waypoint in [false, true] {
+        let (mut objects, mut units, mut master) = setup();
+        let unit = master.unit;
+        let pose = SourcePose([1f32.to_bits(); 4]);
+        objects.set_pose(unit, pose).unwrap();
+        objects
+            .assign_guid(unit, 7, SourceGuid::with_entry(HighGuid::Creature, 901, 7))
+            .unwrap();
+        objects.get_mut(unit).unwrap().in_world = true;
+        let mut context = MotionContext {
+            objects: &objects,
+            units: &mut units,
+        };
+        let mut owner = Broadcasts::default();
+        let wander = SourceWanderGenerator::new([0.; 3], 5., 0., true, false);
+        if waypoint {
+            let generator = SourceWaypointGenerator::default();
+            generator
+                .load_path(
+                    &SourceWaypointPaths::default(),
+                    901,
+                    7,
+                    0,
+                    WaypointOrigin::None,
+                )
+                .unwrap();
+            master.mutate(generator, &mut context, &mut owner).unwrap();
+            assert_eq!(master.current_type(), 2);
+        }
+        for (running, flags, want, opcode) in [
+            (0, 0x100, 0x100, None),
+            (0, 0, 0x100, Some(0x30e)),
+            (0x0400_0000, 0, 0, None),
+            (0x0400_0000, 0x100, 0, Some(0x30d)),
+        ] {
+            let live = context.units.get_mut(&objects, unit).unwrap();
+            live.state = WANDER_ACTIVE | WANDER_MOVING | running;
+            let mut movement = SourceCreatureMovement::construct();
+            movement.flags = Some(flags);
+            live.movement = Some(movement);
+            owner.0.clear();
+            if waypoint {
+                master
+                    .interrupt_for_teleport(&mut context, &mut owner)
+                    .unwrap();
+                assert_eq!(master.reset_position().unwrap(), Some([1.; 4]));
+            } else {
+                wander
+                    .interrupt(&mut master, &mut context, &mut owner)
+                    .unwrap();
+            }
+            let live = context.units.get(&objects, unit).unwrap();
+            assert_eq!(live.movement.as_ref().unwrap().flags, Some(want));
+            let expected = opcode.map(|opcode| (opcode, vec![0xd9, 7, 0x85, 3, 0x30, 0xf1]));
+            assert_eq!(owner.0.as_slice(), expected.as_slice());
+            if waypoint {
+                master
+                    .reset_after_teleport(&mut context, &mut owner)
+                    .unwrap();
+                let live = context.units.get(&objects, unit).unwrap();
+                assert_ne!(live.state & WANDER_ACTIVE, 0);
+                assert_eq!(live.movement.as_ref().unwrap().flags, Some(want));
+                assert_eq!(owner.0.as_slice(), expected.as_slice());
+            }
+        }
+    }
+}
+
+#[test]
 fn stack_push_interrupt_and_home_distract_replacement() {
     for replace_kind in [5, 12] {
         let (objects, mut units, mut master) = setup();

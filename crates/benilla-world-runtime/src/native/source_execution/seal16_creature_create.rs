@@ -608,6 +608,48 @@ impl<D: GridDefinitions<Row = SpawnKey>> CreatureFactoryOwner<D, SourceTerrainMa
         })
     }
 
+    fn creature_construct_scripted_ai(
+        &mut self,
+        selected: &SelectedCreatureAi,
+        kind: SourceScriptedAiKind,
+        binding: &std::sync::Arc<ScriptDevAiBinding>,
+        context: &mut GridFactoryContext<'_, D, SourceTerrainManager>,
+    ) -> Result<()> {
+        if kind != SourceScriptedAiKind::Solenor {
+            let owners = <Self as CreatureFactoryOwner<D, SourceTerrainManager>>::creature_builtin_ai_owners(self, selected)?;
+            return SourceCreatureAis::construct_loaded_script(
+                context.objects,
+                selected,
+                kind,
+                binding,
+                owners,
+                &mut (),
+            );
+        }
+        let template = self
+            .ai_templates
+            .get(&selected.inputs().effective_entry)
+            .ok_or_else(|| refuse("execution.unit_ai.effective_entry"))?;
+        motion_initialize::with_solenor_binding(
+            self,
+            context,
+            |objects, owners, reset| {
+                SourceCreatureAis::construct_loaded_script(
+                    objects, selected, kind, binding, owners, reset,
+                )
+            },
+            template,
+        )?;
+        // The constructor's Reset reads wall seconds 1794314190 at trace :60657681.
+        assert_eq!(
+            self.units
+                .get(context.objects, selected.object())?
+                .respawn_time,
+            1794316290
+        );
+        Ok(())
+    }
+
     fn creature_ai_construct(
         &mut self,
         state: &mut CreatureConstruction,

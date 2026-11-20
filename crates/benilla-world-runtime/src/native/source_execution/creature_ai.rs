@@ -154,6 +154,7 @@ impl SourceCreatureAis {
         kind: SourceScriptedAiKind,
         binding: &std::sync::Arc<ScriptDevAiBinding>,
         owners: BuiltinAiFactoryOwners<'_>,
+        reset_owner: &mut dyn SolenorResetOwner,
     ) -> Result<()> {
         let unit = selected.object();
         match owners.base {
@@ -174,6 +175,7 @@ impl SourceCreatureAis {
                     owners.units,
                     &mut ai.base,
                     owners.random,
+                    reset_owner,
                 )?;
                 ai.loaded_class = LoadedCreatureAiClass::Scripted(script);
             }
@@ -202,6 +204,7 @@ impl SourceCreatureAis {
                     owners.units,
                     &mut ai.base,
                     owners.random,
+                    reset_owner,
                 )?;
                 ai.loaded_class = LoadedCreatureAiClass::Scripted(script);
                 owners.ais.install(objects, owners.units, ai, combat)?;
@@ -240,13 +243,14 @@ impl SourceCreatureAis {
         units: &mut SourceUnits,
         unit: ObjectHandle,
         random: &mut dyn CreatureRandom,
+        reset_owner: &mut dyn SolenorResetOwner,
     ) -> Result<()> {
         self.loaded_initialization_ai(
             objects,
             unit,
             "execution.ai.Creature_887.JustRespawned_owner",
         )?
-        .just_respawned(objects, units, random)
+        .just_respawned(objects, units, random, reset_owner)
     }
 }
 
@@ -395,6 +399,14 @@ impl SourceCreatureAi {
             // sc_creature.cpp:36-41 dispatches Aggro after CreatureAI::EnterCombat.
             ai.aggro(enemy)?;
         }
+        if enemy.is_some()
+            && matches!(
+                self.loaded_class,
+                LoadedCreatureAiClass::Scripted(SourceScriptedAi::Solenor(_))
+            )
+        {
+            return Err(refuse("execution.ai.silithus_134.Aggro_owner"));
+        }
         Ok(())
     }
     pub fn attack_start(
@@ -462,6 +474,12 @@ impl SourceCreatureAi {
         {
             return ai.enter_evade_mode();
         }
+        if matches!(
+            self.loaded_class,
+            LoadedCreatureAiClass::Scripted(SourceScriptedAi::Solenor(_))
+        ) {
+            return Err(refuse("execution.ai.silithus_146.RemoveGuardians_owner"));
+        }
         self.base.enter_evade(objects, units, owner)?;
         // TimerAI.cpp:153-156 excludes both generic TIMER_ALWAYS timers on evade.
         self.require_combat_timer_owner()?;
@@ -509,10 +527,13 @@ impl SourceCreatureAi {
         objects: &mut SourceObjects,
         units: &mut SourceUnits,
         random: &mut dyn CreatureRandom,
+        reset_owner: &mut dyn SolenorResetOwner,
     ) -> Result<()> {
         self.reset_timers(true, random)?;
         match &mut self.loaded_class {
-            LoadedCreatureAiClass::Scripted(ai) => ai.reset(objects, units, &mut self.base),
+            LoadedCreatureAiClass::Scripted(ai) => {
+                ai.reset(objects, units, &mut self.base, random, reset_owner)
+            }
             LoadedCreatureAiClass::BaseOnly | LoadedCreatureAiClass::Builtin(_) => {
                 self.reset();
                 Ok(())

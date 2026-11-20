@@ -1095,6 +1095,23 @@ pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
             "execution.builtin_ai.live_unit_and_base_binding_owner",
         ))
     }
+    fn creature_construct_scripted_ai(
+        &mut self,
+        selected: &SelectedCreatureAi,
+        kind: SourceScriptedAiKind,
+        binding: &std::sync::Arc<ScriptDevAiBinding>,
+        context: &mut GridFactoryContext<'_, D, P>,
+    ) -> Result<()> {
+        let owners = self.creature_builtin_ai_owners(selected)?;
+        SourceCreatureAis::construct_loaded_script(
+            context.objects,
+            selected,
+            kind,
+            binding,
+            owners,
+            &mut (),
+        )
+    }
     /// None is explicitly unwritten UNIT_CREATED_BY_SPELL, never an inferred spell zero.
     fn creature_pet_ai_owners(
         &mut self,
@@ -1558,14 +1575,7 @@ where
     selected.validate(context.objects)?;
     if let AiExecutable::ScriptDevGetAi(binding) = selected.executable() {
         let kind = SourceScriptedAiKind::for_registered_name(&binding.name)?;
-        let owners = factory.creature_builtin_ai_owners(selected)?;
-        return SourceCreatureAis::construct_loaded_script(
-            context.objects,
-            selected,
-            kind,
-            binding,
-            owners,
-        );
+        return factory.creature_construct_scripted_ai(selected, kind, binding, context);
     }
     if selected.executable().builtin_kind() == Some(BuiltinCreatureAi::Pet) {
         let owners = factory.creature_pet_ai_owners(selected)?;

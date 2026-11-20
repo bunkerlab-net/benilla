@@ -6,7 +6,7 @@ use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: [&str; 2] = [
     "execution.spells.Object_2934.effect_level_scaling_owner",
-    "execution.ai.ScriptDevAIMgr_370.GetAI_owner.npc_solenor",
+    "execution.gameobject.loaded_outdoor_pvp_create_owner",
 ];
 #[path = "seal16_active_clocks.rs"]
 mod clocks;
@@ -73,6 +73,7 @@ pub(super) struct Prefix<'a> {
     pub pools: &'a SourcePoolManager,
     pub link_follow: Option<(FollowerReferenceId, ObjectHandle, [u32; 2])>,
     pub map_visibility_bits: u32,
+    pub relocation_config: Option<SourceUnitRelocationConfig>,
     pub visibility: SourceVisibilityCensus,
     pub creature_battleground: Option<bool>,
     pub creature_zone: Option<u32>,
@@ -389,6 +390,21 @@ pub(super) fn load_first(
             .persistent
             .ok_or_else(|| refuse("execution.continents.persistent_state_owner"))?,
     };
+    let relocation_config = if map.identity.map == 1 {
+        let approved =
+            Sha256Id::parse("321f2dc486e38f77037366bf84fb0ce8d09ed823ffa4524082ab01a8b0b79244")?;
+        let parsed = SourceUnitRelocationConfig::from_recorded_bytes(
+            config,
+            &approved,
+            map.visibility.to_bits(),
+        )?;
+        // mangosd.conf:1330-1331, seal16 :12111 and :12139, World.cpp:743-744.
+        assert_eq!(parsed.ai_notify_delay_ms, 1000);
+        assert_eq!(parsed.lower_limit_squared.to_bits(), 0x42c8_0000);
+        Some(parsed)
+    } else {
+        None
+    };
     let mut factory = Prefix {
         spawns,
         events,
@@ -415,6 +431,7 @@ pub(super) fn load_first(
         pools,
         link_follow: None,
         map_visibility_bits: map.visibility.to_bits(),
+        relocation_config,
         visibility: SourceVisibilityCensus::default(),
         creature_battleground: None,
         creature_zone: None,

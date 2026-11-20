@@ -91,11 +91,16 @@ pub use seal8_active::{compare_seal8_unsealed_active, Seal8ActiveDifference, Sea
 #[cfg(test)]
 mod active_tests;
 mod cells;
+mod loaded_relocation;
+pub use loaded_relocation::SourceLoadedRelocation;
 mod movement_packets;
 use movement_packets::source_set_creature_walk;
 pub use movement_packets::{
     source_movement_heartbeat, source_movement_send_to_set, SourceMovementPacket,
 };
+mod near_teleport;
+pub use near_teleport::{source_near_teleport, NearTeleportMotion, NearTeleportOwner};
+mod relocation_config;
 mod visibility;
 use visibility::WorldVisibility;
 pub use visibility::{

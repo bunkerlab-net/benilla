@@ -583,6 +583,7 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
                         &mut self.units,
                         state.object,
                         &mut self.random,
+                        &mut (),
                     )?;
                 }
             }
@@ -2158,6 +2159,7 @@ fn scripted_factory_discard_requires_and_keeps_the_exact_live_class() {
         &mut factory.units,
         base,
         &mut factory.random,
+        &mut (),
     )
     .unwrap();
     factory

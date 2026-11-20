@@ -548,7 +548,7 @@ constructs TotemAI and GuardianAI with the same EventAI loader and holders.
 The PetAI factory uses `SourceBuiltinAi::construct_pet` with explicit live owners.
 
 ScriptDev runs first for eligible creatures. A closed enum on the live
-CreatureAI holds `npc_chicken_cluck` and `boss_azuregos`.
+CreatureAI holds `npc_chicken_cluck`, `boss_azuregos`, and `npc_solenor`.
 An unported non-null `GetAI` slot refuses at `ScriptDevAIMgr.cpp:370` with
 the script name in the refusal ID. A proven null slot or absent registration
 can continue to builtin selection.
@@ -558,6 +558,11 @@ adds six combat timers and delegates Reset to CombatAI. At respawn, the AI
 clears action readiness, resets combat timers by ID, then resets custom
 timers by ID (`CreatureAI.cpp:124-128`, `TimerAI.cpp:182-194`).
 Disabled and fixed timers still draw from the thread RNG (`TimerAI.cpp:23,47`).
+
+Nelson's `npc_solenor` runs Reset in its constructor and in inherited
+`JustRespawned` (`silithus.cpp:63-101`, `CreatureAI.cpp:124-128`). Each Reset
+sets the deadline from wall time, teleports the creature, and restarts its
+waypoint generator. The transformed arm refuses at its spell cast.
 
 The seven builtins follow `CreatureAIRegistry.cpp:37-43`. Permit traversal uses
 lexicographic registry keys and strict `>` replacement, not registration order.
@@ -843,6 +848,8 @@ flag and source-allocation bindings. `SourceCells::active` stores the actual
 pointer-ordered membership and mutation-safe next iterator.
 
 Creature relocation updates the viewpoint before position and visibility.
+After `LoadFromDB`, `ObjectGridLoader.cpp:144-154` resets Nelson's viewpoint
+to the original loader cell without changing his relocated grid membership.
 The live unit retains the last notified position, the pending AI notification,
 and the respawn deadline and overrides. Ordinary creature heartbeat and walk
 mode packets use the existing map broadcast. Camera delivery and conditional

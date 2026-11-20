@@ -1013,8 +1013,8 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 #### native
 
 - Preserve the raw u32 event number, because C++ leaves the non-fixed AIEventType enum indeterminate outside 0..1023 (AIDefines.h:22-56) and the owner chose intent on 2026-11-12 so scourge\_invasion.cpp:956-965's 7166 reaches its receiver unchanged; ScriptMgr.cpp:2759-2775. ([`src/native/source_execution/assistance.rs:8`](../crates/benilla-world-runtime/src/native/source_execution/assistance.rs#L8))
-- CreatureSpellList.h:84-91 leaves Disabled unwritten; the owner permits UnitAI.cpp:1165 because both branches do nothing for empty spells outside combat. ([`src/native/source_execution/creature_ai.rs:1004`](../crates/benilla-world-runtime/src/native/source_execution/creature_ai.rs#L1004))
+- CreatureSpellList.h:84-91 leaves Disabled unwritten; the owner permits UnitAI.cpp:1165 because both branches do nothing for empty spells outside combat. ([`src/native/source_execution/creature_ai.rs:1025`](../crates/benilla-world-runtime/src/native/source_execution/creature_ai.rs#L1025))
 - Pin never-assigned scheduleType to recorded F1 round-15 zero because CMaNGOS GameEventMgr.h:53-71 leaves it indeterminate. ([`src/native/source_execution/game_events.rs:14`](../crates/benilla-world-runtime/src/native/source_execution/game_events.rs#L14))
 - Synchronize global pet numbers because ObjectMgr.cpp:119-127 and ObjectMgr.h:826,1247 race across SpellEffects.cpp:2372,3288; owner approved 2026-11-06. ([`src/native/source_execution/guids.rs:168`](../crates/benilla-world-runtime/src/native/source_execution/guids.rs#L168))
-- CreatureSpellList.h:84-91 leaves Disabled unwritten; the owner permits UnitAI.cpp:106 because both branches are false when Spells is empty. ([`src/native/source_execution/unit_ai.rs:823`](../crates/benilla-world-runtime/src/native/source_execution/unit_ai.rs#L823))
+- CreatureSpellList.h:84-91 leaves Disabled unwritten; the owner permits UnitAI.cpp:106 because both branches are false when Spells is empty. ([`src/native/source_execution/unit_ai.rs:833`](../crates/benilla-world-runtime/src/native/source_execution/unit_ai.rs#L833))
 
