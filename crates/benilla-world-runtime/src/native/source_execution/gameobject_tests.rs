@@ -358,6 +358,9 @@ impl GameObjectFactoryOwner<Definitions, Products> for Factory {
     ) -> Result<Option<CapturePointSlider>> {
         Ok(self.outdoor_manager.capture_point_slider(entry))
     }
+    fn gameobject_outdoor_pvp(&mut self) -> Result<&mut SourceOutdoorPvp> {
+        Ok(&mut self.outdoor_manager)
+    }
     fn gameobject_instance_data(
         &mut self,
     ) -> Result<Option<(&SourceGameObjects, &mut SourceWorldScript)>> {
@@ -681,13 +684,16 @@ fn gameobject_pvp_branch_refuses_before_instance_or_world_add() {
         ),
         (
             false,
-            "execution.outdoor_pvp.OutdoorPvPEP_117.HandleGameObjectCreate_owner",
+            "execution.outdoor_pvp.OutdoorPvPEP_133.point_xy_dist_calc_none_owner",
         ),
     ] {
         let (mut world, mut factory) = (World::new(), Factory::new());
         factory.battleground = battleground;
         factory.outdoor = Some(OutdoorPvpScript::EasternPlaguelands);
-        assert_eq!(world.load(&mut factory, spawn()).unwrap_err().id, expected);
+        let mut row = spawn();
+        row.entry = 182106;
+        factory.templates.insert(row.entry, template(row.entry, 5));
+        assert_eq!(world.load(&mut factory, row).unwrap_err().id, expected);
         let handle = ObjectHandle {
             thread: 1,
             construction: 1,
@@ -704,6 +710,146 @@ fn gameobject_pvp_branch_refuses_before_instance_or_world_add() {
         assert_eq!(factory.actions, expected_actions);
         assert!(!world.objects.get(handle).unwrap().in_world);
         assert_eq!(factory.cursor.raw, 0);
+    }
+}
+
+fn plaguelands_gameobject(entry: u32, kind: u32) -> (Factory, GameObjectSpawn) {
+    let mut factory = Factory::new();
+    factory
+        .outdoor_manager
+        .initialize(
+            [true, true],
+            1,
+            &mut SourceMessager::new(MessageOwner::World),
+            &mut BTreeMap::new(),
+        )
+        .unwrap();
+    factory.templates.insert(entry, template(entry, kind));
+    (factory, GameObjectSpawn { entry, ..spawn() })
+}
+
+#[test]
+fn gameobject_outdoor_non_switch_entry_finishes_create() {
+    for (script, entry, kind) in [
+        (OutdoorPvpScript::EasternPlaguelands, 176586, 3),
+        (OutdoorPvpScript::Silithus, 182106, 5),
+    ] {
+        let (mut factory, row) = plaguelands_gameobject(entry, kind);
+        let mut world = World::new();
+        factory.outdoor = Some(script);
+        let handle = loaded(world.load(&mut factory, row).unwrap());
+        let ep = factory.outdoor_manager.plaguelands.unwrap();
+        assert_eq!(ep.lordaeron_shrine_alliance.raw(), 0);
+        assert_eq!(ep.lordaeron_shrine_horde.raw(), 0);
+        assert!(ep.tower_banners.iter().all(Vec::is_empty));
+        assert_eq!(ep.towers, [0; 2]);
+        assert_eq!(ep.tower_owners, [0; 4]);
+        assert_eq!(ep.tower_world_states, [2352, 2355, 2361, 2353]);
+        assert_eq!(factory.outdoor_manager.silithus.unwrap().resources, [0; 2]);
+        assert_eq!(factory.objects.get(handle).unwrap().art_kit, 0);
+        assert!(world.objects.get(handle).unwrap().in_world);
+        assert!(factory
+            .actions
+            .ends_with(&[Action::Callback(handle, GameObjectCallback::InitializeAi)]));
+    }
+}
+
+#[test]
+fn gameobject_outdoor_shrines_store_only_the_bound_guid() {
+    for (entry, alliance) in [(181682, true), (181955, false)] {
+        let (mut factory, row) = plaguelands_gameobject(entry, 10);
+        let mut world = World::new();
+        factory.outdoor = Some(OutdoorPvpScript::EasternPlaguelands);
+        let handle = loaded(world.load(&mut factory, row).unwrap());
+        let guid = world.objects.get(handle).unwrap().guid.unwrap();
+        let ep = factory.outdoor_manager.plaguelands.as_ref().unwrap();
+        assert_eq!(
+            ep.lordaeron_shrine_alliance.raw(),
+            if alliance { guid.raw() } else { 0 }
+        );
+        assert_eq!(
+            ep.lordaeron_shrine_horde.raw(),
+            if alliance { 0 } else { guid.raw() }
+        );
+        assert!(ep.tower_banners.iter().all(Vec::is_empty));
+        assert_eq!(factory.objects.get(handle).unwrap().art_kit, 0);
+    }
+}
+
+#[test]
+fn gameobject_outdoor_fixed_banners_mark_only_changed_art_kits() {
+    for (tower, entry) in [181899, 182096, 182097, 182098].into_iter().enumerate() {
+        for initial in [0, 21] {
+            let (mut factory, row) = plaguelands_gameobject(entry, 29);
+            let mut world = World::new();
+            let handle = loaded(world.load(&mut factory, row).unwrap());
+            factory.objects.get_mut(handle).unwrap().art_kit = initial;
+            let live = world.objects.get(handle).unwrap();
+            let guid = live.guid.unwrap();
+            assert!(!live.field_changed(gameobjects::GAMEOBJECT_ARTKIT).unwrap());
+            OutdoorPvpScript::EasternPlaguelands
+                .handle_gameobject_create(&mut factory, handle, &mut world.context())
+                .unwrap();
+            assert_eq!(factory.objects.get(handle).unwrap().art_kit, 21);
+            let ep = factory.outdoor_manager.plaguelands.as_ref().unwrap();
+            for (index, banners) in ep.tower_banners.iter().enumerate() {
+                assert_eq!(
+                    banners,
+                    if index == tower {
+                        std::slice::from_ref(&guid)
+                    } else {
+                        &[]
+                    }
+                );
+            }
+            assert_eq!(
+                world
+                    .objects
+                    .get(handle)
+                    .unwrap()
+                    .field_changed(gameobjects::GAMEOBJECT_ARTKIT)
+                    .unwrap(),
+                initial == 0
+            );
+        }
+    }
+}
+
+#[test]
+fn gameobject_outdoor_ep_refuses_unbound_guids_before_script_writes() {
+    for (entry, kind, refusal) in [
+        (
+            181899,
+            29,
+            "execution.outdoor_pvp.OutdoorPvPEP_348.banner_guid_owner",
+        ),
+        (
+            181682,
+            10,
+            "execution.outdoor_pvp.OutdoorPvPEP_143.alliance_shrine_guid_owner",
+        ),
+        (
+            181955,
+            10,
+            "execution.outdoor_pvp.OutdoorPvPEP_146.horde_shrine_guid_owner",
+        ),
+    ] {
+        let (mut factory, row) = plaguelands_gameobject(entry, kind);
+        let mut world = World::new();
+        let handle = loaded(world.load(&mut factory, row).unwrap());
+        world.objects.get_mut(handle).unwrap().guid = None;
+        assert_eq!(
+            OutdoorPvpScript::EasternPlaguelands
+                .handle_gameobject_create(&mut factory, handle, &mut world.context())
+                .unwrap_err()
+                .id,
+            refusal
+        );
+        let ep = factory.outdoor_manager.plaguelands.unwrap();
+        assert!(ep.tower_banners.iter().all(Vec::is_empty));
+        assert_eq!(ep.lordaeron_shrine_alliance.raw(), 0);
+        assert_eq!(ep.lordaeron_shrine_horde.raw(), 0);
+        assert_eq!(factory.objects.get(handle).unwrap().art_kit, 0);
     }
 }
 
@@ -759,19 +905,8 @@ fn gameobject_outdoor_capture_create_uses_stored_slider_before_ep_override() {
                 .outdoor_manager
                 .set_capture_point_slider(100, CapturePointSlider { value, locked });
         }
-        let result = world.load(&mut factory, spawn());
-        let handle = if script == OutdoorPvpScript::EasternPlaguelands {
-            assert_eq!(
-                result.unwrap_err().id,
-                "execution.outdoor_pvp.OutdoorPvPEP_117.HandleGameObjectCreate_owner"
-            );
-            ObjectHandle {
-                thread: 1,
-                construction: 1,
-            }
-        } else {
-            loaded(result.unwrap())
-        };
+        let handle = loaded(world.load(&mut factory, spawn()).unwrap());
+        assert!(world.objects.get(handle).unwrap().in_world);
         let go = factory.objects.get(handle).unwrap();
         assert_eq!(
             (go.capture_slider, go.loot_state, go.capture_state),

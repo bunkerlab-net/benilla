@@ -39,15 +39,62 @@ impl OutdoorPvpScript {
                     });
             gameobject_lifecycle::set_source_capture_point_slider(owner, object, slider, context)?;
         }
-        match self {
-            Self::Silithus => Ok(()),
-            // OutdoorPvPEP.cpp:115 calls the base before :117 reads the entry.
-            Self::EasternPlaguelands => Err(refuse(
-                "execution.outdoor_pvp.OutdoorPvPEP_117.HandleGameObjectCreate_owner",
-            )),
+        if self == Self::Silithus {
+            return Ok(());
         }
+        // OutdoorPvPEP.cpp:113-148 reads the live entry after the base callback.
+        let entry = owner.gameobjects().get(object)?.template.entry;
+        let guid = |id| context.objects.get(object)?.guid.ok_or_else(|| refuse(id));
+        let tower = match entry {
+            181899 => 0,
+            182096 => 1,
+            182097 => 2,
+            182098 => 3,
+            182106 => {
+                return Err(refuse(
+                    "execution.outdoor_pvp.OutdoorPvPEP_133.point_xy_dist_calc_none_owner",
+                ))
+            }
+            181682 => {
+                let guid =
+                    guid("execution.outdoor_pvp.OutdoorPvPEP_143.alliance_shrine_guid_owner")?;
+                owner
+                    .gameobject_outdoor_pvp()?
+                    .plaguelands_mut()?
+                    .lordaeron_shrine_alliance = guid;
+                return Ok(());
+            }
+            181955 => {
+                let guid = guid("execution.outdoor_pvp.OutdoorPvPEP_146.horde_shrine_guid_owner")?;
+                owner
+                    .gameobject_outdoor_pvp()?
+                    .plaguelands_mut()?
+                    .lordaeron_shrine_horde = guid;
+                return Ok(());
+            }
+            _ => return Ok(()),
+        };
+        // OutdoorPvPEP.cpp:346-349 appends the GUID before setting the art kit.
+        let guid = guid("execution.outdoor_pvp.OutdoorPvPEP_348.banner_guid_owner")?;
+        let live = owner.gameobject_outdoor_pvp()?.plaguelands_mut()?;
+        live.tower_banners[tower].push(guid);
+        let art_kit = banner_art_kit(live.tower_owners[tower]);
+        owner
+            .gameobjects()
+            .get_mut(object)?
+            .set_art_kit(context.objects, art_kit)
     }
 }
+
+// OutdoorPvP.cpp:172-183 and OutdoorPvP.h:32-34 select team art or neutral art.
+fn banner_art_kit(team: u32) -> u32 {
+    match team {
+        469 => 2,
+        67 => 1,
+        _ => 21,
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct SilithusPvp {
     pub resources: [u32; 2],
@@ -58,6 +105,9 @@ pub struct PlaguelandsPvp {
     pub towers: [u32; 2],
     pub tower_world_states: [u32; 4],
     pub tower_owners: [u32; 4],
+    pub tower_banners: [Vec<SourceGuid>; 4],
+    pub lordaeron_shrine_alliance: SourceGuid,
+    pub lordaeron_shrine_horde: SourceGuid,
 }
 #[derive(Debug)]
 pub struct SourceOutdoorPvp {
@@ -123,6 +173,10 @@ impl SourceOutdoorPvp {
                 towers: [0; 2],
                 tower_world_states: [2352, 2355, 2361, 2353],
                 tower_owners: [0; 4],
+                // OutdoorPvPEP.h:237-242 and ObjectGuid.h:85 construct empty GUIDs and lists.
+                tower_banners: Default::default(),
+                lordaeron_shrine_alliance: SourceGuid::default(),
+                lordaeron_shrine_horde: SourceGuid::default(),
             });
             // OutdoorPvP.cpp:34 queues first. No mutation until World.cpp:1554 drains it.
             world.enqueue_graveyard_team(cause, 927, 139, 1)?;
@@ -156,6 +210,12 @@ impl SourceOutdoorPvp {
                 .map(|_| OutdoorPvpScript::EasternPlaguelands),
             _ => None,
         })
+    }
+
+    pub(super) fn plaguelands_mut(&mut self) -> Result<&mut PlaguelandsPvp> {
+        self.plaguelands
+            .as_mut()
+            .ok_or_else(|| refuse("execution.outdoor_pvp.OutdoorPvPEP.plaguelands_script_owner"))
     }
 
     // OutdoorPvPMgr.h:65,88-89. The key is the template entry, not the spawn GUID.

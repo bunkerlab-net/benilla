@@ -3090,7 +3090,7 @@ pub(super) fn continue_startup(
             &ai_templates,
             &ai_config,
             event_definitions.clone(),
-            &outdoor_pvp,
+            &mut outdoor_pvp,
             &links,
             &pools,
             &mut states,

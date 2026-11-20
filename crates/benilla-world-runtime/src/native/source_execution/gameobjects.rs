@@ -127,6 +127,9 @@ pub enum CapturePointState {
     WinAlliance,
     WinHorde,
 }
+
+pub(super) const GAMEOBJECT_ARTKIT: usize = 0x17; // UpdateFields.h:284.
+
 #[derive(Debug)]
 pub struct SourceGameObject {
     pub handle: ObjectHandle,
@@ -139,6 +142,7 @@ pub struct SourceGameObject {
     pub loot_state: u8,
     pub flags: u32,
     pub dynamic_flags: u32,
+    pub art_kit: u32,
     pub level: u32,
     pub stealth_strength: u32,
     pub invisibility_value: u32,
@@ -175,6 +179,12 @@ pub struct SourceGameObject {
 impl SourceGameObject {
     // GameObject.cpp:2209-2212; ObjectDefines.h:42.
     const BOUNDING_RADIUS_BITS: u32 = 0x3ec7_2b02;
+
+    // GameObject.h:782 uses SetUInt32Value and marks only changed values.
+    pub(super) fn set_art_kit(&mut self, objects: &SourceObjects, art_kit: u32) -> Result<()> {
+        objects.set_update_value(self.handle, GAMEOBJECT_ARTKIT, &mut self.art_kit, art_kit)?;
+        Ok(())
+    }
 
     // Spawn and collision predicates remain separate from world membership; GameObject.h:763-767, GameObject.cpp:1317-1334.
     pub fn is_spawned(&self) -> bool {
@@ -343,6 +353,11 @@ pub trait GameObjectFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     ) -> Result<Option<CapturePointSlider>> {
         Err(refuse(
             "execution.outdoor_pvp.OutdoorPvP_85.capture_slider_map_owner",
+        ))
+    }
+    fn gameobject_outdoor_pvp(&mut self) -> Result<&mut SourceOutdoorPvp> {
+        Err(refuse(
+            "execution.outdoor_pvp.OutdoorPvPEP.plaguelands_script_owner",
         ))
     }
     fn gameobject_instance_data(
@@ -649,6 +664,7 @@ where
             flags,
             dynamic_flags: 0,
             level: 0,
+            art_kit: 0, // Object.cpp:105-112 clears the update values.
             stealth_strength: 0,
             invisibility_value: 0,
             spawned_by_default: true,

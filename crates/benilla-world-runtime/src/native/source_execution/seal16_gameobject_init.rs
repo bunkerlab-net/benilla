@@ -252,6 +252,9 @@ impl<D: GridDefinitions<Row = SpawnKey>> GameObjectFactoryOwner<D, SourceTerrain
     ) -> Result<Option<CapturePointSlider>> {
         Ok(self.outdoor_pvp.capture_point_slider(entry))
     }
+    fn gameobject_outdoor_pvp(&mut self) -> Result<&mut SourceOutdoorPvp> {
+        Ok(self.outdoor_pvp)
+    }
     fn gameobject_instance_data(
         &mut self,
     ) -> Result<Option<(&SourceGameObjects, &mut SourceWorldScript)>> {

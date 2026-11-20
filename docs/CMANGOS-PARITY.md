@@ -231,8 +231,11 @@ is meaningful without a bounded content/mechanics inventory.
   `OutdoorPvP.cpp:80-92`. Capture points restore their slider by entry,
   and unlocked points activate before the state classification
   (`GameObject.cpp:2230-2251`). Wind Stone GUID49298 skips both writes
-  (trace :60691033-:60691102). The Eastern Plaguelands override refuses
-  after the base call at `OutdoorPvPEP.cpp:117`.
+  (trace :60691033-:60691102). The Eastern Plaguelands override stores
+  shrine GUIDs and appends fixed banner GUIDs before it sets their art kits
+  (`OutdoorPvPEP.cpp:119-130,142-147,346-349`). Generic banner placement
+  refuses at the point-to-XY distance call (`OutdoorPvPEP.cpp:133`).
+  Other entries leave the script unchanged (trace :61394207-:61394326).
 - **Grid activity.** `Grid.h:93-117` counts active grid objects. Add and
   remove each test the live active flag. If removal leaves a stale member,
   insertion requires enough address evidence to detect reuse of that member.

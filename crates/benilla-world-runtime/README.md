@@ -735,9 +735,11 @@ The pinned CMaNGOS Classic `8ec338a1` contract is:
   `Map.cpp:496-497,1579-1584` registers the object as active.
 - Silithus inherits the base GameObject create handler. It leaves
   non-capture points unchanged. Capture points use the saved slider and lock
-  for their entry, or start at 50 and unlocked. The Eastern Plaguelands
-  callback runs the base and refuses at its entry switch (`OutdoorPvP.cpp:80-92`,
-  `GameObject.cpp:2230-2251`, `OutdoorPvPEP.cpp:115-117`).
+  for their entry, or start at 50 and unlocked (`OutdoorPvP.cpp:80-92`,
+  `GameObject.cpp:2230-2251`). The Eastern Plaguelands callback runs the base,
+  records shrine and fixed banner GUIDs, and sets fixed banner art kits
+  (`OutdoorPvPEP.cpp:113-149,346-349`). Generic banners refuse at the first
+  point-to-XY distance check (`OutdoorPvPEP.cpp:133`).
 - Large objects compare their effective visibility distance with 200 yards.
   `ObjectVisibility.cpp:53-59` gives an existing object override precedence over
   the map distance. `GameObject.cpp:2209-2212` supplies the default object radius.

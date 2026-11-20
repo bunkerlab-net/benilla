@@ -95,7 +95,10 @@ fn classic_registers_only_two_main_zones_and_queues_before_any_mutation() {
         Some(PlaguelandsPvp {
             towers: [0; 2],
             tower_world_states: [2352, 2355, 2361, 2353],
-            tower_owners: [0; 4]
+            tower_owners: [0; 4],
+            tower_banners: Default::default(),
+            lordaeron_shrine_alliance: SourceGuid::default(),
+            lordaeron_shrine_horde: SourceGuid::default(),
         })
     );
     assert_eq!(
@@ -118,6 +121,14 @@ fn classic_registers_only_two_main_zones_and_queues_before_any_mutation() {
     assert_eq!(world.pending(), 0);
     assert_eq!(work.graveyards.entries()[&139][0].team, 1);
 }
+
+#[test]
+fn banner_art_kit_uses_each_source_team_arm() {
+    assert_eq!(banner_art_kit(469), 2);
+    assert_eq!(banner_art_kit(67), 1);
+    assert_eq!(banner_art_kit(0), 21);
+}
+
 #[test]
 fn current_map_traversal_queues_only_map_zero_and_disabled_config_has_null_scripts() {
     let mut manager = SourceOutdoorPvp::default();
