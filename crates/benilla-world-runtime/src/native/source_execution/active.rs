@@ -14,51 +14,51 @@ impl SourcePose {
     }
 }
 #[derive(Default)]
-pub struct SourceActive {
+pub(super) struct SourcePointerSet {
     members: BTreeMap<ObjectHandle, Option<u64>>,
     ordered: BTreeMap<u64, ObjectHandle>,
-    cursor: Option<ObjectHandle>,
-    walking: bool,
 }
-impl SourceActive {
+impl SourcePointerSet {
     pub(super) fn contains(&self, object: ObjectHandle) -> bool {
         self.members.contains_key(&object)
     }
-    // Identity enumeration is only for order-independent consumers; EntitiesMgr.h:43.
-    pub fn members(&self) -> impl Iterator<Item = ObjectHandle> + '_ {
+
+    // Membership enumeration is for order-independent consumers only.
+    pub(super) fn members(&self) -> impl Iterator<Item = ObjectHandle> + '_ {
         self.ordered.values().copied().chain(
             self.members
                 .iter()
                 .filter_map(|(&object, pointer)| pointer.is_none().then_some(object)),
         )
     }
-    pub fn len(&self) -> usize {
+
+    pub(super) fn len(&self) -> usize {
         self.members.len()
     }
-    pub fn is_empty(&self) -> bool {
-        self.members.is_empty()
+
+    fn all_addresses_known(&self) -> bool {
+        self.members.len() == self.ordered.len()
     }
-    fn insert(&mut self, object: ObjectHandle, pointer: Option<u64>) -> Result<bool> {
-        if self.members.contains_key(&object) {
+
+    pub(super) fn insert(
+        &mut self,
+        object: ObjectHandle,
+        pointer: Option<u64>,
+        duplicate_pointer: &str,
+        before_insert: impl FnOnce(&Self) -> Result<()>,
+    ) -> Result<bool> {
+        if self.contains(object) {
             return Ok(false);
         }
-        // An unknown insertion rank can change this live walk; Map.cpp:945-952.
-        require(
-            !self.walking
-                || (pointer.is_some()
-                    && (self.cursor.is_none() || self.members.len() == self.ordered.len())),
-            "execution.map.active_pointer_order_owner",
-        )?;
+        before_insert(self)?;
         if let Some(pointer) = pointer {
-            require(
-                !self.ordered.contains_key(&pointer),
-                "execution.active.pointer_lifetime",
-            )?;
+            require(!self.ordered.contains_key(&pointer), duplicate_pointer)?;
             self.ordered.insert(pointer, object);
         }
         self.members.insert(object, pointer);
         Ok(true)
     }
+
     fn following(&self, object: ObjectHandle) -> Option<ObjectHandle> {
         self.members[&object].and_then(|pointer| {
             self.ordered
@@ -67,36 +67,75 @@ impl SourceActive {
                 .map(|(_, &object)| object)
         })
     }
-    fn remove(&mut self, object: ObjectHandle) -> Result<bool> {
-        // Erasing find(end) with a live non-end cursor is undefined; Map.cpp:1612-1615.
-        require(
-            self.cursor.is_none() || self.members.contains_key(&object),
-            "execution.map.active_erase_end_undefined",
-        )?;
-        if self.cursor == Some(object) {
-            self.cursor = self.following(object);
-        }
+
+    pub(super) fn remove(&mut self, object: ObjectHandle) -> bool {
         let Some(pointer) = self.members.remove(&object) else {
-            return Ok(false);
+            return false;
         };
         if let Some(pointer) = pointer {
             self.ordered.remove(&pointer);
         }
-        Ok(true)
+        true
+    }
+}
+
+#[derive(Default)]
+pub struct SourceActive {
+    set: SourcePointerSet,
+    cursor: Option<ObjectHandle>,
+    walking: bool,
+}
+impl SourceActive {
+    pub(super) fn contains(&self, object: ObjectHandle) -> bool {
+        self.set.contains(object)
+    }
+    // Identity enumeration is only for order-independent consumers; EntitiesMgr.h:43.
+    pub fn members(&self) -> impl Iterator<Item = ObjectHandle> + '_ {
+        self.set.members()
+    }
+    pub fn len(&self) -> usize {
+        self.set.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+    fn insert(&mut self, object: ObjectHandle, pointer: Option<u64>) -> Result<bool> {
+        self.set.insert(
+            object,
+            pointer,
+            "execution.active.pointer_lifetime",
+            |set| {
+                // An unknown insertion rank can change this live walk; Map.cpp:945-952.
+                require(
+                    !self.walking
+                        || (pointer.is_some()
+                            && (self.cursor.is_none() || set.all_addresses_known())),
+                    "execution.map.active_pointer_order_owner",
+                )
+            },
+        )
+    }
+    fn remove(&mut self, object: ObjectHandle) -> Result<bool> {
+        // Erasing find(end) with a live non-end cursor is undefined; Map.cpp:1612-1615.
+        require(
+            self.cursor.is_none() || self.contains(object),
+            "execution.map.active_erase_end_undefined",
+        )?;
+        if self.cursor == Some(object) {
+            self.cursor = self.set.following(object);
+        }
+        Ok(self.set.remove(object))
     }
     // Unknown pointer rank matters only with multiple members; Map.cpp:945-952.
     pub fn begin_visit(&mut self) -> Result<()> {
         require(!self.walking, "execution.active.nested_traversal")?;
         require(
-            self.members.len() <= 1 || self.members.len() == self.ordered.len(),
+            self.len() <= 1 || self.set.all_addresses_known(),
             "execution.map.active_pointer_order_owner",
         )?;
         self.walking = true;
-        self.cursor = self
-            .ordered
-            .first_key_value()
-            .map(|(_, &object)| object)
-            .or_else(|| self.members.first_key_value().map(|(&object, _)| object));
+        let first = self.members().next();
+        self.cursor = first;
         Ok(())
     }
     pub fn next_member(&mut self) -> Result<Option<ObjectHandle>> {
@@ -105,7 +144,7 @@ impl SourceActive {
             return Ok(None);
         };
         // Advance before callbacks; removing the next member advances again; Map.cpp:952,1613-1614.
-        self.cursor = self.following(object);
+        self.cursor = self.set.following(object);
         Ok(Some(object))
     }
     pub fn finish_visit(&mut self) {
