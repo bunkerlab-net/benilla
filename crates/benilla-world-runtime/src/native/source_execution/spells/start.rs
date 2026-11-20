@@ -36,10 +36,10 @@ impl SourceSpell {
         flags: SpellTriggerFlags,
         owner: &mut (impl SpellExecutionOwner + ?Sized),
     ) -> Result<Self> {
-        let script = stores
-            .script_binding(SpellScriptKind::Spell, spell)?
-            .is_some();
-        stores.script_binding(SpellScriptKind::Aura, spell)?;
+        // Spell.cpp:388. Load the two bases independently before OnInit.
+        let untyped = "execution.spells.Spell_388.script_binding_owner";
+        let spell_script = stores.typed_script(SpellScriptKind::Spell, spell, untyped)?;
+        let aura_script = stores.typed_script(SpellScriptKind::Aura, spell, untyped)?;
         let t = stores
             .template(spell)
             .ok_or_else(|| refuse("execution.spells.missing_template"))?;
@@ -71,7 +71,8 @@ impl SourceSpell {
         value.affective_caster = affective;
         value.school_mask = school;
         value.creation_time = owner.map_time(caster)?;
-        value.script_present = script;
+        value.script_present = spell_script.is_some();
+        value.aura_script = aura_script;
         value.reflectable = Some(
             t.dmgclass == 1
                 && t.attributes & 0x20000050 == 0
@@ -80,7 +81,7 @@ impl SourceSpell {
         );
         // SpellTargets.cpp:503-505 returns exactly 10; only the loaded map is missing.
         value.filtering_scheme = Some(owner.targeting_data(spell)?);
-        if script {
+        if value.script_present {
             owner.call(&mut value, SpellCall::Init)?;
         }
         Ok(value)

@@ -34,6 +34,7 @@ impl SpellLoaderOwner for Known {
                 SpellScriptBinding {
                     name: name.into(),
                     registration: 7,
+                    script: None,
                 }
             }),
         )

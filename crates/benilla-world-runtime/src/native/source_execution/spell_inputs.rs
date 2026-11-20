@@ -35,10 +35,7 @@ pub trait SpellLoaderOwner {
         kind: SpellScriptKind,
         _name: &[u8],
     ) -> Result<Option<SpellScriptBinding>> {
-        Err(refuse(match kind {
-            SpellScriptKind::Spell => "execution.spells.spell_script_registry_owner",
-            SpellScriptKind::Aura => "execution.spells.aura_script_registry_owner",
-        }))
+        Err(refuse(kind.registry_owner()))
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -125,10 +122,19 @@ pub enum SpellScriptKind {
     Spell,
     Aura,
 }
+impl SpellScriptKind {
+    pub(super) fn registry_owner(self) -> &'static str {
+        match self {
+            Self::Spell => "execution.spells.spell_script_registry_owner",
+            Self::Aura => "execution.spells.aura_script_registry_owner",
+        }
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SpellScriptBinding {
     pub name: Box<[u8]>,
     pub registration: u64,
+    pub script: Option<SourceSpellScript>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SpellLearned {

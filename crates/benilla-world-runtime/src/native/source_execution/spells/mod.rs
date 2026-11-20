@@ -27,6 +27,8 @@ mod procs;
 pub use procs::ProcTriggerExit;
 mod range;
 mod resistance;
+mod scripts;
+pub use scripts::{SourceSpellScript, SourceSpellScriptRegistry};
 mod shapeshift;
 pub use resistance::*;
 mod stacking;

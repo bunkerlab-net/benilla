@@ -148,7 +148,12 @@ impl SourceSpell {
             self.targets.mask & 0x1000 == 0,
             "execution.spells.Spell_3256.updateTradeSlotItem_owner",
         )?;
-        self.duration = effects.duration(t)?;
+        let duration = effects.duration(t)?;
+        require(
+            self.aura_script.is_none(),
+            "execution.spells.Spell_3258.OnDurationCalculate_owner",
+        )?;
+        self.duration = duration;
         effects.fill_self_targets(self, t)?;
         effects.send_cooldown(self, t)?;
         if effects.cast_unit().has_ai && self.flags.notify_ai() {

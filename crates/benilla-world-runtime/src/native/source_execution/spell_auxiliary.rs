@@ -42,6 +42,16 @@ impl SourceSpellStores {
             SpellScriptKind::Aura => self.aura_scripts.get(&id),
         })
     }
+    pub(in super::super) fn typed_script(
+        &self,
+        kind: SpellScriptKind,
+        id: u32,
+        untyped_binding: &str,
+    ) -> Result<Option<SourceSpellScript>> {
+        self.script_binding(kind, id)?
+            .map(|binding| binding.script.ok_or_else(|| refuse(untyped_binding)))
+            .transpose()
+    }
     pub(in super::super) fn is_talent(&self, id: u32) -> bool {
         self.talent_spells.contains(&id)
     }
@@ -172,7 +182,7 @@ impl SourceSpellStores {
         );
         Ok(None)
     }
-    pub(super) fn bind_script(
+    pub(in super::super) fn bind_script(
         &mut self,
         id: u32,
         name: &[u8],

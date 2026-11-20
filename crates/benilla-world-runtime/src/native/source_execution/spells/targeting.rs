@@ -274,6 +274,10 @@ impl SelfSpellTargeting<'_> {
             return Ok(());
         }
         let duration = creature_self_aura_duration(self.stores, t)?;
+        require(
+            s.aura_script.is_none(),
+            "execution.spells.Spell_944.OnDurationCalculate_owner",
+        )?;
         // Unit.cpp:2900-2925. Positive self aura: immunity, no hit roll.
         require(
             positive_unit_spell(self.stores, t, u32::from(mask), Some((s.caster, s.caster)))?,

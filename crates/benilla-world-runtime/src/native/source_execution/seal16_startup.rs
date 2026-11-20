@@ -63,7 +63,7 @@ const MAP0_NEXT_RAW: usize = 32650; // GUID156055's respawn delay, :61417987.
 const MAP0_FIRST_STORMWIND_LINE: u64 = 61339352;
 // The third addon Spell starts after the second effect clock at :61417925.
 const MAP0_NEXT_OWNER_LINE: u64 = 61417926;
-const MAP0_NEXT_SOURCE: &str = "Spell.cpp:388";
+const MAP0_NEXT_SOURCE: &str = "Spell.cpp:3258";
 const MAP0_LAST_STORMWIND_COMPLETION: u64 = 61390644;
 
 #[derive(Default)]
@@ -2495,7 +2495,15 @@ pub(super) fn continue_startup(
         &gameobject_templates,
     );
     struct AddonSpellOwners;
-    impl SpellLoaderOwner for AddonSpellOwners {}
+    impl SpellLoaderOwner for AddonSpellOwners {
+        fn script(
+            &mut self,
+            kind: SpellScriptKind,
+            name: &[u8],
+        ) -> Result<Option<SpellScriptBinding>> {
+            SourceSpellScriptRegistry.script(kind, name)
+        }
+    }
     let addon_spells = SourceSpellStores::load(catalog, &mut AddonSpellOwners).unwrap();
     let filtered =
         super::super::spawn_loader_config::assignment(&config, "LogFilter_DbStrictedCheck")

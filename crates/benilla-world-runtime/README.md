@@ -2695,8 +2695,9 @@ Eastern Plaguelands creature creation completes for GUID59514
 with both Shadowform effects applied (trace :61406096-61406116).
 Type 126 has no immediate effect (`SpellAuras.cpp:187`).
 GUID156055 applies both detection auras (trace :61417867-61417925).
-Its Greater Invisibility cast stops at the spell script registry lookup
-(`Spell.cpp:388`, stock SQL :836881).
+The spell script registry binds Greater Invisibility as an AuraScript
+(stock SQL :836881) and refuses the other 577 rows by script name.
+The cast stops at its first duration hook (`Spell.cpp:3258`).
 Map 1 completes all 531 active preload objects in 571 allocations. It matches
 15,783 random words, 535 clocks, 35 paths, and two map SQL requests.
 Silithyst Geyser GUID49337 completes at trace :60741339.

@@ -57,6 +57,30 @@ pub struct SourceAuraHolder {
     pub effects: [Option<SourceAura>; 3],
 }
 impl SourceAuraHolder {
+    pub(super) fn for_self_spell(
+        stores: &SourceSpellStores,
+        t: &SpellTemplate,
+        target: ObjectHandle,
+        triggered_by: Option<u32>,
+        seconds: impl FnOnce() -> Result<i64>,
+    ) -> Result<Self> {
+        // SpellAuras.cpp:5164,5174,5185. The script read precedes the clock.
+        let script = stores.typed_script(
+            SpellScriptKind::Aura,
+            t.id,
+            "execution.spells.SpellAuras_5164.script_binding_owner",
+        )?;
+        let time = seconds()?;
+        let duration = creature_self_aura_duration(stores, t)?;
+        require(
+            script.is_none(),
+            "execution.spells.SpellAuras_5185.OnDurationCalculate_owner",
+        )?;
+        let mut holder = Self::new(t, target, time, 0, duration)?;
+        holder.triggered_by = triggered_by;
+        Ok(holder)
+    }
+
     pub fn new(
         t: &SpellTemplate,
         target: ObjectHandle,
@@ -305,12 +329,6 @@ pub fn creature_self_aura_duration(stores: &SourceSpellStores, t: &SpellTemplate
     if value != -1 && t.attributesex3 & 0x2000_0000 == 0 {
         source_spell_max_duration(spell_duration_word(row, 3)?)?;
     }
-    require(
-        stores
-            .script_binding(SpellScriptKind::Aura, t.id)?
-            .is_none(),
-        "execution.spells.AuraScript_OnDurationCalculate_owner",
-    )?;
     Ok(value)
 }
 
@@ -397,12 +415,13 @@ impl SourceSpell {
             .enumerate()
             .any(|(i, effect)| mask & (1 << i) != 0 && matches!(effect.effect, 6 | 27 | 35 | 119))
         {
-            // SpellAuras.cpp:5174-5185. Holder time precedes duration calculation.
-            let time = owner.aura_holder_seconds(self)?;
-            let duration = creature_self_aura_duration(stores, t)?;
-            let mut holder = SourceAuraHolder::new(t, target_unit, time, 0, duration)?;
-            holder.triggered_by = self.triggered_by_aura;
-            self.pending_aura = Some(holder);
+            self.pending_aura = Some(SourceAuraHolder::for_self_spell(
+                stores,
+                t,
+                target_unit,
+                self.triggered_by_aura,
+                || owner.aura_holder_seconds(self),
+            )?);
         }
         for (i, effect) in t.effects().iter().enumerate() {
             if mask & (1 << i) == 0 {
