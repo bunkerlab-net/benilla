@@ -471,6 +471,42 @@ impl SpellExecutionOwner for Owner<'_> {
                 },
             );
         }
+        if let SpellCheck::TargetFilter(index) = check {
+            let relations = SourceCasterRelations {
+                caster: self.object,
+                objects: self.objects,
+                flags: self.live.flags,
+                control_guids: self.live.control_guids,
+            };
+            let result =
+                spell.check_target_filter(t, usize::from(index), self.objects, &relations)?;
+            if self.object.thread == 7
+                && t.id == 11966
+                && self.objects.get(self.object)?.database_guid == 33193
+            {
+                // SQL :154000, :426295, :847002; trace :60881926 and :60881944.
+                assert_eq!(index, 0);
+                assert_eq!(t.effects().map(|effect| effect.target_a), [21, 0, 0]);
+                assert_eq!(t.effects().map(|effect| effect.target_b), [0; 3]);
+                let data = SPELL_TARGET_INFO_TABLE[21];
+                assert_eq!(
+                    (data.target_type, data.filter, data.enumerator),
+                    (
+                        SpellTargetImplicitType::Unit,
+                        SpellTargetFilter::Helpful,
+                        SpellTargetEnumerator::Single,
+                    )
+                );
+                assert_eq!(spell.targets.unit, Some(self.object));
+                assert_eq!(
+                    (spell.caster, spell.original_caster),
+                    (self.object, self.object)
+                );
+                assert_eq!(*self.live.flags & 0x0200_0008, 0);
+                assert_eq!(result, SpellCastResult::Ok);
+            }
+            return Ok(result);
+        }
         if let SpellCheck::AllowedInLocation(location) = check {
             let player =
                 spell_beneficiary_from_guids(self.objects, self.object, *self.live.control_guids)?;

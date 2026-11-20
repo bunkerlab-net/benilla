@@ -152,7 +152,12 @@ impl SpellCastEffects for Owner<'_> {
             level: self.level,
             immunities: self.immunities,
             auras: self.auras,
-            relations: self,
+            relations: &SourceCasterRelations {
+                caster: self.object,
+                objects: self.objects,
+                flags: self.flags,
+                control_guids: self.control_guids,
+            },
         }
         .fill(s, t, |selection| {
             if observe_area {

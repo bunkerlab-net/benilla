@@ -2693,11 +2693,15 @@ Type 126 has no immediate effect (`SpellAuras.cpp:187`).
 GUID156055 applies both detection auras (trace :61417867-61417925).
 Its Greater Invisibility cast stops at the spell script registry lookup
 (`Spell.cpp:388`, stock SQL :836881).
-Map 1 completes 380 objects in 421 allocations. It matches 14,731 random
-words, 382 clocks, 31 paths, and two map SQL requests. The Silithyst
-Geyser GUID49337 completes at trace :60741339. Searing Infernal GUID33193
-stops at Fire Shield's helpful target check (`Spell.cpp:5086`), before
-the location lookup at trace :60881978.
+Map 1 completes 398 objects in 439 allocations. It matches 14,857 random
+words, 405 clocks, 31 paths, and two map SQL requests. The Silithyst Geyser
+GUID49337 completes at trace :60741339. Searing Infernal GUID33193 passes
+Fire Shield's helpful self-target check (`Spell.cpp:5086`, `Relations.cpp:204,504`)
+and completes at trace :60882413. The replay stops at Wildthorn Lurker
+GUID34917's Hide aura (`SpellAuras.cpp:2568`, after trace :60901711).
+Addon and EventAI casts share caster-only relation operands. A helpful cast
+on another unit stops at the first target flag read. Harmful unit filters
+stop at `CanAttackSpell` (`Relations.cpp:1065`).
 Recorded allocation addresses are never supplied as execution inputs.
 The world-thread clone-only next-word check matches `(8712,3411341330)`.
 Global event/status/quest comparisons and WorldState remain beyond the map

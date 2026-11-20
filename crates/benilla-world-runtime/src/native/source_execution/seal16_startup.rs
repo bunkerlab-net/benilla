@@ -959,8 +959,8 @@ fn tm(p: &[&str]) -> Tm {
         isdst: n(8),
     }
 }
-// Spell.cpp:5086 checks Fire Shield's helpful target before the first aura clock.
-const MAP1_NEXT_OWNER_LINE: u64 = 60882188;
+// SpellAuras.cpp:2568 dispatches Hide after the effect clock, before the respawn draw.
+const MAP1_NEXT_OWNER_LINE: u64 = 60901712;
 
 #[derive(Default)]
 struct MapThreadEvidence {
@@ -3927,8 +3927,8 @@ pub(super) fn continue_startup(
                     (60553163, 35884),
                 ]
             );
-            // :60741339-:60857588 adds 63 completions.
-            assert_eq!(completed_objects.len(), 380);
+            // :60882413-:60901023 adds 18 completions.
+            assert_eq!(completed_objects.len(), 398);
             assert_eq!(evidence.sql_lines, [60101153, 60113864]);
             relations_evidence::assert_after_area_cast(
                 &evidence.continuation_births,
@@ -4211,17 +4211,25 @@ pub(super) fn continue_startup(
                 "grid_battleground_null",
             ]));
 
-            // :60857630-:60857660 binds GUID33193. :60857932 adds it to the map.
-            // SQL :154000 selects Fire Shield on self. The relation check at
-            // Spell.cpp:5086 precedes the location query at :60881978.
+            // :60857630-:60857660 binds GUID33193. Fire Shield finishes before
+            // the loader completes at :60882413.
+            let infernal = completed_objects[380];
+            let object = active_objects.get(infernal).unwrap();
             assert_eq!(
-                (attempt.guid, attempt.kind, entry),
-                (33193, GridSpawnKind::Creature, 6073)
+                (
+                    object.database_guid,
+                    object.kind,
+                    object.guid.unwrap().entry()
+                ),
+                (33193, SourceObjectKind::Creature, 6073)
             );
-            assert_eq!((attempt.cell.x(), attempt.cell.y()), (576, 422));
-            assert_eq!((attempt.grid.x, attempt.grid.y), (36, 26));
-            assert!(!completed_objects.contains(&candidate));
-            assert!(active_objects.get(candidate).unwrap().in_world);
+            let cell = continents.maps[slot]
+                .cells
+                .registered_cell(infernal)
+                .unwrap();
+            assert_eq!((cell.x, cell.y), (576, 422));
+            assert_eq!((cell.grid.x, cell.grid.y), (36, 26));
+            assert!(object.in_world);
             assert_eq!(
                 zone_lookups[&SpawnKey {
                     kind: GridSpawnKind::Creature,
@@ -4229,15 +4237,58 @@ pub(super) fn continue_startup(
                 }][0],
                 331
             );
-            let infernal = units.get(&active_objects, candidate).unwrap();
-            assert!(infernal
-                .spell_starts
-                .spells
-                .values()
-                .any(|spell| spell.spell == 11966
-                    && spell.caster == candidate
-                    && spell.targets.unit == Some(candidate)));
-            assert!(infernal.auras.first_aura_holder(11966).is_none());
+            let spawn = event_ais[&infernal]
+                .holders
+                .iter()
+                .find(|holder| holder.event.id == 607301)
+                .unwrap();
+            // SQL :154000: spawned event, cast action, self target, flags 34.
+            assert_eq!(spawn.event.kind, 11);
+            assert_eq!(spawn.event.actions[0].kind, 11);
+            assert_eq!(spawn.event.actions[0].params, Some([11966, 0, 34]));
+            assert_eq!(
+                &evidence.words[14729..14731],
+                &[(60881926, 14729, 1206847406), (60881944, 14730, 3659541851)]
+            );
+            let live = units.get(&active_objects, infernal).unwrap();
+            assert_eq!(live.faction, 90);
+            assert!(live.spell_starts.spells.values().any(|spell| {
+                spell.spell == 11966
+                    && spell.caster == infernal
+                    && spell.targets.unit == Some(infernal)
+                    && spell.state == SourceSpellState::Finished
+            }));
+            let fire_shield = live.auras.first_aura_holder(11966).unwrap();
+            assert_eq!(
+                (fire_shield.caster, fire_shield.target),
+                (infernal, infernal)
+            );
+            assert_eq!(fire_shield.apply_time, 1794314191); // :60882189.
+            let effect = fire_shield.effects[0].as_ref().unwrap();
+            assert_eq!(
+                (effect.kind, effect.applied, effect.apply_time),
+                (23, true, 1794314191)
+            ); // :60882369.
+
+            // :60901026-:60901052 binds the Lurker. Its addon list
+            // (SQL :434253) runs before AddToWorld at :60901725.
+            assert_eq!(
+                (attempt.guid, attempt.kind, entry),
+                (34917, GridSpawnKind::Creature, 3821)
+            );
+            assert!(!completed_objects.contains(&candidate));
+            assert!(!active_objects.get(candidate).unwrap().in_world);
+            let lurker = units.get(&active_objects, candidate).unwrap();
+            let proc = lurker.auras.first_aura_holder(3616).unwrap();
+            assert!(proc.effects[0].as_ref().unwrap().applied); // :60901410-:60901471.
+            let hide = lurker.auras.first_aura_holder(6920).unwrap();
+            assert_eq!((hide.caster, hide.target), (candidate, candidate));
+            assert_eq!(hide.apply_time, 1794314191); // :60901688.
+            let effect = hide.effects[0].as_ref().unwrap();
+            assert_eq!(
+                (effect.kind, effect.applied, effect.apply_time),
+                (16, false, 1794314191)
+            ); // :60901711.
             assert_eq!(refusal.id, active_init::CREATURE_NEXT_OWNER[1]);
             let stat_aura = SpellTemplate {
                 effect1: 6,
@@ -4895,8 +4946,8 @@ pub(super) fn continue_startup(
             assert_eq!(live.spline_outbound[0].unit, candidate);
             assert_eq!(live.spline_outbound[0].transport, None);
             // Recording60433815 consumes equal-bound word12623 at Creature.cpp:1563.
-            // :60881944 consumes the second Fire Shield EventAI word.
-            assert_eq!(random.cursor().raw, 14731);
+            // :60901612 consumes Hide's equal-bound spell cooldown word.
+            assert_eq!(random.cursor().raw, 14857);
             assert_eq!(evidence.words[12623], (60433815, 12623, 1799183854));
             relations_evidence::assert_words(&evidence.words);
             assert_eq!(
@@ -5427,7 +5478,9 @@ pub(super) fn continue_startup(
         // Four more Idle completions: :61406116, :61406556, :61411680, :61412176.
         // Map 1 adds 11 Idle completions, SQL :117818-117825, :117829, :117831-117832.
         // GUID43073 adds Idle on map 1 (SQL :117830, trace :60749065).
-        assert_eq!(idle_count, if slot == 0 { 215 } else { 35 });
+        // :60894287-:60897433 adds five Idle creatures (SQL :109608,
+        // :109418, :109421-:109422 and :109427).
+        assert_eq!(idle_count, if slot == 0 { 215 } else { 40 });
         if slot == 1 {
             // :60777881 binds GUID42899's fixed-path movement type.
             let fixed = completed_objects
@@ -5793,9 +5846,9 @@ pub(super) fn continue_startup(
             ))
         );
         assert_eq!(attempt.guid, if slot == 0 { 18 } else { 28044 });
-        // :61406118-61417596 adds 23 map-0 births. Map 1 adds 68 births
-        // at :60741347-:60857633.
-        assert_eq!(candidates, if slot == 0 { 1196 } else { 421 });
+        // :61406118-61417596 adds 23 map-0 births. Map 1 adds 18 births
+        // at :60882448-:60901026.
+        assert_eq!(candidates, if slot == 0 { 1196 } else { 439 });
         assert_eq!(entry, if slot == 0 { 3211 } else { 4692 });
         if slot == 0 {
             assert_eq!(init_entry_fields, None);
@@ -5921,9 +5974,12 @@ pub(super) fn continue_startup(
                     // Six further probes run from :60608903 through :60616191.
                     // Eleven more dry probes (:60623557 through :60649738).
                     // The next 52 pre-world probes run from :60741676 through :60855817.
-                    reached_441: 169,
-                    swimming_set: 4,
-                    swimming_not_set: 165,
+                    // :60884694-:60899783 has 11 more pre-world probes.
+                    // The water in 0012737.map admits five: :60884694, :60888191,
+                    // :60891045, :60892508 and :60898087.
+                    reached_441: 180,
+                    swimming_set: 9,
+                    swimming_not_set: 171,
                     ..SourceCreatureSwimmingCensus::default()
                 }
             );
@@ -6086,8 +6142,8 @@ pub(super) fn continue_startup(
                 attempt.cell.y(),
             ))
         );
-        // :61417594 completes GUID90952. Map 1 reaches GUID43735 at :60857588.
-        assert_eq!(completed, if slot == 0 { 1119 } else { 380 });
+        // :61417594 completes GUID90952. Map 1 reaches GUID32972 at :60901023.
+        assert_eq!(completed, if slot == 0 { 1119 } else { 398 });
         println!(
             "F6_VISIBILITY map={slot} census={visibility:?} invalidated_camera_iterator_stock_reach={}",
             visibility.cameras
@@ -6112,7 +6168,7 @@ pub(super) fn continue_startup(
             if slot == 0 {
                 MAP0_NEXT_RAW as u64
             } else {
-                after_pools_cursor + 2836 // Last word at :60881944.
+                after_pools_cursor + 2962 // Last word at :60901612.
             }
         );
         matched_map_words[slot] = random.cursor().raw;
@@ -6184,7 +6240,7 @@ pub(super) fn continue_startup(
             evidence.pool_snapshot_line.unwrap(),
             encounters.by_map(slot as u32).len(),
             refusal.id,
-            if slot == 0 { MAP0_NEXT_SOURCE } else { "Spell.cpp:5086" },
+            if slot == 0 { MAP0_NEXT_SOURCE } else { "SpellAuras.cpp:2568" },
         );
         owner.states = states;
         let raw = trace

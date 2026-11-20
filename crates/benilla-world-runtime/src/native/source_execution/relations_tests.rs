@@ -66,6 +66,83 @@ fn relations_identity_precedes_all_reaction_reads_but_not_uninteractible() {
 }
 
 #[test]
+fn caster_relations_helpful_filter_accepts_self_and_refuses_other_unit_flags() {
+    let mut f = PowerFixture::new();
+    let target = f.objects.construct(1, SourceObjectKind::Creature).unwrap();
+    let t = SpellTemplate {
+        id: 7,
+        effectimplicittargeta1: 21,
+        ..Default::default()
+    };
+    let mut spell = f.spell(&t);
+    let live = f.units.get_mut(&f.objects, f.caster).unwrap();
+    live.flags = 0;
+    let (cast, _, _) = live.borrow_cast();
+    let relations = SourceCasterRelations {
+        caster: f.caster,
+        objects: &f.objects,
+        flags: cast.flags,
+        control_guids: cast.control_guids,
+    };
+    // Relations.cpp:203-204 returns before the unbound faction read.
+    assert_eq!(unit_reaction_to(f.caster, f.caster, &relations).unwrap(), 4);
+    assert_eq!(
+        relations.relation_faction(f.caster).unwrap_err().id,
+        "execution.relations.GetFactionTemplateEntry_6209_owner"
+    );
+    // Relations.cpp:503-504 accepts the uncontrolled creature.
+    spell.targets.unit = Some(f.caster);
+    assert_eq!(
+        spell
+            .check_target_filter(&t, 0, &f.objects, &relations)
+            .unwrap(),
+        SpellCastResult::Ok
+    );
+    spell.targets.unit = Some(target);
+    assert_eq!(
+        spell
+            .check_target_filter(&t, 0, &f.objects, &relations)
+            .unwrap_err()
+            .id,
+        "execution.relations.cast_other_unit_flags_owner"
+    );
+}
+
+#[test]
+fn caster_relations_resolves_live_creator_and_refuses_other_unit_master() {
+    let mut f = PowerFixture::new();
+    let creator = f.objects.construct(1, SourceObjectKind::Creature).unwrap();
+    let creator_guid = SourceGuid::with_entry(HighGuid::Creature, 1, 2);
+    let map = MapIdentity {
+        map: 1,
+        instance: 0,
+        creation_generation: 1,
+    };
+    for (unit, guid) in [
+        (f.caster, SourceGuid::with_entry(HighGuid::Creature, 1, 1)),
+        (creator, creator_guid),
+    ] {
+        f.objects.assign_guid(unit, 0, guid).unwrap();
+        f.objects.get_mut(unit).unwrap().map = Some(map);
+        f.objects.add_to_world(unit).unwrap();
+    }
+    let live = f.units.get_mut(&f.objects, f.caster).unwrap();
+    live.control_guids.creator = creator_guid;
+    let (cast, _, _) = live.borrow_cast();
+    let relations = SourceCasterRelations {
+        caster: f.caster,
+        objects: &f.objects,
+        flags: cast.flags,
+        control_guids: cast.control_guids,
+    };
+    assert_eq!(relations.relation_master(f.caster).unwrap(), Some(creator));
+    assert_eq!(
+        relations.relation_master(creator).unwrap_err().id,
+        "execution.relations.Unit_6582.cast_other_unit_fields_owner"
+    );
+}
+
+#[test]
 fn relations_live_player_control_and_pvp_master_boundaries() {
     struct AuthoredMaster<'a> {
         flags: SourceRelations<'a>,

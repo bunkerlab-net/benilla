@@ -53,6 +53,33 @@ impl SourceRelationOwner for SourceRelations<'_> {
     }
 }
 
+/// Live relation operands available while a cast borrows its caster.
+pub struct SourceCasterRelations<'a> {
+    pub caster: ObjectHandle,
+    pub objects: &'a SourceObjects,
+    pub flags: &'a u32,
+    pub control_guids: &'a SourceControlGuids,
+}
+impl SourceRelationOwner for SourceCasterRelations<'_> {
+    fn relation_flags(&self, unit: ObjectHandle) -> Result<u32> {
+        require(
+            unit == self.caster,
+            "execution.relations.cast_other_unit_flags_owner",
+        )?;
+        Ok(*self.flags)
+    }
+    fn relation_master(&self, unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        require(
+            unit == self.caster,
+            "execution.relations.Unit_6582.cast_other_unit_fields_owner",
+        )?;
+        Ok(self
+            .control_guids
+            .get_master(self.objects, unit, None, unbound_pet_loading)?
+            .unit())
+    }
+}
+
 /// The live update fields read by Unit.h:2566,2572, independent of object handles.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SourceControlGuids {

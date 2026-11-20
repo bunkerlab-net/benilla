@@ -295,25 +295,6 @@ pub(super) fn broadcast(
     objects.message_broadcast(object, cells, map_distance_bits, radius)
 }
 
-impl SourceRelationOwner for Owner<'_> {
-    fn relation_flags(&self, unit: ObjectHandle) -> Result<u32> {
-        require(
-            unit == self.object,
-            "execution.relations.addon_other_unit_flags_owner",
-        )?;
-        Ok(*self.flags)
-    }
-    fn relation_master(&self, unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
-        require(
-            unit == self.object,
-            "execution.relations.Unit_6582.addon_other_unit_fields_owner",
-        )?;
-        Ok(self
-            .control_guids
-            .get_master(self.objects, unit, None, unbound_pet_loading)?
-            .unit())
-    }
-}
 impl SpellLocationOwner for Owner<'_> {}
 impl SpellExecutionOwner for Owner<'_> {
     fn unit(&mut self, unit: ObjectHandle) -> Result<SpellUnitState> {
@@ -362,8 +343,14 @@ impl SpellExecutionOwner for Owner<'_> {
         use SpellCastResult as R;
         match check {
             SpellCheck::TargetFilter(index) => {
+                let relations = SourceCasterRelations {
+                    caster: self.object,
+                    objects: self.objects,
+                    flags: self.flags,
+                    control_guids: self.control_guids,
+                };
                 let result =
-                    spell.check_target_filter(t, usize::from(index), self.objects, self)?;
+                    spell.check_target_filter(t, usize::from(index), self.objects, &relations)?;
                 if self.object.thread == 7
                     && self.objects.get(self.object)?.database_guid == 27677
                     && t.id == 18148
@@ -375,7 +362,7 @@ impl SpellExecutionOwner for Owner<'_> {
                         (self.object, self.object)
                     );
                     assert_eq!(*self.flags, 0);
-                    assert_eq!(unit_reaction_to(self.object, self.object, self)?, 4);
+                    assert_eq!(unit_reaction_to(self.object, self.object, &relations)?, 4);
                     println!("F6_RELATIONS guid=27677 flags=0 identity_exit=Relations.cpp:204 assist_exit=Relations.cpp:504 raw={} relation_words=0 relation_sql=0 relation_clock=0", self.random.creature_raw_position()?);
                 }
                 Ok(result)

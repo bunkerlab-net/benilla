@@ -163,10 +163,12 @@ is meaningful without a bounded content/mechanics inventory.
   direct map-0 spawns, and 13 direct map-1 spawns. The Ten Hour War group
   adds eight conditional map-1 positions (`initial-classicmangos.sql:824204,
   826592-826593,830011-830018`).
-  Map 1 completes 380 objects with 421 allocations, 14,731 random words,
-  382 wall clocks, 31 paths, and two SQL requests. It stops at the helpful
-  target check for Fire Shield cast by Searing Infernal GUID33193
-  (`Spell.cpp:5086`, before trace :60881978).
+  Map 1 completes 398 objects with 439 allocations, 14,857 random words,
+  405 wall clocks, 31 paths, and two SQL requests. Searing Infernal GUID33193
+  passes Fire Shield's helpful self-target check (`Spell.cpp:5086`,
+  `Relations.cpp:204,504`) and completes at trace :60882413. The replay
+  stops at Wildthorn Lurker GUID34917's Hide aura (`SpellAuras.cpp:2568`,
+  after trace :60901711), before the creature enters the world.
   EventAI event 649101 replaces 10848 and adds a second passive 9036.
   `Unit.cpp:5326-5446,10856-10866` unlinks both indexes and defers disposal.
   Map 0 completes GUID4195 after event 26501's holder timer draw
