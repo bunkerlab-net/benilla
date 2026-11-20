@@ -54,10 +54,84 @@ const MAP0_EVENT_RAW: usize = 27682; // Event 26501 holder timer word, :60711960
 const MAP0_INVISIBILITY_RAW: usize = 27780; // First word after aura 18, :60774115.
 const MAP0_STANCE_RAW: usize = 28714; // First word after type 79, :60985315.
 const MAP0_FROST_ARMOR_RAW: usize = 30766; // First word after Frost Armor, :61221537.
-const MAP0_NEXT_RAW: usize = 31934; // First Stormwind guard timer word, :61339365.
+const MAP0_STORMWIND_RAW: usize = 31934; // First Stormwind guard word, :61339365.
+const MAP0_NEXT_RAW: usize = 32034; // First word after GUID10495, :61351335.
 
-// The Stormwind guard's Script::GetAI argument, ScriptDevAIMgr.cpp:370.
-const MAP0_NEXT_OWNER_LINE: u64 = 61339352;
+const MAP0_FIRST_STORMWIND_LINE: u64 = 61339352;
+// The damage-shield dispatch follows the effect clock at :61351114.
+const MAP0_NEXT_OWNER_LINE: u64 = 61351115;
+const MAP0_NEXT_SOURCE: &str = "SpellAuras.cpp:76";
+
+#[derive(Default)]
+struct StormwindTrace {
+    object: Option<u64>,
+    row: [u64; 15],
+    draws: usize,
+    completed: Vec<[u64; 15]>,
+}
+
+impl StormwindTrace {
+    fn observe(&mut self, line: u64, kind: &str, p: &[&str]) {
+        if kind == "script_factory_argument" && p.starts_with(&["196", "creature"]) {
+            assert!(self.object.replace(p[2].parse().unwrap()).is_none());
+            self.row = [0; 15];
+            self.row[1] = line;
+            self.draws = 0;
+        }
+        let Some(object) = self.object else { return };
+        match kind {
+            "rng_call" => {
+                let constructor = self.row[3] == 0;
+                assert_eq!(
+                    p,
+                    [
+                        "urand",
+                        "/reference/source/src/game/AI/ScriptDevAI/base/TimerAI.cpp",
+                        if constructor { "23" } else { "47" },
+                        "0",
+                        "0"
+                    ]
+                );
+            }
+            "mt_raw" => {
+                let raw = p[1].parse::<u64>().unwrap();
+                if self.draws == 0 {
+                    self.row[14] = raw;
+                }
+                assert_eq!(raw, self.row[14] + self.draws as u64);
+                assert!(self.draws < 8);
+                self.row[6 + self.draws] = line;
+                self.draws += 1;
+            }
+            "callback_dispatch" => match *p.last().unwrap() {
+                "SpellListChanged" => {
+                    assert_eq!(self.draws, 4);
+                    self.row[2] = line;
+                }
+                "JustRespawned" => {
+                    assert_eq!(self.draws, 4);
+                    assert_ne!(self.row[2], 0);
+                    self.row[3] = line;
+                }
+                "OnCreatureRespawn" => {
+                    assert_eq!(self.draws, 8);
+                    assert_ne!(self.row[3], 0);
+                    self.row[4] = line;
+                }
+                _ => {}
+            },
+            "constructor_loader_success" => {
+                assert_eq!(p[0].parse::<u64>().unwrap(), object);
+                assert_ne!(self.row[4], 0);
+                self.row[0] = p[1].parse().unwrap();
+                self.row[5] = line;
+                self.completed.push(self.row);
+                self.object = None;
+            }
+            _ => {}
+        }
+    }
+}
 
 fn retained_f1_file(root: &Path, recorded: &Path, expected: &Sha256Id) -> Result<Vec<u8>> {
     let prefix = recorded
@@ -96,7 +170,8 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
     // The GUID40520 birth was already counted. The remaining 53 births include
     // the trap at :60493861 and both duplicate creature attempts.
     // The continuation through the Bell GO adds 51 births, :60580681-60637267.
-    assert_eq!(evidence.continuation_births.len(), 932);
+    // :61339477-61350362 add 17 births after entering GUID10507's factory.
+    assert_eq!(evidence.continuation_births.len(), 949);
     let births = &evidence.continuation_births[1..54];
     assert_eq!((births[0], births[52]), (60478620, 60571587));
     assert_eq!(
@@ -266,7 +341,7 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
         "7039183a3878b9416a262d086c7dd55efdc9ba78eedc4200600b0427349130cc"
     );
     // GUID89544 was allocated at :61221027. The next 223 births end at GUID10507.
-    let births = &evidence.continuation_births[709..];
+    let births = &evidence.continuation_births[709..932];
     assert_eq!(
         (births.len(), births[0], births[222]),
         (223, 61222643, 61338937)
@@ -275,7 +350,7 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
         map0_receipt(births.iter().map(|&line| [line])),
         "890d5bf105cdd30059e69bdebd118160ab08b6f69d38d1d356dee5bcaccc0f54"
     );
-    let completions = &evidence.continuation_completed[680..];
+    let completions = &evidence.continuation_completed[680..859];
     assert_eq!(completions.len(), 179);
     assert_eq!(completions[0], (61222641, 89544));
     assert_eq!(completions[178], (61338935, 13946));
@@ -286,6 +361,28 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
                 .map(|&(line, guid)| [line, u64::from(guid)])
         ),
         "52ca8df3429229cda4ac41fc01de252afe18247f05a26956152ccfe8c6fd7ac8"
+    );
+    // GUID10507's birth is above. This suffix includes Bolvar's allocation.
+    let births = &evidence.continuation_births[932..];
+    assert_eq!(
+        (births.len(), births[0], births[16]),
+        (17, 61339477, 61350362)
+    );
+    assert_eq!(
+        map0_receipt(births.iter().map(|&line| [line])),
+        "8e9dffa31194cc9e91039ad9d3d9caf4b8c27a955777b6d10980425d3793df2a"
+    );
+    let completions = &evidence.continuation_completed[859..];
+    assert_eq!(completions.len(), 17);
+    assert_eq!(completions[0], (61339475, 10507));
+    assert_eq!(completions[16], (61350360, 10494));
+    assert_eq!(
+        map0_receipt(
+            completions
+                .iter()
+                .map(|&(line, guid)| [line, u64::from(guid)])
+        ),
+        "e05b5075d8e9d061002d29a519a7d0e34c1e7e2d2bd0d85edc0d015d81ad6525"
     );
     // The replay also compares each word, request and result in order below.
     let words = &evidence.words[27087..MAP0_GUARD_RAW];
@@ -405,17 +502,33 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
         "7675c0294f1ca1c8b57aace581f7117917eb30317c08314090ef4d5afff8f668"
     );
     assert_eq!(
-        evidence.words[MAP0_NEXT_RAW - 1],
+        evidence.words[MAP0_STORMWIND_RAW - 1],
         (61339340, 31933, 3726907487)
     );
-    assert_eq!(evidence.words[MAP0_NEXT_RAW], (61339365, 31934, 675277435));
+    assert_eq!(
+        evidence.words[MAP0_STORMWIND_RAW],
+        (61339365, 31934, 675277435)
+    );
     assert_eq!(
         map0_receipt(
-            evidence.words[MAP0_FROST_ARMOR_RAW..MAP0_NEXT_RAW]
+            evidence.words[MAP0_FROST_ARMOR_RAW..MAP0_STORMWIND_RAW]
                 .iter()
                 .map(|&(line, raw, word)| [line, raw, word])
         ),
         "1f22e300d83537168a3c0ebdfea6512599b584b0fbbad0724869b40279443805"
+    );
+    assert_eq!(
+        evidence.words[MAP0_NEXT_RAW - 1],
+        (61350953, 32033, 3643801060)
+    );
+    assert_eq!(evidence.words[MAP0_NEXT_RAW], (61351335, 32034, 232105712));
+    assert_eq!(
+        map0_receipt(
+            evidence.words[MAP0_STORMWIND_RAW..MAP0_NEXT_RAW]
+                .iter()
+                .map(|&(line, raw, word)| [line, raw, word])
+        ),
+        "e63d7255439951910488d1f9dc8e7ebb53e2e42bec585df781b0a8d2530f9cf5"
     );
     let consumed = evidence.active_clocks.0.len() - clocks.0.len();
     let new_clocks = evidence
@@ -424,8 +537,10 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
         .iter()
         .take(consumed)
         .filter(|clock| clock.time_line > 60478161);
-    assert_eq!(consumed, 716);
-    assert_eq!(new_clocks.clone().count(), 638);
+    // :61339887-61350846 add nine respawn clocks; :61351112/:61351114 add
+    // the holder and effect clocks before handling aura 15.
+    assert_eq!(consumed, 727);
+    assert_eq!(new_clocks.clone().count(), 649);
     assert_eq!(
         map0_receipt(new_clocks.clone().take(34).map(|clock| [
             clock.site_line,
@@ -515,8 +630,10 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
     assert_eq!(evidence.active_clocks.0[572].time_line, 61221527);
     assert_eq!(evidence.active_clocks.0[573].time_line, 61221529);
     assert_eq!(evidence.active_clocks.0[574].time_line, 61221531);
-    assert_eq!(evidence.active_clocks.0[consumed - 1].time_line, 61339347);
-    assert_eq!(clocks.0.front().unwrap().time_line, 61339887);
+    assert_eq!(evidence.active_clocks.0[715].time_line, 61339347);
+    assert_eq!(evidence.active_clocks.0[716].time_line, 61339887);
+    assert_eq!(evidence.active_clocks.0[consumed - 1].time_line, 61351114);
+    assert_eq!(clocks.0.front().unwrap().time_line, 61351269);
     assert_eq!(
         map0_receipt(evidence.active_clocks.0.range(303..573).map(|clock| [
             clock.site_line,
@@ -529,7 +646,7 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
         "3cee121eae7359630d0a7683f5374e6697e12637eccafc72c01316ff62d5681f"
     );
     assert_eq!(
-        map0_receipt(evidence.active_clocks.0.range(573..consumed).map(|clock| [
+        map0_receipt(evidence.active_clocks.0.range(573..716).map(|clock| [
             clock.site_line,
             clock.time_line,
             clock.thread,
@@ -538,6 +655,17 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
             clock.seconds as u64
         ])),
         "f6c84dce826ba6e40b39a71c639d58e6f85808975f6351d8135b038952682fe4"
+    );
+    assert_eq!(
+        map0_receipt(evidence.active_clocks.0.range(716..consumed).map(|clock| [
+            clock.site_line,
+            clock.time_line,
+            clock.thread,
+            clock.site[2],
+            clock.raw,
+            clock.seconds as u64
+        ])),
+        "0d870990d5914f502982cd2d27f425f8f4e3eac237fd8eca4e58d3b4c9ada203"
     );
 }
 
@@ -668,6 +796,7 @@ struct MapThreadEvidence {
     path_calculations: Vec<u64>,
     wmo_area_hit: Option<String>,
     bell_trace: Vec<u64>,
+    stormwind_trace: StormwindTrace,
 }
 #[derive(Default)]
 pub(super) struct Inputs {
@@ -733,6 +862,17 @@ impl Inputs {
     pub(super) fn observe_thread(&mut self, thread: u64, line: u64, kind: &str, p: &[&str]) {
         self.equipment.observe_map(thread, line, kind, p);
         if thread == 6 {
+            if (MAP0_FIRST_STORMWIND_LINE..MAP0_NEXT_OWNER_LINE).contains(&line) {
+                self.map_threads
+                    .entry(thread)
+                    .or_default()
+                    .stormwind_trace
+                    .observe(line, kind, p);
+            }
+            if line == 61350367 {
+                assert_eq!(kind, "constructor_creature_data");
+                assert!(p.starts_with(&["25769807544", "10495", "1748", "0"]));
+            }
             let expected: Option<(&str, &[&str])> = match line {
                 60637563 => Some((
                     "script_factory_argument",
@@ -2931,6 +3071,15 @@ pub(super) fn continue_startup(
             &config,
         )
         .unwrap();
+        if slot == 0 {
+            assert_eq!(
+                refusal.id,
+                active_init::CREATURE_NEXT_OWNER[0],
+                "candidate {}, entry {entry}, {completed} completed, {candidates} allocations, raw {}",
+                attempt.guid,
+                random.cursor().raw
+            );
+        }
         for &handle in completed_objects.iter().chain(std::iter::once(&candidate)) {
             assert_eq!(
                 continents.maps[slot].passengers.transport(handle).unwrap(),
@@ -3009,11 +3158,15 @@ pub(super) fn continue_startup(
                 map0_receipt(paths.iter().map(|&line| [line])),
                 "846cd2826980be5190054237552d1b30f8840e8a89272cff3f5bc7a0c23d5b86"
             );
-            let paths = &evidence.path_calculations[76..];
+            let paths = &evidence.path_calculations[76..90];
             assert_eq!((paths.len(), paths[0], paths[13]), (14, 61221985, 61286569));
             assert_eq!(
                 map0_receipt(paths.iter().map(|&line| [line])),
                 "6af3a2827bcd3807304744396d1b4c51ad4a1843cfd5437534f10697553b2714"
+            );
+            assert_eq!(
+                &evidence.path_calculations[90..],
+                [61340833, 61343830, 61345094]
             );
             assert_eq!(evidence.sql_lines, [60100980, 60101139]);
             assert_eq!(
@@ -3028,6 +3181,60 @@ pub(super) fn continue_startup(
                 .eq(evidence.continuation_completed[166..]
                     .iter()
                     .map(|&(_, guid)| guid)));
+            // :61339352-61348541 traces the seven guards before Bolvar.
+            let guards = &evidence.stormwind_trace.completed;
+            assert!(evidence.stormwind_trace.object.is_none());
+            assert_eq!(guards.len(), 7);
+            assert_eq!(
+                map0_receipt(guards.iter().copied()),
+                "8b951d4c5881bd52ae0c7da91290069694a4a6fbbe7ff62b4f4d3473de68053c"
+            );
+            let guard_guids = completed_objects.iter().filter_map(|&handle| {
+                let object = active_objects.get(handle).unwrap();
+                if object.kind != SourceObjectKind::Creature || object.guid.unwrap().entry() != 1756
+                {
+                    return None;
+                }
+                let ai = ais.get(&active_objects, handle).unwrap();
+                let LoadedCreatureAiClass::Scripted(script) = &ai.loaded_class else {
+                    panic!("GUID {} has no scripted AI", object.database_guid);
+                };
+                let SourceScriptedAi::GuardStormwind(guard) = script else {
+                    panic!("GUID {} has the wrong AI", object.database_guid);
+                };
+                let live = units.get(&active_objects, handle).unwrap();
+                assert_eq!(live.entry, 1756);
+                assert!(
+                    live.has_ai && live.spell_list.is_none() && live.spell_list_disabled.is_none()
+                );
+                assert_eq!(script.binding().script_id, 196);
+                assert_eq!(
+                    (
+                        guard.guard.global_cooldown_ms,
+                        guard.guard.buff_timer_ms,
+                        guard.salute_wait_timer_ms
+                    ),
+                    (0, 0, 0)
+                );
+                assert_eq!(ai.base.action_count(), 0);
+                assert!(!ai.base.ranged_mode && !ai.base.current_ranged_mode);
+                assert_eq!(
+                    guard
+                        .guard
+                        .combat
+                        .custom_timers()
+                        .map(|t| (t.id, t.remaining, t.disabled)),
+                    [(1000, 0, true), (1001, 0, true)]
+                );
+                assert_eq!(
+                    ai.base
+                        .generic_timers
+                        .map(|t| (t.id, t.remaining, t.disabled)),
+                    [(2000, 0, true), (2001, 0, true)]
+                );
+                Some(u64::from(object.database_guid))
+            });
+            assert!(guard_guids.eq(guards.iter().map(|row| row[0])));
             let [holder] = event_ais[&completed_objects[253]].holders.as_slice() else {
                 panic!("GUID4195 must retain event 26501");
             };
@@ -3172,8 +3379,8 @@ pub(super) fn continue_startup(
                     "go_instance_on_object_spawn",
                 ]));
             assert!(!completed_objects.contains(&candidate));
-            // :61338936-61338949 names the Stormwind guard. :61339348 adds
-            // it to the world before the Script::GetAI call at :61339354.
+            // :61350361-61350374 binds Bolvar. His Spawn event reaches the
+            // damage-shield apply after the holder/effect clocks :61351112/:61351114.
             assert_eq!(
                 (
                     attempt.guid,
@@ -3182,10 +3389,10 @@ pub(super) fn continue_startup(
                     attempt.cell.x(),
                     attempt.cell.y()
                 ),
-                (10507, GridSpawnKind::Creature, 1756, 256, 523)
+                (10495, GridSpawnKind::Creature, 1748, 258, 521)
             );
             assert!(active_objects.get(candidate).unwrap().in_world);
-            assert!(!units.get(&active_objects, candidate).unwrap().has_ai);
+            assert!(units.get(&active_objects, candidate).unwrap().has_ai);
             // SQL :431792, :847350 binds Frost Armor. SelectLevel draws 16
             // at :61221284 and 15 at :61240810. Both give 11 + (3 - 1) * 12 + 1.
             for (finish, guid) in [(61222641, 89544), (61242962, 89542)] {
@@ -4742,18 +4949,19 @@ pub(super) fn continue_startup(
         // Fifteen more Idle creatures complete at :60774468-60979028.
         // 62 more Idle creatures finish at :60985257-61221025.
         // 60 more Idle creatures finish at :61223188-61337478.
+        // Seven more Idle creatures finish at :61339475-61350360.
         // Map 1 adds 11 Idle completions, SQL :117818-117825, :117829, :117831-117832.
-        assert_eq!(idle_count, if slot == 0 { 174 } else { 34 });
+        assert_eq!(idle_count, if slot == 0 { 181 } else { 34 });
         assert_eq!(
             geometry.pathfinder_constructor_completions,
             // WaypointMovementGenerator.cpp:264 constructs per BuildIntPath.
-            // Map 0 records 90 paths for 55 creatures, through :61286569.
+            // Map 0 records 93 paths for 57 creatures, through :61345094.
             // Map 1 calculates 18 -> 22 paths for 8 -> 10 waypoint creatures.
             // Static Idle constructs none (MotionMaster.cpp:79-81).
             pathfinders_before + motion_initializations - idle_count
                 + if slot == 0 {
-                    // The stopped GUID10507 initializes Idle (:61338942).
-                    90 - 55 - 1
+                    // Bolvar initializes Idle (:61350367).
+                    93 - 57 - 1
                 } else {
                     22 - 10
                 }
@@ -5100,9 +5308,9 @@ pub(super) fn continue_startup(
             ))
         );
         assert_eq!(attempt.guid, if slot == 0 { 18 } else { 28044 });
-        // Map 0 ends allocation at :61338937. Map 1 advances 295 -> 353
+        // :61339477-61350362 adds 17 map-0 births. Map 1 advances 295 -> 353
         // from :60690842 to :60740668.
-        assert_eq!(candidates, if slot == 0 { 1020 } else { 353 });
+        assert_eq!(candidates, if slot == 0 { 1037 } else { 353 });
         assert_eq!(entry, if slot == 0 { 3211 } else { 4692 });
         if slot == 0 {
             assert_eq!(init_entry_fields, None);
@@ -5394,8 +5602,8 @@ pub(super) fn continue_startup(
                 attempt.cell.y(),
             ))
         );
-        // :61338935 completes GUID13946. Map 1 advances 284 -> 317 (:60690801 -> :60740587).
-        assert_eq!(completed, if slot == 0 { 946 } else { 317 });
+        // :61350360 completes GUID10494. Map 1 advances 284 -> 317 (:60690801 -> :60740587).
+        assert_eq!(completed, if slot == 0 { 963 } else { 317 });
         println!(
             "F6_VISIBILITY map={slot} census={visibility:?} invalidated_camera_iterator_stock_reach={}",
             visibility.cameras
@@ -5492,7 +5700,7 @@ pub(super) fn continue_startup(
             evidence.pool_snapshot_line.unwrap(),
             encounters.by_map(slot as u32).len(),
             refusal.id,
-            if slot == 0 { "ScriptDevAIMgr.cpp:370" } else { "ScriptDevAIMgr.cpp:380" },
+            if slot == 0 { MAP0_NEXT_SOURCE } else { "ScriptDevAIMgr.cpp:380" },
         );
         owner.states = states;
         let raw = trace

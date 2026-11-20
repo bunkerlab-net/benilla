@@ -159,6 +159,7 @@ pub(super) fn callback<D: GridDefinitions<Row = SpawnKey>>(
                     owners.units,
                     object,
                     owners.random,
+                    None,
                     reset,
                 )
             },
@@ -175,6 +176,7 @@ pub(super) fn callback<D: GridDefinitions<Row = SpawnKey>>(
             &mut prefix.units,
             object,
             &mut Owner(&random),
+            Some(prefix.spell_stores),
             &mut (),
         )?;
         prefix.lookups.push("creature_ai_just_respawned");

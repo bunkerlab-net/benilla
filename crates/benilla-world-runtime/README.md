@@ -548,7 +548,8 @@ constructs TotemAI and GuardianAI with the same EventAI loader and holders.
 The PetAI factory uses `SourceBuiltinAi::construct_pet` with explicit live owners.
 
 ScriptDev runs first for eligible creatures. A closed enum on the live
-CreatureAI holds `npc_chicken_cluck`, `boss_azuregos`, and `npc_solenor`.
+CreatureAI holds `npc_chicken_cluck`, `boss_azuregos`, `npc_solenor`, and
+`guard_stormwind`.
 An unported non-null `GetAI` slot refuses at `ScriptDevAIMgr.cpp:370` with
 the script name in the refusal ID. A proven null slot or absent registration
 can continue to builtin selection.
@@ -558,6 +559,15 @@ adds six combat timers and delegates Reset to CombatAI. At respawn, the AI
 clears action readiness, resets combat timers by ID, then resets custom
 timers by ID (`CreatureAI.cpp:124-128`, `TimerAI.cpp:182-194`).
 Disabled and fixed timers still draw from the thread RNG (`TimerAI.cpp:23,47`).
+
+The Stormwind factory uses zero combat actions (`guard_ai.cpp:29-32`).
+Its constructor and inherited respawn select the same salute-only Reset
+(`guards.cpp:99-109`, `CreatureAI.cpp:124-128`). Respawn then checks the
+live spell list. If a written chance is nonzero, the first ranged-action
+spell with a template sets proximity range to 80% of its maximum range
+(`guard_ai.cpp:63-81`, `UnitAI.cpp:701-708,974-989`). The three stock
+Stormwind templates have no spell list. An unwritten chance can continue
+only with an empty spell map. Combat callbacks refuse by name.
 
 Nelson's `npc_solenor` runs Reset in its constructor and in inherited
 `JustRespawned` (`silithus.cpp:63-101`, `CreatureAI.cpp:124-128`). Each Reset
@@ -2656,12 +2666,12 @@ Static coverage at stock template levels is 29 of 31 nonzero-slope addon
 effect slots and 13 of 16 direct EventAI Spawn-cast slots. The other two and
 three slots reach the dice RNG at `Object.cpp:2955`. This census counts effect
 value arithmetic and does not execute casts.
-Map 0 completes 946 objects in 1,020 allocations. It matches 31,934 random
-words, 716 clocks, and two map SQL requests. Defias Conjurers GUID89544 and
-GUID89542 finish Frost Armor with 36 armor and two effect clocks each
-(trace :61221527-61221531, :61241174-61241178). Map 0 stops at the
-`guard_stormwind` factory for GUID10507 (`ScriptDevAIMgr.cpp:370`,
-trace :61339352-61339354).
+Map 0 completes 963 objects in 1,037 allocations. It matches 32,034 random
+words, 727 clocks, 93 paths, and two map SQL requests. Defias Conjurers
+GUID89544 and GUID89542 finish Frost Armor with 36 armor and two effect clocks
+each (trace :61221527-61221531, :61241174-61241178). Seven Stormwind guards
+complete (trace :61339475-61348541). Map 0 stops at the damage-shield aura
+for Bolvar GUID10495 (`SpellAuras.cpp:76`, trace :61351112-61351114).
 Map 1 completes 317 objects in 353 allocations. It matches 14,234 random
 words, 323 clocks, 22 paths, and two map SQL requests. The Silithyst Geyser
 GUID49337 stops at `go_outdoor_pvp_notify` (`ScriptDevAIMgr.cpp:380`,

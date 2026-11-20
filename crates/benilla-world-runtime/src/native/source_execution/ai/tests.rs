@@ -187,7 +187,7 @@ fn guard_initialization_constructs_base_and_resets_in_callback_order() {
     assert_eq!(ai.attack_distance, 0.);
     assert_eq!(owner.cursor.raw, 2);
 
-    ais.loaded_just_respawned(&mut objects, &mut units, unit, &mut owner, &mut ())
+    ais.loaded_just_respawned(&mut objects, &mut units, unit, &mut owner, None, &mut ())
         .unwrap();
     let ai = &ais.get(&objects, unit).unwrap().base;
     assert_eq!(
@@ -198,6 +198,306 @@ fn guard_initialization_constructs_base_and_resets_in_callback_order() {
     assert!(ai.current_ranged_mode);
     assert_eq!(ai.attack_distance, 30.);
     assert_eq!(owner.cursor.raw, 4);
+}
+
+struct StormwindFixture {
+    objects: SourceObjects,
+    units: SourceUnits,
+    ais: SourceCreatureAis,
+    unit: ObjectHandle,
+    random: Random,
+}
+
+impl StormwindFixture {
+    fn new() -> Self {
+        let mut binding = super::super::creature_tests::chicken_binding();
+        binding.name = "guard_stormwind".into();
+        let mut builder = AiRegistryBuilder::builtin();
+        builder.load_scripts([binding]).unwrap();
+        let mut t = template("");
+        t.script_name = "guard_stormwind".into();
+        let mut objects = SourceObjects::default();
+        let unit = objects.construct(1, SourceObjectKind::Creature).unwrap();
+        let mut units = SourceUnits::default();
+        units
+            .register(&objects, unit, SourceUnitFields::creature(&t))
+            .unwrap();
+        let selected = builder
+            .freeze()
+            .select(
+                &objects,
+                unit,
+                t.clone().inputs(CreatureAiControl::default(), false),
+                SourceControlGuids::default(),
+            )
+            .unwrap();
+        let AiExecutable::ScriptDevGetAi(binding) = selected.executable() else {
+            panic!("Stormwind must use ScriptDev GetAI");
+        };
+        let mut ais = SourceCreatureAis::default();
+        let mut random = Random::new();
+        SourceCreatureAis::construct_loaded_script(
+            &mut objects,
+            &selected,
+            SourceScriptedAiKind::for_registered_name(&binding.name).unwrap(),
+            binding,
+            BuiltinAiFactoryOwners {
+                units: &mut units,
+                ais: &mut ais,
+                random: &mut random,
+                base: BuiltinAiBase::Loaded {
+                    combat: &mut SourceCombat::default(),
+                    template: &t,
+                    config: &config(),
+                },
+            },
+            &mut (),
+        )
+        .unwrap();
+        Self {
+            objects,
+            units,
+            ais,
+            unit,
+            random,
+        }
+    }
+
+    fn ai(&mut self) -> &mut SourceCreatureAi {
+        self.ais.get_mut(&self.objects, self.unit).unwrap()
+    }
+
+    fn respawn(&mut self, stores: Option<&SourceSpellStores>) -> Result<()> {
+        self.ais.loaded_just_respawned(
+            &mut self.objects,
+            &mut self.units,
+            self.unit,
+            &mut self.random,
+            stores,
+            &mut (),
+        )
+    }
+}
+
+#[test]
+fn stormwind_constructor_and_respawn_dispatch_salute_only_reset() {
+    let mut f = StormwindFixture::new();
+    let unit = f.unit;
+    assert_eq!(f.random.cursor.raw, 4); // Seal16 :61339365-61339395.
+    let ai = f.ai();
+    assert_eq!(ai.base.action_count(), 0);
+    let LoadedCreatureAiClass::Scripted(SourceScriptedAi::GuardStormwind(guard)) =
+        &mut ai.loaded_class
+    else {
+        panic!("expected Stormwind guard");
+    };
+    assert_eq!(
+        (
+            guard.guard.global_cooldown_ms,
+            guard.guard.buff_timer_ms,
+            guard.salute_wait_timer_ms
+        ),
+        (0, 0, 0)
+    );
+    guard.guard.global_cooldown_ms = 13;
+    guard.guard.buff_timer_ms = 17;
+    guard.guard.combat.on_kill_cooldown = true;
+    guard.guard.combat.stored_target = Some(SourceGuid::with_entry(HighGuid::Creature, 901, 8));
+    guard.salute_wait_timer_ms = 23;
+    ai.base.generic_timers[0].remaining = 31;
+    ai.base.generic_timers[0].disabled = false;
+    ai.base.chase_distance = 35.;
+    ai.base.attack_distance = 11.;
+    f.respawn(None).unwrap();
+    assert_eq!(f.random.cursor.raw, 8); // Seal16 :61339425-61339455.
+    let ai = f.ai();
+    assert_eq!(ai.base.attack_distance, 11.);
+    assert_eq!(
+        ai.base
+            .generic_timers
+            .map(|timer| (timer.remaining, timer.disabled)),
+        [(0, true); 2]
+    );
+    let LoadedCreatureAiClass::Scripted(script) = &mut ai.loaded_class else {
+        panic!("expected ScriptDev AI");
+    };
+    assert_eq!(
+        script.receive_emote(unit, 1).unwrap_err().id,
+        "execution.ai.guards_133.ReceiveEmote_owner"
+    );
+    assert_eq!(
+        script.update_ai(1).unwrap_err().id,
+        "execution.ai.guards_120.UpdateAI_owner"
+    );
+    let SourceScriptedAi::GuardStormwind(guard) = script else {
+        panic!("expected Stormwind guard");
+    };
+    assert_eq!(
+        (
+            guard.guard.global_cooldown_ms,
+            guard.guard.buff_timer_ms,
+            guard.salute_wait_timer_ms
+        ),
+        (13, 17, 0)
+    );
+    assert!(guard.guard.combat.on_kill_cooldown);
+    assert_eq!(
+        guard.guard.combat.stored_target,
+        Some(SourceGuid::with_entry(HighGuid::Creature, 901, 8))
+    );
+    assert_eq!(
+        guard.guard.aggro(unit).unwrap_err().id,
+        "execution.ai.guard_ai_40.Aggro_owner"
+    );
+    assert_eq!(
+        guard.guard.just_died(Some(unit)).unwrap_err().id,
+        "execution.ai.guard_ai_53.JustDied_owner"
+    );
+    assert_eq!(
+        guard.spell_hit(unit, 1).unwrap_err().id,
+        "execution.ai.guards_111.SpellHit_owner"
+    );
+    assert_eq!(
+        guard
+            .guard
+            .combat
+            .handle_target_restoration()
+            .unwrap_err()
+            .id,
+        "execution.ai.CombatAI_51.HandleTargetRestoration_owner"
+    );
+    assert_eq!(
+        guard.guard.combat.clear_on_kill_cooldown().unwrap_err().id,
+        "execution.ai.CombatAI_34.on_kill_cooldown_callback_owner"
+    );
+    // guard_ai.cpp:34-38 is a separate body, used when no derived Reset overrides it.
+    guard.salute_wait_timer_ms = 7;
+    guard.guard.reset();
+    assert_eq!(
+        (
+            guard.guard.global_cooldown_ms,
+            guard.guard.buff_timer_ms,
+            guard.salute_wait_timer_ms
+        ),
+        (0, 0, 7)
+    );
+    assert!(guard.guard.combat.on_kill_cooldown);
+}
+
+fn stormwind_test_list() -> CreatureSpellList {
+    let (mut loaded, census) = LoadedCreatureSpellLists::load(
+        vec![SqlTemplateRow {
+            ordinal: 0,
+            words: [1, 0, 0, 0, 0, u32::MAX],
+            strings: [b"current".to_vec()],
+        }],
+        vec![SqlTemplateRow {
+            ordinal: 0,
+            words: [1, 0, 75],
+            strings: [b"ranged".to_vec()],
+        }],
+        [(3, 14, 2), (1, 12, 2), (0, 11, 0), (2, 13, 2)]
+            .map(|(position, id, flags)| SqlTemplateRow {
+                ordinal: position as u64,
+                words: [1, position, id, flags, u32::MAX, 1, 0, 100, 0, 0, 0, 0, 0],
+                strings: [],
+            })
+            .to_vec(),
+        &BTreeMap::from([(11, 0), (12, 0), (13, 0), (14, 0)]),
+    );
+    assert_eq!(census.loaded, [1, 1, 4]);
+    loaded.lists.remove(&1).unwrap()
+}
+
+#[test]
+fn stormwind_unwritten_chance_only_continues_for_empty_spells() {
+    let mut f = StormwindFixture::new();
+    f.respawn(None).unwrap(); // The fresh DB creature has no list.
+
+    let live = f.units.get_mut(&f.objects, f.unit).unwrap();
+    live.spell_list_disabled = Some(true); // Creature.cpp:2428-2435 only writes Disabled.
+    f.respawn(None).unwrap();
+
+    let live = f.units.get_mut(&f.objects, f.unit).unwrap();
+    live.spell_list_disabled = None;
+    live.spell_list = Some(CreatureSpellList::default());
+    f.respawn(None).unwrap(); // The absent scalar cannot affect an empty map.
+
+    f.units.get_mut(&f.objects, f.unit).unwrap().spell_list = Some(stormwind_test_list());
+    assert_eq!(
+        f.respawn(None).unwrap_err().id,
+        "execution.ai.guard_ai_68.unwritten_chance_ranged_attack"
+    );
+    assert_eq!(f.random.cursor.raw, 20); // The refusal follows all four reset draws.
+    assert!(!f.ai().base.ranged_mode);
+}
+
+#[test]
+fn stormwind_written_ranged_chance_uses_first_flagged_spell_with_template() {
+    let mut f = StormwindFixture::new();
+    let mut stores = SourceSpellStores::default();
+    let mut list = stormwind_test_list();
+    list.chance_ranged = 0;
+    let live = f.units.get_mut(&f.objects, f.unit).unwrap();
+    live.spell_list_disabled = Some(false);
+    live.spell_list = Some(list);
+    f.respawn(None).unwrap();
+    assert!(!f.ai().base.ranged_mode);
+
+    let live = f.units.get_mut(&f.objects, f.unit).unwrap();
+    live.spell_list.as_mut().unwrap().chance_ranged = 75;
+    assert_eq!(
+        f.respawn(None).unwrap_err().id,
+        "execution.ai.guard_ai_73.SpellTemplate_LookupEntry_owner"
+    );
+    f.respawn(Some(&stores)).unwrap(); // All template lookups miss.
+    assert!(!f.ai().base.ranged_mode);
+
+    let mut without_range = SourceSpellStores::default();
+    for (id, rangeindex) in [(11, 5), (13, 3), (14, 5)] {
+        for store in [&mut stores, &mut without_range] {
+            store
+                .insert_template(SpellTemplate {
+                    id,
+                    rangeindex,
+                    ..Default::default()
+                })
+                .unwrap();
+        }
+    }
+    without_range.bind_test_dbc("SpellRange.dbc", []);
+    stores.bind_test_dbc(
+        "SpellRange.dbc",
+        [(3, 30f32), (5, 45f32)].map(|(id, max)| {
+            (
+                id,
+                SpellDbcRecord {
+                    ordinal: 0,
+                    words: BTreeMap::from([(1, 5f32.to_bits()), (2, max.to_bits()), (3, 0)]),
+                },
+            )
+        }),
+    );
+    f.respawn(Some(&stores)).unwrap();
+    let ai = &f.ai().base;
+    assert!(ai.ranged_mode && ai.current_ranged_mode);
+    assert_eq!(
+        (ai.ranged_setting, ai.chase_distance, ai.attack_distance),
+        (2, 24., 24.)
+    );
+
+    // SpellMgr.h:60 defines a missing range row as zero.
+    let mut f = StormwindFixture::new();
+    let live = f.units.get_mut(&f.objects, f.unit).unwrap();
+    live.spell_list_disabled = Some(true); // guard_ai.cpp:67 does not read Disabled.
+    live.spell_list = Some(stormwind_test_list());
+    f.respawn(Some(&without_range)).unwrap();
+    let ai = &f.ai().base;
+    assert!(ai.ranged_mode && ai.current_ranged_mode);
+    assert_eq!(
+        (ai.ranged_setting, ai.chase_distance, ai.attack_distance),
+        (2, 0., 0.)
+    );
 }
 
 #[test]
@@ -370,7 +670,7 @@ fn chicken_constructor_and_respawn_run_both_resets_on_the_live_unit() {
             (0, 555)
         );
         assert_eq!(owner.cursor.raw, 2);
-        ais.loaded_just_respawned(&mut objects, &mut units, unit, &mut owner, &mut ())
+        ais.loaded_just_respawned(&mut objects, &mut units, unit, &mut owner, None, &mut ())
             .unwrap();
         let ai = ais.get_mut(&objects, unit).unwrap();
         let LoadedCreatureAiClass::Scripted(script) = &mut ai.loaded_class else {

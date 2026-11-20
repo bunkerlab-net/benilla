@@ -790,6 +790,8 @@ fn retained_catalog04_all_template_selection_census_or_explicit_absence() {
             .collect::<Vec<_>>(),
         [
             ("boss_azuregos", 1),
+            // initial-classicmangos.sql :421134, :422556, :422736.
+            ("guard_stormwind", 3),
             ("npc_chicken_cluck", 1),
             ("npc_solenor", 2)
         ]

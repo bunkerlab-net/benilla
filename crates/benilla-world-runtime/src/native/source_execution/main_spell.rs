@@ -5,6 +5,25 @@ use super::*;
 use std::collections::BTreeSet;
 
 impl SourceUnitAi {
+    /// UnitAI.cpp:701-708. The range row read precedes the spell modifier owner.
+    pub(super) fn calculate_spell_range(
+        &self,
+        objects: &SourceObjects,
+        units: &SourceUnits,
+        stores: &SourceSpellStores,
+        spell: &SpellTemplate,
+    ) -> Result<f32> {
+        let max = stores
+            .range_entry(spell.rangeindex)?
+            .map_or(0., |range| f32::from_bits(range.maximum.0));
+        let live = units.get(objects, self.unit)?;
+        require(
+            world_object_spell_mod_owner(objects, self.unit, live.totem)?.is_none(),
+            "execution.ai.UnitAI_707.ApplySpellMod_owner.player",
+        )?;
+        Ok(max)
+    }
+
     /// UnitAI.cpp:962-971 initializes only the first spell and inserts every ID.
     pub fn add_main_spell(
         &mut self,

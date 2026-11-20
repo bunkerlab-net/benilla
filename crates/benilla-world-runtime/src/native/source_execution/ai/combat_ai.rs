@@ -105,6 +105,22 @@ impl CombatAi {
         Ok(())
     }
 
+    pub fn custom_timers(&self) -> &[SourceAiTimer; 2] {
+        &self.custom
+    }
+
+    pub fn handle_target_restoration(&mut self) -> Result<()> {
+        Err(refuse(
+            "execution.ai.CombatAI_51.HandleTargetRestoration_owner",
+        ))
+    }
+
+    pub fn clear_on_kill_cooldown(&mut self) -> Result<()> {
+        Err(refuse(
+            "execution.ai.CombatAI_34.on_kill_cooldown_callback_owner",
+        ))
+    }
+
     // CombatAI.cpp:37-42. m_stopTargeting survives Reset.
     pub(super) fn reset(&mut self, base: &mut SourceUnitAi) {
         base.reset_creature_ranged_mode();

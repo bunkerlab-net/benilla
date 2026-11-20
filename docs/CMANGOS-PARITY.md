@@ -171,11 +171,12 @@ is meaningful without a bounded content/mechanics inventory.
   (`CreatureEventAIMgr.cpp:979-996`, `ScriptMgr.h:679`).
   Startup matches the template SELECT at trace :52620961 before the EventAI
   SELECT at :58819675. Runtime string selection refuses at `CreatureEventAI.cpp:1262`.
-  Map 0 matches 946 completions, 1,020 allocations, 31,934 random words,
-  716 clocks, and two SQL requests. GUID12058 finishes Defensive Stance
-  and its 7376 boost (trace :60985257). GUID89544 and GUID89542 finish
-  Frost Armor (trace :61222641, :61242962). GUID10507 stops at
-  `guard_stormwind` (`ScriptDevAIMgr.cpp:370`, trace :61339352-61339354).
+  Map 0 matches 963 completions, 1,037 allocations, 32,034 random words,
+  727 clocks, 93 paths, and two SQL requests. GUID12058 finishes Defensive
+  Stance and its 7376 boost (trace :60985257). GUID89544 and GUID89542 finish
+  Frost Armor (trace :61222641, :61242962). Seven Stormwind guards complete
+  (trace :61339475-61348541). Bolvar GUID10495 stops at the damage-shield aura
+  (`SpellAuras.cpp:76`, trace :61351112-61351114).
   GuardAI construction and its inherited `SpellListChanged` and
   `JustRespawned` callbacks complete for GUID4242 (`Creature.cpp:883-887`).
   `npc_chicken_cluck` completes construction and both resets for GUID4228.
@@ -193,6 +194,16 @@ is meaningful without a bounded content/mechanics inventory.
   callback at GUID44205 (`Creature.cpp:914-915`, `OutdoorPvP.h:64`,
   trace lines 60643213–60643388). Eastern Plaguelands creature creation
   refuses at its override (`OutdoorPvPEP.cpp:95`).
+- **Stormwind guard startup.** `guard_ai.cpp:29-38,63-81` owns the guard
+  base timers and the ranged check after inherited respawn. Stormwind
+  calls its salute-only Reset in construction and respawn
+  (`guards.cpp:99-109`, `CreatureAI.cpp:124-128`). Each phase draws four
+  timer words. An unwritten ranged chance can continue only with an empty
+  spell map. A written nonzero chance uses the first ranged-action spell
+  with a template. The three Stormwind templates have zero ranged-list
+  reach across 58 direct stock spawns (`initial-classicmangos.sql:421134,
+  422556,422736`). Combat callbacks remain named refusals. The script
+  state lives on the installed AI and does not change native format 91.
 - **Creature damage fields.** `Creature.cpp:1459-1485,599-600` binds the
   base weapon damage, attack power, and damage multiplier on the live unit.
   `StatSystem.cpp:614-642,675-806` recalculates attack power and mainhand,

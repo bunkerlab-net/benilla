@@ -583,6 +583,7 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
                         &mut self.units,
                         state.object,
                         &mut self.random,
+                        None,
                         &mut (),
                     )?;
                 }
@@ -2448,16 +2449,13 @@ fn script_probe_refuses_nonnull_unported_factory_by_registered_name() {
         ]
     );
     observed.clear();
-    let error =
+    // guards.cpp:140-143, Seal16 :61339352-61339354 dispatch the now-owned factory.
+    let factory =
         probe_loaded_creature_ai_script(&objects, object, &scripts, 1, |o| observed.push(o))
-            .unwrap_err();
+            .unwrap();
     assert_eq!(
-        error.id,
-        "execution.ai.ScriptDevAIMgr_370.GetAI_owner.guard_stormwind"
-    );
-    assert_eq!(
-        error.id.strip_prefix(SCRIPTDEV_GET_AI_OWNER),
-        Some(".guard_stormwind")
+        factory,
+        LoadedCreatureAiScriptFactory::Ported(scripts.get_script(1).unwrap().unwrap())
     );
     assert_eq!(
         observed,

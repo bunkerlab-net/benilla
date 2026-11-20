@@ -236,13 +236,14 @@ impl SourceCreatureAis {
         Ok(ai)
     }
 
-    /// GuardAI.h:28-44 and sc_creature.h:137 inherit CreatureAI::JustRespawned.
+    /// Creature.cpp:887 dispatches the installed AI's JustRespawned slot.
     pub fn loaded_just_respawned(
         &mut self,
         objects: &mut SourceObjects,
         units: &mut SourceUnits,
         unit: ObjectHandle,
         random: &mut dyn CreatureRandom,
+        spell_stores: Option<&SourceSpellStores>,
         reset_owner: &mut dyn SolenorResetOwner,
     ) -> Result<()> {
         self.loaded_initialization_ai(
@@ -250,7 +251,7 @@ impl SourceCreatureAis {
             unit,
             "execution.ai.Creature_887.JustRespawned_owner",
         )?
-        .just_respawned(objects, units, random, reset_owner)
+        .just_respawned(objects, units, random, spell_stores, reset_owner)
     }
 }
 
@@ -407,6 +408,13 @@ impl SourceCreatureAi {
         {
             return Err(refuse("execution.ai.silithus_134.Aggro_owner"));
         }
+        if let (
+            Some(enemy),
+            LoadedCreatureAiClass::Scripted(SourceScriptedAi::GuardStormwind(ai)),
+        ) = (enemy, &mut self.loaded_class)
+        {
+            ai.guard.aggro(enemy)?;
+        }
         Ok(())
     }
     pub fn attack_start(
@@ -483,7 +491,12 @@ impl SourceCreatureAi {
         self.base.enter_evade(objects, units, owner)?;
         // TimerAI.cpp:153-156 excludes both generic TIMER_ALWAYS timers on evade.
         self.require_combat_timer_owner()?;
-        match self.loaded_class {
+        match &mut self.loaded_class {
+            LoadedCreatureAiClass::Scripted(SourceScriptedAi::GuardStormwind(ai)) => {
+                // CreatureAI.cpp:70 dispatches the same virtual Reset as respawn.
+                ai.reset();
+                Ok(())
+            }
             LoadedCreatureAiClass::Scripted(_) => Err(refuse(
                 "execution.ai.CreatureAI_70.scripted_evade_Reset_owner",
             )),
@@ -501,17 +514,19 @@ impl SourceCreatureAi {
         )
     }
     pub fn reset_timers(&mut self, all: bool, random: &mut dyn CreatureRandom) -> Result<()> {
-        if let LoadedCreatureAiClass::Scripted(SourceScriptedAi::Azuregos(ai)) =
-            &mut self.loaded_class
-        {
-            if !all {
-                return Err(refuse(
-                    "execution.ai.TimerAI_197.azuregos_evade_timers_owner",
-                ));
+        match &mut self.loaded_class {
+            LoadedCreatureAiClass::Scripted(SourceScriptedAi::Azuregos(ai)) => {
+                if !all {
+                    return Err(refuse(
+                        "execution.ai.TimerAI_197.azuregos_evade_timers_owner",
+                    ));
+                }
+                ai.reset_timers(&mut self.base, random)?;
             }
-            ai.reset_timers(&mut self.base, random)?;
-        } else {
-            self.require_combat_timer_owner()?;
+            LoadedCreatureAiClass::Scripted(SourceScriptedAi::GuardStormwind(ai)) if all => {
+                ai.reset_timers(&mut self.base, random)?;
+            }
+            _ => self.require_combat_timer_owner()?,
         }
         if all {
             for timer in &mut self.base.generic_timers {
@@ -527,12 +542,24 @@ impl SourceCreatureAi {
         objects: &mut SourceObjects,
         units: &mut SourceUnits,
         random: &mut dyn CreatureRandom,
+        spell_stores: Option<&SourceSpellStores>,
         reset_owner: &mut dyn SolenorResetOwner,
     ) -> Result<()> {
         self.reset_timers(true, random)?;
         match &mut self.loaded_class {
             LoadedCreatureAiClass::Scripted(ai) => {
-                ai.reset(objects, units, &mut self.base, random, reset_owner)
+                ai.reset(objects, units, &mut self.base, random, reset_owner)?;
+                if matches!(ai, SourceScriptedAi::GuardStormwind(_)) {
+                    // guard_ai.cpp:63-81 wraps the inherited respawn above.
+                    ScriptGuardAi::after_inherited_respawn(
+                        &mut self.base,
+                        objects,
+                        units,
+                        spell_stores,
+                        &mut LoadedAiRandom(random),
+                    )?;
+                }
+                Ok(())
             }
             LoadedCreatureAiClass::BaseOnly | LoadedCreatureAiClass::Builtin(_) => {
                 self.reset();

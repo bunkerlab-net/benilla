@@ -332,7 +332,7 @@ impl SourceBuiltinAi {
         if !matches!(self.body, BuiltinBody::Possessed(_)) {
             // CreatureAI.cpp:124-128 versus the empty UnitAI.h:260 callback.
             ais.get_mut(objects, self.selected.object())?
-                .just_respawned(objects, units, random, &mut ())?;
+                .just_respawned(objects, units, random, None, &mut ())?;
         }
         Ok(())
     }

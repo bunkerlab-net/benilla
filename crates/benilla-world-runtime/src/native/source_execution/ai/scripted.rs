@@ -8,10 +8,13 @@ use std::sync::Arc;
 mod azuregos;
 #[path = "combat_ai.rs"]
 mod combat_ai;
+#[path = "script_guard.rs"]
+mod script_guard;
 #[path = "solenor.rs"]
 mod solenor;
 pub use azuregos::BossAzuregosAi;
 pub use combat_ai::{CombatActionInitial, CombatAi};
+pub use script_guard::{GuardStormwindAi, ScriptGuardAi};
 pub use solenor::{SolenorAi, SolenorResetOwner};
 
 pub(crate) const SCRIPTDEV_GET_AI_OWNER: &str = "execution.ai.ScriptDevAIMgr_370.GetAI_owner";
@@ -21,6 +24,7 @@ pub enum SourceScriptedAiKind {
     ChickenCluck,
     Azuregos,
     Solenor,
+    GuardStormwind,
 }
 impl SourceScriptedAiKind {
     pub(crate) fn for_registered_name(name: &str) -> Result<Self> {
@@ -28,13 +32,14 @@ impl SourceScriptedAiKind {
             "npc_chicken_cluck" => Ok(Self::ChickenCluck),
             "boss_azuregos" => Ok(Self::Azuregos),
             "npc_solenor" => Ok(Self::Solenor),
+            "guard_stormwind" => Ok(Self::GuardStormwind),
             _ => Err(refuse(&format!("{SCRIPTDEV_GET_AI_OWNER}.{name}"))),
         }
     }
 
     pub(crate) fn action_count(self) -> u32 {
         match self {
-            Self::ChickenCluck | Self::Solenor => 0,
+            Self::ChickenCluck | Self::Solenor | Self::GuardStormwind => 0,
             Self::Azuregos => BossAzuregosAi::ACTION_COUNT,
         }
     }
@@ -45,6 +50,7 @@ pub enum SourceScriptedAi {
     ChickenCluck(ChickenCluckAi),
     Azuregos(BossAzuregosAi),
     Solenor(SolenorAi),
+    GuardStormwind(GuardStormwindAi),
 }
 
 // sc_creature.cpp:22-25. ScriptedAI inherits CreatureAI::Reset.
@@ -87,6 +93,9 @@ impl SourceScriptedAi {
                 SolenorAi::construct(binding, base.unit, objects, units, random, reset_owner)
                     .map(Self::Solenor)
             }
+            SourceScriptedAiKind::GuardStormwind => {
+                GuardStormwindAi::construct(binding, random).map(Self::GuardStormwind)
+            }
         }
     }
 
@@ -95,6 +104,7 @@ impl SourceScriptedAi {
             Self::ChickenCluck(ai) => &ai.binding,
             Self::Azuregos(ai) => &ai.binding,
             Self::Solenor(ai) => &ai.binding,
+            Self::GuardStormwind(ai) => &ai.binding,
         }
     }
 
@@ -115,6 +125,10 @@ impl SourceScriptedAi {
                 Ok(())
             }
             Self::Solenor(ai) => ai.reset(base.unit, objects, units, random, reset_owner),
+            Self::GuardStormwind(ai) => {
+                ai.reset();
+                Ok(())
+            }
         }
     }
 
@@ -144,6 +158,7 @@ impl SourceScriptedAi {
             Self::ChickenCluck(_) => Err(refuse(
                 "execution.ai.ChatHandler_798.ReceiveEmote_owner.npc_chicken_cluck",
             )),
+            Self::GuardStormwind(_) => Err(refuse("execution.ai.guards_133.ReceiveEmote_owner")),
             // Azuregos inherits the empty UnitAI.h:282 callback.
             Self::Azuregos(_) | Self::Solenor(_) => Ok(()),
         }
@@ -159,6 +174,7 @@ impl SourceScriptedAi {
                 "execution.ai.UnitAI_1084.UpdateAI_owner.boss_azuregos",
             )),
             Self::Solenor(_) => Err(refuse("execution.ai.silithus_203.UpdateAI_owner")),
+            Self::GuardStormwind(_) => Err(refuse("execution.ai.guards_120.UpdateAI_owner")),
         }
     }
 }
