@@ -44,7 +44,7 @@ fn graveyards() -> SourceGraveyardManager {
     graves.load_zones(
         Some(&[[927, 139, 0, 0]]),
         &GraveyardReferences {
-            safe_locations: [927].into(),
+            safe_locations: [(927, SourceWorldSafeLoc::default())].into(),
             areas: [139].into(),
             maps: [0, 1].into(),
         },

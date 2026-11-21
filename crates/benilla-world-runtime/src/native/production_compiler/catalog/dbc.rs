@@ -348,6 +348,15 @@ impl VerifiedCatalog {
     pub(crate) fn execution_map_entries(&mut self) -> Result<Vec<(u32, u32)>> {
         self.dbc_view("Map.dbc")?.persistent_map_entries()
     }
+
+    // World.cpp:1462-1504 selects the configured locale when available.
+    pub fn execution_default_dbc_locale(&mut self, configured: u32) -> Result<u8> {
+        let race = self.dbc_view("ChrRaces.dbc")?.lookup(1)?;
+        locale_selection(race, configured)?["default_locale"]
+            .as_u64()
+            .and_then(|value| u8::try_from(value).ok())
+            .ok_or_else(|| fail("dbc.locale_layout"))
+    }
 }
 impl DbcView<'_> {
     fn persistent_map_entries(mut self) -> Result<Vec<(u32, u32)>> {
@@ -358,6 +367,35 @@ impl DbcView<'_> {
             entries.push((key, le(&raw, 8, 4)? as u32));
         }
         Ok(entries)
+    }
+
+    // BattleGroundMgr.cpp:502-503 uses the localized MapEntry name.
+    pub fn execution_localized_map_name(
+        &mut self,
+        map: u32,
+        locale: u8,
+    ) -> Result<Option<Box<[u8]>>> {
+        check(
+            locale < 8
+                && self
+                    .layout
+                    .as_ref()
+                    .is_some_and(|layout| layout["file"] == "Map.dbc"),
+            "dbc.map_name_layout",
+        )?;
+        let Some(ordinal) = self.by_id.get(&map).copied() else {
+            return Ok(None);
+        };
+        let offset = self
+            .offsets
+            .get(4 + usize::from(locale))
+            .ok_or_else(|| fail("dbc.map_name_layout"))?;
+        let raw = self.range(
+            20 + u64::from(ordinal) * self.size as u64 + *offset as u64,
+            4,
+        )?;
+        let name = self.string_bytes(le(&raw, 0, 4)? as usize)?;
+        Ok(Some(name.into_boxed_slice()))
     }
 }
 fn raw_relation(catalog: &mut VerifiedCatalog, table: &str) -> Result<Value> {

@@ -29,8 +29,15 @@ pub struct GraveyardCensus {
     pub inserted: usize,
     pub skipped: BTreeMap<GraveyardSkip, usize>,
 }
+// GraveyardManager.h:25-34. Startup does not read the name field at :33.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SourceWorldSafeLoc {
+    pub map_id: u32,
+    pub position: [f32; 4],
+}
+
 pub struct GraveyardReferences {
-    pub safe_locations: BTreeSet<u32>,
+    pub safe_locations: BTreeMap<u32, SourceWorldSafeLoc>,
     pub areas: BTreeSet<u32>,
     pub maps: BTreeSet<u32>,
 }
@@ -64,7 +71,7 @@ impl SourceGraveyardManager {
             census.visited += 1;
             let skip = if kind > 1 {
                 Some(GraveyardSkip::LinkKind)
-            } else if !references.safe_locations.contains(&safe_location) {
+            } else if !references.safe_locations.contains_key(&safe_location) {
                 Some(GraveyardSkip::SafeLocation)
             } else if kind == 0 && !references.areas.contains(&location) {
                 Some(GraveyardSkip::Area)

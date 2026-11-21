@@ -683,7 +683,7 @@ fn incomplete_instance_refuses_before_attach_and_empty_events_reach_encounter_bo
     map.initialize_persistent_pools(&mut states, &mut pools, &events, &mut work)
         .unwrap();
     let references = GraveyardReferences {
-        safe_locations: BTreeSet::from([4, 10]),
+        safe_locations: [4, 10].map(|id| (id, SourceWorldSafeLoc::default())).into(),
         areas: BTreeSet::from([12]),
         maps: BTreeSet::from([0, 1]),
     };

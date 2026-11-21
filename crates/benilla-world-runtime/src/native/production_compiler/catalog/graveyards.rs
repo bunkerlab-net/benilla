@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Fixed World::LoadGraveyardZones query operands, never recorded results.
-use super::spawns::{columns, fill, position, uint};
+use super::spawns::{columns, fill, floating, position, uint};
 use super::*;
-use crate::native::source_execution::GraveyardReferences;
-use std::collections::BTreeSet;
+use crate::native::source_execution::{GraveyardReferences, SourceWorldSafeLoc};
 
 fn reference_environment_order(rows: &mut [[u32; 4]]) {
     // The frozen MyISAM table is recreated from db-snapshot.py:9's
@@ -35,18 +34,27 @@ impl VerifiedCatalog {
             check(rows.len() <= DECODED / 16, "graveyards.row_limit")
         })?;
         reference_environment_order(&mut rows);
-        // World.cpp:904,2730-2733, SQLStorages.cpp:43,59: SQLStorage has
-        // no graveyard-specific validation, and lookup tests only the ID slot.
+        // World.cpp:904,2730-2733 and SQLStorages.cpp:43,59 load one safe-location store.
         let cols = columns(&schema, "world_safe_locs")?;
         check(cols.len() == 7, "graveyards.safe_locations_layout")?;
-        let id = position(&cols, "id")?;
-        let mut safe_locations = BTreeSet::new();
+        let mut positions = [0; 6];
+        for (at, name) in positions.iter_mut().zip(["id", "map", "x", "y", "z", "o"]) {
+            *at = position(&cols, name)?;
+        }
+        let mut safe_locations = BTreeMap::new();
         self.scan("world_safe_locs", 0, 256, |row| {
             let mut cells = [None; 256];
             fill(&row, &mut cells)?;
-            safe_locations.insert(uint(cells[id])?);
+            let [id, map, x, y, z, o] = positions.map(|at| cells[at]);
+            safe_locations.insert(
+                uint(id)?,
+                SourceWorldSafeLoc {
+                    map_id: uint(map)?,
+                    position: [floating(x)?, floating(y)?, floating(z)?, floating(o)?],
+                },
+            );
             check(
-                safe_locations.len() <= DECODED / 4,
+                safe_locations.len() <= DECODED / (4 + std::mem::size_of::<SourceWorldSafeLoc>()),
                 "graveyards.reference_limit",
             )
         })?;

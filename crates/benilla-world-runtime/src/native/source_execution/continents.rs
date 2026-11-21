@@ -346,18 +346,22 @@ pub struct SourceContinents {
     updater: SourceScheduler,
 }
 
-pub struct ReadySourceContinents(SourceContinents, Option<SourceReferenceLootStore>);
+pub struct ReadySourceContinents {
+    continents: SourceContinents,
+    reference_loot: Option<SourceReferenceLootStore>,
+    battlegrounds: SourceBattleGroundMgr,
+}
 impl ReadySourceContinents {
     pub fn continents(&self) -> &SourceContinents {
-        &self.0
+        &self.continents
     }
 
     pub fn bind_reference_loot(&mut self, store: SourceReferenceLootStore) {
-        self.1 = Some(store);
+        self.reference_loot = Some(store);
     }
 
     pub fn reference_loot(&self) -> Option<&SourceReferenceLootStore> {
-        self.1.as_ref()
+        self.reference_loot.as_ref()
     }
 
     // MapManager.cpp:56-58 reads the signed thread count after the continent join.
@@ -374,7 +378,7 @@ impl ReadySourceContinents {
 
     // MapUpdater.cpp:28-35,61-64 derives activation from the presence of workers.
     fn activate(&mut self, workers: usize, worker_births: &[ThreadBirth]) -> Result<()> {
-        if self.0.updater.worker_count() != 0 {
+        if self.continents.updater.worker_count() != 0 {
             return Ok(());
         }
         require(
@@ -383,13 +387,15 @@ impl ReadySourceContinents {
         )?;
         // Deviation: Use logical workers because replay follows recorded thread identities.
         for &birth in worker_births {
-            self.0.updater.birth(birth, ThreadRole::MapWorker)?;
+            self.continents
+                .updater
+                .birth(birth, ThreadRole::MapWorker)?;
         }
         Ok(())
     }
 
     pub fn map_updater(&self) -> &SourceScheduler {
-        &self.0.updater
+        &self.continents.updater
     }
 
     // MapManager.cpp:203 queues an update when the updater is active.
@@ -400,9 +406,22 @@ impl ReadySourceContinents {
     }
 
     // World.cpp:1394 calls BattleGroundMgr after MapManager::Initialize returns.
-    pub fn create_initial_battlegrounds(&self) -> Result<()> {
+    pub fn create_initial_battlegrounds(
+        &mut self,
+        inputs: &mut impl BattleGroundInputs,
+    ) -> Result<usize> {
+        self.battlegrounds
+            .create_initial_battlegrounds(self.reference_loot.as_ref(), inputs)
+    }
+
+    pub fn battlegrounds(&self) -> &SourceBattleGroundMgr {
+        &self.battlegrounds
+    }
+
+    // World.cpp:1395 audits all loaded loot stores after battleground templates bind their references.
+    pub fn check_reference_loot_templates(&self) -> Result<()> {
         Err(refuse(
-            "execution.world.World_1394.create_initial_battlegrounds_owner",
+            "execution.world.World_1395.check_reference_loot_templates_owner",
         ))
     }
 }
@@ -414,7 +433,11 @@ impl SourceContinents {
         let [map0, map1] = outcomes;
         map0?;
         map1?;
-        Ok(ReadySourceContinents(self, None))
+        Ok(ReadySourceContinents {
+            continents: self,
+            reference_loot: None,
+            battlegrounds: SourceBattleGroundMgr::default(),
+        })
     }
 
     /// MapManager.cpp:52-54,96-106; only constructors have a world-thread order.

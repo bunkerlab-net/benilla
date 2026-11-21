@@ -3,7 +3,9 @@ use super::*;
 
 fn references() -> GraveyardReferences {
     GraveyardReferences {
-        safe_locations: BTreeSet::from([4, 10, 11]),
+        safe_locations: [4, 10, 11]
+            .map(|id| (id, SourceWorldSafeLoc::default()))
+            .into(),
         areas: BTreeSet::from([12, 0x8000_0001]),
         maps: BTreeSet::from([0, 1]),
     }

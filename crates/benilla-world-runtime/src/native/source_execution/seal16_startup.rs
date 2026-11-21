@@ -7,6 +7,8 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 #[path = "seal16_active_init.rs"]
 mod active_init;
+#[path = "seal16_battlegrounds.rs"]
+mod battleground_evidence;
 #[path = "seal16_creature_models.rs"]
 mod creature_models;
 #[path = "seal16_equipment.rs"]
@@ -73,7 +75,6 @@ const MAP0_NEXT_OWNER_LINE: u64 = 61721576; // First transport birth.
 const MAP0_INITIALIZE_RETURN: u64 = 61721693;
 const MAP0_LAST_STORMWIND_COMPLETION: u64 = 61390644;
 pub(super) const MAP_UPDATER_TRACE: std::ops::RangeInclusive<u64> = 61721695..=61721719;
-const BATTLEGROUND_TEMPLATE_QUERY: &[u8] = b"SELECT id, MinPlayersPerTeam,MaxPlayersPerTeam,MinLvl,MaxLvl,AllianceStartLoc,HordeStartLoc,StartMaxDist,PlayerSkinReflootId FROM battleground_template";
 
 #[derive(Default)]
 struct MapUpdaterTrace {
@@ -1273,7 +1274,7 @@ pub(super) struct Inputs {
     map_threads: BTreeMap<u64, MapThreadEvidence>,
     map_updater: MapUpdaterTrace,
     reference_loot: reference_loot_evidence::Evidence,
-    battleground_query_line: Option<u64>,
+    battlegrounds: battleground_evidence::Evidence,
     event_initialize_line: Option<u64>,
     event_status_writes: Vec<(u64, String)>,
     graveyard_query_line: Option<u64>,
@@ -1317,6 +1318,9 @@ impl Inputs {
     pub(super) fn observe_thread(&mut self, thread: u64, line: u64, kind: &str, p: &[&str]) {
         if thread == 1 && (51647696..=52609100).contains(&line) {
             self.reference_loot.observe(line, kind, p);
+        }
+        if thread == 1 && (61721736..=61721907).contains(&line) {
+            self.battlegrounds.observe(line, kind, p);
         }
         if thread == 1 && (46233402..=46233818).contains(&line) {
             self.transport_sql.observe(line, kind, p);
@@ -1462,9 +1466,6 @@ impl Inputs {
             }
             if query == RANDOM_TEMPLATE_QUERY.as_bytes() {
                 assert!(self.random_template_request_line.replace(line).is_none());
-            }
-            if query == BATTLEGROUND_TEMPLATE_QUERY {
-                assert!(self.battleground_query_line.replace(line).is_none());
             }
         }
         if thread == 1 && kind == "mt_raw" {
@@ -7079,8 +7080,57 @@ pub(super) fn continue_startup(
     let worker_count = ready.map_updater().worker_count();
     assert_eq!(worker_count, worker_births.len());
     assert_eq!(ready.map_updater().pending(), 0);
-    assert_eq!(observed.battleground_query_line, Some(61721736));
-    let refusal = ready.create_initial_battlegrounds().unwrap_err();
+    let mut battleground_inputs =
+        observed
+            .battlegrounds
+            .inputs(catalog, &config, &graveyard_references.safe_locations);
+    assert_eq!(
+        ready
+            .create_initial_battlegrounds(&mut battleground_inputs)
+            .unwrap(),
+        3
+    );
+    let battlegrounds = ready.battlegrounds();
+    assert_eq!(battlegrounds.used_refloot(), &BTreeSet::from([1]));
+    for (type_id, map_id, name, skin_refloot) in [
+        (1, 30, b"Alterac Valley".as_slice(), 1),
+        (2, 489, b"Warsong Gulch".as_slice(), 0),
+        (3, 529, b"Arathi Basin".as_slice(), 0),
+    ] {
+        let template = battlegrounds.template(type_id).unwrap();
+        assert_eq!(template.map_id, map_id);
+        assert_eq!(&*template.name, name);
+        assert_eq!(template.player_skin_refloot, skin_refloot);
+        assert!(template.map.is_none());
+        assert_eq!(template.instance_id(), 0);
+    }
+    assert_eq!(
+        [1, 2, 3].map(|id| {
+            battlegrounds
+                .template(id)
+                .unwrap()
+                .start_locations
+                .map(|team| team.map(f32::to_bits))
+        }),
+        [
+            // world_safe_locs SQL conversions, trace :15385264-15385302.
+            [
+                [0x445a4021, 0xc3f5a45a, 0x42c11574, 0x407b53ce],
+                [0xc44ca3a6, 0xc41ad052, 0x425827d5, 0x400192b8]
+            ],
+            // Trace :15385936-15385974.
+            [
+                [0x44bdf0f6, 0x44b93bd7, 0x43b00312, 0x40490fd0],
+                [0x4469552f, 0x44b3370a, 0x43acc49c, 0]
+            ],
+            // Trace :15386448-15386486.
+            [
+                [0x44a43ccd, 0x44a3d7ae, 0xc1102ab9, 0x4075bdf9],
+                [0x442b00e5, 0x442a4e14, 0xc14ea787, 0x3f4d87a5]
+            ],
+        ],
+    );
+    let refusal = ready.check_reference_loot_templates().unwrap_err();
     assert_eq!(refusal.id, active_init::STARTUP_NEXT_OWNER);
     let next_owner = refusal.id;
     let next_source = active_init::STARTUP_NEXT_SOURCE;

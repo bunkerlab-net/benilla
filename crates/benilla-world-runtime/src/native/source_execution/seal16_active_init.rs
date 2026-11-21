@@ -5,8 +5,8 @@ use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
 pub(super) const STARTUP_NEXT_OWNER: &str =
-    "execution.world.World_1394.create_initial_battlegrounds_owner";
-pub(super) const STARTUP_NEXT_SOURCE: &str = "World.cpp:1394";
+    "execution.world.World_1395.check_reference_loot_templates_owner";
+pub(super) const STARTUP_NEXT_SOURCE: &str = "World.cpp:1395";
 #[path = "seal16_active_clocks.rs"]
 mod clocks;
 pub(super) use clocks::{ActiveClock, ActiveClocks};
