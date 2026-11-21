@@ -196,6 +196,7 @@ impl SourceMapManager {
 /// Phase handlers execute managers, including timer-conditional branches, independently.
 pub trait WorldWork {
     fn phase(&mut self, phase: WorldPhase, thread: u64, diff: u32) -> Result<()>;
+    fn execute_world_messages(&mut self, thread: u64, messages: &mut SourceMessager) -> Result<()>;
     fn run_map_jobs(
         &mut self,
         thread: u64,
@@ -211,6 +212,8 @@ pub trait WorldWork {
 pub struct SourceWorld {
     pub maps: SourceMapManager,
     pub scheduler: SourceScheduler,
+    /// World.h:595,717 owns the world queue for event work and OutdoorPvP.
+    pub messages: SourceMessager,
     thread: u64,
     corpse_timer: IntervalTimer,
     saved_variables: startup::SourceSavedVariables,
@@ -226,6 +229,7 @@ impl SourceWorld {
         Ok(Self {
             maps: SourceMapManager::new(map_interval),
             scheduler: SourceScheduler::default(),
+            messages: SourceMessager::new(MessageOwner::World),
             thread,
             corpse_timer,
             saved_variables: startup::SourceSavedVariables::default(),
@@ -325,6 +329,10 @@ impl SourceWorld {
     fn update_inner<W: WorldWork>(&mut self, diff: u32, work: &mut W) -> Result<()> {
         for phase in WORLD_PHASES {
             work.phase(phase, self.thread, diff)?;
+            // World.cpp:1551-1554 drains the world queue after updating the game time.
+            if phase == WorldPhase::Messages {
+                work.execute_world_messages(self.thread, &mut self.messages)?;
+            }
             // Advance all timers before the conditional sweep resets one interval; World.cpp:1543-1549,1655-1659.
             if phase == WorldPhase::Timers {
                 self.corpse_timer

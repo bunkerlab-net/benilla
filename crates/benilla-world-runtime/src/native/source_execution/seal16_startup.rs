@@ -1277,6 +1277,7 @@ pub(super) struct Inputs {
     map_bindings: BTreeMap<u32, (u64, u64, u64)>,
     map_threads: BTreeMap<u64, MapThreadEvidence>,
     map_updater: MapUpdaterTrace,
+    outdoor_world_submit: Option<u64>,
     loot: loot_evidence::Evidence,
     battlegrounds: battleground_evidence::Evidence,
     bans: world_tail::BansEvidence,
@@ -1344,6 +1345,16 @@ impl Inputs {
         }
         if MAP_UPDATER_TRACE.contains(&line) {
             self.map_updater.observe(thread, line, kind, p);
+        }
+        if line == 60100877 {
+            assert_eq!(
+                (thread, kind, p[0]),
+                (1, "message_submit", "0x2002001170b0")
+            );
+            assert!(self
+                .outdoor_world_submit
+                .replace(p[1].parse().unwrap())
+                .is_none());
         }
         // The transport trace whitelist excludes clocks, RNG words and SQL.
         if thread == 6 && (MAP0_NEXT_OWNER_LINE..=MAP0_INITIALIZE_RETURN).contains(&line)
@@ -2051,6 +2062,7 @@ impl PersistentEffects for InitialEffects<'_> {
     }
 }
 struct Owner<'a> {
+    world: SourceWorld,
     spawns: &'a SourceEffectiveSpawns,
     maps: &'a BTreeMap<u32, u32>,
     ids: [BTreeSet<u32>; 4],
@@ -2253,7 +2265,10 @@ impl EventEffectOwner for Owner<'_> {
             })
             .copied())
     }
-    fn event_post_map(&mut self, _: MapIdentity, _: MessageEnvelope) -> Result<()> {
+    fn event_post_world(&mut self, cause: u64, payload: SourceMessage) -> Result<()> {
+        self.world.messages.post(cause, payload)
+    }
+    fn event_post_map(&mut self, _: MapIdentity, _: u64, _: SourceMessage) -> Result<()> {
         Err(refuse("execution.event.map_traversal_owner"))
     }
     fn event_sql(&mut self, _: u64, sql: &str) -> Result<()> {
@@ -2846,7 +2861,9 @@ pub(super) fn continue_startup(
     assert!(quest_catalog
         .templates()
         .all(SourceQuestTemplate::is_active));
+    let (world, weekly_config) = observed.weekly.bind_config();
     let mut owner = Owner {
+        world,
         spawns,
         maps: &inputs.maps,
         ids,
@@ -3354,7 +3371,6 @@ pub(super) fn continue_startup(
         &gameobject_templates,
     );
     let mut outdoor_pvp = SourceOutdoorPvp::default();
-    let mut outdoor_messages = SourceMessager::new(MessageOwner::World);
     // The current registry is empty before MapManager::Initialize, not a recorded result.
     assert!(owner.loaded_maps.is_empty());
     let mut current_maps = owner
@@ -3366,18 +3382,23 @@ pub(super) fn continue_startup(
         .initialize(
             SourceOutdoorPvp::config(&config).unwrap(),
             1,
-            &mut outdoor_messages,
+            &mut owner.world.messages,
             &mut current_maps,
         )
         .unwrap();
     assert_eq!(outdoor_census.maps_visited, 0);
     assert_eq!(outdoor_census.scripts, 2);
-    assert_eq!(outdoor_messages.pending(), 1);
+    let messages = owner.world.messages.inventory();
+    assert_eq!(messages.queue.len(), 1);
+    assert_eq!(
+        messages.queue[0].id,
+        observed.outdoor_world_submit.unwrap() + 1
+    );
     println!(
         "F6_OUTDOOR_PVP scripts={} current_maps_visited={} world_messages_queued={} graveyard_team_before_world_drain={:?}",
         outdoor_census.scripts,
         outdoor_census.maps_visited,
-        outdoor_messages.pending(),
+        messages.queue.len(),
         world_graveyards.entries().get(&139)
     );
     let continent_config = ContinentConfig::parse(&config).unwrap();
@@ -7266,11 +7287,10 @@ pub(super) fn continue_startup(
         551
     );
     observed.bans.assert_matches(recording);
-    let (mut world, weekly_config) = observed.weekly.bind_config();
     let (calendar, maintenance_weekday) = observed.weekly.maintenance_inputs();
     let refusal = ready
         .initialize_world_tail(
-            &mut world,
+            &mut owner.world,
             weekly_config,
             calendar,
             maintenance_weekday,
@@ -7279,11 +7299,11 @@ pub(super) fn continue_startup(
         )
         .unwrap_err();
     observed.weekly.assert_consumed();
-    assert_eq!(world.next_weekly_quest_reset(), 1794376800); // Trace :61722159.
-    assert_eq!(world.next_maintenance_date(), 8257850); // Trace :61722719.
-    let (alliance, horde) = world.honor_standings();
+    assert_eq!(owner.world.next_weekly_quest_reset(), 1794376800); // Trace :61722159.
+    assert_eq!(owner.world.next_maintenance_date(), 8257850); // Trace :61722719.
+    let (alliance, horde) = owner.world.honor_standings();
     assert!(alliance.is_empty() && horde.is_empty()); // Trace :61722899.
-    assert!(world.spam_records().is_empty()); // Trace :61722937.
+    assert!(owner.world.spam_records().is_empty()); // Trace :61722937.
     assert_eq!(refusal.id, active_init::STARTUP_NEXT_OWNER);
     let next_owner = refusal.id;
     let next_source = active_init::STARTUP_NEXT_SOURCE;

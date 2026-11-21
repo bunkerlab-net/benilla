@@ -86,7 +86,13 @@ pub trait EventEffectOwner: PoolStateOwner {
         map_id: Option<u32>,
         after: Option<MapIdentity>,
     ) -> Result<Option<MapIdentity>>;
-    fn event_post_map(&mut self, map: MapIdentity, message: MessageEnvelope) -> Result<()>;
+    fn event_post_world(&mut self, cause: u64, payload: SourceMessage) -> Result<()>;
+    fn event_post_map(
+        &mut self,
+        map: MapIdentity,
+        cause: u64,
+        payload: SourceMessage,
+    ) -> Result<()>;
     fn event_sql(&mut self, cause: u64, sql: &str) -> Result<()>;
     fn event_announce(&mut self, event: u16, description: &[u8]) -> Result<()>;
     fn event_quest(&mut self, _quest: u32, _active: bool) -> Result<()> {
@@ -109,11 +115,9 @@ pub trait EventEffectOwner: PoolStateOwner {
         Err(EventPending::Shutdown.refusal())
     }
 }
-/// Global ObjectMgr dynamic lists and the existing world Messager, not map-local copies.
+/// Global ObjectMgr dynamic lists used by the event effects.
 pub struct SourceEventEffects {
-    pub world: SourceMessager,
     dynamic: BTreeMap<u32, [Vec<u32>; 2]>,
-    next_message: u64,
     stopped: bool,
 }
 impl Default for SourceEventEffects {
@@ -125,9 +129,7 @@ impl SourceEventEffects {
     /// Takes the preceding effective ObjectMgr loader's dynamic lists, not a second roster.
     pub fn new(dynamic: BTreeMap<u32, [Vec<u32>; 2]>) -> Self {
         Self {
-            world: SourceMessager::new(MessageOwner::World),
             dynamic,
-            next_message: 0,
             stopped: false,
         }
     }
@@ -138,18 +140,6 @@ impl SourceEventEffects {
             } else {
                 1
             }]
-        })
-    }
-    fn envelope(&mut self, cause: u64, payload: SourceMessage) -> Result<MessageEnvelope> {
-        require(cause > 0, "execution.event.cause")?;
-        self.next_message = self
-            .next_message
-            .checked_add(1)
-            .ok_or_else(|| refuse("execution.event.message_identity_exhausted"))?;
-        Ok(MessageEnvelope {
-            id: self.next_message,
-            cause,
-            payload,
         })
     }
     pub fn execute(
@@ -250,14 +240,13 @@ impl SourceEventEffects {
                 }
                 // One closure captures the complete ordered map grouping; GameEventMgr.cpp:828-864,937-975.
                 if !maps.is_empty() {
-                    let message = self.envelope(
+                    owner.event_post_world(
                         cause,
                         SourceMessage::ForwardGameEvent {
                             maps: maps.into_values().collect(),
                             spawn,
                         },
                     )?;
-                    self.world.enqueue(message)?;
                 }
                 if event > 0 {
                     if let Some(list) = inventory.pools.get(event as usize) {
@@ -283,7 +272,8 @@ impl SourceEventEffects {
                     };
                     let mut after = None;
                     while let Some(map) = owner.event_next_map(Some(definition.map), after)? {
-                        let message = self.envelope(
+                        owner.event_post_map(
+                            map,
                             cause,
                             SourceMessage::UpdateCreatureEvent {
                                 update: EventCreatureUpdate {
@@ -293,7 +283,6 @@ impl SourceEventEffects {
                                 },
                             },
                         )?;
-                        owner.event_post_map(map, message)?;
                         after = Some(map);
                     }
                 }
@@ -359,7 +348,9 @@ impl SourceEventEffects {
                 }
                 let mut after = None;
                 while let Some(map) = owner.event_next_map(Some(data.map), after)? {
-                    let message = self.envelope(
+                    require(cause > 0, "execution.event.cause")?;
+                    owner.event_post_map(
+                        map,
                         cause,
                         SourceMessage::MapGameEvent {
                             creatures: data.creatures.clone(),
@@ -367,7 +358,6 @@ impl SourceEventEffects {
                             spawn,
                         },
                     )?;
-                    owner.event_post_map(map, message)?;
                     after = Some(map);
                 }
             }

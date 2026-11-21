@@ -55,11 +55,10 @@ impl MoTransportOwner for Owner {
         transfer: TransportTransfer,
     ) -> Result<()> {
         assert_eq!(self.destination.as_ref().unwrap().map(), destination);
-        self.queue.as_mut().unwrap().enqueue(MessageEnvelope {
-            id: 1,
-            cause: 42,
-            payload: SourceMessage::AttachTransport { transfer },
-        })
+        self.queue
+            .as_mut()
+            .unwrap()
+            .post(42, SourceMessage::AttachTransport { transfer })
     }
 }
 fn setup() -> (

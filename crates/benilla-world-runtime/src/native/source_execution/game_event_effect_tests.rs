@@ -36,9 +36,11 @@ struct Host {
     pools: SourcePoolManager,
     states: SourceManagers,
     effects: SourceEventEffects,
+    world: SourceWorld,
     definitions: BTreeMap<SpawnKey, EventSpawnDefinition>,
     maps: Vec<MapIdentity>,
     queues: BTreeMap<MapIdentity, SourceMessager>,
+    map_posts: Vec<MapIdentity>,
     calls: Vec<String>,
     mails: Vec<(u64, EventMailTask)>,
     sql: Vec<(u64, String)>,
@@ -57,9 +59,11 @@ impl Default for Host {
             pools: pools(false),
             states: SourceManagers::default(),
             effects: SourceEventEffects::default(),
+            world: SourceWorld::new(1, 100).unwrap(),
             definitions: BTreeMap::new(),
             maps: vec![],
             queues: BTreeMap::new(),
+            map_posts: vec![],
             calls: vec![],
             mails: vec![],
             sql: vec![],
@@ -101,7 +105,7 @@ impl Host {
     }
     fn world(&mut self) -> Result<Vec<MessageCompletion>> {
         let mut effects = std::mem::take(&mut self.effects);
-        let batch = effects.world.take_batch(MessageOwner::World)?;
+        let batch = self.world.messages.take_batch(MessageOwner::World)?;
         let done = batch.execute(
             MessageOwner::World,
             1,
@@ -233,11 +237,21 @@ impl EventEffectOwner for Host {
             .copied()
             .find(|map| id.is_none_or(|id| map.map == id)))
     }
-    fn event_post_map(&mut self, map: MapIdentity, message: MessageEnvelope) -> Result<()> {
+    fn event_post_world(&mut self, cause: u64, payload: SourceMessage) -> Result<()> {
+        self.world.messages.post(cause, payload)
+    }
+    fn event_post_map(
+        &mut self,
+        map: MapIdentity,
+        cause: u64,
+        payload: SourceMessage,
+    ) -> Result<()> {
         self.queues
             .entry(map)
             .or_insert_with(|| SourceMessager::new(MessageOwner::Map(map)))
-            .enqueue(message)
+            .post(cause, payload)?;
+        self.map_posts.push(map);
+        Ok(())
     }
     fn event_sql(&mut self, cause: u64, sql: &str) -> Result<()> {
         self.calls.push(sql.into());
@@ -332,20 +346,17 @@ impl EventMessageOwner for Host {
         }
         if self.nested_update {
             self.nested_update = false;
-            self.queues
-                .get_mut(&map)
-                .unwrap()
-                .enqueue(MessageEnvelope {
-                    id: 1000,
-                    cause: 2,
-                    payload: SourceMessage::UpdateCreatureEvent {
-                        update: EventCreatureUpdate {
-                            definition: definition(7, map.map),
-                            data: data(7),
-                            activate: true,
-                        },
+            self.event_post_map(
+                map,
+                2,
+                SourceMessage::UpdateCreatureEvent {
+                    update: EventCreatureUpdate {
+                        definition: definition(7, map.map),
+                        data: data(7),
+                        activate: true,
                     },
-                })?;
+                },
+            )?;
         }
         Ok(())
     }
@@ -415,7 +426,7 @@ fn start_stop_signed_membership_and_noninverse_callback_order() {
             "notify:0:1:true:false"
         ]
     );
-    assert_eq!(host.effects.world.pending(), 2);
+    assert_eq!(host.world.messages.pending(), 2);
     assert!(host
         .effects
         .dynamic_guids(0, GridSpawnKind::Creature)
@@ -432,7 +443,7 @@ fn start_stop_signed_membership_and_noninverse_callback_order() {
     );
     let done = host.deliver(map(0)).unwrap();
     assert_eq!(done.iter().map(|m| m.cause).collect::<Vec<_>>(), [1, 2]);
-    assert_eq!(host.message_causes, [(1, 103), (2, 104), (3, 1), (4, 2)]);
+    assert_eq!(host.message_causes, [(1, 103), (2, 104), (1, 1), (2, 2)]);
     host.calls.clear();
     manager.stop_event(1, false, &mut host).unwrap();
     assert_eq!(
@@ -511,20 +522,82 @@ fn one_world_closure_groups_maps_in_key_order_and_preserves_duplicates() {
         .map = 2;
     let manager = host.load(&mut rows);
     host.apply(&manager, GameEventEffect::Spawn(1)).unwrap();
-    assert_eq!(host.effects.world.pending(), 1);
+    assert_eq!(host.world.messages.pending(), 1);
     host.world().unwrap();
     assert_eq!(
         host.effects.dynamic_guids(2, GridSpawnKind::Creature),
         [7, 7]
     );
-    assert_eq!(host.deliver(map(2)).unwrap()[0].id, 3);
-    assert_eq!(host.deliver(map(0)).unwrap()[0].id, 2);
+    assert_eq!(host.map_posts, [map(0), map(2)]);
+    assert_eq!(host.deliver(map(2)).unwrap()[0].id, 1);
+    assert_eq!(host.deliver(map(0)).unwrap()[0].id, 1);
     host.apply(&manager, GameEventEffect::Unspawn(1)).unwrap();
     host.world().unwrap();
     assert!(host
         .effects
         .dynamic_guids(2, GridSpawnKind::Creature)
         .is_empty());
+}
+
+#[test]
+fn outdoor_and_event_posts_share_fifo_ids_on_world_and_map() {
+    let mut host = Host::default();
+    host_definitions(&mut host);
+    host.maps.push(map(0));
+    let mut rows = members();
+    rows.substitutions.push_back(GameEventSubstitutionRow {
+        ordinal: 0,
+        exists: true,
+        event: 1,
+        data: data(7),
+    });
+    let manager = host.load(&mut rows);
+    for active in [true, false] {
+        host.apply(&manager, GameEventEffect::Spawn(1)).unwrap();
+        host.apply(
+            &manager,
+            GameEventEffect::Substitutions { event: 1, active },
+        )
+        .unwrap();
+        if active {
+            SourceOutdoorPvp::default()
+                .initialize(
+                    [false, true],
+                    90,
+                    &mut host.world.messages,
+                    &mut host.queues,
+                )
+                .unwrap();
+        }
+    }
+    let world = host.world.messages.inventory();
+    let map_queue = host.queues[&map(0)].inventory();
+    for queue in [&world.queue, &map_queue.queue] {
+        assert_eq!(
+            queue.iter().map(|message| message.id).collect::<Vec<_>>(),
+            [1, 2, 3]
+        );
+        assert_eq!(queue[1].cause, 90);
+        assert_eq!(
+            queue[1].payload,
+            SourceMessage::SetGraveyardTeam {
+                id: 927,
+                location_key: 139,
+                team: 1
+            }
+        );
+    }
+    for slot in [0, 2] {
+        assert!(matches!(
+            world.queue[slot].payload,
+            SourceMessage::ForwardGameEvent { spawn: true, .. }
+        ));
+    }
+    for (slot, activate) in [(0, true), (2, false)] {
+        assert!(
+            matches!(map_queue.queue[slot].payload, SourceMessage::UpdateCreatureEvent { update } if update.activate == activate)
+        );
+    }
 }
 #[test]
 fn concurrent_substitutions_use_first_occurrence_not_lowest_event() {
@@ -844,7 +917,7 @@ fn negative_pool_members_toggle_exclusion_and_enter_real_global_pool_owner() {
         .unwrap();
     host.states = states;
     host.apply(&manager, GameEventEffect::Spawn(-1)).unwrap();
-    assert_eq!(host.effects.world.pending(), 0);
+    assert_eq!(host.world.messages.pending(), 0);
     assert!(host.calls.iter().any(|s| s.starts_with("pool:Spawn")));
     host.calls.clear();
     host.apply(&manager, GameEventEffect::Unspawn(-1)).unwrap();
@@ -854,7 +927,7 @@ fn negative_pool_members_toggle_exclusion_and_enter_real_global_pool_owner() {
         .iter()
         .any(|s| s.starts_with("pool:Spawn") && s.ends_with(":8")));
     assert!(host.pools.pool_template(1).unwrap().groups[2].equal[0].excluded);
-    assert_eq!(host.effects.world.pending(), 0);
+    assert_eq!(host.world.messages.pending(), 0);
 }
 
 impl PersistentEffects for Host {
@@ -984,7 +1057,7 @@ fn map_event_pools_use_current_active_set_and_source_iteration_order() {
     assert_eq!(leaves, ["pool:Spawn { instantly: true }:9"]);
     assert_eq!(manager.inventory().active, BTreeSet::from([1, 2]));
     assert!(!manager.inventory().initialized);
-    assert_eq!(host.effects.world.pending(), 0);
+    assert_eq!(host.world.messages.pending(), 0);
     assert!(host.sql.is_empty() && host.calendar.effects.is_empty());
     assert!(!pools.inventory().stopped);
 }

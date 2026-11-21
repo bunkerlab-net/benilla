@@ -17,6 +17,7 @@ pub struct ManagerCompositionInventory {
     pub groups: SpawnGroupsInventory,
     pub corpses: CorpseRegistryInventory,
     pub event_effects: EventEffectsInventory,
+    pub world_messages: MessageInventory,
     pub maps: Vec<MapManagerInventory>,
 }
 impl ManagerCompositionInventory {
@@ -37,6 +38,11 @@ impl ManagerCompositionInventory {
             "execution.managers.stopped_boundary",
         )?;
         self.event_effects.validate()?;
+        self.world_messages.validate()?;
+        require(
+            self.world_messages.owner == MessageOwner::World,
+            "execution.managers.event_message_owner",
+        )?;
         let mut maps = BTreeSet::new();
         for map in &self.maps {
             let id = map.spawn.map;

@@ -421,6 +421,10 @@ impl WorldWork for WorldHost {
         self.phases.push(phase);
         Ok(())
     }
+    fn execute_world_messages(&mut self, _: u64, messages: &mut SourceMessager) -> Result<()> {
+        assert_eq!(messages.pending(), 0);
+        Ok(())
+    }
     fn run_map_jobs(&mut self, _: u64, _: &[MapJob], _: &mut SourceScheduler) -> Result<()> {
         panic!("no maps")
     }

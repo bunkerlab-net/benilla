@@ -153,15 +153,12 @@ impl SourceMessager {
             failed: self.failed,
         }
     }
-    // Enqueue linearization is the exclusive mutable borrow; Messager.h:30-33.
-    pub fn enqueue(&mut self, message: MessageEnvelope) -> Result<()> {
+    // Messager.h:30-43 orders each destination FIFO. IDs record that order only.
+    pub fn post(&mut self, cause: u64, payload: SourceMessage) -> Result<()> {
         require(!self.failed, "execution.messages_stopped")?;
-        require(
-            message.id > self.last_id && message.cause > 0,
-            "execution.message_identity",
-        )?;
+        require(cause > 0, "execution.message_identity")?;
         let correct_owner = matches!(
-            (&self.owner, &message.payload),
+            (&self.owner, &payload),
             (MessageOwner::World, SourceMessage::ForwardGameEvent { .. })
                 | (_, SourceMessage::SetGraveyardTeam { .. })
                 | (
@@ -172,8 +169,12 @@ impl SourceMessager {
                 )
         );
         require(correct_owner, "execution.message_owner")?;
-        self.last_id = message.id;
-        self.queue.push(message);
+        let id = self
+            .last_id
+            .checked_add(1)
+            .ok_or_else(|| refuse("execution.message_identity_exhausted"))?;
+        self.last_id = id;
+        self.queue.push(MessageEnvelope { id, cause, payload });
         Ok(())
     }
     /// OutdoorPvP.cpp:34-35 queues work without reading or changing a graveyard.
@@ -184,19 +185,14 @@ impl SourceMessager {
         location_key: u32,
         team: u32,
     ) -> Result<()> {
-        let next = self
-            .last_id
-            .checked_add(1)
-            .ok_or_else(|| refuse("execution.message_identity_exhausted"))?;
-        self.enqueue(MessageEnvelope {
-            id: next,
+        self.post(
             cause,
-            payload: SourceMessage::SetGraveyardTeam {
+            SourceMessage::SetGraveyardTeam {
                 id,
                 location_key,
                 team,
             },
-        })
+        )
     }
     // Detach under the queue borrow before any handler executes; Messager.h:35-43.
     pub fn take_batch(&mut self, owner: MessageOwner) -> Result<MessageBatch> {

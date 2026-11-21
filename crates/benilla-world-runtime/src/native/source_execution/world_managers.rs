@@ -6,7 +6,6 @@ use benilla_sim::source_time::IntervalTimer;
 
 pub struct WorldManagerContext<'a> {
     pub thread: u64,
-    pub messages: &'a mut SourceMessager,
     pub events: &'a mut SourceGameEventManager,
     pub event_timer: &'a mut IntervalTimer,
     pub announce: bool,
@@ -16,18 +15,15 @@ pub struct WorldManagerContext<'a> {
 }
 impl WorldManagerContext<'_> {
     /// Call exactly once from each corresponding SourceWorld phase.
-    /// World.cpp:1543-1554 advances before messages; :1663-1668 updates events
+    /// World.cpp:1543-1549 advances timers; :1663-1668 updates events
     /// only after map join/unload, SQL callbacks and the corpse sweep.
     pub fn phase(
         &mut self,
         phase: WorldPhase,
         diff: u32,
-        owner: &mut (impl MessageWork + GameEventOwner),
+        owner: &mut impl GameEventOwner,
     ) -> Result<()> {
-        require(
-            self.thread > 0 && self.messages.owner() == MessageOwner::World,
-            "execution.managers.world_binding",
-        )?;
+        require(self.thread > 0, "execution.managers.world_binding")?;
         match phase {
             WorldPhase::Timers => {
                 if self.event_timer.get_current() < 0 {
@@ -37,10 +33,6 @@ impl WorldManagerContext<'_> {
                         .update(i64::from(diff))
                         .map_err(|_| refuse("execution.event.timer_overflow"))?;
                 }
-            }
-            WorldPhase::Messages => {
-                self.messages
-                    .execute(MessageOwner::World, self.thread, owner)?;
             }
             WorldPhase::GameEvents => {
                 self.events

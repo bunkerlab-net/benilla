@@ -67,6 +67,10 @@ impl WorldWork for Work {
         self.phases.push(phase);
         Ok(())
     }
+    fn execute_world_messages(&mut self, _: u64, messages: &mut SourceMessager) -> Result<()> {
+        assert_eq!(messages.pending(), 0);
+        Ok(())
+    }
     fn run_map_jobs(
         &mut self,
         _: u64,
@@ -229,25 +233,23 @@ impl MessageWork for Handlers {
         Ok(())
     }
     fn forward_game_event(&mut self, _: u64, maps: &[EventMapGuids], spawn: bool) -> Result<()> {
-        self.map_queue.enqueue(MessageEnvelope {
-            id: 1,
-            cause: 10,
-            payload: SourceMessage::MapGameEvent {
+        self.map_queue.post(
+            10,
+            SourceMessage::MapGameEvent {
                 creatures: maps
                     .first()
                     .map_or_else(Vec::new, |map| map.creatures.clone()),
                 gameobjects: vec![],
                 spawn,
             },
-        })?;
-        self.world.enqueue(MessageEnvelope {
-            id: 2,
-            cause: 10,
-            payload: SourceMessage::ForwardGameEvent {
+        )?;
+        self.world.post(
+            10,
+            SourceMessage::ForwardGameEvent {
                 maps: vec![],
                 spawn,
             },
-        })
+        )
     }
     fn map_game_event(
         &mut self,
@@ -260,13 +262,12 @@ impl MessageWork for Handlers {
         for guid in creatures {
             self.calls.push((thread, *guid));
         }
-        self.map_queue.enqueue(MessageEnvelope {
-            id: 2,
-            cause: 11,
-            payload: SourceMessage::UpdateCreatureEvent {
+        self.map_queue.post(
+            11,
+            SourceMessage::UpdateCreatureEvent {
                 update: authored_event_update(),
             },
-        })
+        )
     }
     fn creature_present(&self, _: MapIdentity, _: u64) -> bool {
         self.creature
@@ -291,10 +292,9 @@ fn event_world_map_batches_detach_and_nested_enqueue_waits() {
     let mut handlers = Handlers::new();
     handlers
         .world
-        .enqueue(MessageEnvelope {
-            id: 1,
-            cause: 9,
-            payload: SourceMessage::ForwardGameEvent {
+        .post(
+            9,
+            SourceMessage::ForwardGameEvent {
                 maps: vec![EventMapGuids {
                     map: 0,
                     creatures: vec![7, 8],
@@ -302,7 +302,7 @@ fn event_world_map_batches_detach_and_nested_enqueue_waits() {
                 }],
                 spawn: true,
             },
-        })
+        )
         .unwrap();
     let world_batch = handlers.world.take_batch(MessageOwner::World).unwrap();
     let done = world_batch
@@ -346,13 +346,12 @@ fn stale_lookup_is_owner_specific_and_worker_rng_continues_across_maps() {
     handlers.creature = false;
     let mut messages = SourceMessager::new(MessageOwner::Map(map(0)));
     messages
-        .enqueue(MessageEnvelope {
-            id: 1,
-            cause: 1,
-            payload: SourceMessage::UpdateCreatureEvent {
+        .post(
+            1,
+            SourceMessage::UpdateCreatureEvent {
                 update: authored_event_update(),
             },
-        })
+        )
         .unwrap();
     let wrong = MapIdentity {
         creation_generation: 2,

@@ -415,17 +415,16 @@ impl Fixture {
         self.dispatch = dispatch;
         result.map(|()| events)
     }
-    fn message(&mut self, id: u64, spawn: bool) {
+    fn message(&mut self, spawn: bool) {
         self.messages
-            .enqueue(MessageEnvelope {
-                id,
-                cause: 99,
-                payload: SourceMessage::MapGameEvent {
+            .post(
+                99,
+                SourceMessage::MapGameEvent {
                     creatures: vec![7],
                     gameobjects: vec![],
                     spawn,
                 },
-            })
+            )
             .unwrap();
     }
     fn inventory(&self) -> ManagerCompositionInventory {
@@ -443,6 +442,7 @@ impl Fixture {
                 .inventory(&self.objects)
                 .unwrap(),
             event_effects: SourceEventEffects::default().inventory(),
+            world_messages: SourceWorld::new(1, 100).unwrap().messages.inventory(),
             maps: vec![MapManagerInventory {
                 dispatch_stopped: self.dispatch.is_stopped(),
                 spawn: self.spawn.inventory(),
@@ -519,7 +519,7 @@ fn continuation_and_repeated_initialization_never_restart_managers() {
 #[test]
 fn messages_mutate_spawn_owner_before_spawn_and_transport_phases() {
     let (mut f, mut work) = Fixture::new(0);
-    f.message(1, true);
+    f.message(true);
     let events = f.update(&mut work, &mut NoWeather).unwrap();
     assert_eq!(
         work.calls[..5],
@@ -537,7 +537,7 @@ fn messages_mutate_spawn_owner_before_spawn_and_transport_phases() {
     assert_eq!(f.messages.pending(), 0);
     f.spawn.add(&f.persistent, key(7), &mut work).unwrap();
     let attempts = work.calls.iter().filter(|&&c| c == "construct").count();
-    f.message(2, false);
+    f.message(false);
     f.update(&mut work, &mut NoWeather).unwrap();
     assert_eq!(
         work.calls.iter().filter(|&&c| c == "construct").count(),
@@ -583,8 +583,8 @@ fn missing_owners_stop_at_first_reached_operation_without_later_work() {
 fn comparison_answers_cannot_change_manager_execution() {
     let (mut a, mut wa) = Fixture::new(0);
     let (mut b, mut wb) = Fixture::new(0);
-    a.message(1, true);
-    b.message(1, true);
+    a.message(true);
+    b.message(true);
     let actual = a.update(&mut wa, &mut NoWeather).unwrap();
     let mut captured = actual.clone();
     captured[4].phase = MapManagerPhase::Weather;
@@ -787,10 +787,10 @@ fn unloaded_pool_selections_and_pending_message_references_are_validated() {
 }
 
 #[test]
-fn event_allocator_and_formation_foreign_owners_cannot_be_omitted() {
+fn world_message_and_formation_foreign_owners_cannot_be_omitted() {
     let (f, _) = Fixture::new(0);
     let mut state = f.inventory();
-    state.event_effects.world.last_id = 1;
+    state.world_messages.owner = MessageOwner::Map(f.spawn.map());
     assert_eq!(
         state
             .validate(&f.objects, &f.transports, &SourceFormations::default())

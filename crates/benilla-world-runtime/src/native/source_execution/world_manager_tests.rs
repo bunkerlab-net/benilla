@@ -127,7 +127,6 @@ impl CorpseConversionWork for Owner {
 }
 struct Harness {
     owner: Owner,
-    messages: SourceMessager,
     events: SourceGameEventManager,
     timer: IntervalTimer,
     corpses: SourceCorpseRegistry,
@@ -148,33 +147,34 @@ impl Harness {
         let interval = events.initialize(None, false, &mut owner).unwrap();
         let mut timer = IntervalTimer::default();
         timer.set_interval(i64::from(interval));
-        let mut messages = SourceMessager::new(MessageOwner::World);
-        messages
-            .enqueue(MessageEnvelope {
-                id: 1,
-                cause: 1,
-                payload: SourceMessage::ForwardGameEvent {
-                    maps: vec![],
-                    spawn: true,
-                },
-            })
-            .unwrap();
         owner.calls.clear();
         Self {
             owner,
             events,
             timer,
-            messages,
             corpses: SourceCorpseRegistry::default(),
             objects: SourceObjects::default(),
             maps: BTreeMap::new(),
         }
     }
+    fn world() -> SourceWorld {
+        let mut world = SourceWorld::new(1, 100).unwrap();
+        world
+            .messages
+            .post(
+                1,
+                SourceMessage::ForwardGameEvent {
+                    maps: vec![],
+                    spawn: true,
+                },
+            )
+            .unwrap();
+        world
+    }
     fn context(&mut self) -> (WorldManagerContext<'_>, &mut Owner) {
         (
             WorldManagerContext {
                 thread: 1,
-                messages: &mut self.messages,
                 events: &mut self.events,
                 event_timer: &mut self.timer,
                 announce: false,
@@ -198,6 +198,10 @@ impl WorldWork for Harness {
         if phase == WorldPhase::DelayedRemovals {
             owner.calls.push("removals");
         }
+        Ok(())
+    }
+    fn execute_world_messages(&mut self, thread: u64, messages: &mut SourceMessager) -> Result<()> {
+        messages.execute(MessageOwner::World, thread, &mut self.owner)?;
         Ok(())
     }
     fn remove_old_corpses(&mut self, _: u64) -> Result<()> {
@@ -225,7 +229,7 @@ fn world_messages_maps_join_sweep_events_and_removals_use_source_order() {
     harness
         .timer
         .set_current(harness.timer.get_interval() - 1_200_000);
-    let mut world = SourceWorld::new(1, 100).unwrap();
+    let mut world = Harness::world();
     for id in [1, 0] {
         world
             .maps
@@ -237,6 +241,7 @@ fn world_messages_maps_join_sweep_events_and_removals_use_source_order() {
             .unwrap();
     }
     world.update(1_200_000, &mut harness).unwrap();
+    assert_eq!(world.messages.pending(), 0);
     assert_eq!(
         harness.owner.calls,
         ["message", "forward", "map0", "map1", "unload", "sweep", "events", "removals"]
@@ -256,7 +261,7 @@ fn world_messages_maps_join_sweep_events_and_removals_use_source_order() {
 fn world_sweep_refusal_prevents_events_and_removals() {
     let mut harness = Harness::new();
     harness.owner.fail_sweep = true;
-    let mut world = SourceWorld::new(1, 100).unwrap();
+    let mut world = Harness::world();
     assert_eq!(
         world.update(1_200_000, &mut harness).unwrap_err().id,
         "authored.sweep_clock"
