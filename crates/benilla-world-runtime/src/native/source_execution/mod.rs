@@ -178,6 +178,7 @@ mod path_distance;
 mod persistent_state;
 pub mod player;
 mod scheduler;
+pub mod source_rows;
 mod spawn_manager;
 #[cfg(test)]
 mod world_manager_tests;
