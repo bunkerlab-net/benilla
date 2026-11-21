@@ -473,7 +473,7 @@ fn frozen_startup(later: bool) {
             .count()
     };
     println!("F6_TRANSITIONS terrain_unique_before={} terrain_occurrences_before={terrain_occurrences} terrain_complete_after={} selections_before={} selections_complete_after={}",terrain_keys.len(),completed(&terrain_keys),selection_keys.len(),completed(&selection_keys));
-    drop(execution);
+    let items = execution.items;
     let raw = random.cursor().raw;
     let _ = sink;
     let actual_selections = spawns
@@ -568,6 +568,7 @@ fn frozen_startup(later: bool) {
         seal16::continue_startup(
             trace.parent().unwrap().parent().unwrap(),
             &mut catalog,
+            &items,
             &mut spawns,
             &inputs,
             &addons,

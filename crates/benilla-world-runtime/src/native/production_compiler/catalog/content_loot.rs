@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Pinned loot input validation, without random draws or runtime execution.
 use super::*;
-use crate::native::source_execution::ReferenceLootRow;
+use crate::native::source_execution::{ConditionRow, LootRow, LootStoreKind};
 use std::collections::BTreeSet;
 
 impl VerifiedCatalog {
-    pub fn execution_reference_loot_rows(&mut self) -> Result<Vec<ReferenceLootRow>> {
-        let table = "reference_loot_template";
+    pub fn execution_loot_rows(&mut self, kind: LootStoreKind) -> Result<Vec<LootRow>> {
+        let table = kind.table();
         let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
         let columns = spawns::columns(&schema, table)?;
         let mut positions = [0; 7];
@@ -27,7 +27,7 @@ impl VerifiedCatalog {
             spawns::fill(&raw, &mut cells)?;
             let [entry, item, chance, group, minimum, maximum, condition] =
                 positions.map(|at| cells[at]);
-            rows.push(ReferenceLootRow {
+            rows.push(LootRow {
                 entry: spawns::uint(entry)?,
                 item: spawns::uint(item)?,
                 chance: spawns::floating(chance)?,
@@ -37,8 +37,8 @@ impl VerifiedCatalog {
                 condition: spawns::uint(condition)? as u16,
             });
             check(
-                rows.len() <= DECODED / std::mem::size_of::<ReferenceLootRow>(),
-                "loot.reference_view_limit",
+                rows.len() <= DECODED / std::mem::size_of::<LootRow>(),
+                "loot.view_limit",
             )
         })?;
         // The restored MyISAM table is inserted in primary-key order.
@@ -46,19 +46,45 @@ impl VerifiedCatalog {
         Ok(rows)
     }
 
-    pub fn execution_reference_loot_condition_ids(&mut self) -> Result<BTreeSet<u32>> {
+    pub fn execution_condition_rows(&mut self) -> Result<Vec<ConditionRow>> {
         let table = "conditions";
         let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
         let columns = spawns::columns(&schema, table)?;
-        let id = spawns::position(&columns, "condition_entry")?;
-        let mut conditions = BTreeSet::new();
+        let mut positions = [0; 7];
+        for (position, name) in positions.iter_mut().zip([
+            "condition_entry",
+            "type",
+            "value1",
+            "value2",
+            "value3",
+            "value4",
+            "flags",
+        ]) {
+            *position = spawns::position(&columns, name)?;
+        }
+        let mut rows = Vec::new();
         self.scan(table, 0, 256, |raw| {
             let mut cells = [None; 256];
             spawns::fill(&raw, &mut cells)?;
-            conditions.insert(spawns::uint(cells[id])?);
-            Ok(())
+            let [entry, kind, a, b, c, d, flags] = positions.map(|at| cells[at]);
+            rows.push(ConditionRow {
+                entry: spawns::uint(entry)?,
+                kind: spawns::uint(kind)? as i32,
+                values: [
+                    spawns::uint(a)?,
+                    spawns::uint(b)?,
+                    spawns::uint(c)?,
+                    spawns::uint(d)?,
+                ],
+                flags: spawns::uint(flags)? as u8,
+            });
+            check(
+                rows.len() <= DECODED / std::mem::size_of::<ConditionRow>(),
+                "conditions.view_limit",
+            )
         })?;
-        Ok(conditions)
+        rows.sort_unstable_by_key(|row| row.entry);
+        Ok(rows)
     }
 }
 

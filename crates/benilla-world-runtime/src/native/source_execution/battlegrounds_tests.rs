@@ -69,28 +69,30 @@ fn inputs(rows: Vec<BattleGroundRow>) -> Inputs {
     }
 }
 
-fn load_loot() -> SourceReferenceLootStore {
+fn load_loot() -> SourceLootStores {
     struct Reference;
-    impl ReferenceLootInputs for Reference {
-        fn rows(&mut self, _sql: &str) -> Result<Vec<ReferenceLootRow>> {
-            Ok(vec![ReferenceLootRow {
-                entry: 1,
-                item: 27,
-                chance: 100.0,
-                group: 0,
-                min_count_or_ref: 1,
-                max_count: 1,
-                condition: 0,
-            }])
+    impl LootInputs for Reference {
+        fn rows(&mut self, kind: LootStoreKind, _sql: &str) -> Result<Vec<LootRow>> {
+            Ok(if kind == LootStoreKind::Reference {
+                vec![LootRow {
+                    entry: 1,
+                    item: 27,
+                    chance: 100.0,
+                    group: 0,
+                    min_count_or_ref: 1,
+                    max_count: 1,
+                    condition: 0,
+                }]
+            } else {
+                Vec::new()
+            })
         }
 
         fn item_exists(&mut self, id: u32) -> Result<bool> {
             Ok(id == 27)
         }
     }
-    let mut store = SourceReferenceLootStore::default();
-    store.load(&mut Reference).unwrap();
-    store
+    SourceLootStores::load(&mut Reference).unwrap()
 }
 
 #[test]

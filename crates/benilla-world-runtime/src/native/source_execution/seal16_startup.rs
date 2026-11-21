@@ -19,8 +19,8 @@ mod formation_path;
 mod gameobject_models;
 #[path = "seal16_immunities.rs"]
 mod immunities;
-#[path = "seal16_reference_loot.rs"]
-mod reference_loot_evidence;
+#[path = "seal16_loot.rs"]
+mod loot_evidence;
 #[path = "seal16_relations_evidence.rs"]
 mod relations_evidence;
 #[path = "seal16_script_registry.rs"]
@@ -1273,7 +1273,7 @@ pub(super) struct Inputs {
     map_bindings: BTreeMap<u32, (u64, u64, u64)>,
     map_threads: BTreeMap<u64, MapThreadEvidence>,
     map_updater: MapUpdaterTrace,
-    reference_loot: reference_loot_evidence::Evidence,
+    loot: loot_evidence::Evidence,
     battlegrounds: battleground_evidence::Evidence,
     event_initialize_line: Option<u64>,
     event_status_writes: Vec<(u64, String)>,
@@ -1316,8 +1316,10 @@ impl Inputs {
         addons
     }
     pub(super) fn observe_thread(&mut self, thread: u64, line: u64, kind: &str, p: &[&str]) {
-        if thread == 1 && (51647696..=52609100).contains(&line) {
-            self.reference_loot.observe(line, kind, p);
+        if thread == 1
+            && ((46007623..=46049926).contains(&line) || (46445169..=52614740).contains(&line))
+        {
+            self.loot.observe(line, kind, p);
         }
         if thread == 1 && (61721736..=61721907).contains(&line) {
             self.battlegrounds.observe(line, kind, p);
@@ -2550,6 +2552,7 @@ impl<S: FnMut(TraceEvent)> PersistentEffects for MapPoolWork<'_, '_, '_, S> {
 pub(super) fn continue_startup(
     recording: &Path,
     catalog: &mut VerifiedCatalog,
+    items: &SourceStartupItems,
     spawns: &mut SourceEffectiveSpawns,
     inputs: &EffectiveSpawnInputs,
     gameobject_addons: &[[u32; 4]],
@@ -2800,7 +2803,6 @@ pub(super) fn continue_startup(
         "F6_CORPSES loaded=0 matched_sql=1 query_line={}",
         observed.corpse_query_line.unwrap()
     );
-    let reference_loot = observed.reference_loot.load(catalog, recording);
     assert_eq!(
         observed
             .group_queries
@@ -2972,6 +2974,18 @@ pub(super) fn continue_startup(
         dispatch,
     );
     let ids = catalog.execution_event_reference_ids().unwrap();
+    let progression = loot_evidence::progression(&config);
+    let quest_catalog = SourceQuestMap::load_catalog(
+        catalog,
+        QuestCatalogInputs {
+            creatures: Some(&creature_templates),
+            gameobjects: Some(&gameobject_templates),
+            items: Some(items),
+            spells: Some(&addon_spells),
+            progression: Some(&progression),
+        },
+    )
+    .unwrap();
     let quest_activity = SourceQuestActivity::from_quest_ids(ids[3].iter().copied());
     let quest_activity_at_load: BTreeMap<_, _> = quest_activity.activity().collect();
     assert!(quest_activity_at_load.keys().eq(ids[3].iter()));
@@ -3189,6 +3203,20 @@ pub(super) fn continue_startup(
         observed.encounter_sql[ENCOUNTER_QUERIES[2]],
         expected_dungeon
     );
+    let conditions = observed.loot.load_conditions(
+        catalog,
+        recording,
+        loot_evidence::ConditionOwners {
+            items,
+            spells: &addon_spells,
+            quests: &quest_catalog,
+            creatures: &creature_templates,
+            events: &events,
+            dungeon: &dungeon_store,
+            rules: &progression,
+        },
+    );
+    let loot = observed.loot.load(catalog, &conditions, items);
     assert_eq!(
         observed.encounter_sql[ENCOUNTER_QUERIES[3]],
         encounter_rows
@@ -7066,8 +7094,13 @@ pub(super) fn continue_startup(
     let [(map0, pool0, transport0), (map1, pool1, transport1)] =
         [(0, 6, 60100952, 2440933613), (1, 7, 60117712, 159038541)].map(run_job);
     let mut ready = continents.join_initialization([map0, map1]).unwrap();
-    ready.bind_reference_loot(reference_loot);
-    assert!(ready.reference_loot().unwrap().have_loot_for(1));
+    ready.bind_conditions(conditions);
+    ready.bind_loot(loot);
+    assert!(ready
+        .loot()
+        .unwrap()
+        .store(LootStoreKind::Reference)
+        .have_loot_for(1));
     assert_eq!(
         spawn_loader_config::assignment(&config, "MapUpdate.Threads").unwrap(),
         (275, "3".to_owned())

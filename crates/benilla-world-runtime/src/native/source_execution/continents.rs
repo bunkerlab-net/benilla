@@ -348,7 +348,8 @@ pub struct SourceContinents {
 
 pub struct ReadySourceContinents {
     continents: SourceContinents,
-    reference_loot: Option<SourceReferenceLootStore>,
+    conditions: Option<SourceConditions>,
+    loot: Option<SourceLootStores>,
     battlegrounds: SourceBattleGroundMgr,
 }
 impl ReadySourceContinents {
@@ -356,12 +357,20 @@ impl ReadySourceContinents {
         &self.continents
     }
 
-    pub fn bind_reference_loot(&mut self, store: SourceReferenceLootStore) {
-        self.reference_loot = Some(store);
+    pub fn bind_conditions(&mut self, conditions: SourceConditions) {
+        self.conditions = Some(conditions);
     }
 
-    pub fn reference_loot(&self) -> Option<&SourceReferenceLootStore> {
-        self.reference_loot.as_ref()
+    pub fn conditions(&self) -> Option<&SourceConditions> {
+        self.conditions.as_ref()
+    }
+
+    pub fn bind_loot(&mut self, stores: SourceLootStores) {
+        self.loot = Some(stores);
+    }
+
+    pub fn loot(&self) -> Option<&SourceLootStores> {
+        self.loot.as_ref()
     }
 
     // MapManager.cpp:56-58 reads the signed thread count after the continent join.
@@ -411,7 +420,7 @@ impl ReadySourceContinents {
         inputs: &mut impl BattleGroundInputs,
     ) -> Result<usize> {
         self.battlegrounds
-            .create_initial_battlegrounds(self.reference_loot.as_ref(), inputs)
+            .create_initial_battlegrounds(self.loot.as_ref(), inputs)
     }
 
     pub fn battlegrounds(&self) -> &SourceBattleGroundMgr {
@@ -435,7 +444,8 @@ impl SourceContinents {
         map1?;
         Ok(ReadySourceContinents {
             continents: self,
-            reference_loot: None,
+            conditions: None,
+            loot: None,
             battlegrounds: SourceBattleGroundMgr::default(),
         })
     }

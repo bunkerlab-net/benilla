@@ -214,7 +214,7 @@ impl SourceBattleGroundMgr {
     // BattleGroundMgr.cpp:433-531 loads and registers templates in query order.
     pub fn create_initial_battlegrounds(
         &mut self,
-        reference_loot: Option<&SourceReferenceLootStore>,
+        loot: Option<&SourceLootStores>,
         inputs: &mut impl BattleGroundInputs,
     ) -> Result<usize> {
         let rows = inputs.templates(BATTLEGROUND_TEMPLATE_SQL)?;
@@ -256,9 +256,11 @@ impl SourceBattleGroundMgr {
                 continue;
             };
             if row.player_skin_refloot != 0 {
-                let store = reference_loot.ok_or_else(|| {
-                    refuse("execution.battlegrounds.BattleGroundMgr_512.reference_loot_owner")
-                })?;
+                let store = loot
+                    .ok_or_else(|| {
+                        refuse("execution.battlegrounds.BattleGroundMgr_512.reference_loot_owner")
+                    })?
+                    .store(LootStoreKind::Reference);
                 let id = row.player_skin_refloot;
                 if !store.have_loot_for(id) {
                     row.player_skin_refloot = 0;
